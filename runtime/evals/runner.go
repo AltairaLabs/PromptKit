@@ -68,6 +68,21 @@ func (r *EvalRunner) RunSessionEvals(
 	return r.runEvals(ctx, defs, evalCtx, trigCtx, sessionTriggers)
 }
 
+// RunConversationEvals runs conversation-level evals (on_conversation_complete trigger).
+// Call this when a multi-turn conversation ends (e.g., Arena self-play completion).
+func (r *EvalRunner) RunConversationEvals(
+	ctx context.Context,
+	defs []EvalDef,
+	evalCtx *EvalContext,
+) []EvalResult {
+	trigCtx := &TriggerContext{
+		SessionID:         evalCtx.SessionID,
+		TurnIndex:         evalCtx.TurnIndex,
+		IsSessionComplete: true,
+	}
+	return r.runEvals(ctx, defs, evalCtx, trigCtx, conversationTriggers)
+}
+
 // turnTriggers is the set of triggers that fire for turn-level evals.
 var turnTriggers = map[EvalTrigger]bool{
 	TriggerEveryTurn:   true,
@@ -78,6 +93,11 @@ var turnTriggers = map[EvalTrigger]bool{
 var sessionTriggers = map[EvalTrigger]bool{
 	TriggerOnSessionComplete: true,
 	TriggerSampleSessions:    true,
+}
+
+// conversationTriggers is the set of triggers that fire for conversation-level evals.
+var conversationTriggers = map[EvalTrigger]bool{
+	TriggerOnConversationComplete: true,
 }
 
 // runEvals is the shared implementation for both turn and session evals.
@@ -122,6 +142,19 @@ func (r *EvalRunner) runOne(
 	// Check sampling
 	if !ShouldRun(def.Trigger, def.GetSamplePercentage(), trigCtx) {
 		return nil
+	}
+
+	// Check when-conditions (tool call preconditions)
+	if def.When != nil {
+		if shouldRun, reason := ShouldRunWhen(def.When, evalCtx.ToolCalls); !shouldRun {
+			return &EvalResult{
+				EvalID:     def.ID,
+				Type:       def.Type,
+				Passed:     true,
+				Skipped:    true,
+				SkipReason: reason,
+			}
+		}
 	}
 
 	// Look up handler
@@ -186,5 +219,10 @@ func (r *EvalRunner) executeHandler(
 	result.EvalID = def.ID
 	result.Type = def.Type
 	result.DurationMs = durationMs
+
+	if def.Threshold != nil {
+		def.Threshold.Apply(result)
+	}
+
 	return result
 }

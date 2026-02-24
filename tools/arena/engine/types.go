@@ -3,6 +3,7 @@ package engine
 import (
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -55,6 +56,10 @@ type RunResult struct {
 
 	// Conversation-level assertions evaluated after the conversation completes (summary format)
 	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
+
+	// Eval results from the unified eval pipeline (Phase 3).
+	// Carried through for downstream consumers.
+	EvalResults []evals.EvalResult `json:"eval_results,omitempty"`
 
 	// A2A agent metadata (populated from config for report rendering)
 	A2AAgents []A2AAgentInfo `json:"A2AAgents,omitempty"`

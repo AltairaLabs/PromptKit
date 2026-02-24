@@ -193,7 +193,7 @@ func TestEvalConversationExecutor_EvaluateConversationAssertions(t *testing.T) {
 			},
 		}
 
-		results := executor.evaluateConversationAssertions(ctx, assertionConfigs, convCtx)
+		results, _ := executor.evaluateConversationAssertions(ctx, assertionConfigs, convCtx)
 		assert.Len(t, results, 1)
 		assert.True(t, results[0].Passed)
 		assert.Equal(t, "test_assertion", results[0].Type)
@@ -204,16 +204,18 @@ func TestEvalConversationExecutor_EvaluateConversationAssertions(t *testing.T) {
 			convAssertionReg: nil,
 		}
 
-		results := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{
+		results, evalResults := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{
 			{Type: "test"},
 		}, &assertions.ConversationContext{})
 
 		assert.Nil(t, results)
+		assert.Nil(t, evalResults)
 	})
 
 	t.Run("returns nil when no assertions", func(t *testing.T) {
-		results := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{}, &assertions.ConversationContext{})
+		results, evalResults := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{}, &assertions.ConversationContext{})
 		assert.Nil(t, results)
+		assert.Nil(t, evalResults)
 	})
 }
 

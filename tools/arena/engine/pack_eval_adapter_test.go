@@ -75,37 +75,44 @@ func TestPackEvalAdapter_Convert_MultipleResults(t *testing.T) {
 	require.Len(t, converted, 3)
 }
 
-func TestPackEvalAdapter_convertOne_ScoreAndMetricValue(t *testing.T) {
+func TestPackEvalAdapter_Convert_ScoreAndMetricValue(t *testing.T) {
 	adapter := &PackEvalAdapter{}
 
-	r := &evals.EvalResult{
-		EvalID:      "eval-score",
-		Type:        "llm_judge",
-		Passed:      true,
-		Score:       floatPtr(0.95),
-		MetricValue: floatPtr(42.5),
-		Explanation: "high quality",
-		DurationMs:  100,
+	results := []evals.EvalResult{
+		{
+			EvalID:      "eval-score",
+			Type:        "llm_judge",
+			Passed:      true,
+			Score:       floatPtr(0.95),
+			MetricValue: floatPtr(42.5),
+			Explanation: "high quality",
+			DurationMs:  100,
+		},
 	}
 
-	result := adapter.convertOne(r)
+	converted := adapter.Convert(results)
+	require.Len(t, converted, 1)
 
+	result := converted[0]
 	assert.Equal(t, 0.95, result.Details["score"])
 	assert.Equal(t, 42.5, result.Details["metric_value"])
 	assert.Equal(t, "eval-score", result.Details["eval_id"])
 }
 
-func TestPackEvalAdapter_convertOne_DurationMs(t *testing.T) {
+func TestPackEvalAdapter_Convert_DurationMs(t *testing.T) {
 	adapter := &PackEvalAdapter{}
 
-	r := &evals.EvalResult{
-		EvalID:     "eval-dur",
-		Type:       "latency",
-		Passed:     true,
-		DurationMs: 250,
+	results := []evals.EvalResult{
+		{
+			EvalID:     "eval-dur",
+			Type:       "latency",
+			Passed:     true,
+			DurationMs: 250,
+		},
 	}
 
-	result := adapter.convertOne(r)
+	converted := adapter.Convert(results)
+	require.Len(t, converted, 1)
 
-	assert.Equal(t, int64(250), result.Details["duration_ms"])
+	assert.Equal(t, int64(250), converted[0].Details["duration_ms"])
 }

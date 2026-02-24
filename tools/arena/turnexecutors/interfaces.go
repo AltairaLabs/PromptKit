@@ -90,7 +90,8 @@ type TurnRequest struct {
 	SelfPlayPersona string                   // SelfPlayExecutor: the persona to use
 
 	// Assertions to validate after turn execution
-	Assertions []assertions.AssertionConfig
+	Assertions     []assertions.AssertionConfig
+	TurnEvalRunner interface{} // Optional stages.TurnEvalRunner for dual-write (Phase 2)
 
 	// Observability
 	EventBus *events.EventBus

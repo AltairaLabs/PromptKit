@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
@@ -140,6 +141,14 @@ func AllAssertionsPassed(result *engine.RunResult) bool {
 					return false
 				}
 			}
+			// Also check eval results (Phase 3 dual-write)
+			if evalResults, ok := meta["eval_results"].([]evals.EvalResult); ok {
+				for j := range evalResults {
+					if !evalResults[j].Passed {
+						return false
+					}
+				}
+			}
 		}
 	}
 
@@ -160,6 +169,10 @@ func HasAssertions(result *engine.RunResult) bool {
 	for i := range result.Messages {
 		if meta := result.Messages[i].Meta; meta != nil {
 			if _, ok := meta["assertions"].(map[string]interface{}); ok {
+				return true
+			}
+			// Also check eval results (Phase 3 dual-write)
+			if _, ok := meta["eval_results"]; ok {
 				return true
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
@@ -285,4 +286,81 @@ func TestValidateResults(t *testing.T) {
 		require.ErrorAs(t, err, &validationErr)
 		assert.Equal(t, "ProviderID", validationErr.Field)
 	})
+}
+
+func TestAllAssertionsPassed_WithEvalResults(t *testing.T) {
+	t.Run("all eval results pass", func(t *testing.T) {
+		result := &engine.RunResult{
+			Messages: []types.Message{{
+				Meta: map[string]interface{}{
+					"eval_results": []evals.EvalResult{
+						{EvalID: "e1", Passed: true},
+						{EvalID: "e2", Passed: true},
+					},
+				},
+			}},
+		}
+		assert.True(t, results.AllAssertionsPassed(result))
+	})
+
+	t.Run("one eval result fails", func(t *testing.T) {
+		result := &engine.RunResult{
+			Messages: []types.Message{{
+				Meta: map[string]interface{}{
+					"eval_results": []evals.EvalResult{
+						{EvalID: "e1", Passed: true},
+						{EvalID: "e2", Passed: false},
+					},
+				},
+			}},
+		}
+		assert.False(t, results.AllAssertionsPassed(result))
+	})
+}
+
+func TestHasAssertions_WithEvalResults(t *testing.T) {
+	t.Run("has eval_results in meta", func(t *testing.T) {
+		result := &engine.RunResult{
+			Messages: []types.Message{{
+				Meta: map[string]interface{}{
+					"eval_results": []evals.EvalResult{
+						{EvalID: "e1", Passed: true},
+					},
+				},
+			}},
+		}
+		assert.True(t, results.HasAssertions(result))
+	})
+
+	t.Run("no assertions or eval_results", func(t *testing.T) {
+		result := &engine.RunResult{
+			Messages: []types.Message{{
+				Meta: map[string]interface{}{
+					"some_other_key": "value",
+				},
+			}},
+		}
+		assert.False(t, results.HasAssertions(result))
+	})
+}
+
+func TestCountResultsByStatus_ViolationsWithPassingEvalResults(t *testing.T) {
+	// Violations with passing eval results (guardrail expected) should pass
+	testResults := []engine.RunResult{
+		{
+			Error:      "",
+			Violations: []types.ValidationError{{Type: "banned_words"}},
+			Messages: []types.Message{{
+				Meta: map[string]interface{}{
+					"eval_results": []evals.EvalResult{
+						{EvalID: "e1", Passed: true},
+					},
+				},
+			}},
+		},
+	}
+
+	passed, failed := results.CountResultsByStatus(testResults)
+	assert.Equal(t, 1, passed)
+	assert.Equal(t, 0, failed)
 }

@@ -60,6 +60,12 @@ func (d *recordingDispatcher) DispatchSessionEvals(
 	return results, nil
 }
 
+func (d *recordingDispatcher) DispatchConversationEvals(
+	_ context.Context, _ []EvalDef, _ *EvalContext,
+) ([]EvalResult, error) {
+	return nil, nil
+}
+
 func (d *recordingDispatcher) TurnCalls() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()

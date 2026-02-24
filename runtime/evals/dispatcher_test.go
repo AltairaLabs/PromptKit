@@ -300,3 +300,81 @@ func TestNoOpDispatcher_Session(t *testing.T) {
 		t.Error("expected nil results")
 	}
 }
+
+func TestInProcDispatcher_ConversationEvals(t *testing.T) {
+	reg := newTestRegistry(&stubHandler{typeName: "test"})
+	runner := NewEvalRunner(reg)
+	writer := &recordingWriter{}
+	disp := NewInProcDispatcher(runner, writer)
+
+	defs := []EvalDef{
+		{
+			ID:      "conv-1",
+			Type:    "test",
+			Trigger: TriggerOnConversationComplete,
+		},
+	}
+	evalCtx := &EvalContext{SessionID: "s1", TurnIndex: 5}
+
+	results, err := disp.DispatchConversationEvals(
+		context.Background(), defs, evalCtx,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if !results[0].Passed {
+		t.Error("expected Passed=true")
+	}
+	if len(writer.batches) != 1 {
+		t.Errorf("expected 1 write batch, got %d", len(writer.batches))
+	}
+}
+
+func TestEventDispatcher_ConversationEvals(t *testing.T) {
+	pub := &mockPublisher{}
+	disp := NewEventDispatcher(pub)
+
+	defs := []EvalDef{
+		{
+			ID:      "conv-1",
+			Type:    "test",
+			Trigger: TriggerOnConversationComplete,
+		},
+	}
+	evalCtx := &EvalContext{SessionID: "conv-789"}
+
+	results, err := disp.DispatchConversationEvals(
+		context.Background(), defs, evalCtx,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results != nil {
+		t.Error("event dispatcher should return nil results")
+	}
+	if len(pub.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(pub.events))
+	}
+	if pub.events[0].Subject != "eval.conversation.conv-789" {
+		t.Errorf(
+			"subject = %q, want %q",
+			pub.events[0].Subject, "eval.conversation.conv-789",
+		)
+	}
+}
+
+func TestNoOpDispatcher_Conversation(t *testing.T) {
+	disp := &NoOpDispatcher{}
+	results, err := disp.DispatchConversationEvals(
+		context.Background(), nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results != nil {
+		t.Error("expected nil results")
+	}
+}

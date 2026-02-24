@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -195,4 +196,228 @@ func TestRunSessionEvals_WithValidHandler(t *testing.T) {
 	results := hook.RunSessionEvals(context.Background(), messages, "session-1")
 	require.NotNil(t, results, "should return results when session evals are configured")
 	assert.Len(t, results, 1)
+}
+
+func TestRunConversationEvals_NoEvals(t *testing.T) {
+	hook := NewPackEvalHook(newTestRegistry(), nil, false, nil, "chat")
+	results := hook.RunConversationEvals(context.Background(), nil, "session-1")
+	assert.Nil(t, results)
+}
+
+func TestRunConversationEvals_WithValidHandler(t *testing.T) {
+	defs := []evals.EvalDef{
+		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerOnConversationComplete},
+	}
+	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+
+	messages := []types.Message{
+		types.NewUserMessage("hello"),
+		types.NewAssistantMessage("goodbye"),
+	}
+
+	results := hook.RunConversationEvals(context.Background(), messages, "session-1")
+	require.NotNil(t, results)
+	assert.Len(t, results, 1)
+}
+
+func TestRunConversationEvals_EmptyMessages(t *testing.T) {
+	defs := []evals.EvalDef{
+		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerOnConversationComplete},
+	}
+	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+
+	results := hook.RunConversationEvals(context.Background(), []types.Message{}, "session-1")
+	require.NotNil(t, results)
+	assert.Len(t, results, 1)
+}
+
+func TestRunAssertionsAsEvals_EmptyAssertions(t *testing.T) {
+	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), false, nil, "chat")
+	results := hook.RunAssertionsAsEvals(
+		context.Background(), nil, nil, 0, "session-1", evals.TriggerEveryTurn)
+	assert.Nil(t, results)
+}
+
+func TestRunAssertionsAsEvals_ConversationTrigger(t *testing.T) {
+	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), false, nil, "chat")
+
+	cfgs := []assertions.AssertionConfig{
+		{Type: "test_handler", Params: map[string]interface{}{}},
+	}
+	messages := []types.Message{
+		types.NewUserMessage("hi"),
+		types.NewAssistantMessage("hello"),
+	}
+
+	results := hook.RunAssertionsAsEvals(
+		context.Background(), cfgs, messages, 1, "session-1",
+		evals.TriggerOnConversationComplete)
+	require.NotNil(t, results)
+	assert.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+}
+
+func TestRunAssertionsAsEvals_TurnTrigger(t *testing.T) {
+	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), false, nil, "chat")
+
+	cfgs := []assertions.AssertionConfig{
+		{Type: "test_handler", Params: map[string]interface{}{}},
+	}
+	messages := []types.Message{
+		types.NewAssistantMessage("hello"),
+	}
+
+	results := hook.RunAssertionsAsEvals(
+		context.Background(), cfgs, messages, 0, "session-1",
+		evals.TriggerEveryTurn)
+	require.NotNil(t, results)
+	assert.Len(t, results, 1)
+}
+
+func TestRunAssertionsAsConversationResults(t *testing.T) {
+	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), false, nil, "chat")
+
+	cfgs := []assertions.AssertionConfig{
+		{Type: "test_handler", Params: map[string]interface{}{}},
+	}
+	messages := []types.Message{
+		types.NewAssistantMessage("hello"),
+	}
+
+	results := hook.RunAssertionsAsConversationResults(
+		context.Background(), cfgs, messages, 0, "session-1",
+		evals.TriggerEveryTurn)
+	require.NotNil(t, results)
+	assert.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+}
+
+func TestExtractToolCalls_WithResults(t *testing.T) {
+	messages := []types.Message{
+		types.NewUserMessage("search"),
+		{
+			Role:    "assistant",
+			Content: "searching...",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "tc-1", Name: "search", Args: []byte(`{"q":"cats"}`)},
+			},
+		},
+		{
+			Role:    "tool",
+			Content: "found 3 results",
+			ToolResult: &types.MessageToolResult{
+				ID: "tc-1",
+			},
+		},
+	}
+
+	toolCalls := extractToolCalls(messages)
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "search", toolCalls[0].ToolName)
+	assert.Equal(t, 1, toolCalls[0].TurnIndex)
+	assert.Equal(t, "cats", toolCalls[0].Arguments["q"])
+	assert.Equal(t, "found 3 results", toolCalls[0].Result)
+}
+
+func TestExtractToolCalls_WithError(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role:    "assistant",
+			Content: "calling tool",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "tc-1", Name: "fail_tool", Args: []byte(`{}`)},
+			},
+		},
+		{
+			Role:    "tool",
+			Content: "",
+			ToolResult: &types.MessageToolResult{
+				ID:    "tc-1",
+				Error: "tool failed",
+			},
+		},
+	}
+
+	toolCalls := extractToolCalls(messages)
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "tool failed", toolCalls[0].Error)
+}
+
+func TestExtractToolCalls_NoMatchingResult(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role:    "assistant",
+			Content: "calling",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "tc-1", Name: "search"},
+			},
+		},
+	}
+
+	toolCalls := extractToolCalls(messages)
+	require.Len(t, toolCalls, 1)
+	assert.Empty(t, toolCalls[0].Result)
+}
+
+func TestParseJSONArgs_Valid(t *testing.T) {
+	result := parseJSONArgs([]byte(`{"key":"value","num":42}`))
+	assert.Equal(t, "value", result["key"])
+	assert.Equal(t, float64(42), result["num"])
+}
+
+func TestParseJSONArgs_Invalid(t *testing.T) {
+	result := parseJSONArgs([]byte(`not json`))
+	assert.Nil(t, result)
+}
+
+func TestExtractWorkflowExtras_AllFields(t *testing.T) {
+	messages := []types.Message{
+		{
+			Role: "assistant",
+			Meta: map[string]any{
+				"_workflow_state":       "greeting",
+				"_workflow_transitions": []string{"init", "greeting"},
+				"_workflow_complete":    true,
+			},
+		},
+	}
+
+	extras := extractWorkflowExtras(messages)
+	require.NotNil(t, extras)
+	assert.Equal(t, "greeting", extras["workflow_state"])
+	assert.Equal(t, []string{"init", "greeting"}, extras["workflow_transitions"])
+	assert.Equal(t, true, extras["workflow_complete"])
+}
+
+func TestExtractWorkflowExtras_NoWorkflowMeta(t *testing.T) {
+	messages := []types.Message{
+		{Role: "assistant", Meta: map[string]any{"other": "data"}},
+		{Role: "user"},
+	}
+
+	extras := extractWorkflowExtras(messages)
+	assert.Nil(t, extras)
+}
+
+func TestExtractWorkflowExtras_NilMeta(t *testing.T) {
+	messages := []types.Message{
+		{Role: "assistant"},
+	}
+
+	extras := extractWorkflowExtras(messages)
+	assert.Nil(t, extras)
+}
+
+func TestPackEvalHook_NilReceiver(t *testing.T) {
+	var hook *PackEvalHook
+	ctx := context.Background()
+	msgs := []types.Message{{Role: "assistant", Content: "hello"}}
+	configs := []assertions.AssertionConfig{{Type: "contains", Params: map[string]interface{}{"value": "hello"}}}
+
+	assert.False(t, hook.HasEvals())
+	assert.Nil(t, hook.RunTurnEvals(ctx, msgs, 0, "s1"))
+	assert.Nil(t, hook.RunSessionEvals(ctx, msgs, "s1"))
+	assert.Nil(t, hook.RunConversationEvals(ctx, msgs, "s1"))
+	assert.Nil(t, hook.RunAssertionsAsEvals(ctx, configs, msgs, 0, "s1", evals.TriggerEveryTurn))
+	assert.Nil(t, hook.RunAssertionsAsConversationResults(ctx, configs, msgs, 0, "s1", evals.TriggerEveryTurn))
 }

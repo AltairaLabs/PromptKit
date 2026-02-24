@@ -7,6 +7,7 @@ import (
 
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
 // SaveMetadata stores Arena-specific metadata for a run
@@ -100,8 +101,17 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 		RecordingPath: arenaState.RunMetadata.RecordingPath,
 		A2AAgents:     arenaState.RunMetadata.A2AAgents,
 
-		// Conversation-level assertions (summary)
-		ConversationAssertions: buildConversationAssertionsSummary(arenaState.RunMetadata.ConversationAssertionResults),
+		// Eval results (carried through for downstream consumers)
+		EvalResults: arenaState.RunMetadata.EvalResults,
+	}
+
+	// Prefer eval results when available (Phase 3), otherwise fall back to old assertions
+	if len(arenaState.RunMetadata.EvalResults) > 0 {
+		converted := assertions.ConvertEvalResults(arenaState.RunMetadata.EvalResults)
+		result.ConversationAssertions = buildConversationAssertionsSummary(converted)
+	} else {
+		result.ConversationAssertions = buildConversationAssertionsSummary(
+			arenaState.RunMetadata.ConversationAssertionResults)
 	}
 
 	return result, nil

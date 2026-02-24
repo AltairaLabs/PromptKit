@@ -23,7 +23,7 @@ func TestEvaluateConversationAssertions_NoAssertions(t *testing.T) {
 	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc"}}
 	msgs := []types.Message{{Role: "assistant", Content: "hello"}}
 
-	res := ce.evaluateConversationAssertions(&req, msgs)
+	res, _ := ce.evaluateConversationAssertions(&req, msgs)
 	if res != nil {
 		t.Fatalf("expected nil results when no conversation assertions present, got %v", res)
 	}
@@ -86,7 +86,7 @@ func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
 		{Role: "assistant", Content: "this has forbidden phrase"},
 	}
 
-	res := ce.evaluateConversationAssertions(&req, msgs)
+	res, _ := ce.evaluateConversationAssertions(&req, msgs)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(res))
 	}
@@ -868,7 +868,7 @@ func TestEvaluateConversationAssertions_PackAssertionsEvaluated(t *testing.T) {
 		{Role: "assistant", Content: "this has forbidden phrase"},
 	}
 
-	res := ce.evaluateConversationAssertions(&req, msgs)
+	res, _ := ce.evaluateConversationAssertions(&req, msgs)
 	if len(res) != 1 {
 		t.Fatalf("expected 1 result from pack assertion, got %d", len(res))
 	}
@@ -899,7 +899,7 @@ func TestEvaluateConversationAssertions_PackAndScenarioBothProduceResults(t *tes
 		{Role: "assistant", Content: "this has pack-bad and scenario-bad words"},
 	}
 
-	res := ce.evaluateConversationAssertions(&req, msgs)
+	res, _ := ce.evaluateConversationAssertions(&req, msgs)
 	if len(res) != 2 {
 		t.Fatalf("expected 2 results (pack + scenario), got %d", len(res))
 	}

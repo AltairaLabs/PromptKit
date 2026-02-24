@@ -49,6 +49,12 @@ func (d *testDispatcher) DispatchSessionEvals(
 	return nil, nil
 }
 
+func (d *testDispatcher) DispatchConversationEvals(
+	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
+) ([]evals.EvalResult, error) {
+	return nil, nil
+}
+
 func (d *testDispatcher) TurnCalls() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -515,6 +521,12 @@ func (d *errorDispatcher) DispatchSessionEvals(
 	return nil, d.sessionErr
 }
 
+func (d *errorDispatcher) DispatchConversationEvals(
+	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
+) ([]evals.EvalResult, error) {
+	return nil, nil
+}
+
 func TestEvalMiddleware_DispatchTurnEvalsError(t *testing.T) {
 	conv := &Conversation{
 		config: &config{
@@ -579,6 +591,12 @@ func (d *returningDispatcher) DispatchTurnEvals(
 }
 
 func (d *returningDispatcher) DispatchSessionEvals(
+	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
+) ([]evals.EvalResult, error) {
+	return d.results, nil
+}
+
+func (d *returningDispatcher) DispatchConversationEvals(
 	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
 ) ([]evals.EvalResult, error) {
 	return d.results, nil

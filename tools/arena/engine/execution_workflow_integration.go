@@ -95,6 +95,7 @@ func (e *Engine) executeWorkflowRun(
 		Error:                        convResult.Error,
 		RecordingPath:                e.GetRecordingPath(runID),
 		ConversationAssertionResults: assertionResults,
+		EvalResults:                  convResult.EvalResults,
 		A2AAgents:                    e.getA2AAgentsFromConfig(),
 	}
 

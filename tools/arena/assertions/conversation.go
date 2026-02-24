@@ -33,16 +33,9 @@ type ConversationContext struct {
 	Metadata ConversationMetadata
 }
 
-// ToolCallRecord captures a single tool invocation for assertion checking.
-// Records both the invocation parameters and the result for comprehensive validation.
-type ToolCallRecord struct {
-	TurnIndex int                    `json:"turn_index"` // Which turn (index in AllTurns) this call occurred in
-	ToolName  string                 `json:"tool_name"`  // Name of the tool called
-	Arguments map[string]interface{} `json:"arguments"`  // Arguments passed to the tool
-	Result    interface{}            `json:"result"`     // Tool's return value (nil if tool failed)
-	Error     string                 `json:"error"`      // Error message if tool failed (empty on success)
-	Duration  time.Duration          `json:"duration"`   // How long the tool took to execute
-}
+// ToolCallRecord is an alias for types.ToolCallRecord so existing code
+// referencing assertions.ToolCallRecord continues to compile unchanged.
+type ToolCallRecord = types.ToolCallRecord
 
 // ConversationMetadata provides context about the conversation execution.
 // Useful for conditional validation based on scenario characteristics.
