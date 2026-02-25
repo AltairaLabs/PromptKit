@@ -3,6 +3,7 @@ package sdk
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	sdka2a "github.com/AltairaLabs/PromptKit/sdk/internal/a2a"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
 
@@ -66,7 +67,7 @@ func (c *A2ACapability) registerBridgeTools(registry *tools.Registry) {
 	for _, td := range c.bridge.GetToolDescriptors() {
 		_ = registry.Register(td)
 	}
-	registry.RegisterExecutor(newA2AExecutor())
+	registry.RegisterExecutor(sdka2a.NewExecutor())
 }
 
 // registerAgentTools handles the pack path (agents section).
@@ -88,7 +89,7 @@ func (c *A2ACapability) registerAgentTools(registry *tools.Registry) {
 	if c.localExecutor != nil {
 		registry.RegisterExecutor(c.localExecutor)
 	} else {
-		registry.RegisterExecutor(newA2AExecutor())
+		registry.RegisterExecutor(sdka2a.NewExecutor())
 	}
 }
 

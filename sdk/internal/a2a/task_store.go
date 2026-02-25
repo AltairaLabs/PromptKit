@@ -1,4 +1,4 @@
-package sdk
+package a2a
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	rta2a "github.com/AltairaLabs/PromptKit/runtime/a2a"
 )
 
 // Task store errors.
@@ -18,61 +18,61 @@ var (
 )
 
 // terminalStates are states from which no further transitions are allowed.
-var terminalStates = map[a2a.TaskState]bool{
-	a2a.TaskStateCompleted: true,
-	a2a.TaskStateFailed:    true,
-	a2a.TaskStateCanceled:  true,
-	a2a.TaskStateRejected:  true,
+var terminalStates = map[rta2a.TaskState]bool{
+	rta2a.TaskStateCompleted: true,
+	rta2a.TaskStateFailed:    true,
+	rta2a.TaskStateCanceled:  true,
+	rta2a.TaskStateRejected:  true,
 }
 
 // validTransitions defines the allowed state machine transitions.
-var validTransitions = map[a2a.TaskState]map[a2a.TaskState]bool{
-	a2a.TaskStateSubmitted: {
-		a2a.TaskStateWorking: true,
+var validTransitions = map[rta2a.TaskState]map[rta2a.TaskState]bool{
+	rta2a.TaskStateSubmitted: {
+		rta2a.TaskStateWorking: true,
 	},
-	a2a.TaskStateWorking: {
-		a2a.TaskStateCompleted:     true,
-		a2a.TaskStateFailed:        true,
-		a2a.TaskStateCanceled:      true,
-		a2a.TaskStateInputRequired: true,
-		a2a.TaskStateAuthRequired:  true,
-		a2a.TaskStateRejected:      true,
+	rta2a.TaskStateWorking: {
+		rta2a.TaskStateCompleted:     true,
+		rta2a.TaskStateFailed:        true,
+		rta2a.TaskStateCanceled:      true,
+		rta2a.TaskStateInputRequired: true,
+		rta2a.TaskStateAuthRequired:  true,
+		rta2a.TaskStateRejected:      true,
 	},
-	a2a.TaskStateInputRequired: {
-		a2a.TaskStateWorking:  true,
-		a2a.TaskStateCanceled: true,
+	rta2a.TaskStateInputRequired: {
+		rta2a.TaskStateWorking:  true,
+		rta2a.TaskStateCanceled: true,
 	},
-	a2a.TaskStateAuthRequired: {
-		a2a.TaskStateWorking:  true,
-		a2a.TaskStateCanceled: true,
+	rta2a.TaskStateAuthRequired: {
+		rta2a.TaskStateWorking:  true,
+		rta2a.TaskStateCanceled: true,
 	},
 }
 
-// A2ATaskStore defines the interface for task persistence and lifecycle management.
-type A2ATaskStore interface {
-	Create(taskID, contextID string) (*a2a.Task, error)
-	Get(taskID string) (*a2a.Task, error)
-	SetState(taskID string, state a2a.TaskState, msg *a2a.Message) error
-	AddArtifacts(taskID string, artifacts []a2a.Artifact) error
+// TaskStore defines the interface for task persistence and lifecycle management.
+type TaskStore interface {
+	Create(taskID, contextID string) (*rta2a.Task, error)
+	Get(taskID string) (*rta2a.Task, error)
+	SetState(taskID string, state rta2a.TaskState, msg *rta2a.Message) error
+	AddArtifacts(taskID string, artifacts []rta2a.Artifact) error
 	Cancel(taskID string) error
-	List(contextID string, limit, offset int) ([]*a2a.Task, error)
+	List(contextID string, limit, offset int) ([]*rta2a.Task, error)
 }
 
-// InMemoryA2ATaskStore is a concurrency-safe, in-memory implementation of A2ATaskStore.
-type InMemoryA2ATaskStore struct {
+// InMemoryTaskStore is a concurrency-safe, in-memory implementation of TaskStore.
+type InMemoryTaskStore struct {
 	mu    sync.RWMutex
-	tasks map[string]*a2a.Task
+	tasks map[string]*rta2a.Task
 }
 
-// NewInMemoryA2ATaskStore creates a new InMemoryA2ATaskStore.
-func NewInMemoryA2ATaskStore() *InMemoryA2ATaskStore {
-	return &InMemoryA2ATaskStore{
-		tasks: make(map[string]*a2a.Task),
+// NewInMemoryTaskStore creates a new InMemoryTaskStore.
+func NewInMemoryTaskStore() *InMemoryTaskStore {
+	return &InMemoryTaskStore{
+		tasks: make(map[string]*rta2a.Task),
 	}
 }
 
 // Create initializes a new task in the submitted state.
-func (s *InMemoryA2ATaskStore) Create(taskID, contextID string) (*a2a.Task, error) {
+func (s *InMemoryTaskStore) Create(taskID, contextID string) (*rta2a.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -81,11 +81,11 @@ func (s *InMemoryA2ATaskStore) Create(taskID, contextID string) (*a2a.Task, erro
 	}
 
 	now := time.Now().UTC()
-	task := &a2a.Task{
+	task := &rta2a.Task{
 		ID:        taskID,
 		ContextID: contextID,
-		Status: a2a.TaskStatus{
-			State:     a2a.TaskStateSubmitted,
+		Status: rta2a.TaskStatus{
+			State:     rta2a.TaskStateSubmitted,
 			Timestamp: &now,
 		},
 	}
@@ -95,7 +95,7 @@ func (s *InMemoryA2ATaskStore) Create(taskID, contextID string) (*a2a.Task, erro
 }
 
 // Get retrieves a task by ID.
-func (s *InMemoryA2ATaskStore) Get(taskID string) (*a2a.Task, error) {
+func (s *InMemoryTaskStore) Get(taskID string) (*rta2a.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -107,7 +107,7 @@ func (s *InMemoryA2ATaskStore) Get(taskID string) (*a2a.Task, error) {
 }
 
 // SetState transitions the task to a new state with an optional status message.
-func (s *InMemoryA2ATaskStore) SetState(taskID string, state a2a.TaskState, msg *a2a.Message) error {
+func (s *InMemoryTaskStore) SetState(taskID string, state rta2a.TaskState, msg *rta2a.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -128,7 +128,7 @@ func (s *InMemoryA2ATaskStore) SetState(taskID string, state a2a.TaskState, msg 
 	}
 
 	now := time.Now().UTC()
-	task.Status = a2a.TaskStatus{
+	task.Status = rta2a.TaskStatus{
 		State:     state,
 		Message:   msg,
 		Timestamp: &now,
@@ -137,7 +137,7 @@ func (s *InMemoryA2ATaskStore) SetState(taskID string, state a2a.TaskState, msg 
 }
 
 // AddArtifacts appends artifacts to a task.
-func (s *InMemoryA2ATaskStore) AddArtifacts(taskID string, artifacts []a2a.Artifact) error {
+func (s *InMemoryTaskStore) AddArtifacts(taskID string, artifacts []rta2a.Artifact) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -150,7 +150,7 @@ func (s *InMemoryA2ATaskStore) AddArtifacts(taskID string, artifacts []a2a.Artif
 }
 
 // Cancel transitions the task to the canceled state from any non-terminal state.
-func (s *InMemoryA2ATaskStore) Cancel(taskID string) error {
+func (s *InMemoryTaskStore) Cancel(taskID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -164,8 +164,8 @@ func (s *InMemoryA2ATaskStore) Cancel(taskID string) error {
 	}
 
 	now := time.Now().UTC()
-	task.Status = a2a.TaskStatus{
-		State:     a2a.TaskStateCanceled,
+	task.Status = rta2a.TaskStatus{
+		State:     rta2a.TaskStateCanceled,
 		Timestamp: &now,
 	}
 	return nil
@@ -173,11 +173,11 @@ func (s *InMemoryA2ATaskStore) Cancel(taskID string) error {
 
 // List returns tasks matching the given contextID with pagination.
 // If contextID is empty, all tasks are returned. Offset and limit control pagination.
-func (s *InMemoryA2ATaskStore) List(contextID string, limit, offset int) ([]*a2a.Task, error) {
+func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*rta2a.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var matched []*a2a.Task
+	var matched []*rta2a.Task
 	for _, task := range s.tasks {
 		if contextID == "" || task.ContextID == contextID {
 			matched = append(matched, task)
