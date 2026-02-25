@@ -308,8 +308,7 @@ jobs:
       run: |
         cd examples/guardrails-test
         ../../bin/promptarena run --config config.arena.yaml \
-          --mock-provider \
-          --mock-config mock-responses.yaml \
+          --ci \
           --formats json,junit,html,markdown
 
     - name: Test eval-test example

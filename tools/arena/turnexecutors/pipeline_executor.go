@@ -322,7 +322,10 @@ func (e *PipelineExecutor) buildStagePipeline(
 		providerConfig,
 	))
 
-	// 7. Media externalization (if configured)
+	// 7. Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
+	stages = append(stages, arenastages.NewGuardrailEvalStage())
+
+	// 7a. Media externalization (if configured)
 	if mediaConfig := buildMediaConfig(req.ConversationID, e.mediaStorage); mediaConfig != nil {
 		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
 	}

@@ -58,10 +58,43 @@ golangci-lint run ./...
 # Regenerate JSON schemas (after changing Arena config types)
 go run ./tools/schema-gen/...
 
-# Build tools
+# Build tools (preferred: use make targets)
+make build-arena    # builds bin/promptarena with version info
+make build-packc    # builds bin/packc
+make build-tools    # builds all CLI tools
+
+# Alternative: direct go build (no version info)
 go build -o bin/promptarena ./tools/arena/cmd/promptarena
 go build -o bin/packc ./tools/packc
 ```
+
+## Running Arena Examples
+
+After building with `make build-arena`, run examples from their directory:
+
+```bash
+# Run an example with mock provider (no API keys needed)
+cd examples/guardrails-test
+PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --mock-provider --mock-config mock-responses.yaml --ci --formats html,json
+
+# Open the HTML report
+open out/report.html
+
+# Examples with pre-configured mock providers (have their own providers/mock-provider.yaml):
+# Do NOT use --mock-provider flag — just run directly
+cd examples/customer-support
+PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+
+# Workflow examples (require local schema source)
+cd examples/workflow-support
+PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+```
+
+Key flags:
+- `--mock-provider`: Replaces all providers with generic mock (use `--mock-config` to specify response file)
+- `--ci`: Non-interactive mode, exits with code 0/1
+- `--formats html,json`: Output format(s)
+- `PROMPTKIT_SCHEMA_SOURCE=local`: Use local schemas instead of remote (needed when schema is ahead of published)
 
 ## SDK Architecture
 
