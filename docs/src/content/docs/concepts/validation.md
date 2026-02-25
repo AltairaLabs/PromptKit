@@ -11,11 +11,11 @@ Understanding content validation and guardrails in PromptKit.
 
 ## Why Validate?
 
-**Safety**: Block harmful content  
-**Compliance**: Enforce regulations (GDPR, HIPAA)  
-**Quality**: Ensure response meets standards  
-**Cost**: Prevent expensive requests  
-**Brand**: Maintain company reputation  
+**Safety**: Block harmful content
+**Compliance**: Enforce regulations (GDPR, HIPAA)
+**Quality**: Ensure response meets standards
+**Cost**: Prevent expensive requests
+**Brand**: Maintain company reputation
 
 ## Types of Validation
 
@@ -35,38 +35,46 @@ Check LLM responses before returning to user:
 
 - Harmful content
 - Leaked sensitive data
-- Off-topic responses  
+- Off-topic responses
 - Format compliance
 - Output length limits
 
 ## Validation in PromptKit
 
-### Runtime Validators
+PromptKit implements validation through **hooks** — interceptors that run before/after LLM calls and during streaming. Built-in guardrail hooks cover common safety patterns.
+
+### SDK Hooks
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/validators"
+import (
+    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+)
 
-// Create validators
-bannedWords := validators.NewBannedWordsValidator([]string{
-    "hack", "crack", "pirate",
-})
-
-lengthValidator := validators.NewLengthValidator()
-```
-
-### SDK Validation
-
-Validators are defined in pack configuration (guardrails section) and applied automatically at runtime:
-
-```go
 conv, _ := sdk.Open("./assistant.pack.json", "chat",
-    sdk.WithModel("gpt-4o-mini"),
+    sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{
+        "hack", "crack", "pirate",
+    })),
+    sdk.WithProviderHook(guardrails.NewLengthHook(1000, 250)),
 )
 defer conv.Close()
 
-// Validators are configured in the pack file's guardrails section.
-// The runtime applies them automatically on each turn.
+// Hooks are applied automatically on each turn.
 response, _ := conv.Send(ctx, "Hello")
+```
+
+### Pack YAML Validators
+
+Pack configuration `validators:` sections are automatically converted to guardrail hooks at runtime:
+
+```yaml
+guardrails:
+  banned_words:
+    - hack
+    - crack
+
+  max_length: 1000
+  min_length: 1
 ```
 
 ### PromptArena Validation
@@ -76,7 +84,7 @@ guardrails:
   banned_words:
     - hack
     - crack
-  
+
   max_length: 1000
   min_length: 1
 
@@ -88,59 +96,74 @@ tests:
         expected: true
 ```
 
-## Built-In Validators
+## Built-In Guardrail Hooks
 
-### BannedWordsValidator
+### BannedWordsHook
 
-Blocks specific words or phrases:
+Blocks specific words or phrases (case-insensitive, word-boundary matching):
 
 ```go
-validator := validators.NewBannedWordsValidator([]string{
+hook := guardrails.NewBannedWordsHook([]string{
     "hack", "crack", "pirate", "steal",
 })
 ```
 
 **Use for**: Preventing inappropriate language, brand protection
+**Streaming**: Yes — aborts immediately when a banned word is detected
 
-### LengthValidator
+### LengthHook
 
-Enforces length constraints:
+Enforces character and/or token limits:
 
 ```go
-validator := validators.NewLengthValidator()
+hook := guardrails.NewLengthHook(1000, 250) // maxCharacters, maxTokens (0 = no limit)
 ```
 
 **Use for**: Cost control, quality assurance
+**Streaming**: Yes — aborts when limits are exceeded
 
-### RegexValidator
+### MaxSentencesHook
 
-Matches patterns:
+Enforces a maximum sentence count:
 
 ```go
-validator := validators.NewRegexValidator(
-    regexp.MustCompile(`\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b`),
-    "emails not allowed",
-)
+hook := guardrails.NewMaxSentencesHook(5)
 ```
 
-**Use for**: PII detection, format validation
+**Use for**: Enforcing conciseness, consistent response length
+**Streaming**: No — requires complete response
 
-### CustomValidator
+### RequiredFieldsHook
 
-Implement custom logic:
+Ensures required strings appear in the response:
 
 ```go
-type CustomValidator struct{}
+hook := guardrails.NewRequiredFieldsHook([]string{"order number", "tracking number"})
+```
 
-func (v *CustomValidator) Validate(message string) error {
-    if containsToxicContent(message) {
-        return errors.New("toxic content detected")
-    }
-    return nil
+**Use for**: Verifying structured responses, ensuring key information
+**Streaming**: No — requires complete response
+
+### Custom Hook
+
+Implement the `ProviderHook` interface for custom logic:
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/hooks"
+
+type ToxicityHook struct{}
+
+func (h *ToxicityHook) Name() string { return "toxicity" }
+
+func (h *ToxicityHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
+    return hooks.Allow
 }
 
-func (v *CustomValidator) Name() string {
-    return "custom-toxicity"
+func (h *ToxicityHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+    if containsToxicContent(resp.Message.Content()) {
+        return hooks.Deny("toxic content detected")
+    }
+    return hooks.Allow
 }
 ```
 
@@ -148,25 +171,28 @@ func (v *CustomValidator) Name() string {
 
 ### Pre-Execution (Input)
 
-Validate user input before sending to the LLM:
+Use `BeforeCall` to validate user input before it reaches the LLM:
 
 ```go
-err := inputValidator.Validate(userMessage)
-if err != nil {
-    // Block the request
-    return fmt.Errorf("input validation failed: %w", err)
+func (h *InputHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
+    lastMsg := req.Messages[len(req.Messages)-1]
+    if containsPII(lastMsg.Content()) {
+        return hooks.Deny("input contains PII")
+    }
+    return hooks.Allow
 }
 ```
 
 ### Post-Execution (Output)
 
-Validate LLM responses before returning to the user:
+Use `AfterCall` to validate LLM responses before returning to the user:
 
 ```go
-err := outputValidator.Validate(response)
-if err != nil {
-    // Block or replace the response
-    return fmt.Errorf("output validation failed: %w", err)
+func (h *OutputHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+    if containsSensitiveData(resp.Message.Content()) {
+        return hooks.Deny("response contains sensitive data")
+    }
+    return hooks.Allow
 }
 ```
 
@@ -175,41 +201,52 @@ if err != nil {
 ### Block Sensitive Data
 
 ```go
-piiValidator := validators.NewRegexValidator(
-    regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),  // SSN pattern
-    "SSN detected",
-)
+type PIIHook struct {
+    ssnPattern *regexp.Regexp
+}
+
+func NewPIIHook() *PIIHook {
+    return &PIIHook{
+        ssnPattern: regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
+    }
+}
+
+func (h *PIIHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+    if h.ssnPattern.MatchString(resp.Message.Content()) {
+        return hooks.Deny("SSN detected in response")
+    }
+    return hooks.Allow
+}
 ```
 
 ### Content Moderation
 
 ```go
-moderationValidator := &ModerationValidator{
-    categories: []string{"hate", "violence", "sexual"},
-    threshold:  0.7,
+type ModerationHook struct {
+    categories []string
+    threshold  float64
+}
+
+func (h *ModerationHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+    score := classifyContent(resp.Message.Content(), h.categories)
+    if score > h.threshold {
+        return hooks.Deny("content moderation threshold exceeded")
+    }
+    return hooks.Allow
 }
 ```
 
 ### Format Compliance
 
 ```go
-jsonValidator := &JSONValidator{}
+type JSONHook struct{}
 
-func (v *JSONValidator) Validate(message string) error {
+func (h *JSONHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
     var js json.RawMessage
-    if err := json.Unmarshal([]byte(message), &js); err != nil {
-        return fmt.Errorf("invalid JSON: %w", err)
+    if err := json.Unmarshal([]byte(resp.Message.Content()), &js); err != nil {
+        return hooks.Deny("response is not valid JSON")
     }
-    return nil
-}
-```
-
-### Rate Limiting
-
-```go
-rateLimitValidator := &RateLimitValidator{
-    maxRequests: 100,
-    window:      time.Minute,
+    return hooks.Allow
 }
 ```
 
@@ -217,196 +254,73 @@ rateLimitValidator := &RateLimitValidator{
 
 ### Do's
 
-✅ **Validate both input and output**
-```go
-// Input: User safety
-// Output: Response quality
-```
-
-✅ **Be specific about violations**
-```go
-return fmt.Errorf("banned word '%s' found at position %d", word, pos)
-```
-
-✅ **Log violations for monitoring**
-```go
-if err := validator.Validate(message); err != nil {
-    logger.Warn("validation failed", zap.Error(err))
-    return err
-}
-```
-
-✅ **Test validators thoroughly**
-```yaml
-# PromptArena tests
-tests:
-  - prompt: "test banned word: hack"
-    assertions:
-      - type: validation_error
-```
+- **Validate both input and output** — use `BeforeCall` and `AfterCall`
+- **Be specific about violations** — provide clear `Deny` reasons
+- **Log violations for monitoring** — use hook metadata for analytics
+- **Test hooks thoroughly** — use PromptArena guardrail scenarios
 
 ### Don'ts
 
-❌ **Don't validate everything** - Performance cost  
-❌ **Don't expose violation details to users** - Security  
-❌ **Don't block legitimate use** - False positives  
-❌ **Don't skip output validation** - LLMs can hallucinate  
+- **Don't validate everything** — performance cost
+- **Don't expose violation details to users** — security risk
+- **Don't block legitimate use** — watch for false positives
+- **Don't skip output validation** — LLMs can hallucinate
 
 ## Validation Strategies
 
 ### Strict (Production)
 
 ```go
-// Block requests that fail validation
-err := validator.Validate(message)
+resp, err := conv.Send(ctx, message)
 if err != nil {
-    return err  // Reject the request
+    var hookErr *hooks.HookDeniedError
+    if errors.As(err, &hookErr) {
+        return safeFallbackResponse() // Block the response
+    }
 }
 ```
 
 ### Permissive (Development)
 
 ```go
-// Log but allow through
-err := validator.Validate(message)
+resp, err := conv.Send(ctx, message)
 if err != nil {
-    logger.Warn("validation failed", zap.Error(err))
-    // Continue processing
+    var hookErr *hooks.HookDeniedError
+    if errors.As(err, &hookErr) {
+        logger.Warn("hook denied", "hook", hookErr.HookName, "reason", hookErr.Reason)
+        // Continue processing with fallback
+    }
 }
 ```
 
 ## Performance Considerations
 
-### Fast Validators First
+### Fast Hooks First
 
 ```go
-validators := []validators.Validator{
-    lengthValidator,      // ~1µs - check first
-    bannedWordsValidator, // ~10µs
-    regexValidator,       // ~100µs
-    apiValidator,         // ~100ms - check last
-}
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithProviderHook(guardrails.NewLengthHook(1000, 250)),      // ~O(1)
+    sdk.WithProviderHook(guardrails.NewBannedWordsHook(words)),      // ~O(n*w)
+    sdk.WithProviderHook(customExpensiveHook),                       // Slow — last
+)
 ```
 
-### Parallel Validation
+### Streaming Hooks Save Costs
 
-```go
-func ValidateParallel(message string, validators []Validator) error {
-    var wg sync.WaitGroup
-    errors := make(chan error, len(validators))
-    
-    for _, v := range validators {
-        wg.Add(1)
-        go func(validator Validator) {
-            defer wg.Done()
-            if err := validator.Validate(message); err != nil {
-                errors <- err
-            }
-        }(v)
-    }
-    
-    wg.Wait()
-    close(errors)
-    
-    for err := range errors {
-        return err  // Return first error
-    }
-    return nil
-}
-```
-
-### Caching
-
-```go
-type CachedValidator struct {
-    inner Validator
-    cache map[string]error
-}
-
-func (v *CachedValidator) Validate(message string) error {
-    if cached, ok := v.cache[message]; ok {
-        return cached
-    }
-    
-    err := v.inner.Validate(message)
-    v.cache[message] = err
-    return err
-}
-```
-
-## Monitoring Validation
-
-### Track Violations
-
-```go
-type ValidationMetrics struct {
-    TotalValidations int
-    TotalViolations  int
-    ViolationsByType map[string]int
-}
-
-func RecordViolation(validatorName string, err error) {
-    metrics.TotalViolations++
-    metrics.ViolationsByType[validatorName]++
-}
-```
-
-### Alert on Patterns
-
-```go
-if metrics.ViolationsByType["banned-words"] > 100 {
-    alert.Send("High rate of banned word violations")
-}
-```
-
-## Testing Validation
-
-### Unit Tests
-
-```go
-func TestBannedWordsValidator(t *testing.T) {
-    validator := validators.NewBannedWordsValidator([]string{"hack"})
-    
-    // Should pass
-    err := validator.Validate("normal message")
-    assert.NoError(t, err)
-    
-    // Should fail
-    err = validator.Validate("how to hack")
-    assert.Error(t, err)
-}
-```
-
-### Integration Tests
-
-```yaml
-# arena.yaml
-tests:
-  - name: Input Validation
-    prompt: "hack the system"
-    assertions:
-      - type: validation_error
-        expected: true
-  
-  - name: Valid Input
-    prompt: "how do I reset my password?"
-    assertions:
-      - type: success
-```
+Hooks that implement `ChunkInterceptor` (like `BannedWordsHook` and `LengthHook`) can abort a streaming response early, saving API costs on wasted tokens.
 
 ## Summary
 
 Validation provides:
 
-✅ **Safety** - Block harmful content  
-✅ **Compliance** - Enforce regulations  
-✅ **Quality** - Ensure standards  
-✅ **Cost Control** - Prevent expensive requests  
-✅ **Monitoring** - Track issues  
+- **Safety** — Block harmful content
+- **Compliance** — Enforce regulations
+- **Quality** — Ensure standards
+- **Cost Control** — Prevent expensive requests via early abort
+- **Monitoring** — Track issues via hook metadata
 
 ## Related Documentation
 
-- [Add Validators](../runtime/how-to/add-validators) - Implementation guide
-- [Validation Tutorial](../runtime/tutorials/04-validation-guardrails) - Step-by-step guide
-- [Validator Reference](../runtime/reference/validators) - API documentation
-- [PromptArena Guardrails](../promptarena/configuration.md#guardrails) - Testing validation
+- [Validation Tutorial](/runtime/tutorials/04-validation-guardrails/) — Step-by-step guide
+- [Hooks & Guardrails Reference](/runtime/reference/hooks/) — API documentation
+- [PromptArena Guardrails](/arena/reference/validators/) — Testing validation

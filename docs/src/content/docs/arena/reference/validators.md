@@ -4,6 +4,10 @@ title: Validators Reference
 
 Validators (also called guardrails) are runtime checks that enforce policies on LLM responses. Unlike assertions that verify test expectations, validators actively prevent policy violations and can abort streaming responses early.
 
+:::note[Auto-Conversion]
+Pack YAML `validators:` sections are automatically converted to guardrail hooks (`runtime/hooks/guardrails`) at runtime. You can continue defining validators in YAML — the runtime handles the conversion transparently.
+:::
+
 ## Validators vs Assertions
 
 ```mermaid
@@ -682,32 +686,49 @@ commit: ❌ Post-completion only
 
 ## Custom Validators
 
-While PromptArena provides built-in validators, the SDK allows custom validators:
+While PromptArena provides built-in validators, the SDK allows custom guardrail hooks by implementing the `hooks.ProviderHook` interface:
 
 ```go
-// Custom validator example (SDK usage)
-type CustomValidator struct {}
+import "github.com/AltairaLabs/PromptKit/runtime/hooks"
 
-func (v *CustomValidator) Validate(content string, params map[string]interface{}) ValidationResult {
+type CustomHook struct{}
+
+func (h *CustomHook) Name() string { return "custom_check" }
+
+func (h *CustomHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
+    return hooks.Allow
+}
+
+func (h *CustomHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
     // Your validation logic
-    return ValidationResult{
-        Passed: true,
-        Details: nil,
+    if violatesPolicy(resp.Message.Content()) {
+        return hooks.Deny("policy violation detected")
     }
+    return hooks.Allow
 }
 ```
 
-Register in SDK:
+Register via the SDK:
 ```go
-registry.Register("custom_validator", NewCustomValidator)
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithProviderHook(&CustomHook{}),
+)
 ```
 
-Use in prompt:
+When a hook denies a request, the runtime returns a `hooks.HookDeniedError`:
+```go
+var hookErr *hooks.HookDeniedError
+if errors.As(err, &hookErr) {
+    log.Printf("Denied by %s: %s", hookErr.HookName, hookErr.Reason)
+}
+```
+
+Pack YAML validators continue to work for built-in types:
 ```yaml
 validators:
-  - type: custom_validator
+  - type: banned_words
     params:
-      your_param: value
+      words: ["guarantee", "promise"]
 ```
 
 ## Next Steps

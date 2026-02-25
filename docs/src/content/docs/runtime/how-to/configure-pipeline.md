@@ -144,22 +144,23 @@ pipeline := stage.NewPipelineBuilder().
     Build()
 ```
 
-### Adding Validators
+### Adding Guardrail Hooks
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/validators"
+import (
+    "github.com/AltairaLabs/PromptKit/runtime/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+)
 
-validatorRegistry := validators.NewRegistry()
-validatorRegistry.Register("banned_words", validators.NewBannedWordsValidator([]string{"inappropriate"}))
-validatorRegistry.Register("length", validators.NewLengthValidator())
+hookRegistry := hooks.NewRegistry(
+    hooks.WithProviderHook(guardrails.NewBannedWordsHook([]string{"inappropriate"})),
+    hooks.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
+)
 
 pipeline := stage.NewPipelineBuilder().
     Chain(
         stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
-        stage.NewValidationStage(validatorRegistry, &stage.ValidationConfig{
-            FailOnError: true,
-        }),
-        stage.NewProviderStage(provider, nil, nil, config),
+        stage.NewProviderStage(provider, nil, hookRegistry, config),
     ).
     Build()
 ```
