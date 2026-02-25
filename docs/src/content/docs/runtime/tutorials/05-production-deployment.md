@@ -67,7 +67,8 @@ import (
     "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
     "github.com/AltairaLabs/PromptKit/runtime/statestore"
     "github.com/AltairaLabs/PromptKit/runtime/types"
-    "github.com/AltairaLabs/PromptKit/runtime/validators"
+    "github.com/AltairaLabs/PromptKit/runtime/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 )
 
 type Server struct {
@@ -139,27 +140,27 @@ func NewServer() (*Server, error) {
         false,
     )
     
-    // Validators
-    bannedWords := validators.NewBannedWordsValidator([]string{"spam", "hack"})
-    lengthValidator := validators.NewLengthValidator()
-    
+    // Guardrail hooks
+    hookRegistry := hooks.NewRegistry(
+        hooks.WithProviderHook(guardrails.NewBannedWordsHook([]string{"spam", "hack"})),
+        hooks.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
+    )
+
     // Pipeline config
     config := &middleware.ProviderMiddlewareConfig{
         MaxTokens:   1000,
         Temperature: 0.7,
     }
-    
+
     // Create pipelines for each provider
     openaiPipe := pipeline.NewPipeline(
         middleware.StateMiddleware(store),
-        middleware.ValidatorMiddleware(bannedWords, lengthValidator),
-        middleware.ProviderMiddleware(openaiProvider, nil, nil, config),
+        middleware.ProviderMiddleware(openaiProvider, nil, hookRegistry, config),
     )
     
     claudePipe := pipeline.NewPipeline(
         middleware.StateMiddleware(store),
-        middleware.ValidatorMiddleware(bannedWords, lengthValidator),
-        middleware.ProviderMiddleware(claudeProvider, nil, nil, config),
+        middleware.ProviderMiddleware(claudeProvider, nil, hookRegistry, config),
     )
     
     return &Server{

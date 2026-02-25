@@ -18,7 +18,7 @@ The Runtime is the foundational layer that provides:
 - **Type definitions** used across all PromptKit tools
 - **Tool execution** framework for MCP integration
 - **A2A protocol** for agent-to-agent communication and tool delegation
-- **Validation system** for input/output checking
+- **Hooks & guardrails** for input/output checking
 
 ---
 
@@ -28,7 +28,7 @@ The Runtime is for advanced users who want to:
 
 - **Build custom providers** for new LLM services
 - **Create custom stages** for specialized processing
-- **Extend validators** with domain-specific checks
+- **Extend guardrails with custom hooks** for domain-specific checks
 - **Integrate MCP servers** with custom tools
 - **Understand internals** for contributions
 - **Customize pipelines** for unique requirements
@@ -133,7 +133,7 @@ Complete API documentation:
 - [Providers API](/runtime/reference/providers/) - Provider interfaces
 - [Types API](/runtime/reference/types/) - Core type definitions
 - [Tools & MCP API](/runtime/reference/tools-mcp/) - Tool execution
-- [Validators API](/runtime/reference/validators/) - Validation interfaces
+- [Hooks & Guardrails API](/runtime/reference/hooks/) - Hook and guardrail interfaces
 - [Storage API](/runtime/reference/storage/) - State storage
 - [A2A API](/runtime/reference/a2a/) - Client, types, tool bridge, mock
 
@@ -200,7 +200,7 @@ graph TB
         Stages[Stages]
         Providers[Providers]
         Tools[Tool Execution]
-        Validators[Validators]
+        Hooks[Hooks]
     end
 
     subgraph "External Services"
@@ -213,7 +213,7 @@ graph TB
     Pipeline --> Stages
     Stages --> Providers
     Stages --> Tools
-    Stages --> Validators
+    Stages --> Hooks
 
     Providers --> OpenAI
     Providers --> Anthropic
@@ -230,7 +230,7 @@ graph TB
 
 - Add new provider support
 - Implement new stage types
-- Extend validation system
+- Extend hooks and guardrails
 - Improve core functionality
 
 ### For Advanced Developers
@@ -335,7 +335,7 @@ Runtime is designed to be extended without modifying core code:
 
 - Plugin-based provider system
 - Composable stages
-- Flexible validation
+- Flexible hooks
 - Open for extension, closed for modification
 
 ### Performance

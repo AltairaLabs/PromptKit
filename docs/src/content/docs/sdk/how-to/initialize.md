@@ -52,6 +52,29 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 )
 ```
 
+### Register Hooks
+
+Register hooks to intercept LLM calls, tool execution, or session lifecycle:
+
+```go
+import (
+    "github.com/AltairaLabs/PromptKit/sdk"
+    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+)
+
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    // Guardrail hooks
+    sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{"hack", "exploit"})),
+    sdk.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
+
+    // Tool and session hooks
+    sdk.WithToolHook(myToolAuditHook),
+    sdk.WithSessionHook(mySessionLogger),
+)
+```
+
+See [Hooks & Guardrails Reference](/runtime/reference/hooks/) for the full hook API.
+
 ## Environment Variables
 
 The SDK uses these environment variables:

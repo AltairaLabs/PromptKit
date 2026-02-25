@@ -83,6 +83,30 @@ Attach a PDF document from raw bytes.
 sdk.WithDocumentData(pdfBytes, "application/pdf")
 ```
 
+### WithProviderHook
+
+Register a hook that intercepts LLM provider calls (before/after). Multiple hooks execute in order; the first deny short-circuits.
+
+```go
+sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{"hack"}))
+```
+
+### WithToolHook
+
+Register a hook that intercepts LLM-initiated tool calls (before/after).
+
+```go
+sdk.WithToolHook(myToolAuditHook)
+```
+
+### WithSessionHook
+
+Register a hook for tracking session lifecycle (start, update, end).
+
+```go
+sdk.WithSessionHook(mySessionLogger)
+```
+
 ### WithAudioFile
 
 Attach an audio file.
@@ -346,6 +370,10 @@ import (
     "github.com/AltairaLabs/PromptKit/sdk"
     "github.com/AltairaLabs/PromptKit/sdk/hooks"
     "github.com/AltairaLabs/PromptKit/sdk/tools"
+
+    // Hooks & guardrails
+    rthooks "github.com/AltairaLabs/PromptKit/runtime/hooks"
+    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 )
 ```
 

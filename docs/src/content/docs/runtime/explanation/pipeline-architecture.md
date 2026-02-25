@@ -175,10 +175,12 @@ Standard HTTP-based LLM interactions:
 
 ```d2
 direction: right
-Message -> RecordingIn -> StateStoreLoad -> PromptAssembly -> Template -> Provider -> Validation -> RecordingOut -> StateStoreSave -> Response
+Message -> RecordingIn -> StateStoreLoad -> PromptAssembly -> Template -> Provider -> RecordingOut -> StateStoreSave -> Response
 ```
 
 `RecordingIn` and `RecordingOut` are optional `RecordingStage` instances that capture user input and assistant output as events on the EventBus. They pass data through unchanged.
+
+Hooks (guardrails, tool hooks) run inside `ProviderStage` — they are not separate pipeline stages. Provider hooks execute before/after each LLM call, and chunk interceptors run on each streaming chunk within the provider stage.
 
 **Use cases**: Chat applications, content generation
 

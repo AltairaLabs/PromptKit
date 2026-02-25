@@ -109,14 +109,14 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)
 
+	// Build hook registry BEFORE building pipeline so it can be wired into the provider stage
+	conv.hookRegistry = cfg.buildHookRegistry()
+
 	// Initialize internal memory store for conversation history
 	// This is used by StateStoreLoad/Save middleware in the pipeline
 	if err := initInternalStateStore(conv, cfg); err != nil {
 		return nil, err
 	}
-
-	// Build hook registry from config options
-	conv.hookRegistry = cfg.buildHookRegistry()
 
 	// Initialize eval middleware
 	conv.evalMW = newEvalMiddleware(conv)
@@ -220,13 +220,13 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	// Initialize event bus BEFORE building pipeline so it can be wired up
 	initEventBus(cfg)
 
+	// Build hook registry BEFORE building pipeline so it can be wired into the provider stage
+	conv.hookRegistry = cfg.buildHookRegistry()
+
 	// Initialize duplex session
 	if err := initDuplexSession(conv, cfg, streamProvider); err != nil {
 		return nil, err
 	}
-
-	// Build hook registry from config options
-	conv.hookRegistry = cfg.buildHookRegistry()
 
 	// Initialize eval middleware
 	conv.evalMW = newEvalMiddleware(conv)
