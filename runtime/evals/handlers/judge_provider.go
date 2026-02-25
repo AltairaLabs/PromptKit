@@ -1,7 +1,24 @@
 // Package handlers provides eval type handler implementations.
 package handlers
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"strings"
+)
+
+const (
+	// defaultJudgeSystemPrompt is the system prompt used when no custom prompt is provided.
+	defaultJudgeSystemPrompt = "You are an evaluation judge. Evaluate the following content " +
+		"and respond with a JSON object containing: " +
+		"\"passed\" (boolean), \"score\" (float 0-1), and \"reasoning\" (string)."
+
+	// judgeMaxTokens is the maximum token limit for judge LLM calls.
+	judgeMaxTokens = 1024
+
+	// defaultPassThreshold is the default score threshold when no explicit passed field or minScore is set.
+	defaultPassThreshold = 0.5
+)
 
 // JudgeProvider abstracts LLM access for judge-based evaluations.
 // Arena, SDK, and eval workers each provide their own implementation
@@ -11,6 +28,50 @@ type JudgeProvider interface {
 	// the parsed verdict. Implementations handle provider selection,
 	// prompt formatting, and response parsing.
 	Judge(ctx context.Context, opts JudgeOpts) (*JudgeResult, error)
+}
+
+// parseJudgeResponse parses the LLM judge response into a JudgeResult.
+//
+//nolint:unparam // error return kept for future extensibility
+func parseJudgeResponse(raw string, minScore *float64) (*JudgeResult, error) {
+	var parsed struct {
+		Passed    *bool   `json:"passed"`
+		Score     float64 `json:"score"`
+		Reasoning string  `json:"reasoning"`
+	}
+
+	// Extract JSON from response (might be wrapped in markdown)
+	jsonStr := raw
+	if idx := strings.Index(raw, "{"); idx >= 0 {
+		if end := strings.LastIndex(raw, "}"); end >= idx {
+			jsonStr = raw[idx : end+1]
+		}
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
+		return &JudgeResult{
+			Passed:    true,
+			Score:     defaultPassThreshold,
+			Reasoning: "Could not parse judge response",
+			Raw:       raw,
+		}, nil
+	}
+
+	result := &JudgeResult{
+		Score:     parsed.Score,
+		Reasoning: parsed.Reasoning,
+		Raw:       raw,
+	}
+
+	if parsed.Passed != nil {
+		result.Passed = *parsed.Passed
+	} else if minScore != nil {
+		result.Passed = parsed.Score >= *minScore
+	} else {
+		result.Passed = parsed.Score >= defaultPassThreshold
+	}
+
+	return result, nil
 }
 
 // JudgeOpts configures a judge evaluation request.

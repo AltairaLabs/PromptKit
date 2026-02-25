@@ -16,6 +16,7 @@ type PackEvalHook struct {
 	dispatcher evals.EvalDispatcher
 	defs       []evals.EvalDef
 	taskType   string
+	metadata   map[string]any // injected into every EvalContext (e.g. judge_targets)
 }
 
 // NewPackEvalHook creates a hook for executing pack evals during Arena runs.
@@ -47,6 +48,15 @@ func NewPackEvalHook(
 		defs:       filteredDefs,
 		taskType:   taskType,
 	}
+}
+
+// SetMetadata sets metadata that will be injected into every EvalContext.
+// Used to pass judge_targets, prompt_registry, and other config to eval handlers.
+func (h *PackEvalHook) SetMetadata(metadata map[string]any) {
+	if h == nil {
+		return
+	}
+	h.metadata = metadata
 }
 
 // HasEvals returns true if there are eval defs to execute.
@@ -197,6 +207,7 @@ func (h *PackEvalHook) buildEvalContext(
 		SessionID:     sessionID,
 		PromptID:      h.taskType,
 		Extras:        extras,
+		Metadata:      h.metadata,
 	}
 }
 

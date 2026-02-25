@@ -27,14 +27,12 @@ spec:
           - "apologize"
         case_sensitive: false
     
-    - type: content_excludes
-      message: "Agent should not use inappropriate language"
+    - type: llm_judge_session
+      message: "Agent maintains professional tone throughout"
       params:
-        patterns:
-          - "I don't know"
-          - "not my problem"
-          - "figure it out yourself"
-        case_sensitive: false
+        criteria: "Does the customer support agent maintain a professional, helpful, and courteous tone throughout the conversation?"
+        judge: gpt-4o-judge
+        min_score: 0.8
   
   tags:
     - test

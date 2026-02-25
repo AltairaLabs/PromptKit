@@ -131,6 +131,17 @@ func BuildEngineComponents(cfg *config.Config) (
 		packEvalHook = NewPackEvalHook(registry, nil, false, cfg.EvalTypeFilter, "")
 	}
 
+	// Inject judge metadata so eval handlers (llm_judge, llm_judge_session)
+	// can resolve judge providers from config targets.
+	if packEvalHook != nil {
+		metadata := make(map[string]any)
+		attachJudgeMetadata(metadata, cfg)
+		if promptRegistry != nil {
+			metadata["prompt_registry"] = promptRegistry
+		}
+		packEvalHook.SetMetadata(metadata)
+	}
+
 	// Build conversation executor (engine-specific, stays here)
 	conversationExecutor, adapterRegistry, err := newConversationExecutor(
 		cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry, packEvalHook)
