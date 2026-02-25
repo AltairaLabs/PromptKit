@@ -10,7 +10,7 @@ spec:
 
   # Provider configurations
   providers:
-    - file: providers/openai.provider.yaml
+    - file: providers/mock-provider.yaml
 
   # Test scenarios
   scenarios:

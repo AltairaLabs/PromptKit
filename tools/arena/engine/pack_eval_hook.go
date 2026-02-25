@@ -32,9 +32,12 @@ func NewPackEvalHook(
 	filteredDefs := filterEvalDefs(defs, evalTypeFilter)
 
 	var dispatcher evals.EvalDispatcher
-	if skipEvals || len(filteredDefs) == 0 {
+	if skipEvals {
 		dispatcher = &evals.NoOpDispatcher{}
 	} else {
+		// Always use InProcDispatcher even when pack has no evals,
+		// because RunAssertionsAsEvals dispatches ad-hoc defs from
+		// scenario turn assertions through the same dispatcher.
 		runner := evals.NewEvalRunner(registry)
 		dispatcher = evals.NewInProcDispatcher(runner, nil)
 	}

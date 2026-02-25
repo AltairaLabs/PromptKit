@@ -236,6 +236,9 @@ func (e *ScriptedExecutor) buildStreamingStages(req *TurnRequest) (*stage.Stream
 			req.Provider, e.pipelineExecutor.toolRegistry, buildToolPolicy(req.Scenario), providerConfig),
 	)
 
+	// Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
+	stages = append(stages, arenastages.NewGuardrailEvalStage())
+
 	// Media externalization stage
 	if e.pipelineExecutor.mediaStorage != nil {
 		mediaConfig := &stage.MediaExternalizerConfig{

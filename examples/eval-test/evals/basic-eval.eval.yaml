@@ -12,13 +12,13 @@ spec:
   turns:
     - all_turns:
         assertions:
-          - type: content_includes
+          - type: contains
             params:
               patterns:
                 - "you"
   
   conversation_assertions:
-    - type: content_includes_any
+    - type: contains_any
       message: "Conversation includes customer support language"
       params:
         patterns:
@@ -27,12 +27,14 @@ spec:
           - "apologize"
         case_sensitive: false
     
-    - type: llm_judge_conversation
-      message: "Agent responds helpfully and professionally"
+    - type: content_excludes
+      message: "Agent should not use inappropriate language"
       params:
-        judge: gpt-4o-judge
-        criteria: "Does the customer support agent respond helpfully and professionally to customer inquiries?"
-        expected: pass
+        patterns:
+          - "I don't know"
+          - "not my problem"
+          - "figure it out yourself"
+        case_sensitive: false
   
   tags:
     - test

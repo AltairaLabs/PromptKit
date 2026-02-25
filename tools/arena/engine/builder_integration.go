@@ -121,10 +121,14 @@ func BuildEngineComponents(cfg *config.Config) (
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to register skill tools: %w", skillErr)
 	}
 
-	// Build pack eval hook if pack is loaded
+	// Build pack eval hook — always create one because scenario turn
+	// assertions dispatch through it even when there's no pack loaded.
 	var packEvalHook *PackEvalHook
 	if cfg.LoadedPack != nil {
 		packEvalHook = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+	} else if !cfg.SkipPackEvals {
+		registry := evals.NewEvalTypeRegistry()
+		packEvalHook = NewPackEvalHook(registry, nil, false, cfg.EvalTypeFilter, "")
 	}
 
 	// Build conversation executor (engine-specific, stays here)
@@ -470,9 +474,9 @@ func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []stri
 		}
 	}
 
-	if len(allDefs) == 0 && !skipEvals {
-		return nil
-	}
+	// Always create a PackEvalHook even when pack has no evals,
+	// because scenario turn assertions also dispatch through it.
+	// Only return nil if there's no pack at all (handled by caller).
 
 	// Create registry with default handlers (registered via init() in handlers package)
 	registry := evals.NewEvalTypeRegistry()

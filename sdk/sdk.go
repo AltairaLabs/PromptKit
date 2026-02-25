@@ -10,6 +10,9 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	rtprompt "github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -92,6 +95,9 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	// Apply default variables from prompt BEFORE initializing session
 	// This ensures defaults are available when creating the session
 	applyDefaultVariables(conv, prompt)
+
+	// Auto-convert pack validators to provider hooks (before building hook registry)
+	convertPackValidatorsToHooks(prompt, cfg)
 
 	// Initialize capabilities (auto-inferred + explicit)
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
@@ -203,6 +209,9 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 
 	// Apply default variables from prompt BEFORE initializing session
 	applyDefaultVariables(conv, prompt)
+
+	// Auto-convert pack validators to provider hooks (before building hook registry)
+	convertPackValidatorsToHooks(prompt, cfg)
 
 	// Initialize capabilities (auto-inferred + explicit)
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
@@ -760,6 +769,29 @@ func packToRuntimePack(p *pack.Pack) *rtprompt.Pack {
 	}
 
 	return rp
+}
+
+// convertPackValidatorsToHooks auto-converts pack prompt validators into
+// provider hooks, prepending them before any user-registered hooks.
+// This enables pack-defined guardrails (e.g., banned_words, length) to
+// run as enforcement hooks in the SDK pipeline.
+func convertPackValidatorsToHooks(prompt *pack.Prompt, cfg *config) {
+	if len(prompt.Validators) == 0 {
+		return
+	}
+	var packHooks []hooks.ProviderHook
+	for _, v := range prompt.Validators {
+		hook, err := guardrails.NewGuardrailHook(v.Type, v.Config)
+		if err != nil {
+			logger.Warn("Skipping unknown pack validator type", "type", v.Type, "error", err)
+			continue
+		}
+		packHooks = append(packHooks, hook)
+	}
+	// Prepend pack validators before user-registered hooks
+	if len(packHooks) > 0 {
+		cfg.providerHooks = append(packHooks, cfg.providerHooks...)
+	}
 }
 
 // resolvePackPath converts a pack path to an absolute path.

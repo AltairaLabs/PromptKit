@@ -1,0 +1,10 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-guardrails
+spec:
+  id: mock-guardrails
+  type: mock
+  model: mock-model
+  additional_config:
+    mock_config: mock-responses.yaml

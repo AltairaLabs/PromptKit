@@ -27,6 +27,6 @@ scenarios:
       1: "I cannot continue with this response as it would violate content guidelines."
 
   streaming-length-trigger:
-    defaultResponse: "I'll provide a concise response within appropriate length limits."
+    defaultResponse: "The history of computing stretches back thousands of years, from the ancient abacus used in Mesopotamia to Charles Babbage's Analytical Engine in the 1830s. The twentieth century saw an explosion of innovation: Alan Turing formalized the concept of computation, ENIAC became the first general-purpose electronic computer in 1945, and the invention of the transistor at Bell Labs in 1947 miniaturized everything. By the 1970s personal computers emerged, and the internet connected them all into a global network that transformed every aspect of modern life."
     turns:
-      1: "Here's a brief overview of the topic you asked about, keeping within reasonable response length limits."
+      1: "The history of computing stretches back thousands of years, from the ancient abacus used in Mesopotamia to Charles Babbage's Analytical Engine in the 1830s. The twentieth century saw an explosion of innovation: Alan Turing formalized the concept of computation, ENIAC became the first general-purpose electronic computer in 1945, and the invention of the transistor at Bell Labs in 1947 miniaturized everything. By the 1970s personal computers emerged, and the internet connected them all into a global network that transformed every aspect of modern life."
