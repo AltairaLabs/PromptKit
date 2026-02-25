@@ -3,16 +3,49 @@ package stage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// mockRepository implements prompt.Repository for testing.
+type mockRepository struct {
+	prompts map[string]*prompt.Config
+}
+
+func newMockRepo() *mockRepository {
+	return &mockRepository{prompts: make(map[string]*prompt.Config)}
+}
+
+func (m *mockRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
+	if cfg, ok := m.prompts[taskType]; ok {
+		return cfg, nil
+	}
+	return nil, fmt.Errorf("prompt not found: %s", taskType)
+}
+
+func (m *mockRepository) LoadFragment(string, string, string) (*prompt.Fragment, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockRepository) ListPrompts() ([]string, error) {
+	keys := make([]string, 0, len(m.prompts))
+	for k := range m.prompts {
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+func (m *mockRepository) SavePrompt(config *prompt.Config) error {
+	m.prompts[config.Spec.TaskType] = config
+	return nil
+}
 
 // Helper to create a test message element
 func newTestMsgElement(role, content string) StreamElement {
@@ -116,6 +149,57 @@ func TestPromptAssemblyStage_ContextCancellation(t *testing.T) {
 	// Should not hang
 }
 
+func TestPromptAssemblyStage_WithRegistry(t *testing.T) {
+	// Create a registry with a mock repository and a prompt that has validators
+	repo := newMockRepo()
+	registry := prompt.NewRegistryWithRepository(repo)
+	enabled := true
+	cfg := &prompt.Config{
+		Spec: prompt.Spec{
+			TaskType:       "chat",
+			SystemTemplate: "You are a test bot.",
+			Validators: []prompt.ValidatorConfig{
+				{
+					Type:    "banned_words",
+					Params:  map[string]interface{}{"words": []string{"bad"}},
+					Enabled: &enabled,
+				},
+			},
+		},
+	}
+	err := registry.RegisterConfig("chat", cfg)
+	require.NoError(t, err)
+
+	s := NewPromptAssemblyStage(registry, "chat", nil)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Hello"),
+	}
+	results := runTestStage(t, s, inputs)
+
+	require.Len(t, results, 1)
+	assert.Equal(t, "You are a test bot.", results[0].Metadata["system_prompt"])
+	// Validator configs should be passed through
+	assert.NotNil(t, results[0].Metadata["validator_configs"])
+}
+
+func TestPromptAssemblyStage_RegistryMissing(t *testing.T) {
+	// Test the path where registry has no prompt for the task type
+	repo := newMockRepo()
+	registry := prompt.NewRegistryWithRepository(repo)
+
+	s := NewPromptAssemblyStage(registry, "nonexistent", nil)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Hello"),
+	}
+	results := runTestStage(t, s, inputs)
+
+	require.Len(t, results, 1)
+	// Should fall back to default system prompt
+	assert.Equal(t, "You are a helpful AI assistant.", results[0].Metadata["system_prompt"])
+}
+
 func TestPromptAssemblyStage_ExtractValidatorConfigs(t *testing.T) {
 	s := NewPromptAssemblyStage(nil, "chat", nil)
 
@@ -124,22 +208,16 @@ func TestPromptAssemblyStage_ExtractValidatorConfigs(t *testing.T) {
 
 	promptValidators := []prompt.ValidatorConfig{
 		{
-			ValidatorConfig: validators.ValidatorConfig{
-				Type:   "type1",
-				Params: map[string]interface{}{"key": "value"},
-			},
+			Type:    "type1",
+			Params:  map[string]interface{}{"key": "value"},
 			Enabled: &enabled,
 		},
 		{
-			ValidatorConfig: validators.ValidatorConfig{
-				Type: "type2",
-			},
+			Type:    "type2",
 			Enabled: &disabled, // Disabled
 		},
 		{
-			ValidatorConfig: validators.ValidatorConfig{
-				Type: "type3",
-			},
+			Type: "type3",
 			// Enabled is nil (defaults to enabled)
 		},
 	}
