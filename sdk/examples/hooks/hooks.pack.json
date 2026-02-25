@@ -1,0 +1,19 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "hooks-example",
+  "name": "Hooks Example",
+  "version": "1.0.0",
+  "description": "Demonstrates SDK hooks and guardrails",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant. Answer the user's questions clearly and concisely."
+    }
+  }
+}
