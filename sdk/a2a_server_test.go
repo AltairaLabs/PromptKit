@@ -14,6 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -631,14 +637,31 @@ func TestA2AServer_WithPort(t *testing.T) {
 }
 
 func TestTraceContextPropagation_SendMessage(t *testing.T) {
-	wantTP := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-	wantTS := "congo=t61rcWkgMzE"
-	wantXRay := "Root=1-5759e988-bd862e3fe1be46a994272793"
+	// Set up OTel propagation and tracer provider.
+	origProp := otel.GetTextMapPropagator()
+	defer otel.SetTextMapPropagator(origProp)
+	telemetry.SetupPropagation()
 
-	var gotTC telemetry.TraceContext
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	otel.SetTracerProvider(tp)
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	// Create a parent span to generate a valid traceparent.
+	tracer := tp.Tracer("test")
+	parentCtx, parentSpan := tracer.Start(context.Background(), "test-parent")
+	parentSC := trace.SpanContextFromContext(parentCtx)
+	parentSpan.End()
+
+	// Inject trace headers using OTel propagator.
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(parentCtx, carrier)
+	wantTP := carrier.Get("traceparent")
+
+	var gotSC trace.SpanContext
 	mock := &mockA2AConv{
 		sendFunc: func(ctx context.Context, _ any, _ ...SendOption) (*Response, error) {
-			gotTC = telemetry.TraceContextFromContext(ctx)
+			gotSC = trace.SpanContextFromContext(ctx)
 			return &Response{
 				message: &types.Message{
 					Role:  "assistant",
@@ -672,8 +695,6 @@ func TestTraceContextPropagation_SendMessage(t *testing.T) {
 		ts.URL+"/a2a", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("traceparent", wantTP)
-	req.Header.Set("tracestate", wantTS)
-	req.Header.Set("X-Amzn-Trace-Id", wantXRay)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -681,21 +702,34 @@ func TestTraceContextPropagation_SendMessage(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if gotTC.Traceparent != wantTP {
-		t.Errorf("Traceparent = %q, want %q", gotTC.Traceparent, wantTP)
-	}
-	if gotTC.Tracestate != wantTS {
-		t.Errorf("Tracestate = %q, want %q", gotTC.Tracestate, wantTS)
-	}
-	if gotTC.XRayTraceID != wantXRay {
-		t.Errorf("XRayTraceID = %q, want %q", gotTC.XRayTraceID, wantXRay)
+	if gotSC.TraceID() != parentSC.TraceID() {
+		t.Errorf("TraceID = %q, want %q", gotSC.TraceID(), parentSC.TraceID())
 	}
 }
 
 func TestTraceContextPropagation_StreamMessage(t *testing.T) {
-	wantTP := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	// Set up OTel propagation and tracer provider.
+	origProp := otel.GetTextMapPropagator()
+	defer otel.SetTextMapPropagator(origProp)
+	telemetry.SetupPropagation()
 
-	var gotTC telemetry.TraceContext
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	otel.SetTracerProvider(tp)
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	// Create a parent span to generate a valid traceparent.
+	tracer := tp.Tracer("test")
+	parentCtx, parentSpan := tracer.Start(context.Background(), "test-stream-parent")
+	parentSC := trace.SpanContextFromContext(parentCtx)
+	parentSpan.End()
+
+	// Inject trace headers using OTel propagator.
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(parentCtx, carrier)
+	wantTP := carrier.Get("traceparent")
+
+	var gotSC trace.SpanContext
 	mock := &mockA2AStreamConv{
 		mockA2AConv: mockA2AConv{
 			sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
@@ -703,7 +737,7 @@ func TestTraceContextPropagation_StreamMessage(t *testing.T) {
 			},
 		},
 		streamFunc: func(ctx context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			gotTC = telemetry.TraceContextFromContext(ctx)
+			gotSC = trace.SpanContextFromContext(ctx)
 			ch := make(chan StreamChunk, 1)
 			ch <- StreamChunk{Type: ChunkDone}
 			close(ch)
@@ -750,8 +784,8 @@ func TestTraceContextPropagation_StreamMessage(t *testing.T) {
 		}
 	}
 
-	if gotTC.Traceparent != wantTP {
-		t.Errorf("Traceparent = %q, want %q", gotTC.Traceparent, wantTP)
+	if gotSC.TraceID() != parentSC.TraceID() {
+		t.Errorf("TraceID = %q, want %q", gotSC.TraceID(), parentSC.TraceID())
 	}
 }
 

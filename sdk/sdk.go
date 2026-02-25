@@ -19,6 +19,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/provider"
@@ -446,6 +447,7 @@ func vertexBaseURL(pc *platformConfig, provType string) string {
 
 // initEventBus initializes the conversation's event bus.
 // If an event store is configured, it is attached to the bus for persistence.
+// If a TracerProvider is configured, an OTel event listener is wired in.
 func initEventBus(cfg *config) {
 	if cfg.eventBus == nil {
 		cfg.eventBus = events.NewEventBus()
@@ -454,7 +456,12 @@ func initEventBus(cfg *config) {
 	if cfg.eventStore != nil && cfg.eventBus.Store() == nil {
 		cfg.eventBus.WithStore(cfg.eventStore)
 	}
-	// EventBus is stored in config and accessed via c.config.eventBus
+	// Wire OTel event listener if a TracerProvider is configured.
+	if cfg.tracerProvider != nil {
+		tracer := telemetry.Tracer(cfg.tracerProvider)
+		listener := telemetry.NewOTelEventListener(tracer)
+		cfg.eventBus.SubscribeAll(listener.OnEvent)
+	}
 }
 
 // initInternalStateStore initializes the internal state store for conversation history.

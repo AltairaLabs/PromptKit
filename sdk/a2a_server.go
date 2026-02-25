@@ -11,8 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
-	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 )
 
 const (
@@ -98,7 +100,7 @@ func (s *A2AServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/agent.json", s.handleAgentCard)
 	mux.HandleFunc("POST /a2a", s.handleRPC)
-	return telemetry.TraceMiddleware(mux)
+	return otelhttp.NewHandler(mux, "a2a-server")
 }
 
 // ListenAndServe starts the HTTP server on the configured port.
@@ -218,9 +220,10 @@ func (s *A2AServer) handleSendMessage(w http.ResponseWriter, r *http.Request, re
 
 	// Propagate trace context to the background goroutine. We use a detached
 	// context because the goroutine outlives the HTTP handler on the non-blocking path.
-	traceCtx := telemetry.ContextWithTrace(context.Background(),
-		telemetry.TraceContextFromContext(r.Context()))
-	done := s.runConversation(traceCtx, taskID, conv, pkMsg)
+	// Copy the OTel span context so downstream spans nest under the inbound trace.
+	bgCtx := trace.ContextWithSpanContext(context.Background(),
+		trace.SpanContextFromContext(r.Context()))
+	done := s.runConversation(bgCtx, taskID, conv, pkMsg)
 
 	if params.Configuration != nil && params.Configuration.Blocking {
 		<-done

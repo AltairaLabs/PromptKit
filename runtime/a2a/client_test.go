@@ -11,6 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 )
 
@@ -567,15 +572,26 @@ func TestErrorPath_DiscoverSendFail(t *testing.T) {
 }
 
 func TestClient_PropagatesTraceHeaders(t *testing.T) {
-	wantTP := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-	wantTS := "congo=t61rcWkgMzE"
-	wantXRay := "Root=1-5759e988-bd862e3fe1be46a994272793"
+	// Configure OTel propagation so Inject writes W3C traceparent/tracestate.
+	origProp := otel.GetTextMapPropagator()
+	defer otel.SetTextMapPropagator(origProp)
+	telemetry.SetupPropagation()
 
-	var gotTP, gotTS, gotXRay string
+	// Create a real span context to propagate.
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	tracer := tp.Tracer("test")
+	ctx, span := tracer.Start(context.Background(), "test-parent")
+	defer span.End()
+
+	sc := trace.SpanContextFromContext(ctx)
+	wantTraceID := sc.TraceID().String()
+
+	var gotTP string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotTP = r.Header.Get("traceparent")
-		gotTS = r.Header.Get("tracestate")
-		gotXRay = r.Header.Get("X-Amzn-Trace-Id")
 
 		switch r.URL.Path {
 		case "/.well-known/agent.json":
@@ -590,13 +606,6 @@ func TestClient_PropagatesTraceHeaders(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	tc := telemetry.TraceContext{
-		Traceparent: wantTP,
-		Tracestate:  wantTS,
-		XRayTraceID: wantXRay,
-	}
-	ctx := telemetry.ContextWithTrace(context.Background(), tc)
-
 	c := NewClient(srv.URL)
 
 	// Test Discover propagates trace headers.
@@ -604,23 +613,19 @@ func TestClient_PropagatesTraceHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
-	if gotTP != wantTP {
-		t.Errorf("Discover: traceparent = %q, want %q", gotTP, wantTP)
+	if gotTP == "" {
+		t.Fatal("Discover: expected traceparent header, got empty")
 	}
-	if gotTS != wantTS {
-		t.Errorf("Discover: tracestate = %q, want %q", gotTS, wantTS)
-	}
-	if gotXRay != wantXRay {
-		t.Errorf("Discover: X-Amzn-Trace-Id = %q, want %q", gotXRay, wantXRay)
+	// Verify the traceparent contains the correct trace ID.
+	if len(gotTP) < 36 || gotTP[3:35] != wantTraceID {
+		t.Errorf("Discover: traceparent trace ID = %q, want %q", gotTP, wantTraceID)
 	}
 
 	// Reset cached card to test rpcCall path.
 	c.mu.Lock()
 	c.agentCard = nil
 	c.mu.Unlock()
-
-	// Reset captured headers.
-	gotTP, gotTS, gotXRay = "", "", ""
+	gotTP = ""
 
 	// Test SendMessage (rpcCall) propagates trace headers.
 	_, err = c.SendMessage(ctx, &SendMessageRequest{
@@ -629,10 +634,24 @@ func TestClient_PropagatesTraceHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
-	if gotTP != wantTP {
-		t.Errorf("SendMessage: traceparent = %q, want %q", gotTP, wantTP)
+	if gotTP == "" {
+		t.Fatal("SendMessage: expected traceparent header, got empty")
 	}
-	if gotTS != wantTS {
-		t.Errorf("SendMessage: tracestate = %q, want %q", gotTS, wantTS)
+	if len(gotTP) < 36 || gotTP[3:35] != wantTraceID {
+		t.Errorf("SendMessage: traceparent trace ID = %q, want %q", gotTP, wantTraceID)
+	}
+
+	// Verify that without a span context, no headers are injected.
+	c.mu.Lock()
+	c.agentCard = nil
+	c.mu.Unlock()
+	gotTP = ""
+
+	_, err = c.Discover(context.Background())
+	if err != nil {
+		t.Fatalf("Discover (no span): %v", err)
+	}
+	if gotTP != "" {
+		t.Errorf("expected no traceparent without span context, got %q", gotTP)
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -151,6 +153,9 @@ type config struct {
 	skillsDirs      []string
 	skillSelector   skills.SkillSelector
 	maxActiveSkills int
+
+	// Telemetry: OTel TracerProvider for distributed tracing
+	tracerProvider trace.TracerProvider
 }
 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.
@@ -467,6 +472,25 @@ func WithEventBus(bus *events.EventBus) Option {
 func WithEventStore(store events.EventStore) Option {
 	return func(c *config) error {
 		c.eventStore = store
+		return nil
+	}
+}
+
+// WithTracerProvider sets the OpenTelemetry TracerProvider for distributed tracing.
+//
+// When set, the conversation emits OTel spans for pipeline, provider, tool,
+// middleware, and workflow events. These spans nest under the provider's trace
+// tree, enabling end-to-end observability across services.
+//
+// If not set, no spans are created (zero overhead).
+//
+//	tp := sdktrace.NewTracerProvider(...)
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithTracerProvider(tp),
+//	)
+func WithTracerProvider(tp trace.TracerProvider) Option {
+	return func(c *config) error {
+		c.tracerProvider = tp
 		return nil
 	}
 }
