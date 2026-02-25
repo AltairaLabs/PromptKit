@@ -83,19 +83,26 @@ func TestOTelIntegration_SpansFromConversation(t *testing.T) {
 	}
 
 	// Verify we got the key spans.
-	// Note: pipeline-level events (PipelineStarted/Completed) are emitted by the
-	// runtime pipeline executor, but the SDK builder doesn't wire the emitter at
-	// the pipeline level — only at the provider stage level. So we only expect
-	// provider spans here.
-	hasProvider := false
+	spanNames := make(map[string]bool)
 	for _, s := range spans {
-		if len(s.Name) > len("promptkit.provider.") && s.Name[:len("promptkit.provider.")] == "promptkit.provider." {
+		spanNames[s.Name] = true
+	}
+
+	// Check that at least one span starts with "promptkit.provider." (provider name varies).
+	hasProvider := false
+	for name := range spanNames {
+		if len(name) > len("promptkit.provider.") && name[:len("promptkit.provider.")] == "promptkit.provider." {
 			hasProvider = true
 			break
 		}
 	}
 	if !hasProvider {
 		t.Errorf("missing provider span; got spans: %v", spanNameList(spans))
+	}
+
+	// Pipeline span should also be present.
+	if !spanNames["promptkit.pipeline"] {
+		t.Errorf("missing promptkit.pipeline span; got spans: %v", spanNameList(spans))
 	}
 
 	t.Logf("captured %d span(s): %v", len(spans), spanNameList(spans))
