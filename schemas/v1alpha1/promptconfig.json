@@ -110,6 +110,15 @@
         },
         "metric": {
           "$ref": "#/$defs/MetricDef"
+        },
+        "threshold": {
+          "$ref": "#/$defs/Threshold"
+        },
+        "message": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/EvalWhen"
         }
       },
       "additionalProperties": false,
@@ -120,6 +129,24 @@
         "trigger",
         "params"
       ]
+    },
+    "EvalWhen": {
+      "properties": {
+        "tool_called": {
+          "type": "string"
+        },
+        "tool_called_pattern": {
+          "type": "string"
+        },
+        "any_tool_called": {
+          "type": "boolean"
+        },
+        "min_tool_calls": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "ExampleContentPart": {
       "properties": {
@@ -550,6 +577,21 @@
         "version",
         "syntax"
       ]
+    },
+    "Threshold": {
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "min_score": {
+          "type": "number"
+        },
+        "max_score": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "ToolPolicyPack": {
       "properties": {

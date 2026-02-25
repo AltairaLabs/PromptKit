@@ -645,6 +645,15 @@
         },
         "metric": {
           "$ref": "#/$defs/MetricDef"
+        },
+        "threshold": {
+          "$ref": "#/$defs/Threshold"
+        },
+        "message": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/EvalWhen"
         }
       },
       "additionalProperties": false,
@@ -673,6 +682,24 @@
         "all_turns": {
           "$ref": "#/$defs/EvalAllTurnsConfig",
           "description": "Assertions to apply to all assistant messages"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "EvalWhen": {
+      "properties": {
+        "tool_called": {
+          "type": "string"
+        },
+        "tool_called_pattern": {
+          "type": "string"
+        },
+        "any_tool_called": {
+          "type": "boolean"
+        },
+        "min_tool_calls": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,
@@ -1833,6 +1860,21 @@
         "version",
         "syntax"
       ]
+    },
+    "Threshold": {
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "min_score": {
+          "type": "number"
+        },
+        "max_score": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "ToolPolicy": {
       "properties": {
