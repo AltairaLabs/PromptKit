@@ -272,6 +272,11 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 		}
 	}
 
+	// Wire event emitter so the pipeline emits PipelineStarted/Completed events.
+	if cfg.EventEmitter != nil {
+		builder.WithEventEmitter(cfg.EventEmitter)
+	}
+
 	// Build and return the StreamPipeline directly
 	streamPipeline, err := builder.Chain(stages...).Build()
 	if err != nil {
