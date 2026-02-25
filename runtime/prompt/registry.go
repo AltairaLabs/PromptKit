@@ -39,7 +39,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/template"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -198,10 +197,10 @@ type ExampleMedia struct {
 	Caption string `yaml:"caption,omitempty" json:"caption,omitempty"`
 }
 
-// ValidatorConfig extends validators.ValidatorConfig with prompt-pack specific fields
+// ValidatorConfig describes a validator/guardrail configuration from a prompt pack.
 type ValidatorConfig struct {
-	// Embed base config (Type, Params)
-	validators.ValidatorConfig `yaml:",inline" json:",inline"`
+	Type   string                 `yaml:"type" json:"type"`
+	Params map[string]interface{} `yaml:"params" json:"params"`
 	// Enable/disable validator (default: true)
 	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	// Fail execution on violation (default: true)

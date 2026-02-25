@@ -11,7 +11,7 @@ import (
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -114,7 +114,7 @@ func TestScriptedExecutor_ExecuteTurn_Success(t *testing.T) {
 	// Ensure validator configs present so DynamicValidatorMiddleware continues the chain
 	if req.StateStoreConfig != nil {
 		req.StateStoreConfig.Metadata = map[string]interface{}{
-			"validator_configs": []validators.ValidatorConfig{{Type: "length", Params: map[string]interface{}{"length": 100}}},
+			"validator_configs": []prompt.ValidatorConfig{{Type: "length", Params: map[string]interface{}{"length": 100}}},
 		}
 	}
 
@@ -210,7 +210,7 @@ func TestScriptedExecutor_ExecuteTurn_EmptyScriptedContent(t *testing.T) {
 	}
 	if req.StateStoreConfig != nil {
 		req.StateStoreConfig.Metadata = map[string]interface{}{
-			"validator_configs": []validators.ValidatorConfig{{Type: "length", Params: map[string]interface{}{"length": 100}}},
+			"validator_configs": []prompt.ValidatorConfig{{Type: "length", Params: map[string]interface{}{"length": 100}}},
 		}
 	}
 
@@ -296,7 +296,7 @@ func TestScriptedExecutor_ExecuteTurn_WithHistory(t *testing.T) {
 	}
 	if req.StateStoreConfig != nil {
 		req.StateStoreConfig.Metadata = map[string]interface{}{
-			"validator_configs": []validators.ValidatorConfig{{Type: "length", Params: map[string]interface{}{"length": 100}}},
+			"validator_configs": []prompt.ValidatorConfig{{Type: "length", Params: map[string]interface{}{"length": 100}}},
 		}
 	}
 
@@ -385,7 +385,7 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 	}
 	if req.StateStoreConfig != nil {
 		req.StateStoreConfig.Metadata = map[string]interface{}{
-			"validator_configs": []validators.ValidatorConfig{{Type: "length", Params: map[string]interface{}{"length": 100}}},
+			"validator_configs": []prompt.ValidatorConfig{{Type: "length", Params: map[string]interface{}{"length": 100}}},
 		}
 	}
 

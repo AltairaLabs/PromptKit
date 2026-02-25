@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
 func TestPopulateDefaults_TemplateEngine(t *testing.T) {
@@ -77,11 +76,9 @@ func TestPopulateDefaults_ValidatorFlags(t *testing.T) {
 			TaskType: "test",
 			Validators: []ValidatorConfig{
 				{
-					ValidatorConfig: validators.ValidatorConfig{
-						Type: "banned_words",
-						Params: map[string]interface{}{
-							"words": []string{"bad", "worse"},
-						},
+					Type: "banned_words",
+					Params: map[string]interface{}{
+						"words": []string{"bad", "worse"},
 					},
 				},
 			},

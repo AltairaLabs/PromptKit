@@ -7,7 +7,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -381,11 +380,11 @@ func TestPrintPromptValidators(t *testing.T) {
 		p := &prompt.PackPrompt{
 			Validators: []prompt.ValidatorConfig{
 				{
-					ValidatorConfig: validators.ValidatorConfig{Type: "length"},
+					Type: "length",
 					Enabled:         &enabled,
 				},
 				{
-					ValidatorConfig: validators.ValidatorConfig{Type: "sentiment"},
+					Type: "sentiment",
 					Enabled:         &disabled,
 				},
 			},
@@ -546,7 +545,7 @@ func TestPrintPromptDetails(t *testing.T) {
 		Tools: []string{"tool1"},
 		Validators: []prompt.ValidatorConfig{
 			{
-				ValidatorConfig: validators.ValidatorConfig{Type: "length"},
+				Type: "length",
 				Enabled:         &enabled,
 			},
 		},

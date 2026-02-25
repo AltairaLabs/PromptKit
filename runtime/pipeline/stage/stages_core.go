@@ -10,7 +10,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/validators"
 )
 
 // PromptAssemblyStage loads and assembles prompts from the prompt registry.
@@ -108,17 +107,18 @@ func (s *PromptAssemblyStage) assemblePrompt() *prompt.AssembledPrompt {
 	return assembled
 }
 
-func (s *PromptAssemblyStage) extractValidatorConfigs(promptValidators []prompt.ValidatorConfig) []validators.ValidatorConfig {
-	validatorConfigs := make([]validators.ValidatorConfig, 0, len(promptValidators))
+func (s *PromptAssemblyStage) extractValidatorConfigs(
+	promptValidators []prompt.ValidatorConfig,
+) []prompt.ValidatorConfig {
+	configs := make([]prompt.ValidatorConfig, 0, len(promptValidators))
 	for _, v := range promptValidators {
 		// Skip disabled validators
 		if v.Enabled != nil && !*v.Enabled {
 			continue
 		}
-		// Extract the embedded validators.ValidatorConfig
-		validatorConfigs = append(validatorConfigs, v.ValidatorConfig)
+		configs = append(configs, v)
 	}
-	return validatorConfigs
+	return configs
 }
 
 // StateStoreLoadStage loads conversation history from state store.
