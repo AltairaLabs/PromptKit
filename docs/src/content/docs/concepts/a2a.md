@@ -235,6 +235,18 @@ This separation keeps the runtime free of SDK dependencies while letting the SDK
 
 ---
 
+## A2A and AG-UI
+
+A2A handles **agent-to-agent** communication — agents calling other agents as services. For the complementary problem of connecting agents to **frontend applications** (user interfaces, chat widgets, dashboards), PromptKit supports the [AG-UI protocol](/concepts/ag-ui/). Together, these protocols cover the full communication surface:
+
+| Protocol | Direction | Use Case |
+|----------|-----------|----------|
+| **MCP** | Agent ↔ Tools | Tool discovery and execution |
+| **A2A** | Agent ↔ Agents | Task delegation between agents |
+| **AG-UI** | Agent ↔ Frontends | Real-time streaming to user interfaces |
+
+---
+
 ## Next Steps
 
 - [Tutorial: A2A Client](/runtime/tutorials/07-a2a-client/) — discover agents and send messages
@@ -242,3 +254,4 @@ This separation keeps the runtime free of SDK dependencies while letting the SDK
 - [Tool Bridge How-To](/runtime/how-to/use-a2a-tool-bridge/) — register agents as tools
 - [Runtime A2A Reference](/runtime/reference/a2a/) — client, types, bridge, mock API
 - [SDK A2A Reference](/sdk/reference/a2a-server/) — server, task store, opener API
+- [AG-UI Concept](/concepts/ag-ui/) — the complementary agent-to-frontend protocol
