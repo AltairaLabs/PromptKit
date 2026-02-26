@@ -89,31 +89,35 @@ func appendToolCalls(trace []TurnToolCall, calls []types.MessageToolCall, roundI
 }
 
 // matchToolResultToTrace matches a tool result to the first unresolved trace entry,
-// using ID-first then name-fallback matching (same as context_builder.go).
+// delegating to the shared matchResult algorithm (ID-first / name-fallback).
 func matchToolResultToTrace(trace []TurnToolCall, result *types.MessageToolResult) {
-	// Try matching by ID first
-	if result.ID != "" {
-		for i := range trace {
-			if trace[i].CallID == result.ID && !trace[i].resolved {
-				populateTraceResult(&trace[i], result)
-				return
-			}
-		}
-	}
-
-	// Fall back to forward name matching (first unresolved record)
+	entries := make([]toolCallEntry, len(trace))
 	for i := range trace {
-		if trace[i].Name == result.Name && !trace[i].resolved {
-			populateTraceResult(&trace[i], result)
-			return
-		}
+		entries[i] = &turnToolCallEntry{tc: &trace[i]}
 	}
+	matchResult(entries, result)
 }
 
-// populateTraceResult fills a TurnToolCall with data from a MessageToolResult.
-func populateTraceResult(tc *TurnToolCall, result *types.MessageToolResult) {
-	tc.Result = result.Content
-	tc.Error = result.Error
-	tc.LatencyMs = result.LatencyMs
-	tc.resolved = true
+// turnToolCallEntry adapts a TurnToolCall to the toolCallEntry interface.
+type turnToolCallEntry struct {
+	tc *TurnToolCall
+}
+
+func (e *turnToolCallEntry) callID() string {
+	return e.tc.CallID
+}
+
+func (e *turnToolCallEntry) callName() string {
+	return e.tc.Name
+}
+
+func (e *turnToolCallEntry) isResolved() bool {
+	return e.tc.resolved
+}
+
+func (e *turnToolCallEntry) applyResult(result *types.MessageToolResult) {
+	e.tc.Result = result.Content
+	e.tc.Error = result.Error
+	e.tc.LatencyMs = result.LatencyMs
+	e.tc.resolved = true
 }
