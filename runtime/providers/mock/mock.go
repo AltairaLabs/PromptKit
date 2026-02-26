@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
-
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -273,7 +273,7 @@ func (m *Provider) createStreamChunk(responseText string, parts []types.ContentP
 		Delta:        responseText,
 		TokenCount:   outputTokens,
 		DeltaTokens:  outputTokens,
-		FinishReason: ptr("stop"),
+		FinishReason: testutil.Ptr("stop"),
 		CostInfo:     costInfo,
 		FinalResult: &providers.PredictionResponse{
 			Content:  responseText,
@@ -319,11 +319,6 @@ func (m *Provider) CalculateCost(inputTokens, outputTokens, cachedTokens int) ty
 		CachedCostUSD: cachedCost,
 		TotalCost:     inputCost + cachedCost + outputCost,
 	}
-}
-
-// ptr is a helper function to create a pointer to a value
-func ptr[T any](v T) *T {
-	return &v
 }
 
 // generateContentSummary creates a human-readable summary from content parts

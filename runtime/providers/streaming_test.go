@@ -7,17 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
-
-// ptr is a helper function to create a pointer to a string
-func ptr(s string) *string {
-	return &s
-}
 
 func TestOpenAIStreaming(t *testing.T) {
 	// Only run live streaming tests when explicitly enabled to avoid CI flakiness
@@ -303,7 +299,7 @@ func TestStreamChunk_WithError(t *testing.T) {
 	chunk := providers.StreamChunk{
 		Content:      "Partial content",
 		Error:        testErr,
-		FinishReason: ptr("validation_failed"),
+		FinishReason: testutil.Ptr("validation_failed"),
 	}
 
 	if chunk.Error == nil {
@@ -452,22 +448,22 @@ func TestIsValidationAbort(t *testing.T) {
 
 func TestPtr(t *testing.T) {
 	s := "test"
-	p := ptr(s)
+	p := testutil.Ptr(s)
 
 	if p == nil {
-		t.Fatal("ptr() returned nil")
+		t.Fatal("testutil.Ptr() returned nil")
 	}
 
 	if *p != s {
-		t.Errorf("ptr() = %q, want %q", *p, s)
+		t.Errorf("testutil.Ptr() = %q, want %q", *p, s)
 	}
 
 	// Verify it's a different address
 	s2 := "test"
-	p2 := ptr(s2)
+	p2 := testutil.Ptr(s2)
 
 	if p == p2 {
-		t.Error("ptr() should return different pointers")
+		t.Error("testutil.Ptr() should return different pointers")
 	}
 }
 

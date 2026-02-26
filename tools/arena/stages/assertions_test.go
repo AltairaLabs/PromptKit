@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -28,7 +29,6 @@ func (m *mockTurnEvalRunner) RunAssertionsAsEvals(
 	return m.results
 }
 
-func float64Ptr(v float64) *float64 { return &v }
 
 func TestArenaAssertionStage_NoAssertions(t *testing.T) {
 	s := NewArenaAssertionStage(nil)
@@ -72,7 +72,7 @@ func TestArenaAssertionStage_WithPassingAssertion(t *testing.T) {
 			{
 				Type:    "always_pass",
 				Passed:  true,
-				Score:   float64Ptr(1.0),
+				Score:   testutil.Ptr(1.0),
 				Message: "Should always pass",
 				Details: map[string]any{"status": "passed"},
 			},
@@ -111,7 +111,7 @@ func TestArenaAssertionStage_WithFailingAssertion(t *testing.T) {
 			{
 				Type:    "always_fail",
 				Passed:  false,
-				Score:   float64Ptr(0.0),
+				Score:   testutil.Ptr(0.0),
 				Message: "Should always fail",
 				Details: map[string]any{"status": "failed", "reason": "always fails"},
 			},
@@ -147,7 +147,7 @@ func TestArenaAssertionStage_NoAssistantMessage(t *testing.T) {
 
 	runner := &mockTurnEvalRunner{
 		results: []evals.EvalResult{
-			{Type: "always_pass", Passed: true, Score: float64Ptr(1.0)},
+			{Type: "always_pass", Passed: true, Score: testutil.Ptr(1.0)},
 		},
 	}
 
@@ -352,14 +352,14 @@ func TestArenaAssertionStage_MultipleAssertions(t *testing.T) {
 			{
 				Type:    "pass1",
 				Passed:  true,
-				Score:   float64Ptr(1.0),
+				Score:   testutil.Ptr(1.0),
 				Message: "First assertion",
 				Details: map[string]any{"status": "passed"},
 			},
 			{
 				Type:    "pass2",
 				Passed:  true,
-				Score:   float64Ptr(1.0),
+				Score:   testutil.Ptr(1.0),
 				Message: "Second assertion",
 				Details: map[string]any{"status": "passed"},
 			},
@@ -395,14 +395,14 @@ func TestArenaAssertionStage_AllAssertionsRunOnFailure(t *testing.T) {
 			{
 				Type:    "fail_first",
 				Passed:  false,
-				Score:   float64Ptr(0.0),
+				Score:   testutil.Ptr(0.0),
 				Message: "Will fail",
 				Details: map[string]any{"status": "failed"},
 			},
 			{
 				Type:    "also_runs",
 				Passed:  true,
-				Score:   float64Ptr(1.0),
+				Score:   testutil.Ptr(1.0),
 				Message: "Also runs",
 				Details: map[string]any{"status": "passed"},
 			},

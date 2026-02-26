@@ -3,6 +3,7 @@ package assertions
 import (
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
@@ -43,7 +44,7 @@ func (a AssertionConfig) ToEvalDef(index int) evals.EvalDef {
 		Trigger:   evals.TriggerEveryTurn,
 		Params:    a.Params,
 		Message:   a.Message,
-		Threshold: &evals.Threshold{Passed: boolPtr(true)},
+		Threshold: &evals.Threshold{Passed: testutil.Ptr(true)},
 	}
 	if a.When != nil {
 		def.When = &evals.EvalWhen{
@@ -63,5 +64,3 @@ func (a AssertionConfig) ToConversationEvalDef(index int) evals.EvalDef {
 	def.Trigger = evals.TriggerOnConversationComplete
 	return def
 }
-
-func boolPtr(b bool) *bool { return &b }

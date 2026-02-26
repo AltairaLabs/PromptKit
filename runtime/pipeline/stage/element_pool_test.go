@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -27,7 +28,7 @@ func TestPutElement(t *testing.T) {
 
 	// Test that element is reset after put
 	elem := GetElement()
-	elem.Text = ptrString("test")
+	elem.Text = testutil.Ptr("test")
 	elem.Sequence = 42
 	elem.Source = "test-source"
 	elem.Metadata["key"] = "value"
@@ -55,7 +56,7 @@ func TestPutElement(t *testing.T) {
 
 func TestReset(t *testing.T) {
 	elem := &StreamElement{
-		Text:        ptrString("test text"),
+		Text:        testutil.Ptr("test text"),
 		Audio:       &AudioData{Samples: []byte{1, 2, 3}},
 		Video:       &VideoData{Data: []byte{4, 5, 6}},
 		Image:       &ImageData{Data: []byte{7, 8, 9}},
@@ -246,7 +247,7 @@ func TestPoolConcurrency(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numOperations; j++ {
 				elem := GetElement()
-				elem.Text = ptrString("test")
+				elem.Text = testutil.Ptr("test")
 				elem.Sequence = int64(id*numOperations + j)
 				elem.Metadata["id"] = id
 				elem.Metadata["op"] = j
@@ -283,11 +284,6 @@ func TestPoolReuse(t *testing.T) {
 	}
 }
 
-// ptrString returns a pointer to the given string.
-func ptrString(s string) *string {
-	return &s
-}
-
 // BenchmarkGetElement benchmarks getting an element from the pool.
 func BenchmarkGetElement(b *testing.B) {
 	for i := 0; i < b.N; i++ {
@@ -316,7 +312,7 @@ func BenchmarkPoolParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			elem := GetElement()
-			elem.Text = ptrString("test")
+			elem.Text = testutil.Ptr("test")
 			elem.Metadata["key"] = "value"
 			PutElement(elem)
 		}

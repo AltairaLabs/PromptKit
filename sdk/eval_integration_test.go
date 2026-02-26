@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
@@ -37,7 +38,7 @@ func (d *integrationDispatcher) DispatchTurnEvals(
 	d.mu.Unlock()
 	d.turnCh <- struct{}{}
 	return []evals.EvalResult{
-		{EvalID: "e1", Passed: true, Score: float64Ptr(0.9)},
+		{EvalID: "e1", Passed: true, Score: testutil.Ptr(0.9)},
 	}, nil
 }
 
@@ -60,7 +61,6 @@ func (d *integrationDispatcher) DispatchConversationEvals(
 	return nil, nil
 }
 
-func float64Ptr(v float64) *float64 { return &v }
 
 // integrationResultWriter records results for assertion.
 type integrationResultWriter struct {

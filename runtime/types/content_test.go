@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 )
 
 func TestNewTextPart(t *testing.T) {
@@ -112,7 +114,7 @@ func TestContentPartValidate(t *testing.T) {
 			name: "valid text part",
 			part: ContentPart{
 				Type: ContentTypeText,
-				Text: stringPtr("Hello"),
+				Text: testutil.Ptr("Hello"),
 			},
 			wantErr: false,
 		},
@@ -120,7 +122,7 @@ func TestContentPartValidate(t *testing.T) {
 			name: "invalid text part - empty text",
 			part: ContentPart{
 				Type: ContentTypeText,
-				Text: stringPtr(""),
+				Text: testutil.Ptr(""),
 			},
 			wantErr: true,
 		},
@@ -137,7 +139,7 @@ func TestContentPartValidate(t *testing.T) {
 			part: ContentPart{
 				Type: ContentTypeImage,
 				Media: &MediaContent{
-					Data:     stringPtr("base64data"),
+					Data:     testutil.Ptr("base64data"),
 					MIMEType: MIMETypeImageJPEG,
 				},
 			},
@@ -155,7 +157,7 @@ func TestContentPartValidate(t *testing.T) {
 			name: "invalid type",
 			part: ContentPart{
 				Type: "invalid",
-				Text: stringPtr("test"),
+				Text: testutil.Ptr("test"),
 			},
 			wantErr: true,
 		},
@@ -180,7 +182,7 @@ func TestMediaContentValidate(t *testing.T) {
 		{
 			name: "valid with data",
 			media: MediaContent{
-				Data:     stringPtr("base64data"),
+				Data:     testutil.Ptr("base64data"),
 				MIMEType: MIMETypeImageJPEG,
 			},
 			wantErr: false,
@@ -188,7 +190,7 @@ func TestMediaContentValidate(t *testing.T) {
 		{
 			name: "valid with file path",
 			media: MediaContent{
-				FilePath: stringPtr("/path/to/image.jpg"),
+				FilePath: testutil.Ptr("/path/to/image.jpg"),
 				MIMEType: MIMETypeImageJPEG,
 			},
 			wantErr: false,
@@ -196,7 +198,7 @@ func TestMediaContentValidate(t *testing.T) {
 		{
 			name: "valid with URL",
 			media: MediaContent{
-				URL:      stringPtr("https://example.com/image.jpg"),
+				URL:      testutil.Ptr("https://example.com/image.jpg"),
 				MIMEType: MIMETypeImageJPEG,
 			},
 			wantErr: false,
@@ -211,8 +213,8 @@ func TestMediaContentValidate(t *testing.T) {
 		{
 			name: "invalid - multiple data sources",
 			media: MediaContent{
-				Data:     stringPtr("base64data"),
-				FilePath: stringPtr("/path/to/image.jpg"),
+				Data:     testutil.Ptr("base64data"),
+				FilePath: testutil.Ptr("/path/to/image.jpg"),
 				MIMEType: MIMETypeImageJPEG,
 			},
 			wantErr: true,
@@ -220,7 +222,7 @@ func TestMediaContentValidate(t *testing.T) {
 		{
 			name: "invalid - no MIME type",
 			media: MediaContent{
-				Data: stringPtr("base64data"),
+				Data: testutil.Ptr("base64data"),
 			},
 			wantErr: true,
 		},
@@ -396,11 +398,6 @@ func TestInferMIMEType(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Helper function
-func stringPtr(s string) *string {
-	return &s
 }
 
 func TestNewImagePart_ErrorPath(t *testing.T) {

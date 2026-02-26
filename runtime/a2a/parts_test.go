@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -46,8 +47,8 @@ func TestPartToContentPart(t *testing.T) {
 	}{
 		{
 			name: "text part",
-			part: Part{Text: ptr("hello")},
-			want: types.ContentPart{Type: "text", Text: ptr("hello")},
+			part: Part{Text: testutil.Ptr("hello")},
+			want: types.ContentPart{Type: "text", Text: testutil.Ptr("hello")},
 		},
 		{
 			name: "raw+image",
@@ -84,11 +85,11 @@ func TestPartToContentPart(t *testing.T) {
 		},
 		{
 			name: "url+image",
-			part: Part{URL: ptr("https://example.com/img.png"), MediaType: "image/png"},
+			part: Part{URL: testutil.Ptr("https://example.com/img.png"), MediaType: "image/png"},
 			want: types.ContentPart{
 				Type: "image",
 				Media: &types.MediaContent{
-					URL:      ptr("https://example.com/img.png"),
+					URL:      testutil.Ptr("https://example.com/img.png"),
 					MIMEType: "image/png",
 				},
 			},
@@ -155,7 +156,7 @@ func TestContentPartToA2APart(t *testing.T) {
 	}{
 		{
 			name: "text",
-			part: types.ContentPart{Type: "text", Text: ptr("hello")},
+			part: types.ContentPart{Type: "text", Text: testutil.Ptr("hello")},
 			check: func(t *testing.T, got Part) {
 				if got.Text == nil || *got.Text != "hello" {
 					t.Errorf("Text = %v, want 'hello'", got.Text)
@@ -188,7 +189,7 @@ func TestContentPartToA2APart(t *testing.T) {
 			part: types.ContentPart{
 				Type: "image",
 				Media: &types.MediaContent{
-					URL:      ptr("https://example.com/img.png"),
+					URL:      testutil.Ptr("https://example.com/img.png"),
 					MIMEType: "image/png",
 				},
 			},
@@ -226,8 +227,8 @@ func TestMessageToMessage(t *testing.T) {
 	msg := Message{
 		Role: RoleAgent,
 		Parts: []Part{
-			{Text: ptr("Hello ")},
-			{Text: ptr("world")},
+			{Text: testutil.Ptr("Hello ")},
+			{Text: testutil.Ptr("world")},
 			{Raw: []byte("img"), MediaType: "image/png"},
 		},
 		Metadata: map[string]any{"key": "value"},
@@ -264,7 +265,7 @@ func TestMessageToMessage(t *testing.T) {
 func TestMessageToMessage_UserRole(t *testing.T) {
 	msg := Message{
 		Role:  RoleUser,
-		Parts: []Part{{Text: ptr("hi")}},
+		Parts: []Part{{Text: testutil.Ptr("hi")}},
 	}
 	got, err := MessageToMessage(&msg)
 	if err != nil {
@@ -279,7 +280,7 @@ func TestContentPartsToArtifacts(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString([]byte("img"))
 
 	parts := []types.ContentPart{
-		{Type: "text", Text: ptr("result text")},
+		{Type: "text", Text: testutil.Ptr("result text")},
 		{
 			Type: "image",
 			Media: &types.MediaContent{
@@ -327,14 +328,14 @@ func TestRoundTrip(t *testing.T) {
 	}{
 		{
 			name: "text",
-			orig: types.ContentPart{Type: "text", Text: ptr("round trip text")},
+			orig: types.ContentPart{Type: "text", Text: testutil.Ptr("round trip text")},
 		},
 		{
 			name: "image data",
 			orig: types.ContentPart{
 				Type: "image",
 				Media: &types.MediaContent{
-					Data:     ptr(base64.StdEncoding.EncodeToString([]byte("pixel data"))),
+					Data:     testutil.Ptr(base64.StdEncoding.EncodeToString([]byte("pixel data"))),
 					MIMEType: "image/png",
 				},
 			},
@@ -344,7 +345,7 @@ func TestRoundTrip(t *testing.T) {
 			orig: types.ContentPart{
 				Type: "image",
 				Media: &types.MediaContent{
-					URL:      ptr("https://example.com/photo.jpg"),
+					URL:      testutil.Ptr("https://example.com/photo.jpg"),
 					MIMEType: "image/jpeg",
 				},
 			},

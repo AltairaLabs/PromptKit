@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/stretchr/testify/assert"
@@ -614,32 +615,32 @@ func TestMarkdownResultRepository_MediaOutputs(t *testing.T) {
 					Type:      "image",
 					MIMEType:  "image/png",
 					SizeBytes: 102400,
-					Width:     ptr(800),
-					Height:    ptr(600),
+					Width:     testutil.Ptr(800),
+					Height:    testutil.Ptr(600),
 					FilePath:  "/tmp/output1.png",
 				},
 				{
 					Type:      "image",
 					MIMEType:  "image/jpeg",
 					SizeBytes: 204800,
-					Width:     ptr(1920),
-					Height:    ptr(1080),
+					Width:     testutil.Ptr(1920),
+					Height:    testutil.Ptr(1080),
 					FilePath:  "/tmp/output2.jpg",
 				},
 				{
 					Type:      "audio",
 					MIMEType:  "audio/wav",
 					SizeBytes: 512000,
-					Duration:  ptr(30), // seconds as int
+					Duration:  testutil.Ptr(30), // seconds as int
 					FilePath:  "/tmp/audio.wav",
 				},
 				{
 					Type:      "video",
 					MIMEType:  "video/mp4",
 					SizeBytes: 2048000,
-					Duration:  ptr(60), // seconds as int
-					Width:     ptr(1280),
-					Height:    ptr(720),
+					Duration:  testutil.Ptr(60), // seconds as int
+					Width:     testutil.Ptr(1280),
+					Height:    testutil.Ptr(720),
 					FilePath:  "/tmp/video.mp4",
 				},
 			},
@@ -879,8 +880,4 @@ func TestHasFailedAssertionInMap(t *testing.T) {
 	t.Run("empty assertions", func(t *testing.T) {
 		assert.False(t, repo.hasFailedAssertionInMap(map[string]interface{}{}))
 	})
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -313,7 +314,7 @@ func TestExtractPrompt(t *testing.T) {
 						Role:    "user",
 						Content: "",
 						Parts: []types.ContentPart{
-							{Type: "text", Text: stringPtr("Generate a red square")},
+							{Type: "text", Text: testutil.Ptr("Generate a red square")},
 						},
 					},
 				},
@@ -357,7 +358,7 @@ func TestExtractPrompt(t *testing.T) {
 						Role: "user",
 						Parts: []types.ContentPart{
 							{Type: "image", Text: nil},
-							{Type: "text", Text: stringPtr("This should be found")},
+							{Type: "text", Text: testutil.Ptr("This should be found")},
 						},
 					},
 				},
@@ -439,11 +440,6 @@ func TestClose(t *testing.T) {
 	if err != nil {
 		t.Errorf("Close() returned unexpected error: %v", err)
 	}
-}
-
-// Helper function for tests
-func stringPtr(s string) *string {
-	return &s
 }
 
 // TestPredictErrorCases tests error handling in Predict method

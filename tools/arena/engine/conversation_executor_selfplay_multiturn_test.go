@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -216,7 +217,7 @@ func TestExecuteConversation_SelfPlayMultiTurnStreaming(t *testing.T) {
 		TaskType: "assistant",
 		Turns: []config.TurnDefinition{
 			{Role: "user", Content: "Start conversation."},
-			{Role: "attacker", Persona: "attacker", Turns: 3, Streaming: boolPtr(true)},
+			{Role: "attacker", Persona: "attacker", Turns: 3, Streaming: testutil.Ptr(true)},
 		},
 	}
 
@@ -352,14 +353,6 @@ func saveMessagesToStateStore(ctx context.Context, req turnexecutors.TurnRequest
 	return store.Save(ctx, state)
 }
 
-func boolPtr(b bool) *bool {
-	return &b
-}
-
-func ptrFloat32(f float32) *float32 {
-	return &f
-}
-
 // createTestSelfPlayRegistry creates a minimal self-play registry for testing
 func createTestSelfPlayRegistry(t *testing.T) *selfplay.Registry {
 	t.Helper()
@@ -390,21 +383,21 @@ func createTestSelfPlayRegistry(t *testing.T) *selfplay.Registry {
 			ID:           "curious-learner",
 			SystemPrompt: "You are a curious learner asking questions.",
 			Defaults: config.PersonaDefaults{
-				Temperature: ptrFloat32(0.7),
+				Temperature: testutil.Ptr[float32](0.7),
 			},
 		},
 		"attacker": {
 			ID:           "attacker",
 			SystemPrompt: "You are testing security.",
 			Defaults: config.PersonaDefaults{
-				Temperature: ptrFloat32(0.8),
+				Temperature: testutil.Ptr[float32](0.8),
 			},
 		},
 		"test": {
 			ID:           "test",
 			SystemPrompt: "You are a test persona.",
 			Defaults: config.PersonaDefaults{
-				Temperature: ptrFloat32(0.7),
+				Temperature: testutil.Ptr[float32](0.7),
 			},
 		},
 	}

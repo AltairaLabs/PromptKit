@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 )
 
 // --- test helpers ---
@@ -121,7 +121,7 @@ func TestSendMessage(t *testing.T) {
 	task, err := c.SendMessage(context.Background(), &SendMessageRequest{
 		Message: Message{
 			Role:  RoleUser,
-			Parts: []Part{{Text: ptr("hello")}},
+			Parts: []Part{{Text: testutil.Ptr("hello")}},
 		},
 	})
 	if err != nil {
@@ -231,7 +231,7 @@ func TestSendMessageStream(t *testing.T) {
 
 		fmt.Fprint(w, sseEvent(TaskArtifactUpdateEvent{
 			TaskID:   "task-1",
-			Artifact: Artifact{ArtifactID: "a1", Parts: []Part{{Text: ptr("result")}}},
+			Artifact: Artifact{ArtifactID: "a1", Parts: []Part{{Text: testutil.Ptr("result")}}},
 		}))
 		f.Flush()
 
@@ -245,7 +245,7 @@ func TestSendMessageStream(t *testing.T) {
 
 	c := NewClient(srv.URL)
 	ch, err := c.SendMessageStream(context.Background(), &SendMessageRequest{
-		Message: Message{Role: RoleUser, Parts: []Part{{Text: ptr("hello")}}},
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("hello")}}},
 	})
 	if err != nil {
 		t.Fatalf("SendMessageStream() error = %v", err)
@@ -288,7 +288,7 @@ func TestSendMessageStream_JSONRPCWrapped(t *testing.T) {
 		})
 		writeWrapped(TaskArtifactUpdateEvent{
 			TaskID:   "t1",
-			Artifact: Artifact{ArtifactID: "a1", Parts: []Part{{Text: ptr("chunk")}}},
+			Artifact: Artifact{ArtifactID: "a1", Parts: []Part{{Text: testutil.Ptr("chunk")}}},
 		})
 		writeWrapped(TaskStatusUpdateEvent{
 			TaskID: "t1",
@@ -299,7 +299,7 @@ func TestSendMessageStream_JSONRPCWrapped(t *testing.T) {
 
 	c := NewClient(srv.URL)
 	ch, err := c.SendMessageStream(context.Background(), &SendMessageRequest{
-		Message: Message{Role: RoleUser, Parts: []Part{{Text: ptr("go")}}},
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("go")}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -351,7 +351,7 @@ func TestRPCError(t *testing.T) {
 
 	c := NewClient(srv.URL)
 	_, err := c.SendMessage(context.Background(), &SendMessageRequest{
-		Message: Message{Role: RoleUser, Parts: []Part{{Text: ptr("hi")}}},
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("hi")}}},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -421,7 +421,7 @@ func TestSendMessageStream_HTTPError(t *testing.T) {
 
 	c := NewClient(srv.URL)
 	_, err := c.SendMessageStream(context.Background(), &SendMessageRequest{
-		Message: Message{Role: RoleUser, Parts: []Part{{Text: ptr("hi")}}},
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("hi")}}},
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -465,7 +465,7 @@ func TestHappyPath_DiscoverSendPollComplete(t *testing.T) {
 					task.Status = TaskStatus{State: TaskStateCompleted}
 					task.Artifacts = []Artifact{{
 						ArtifactID: "a1",
-						Parts:      []Part{{Text: ptr("done")}},
+						Parts:      []Part{{Text: testutil.Ptr("done")}},
 					}}
 				} else {
 					task.Status = TaskStatus{State: TaskStateWorking}
@@ -490,7 +490,7 @@ func TestHappyPath_DiscoverSendPollComplete(t *testing.T) {
 
 	// 2. Send message
 	task, err := c.SendMessage(ctx, &SendMessageRequest{
-		Message: Message{Role: RoleUser, Parts: []Part{{Text: ptr("solve this")}}},
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("solve this")}}},
 	})
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
@@ -553,7 +553,7 @@ func TestErrorPath_DiscoverSendFail(t *testing.T) {
 	}
 
 	task, err := c.SendMessage(ctx, &SendMessageRequest{
-		Message: Message{Role: RoleUser, Parts: []Part{{Text: ptr("do something")}}},
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("do something")}}},
 	})
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)
@@ -629,7 +629,7 @@ func TestClient_PropagatesTraceHeaders(t *testing.T) {
 
 	// Test SendMessage (rpcCall) propagates trace headers.
 	_, err = c.SendMessage(ctx, &SendMessageRequest{
-		Message: Message{Role: RoleUser, Parts: []Part{{Text: ptr("hi")}}},
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("hi")}}},
 	})
 	if err != nil {
 		t.Fatalf("SendMessage: %v", err)

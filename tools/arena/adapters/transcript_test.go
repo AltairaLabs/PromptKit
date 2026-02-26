@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -226,7 +227,7 @@ func TestTranscriptAdapter_Load_WithMultimodal(t *testing.T) {
 				Parts: []TranscriptContentPart{
 					{
 						Type: "text",
-						Text: stringPtr("Analyze this image"),
+						Text: testutil.Ptr("Analyze this image"),
 					},
 					{
 						Type: "image",
@@ -323,7 +324,7 @@ func TestTranscriptConvertContentPart(t *testing.T) {
 			name: "text part",
 			part: TranscriptContentPart{
 				Type: "text",
-				Text: stringPtr("Hello world"),
+				Text: testutil.Ptr("Hello world"),
 			},
 			want: "text",
 		},

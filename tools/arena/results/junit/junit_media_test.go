@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
@@ -37,7 +38,7 @@ func TestCalculateMediaStats(t *testing.T) {
 								{
 									Type: types.ContentTypeImage,
 									Media: &types.MediaContent{
-										Data:     ptrString("base64data"),
+										Data:     testutil.Ptr("base64data"),
 										MIMEType: "image/jpeg",
 									},
 								},
@@ -66,21 +67,21 @@ func TestCalculateMediaStats(t *testing.T) {
 								{
 									Type: types.ContentTypeImage,
 									Media: &types.MediaContent{
-										Data:     ptrString("img123"),
+										Data:     testutil.Ptr("img123"),
 										MIMEType: "image/png",
 									},
 								},
 								{
 									Type: types.ContentTypeAudio,
 									Media: &types.MediaContent{
-										FilePath: ptrString("/path/to/audio.mp3"),
+										FilePath: testutil.Ptr("/path/to/audio.mp3"),
 										MIMEType: "audio/mpeg",
 									},
 								},
 								{
 									Type: types.ContentTypeVideo,
 									Media: &types.MediaContent{
-										URL:      ptrString("https://example.com/video.mp4"),
+										URL:      testutil.Ptr("https://example.com/video.mp4"),
 										MIMEType: "video/mp4",
 									},
 								},
@@ -116,7 +117,7 @@ func TestCalculateMediaStats(t *testing.T) {
 								{
 									Type: types.ContentTypeAudio,
 									Media: &types.MediaContent{
-										Data:     ptrString(""), // Empty data
+										Data:     testutil.Ptr(""), // Empty data
 										MIMEType: "audio/mp3",
 									},
 								},
@@ -165,7 +166,7 @@ func TestCalculateMediaStats(t *testing.T) {
 							Parts: []types.ContentPart{
 								{
 									Type: types.ContentTypeText,
-									Text: ptrString("Hello world"),
+									Text: testutil.Ptr("Hello world"),
 								},
 								{
 									Type: types.ContentTypeImage,
@@ -196,7 +197,7 @@ func TestCalculateMediaStats(t *testing.T) {
 								{
 									Type: types.ContentTypeImage,
 									Media: &types.MediaContent{
-										Data:     ptrString("abc"),
+										Data:     testutil.Ptr("abc"),
 										MIMEType: "image/png",
 									},
 								},
@@ -212,14 +213,14 @@ func TestCalculateMediaStats(t *testing.T) {
 								{
 									Type: types.ContentTypeImage,
 									Media: &types.MediaContent{
-										Data:     ptrString("def"),
+										Data:     testutil.Ptr("def"),
 										MIMEType: "image/jpeg",
 									},
 								},
 								{
 									Type: types.ContentTypeAudio,
 									Media: &types.MediaContent{
-										Data:     ptrString("audio123"),
+										Data:     testutil.Ptr("audio123"),
 										MIMEType: "audio/wav",
 									},
 								},
@@ -396,12 +397,12 @@ func TestMediaStatsIntegration(t *testing.T) {
 					Parts: []types.ContentPart{
 						{
 							Type: types.ContentTypeText,
-							Text: ptrString("Analyze this image"),
+							Text: testutil.Ptr("Analyze this image"),
 						},
 						{
 							Type: types.ContentTypeImage,
 							Media: &types.MediaContent{
-								Data:     ptrString("image_base64_data_here"),
+								Data:     testutil.Ptr("image_base64_data_here"),
 								MIMEType: "image/jpeg",
 							},
 						},
@@ -427,7 +428,7 @@ func TestMediaStatsIntegration(t *testing.T) {
 						{
 							Type: types.ContentTypeAudio,
 							Media: &types.MediaContent{
-								FilePath: ptrString("/path/to/audio.mp3"),
+								FilePath: testutil.Ptr("/path/to/audio.mp3"),
 								MIMEType: "audio/mpeg",
 							},
 						},
@@ -471,9 +472,4 @@ func TestMediaStatsIntegration(t *testing.T) {
 			t.Error("property has empty value")
 		}
 	}
-}
-
-// Helper function to create string pointers
-func ptrString(s string) *string {
-	return &s
 }

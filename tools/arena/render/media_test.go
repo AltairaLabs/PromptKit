@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
@@ -297,14 +298,14 @@ func TestRenderMessageWithMedia(t *testing.T) {
 				Parts: []types.ContentPart{
 					{
 						Type: types.ContentTypeText,
-						Text: stringPtr("Analyze this image"),
+						Text: testutil.Ptr("Analyze this image"),
 					},
 					{
 						Type: types.ContentTypeImage,
 						Media: &types.MediaContent{
 							MIMEType: "image/jpeg",
-							FilePath: stringPtr("test.jpg"),
-							Data:     stringPtr("base64data"),
+							FilePath: testutil.Ptr("test.jpg"),
+							Data:     testutil.Ptr("base64data"),
 						},
 					},
 				},
@@ -321,7 +322,7 @@ func TestRenderMessageWithMedia(t *testing.T) {
 				Parts: []types.ContentPart{
 					{
 						Type: types.ContentTypeText,
-						Text: stringPtr("Generate a short audio clip"),
+						Text: testutil.Ptr("Generate a short audio clip"),
 					},
 				},
 			},
@@ -337,16 +338,16 @@ func TestRenderMessageWithMedia(t *testing.T) {
 						Type: types.ContentTypeImage,
 						Media: &types.MediaContent{
 							MIMEType: "image/png",
-							FilePath: stringPtr("chart.png"),
-							Data:     stringPtr("data"),
+							FilePath: testutil.Ptr("chart.png"),
+							Data:     testutil.Ptr("data"),
 						},
 					},
 					{
 						Type: types.ContentTypeAudio,
 						Media: &types.MediaContent{
 							MIMEType: "audio/wav",
-							FilePath: stringPtr("voice.wav"),
-							Data:     stringPtr("data"),
+							FilePath: testutil.Ptr("voice.wav"),
+							Data:     testutil.Ptr("data"),
 						},
 					},
 				},
@@ -389,8 +390,8 @@ func TestRenderInlineImage(t *testing.T) {
 				Type: types.ContentTypeImage,
 				Media: &types.MediaContent{
 					MIMEType: "image/jpeg",
-					FilePath: stringPtr("/path/to/image.jpg"),
-					Data:     stringPtr("SGVsbG8gV29ybGQ="),
+					FilePath: testutil.Ptr("/path/to/image.jpg"),
+					Data:     testutil.Ptr("SGVsbG8gV29ybGQ="),
 				},
 			},
 			want:    []string{"inline-image", "data:image/jpeg;base64,", "SGVsbG8gV29ybGQ=", "image.jpg"},
@@ -402,7 +403,7 @@ func TestRenderInlineImage(t *testing.T) {
 				Type: types.ContentTypeImage,
 				Media: &types.MediaContent{
 					MIMEType: "image/png",
-					URL:      stringPtr("https://example.com/image.png"),
+					URL:      testutil.Ptr("https://example.com/image.png"),
 				},
 			},
 			want:    []string{"inline-image", "https://example.com/image.png"},
@@ -414,7 +415,7 @@ func TestRenderInlineImage(t *testing.T) {
 				Type: types.ContentTypeImage,
 				Media: &types.MediaContent{
 					MIMEType: "image/gif",
-					FilePath: stringPtr("missing.gif"),
+					FilePath: testutil.Ptr("missing.gif"),
 				},
 			},
 			want:    []string{"inline-image-placeholder", "🖼️", "missing.gif"},
@@ -435,8 +436,8 @@ func TestRenderInlineImage(t *testing.T) {
 				Type: types.ContentTypeImage,
 				Media: &types.MediaContent{
 					MIMEType: "image/png",
-					FilePath: stringPtr("large.png"),
-					SizeKB:   int64Ptr(1024),
+					FilePath: testutil.Ptr("large.png"),
+					SizeKB:   testutil.Ptr[int64](1024),
 				},
 			},
 			want:    []string{"inline-image-placeholder", "1.0 MB"},
@@ -482,7 +483,7 @@ func TestGetMediaSummaryFromParts(t *testing.T) {
 		{
 			name: "text only",
 			parts: []types.ContentPart{
-				{Type: types.ContentTypeText, Text: stringPtr("hello")},
+				{Type: types.ContentTypeText, Text: testutil.Ptr("hello")},
 			},
 			want: &types.MediaSummary{
 				TotalParts: 1,
@@ -493,19 +494,19 @@ func TestGetMediaSummaryFromParts(t *testing.T) {
 		{
 			name: "mixed content",
 			parts: []types.ContentPart{
-				{Type: types.ContentTypeText, Text: stringPtr("text")},
+				{Type: types.ContentTypeText, Text: testutil.Ptr("text")},
 				{
 					Type: types.ContentTypeImage,
 					Media: &types.MediaContent{
 						MIMEType: "image/jpeg",
-						FilePath: stringPtr("test.jpg"),
+						FilePath: testutil.Ptr("test.jpg"),
 					},
 				},
 				{
 					Type: types.ContentTypeAudio,
 					Media: &types.MediaContent{
 						MIMEType: "audio/wav",
-						URL:      stringPtr("http://example.com/audio.wav"),
+						URL:      testutil.Ptr("http://example.com/audio.wav"),
 					},
 				},
 			},
@@ -583,7 +584,7 @@ func TestGetMediaItemSummaryFromPart(t *testing.T) {
 				Type: types.ContentTypeImage,
 				Media: &types.MediaContent{
 					MIMEType: "image/png",
-					FilePath: stringPtr("/path/to/image.png"),
+					FilePath: testutil.Ptr("/path/to/image.png"),
 				},
 			},
 			want: types.MediaItemSummary{
@@ -599,7 +600,7 @@ func TestGetMediaItemSummaryFromPart(t *testing.T) {
 				Type: types.ContentTypeAudio,
 				Media: &types.MediaContent{
 					MIMEType: "audio/mp3",
-					URL:      stringPtr("https://example.com/audio.mp3"),
+					URL:      testutil.Ptr("https://example.com/audio.mp3"),
 				},
 			},
 			want: types.MediaItemSummary{
@@ -615,7 +616,7 @@ func TestGetMediaItemSummaryFromPart(t *testing.T) {
 				Type: types.ContentTypeImage,
 				Media: &types.MediaContent{
 					MIMEType: "image/jpeg",
-					Data:     stringPtr("aGVsbG8gd29ybGQ="), // 16 chars base64
+					Data:     testutil.Ptr("aGVsbG8gd29ybGQ="), // 16 chars base64
 				},
 			},
 			want: types.MediaItemSummary{
@@ -632,8 +633,8 @@ func TestGetMediaItemSummaryFromPart(t *testing.T) {
 				Type: types.ContentTypeVideo,
 				Media: &types.MediaContent{
 					MIMEType: "video/mp4",
-					FilePath: stringPtr("video.mp4"),
-					SizeKB:   int64Ptr(1024),
+					FilePath: testutil.Ptr("video.mp4"),
+					SizeKB:   testutil.Ptr[int64](1024),
 				},
 			},
 			want: types.MediaItemSummary{
@@ -672,15 +673,6 @@ func TestGetMediaItemSummaryFromPart(t *testing.T) {
 	}
 }
 
-// Helper functions for tests
-func stringPtr(s string) *string {
-	return &s
-}
-
-func int64Ptr(i int64) *int64 {
-	return &i
-}
-
 func TestCalculateMediaStats(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -716,9 +708,9 @@ func TestCalculateMediaStats(t *testing.T) {
 									Type: types.ContentTypeImage,
 									Media: &types.MediaContent{
 										MIMEType: "image/jpeg",
-										FilePath: stringPtr("test.jpg"),
-										Data:     stringPtr("data"),
-										SizeKB:   int64Ptr(50),
+										FilePath: testutil.Ptr("test.jpg"),
+										Data:     testutil.Ptr("data"),
+										SizeKB:   testutil.Ptr[int64](50),
 									},
 								},
 							},
@@ -744,16 +736,16 @@ func TestCalculateMediaStats(t *testing.T) {
 									Type: types.ContentTypeImage,
 									Media: &types.MediaContent{
 										MIMEType: "image/png",
-										FilePath: stringPtr("loaded.png"),
-										Data:     stringPtr("data"),
-										SizeKB:   int64Ptr(100),
+										FilePath: testutil.Ptr("loaded.png"),
+										Data:     testutil.Ptr("data"),
+										SizeKB:   testutil.Ptr[int64](100),
 									},
 								},
 								{
 									Type: types.ContentTypeImage,
 									Media: &types.MediaContent{
 										MIMEType: "image/jpeg",
-										FilePath: stringPtr("missing.jpg"),
+										FilePath: testutil.Ptr("missing.jpg"),
 										// No Data = not loaded, triggers error path
 									},
 								},
@@ -761,9 +753,9 @@ func TestCalculateMediaStats(t *testing.T) {
 									Type: types.ContentTypeAudio,
 									Media: &types.MediaContent{
 										MIMEType: "audio/wav",
-										FilePath: stringPtr("audio.wav"),
-										Data:     stringPtr("audiodata"),
-										SizeKB:   int64Ptr(256),
+										FilePath: testutil.Ptr("audio.wav"),
+										Data:     testutil.Ptr("audiodata"),
+										SizeKB:   testutil.Ptr[int64](256),
 									},
 								},
 							},
@@ -790,9 +782,9 @@ func TestCalculateMediaStats(t *testing.T) {
 									Type: types.ContentTypeImage,
 									Media: &types.MediaContent{
 										MIMEType: "image/jpeg",
-										FilePath: stringPtr("img1.jpg"),
-										Data:     stringPtr("data1"),
-										SizeKB:   int64Ptr(50),
+										FilePath: testutil.Ptr("img1.jpg"),
+										Data:     testutil.Ptr("data1"),
+										SizeKB:   testutil.Ptr[int64](50),
 									},
 								},
 							},
@@ -808,9 +800,9 @@ func TestCalculateMediaStats(t *testing.T) {
 									Type: types.ContentTypeVideo,
 									Media: &types.MediaContent{
 										MIMEType: "video/mp4",
-										FilePath: stringPtr("video.mp4"),
-										Data:     stringPtr("videodata"),
-										SizeKB:   int64Ptr(1024),
+										FilePath: testutil.Ptr("video.mp4"),
+										Data:     testutil.Ptr("videodata"),
+										SizeKB:   testutil.Ptr[int64](1024),
 									},
 								},
 							},
