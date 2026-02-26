@@ -43,9 +43,12 @@ type duplexSession struct {
 	// Pipeline execution control
 	executionStarted bool
 	executionMu      sync.Mutex
+
+	// Done channel (initialized once via sync.Once)
+	doneCh   chan struct{}
+	doneOnce sync.Once
 }
 
-//nolint:unused // Used by tests
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
 // initConversationState initializes state for a new conversation if it doesn't exist.
@@ -334,16 +337,18 @@ func (s *duplexSession) Close() error {
 }
 
 // Done returns a channel that's closed when the session ends.
+// The channel is initialized once on first call; subsequent calls return the same channel.
 func (s *duplexSession) Done() <-chan struct{} {
-	// Create done channel that closes when output closes
-	done := make(chan struct{})
-	go func() {
-		// Wait for all output to be consumed
-		for range s.streamOutput { //nolint:revive // intentionally draining channel
-		}
-		close(done)
-	}()
-	return done
+	s.doneOnce.Do(func() {
+		s.doneCh = make(chan struct{})
+		go func() {
+			// Wait for all output to be consumed
+			for range s.streamOutput { //nolint:revive // intentionally draining channel
+			}
+			close(s.doneCh)
+		}()
+	})
+	return s.doneCh
 }
 
 // Error returns any error from the session.
@@ -426,78 +431,92 @@ func (s *duplexSession) ForkSession(
 	})
 }
 
+// applyVideoMetadata extracts video-specific metadata from chunk metadata into VideoData.
+func applyVideoMetadata(video *stage.VideoData, metadata map[string]any) {
+	if metadata == nil {
+		return
+	}
+	if w, ok := metadata["width"].(int); ok {
+		video.Width = w
+	}
+	if h, ok := metadata["height"].(int); ok {
+		video.Height = h
+	}
+	if ts, ok := metadata["timestamp"].(time.Time); ok {
+		video.Timestamp = ts
+	}
+	if kf, ok := metadata["is_key_frame"].(bool); ok {
+		video.IsKeyFrame = kf
+	}
+	if fn, ok := metadata["frame_num"].(int64); ok {
+		video.FrameNum = fn
+	}
+}
+
+// applyImageMetadata extracts image-specific metadata from chunk metadata into ImageData.
+func applyImageMetadata(image *stage.ImageData, metadata map[string]any) {
+	if metadata == nil {
+		return
+	}
+	if w, ok := metadata["width"].(int); ok {
+		image.Width = w
+	}
+	if h, ok := metadata["height"].(int); ok {
+		image.Height = h
+	}
+	if ts, ok := metadata["timestamp"].(time.Time); ok {
+		image.Timestamp = ts
+	}
+	if fn, ok := metadata["frame_num"].(int64); ok {
+		image.FrameNum = fn
+	}
+}
+
+// convertMediaDelta converts a chunk's MediaDelta to the appropriate stage element field.
+func convertMediaDelta(elem *stage.StreamElement, chunk *providers.StreamChunk) {
+	if chunk.MediaDelta == nil || chunk.MediaDelta.Data == nil {
+		return
+	}
+
+	mimeType := chunk.MediaDelta.MIMEType
+	mediaData := []byte(*chunk.MediaDelta.Data)
+
+	switch {
+	case strings.HasPrefix(mimeType, "video/"):
+		elem.Video = &stage.VideoData{
+			Data:     mediaData,
+			MIMEType: mimeType,
+		}
+		elem.Priority = stage.PriorityHigh
+		applyVideoMetadata(elem.Video, chunk.Metadata)
+
+	case strings.HasPrefix(mimeType, "image/"):
+		elem.Image = &stage.ImageData{
+			Data:     mediaData,
+			MIMEType: mimeType,
+		}
+		applyImageMetadata(elem.Image, chunk.Metadata)
+
+	default:
+		// Audio handling (default for backwards compatibility)
+		const defaultSampleRate = 16000 // Default for speech
+		elem.Audio = &stage.AudioData{
+			Samples:    mediaData,
+			SampleRate: defaultSampleRate,
+			Format:     stage.AudioFormatPCM16,
+		}
+	}
+}
+
 // streamChunkToStreamElement converts a providers.StreamChunk to stage.StreamElement.
 // This is the boundary conversion for input data.
-// Routes media based on MIME type: video/* → VideoData, image/* → ImageData, audio/* → AudioData.
+// Routes media based on MIME type: video/* -> VideoData, image/* -> ImageData, audio/* -> AudioData.
 func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElement {
 	elem := stage.StreamElement{
 		Metadata: make(map[string]interface{}),
 	}
 
-	// Convert media data from MediaDelta based on MIME type
-	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-		mimeType := chunk.MediaDelta.MIMEType
-		mediaData := []byte(*chunk.MediaDelta.Data)
-
-		switch {
-		case strings.HasPrefix(mimeType, "video/"):
-			// Video handling
-			elem.Video = &stage.VideoData{
-				Data:     mediaData,
-				MIMEType: mimeType,
-			}
-			elem.Priority = stage.PriorityHigh
-			// Extract video metadata if available
-			if chunk.Metadata != nil {
-				if w, ok := chunk.Metadata["width"].(int); ok {
-					elem.Video.Width = w
-				}
-				if h, ok := chunk.Metadata["height"].(int); ok {
-					elem.Video.Height = h
-				}
-				if ts, ok := chunk.Metadata["timestamp"].(time.Time); ok {
-					elem.Video.Timestamp = ts
-				}
-				if kf, ok := chunk.Metadata["is_key_frame"].(bool); ok {
-					elem.Video.IsKeyFrame = kf
-				}
-				if fn, ok := chunk.Metadata["frame_num"].(int64); ok {
-					elem.Video.FrameNum = fn
-				}
-			}
-
-		case strings.HasPrefix(mimeType, "image/"):
-			// Image handling
-			elem.Image = &stage.ImageData{
-				Data:     mediaData,
-				MIMEType: mimeType,
-			}
-			// Extract image metadata if available
-			if chunk.Metadata != nil {
-				if w, ok := chunk.Metadata["width"].(int); ok {
-					elem.Image.Width = w
-				}
-				if h, ok := chunk.Metadata["height"].(int); ok {
-					elem.Image.Height = h
-				}
-				if ts, ok := chunk.Metadata["timestamp"].(time.Time); ok {
-					elem.Image.Timestamp = ts
-				}
-				if fn, ok := chunk.Metadata["frame_num"].(int64); ok {
-					elem.Image.FrameNum = fn
-				}
-			}
-
-		default:
-			// Audio handling (default for backwards compatibility)
-			const defaultSampleRate = 16000 // Default for speech
-			elem.Audio = &stage.AudioData{
-				Samples:    mediaData,
-				SampleRate: defaultSampleRate,
-				Format:     stage.AudioFormatPCM16,
-			}
-		}
-	}
+	convertMediaDelta(&elem, chunk)
 
 	// Convert text content
 	if chunk.Delta != "" {
