@@ -14,7 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-const defaultTTLHours = 24
+
 
 // RedisStore provides a Redis-backed implementation of the Store interface.
 // It uses JSON serialization for state storage and supports automatic TTL-based cleanup.
@@ -92,6 +92,7 @@ func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, e
 }
 
 // Save persists a conversation state to Redis with TTL.
+// Uses a pipeline to batch the SET and optional user index update into a single round-trip.
 func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	if state == nil {
 		return ErrInvalidState
@@ -109,17 +110,21 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	// Save to Redis with TTL
+	// Pipeline: SET conversation + optional SAdd/Expire for user index
 	key := s.conversationKey(state.ID)
-	if err := s.client.Set(ctx, key, data, s.ttl).Err(); err != nil {
-		return fmt.Errorf("redis set failed: %w", err)
+	pipe := s.client.Pipeline()
+	pipe.Set(ctx, key, data, s.ttl)
+
+	if state.UserID != "" {
+		indexKey := s.userIndexKey(state.UserID)
+		pipe.SAdd(ctx, indexKey, state.ID)
+		if s.ttl > 0 {
+			pipe.Expire(ctx, indexKey, s.ttl)
+		}
 	}
 
-	// Update user index if UserID is set
-	if state.UserID != "" {
-		if err := s.updateUserIndex(ctx, state.UserID, state.ID); err != nil {
-			return fmt.Errorf("failed to update user index: %w", err)
-		}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("redis pipeline failed: %w", err)
 	}
 
 	return nil
@@ -146,6 +151,7 @@ func (s *RedisStore) Fork(ctx context.Context, sourceID, newID string) error {
 }
 
 // Delete removes a conversation state from Redis.
+// Uses a pipeline to batch the DEL and optional user index cleanup.
 func (s *RedisStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return ErrInvalidID
@@ -157,21 +163,21 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Remove from user index
-	if state.UserID != "" {
-		if removeErr := s.removeFromUserIndex(ctx, state.UserID, id); removeErr != nil {
-			return fmt.Errorf("failed to remove from user index: %w", removeErr)
-		}
-	}
-
-	// Delete conversation key
+	// Pipeline: DEL conversation key + optional SRem from user index
 	key := s.conversationKey(id)
-	deleted, err := s.client.Del(ctx, key).Result()
-	if err != nil {
-		return fmt.Errorf("redis del failed: %w", err)
+	pipe := s.client.Pipeline()
+	delCmd := pipe.Del(ctx, key)
+
+	if state.UserID != "" {
+		indexKey := s.userIndexKey(state.UserID)
+		pipe.SRem(ctx, indexKey, id)
 	}
 
-	if deleted == 0 {
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("redis pipeline failed: %w", err)
+	}
+
+	if delCmd.Val() == 0 {
 		return ErrNotFound
 	}
 
@@ -259,32 +265,6 @@ func (s *RedisStore) userIndexKey(userID string) string {
 	return fmt.Sprintf("%s:user:%s:conversations", s.prefix, userID)
 }
 
-// updateUserIndex adds a conversation ID to the user's index (Redis Set).
-func (s *RedisStore) updateUserIndex(ctx context.Context, userID, convID string) error {
-	indexKey := s.userIndexKey(userID)
-	if err := s.client.SAdd(ctx, indexKey, convID).Err(); err != nil {
-		return fmt.Errorf("redis sadd failed: %w", err)
-	}
-
-	// Set TTL on index key (same as conversation TTL)
-	if s.ttl > 0 {
-		if err := s.client.Expire(ctx, indexKey, s.ttl).Err(); err != nil {
-			return fmt.Errorf("redis expire failed: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// removeFromUserIndex removes a conversation ID from the user's index.
-func (s *RedisStore) removeFromUserIndex(ctx context.Context, userID, convID string) error {
-	indexKey := s.userIndexKey(userID)
-	if err := s.client.SRem(ctx, indexKey, convID).Err(); err != nil {
-		return fmt.Errorf("redis srem failed: %w", err)
-	}
-	return nil
-}
-
 // messagesKey generates the Redis key for a conversation's message list.
 func (s *RedisStore) messagesKey(id string) string {
 	return fmt.Sprintf("%s:conversation:%s:messages", s.prefix, id)
@@ -365,6 +345,7 @@ func (s *RedisStore) MessageCount(ctx context.Context, id string) (int, error) {
 }
 
 // AppendMessages appends messages to the conversation's message list using RPUSH.
+// Uses Redis pipelining to batch the RPUSH, EXPIRE, and meta update in a single round-trip.
 func (s *RedisStore) AppendMessages(ctx context.Context, id string, messages []types.Message) error {
 	if id == "" {
 		return ErrInvalidID
@@ -383,21 +364,23 @@ func (s *RedisStore) AppendMessages(ctx context.Context, id string, messages []t
 }
 
 // ensureListFormat migrates from monolithic key to list format if needed.
+// Uses a pipeline to check both keys in a single round-trip.
 func (s *RedisStore) ensureListFormat(ctx context.Context, id string) error {
 	key := s.messagesKey(id)
-	listExists, err := s.client.Exists(ctx, key).Result()
-	if err != nil {
-		return fmt.Errorf("redis exists failed: %w", err)
+	monoKey := s.conversationKey(id)
+
+	// Pipeline both EXISTS checks into one round-trip
+	pipe := s.client.Pipeline()
+	listExistsCmd := pipe.Exists(ctx, key)
+	monoExistsCmd := pipe.Exists(ctx, monoKey)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("redis pipeline failed: %w", err)
 	}
-	if listExists > 0 {
+
+	if listExistsCmd.Val() > 0 {
 		return nil
 	}
-	monoKey := s.conversationKey(id)
-	monoExists, err := s.client.Exists(ctx, monoKey).Result()
-	if err != nil {
-		return fmt.Errorf("redis exists failed: %w", err)
-	}
-	if monoExists > 0 {
+	if monoExistsCmd.Val() > 0 {
 		if err := s.migrateToListFormat(ctx, id); err != nil {
 			return fmt.Errorf("migration failed: %w", err)
 		}
@@ -405,32 +388,43 @@ func (s *RedisStore) ensureListFormat(ctx context.Context, id string) error {
 	return nil
 }
 
-// rpushMessages pushes messages to a Redis list key.
+// rpushMessages pushes messages to a Redis list key using a single batched RPUSH.
+// All messages are serialized and sent in one command, reducing round-trips from N to 1.
 func (s *RedisStore) rpushMessages(ctx context.Context, key string, messages []types.Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	vals := make([]interface{}, 0, len(messages))
 	for i := range messages {
 		data, err := json.Marshal(&messages[i])
 		if err != nil {
 			return fmt.Errorf("failed to marshal message: %w", err)
 		}
-		if err := s.client.RPush(ctx, key, data).Err(); err != nil {
-			return fmt.Errorf("redis rpush failed: %w", err)
-		}
+		vals = append(vals, data)
+	}
+
+	if err := s.client.RPush(ctx, key, vals...).Err(); err != nil {
+		return fmt.Errorf("redis rpush failed: %w", err)
 	}
 	return nil
 }
 
 // updateMetaTTL updates TTL and last accessed time.
+// Uses a pipeline to batch EXPIRE and SET meta into a single round-trip.
 func (s *RedisStore) updateMetaTTL(ctx context.Context, id, key string) error {
-	if s.ttl > 0 {
-		if err := s.client.Expire(ctx, key, s.ttl).Err(); err != nil {
-			return fmt.Errorf("redis expire failed: %w", err)
-		}
-	}
 	metaKey := s.metaKey(id)
 	meta := map[string]any{"last_accessed_at": time.Now()}
 	metaData, _ := json.Marshal(meta)
-	if err := s.client.Set(ctx, metaKey, metaData, s.ttl).Err(); err != nil {
-		return fmt.Errorf("redis set meta failed: %w", err)
+
+	pipe := s.client.Pipeline()
+	if s.ttl > 0 {
+		pipe.Expire(ctx, key, s.ttl)
+	}
+	pipe.Set(ctx, metaKey, metaData, s.ttl)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("redis pipeline failed: %w", err)
 	}
 	return nil
 }
@@ -464,17 +458,18 @@ func (s *RedisStore) LoadSummaries(ctx context.Context, id string) ([]Summary, e
 
 	summaries := make([]Summary, 0, len(vals))
 	for _, v := range vals {
-		var s Summary
-		if err := json.Unmarshal([]byte(v), &s); err != nil {
+		var sm Summary
+		if err := json.Unmarshal([]byte(v), &sm); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal summary: %w", err)
 		}
-		summaries = append(summaries, s)
+		summaries = append(summaries, sm)
 	}
 
 	return summaries, nil
 }
 
 // SaveSummary appends a summary to the conversation's summary list.
+// Uses a pipeline to batch RPUSH and EXPIRE into a single round-trip.
 func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary) error {
 	if id == "" {
 		return ErrInvalidID
@@ -486,20 +481,21 @@ func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary
 		return fmt.Errorf("failed to marshal summary: %w", err)
 	}
 
-	if err := s.client.RPush(ctx, key, data).Err(); err != nil {
-		return fmt.Errorf("redis rpush failed: %w", err)
+	pipe := s.client.Pipeline()
+	pipe.RPush(ctx, key, data)
+	if s.ttl > 0 {
+		pipe.Expire(ctx, key, s.ttl)
 	}
 
-	if s.ttl > 0 {
-		if err := s.client.Expire(ctx, key, s.ttl).Err(); err != nil {
-			return fmt.Errorf("redis expire failed: %w", err)
-		}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("redis pipeline failed: %w", err)
 	}
 
 	return nil
 }
 
 // migrateToListFormat migrates a conversation from monolithic JSON to list format.
+// Uses pipelining for the batched RPUSH of messages and summaries.
 func (s *RedisStore) migrateToListFormat(ctx context.Context, id string) error {
 	state, err := s.Load(ctx, id)
 	if err != nil {
@@ -517,20 +513,24 @@ func (s *RedisStore) migrateToListFormat(ctx context.Context, id string) error {
 	return s.migrateSummaries(ctx, id, state.Summaries)
 }
 
-// migrateSummaries migrates summaries to list format.
+// migrateSummaries migrates summaries to list format using a single batched RPUSH.
 func (s *RedisStore) migrateSummaries(ctx context.Context, id string, summaries []Summary) error {
 	if len(summaries) == 0 {
 		return nil
 	}
+
 	sumKey := s.summariesKey(id)
+	vals := make([]interface{}, 0, len(summaries))
 	for i := range summaries {
 		data, err := json.Marshal(&summaries[i])
 		if err != nil {
 			return fmt.Errorf("failed to marshal summary: %w", err)
 		}
-		if err := s.client.RPush(ctx, sumKey, data).Err(); err != nil {
-			return fmt.Errorf("redis rpush failed: %w", err)
-		}
+		vals = append(vals, data)
+	}
+
+	if err := s.client.RPush(ctx, sumKey, vals...).Err(); err != nil {
+		return fmt.Errorf("redis rpush failed: %w", err)
 	}
 	return s.expireIfTTL(ctx, sumKey)
 }
@@ -567,39 +567,74 @@ func (s *RedisStore) extractIDFromKey(key string) string {
 	return ""
 }
 
-// sortConversations sorts conversation IDs by loading their states.
-// This is less efficient than in-memory sorting but necessary for Redis.
+// sortConversations sorts conversation IDs using pipelined GET to fetch all states
+// in a single round-trip, then sorts in memory.
 func (s *RedisStore) sortConversations(ctx context.Context, ids []string, sortBy, sortOrder string) error {
-	type stateWithID struct {
-		id    string
-		state *ConversationState
+	if len(ids) == 0 {
+		return nil
 	}
 
-	// Load all states
-	states := make([]stateWithID, 0, len(ids))
-	for _, id := range ids {
-		state, err := s.Load(ctx, id)
-		if err != nil {
-			// Skip conversations that no longer exist
-			if errors.Is(err, ErrNotFound) {
-				continue
-			}
-			return err
-		}
-		states = append(states, stateWithID{id: id, state: state})
+	states, err := s.pipelinedLoadStates(ctx, ids)
+	if err != nil {
+		return err
 	}
 
 	ascending := strings.EqualFold(sortOrder, "asc")
+	sortStatesByField(states, sortBy, ascending)
 
-	// Sort states
+	// Update ids slice with sorted order
+	for i, st := range states {
+		ids[i] = st.id
+	}
+
+	return nil
+}
+
+// stateWithID pairs a conversation ID with its loaded state for sorting.
+type stateWithID struct {
+	id    string
+	state *ConversationState
+}
+
+// pipelinedLoadStates fetches multiple conversation states using a single pipelined GET.
+func (s *RedisStore) pipelinedLoadStates(ctx context.Context, ids []string) ([]stateWithID, error) {
+	pipe := s.client.Pipeline()
+	cmds := make([]*redis.StringCmd, len(ids))
+	for i, id := range ids {
+		cmds[i] = pipe.Get(ctx, s.conversationKey(id))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis pipeline failed: %w", err)
+	}
+
+	states := make([]stateWithID, 0, len(ids))
+	for i, cmd := range cmds {
+		data, err := cmd.Bytes()
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
+			return nil, fmt.Errorf("redis get failed: %w", err)
+		}
+		var state ConversationState
+		if err := json.Unmarshal(data, &state); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal state: %w", err)
+		}
+		states = append(states, stateWithID{id: ids[i], state: &state})
+	}
+	return states, nil
+}
+
+// sortStatesByField sorts a slice of stateWithID entries by the given field and direction.
+func sortStatesByField(states []stateWithID, sortBy string, ascending bool) {
 	sort.Slice(states, func(i, j int) bool {
 		var less bool
 		switch sortBy {
-		case "created_at":
+		case SortByCreatedAt:
 			t1 := getCreatedAt(states[i].state)
 			t2 := getCreatedAt(states[j].state)
 			less = t1.Before(t2)
-		case "updated_at", "":
+		case SortByUpdatedAt, "":
 			less = states[i].state.LastAccessedAt.Before(states[j].state.LastAccessedAt)
 		default:
 			return false
@@ -610,11 +645,4 @@ func (s *RedisStore) sortConversations(ctx context.Context, ids []string, sortBy
 		}
 		return !less
 	})
-
-	// Update ids slice with sorted order
-	for i, s := range states {
-		ids[i] = s.id
-	}
-
-	return nil
 }
