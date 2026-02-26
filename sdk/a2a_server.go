@@ -24,6 +24,21 @@ const (
 	// defaultReadHeaderTimeout prevents Slowloris attacks.
 	defaultReadHeaderTimeout = 10 * time.Second
 
+	// defaultReadTimeout is the maximum duration for reading the entire
+	// request, including the body.
+	defaultReadTimeout = 30 * time.Second
+
+	// defaultWriteTimeout is the maximum duration before timing out
+	// writes of the response.
+	defaultWriteTimeout = 60 * time.Second
+
+	// defaultIdleTimeout is the maximum amount of time to wait for the
+	// next request when keep-alives are enabled.
+	defaultIdleTimeout = 120 * time.Second
+
+	// defaultMaxBodySize is the maximum allowed size of a request body (10 MB).
+	defaultMaxBodySize int64 = 10 << 20
+
 	// defaultPageSize is used when ListTasksRequest.PageSize is 0.
 	defaultPageSize = 100
 
@@ -59,6 +74,30 @@ func WithA2ATaskStore(store A2ATaskStore) A2AServerOption {
 	return func(s *A2AServer) { s.taskStore = store }
 }
 
+// WithA2AReadTimeout sets the maximum duration for reading the entire request.
+// Default: 30s.
+func WithA2AReadTimeout(d time.Duration) A2AServerOption {
+	return func(s *A2AServer) { s.readTimeout = d }
+}
+
+// WithA2AWriteTimeout sets the maximum duration before timing out writes of
+// the response. Default: 60s.
+func WithA2AWriteTimeout(d time.Duration) A2AServerOption {
+	return func(s *A2AServer) { s.writeTimeout = d }
+}
+
+// WithA2AIdleTimeout sets the maximum amount of time to wait for the next
+// request when keep-alives are enabled. Default: 120s.
+func WithA2AIdleTimeout(d time.Duration) A2AServerOption {
+	return func(s *A2AServer) { s.idleTimeout = d }
+}
+
+// WithA2AMaxBodySize sets the maximum allowed request body size in bytes.
+// Default: 10 MB.
+func WithA2AMaxBodySize(n int64) A2AServerOption {
+	return func(s *A2AServer) { s.maxBodySize = n }
+}
+
 // A2AServer is an HTTP server that exposes a PromptKit Conversation as an
 // A2A-compliant JSON-RPC endpoint.
 type A2AServer struct {
@@ -67,6 +106,11 @@ type A2AServer struct {
 	card      a2a.AgentCard
 	port      int
 	httpSrv   *http.Server
+
+	readTimeout  time.Duration
+	writeTimeout time.Duration
+	idleTimeout  time.Duration
+	maxBodySize  int64
 
 	convsMu sync.RWMutex
 	convs   map[string]a2aConv // context_id → conversation
@@ -81,10 +125,14 @@ type A2AServer struct {
 // NewA2AServer creates a new A2A server.
 func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2AServer {
 	s := &A2AServer{
-		opener:  opener,
-		convs:   make(map[string]a2aConv),
-		cancels: make(map[string]context.CancelFunc),
-		subs:    make(map[string]*taskBroadcaster),
+		opener:       opener,
+		convs:        make(map[string]a2aConv),
+		cancels:      make(map[string]context.CancelFunc),
+		subs:         make(map[string]*taskBroadcaster),
+		readTimeout:  defaultReadTimeout,
+		writeTimeout: defaultWriteTimeout,
+		idleTimeout:  defaultIdleTimeout,
+		maxBodySize:  defaultMaxBodySize,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -109,6 +157,9 @@ func (s *A2AServer) ListenAndServe() error {
 		Addr:              fmt.Sprintf(":%d", s.port),
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       s.readTimeout,
+		WriteTimeout:      s.writeTimeout,
+		IdleTimeout:       s.idleTimeout,
 	}
 	return s.httpSrv.ListenAndServe()
 }
@@ -151,6 +202,9 @@ func (s *A2AServer) Serve(ln net.Listener) error {
 	s.httpSrv = &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       s.readTimeout,
+		WriteTimeout:      s.writeTimeout,
+		IdleTimeout:       s.idleTimeout,
 	}
 	return s.httpSrv.Serve(ln)
 }
@@ -163,6 +217,8 @@ func (s *A2AServer) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
 
 // handleRPC dispatches a JSON-RPC 2.0 request to the appropriate handler.
 func (s *A2AServer) handleRPC(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodySize)
+
 	var req a2a.JSONRPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeRPCError(w, nil, -32700, "Parse error")

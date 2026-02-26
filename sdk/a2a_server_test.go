@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -1569,4 +1570,141 @@ func TestA2AServer_SendMessage_ConversationReuseMultimodal(t *testing.T) {
 	if callCount.Load() != 2 {
 		t.Fatalf("expected 2 calls, got %d", callCount.Load())
 	}
+}
+
+// --- timeout and body size option tests ---
+
+func TestA2AServerDefaultTimeouts(t *testing.T) {
+	srv := NewA2AServer(func(string) (a2aConv, error) {
+		return nil, nil
+	})
+
+	if srv.readTimeout != defaultReadTimeout {
+		t.Errorf("readTimeout = %v, want %v", srv.readTimeout, defaultReadTimeout)
+	}
+	if srv.writeTimeout != defaultWriteTimeout {
+		t.Errorf("writeTimeout = %v, want %v", srv.writeTimeout, defaultWriteTimeout)
+	}
+	if srv.idleTimeout != defaultIdleTimeout {
+		t.Errorf("idleTimeout = %v, want %v", srv.idleTimeout, defaultIdleTimeout)
+	}
+	if srv.maxBodySize != defaultMaxBodySize {
+		t.Errorf("maxBodySize = %d, want %d", srv.maxBodySize, defaultMaxBodySize)
+	}
+}
+
+func TestA2AServerCustomTimeouts(t *testing.T) {
+	srv := NewA2AServer(
+		func(string) (a2aConv, error) { return nil, nil },
+		WithA2AReadTimeout(5*time.Second),
+		WithA2AWriteTimeout(10*time.Second),
+		WithA2AIdleTimeout(15*time.Second),
+		WithA2AMaxBodySize(1024),
+	)
+
+	if srv.readTimeout != 5*time.Second {
+		t.Errorf("readTimeout = %v, want 5s", srv.readTimeout)
+	}
+	if srv.writeTimeout != 10*time.Second {
+		t.Errorf("writeTimeout = %v, want 10s", srv.writeTimeout)
+	}
+	if srv.idleTimeout != 15*time.Second {
+		t.Errorf("idleTimeout = %v, want 15s", srv.idleTimeout)
+	}
+	if srv.maxBodySize != 1024 {
+		t.Errorf("maxBodySize = %d, want 1024", srv.maxBodySize)
+	}
+}
+
+func TestA2AServerMaxBodySizeRejectsOversizedRequest(t *testing.T) {
+	opener := func(string) (a2aConv, error) {
+		return &mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return &Response{
+					message: &types.Message{
+						Role:  "assistant",
+						Parts: []types.ContentPart{types.NewTextPart("ok")},
+					},
+				}, nil
+			},
+		}, nil
+	}
+
+	// Set a very small body size limit.
+	srv := NewA2AServer(opener, WithA2AMaxBodySize(16))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Build a valid JSON-RPC request that exceeds the 16-byte limit.
+	params, _ := json.Marshal(a2a.SendMessageRequest{
+		Message: a2a.Message{
+			Role:      a2a.RoleUser,
+			ContextID: "ctx-1",
+			Parts:     []a2a.Part{{Text: serverTextPtr("This message is deliberately large enough to exceed the body limit")}},
+		},
+	})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  a2a.MethodSendMessage,
+		Params:  params,
+	})
+
+	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /a2a: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var rpcResp a2a.JSONRPCResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if rpcResp.Error == nil {
+		t.Fatal("expected JSON-RPC error for oversized body, got success")
+	}
+	if rpcResp.Error.Code != -32700 {
+		t.Errorf("error code = %d, want -32700 (Parse error)", rpcResp.Error.Code)
+	}
+}
+
+func TestA2AServerListenAndServeTimeouts(t *testing.T) {
+	srv := NewA2AServer(
+		func(string) (a2aConv, error) { return nil, nil },
+		WithA2AReadTimeout(15*time.Second),
+		WithA2AWriteTimeout(30*time.Second),
+		WithA2AIdleTimeout(60*time.Second),
+	)
+
+	// Use a listener on :0 so we get a free port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	go func() { _ = srv.Serve(ln) }()
+
+	// Wait for Serve to populate httpSrv.
+	deadline := time.Now().Add(2 * time.Second)
+	for srv.httpSrv == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if srv.httpSrv == nil {
+		t.Fatal("httpSrv was not set within timeout")
+	}
+
+	if srv.httpSrv.ReadTimeout != 15*time.Second {
+		t.Errorf("httpSrv.ReadTimeout = %v, want 15s", srv.httpSrv.ReadTimeout)
+	}
+	if srv.httpSrv.WriteTimeout != 30*time.Second {
+		t.Errorf("httpSrv.WriteTimeout = %v, want 30s", srv.httpSrv.WriteTimeout)
+	}
+	if srv.httpSrv.IdleTimeout != 60*time.Second {
+		t.Errorf("httpSrv.IdleTimeout = %v, want 60s", srv.httpSrv.IdleTimeout)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
 }
