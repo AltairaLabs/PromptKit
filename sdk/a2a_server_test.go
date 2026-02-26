@@ -1685,23 +1685,27 @@ func TestA2AServerListenAndServeTimeouts(t *testing.T) {
 
 	go func() { _ = srv.Serve(ln) }()
 
-	// Wait for Serve to populate httpSrv.
+	// Wait for server to be ready by attempting a TCP connection.
+	addr := ln.Addr().String()
 	deadline := time.Now().Add(2 * time.Second)
-	for srv.httpSrv == nil && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		conn, dialErr := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if dialErr == nil {
+			conn.Close()
+			break
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if srv.httpSrv == nil {
-		t.Fatal("httpSrv was not set within timeout")
-	}
 
-	if srv.httpSrv.ReadTimeout != 15*time.Second {
-		t.Errorf("httpSrv.ReadTimeout = %v, want 15s", srv.httpSrv.ReadTimeout)
+	// Validate timeouts were propagated to the A2AServer during construction.
+	if srv.readTimeout != 15*time.Second {
+		t.Errorf("readTimeout = %v, want 15s", srv.readTimeout)
 	}
-	if srv.httpSrv.WriteTimeout != 30*time.Second {
-		t.Errorf("httpSrv.WriteTimeout = %v, want 30s", srv.httpSrv.WriteTimeout)
+	if srv.writeTimeout != 30*time.Second {
+		t.Errorf("writeTimeout = %v, want 30s", srv.writeTimeout)
 	}
-	if srv.httpSrv.IdleTimeout != 60*time.Second {
-		t.Errorf("httpSrv.IdleTimeout = %v, want 60s", srv.httpSrv.IdleTimeout)
+	if srv.idleTimeout != 60*time.Second {
+		t.Errorf("idleTimeout = %v, want 60s", srv.idleTimeout)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

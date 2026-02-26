@@ -106,6 +106,7 @@ type A2AServer struct {
 	card      a2a.AgentCard
 	port      int
 	httpSrv   *http.Server
+	httpSrvMu sync.Mutex
 
 	readTimeout  time.Duration
 	writeTimeout time.Duration
@@ -153,7 +154,7 @@ func (s *A2AServer) Handler() http.Handler {
 
 // ListenAndServe starts the HTTP server on the configured port.
 func (s *A2AServer) ListenAndServe() error {
-	s.httpSrv = &http.Server{
+	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.port),
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
@@ -161,7 +162,12 @@ func (s *A2AServer) ListenAndServe() error {
 		WriteTimeout:      s.writeTimeout,
 		IdleTimeout:       s.idleTimeout,
 	}
-	return s.httpSrv.ListenAndServe()
+
+	s.httpSrvMu.Lock()
+	s.httpSrv = srv
+	s.httpSrvMu.Unlock()
+
+	return srv.ListenAndServe()
 }
 
 // Shutdown gracefully shuts down the server: drains HTTP requests, cancels
@@ -169,8 +175,12 @@ func (s *A2AServer) ListenAndServe() error {
 func (s *A2AServer) Shutdown(ctx context.Context) error {
 	var firstErr error
 
-	if s.httpSrv != nil {
-		firstErr = s.httpSrv.Shutdown(ctx)
+	s.httpSrvMu.Lock()
+	srv := s.httpSrv
+	s.httpSrvMu.Unlock()
+
+	if srv != nil {
+		firstErr = srv.Shutdown(ctx)
 	}
 
 	// Close all broadcasters.
@@ -199,14 +209,19 @@ func (s *A2AServer) Shutdown(ctx context.Context) error {
 
 // Serve starts the HTTP server on the given listener.
 func (s *A2AServer) Serve(ln net.Listener) error {
-	s.httpSrv = &http.Server{
+	srv := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		ReadTimeout:       s.readTimeout,
 		WriteTimeout:      s.writeTimeout,
 		IdleTimeout:       s.idleTimeout,
 	}
-	return s.httpSrv.Serve(ln)
+
+	s.httpSrvMu.Lock()
+	s.httpSrv = srv
+	s.httpSrvMu.Unlock()
+
+	return srv.Serve(ln)
 }
 
 // handleAgentCard serves the agent card as JSON.
