@@ -61,80 +61,21 @@ import (
 //
 // The promptName must match a prompt ID defined in the pack's "prompts" section.
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
-	// Apply options to build configuration
-	cfg, err := applyOptions(promptName, opts)
+	conv, _, err := initConversation(packPath, promptName, opts)
 	if err != nil {
 		return nil, err
 	}
-
-	// Load and validate pack
-	p, prompt, err := loadAndValidatePack(packPath, promptName, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	// Resolve provider and store in config
-	_, err = resolveProvider(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create conversation
-	conv := &Conversation{
-		pack:           p,
-		prompt:         prompt,
-		promptName:     promptName,
-		promptRegistry: p.ToPromptRegistry(),                                  // Create registry for PromptAssemblyMiddleware
-		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
-		config:         cfg,
-		handlers:       make(map[string]ToolHandler),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewPendingStore(),
-		resolvedStore:  sdktools.NewResolvedStore(),
-	}
-
-	// Apply default variables from prompt BEFORE initializing session
-	// This ensures defaults are available when creating the session
-	applyDefaultVariables(conv, prompt)
-
-	// Auto-convert pack validators to provider hooks (before building hook registry)
-	convertPackValidatorsToHooks(prompt, cfg)
-
-	// Initialize capabilities (auto-inferred + explicit)
-	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
-	allCaps = ensureA2ACapability(allCaps, cfg)
-	allCaps = ensureSkillsCapability(allCaps, cfg)
-	wireA2AConfig(allCaps, cfg)
-	wireSkillsConfig(allCaps, cfg)
-	for _, cap := range allCaps {
-		if err := cap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
-			return nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
-		}
-	}
-	conv.capabilities = allCaps
-
-	// Initialize event bus BEFORE building pipeline so it can be wired up
-	initEventBus(cfg)
-
-	// Build hook registry BEFORE building pipeline so it can be wired into the provider stage
-	conv.hookRegistry = cfg.buildHookRegistry()
 
 	// Initialize internal memory store for conversation history
 	// This is used by StateStoreLoad/Save middleware in the pipeline
-	if err := initInternalStateStore(conv, cfg); err != nil {
+	if err := initInternalStateStore(conv, conv.config); err != nil {
 		return nil, err
 	}
 
-	// Initialize eval middleware
-	conv.evalMW = newEvalMiddleware(conv)
-
-	// Initialize MCP registry if configured
-	if err := initMCPRegistry(conv, cfg); err != nil {
+	// Finalize conversation (eval middleware, MCP, session start hooks)
+	if err := finalizeConversation(conv, conv.config); err != nil {
 		return nil, err
 	}
-
-	// Dispatch session start hooks
-	conv.runSessionStart(context.Background())
 
 	return conv, nil
 }
@@ -167,20 +108,7 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 // The provider must support streaming input (implement providers.StreamInputSupport).
 // Currently supported providers: Gemini with certain models.
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error) {
-	// Apply options to build configuration
-	cfg, err := applyOptions(promptName, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// Load and validate pack
-	p, prompt, err := loadAndValidatePack(packPath, promptName, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	// Resolve provider
-	prov, err := resolveProvider(cfg)
+	conv, prov, err := initConversation(packPath, promptName, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -194,13 +122,51 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		)
 	}
 
+	// Initialize duplex session
+	if err := initDuplexSession(conv, conv.config, streamProvider); err != nil {
+		return nil, err
+	}
+
+	// Finalize conversation (eval middleware, MCP, session start hooks)
+	if err := finalizeConversation(conv, conv.config); err != nil {
+		return nil, err
+	}
+
+	return conv, nil
+}
+
+// initConversation performs the common initialization shared by Open and OpenDuplex.
+// It applies options, loads the pack, resolves the provider, creates the Conversation
+// struct, initializes capabilities, the event bus, and the hook registry.
+// Returns the partially initialized conversation and the resolved provider.
+func initConversation(
+	packPath, promptName string, opts []Option,
+) (*Conversation, providers.Provider, error) {
+	// Apply options to build configuration
+	cfg, err := applyOptions(promptName, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Load and validate pack
+	p, prompt, err := loadAndValidatePack(packPath, promptName, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Resolve provider and store in config
+	prov, err := resolveProvider(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Create conversation
 	conv := &Conversation{
 		pack:           p,
 		prompt:         prompt,
 		promptName:     promptName,
-		promptRegistry: p.ToPromptRegistry(),
-		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()),
+		promptRegistry: p.ToPromptRegistry(),                                  // Create registry for PromptAssemblyMiddleware
+		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
@@ -209,6 +175,7 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	}
 
 	// Apply default variables from prompt BEFORE initializing session
+	// This ensures defaults are available when creating the session
 	applyDefaultVariables(conv, prompt)
 
 	// Auto-convert pack validators to provider hooks (before building hook registry)
@@ -222,7 +189,7 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	wireSkillsConfig(allCaps, cfg)
 	for _, cap := range allCaps {
 		if err := cap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
-			return nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
+			return nil, nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
 		}
 	}
 	conv.capabilities = allCaps
@@ -233,23 +200,25 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	// Build hook registry BEFORE building pipeline so it can be wired into the provider stage
 	conv.hookRegistry = cfg.buildHookRegistry()
 
-	// Initialize duplex session
-	if err := initDuplexSession(conv, cfg, streamProvider); err != nil {
-		return nil, err
-	}
+	return conv, prov, nil
+}
 
+// finalizeConversation completes the conversation setup after mode-specific
+// initialization (unary or duplex). It wires eval middleware, MCP servers,
+// and dispatches session start hooks.
+func finalizeConversation(conv *Conversation, cfg *config) error {
 	// Initialize eval middleware
 	conv.evalMW = newEvalMiddleware(conv)
 
 	// Initialize MCP registry if configured
 	if err := initMCPRegistry(conv, cfg); err != nil {
-		return nil, err
+		return err
 	}
 
 	// Dispatch session start hooks
 	conv.runSessionStart(context.Background())
 
-	return conv, nil
+	return nil
 }
 
 // applyOptions applies the configuration options and validates cross-option constraints.
