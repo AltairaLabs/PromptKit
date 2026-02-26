@@ -79,6 +79,8 @@ type EventAdapter struct {
 	cfg      adapterConfig
 	events   chan aguievents.Event
 	once     sync.Once
+	mu       sync.RWMutex
+	closed   bool
 }
 
 // NewEventAdapter creates a new EventAdapter for the given conversation.
@@ -152,23 +154,15 @@ func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 		}
 	}
 
-	// 3. Subscribe to tool call completed events for result emission
+	// 3. Subscribe to event bus for tool results and workflow transitions
 	var toolResults []toolResultCapture
 	var toolResultsMu sync.Mutex
-	if a.eventBus != nil && a.eventBus.EventBus() != nil {
-		unsub := a.eventBus.EventBus().Subscribe(events.EventToolCallCompleted, func(e *events.Event) {
-			if data, ok := e.Data.(*events.ToolCallCompletedData); ok {
-				toolResultsMu.Lock()
-				toolResults = append(toolResults, toolResultCapture{
-					callID:   data.CallID,
-					toolName: data.ToolName,
-					status:   data.Status,
-				})
-				toolResultsMu.Unlock()
-			}
-		})
-		defer unsub()
-	}
+	unsubs := a.subscribeEventBus(&toolResults, &toolResultsMu)
+	defer func() {
+		for _, fn := range unsubs {
+			fn()
+		}
+	}()
 
 	// 4. Call Send
 	resp, err := a.sender.Send(ctx, msg)
@@ -240,9 +234,53 @@ func (a *EventAdapter) emitToolCallEvents(
 	}
 }
 
+// subscribeEventBus sets up event bus subscriptions for tool results and
+// workflow transitions. Returns a slice of unsubscribe functions to call on cleanup.
+func (a *EventAdapter) subscribeEventBus(
+	toolResults *[]toolResultCapture,
+	toolResultsMu *sync.Mutex,
+) []func() {
+	if a.eventBus == nil || a.eventBus.EventBus() == nil {
+		return nil
+	}
+
+	bus := a.eventBus.EventBus()
+	var unsubs []func()
+
+	unsubs = append(unsubs, bus.Subscribe(events.EventToolCallCompleted, func(e *events.Event) {
+		if data, ok := e.Data.(*events.ToolCallCompletedData); ok {
+			toolResultsMu.Lock()
+			*toolResults = append(*toolResults, toolResultCapture{
+				callID:   data.CallID,
+				toolName: data.ToolName,
+				status:   data.Status,
+			})
+			toolResultsMu.Unlock()
+		}
+	}))
+
+	if a.cfg.workflowSteps {
+		unsubs = append(unsubs, bus.Subscribe(events.EventWorkflowTransitioned, func(e *events.Event) {
+			if data, ok := e.Data.(*events.WorkflowTransitionedData); ok {
+				if data.FromState != "" {
+					a.emit(aguievents.NewStepFinishedEvent(data.FromState))
+				}
+				a.emit(aguievents.NewStepStartedEvent(data.ToState))
+			}
+		}))
+	}
+
+	return unsubs
+}
+
 // emit sends an event to the events channel. It is non-blocking; if the
-// channel buffer is full, the event is dropped to avoid deadlocks.
+// channel buffer is full or the adapter is closed, the event is dropped.
 func (a *EventAdapter) emit(event aguievents.Event) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.closed {
+		return
+	}
 	select {
 	case a.events <- event:
 	default:
@@ -250,9 +288,13 @@ func (a *EventAdapter) emit(event aguievents.Event) {
 	}
 }
 
-// closeEvents closes the events channel exactly once.
+// closeEvents closes the events channel exactly once. It waits for any
+// in-flight emit calls to complete before closing the channel.
 func (a *EventAdapter) closeEvents() {
 	a.once.Do(func() {
+		a.mu.Lock()
+		a.closed = true
+		a.mu.Unlock()
 		close(a.events)
 	})
 }

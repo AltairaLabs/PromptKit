@@ -538,6 +538,245 @@ func TestRunSend_MultipleToolCalls(t *testing.T) {
 	assert.Equal(t, 2, startCount, "expected 2 ToolCallStart events for 2 tool calls")
 }
 
+func TestRunSend_WorkflowSteps_EmitsStepEvents(t *testing.T) {
+	resp := newTestResponse("transitioning", nil)
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	sender := &mockSender{resp: resp}
+	ebp := &mockEventBusProvider{bus: bus}
+
+	a := newTestAdapter(sender, ebp, WithWorkflowSteps(true))
+
+	// Simulate a workflow transition during Send
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		bus.Publish(&events.Event{
+			Type: events.EventWorkflowTransitioned,
+			Data: &events.WorkflowTransitionedData{
+				FromState: "greeting",
+				ToState:   "triage",
+			},
+		})
+	}()
+
+	// Use delay sender so transition fires before Send returns
+	a.sender = &delaySender{inner: sender, delay: 50 * time.Millisecond}
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("help"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	// Find step events
+	var stepTypes []aguievents.EventType
+	var stepNames []string
+	for _, ev := range evts {
+		switch ev.Type() {
+		case aguievents.EventTypeStepStarted:
+			stepTypes = append(stepTypes, ev.Type())
+			stepNames = append(stepNames, ev.(*aguievents.StepStartedEvent).StepName)
+		case aguievents.EventTypeStepFinished:
+			stepTypes = append(stepTypes, ev.Type())
+			stepNames = append(stepNames, ev.(*aguievents.StepFinishedEvent).StepName)
+		}
+	}
+
+	require.Len(t, stepTypes, 2, "expected StepFinished + StepStarted")
+	assert.Equal(t, aguievents.EventTypeStepFinished, stepTypes[0])
+	assert.Equal(t, "greeting", stepNames[0])
+	assert.Equal(t, aguievents.EventTypeStepStarted, stepTypes[1])
+	assert.Equal(t, "triage", stepNames[1])
+}
+
+func TestRunSend_WorkflowSteps_InitialState_NoFinished(t *testing.T) {
+	resp := newTestResponse("starting", nil)
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	sender := &mockSender{resp: resp}
+	ebp := &mockEventBusProvider{bus: bus}
+
+	a := newTestAdapter(sender, ebp, WithWorkflowSteps(true))
+
+	// Simulate initial workflow entry (empty FromState)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		bus.Publish(&events.Event{
+			Type: events.EventWorkflowTransitioned,
+			Data: &events.WorkflowTransitionedData{
+				FromState: "",
+				ToState:   "greeting",
+			},
+		})
+	}()
+
+	a.sender = &delaySender{inner: sender, delay: 50 * time.Millisecond}
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("hi"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	var stepTypes []aguievents.EventType
+	for _, ev := range evts {
+		if ev.Type() == aguievents.EventTypeStepStarted || ev.Type() == aguievents.EventTypeStepFinished {
+			stepTypes = append(stepTypes, ev.Type())
+		}
+	}
+
+	// Only StepStarted, no StepFinished since FromState was empty
+	require.Len(t, stepTypes, 1)
+	assert.Equal(t, aguievents.EventTypeStepStarted, stepTypes[0])
+}
+
+func TestRunSend_WorkflowSteps_Disabled_NoStepEvents(t *testing.T) {
+	resp := newTestResponse("ok", nil)
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	sender := &mockSender{resp: resp}
+	ebp := &mockEventBusProvider{bus: bus}
+
+	// workflowSteps NOT enabled (default)
+	a := newTestAdapter(sender, ebp)
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		bus.Publish(&events.Event{
+			Type: events.EventWorkflowTransitioned,
+			Data: &events.WorkflowTransitionedData{
+				FromState: "a",
+				ToState:   "b",
+			},
+		})
+	}()
+
+	a.sender = &delaySender{inner: sender, delay: 50 * time.Millisecond}
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("hi"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	// No step events should be emitted
+	for _, ev := range evts {
+		assert.NotEqual(t, aguievents.EventTypeStepStarted, ev.Type())
+		assert.NotEqual(t, aguievents.EventTypeStepFinished, ev.Type())
+	}
+}
+
+func TestRunSend_WorkflowSteps_MultipleTransitions(t *testing.T) {
+	resp := newTestResponse("processing", nil)
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	sender := &mockSender{resp: resp}
+	ebp := &mockEventBusProvider{bus: bus}
+
+	a := newTestAdapter(sender, ebp, WithWorkflowSteps(true))
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		bus.Publish(&events.Event{
+			Type: events.EventWorkflowTransitioned,
+			Data: &events.WorkflowTransitionedData{
+				FromState: "intake",
+				ToState:   "processing",
+			},
+		})
+		time.Sleep(5 * time.Millisecond)
+		bus.Publish(&events.Event{
+			Type: events.EventWorkflowTransitioned,
+			Data: &events.WorkflowTransitionedData{
+				FromState: "processing",
+				ToState:   "resolution",
+			},
+		})
+	}()
+
+	a.sender = &delaySender{inner: sender, delay: 80 * time.Millisecond}
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("go"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	var stepEvents []struct {
+		typ  aguievents.EventType
+		name string
+	}
+	for _, ev := range evts {
+		switch ev.Type() {
+		case aguievents.EventTypeStepFinished:
+			stepEvents = append(stepEvents, struct {
+				typ  aguievents.EventType
+				name string
+			}{ev.Type(), ev.(*aguievents.StepFinishedEvent).StepName})
+		case aguievents.EventTypeStepStarted:
+			stepEvents = append(stepEvents, struct {
+				typ  aguievents.EventType
+				name string
+			}{ev.Type(), ev.(*aguievents.StepStartedEvent).StepName})
+		}
+	}
+
+	// Two transitions = 4 step events
+	require.Len(t, stepEvents, 4)
+	assert.Equal(t, aguievents.EventTypeStepFinished, stepEvents[0].typ)
+	assert.Equal(t, "intake", stepEvents[0].name)
+	assert.Equal(t, aguievents.EventTypeStepStarted, stepEvents[1].typ)
+	assert.Equal(t, "processing", stepEvents[1].name)
+	assert.Equal(t, aguievents.EventTypeStepFinished, stepEvents[2].typ)
+	assert.Equal(t, "processing", stepEvents[2].name)
+	assert.Equal(t, aguievents.EventTypeStepStarted, stepEvents[3].typ)
+	assert.Equal(t, "resolution", stepEvents[3].name)
+}
+
 // delaySender wraps a Sender and adds a delay before returning.
 type delaySender struct {
 	inner Sender
