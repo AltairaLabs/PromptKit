@@ -145,22 +145,17 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
    - Extracts validators from prompt configuration
    - Emits system prompt and allowed tools via metadata
 
-2. **ValidationStage** (`stages_core.go`)
-   - Dynamic validator execution from metadata
-   - Supports multiple validators in sequence
-   - Emits validation results with pass/fail status
-
-3. **StateStoreLoadStage** (`stages_core.go`)
+2. **StateStoreLoadStage** (`stages_core.go`)
    - Loads conversation history from state store
    - Marks historical messages with `from_history` flag
    - Prepends history to current messages
 
-4. **StateStoreSaveStage** (`stages_core.go`)
+3. **StateStoreSaveStage** (`stages_core.go`)
    - Saves conversation state after processing
    - Merges metadata from messages
    - Updates state store with new messages
 
-5. **ProviderStage** (`stages_provider.go`)
+4. **ProviderStage** (`stages_provider.go`)
    - Request/response LLM execution
    - Multi-round tool call support
    - Full tool execution via `toolRegistry.ExecuteAsync()`

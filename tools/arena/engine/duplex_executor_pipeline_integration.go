@@ -297,11 +297,6 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
 	}
 
-	// NOTE: ValidationStage is NOT included in the duplex pipeline.
-	// ValidationStage accumulates ALL elements before forwarding, which blocks
-	// the real-time element flow needed for duplex streaming. Turn assertions
-	// are handled separately by evaluateTurnAssertions() in the executor.
-
 	// 5. Arena state store save stage to capture conversation messages
 	// This stage handles system_prompt in metadata and prepends it as a system message
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
