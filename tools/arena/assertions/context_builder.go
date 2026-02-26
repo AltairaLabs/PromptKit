@@ -28,8 +28,8 @@ func BuildConversationContextFromMessages(
 		Metadata: *metadata,
 	}
 
-	idIndex := extractToolCallRecords(ctx, messages)
-	matchToolResults(ctx, messages, idIndex)
+	entries := extractToolCallRecords(ctx, messages)
+	matchToolResults(entries, messages)
 	extractWorkflowMetadata(ctx, messages)
 	aggregateCosts(ctx, messages)
 
@@ -37,62 +37,74 @@ func BuildConversationContextFromMessages(
 }
 
 // extractToolCallRecords populates ctx.ToolCalls from assistant-message tool
-// invocations and returns a map from tool call ID to ToolCalls slice index.
-func extractToolCallRecords(ctx *ConversationContext, messages []types.Message) map[string]int {
-	idIndex := make(map[string]int)
+// invocations and returns toolCallEntry adapters for result matching.
+func extractToolCallRecords(
+	ctx *ConversationContext, messages []types.Message,
+) []toolCallEntry {
 	for idx := range messages {
 		for _, tc := range messages[idx].ToolCalls {
 			var args map[string]interface{}
 			if len(tc.Args) > 0 {
 				_ = json.Unmarshal(tc.Args, &args)
 			}
-			recIdx := len(ctx.ToolCalls)
 			ctx.ToolCalls = append(ctx.ToolCalls, ToolCallRecord{
 				TurnIndex: idx,
 				ToolName:  tc.Name,
 				Arguments: args,
 			})
-			if tc.ID != "" {
-				idIndex[tc.ID] = recIdx
-			}
 		}
 	}
-	return idIndex
+
+	// Build adapter slice that pairs each record with its original call ID.
+	entries := make([]toolCallEntry, 0, len(ctx.ToolCalls))
+	i := 0
+	for idx := range messages {
+		for _, tc := range messages[idx].ToolCalls {
+			entries = append(entries, &toolCallRecordEntry{
+				id:  tc.ID,
+				rec: &ctx.ToolCalls[i],
+			})
+			i++
+		}
+	}
+	return entries
 }
 
 // matchToolResults matches tool-role messages back to their ToolCallRecords,
-// populating Result, Error, and Duration.
-func matchToolResults(ctx *ConversationContext, messages []types.Message, idIndex map[string]int) {
+// populating Result, Error, and Duration via the shared matchResult algorithm.
+func matchToolResults(entries []toolCallEntry, messages []types.Message) {
 	for idx := range messages {
 		msg := messages[idx]
 		if msg.Role != "tool" || msg.ToolResult == nil {
 			continue
 		}
-
-		// Try matching by tool call ID first (most reliable).
-		if msg.ToolResult.ID != "" {
-			if i, ok := idIndex[msg.ToolResult.ID]; ok {
-				populateToolResult(&ctx.ToolCalls[i], msg.ToolResult)
-				continue
-			}
-		}
-
-		// Fall back to forward name matching (first unresolved record).
-		for i := range ctx.ToolCalls {
-			rec := &ctx.ToolCalls[i]
-			if rec.ToolName == msg.ToolResult.Name && rec.Result == nil && rec.Error == "" {
-				populateToolResult(rec, msg.ToolResult)
-				break
-			}
-		}
+		matchResult(entries, msg.ToolResult)
 	}
 }
 
-// populateToolResult fills a ToolCallRecord with data from a MessageToolResult.
-func populateToolResult(rec *ToolCallRecord, result *types.MessageToolResult) {
-	rec.Result = result.Content
-	rec.Error = result.Error
-	rec.Duration = time.Duration(result.LatencyMs) * time.Millisecond
+// toolCallRecordEntry adapts a ToolCallRecord to the toolCallEntry interface
+// so it can participate in the shared ID-first / name-fallback matching.
+type toolCallRecordEntry struct {
+	id  string          // original MessageToolCall.ID (not stored in ToolCallRecord)
+	rec *ToolCallRecord // pointer into ctx.ToolCalls slice
+}
+
+func (e *toolCallRecordEntry) callID() string {
+	return e.id
+}
+
+func (e *toolCallRecordEntry) callName() string {
+	return e.rec.ToolName
+}
+
+func (e *toolCallRecordEntry) isResolved() bool {
+	return e.rec.Result != nil || e.rec.Error != ""
+}
+
+func (e *toolCallRecordEntry) applyResult(result *types.MessageToolResult) {
+	e.rec.Result = result.Content
+	e.rec.Error = result.Error
+	e.rec.Duration = time.Duration(result.LatencyMs) * time.Millisecond
 }
 
 // extractWorkflowMetadata copies workflow-related Meta fields into Extras.
