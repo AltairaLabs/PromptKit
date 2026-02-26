@@ -74,19 +74,19 @@ func (s *SkillSourceConfig) EffectiveDir() string {
 
 // Prompt represents a prompt definition within a pack.
 type Prompt struct {
-	ID             string         `json:"id"`
-	Name           string         `json:"name"`
-	Description    string         `json:"description"`
-	Version        string         `json:"version"`
-	SystemTemplate string         `json:"system_template"`
-	Variables      []Variable     `json:"variables,omitempty"`
-	Tools          []string       `json:"tools,omitempty"`
-	ToolPolicy     *ToolPolicy    `json:"tool_policy,omitempty"`
-	MediaConfig    *MediaConfig   `json:"media,omitempty"`
-	Parameters     *Parameters    `json:"parameters,omitempty"`
-	Validators     []Validator    `json:"validators,omitempty"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Version        string          `json:"version"`
+	SystemTemplate string          `json:"system_template"`
+	Variables      []Variable      `json:"variables,omitempty"`
+	Tools          []string        `json:"tools,omitempty"`
+	ToolPolicy     *ToolPolicy     `json:"tool_policy,omitempty"`
+	MediaConfig    *MediaConfig    `json:"media,omitempty"`
+	Parameters     *Parameters     `json:"parameters,omitempty"`
+	Validators     []Validator     `json:"validators,omitempty"`
 	Evals          []evals.EvalDef `json:"evals,omitempty"`
-	ModelOverrides map[string]any `json:"model_overrides,omitempty"`
+	ModelOverrides map[string]any  `json:"model_overrides,omitempty"`
 }
 
 // VariableBindingKind defines the type of resource a variable binds to.

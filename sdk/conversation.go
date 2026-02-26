@@ -39,6 +39,12 @@ const (
 	errUnaryModeRequired  = "Send() only available in unary mode; use OpenDuplex() for duplex streaming"
 )
 
+// Role constants for message types.
+const roleAssistant = "assistant"
+
+// Content type constants.
+const contentTypeText = "text"
+
 // SessionMode represents the conversation's session mode.
 type SessionMode int
 
@@ -323,7 +329,6 @@ func (c *Conversation) buildPipelineWithParams(
 
 // buildStreamPipelineWithParams builds a stage pipeline directly for duplex sessions.
 // Returns *stage.StreamPipeline which DuplexSession uses directly without wrapping.
-//
 func (c *Conversation) buildStreamPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
@@ -441,7 +446,7 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 	var assistantMsg *types.Message
 	if result.Response != nil {
 		assistantMsg = &types.Message{
-			Role:     "assistant",
+			Role:     roleAssistant,
 			Content:  result.Response.Content,
 			Parts:    result.Response.Parts,
 			CostInfo: &result.CostInfo,
@@ -468,7 +473,7 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 	// Extract validation results from the assistant message in history
 	// The DynamicValidatorMiddleware adds validations to the last assistant message
 	for i := len(result.Messages) - 1; i >= 0; i-- {
-		if result.Messages[i].Role == "assistant" && len(result.Messages[i].Validations) > 0 {
+		if result.Messages[i].Role == roleAssistant && len(result.Messages[i].Validations) > 0 {
 			resp.validations = result.Messages[i].Validations
 			break
 		}
@@ -795,7 +800,7 @@ func (c *Conversation) Fork() *Conversation {
 		asyncHandlers:  asyncHandlers,
 		pendingStore:   sdktools.NewPendingStore(),
 		resolvedStore:  sdktools.NewResolvedStore(),
-		mcpRegistry:    c.mcpRegistry, // Share MCP registry
+		mcpRegistry:    c.mcpRegistry,  // Share MCP registry
 		hookRegistry:   c.hookRegistry, // Share hook registry
 	}
 
