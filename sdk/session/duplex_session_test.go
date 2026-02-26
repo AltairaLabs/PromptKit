@@ -489,6 +489,27 @@ func TestDuplexSession_Done(t *testing.T) {
 	}
 }
 
+func TestDuplexSession_Done_ReturnsSameChannel(t *testing.T) {
+	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+	session, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
+		Provider:        provider,
+		Config:          &providers.StreamingInputConfig{},
+		PipelineBuilder: testPipelineBuilder,
+	})
+	require.NoError(t, err)
+	defer session.Close()
+
+	// Multiple calls to Done() must return the same channel (no goroutine leak)
+	done1 := session.Done()
+	done2 := session.Done()
+	done3 := session.Done()
+
+	assert.NotNil(t, done1)
+	// All calls must return the exact same channel instance
+	assert.Equal(t, done1, done2, "Done() should return the same channel on repeated calls")
+	assert.Equal(t, done1, done3, "Done() should return the same channel on repeated calls")
+}
+
 func TestDuplexSession_ExecutePipeline(t *testing.T) {
 	// Skip - executePipeline requires complex bidirectional streaming setup
 	t.Skip("executePipeline requires full pipeline and stream configuration")
