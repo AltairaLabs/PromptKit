@@ -270,8 +270,8 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 	}
 
 	// Validate arguments
-	if err := r.validator.ValidateArgs(tool, args); err != nil {
-		return nil, err
+	if valErr := r.validator.ValidateArgs(tool, args); valErr != nil {
+		return nil, valErr
 	}
 
 	// Find appropriate executor using shared logic
@@ -329,8 +329,8 @@ func (r *Registry) ExecuteAsync(toolName string, args json.RawMessage) (*ToolExe
 	}
 
 	// Validate arguments
-	if err := r.validator.ValidateArgs(tool, args); err != nil {
-		return nil, err
+	if valErr := r.validator.ValidateArgs(tool, args); valErr != nil {
+		return nil, valErr
 	}
 
 	executor, err := r.getExecutorForTool(tool)
@@ -381,7 +381,9 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 }
 
 // executeWithAsyncExecutor executes a tool with async support
-func (r *Registry) executeWithAsyncExecutor(asyncExecutor AsyncToolExecutor, tool *ToolDescriptor, toolName string, args json.RawMessage) (*ToolExecutionResult, error) {
+func (r *Registry) executeWithAsyncExecutor(
+	asyncExecutor AsyncToolExecutor, tool *ToolDescriptor, _ string, args json.RawMessage,
+) (*ToolExecutionResult, error) {
 	start := getCurrentTimeMs()
 	result, err := asyncExecutor.ExecuteAsync(tool, args)
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
@@ -408,7 +410,9 @@ func (r *Registry) executeWithAsyncExecutor(asyncExecutor AsyncToolExecutor, too
 }
 
 // executeSyncFallback executes a tool synchronously for non-async executors
-func (r *Registry) executeSyncFallback(executor Executor, tool *ToolDescriptor, toolName string, args json.RawMessage) (*ToolExecutionResult, error) {
+func (r *Registry) executeSyncFallback(
+	executor Executor, tool *ToolDescriptor, _ string, args json.RawMessage,
+) (*ToolExecutionResult, error) {
 	start := getCurrentTimeMs()
 	result, err := executor.Execute(tool, args)
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
@@ -432,7 +436,9 @@ func (r *Registry) executeSyncFallback(executor Executor, tool *ToolDescriptor, 
 }
 
 // validateAndCoerceResult validates and coerces tool execution results
-func (r *Registry) validateAndCoerceResult(tool *ToolDescriptor, content json.RawMessage) (*ToolExecutionResult, error) {
+func (r *Registry) validateAndCoerceResult(
+	tool *ToolDescriptor, content json.RawMessage,
+) (*ToolExecutionResult, error) {
 	validatedResult, _, err := r.validator.CoerceResult(tool, content)
 	if err != nil {
 		return &ToolExecutionResult{
