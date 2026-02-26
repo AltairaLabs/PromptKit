@@ -31,6 +31,9 @@ const (
 	defaultMaxTokens        = 4096
 	defaultTemperature      = 0.7
 	streamChannelBufferSize = 100 // Buffer size for streaming channels
+
+	// roleAssistant is the standard role string for assistant messages.
+	roleAssistant = "assistant"
 )
 
 // Error message templates for mode-specific operations.
@@ -38,9 +41,6 @@ const (
 	errDuplexModeRequired = "%s only available in duplex mode; use OpenDuplex()"
 	errUnaryModeRequired  = "Send() only available in unary mode; use OpenDuplex() for duplex streaming"
 )
-
-// Role constants for message types.
-const roleAssistant = "assistant"
 
 // Content type constants.
 const contentTypeText = "text"
