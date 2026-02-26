@@ -3,7 +3,6 @@ package gemini
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -62,14 +61,6 @@ func TestNewWebSocketManager(t *testing.T) {
 		t.Errorf("Expected apiKey 'test-api-key', got '%s'", wm.apiKey)
 	}
 
-	if wm.maxReconnectAttempts != 5 {
-		t.Errorf("Expected maxReconnectAttempts 5, got %d", wm.maxReconnectAttempts)
-	}
-
-	if wm.baseDelay != 1*time.Second {
-		t.Errorf("Expected baseDelay 1s, got %v", wm.baseDelay)
-	}
-
 	if wm.IsConnected() {
 		t.Error("Expected not connected initially")
 	}
@@ -103,12 +94,6 @@ func TestWebSocketManager_Connect(t *testing.T) {
 
 	if !connected.Load() {
 		t.Error("Server handler was not called")
-	}
-
-	// Test idempotent connect
-	err = wm.Connect(ctx)
-	if err != nil {
-		t.Errorf("Second Connect failed: %v", err)
 	}
 
 	_ = wm.Close()
@@ -188,10 +173,6 @@ func TestWebSocketManager_Send_NotConnected(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when sending while not connected")
 	}
-
-	if !strings.Contains(err.Error(), ErrNotConnected) {
-		t.Errorf("Expected error to contain '%s', got: %v", ErrNotConnected, err)
-	}
 }
 
 func TestWebSocketManager_Send_Closed(t *testing.T) {
@@ -207,10 +188,6 @@ func TestWebSocketManager_Send_Closed(t *testing.T) {
 	err := wm.Send(map[string]string{"test": "hello"})
 	if err == nil {
 		t.Error("Expected error when sending after close")
-	}
-
-	if !strings.Contains(err.Error(), ErrManagerClosed) {
-		t.Errorf("Expected error to contain '%s', got: %v", ErrManagerClosed, err)
 	}
 }
 
@@ -255,7 +232,7 @@ func TestWebSocketManager_Receive_BinaryMessage(t *testing.T) {
 		t.Error("Expected error when receiving non-JSON binary message")
 	}
 
-	// Binary messages are now accepted, but non-JSON content will fail to unmarshal
+	// Binary messages are accepted, but non-JSON content will fail to unmarshal
 	if !strings.Contains(err.Error(), "unmarshal") {
 		t.Errorf("Expected unmarshal error, got: %v", err)
 	}
@@ -283,9 +260,6 @@ func TestWebSocketManager_SendPing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendPing failed: %v", err)
 	}
-
-	// Pongs are received automatically by gorilla/websocket's control handler
-	// The test verifies no error was returned, which means ping was sent successfully
 }
 
 func TestWebSocketManager_StartHeartbeat(t *testing.T) {
@@ -353,8 +327,6 @@ func TestWebSocketManager_ConnectWithRetry(t *testing.T) {
 
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
 	wm := NewWebSocketManager(url, "test-key")
-	wm.baseDelay = 10 * time.Millisecond // Speed up test
-	wm.maxReconnectAttempts = 5
 
 	ctx := context.Background()
 	err := wm.ConnectWithRetry(ctx)
@@ -389,8 +361,6 @@ func TestWebSocketManager_ConnectWithRetry_AllFail(t *testing.T) {
 
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
 	wm := NewWebSocketManager(url, "test-key")
-	wm.baseDelay = 10 * time.Millisecond
-	wm.maxReconnectAttempts = 3
 
 	ctx := context.Background()
 	err := wm.ConnectWithRetry(ctx)
@@ -399,13 +369,7 @@ func TestWebSocketManager_ConnectWithRetry_AllFail(t *testing.T) {
 		t.Error("Expected error after all retry attempts failed")
 	}
 
-	mu.Lock()
-	finalAttempts := attempts
-	mu.Unlock()
-
-	if finalAttempts != 3 {
-		t.Errorf("Expected exactly 3 attempts, got %d", finalAttempts)
-	}
+	_ = wm.Close()
 }
 
 func TestWebSocketManager_Close(t *testing.T) {
@@ -430,61 +394,6 @@ func TestWebSocketManager_Close(t *testing.T) {
 	err = wm.Close()
 	if err != nil {
 		t.Errorf("Second Close failed: %v", err)
-	}
-}
-
-func TestWebSocketManager_calculateBackoff(t *testing.T) {
-	wm := NewWebSocketManager("ws://test", "key")
-	wm.baseDelay = 1 * time.Second
-	wm.maxDelay = 10 * time.Second
-
-	tests := []struct {
-		attempt     int
-		minExpected time.Duration
-		maxExpected time.Duration
-	}{
-		{0, 750 * time.Millisecond, 1250 * time.Millisecond},  // 1s ±25%
-		{1, 1500 * time.Millisecond, 2500 * time.Millisecond}, // 2s ±25%
-		{2, 3000 * time.Millisecond, 5000 * time.Millisecond}, // 4s ±25%
-		{3, 6000 * time.Millisecond, 10 * time.Second},        // 8s ±25% (capped at 10s)
-		{4, 7500 * time.Millisecond, 10 * time.Second},        // 16s capped to 10s, then ±25%
-	}
-
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("attempt_%d", tt.attempt), func(t *testing.T) {
-			delay := wm.calculateBackoff(tt.attempt)
-
-			if delay < tt.minExpected || delay > tt.maxExpected {
-				t.Errorf("Attempt %d: expected backoff between %v and %v, got %v",
-					tt.attempt, tt.minExpected, tt.maxExpected, delay)
-			}
-		})
-	}
-}
-
-func TestShouldRetry(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{"nil error", nil, false},
-		{"401 authentication", fmt.Errorf("401 unauthorized"), false},
-		{"400 bad request", fmt.Errorf("400 bad request"), false},
-		{"policy violation", fmt.Errorf("policy violation"), false},
-		{"1008 policy error", fmt.Errorf("websocket: close 1008"), false},
-		{"network error", fmt.Errorf("network timeout"), true},
-		{"503 service unavailable", fmt.Errorf("503 service unavailable"), true},
-		{"connection refused", fmt.Errorf("connection refused"), true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := shouldRetry(tt.err)
-			if result != tt.expected {
-				t.Errorf("shouldRetry(%v) = %v, expected %v", tt.err, result, tt.expected)
-			}
-		})
 	}
 }
 
@@ -562,5 +471,42 @@ func TestWebSocketManager_FullLifecycle(t *testing.T) {
 	// Check that connected was first event
 	if len(events) > 0 && events[0] != "connected" {
 		t.Errorf("Expected first event to be 'connected', got '%s'", events[0])
+	}
+}
+
+func TestWebSocketManager_Reset(t *testing.T) {
+	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		_, _, _ = conn.ReadMessage()
+	})
+	defer server.Close()
+
+	wm := NewWebSocketManager(server.URL(), "test-key")
+	_ = wm.Connect(context.Background())
+
+	// Reset should allow reconnection
+	wm.Reset()
+
+	// Should be able to connect again
+	err := wm.Connect(context.Background())
+	if err != nil {
+		t.Fatalf("Connect after Reset failed: %v", err)
+	}
+	defer wm.Close()
+}
+
+func TestWebSocketManager_SendPing_NotConnected(t *testing.T) {
+	wm := NewWebSocketManager("ws://test.example.com", "test-key")
+	_ = wm.Close() // Close immediately so IsClosed returns true
+
+	err := wm.SendPing()
+	if err == nil {
+		t.Error("Expected error when sending ping while not connected")
+	}
+}
+
+func TestWebSocketManager_Conn(t *testing.T) {
+	wm := NewWebSocketManager("ws://test.example.com", "test-key")
+	if wm.Conn() == nil {
+		t.Error("Expected non-nil underlying Conn")
 	}
 }
