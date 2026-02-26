@@ -6,6 +6,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// Sort field constants for ListOptions.SortBy.
+const (
+	SortByCreatedAt = "created_at"
+	SortByUpdatedAt = "updated_at"
+)
+
+// defaultTTLHours is the default TTL for conversation states (24 hours).
+const defaultTTLHours = 24
+
 // ConversationState represents stored conversation state in the state store.
 // This is the primary data structure for persisting and loading conversation history.
 type ConversationState struct {
