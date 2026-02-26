@@ -3,9 +3,11 @@ package providers
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -13,6 +15,35 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
+
+// Connection pooling defaults for HTTP transports shared across providers.
+const (
+	DefaultMaxIdleConns        = 1000
+	DefaultMaxIdleConnsPerHost = 100
+	DefaultMaxConnsPerHost     = 100
+	DefaultIdleConnTimeout     = 90 * time.Second
+	DefaultTLSHandshakeTimeout = 10 * time.Second
+	DefaultDialTimeout         = 30 * time.Second
+	DefaultDialKeepAlive       = 30 * time.Second
+)
+
+// NewPooledTransport creates an *http.Transport configured with connection
+// pooling settings suitable for high-throughput provider communication.
+func NewPooledTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   DefaultDialTimeout,
+			KeepAlive: DefaultDialKeepAlive,
+		}).DialContext,
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+		MaxIdleConns:        DefaultMaxIdleConns,
+		MaxIdleConnsPerHost: DefaultMaxIdleConnsPerHost,
+		MaxConnsPerHost:     DefaultMaxConnsPerHost,
+		IdleConnTimeout:     DefaultIdleConnTimeout,
+		TLSHandshakeTimeout: DefaultTLSHandshakeTimeout,
+		ForceAttemptHTTP2:   true,
+	}
+}
 
 // BaseProvider provides common functionality shared across all provider implementations.
 // It should be embedded in concrete provider structs to avoid code duplication.
@@ -39,7 +70,10 @@ func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fal
 		apiKey = os.Getenv(fallbackKey)
 	}
 
-	client := httputil.NewHTTPClient(httputil.DefaultProviderTimeout)
+	client := &http.Client{
+		Timeout:   httputil.DefaultProviderTimeout,
+		Transport: NewPooledTransport(),
+	}
 	return NewBaseProvider(id, includeRawOutput, client), apiKey
 }
 
@@ -63,7 +97,10 @@ func ExtractAPIKey(cred Credential) string {
 func NewBaseProviderWithCredential(
 	id string, includeRawOutput bool, timeout time.Duration, cred Credential,
 ) (base BaseProvider, apiKey string) {
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: NewPooledTransport(),
+	}
 	base = NewBaseProvider(id, includeRawOutput, client)
 	apiKey = ExtractAPIKey(cred)
 	return base, apiKey

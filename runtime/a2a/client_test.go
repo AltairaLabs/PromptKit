@@ -392,6 +392,49 @@ func TestWithHTTPClient(t *testing.T) {
 	}
 }
 
+func TestNewClient_DefaultHTTPClient(t *testing.T) {
+	c := NewClient("http://example.com")
+
+	if c.httpClient == nil {
+		t.Fatal("expected non-nil HTTP client")
+	}
+	if c.httpClient == http.DefaultClient {
+		t.Error("expected custom HTTP client, not http.DefaultClient")
+	}
+	if c.httpClient.Timeout != defaultClientTimeout {
+		t.Errorf("Timeout = %v, want %v", c.httpClient.Timeout, defaultClientTimeout)
+	}
+
+	transport, ok := c.httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", c.httpClient.Transport)
+	}
+	if transport.MaxIdleConns != defaultMaxIdleConns {
+		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, defaultMaxIdleConns)
+	}
+	if transport.MaxIdleConnsPerHost != defaultMaxIdleConnsPerHost {
+		t.Errorf("MaxIdleConnsPerHost = %d, want %d", transport.MaxIdleConnsPerHost, defaultMaxIdleConnsPerHost)
+	}
+	if transport.MaxConnsPerHost != defaultMaxConnsPerHost {
+		t.Errorf("MaxConnsPerHost = %d, want %d", transport.MaxConnsPerHost, defaultMaxConnsPerHost)
+	}
+	if transport.IdleConnTimeout != defaultIdleConnTimeout {
+		t.Errorf("IdleConnTimeout = %v, want %v", transport.IdleConnTimeout, defaultIdleConnTimeout)
+	}
+	if !transport.ForceAttemptHTTP2 {
+		t.Error("ForceAttemptHTTP2 should be true")
+	}
+}
+
+func TestNewClient_WithHTTPClientOverridesDefault(t *testing.T) {
+	custom := &http.Client{Timeout: 5 * time.Second}
+	c := NewClient("http://example.com", WithHTTPClient(custom))
+
+	if c.httpClient != custom {
+		t.Error("expected custom HTTP client to override default")
+	}
+}
+
 func TestRPCError_ErrorString(t *testing.T) {
 	err := &RPCError{Code: -32600, Message: "bad request"}
 	got := err.Error()

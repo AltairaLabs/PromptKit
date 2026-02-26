@@ -656,14 +656,12 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-
 	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIPredictCompletionsPath, map[string]string{
 		contentTypeHeader:   applicationJSON,
 		authorizationHeader: "***",
 	}, openAIReq)
 
-	resp, err := client.Do(httpReq)
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		predictResp.Latency = time.Since(start)
 		return predictResp, fmt.Errorf("failed to send request: %w", err)

@@ -4,16 +4,31 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+)
+
+// HTTP client defaults for A2A communication.
+const (
+	defaultClientTimeout       = 60 * time.Second
+	defaultDialTimeout         = 30 * time.Second
+	defaultDialKeepAlive       = 30 * time.Second
+	defaultMaxIdleConns        = 100
+	defaultMaxIdleConnsPerHost = 10
+	defaultMaxConnsPerHost     = 10
+	defaultIdleConnTimeout     = 90 * time.Second
+	defaultTLSHandshakeTimeout = 10 * time.Second
 )
 
 // RPCError represents a JSON-RPC error returned by an A2A agent.
@@ -61,11 +76,32 @@ type Client struct {
 	agentCard *AgentCard
 }
 
+// newDefaultHTTPClient creates an HTTP client with connection pooling and a timeout,
+// used as the default for A2A communication when no custom client is provided.
+func newDefaultHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: defaultClientTimeout,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   defaultDialTimeout,
+				KeepAlive: defaultDialKeepAlive,
+			}).DialContext,
+			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+			MaxIdleConns:        defaultMaxIdleConns,
+			MaxIdleConnsPerHost: defaultMaxIdleConnsPerHost,
+			MaxConnsPerHost:     defaultMaxConnsPerHost,
+			IdleConnTimeout:     defaultIdleConnTimeout,
+			TLSHandshakeTimeout: defaultTLSHandshakeTimeout,
+			ForceAttemptHTTP2:   true,
+		},
+	}
+}
+
 // NewClient creates a Client targeting baseURL.
 func NewClient(baseURL string, opts ...ClientOption) *Client {
 	c := &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
-		httpClient: http.DefaultClient,
+		httpClient: newDefaultHTTPClient(),
 	}
 	for _, opt := range opts {
 		opt(c)
