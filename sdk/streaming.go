@@ -95,14 +95,9 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 		startTime := time.Now()
 
 		c.mu.RLock()
-		if c.mode != UnaryMode {
+		if err := c.requireUnary("Stream()"); err != nil {
 			c.mu.RUnlock()
-			ch <- StreamChunk{Error: fmt.Errorf("Stream() only available in unary mode; use OpenDuplex() for duplex streaming")}
-			return
-		}
-		if c.closed {
-			c.mu.RUnlock()
-			ch <- StreamChunk{Error: ErrConversationClosed}
+			ch <- StreamChunk{Error: err}
 			return
 		}
 		c.mu.RUnlock()

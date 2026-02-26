@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -39,7 +38,7 @@ const (
 // Error message templates for mode-specific operations.
 const (
 	errDuplexModeRequired = "%s only available in duplex mode; use OpenDuplex()"
-	errUnaryModeRequired  = "Send() only available in unary mode; use OpenDuplex() for duplex streaming"
+	errUnaryModeRequired  = "%s only available in unary mode; use OpenDuplex() for duplex streaming"
 )
 
 // Content type constants.
@@ -54,6 +53,30 @@ const (
 	// DuplexMode for bidirectional streaming conversations.
 	DuplexMode
 )
+
+// requireDuplex checks that the conversation is in duplex mode and not closed.
+// It must be called while c.mu is held (at least RLock).
+func (c *Conversation) requireDuplex(op string) error {
+	if c.mode != DuplexMode {
+		return fmt.Errorf(errDuplexModeRequired, op)
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+	return nil
+}
+
+// requireUnary checks that the conversation is in unary mode and not closed.
+// It must be called while c.mu is held (at least RLock).
+func (c *Conversation) requireUnary(op string) error {
+	if c.mode != UnaryMode {
+		return fmt.Errorf(errUnaryModeRequired, op)
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+	return nil
+}
 
 // Conversation represents an active LLM conversation.
 //
@@ -209,13 +232,7 @@ func (c *Conversation) validateSendState() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != UnaryMode {
-		return errors.New(errUnaryModeRequired)
-	}
-	if c.closed {
-		return ErrConversationClosed
-	}
-	return nil
+	return c.requireUnary("Send()")
 }
 
 // buildUserMessage creates a user message from the input.
@@ -438,11 +455,8 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != DuplexMode {
-		return fmt.Errorf(errDuplexModeRequired, "SendChunk()")
-	}
-	if c.closed {
-		return ErrConversationClosed
+	if err := c.requireDuplex("SendChunk()"); err != nil {
+		return err
 	}
 
 	return c.duplexSession.SendChunk(ctx, chunk)
@@ -454,11 +468,8 @@ func (c *Conversation) SendText(ctx context.Context, text string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != DuplexMode {
-		return fmt.Errorf(errDuplexModeRequired, "SendText()")
-	}
-	if c.closed {
-		return ErrConversationClosed
+	if err := c.requireDuplex("SendText()"); err != nil {
+		return err
 	}
 
 	return c.duplexSession.SendText(ctx, text)
@@ -479,11 +490,8 @@ func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != DuplexMode {
-		return fmt.Errorf(errDuplexModeRequired, "SendFrame()")
-	}
-	if c.closed {
-		return ErrConversationClosed
+	if err := c.requireDuplex("SendFrame()"); err != nil {
+		return err
 	}
 
 	return c.duplexSession.SendFrame(ctx, frame)
@@ -505,11 +513,8 @@ func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoC
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != DuplexMode {
-		return fmt.Errorf(errDuplexModeRequired, "SendVideoChunk()")
-	}
-	if c.closed {
-		return ErrConversationClosed
+	if err := c.requireDuplex("SendVideoChunk()"); err != nil {
+		return err
 	}
 
 	return c.duplexSession.SendVideoChunk(ctx, chunk)
@@ -530,11 +535,8 @@ func (c *Conversation) TriggerStart(ctx context.Context, message string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != DuplexMode {
-		return fmt.Errorf(errDuplexModeRequired, "TriggerStart()")
-	}
-	if c.closed {
-		return ErrConversationClosed
+	if err := c.requireDuplex("TriggerStart()"); err != nil {
+		return err
 	}
 
 	return c.duplexSession.SendText(ctx, message)
@@ -546,11 +548,8 @@ func (c *Conversation) Response() (<-chan providers.StreamChunk, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != DuplexMode {
-		return nil, fmt.Errorf(errDuplexModeRequired, "Response()")
-	}
-	if c.closed {
-		return nil, ErrConversationClosed
+	if err := c.requireDuplex("Response()"); err != nil {
+		return nil, err
 	}
 
 	return c.duplexSession.Response(), nil
@@ -562,11 +561,8 @@ func (c *Conversation) Done() (<-chan struct{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != DuplexMode {
-		return nil, fmt.Errorf(errDuplexModeRequired, "Done()")
-	}
-	if c.closed {
-		return nil, ErrConversationClosed
+	if err := c.requireDuplex("Done()"); err != nil {
+		return nil, err
 	}
 
 	return c.duplexSession.Done(), nil
@@ -579,11 +575,8 @@ func (c *Conversation) SessionError() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.mode != DuplexMode {
-		return fmt.Errorf(errDuplexModeRequired, "SessionError()")
-	}
-	if c.closed {
-		return ErrConversationClosed
+	if err := c.requireDuplex("SessionError()"); err != nil {
+		return err
 	}
 
 	return c.duplexSession.Error()
