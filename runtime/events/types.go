@@ -118,6 +118,8 @@ func (baseEventData) eventData() {
 	_ = 0 // no-op statement for coverage tracking
 }
 
+// --- Pipeline events (kept separate: each phase has distinct fields) ---
+
 // PipelineStartedData contains data for pipeline start events.
 type PipelineStartedData struct {
 	baseEventData
@@ -141,56 +143,52 @@ type PipelineFailedData struct {
 	Duration time.Duration
 }
 
-// MiddlewareStartedData contains data for middleware start events.
-type MiddlewareStartedData struct {
-	baseEventData
-	Name  string
-	Index int
-}
+// --- Middleware events (consolidated) ---
 
-// MiddlewareCompletedData contains data for middleware completion events.
-type MiddlewareCompletedData struct {
+// MiddlewareEventData is the unified payload for all middleware lifecycle events
+// (started, completed, failed). Fields like Duration, Error are zero-valued
+// when not applicable to the current phase.
+type MiddlewareEventData struct {
 	baseEventData
 	Name     string
 	Index    int
-	Duration time.Duration
+	Duration time.Duration // Set on completed/failed
+	Error    error         // Set on failed
 }
 
-// MiddlewareFailedData contains data for middleware failure events.
-type MiddlewareFailedData struct {
-	baseEventData
-	Name     string
-	Index    int
-	Error    error
-	Duration time.Duration
-}
+type (
+	// MiddlewareStartedData is an alias for MiddlewareEventData (backward compatibility).
+	MiddlewareStartedData = MiddlewareEventData
+	// MiddlewareCompletedData is an alias for MiddlewareEventData (backward compatibility).
+	MiddlewareCompletedData = MiddlewareEventData
+	// MiddlewareFailedData is an alias for MiddlewareEventData (backward compatibility).
+	MiddlewareFailedData = MiddlewareEventData
+)
 
-// StageStartedData contains data for stage start events (streaming architecture).
-type StageStartedData struct {
-	baseEventData
-	Name      string
-	Index     int
-	StageType string // Type of stage (transform, accumulate, generate, sink, bidirectional)
-}
+// --- Stage events (consolidated) ---
 
-// StageCompletedData contains data for stage completion events (streaming architecture).
-type StageCompletedData struct {
+// StageEventData is the unified payload for all stage lifecycle events
+// (started, completed, failed). Fields like Duration, Error are zero-valued
+// when not applicable to the current phase.
+type StageEventData struct {
 	baseEventData
 	Name      string
 	Index     int
-	Duration  time.Duration
-	StageType string
+	StageType string        // Type of stage (transform, accumulate, generate, sink, bidirectional)
+	Duration  time.Duration // Set on completed/failed
+	Error     error         // Set on failed
 }
 
-// StageFailedData contains data for stage failure events (streaming architecture).
-type StageFailedData struct {
-	baseEventData
-	Name      string
-	Index     int
-	Error     error
-	Duration  time.Duration
-	StageType string
-}
+type (
+	// StageStartedData is an alias for StageEventData (backward compatibility).
+	StageStartedData = StageEventData
+	// StageCompletedData is an alias for StageEventData (backward compatibility).
+	StageCompletedData = StageEventData
+	// StageFailedData is an alias for StageEventData (backward compatibility).
+	StageFailedData = StageEventData
+)
+
+// --- Provider call events (kept separate: each phase has very distinct fields) ---
 
 // ProviderCallStartedData contains data for provider call start events.
 type ProviderCallStartedData struct {
@@ -224,56 +222,54 @@ type ProviderCallFailedData struct {
 	Duration time.Duration
 }
 
-// ToolCallStartedData contains data for tool call start events.
-type ToolCallStartedData struct {
+// --- Tool call events (consolidated) ---
+
+// ToolCallEventData is the unified payload for all tool call lifecycle events
+// (started, completed, failed). Fields like Duration, Error, Status, Args
+// are zero-valued when not applicable to the current phase.
+type ToolCallEventData struct {
 	baseEventData
 	ToolName string
 	CallID   string
-	Args     map[string]interface{}
+	Args     map[string]interface{} // Set on started
+	Duration time.Duration          // Set on completed/failed
+	Status   string                 // Set on completed (e.g. "success", "error", "pending")
+	Error    error                  // Set on failed
 }
 
-// ToolCallCompletedData contains data for tool call completion events.
-type ToolCallCompletedData struct {
-	baseEventData
-	ToolName string
-	CallID   string
-	Duration time.Duration
-	Status   string // e.g. "success", "error", "pending"
-}
+type (
+	// ToolCallStartedData is an alias for ToolCallEventData (backward compatibility).
+	ToolCallStartedData = ToolCallEventData
+	// ToolCallCompletedData is an alias for ToolCallEventData (backward compatibility).
+	ToolCallCompletedData = ToolCallEventData
+	// ToolCallFailedData is an alias for ToolCallEventData (backward compatibility).
+	ToolCallFailedData = ToolCallEventData
+)
 
-// ToolCallFailedData contains data for tool call failure events.
-type ToolCallFailedData struct {
-	baseEventData
-	ToolName string
-	CallID   string
-	Error    error
-	Duration time.Duration
-}
+// --- Validation events (consolidated) ---
 
-// ValidationStartedData contains data for validation start events.
-type ValidationStartedData struct {
+// ValidationEventData is the unified payload for all validation lifecycle events
+// (started, passed, failed). Fields like Duration, Error, Violations are
+// zero-valued when not applicable to the current phase.
+type ValidationEventData struct {
 	baseEventData
 	ValidatorName string
-	ValidatorType string // e.g. "input", "output", "semantic"
+	ValidatorType string        // e.g. "input", "output", "semantic"
+	Duration      time.Duration // Set on passed/failed
+	Error         error         // Set on failed
+	Violations    []string      // Set on failed
 }
 
-// ValidationPassedData contains data for validation success events.
-type ValidationPassedData struct {
-	baseEventData
-	ValidatorName string
-	ValidatorType string
-	Duration      time.Duration
-}
+type (
+	// ValidationStartedData is an alias for ValidationEventData (backward compatibility).
+	ValidationStartedData = ValidationEventData
+	// ValidationPassedData is an alias for ValidationEventData (backward compatibility).
+	ValidationPassedData = ValidationEventData
+	// ValidationFailedData is an alias for ValidationEventData (backward compatibility).
+	ValidationFailedData = ValidationEventData
+)
 
-// ValidationFailedData contains data for validation failure events.
-type ValidationFailedData struct {
-	baseEventData
-	ValidatorName string
-	ValidatorType string
-	Error         error
-	Duration      time.Duration
-	Violations    []string
-}
+// --- Context/state events ---
 
 // ContextBuiltData contains data for context building events.
 type ContextBuiltData struct {
@@ -292,19 +288,19 @@ type TokenBudgetExceededData struct {
 	Excess         int
 }
 
-// StateLoadedData contains data for state load events.
-type StateLoadedData struct {
+// StateEventData is the unified payload for state load/save events.
+type StateEventData struct {
 	baseEventData
 	ConversationID string
 	MessageCount   int
 }
 
-// StateSavedData contains data for state save events.
-type StateSavedData struct {
-	baseEventData
-	ConversationID string
-	MessageCount   int
-}
+type (
+	// StateLoadedData is an alias for StateEventData (backward compatibility).
+	StateLoadedData = StateEventData
+	// StateSavedData is an alias for StateEventData (backward compatibility).
+	StateSavedData = StateEventData
+)
 
 // StreamInterruptedData contains data for stream interruption events.
 type StreamInterruptedData struct {
@@ -396,11 +392,16 @@ type AudioMetadata struct {
 	DurationMs int64 `json:"duration_ms"`
 }
 
-// AudioInputData contains data for audio input events.
-type AudioInputData struct {
+// AudioEventData is the unified payload for audio input and output events.
+// The Direction field distinguishes between input and output.
+// For input events, Actor identifies the source; for output events,
+// GeneratedFrom indicates the generation method.
+type AudioEventData struct {
 	baseEventData
-	// Actor identifies the source of the audio (e.g., "user", "environment").
-	Actor string `json:"actor"`
+	// Direction is "input" or "output".
+	Direction string `json:"direction"`
+	// Actor identifies the source of the audio (e.g., "user", "environment"). Input only.
+	Actor string `json:"actor,omitempty"`
 	// Payload contains the audio data or reference.
 	Payload BinaryPayload `json:"payload"`
 	// Metadata contains audio format information.
@@ -411,24 +412,16 @@ type AudioInputData struct {
 	ChunkIndex int `json:"chunk_index"`
 	// IsFinal indicates this is the last chunk in the stream.
 	IsFinal bool `json:"is_final"`
-}
-
-// AudioOutputData contains data for audio output events.
-type AudioOutputData struct {
-	baseEventData
-	// Payload contains the audio data or reference.
-	Payload BinaryPayload `json:"payload"`
-	// Metadata contains audio format information.
-	Metadata AudioMetadata `json:"metadata"`
-	// TurnID links this audio to a specific conversation turn.
-	TurnID string `json:"turn_id,omitempty"`
-	// ChunkIndex is the sequence number for streaming audio (0-based).
-	ChunkIndex int `json:"chunk_index"`
-	// IsFinal indicates this is the last chunk in the stream.
-	IsFinal bool `json:"is_final"`
-	// GeneratedFrom indicates what generated this audio (e.g., "tts", "model").
+	// GeneratedFrom indicates what generated this audio (e.g., "tts", "model"). Output only.
 	GeneratedFrom string `json:"generated_from,omitempty"`
 }
+
+type (
+	// AudioInputData is an alias for AudioEventData (backward compatibility).
+	AudioInputData = AudioEventData
+	// AudioOutputData is an alias for AudioEventData (backward compatibility).
+	AudioOutputData = AudioEventData
+)
 
 // AudioTranscriptionData contains data for transcription events.
 type AudioTranscriptionData struct {
@@ -501,31 +494,32 @@ type Rect struct {
 	Height int `json:"height"`
 }
 
-// ImageInputData contains data for image input events.
-type ImageInputData struct {
+// ImageEventData is the unified payload for image input and output events.
+// The Direction field distinguishes between input and output.
+type ImageEventData struct {
 	baseEventData
-	// Actor identifies the source of the image (e.g., "user", "environment").
-	Actor string `json:"actor"`
+	// Direction is "input" or "output".
+	Direction string `json:"direction"`
+	// Actor identifies the source of the image (e.g., "user", "environment"). Input only.
+	Actor string `json:"actor,omitempty"`
 	// Payload contains the image data or reference.
 	Payload BinaryPayload `json:"payload"`
 	// Metadata contains image format information.
 	Metadata VideoMetadata `json:"metadata"` // Reuse VideoMetadata for dimensions
-	// Description is an optional description of the image content.
+	// Description is an optional description of the image content. Input only.
 	Description string `json:"description,omitempty"`
-}
-
-// ImageOutputData contains data for image output events.
-type ImageOutputData struct {
-	baseEventData
-	// Payload contains the image data or reference.
-	Payload BinaryPayload `json:"payload"`
-	// Metadata contains image format information.
-	Metadata VideoMetadata `json:"metadata"` // Reuse VideoMetadata for dimensions
-	// GeneratedFrom indicates what generated this image (e.g., "dalle", "stable-diffusion").
+	// GeneratedFrom indicates what generated this image (e.g., "dalle", "stable-diffusion"). Output only.
 	GeneratedFrom string `json:"generated_from,omitempty"`
-	// Prompt is the prompt used to generate the image (if applicable).
+	// Prompt is the prompt used to generate the image (if applicable). Output only.
 	Prompt string `json:"prompt,omitempty"`
 }
+
+type (
+	// ImageInputData is an alias for ImageEventData (backward compatibility).
+	ImageInputData = ImageEventData
+	// ImageOutputData is an alias for ImageEventData (backward compatibility).
+	ImageOutputData = ImageEventData
+)
 
 // WorkflowTransitionedData contains data for workflow state transition events.
 type WorkflowTransitionedData struct {

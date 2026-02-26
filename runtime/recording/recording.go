@@ -27,24 +27,30 @@ const filePermissions = 0600
 
 // eventDataRegistry maps type names to factory functions for event data types.
 // This enables deserialization of recorded events back to their typed structs.
+// Entries for both canonical names and legacy alias names are included for
+// backward compatibility with old recordings.
 var eventDataRegistry = map[string]func() events.EventData{
-	// Audio events
-	"*events.AudioInputData":         func() events.EventData { return &events.AudioInputData{} },
-	"events.AudioInputData":          func() events.EventData { return &events.AudioInputData{} },
-	"*events.AudioOutputData":        func() events.EventData { return &events.AudioOutputData{} },
-	"events.AudioOutputData":         func() events.EventData { return &events.AudioOutputData{} },
+	// Audio events (consolidated into AudioEventData)
+	"*events.AudioEventData":         func() events.EventData { return &events.AudioEventData{} },
+	"events.AudioEventData":          func() events.EventData { return &events.AudioEventData{} },
+	"*events.AudioInputData":         func() events.EventData { return &events.AudioEventData{} },
+	"events.AudioInputData":          func() events.EventData { return &events.AudioEventData{} },
+	"*events.AudioOutputData":        func() events.EventData { return &events.AudioEventData{} },
+	"events.AudioOutputData":         func() events.EventData { return &events.AudioEventData{} },
 	"*events.AudioTranscriptionData": func() events.EventData { return &events.AudioTranscriptionData{} },
 	"events.AudioTranscriptionData":  func() events.EventData { return &events.AudioTranscriptionData{} },
 
-	// Video/Image events
+	// Video/Image events (ImageInputData/ImageOutputData consolidated into ImageEventData)
 	"*events.VideoFrameData":  func() events.EventData { return &events.VideoFrameData{} },
 	"events.VideoFrameData":   func() events.EventData { return &events.VideoFrameData{} },
 	"*events.ScreenshotData":  func() events.EventData { return &events.ScreenshotData{} },
 	"events.ScreenshotData":   func() events.EventData { return &events.ScreenshotData{} },
-	"*events.ImageInputData":  func() events.EventData { return &events.ImageInputData{} },
-	"events.ImageInputData":   func() events.EventData { return &events.ImageInputData{} },
-	"*events.ImageOutputData": func() events.EventData { return &events.ImageOutputData{} },
-	"events.ImageOutputData":  func() events.EventData { return &events.ImageOutputData{} },
+	"*events.ImageEventData":  func() events.EventData { return &events.ImageEventData{} },
+	"events.ImageEventData":   func() events.EventData { return &events.ImageEventData{} },
+	"*events.ImageInputData":  func() events.EventData { return &events.ImageEventData{} },
+	"events.ImageInputData":   func() events.EventData { return &events.ImageEventData{} },
+	"*events.ImageOutputData": func() events.EventData { return &events.ImageEventData{} },
+	"events.ImageOutputData":  func() events.EventData { return &events.ImageEventData{} },
 
 	// Message events
 	"*events.MessageCreatedData":      func() events.EventData { return &events.MessageCreatedData{} },
@@ -70,51 +76,61 @@ var eventDataRegistry = map[string]func() events.EventData{
 	"*events.ProviderCallFailedData":    func() events.EventData { return &events.ProviderCallFailedData{} },
 	"events.ProviderCallFailedData":     func() events.EventData { return &events.ProviderCallFailedData{} },
 
-	// Tool events
-	"*events.ToolCallStartedData":   func() events.EventData { return &events.ToolCallStartedData{} },
-	"events.ToolCallStartedData":    func() events.EventData { return &events.ToolCallStartedData{} },
-	"*events.ToolCallCompletedData": func() events.EventData { return &events.ToolCallCompletedData{} },
-	"events.ToolCallCompletedData":  func() events.EventData { return &events.ToolCallCompletedData{} },
-	"*events.ToolCallFailedData":    func() events.EventData { return &events.ToolCallFailedData{} },
-	"events.ToolCallFailedData":     func() events.EventData { return &events.ToolCallFailedData{} },
+	// Tool events (consolidated into ToolCallEventData)
+	"*events.ToolCallEventData":     func() events.EventData { return &events.ToolCallEventData{} },
+	"events.ToolCallEventData":      func() events.EventData { return &events.ToolCallEventData{} },
+	"*events.ToolCallStartedData":   func() events.EventData { return &events.ToolCallEventData{} },
+	"events.ToolCallStartedData":    func() events.EventData { return &events.ToolCallEventData{} },
+	"*events.ToolCallCompletedData": func() events.EventData { return &events.ToolCallEventData{} },
+	"events.ToolCallCompletedData":  func() events.EventData { return &events.ToolCallEventData{} },
+	"*events.ToolCallFailedData":    func() events.EventData { return &events.ToolCallEventData{} },
+	"events.ToolCallFailedData":     func() events.EventData { return &events.ToolCallEventData{} },
 
 	// Custom events
 	"*events.CustomEventData": func() events.EventData { return &events.CustomEventData{} },
 	"events.CustomEventData":  func() events.EventData { return &events.CustomEventData{} },
 
-	// Stage events
-	"*events.StageStartedData":   func() events.EventData { return &events.StageStartedData{} },
-	"events.StageStartedData":    func() events.EventData { return &events.StageStartedData{} },
-	"*events.StageCompletedData": func() events.EventData { return &events.StageCompletedData{} },
-	"events.StageCompletedData":  func() events.EventData { return &events.StageCompletedData{} },
-	"*events.StageFailedData":    func() events.EventData { return &events.StageFailedData{} },
-	"events.StageFailedData":     func() events.EventData { return &events.StageFailedData{} },
+	// Stage events (consolidated into StageEventData)
+	"*events.StageEventData":     func() events.EventData { return &events.StageEventData{} },
+	"events.StageEventData":      func() events.EventData { return &events.StageEventData{} },
+	"*events.StageStartedData":   func() events.EventData { return &events.StageEventData{} },
+	"events.StageStartedData":    func() events.EventData { return &events.StageEventData{} },
+	"*events.StageCompletedData": func() events.EventData { return &events.StageEventData{} },
+	"events.StageCompletedData":  func() events.EventData { return &events.StageEventData{} },
+	"*events.StageFailedData":    func() events.EventData { return &events.StageEventData{} },
+	"events.StageFailedData":     func() events.EventData { return &events.StageEventData{} },
 
-	// Middleware events
-	"*events.MiddlewareStartedData":   func() events.EventData { return &events.MiddlewareStartedData{} },
-	"events.MiddlewareStartedData":    func() events.EventData { return &events.MiddlewareStartedData{} },
-	"*events.MiddlewareCompletedData": func() events.EventData { return &events.MiddlewareCompletedData{} },
-	"events.MiddlewareCompletedData":  func() events.EventData { return &events.MiddlewareCompletedData{} },
-	"*events.MiddlewareFailedData":    func() events.EventData { return &events.MiddlewareFailedData{} },
-	"events.MiddlewareFailedData":     func() events.EventData { return &events.MiddlewareFailedData{} },
+	// Middleware events (consolidated into MiddlewareEventData)
+	"*events.MiddlewareEventData":     func() events.EventData { return &events.MiddlewareEventData{} },
+	"events.MiddlewareEventData":      func() events.EventData { return &events.MiddlewareEventData{} },
+	"*events.MiddlewareStartedData":   func() events.EventData { return &events.MiddlewareEventData{} },
+	"events.MiddlewareStartedData":    func() events.EventData { return &events.MiddlewareEventData{} },
+	"*events.MiddlewareCompletedData": func() events.EventData { return &events.MiddlewareEventData{} },
+	"events.MiddlewareCompletedData":  func() events.EventData { return &events.MiddlewareEventData{} },
+	"*events.MiddlewareFailedData":    func() events.EventData { return &events.MiddlewareEventData{} },
+	"events.MiddlewareFailedData":     func() events.EventData { return &events.MiddlewareEventData{} },
 
-	// Validation events
-	"*events.ValidationStartedData": func() events.EventData { return &events.ValidationStartedData{} },
-	"events.ValidationStartedData":  func() events.EventData { return &events.ValidationStartedData{} },
-	"*events.ValidationPassedData":  func() events.EventData { return &events.ValidationPassedData{} },
-	"events.ValidationPassedData":   func() events.EventData { return &events.ValidationPassedData{} },
-	"*events.ValidationFailedData":  func() events.EventData { return &events.ValidationFailedData{} },
-	"events.ValidationFailedData":   func() events.EventData { return &events.ValidationFailedData{} },
+	// Validation events (consolidated into ValidationEventData)
+	"*events.ValidationEventData":   func() events.EventData { return &events.ValidationEventData{} },
+	"events.ValidationEventData":    func() events.EventData { return &events.ValidationEventData{} },
+	"*events.ValidationStartedData": func() events.EventData { return &events.ValidationEventData{} },
+	"events.ValidationStartedData":  func() events.EventData { return &events.ValidationEventData{} },
+	"*events.ValidationPassedData":  func() events.EventData { return &events.ValidationEventData{} },
+	"events.ValidationPassedData":   func() events.EventData { return &events.ValidationEventData{} },
+	"*events.ValidationFailedData":  func() events.EventData { return &events.ValidationEventData{} },
+	"events.ValidationFailedData":   func() events.EventData { return &events.ValidationEventData{} },
 
-	// Context/State events
+	// Context/State events (StateLoadedData/StateSavedData consolidated into StateEventData)
 	"*events.ContextBuiltData":        func() events.EventData { return &events.ContextBuiltData{} },
 	"events.ContextBuiltData":         func() events.EventData { return &events.ContextBuiltData{} },
 	"*events.TokenBudgetExceededData": func() events.EventData { return &events.TokenBudgetExceededData{} },
 	"events.TokenBudgetExceededData":  func() events.EventData { return &events.TokenBudgetExceededData{} },
-	"*events.StateLoadedData":         func() events.EventData { return &events.StateLoadedData{} },
-	"events.StateLoadedData":          func() events.EventData { return &events.StateLoadedData{} },
-	"*events.StateSavedData":          func() events.EventData { return &events.StateSavedData{} },
-	"events.StateSavedData":           func() events.EventData { return &events.StateSavedData{} },
+	"*events.StateEventData":          func() events.EventData { return &events.StateEventData{} },
+	"events.StateEventData":           func() events.EventData { return &events.StateEventData{} },
+	"*events.StateLoadedData":         func() events.EventData { return &events.StateEventData{} },
+	"events.StateLoadedData":          func() events.EventData { return &events.StateEventData{} },
+	"*events.StateSavedData":          func() events.EventData { return &events.StateEventData{} },
+	"events.StateSavedData":           func() events.EventData { return &events.StateEventData{} },
 	"*events.StreamInterruptedData":   func() events.EventData { return &events.StreamInterruptedData{} },
 	"events.StreamInterruptedData":    func() events.EventData { return &events.StreamInterruptedData{} },
 }

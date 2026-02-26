@@ -2,10 +2,11 @@
 package pages
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/panels"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/views"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ConversationPage renders the conversation view

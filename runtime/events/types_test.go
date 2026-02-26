@@ -118,6 +118,62 @@ func TestEventTypes_Constants(t *testing.T) {
 	}
 }
 
+func TestConsolidatedTypes_Aliases(t *testing.T) {
+	// Verify that type aliases resolve to the canonical consolidated types.
+	// Because aliases are transparent, values constructed via old names
+	// can be asserted with the new canonical name and vice versa.
+	mw := &MiddlewareStartedData{Name: "auth", Index: 0}
+	var mwCanonical *MiddlewareEventData = mw // alias identity
+	if mwCanonical.Name != "auth" {
+		t.Errorf("MiddlewareEventData.Name = %v, want auth", mwCanonical.Name)
+	}
+
+	stage := &StageCompletedData{Name: "provider", Index: 1, StageType: "generate"}
+	var stCanonical *StageEventData = stage
+	if stCanonical.Name != "provider" {
+		t.Errorf("StageEventData.Name = %v, want provider", stCanonical.Name)
+	}
+
+	tc := &ToolCallFailedData{ToolName: "search", CallID: "c1"}
+	var tcCanonical *ToolCallEventData = tc
+	if tcCanonical.ToolName != "search" {
+		t.Errorf("ToolCallEventData.ToolName = %v, want search", tcCanonical.ToolName)
+	}
+
+	val := &ValidationPassedData{ValidatorName: "guard", ValidatorType: "output"}
+	var valCanonical *ValidationEventData = val
+	if valCanonical.ValidatorName != "guard" {
+		t.Errorf("ValidationEventData.ValidatorName = %v, want guard", valCanonical.ValidatorName)
+	}
+
+	st := &StateLoadedData{ConversationID: "conv", MessageCount: 3}
+	var stateCanonical *StateEventData = st
+	if stateCanonical.ConversationID != "conv" {
+		t.Errorf("StateEventData.ConversationID = %v, want conv", stateCanonical.ConversationID)
+	}
+
+	ai := &AudioInputData{Actor: "user", Direction: "input"}
+	var audioCanonical *AudioEventData = ai
+	if audioCanonical.Actor != "user" {
+		t.Errorf("AudioEventData.Actor = %v, want user", audioCanonical.Actor)
+	}
+
+	ii := &ImageOutputData{GeneratedFrom: "dalle", Direction: "output"}
+	var imgCanonical *ImageEventData = ii
+	if imgCanonical.GeneratedFrom != "dalle" {
+		t.Errorf("ImageEventData.GeneratedFrom = %v, want dalle", imgCanonical.GeneratedFrom)
+	}
+
+	// All consolidated types satisfy EventData
+	var _ EventData = &MiddlewareEventData{}
+	var _ EventData = &StageEventData{}
+	var _ EventData = &ToolCallEventData{}
+	var _ EventData = &ValidationEventData{}
+	var _ EventData = &StateEventData{}
+	var _ EventData = &AudioEventData{}
+	var _ EventData = &ImageEventData{}
+}
+
 func TestMessageCreatedData_Parts(t *testing.T) {
 	// Test that MessageCreatedData can store multimodal content parts
 	textContent := "Check out this image"

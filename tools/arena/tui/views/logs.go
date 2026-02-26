@@ -13,6 +13,7 @@ import (
 const (
 	logsPaddingVertical   = 1
 	logsPaddingHorizontal = 1
+	logsPaddingSides      = 2 // both left and right
 )
 
 // LogEntry represents a single log line
@@ -50,8 +51,8 @@ func (v *LogsView) Render(vp *viewport.Model, ready bool, width int) string {
 		content = lipgloss.JoinVertical(lipgloss.Left, title, vp.View())
 	}
 
-	// Account for chrome: horizontal padding (2 * logsPaddingHorizontal) + 1 for border adjustment
-	chromeWidth := (2 * logsPaddingHorizontal) + 1
+	// Account for chrome: horizontal padding (both sides) + 1 for border adjustment
+	chromeWidth := (logsPaddingSides * logsPaddingHorizontal) + 1
 	innerWidth := width - chromeWidth
 	if innerWidth < 0 {
 		innerWidth = 0

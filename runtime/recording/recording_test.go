@@ -495,6 +495,313 @@ func TestLoadEventStoreFormat_EmptyEvents(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEventDataRegistry_AllEntries(t *testing.T) {
+	// Exercise every factory function in eventDataRegistry to ensure coverage
+	// of all registry closures. Each factory must return a non-nil EventData.
+	for typeName, factory := range eventDataRegistry {
+		t.Run(typeName, func(t *testing.T) {
+			result := factory()
+			require.NotNil(t, result, "factory for %s returned nil", typeName)
+		})
+	}
+}
+
+func TestDeserializeEventData_AllRegistryTypes(t *testing.T) {
+	// Verify that every registered type can be deserialized from valid JSON.
+	for typeName := range eventDataRegistry {
+		t.Run(typeName, func(t *testing.T) {
+			result, err := deserializeEventData(typeName, json.RawMessage(`{}`))
+			require.NoError(t, err)
+			require.NotNil(t, result, "deserialize %s returned nil", typeName)
+		})
+	}
+}
+
+func TestDeserializeEventData_ConsolidatedCanonical(t *testing.T) {
+	// Verify that canonical consolidated type names resolve correctly
+	// in the recording registry. After type alias consolidation, fmt.Sprintf("%T")
+	// produces canonical names like "*events.AudioEventData" instead of alias names.
+	tests := []struct {
+		name     string
+		dataType string
+		data     string
+		check    func(t *testing.T, result events.EventData)
+	}{
+		{
+			name:     "AudioEventData canonical",
+			dataType: "*events.AudioEventData",
+			data:     `{"actor":"user","chunk_index":0}`,
+			check: func(t *testing.T, result events.EventData) {
+				data, ok := result.(*events.AudioEventData)
+				require.True(t, ok)
+				assert.Equal(t, "user", data.Actor)
+			},
+		},
+		{
+			name:     "ImageEventData canonical",
+			dataType: "*events.ImageEventData",
+			data:     `{"generated_from":"dalle","direction":"output"}`,
+			check: func(t *testing.T, result events.EventData) {
+				data, ok := result.(*events.ImageEventData)
+				require.True(t, ok)
+				assert.Equal(t, "dalle", data.GeneratedFrom)
+			},
+		},
+		{
+			name:     "ToolCallEventData canonical",
+			dataType: "*events.ToolCallEventData",
+			data:     `{"ToolName":"search","CallID":"c1"}`,
+			check: func(t *testing.T, result events.EventData) {
+				data, ok := result.(*events.ToolCallEventData)
+				require.True(t, ok)
+				assert.Equal(t, "search", data.ToolName)
+			},
+		},
+		{
+			name:     "StageEventData canonical",
+			dataType: "*events.StageEventData",
+			data:     `{"Name":"provider","StageType":"generate"}`,
+			check: func(t *testing.T, result events.EventData) {
+				data, ok := result.(*events.StageEventData)
+				require.True(t, ok)
+				assert.Equal(t, "provider", data.Name)
+			},
+		},
+		{
+			name:     "MiddlewareEventData canonical",
+			dataType: "*events.MiddlewareEventData",
+			data:     `{"Name":"auth","Index":0}`,
+			check: func(t *testing.T, result events.EventData) {
+				data, ok := result.(*events.MiddlewareEventData)
+				require.True(t, ok)
+				assert.Equal(t, "auth", data.Name)
+			},
+		},
+		{
+			name:     "ValidationEventData canonical",
+			dataType: "*events.ValidationEventData",
+			data:     `{"ValidatorName":"guard","ValidatorType":"output"}`,
+			check: func(t *testing.T, result events.EventData) {
+				data, ok := result.(*events.ValidationEventData)
+				require.True(t, ok)
+				assert.Equal(t, "guard", data.ValidatorName)
+			},
+		},
+		{
+			name:     "StateEventData canonical",
+			dataType: "*events.StateEventData",
+			data:     `{"ConversationID":"conv","MessageCount":3}`,
+			check: func(t *testing.T, result events.EventData) {
+				data, ok := result.(*events.StateEventData)
+				require.True(t, ok)
+				assert.Equal(t, "conv", data.ConversationID)
+			},
+		},
+		{
+			name:     "AudioEventData without pointer prefix",
+			dataType: "events.AudioEventData",
+			data:     `{"actor":"assistant"}`,
+			check: func(t *testing.T, result events.EventData) {
+				data, ok := result.(*events.AudioEventData)
+				require.True(t, ok)
+				assert.Equal(t, "assistant", data.Actor)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := deserializeEventData(tt.dataType, json.RawMessage(tt.data))
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			tt.check(t, result)
+		})
+	}
+}
+
+func TestSaveTo_MarshalJSONLinesRoundTrip(t *testing.T) {
+	// Create a recording with various event types and verify JSONL round-trip
+	rec := &SessionRecording{
+		Metadata: Metadata{
+			SessionID:  "jsonl-test",
+			Version:    "1.0",
+			EventCount: 2,
+			StartTime:  time.Now(),
+			EndTime:    time.Now().Add(time.Second),
+			Duration:   time.Second,
+			CreatedAt:  time.Now(),
+		},
+		Events: []RecordedEvent{
+			{
+				Sequence:  1,
+				Type:      events.EventPipelineStarted,
+				Timestamp: time.Now(),
+				SessionID: "jsonl-test",
+				DataType:  "*events.PipelineStartedData",
+				Data:      json.RawMessage(`{"MiddlewareCount":3}`),
+			},
+			{
+				Sequence:  2,
+				Type:      events.EventPipelineCompleted,
+				Timestamp: time.Now().Add(time.Second),
+				SessionID: "jsonl-test",
+				DataType:  "*events.PipelineCompletedData",
+				Data:      json.RawMessage(`{"TotalDuration":1000000000}`),
+			},
+		},
+	}
+
+	path := filepath.Join(t.TempDir(), "roundtrip.jsonl")
+	require.NoError(t, rec.SaveTo(path, FormatJSONLines))
+
+	loaded, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, rec.Metadata.SessionID, loaded.Metadata.SessionID)
+	assert.Len(t, loaded.Events, 2)
+	assert.Equal(t, events.EventPipelineStarted, loaded.Events[0].Type)
+	assert.Equal(t, events.EventPipelineCompleted, loaded.Events[1].Type)
+}
+
+func TestSaveTo_JSONRoundTrip(t *testing.T) {
+	rec := &SessionRecording{
+		Metadata: Metadata{
+			SessionID:    "json-test",
+			Version:      "1.0",
+			EventCount:   1,
+			ProviderName: "openai",
+			Model:        "gpt-4o",
+		},
+		Events: []RecordedEvent{
+			{
+				Sequence:  1,
+				Type:      events.EventMessageCreated,
+				Timestamp: time.Now(),
+				SessionID: "json-test",
+				DataType:  "*events.MessageCreatedData",
+				Data:      json.RawMessage(`{"Role":"user","Content":"hello"}`),
+			},
+		},
+	}
+
+	path := filepath.Join(t.TempDir(), "roundtrip.json")
+	require.NoError(t, rec.SaveTo(path, FormatJSON))
+
+	loaded, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "json-test", loaded.Metadata.SessionID)
+	assert.Equal(t, "openai", loaded.Metadata.ProviderName)
+	assert.Equal(t, "gpt-4o", loaded.Metadata.Model)
+	assert.Len(t, loaded.Events, 1)
+}
+
+func TestToMediaTimeline_NoAudioEvents(t *testing.T) {
+	rec := &SessionRecording{
+		Metadata: Metadata{
+			SessionID: "no-audio",
+			Version:   "1.0",
+		},
+		Events: []RecordedEvent{
+			{
+				Sequence:  1,
+				Type:      events.EventMessageCreated,
+				Timestamp: time.Now(),
+				SessionID: "no-audio",
+				DataType:  "*events.MessageCreatedData",
+				Data:      json.RawMessage(`{"Role":"user","Content":"hello"}`),
+			},
+		},
+	}
+
+	timeline, err := rec.ToMediaTimeline(nil)
+	require.NoError(t, err)
+	require.NotNil(t, timeline)
+	// No audio tracks expected
+	assert.Nil(t, timeline.GetTrack(events.TrackAudioInput))
+	assert.Nil(t, timeline.GetTrack(events.TrackAudioOutput))
+}
+
+func TestToTypedEvents_WithInvalidJSON(t *testing.T) {
+	// Test that invalid JSON in data field is handled gracefully (nil Data, no error)
+	rec := &SessionRecording{
+		Metadata: Metadata{Version: "1.0"},
+		Events: []RecordedEvent{
+			{
+				Type:      events.EventMessageCreated,
+				Timestamp: time.Now(),
+				SessionID: "test",
+				DataType:  "*events.MessageCreatedData",
+				Data:      json.RawMessage(`{invalid}`),
+			},
+		},
+	}
+
+	typedEvents, err := rec.ToTypedEvents()
+	require.NoError(t, err) // Errors are swallowed for forward compatibility
+	require.Len(t, typedEvents, 1)
+	assert.Nil(t, typedEvents[0].Data) // Invalid JSON => nil Data
+}
+
+func TestToTypedEvents_EmptyDataFields(t *testing.T) {
+	rec := &SessionRecording{
+		Metadata: Metadata{Version: "1.0"},
+		Events: []RecordedEvent{
+			{
+				Type:      events.EventMessageCreated,
+				Timestamp: time.Now(),
+				SessionID: "test",
+				DataType:  "", // empty data type
+				Data:      json.RawMessage(`{"Role":"user"}`),
+			},
+			{
+				Type:      events.EventMessageCreated,
+				Timestamp: time.Now(),
+				SessionID: "test",
+				DataType:  "*events.MessageCreatedData",
+				Data:      nil, // nil data
+			},
+		},
+	}
+
+	typedEvents, err := rec.ToTypedEvents()
+	require.NoError(t, err)
+	require.Len(t, typedEvents, 2)
+	assert.Nil(t, typedEvents[0].Data) // Empty DataType => nil Data
+	assert.Nil(t, typedEvents[1].Data) // Nil data => nil Data
+}
+
+func TestLoadEventStoreFormat_InvalidLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "invalid-line.jsonl")
+	content := `{"seq":1,"event":{"type":"message.created","timestamp":"2024-01-01T00:00:00Z","session_id":"test","data_type":"*events.MessageCreatedData","data":{"Role":"user"}}}
+{invalid json line}
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+
+	_, err := Load(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse line 2")
+}
+
+func TestExportWithOptions_ErrorPropagation(t *testing.T) {
+	// ExportWithOptions should propagate errors from Export
+	store, err := events.NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	_, err = ExportWithOptions(context.Background(), store, "nonexistent", ExportOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no events found")
+}
+
+func TestSaveTo_WriteErrorPath(t *testing.T) {
+	rec := &SessionRecording{
+		Metadata: Metadata{Version: "1.0"},
+	}
+	// Try to write to a non-existent directory
+	err := rec.SaveTo("/nonexistent/dir/file.json", FormatJSON)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "write file")
+}
+
 func TestEndToEnd_RecordToMediaTimeline(t *testing.T) {
 	// End-to-end test: FileEventStore -> Load -> ToMediaTimeline -> ExportAudioToWAV
 	tmpDir := t.TempDir()
