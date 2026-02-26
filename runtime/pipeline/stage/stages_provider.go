@@ -777,7 +777,7 @@ func (s *ProviderStage) executeToolCalls(
 
 		// Execute tool via registry (handles both sync and async tools)
 		startTime := time.Now()
-		asyncResult, err := s.toolRegistry.ExecuteAsync(toolCall.Name, toolCall.Args)
+		asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
 		if err != nil {
 			// Tool not found or execution setup failed
 			results = append(results, types.NewToolResultMessage(types.MessageToolResult{

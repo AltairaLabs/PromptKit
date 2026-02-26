@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -61,7 +62,7 @@ func TestMockExecutors(t *testing.T) {
 	}
 
 	args := json.RawMessage(`{"input": "test"}`)
-	result, err := staticExec.Execute(desc, args)
+	result, err := staticExec.Execute(context.Background(), desc, args)
 	if err != nil {
 		t.Fatalf("Static execution failed: %v", err)
 	}
@@ -85,7 +86,7 @@ func TestMockExecutors(t *testing.T) {
 		Mode:           "mock",
 		MockResultFile: file,
 	}
-	result, err = staticExec.Execute(descFile, args)
+	result, err = staticExec.Execute(context.Background(), descFile, args)
 	if err != nil {
 		t.Fatalf("Static file execution failed: %v", err)
 	}
@@ -107,7 +108,7 @@ func TestMockExecutors(t *testing.T) {
 		MockTemplateFile: tmplFile,
 	}
 	scriptedArgs := json.RawMessage(`{"name":"Alice"}`)
-	result, err = scriptedExec.Execute(descTmpl, scriptedArgs)
+	result, err = scriptedExec.Execute(context.Background(), descTmpl, scriptedArgs)
 	if err != nil {
 		t.Fatalf("Scripted file execution failed: %v", err)
 	}
@@ -129,7 +130,7 @@ func TestMockExecutors(t *testing.T) {
 			MockTemplate:     `{"greeting":"Hello {{.name}} from inline"}`,
 			MockTemplateFile: file,
 		}
-		result, err := scriptedExec.Execute(descInline, scriptedArgs)
+		result, err := scriptedExec.Execute(context.Background(), descInline, scriptedArgs)
 		if err != nil {
 			t.Fatalf("Inline template execution failed: %v", err)
 		}
@@ -147,7 +148,7 @@ func TestMockExecutors(t *testing.T) {
 			Mode:         "mock",
 			MockTemplate: "hello {{.name}}",
 		}
-		result, err := scriptedExec.Execute(descText, scriptedArgs)
+		result, err := scriptedExec.Execute(context.Background(), descText, scriptedArgs)
 		if err != nil {
 			t.Fatalf("Text template execution failed: %v", err)
 		}
@@ -166,7 +167,7 @@ func TestMockExecutorErrors(t *testing.T) {
 
 	t.Run("missing template", func(t *testing.T) {
 		desc := &tools.ToolDescriptor{Name: "noTemplate", Mode: "mock"}
-		if _, err := scriptedExec.Execute(desc, args); err == nil {
+		if _, err := scriptedExec.Execute(context.Background(), desc, args); err == nil {
 			t.Fatalf("expected error for missing template")
 		}
 	})
@@ -177,7 +178,7 @@ func TestMockExecutorErrors(t *testing.T) {
 			Mode:         "mock",
 			MockTemplate: "{{ .name ", // malformed
 		}
-		if _, err := scriptedExec.Execute(desc, args); err == nil {
+		if _, err := scriptedExec.Execute(context.Background(), desc, args); err == nil {
 			t.Fatalf("expected template parse error")
 		}
 	})
@@ -188,7 +189,7 @@ func TestMockExecutorErrors(t *testing.T) {
 			Mode:             "mock",
 			MockTemplateFile: "/does/not/exist.tmpl",
 		}
-		if _, err := scriptedExec.Execute(desc, args); err == nil {
+		if _, err := scriptedExec.Execute(context.Background(), desc, args); err == nil {
 			t.Fatalf("expected file read error")
 		}
 	})
@@ -199,7 +200,7 @@ func TestMockExecutorErrors(t *testing.T) {
 			Mode:         "mock",
 			MockTemplate: `{"hello":"{{.name}}"}`,
 		}
-		if _, err := scriptedExec.Execute(desc, json.RawMessage(`{"name":`)); err == nil {
+		if _, err := scriptedExec.Execute(context.Background(), desc, json.RawMessage(`{"name":`)); err == nil {
 			t.Fatalf("expected arg parse error")
 		}
 	})
@@ -211,7 +212,7 @@ func TestMockExecutorErrors(t *testing.T) {
 			Mode:           "mock",
 			MockResultFile: "/does/not/exist.json",
 		}
-		if _, err := staticExec.Execute(desc, nil); err == nil {
+		if _, err := staticExec.Execute(context.Background(), desc, nil); err == nil {
 			t.Fatalf("expected missing file error")
 		}
 	})

@@ -115,7 +115,7 @@ func TestMCPExecutor_Execute_Success(t *testing.T) {
 	}
 	args := json.RawMessage(`{"key":"value"}`)
 
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 	if err != nil {
 		t.Fatalf("Execute() failed: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestMCPExecutor_Execute_WrongMode(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	_, err := executor.Execute(descriptor, args)
+	_, err := executor.Execute(context.Background(), descriptor, args)
 	if err == nil {
 		t.Error("Execute() with wrong mode should return error")
 	}
@@ -158,7 +158,7 @@ func TestMCPExecutor_Execute_ClientNotFound(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	_, err := executor.Execute(descriptor, args)
+	_, err := executor.Execute(context.Background(), descriptor, args)
 	if err == nil {
 		t.Error("Execute() with nonexistent client should return error")
 	}
@@ -182,7 +182,7 @@ func TestMCPExecutor_Execute_ToolCallFailed(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	_, err := executor.Execute(descriptor, args)
+	_, err := executor.Execute(context.Background(), descriptor, args)
 	if err == nil {
 		t.Error("Execute() with failing tool should return error")
 	}
@@ -211,7 +211,7 @@ func TestMCPExecutor_Execute_ErrorResponse(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	_, err := executor.Execute(descriptor, args)
+	_, err := executor.Execute(context.Background(), descriptor, args)
 	if err == nil {
 		t.Error("Execute() with error response should return error")
 	}
@@ -238,7 +238,7 @@ func TestMCPExecutor_Execute_EmptyResponse(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 	if err != nil {
 		t.Fatalf("Execute() failed: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestMCPExecutor_Execute_MultipleContentParts(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 	if err != nil {
 		t.Fatalf("Execute() failed: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestMCPExecutor_Execute_StructuredResponse(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 	if err != nil {
 		t.Fatalf("Execute() failed: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestMCPExecutor_Execute_ErrorWithMultipleMessages(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	_, err := executor.Execute(descriptor, args)
+	_, err := executor.Execute(context.Background(), descriptor, args)
 	if err == nil {
 		t.Error("Execute() with multiple error messages should return error")
 	}
@@ -387,7 +387,7 @@ func TestMCPExecutor_Execute_ErrorWithEmptyContent(t *testing.T) {
 	}
 	args := json.RawMessage(`{}`)
 
-	_, err := executor.Execute(descriptor, args)
+	_, err := executor.Execute(context.Background(), descriptor, args)
 	if err == nil {
 		t.Error("Execute() with empty error should return error")
 	}
@@ -425,7 +425,7 @@ func TestMCPExecutor_Execute_Timeout(t *testing.T) {
 	args := json.RawMessage(`{}`)
 
 	// This should not timeout (default is 30s)
-	_, err := executor.Execute(descriptor, args)
+	_, err := executor.Execute(context.Background(), descriptor, args)
 	if err != nil {
 		t.Fatalf("Execute() failed unexpectedly: %v", err)
 	}

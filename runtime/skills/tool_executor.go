@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -141,7 +142,7 @@ func (e *ToolExecutor) Name() string { return SkillExecutorName }
 
 // Execute dispatches a skill tool call to the appropriate executor method.
 func (e *ToolExecutor) Execute(
-	tool *tools.ToolDescriptor, args json.RawMessage,
+	_ context.Context, tool *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
 	switch tool.Name {
 	case SkillActivateTool:

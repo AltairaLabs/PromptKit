@@ -61,7 +61,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	}
 
 	em.turnIndex++
-	evalCtx := em.buildEvalContext()
+	evalCtx := em.buildEvalContext(ctx)
 
 	// Dispatch async — don't block Send()
 	go func() {
@@ -85,7 +85,7 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 		return
 	}
 
-	evalCtx := em.buildEvalContext()
+	evalCtx := em.buildEvalContext(ctx)
 
 	results, err := em.dispatcher.DispatchSessionEvals(ctx, em.defs, evalCtx)
 	if err != nil {
@@ -99,8 +99,8 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 }
 
 // buildEvalContext creates an EvalContext from the conversation state.
-func (em *evalMiddleware) buildEvalContext() *evals.EvalContext {
-	ctx := &evals.EvalContext{
+func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
+	evalCtx := &evals.EvalContext{
 		TurnIndex: em.turnIndex,
 		PromptID:  em.conv.promptName,
 	}
@@ -108,16 +108,16 @@ func (em *evalMiddleware) buildEvalContext() *evals.EvalContext {
 	// Safely get session info — sessions may not be initialized in tests
 	// or when middleware is used standalone.
 	if em.conv.unarySession != nil || em.conv.duplexSession != nil {
-		ctx.Messages = em.conv.Messages(context.Background())
-		ctx.SessionID = em.conv.ID()
+		evalCtx.Messages = em.conv.Messages(ctx)
+		evalCtx.SessionID = em.conv.ID()
 
-		for i := len(ctx.Messages) - 1; i >= 0; i-- {
-			if ctx.Messages[i].Role == roleAssistant {
-				ctx.CurrentOutput = ctx.Messages[i].GetContent()
+		for i := len(evalCtx.Messages) - 1; i >= 0; i-- {
+			if evalCtx.Messages[i].Role == roleAssistant {
+				evalCtx.CurrentOutput = evalCtx.Messages[i].GetContent()
 				break
 			}
 		}
 	}
 
-	return ctx
+	return evalCtx
 }

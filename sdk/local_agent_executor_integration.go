@@ -11,6 +11,7 @@ import (
 // Execute routes a tool call to the corresponding member conversation.
 // It parses {"query":"..."} from args, calls member.Send(), and returns {"response":"..."}.
 func (e *LocalAgentExecutor) Execute(
+	ctx context.Context,
 	descriptor *tools.ToolDescriptor,
 	args json.RawMessage,
 ) (json.RawMessage, error) {
@@ -28,8 +29,8 @@ func (e *LocalAgentExecutor) Execute(
 		return nil, fmt.Errorf("unknown agent member: %s", descriptor.Name)
 	}
 
-	// Send the query to the member conversation
-	resp, err := conv.Send(context.Background(), input.Query)
+	// Send the query to the member conversation using the caller's context.
+	resp, err := conv.Send(ctx, input.Query)
 	if err != nil {
 		return nil, fmt.Errorf("agent %s failed: %w", descriptor.Name, err)
 	}

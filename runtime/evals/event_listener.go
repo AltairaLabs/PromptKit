@@ -161,11 +161,14 @@ type EventBusEvalListener struct {
 	evalLoader   PackEvalLoader
 	resultWriter ResultWriter
 	ttl          time.Duration
-	cancel       context.CancelFunc
+	ctx          context.Context    // lifecycle context for background dispatches
+	cancel       context.CancelFunc // cancels ctx
 }
 
 // NewEventBusEvalListener creates a listener that subscribes to the bus
 // for EventMessageCreated events and runs evals automatically.
+// The provided context controls the lifetime of background goroutines;
+// pass a long-lived context (e.g. the server's root context) or use Close() to stop.
 func NewEventBusEvalListener(
 	bus *events.EventBus,
 	dispatcher EvalDispatcher,
@@ -187,8 +190,10 @@ func NewEventBusEvalListener(
 	// Subscribe to message created events
 	bus.Subscribe(events.EventMessageCreated, l.Handle)
 
-	// Start TTL cleanup goroutine
+	// Start TTL cleanup goroutine with a cancellable context derived from background.
+	// The cleanup loop is an internal concern; its lifetime is managed by Close().
 	ctx, cancel := context.WithCancel(context.Background())
+	l.ctx = ctx
 	l.cancel = cancel
 	go l.cleanupLoop(ctx)
 
@@ -220,7 +225,8 @@ func (l *EventBusEvalListener) Handle(event *events.Event) {
 }
 
 // CloseSession runs session-complete evals and removes the session.
-func (l *EventBusEvalListener) CloseSession(sessionID string) {
+// The provided context is propagated to eval dispatch and result writing.
+func (l *EventBusEvalListener) CloseSession(ctx context.Context, sessionID string) {
 	promptID := l.accumulator.PromptID(sessionID)
 	if promptID == "" {
 		l.accumulator.Remove(sessionID)
@@ -236,13 +242,13 @@ func (l *EventBusEvalListener) CloseSession(sessionID string) {
 
 	evalCtx := l.accumulator.BuildEvalContext(sessionID)
 
-	results, err := l.dispatcher.DispatchSessionEvals(context.Background(), defs, evalCtx)
+	results, err := l.dispatcher.DispatchSessionEvals(ctx, defs, evalCtx)
 	if err != nil {
 		log.Printf("evals: session eval dispatch error for session %q: %v", sessionID, err)
 	}
 
 	if l.resultWriter != nil && len(results) > 0 {
-		if err := l.resultWriter.WriteResults(context.Background(), results); err != nil {
+		if err := l.resultWriter.WriteResults(ctx, results); err != nil {
 			log.Printf("evals: result write error for session %q: %v", sessionID, err)
 		}
 	}
@@ -265,6 +271,7 @@ func (l *EventBusEvalListener) Close() error {
 }
 
 // dispatchTurnEvals loads evals and dispatches turn-level evals for a session.
+// It uses the listener's lifecycle context so dispatches are canceled on Close().
 func (l *EventBusEvalListener) dispatchTurnEvals(sessionID string) {
 	promptID := l.accumulator.PromptID(sessionID)
 	if promptID == "" {
@@ -279,13 +286,13 @@ func (l *EventBusEvalListener) dispatchTurnEvals(sessionID string) {
 
 	evalCtx := l.accumulator.BuildEvalContext(sessionID)
 
-	results, err := l.dispatcher.DispatchTurnEvals(context.Background(), defs, evalCtx)
+	results, err := l.dispatcher.DispatchTurnEvals(l.ctx, defs, evalCtx)
 	if err != nil {
 		log.Printf("evals: turn eval dispatch error for session %q: %v", sessionID, err)
 	}
 
 	if l.resultWriter != nil && len(results) > 0 {
-		if err := l.resultWriter.WriteResults(context.Background(), results); err != nil {
+		if err := l.resultWriter.WriteResults(l.ctx, results); err != nil {
 			log.Printf("evals: result write error for session %q: %v", sessionID, err)
 		}
 	}

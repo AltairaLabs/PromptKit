@@ -27,7 +27,9 @@ func NewExecutor() *Executor {
 func (e *Executor) Name() string { return "a2a" }
 
 // Execute calls a remote A2A agent with the tool arguments and returns the response.
-func (e *Executor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (e *Executor) Execute(
+	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
 	if descriptor.A2AConfig == nil {
 		return nil, fmt.Errorf("a2a executor: tool %q has no A2AConfig", descriptor.Name)
 	}
@@ -74,8 +76,7 @@ func (e *Executor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessag
 		},
 	}
 
-	// Apply timeout
-	ctx := context.Background()
+	// Apply timeout on top of the caller's context
 	if cfg.TimeoutMs > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.TimeoutMs)*time.Millisecond)

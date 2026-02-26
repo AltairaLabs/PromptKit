@@ -298,7 +298,7 @@ func TestEvalMiddleware_BuildEvalContext_NoSession(t *testing.T) {
 	}
 
 	mw.turnIndex = 3
-	ctx := mw.buildEvalContext()
+	ctx := mw.buildEvalContext(context.Background())
 
 	if ctx.TurnIndex != 3 {
 		t.Errorf("expected TurnIndex 3, got %d", ctx.TurnIndex)

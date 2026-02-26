@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestRepositoryToolExecutor_Execute_RepositoryResponse(t *testing.T) {
 	args := json.RawMessage(`{"location": "San Francisco"}`)
 
 	// Execute - should use repository response
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 
 	require.NoError(t, err)
 
@@ -79,7 +80,7 @@ func TestRepositoryToolExecutor_Execute_FallbackToBase(t *testing.T) {
 	args := json.RawMessage(`{"location": "San Francisco"}`)
 
 	// Execute - should fall back to base executor since no repository response
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 
 	require.NoError(t, err)
 
@@ -114,7 +115,7 @@ func TestRepositoryToolExecutor_Execute_RepositoryError(t *testing.T) {
 	args := json.RawMessage(`{"id": "123"}`)
 
 	// Execute - should return repository error
-	_, err := executor.Execute(descriptor, args)
+	_, err := executor.Execute(context.Background(), descriptor, args)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "NotFound: Resource not found")
@@ -142,7 +143,7 @@ func TestRepositoryToolExecutor_Execute_WrongContext(t *testing.T) {
 	args := json.RawMessage(`{"test": "value"}`)
 
 	// Execute - should fall back to base executor due to context mismatch
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 
 	require.NoError(t, err)
 
@@ -172,7 +173,7 @@ func TestRepositoryToolExecutor_Execute_InvalidJSON(t *testing.T) {
 	args := json.RawMessage(`{invalid json}`)
 
 	// Execute - should fall back to base executor due to JSON parse error
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 
 	require.NoError(t, err)
 

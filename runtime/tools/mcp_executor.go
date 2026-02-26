@@ -21,14 +21,12 @@ const (
 // MCPExecutor executes tools using MCP (Model Context Protocol) servers
 type MCPExecutor struct {
 	registry mcp.Registry
-	ctx      context.Context
 }
 
 // NewMCPExecutor creates a new MCP executor
 func NewMCPExecutor(registry mcp.Registry) *MCPExecutor {
 	return &MCPExecutor{
 		registry: registry,
-		ctx:      context.Background(),
 	}
 }
 
@@ -38,14 +36,16 @@ func (e *MCPExecutor) Name() string {
 }
 
 // Execute executes a tool using an MCP server
-func (e *MCPExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (e *MCPExecutor) Execute(
+	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
 	if descriptor.Mode != modeMCP {
 		return nil, ErrMCPExecutorOnly
 	}
 
 	logger.Info("🔧 MCP Tool Call", "tool", descriptor.Name, "args", string(args))
 
-	response, err := e.callMCPTool(descriptor.Name, args)
+	response, err := e.callMCPTool(ctx, descriptor.Name, args)
 	if err != nil {
 		return nil, err
 	}
@@ -57,8 +57,10 @@ func (e *MCPExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) 
 	return e.formatSuccessResponse(descriptor.Name, response)
 }
 
-func (e *MCPExecutor) callMCPTool(toolName string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
-	ctx, cancel := context.WithTimeout(e.ctx, mcpDefaultTimeoutSc*time.Second)
+func (e *MCPExecutor) callMCPTool(
+	ctx context.Context, toolName string, args json.RawMessage,
+) (*mcp.ToolCallResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, mcpDefaultTimeoutSc*time.Second)
 	defer cancel()
 
 	// Use the raw MCP name (without namespace prefix) for server communication

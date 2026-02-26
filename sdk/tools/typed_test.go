@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -144,7 +145,7 @@ func TestHandlerAdapter(t *testing.T) {
 
 		assert.Equal(t, "test_tool", adapter.Name())
 
-		result, err := adapter.Execute(&tools.ToolDescriptor{
+		result, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{
 			Name: "test_tool",
 		}, json.RawMessage(`{"input": "hello"}`))
 
@@ -162,7 +163,7 @@ func TestHandlerAdapter(t *testing.T) {
 			return nil, nil
 		})
 
-		_, err := adapter.Execute(&tools.ToolDescriptor{}, json.RawMessage(`invalid`))
+		_, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{}, json.RawMessage(`invalid`))
 		assert.Error(t, err)
 	})
 
@@ -171,7 +172,7 @@ func TestHandlerAdapter(t *testing.T) {
 			return nil, assert.AnError
 		})
 
-		_, err := adapter.Execute(&tools.ToolDescriptor{}, json.RawMessage(`{}`))
+		_, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{}, json.RawMessage(`{}`))
 		assert.Error(t, err)
 	})
 }

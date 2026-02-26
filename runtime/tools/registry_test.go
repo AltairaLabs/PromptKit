@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -269,7 +270,7 @@ func TestExecute_MockStatic(t *testing.T) {
 	_ = registry.Register(descriptor)
 
 	args := json.RawMessage(`{"input": "test"}`)
-	result, err := registry.Execute("static_tool", args)
+	result, err := registry.Execute(context.Background(),"static_tool", args)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -314,7 +315,7 @@ func TestExecute_MockScripted(t *testing.T) {
 	_ = registry.Register(descriptor)
 
 	args := json.RawMessage(`{"name": "World"}`)
-	result, err := registry.Execute("scripted_tool", args)
+	result, err := registry.Execute(context.Background(),"scripted_tool", args)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -339,7 +340,7 @@ func TestExecute_NonExistentTool(t *testing.T) {
 	registry := tools.NewRegistry()
 
 	args := json.RawMessage(`{}`)
-	_, err := registry.Execute("nonexistent", args)
+	_, err := registry.Execute(context.Background(),"nonexistent", args)
 	if err == nil {
 		t.Error("Execute should fail for non-existent tool")
 	}
@@ -369,14 +370,14 @@ func TestExecute_InvalidArgs(t *testing.T) {
 
 	// Missing required field
 	invalidArgs := json.RawMessage(`{}`)
-	_, err := registry.Execute("validate_tool", invalidArgs)
+	_, err := registry.Execute(context.Background(),"validate_tool", invalidArgs)
 	if err == nil {
 		t.Error("Execute should fail with invalid args")
 	}
 
 	// Empty required field
 	invalidArgs2 := json.RawMessage(`{"required_field": ""}`)
-	_, err = registry.Execute("validate_tool", invalidArgs2)
+	_, err = registry.Execute(context.Background(),"validate_tool", invalidArgs2)
 	if err == nil {
 		t.Error("Execute should fail with empty required field")
 	}
@@ -405,7 +406,7 @@ func TestExecute_ResultValidation(t *testing.T) {
 	_ = registry.Register(descriptor)
 
 	args := json.RawMessage(`{}`)
-	result, err := registry.Execute("output_validate", args)
+	result, err := registry.Execute(context.Background(),"output_validate", args)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -432,7 +433,7 @@ func TestExecute_LatencyTracking(t *testing.T) {
 	_ = registry.Register(descriptor)
 
 	args := json.RawMessage(`{}`)
-	result, err := registry.Execute("latency_tool", args)
+	result, err := registry.Execute(context.Background(),"latency_tool", args)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -508,7 +509,7 @@ func (m *mockCustomExecutor) Name() string {
 	return m.name
 }
 
-func (m *mockCustomExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (m *mockCustomExecutor) Execute(_ context.Context, _ *tools.ToolDescriptor, _ json.RawMessage) (json.RawMessage, error) {
 	return m.result, nil
 }
 
@@ -539,7 +540,7 @@ func TestGetExecutorForTool_CustomExecutor(t *testing.T) {
 	}
 
 	// Execute should route to our custom executor
-	result, err := registry.Execute("custom_tool", json.RawMessage(`{"input": "test"}`))
+	result, err := registry.Execute(context.Background(),"custom_tool", json.RawMessage(`{"input": "test"}`))
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -615,7 +616,7 @@ func TestGetExecutorForTool_BuiltInModes(t *testing.T) {
 				t.Fatalf("Register failed: %v", err)
 			}
 
-			_, err = registry.Execute(descriptor.Name, json.RawMessage(`{}`))
+			_, err = registry.Execute(context.Background(),descriptor.Name, json.RawMessage(`{}`))
 			if tt.expectError && err == nil {
 				t.Error("Expected error but got none")
 			}
@@ -647,7 +648,7 @@ func TestGetExecutorForTool_UnknownModeNoExecutor(t *testing.T) {
 	}
 
 	// Execution should fail because no executor matches the mode
-	_, err = registry.Execute("unknown_mode_tool", json.RawMessage(`{}`))
+	_, err = registry.Execute(context.Background(),"unknown_mode_tool", json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("Expected error when executing tool with unknown mode")
 	}
@@ -686,7 +687,7 @@ func TestExecuteAsync_CustomExecutor(t *testing.T) {
 	}
 
 	// ExecuteAsync should route to our custom executor
-	result, err := registry.ExecuteAsync("async_custom_tool", json.RawMessage(`{}`))
+	result, err := registry.ExecuteAsync(context.Background(),"async_custom_tool", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -716,11 +717,11 @@ func (m *mockAsyncCustomExecutor) Name() string {
 	return m.name
 }
 
-func (m *mockAsyncCustomExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (m *mockAsyncCustomExecutor) Execute(_ context.Context, _ *tools.ToolDescriptor, _ json.RawMessage) (json.RawMessage, error) {
 	return m.result, nil
 }
 
-func (m *mockAsyncCustomExecutor) ExecuteAsync(descriptor *tools.ToolDescriptor, args json.RawMessage) (*tools.ToolExecutionResult, error) {
+func (m *mockAsyncCustomExecutor) ExecuteAsync(_ context.Context, _ *tools.ToolDescriptor, _ json.RawMessage) (*tools.ToolExecutionResult, error) {
 	return &tools.ToolExecutionResult{
 		Status:  m.status,
 		Content: m.result,

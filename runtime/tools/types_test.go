@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -230,8 +231,8 @@ func (m *mockAsyncExecutor) Name() string {
 	return m.name
 }
 
-func (m *mockAsyncExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	result, err := m.ExecuteAsync(descriptor, args)
+func (m *mockAsyncExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	result, err := m.ExecuteAsync(ctx, descriptor, args)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +242,7 @@ func (m *mockAsyncExecutor) Execute(descriptor *ToolDescriptor, args json.RawMes
 	return result.Content, nil
 }
 
-func (m *mockAsyncExecutor) ExecuteAsync(descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error) {
+func (m *mockAsyncExecutor) ExecuteAsync(_ context.Context, _ *ToolDescriptor, _ json.RawMessage) (*ToolExecutionResult, error) {
 	return m.result, m.err
 }
 
@@ -264,13 +265,13 @@ func TestAsyncToolExecutor_Interface(t *testing.T) {
 	}
 
 	// Test ExecuteAsync
-	result, err := executor.ExecuteAsync(&ToolDescriptor{Name: "test"}, json.RawMessage(`{}`))
+	result, err := executor.ExecuteAsync(context.Background(), &ToolDescriptor{Name: "test"}, json.RawMessage(`{}`))
 	require.NoError(t, err)
 	assert.Equal(t, ToolStatusPending, result.Status)
 	assert.NotNil(t, result.PendingInfo)
 
 	// Test Execute falls back correctly
-	_, err = executor.Execute(&ToolDescriptor{Name: "test"}, json.RawMessage(`{}`))
+	_, err = executor.Execute(context.Background(), &ToolDescriptor{Name: "test"}, json.RawMessage(`{}`))
 	assert.Error(t, err) // Should error because result is pending
 }
 
@@ -284,7 +285,7 @@ func TestAsyncToolExecutor_CompleteResult(t *testing.T) {
 	}
 
 	// Test Execute with complete result
-	result, err := executor.Execute(&ToolDescriptor{Name: "test"}, json.RawMessage(`{}`))
+	result, err := executor.Execute(context.Background(), &ToolDescriptor{Name: "test"}, json.RawMessage(`{}`))
 	require.NoError(t, err)
 	assert.Equal(t, `{"result": "success"}`, string(result))
 }

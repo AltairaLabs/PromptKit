@@ -204,7 +204,7 @@ func TestEventBusEvalListener_CloseSessionFiresSessionEvals(t *testing.T) {
 	dispatcher.sessionResults = []EvalResult{{EvalID: "e1", Passed: true}}
 	dispatcher.mu.Unlock()
 
-	listener.CloseSession("s1")
+	listener.CloseSession(context.Background(), "s1")
 
 	select {
 	case <-dispatcher.sessionCh:

@@ -12,6 +12,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -196,7 +197,7 @@ func (e *ValidationError) Error() string {
 
 // Executor interface defines how tools are executed
 type Executor interface {
-	Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
+	Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
 	Name() string
 }
 
@@ -206,7 +207,7 @@ type AsyncToolExecutor interface {
 	Executor // Still implements the basic Executor interface
 
 	// ExecuteAsync may return immediately with a pending status
-	ExecuteAsync(descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error)
+	ExecuteAsync(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error)
 }
 
 // PredictionRequest represents a predict request (extending existing type)

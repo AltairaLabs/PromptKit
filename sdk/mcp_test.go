@@ -189,7 +189,7 @@ func TestMCPHandlerAdapter(t *testing.T) {
 			registry:      registry,
 		}
 
-		result, err := adapter.Execute(&tools.ToolDescriptor{}, json.RawMessage(`{"path":"/tmp/test"}`))
+		result, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{}, json.RawMessage(`{"path":"/tmp/test"}`))
 		require.NoError(t, err)
 		assert.Contains(t, string(result), "file contents")
 	})
@@ -209,7 +209,7 @@ func TestMCPHandlerAdapter(t *testing.T) {
 			registry:      registry,
 		}
 
-		_, err := adapter.Execute(&tools.ToolDescriptor{}, json.RawMessage(`{}`))
+		_, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{}, json.RawMessage(`{}`))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "file not found")
 	})
@@ -231,7 +231,7 @@ func TestMCPHandlerAdapter(t *testing.T) {
 			registry:      registry,
 		}
 
-		result, err := adapter.Execute(&tools.ToolDescriptor{}, json.RawMessage(`{}`))
+		result, err := adapter.Execute(context.Background(), &tools.ToolDescriptor{}, json.RawMessage(`{}`))
 		require.NoError(t, err)
 		// Multiple content items are returned as array
 		var content []mcp.Content

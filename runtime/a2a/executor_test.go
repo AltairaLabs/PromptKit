@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,7 @@ func TestExecutor_Name(t *testing.T) {
 func TestExecutor_Execute_NoA2AConfig(t *testing.T) {
 	e := NewExecutor()
 	desc := &tools.ToolDescriptor{Name: "test-tool"}
-	_, err := e.Execute(desc, json.RawMessage(`{"query":"hello"}`))
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
 	if err == nil {
 		t.Fatal("expected error for missing A2AConfig")
 	}
@@ -56,7 +57,7 @@ func TestExecutor_Execute_BasicTextQuery(t *testing.T) {
 		},
 	}
 
-	result, err := e.Execute(desc, json.RawMessage(`{"query":"search for papers"}`))
+	result, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"search for papers"}`))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -96,7 +97,7 @@ func TestExecutor_Execute_ArtifactFallback(t *testing.T) {
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
 	}
 
-	result, err := e.Execute(desc, json.RawMessage(`{"query":"test"}`))
+	result, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"test"}`))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -130,7 +131,7 @@ func TestExecutor_Execute_EmptyResponse(t *testing.T) {
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
 	}
 
-	result, err := e.Execute(desc, json.RawMessage(`{"query":"test"}`))
+	result, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"test"}`))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -151,7 +152,7 @@ func TestExecutor_Execute_InvalidArgs(t *testing.T) {
 		A2AConfig: &tools.A2AConfig{AgentURL: "http://localhost:1"},
 	}
 
-	_, err := e.Execute(desc, json.RawMessage(`not-json`))
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`not-json`))
 	if err == nil {
 		t.Fatal("expected error for invalid args")
 	}
@@ -188,7 +189,7 @@ func TestExecutor_Execute_WithSkillIDMetadata(t *testing.T) {
 		},
 	}
 
-	_, err := e.Execute(desc, json.RawMessage(`{"query":"hello"}`))
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -229,7 +230,7 @@ func TestExecutor_Execute_NoSkillIDMetadata(t *testing.T) {
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
 	}
 
-	_, err := e.Execute(desc, json.RawMessage(`{"query":"hello"}`))
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -268,7 +269,7 @@ func TestExecutor_Execute_WithMediaParts(t *testing.T) {
 	}
 
 	args := `{"query":"analyze","image_url":"http://example.com/img.png","image_data":"base64data","audio_data":"audiodata"}`
-	_, err := e.Execute(desc, json.RawMessage(args))
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(args))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -315,8 +316,8 @@ func TestExecutor_ClientCaching(t *testing.T) {
 	}
 
 	// Execute twice with same URL - should reuse client
-	_, _ = e.Execute(desc, json.RawMessage(`{"query":"first"}`))
-	_, _ = e.Execute(desc, json.RawMessage(`{"query":"second"}`))
+	_, _ = e.Execute(context.Background(), desc, json.RawMessage(`{"query":"first"}`))
+	_, _ = e.Execute(context.Background(), desc, json.RawMessage(`{"query":"second"}`))
 
 	if callCount != 2 {
 		t.Errorf("server received %d calls, want 2", callCount)
@@ -344,7 +345,7 @@ func TestExecutor_Execute_ServerError(t *testing.T) {
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
 	}
 
-	_, err := e.Execute(desc, json.RawMessage(`{"query":"test"}`))
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"test"}`))
 	if err == nil {
 		t.Fatal("expected error from server error response")
 	}

@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -78,7 +79,7 @@ func TestToolExecutor_Activate(t *testing.T) {
 	}}
 	_, toolReg := newTestToolExecutor(t, sources)
 
-	result, err := toolReg.Execute(SkillActivateTool, []byte(`{"name":"test-skill"}`))
+	result, err := toolReg.Execute(context.Background(), SkillActivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Result)
 	assert.Empty(t, result.Error)
@@ -97,11 +98,11 @@ func TestToolExecutor_Deactivate(t *testing.T) {
 	_, toolReg := newTestToolExecutor(t, sources)
 
 	// Activate first
-	_, err := toolReg.Execute(SkillActivateTool, []byte(`{"name":"test-skill"}`))
+	_, err := toolReg.Execute(context.Background(), SkillActivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 
 	// Then deactivate
-	result, err := toolReg.Execute(SkillDeactivateTool, []byte(`{"name":"test-skill"}`))
+	result, err := toolReg.Execute(context.Background(), SkillDeactivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Result)
 	assert.Empty(t, result.Error)
@@ -128,6 +129,7 @@ Instructions.`
 	_, toolReg := newTestToolExecutor(t, sources)
 
 	result, err := toolReg.Execute(
+		context.Background(),
 		SkillReadResourceTool,
 		[]byte(`{"skill_name":"res-skill","path":"data.txt"}`),
 	)
@@ -144,7 +146,7 @@ func TestToolExecutor_ActivateUnknownSkill(t *testing.T) {
 	}}
 	_, toolReg := newTestToolExecutor(t, sources)
 
-	result, err := toolReg.Execute(SkillActivateTool, []byte(`{"name":"nonexistent"}`))
+	result, err := toolReg.Execute(context.Background(), SkillActivateTool, []byte(`{"name":"nonexistent"}`))
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Error)
 }
@@ -157,7 +159,7 @@ func TestToolExecutor_DeactivateInactive(t *testing.T) {
 	}}
 	_, toolReg := newTestToolExecutor(t, sources)
 
-	result, err := toolReg.Execute(SkillDeactivateTool, []byte(`{"name":"test-skill"}`))
+	result, err := toolReg.Execute(context.Background(), SkillDeactivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Error)
 }
@@ -171,7 +173,7 @@ func TestToolExecutor_InvalidArgs(t *testing.T) {
 	_, toolReg := newTestToolExecutor(t, sources)
 
 	// Registry validates JSON before passing to executor, so error may come from either layer
-	result, err := toolReg.Execute(SkillActivateTool, []byte(`{invalid`))
+	result, err := toolReg.Execute(context.Background(), SkillActivateTool, []byte(`{invalid`))
 	if err != nil {
 		assert.Contains(t, err.Error(), "invalid")
 	} else {
@@ -182,7 +184,7 @@ func TestToolExecutor_InvalidArgs(t *testing.T) {
 func TestToolExecutor_UnknownTool(t *testing.T) {
 	exec := NewToolExecutor(nil)
 	desc := &tools.ToolDescriptor{Name: "skill__unknown", Mode: SkillExecutorName}
-	_, err := exec.Execute(desc, nil)
+	_, err := exec.Execute(context.Background(), desc, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown skill tool")
 }
