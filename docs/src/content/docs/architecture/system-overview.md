@@ -27,6 +27,11 @@ graph TB
         MCP["MCP Servers\nTools & Memory"]
     end
 
+    subgraph "Protocol Integrations"
+        A2A["A2A Protocol\nAgent ↔ Agent"]
+        AGUI["AG-UI Protocol\nAgent ↔ Frontend"]
+    end
+
     subgraph "User Workflows"
         Testing["Testing Workflow"]
         Development["Development Workflow"]
@@ -45,6 +50,9 @@ graph TB
     Runtime --> Anthropic
     Runtime --> Google
     Runtime --> MCP
+
+    SDK --> A2A
+    SDK --> AGUI
 
     Arena --> PackC
     SDK --> PackC
