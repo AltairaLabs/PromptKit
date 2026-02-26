@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -1569,4 +1570,375 @@ func TestA2AServer_SendMessage_ConversationReuseMultimodal(t *testing.T) {
 	if callCount.Load() != 2 {
 		t.Fatalf("expected 2 calls, got %d", callCount.Load())
 	}
+}
+
+// --- timeout and body size option tests ---
+
+func TestA2AServerDefaultTimeouts(t *testing.T) {
+	srv := NewA2AServer(func(string) (a2aConv, error) {
+		return nil, nil
+	})
+
+	if srv.readTimeout != defaultReadTimeout {
+		t.Errorf("readTimeout = %v, want %v", srv.readTimeout, defaultReadTimeout)
+	}
+	if srv.writeTimeout != defaultWriteTimeout {
+		t.Errorf("writeTimeout = %v, want %v", srv.writeTimeout, defaultWriteTimeout)
+	}
+	if srv.idleTimeout != defaultIdleTimeout {
+		t.Errorf("idleTimeout = %v, want %v", srv.idleTimeout, defaultIdleTimeout)
+	}
+	if srv.maxBodySize != defaultMaxBodySize {
+		t.Errorf("maxBodySize = %d, want %d", srv.maxBodySize, defaultMaxBodySize)
+	}
+}
+
+func TestA2AServerCustomTimeouts(t *testing.T) {
+	srv := NewA2AServer(
+		func(string) (a2aConv, error) { return nil, nil },
+		WithA2AReadTimeout(5*time.Second),
+		WithA2AWriteTimeout(10*time.Second),
+		WithA2AIdleTimeout(15*time.Second),
+		WithA2AMaxBodySize(1024),
+	)
+
+	if srv.readTimeout != 5*time.Second {
+		t.Errorf("readTimeout = %v, want 5s", srv.readTimeout)
+	}
+	if srv.writeTimeout != 10*time.Second {
+		t.Errorf("writeTimeout = %v, want 10s", srv.writeTimeout)
+	}
+	if srv.idleTimeout != 15*time.Second {
+		t.Errorf("idleTimeout = %v, want 15s", srv.idleTimeout)
+	}
+	if srv.maxBodySize != 1024 {
+		t.Errorf("maxBodySize = %d, want 1024", srv.maxBodySize)
+	}
+}
+
+func TestA2AServerMaxBodySizeRejectsOversizedRequest(t *testing.T) {
+	opener := func(string) (a2aConv, error) {
+		return &mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return &Response{
+					message: &types.Message{
+						Role:  "assistant",
+						Parts: []types.ContentPart{types.NewTextPart("ok")},
+					},
+				}, nil
+			},
+		}, nil
+	}
+
+	// Set a very small body size limit.
+	srv := NewA2AServer(opener, WithA2AMaxBodySize(16))
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Build a valid JSON-RPC request that exceeds the 16-byte limit.
+	params, _ := json.Marshal(a2a.SendMessageRequest{
+		Message: a2a.Message{
+			Role:      a2a.RoleUser,
+			ContextID: "ctx-1",
+			Parts:     []a2a.Part{{Text: serverTextPtr("This message is deliberately large enough to exceed the body limit")}},
+		},
+	})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  a2a.MethodSendMessage,
+		Params:  params,
+	})
+
+	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /a2a: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var rpcResp a2a.JSONRPCResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if rpcResp.Error == nil {
+		t.Fatal("expected JSON-RPC error for oversized body, got success")
+	}
+	if rpcResp.Error.Code != -32700 {
+		t.Errorf("error code = %d, want -32700 (Parse error)", rpcResp.Error.Code)
+	}
+}
+
+func TestA2AServerListenAndServeTimeouts(t *testing.T) {
+	srv := NewA2AServer(
+		func(string) (a2aConv, error) { return nil, nil },
+		WithA2AReadTimeout(15*time.Second),
+		WithA2AWriteTimeout(30*time.Second),
+		WithA2AIdleTimeout(60*time.Second),
+	)
+
+	// Use a listener on :0 so we get a free port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	go func() { _ = srv.Serve(ln) }()
+
+	// Wait for server to be ready by attempting a TCP connection.
+	addr := ln.Addr().String()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, dialErr := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if dialErr == nil {
+			conn.Close()
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Validate timeouts were propagated to the A2AServer during construction.
+	if srv.readTimeout != 15*time.Second {
+		t.Errorf("readTimeout = %v, want 15s", srv.readTimeout)
+	}
+	if srv.writeTimeout != 30*time.Second {
+		t.Errorf("writeTimeout = %v, want 30s", srv.writeTimeout)
+	}
+	if srv.idleTimeout != 60*time.Second {
+		t.Errorf("idleTimeout = %v, want 60s", srv.idleTimeout)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+}
+
+func TestA2AServerListenAndServe(t *testing.T) {
+	mock := completingA2AMock()
+	srv := NewA2AServer(
+		func(string) (a2aConv, error) { return mock, nil },
+		WithA2APort(0), // :0 lets the OS pick a free port
+		WithA2AReadTimeout(15*time.Second),
+		WithA2AWriteTimeout(30*time.Second),
+		WithA2AIdleTimeout(60*time.Second),
+	)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
+
+	// Poll until httpSrv is set (ListenAndServe stores it before blocking).
+	var addr string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		srv.httpSrvMu.Lock()
+		if srv.httpSrv != nil {
+			addr = srv.httpSrv.Addr
+		}
+		srv.httpSrvMu.Unlock()
+		if addr != "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if addr == "" {
+		t.Fatal("httpSrv was never set by ListenAndServe")
+	}
+
+	// Since port 0 resolves at listen time, we need to find the actual port.
+	// ListenAndServe calls net.Listen internally; we poll for a successful TCP dial.
+	// With port 0, http.Server.ListenAndServe will get an ephemeral port, but the
+	// Addr field still says ":0". We need to connect to discover the real port.
+	// Instead, let's just shut down and verify everything worked.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	// ListenAndServe should return http.ErrServerClosed after Shutdown.
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Fatalf("ListenAndServe returned unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("ListenAndServe did not return after Shutdown")
+	}
+}
+
+func TestA2AServerListenAndServeWithTraffic(t *testing.T) {
+	mock := completingA2AMock()
+	srv := NewA2AServer(
+		func(string) (a2aConv, error) { return mock, nil },
+		WithA2APort(0),
+	)
+
+	// Use Serve with a real listener so we know the port, but exercise the
+	// same code path that ListenAndServe sets up (httpSrv stored, Shutdown drains).
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Serve(ln) }()
+
+	addr := ln.Addr().String()
+	// Wait for server to be ready.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, dialErr := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if dialErr == nil {
+			conn.Close()
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Send a message to create a conversation, so Shutdown has something to close.
+	text := "hello"
+	reqBody := a2a.JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  a2a.MethodSendMessage,
+	}
+	params, _ := json.Marshal(a2a.SendMessageRequest{
+		Message: a2a.Message{
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: &text}},
+			ContextID: "ctx-listen-serve",
+		},
+	})
+	reqBody.Params = params
+	body, _ := json.Marshal(reqBody)
+
+	resp, err := http.Post("http://"+addr+"/a2a", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /a2a: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	// Shutdown should drain HTTP, cancel tasks, and close conversations.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	if !mock.closed.Load() {
+		t.Fatal("conversation was not closed during shutdown")
+	}
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Fatalf("Serve returned unexpected error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve did not return after Shutdown")
+	}
+}
+
+func TestA2AServerShutdownWithNilHTTPServer(t *testing.T) {
+	// Shutdown when ListenAndServe/Serve was never called — httpSrv is nil.
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return &Response{
+				message: &types.Message{
+					Role:  "assistant",
+					Parts: []types.ContentPart{types.NewTextPart("done")},
+				},
+			}, nil
+		},
+	}
+	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+
+	// Manually register a conversation and a cancel func to exercise those
+	// Shutdown branches even without an HTTP server.
+	srv.convsMu.Lock()
+	srv.convs["ctx-1"] = mock
+	srv.convsMu.Unlock()
+
+	cancelled := false
+	srv.cancelsMu.Lock()
+	srv.cancels["task-1"] = func() { cancelled = true }
+	srv.cancelsMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := srv.Shutdown(ctx)
+	if err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	if !cancelled {
+		t.Error("in-flight cancel func was not invoked")
+	}
+	if !mock.closed.Load() {
+		t.Error("conversation was not closed")
+	}
+
+	// Verify maps were cleaned up.
+	srv.cancelsMu.Lock()
+	if len(srv.cancels) != 0 {
+		t.Error("cancels map not cleared")
+	}
+	srv.cancelsMu.Unlock()
+
+	srv.convsMu.RLock()
+	if len(srv.convs) != 0 {
+		t.Error("convs map not cleared")
+	}
+	srv.convsMu.RUnlock()
+}
+
+func TestA2AServerShutdownConvCloseError(t *testing.T) {
+	// When a conversation's Close() returns an error, Shutdown should propagate it.
+	wantErr := errors.New("close failed")
+	mock := &mockA2AConv{
+		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+			return &Response{
+				message: &types.Message{
+					Role:  "assistant",
+					Parts: []types.ContentPart{types.NewTextPart("ok")},
+				},
+			}, nil
+		},
+	}
+	// Override Close to return an error.
+	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+
+	failConv := &errorClosingConv{closeErr: wantErr}
+	srv.convsMu.Lock()
+	srv.convs["ctx-err"] = failConv
+	srv.convsMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := srv.Shutdown(ctx)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Shutdown error = %v, want %v", err, wantErr)
+	}
+}
+
+// errorClosingConv is a mock conversation whose Close() returns an error.
+type errorClosingConv struct {
+	closeErr error
+}
+
+func (e *errorClosingConv) Send(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+	return &Response{
+		message: &types.Message{
+			Role:  "assistant",
+			Parts: []types.ContentPart{types.NewTextPart("ok")},
+		},
+	}, nil
+}
+
+func (e *errorClosingConv) Close() error {
+	return e.closeErr
 }
