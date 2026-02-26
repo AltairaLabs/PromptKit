@@ -42,9 +42,6 @@ const (
 	errUnaryModeRequired  = "Send() only available in unary mode; use OpenDuplex() for duplex streaming"
 )
 
-// Role constants for message types.
-const roleAssistant = "assistant"
-
 // Content type constants.
 const contentTypeText = "text"
 
