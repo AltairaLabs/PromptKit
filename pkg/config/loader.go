@@ -12,6 +12,50 @@ import (
 
 const defaultProviderGroup = "default"
 
+// mergeSpecs is a generic helper that merges inline specs into a loaded resource map.
+// It checks for duplicate IDs and calls setID on each spec before storing it.
+// specKind and fileRefKind are used in error messages (e.g. "scenario_specs", "scenarios").
+func mergeSpecs[T any](
+	specs map[string]T,
+	loaded map[string]T,
+	setID func(T, string),
+	specKind, fileRefKind string,
+) error {
+	for id, spec := range specs {
+		if _, exists := loaded[id]; exists {
+			return fmt.Errorf(
+				"%s %q defined in both %s and %s file refs",
+				fileRefKind, id, specKind, fileRefKind,
+			)
+		}
+		setID(spec, id)
+		loaded[id] = spec
+	}
+	return nil
+}
+
+// loadResources is a generic helper that loads resources from file refs.
+// It resolves each ref's file path relative to configPath, calls the loader
+// function, and stores the result in dest keyed by getID(resource).
+func loadResources[T any](
+	files []string,
+	configPath string,
+	loader func(string) (T, error),
+	getID func(T) string,
+	dest map[string]T,
+	kind string,
+) error {
+	for _, file := range files {
+		fullPath := ResolveFilePath(configPath, file)
+		resource, err := loader(fullPath)
+		if err != nil {
+			return fmt.Errorf("failed to load %s %s: %w", kind, file, err)
+		}
+		dest[getID(resource)] = resource
+	}
+	return nil
+}
+
 // mergeProviderSpecs merges inline provider specs into LoadedProviders.
 func (c *Config) mergeProviderSpecs() error {
 	for id, spec := range c.ProviderSpecs {
@@ -30,26 +74,20 @@ func (c *Config) mergeProviderSpecs() error {
 
 // mergeScenarioSpecs merges inline scenario specs into LoadedScenarios.
 func (c *Config) mergeScenarioSpecs() error {
-	for id, spec := range c.ScenarioSpecs {
-		if _, exists := c.LoadedScenarios[id]; exists {
-			return fmt.Errorf("scenario %q defined in both scenario_specs and scenarios file refs", id)
-		}
-		spec.ID = id
-		c.LoadedScenarios[id] = spec
-	}
-	return nil
+	return mergeSpecs(
+		c.ScenarioSpecs, c.LoadedScenarios,
+		func(s *Scenario, id string) { s.ID = id },
+		"scenario_specs", "scenarios",
+	)
 }
 
 // mergeEvalSpecs merges inline eval specs into LoadedEvals.
 func (c *Config) mergeEvalSpecs() error {
-	for id, spec := range c.EvalSpecs {
-		if _, exists := c.LoadedEvals[id]; exists {
-			return fmt.Errorf("eval %q defined in both eval_specs and evals file refs", id)
-		}
-		spec.ID = id
-		c.LoadedEvals[id] = spec
-	}
-	return nil
+	return mergeSpecs(
+		c.EvalSpecs, c.LoadedEvals,
+		func(e *Eval, id string) { e.ID = id },
+		"eval_specs", "evals",
+	)
 }
 
 // mergeToolSpecs merges inline tool specs into LoadedTools as marshaled YAML manifests.
@@ -100,7 +138,10 @@ func (c *Config) mergeJudgeSpecs() error {
 func (c *Config) mergePromptSpecs() error {
 	for taskType, spec := range c.PromptSpecs {
 		if _, exists := c.LoadedPromptConfigs[taskType]; exists {
-			return fmt.Errorf("prompt config %q defined in both prompt_specs and prompt_configs file refs", taskType)
+			return fmt.Errorf(
+				"prompt config %q defined in both prompt_specs and prompt_configs file refs",
+				taskType,
+			)
 		}
 		c.LoadedPromptConfigs[taskType] = &PromptConfigData{
 			FilePath: fmt.Sprintf("<inline:%s>", taskType),
@@ -364,15 +405,15 @@ func (c *Config) loadScenarios(configPath string) error {
 
 // loadEvals loads all referenced eval configurations
 func (c *Config) loadEvals(configPath string) error {
-	for _, ref := range c.Evals {
-		fullPath := ResolveFilePath(configPath, ref.File)
-		eval, err := LoadEval(fullPath)
-		if err != nil {
-			return fmt.Errorf("failed to load eval %s: %w", ref.File, err)
-		}
-		c.LoadedEvals[eval.ID] = eval
+	files := make([]string, len(c.Evals))
+	for i, ref := range c.Evals {
+		files[i] = ref.File
 	}
-	return nil
+	return loadResources(
+		files, configPath, LoadEval,
+		func(e *Eval) string { return e.ID },
+		c.LoadedEvals, "eval",
+	)
 }
 
 // loadProviders loads all referenced providers
@@ -453,7 +494,10 @@ func (c *Config) loadSelfPlayResources(configPath string) error {
 
 		// Verify provider exists (LoadedProviders is populated before this function is called)
 		if _, exists := c.LoadedProviders[roleConfig.Provider]; !exists {
-			return fmt.Errorf("self-play role %s references unknown provider %s (must be defined in spec.providers)", roleConfig.ID, roleConfig.Provider)
+			return fmt.Errorf(
+				"self-play role %s references unknown provider %s (must be defined in spec.providers)",
+				roleConfig.ID, roleConfig.Provider,
+			)
 		}
 	}
 
