@@ -45,6 +45,17 @@ const (
 	// sendSettleTime is how long handleSendMessage waits for fast calls
 	// to complete before returning the task in its current state.
 	sendSettleTime = 5 * time.Millisecond
+
+	// defaultTaskTTL is how long completed/failed/canceled tasks are kept
+	// before eviction.
+	defaultTaskTTL = 1 * time.Hour
+
+	// defaultConversationTTL is how long idle conversations are kept
+	// before eviction.
+	defaultConversationTTL = 1 * time.Hour
+
+	// evictionInterval is how often the background eviction loop runs.
+	evictionInterval = 1 * time.Minute
 )
 
 // a2aConv is the subset of *Conversation the A2A server needs.
@@ -98,6 +109,19 @@ func WithA2AMaxBodySize(n int64) A2AServerOption {
 	return func(s *A2AServer) { s.maxBodySize = n }
 }
 
+// WithA2ATaskTTL sets how long completed/failed/canceled tasks are retained
+// before automatic eviction. Default: 1 hour. Set to 0 to disable eviction.
+func WithA2ATaskTTL(d time.Duration) A2AServerOption {
+	return func(s *A2AServer) { s.taskTTL = d }
+}
+
+// WithA2AConversationTTL sets how long idle conversations are retained before
+// automatic eviction. A conversation is considered idle when its last-use
+// timestamp exceeds this duration. Default: 1 hour. Set to 0 to disable.
+func WithA2AConversationTTL(d time.Duration) A2AServerOption {
+	return func(s *A2AServer) { s.convTTL = d }
+}
+
 // A2AServer is an HTTP server that exposes a PromptKit Conversation as an
 // A2A-compliant JSON-RPC endpoint.
 type A2AServer struct {
@@ -113,8 +137,15 @@ type A2AServer struct {
 	idleTimeout  time.Duration
 	maxBodySize  int64
 
-	convsMu sync.RWMutex
-	convs   map[string]a2aConv // context_id → conversation
+	// TTL-based eviction configuration.
+	taskTTL  time.Duration // 0 disables task eviction
+	convTTL  time.Duration // 0 disables conversation eviction
+	stopOnce sync.Once
+	stopCh   chan struct{} // closed to stop the eviction goroutine
+
+	convsMu     sync.RWMutex
+	convs       map[string]a2aConv   // context_id → conversation
+	convLastUse map[string]time.Time // context_id → last activity timestamp
 
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc // task_id → cancel for in-flight Send
@@ -128,12 +159,16 @@ func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2ASer
 	s := &A2AServer{
 		opener:       opener,
 		convs:        make(map[string]a2aConv),
+		convLastUse:  make(map[string]time.Time),
 		cancels:      make(map[string]context.CancelFunc),
 		subs:         make(map[string]*taskBroadcaster),
 		readTimeout:  defaultReadTimeout,
 		writeTimeout: defaultWriteTimeout,
 		idleTimeout:  defaultIdleTimeout,
 		maxBodySize:  defaultMaxBodySize,
+		taskTTL:      defaultTaskTTL,
+		convTTL:      defaultConversationTTL,
+		stopCh:       make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -141,6 +176,12 @@ func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2ASer
 	if s.taskStore == nil {
 		s.taskStore = NewInMemoryA2ATaskStore()
 	}
+
+	// Start background eviction if at least one TTL is enabled.
+	if s.taskTTL > 0 || s.convTTL > 0 {
+		go s.evictionLoop()
+	}
+
 	return s
 }
 
@@ -170,9 +211,12 @@ func (s *A2AServer) ListenAndServe() error {
 	return srv.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server: drains HTTP requests, cancels
-// in-flight tasks, and closes all conversations.
+// Shutdown gracefully shuts down the server: stops the eviction goroutine,
+// drains HTTP requests, cancels in-flight tasks, and closes all conversations.
 func (s *A2AServer) Shutdown(ctx context.Context) error {
+	// Stop the eviction goroutine.
+	s.stopOnce.Do(func() { close(s.stopCh) })
+
 	var firstErr error
 
 	s.httpSrvMu.Lock()
@@ -435,10 +479,15 @@ func (s *A2AServer) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCReque
 
 // getOrCreateConversation retrieves an existing conversation for the context ID
 // or creates a new one via the opener (double-check lock pattern).
+// It also updates the last-use timestamp for conversation TTL tracking.
 func (s *A2AServer) getOrCreateConversation(contextID string) (a2aConv, error) {
 	s.convsMu.RLock()
 	if conv, ok := s.convs[contextID]; ok {
 		s.convsMu.RUnlock()
+		// Upgrade to write lock to update last-use timestamp.
+		s.convsMu.Lock()
+		s.convLastUse[contextID] = time.Now()
+		s.convsMu.Unlock()
 		return conv, nil
 	}
 	s.convsMu.RUnlock()
@@ -448,6 +497,7 @@ func (s *A2AServer) getOrCreateConversation(contextID string) (a2aConv, error) {
 
 	// Double-check after acquiring write lock.
 	if conv, ok := s.convs[contextID]; ok {
+		s.convLastUse[contextID] = time.Now()
 		return conv, nil
 	}
 
@@ -456,6 +506,7 @@ func (s *A2AServer) getOrCreateConversation(contextID string) (a2aConv, error) {
 		return nil, err
 	}
 	s.convs[contextID] = conv
+	s.convLastUse[contextID] = time.Now()
 	return conv, nil
 }
 
@@ -485,4 +536,83 @@ func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
 		ID:      id,
 		Error:   &a2a.JSONRPCError{Code: code, Message: msg},
 	})
+}
+
+// evictionLoop periodically sweeps expired tasks, conversations, and
+// broadcasters. It runs until stopCh is closed (via Shutdown).
+func (s *A2AServer) evictionLoop() {
+	ticker := time.NewTicker(evictionInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			s.evictOnce()
+		}
+	}
+}
+
+// evictOnce runs a single eviction pass. It is safe to call concurrently.
+func (s *A2AServer) evictOnce() {
+	now := time.Now()
+	s.evictTerminalTasks(now)
+	s.evictClosedBroadcasters()
+	s.evictIdleConversations(now)
+}
+
+// evictTerminalTasks removes expired terminal tasks and their associated
+// cancel functions and broadcasters.
+func (s *A2AServer) evictTerminalTasks(now time.Time) {
+	if s.taskTTL <= 0 {
+		return
+	}
+	evicted := s.taskStore.EvictTerminal(now.Add(-s.taskTTL))
+	for _, taskID := range evicted {
+		s.cancelsMu.Lock()
+		delete(s.cancels, taskID)
+		s.cancelsMu.Unlock()
+
+		s.subsMu.Lock()
+		if b, ok := s.subs[taskID]; ok {
+			b.close()
+			delete(s.subs, taskID)
+		}
+		s.subsMu.Unlock()
+	}
+}
+
+// evictClosedBroadcasters removes broadcasters that have already been closed.
+func (s *A2AServer) evictClosedBroadcasters() {
+	s.subsMu.Lock()
+	defer s.subsMu.Unlock()
+	for id, b := range s.subs {
+		b.mu.Lock()
+		closed := b.closed
+		b.mu.Unlock()
+		if closed {
+			delete(s.subs, id)
+		}
+	}
+}
+
+// evictIdleConversations closes and removes conversations whose last-use
+// timestamp exceeds the conversation TTL.
+func (s *A2AServer) evictIdleConversations(now time.Time) {
+	if s.convTTL <= 0 {
+		return
+	}
+	cutoff := now.Add(-s.convTTL)
+	s.convsMu.Lock()
+	defer s.convsMu.Unlock()
+	for id, lastUse := range s.convLastUse {
+		if lastUse.Before(cutoff) {
+			if conv, ok := s.convs[id]; ok {
+				_ = conv.Close()
+				delete(s.convs, id)
+			}
+			delete(s.convLastUse, id)
+		}
+	}
 }

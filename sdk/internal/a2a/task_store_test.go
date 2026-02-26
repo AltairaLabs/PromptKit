@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	rta2a "github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/stretchr/testify/assert"
@@ -366,5 +367,98 @@ func TestInMemoryTaskStore_Concurrent(t *testing.T) {
 		task, err := store.Get(fmt.Sprintf("t%d", i))
 		require.NoError(t, err)
 		assert.Equal(t, rta2a.TaskStateWorking, task.Status.State)
+	}
+}
+
+func TestInMemoryTaskStore_EvictTerminal(t *testing.T) {
+	store := NewInMemoryTaskStore()
+
+	// Create a completed task with an old timestamp.
+	_, err := store.Create("old-completed", "ctx")
+	require.NoError(t, err)
+	require.NoError(t, store.SetState("old-completed", rta2a.TaskStateWorking, nil))
+	require.NoError(t, store.SetState("old-completed", rta2a.TaskStateCompleted, nil))
+
+	// Backdate the timestamp.
+	task, _ := store.Get("old-completed")
+	old := time.Now().Add(-2 * time.Hour)
+	task.Status.Timestamp = &old
+
+	// Create a recent completed task.
+	_, err = store.Create("new-completed", "ctx")
+	require.NoError(t, err)
+	require.NoError(t, store.SetState("new-completed", rta2a.TaskStateWorking, nil))
+	require.NoError(t, store.SetState("new-completed", rta2a.TaskStateCompleted, nil))
+
+	// Create a working (non-terminal) task with old timestamp.
+	_, err = store.Create("old-working", "ctx")
+	require.NoError(t, err)
+	require.NoError(t, store.SetState("old-working", rta2a.TaskStateWorking, nil))
+	workingTask, _ := store.Get("old-working")
+	workingTask.Status.Timestamp = &old
+
+	// Create a failed task with an old timestamp.
+	_, err = store.Create("old-failed", "ctx")
+	require.NoError(t, err)
+	require.NoError(t, store.SetState("old-failed", rta2a.TaskStateWorking, nil))
+	require.NoError(t, store.SetState("old-failed", rta2a.TaskStateFailed, nil))
+	failedTask, _ := store.Get("old-failed")
+	failedTask.Status.Timestamp = &old
+
+	// Evict tasks older than 1 hour.
+	cutoff := time.Now().Add(-1 * time.Hour)
+	evicted := store.EvictTerminal(cutoff)
+
+	// old-completed and old-failed should be evicted.
+	assert.Len(t, evicted, 2)
+	assert.Contains(t, evicted, "old-completed")
+	assert.Contains(t, evicted, "old-failed")
+
+	// Verify they are gone.
+	_, err = store.Get("old-completed")
+	assert.ErrorIs(t, err, ErrTaskNotFound)
+	_, err = store.Get("old-failed")
+	assert.ErrorIs(t, err, ErrTaskNotFound)
+
+	// new-completed and old-working should remain.
+	_, err = store.Get("new-completed")
+	assert.NoError(t, err)
+	_, err = store.Get("old-working")
+	assert.NoError(t, err)
+}
+
+func TestInMemoryTaskStore_EvictTerminal_Empty(t *testing.T) {
+	store := NewInMemoryTaskStore()
+	evicted := store.EvictTerminal(time.Now())
+	assert.Empty(t, evicted)
+}
+
+func TestInMemoryTaskStore_EvictTerminal_AllTerminalStates(t *testing.T) {
+	terminals := []rta2a.TaskState{
+		rta2a.TaskStateCompleted,
+		rta2a.TaskStateFailed,
+		rta2a.TaskStateCanceled,
+		rta2a.TaskStateRejected,
+	}
+
+	for _, terminal := range terminals {
+		t.Run(string(terminal), func(t *testing.T) {
+			store := NewInMemoryTaskStore()
+			_, err := store.Create("t", "c")
+			require.NoError(t, err)
+			require.NoError(t, store.SetState("t", rta2a.TaskStateWorking, nil))
+			require.NoError(t, store.SetState("t", terminal, nil))
+
+			// Backdate.
+			task, _ := store.Get("t")
+			old := time.Now().Add(-2 * time.Hour)
+			task.Status.Timestamp = &old
+
+			evicted := store.EvictTerminal(time.Now().Add(-1 * time.Hour))
+			assert.Equal(t, []string{"t"}, evicted)
+
+			_, err = store.Get("t")
+			assert.ErrorIs(t, err, ErrTaskNotFound)
+		})
 	}
 }
