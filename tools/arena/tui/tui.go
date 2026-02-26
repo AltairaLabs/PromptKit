@@ -248,14 +248,15 @@ func (m *Model) handleRunStarted(msg *RunStartedMsg) {
 func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
 	// Find and update the run in activeRuns
 	for i := range m.activeRuns {
-		if m.activeRuns[i].RunID == msg.RunID {
-			m.activeRuns[i].Status = StatusCompleted
-			m.activeRuns[i].Duration = msg.Duration
-			m.activeRuns[i].Cost = msg.Cost
-			m.activeRuns[i].CurrentTurnRole = ""
-			m.activeRuns[i].CurrentTurnIndex = 0
-			break
+		if m.activeRuns[i].RunID != msg.RunID {
+			continue
 		}
+		m.activeRuns[i].Status = StatusCompleted
+		m.activeRuns[i].Duration = msg.Duration
+		m.activeRuns[i].Cost = msg.Cost
+		m.activeRuns[i].CurrentTurnRole = ""
+		m.activeRuns[i].CurrentTurnIndex = 0
+		break
 	}
 
 	// Update metrics
@@ -289,13 +290,14 @@ func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
 func (m *Model) handleRunFailed(msg *RunFailedMsg) {
 	// Find and update the run in activeRuns
 	for i := range m.activeRuns {
-		if m.activeRuns[i].RunID == msg.RunID {
-			m.activeRuns[i].Status = StatusFailed
-			m.activeRuns[i].Error = msg.Error.Error()
-			m.activeRuns[i].CurrentTurnRole = ""
-			m.activeRuns[i].CurrentTurnIndex = 0
-			break
+		if m.activeRuns[i].RunID != msg.RunID {
+			continue
 		}
+		m.activeRuns[i].Status = StatusFailed
+		m.activeRuns[i].Error = msg.Error.Error()
+		m.activeRuns[i].CurrentTurnRole = ""
+		m.activeRuns[i].CurrentTurnIndex = 0
+		break
 	}
 
 	// Update metrics
@@ -711,23 +713,6 @@ func (m *Model) convertToLogEntries() []panels.LogEntry {
 		}
 	}
 	return logs
-}
-
-func (m *Model) currentRunForDetail() *RunInfo {
-	if sel := m.selectedRun(); sel != nil {
-		return sel
-	}
-	if m.mainPage != nil {
-		table := m.mainPage.RunsPanel().Table()
-		idx := table.Cursor()
-		if idx >= 0 && idx < len(m.activeRuns) {
-			return &m.activeRuns[idx]
-		}
-	}
-	if len(m.activeRuns) > 0 {
-		return &m.activeRuns[0]
-	}
-	return nil
 }
 
 func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

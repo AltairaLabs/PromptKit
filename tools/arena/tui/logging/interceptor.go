@@ -155,7 +155,7 @@ func (l *Interceptor) FlushBuffer() {
 
 	for i := range l.logBuffer {
 		// Ignore errors during flush - best effort
-		// Use background context since original context may be cancelled
+		// Use background context since original context may be canceled
 		_ = l.originalHandler.Handle(context.Background(), l.logBuffer[i])
 	}
 

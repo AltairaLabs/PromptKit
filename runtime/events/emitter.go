@@ -313,6 +313,7 @@ func (e *Emitter) AudioInput(data *AudioInputData) {
 	if data == nil {
 		return
 	}
+	data.Direction = "input"
 	e.emit(EventAudioInput, data)
 }
 
@@ -321,6 +322,7 @@ func (e *Emitter) AudioOutput(data *AudioOutputData) {
 	if data == nil {
 		return
 	}
+	data.Direction = "output"
 	e.emit(EventAudioOutput, data)
 }
 

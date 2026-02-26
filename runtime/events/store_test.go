@@ -562,6 +562,83 @@ func TestDeserializeEventData(t *testing.T) {
 				assert.Equal(t, "test message", data.Message)
 			},
 		},
+		// Consolidated canonical type names
+		{
+			name:     "MiddlewareEventData canonical",
+			dataType: "*events.MiddlewareEventData",
+			data:     `{"Name":"auth","Index":0}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*MiddlewareEventData)
+				require.True(t, ok)
+				assert.Equal(t, "auth", data.Name)
+			},
+		},
+		{
+			name:     "StageEventData canonical",
+			dataType: "*events.StageEventData",
+			data:     `{"Name":"provider","Index":1,"StageType":"generate"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*StageEventData)
+				require.True(t, ok)
+				assert.Equal(t, "provider", data.Name)
+				assert.Equal(t, "generate", data.StageType)
+			},
+		},
+		{
+			name:     "ToolCallEventData canonical",
+			dataType: "*events.ToolCallEventData",
+			data:     `{"ToolName":"search","CallID":"call-x"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ToolCallEventData)
+				require.True(t, ok)
+				assert.Equal(t, "search", data.ToolName)
+			},
+		},
+		{
+			name:     "ValidationEventData canonical",
+			dataType: "*events.ValidationEventData",
+			data:     `{"ValidatorName":"content_filter","ValidatorType":"output"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ValidationEventData)
+				require.True(t, ok)
+				assert.Equal(t, "content_filter", data.ValidatorName)
+				assert.Equal(t, "output", data.ValidatorType)
+			},
+		},
+		{
+			name:     "StateEventData canonical",
+			dataType: "*events.StateEventData",
+			data:     `{"ConversationID":"conv-1","MessageCount":5}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*StateEventData)
+				require.True(t, ok)
+				assert.Equal(t, "conv-1", data.ConversationID)
+				assert.Equal(t, 5, data.MessageCount)
+			},
+		},
+		{
+			name:     "AudioEventData canonical",
+			dataType: "*events.AudioEventData",
+			data:     `{"direction":"input","actor":"user","chunk_index":3}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*AudioEventData)
+				require.True(t, ok)
+				assert.Equal(t, "input", data.Direction)
+				assert.Equal(t, "user", data.Actor)
+				assert.Equal(t, 3, data.ChunkIndex)
+			},
+		},
+		{
+			name:     "ImageEventData canonical",
+			dataType: "*events.ImageEventData",
+			data:     `{"direction":"output","generated_from":"dalle"}`,
+			check: func(t *testing.T, result EventData) {
+				data, ok := result.(*ImageEventData)
+				require.True(t, ok)
+				assert.Equal(t, "output", data.Direction)
+				assert.Equal(t, "dalle", data.GeneratedFrom)
+			},
+		},
 		{
 			name:     "unknown type returns nil",
 			dataType: "*events.UnknownType",

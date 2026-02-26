@@ -129,22 +129,14 @@ func (mt *MediaTimeline) extractAudioSegments(eventType EventType, _ TrackType) 
 			continue
 		}
 
-		var payload *BinaryPayload
-		var metadata AudioMetadata
-		var chunkIndex int
-
-		switch data := event.Data.(type) {
-		case *AudioInputData:
-			payload = &data.Payload
-			metadata = data.Metadata
-			chunkIndex = data.ChunkIndex
-		case *AudioOutputData:
-			payload = &data.Payload
-			metadata = data.Metadata
-			chunkIndex = data.ChunkIndex
-		default:
+		data, ok := event.Data.(*AudioEventData)
+		if !ok {
 			continue
 		}
+
+		payload := &data.Payload
+		metadata := data.Metadata
+		chunkIndex := data.ChunkIndex
 
 		segment := &MediaSegment{
 			StartTime:  event.Timestamp.Sub(mt.SessionStart),

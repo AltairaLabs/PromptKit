@@ -208,7 +208,7 @@ func (a *EventAdapter) handleConversationStarted(event *events.Event) tea.Msg {
 
 // handleArenaEvents handles arena-specific custom events.
 func (a *EventAdapter) handleArenaEvents(event *events.Event) tea.Msg {
-	switch event.Type {
+	switch event.Type { //nolint:exhaustive // Only arena-specific event types are handled here
 	case events.EventType("arena.run.started"):
 		return RunStartedMsg{
 			RunID:    event.RunID,
@@ -287,39 +287,30 @@ func providerModel(event *events.Event) string {
 }
 
 func middlewareName(event *events.Event) string {
-	if data, ok := event.Data.(events.MiddlewareStartedData); ok {
+	if data, ok := event.Data.(events.MiddlewareEventData); ok {
 		return data.Name
 	}
-	if data, ok := event.Data.(events.MiddlewareCompletedData); ok {
-		return data.Name
-	}
-	if data, ok := event.Data.(events.MiddlewareFailedData); ok {
+	if data, ok := event.Data.(*events.MiddlewareEventData); ok {
 		return data.Name
 	}
 	return ""
 }
 
 func toolName(event *events.Event) string {
-	if data, ok := event.Data.(events.ToolCallStartedData); ok {
+	if data, ok := event.Data.(events.ToolCallEventData); ok {
 		return data.ToolName
 	}
-	if data, ok := event.Data.(events.ToolCallCompletedData); ok {
-		return data.ToolName
-	}
-	if data, ok := event.Data.(events.ToolCallFailedData); ok {
+	if data, ok := event.Data.(*events.ToolCallEventData); ok {
 		return data.ToolName
 	}
 	return ""
 }
 
 func validationName(event *events.Event) string {
-	if data, ok := event.Data.(events.ValidationStartedData); ok {
+	if data, ok := event.Data.(events.ValidationEventData); ok {
 		return data.ValidatorName
 	}
-	if data, ok := event.Data.(events.ValidationPassedData); ok {
-		return data.ValidatorName
-	}
-	if data, ok := event.Data.(events.ValidationFailedData); ok {
+	if data, ok := event.Data.(*events.ValidationEventData); ok {
 		return data.ValidatorName
 	}
 	return ""
@@ -329,11 +320,11 @@ func eventError(event *events.Event) error {
 	switch data := event.Data.(type) {
 	case events.ProviderCallFailedData:
 		return data.Error
-	case events.MiddlewareFailedData:
+	case events.MiddlewareEventData:
 		return data.Error
-	case events.ToolCallFailedData:
+	case events.ToolCallEventData:
 		return data.Error
-	case events.ValidationFailedData:
+	case events.ValidationEventData:
 		return data.Error
 	default:
 		return nil

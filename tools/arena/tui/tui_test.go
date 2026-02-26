@@ -507,29 +507,6 @@ func TestConvertToLogEntries(t *testing.T) {
 	assert.Equal(t, "ERROR", logs[2].Level)
 }
 
-func TestCurrentRunForDetail(t *testing.T) {
-	m := NewModel("test.yaml", 2)
-
-	// No runs - returns nil
-	run := m.currentRunForDetail()
-	assert.Nil(t, run)
-
-	// With runs but no selection
-	m.activeRuns = []RunInfo{
-		{RunID: "run-1", Scenario: "scn1"},
-		{RunID: "run-2", Scenario: "scn2"},
-	}
-	run = m.currentRunForDetail()
-	// Should return first run when no selection
-	assert.NotNil(t, run)
-	assert.Equal(t, "run-1", run.RunID)
-
-	// With selected run
-	m.activeRuns[1].Selected = true
-	run = m.currentRunForDetail()
-	assert.NotNil(t, run)
-	assert.Equal(t, "run-2", run.RunID)
-}
 
 func TestRenderMainPage_NoStateStore(t *testing.T) {
 	m := NewModel("test.yaml", 1)

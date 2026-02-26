@@ -115,31 +115,76 @@ func (se *SerializableEvent) toEvent() *Event {
 type eventDataFactory func() EventData
 
 // eventDataRegistry maps type names to factory functions for deserialization.
+// Entries for both canonical names (e.g., "*events.MiddlewareEventData") and
+// legacy alias names (e.g., "*events.MiddlewareStartedData") are included
+// so that old recordings can still be deserialized.
 var eventDataRegistry = map[string]eventDataFactory{
-	"*events.AudioInputData":          func() EventData { return &AudioInputData{} },
-	"*events.AudioOutputData":         func() EventData { return &AudioOutputData{} },
-	"*events.AudioTranscriptionData":  func() EventData { return &AudioTranscriptionData{} },
-	"*events.VideoFrameData":          func() EventData { return &VideoFrameData{} },
-	"*events.ScreenshotData":          func() EventData { return &ScreenshotData{} },
-	"*events.ImageInputData":          func() EventData { return &ImageInputData{} },
-	"*events.ImageOutputData":         func() EventData { return &ImageOutputData{} },
+	// Audio events (consolidated into AudioEventData)
+	"*events.AudioEventData":         func() EventData { return &AudioEventData{} },
+	"*events.AudioInputData":         func() EventData { return &AudioEventData{} },
+	"*events.AudioOutputData":        func() EventData { return &AudioEventData{} },
+	"*events.AudioTranscriptionData": func() EventData { return &AudioTranscriptionData{} },
+
+	// Video/Image events (ImageInputData/ImageOutputData consolidated into ImageEventData)
+	"*events.VideoFrameData":  func() EventData { return &VideoFrameData{} },
+	"*events.ScreenshotData":  func() EventData { return &ScreenshotData{} },
+	"*events.ImageEventData":  func() EventData { return &ImageEventData{} },
+	"*events.ImageInputData":  func() EventData { return &ImageEventData{} },
+	"*events.ImageOutputData": func() EventData { return &ImageEventData{} },
+
+	// Message events
 	"*events.MessageCreatedData":      func() EventData { return &MessageCreatedData{} },
 	"*events.MessageUpdatedData":      func() EventData { return &MessageUpdatedData{} },
 	"*events.ConversationStartedData": func() EventData { return &ConversationStartedData{} },
-	"*events.PipelineStartedData":     func() EventData { return &PipelineStartedData{} },
-	"*events.PipelineCompletedData":   func() EventData { return &PipelineCompletedData{} },
-	"*events.PipelineFailedData":      func() EventData { return &PipelineFailedData{} },
-	"*events.ProviderCallStartedData": func() EventData { return &ProviderCallStartedData{} },
-	"*events.ProviderCallCompletedData": func() EventData {
-		return &ProviderCallCompletedData{}
-	},
-	"*events.ProviderCallFailedData": func() EventData { return &ProviderCallFailedData{} },
-	"*events.ToolCallStartedData":    func() EventData { return &ToolCallStartedData{} },
-	"*events.ToolCallCompletedData":  func() EventData { return &ToolCallCompletedData{} },
-	"*events.ToolCallFailedData":     func() EventData { return &ToolCallFailedData{} },
-	"*events.CustomEventData":              func() EventData { return &CustomEventData{} },
-	"*events.WorkflowTransitionedData":    func() EventData { return &WorkflowTransitionedData{} },
-	"*events.WorkflowCompletedData":       func() EventData { return &WorkflowCompletedData{} },
+
+	// Pipeline events
+	"*events.PipelineStartedData":   func() EventData { return &PipelineStartedData{} },
+	"*events.PipelineCompletedData": func() EventData { return &PipelineCompletedData{} },
+	"*events.PipelineFailedData":    func() EventData { return &PipelineFailedData{} },
+
+	// Provider events
+	"*events.ProviderCallStartedData":   func() EventData { return &ProviderCallStartedData{} },
+	"*events.ProviderCallCompletedData": func() EventData { return &ProviderCallCompletedData{} },
+	"*events.ProviderCallFailedData":    func() EventData { return &ProviderCallFailedData{} },
+
+	// Tool events (consolidated into ToolCallEventData)
+	"*events.ToolCallEventData":     func() EventData { return &ToolCallEventData{} },
+	"*events.ToolCallStartedData":   func() EventData { return &ToolCallEventData{} },
+	"*events.ToolCallCompletedData": func() EventData { return &ToolCallEventData{} },
+	"*events.ToolCallFailedData":    func() EventData { return &ToolCallEventData{} },
+
+	// Custom events
+	"*events.CustomEventData": func() EventData { return &CustomEventData{} },
+
+	// Stage events (consolidated into StageEventData)
+	"*events.StageEventData":     func() EventData { return &StageEventData{} },
+	"*events.StageStartedData":   func() EventData { return &StageEventData{} },
+	"*events.StageCompletedData": func() EventData { return &StageEventData{} },
+	"*events.StageFailedData":    func() EventData { return &StageEventData{} },
+
+	// Middleware events (consolidated into MiddlewareEventData)
+	"*events.MiddlewareEventData":     func() EventData { return &MiddlewareEventData{} },
+	"*events.MiddlewareStartedData":   func() EventData { return &MiddlewareEventData{} },
+	"*events.MiddlewareCompletedData": func() EventData { return &MiddlewareEventData{} },
+	"*events.MiddlewareFailedData":    func() EventData { return &MiddlewareEventData{} },
+
+	// Validation events (consolidated into ValidationEventData)
+	"*events.ValidationEventData":   func() EventData { return &ValidationEventData{} },
+	"*events.ValidationStartedData": func() EventData { return &ValidationEventData{} },
+	"*events.ValidationPassedData":  func() EventData { return &ValidationEventData{} },
+	"*events.ValidationFailedData":  func() EventData { return &ValidationEventData{} },
+
+	// Context/State events (StateLoadedData/StateSavedData consolidated into StateEventData)
+	"*events.ContextBuiltData":        func() EventData { return &ContextBuiltData{} },
+	"*events.TokenBudgetExceededData": func() EventData { return &TokenBudgetExceededData{} },
+	"*events.StateEventData":          func() EventData { return &StateEventData{} },
+	"*events.StateLoadedData":         func() EventData { return &StateEventData{} },
+	"*events.StateSavedData":          func() EventData { return &StateEventData{} },
+	"*events.StreamInterruptedData":   func() EventData { return &StreamInterruptedData{} },
+
+	// Workflow events
+	"*events.WorkflowTransitionedData": func() EventData { return &WorkflowTransitionedData{} },
+	"*events.WorkflowCompletedData":    func() EventData { return &WorkflowCompletedData{} },
 }
 
 // deserializeEventData attempts to deserialize event data based on the type name.
