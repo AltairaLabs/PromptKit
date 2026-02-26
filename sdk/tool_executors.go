@@ -21,7 +21,9 @@ func (e *localExecutor) Name() string {
 }
 
 // Execute dispatches to the appropriate handler based on tool name.
-func (e *localExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (e *localExecutor) Execute(
+	_ context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
 	handler, ok := e.handlers[descriptor.Name]
 	if !ok {
 		return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
@@ -61,9 +63,9 @@ func (a *mcpHandlerAdapter) Name() string {
 }
 
 // Execute runs the MCP tool with the given arguments.
-func (a *mcpHandlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	ctx := context.Background()
-
+func (a *mcpHandlerAdapter) Execute(
+	ctx context.Context, _ *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
 	// Use the raw MCP name for server communication
 	client, err := a.registry.GetClientForTool(ctx, a.rawName)
 	if err != nil {

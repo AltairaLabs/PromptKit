@@ -56,10 +56,11 @@ func (e *HTTPExecutor) Name() string {
 // Execute performs an HTTP request based on the tool descriptor's HTTPConfig.
 // The args are serialized to JSON and sent as the request body.
 func (e *HTTPExecutor) Execute(
+	ctx context.Context,
 	descriptor *tools.ToolDescriptor,
 	args json.RawMessage,
 ) (json.RawMessage, error) {
-	return e.ExecuteWithContext(context.Background(), descriptor, args)
+	return e.ExecuteWithContext(ctx, descriptor, args)
 }
 
 // ExecuteWithContext performs an HTTP request with context support for cancellation.
@@ -338,7 +339,8 @@ func (c *HTTPToolConfig) executeHandler(executor *HTTPExecutor, args map[string]
 	}
 
 	// Execute the HTTP request
-	result, err := executor.Execute(descriptor, argsJSON)
+	// TODO: propagate context from ToolHandler once the handler signature supports it.
+	result, err := executor.Execute(context.TODO(), descriptor, argsJSON)
 	if err != nil {
 		return nil, err
 	}

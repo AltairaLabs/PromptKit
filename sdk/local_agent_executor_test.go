@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestLocalAgentExecutor_Execute_UnknownMember(t *testing.T) {
 	desc := &tools.ToolDescriptor{Name: "nonexistent"}
 	args := json.RawMessage(`{"query":"hello"}`)
 
-	_, err := exec.Execute(desc, args)
+	_, err := exec.Execute(context.Background(), desc, args)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown agent member: nonexistent")
 }
@@ -33,7 +34,7 @@ func TestLocalAgentExecutor_Execute_InvalidArgs(t *testing.T) {
 	desc := &tools.ToolDescriptor{Name: "agent1"}
 	args := json.RawMessage(`{invalid json`)
 
-	_, err := exec.Execute(desc, args)
+	_, err := exec.Execute(context.Background(), desc, args)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse agent tool args")
 }

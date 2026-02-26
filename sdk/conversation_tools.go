@@ -123,7 +123,8 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 		}
 
 		// Execute
-		result, err := executor.Execute(desc, argsJSON)
+		// TODO: propagate context from ToolHandler once the handler signature supports it.
+		result, err := executor.Execute(context.TODO(), desc, argsJSON)
 		if err != nil {
 			return nil, err
 		}

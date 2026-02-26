@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,7 @@ func TestHTTPExecutor_Execute_Success(t *testing.T) {
 	}
 
 	args := json.RawMessage(`{"query": "test"}`)
-	result, err := executor.Execute(descriptor, args)
+	result, err := executor.Execute(context.Background(), descriptor, args)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -70,7 +71,7 @@ func TestHTTPExecutor_Execute_NoConfig(t *testing.T) {
 		// No HTTPConfig
 	}
 
-	_, err := executor.Execute(descriptor, json.RawMessage(`{}`))
+	_, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
 	if err == nil {
 		t.Error("Execute() expected error for missing HTTPConfig")
 	}
@@ -92,7 +93,7 @@ func TestHTTPExecutor_Execute_HTTPError(t *testing.T) {
 		},
 	}
 
-	_, err := executor.Execute(descriptor, json.RawMessage(`{}`))
+	_, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
 	if err == nil {
 		t.Error("Execute() expected error for HTTP 400")
 	}
@@ -117,7 +118,7 @@ func TestHTTPExecutor_Execute_GetMethod(t *testing.T) {
 		},
 	}
 
-	_, err := executor.Execute(descriptor, nil)
+	_, err := executor.Execute(context.Background(), descriptor, nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -149,7 +150,7 @@ func TestHTTPExecutor_Execute_CustomHeaders(t *testing.T) {
 		},
 	}
 
-	_, err := executor.Execute(descriptor, json.RawMessage(`{}`))
+	_, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -179,7 +180,7 @@ func TestHTTPExecutor_Execute_HeadersFromEnv(t *testing.T) {
 		},
 	}
 
-	_, err := executor.Execute(descriptor, json.RawMessage(`{}`))
+	_, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -202,7 +203,7 @@ func TestHTTPExecutor_Execute_Redact(t *testing.T) {
 		},
 	}
 
-	result, err := executor.Execute(descriptor, nil)
+	result, err := executor.Execute(context.Background(), descriptor, nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -239,7 +240,7 @@ func TestHTTPExecutor_Execute_NonJSONResponse(t *testing.T) {
 		},
 	}
 
-	result, err := executor.Execute(descriptor, nil)
+	result, err := executor.Execute(context.Background(), descriptor, nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -273,7 +274,7 @@ func TestHTTPExecutor_Execute_Timeout(t *testing.T) {
 	}
 
 	// This should succeed since server responds quickly
-	_, err := executor.Execute(descriptor, nil)
+	_, err := executor.Execute(context.Background(), descriptor, nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
@@ -505,13 +506,13 @@ func TestEmptyArgs(t *testing.T) {
 	}
 
 	// Test with null args
-	_, err := executor.Execute(descriptor, json.RawMessage(`null`))
+	_, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`null`))
 	if err != nil {
 		t.Fatalf("Execute() with null error = %v", err)
 	}
 
 	// Test with empty object
-	_, err = executor.Execute(descriptor, json.RawMessage(`{}`))
+	_, err = executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("Execute() with empty object error = %v", err)
 	}

@@ -1080,14 +1080,14 @@ func (m *mockAsyncExecutor) Name() string {
 	return m.name
 }
 
-func (m *mockAsyncExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (m *mockAsyncExecutor) Execute(_ context.Context, descriptor *tools.ToolDescriptor, _ json.RawMessage) (json.RawMessage, error) {
 	if m.status == tools.ToolStatusFailed {
 		return nil, fmt.Errorf("%s", m.errorMsg)
 	}
 	return m.content, nil
 }
 
-func (m *mockAsyncExecutor) ExecuteAsync(descriptor *tools.ToolDescriptor, args json.RawMessage) (*tools.ToolExecutionResult, error) {
+func (m *mockAsyncExecutor) ExecuteAsync(_ context.Context, descriptor *tools.ToolDescriptor, _ json.RawMessage) (*tools.ToolExecutionResult, error) {
 	result := &tools.ToolExecutionResult{
 		Status:  m.status,
 		Content: m.content,

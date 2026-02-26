@@ -95,7 +95,7 @@ func TestA2AExecutor_Execute(t *testing.T) {
 	}
 
 	args := json.RawMessage(`{"query":"Hi there"}`)
-	result, err := exec.Execute(desc, args)
+	result, err := exec.Execute(context.Background(), desc, args)
 	require.NoError(t, err)
 
 	var parsed map[string]string
@@ -107,7 +107,7 @@ func TestA2AExecutor_Execute_NoA2AConfig(t *testing.T) {
 	exec := a2a.NewExecutor()
 	desc := &tools.ToolDescriptor{Name: "bad_tool", Mode: "a2a"}
 
-	_, err := exec.Execute(desc, json.RawMessage(`{"query":"test"}`))
+	_, err := exec.Execute(context.Background(), desc, json.RawMessage(`{"query":"test"}`))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no A2AConfig")
 }
@@ -127,7 +127,7 @@ func TestA2AExecutor_Execute_Timeout(t *testing.T) {
 		},
 	}
 
-	result, err := exec.Execute(desc, json.RawMessage(`{"query":"Hi"}`))
+	result, err := exec.Execute(context.Background(), desc, json.RawMessage(`{"query":"Hi"}`))
 	require.NoError(t, err)
 
 	var parsed map[string]string
@@ -193,7 +193,7 @@ func TestWithA2ATools_ExecutorRegistered(t *testing.T) {
 
 	// The registry should be able to resolve the "a2a" executor for this tool.
 	// We verify by calling Execute on the registry directly.
-	result, err := registry.Execute("a2a__myagent__summarize", json.RawMessage(`{"query":"test"}`))
+	result, err := registry.Execute(context.Background(), "a2a__myagent__summarize", json.RawMessage(`{"query":"test"}`))
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Empty(t, result.Error)

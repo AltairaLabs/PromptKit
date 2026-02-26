@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -31,7 +32,9 @@ func (e *MockStaticExecutor) Name() string {
 }
 
 // Execute executes a tool using static mock data
-func (e *MockStaticExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (e *MockStaticExecutor) Execute(
+	_ context.Context, descriptor *ToolDescriptor, _ json.RawMessage,
+) (json.RawMessage, error) {
 	if descriptor.Mode != modeMock {
 		return nil, ErrMockExecutorOnly
 	}
@@ -68,7 +71,9 @@ func (e *MockScriptedExecutor) Name() string {
 }
 
 // Execute executes a tool using templated mock data
-func (e *MockScriptedExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (e *MockScriptedExecutor) Execute(
+	_ context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
 	if descriptor.Mode != modeMock {
 		return nil, ErrMockExecutorOnly
 	}

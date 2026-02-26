@@ -111,7 +111,7 @@ func TestForkIsolation(t *testing.T) {
 		return "original", nil
 	})
 
-	forked := original.Fork()
+	forked := original.Fork(context.Background())
 
 	// Both should start with the same variable
 	origVal, _ := original.GetVar("branch")
@@ -154,7 +154,7 @@ func TestConcurrentFork(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			forks[idx] = original.Fork()
+			forks[idx] = original.Fork(context.Background())
 			forks[idx].SetVar("fork_id", string(rune('A'+idx)))
 		}(i)
 	}

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -263,7 +264,7 @@ func (r *Registry) RegisterExecutor(executor Executor) {
 }
 
 // Execute executes a tool with the given arguments
-func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, error) {
+func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMessage) (*ToolResult, error) {
 	tool, err := r.GetTool(toolName)
 	if err != nil {
 		return nil, err
@@ -282,7 +283,7 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 
 	// Execute the tool
 	start := getCurrentTimeMs()
-	result, err := executor.Execute(tool, args)
+	result, err := executor.Execute(ctx, tool, args)
 	latency := getCurrentTimeMs() - start
 
 	if err != nil {
@@ -322,7 +323,9 @@ func (r *Registry) Execute(toolName string, args json.RawMessage) (*ToolResult, 
 
 // ExecuteAsync executes a tool with async support, checking if it implements AsyncToolExecutor.
 // Returns ToolExecutionResult with status (complete/pending/failed).
-func (r *Registry) ExecuteAsync(toolName string, args json.RawMessage) (*ToolExecutionResult, error) {
+func (r *Registry) ExecuteAsync(
+	ctx context.Context, toolName string, args json.RawMessage,
+) (*ToolExecutionResult, error) {
 	tool, err := r.GetTool(toolName)
 	if err != nil {
 		return nil, err
@@ -340,11 +343,11 @@ func (r *Registry) ExecuteAsync(toolName string, args json.RawMessage) (*ToolExe
 
 	// Try async execution if supported
 	if asyncExecutor, ok := executor.(AsyncToolExecutor); ok {
-		return r.executeWithAsyncExecutor(asyncExecutor, tool, toolName, args)
+		return r.executeWithAsyncExecutor(ctx, asyncExecutor, tool, toolName, args)
 	}
 
 	// Fall back to synchronous execution
-	return r.executeSyncFallback(executor, tool, toolName, args)
+	return r.executeSyncFallback(ctx, executor, tool, toolName, args)
 }
 
 // getExecutorForTool finds the appropriate executor for a tool.
@@ -382,10 +385,10 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 
 // executeWithAsyncExecutor executes a tool with async support
 func (r *Registry) executeWithAsyncExecutor(
-	asyncExecutor AsyncToolExecutor, tool *ToolDescriptor, _ string, args json.RawMessage,
+	ctx context.Context, asyncExecutor AsyncToolExecutor, tool *ToolDescriptor, _ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
 	start := getCurrentTimeMs()
-	result, err := asyncExecutor.ExecuteAsync(tool, args)
+	result, err := asyncExecutor.ExecuteAsync(ctx, tool, args)
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
 	if err != nil {
@@ -411,10 +414,10 @@ func (r *Registry) executeWithAsyncExecutor(
 
 // executeSyncFallback executes a tool synchronously for non-async executors
 func (r *Registry) executeSyncFallback(
-	executor Executor, tool *ToolDescriptor, _ string, args json.RawMessage,
+	ctx context.Context, executor Executor, tool *ToolDescriptor, _ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
 	start := getCurrentTimeMs()
-	result, err := executor.Execute(tool, args)
+	result, err := executor.Execute(ctx, tool, args)
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
 	if err != nil {

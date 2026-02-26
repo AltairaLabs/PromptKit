@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -18,12 +19,12 @@ func (m *mockRegistryAsyncExecutor) Name() string {
 	return "mock-async"
 }
 
-func (m *mockRegistryAsyncExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (m *mockRegistryAsyncExecutor) Execute(_ context.Context, _ *ToolDescriptor, _ json.RawMessage) (json.RawMessage, error) {
 	// Fallback to sync execution
 	return json.RawMessage(`{"result": "sync"}`), nil
 }
 
-func (m *mockRegistryAsyncExecutor) ExecuteAsync(descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error) {
+func (m *mockRegistryAsyncExecutor) ExecuteAsync(_ context.Context, descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error) {
 	if m.shouldFail {
 		return &ToolExecutionResult{
 			Status: ToolStatusFailed,
@@ -73,7 +74,7 @@ func TestRegistry_ExecuteAsync_Complete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with ExecuteAsync
-	result, err := registry.ExecuteAsync("test_async_tool", json.RawMessage(`{"name": "test"}`))
+	result, err := registry.ExecuteAsync(context.Background(),"test_async_tool", json.RawMessage(`{"name": "test"}`))
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -105,7 +106,7 @@ func TestRegistry_ExecuteAsync_Pending(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with ExecuteAsync
-	result, err := registry.ExecuteAsync("test_pending_tool", json.RawMessage(`{"name": "test"}`))
+	result, err := registry.ExecuteAsync(context.Background(),"test_pending_tool", json.RawMessage(`{"name": "test"}`))
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -140,7 +141,7 @@ func TestRegistry_ExecuteAsync_Failed(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with ExecuteAsync
-	result, err := registry.ExecuteAsync("test_failing_tool", json.RawMessage(`{"name": "test"}`))
+	result, err := registry.ExecuteAsync(context.Background(),"test_failing_tool", json.RawMessage(`{"name": "test"}`))
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -168,7 +169,7 @@ func TestRegistry_ExecuteAsync_FallbackToSync(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with ExecuteAsync - should fall back to sync execution
-	result, err := registry.ExecuteAsync("test_sync_tool", json.RawMessage(`{"name": "test"}`))
+	result, err := registry.ExecuteAsync(context.Background(),"test_sync_tool", json.RawMessage(`{"name": "test"}`))
 	require.NoError(t, err)
 	require.NotNil(t, result)
 

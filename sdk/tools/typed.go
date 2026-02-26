@@ -29,6 +29,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -184,7 +185,9 @@ func (a *HandlerAdapter) Name() string {
 }
 
 // Execute runs the handler with the given arguments.
-func (a *HandlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (a *HandlerAdapter) Execute(
+	_ context.Context, _ *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
 	// Parse args to map
 	var argsMap map[string]any
 	if err := json.Unmarshal(args, &argsMap); err != nil {

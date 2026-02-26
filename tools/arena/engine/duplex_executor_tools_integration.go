@@ -43,7 +43,7 @@ func (e *arenaToolExecutor) Execute(
 			"args", string(tc.Args))
 
 		// Execute tool using registry - args are already json.RawMessage
-		toolResult, err := e.registry.Execute(tc.Name, tc.Args)
+		toolResult, err := e.registry.Execute(ctx, tc.Name, tc.Args)
 		if err != nil {
 			logger.Error("arenaToolExecutor: tool execution failed",
 				"name", tc.Name, "error", err)

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -39,7 +40,9 @@ func (e *RepositoryToolExecutor) Name() string {
 // Execute executes a tool, first checking the repository for mock responses.
 // If a matching response is found in the repository, it returns that response.
 // Otherwise, it falls back to the base executor for real execution.
-func (e *RepositoryToolExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (e *RepositoryToolExecutor) Execute(
+	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
 	logger.Debug("RepositoryToolExecutor Execute",
 		"tool_name", descriptor.Name,
 		"context_key", e.contextKey,
@@ -51,7 +54,7 @@ func (e *RepositoryToolExecutor) Execute(descriptor *ToolDescriptor, args json.R
 		logger.Debug("RepositoryToolExecutor failed to parse args, falling back to base executor",
 			"tool_name", descriptor.Name,
 			"error", err)
-		return e.baseExecutor.Execute(descriptor, args)
+		return e.baseExecutor.Execute(ctx, descriptor, args)
 	}
 
 	// Check if we have a repository response for this tool call
@@ -72,7 +75,7 @@ func (e *RepositoryToolExecutor) Execute(descriptor *ToolDescriptor, args json.R
 			logger.Debug("RepositoryToolExecutor failed to marshal repository response",
 				"tool_name", descriptor.Name,
 				"error", err)
-			return e.baseExecutor.Execute(descriptor, args)
+			return e.baseExecutor.Execute(ctx, descriptor, args)
 		}
 
 		return result, nil
@@ -83,7 +86,7 @@ func (e *RepositoryToolExecutor) Execute(descriptor *ToolDescriptor, args json.R
 		"tool_name", descriptor.Name,
 		"context_key", e.contextKey)
 
-	return e.baseExecutor.Execute(descriptor, args)
+	return e.baseExecutor.Execute(ctx, descriptor, args)
 }
 
 // getRepositoryResponse attempts to get a mock response from the repository.

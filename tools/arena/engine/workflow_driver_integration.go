@@ -174,7 +174,7 @@ func (d *arenaWorkflowDriver) Send(ctx context.Context, message string) (string,
 
 		// Execute non-workflow tool calls (skill__activate, a2a__, etc.) via the tool registry
 		if d.toolRegistry != nil {
-			result, execErr := d.toolRegistry.Execute(tc.Name, tc.Args)
+			result, execErr := d.toolRegistry.Execute(ctx, tc.Name, tc.Args)
 			var content string
 			if execErr != nil {
 				content = fmt.Sprintf(`{"error":%q}`, execErr.Error())

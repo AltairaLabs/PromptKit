@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -216,7 +217,7 @@ func TestSkillsCapability_SkillExecutor_Activate(t *testing.T) {
 	cap.RegisterTools(registry)
 
 	// Execute the activate tool
-	result, err := registry.Execute(skills.SkillActivateTool, []byte(`{"name":"test-skill"}`))
+	result, err := registry.Execute(context.Background(), skills.SkillActivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Result)
 	assert.Empty(t, result.Error)
@@ -242,10 +243,10 @@ func TestSkillsCapability_SkillExecutor_Deactivate(t *testing.T) {
 	cap.RegisterTools(registry)
 
 	// First activate, then deactivate
-	_, err := registry.Execute(skills.SkillActivateTool, []byte(`{"name":"test-skill"}`))
+	_, err := registry.Execute(context.Background(), skills.SkillActivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 
-	result, err := registry.Execute(skills.SkillDeactivateTool, []byte(`{"name":"test-skill"}`))
+	result, err := registry.Execute(context.Background(), skills.SkillDeactivateTool, []byte(`{"name":"test-skill"}`))
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Result)
 	assert.Empty(t, result.Error)
@@ -281,6 +282,7 @@ Instructions.`
 	cap.RegisterTools(registry)
 
 	result, err := registry.Execute(
+		context.Background(),
 		skills.SkillReadResourceTool,
 		[]byte(`{"skill_name":"res-skill","path":"data.txt"}`),
 	)
