@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
@@ -38,7 +39,7 @@ func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fal
 		apiKey = os.Getenv(fallbackKey)
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := httputil.NewHTTPClient(httputil.DefaultProviderTimeout)
 	return NewBaseProvider(id, includeRawOutput, client), apiKey
 }
 

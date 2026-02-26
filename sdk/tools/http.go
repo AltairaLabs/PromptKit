@@ -16,15 +16,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
 // Default configuration values
 const (
-	defaultHTTPTimeout = 30 * time.Second
-	defaultHTTPMethod  = "POST"
-	maxResponseSize    = 10 * 1024 * 1024 // 10MB
-	envHeaderParts     = 2                // key=value split parts
+	defaultHTTPMethod = "POST"
+	maxResponseSize   = 10 * 1024 * 1024 // 10MB
+	envHeaderParts    = 2                // key=value split parts
 )
 
 // HTTPExecutor executes tools that make HTTP calls based on pack configuration.
@@ -36,9 +36,7 @@ type HTTPExecutor struct {
 // NewHTTPExecutor creates a new HTTP executor with the default HTTP client.
 func NewHTTPExecutor() *HTTPExecutor {
 	return &HTTPExecutor{
-		client: &http.Client{
-			Timeout: defaultHTTPTimeout,
-		},
+		client: httputil.NewHTTPClient(httputil.DefaultToolTimeout),
 	}
 }
 
