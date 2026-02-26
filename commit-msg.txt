@@ -1,7 +1,0 @@
-[skip-pre-commit] refactor(arena): deduplicate tool-call result matching in assertions (#488)
-
-Extract the shared ID-first / name-fallback matching algorithm from
-context_builder.go and turn_tool_trace.go into a single matchResult
-function in tool_result_matcher.go. Both call sites now delegate to
-this shared function via the toolCallEntry interface, eliminating the
-duplicated logic while preserving identical matching semantics.
