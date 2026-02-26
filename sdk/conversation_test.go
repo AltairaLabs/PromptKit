@@ -565,7 +565,7 @@ type mockExecutor struct {
 
 func (m *mockExecutor) Name() string { return m.name }
 
-func (m *mockExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+func (m *mockExecutor) Execute(_ context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
 	return m.result, m.err
 }
 
@@ -586,7 +586,7 @@ func TestLocalExecutorExecute(t *testing.T) {
 		descriptor := &tools.ToolDescriptor{Name: "add"}
 		args := json.RawMessage(`{"a": 1, "b": 2}`)
 
-		result, err := executor.Execute(descriptor, args)
+		result, err := executor.Execute(context.Background(), descriptor, args)
 		assert.NoError(t, err)
 
 		var parsed map[string]float64
@@ -603,7 +603,7 @@ func TestLocalExecutorExecute(t *testing.T) {
 		descriptor := &tools.ToolDescriptor{Name: "unknown"}
 		args := json.RawMessage(`{}`)
 
-		_, err := executor.Execute(descriptor, args)
+		_, err := executor.Execute(context.Background(), descriptor, args)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no handler registered")
 	})
@@ -621,7 +621,7 @@ func TestLocalExecutorExecute(t *testing.T) {
 		descriptor := &tools.ToolDescriptor{Name: "test"}
 		args := json.RawMessage(`{invalid json}`)
 
-		_, err := executor.Execute(descriptor, args)
+		_, err := executor.Execute(context.Background(), descriptor, args)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse tool arguments")
 	})
@@ -639,7 +639,7 @@ func TestLocalExecutorExecute(t *testing.T) {
 		descriptor := &tools.ToolDescriptor{Name: "failing"}
 		args := json.RawMessage(`{}`)
 
-		_, err := executor.Execute(descriptor, args)
+		_, err := executor.Execute(context.Background(), descriptor, args)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "handler failed")
 	})
