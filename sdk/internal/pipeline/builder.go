@@ -167,40 +167,63 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 		"hasToolRegistry", cfg.ToolRegistry != nil,
 		"hasStreamProvider", cfg.StreamInputProvider != nil)
 
-	// Create stage pipeline builder with appropriate config
-	var builder *stage.PipelineBuilder
+	builder := newPipelineBuilder(cfg)
+
+	stateStoreConfig, useRAGContext := buildStateStoreConfig(cfg)
+
+	stages, err := collectPipelineStages(cfg, stateStoreConfig, useRAGContext)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wire event emitter so the pipeline emits PipelineStarted/Completed events.
+	if cfg.EventEmitter != nil {
+		builder.WithEventEmitter(cfg.EventEmitter)
+	}
+
+	// Build and return the StreamPipeline directly
+	streamPipeline, err := builder.Chain(stages...).Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build stage pipeline: %w", err)
+	}
+
+	return streamPipeline, nil
+}
+
+// newPipelineBuilder creates the appropriate pipeline builder for the config.
+func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
 	if cfg.StreamInputProvider != nil {
 		// For duplex streaming (ASM mode), disable execution timeout
 		// since the session runs indefinitely until user ends it
 		pipelineConfig := stage.DefaultPipelineConfig()
 		pipelineConfig.ExecutionTimeout = 0 // Disable timeout for duplex
-		builder = stage.NewPipelineBuilderWithConfig(pipelineConfig)
-	} else {
-		builder = stage.NewPipelineBuilder()
+		return stage.NewPipelineBuilderWithConfig(pipelineConfig)
 	}
+	return stage.NewPipelineBuilder()
+}
 
+// buildStateStoreConfig creates a state store config if a state store is configured.
+func buildStateStoreConfig(cfg *Config) (*rtpipeline.StateStoreConfig, bool) {
+	if cfg.StateStore == nil {
+		return nil, false
+	}
+	useRAGContext := cfg.ContextWindow > 0
+	return &rtpipeline.StateStoreConfig{
+		Store:          cfg.StateStore,
+		ConversationID: cfg.ConversationID,
+	}, useRAGContext
+}
+
+// collectPipelineStages assembles the ordered list of pipeline stages.
+func collectPipelineStages(
+	cfg *Config,
+	stateStoreConfig *rtpipeline.StateStoreConfig,
+	useRAGContext bool,
+) ([]stage.Stage, error) {
 	var stages []stage.Stage
 
 	// 1. State store load stage - loads conversation history FIRST
-	var stateStoreConfig *rtpipeline.StateStoreConfig
-	useRAGContext := cfg.StateStore != nil && cfg.ContextWindow > 0
-	if cfg.StateStore != nil {
-		stateStoreConfig = &rtpipeline.StateStoreConfig{
-			Store:          cfg.StateStore,
-			ConversationID: cfg.ConversationID,
-		}
-		if useRAGContext {
-			// Use ContextAssemblyStage for efficient partial reads
-			stages = append(stages, stage.NewContextAssemblyStage(&stage.ContextAssemblyConfig{
-				StateStoreConfig: stateStoreConfig,
-				RecentMessages:   cfg.ContextWindow,
-				MessageIndex:     cfg.MessageIndex,
-				RetrievalTopK:    cfg.RetrievalTopK,
-			}))
-		} else {
-			stages = append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
-		}
-	}
+	stages = appendStateStoreLoadStages(stages, cfg, stateStoreConfig, useRAGContext)
 
 	// 2. Variable provider stage - resolves dynamic variables
 	if len(cfg.VariableProviders) > 0 {
@@ -226,66 +249,89 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	}
 
 	// 5. Provider stage - LLM calls with streaming and tool support
-	// Use DuplexProviderStage for ASM mode (WebSocket streaming)
-	// Use VAD pipeline for VAD mode (extracted to builder_vad.go - integration tested)
-	// Use regular ProviderStage for text mode (HTTP API)
+	providerStages, err := buildProviderStages(cfg)
+	if err != nil {
+		return nil, err
+	}
+	stages = append(stages, providerStages...)
+
+	// 6. State store save stage - saves conversation state LAST
+	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig, useRAGContext)
+
+	return stages, nil
+}
+
+// appendStateStoreLoadStages adds the appropriate state store load stage.
+func appendStateStoreLoadStages(
+	stages []stage.Stage,
+	cfg *Config,
+	stateStoreConfig *rtpipeline.StateStoreConfig,
+	useRAGContext bool,
+) []stage.Stage {
+	if stateStoreConfig == nil {
+		return stages
+	}
+	if useRAGContext {
+		return append(stages, stage.NewContextAssemblyStage(&stage.ContextAssemblyConfig{
+			StateStoreConfig: stateStoreConfig,
+			RecentMessages:   cfg.ContextWindow,
+			MessageIndex:     cfg.MessageIndex,
+			RetrievalTopK:    cfg.RetrievalTopK,
+		}))
+	}
+	return append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
+}
+
+// buildProviderStages returns the appropriate provider stage(s) based on config.
+func buildProviderStages(cfg *Config) ([]stage.Stage, error) {
 	if cfg.StreamInputProvider != nil {
 		// ASM mode: Direct audio streaming to LLM
-		// DuplexProviderStage creates session lazily using system_prompt from element metadata
 		logger.Debug("Using DuplexProviderStage for ASM mode")
-		stages = append(stages, stage.NewDuplexProviderStage(cfg.StreamInputProvider, cfg.StreamInputConfig))
-	} else if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
-		// VAD mode: build audio pipeline (AudioTurnStage → STTStage → ProviderStage → TTSStage)
-		vadStages, err := buildVADPipelineStages(cfg)
-		if err != nil {
-			return nil, err
-		}
-		stages = append(stages, vadStages...)
-	} else if cfg.Provider != nil {
+		return []stage.Stage{stage.NewDuplexProviderStage(cfg.StreamInputProvider, cfg.StreamInputConfig)}, nil
+	}
+	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
+		// VAD mode: build audio pipeline
+		return buildVADPipelineStages(cfg)
+	}
+	if cfg.Provider != nil {
 		// Text mode: standard LLM call
 		providerConfig := &stage.ProviderConfig{
 			MaxTokens:      cfg.MaxTokens,
 			Temperature:    cfg.Temperature,
 			ResponseFormat: cfg.ResponseFormat,
 		}
-		stages = append(stages, stage.NewProviderStageWithHooks(
+		return []stage.Stage{stage.NewProviderStageWithHooks(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
 			providerConfig,
 			cfg.EventEmitter,
 			cfg.HookRegistry,
-		))
+		)}, nil
 	}
+	return nil, nil
+}
 
-	// 6. State store save stage - saves conversation state LAST
-	if stateStoreConfig != nil {
-		if useRAGContext {
-			// Use IncrementalSaveStage for efficient appends
-			stages = append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{
-				StateStoreConfig:   stateStoreConfig,
-				MessageIndex:       cfg.MessageIndex,
-				Summarizer:         cfg.Summarizer,
-				SummarizeThreshold: cfg.SummarizeThreshold,
-				SummarizeBatchSize: cfg.SummarizeBatchSize,
-			}))
-		} else {
-			stages = append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
-		}
+// appendStateStoreSaveStages adds the appropriate state store save stage.
+func appendStateStoreSaveStages(
+	stages []stage.Stage,
+	cfg *Config,
+	stateStoreConfig *rtpipeline.StateStoreConfig,
+	useRAGContext bool,
+) []stage.Stage {
+	if stateStoreConfig == nil {
+		return stages
 	}
-
-	// Wire event emitter so the pipeline emits PipelineStarted/Completed events.
-	if cfg.EventEmitter != nil {
-		builder.WithEventEmitter(cfg.EventEmitter)
+	if useRAGContext {
+		return append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{
+			StateStoreConfig:   stateStoreConfig,
+			MessageIndex:       cfg.MessageIndex,
+			Summarizer:         cfg.Summarizer,
+			SummarizeThreshold: cfg.SummarizeThreshold,
+			SummarizeBatchSize: cfg.SummarizeBatchSize,
+		}))
 	}
-
-	// Build and return the StreamPipeline directly
-	streamPipeline, err := builder.Chain(stages...).Build()
-	if err != nil {
-		return nil, fmt.Errorf("failed to build stage pipeline: %w", err)
-	}
-
-	return streamPipeline, nil
+	return append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
 }
 
 // buildContextBuilderPolicy creates a ContextBuilderPolicy from pipeline config.

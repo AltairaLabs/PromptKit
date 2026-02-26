@@ -31,6 +31,9 @@ const (
 	defaultMaxTokens        = 4096
 	defaultTemperature      = 0.7
 	streamChannelBufferSize = 100 // Buffer size for streaming channels
+
+	// roleAssistant is the standard role string for assistant messages.
+	roleAssistant = "assistant"
 )
 
 // Error message templates for mode-specific operations.
