@@ -7,6 +7,7 @@ package streaming
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -149,6 +150,7 @@ func (c *Conn) Connect(ctx context.Context) error {
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: c.cfg.DialTimeout,
+		TLSClientConfig:  &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 
 	c.cfg.Logger.Debug("connecting to WebSocket", "url", c.cfg.URL)
