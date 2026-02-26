@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -222,6 +223,59 @@ func TestPackTemplateOpenSendReceive(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.NotEmpty(t, resp.Text())
+}
+
+func TestPackTemplateOpenDuplex(t *testing.T) {
+	packFile := writeTestPack(t)
+	tmpl, err := LoadTemplate(packFile, WithSkipSchemaValidation())
+	require.NoError(t, err)
+
+	t.Run("error when provider lacks StreamInputSupport", func(t *testing.T) {
+		// mock.NewProvider does not implement providers.StreamInputSupport,
+		// so OpenDuplex must return an error.
+		provider := mock.NewProvider("mock", "mock-model", false)
+		conv, err := tmpl.OpenDuplex("chat", WithProvider(provider))
+		assert.Nil(t, conv)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not support duplex streaming")
+	})
+
+	t.Run("prompt not found", func(t *testing.T) {
+		provider := mock.NewProvider("mock", "mock-model", false)
+		_, err := tmpl.OpenDuplex("nonexistent", WithProvider(provider))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("option error", func(t *testing.T) {
+		_, err := tmpl.OpenDuplex("chat", func(c *config) error {
+			return assert.AnError
+		})
+		assert.Error(t, err)
+	})
+}
+
+// failingCapability is a test capability that always fails during Init.
+type failingCapability struct{}
+
+func (f *failingCapability) Name() string                          { return "failing" }
+func (f *failingCapability) Init(_ CapabilityContext) error         { return assert.AnError }
+func (f *failingCapability) RegisterTools(_ *tools.Registry)        {}
+func (f *failingCapability) Close() error                            { return nil }
+
+func TestPackTemplateOpenInitConversationError(t *testing.T) {
+	packFile := writeTestPack(t)
+	tmpl, err := LoadTemplate(packFile, WithSkipSchemaValidation())
+	require.NoError(t, err)
+
+	provider := mock.NewProvider("mock", "mock-model", false)
+	conv, err := tmpl.Open("chat",
+		WithProvider(provider),
+		WithCapability(&failingCapability{}),
+	)
+	assert.Nil(t, conv)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "capability \"failing\" init failed")
 }
 
 func BenchmarkTemplateVsDirectOpen(b *testing.B) {
