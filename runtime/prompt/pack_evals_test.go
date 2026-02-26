@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func boolPtr(b bool) *bool       { return &b }
-func float64Ptr(f float64) *float64 { return &f }
+var (
+	boolPtr    = testutil.Ptr[bool]
+	float64Ptr = testutil.Ptr[float64]
+)
 
 func TestPack_BackwardCompatibility_NoEvals(t *testing.T) {
 	// A pack JSON without the "evals" field should still load correctly.

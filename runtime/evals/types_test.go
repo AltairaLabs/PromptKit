@@ -4,12 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
-
-func ptr[T any](v T) *T {
-	return &v
-}
 
 func TestEvalDef_IsEnabled(t *testing.T) {
 	tests := []struct {
@@ -18,8 +15,8 @@ func TestEvalDef_IsEnabled(t *testing.T) {
 		want    bool
 	}{
 		{"nil defaults to true", nil, true},
-		{"explicit true", ptr(true), true},
-		{"explicit false", ptr(false), false},
+		{"explicit true", testutil.Ptr(true), true},
+		{"explicit false", testutil.Ptr(false), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -38,9 +35,9 @@ func TestEvalDef_GetSamplePercentage(t *testing.T) {
 		want float64
 	}{
 		{"nil defaults to 5.0", nil, DefaultSamplePercentage},
-		{"explicit 10", ptr(10.0), 10.0},
-		{"explicit 0", ptr(0.0), 0.0},
-		{"explicit 100", ptr(100.0), 100.0},
+		{"explicit 10", testutil.Ptr(10.0), 10.0},
+		{"explicit 0", testutil.Ptr(0.0), 0.0},
+		{"explicit 100", testutil.Ptr(100.0), 100.0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -59,12 +56,12 @@ func TestEvalDef_JSONRoundTrip(t *testing.T) {
 		Trigger:          TriggerSampleTurns,
 		Params:           map[string]any{"criteria": "professional tone"},
 		Description:      "Check tone",
-		Enabled:          ptr(true),
-		SamplePercentage: ptr(10.0),
+		Enabled:          testutil.Ptr(true),
+		SamplePercentage: testutil.Ptr(10.0),
 		Metric: &MetricDef{
 			Name:  "promptpack_tone_score",
 			Type:  MetricGauge,
-			Range: &Range{Min: ptr(0.0), Max: ptr(1.0)},
+			Range: &Range{Min: testutil.Ptr(0.0), Max: testutil.Ptr(1.0)},
 		},
 	}
 
@@ -227,8 +224,8 @@ func TestEvalResult_JSON(t *testing.T) {
 		EvalID:      "tone-check",
 		Type:        "llm_judge",
 		Passed:      true,
-		Score:       ptr(0.95),
-		MetricValue: ptr(0.95),
+		Score:       testutil.Ptr(0.95),
+		MetricValue: testutil.Ptr(0.95),
 		Explanation: "Tone is professional",
 		DurationMs:  150,
 	}
@@ -427,42 +424,42 @@ func TestThreshold_Apply(t *testing.T) {
 		{
 			name:       "nil threshold is no-op",
 			threshold:  nil,
-			result:     EvalResult{Passed: true, Score: ptr(0.5)},
+			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.5)},
 			wantPassed: true,
 		},
 		{
 			name:       "passed required but result failed",
-			threshold:  &Threshold{Passed: ptr(true)},
-			result:     EvalResult{Passed: false, Score: ptr(0.9)},
+			threshold:  &Threshold{Passed: testutil.Ptr(true)},
+			result:     EvalResult{Passed: false, Score: testutil.Ptr(0.9)},
 			wantPassed: false,
 		},
 		{
 			name:       "min_score met",
-			threshold:  &Threshold{MinScore: ptr(0.7)},
-			result:     EvalResult{Passed: true, Score: ptr(0.8)},
+			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
+			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.8)},
 			wantPassed: true,
 		},
 		{
 			name:       "min_score not met",
-			threshold:  &Threshold{MinScore: ptr(0.7)},
-			result:     EvalResult{Passed: true, Score: ptr(0.5)},
+			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
+			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.5)},
 			wantPassed: false,
 		},
 		{
 			name:       "max_score met",
-			threshold:  &Threshold{MaxScore: ptr(0.9)},
-			result:     EvalResult{Passed: true, Score: ptr(0.8)},
+			threshold:  &Threshold{MaxScore: testutil.Ptr(0.9)},
+			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.8)},
 			wantPassed: true,
 		},
 		{
 			name:       "max_score exceeded",
-			threshold:  &Threshold{MaxScore: ptr(0.9)},
-			result:     EvalResult{Passed: true, Score: ptr(0.95)},
+			threshold:  &Threshold{MaxScore: testutil.Ptr(0.9)},
+			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.95)},
 			wantPassed: false,
 		},
 		{
 			name:       "nil score with min_score is no-op",
-			threshold:  &Threshold{MinScore: ptr(0.7)},
+			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
 			result:     EvalResult{Passed: true},
 			wantPassed: true,
 		},
@@ -480,9 +477,9 @@ func TestThreshold_Apply(t *testing.T) {
 
 func TestThreshold_JSON(t *testing.T) {
 	th := Threshold{
-		Passed:   ptr(true),
-		MinScore: ptr(0.7),
-		MaxScore: ptr(0.95),
+		Passed:   testutil.Ptr(true),
+		MinScore: testutil.Ptr(0.7),
+		MaxScore: testutil.Ptr(0.95),
 	}
 	data, err := json.Marshal(th)
 	if err != nil {
@@ -652,7 +649,7 @@ func TestEvalDef_ExtendedFieldsJSON(t *testing.T) {
 		Params:  map[string]any{"text": "hello"},
 		Message: "should contain hello",
 		Threshold: &Threshold{
-			Passed: ptr(true),
+			Passed: testutil.Ptr(true),
 		},
 		When: &EvalWhen{
 			ToolCalled: "search",
@@ -724,9 +721,9 @@ func TestRange_JSON(t *testing.T) {
 		min   *float64
 		max   *float64
 	}{
-		{"both min and max", `{"min":0,"max":1}`, ptr(0.0), ptr(1.0)},
-		{"only min", `{"min":-1}`, ptr(-1.0), nil},
-		{"only max", `{"max":100}`, nil, ptr(100.0)},
+		{"both min and max", `{"min":0,"max":1}`, testutil.Ptr(0.0), testutil.Ptr(1.0)},
+		{"only min", `{"min":-1}`, testutil.Ptr(-1.0), nil},
+		{"only max", `{"max":100}`, nil, testutil.Ptr(100.0)},
 		{"empty", `{}`, nil, nil},
 	}
 	for _, tt := range tests {

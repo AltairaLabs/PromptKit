@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-func intPtr(v int) *int       { return &v }
-func floatPtr(v float64) *float64 { return &v } //nolint:unparam // test helper
+var intPtr = testutil.Ptr[int]
 
 func imageMsg(mime string, width, height *int) types.Message {
 	return types.Message{

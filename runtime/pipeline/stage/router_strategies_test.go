@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 )
 
 func TestContentRouter_RoutesBasedOnPredicate(t *testing.T) {
@@ -117,12 +119,12 @@ func TestRouteContentType(t *testing.T) {
 		element     StreamElement
 		shouldMatch bool
 	}{
-		{"text matches text", ContentTypeText, StreamElement{Text: ptrString("hello")}, true},
+		{"text matches text", ContentTypeText, StreamElement{Text: testutil.Ptr("hello")}, true},
 		{"text doesn't match audio", ContentTypeText, StreamElement{Audio: &AudioData{}}, false},
 		{"audio matches audio", ContentTypeAudio, StreamElement{Audio: &AudioData{}}, true},
 		{"video matches video", ContentTypeVideo, StreamElement{Video: &VideoData{}}, true},
 		{"image matches image", ContentTypeImage, StreamElement{Image: &ImageData{}}, true},
-		{"any matches everything", ContentTypeAny, StreamElement{Text: ptrString("x")}, true},
+		{"any matches everything", ContentTypeAny, StreamElement{Text: testutil.Ptr("x")}, true},
 	}
 
 	for _, tt := range tests {

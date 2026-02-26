@@ -3,6 +3,7 @@ package markdown
 import (
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
@@ -12,7 +13,7 @@ func TestMarkdownRepository_MediaHelpers(t *testing.T) {
 
 	t.Run("mediaHasData with data", func(t *testing.T) {
 		media := &types.MediaContent{
-			Data:     ptrString("base64data"),
+			Data:     testutil.Ptr("base64data"),
 			MIMEType: "image/jpeg",
 		}
 		if !repo.mediaHasData(media) {
@@ -22,7 +23,7 @@ func TestMarkdownRepository_MediaHelpers(t *testing.T) {
 
 	t.Run("mediaHasData with filepath", func(t *testing.T) {
 		media := &types.MediaContent{
-			FilePath: ptrString("/path/to/file.jpg"),
+			FilePath: testutil.Ptr("/path/to/file.jpg"),
 			MIMEType: "image/jpeg",
 		}
 		if !repo.mediaHasData(media) {
@@ -32,7 +33,7 @@ func TestMarkdownRepository_MediaHelpers(t *testing.T) {
 
 	t.Run("mediaHasData with URL", func(t *testing.T) {
 		media := &types.MediaContent{
-			URL:      ptrString("https://example.com/image.jpg"),
+			URL:      testutil.Ptr("https://example.com/image.jpg"),
 			MIMEType: "image/jpeg",
 		}
 		if !repo.mediaHasData(media) {
@@ -51,7 +52,7 @@ func TestMarkdownRepository_MediaHelpers(t *testing.T) {
 
 	t.Run("calculateMediaSize with data", func(t *testing.T) {
 		media := &types.MediaContent{
-			Data:     ptrString("base64encodeddata"),
+			Data:     testutil.Ptr("base64encodeddata"),
 			MIMEType: "image/jpeg",
 		}
 		size := repo.calculateMediaSize(media)
@@ -62,7 +63,7 @@ func TestMarkdownRepository_MediaHelpers(t *testing.T) {
 
 	t.Run("calculateMediaSize without data", func(t *testing.T) {
 		media := &types.MediaContent{
-			FilePath: ptrString("/path"),
+			FilePath: testutil.Ptr("/path"),
 			MIMEType: "image/jpeg",
 		}
 		size := repo.calculateMediaSize(media)
@@ -124,7 +125,7 @@ func TestMarkdownRepository_ProcessMediaPart(t *testing.T) {
 			part: types.ContentPart{
 				Type: "image",
 				Media: &types.MediaContent{
-					Data:     ptrString("imgdata"),
+					Data:     testutil.Ptr("imgdata"),
 					MIMEType: "image/png",
 				},
 			},
@@ -137,7 +138,7 @@ func TestMarkdownRepository_ProcessMediaPart(t *testing.T) {
 			part: types.ContentPart{
 				Type: "audio",
 				Media: &types.MediaContent{
-					FilePath: ptrString("/path/audio.mp3"),
+					FilePath: testutil.Ptr("/path/audio.mp3"),
 					MIMEType: "audio/mpeg",
 				},
 			},
@@ -150,7 +151,7 @@ func TestMarkdownRepository_ProcessMediaPart(t *testing.T) {
 			part: types.ContentPart{
 				Type: "video",
 				Media: &types.MediaContent{
-					URL:      ptrString("https://example.com/video.mp4"),
+					URL:      testutil.Ptr("https://example.com/video.mp4"),
 					MIMEType: "video/mp4",
 				},
 			},
@@ -230,7 +231,7 @@ func TestMarkdownRepository_AddMediaStats(t *testing.T) {
 							{
 								Type: "image",
 								Media: &types.MediaContent{
-									Data:     ptrString("imagedata"),
+									Data:     testutil.Ptr("imagedata"),
 									MIMEType: "image/jpeg",
 								},
 							},
@@ -252,14 +253,14 @@ func TestMarkdownRepository_AddMediaStats(t *testing.T) {
 							{
 								Type: "image",
 								Media: &types.MediaContent{
-									Data:     ptrString("img"),
+									Data:     testutil.Ptr("img"),
 									MIMEType: "image/png",
 								},
 							},
 							{
 								Type: "audio",
 								Media: &types.MediaContent{
-									FilePath: ptrString("/audio.mp3"),
+									FilePath: testutil.Ptr("/audio.mp3"),
 									MIMEType: "audio/mpeg",
 								},
 							},
@@ -299,8 +300,4 @@ func TestMarkdownRepository_AddMediaStats(t *testing.T) {
 			}
 		})
 	}
-}
-
-func ptrString(s string) *string {
-	return &s
 }

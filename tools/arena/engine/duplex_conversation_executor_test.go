@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/streaming"
@@ -663,7 +664,7 @@ func TestProcessResponseElement(t *testing.T) {
 			elem: &stage.StreamElement{
 				EndOfStream: true,
 				Message: &types.Message{
-					Parts: []types.ContentPart{{Text: stringPtr("text")}},
+					Parts: []types.ContentPart{{Text: testutil.Ptr("text")}},
 				},
 			},
 			expectedAction: streaming.ResponseActionComplete,
@@ -672,7 +673,7 @@ func TestProcessResponseElement(t *testing.T) {
 		{
 			name: "streaming chunk continues",
 			elem: &stage.StreamElement{
-				Text: stringPtr("chunk"),
+				Text: testutil.Ptr("chunk"),
 			},
 			expectedAction: streaming.ResponseActionContinue,
 			expectedErr:    false,
@@ -691,8 +692,4 @@ func TestProcessResponseElement(t *testing.T) {
 			}
 		})
 	}
-}
-
-func stringPtr(s string) *string {
-	return &s
 }

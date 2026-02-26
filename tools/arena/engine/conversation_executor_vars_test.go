@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -256,7 +257,7 @@ func TestBuildTurnRequest_TemperatureAndMaxTokens(t *testing.T) {
 			name:              "override temperature",
 			configTemp:        0.7,
 			configMax:         1000,
-			reqTemp:           float64Ptr(0.9),
+			reqTemp:           testutil.Ptr(0.9),
 			reqMax:            nil,
 			expectedTemp:      0.9,
 			expectedMaxTokens: 1000,
@@ -266,7 +267,7 @@ func TestBuildTurnRequest_TemperatureAndMaxTokens(t *testing.T) {
 			configTemp:        0.7,
 			configMax:         1000,
 			reqTemp:           nil,
-			reqMax:            intPtr(2000),
+			reqMax:            testutil.Ptr(2000),
 			expectedTemp:      0.7,
 			expectedMaxTokens: 2000,
 		},
@@ -274,8 +275,8 @@ func TestBuildTurnRequest_TemperatureAndMaxTokens(t *testing.T) {
 			name:              "override both",
 			configTemp:        0.7,
 			configMax:         1000,
-			reqTemp:           float64Ptr(0.5),
-			reqMax:            intPtr(500),
+			reqTemp:           testutil.Ptr(0.5),
+			reqMax:            testutil.Ptr(500),
 			expectedTemp:      0.5,
 			expectedMaxTokens: 500,
 		},
@@ -377,15 +378,6 @@ func TestBuildTurnRequest_StateStoreConfig(t *testing.T) {
 	if turnReq.ConversationID != "conv-456" {
 		t.Errorf("Expected ConversationID conv-456, got %s", turnReq.ConversationID)
 	}
-}
-
-// Helper functions
-func float64Ptr(f float64) *float64 {
-	return &f
-}
-
-func intPtr(i int) *int {
-	return &i
 }
 
 // MockProvider for testing (reuse from conversation_executor_test.go)

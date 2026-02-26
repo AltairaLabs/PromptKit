@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -265,7 +266,7 @@ func TestBuildMultimodalContent_UnsupportedType(t *testing.T) {
 		Type: types.ContentTypeAudio,
 		Media: &types.MediaContent{
 			MIMEType: "audio/mp3",
-			Data:     stringPtr("base64data"),
+			Data:     testutil.Ptr("base64data"),
 		},
 	}
 	msg.Parts = []types.ContentPart{audioPart}
@@ -371,8 +372,4 @@ func TestPrepareMultimodalMessages_WithSystem(t *testing.T) {
 	if messages[0].Role != "system" {
 		t.Errorf("Expected first message to be system, got %s", messages[0].Role)
 	}
-}
-
-func stringPtr(s string) *string {
-	return &s
 }

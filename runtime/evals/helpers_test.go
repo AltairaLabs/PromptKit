@@ -1,4 +1,8 @@
 package evals
 
-func float64Ptr(f float64) *float64 { return &f }
-func boolPtr(b bool) *bool          { return &b }
+import "github.com/AltairaLabs/PromptKit/pkg/testutil"
+
+var (
+	float64Ptr = testutil.Ptr[float64]
+	boolPtr    = testutil.Ptr[bool]
+)

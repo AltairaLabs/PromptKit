@@ -9,11 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 )
-
-// textPtr returns a pointer to s.
-func textPtr(s string) *string { return &s }
 
 // testCard returns an AgentCard suitable for tests.
 func testCard() *a2a.AgentCard {
@@ -73,7 +71,7 @@ func sendMsg(skillID, text string) *a2a.SendMessageRequest {
 	req := &a2a.SendMessageRequest{
 		Message: a2a.Message{
 			Role:  a2a.RoleUser,
-			Parts: []a2a.Part{{Text: textPtr(text)}},
+			Parts: []a2a.Part{{Text: testutil.Ptr(text)}},
 		},
 	}
 	if skillID != "" {
@@ -112,7 +110,7 @@ func TestMockServesAgentCard(t *testing.T) {
 func TestMockReturnsSkillResponse(t *testing.T) {
 	m := NewA2AServer(testCard(),
 		WithSkillResponse("echo", Response{
-			Parts: []a2a.Part{{Text: textPtr("hello back")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("hello back")}},
 		}),
 	)
 	m.Start()
@@ -137,10 +135,10 @@ func TestMockMatchesInputContains(t *testing.T) {
 		WithInputMatcher("echo", func(msg a2a.Message) bool {
 			return strings.Contains(messageText(&msg), "magic")
 		}, Response{
-			Parts: []a2a.Part{{Text: textPtr("found magic")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("found magic")}},
 		}),
 		WithSkillResponse("echo", Response{
-			Parts: []a2a.Part{{Text: textPtr("default echo")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("default echo")}},
 		}),
 	)
 	m.Start()
@@ -165,12 +163,12 @@ func TestMockMatchesInputRegex(t *testing.T) {
 	mc := &MatchConfig{Regex: `\d{3}-\d{4}`}
 	fn := matcherFromConfig(mc)
 
-	msg := a2a.Message{Parts: []a2a.Part{{Text: textPtr("call 555-1234")}}}
+	msg := a2a.Message{Parts: []a2a.Part{{Text: testutil.Ptr("call 555-1234")}}}
 	if !fn(msg) {
 		t.Error("expected regex match")
 	}
 
-	msg2 := a2a.Message{Parts: []a2a.Part{{Text: textPtr("no numbers here")}}}
+	msg2 := a2a.Message{Parts: []a2a.Part{{Text: testutil.Ptr("no numbers here")}}}
 	if fn(msg2) {
 		t.Error("expected no regex match")
 	}
@@ -202,7 +200,7 @@ func TestMockLatencyInjection(t *testing.T) {
 	m := NewA2AServer(testCard(),
 		WithLatency(delay),
 		WithSkillResponse("echo", Response{
-			Parts: []a2a.Part{{Text: textPtr("delayed")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("delayed")}},
 		}),
 	)
 	m.Start()
@@ -222,7 +220,7 @@ func TestMockLatencyInjection(t *testing.T) {
 func TestMockDefaultResponse(t *testing.T) {
 	m := NewA2AServer(testCard(),
 		WithSkillResponse("echo", Response{
-			Parts: []a2a.Part{{Text: textPtr("default")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("default")}},
 		}),
 	)
 	m.Start()
@@ -242,10 +240,10 @@ func TestMockRuleOrdering(t *testing.T) {
 		WithInputMatcher("echo", func(msg a2a.Message) bool {
 			return strings.Contains(messageText(&msg), "special")
 		}, Response{
-			Parts: []a2a.Part{{Text: textPtr("special response")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("special response")}},
 		}),
 		WithSkillResponse("echo", Response{
-			Parts: []a2a.Part{{Text: textPtr("catch-all")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("catch-all")}},
 		}),
 	)
 	m.Start()
@@ -335,7 +333,7 @@ func TestOptionsFromConfig(t *testing.T) {
 func TestMockWithClient(t *testing.T) {
 	m := NewA2AServer(testCard(),
 		WithSkillResponse("echo", Response{
-			Parts: []a2a.Part{{Text: textPtr("client test")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("client test")}},
 		}),
 	)
 	m.Start()
@@ -369,7 +367,7 @@ func TestMockWithClient(t *testing.T) {
 func TestMockNoMatchingRule(t *testing.T) {
 	m := NewA2AServer(testCard(),
 		WithSkillResponse("other-skill", Response{
-			Parts: []a2a.Part{{Text: textPtr("nope")}},
+			Parts: []a2a.Part{{Text: testutil.Ptr("nope")}},
 		}),
 	)
 	m.Start()

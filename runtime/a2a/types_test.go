@@ -5,11 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func ptr[T any](v T) *T { return &v }
 
 func TestTaskState_JSON(t *testing.T) {
 	tests := []struct {
@@ -52,7 +51,7 @@ func TestTaskState_InvalidJSON(t *testing.T) {
 }
 
 func TestPart_TextRoundTrip(t *testing.T) {
-	p := Part{Text: ptr("hello world")}
+	p := Part{Text: testutil.Ptr("hello world")}
 
 	data, err := json.Marshal(p)
 	require.NoError(t, err)
@@ -85,7 +84,7 @@ func TestPart_RawRoundTrip(t *testing.T) {
 
 func TestPart_URLRoundTrip(t *testing.T) {
 	p := Part{
-		URL:       ptr("https://example.com/file.pdf"),
+		URL:       testutil.Ptr("https://example.com/file.pdf"),
 		MediaType: "application/pdf",
 	}
 
@@ -122,7 +121,7 @@ func TestMessage_RoundTrip(t *testing.T) {
 		ContextID: "ctx-1",
 		TaskID:    "task-1",
 		Role:      RoleUser,
-		Parts:     []Part{{Text: ptr("What is the weather?")}},
+		Parts:     []Part{{Text: testutil.Ptr("What is the weather?")}},
 		Metadata:  map[string]any{"source": "test"},
 	}
 
@@ -144,7 +143,7 @@ func TestArtifact_RoundTrip(t *testing.T) {
 		ArtifactID:  "art-1",
 		Name:        "result",
 		Description: "The generated output",
-		Parts:       []Part{{Text: ptr("Generated text")}},
+		Parts:       []Part{{Text: testutil.Ptr("Generated text")}},
 	}
 
 	data, err := json.Marshal(a)
@@ -169,21 +168,21 @@ func TestTask_RoundTrip(t *testing.T) {
 			Message: &Message{
 				MessageID: "status-msg",
 				Role:      RoleAgent,
-				Parts:     []Part{{Text: ptr("Processing your request")}},
+				Parts:     []Part{{Text: testutil.Ptr("Processing your request")}},
 			},
 		},
 		Artifacts: []Artifact{
 			{
 				ArtifactID: "art-1",
 				Name:       "output",
-				Parts:      []Part{{Text: ptr("Result data")}},
+				Parts:      []Part{{Text: testutil.Ptr("Result data")}},
 			},
 		},
 		History: []Message{
 			{
 				MessageID: "msg-1",
 				Role:      RoleUser,
-				Parts:     []Part{{Text: ptr("Do something")}},
+				Parts:     []Part{{Text: testutil.Ptr("Do something")}},
 			},
 		},
 	}
@@ -326,11 +325,11 @@ func TestSendMessageRequest_RoundTrip(t *testing.T) {
 		Message: Message{
 			MessageID: "msg-1",
 			Role:      RoleUser,
-			Parts:     []Part{{Text: ptr("hello")}},
+			Parts:     []Part{{Text: testutil.Ptr("hello")}},
 		},
 		Configuration: &SendMessageConfiguration{
 			AcceptedOutputModes: []string{"text"},
-			HistoryLength:       ptr(10),
+			HistoryLength:       testutil.Ptr(10),
 			Blocking:            true,
 		},
 	}
@@ -397,7 +396,7 @@ func TestStreamingEvents_RoundTrip(t *testing.T) {
 			ContextID: "ctx-1",
 			Artifact: Artifact{
 				ArtifactID: "art-1",
-				Parts:      []Part{{Text: ptr("chunk")}},
+				Parts:      []Part{{Text: testutil.Ptr("chunk")}},
 			},
 			Append:    true,
 			LastChunk: false,

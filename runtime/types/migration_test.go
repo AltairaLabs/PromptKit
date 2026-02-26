@@ -2,6 +2,8 @@ package types
 
 import (
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 )
 
 func TestMigrateToMultimodal(t *testing.T) {
@@ -245,7 +247,7 @@ func TestCloneMessage(t *testing.T) {
 
 	// Modify clone and verify original unchanged
 	clone.Content = "Modified"
-	clone.Parts[0].Text = stringPtr("Modified text")
+	clone.Parts[0].Text = testutil.Ptr("Modified text")
 	clone.Meta["key"] = "modified"
 
 	if original.Content == "Modified" {

@@ -7,18 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
-
-// Helper function to create string pointers
-func stringPtr(s string) *string {
-	return &s
-}
-
-// Helper function to create int pointers
-func intPtr(i int) *int {
-	return &i
-}
 
 func TestSessionRecordingAdapter_CanHandle(t *testing.T) {
 	adapter := NewSessionRecordingAdapter()
@@ -114,7 +105,7 @@ func TestSessionRecordingAdapter_Load(t *testing.T) {
 					Parts: []RecordedContentPart{
 						{
 							Type: "text",
-							Text: stringPtr("I have a billing question"),
+							Text: testutil.Ptr("I have a billing question"),
 						},
 					},
 				},
@@ -278,7 +269,7 @@ func TestSessionRecordingAdapter_Load_WithMultimodal(t *testing.T) {
 					Parts: []RecordedContentPart{
 						{
 							Type: "text",
-							Text: stringPtr("What's in this image?"),
+							Text: testutil.Ptr("What's in this image?"),
 						},
 						{
 							Type: "image",
@@ -379,7 +370,7 @@ func TestConvertContentPart(t *testing.T) {
 			name: "text part",
 			part: RecordedContentPart{
 				Type: "text",
-				Text: stringPtr("Hello"),
+				Text: testutil.Ptr("Hello"),
 			},
 			check: func(t *testing.T, cp types.ContentPart) {
 				if cp.Type != "text" {
