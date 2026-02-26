@@ -482,7 +482,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 	}
 
 	// Build URL with API key for Gemini
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.baseURL, p.model, p.apiKey)
 
 	// Debug log the request
 	var requestObj any
@@ -547,7 +547,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	// Use streamGenerateContent endpoint
 	url := fmt.Sprintf(
 		"%s/models/%s:streamGenerateContent?key=%s",
-		p.BaseURL, p.modelName, p.ApiKey,
+		p.baseURL, p.model, p.apiKey,
 	)
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))

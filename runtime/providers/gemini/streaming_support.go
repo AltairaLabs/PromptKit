@@ -62,7 +62,12 @@ func (p *Provider) CreateStreamSession(
 		config.ResponseModalities = []string{"TEXT"}
 	}
 
-	session, err := NewStreamSession(ctx, geminiLiveAPIURL, p.ApiKey, &config)
+	factory := p.newStreamSessionFn
+	if factory == nil {
+		factory = NewStreamSession
+	}
+
+	session, err := factory(ctx, geminiLiveAPIURL, p.apiKey, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}
@@ -95,7 +100,7 @@ func (p *Provider) validateStreamRequest(req *providers.StreamingInputConfig) er
 // buildStreamSessionConfig creates a base session configuration
 func (p *Provider) buildStreamSessionConfig(req *providers.StreamingInputConfig) StreamSessionConfig {
 	config := StreamSessionConfig{
-		Model:             p.modelName,
+		Model:             p.model,
 		SystemInstruction: req.SystemInstruction,
 		AutoReconnect:     true,
 		MaxReconnectTries: defaultMaxReconnectTries,
@@ -107,11 +112,11 @@ func (p *Provider) buildStreamSessionConfig(req *providers.StreamingInputConfig)
 
 // applyPricingConfig sets pricing from provider defaults or model-based defaults
 func (p *Provider) applyPricingConfig(config *StreamSessionConfig) {
-	if p.Defaults.Pricing.InputCostPer1K > 0 && p.Defaults.Pricing.OutputCostPer1K > 0 {
-		config.InputCostPer1K = p.Defaults.Pricing.InputCostPer1K
-		config.OutputCostPer1K = p.Defaults.Pricing.OutputCostPer1K
+	if p.defaults.Pricing.InputCostPer1K > 0 && p.defaults.Pricing.OutputCostPer1K > 0 {
+		config.InputCostPer1K = p.defaults.Pricing.InputCostPer1K
+		config.OutputCostPer1K = p.defaults.Pricing.OutputCostPer1K
 	} else {
-		config.InputCostPer1K, config.OutputCostPer1K, _ = geminiPricing(p.modelName)
+		config.InputCostPer1K, config.OutputCostPer1K, _ = geminiPricing(p.model)
 	}
 }
 

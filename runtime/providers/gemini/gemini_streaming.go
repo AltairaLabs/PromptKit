@@ -22,7 +22,7 @@ func (p *Provider) PredictStream(
 	// Enrich context with provider and model info for logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Provider: p.ID(),
-		Model:    p.modelName,
+		Model:    p.model,
 	})
 
 	// Convert messages to Gemini format and apply defaults
@@ -40,7 +40,7 @@ func (p *Provider) PredictStream(
 	}
 
 	// Make HTTP request
-	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.baseURL, p.model, p.apiKey)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)

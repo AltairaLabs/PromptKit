@@ -2,7 +2,9 @@ package gemini
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -34,11 +36,11 @@ func TestNewProvider(t *testing.T) {
 		t.Errorf("Expected model 'gemini-1.5-pro', got '%s'", provider.Model())
 	}
 
-	if provider.BaseURL != "https://generativelanguage.googleapis.com/v1beta" {
+	if provider.baseURL != "https://generativelanguage.googleapis.com/v1beta" {
 		t.Error("BaseURL mismatch")
 	}
 
-	if provider.Defaults.Temperature != 0.9 {
+	if provider.defaults.Temperature != 0.9 {
 		t.Error("Temperature default mismatch")
 	}
 }
@@ -66,8 +68,8 @@ func TestNewProviderWithCredential(t *testing.T) {
 			t.Errorf("Expected model 'gemini-1.5-pro', got '%s'", provider.Model())
 		}
 
-		if provider.ApiKey != "test-api-key" {
-			t.Errorf("Expected ApiKey 'test-api-key', got '%s'", provider.ApiKey)
+		if provider.apiKey != "test-api-key" {
+			t.Errorf("Expected ApiKey 'test-api-key', got '%s'", provider.apiKey)
 		}
 
 		if provider.credential == nil {
@@ -82,8 +84,8 @@ func TestNewProviderWithCredential(t *testing.T) {
 			t.Fatal("Expected non-nil provider")
 		}
 
-		if provider.ApiKey != "" {
-			t.Errorf("Expected empty ApiKey, got '%s'", provider.ApiKey)
+		if provider.apiKey != "" {
+			t.Errorf("Expected empty ApiKey, got '%s'", provider.apiKey)
 		}
 	})
 
@@ -96,8 +98,8 @@ func TestNewProviderWithCredential(t *testing.T) {
 		}
 
 		// Should not extract API key from non-api_key credential
-		if provider.ApiKey != "" {
-			t.Errorf("Expected empty ApiKey for non-APIKey credential, got '%s'", provider.ApiKey)
+		if provider.apiKey != "" {
+			t.Errorf("Expected empty ApiKey for non-APIKey credential, got '%s'", provider.apiKey)
 		}
 
 		if provider.credential == nil {
@@ -632,6 +634,120 @@ func TestInferMediaTypeFromMIME(t *testing.T) {
 				t.Errorf("inferMediaTypeFromMIME(%q) = %q, want %q", tt.mimeType, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestApplyResponseFormat(t *testing.T) {
+	p := &Provider{}
+
+	t.Run("nil ResponseFormat", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, nil)
+
+		if req.GenerationConfig.ResponseMimeType != "" {
+			t.Errorf("Expected empty ResponseMimeType, got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema")
+		}
+	})
+
+	t.Run("ResponseFormatJSON", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type: providers.ResponseFormatJSON,
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected ResponseMimeType 'application/json', got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema for JSON mode")
+		}
+	})
+
+	t.Run("ResponseFormatJSONSchema with valid schema", func(t *testing.T) {
+		schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type:       providers.ResponseFormatJSONSchema,
+			JSONSchema: schema,
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected ResponseMimeType 'application/json', got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema == nil {
+			t.Fatal("Expected non-nil ResponseSchema")
+		}
+	})
+
+	t.Run("ResponseFormatJSONSchema with empty schema", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type:       providers.ResponseFormatJSONSchema,
+			JSONSchema: json.RawMessage{},
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected ResponseMimeType 'application/json', got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema for empty schema")
+		}
+	})
+
+	t.Run("ResponseFormatJSONSchema with invalid JSON", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type:       providers.ResponseFormatJSONSchema,
+			JSONSchema: json.RawMessage(`{invalid json`),
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected ResponseMimeType 'application/json', got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema for invalid JSON")
+		}
+	})
+
+	t.Run("ResponseFormatText", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type: providers.ResponseFormatText,
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "" {
+			t.Errorf("Expected empty ResponseMimeType for text format, got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema for text format")
+		}
+	})
+}
+
+func TestPredictStream_InvalidURL(t *testing.T) {
+	// Use a URL with a control character so http.NewRequestWithContext fails
+	provider := NewProvider("test", "gemini-2.0-flash", "http://host\x7f:port", providers.ProviderDefaults{
+		Temperature: 0.7,
+		MaxTokens:   100,
+	}, false)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+	}
+
+	_, err := provider.PredictStream(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "failed to create request") && !strings.Contains(errMsg, "failed to send request") {
+		t.Errorf("expected request creation/send error, got: %v", err)
 	}
 }
 
