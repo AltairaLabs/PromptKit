@@ -54,7 +54,7 @@ const (
 func (t ChunkType) String() string {
 	switch t {
 	case ChunkText:
-		return "text"
+		return contentTypeText
 	case ChunkToolCall:
 		return "tool_call"
 	case ChunkMedia:
@@ -235,9 +235,6 @@ func (c *Conversation) processAndFinalizeStream(
 	// Build response from accumulated data
 	resp := c.buildStreamingResponse(state.finalResult, state.accumulatedContent, state.lastToolCalls, startTime)
 
-	// Add assistant response to history
-	c.finalizeStreamHistory(state)
-
 	// Emit final ChunkDone with complete response
 	outCh <- StreamChunk{
 		Type:    ChunkDone,
@@ -296,12 +293,6 @@ func (c *Conversation) emitStreamChunk(
 	}
 }
 
-// finalizeStreamHistory adds the assistant response to history after streaming.
-func (c *Conversation) finalizeStreamHistory(state *streamState) {
-	// State is managed by StateStore middleware in the pipeline
-	// No local state tracking needed
-}
-
 // buildStreamingResponse creates a Response from streaming data.
 func (c *Conversation) buildStreamingResponse(
 	result *rtpipeline.ExecutionResult,
@@ -316,7 +307,7 @@ func (c *Conversation) buildStreamingResponse(
 	// Use result data if available
 	if result != nil && result.Response != nil {
 		resp.message = &types.Message{
-			Role:     "assistant",
+			Role:     roleAssistant,
 			Content:  result.Response.Content,
 			Parts:    result.Response.Parts,
 			CostInfo: &result.CostInfo,
@@ -328,7 +319,7 @@ func (c *Conversation) buildStreamingResponse(
 
 		// Extract validations
 		for i := len(result.Messages) - 1; i >= 0; i-- {
-			if result.Messages[i].Role == "assistant" && len(result.Messages[i].Validations) > 0 {
+			if result.Messages[i].Role == roleAssistant && len(result.Messages[i].Validations) > 0 {
 				resp.validations = result.Messages[i].Validations
 				break
 			}
@@ -336,7 +327,7 @@ func (c *Conversation) buildStreamingResponse(
 	} else {
 		// Build from accumulated streaming data
 		resp.message = &types.Message{
-			Role:    "assistant",
+			Role:    roleAssistant,
 			Content: content,
 		}
 		if len(toolCalls) > 0 {

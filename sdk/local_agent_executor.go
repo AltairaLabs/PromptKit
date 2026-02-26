@@ -13,5 +13,5 @@ func NewLocalAgentExecutor(members map[string]*Conversation) *LocalAgentExecutor
 
 // Name returns the executor name. Must be "a2a" to intercept A2A tool dispatches.
 func (e *LocalAgentExecutor) Name() string {
-	return "a2a"
+	return nsA2A
 }

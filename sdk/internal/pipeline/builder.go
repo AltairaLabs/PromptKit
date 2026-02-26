@@ -158,6 +158,8 @@ func BuildStreamPipeline(cfg *Config) (*stage.StreamPipeline, error) {
 
 // buildStreamPipelineInternal creates a stage pipeline directly without wrapping.
 // Used by DuplexSession which handles streaming at the session level.
+//
+//nolint:gocognit // Complex pipeline construction logic
 func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	logger.Info("Building stage-based pipeline",
 		"taskType", cfg.TaskType,

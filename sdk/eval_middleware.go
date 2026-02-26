@@ -112,7 +112,7 @@ func (em *evalMiddleware) buildEvalContext() *evals.EvalContext {
 		ctx.SessionID = em.conv.ID()
 
 		for i := len(ctx.Messages) - 1; i >= 0; i-- {
-			if ctx.Messages[i].Role == "assistant" {
+			if ctx.Messages[i].Role == roleAssistant {
 				ctx.CurrentOutput = ctx.Messages[i].GetContent()
 				break
 			}

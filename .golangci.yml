@@ -215,6 +215,7 @@ formatters:
 run:
   timeout: 5m
   tests: false
+  allow-parallel-runners: true
 
 output:
   formats:
