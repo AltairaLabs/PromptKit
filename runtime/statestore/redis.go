@@ -14,6 +14,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const defaultTTLHours = 24
+
 // RedisStore provides a Redis-backed implementation of the Store interface.
 // It uses JSON serialization for state storage and supports automatic TTL-based cleanup.
 // This implementation is suitable for distributed systems and production deployments.
@@ -55,8 +57,8 @@ func WithPrefix(prefix string) RedisOption {
 func NewRedisStore(client *redis.Client, opts ...RedisOption) *RedisStore {
 	store := &RedisStore{
 		client: client,
-		ttl:    24 * time.Hour, // Default TTL
-		prefix: "promptkit",    // Default prefix
+		ttl:    defaultTTLHours * time.Hour, // Default TTL
+		prefix: "promptkit",                 // Default prefix
 	}
 
 	for _, opt := range opts {
@@ -157,8 +159,8 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error {
 
 	// Remove from user index
 	if state.UserID != "" {
-		if err := s.removeFromUserIndex(ctx, state.UserID, id); err != nil {
-			return fmt.Errorf("failed to remove from user index: %w", err)
+		if removeErr := s.removeFromUserIndex(ctx, state.UserID, id); removeErr != nil {
+			return fmt.Errorf("failed to remove from user index: %w", removeErr)
 		}
 	}
 

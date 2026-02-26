@@ -11,6 +11,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// Sort field constants for conversation ordering.
+const (
+	sortFieldCreatedAt = "created_at"
+	sortFieldUpdatedAt = "updated_at"
+)
+
 // MemoryStore provides an in-memory implementation of the Store interface.
 // It is thread-safe and suitable for development, testing, and single-instance deployments.
 // For distributed systems, use RedisStore or a database-backed implementation.
@@ -199,17 +205,8 @@ func (s *MemoryStore) LoadRecentMessages(ctx context.Context, id string, n int) 
 	}
 	start := len(msgs) - n
 
-	// Deep copy only the requested slice
-	result := make([]types.Message, n)
-	data, err := json.Marshal(msgs[start:])
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	// Deep copy only the requested slice using structural cloning
+	return cloneMessages(msgs[start:]), nil
 }
 
 // MessageCount returns the total number of messages in the conversation.
@@ -248,17 +245,8 @@ func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []
 		s.states[id] = state
 	}
 
-	// Deep copy new messages before appending
-	data, err := json.Marshal(messages)
-	if err != nil {
-		return err
-	}
-	var copies []types.Message
-	if err := json.Unmarshal(data, &copies); err != nil {
-		return err
-	}
-
-	state.Messages = append(state.Messages, copies...)
+	// Deep copy new messages before appending using structural cloning
+	state.Messages = append(state.Messages, cloneMessages(messages)...)
 	state.LastAccessedAt = time.Now()
 
 	return nil
@@ -282,17 +270,8 @@ func (s *MemoryStore) LoadSummaries(ctx context.Context, id string) ([]Summary, 
 		return nil, nil
 	}
 
-	// Deep copy summaries
-	data, err := json.Marshal(state.Summaries)
-	if err != nil {
-		return nil, err
-	}
-	var result []Summary
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	// Deep copy summaries using structural cloning
+	return cloneSummaries(state.Summaries), nil
 }
 
 // SaveSummary appends a summary to the conversation's summary list.
@@ -373,12 +352,12 @@ func (s *MemoryStore) sortConversations(ids []string, sortBy, sortOrder string) 
 
 		var less bool
 		switch sortBy {
-		case "created_at":
+		case sortFieldCreatedAt:
 			// Use first message timestamp as created_at proxy
 			t1 := getCreatedAt(state1)
 			t2 := getCreatedAt(state2)
 			less = t1.Before(t2)
-		case "updated_at", "":
+		case sortFieldUpdatedAt, "":
 			// Default: sort by last accessed
 			less = state1.LastAccessedAt.Before(state2.LastAccessedAt)
 		default:
@@ -401,23 +380,227 @@ func getCreatedAt(state *ConversationState) time.Time {
 	return state.LastAccessedAt
 }
 
-// deepCopyState creates a deep copy of a conversation state.
+// =============================================================================
+// Structural deep copy helpers
+//
+// These replace the previous JSON marshal/unmarshal approach with type-aware
+// structural cloning for significantly better performance. Each clone function
+// handles a specific type, avoiding serialization overhead entirely.
+// =============================================================================
+
+// deepCopyState creates a deep copy of a conversation state using structural cloning.
+// This avoids the overhead of JSON marshal/unmarshal while preserving full copy semantics.
 func deepCopyState(state *ConversationState) *ConversationState {
 	if state == nil {
 		return nil
 	}
 
-	// Use JSON marshaling for deep copy (simple and reliable)
-	data, err := json.Marshal(state)
-	if err != nil {
-		// This should never happen with valid state
+	return &ConversationState{
+		ID:             state.ID,
+		UserID:         state.UserID,
+		Messages:       cloneMessages(state.Messages),
+		SystemPrompt:   state.SystemPrompt,
+		Summaries:      cloneSummaries(state.Summaries),
+		TokenCount:     state.TokenCount,
+		LastAccessedAt: state.LastAccessedAt,
+		Metadata:       cloneMapStringInterface(state.Metadata),
+	}
+}
+
+// cloneStringPtr returns a deep copy of a *string.
+func cloneStringPtr(s *string) *string {
+	if s == nil {
 		return nil
 	}
+	v := *s
+	return &v
+}
 
-	var stateCopy ConversationState
-	if err := json.Unmarshal(data, &stateCopy); err != nil {
+// cloneIntPtr returns a deep copy of a *int.
+func cloneIntPtr(p *int) *int {
+	if p == nil {
 		return nil
 	}
+	v := *p
+	return &v
+}
 
-	return &stateCopy
+// cloneInt64Ptr returns a deep copy of a *int64.
+func cloneInt64Ptr(p *int64) *int64 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// cloneRawMessage returns a deep copy of a json.RawMessage.
+func cloneRawMessage(raw json.RawMessage) json.RawMessage {
+	if raw == nil {
+		return nil
+	}
+	cp := make(json.RawMessage, len(raw))
+	copy(cp, raw)
+	return cp
+}
+
+// cloneMapStringInterface returns a deep copy of a map[string]interface{}.
+// It handles nested maps, slices, and primitive values.
+func cloneMapStringInterface(m map[string]interface{}) map[string]interface{} {
+	if m == nil {
+		return nil
+	}
+	cp := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		cp[k] = cloneInterface(v)
+	}
+	return cp
+}
+
+// cloneInterface deep copies an arbitrary interface{} value.
+func cloneInterface(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		return cloneMapStringInterface(val)
+	case []interface{}:
+		cp := make([]interface{}, len(val))
+		for i, item := range val {
+			cp[i] = cloneInterface(item)
+		}
+		return cp
+	case []string:
+		cp := make([]string, len(val))
+		copy(cp, val)
+		return cp
+	default:
+		// Primitive types (string, bool, float64, int, nil, etc.) are immutable
+		return val
+	}
+}
+
+// cloneMediaContent returns a deep copy of a *types.MediaContent.
+func cloneMediaContent(mc *types.MediaContent) *types.MediaContent {
+	if mc == nil {
+		return nil
+	}
+	return &types.MediaContent{
+		Data:             cloneStringPtr(mc.Data),
+		FilePath:         cloneStringPtr(mc.FilePath),
+		URL:              cloneStringPtr(mc.URL),
+		StorageReference: cloneStringPtr(mc.StorageReference),
+		MIMEType:         mc.MIMEType,
+		Format:           cloneStringPtr(mc.Format),
+		SizeKB:           cloneInt64Ptr(mc.SizeKB),
+		Detail:           cloneStringPtr(mc.Detail),
+		Caption:          cloneStringPtr(mc.Caption),
+		Duration:         cloneIntPtr(mc.Duration),
+		BitRate:          cloneIntPtr(mc.BitRate),
+		Channels:         cloneIntPtr(mc.Channels),
+		Width:            cloneIntPtr(mc.Width),
+		Height:           cloneIntPtr(mc.Height),
+		FPS:              cloneIntPtr(mc.FPS),
+		PolicyName:       cloneStringPtr(mc.PolicyName),
+	}
+}
+
+// cloneContentPart returns a deep copy of a types.ContentPart.
+func cloneContentPart(cp *types.ContentPart) types.ContentPart {
+	return types.ContentPart{
+		Type:  cp.Type,
+		Text:  cloneStringPtr(cp.Text),
+		Media: cloneMediaContent(cp.Media),
+	}
+}
+
+// cloneToolCall returns a deep copy of a types.MessageToolCall.
+func cloneToolCall(tc *types.MessageToolCall) types.MessageToolCall {
+	return types.MessageToolCall{
+		ID:   tc.ID,
+		Name: tc.Name,
+		Args: cloneRawMessage(tc.Args),
+	}
+}
+
+// cloneToolResult returns a deep copy of a *types.MessageToolResult.
+func cloneToolResult(tr *types.MessageToolResult) *types.MessageToolResult {
+	if tr == nil {
+		return nil
+	}
+	cp := *tr
+	return &cp
+}
+
+// cloneCostInfo returns a deep copy of a *types.CostInfo.
+func cloneCostInfo(ci *types.CostInfo) *types.CostInfo {
+	if ci == nil {
+		return nil
+	}
+	cp := *ci
+	return &cp
+}
+
+// cloneValidationResult returns a deep copy of a types.ValidationResult.
+func cloneValidationResult(vr *types.ValidationResult) types.ValidationResult {
+	return types.ValidationResult{
+		ValidatorType: vr.ValidatorType,
+		Passed:        vr.Passed,
+		Details:       cloneMapStringInterface(vr.Details),
+		Timestamp:     vr.Timestamp,
+	}
+}
+
+// cloneMessage returns a deep copy of a types.Message.
+func cloneMessage(msg *types.Message) types.Message {
+	cp := types.Message{
+		Role:       msg.Role,
+		Content:    msg.Content,
+		Source:     msg.Source,
+		Timestamp:  msg.Timestamp,
+		LatencyMs:  msg.LatencyMs,
+		CostInfo:   cloneCostInfo(msg.CostInfo),
+		ToolResult: cloneToolResult(msg.ToolResult),
+		Meta:       cloneMapStringInterface(msg.Meta),
+	}
+	if len(msg.Parts) > 0 {
+		cp.Parts = make([]types.ContentPart, len(msg.Parts))
+		for i := range msg.Parts {
+			cp.Parts[i] = cloneContentPart(&msg.Parts[i])
+		}
+	}
+	if len(msg.ToolCalls) > 0 {
+		cp.ToolCalls = make([]types.MessageToolCall, len(msg.ToolCalls))
+		for i := range msg.ToolCalls {
+			cp.ToolCalls[i] = cloneToolCall(&msg.ToolCalls[i])
+		}
+	}
+	if len(msg.Validations) > 0 {
+		cp.Validations = make([]types.ValidationResult, len(msg.Validations))
+		for i := range msg.Validations {
+			cp.Validations[i] = cloneValidationResult(&msg.Validations[i])
+		}
+	}
+	return cp
+}
+
+// cloneMessages returns a deep copy of a slice of types.Message.
+func cloneMessages(msgs []types.Message) []types.Message {
+	if msgs == nil {
+		return nil
+	}
+	cp := make([]types.Message, len(msgs))
+	for i := range msgs {
+		cp[i] = cloneMessage(&msgs[i])
+	}
+	return cp
+}
+
+// cloneSummaries returns a deep copy of a slice of Summary.
+// Summary contains only value types (int, string, time.Time), so a simple copy suffices.
+func cloneSummaries(summaries []Summary) []Summary {
+	if summaries == nil {
+		return nil
+	}
+	cp := make([]Summary, len(summaries))
+	copy(cp, summaries)
+	return cp
 }

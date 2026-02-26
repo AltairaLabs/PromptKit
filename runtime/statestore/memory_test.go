@@ -2,6 +2,7 @@ package statestore
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -1049,4 +1050,217 @@ func TestMemoryStore_SaveSummary(t *testing.T) {
 	// Invalid ID
 	err = store.SaveSummary(ctx, "", summary1)
 	assert.ErrorIs(t, err, ErrInvalidID)
+}
+
+func TestMemoryStore_DeepCloneMultimodalAndToolCalls(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Helper to create *string and *int values
+	strPtr := func(s string) *string { return &s }
+	intPtr := func(i int) *int { return &i }
+	int64Ptr := func(i int64) *int64 { return &i }
+
+	// Create a state with multimodal content, tool calls, tool results, and media
+	state := &ConversationState{
+		ID:     "conv-multimodal",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{
+				Role:    "user",
+				Content: "",
+				Parts: []types.ContentPart{
+					{Type: "text", Text: strPtr("Describe this image")},
+					{
+						Type: "image",
+						Media: &types.MediaContent{
+							Data:     strPtr("base64encodeddata"),
+							MIMEType: "image/jpeg",
+							Detail:   strPtr("high"),
+							SizeKB:   int64Ptr(512),
+							Width:    intPtr(1920),
+							Height:   intPtr(1080),
+							Caption:  strPtr("A scenic photo"),
+						},
+					},
+					{
+						Type: "audio",
+						Media: &types.MediaContent{
+							FilePath:   strPtr("/tmp/audio.mp3"),
+							MIMEType:   "audio/mpeg",
+							Duration:   intPtr(120),
+							BitRate:    intPtr(192),
+							Channels:   intPtr(2),
+							Format:     strPtr("mp3"),
+							PolicyName: strPtr("retain-30d"),
+						},
+					},
+					{
+						Type: "video",
+						Media: &types.MediaContent{
+							URL:              strPtr("https://example.com/video.mp4"),
+							MIMEType:         "video/mp4",
+							FPS:              intPtr(30),
+							StorageReference: strPtr("s3://bucket/video.mp4"),
+						},
+					},
+				},
+				Timestamp: time.Now(),
+			},
+			{
+				Role:    "assistant",
+				Content: "I can see a scenic photo",
+				ToolCalls: []types.MessageToolCall{
+					{ID: "call-1", Name: "analyze_image", Args: json.RawMessage(`{"detail":"high"}`)},
+					{ID: "call-2", Name: "search", Args: json.RawMessage(`{"query":"scenic photos"}`)},
+				},
+				Timestamp: time.Now(),
+			},
+			{
+				Role:    "tool",
+				Content: "Analysis complete",
+				ToolResult: &types.MessageToolResult{
+					ID:        "call-1",
+					Name:      "analyze_image",
+					Content:   "Analysis complete",
+					LatencyMs: 250,
+				},
+				Timestamp: time.Now(),
+			},
+		},
+		Metadata: map[string]interface{}{"session": "test"},
+	}
+
+	// Save
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Mutate original after save
+	*state.Messages[0].Parts[0].Text = "MUTATED"
+	*state.Messages[0].Parts[1].Media.Data = "MUTATED"
+	*state.Messages[0].Parts[1].Media.Detail = "MUTATED"
+	*state.Messages[0].Parts[1].Media.SizeKB = 999
+	*state.Messages[0].Parts[1].Media.Width = 999
+	*state.Messages[0].Parts[1].Media.Caption = "MUTATED"
+	*state.Messages[0].Parts[2].Media.FilePath = "MUTATED"
+	*state.Messages[0].Parts[2].Media.Duration = 999
+	*state.Messages[0].Parts[2].Media.BitRate = 999
+	*state.Messages[0].Parts[2].Media.Channels = 999
+	*state.Messages[0].Parts[2].Media.Format = "MUTATED"
+	*state.Messages[0].Parts[2].Media.PolicyName = "MUTATED"
+	*state.Messages[0].Parts[3].Media.URL = "MUTATED"
+	*state.Messages[0].Parts[3].Media.FPS = 999
+	*state.Messages[0].Parts[3].Media.StorageReference = "MUTATED"
+	state.Messages[1].ToolCalls[0].Args = json.RawMessage(`{"mutated":true}`)
+	state.Messages[1].ToolCalls[0].Name = "MUTATED"
+	state.Messages[2].ToolResult.Content = "MUTATED"
+
+	// Load and verify original values are preserved
+	loaded, err := store.Load(ctx, "conv-multimodal")
+	require.NoError(t, err)
+	require.Len(t, loaded.Messages, 3)
+
+	// Verify multimodal parts preserved
+	userMsg := loaded.Messages[0]
+	require.Len(t, userMsg.Parts, 4)
+
+	// Text part
+	require.NotNil(t, userMsg.Parts[0].Text)
+	assert.Equal(t, "Describe this image", *userMsg.Parts[0].Text)
+
+	// Image media
+	imgMedia := userMsg.Parts[1].Media
+	require.NotNil(t, imgMedia)
+	assert.Equal(t, "base64encodeddata", *imgMedia.Data)
+	assert.Equal(t, "high", *imgMedia.Detail)
+	assert.Equal(t, int64(512), *imgMedia.SizeKB)
+	assert.Equal(t, 1920, *imgMedia.Width)
+	assert.Equal(t, 1080, *imgMedia.Height)
+	assert.Equal(t, "A scenic photo", *imgMedia.Caption)
+
+	// Audio media
+	audioMedia := userMsg.Parts[2].Media
+	require.NotNil(t, audioMedia)
+	assert.Equal(t, "/tmp/audio.mp3", *audioMedia.FilePath)
+	assert.Equal(t, 120, *audioMedia.Duration)
+	assert.Equal(t, 192, *audioMedia.BitRate)
+	assert.Equal(t, 2, *audioMedia.Channels)
+	assert.Equal(t, "mp3", *audioMedia.Format)
+	assert.Equal(t, "retain-30d", *audioMedia.PolicyName)
+
+	// Video media
+	videoMedia := userMsg.Parts[3].Media
+	require.NotNil(t, videoMedia)
+	assert.Equal(t, "https://example.com/video.mp4", *videoMedia.URL)
+	assert.Equal(t, 30, *videoMedia.FPS)
+	assert.Equal(t, "s3://bucket/video.mp4", *videoMedia.StorageReference)
+
+	// Verify tool calls preserved
+	assistantMsg := loaded.Messages[1]
+	require.Len(t, assistantMsg.ToolCalls, 2)
+	assert.Equal(t, "analyze_image", assistantMsg.ToolCalls[0].Name)
+	assert.Equal(t, `{"detail":"high"}`, string(assistantMsg.ToolCalls[0].Args))
+	assert.Equal(t, "search", assistantMsg.ToolCalls[1].Name)
+
+	// Verify tool result preserved
+	toolMsg := loaded.Messages[2]
+	require.NotNil(t, toolMsg.ToolResult)
+	assert.Equal(t, "Analysis complete", toolMsg.ToolResult.Content)
+	assert.Equal(t, "call-1", toolMsg.ToolResult.ID)
+	assert.Equal(t, int64(250), toolMsg.ToolResult.LatencyMs)
+}
+
+func TestDeepCopyState_Nil(t *testing.T) {
+	result := deepCopyState(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneMessages_Nil(t *testing.T) {
+	result := cloneMessages(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneSummaries_Nil(t *testing.T) {
+	result := cloneSummaries(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneMediaContent_Nil(t *testing.T) {
+	result := cloneMediaContent(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneToolResult_Nil(t *testing.T) {
+	result := cloneToolResult(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneCostInfo_Nil(t *testing.T) {
+	result := cloneCostInfo(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneStringPtr_Nil(t *testing.T) {
+	result := cloneStringPtr(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneIntPtr_Nil(t *testing.T) {
+	result := cloneIntPtr(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneInt64Ptr_Nil(t *testing.T) {
+	result := cloneInt64Ptr(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneRawMessage_Nil(t *testing.T) {
+	result := cloneRawMessage(nil)
+	assert.Nil(t, result)
+}
+
+func TestCloneMapStringInterface_Nil(t *testing.T) {
+	result := cloneMapStringInterface(nil)
+	assert.Nil(t, result)
 }
