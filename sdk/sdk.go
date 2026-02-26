@@ -661,8 +661,8 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 
 	// Open conversation with the loaded state
 	// Add WithConversationID to preserve the original ID
-	optsWithID := append(opts, WithConversationID(conversationID))
-	conv, err := Open(packPath, promptName, optsWithID...)
+	opts = append(opts, WithConversationID(conversationID))
+	conv, err := Open(packPath, promptName, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -679,7 +679,7 @@ func ensureA2ACapability(caps []Capability, cfg *config) []Capability {
 		return caps
 	}
 	for _, cap := range caps {
-		if cap.Name() == "a2a" {
+		if cap.Name() == nsA2A {
 			return caps
 		}
 	}

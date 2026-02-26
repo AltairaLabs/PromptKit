@@ -45,7 +45,6 @@ type duplexSession struct {
 	executionMu      sync.Mutex
 }
 
-//nolint:unused // Used by tests
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
 // initConversationState initializes state for a new conversation if it doesn't exist.
@@ -429,6 +428,8 @@ func (s *duplexSession) ForkSession(
 // streamChunkToStreamElement converts a providers.StreamChunk to stage.StreamElement.
 // This is the boundary conversion for input data.
 // Routes media based on MIME type: video/* → VideoData, image/* → ImageData, audio/* → AudioData.
+//
+//nolint:gocognit // Complex media routing logic
 func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElement {
 	elem := stage.StreamElement{
 		Metadata: make(map[string]interface{}),

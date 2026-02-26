@@ -48,41 +48,6 @@ func (e *localExecutor) Execute(descriptor *tools.ToolDescriptor, args json.RawM
 	return resultJSON, nil
 }
 
-// handlerAdapter adapts an SDK ToolHandler to the runtime's tools.Executor interface.
-type handlerAdapter struct {
-	name    string
-	handler ToolHandler
-}
-
-// Name returns the tool name.
-func (a *handlerAdapter) Name() string {
-	return a.name
-}
-
-// Execute runs the handler with the given arguments.
-func (a *handlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
-	// Parse args to map
-	var argsMap map[string]any
-	if err := json.Unmarshal(args, &argsMap); err != nil {
-		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
-	}
-
-	// Call handler
-	result, err := a.handler(argsMap)
-	if err != nil {
-		return nil, err
-	}
-
-	// Serialize result
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize tool result: %w", err)
-	}
-
-	return resultJSON, nil
-}
-
-// mcpHandlerAdapter adapts MCP tool calls to the runtime's tools.Executor interface.
 type mcpHandlerAdapter struct {
 	qualifiedName string // Namespaced name used as registry key (e.g. "mcp__fs__read_file")
 	rawName       string // Original MCP tool name sent to the server (e.g. "read_file")
@@ -121,7 +86,7 @@ func (a *mcpHandlerAdapter) Execute(descriptor *tools.ToolDescriptor, args json.
 
 	// Extract text content from response
 	var result any
-	if len(resp.Content) == 1 && resp.Content[0].Type == "text" {
+	if len(resp.Content) == 1 && resp.Content[0].Type == contentTypeText {
 		// Single text response - return as-is
 		result = resp.Content[0].Text
 	} else {

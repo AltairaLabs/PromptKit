@@ -485,56 +485,6 @@ func TestGetVariables(t *testing.T) {
 	assert.Equal(t, "modified", val1)
 }
 
-func TestHandlerAdapter(t *testing.T) {
-	t.Run("name returns handler name", func(t *testing.T) {
-		adapter := &handlerAdapter{
-			name:    "test_handler",
-			handler: func(args map[string]any) (any, error) { return nil, nil },
-		}
-		assert.Equal(t, "test_handler", adapter.Name())
-	})
-
-	t.Run("execute calls handler", func(t *testing.T) {
-		called := false
-		adapter := &handlerAdapter{
-			name: "test",
-			handler: func(args map[string]any) (any, error) {
-				called = true
-				return map[string]string{"result": "success"}, nil
-			},
-		}
-
-		result, err := adapter.Execute(nil, []byte(`{"input": "test"}`))
-		assert.NoError(t, err)
-		assert.True(t, called)
-		assert.Contains(t, string(result), "success")
-	})
-
-	t.Run("execute returns handler error", func(t *testing.T) {
-		adapter := &handlerAdapter{
-			name: "test",
-			handler: func(args map[string]any) (any, error) {
-				return nil, errors.New("handler error")
-			},
-		}
-
-		_, err := adapter.Execute(nil, []byte(`{}`))
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "handler error")
-	})
-
-	t.Run("execute returns parse error", func(t *testing.T) {
-		adapter := &handlerAdapter{
-			name:    "test",
-			handler: func(args map[string]any) (any, error) { return nil, nil },
-		}
-
-		_, err := adapter.Execute(nil, []byte(`invalid json`))
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to parse")
-	})
-}
-
 func TestOnToolHTTP(t *testing.T) {
 	t.Run("registers HTTP handler", func(t *testing.T) {
 		conv := newTestConversation()
@@ -1808,9 +1758,8 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 				retrievalProvider: &mockEmbeddingProvider{},
 				retrievalTopK:     3,
 			},
-			mode:          UnaryMode,
-			handlers:      make(map[string]ToolHandler),
-
+			mode:     UnaryMode,
+			handlers: make(map[string]ToolHandler),
 		}
 
 		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -1833,9 +1782,8 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 				summarizeThreshold: 50,
 				summarizeBatchSize: 10,
 			},
-			mode:          UnaryMode,
-			handlers:      make(map[string]ToolHandler),
-
+			mode:     UnaryMode,
+			handlers: make(map[string]ToolHandler),
 		}
 
 		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -1855,14 +1803,13 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 				stateStore:         store,
 				contextWindow:      10,
 				retrievalProvider:  &mockEmbeddingProvider{},
-				retrievalTopK:     3,
+				retrievalTopK:      3,
 				summarizeProvider:  &mockSummarizeProvider{},
 				summarizeThreshold: 50,
 				summarizeBatchSize: 10,
 			},
-			mode:          UnaryMode,
-			handlers:      make(map[string]ToolHandler),
-
+			mode:     UnaryMode,
+			handlers: make(map[string]ToolHandler),
 		}
 
 		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
