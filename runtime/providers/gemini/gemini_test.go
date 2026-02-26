@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -633,6 +634,96 @@ func TestInferMediaTypeFromMIME(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestApplyResponseFormat(t *testing.T) {
+	p := &Provider{}
+
+	t.Run("nil ResponseFormat", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, nil)
+
+		if req.GenerationConfig.ResponseMimeType != "" {
+			t.Errorf("Expected empty ResponseMimeType, got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema")
+		}
+	})
+
+	t.Run("ResponseFormatJSON", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type: providers.ResponseFormatJSON,
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected ResponseMimeType 'application/json', got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema for JSON mode")
+		}
+	})
+
+	t.Run("ResponseFormatJSONSchema with valid schema", func(t *testing.T) {
+		schema := json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}}}`)
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type:       providers.ResponseFormatJSONSchema,
+			JSONSchema: schema,
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected ResponseMimeType 'application/json', got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema == nil {
+			t.Fatal("Expected non-nil ResponseSchema")
+		}
+	})
+
+	t.Run("ResponseFormatJSONSchema with empty schema", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type:       providers.ResponseFormatJSONSchema,
+			JSONSchema: json.RawMessage{},
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected ResponseMimeType 'application/json', got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema for empty schema")
+		}
+	})
+
+	t.Run("ResponseFormatJSONSchema with invalid JSON", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type:       providers.ResponseFormatJSONSchema,
+			JSONSchema: json.RawMessage(`{invalid json`),
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "application/json" {
+			t.Errorf("Expected ResponseMimeType 'application/json', got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema for invalid JSON")
+		}
+	})
+
+	t.Run("ResponseFormatText", func(t *testing.T) {
+		req := &geminiRequest{}
+		p.applyResponseFormat(req, &providers.ResponseFormat{
+			Type: providers.ResponseFormatText,
+		})
+
+		if req.GenerationConfig.ResponseMimeType != "" {
+			t.Errorf("Expected empty ResponseMimeType for text format, got %q", req.GenerationConfig.ResponseMimeType)
+		}
+		if req.GenerationConfig.ResponseSchema != nil {
+			t.Error("Expected nil ResponseSchema for text format")
+		}
+	})
 }
 
 func TestGemini_PlatformFieldsStored(t *testing.T) {
