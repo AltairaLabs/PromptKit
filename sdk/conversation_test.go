@@ -1924,16 +1924,17 @@ func (h *recordingSessionHook) OnSessionEnd(_ context.Context, event hooks.Sessi
 	return nil
 }
 
-func TestRunSessionStart(t *testing.T) {
+func TestSessionHookDispatcher_SessionStart(t *testing.T) {
 	t.Run("calls hook with session event", func(t *testing.T) {
 		hook := &recordingSessionHook{name: "test"}
 		reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
 
 		conv := newTestConversation()
 		conv.hookRegistry = reg
+		conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
 		conv.config.conversationID = "conv-123"
 
-		conv.runSessionStart(context.Background())
+		conv.sessionHooks.SessionStart(context.Background())
 
 		assert.True(t, hook.startCalled)
 		assert.Equal(t, conv.ID(), hook.lastEvent.SessionID)
@@ -1943,21 +1944,22 @@ func TestRunSessionStart(t *testing.T) {
 
 	t.Run("no-op when hookRegistry is nil", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.hookRegistry = nil
-		conv.runSessionStart(context.Background())
+		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
+		conv.sessionHooks.SessionStart(context.Background())
 	})
 }
 
-func TestRunSessionUpdate(t *testing.T) {
+func TestSessionHookDispatcher_SessionUpdate(t *testing.T) {
 	t.Run("calls hook with turn index", func(t *testing.T) {
 		hook := &recordingSessionHook{name: "test"}
 		reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
 
 		conv := newTestConversation()
 		conv.hookRegistry = reg
-		conv.turnIndex = 3
+		conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
+		conv.sessionHooks.turns = 3
 
-		conv.runSessionUpdate(context.Background())
+		conv.sessionHooks.SessionUpdate(context.Background())
 
 		assert.True(t, hook.updateCalled)
 		assert.Equal(t, 3, hook.lastEvent.TurnIndex)
@@ -1965,21 +1967,22 @@ func TestRunSessionUpdate(t *testing.T) {
 
 	t.Run("no-op when hookRegistry is nil", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.hookRegistry = nil
-		conv.runSessionUpdate(context.Background())
+		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
+		conv.sessionHooks.SessionUpdate(context.Background())
 	})
 }
 
-func TestRunSessionEnd(t *testing.T) {
+func TestSessionHookDispatcher_SessionEnd(t *testing.T) {
 	t.Run("calls hook on close", func(t *testing.T) {
 		hook := &recordingSessionHook{name: "test"}
 		reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
 
 		conv := newTestConversation()
 		conv.hookRegistry = reg
-		conv.turnIndex = 5
+		conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
+		conv.sessionHooks.turns = 5
 
-		conv.runSessionEnd(context.Background())
+		conv.sessionHooks.SessionEnd(context.Background())
 
 		assert.True(t, hook.endCalled)
 		assert.Equal(t, 5, hook.lastEvent.TurnIndex)
@@ -1987,18 +1990,19 @@ func TestRunSessionEnd(t *testing.T) {
 
 	t.Run("no-op when hookRegistry is nil", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.hookRegistry = nil
-		conv.runSessionEnd(context.Background())
+		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
+		conv.sessionHooks.SessionEnd(context.Background())
 	})
 }
 
-func TestBuildSessionEvent(t *testing.T) {
+func TestSessionHookDispatcher_BuildEvent(t *testing.T) {
 	t.Run("populates all fields from conversation state", func(t *testing.T) {
 		conv := newTestConversation()
 		conv.config.conversationID = "conv-456"
-		conv.turnIndex = 7
+		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
+		conv.sessionHooks.turns = 7
 
-		event := conv.buildSessionEvent()
+		event := conv.sessionHooks.buildEvent()
 
 		assert.Equal(t, conv.ID(), event.SessionID)
 		assert.Equal(t, "conv-456", event.ConversationID)
@@ -2008,11 +2012,12 @@ func TestBuildSessionEvent(t *testing.T) {
 
 	t.Run("handles nil sessions gracefully", func(t *testing.T) {
 		conv := &Conversation{
-			config:    &config{conversationID: "conv-789"},
-			turnIndex: 2,
+			config: &config{conversationID: "conv-789"},
 		}
+		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
+		conv.sessionHooks.turns = 2
 
-		event := conv.buildSessionEvent()
+		event := conv.sessionHooks.buildEvent()
 
 		assert.Equal(t, "", event.SessionID)
 		assert.Nil(t, event.Messages)
@@ -2021,13 +2026,25 @@ func TestBuildSessionEvent(t *testing.T) {
 	})
 }
 
+func TestSessionHookDispatcher_IncrementTurn(t *testing.T) {
+	d := newSessionHookDispatcher(nil, nil)
+	assert.Equal(t, 0, d.TurnIndex())
+
+	d.IncrementTurn()
+	assert.Equal(t, 1, d.TurnIndex())
+
+	d.IncrementTurn()
+	assert.Equal(t, 2, d.TurnIndex())
+}
+
 func TestCloseRunsSessionEndHook(t *testing.T) {
 	hook := &recordingSessionHook{name: "test"}
 	reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
 
 	conv := newTestConversation()
 	conv.hookRegistry = reg
-	conv.turnIndex = 2
+	conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
+	conv.sessionHooks.turns = 2
 
 	err := conv.Close()
 	require.NoError(t, err)
@@ -2042,9 +2059,11 @@ func TestForkPreservesHookRegistry(t *testing.T) {
 
 	conv := newTestConversation()
 	conv.hookRegistry = reg
+	conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
 	conv.asyncHandlers = make(map[string]sdktools.AsyncToolHandler)
 
 	forked := conv.Fork()
 	require.NotNil(t, forked)
 	assert.Equal(t, reg, forked.hookRegistry)
+	assert.NotNil(t, forked.sessionHooks)
 }

@@ -157,7 +157,7 @@ func (t *PackTemplate) openConversation(
 		return nil, err
 	}
 
-	conv.runSessionStart(context.Background())
+	conv.sessionHooks.SessionStart(context.Background())
 	return conv, nil
 }
 
