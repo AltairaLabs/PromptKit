@@ -494,7 +494,7 @@ func TestPredict_Integration(t *testing.T) {
 		defer server.Close()
 
 		provider := &Provider{
-			BaseProvider: providers.NewBaseProvider("test", false, nil),
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
 			model:        "gpt-4",
 			baseURL:      server.URL,
 			apiKey:       "test-key",
@@ -548,7 +548,7 @@ func TestPredict_Integration(t *testing.T) {
 		defer server.Close()
 
 		provider := &Provider{
-			BaseProvider: providers.NewBaseProvider("test", false, nil),
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
 			model:        "gpt-4",
 			baseURL:      server.URL,
 			apiKey:       "test-key",
@@ -584,7 +584,7 @@ func TestPredict_Integration(t *testing.T) {
 		defer server.Close()
 
 		provider := &Provider{
-			BaseProvider: providers.NewBaseProvider("test", false, nil),
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
 			model:        "gpt-4",
 			baseURL:      server.URL,
 			apiKey:       "test-key",
@@ -625,7 +625,7 @@ func TestPredict_Integration(t *testing.T) {
 		defer server.Close()
 
 		provider := &Provider{
-			BaseProvider: providers.NewBaseProvider("test", false, nil),
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
 			model:        "gpt-4",
 			baseURL:      server.URL,
 			apiKey:       "test-key",
@@ -880,7 +880,7 @@ func TestExtractContentString(t *testing.T) {
 
 func TestSupportsStreaming(t *testing.T) {
 	provider := &Provider{
-		BaseProvider: providers.NewBaseProvider("test", false, nil),
+		BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
 	}
 
 	if !provider.SupportsStreaming() {

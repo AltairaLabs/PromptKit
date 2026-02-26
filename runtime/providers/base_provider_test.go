@@ -8,6 +8,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/pkg/httputil"
 )
 
 func TestNewBaseProvider(t *testing.T) {
@@ -88,7 +90,7 @@ func TestNewBaseProviderWithAPIKey(t *testing.T) {
 				t.Error("Expected HTTP client to be initialized")
 			}
 
-			if base.GetHTTPClient().Timeout != 60*time.Second {
+			if base.GetHTTPClient().Timeout != httputil.DefaultProviderTimeout {
 				t.Errorf("Expected client timeout 60s, got %v", base.GetHTTPClient().Timeout)
 			}
 		})
@@ -171,6 +173,73 @@ func TestNewBaseProviderWithCredential_NilCred(t *testing.T) {
 	}
 	if apiKey != "" {
 		t.Errorf("Expected empty API key for nil credential, got %q", apiKey)
+	}
+}
+
+func TestNewPooledTransport(t *testing.T) {
+	transport := NewPooledTransport()
+
+	if transport.MaxIdleConns != DefaultMaxIdleConns {
+		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, DefaultMaxIdleConns)
+	}
+	if transport.MaxIdleConnsPerHost != DefaultMaxIdleConnsPerHost {
+		t.Errorf("MaxIdleConnsPerHost = %d, want %d", transport.MaxIdleConnsPerHost, DefaultMaxIdleConnsPerHost)
+	}
+	if transport.MaxConnsPerHost != DefaultMaxConnsPerHost {
+		t.Errorf("MaxConnsPerHost = %d, want %d", transport.MaxConnsPerHost, DefaultMaxConnsPerHost)
+	}
+	if transport.IdleConnTimeout != DefaultIdleConnTimeout {
+		t.Errorf("IdleConnTimeout = %v, want %v", transport.IdleConnTimeout, DefaultIdleConnTimeout)
+	}
+	if transport.TLSHandshakeTimeout != DefaultTLSHandshakeTimeout {
+		t.Errorf("TLSHandshakeTimeout = %v, want %v", transport.TLSHandshakeTimeout, DefaultTLSHandshakeTimeout)
+	}
+	if !transport.ForceAttemptHTTP2 {
+		t.Error("ForceAttemptHTTP2 should be true")
+	}
+	if transport.TLSClientConfig == nil {
+		t.Fatal("TLSClientConfig should not be nil")
+	}
+	if transport.TLSClientConfig.MinVersion != 0x0303 { // tls.VersionTLS12
+		t.Errorf("TLS MinVersion = %d, want TLS 1.2 (0x0303)", transport.TLSClientConfig.MinVersion)
+	}
+}
+
+func TestNewBaseProviderWithAPIKey_UsesPooledTransport(t *testing.T) {
+	base, _ := NewBaseProviderWithAPIKey("test-id", false, "NONEXISTENT_KEY1", "NONEXISTENT_KEY2")
+
+	client := base.GetHTTPClient()
+	if client == nil {
+		t.Fatal("Expected HTTP client to be initialized")
+	}
+
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Expected *http.Transport, got %T", client.Transport)
+	}
+	if transport.MaxIdleConns != DefaultMaxIdleConns {
+		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, DefaultMaxIdleConns)
+	}
+	if transport.MaxIdleConnsPerHost != DefaultMaxIdleConnsPerHost {
+		t.Errorf("MaxIdleConnsPerHost = %d, want %d", transport.MaxIdleConnsPerHost, DefaultMaxIdleConnsPerHost)
+	}
+}
+
+func TestNewBaseProviderWithCredential_UsesPooledTransport(t *testing.T) {
+	cred := &mockCredential{credType: "api_key", key: "sk-test"}
+	base, _ := NewBaseProviderWithCredential("cred-provider", false, 45*time.Second, cred)
+
+	client := base.GetHTTPClient()
+	if client == nil {
+		t.Fatal("Expected HTTP client to be initialized")
+	}
+
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Expected *http.Transport, got %T", client.Transport)
+	}
+	if transport.MaxIdleConns != DefaultMaxIdleConns {
+		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, DefaultMaxIdleConns)
 	}
 }
 
