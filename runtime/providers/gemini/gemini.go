@@ -23,16 +23,22 @@ const (
 	httpClientTimeout = 60 * time.Second
 )
 
+// streamSessionFactory is the function signature for creating stream sessions.
+type streamSessionFactory func(
+	ctx context.Context, wsURL, apiKey string, config *StreamSessionConfig,
+) (*StreamSession, error)
+
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
-	model          string
-	baseURL        string
-	apiKey         string
-	credential     providers.Credential
-	defaults       providers.ProviderDefaults
-	platform       string
-	platformConfig *providers.PlatformConfig
+	model              string
+	baseURL            string
+	apiKey             string
+	credential         providers.Credential
+	defaults           providers.ProviderDefaults
+	platform           string
+	platformConfig     *providers.PlatformConfig
+	newStreamSessionFn streamSessionFactory // override for testing; nil means use NewStreamSession
 }
 
 // NewProvider creates a new Gemini provider

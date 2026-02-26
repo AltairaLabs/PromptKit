@@ -62,7 +62,12 @@ func (p *Provider) CreateStreamSession(
 		config.ResponseModalities = []string{"TEXT"}
 	}
 
-	session, err := NewStreamSession(ctx, geminiLiveAPIURL, p.apiKey, &config)
+	factory := p.newStreamSessionFn
+	if factory == nil {
+		factory = NewStreamSession
+	}
+
+	session, err := factory(ctx, geminiLiveAPIURL, p.apiKey, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -724,6 +725,30 @@ func TestApplyResponseFormat(t *testing.T) {
 			t.Error("Expected nil ResponseSchema for text format")
 		}
 	})
+}
+
+func TestPredictStream_InvalidURL(t *testing.T) {
+	// Use a URL with a control character so http.NewRequestWithContext fails
+	provider := NewProvider("test", "gemini-2.0-flash", "http://host\x7f:port", providers.ProviderDefaults{
+		Temperature: 0.7,
+		MaxTokens:   100,
+	}, false)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+		},
+	}
+
+	_, err := provider.PredictStream(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "failed to create request") && !strings.Contains(errMsg, "failed to send request") {
+		t.Errorf("expected request creation/send error, got: %v", err)
+	}
 }
 
 func TestGemini_PlatformFieldsStored(t *testing.T) {

@@ -403,3 +403,114 @@ func TestGeminiProvider_CreateStreamSession_WithTools(t *testing.T) {
 		t.Errorf("error closing session: %v", err)
 	}
 }
+
+func TestGeminiProvider_CreateStreamSession_SuccessWithMockFactory(t *testing.T) {
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{
+		Pricing: providers.Pricing{
+			InputCostPer1K:  0.001,
+			OutputCostPer1K: 0.002,
+		},
+	}, false)
+
+	// Inject a mock factory that returns a minimal StreamSession
+	provider.newStreamSessionFn = func(
+		ctx context.Context, _ string, _ string, _ *StreamSessionConfig,
+	) (*StreamSession, error) {
+		sessionCtx, cancel := context.WithCancel(ctx)
+		return &StreamSession{
+			ctx:        sessionCtx,
+			cancel:     cancel,
+			responseCh: make(chan providers.StreamChunk, 1),
+			errCh:      make(chan error, 1),
+		}, nil
+	}
+
+	ctx := context.Background()
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: 16000,
+			Channels:   1,
+			BitDepth:   16,
+			Encoding:   "pcm_linear16",
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, req)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if session == nil {
+		t.Fatal("expected session to be non-nil")
+	}
+}
+
+func TestGeminiProvider_CreateStreamSession_SuccessWithTools(t *testing.T) {
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+
+	// Inject mock factory
+	provider.newStreamSessionFn = func(
+		ctx context.Context, _ string, _ string, cfg *StreamSessionConfig,
+	) (*StreamSession, error) {
+		// Verify tools were propagated to config
+		if len(cfg.Tools) != 1 {
+			t.Errorf("expected 1 tool in config, got %d", len(cfg.Tools))
+		}
+		if cfg.Tools[0].Name != "lookup" {
+			t.Errorf("expected tool name 'lookup', got %q", cfg.Tools[0].Name)
+		}
+		sessionCtx, cancel := context.WithCancel(ctx)
+		return &StreamSession{
+			ctx:        sessionCtx,
+			cancel:     cancel,
+			responseCh: make(chan providers.StreamChunk, 1),
+			errCh:      make(chan error, 1),
+		}, nil
+	}
+
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: 16000,
+			Channels:   1,
+			BitDepth:   16,
+			Encoding:   "pcm_linear16",
+		},
+		Tools: []providers.StreamingToolDefinition{
+			{Name: "lookup", Description: "Look up information"},
+		},
+	}
+
+	session, err := provider.CreateStreamSession(context.Background(), req)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if session == nil {
+		t.Fatal("expected session to be non-nil")
+	}
+}
+
+func TestGeminiProvider_ValidateStreamRequest_UnsupportedMediaType(t *testing.T) {
+	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
+
+	// Use a media type that is not supported for streaming (text).
+	// Validate() rejects it before the provider-level switch, so we expect an
+	// "invalid stream configuration" error.
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:      "text",
+			ChunkSize: 1024,
+		},
+	}
+
+	_, err := provider.CreateStreamSession(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for unsupported media type")
+	}
+	if !strings.Contains(err.Error(), "invalid stream configuration") {
+		t.Errorf("expected 'invalid stream configuration' error, got: %v", err)
+	}
+}
