@@ -80,16 +80,7 @@ func NewProviderWithCredential(
 	includeRawOutput bool, cred providers.Credential,
 	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
-	client := &http.Client{Timeout: httpClientTimeout}
-	base := providers.NewBaseProvider(id, includeRawOutput, client)
-
-	// Extract API key from credential if it's an APIKeyCredential
-	var apiKey string
-	if cred != nil && cred.Type() == "api_key" {
-		if akc, ok := cred.(interface{ APIKey() string }); ok {
-			apiKey = akc.APIKey()
-		}
-	}
+	base, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
 
 	return &Provider{
 		BaseProvider:   base,

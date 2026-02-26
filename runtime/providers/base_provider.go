@@ -42,6 +42,32 @@ func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fal
 	return NewBaseProvider(id, includeRawOutput, client), apiKey
 }
 
+// ExtractAPIKey extracts an API key string from a Credential, if it is an APIKeyCredential.
+// Returns an empty string if the credential is nil, not an api_key type, or does not
+// implement the APIKey() method.
+func ExtractAPIKey(cred Credential) string {
+	if cred == nil || cred.Type() != "api_key" {
+		return ""
+	}
+	if akc, ok := cred.(interface{ APIKey() string }); ok {
+		return akc.APIKey()
+	}
+	return ""
+}
+
+// NewBaseProviderWithCredential creates a BaseProvider with an explicit credential.
+// It creates an HTTP client with the given timeout, builds the BaseProvider, and
+// extracts the API key from the credential (if it is an api_key credential).
+// This eliminates the duplicated credential-setup boilerplate across providers.
+func NewBaseProviderWithCredential(
+	id string, includeRawOutput bool, timeout time.Duration, cred Credential,
+) (base BaseProvider, apiKey string) {
+	client := &http.Client{Timeout: timeout}
+	base = NewBaseProvider(id, includeRawOutput, client)
+	apiKey = ExtractAPIKey(cred)
+	return base, apiKey
+}
+
 // ID returns the provider ID
 func (b *BaseProvider) ID() string {
 	return b.id
