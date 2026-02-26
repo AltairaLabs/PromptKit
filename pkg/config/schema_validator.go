@@ -10,6 +10,8 @@ import (
 
 	"github.com/xeipuuv/gojsonschema"
 	"gopkg.in/yaml.v3"
+
+	promptschema "github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
 )
 
 // SchemaBaseURL is the base URL for PromptKit JSON schemas
@@ -235,31 +237,34 @@ func tryLocalSchemaFallback(configType ConfigType) (*gojsonschema.Schema, error)
 	return gojsonschema.NewSchema(localLoader)
 }
 
-func validateJSONWithSchema(jsonData []byte, schema *gojsonschema.Schema) (*SchemaValidationResult, error) {
+func validateJSONWithSchema(jsonData []byte, compiledSchema *gojsonschema.Schema) (*SchemaValidationResult, error) {
+	// Use the compiled schema as a loader via its internal reference.
+	// For pre-compiled schemas we still need to call Validate on the schema directly.
 	documentLoader := gojsonschema.NewBytesLoader(jsonData)
 
-	result, err := schema.Validate(documentLoader)
+	result, err := compiledSchema.Validate(documentLoader)
 	if err != nil {
 		return nil, fmt.Errorf("schema validation failed: %w", err)
 	}
 
-	// Convert results
-	validationResult := &SchemaValidationResult{
-		Valid:  result.Valid(),
-		Errors: make([]SchemaValidationError, 0),
-	}
+	return convertSharedResult(result), nil
+}
 
-	if !result.Valid() {
-		for _, err := range result.Errors() {
-			validationResult.Errors = append(validationResult.Errors, SchemaValidationError{
-				Field:       err.Field(),
-				Description: err.Description(),
-				Value:       err.Value(),
-			})
-		}
+// convertSharedResult converts a promptschema.ValidationResult to a config SchemaValidationResult.
+func convertSharedResult(result *gojsonschema.Result) *SchemaValidationResult {
+	shared := promptschema.ConvertResult(result)
+	out := &SchemaValidationResult{
+		Valid:  shared.Valid,
+		Errors: make([]SchemaValidationError, 0, len(shared.Errors)),
 	}
-
-	return validationResult, nil
+	for _, e := range shared.Errors {
+		out.Errors = append(out.Errors, SchemaValidationError{
+			Field:       e.Field,
+			Description: e.Description,
+			Value:       e.Value,
+		})
+	}
+	return out
 }
 
 // ValidateConfig validates YAML data against the JSON schema for the given ConfigType.

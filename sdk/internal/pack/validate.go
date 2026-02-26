@@ -4,8 +4,6 @@ package pack
 import (
 	"fmt"
 
-	"github.com/xeipuuv/gojsonschema"
-
 	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
 )
 
@@ -38,17 +36,15 @@ func ValidateAgainstSchema(data []byte) error {
 		return fmt.Errorf("failed to load schema: %w", err)
 	}
 
-	documentLoader := gojsonschema.NewBytesLoader(data)
-
-	result, err := gojsonschema.Validate(schemaLoader, documentLoader)
+	result, err := schema.ValidateJSONAgainstLoader(data, schemaLoader)
 	if err != nil {
 		return fmt.Errorf("schema validation error: %w", err)
 	}
 
-	if !result.Valid() {
-		errors := make([]string, 0, len(result.Errors()))
-		for _, desc := range result.Errors() {
-			errors = append(errors, fmt.Sprintf("%s: %s", desc.Field(), desc.Description()))
+	if !result.Valid {
+		errors := make([]string, 0, len(result.Errors))
+		for _, e := range result.Errors {
+			errors = append(errors, fmt.Sprintf("%s: %s", e.Field, e.Description))
 		}
 		return &SchemaValidationError{Errors: errors}
 	}
