@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -308,7 +309,7 @@ func TestConvertParts(t *testing.T) {
 			parts: []ArenaContentPart{
 				{
 					Type: "text",
-					Text: stringPtr("Hello"),
+					Text: testutil.Ptr("Hello"),
 				},
 			},
 			want: 1,
@@ -318,7 +319,7 @@ func TestConvertParts(t *testing.T) {
 			parts: []ArenaContentPart{
 				{
 					Type: "text",
-					Text: stringPtr("Check this image:"),
+					Text: testutil.Ptr("Check this image:"),
 				},
 				{
 					Type: "image",
