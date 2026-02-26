@@ -600,20 +600,20 @@ func (p *ToolProvider) GetStreamingCapabilities() providers.StreamingCapabilitie
 	return p.Provider.GetStreamingCapabilities()
 }
 
+//nolint:gochecknoinits // Factory registration requires init
 func init() {
-	factory := func(spec providers.ProviderSpec) (providers.Provider, error) {
-		// Use credential if provided and it's not a no-op (empty) credential
-		if spec.Credential != nil && spec.Credential.Type() != "none" {
+	providers.RegisterProviderFactory("gemini", providers.CredentialFactory(
+		func(spec providers.ProviderSpec) (providers.Provider, error) {
 			return NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.Credential,
 				spec.Platform, spec.PlatformConfig,
 			), nil
-		}
-		// Fall back to env-var-based constructor
-		return NewToolProvider(
-			spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
-		), nil
-	}
-	providers.RegisterProviderFactory("gemini", factory)
+		},
+		func(spec providers.ProviderSpec) (providers.Provider, error) {
+			return NewToolProvider(
+				spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
+			), nil
+		},
+	))
 }

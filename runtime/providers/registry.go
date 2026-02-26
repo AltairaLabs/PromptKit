@@ -150,3 +150,32 @@ type UnsupportedProviderError struct {
 func (e *UnsupportedProviderError) Error() string {
 	return "unsupported provider type: " + e.ProviderType
 }
+
+// HasCredential returns true if the spec has a real (non-empty, non-"none") credential.
+// Use this in factory functions to decide between credential-based and env-var-based constructors.
+func (s *ProviderSpec) HasCredential() bool {
+	return s.Credential != nil && s.Credential.Type() != "none"
+}
+
+// CredentialFactory builds a ProviderFactory that routes between a credential-based
+// constructor and an env-var-based constructor. This eliminates the duplicated
+// init() pattern across provider packages.
+//
+// Usage in provider init():
+//
+//	providers.RegisterProviderFactory("claude", providers.CredentialFactory(
+//	    func(spec providers.ProviderSpec) (providers.Provider, error) {
+//	        return NewToolProviderWithCredential(spec.ID, spec.Model, ..., spec.Credential, ...), nil
+//	    },
+//	    func(spec providers.ProviderSpec) (providers.Provider, error) {
+//	        return NewToolProvider(spec.ID, spec.Model, ...), nil
+//	    },
+//	))
+func CredentialFactory(withCred, withoutCred ProviderFactory) ProviderFactory {
+	return func(spec ProviderSpec) (Provider, error) {
+		if spec.HasCredential() {
+			return withCred(spec)
+		}
+		return withoutCred(spec)
+	}
+}

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -137,3 +138,92 @@ func TestCreateProviderFromSpecEmptyType(t *testing.T) {
 		t.Errorf("Expected nil provider but got %v", provider)
 	}
 }
+
+func TestProviderSpec_HasCredential(t *testing.T) {
+	tests := []struct {
+		name     string
+		spec     ProviderSpec
+		expected bool
+	}{
+		{
+			name:     "nil credential",
+			spec:     ProviderSpec{},
+			expected: false,
+		},
+		{
+			name:     "none type credential",
+			spec:     ProviderSpec{Credential: &mockCredForRegistry{credType: "none"}},
+			expected: false,
+		},
+		{
+			name:     "api_key credential",
+			spec:     ProviderSpec{Credential: &mockCredForRegistry{credType: "api_key"}},
+			expected: true,
+		},
+		{
+			name:     "bearer credential",
+			spec:     ProviderSpec{Credential: &mockCredForRegistry{credType: "bearer"}},
+			expected: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.spec.HasCredential()
+			if got != tt.expected {
+				t.Errorf("HasCredential() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCredentialFactory(t *testing.T) {
+	withCredCalled := false
+	withoutCredCalled := false
+
+	factory := CredentialFactory(
+		func(_ ProviderSpec) (Provider, error) {
+			withCredCalled = true
+			return &mockProviderForTest{id: "cred"}, nil
+		},
+		func(_ ProviderSpec) (Provider, error) {
+			withoutCredCalled = true
+			return &mockProviderForTest{id: "env"}, nil
+		},
+	)
+
+	// Test with credential
+	p, err := factory(ProviderSpec{Credential: &mockCredForRegistry{credType: "api_key"}})
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if !withCredCalled {
+		t.Error("Expected withCred factory to be called")
+	}
+	if p.ID() != "cred" {
+		t.Errorf("Expected provider ID 'cred', got %q", p.ID())
+	}
+
+	// Reset
+	withCredCalled = false
+	withoutCredCalled = false
+
+	// Test without credential
+	p, err = factory(ProviderSpec{})
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+	if !withoutCredCalled {
+		t.Error("Expected withoutCred factory to be called")
+	}
+	if p.ID() != "env" {
+		t.Errorf("Expected provider ID 'env', got %q", p.ID())
+	}
+}
+
+// mockCredForRegistry implements Credential for registry tests.
+type mockCredForRegistry struct {
+	credType string
+}
+
+func (m *mockCredForRegistry) Apply(_ context.Context, _ *http.Request) error { return nil }
+func (m *mockCredForRegistry) Type() string                                   { return m.credType }

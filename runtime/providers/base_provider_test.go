@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -91,6 +92,85 @@ func TestNewBaseProviderWithAPIKey(t *testing.T) {
 				t.Errorf("Expected client timeout 60s, got %v", base.GetHTTPClient().Timeout)
 			}
 		})
+	}
+}
+
+// mockCredential is a test helper implementing the Credential interface.
+type mockCredential struct {
+	credType string
+	key      string
+}
+
+func (m *mockCredential) Apply(_ context.Context, _ *http.Request) error { return nil }
+func (m *mockCredential) Type() string                                   { return m.credType }
+func (m *mockCredential) APIKey() string                                 { return m.key }
+
+func TestExtractAPIKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		cred     Credential
+		expected string
+	}{
+		{
+			name:     "nil credential returns empty",
+			cred:     nil,
+			expected: "",
+		},
+		{
+			name:     "non-api_key type returns empty",
+			cred:     &mockCredential{credType: "bearer", key: "secret"},
+			expected: "",
+		},
+		{
+			name:     "api_key type returns key",
+			cred:     &mockCredential{credType: "api_key", key: "sk-test-123"},
+			expected: "sk-test-123",
+		},
+		{
+			name:     "api_key type with empty key returns empty",
+			cred:     &mockCredential{credType: "api_key", key: ""},
+			expected: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractAPIKey(tt.cred)
+			if got != tt.expected {
+				t.Errorf("ExtractAPIKey() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNewBaseProviderWithCredential(t *testing.T) {
+	cred := &mockCredential{credType: "api_key", key: "sk-from-cred"}
+	base, apiKey := NewBaseProviderWithCredential("cred-provider", true, 45*time.Second, cred)
+
+	if base.ID() != "cred-provider" {
+		t.Errorf("Expected ID 'cred-provider', got %s", base.ID())
+	}
+	if !base.ShouldIncludeRawOutput() {
+		t.Error("Expected includeRawOutput to be true")
+	}
+	if apiKey != "sk-from-cred" {
+		t.Errorf("Expected API key 'sk-from-cred', got %q", apiKey)
+	}
+	if base.GetHTTPClient() == nil {
+		t.Error("Expected HTTP client to be initialized")
+	}
+	if base.GetHTTPClient().Timeout != 45*time.Second {
+		t.Errorf("Expected client timeout 45s, got %v", base.GetHTTPClient().Timeout)
+	}
+}
+
+func TestNewBaseProviderWithCredential_NilCred(t *testing.T) {
+	base, apiKey := NewBaseProviderWithCredential("nil-cred", false, 30*time.Second, nil)
+
+	if base.ID() != "nil-cred" {
+		t.Errorf("Expected ID 'nil-cred', got %s", base.ID())
+	}
+	if apiKey != "" {
+		t.Errorf("Expected empty API key for nil credential, got %q", apiKey)
 	}
 }
 
