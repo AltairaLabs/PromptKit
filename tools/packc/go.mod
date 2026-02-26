@@ -2,13 +2,9 @@ module github.com/AltairaLabs/PromptKit/tools/packc
 
 go 1.25.1
 
-replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
-
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
-
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.1.10
-	github.com/AltairaLabs/PromptKit/runtime v1.1.10
+	github.com/AltairaLabs/PromptKit/pkg v1.3.2
+	github.com/AltairaLabs/PromptKit/runtime v1.3.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	github.com/xeipuuv/gojsonschema v1.2.0
