@@ -715,6 +715,25 @@ func (m *Model) convertToLogEntries() []panels.LogEntry {
 	return logs
 }
 
+
+//nolint:unused // used by tests (golangci-lint runs with tests:false)
+func (m *Model) currentRunForDetail() *RunInfo {
+	if sel := m.selectedRun(); sel != nil {
+		return sel
+	}
+	if m.mainPage != nil {
+		table := m.mainPage.RunsPanel().Table()
+		idx := table.Cursor()
+		if idx >= 0 && idx < len(m.activeRuns) {
+			return &m.activeRuns[idx]
+		}
+	}
+	if len(m.activeRuns) > 0 {
+		return &m.activeRuns[0]
+	}
+	return nil
+}
+
 func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Check for quit keys first
 	//nolint:exhaustive // Only handling specific quit keys

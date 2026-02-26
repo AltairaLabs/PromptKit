@@ -147,33 +147,13 @@ func (a *EventAdapter) handleMessageCreated(event *events.Event) tea.Msg {
 	if !ok {
 		return nil
 	}
-	// Map tool calls
-	var toolCalls []MessageToolCall
-	for _, tc := range data.ToolCalls {
-		toolCalls = append(toolCalls, MessageToolCall{
-			ID:   tc.ID,
-			Name: tc.Name,
-			Args: tc.Args,
-		})
-	}
-	// Map tool result
-	var toolResult *MessageToolResult
-	if data.ToolResult != nil {
-		toolResult = &MessageToolResult{
-			ID:        data.ToolResult.ID,
-			Name:      data.ToolResult.Name,
-			Content:   data.ToolResult.Content,
-			Error:     data.ToolResult.Error,
-			LatencyMs: data.ToolResult.LatencyMs,
-		}
-	}
 	return MessageCreatedMsg{
 		ConversationID: event.ConversationID,
 		Role:           data.Role,
 		Content:        data.Content,
 		Index:          data.Index,
-		ToolCalls:      toolCalls,
-		ToolResult:     toolResult,
+		ToolCalls:      data.ToolCalls,
+		ToolResult:     data.ToolResult,
 		Time:           event.Timestamp,
 	}
 }
@@ -208,7 +188,7 @@ func (a *EventAdapter) handleConversationStarted(event *events.Event) tea.Msg {
 
 // handleArenaEvents handles arena-specific custom events.
 func (a *EventAdapter) handleArenaEvents(event *events.Event) tea.Msg {
-	switch event.Type { //nolint:exhaustive // Only arena-specific event types are handled here
+	switch event.Type { //nolint:exhaustive // only map arena-specific custom events
 	case events.EventType("arena.run.started"):
 		return RunStartedMsg{
 			RunID:    event.RunID,

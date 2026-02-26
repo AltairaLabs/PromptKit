@@ -1,6 +1,10 @@
 package tui
 
-import "time"
+import (
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/events"
+)
 
 // RunStartedMsg is sent when a run begins execution.
 type RunStartedMsg struct {
@@ -45,21 +49,11 @@ type TurnCompletedMsg struct {
 	Time      time.Time
 }
 
-// MessageToolCall represents a tool call in a message (mirrors events.MessageToolCall).
-type MessageToolCall struct {
-	ID   string // Unique identifier for this tool call
-	Name string // Name of the tool to invoke
-	Args string // JSON-encoded tool arguments
-}
+// MessageToolCall is a type alias for events.MessageToolCall to avoid duplicate definitions.
+type MessageToolCall = events.MessageToolCall
 
-// MessageToolResult represents a tool result in a message (mirrors events.MessageToolResult).
-type MessageToolResult struct {
-	ID        string // References the MessageToolCall.ID
-	Name      string // Tool name that was executed
-	Content   string // Result content
-	Error     string // Error message if tool failed
-	LatencyMs int64  // Tool execution latency
-}
+// MessageToolResult is a type alias for events.MessageToolResult to avoid duplicate definitions.
+type MessageToolResult = events.MessageToolResult
 
 // MessageCreatedMsg is sent when a message is created during execution.
 type MessageCreatedMsg struct {

@@ -11,7 +11,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 )
 
-const mcpToolSuccess = "✅ MCP Tool Success"
+const (
+	mcpToolSuccess      = "✅ MCP Tool Success"
+	mcpToolReturnedErr  = "MCP tool returned error"
+	mcpContentTypeText  = "text"
+	mcpDefaultTimeoutSc = 30
+)
 
 // MCPExecutor executes tools using MCP (Model Context Protocol) servers
 type MCPExecutor struct {
@@ -53,7 +58,7 @@ func (e *MCPExecutor) Execute(descriptor *ToolDescriptor, args json.RawMessage) 
 }
 
 func (e *MCPExecutor) callMCPTool(toolName string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
-	ctx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(e.ctx, mcpDefaultTimeoutSc*time.Second)
 	defer cancel()
 
 	// Use the raw MCP name (without namespace prefix) for server communication
@@ -98,7 +103,7 @@ func (e *MCPExecutor) handleErrorResponse(toolName string, response *mcp.ToolCal
 
 func (e *MCPExecutor) extractErrorMessage(content []mcp.Content) string {
 	if len(content) == 0 {
-		return "MCP tool returned error"
+		return mcpToolReturnedErr
 	}
 
 	var errorMsg string
@@ -113,7 +118,7 @@ func (e *MCPExecutor) extractErrorMessage(content []mcp.Content) string {
 	}
 
 	if errorMsg == "" {
-		return "MCP tool returned error"
+		return mcpToolReturnedErr
 	}
 	return errorMsg
 }
@@ -124,7 +129,7 @@ func (e *MCPExecutor) formatSuccessResponse(toolName string, response *mcp.ToolC
 		return json.Marshal("Operation completed successfully")
 	}
 
-	if len(response.Content) == 1 && response.Content[0].Type == "text" {
+	if len(response.Content) == 1 && response.Content[0].Type == mcpContentTypeText {
 		result := response.Content[0].Text
 		logger.Info(mcpToolSuccess, "tool", toolName, "result_length", len(result))
 		return json.Marshal(result)

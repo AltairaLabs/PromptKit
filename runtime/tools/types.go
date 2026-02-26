@@ -194,12 +194,6 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("tool %s validation error (%s): %s", e.Tool, e.Type, e.Detail)
 }
 
-// ToolStats tracks tool usage statistics
-type ToolStats struct {
-	TotalCalls int            `json:"total_calls"`
-	ByTool     map[string]int `json:"by_tool"`
-}
-
 // Executor interface defines how tools are executed
 type Executor interface {
 	Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)

@@ -117,7 +117,9 @@ func (sv *SchemaValidator) getSchema(schemaJSON string) (*gojsonschema.Schema, e
 }
 
 // CoerceResult attempts to coerce simple type mismatches in tool results
-func (sv *SchemaValidator) CoerceResult(descriptor *ToolDescriptor, result json.RawMessage) (json.RawMessage, []Coercion, error) {
+func (sv *SchemaValidator) CoerceResult(
+	descriptor *ToolDescriptor, result json.RawMessage,
+) (json.RawMessage, []Coercion, error) {
 	// First try validation without coercion
 	if err := sv.ValidateResult(descriptor, result); err == nil {
 		return result, nil, nil
@@ -148,9 +150,9 @@ func (sv *SchemaValidator) CoerceResult(descriptor *ToolDescriptor, result json.
 
 // Coercion represents a type coercion that was performed
 type Coercion struct {
-	Path string      `json:"path"`
-	From any `json:"from"`
-	To   any `json:"to"`
+	Path string `json:"path"`
+	From any    `json:"from"`
+	To   any    `json:"to"`
 }
 
 // coerceValue performs simple type coercions (e.g., number to string, string to number)

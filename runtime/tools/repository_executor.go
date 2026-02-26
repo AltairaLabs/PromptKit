@@ -21,7 +21,9 @@ type RepositoryToolExecutor struct {
 // NewRepositoryToolExecutor creates a new repository-backed tool executor.
 // The executor will first check the repository for configured responses,
 // and fall back to the base executor if no match is found.
-func NewRepositoryToolExecutor(baseExecutor Executor, repo ToolResponseRepository, contextKey string) *RepositoryToolExecutor {
+func NewRepositoryToolExecutor(
+	baseExecutor Executor, repo ToolResponseRepository, contextKey string,
+) *RepositoryToolExecutor {
 	return &RepositoryToolExecutor{
 		baseExecutor: baseExecutor,
 		repository:   repo,
@@ -149,7 +151,9 @@ type MockToolErrorConfig struct {
 
 // NewFileToolResponseRepository creates a repository from scenario tool responses.
 // This is typically used by Arena to provide tool mocking from YAML scenarios.
-func NewFileToolResponseRepository(scenarioID string, toolResponses map[string][]MockToolResponseConfig) *FileToolResponseRepository {
+func NewFileToolResponseRepository(
+	scenarioID string, toolResponses map[string][]MockToolResponseConfig,
+) *FileToolResponseRepository {
 	return &FileToolResponseRepository{
 		scenarioID:    scenarioID,
 		toolResponses: toolResponses,
