@@ -262,9 +262,10 @@ func validateJSONWithSchema(jsonData []byte, schema *gojsonschema.Schema) (*Sche
 	return validationResult, nil
 }
 
-// ValidateArenaConfig validates an Arena configuration against its schema
-func ValidateArenaConfig(yamlData []byte) error {
-	result, err := ValidateWithSchema(yamlData, ConfigTypeArena)
+// ValidateConfig validates YAML data against the JSON schema for the given ConfigType.
+// It returns a formatted error listing all schema violations, or nil if the data is valid.
+func ValidateConfig(configType ConfigType, yamlData []byte) error {
+	result, err := ValidateWithSchema(yamlData, configType)
 	if err != nil {
 		return err
 	}
@@ -274,119 +275,35 @@ func ValidateArenaConfig(yamlData []byte) error {
 		for _, e := range result.Errors {
 			errorMessages = append(errorMessages, fmt.Sprintf(errorFormat, e.Error()))
 		}
-		return fmt.Errorf("arena configuration does not match schema:\n%s", strings.Join(errorMessages, "\n"))
+		return fmt.Errorf("%s configuration does not match schema:\n%s",
+			string(configType), strings.Join(errorMessages, "\n"))
 	}
 
 	return nil
 }
 
-// ValidateScenario validates a Scenario configuration against its schema
-func ValidateScenario(yamlData []byte) error {
-	result, err := ValidateWithSchema(yamlData, ConfigTypeScenario)
-	if err != nil {
-		return err
-	}
+// ValidateArenaConfig validates an Arena configuration against its schema.
+func ValidateArenaConfig(yamlData []byte) error { return ValidateConfig(ConfigTypeArena, yamlData) }
 
-	if !result.Valid {
-		var errorMessages []string
-		for _, e := range result.Errors {
-			errorMessages = append(errorMessages, fmt.Sprintf(errorFormat, e.Error()))
-		}
-		return fmt.Errorf("scenario configuration does not match schema:\n%s", strings.Join(errorMessages, "\n"))
-	}
+// ValidateScenario validates a Scenario configuration against its schema.
+func ValidateScenario(yamlData []byte) error { return ValidateConfig(ConfigTypeScenario, yamlData) }
 
-	return nil
-}
+// ValidateEval validates an Eval configuration against its schema.
+func ValidateEval(yamlData []byte) error { return ValidateConfig(ConfigTypeEval, yamlData) }
 
-// ValidateEval validates an Eval configuration against its schema
-func ValidateEval(yamlData []byte) error {
-	result, err := ValidateWithSchema(yamlData, ConfigTypeEval)
-	if err != nil {
-		return err
-	}
+// ValidateProvider validates a Provider configuration against its schema.
+func ValidateProvider(yamlData []byte) error { return ValidateConfig(ConfigTypeProvider, yamlData) }
 
-	if !result.Valid {
-		var errorMessages []string
-		for _, e := range result.Errors {
-			errorMessages = append(errorMessages, fmt.Sprintf(errorFormat, e.Error()))
-		}
-		return fmt.Errorf("eval configuration does not match schema:\n%s", strings.Join(errorMessages, "\n"))
-	}
-
-	return nil
-}
-
-// ValidateProvider validates a Provider configuration against its schema
-func ValidateProvider(yamlData []byte) error {
-	result, err := ValidateWithSchema(yamlData, ConfigTypeProvider)
-	if err != nil {
-		return err
-	}
-
-	if !result.Valid {
-		var errorMessages []string
-		for _, e := range result.Errors {
-			errorMessages = append(errorMessages, fmt.Sprintf(errorFormat, e.Error()))
-		}
-		return fmt.Errorf("provider configuration does not match schema:\n%s", strings.Join(errorMessages, "\n"))
-	}
-
-	return nil
-}
-
-// ValidatePromptConfig validates a PromptConfig configuration against its schema
+// ValidatePromptConfig validates a PromptConfig configuration against its schema.
 func ValidatePromptConfig(yamlData []byte) error {
-	result, err := ValidateWithSchema(yamlData, ConfigTypePromptConfig)
-	if err != nil {
-		return err
-	}
-
-	if !result.Valid {
-		var errorMessages []string
-		for _, e := range result.Errors {
-			errorMessages = append(errorMessages, fmt.Sprintf(errorFormat, e.Error()))
-		}
-		return fmt.Errorf("promptconfig configuration does not match schema:\n%s", strings.Join(errorMessages, "\n"))
-	}
-
-	return nil
+	return ValidateConfig(ConfigTypePromptConfig, yamlData)
 }
 
-// ValidateTool validates a Tool configuration against its schema
-func ValidateTool(yamlData []byte) error {
-	result, err := ValidateWithSchema(yamlData, ConfigTypeTool)
-	if err != nil {
-		return err
-	}
+// ValidateTool validates a Tool configuration against its schema.
+func ValidateTool(yamlData []byte) error { return ValidateConfig(ConfigTypeTool, yamlData) }
 
-	if !result.Valid {
-		var errorMessages []string
-		for _, e := range result.Errors {
-			errorMessages = append(errorMessages, fmt.Sprintf(errorFormat, e.Error()))
-		}
-		return fmt.Errorf("tool configuration does not match schema:\n%s", strings.Join(errorMessages, "\n"))
-	}
-
-	return nil
-}
-
-// ValidatePersona validates a Persona configuration against its schema
-func ValidatePersona(yamlData []byte) error {
-	result, err := ValidateWithSchema(yamlData, ConfigTypePersona)
-	if err != nil {
-		return err
-	}
-
-	if !result.Valid {
-		var errorMessages []string
-		for _, e := range result.Errors {
-			errorMessages = append(errorMessages, fmt.Sprintf(errorFormat, e.Error()))
-		}
-		return fmt.Errorf("persona configuration does not match schema:\n%s", strings.Join(errorMessages, "\n"))
-	}
-
-	return nil
-}
+// ValidatePersona validates a Persona configuration against its schema.
+func ValidatePersona(yamlData []byte) error { return ValidateConfig(ConfigTypePersona, yamlData) }
 
 // DetectConfigType attempts to detect the configuration type from YAML data
 func DetectConfigType(yamlData []byte) (ConfigType, error) {
