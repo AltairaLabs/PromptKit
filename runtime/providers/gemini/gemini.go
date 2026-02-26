@@ -26,11 +26,11 @@ const (
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
-	modelName      string
-	BaseURL        string
-	ApiKey         string
+	model          string
+	baseURL        string
+	apiKey         string
 	credential     providers.Credential
-	Defaults       providers.ProviderDefaults
+	defaults       providers.ProviderDefaults
 	platform       string
 	platformConfig *providers.PlatformConfig
 }
@@ -41,10 +41,10 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 
 	return &Provider{
 		BaseProvider: base,
-		modelName:    model,
-		BaseURL:      baseURL,
-		ApiKey:       apiKey,
-		Defaults:     defaults,
+		model:        model,
+		baseURL:      baseURL,
+		apiKey:       apiKey,
+		defaults:     defaults,
 	}
 }
 
@@ -58,11 +58,11 @@ func NewProviderWithCredential(
 
 	return &Provider{
 		BaseProvider:   base,
-		modelName:      model,
-		BaseURL:        baseURL,
-		ApiKey:         apiKey,
+		model:          model,
+		baseURL:        baseURL,
+		apiKey:         apiKey,
 		credential:     cred,
-		Defaults:       defaults,
+		defaults:       defaults,
 		platform:       platform,
 		platformConfig: platformConfig,
 	}
@@ -70,7 +70,7 @@ func NewProviderWithCredential(
 
 // Model returns the model name/identifier used by this provider.
 func (p *Provider) Model() string {
-	return p.modelName
+	return p.model
 }
 
 // Gemini API request/response structures
@@ -212,17 +212,17 @@ func convertMessagesToGeminiContents(messages []types.Message) []geminiContent {
 func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
 	temperature = req.Temperature
 	if temperature == 0 {
-		temperature = p.Defaults.Temperature
+		temperature = p.defaults.Temperature
 	}
 
 	topP = req.TopP
 	if topP == 0 {
-		topP = p.Defaults.TopP
+		topP = p.defaults.TopP
 	}
 
 	maxTokens = req.MaxTokens
 	if maxTokens == 0 {
-		maxTokens = p.Defaults.MaxTokens
+		maxTokens = p.defaults.MaxTokens
 	}
 
 	return temperature, topP, maxTokens
@@ -347,7 +347,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	}
 
 	// Build URL with API key
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.baseURL, p.model, p.apiKey)
 
 	// Debug log the request
 	headers := map[string]string{
@@ -431,7 +431,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	// Enrich context with provider and model info for logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Provider: p.ID(),
-		Model:    p.modelName,
+		Model:    p.model,
 	})
 
 	start := time.Now()
@@ -571,15 +571,15 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 	var inputCostPer1K, outputCostPer1K, cachedCostPer1K float64
 
 	// Use configured pricing if available
-	if p.Defaults.Pricing.InputCostPer1K > 0 && p.Defaults.Pricing.OutputCostPer1K > 0 {
-		inputCostPer1K = p.Defaults.Pricing.InputCostPer1K
-		outputCostPer1K = p.Defaults.Pricing.OutputCostPer1K
+	if p.defaults.Pricing.InputCostPer1K > 0 && p.defaults.Pricing.OutputCostPer1K > 0 {
+		inputCostPer1K = p.defaults.Pricing.InputCostPer1K
+		outputCostPer1K = p.defaults.Pricing.OutputCostPer1K
 		// Cached tokens cost 50% of input tokens for Gemini
 		cachedCostPer1K = inputCostPer1K * 0.5
 	} else {
 		// Fallback to hardcoded pricing with warning
-		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.modelName)
-		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.modelName)
+		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.model)
+		inputCostPer1K, outputCostPer1K, cachedCostPer1K = geminiPricing(p.model)
 	}
 
 	// Calculate costs

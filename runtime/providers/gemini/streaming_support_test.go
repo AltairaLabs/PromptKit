@@ -211,7 +211,7 @@ func TestGeminiProvider_CreateStreamSession_InvalidConfig(t *testing.T) {
 func TestGeminiProvider_CreateStreamSession_ValidConfig(t *testing.T) {
 	// Skip if no API key available (for CI/CD)
 	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
-	if provider.ApiKey == "" {
+	if provider.apiKey == "" {
 		t.Skip("Skipping test: GEMINI_API_KEY not set")
 	}
 
@@ -348,7 +348,7 @@ func TestGeminiProvider_CreateStreamSession_WithTools(t *testing.T) {
 	provider := NewProvider("test", "gemini-2.0-flash-exp", "https://api.test.com", providers.ProviderDefaults{}, false)
 
 	// Skip if no API key available
-	if provider.ApiKey == "" {
+	if provider.apiKey == "" {
 		t.Skip("Skipping test: GEMINI_API_KEY not set")
 	}
 

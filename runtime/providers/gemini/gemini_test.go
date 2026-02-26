@@ -34,11 +34,11 @@ func TestNewProvider(t *testing.T) {
 		t.Errorf("Expected model 'gemini-1.5-pro', got '%s'", provider.Model())
 	}
 
-	if provider.BaseURL != "https://generativelanguage.googleapis.com/v1beta" {
+	if provider.baseURL != "https://generativelanguage.googleapis.com/v1beta" {
 		t.Error("BaseURL mismatch")
 	}
 
-	if provider.Defaults.Temperature != 0.9 {
+	if provider.defaults.Temperature != 0.9 {
 		t.Error("Temperature default mismatch")
 	}
 }
@@ -66,8 +66,8 @@ func TestNewProviderWithCredential(t *testing.T) {
 			t.Errorf("Expected model 'gemini-1.5-pro', got '%s'", provider.Model())
 		}
 
-		if provider.ApiKey != "test-api-key" {
-			t.Errorf("Expected ApiKey 'test-api-key', got '%s'", provider.ApiKey)
+		if provider.apiKey != "test-api-key" {
+			t.Errorf("Expected ApiKey 'test-api-key', got '%s'", provider.apiKey)
 		}
 
 		if provider.credential == nil {
@@ -82,8 +82,8 @@ func TestNewProviderWithCredential(t *testing.T) {
 			t.Fatal("Expected non-nil provider")
 		}
 
-		if provider.ApiKey != "" {
-			t.Errorf("Expected empty ApiKey, got '%s'", provider.ApiKey)
+		if provider.apiKey != "" {
+			t.Errorf("Expected empty ApiKey, got '%s'", provider.apiKey)
 		}
 	})
 
@@ -96,8 +96,8 @@ func TestNewProviderWithCredential(t *testing.T) {
 		}
 
 		// Should not extract API key from non-api_key credential
-		if provider.ApiKey != "" {
-			t.Errorf("Expected empty ApiKey for non-APIKey credential, got '%s'", provider.ApiKey)
+		if provider.apiKey != "" {
+			t.Errorf("Expected empty ApiKey for non-APIKey credential, got '%s'", provider.apiKey)
 		}
 
 		if provider.credential == nil {

@@ -209,15 +209,15 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 
 	// Apply provider defaults for zero values
 	if temperature == 0 {
-		temperature = p.Defaults.Temperature
+		temperature = p.defaults.Temperature
 	}
 
 	if topP == 0 {
-		topP = p.Defaults.TopP
+		topP = p.defaults.TopP
 	}
 
 	if maxTokens == 0 {
-		maxTokens = p.Defaults.MaxTokens
+		maxTokens = p.defaults.MaxTokens
 	}
 
 	// Create request
@@ -239,7 +239,7 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	}
 
 	// Build URL with API key
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.baseURL, p.model, p.apiKey)
 
 	// Debug log the request
 	headers := map[string]string{
@@ -355,15 +355,15 @@ func (p *Provider) parseGeminiResponse(respBody []byte) (*geminiResponse, error)
 func (p *Provider) predictStreamWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (<-chan providers.StreamChunk, error) {
 	// Apply provider defaults for zero values
 	if temperature == 0 {
-		temperature = p.Defaults.Temperature
+		temperature = p.defaults.Temperature
 	}
 
 	if topP == 0 {
-		topP = p.Defaults.TopP
+		topP = p.defaults.TopP
 	}
 
 	if maxTokens == 0 {
-		maxTokens = p.Defaults.MaxTokens
+		maxTokens = p.defaults.MaxTokens
 	}
 
 	// Create streaming request
@@ -377,7 +377,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 	}
 
 	// Build URL for streaming
-	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.BaseURL, p.modelName, p.ApiKey)
+	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.baseURL, p.model, p.apiKey)
 
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
