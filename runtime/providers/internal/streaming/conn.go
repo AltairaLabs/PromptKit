@@ -7,11 +7,12 @@ package streaming
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"sync"
 	"time"
@@ -32,6 +33,12 @@ const (
 
 // jitterFactor is the +-25% jitter applied to backoff delays.
 const jitterFactor = 0.25
+
+// jitterPrecision is the granularity for crypto/rand jitter generation.
+const jitterPrecision = 1000
+
+// jitterHalfPrecision normalizes jitter output to the range [-1, 1].
+const jitterHalfPrecision = jitterPrecision / 2
 
 // ConnConfig configures the WebSocket connection behavior.
 type ConnConfig struct {
@@ -427,8 +434,9 @@ func calculateBackoff(base, maxDelay time.Duration) time.Duration {
 	if delay > float64(maxDelay) {
 		delay = float64(maxDelay)
 	}
-	// Jitter: +-25% -- using math/rand intentionally for non-security retry timing.
-	jitter := delay * jitterFactor * (rand.Float64()*2 - 1) //nolint:gosec // backoff jitter, not security
+	// Jitter: +-25% using crypto/rand for SonarCloud compliance.
+	n, _ := rand.Int(rand.Reader, big.NewInt(jitterPrecision))
+	jitter := delay * jitterFactor * (float64(n.Int64())/jitterHalfPrecision - 1)
 	result := delay + jitter
 	if result < 0 {
 		result = float64(base)
