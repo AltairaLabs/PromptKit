@@ -99,9 +99,12 @@ packs/
 /promptpack-spec/
 
 # Ignore tools' built binaries (but not the source directories)
+/packc
+/promptarena
 bin/packc
 bin/promptarena
 tools/arena/arena
+commit-msg.txt
 !tools/packc/
 !tools/arena/
 
