@@ -8,25 +8,13 @@ import (
 
 // GenerateLoggingSchema generates the JSON Schema for LoggingConfig configuration
 func GenerateLoggingSchema() (interface{}, error) {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		ExpandedStruct:            true,
-		FieldNameTag:              "yaml",
-	}
-
-	schema := reflector.Reflect(&config.LoggingConfig{})
-
-	schema.Version = "https://json-schema.org/draft-07/schema"
-	schema.ID = schemaBaseURL + "/logging.json"
-	schema.Title = "PromptKit Logging Configuration"
-	schema.Description = "Configuration for structured logging with per-module log levels"
-
-	// Allow the standard $schema field
-	allowSchemaField(schema)
-
-	addLoggingExample(schema)
-
-	return schema, nil
+	return Generate(&SchemaConfig{
+		Target:      &config.LoggingConfig{},
+		Filename:    "logging.json",
+		Title:       "PromptKit Logging Configuration",
+		Description: "Configuration for structured logging with per-module log levels",
+		Customize:   addLoggingExample,
+	})
 }
 
 func addLoggingExample(schema *jsonschema.Schema) {

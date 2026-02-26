@@ -8,25 +8,13 @@ import (
 
 // GenerateToolSchema generates the JSON Schema for Tool configuration
 func GenerateToolSchema() (interface{}, error) {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		ExpandedStruct:            true,
-		FieldNameTag:              "yaml",
-	}
-
-	schema := reflector.Reflect(&config.ToolConfigSchema{})
-
-	schema.Version = "https://json-schema.org/draft-07/schema"
-	schema.ID = schemaBaseURL + "/tool.json"
-	schema.Title = "PromptKit Tool Configuration"
-	schema.Description = "Tool/function configuration for PromptKit"
-
-	// Allow the standard $schema field
-	allowSchemaField(schema)
-
-	addToolExample(schema)
-
-	return schema, nil
+	return Generate(&SchemaConfig{
+		Target:      &config.ToolConfigSchema{},
+		Filename:    "tool.json",
+		Title:       "PromptKit Tool Configuration",
+		Description: "Tool/function configuration for PromptKit",
+		Customize:   addToolExample,
+	})
 }
 
 func addToolExample(schema *jsonschema.Schema) {

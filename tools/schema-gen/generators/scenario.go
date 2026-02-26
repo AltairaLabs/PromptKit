@@ -8,28 +8,16 @@ import (
 
 // GenerateScenarioSchema generates the JSON Schema for Scenario configuration
 func GenerateScenarioSchema() (interface{}, error) {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		ExpandedStruct:            true,
-		FieldNameTag:              "yaml",
-	}
-
-	schema := reflector.Reflect(&config.ScenarioConfig{})
-
-	schema.Version = "https://json-schema.org/draft-07/schema"
-	schema.ID = schemaBaseURL + "/scenario.json"
-	schema.Title = "PromptArena Scenario Configuration"
-	schema.Description = "Scenario configuration for PromptArena test cases"
-
-	// Allow the standard $schema field
-	allowSchemaField(schema)
-
-	// Add oneOf constraint: regular scenario (task_type + turns) or workflow scenario (pack + steps)
-	addScenarioOneOf(schema)
-
-	addScenarioExample(schema)
-
-	return schema, nil
+	return Generate(&SchemaConfig{
+		Target:      &config.ScenarioConfig{},
+		Filename:    "scenario.json",
+		Title:       "PromptArena Scenario Configuration",
+		Description: "Scenario configuration for PromptArena test cases",
+		Customize: func(schema *jsonschema.Schema) {
+			addScenarioOneOf(schema)
+			addScenarioExample(schema)
+		},
+	})
 }
 
 // addScenarioOneOf adds a oneOf constraint to the Scenario definition

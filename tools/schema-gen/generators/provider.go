@@ -8,25 +8,13 @@ import (
 
 // GenerateProviderSchema generates the JSON Schema for Provider configuration
 func GenerateProviderSchema() (interface{}, error) {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		ExpandedStruct:            true,
-		FieldNameTag:              "yaml",
-	}
-
-	schema := reflector.Reflect(&config.ProviderConfig{})
-
-	schema.Version = "https://json-schema.org/draft-07/schema"
-	schema.ID = schemaBaseURL + "/provider.json"
-	schema.Title = "PromptArena Provider Configuration"
-	schema.Description = "Provider configuration for PromptArena LLM connections"
-
-	// Allow the standard $schema field
-	allowSchemaField(schema)
-
-	addProviderExample(schema)
-
-	return schema, nil
+	return Generate(&SchemaConfig{
+		Target:      &config.ProviderConfig{},
+		Filename:    "provider.json",
+		Title:       "PromptArena Provider Configuration",
+		Description: "Provider configuration for PromptArena LLM connections",
+		Customize:   addProviderExample,
+	})
 }
 
 func addProviderExample(schema *jsonschema.Schema) {

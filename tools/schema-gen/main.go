@@ -1,3 +1,4 @@
+// Command schema-gen generates JSON schemas for PromptKit configuration types.
 package main
 
 import (
