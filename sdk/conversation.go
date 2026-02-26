@@ -238,14 +238,15 @@ func (c *Conversation) applyOptionsToMessage(userMsg *types.Message, opts []Send
 	return c.addContentParts(userMsg, sendCfg.parts)
 }
 
-// buildPipelineWithParams builds a stage pipeline with explicit parameters.
-// Used during initialization for unary sessions.
-func (c *Conversation) buildPipelineWithParams(
+// buildPipelineConfig assembles the shared intpipeline.Config used by both unary
+// and duplex pipeline builders.  Callers may further mutate the returned config
+// (e.g. to add VAD settings) before passing it to intpipeline.Build.
+func (c *Conversation) buildPipelineConfig(
 	store statestore.Store,
 	conversationID string,
 	streamProvider providers.StreamInputSupport,
 	streamConfig *providers.StreamingInputConfig,
-) (*stage.StreamPipeline, error) {
+) *intpipeline.Config {
 	// Get initial variables from config (required for prompt template resolution)
 	vars := make(map[string]string)
 	if c.config != nil && c.config.initialVariables != nil {
@@ -317,91 +318,32 @@ func (c *Conversation) buildPipelineWithParams(
 		}
 	}
 
-	// Build the pipeline
+	return pipelineCfg
+}
+
+// buildPipelineWithParams builds a stage pipeline with explicit parameters.
+// Used during initialization for unary sessions.
+func (c *Conversation) buildPipelineWithParams(
+	store statestore.Store,
+	conversationID string,
+	streamProvider providers.StreamInputSupport,
+	streamConfig *providers.StreamingInputConfig,
+) (*stage.StreamPipeline, error) {
+	pipelineCfg := c.buildPipelineConfig(store, conversationID, streamProvider, streamConfig)
 	return intpipeline.Build(pipelineCfg)
 }
 
 // buildStreamPipelineWithParams builds a stage pipeline directly for duplex sessions.
 // Returns *stage.StreamPipeline which DuplexSession uses directly without wrapping.
-//
 func (c *Conversation) buildStreamPipelineWithParams(
 	store statestore.Store,
 	conversationID string,
 	streamProvider providers.StreamInputSupport,
 	streamConfig *providers.StreamingInputConfig,
 ) (*stage.StreamPipeline, error) {
-	// Get initial variables from config (required for prompt template resolution)
-	vars := make(map[string]string)
-	if c.config != nil && c.config.initialVariables != nil {
-		for k, v := range c.config.initialVariables {
-			vars[k] = v
-		}
-	}
+	pipelineCfg := c.buildPipelineConfig(store, conversationID, streamProvider, streamConfig)
 
-	// Build tool registry
-	c.handlersMu.RLock()
-	localExec := &localExecutor{handlers: c.handlers}
-	c.toolRegistry.RegisterExecutor(localExec)
-	c.registerMCPExecutors()
-	// Register capability tools (includes A2A)
-	for _, cap := range c.capabilities {
-		cap.RegisterTools(c.toolRegistry)
-	}
-	toolRegistry := c.toolRegistry
-	c.handlersMu.RUnlock()
-
-	// Create event emitter if event bus is configured
-	var eventEmitter *events.Emitter
-	if c.config.eventBus != nil {
-		eventEmitter = events.NewEmitter(c.config.eventBus, "", conversationID, conversationID)
-	}
-
-	// Build pipeline configuration
-	pipelineCfg := &intpipeline.Config{
-		Provider:              c.config.provider,
-		ToolRegistry:          toolRegistry,
-		PromptRegistry:        c.promptRegistry,
-		TaskType:              c.promptName,
-		Variables:             vars,
-		VariableProviders:     c.config.variableProviders,
-		MaxTokens:             defaultMaxTokens,
-		Temperature:           defaultTemperature,
-		StateStore:            store,
-		ConversationID:        conversationID,
-		StreamInputProvider:   streamProvider, // For duplex mode: provider creates session lazily
-		StreamInputConfig:     streamConfig,   // Base config for session
-		TokenBudget:           c.config.tokenBudget,
-		TruncationStrategy:    c.config.truncationStrategy,
-		RelevanceConfig:       c.buildRelevanceConfig(),
-		ImagePreprocessConfig: c.config.imagePreprocessConfig,
-		EventEmitter:          eventEmitter,
-		ResponseFormat:        c.config.responseFormat,
-		ContextWindow:         c.config.contextWindow,
-		RetrievalTopK:         c.config.retrievalTopK,
-		SummarizeThreshold:    c.config.summarizeThreshold,
-		SummarizeBatchSize:    c.config.summarizeBatchSize,
-		HookRegistry:          c.hookRegistry,
-	}
-
-	// Wire up RAG context components from SDK options
-	if c.config.retrievalProvider != nil {
-		pipelineCfg.MessageIndex = statestore.NewInMemoryIndex(c.config.retrievalProvider)
-	}
-	if c.config.summarizeProvider != nil {
-		pipelineCfg.Summarizer = statestore.NewLLMSummarizer(c.config.summarizeProvider)
-	}
-
-	// Apply parameters from prompt if available
-	if c.prompt.Parameters != nil {
-		if c.prompt.Parameters.MaxTokens != nil {
-			pipelineCfg.MaxTokens = *c.prompt.Parameters.MaxTokens
-		}
-		if c.prompt.Parameters.Temperature != nil {
-			pipelineCfg.Temperature = float32(*c.prompt.Parameters.Temperature)
-		}
-	}
-
-	// Add VAD mode configuration if present
+	// Add VAD mode configuration if present (duplex-only)
 	if c.config.vadModeConfig != nil && c.config.sttService != nil && c.config.ttsService != nil {
 		// Create shared interruption handler for barge-in support
 		interruptionHandler := audio.NewInterruptionHandler(
@@ -423,8 +365,7 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		pipelineCfg.InterruptionHandler = interruptionHandler
 	}
 
-	// Build the stage pipeline directly (for duplex sessions)
-	return intpipeline.BuildStreamPipeline(pipelineCfg)
+	return intpipeline.Build(pipelineCfg)
 }
 
 // executePipeline builds and executes the LLM pipeline.
@@ -795,7 +736,7 @@ func (c *Conversation) Fork() *Conversation {
 		asyncHandlers:  asyncHandlers,
 		pendingStore:   sdktools.NewPendingStore(),
 		resolvedStore:  sdktools.NewResolvedStore(),
-		mcpRegistry:    c.mcpRegistry, // Share MCP registry
+		mcpRegistry:    c.mcpRegistry,  // Share MCP registry
 		hookRegistry:   c.hookRegistry, // Share hook registry
 	}
 
