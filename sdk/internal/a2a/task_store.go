@@ -56,6 +56,11 @@ type TaskStore interface {
 	AddArtifacts(taskID string, artifacts []rta2a.Artifact) error
 	Cancel(taskID string) error
 	List(contextID string, limit, offset int) ([]*rta2a.Task, error)
+
+	// EvictTerminal removes tasks in a terminal state whose last status
+	// timestamp is older than the given cutoff time. It returns the IDs
+	// of evicted tasks so callers can clean up associated resources.
+	EvictTerminal(olderThan time.Time) []string
 }
 
 // InMemoryTaskStore is a concurrency-safe, in-memory implementation of TaskStore.
@@ -169,6 +174,25 @@ func (s *InMemoryTaskStore) Cancel(taskID string) error {
 		Timestamp: &now,
 	}
 	return nil
+}
+
+// EvictTerminal removes tasks in a terminal state whose last status timestamp
+// is older than cutoff. It returns the IDs of evicted tasks.
+func (s *InMemoryTaskStore) EvictTerminal(cutoff time.Time) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var evicted []string
+	for id, task := range s.tasks {
+		if !terminalStates[task.Status.State] {
+			continue
+		}
+		if task.Status.Timestamp != nil && task.Status.Timestamp.Before(cutoff) {
+			delete(s.tasks, id)
+			evicted = append(evicted, id)
+		}
+	}
+	return evicted
 }
 
 // List returns tasks matching the given contextID with pagination.
