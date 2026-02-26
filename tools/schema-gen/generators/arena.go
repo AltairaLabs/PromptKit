@@ -1,3 +1,4 @@
+// Package generators provides JSON schema generation functions for PromptKit configuration types.
 package generators
 
 import (
@@ -16,27 +17,13 @@ const (
 
 // GenerateArenaSchema generates the JSON Schema for Arena configuration
 func GenerateArenaSchema() (interface{}, error) {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties:  false,
-		ExpandedStruct:             true,
-		FieldNameTag:               "yaml",
-		RequiredFromJSONSchemaTags: false, // Use omitempty to determine required fields
-	}
-
-	schema := reflector.Reflect(&config.ArenaConfig{})
-
-	schema.Version = "https://json-schema.org/draft-07/schema"
-	schema.ID = schemaBaseURL + "/arena.json"
-	schema.Title = "PromptArena Configuration"
-	schema.Description = "Main configuration for PromptArena test suites"
-
-	// Allow the standard $schema field
-	allowSchemaField(schema)
-
-	// Add example
-	addArenaExample(schema)
-
-	return schema, nil
+	return Generate(&SchemaConfig{
+		Target:      &config.ArenaConfig{},
+		Filename:    "arena.json",
+		Title:       "PromptArena Configuration",
+		Description: "Main configuration for PromptArena test suites",
+		Customize:   addArenaExample,
+	})
 }
 
 func addArenaExample(schema *jsonschema.Schema) {

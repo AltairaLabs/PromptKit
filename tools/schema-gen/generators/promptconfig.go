@@ -8,25 +8,13 @@ import (
 
 // GeneratePromptConfigSchema generates the JSON Schema for PromptConfig configuration
 func GeneratePromptConfigSchema() (interface{}, error) {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		ExpandedStruct:            true,
-		FieldNameTag:              "yaml",
-	}
-
-	schema := reflector.Reflect(&config.PromptConfigSchema{})
-
-	schema.Version = "https://json-schema.org/draft-07/schema"
-	schema.ID = schemaBaseURL + "/promptconfig.json"
-	schema.Title = "PromptKit Prompt Configuration"
-	schema.Description = "Prompt configuration for PromptKit"
-
-	// Allow the standard $schema field
-	allowSchemaField(schema)
-
-	addPromptConfigExample(schema)
-
-	return schema, nil
+	return Generate(&SchemaConfig{
+		Target:      &config.PromptConfigSchema{},
+		Filename:    "promptconfig.json",
+		Title:       "PromptKit Prompt Configuration",
+		Description: "Prompt configuration for PromptKit",
+		Customize:   addPromptConfigExample,
+	})
 }
 
 func addPromptConfigExample(schema *jsonschema.Schema) {

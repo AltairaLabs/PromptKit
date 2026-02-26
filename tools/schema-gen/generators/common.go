@@ -7,14 +7,11 @@ import (
 
 // GenerateMetadataSchema generates the JSON Schema for Kubernetes ObjectMeta
 func GenerateMetadataSchema() (interface{}, error) {
-	reflector := jsonschema.Reflector{
-		AllowAdditionalProperties: false,
-		ExpandedStruct:            true,
-	}
+	reflector := newReflector("json")
 
 	schema := reflector.Reflect(&metav1.ObjectMeta{})
 
-	schema.ID = schemaBaseURL + "/common/metadata.json"
+	schema.ID = jsonschema.ID(schemaBaseURL + "/common/metadata.json")
 	schema.Title = "Kubernetes ObjectMeta"
 	schema.Description = "Kubernetes-style metadata for PromptKit resources"
 
@@ -24,7 +21,7 @@ func GenerateMetadataSchema() (interface{}, error) {
 // GenerateAssertionsSchema generates a placeholder for assertions schema
 func GenerateAssertionsSchema() (interface{}, error) {
 	schema := &jsonschema.Schema{
-		ID:          schemaBaseURL + "/common/assertions.json",
+		ID:          jsonschema.ID(schemaBaseURL + "/common/assertions.json"),
 		Title:       "PromptArena Assertions",
 		Description: "Assertion types for PromptArena scenarios",
 		Type:        "object",
@@ -36,7 +33,7 @@ func GenerateAssertionsSchema() (interface{}, error) {
 // GenerateMediaSchema generates a placeholder for media schema
 func GenerateMediaSchema() (interface{}, error) {
 	schema := &jsonschema.Schema{
-		ID:          schemaBaseURL + "/common/media.json",
+		ID:          jsonschema.ID(schemaBaseURL + "/common/media.json"),
 		Title:       "PromptKit Media Types",
 		Description: "Media content types for multimodal scenarios",
 		Type:        "object",

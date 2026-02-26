@@ -273,3 +273,121 @@ func TestSchemaBaseURL(t *testing.T) {
 		t.Errorf("schemaBaseURL = %v, want %v", schemaBaseURL, expected)
 	}
 }
+
+func TestNewReflectorDefaults(t *testing.T) {
+	r := newReflector("")
+	if r.FieldNameTag != "yaml" {
+		t.Errorf("newReflector(\"\").FieldNameTag = %q, want \"yaml\"", r.FieldNameTag)
+	}
+	if r.AllowAdditionalProperties {
+		t.Error("expected AllowAdditionalProperties to be false")
+	}
+	if !r.ExpandedStruct {
+		t.Error("expected ExpandedStruct to be true")
+	}
+}
+
+func TestNewReflectorCustomTag(t *testing.T) {
+	r := newReflector("json")
+	if r.FieldNameTag != "json" {
+		t.Errorf("newReflector(\"json\").FieldNameTag = %q, want \"json\"", r.FieldNameTag)
+	}
+}
+
+func TestGenerateHelper(t *testing.T) {
+	type testStruct struct {
+		Name string `yaml:"name"`
+	}
+
+	customized := false
+	result, err := Generate(&SchemaConfig{
+		Target:      &testStruct{},
+		Filename:    "test.json",
+		Title:       "Test Schema",
+		Description: "A test schema",
+		Customize: func(s *jsonschema.Schema) {
+			customized = true
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	schema, ok := result.(*jsonschema.Schema)
+	if !ok {
+		t.Fatal("Generate() did not return *jsonschema.Schema")
+	}
+
+	if schema.Title != "Test Schema" {
+		t.Errorf("Title = %q, want %q", schema.Title, "Test Schema")
+	}
+
+	if schema.Description != "A test schema" {
+		t.Errorf("Description = %q, want %q", schema.Description, "A test schema")
+	}
+
+	expectedID := schemaBaseURL + "/test.json"
+	if string(schema.ID) != expectedID {
+		t.Errorf("ID = %q, want %q", schema.ID, expectedID)
+	}
+
+	if string(schema.Version) != "https://json-schema.org/draft-07/schema" {
+		t.Errorf("Version = %q, want draft-07", schema.Version)
+	}
+
+	if !customized {
+		t.Error("Customize callback was not called")
+	}
+}
+
+func TestGenerateHelperNoCustomize(t *testing.T) {
+	type testStruct struct {
+		Name string `yaml:"name"`
+	}
+
+	result, err := Generate(&SchemaConfig{
+		Target:      &testStruct{},
+		Filename:    "test.json",
+		Title:       "Test Schema",
+		Description: "A test schema",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("Generate() returned nil")
+	}
+}
+
+func TestGenerateHelperAddsSchemaField(t *testing.T) {
+	type testStruct struct {
+		Name string `yaml:"name"`
+	}
+
+	result, err := Generate(&SchemaConfig{
+		Target:      &testStruct{},
+		Filename:    "test.json",
+		Title:       "Test",
+		Description: "Test",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	schema := result.(*jsonschema.Schema)
+
+	// The schema should have $schema as a property
+	if schema.Properties == nil {
+		t.Fatal("schema.Properties is nil")
+	}
+
+	schemaProp, ok := schema.Properties.Get("$schema")
+	if !ok {
+		t.Error("$schema property not found in schema")
+	}
+
+	if schemaProp == nil {
+		t.Error("$schema property is nil")
+	}
+}
