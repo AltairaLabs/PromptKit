@@ -141,11 +141,11 @@ type Conversation struct {
 	// Hook registry for policy enforcement (nil = no hooks)
 	hookRegistry *hooks.Registry
 
+	// Session hook dispatcher for lifecycle events (start, update, end)
+	sessionHooks *sessionHookDispatcher
+
 	// Eval middleware for dispatching evals after Send/Close
 	evalMW *evalMiddleware
-
-	// Session hook state
-	turnIndex int
 
 	// Closed flag
 	closed bool
@@ -221,8 +221,8 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	}
 
 	resp := c.buildResponse(result, startTime)
-	c.turnIndex++
-	c.runSessionUpdate(ctx)
+	c.sessionHooks.IncrementTurn()
+	c.sessionHooks.SessionUpdate(ctx)
 	c.evalMW.dispatchTurnEvals(ctx) // nil-safe, no-op if middleware is nil
 	return resp, nil
 }
@@ -738,6 +738,7 @@ func (c *Conversation) Fork() *Conversation {
 		mcpRegistry:    c.mcpRegistry,  // Share MCP registry
 		hookRegistry:   c.hookRegistry, // Share hook registry
 	}
+	fork.sessionHooks = newSessionHookDispatcher(fork.hookRegistry, fork.sessionInfo)
 
 	// Fork the session based on current mode
 	switch c.mode {
@@ -786,7 +787,7 @@ func (c *Conversation) Close() error {
 	c.closed = true
 
 	// Run session end hooks before cleanup
-	c.runSessionEnd(context.Background())
+	c.sessionHooks.SessionEnd(context.Background())
 
 	// Dispatch session-complete evals before cleanup
 	if c.evalMW != nil {
@@ -839,50 +840,18 @@ func (c *Conversation) EventBus() *events.EventBus {
 	return c.config.eventBus
 }
 
-// runSessionStart dispatches OnSessionStart to all registered session hooks.
-// Nil-safe: no-op if hookRegistry is nil.
-func (c *Conversation) runSessionStart(ctx context.Context) {
-	if c.hookRegistry == nil {
-		return
-	}
-	event := c.buildSessionEvent()
-	_ = c.hookRegistry.RunSessionStart(ctx, event) // errors logged by hooks, don't block Open
-}
-
-// runSessionUpdate dispatches OnSessionUpdate to all registered session hooks.
-// Nil-safe: no-op if hookRegistry is nil.
-func (c *Conversation) runSessionUpdate(ctx context.Context) {
-	if c.hookRegistry == nil {
-		return
-	}
-	event := c.buildSessionEvent()
-	_ = c.hookRegistry.RunSessionUpdate(ctx, event) // errors logged by hooks, don't block Send
-}
-
-// runSessionEnd dispatches OnSessionEnd to all registered session hooks.
-// Nil-safe: no-op if hookRegistry is nil.
-func (c *Conversation) runSessionEnd(ctx context.Context) {
-	if c.hookRegistry == nil {
-		return
-	}
-	event := c.buildSessionEvent()
-	_ = c.hookRegistry.RunSessionEnd(ctx, event) // errors logged by hooks, don't block Close
-}
-
-// buildSessionEvent constructs a SessionEvent from current conversation state.
-func (c *Conversation) buildSessionEvent() hooks.SessionEvent {
-	event := hooks.SessionEvent{
-		TurnIndex: c.turnIndex,
-	}
+// sessionInfo returns the dynamic session state needed by the sessionHookDispatcher
+// to build hooks.SessionEvent payloads. It is used as a sessionInfoFunc callback.
+func (c *Conversation) sessionInfo() (sessionID, conversationID string, messages []types.Message) {
 	// Safely access session IDs
 	if c.unarySession != nil || c.duplexSession != nil {
-		event.SessionID = c.ID()
-		event.Messages = c.Messages(context.Background())
+		sessionID = c.ID()
+		messages = c.Messages(context.Background())
 	}
 	if c.config != nil {
-		event.ConversationID = c.config.conversationID
+		conversationID = c.config.conversationID
 	}
-	return event
+	return sessionID, conversationID, messages
 }
 
 // buildRelevanceConfig converts SDK RelevanceConfig to stage.RelevanceConfig.

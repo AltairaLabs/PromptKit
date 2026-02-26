@@ -199,6 +199,7 @@ func initConversation(
 
 	// Build hook registry BEFORE building pipeline so it can be wired into the provider stage
 	conv.hookRegistry = cfg.buildHookRegistry()
+	conv.sessionHooks = newSessionHookDispatcher(conv.hookRegistry, conv.sessionInfo)
 
 	return conv, prov, nil
 }
@@ -216,7 +217,7 @@ func finalizeConversation(conv *Conversation, cfg *config) error {
 	}
 
 	// Dispatch session start hooks
-	conv.runSessionStart(context.Background())
+	conv.sessionHooks.SessionStart(context.Background())
 
 	return nil
 }
