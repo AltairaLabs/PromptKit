@@ -319,6 +319,81 @@ func TestA2AServer_StreamMessage_ClientDisconnect(t *testing.T) {
 	}
 }
 
+func TestA2AServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
+	// Regression test for goroutine leak: the stream producer never closes
+	// its channel after context cancellation. Before the fix, processChunks
+	// would block on `for range chunks` indefinitely. With the fix, the
+	// select on ctx.Done() causes processChunks to exit promptly.
+	streamStarted := make(chan struct{})
+	handlerReturned := make(chan struct{})
+
+	mock := &mockA2AStreamConv{
+		mockA2AConv: mockA2AConv{
+			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+			ch := make(chan StreamChunk)
+			// Intentionally never close ch — simulates a producer that
+			// doesn't respect context cancellation.
+			close(streamStarted)
+			return ch
+		},
+	}
+
+	srv, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	defer ts.Close()
+
+	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-slow-producer",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
+		},
+	})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  a2a.MethodSendStreamingMessage,
+		Params:  paramsJSON,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+		close(handlerReturned)
+	}()
+
+	// Wait for stream to start, then disconnect.
+	<-streamStarted
+	cancel()
+
+	// The handler must return promptly even though the chunk channel is
+	// never closed. Before the fix this would hang forever.
+	select {
+	case <-handlerReturned:
+		// ok — processChunks exited via ctx.Done()
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out: processChunks did not exit after client disconnect (goroutine leak)")
+	}
+
+	// Wait briefly for async cleanup, then verify broadcaster was removed.
+	time.Sleep(50 * time.Millisecond)
+	srv.subsMu.Lock()
+	remaining := len(srv.subs)
+	srv.subsMu.Unlock()
+	if remaining != 0 {
+		t.Errorf("expected 0 active broadcasters after disconnect, got %d", remaining)
+	}
+}
+
 func TestA2AServer_StreamMessage_NotStreamable(t *testing.T) {
 	// Use a regular (non-streaming) mockA2AConv.
 	mock := completingA2AMock()

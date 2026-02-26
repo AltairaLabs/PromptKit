@@ -272,67 +272,91 @@ func (s *A2AServer) handleStreamMessage(
 
 	chunks := streamConv.Stream(ctx, pkMsg)
 
-	sc.processChunks(chunks)
+	sc.processChunks(ctx, chunks)
 }
 
 // processChunks iterates over the stream channel and emits SSE events.
-func (sc *streamCtx) processChunks(chunks <-chan StreamChunk) {
+// It monitors ctx for client disconnects so the loop exits promptly instead
+// of blocking on a channel read indefinitely (preventing goroutine leaks).
+func (sc *streamCtx) processChunks(ctx context.Context, chunks <-chan StreamChunk) {
 	artifactIdx := 0
 
-	for chunk := range chunks {
-		if chunk.Error != nil {
-			sc.fail(chunk.Error.Error())
+	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected or context canceled. Clean up the
+			// broadcaster so subscribers are notified, then exit.
+			sc.b.close()
+			sc.srv.removeBroadcaster(sc.taskID)
 			return
-		}
 
-		switch chunk.Type {
-		case ChunkText:
-			evt := a2a.TaskArtifactUpdateEvent{
-				TaskID:    sc.taskID,
-				ContextID: sc.contextID,
-				Artifact: a2a.Artifact{
-					ArtifactID: fmt.Sprintf("artifact-%d", artifactIdx),
-					Parts:      []a2a.Part{{Text: &chunk.Text}},
-				},
-				Append: true,
+		case chunk, ok := <-chunks:
+			if !ok {
+				// Channel closed without a Done chunk — treat as completed.
+				sc.complete()
+				return
 			}
-			artifactIdx++
-			sc.emit(evt)
 
-		case ChunkMedia:
-			if chunk.Media == nil {
-				continue
+			done, idx := sc.handleChunk(chunk, artifactIdx)
+			if done {
+				return
 			}
-			part, convErr := a2a.ContentPartToA2APart(types.ContentPart{
-				Type:  a2a.InferContentType(chunk.Media.MIMEType),
-				Media: chunk.Media,
-			})
-			if convErr != nil {
-				continue
-			}
-			evt := a2a.TaskArtifactUpdateEvent{
-				TaskID:    sc.taskID,
-				ContextID: sc.contextID,
-				Artifact: a2a.Artifact{
-					ArtifactID: fmt.Sprintf("artifact-%d", artifactIdx),
-					Parts:      []a2a.Part{part},
-				},
-				Append: true,
-			}
-			artifactIdx++
-			sc.emit(evt)
-
-		case ChunkToolCall:
-			// Suppressed — agent opacity. Task stays working.
-
-		case ChunkDone:
-			sc.complete()
-			return
+			artifactIdx = idx
 		}
 	}
+}
 
-	// Channel closed without a Done chunk — treat as completed.
-	sc.complete()
+// handleChunk processes a single stream chunk and returns whether the stream
+// is finished and the updated artifact index.
+func (sc *streamCtx) handleChunk(chunk StreamChunk, artifactIdx int) (done bool, nextIdx int) {
+	if chunk.Error != nil {
+		sc.fail(chunk.Error.Error())
+		return true, artifactIdx
+	}
+
+	switch chunk.Type {
+	case ChunkText:
+		sc.emitArtifact(artifactIdx, []a2a.Part{{Text: &chunk.Text}})
+		return false, artifactIdx + 1
+
+	case ChunkMedia:
+		if chunk.Media == nil {
+			return false, artifactIdx
+		}
+		part, convErr := a2a.ContentPartToA2APart(types.ContentPart{
+			Type:  a2a.InferContentType(chunk.Media.MIMEType),
+			Media: chunk.Media,
+		})
+		if convErr != nil {
+			return false, artifactIdx
+		}
+		sc.emitArtifact(artifactIdx, []a2a.Part{part})
+		return false, artifactIdx + 1
+
+	case ChunkToolCall:
+		// Suppressed — agent opacity. Task stays working.
+		return false, artifactIdx
+
+	case ChunkDone:
+		sc.complete()
+		return true, artifactIdx
+
+	default:
+		return false, artifactIdx
+	}
+}
+
+// emitArtifact emits a single artifact update event.
+func (sc *streamCtx) emitArtifact(idx int, parts []a2a.Part) {
+	sc.emit(a2a.TaskArtifactUpdateEvent{
+		TaskID:    sc.taskID,
+		ContextID: sc.contextID,
+		Artifact: a2a.Artifact{
+			ArtifactID: fmt.Sprintf("artifact-%d", idx),
+			Parts:      parts,
+		},
+		Append: true,
+	})
 }
 
 // handleTaskSubscribe processes a tasks/subscribe request.
