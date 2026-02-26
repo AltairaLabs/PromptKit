@@ -142,8 +142,7 @@ type Config struct {
 //  3. PromptAssemblyStage - Load and assemble prompt from registry
 //  4. TemplateStage - Prepare system prompt for provider
 //  5. ProviderStage/DuplexProviderStage - LLM call with streaming support
-//  6. ValidationStage - Validate responses (if configured)
-//  7. StateStoreSaveStage - Save conversation state (if configured)
+//  6. StateStoreSaveStage - Save conversation state (if configured)
 //
 // This matches the runtime pipeline used by Arena.
 func Build(cfg *Config) (*stage.StreamPipeline, error) {
