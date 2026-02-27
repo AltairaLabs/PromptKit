@@ -250,6 +250,16 @@ Start with basic assertions, add complexity:
     criteria: "Response complies with brand guidelines"
     judge_provider: "openai/gpt-4o-mini"
     message: "Must meet brand compliance"
+
+# Level 5: External evaluation service
+- type: rest_eval
+  params:
+    url: "https://eval-service.example.com/evaluate"
+    headers:
+      Authorization: "Bearer ${EVAL_API_KEY}"
+    criteria: "Response meets compliance requirements"
+    min_score: 0.9
+    message: "External compliance check"
 ```
 
 ### Quality Gates
