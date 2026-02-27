@@ -8,6 +8,7 @@ use (
 	./pkg
 	./runtime
 	./sdk
+	./server/a2a
 	./tools/arena
 	./tools/inspect-state
 	./tools/packc

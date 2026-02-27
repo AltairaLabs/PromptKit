@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.1.10
+	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
@@ -114,3 +115,5 @@ require (
 )
 
 replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
+
+replace github.com/AltairaLabs/PromptKit/server/a2a => ../server/a2a

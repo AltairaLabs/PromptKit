@@ -1,4 +1,4 @@
-package sdk
+package a2aserver
 
 import (
 	"bytes"
@@ -17,21 +17,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// --- mock streaming conversation ---
-
-type mockA2AStreamConv struct {
-	mockA2AConv
-	streamFunc func(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
-}
-
-func (m *mockA2AStreamConv) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk {
-	return m.streamFunc(ctx, message, opts...)
-}
-
 // --- SSE test helpers ---
 
-// readA2ASSEEvents sends an RPC request and reads SSE events from the response.
-func readA2ASSEEvents(t *testing.T, ts *httptest.Server, method string, params any) []a2a.StreamEvent {
+// readSSEEvents sends an RPC request and reads SSE events from the response.
+func readSSEEvents(t *testing.T, ts *httptest.Server, method string, params any) []a2a.StreamEvent {
 	t.Helper()
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
@@ -68,27 +57,27 @@ func readA2ASSEEvents(t *testing.T, ts *httptest.Server, method string, params a
 
 // --- tests ---
 
-func TestA2AServer_StreamMessage_TextOnly(t *testing.T) {
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_TextOnly(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 3)
-			ch <- StreamChunk{Type: ChunkText, Text: "Hello "}
-			ch <- StreamChunk{Type: ChunkText, Text: "World"}
-			ch <- StreamChunk{Type: ChunkDone}
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 3)
+			ch <- StreamEvent{Kind: EventText, Text: "Hello "}
+			ch <- StreamEvent{Kind: EventText, Text: "World"}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stream",
 			Role:      a2a.RoleUser,
@@ -131,28 +120,28 @@ func TestA2AServer_StreamMessage_TextOnly(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_WithToolCalls(t *testing.T) {
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_WithToolCalls(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 4)
-			ch <- StreamChunk{Type: ChunkText, Text: "thinking..."}
-			ch <- StreamChunk{Type: ChunkToolCall}
-			ch <- StreamChunk{Type: ChunkText, Text: "answer"}
-			ch <- StreamChunk{Type: ChunkDone}
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 4)
+			ch <- StreamEvent{Kind: EventText, Text: "thinking..."}
+			ch <- StreamEvent{Kind: EventToolCall}
+			ch <- StreamEvent{Kind: EventText, Text: "answer"}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-tool",
 			Role:      a2a.RoleUser,
@@ -173,33 +162,33 @@ func TestA2AServer_StreamMessage_WithToolCalls(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_Media(t *testing.T) {
+func TestServer_StreamMessage_Media(t *testing.T) {
 	imgData := "iVBORw0KGgo="
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 2)
-			ch <- StreamChunk{
-				Type: ChunkMedia,
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 2)
+			ch <- StreamEvent{
+				Kind: EventMedia,
 				Media: &types.MediaContent{
 					Data:     &imgData,
 					MIMEType: "image/png",
 				},
 			}
-			ch <- StreamChunk{Type: ChunkDone}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-media",
 			Role:      a2a.RoleUser,
@@ -223,26 +212,26 @@ func TestA2AServer_StreamMessage_Media(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_Error(t *testing.T) {
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_Error(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 2)
-			ch <- StreamChunk{Type: ChunkText, Text: "partial"}
-			ch <- StreamChunk{Error: errors.New("stream broke")}
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 2)
+			ch <- StreamEvent{Kind: EventText, Text: "partial"}
+			ch <- StreamEvent{Error: errors.New("stream broke")}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-err",
 			Role:      a2a.RoleUser,
@@ -257,18 +246,18 @@ func TestA2AServer_StreamMessage_Error(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_ClientDisconnect(t *testing.T) {
+func TestServer_StreamMessage_ClientDisconnect(t *testing.T) {
 	streamStarted := make(chan struct{})
 	ctxCanceled := make(chan struct{})
 
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(ctx context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk)
+		streamFunc: func(ctx context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent)
 			go func() {
 				defer close(ch)
 				close(streamStarted)
@@ -279,7 +268,7 @@ func TestA2AServer_StreamMessage_ClientDisconnect(t *testing.T) {
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{
@@ -319,22 +308,18 @@ func TestA2AServer_StreamMessage_ClientDisconnect(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
-	// Regression test for goroutine leak: the stream producer never closes
-	// its channel after context cancellation. Before the fix, processChunks
-	// would block on `for range chunks` indefinitely. With the fix, the
-	// select on ctx.Done() causes processChunks to exit promptly.
+func TestServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 	streamStarted := make(chan struct{})
 	handlerReturned := make(chan struct{})
 
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk)
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent)
 			// Intentionally never close ch — simulates a producer that
 			// doesn't respect context cancellation.
 			close(streamStarted)
@@ -342,7 +327,7 @@ func TestA2AServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 		},
 	}
 
-	srv, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{
@@ -376,12 +361,12 @@ func TestA2AServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 	cancel()
 
 	// The handler must return promptly even though the chunk channel is
-	// never closed. Before the fix this would hang forever.
+	// never closed.
 	select {
 	case <-handlerReturned:
-		// ok — processChunks exited via ctx.Done()
+		// ok — processEvents exited via ctx.Done()
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out: processChunks did not exit after client disconnect (goroutine leak)")
+		t.Fatal("timed out: processEvents did not exit after client disconnect (goroutine leak)")
 	}
 
 	// Wait briefly for async cleanup, then verify broadcaster was removed.
@@ -394,10 +379,10 @@ func TestA2AServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_NotStreamable(t *testing.T) {
-	// Use a regular (non-streaming) mockA2AConv.
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_StreamMessage_NotStreamable(t *testing.T) {
+	// Use a regular (non-streaming) mockConv.
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	resp := a2aRPCRequest(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
@@ -416,26 +401,26 @@ func TestA2AServer_StreamMessage_NotStreamable(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_StreamInitError(t *testing.T) {
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_StreamInitError(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
 			// Return a channel that immediately sends an error.
-			ch := make(chan StreamChunk, 1)
-			ch <- StreamChunk{Error: errors.New("stream init failed")}
+			ch := make(chan StreamEvent, 1)
+			ch <- StreamEvent{Error: errors.New("stream init failed")}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-init-err",
 			Role:      a2a.RoleUser,
@@ -454,25 +439,25 @@ func TestA2AServer_StreamMessage_StreamInitError(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_ChannelCloseWithoutDone(t *testing.T) {
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_ChannelCloseWithoutDone(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 2)
-			ch <- StreamChunk{Type: ChunkText, Text: "partial"}
-			close(ch) // Close without sending ChunkDone.
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 2)
+			ch <- StreamEvent{Kind: EventText, Text: "partial"}
+			close(ch) // Close without sending EventDone.
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-nodone",
 			Role:      a2a.RoleUser,
@@ -487,46 +472,44 @@ func TestA2AServer_StreamMessage_ChannelCloseWithoutDone(t *testing.T) {
 	}
 }
 
-func TestA2AServer_TaskSubscribe(t *testing.T) {
+func TestServer_TaskSubscribe(t *testing.T) {
 	streamReady := make(chan struct{})
 	continueStream := make(chan struct{})
 
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(ctx context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk)
+		streamFunc: func(ctx context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent)
 			go func() {
 				defer close(ch)
 				close(streamReady)
 				<-continueStream
-				ch <- StreamChunk{Type: ChunkText, Text: "result"}
-				ch <- StreamChunk{Type: ChunkDone}
+				ch <- StreamEvent{Kind: EventText, Text: "result"}
+				ch <- StreamEvent{Kind: EventDone}
 			}()
 			return ch
 		},
 	}
 
-	srv, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	// Start a streaming message in the background.
 	var streamEvents []a2a.StreamEvent
 	var streamWg sync.WaitGroup
-	streamWg.Add(1)
-	go func() {
-		defer streamWg.Done()
-		streamEvents = readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	streamWg.Go(func() {
+		streamEvents = readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 			Message: a2a.Message{
 				ContextID: "ctx-sub",
 				Role:      a2a.RoleUser,
 				Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
 			},
 		})
-	}()
+	})
 
 	// Wait for stream to be ready.
 	<-streamReady
@@ -547,13 +530,11 @@ func TestA2AServer_TaskSubscribe(t *testing.T) {
 	// Subscribe in background.
 	var subEvents []a2a.StreamEvent
 	var subWg sync.WaitGroup
-	subWg.Add(1)
-	go func() {
-		defer subWg.Done()
-		subEvents = readA2ASSEEvents(t, ts, a2a.MethodTaskSubscribe, a2a.SubscribeTaskRequest{
+	subWg.Go(func() {
+		subEvents = readSSEEvents(t, ts, a2a.MethodTaskSubscribe, a2a.SubscribeTaskRequest{
 			ID: taskID,
 		})
-	}()
+	})
 
 	// Give the subscriber time to connect.
 	time.Sleep(50 * time.Millisecond)
@@ -586,16 +567,16 @@ func TestA2AServer_TaskSubscribe(t *testing.T) {
 	}
 }
 
-func TestA2AServer_TaskSubscribe_CompletedTask(t *testing.T) {
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_TaskSubscribe_CompletedTask(t *testing.T) {
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	// Create a completed task.
 	task := a2aSendMessage(t, ts, "ctx-completed", "Hello")
 
 	// Subscribe to the completed task.
-	events := readA2ASSEEvents(t, ts, a2a.MethodTaskSubscribe, a2a.SubscribeTaskRequest{
+	events := readSSEEvents(t, ts, a2a.MethodTaskSubscribe, a2a.SubscribeTaskRequest{
 		ID: task.ID,
 	})
 
@@ -609,8 +590,8 @@ func TestA2AServer_TaskSubscribe_CompletedTask(t *testing.T) {
 	}
 }
 
-func TestA2AServer_TaskSubscribe_NotFound(t *testing.T) {
-	_, ts := newA2ATestServer(nopA2AOpener)
+func TestServer_TaskSubscribe_NotFound(t *testing.T) {
+	_, ts := newTestServer(nopOpener)
 	defer ts.Close()
 
 	resp := a2aRPCRequest(t, ts, a2a.MethodTaskSubscribe, a2a.SubscribeTaskRequest{
@@ -627,36 +608,35 @@ func TestA2AServer_TaskSubscribe_NotFound(t *testing.T) {
 
 // --- Group B: Streaming Data Integrity ---
 
-func TestA2AServer_StreamMessage_MediaDataIntegrity(t *testing.T) {
-	// Verify actual Raw bytes in artifact event match original base64 data.
+func TestServer_StreamMessage_MediaDataIntegrity(t *testing.T) {
 	originalBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 	b64 := base64.StdEncoding.EncodeToString(originalBytes)
 
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 2)
-			ch <- StreamChunk{
-				Type: ChunkMedia,
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 2)
+			ch <- StreamEvent{
+				Kind: EventMedia,
 				Media: &types.MediaContent{
 					Data:     &b64,
 					MIMEType: "image/png",
 				},
 			}
-			ch <- StreamChunk{Type: ChunkDone}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-media-integrity",
 			Role:      a2a.RoleUser,
@@ -681,35 +661,34 @@ func TestA2AServer_StreamMessage_MediaDataIntegrity(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_URLMedia(t *testing.T) {
-	// Streams ChunkMedia with URL-based media (not base64).
+func TestServer_StreamMessage_URLMedia(t *testing.T) {
 	imgURL := "https://example.com/streamed.png"
 
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 2)
-			ch <- StreamChunk{
-				Type: ChunkMedia,
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 2)
+			ch <- StreamEvent{
+				Kind: EventMedia,
 				Media: &types.MediaContent{
 					URL:      &imgURL,
 					MIMEType: "image/png",
 				},
 			}
-			ch <- StreamChunk{Type: ChunkDone}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-stream-url",
 			Role:      a2a.RoleUser,
@@ -734,38 +713,36 @@ func TestA2AServer_StreamMessage_URLMedia(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_MixedTextAndMedia(t *testing.T) {
-	// Interleaved ChunkText + ChunkMedia chunks. Each produces separate
-	// artifact event with correct content. Artifact IDs increment.
+func TestServer_StreamMessage_MixedTextAndMedia(t *testing.T) {
 	imgData := base64.StdEncoding.EncodeToString([]byte{0xFF, 0xD8})
 
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 4)
-			ch <- StreamChunk{Type: ChunkText, Text: "Here is an image:"}
-			ch <- StreamChunk{
-				Type: ChunkMedia,
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 4)
+			ch <- StreamEvent{Kind: EventText, Text: "Here is an image:"}
+			ch <- StreamEvent{
+				Kind: EventMedia,
 				Media: &types.MediaContent{
 					Data:     &imgData,
 					MIMEType: "image/jpeg",
 				},
 			}
-			ch <- StreamChunk{Type: ChunkText, Text: "End of response"}
-			ch <- StreamChunk{Type: ChunkDone}
+			ch <- StreamEvent{Kind: EventText, Text: "End of response"}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-mixed-stream",
 			Role:      a2a.RoleUser,
@@ -803,28 +780,27 @@ func TestA2AServer_StreamMessage_MixedTextAndMedia(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_NilMedia(t *testing.T) {
-	// ChunkMedia with Media: nil. Silently skipped, no artifact event emitted.
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_NilMedia(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 3)
-			ch <- StreamChunk{Type: ChunkMedia, Media: nil} // nil media — should be skipped
-			ch <- StreamChunk{Type: ChunkText, Text: "after nil"}
-			ch <- StreamChunk{Type: ChunkDone}
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 3)
+			ch <- StreamEvent{Kind: EventMedia, Media: nil} // nil media — should be skipped
+			ch <- StreamEvent{Kind: EventText, Text: "after nil"}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-nil-media",
 			Role:      a2a.RoleUser,
@@ -844,36 +820,34 @@ func TestA2AServer_StreamMessage_NilMedia(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_MediaConversionError(t *testing.T) {
-	// ChunkMedia with media that has no Data and no URL. Silently skipped,
-	// subsequent chunks still work.
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_MediaConversionError(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 4)
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 4)
 			// Media with no Data or URL — ContentPartToA2APart will fail.
-			ch <- StreamChunk{
-				Type: ChunkMedia,
+			ch <- StreamEvent{
+				Kind: EventMedia,
 				Media: &types.MediaContent{
 					MIMEType: "image/png",
 					// No Data, no URL — will error.
 				},
 			}
-			ch <- StreamChunk{Type: ChunkText, Text: "still works"}
-			ch <- StreamChunk{Type: ChunkDone}
+			ch <- StreamEvent{Kind: EventText, Text: "still works"}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-conv-err",
 			Role:      a2a.RoleUser,
@@ -899,29 +873,28 @@ func TestA2AServer_StreamMessage_MediaConversionError(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_ArtifactIDs(t *testing.T) {
-	// 5 text chunks → artifact IDs are "artifact-0" through "artifact-4" in order.
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_ArtifactIDs(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 6)
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 6)
 			for i := range 5 {
-				ch <- StreamChunk{Type: ChunkText, Text: fmt.Sprintf("chunk-%d", i)}
+				ch <- StreamEvent{Kind: EventText, Text: fmt.Sprintf("chunk-%d", i)}
 			}
-			ch <- StreamChunk{Type: ChunkDone}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-artifact-ids",
 			Role:      a2a.RoleUser,
@@ -947,27 +920,26 @@ func TestA2AServer_StreamMessage_ArtifactIDs(t *testing.T) {
 	}
 }
 
-func TestA2AServer_StreamMessage_TaskStoreAfterStream(t *testing.T) {
-	// After streaming completes, tasks/get returns task in completed state.
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
+func TestServer_StreamMessage_TaskStoreAfterStream(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
 				return nil, errors.New("should not call Send")
 			},
 		},
-		streamFunc: func(_ context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
-			ch := make(chan StreamChunk, 2)
-			ch <- StreamChunk{Type: ChunkText, Text: "streamed result"}
-			ch <- StreamChunk{Type: ChunkDone}
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 2)
+			ch <- StreamEvent{Kind: EventText, Text: "streamed result"}
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	events := readA2ASSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-store-stream",
 			Role:      a2a.RoleUser,
