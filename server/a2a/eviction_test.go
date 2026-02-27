@@ -1,4 +1,4 @@
-package sdk
+package a2aserver
 
 import (
 	"context"
@@ -14,8 +14,8 @@ import (
 
 // --- eviction tests ---
 
-func TestA2AServer_EvictOnce_EvictsTerminalTasks(t *testing.T) {
-	store := NewInMemoryA2ATaskStore()
+func TestServer_EvictOnce_EvictsTerminalTasks(t *testing.T) {
+	store := NewInMemoryTaskStore()
 
 	// Create a completed task with an old timestamp.
 	_, err := store.Create("old-task", "ctx-1")
@@ -39,22 +39,20 @@ func TestA2AServer_EvictOnce_EvictsTerminalTasks(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.SetState("working-task", a2a.TaskStateWorking, nil))
 
-	conv := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-					message: &types.Message{
-						Role:  "assistant",
-						Parts: []types.ContentPart{types.NewTextPart("ok")},
-					},
-				}, nil
+	conv := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
+			}, nil
 		},
 	}
-	opener := func(_ string) (a2aConv, error) { return conv, nil }
+	opener := func(_ string) (Conversation, error) { return conv, nil }
 
-	srv := NewA2AServer(opener,
-		WithA2ATaskStore(store),
-		WithA2ATaskTTL(1*time.Hour),
-		WithA2AConversationTTL(0), // disable conv eviction for this test
+	srv := NewServer(opener,
+		WithTaskStore(store),
+		WithTaskTTL(1*time.Hour),
+		WithConversationTTL(0), // disable conv eviction for this test
 	)
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
@@ -83,45 +81,39 @@ func TestA2AServer_EvictOnce_EvictsTerminalTasks(t *testing.T) {
 	assert.False(t, hasBroadcaster, "broadcaster for evicted task should be removed")
 }
 
-func TestA2AServer_EvictOnce_EvictsIdleConversations(t *testing.T) {
-	opener := func(_ string) (a2aConv, error) {
-		return &mockA2AConv{
-			sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-				return &Response{
-					message: &types.Message{
-						Role:  "assistant",
-						Parts: []types.ContentPart{types.NewTextPart("ok")},
-					},
+func TestServer_EvictOnce_EvictsIdleConversations(t *testing.T) {
+	opener := func(_ string) (Conversation, error) {
+		return &mockConv{
+			sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+				return &mockSendResult{
+					parts: []types.ContentPart{types.NewTextPart("ok")},
+					text:  "ok",
 				}, nil
 			},
 		}, nil
 	}
 
-	srv := NewA2AServer(opener,
-		WithA2ATaskTTL(0), // disable task eviction
-		WithA2AConversationTTL(1*time.Hour),
+	srv := NewServer(opener,
+		WithTaskTTL(0), // disable task eviction
+		WithConversationTTL(1*time.Hour),
 	)
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
 	// Manually add conversations with different last-use timestamps.
-	oldConv := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-					message: &types.Message{
-						Role:  "assistant",
-						Parts: []types.ContentPart{types.NewTextPart("ok")},
-					},
-				}, nil
+	oldConv := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
+			}, nil
 		},
 	}
-	newConv := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-					message: &types.Message{
-						Role:  "assistant",
-						Parts: []types.ContentPart{types.NewTextPart("ok")},
-					},
-				}, nil
+	newConv := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
+			}, nil
 		},
 	}
 	srv.convsMu.Lock()
@@ -146,23 +138,21 @@ func TestA2AServer_EvictOnce_EvictsIdleConversations(t *testing.T) {
 	assert.False(t, newConv.closed.Load(), "active conversation should not be closed")
 }
 
-func TestA2AServer_EvictOnce_EvictsClosedBroadcasters(t *testing.T) {
-	opener := func(_ string) (a2aConv, error) {
-		return &mockA2AConv{
-			sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-				return &Response{
-					message: &types.Message{
-						Role:  "assistant",
-						Parts: []types.ContentPart{types.NewTextPart("ok")},
-					},
+func TestServer_EvictOnce_EvictsClosedBroadcasters(t *testing.T) {
+	opener := func(_ string) (Conversation, error) {
+		return &mockConv{
+			sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+				return &mockSendResult{
+					parts: []types.ContentPart{types.NewTextPart("ok")},
+					text:  "ok",
 				}, nil
 			},
 		}, nil
 	}
 
-	srv := NewA2AServer(opener,
-		WithA2ATaskTTL(0),
-		WithA2AConversationTTL(0),
+	srv := NewServer(opener,
+		WithTaskTTL(0),
+		WithConversationTTL(0),
 	)
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
@@ -184,23 +174,21 @@ func TestA2AServer_EvictOnce_EvictsClosedBroadcasters(t *testing.T) {
 	_ = openB // keep reference
 }
 
-func TestA2AServer_ShutdownStopsEviction(t *testing.T) {
-	opener := func(_ string) (a2aConv, error) {
-		return &mockA2AConv{
-			sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-				return &Response{
-					message: &types.Message{
-						Role:  "assistant",
-						Parts: []types.ContentPart{types.NewTextPart("ok")},
-					},
+func TestServer_ShutdownStopsEviction(t *testing.T) {
+	opener := func(_ string) (Conversation, error) {
+		return &mockConv{
+			sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+				return &mockSendResult{
+					parts: []types.ContentPart{types.NewTextPart("ok")},
+					text:  "ok",
 				}, nil
 			},
 		}, nil
 	}
 
-	srv := NewA2AServer(opener,
-		WithA2ATaskTTL(1*time.Hour),
-		WithA2AConversationTTL(1*time.Hour),
+	srv := NewServer(opener,
+		WithTaskTTL(1*time.Hour),
+		WithConversationTTL(1*time.Hour),
 	)
 
 	// Shutdown should close the stop channel.
@@ -216,29 +204,29 @@ func TestA2AServer_ShutdownStopsEviction(t *testing.T) {
 	}
 }
 
-func TestWithA2ATaskTTL(t *testing.T) {
-	opener := func(_ string) (a2aConv, error) { return nil, nil }
+func TestWithTaskTTL(t *testing.T) {
+	opener := func(_ string) (Conversation, error) { return nil, nil }
 
-	srv := NewA2AServer(opener, WithA2ATaskTTL(30*time.Minute))
+	srv := NewServer(opener, WithTaskTTL(30*time.Minute))
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 	assert.Equal(t, 30*time.Minute, srv.taskTTL)
 }
 
-func TestWithA2AConversationTTL(t *testing.T) {
-	opener := func(_ string) (a2aConv, error) { return nil, nil }
+func TestWithConversationTTL(t *testing.T) {
+	opener := func(_ string) (Conversation, error) { return nil, nil }
 
-	srv := NewA2AServer(opener, WithA2AConversationTTL(45*time.Minute))
+	srv := NewServer(opener, WithConversationTTL(45*time.Minute))
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 	assert.Equal(t, 45*time.Minute, srv.convTTL)
 }
 
-func TestA2AServer_DisabledEviction(t *testing.T) {
-	opener := func(_ string) (a2aConv, error) { return nil, nil }
+func TestServer_DisabledEviction(t *testing.T) {
+	opener := func(_ string) (Conversation, error) { return nil, nil }
 
 	// Both TTLs set to 0 should not start the eviction goroutine.
-	srv := NewA2AServer(opener,
-		WithA2ATaskTTL(0),
-		WithA2AConversationTTL(0),
+	srv := NewServer(opener,
+		WithTaskTTL(0),
+		WithConversationTTL(0),
 	)
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 
@@ -246,22 +234,20 @@ func TestA2AServer_DisabledEviction(t *testing.T) {
 	srv.evictOnce()
 }
 
-func TestA2AServer_ConversationLastUseUpdated(t *testing.T) {
-	conv := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-					message: &types.Message{
-						Role:  "assistant",
-						Parts: []types.ContentPart{types.NewTextPart("ok")},
-					},
-				}, nil
+func TestServer_ConversationLastUseUpdated(t *testing.T) {
+	conv := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
+			}, nil
 		},
 	}
-	opener := func(_ string) (a2aConv, error) { return conv, nil }
+	opener := func(_ string) (Conversation, error) { return conv, nil }
 
-	srv := NewA2AServer(opener,
-		WithA2ATaskTTL(0),
-		WithA2AConversationTTL(1*time.Hour),
+	srv := NewServer(opener,
+		WithTaskTTL(0),
+		WithConversationTTL(1*time.Hour),
 	)
 	defer func() { _ = srv.Shutdown(context.Background()) }()
 

@@ -1,4 +1,4 @@
-package sdk
+package a2aserver
 
 import (
 	"context"
@@ -58,79 +58,101 @@ const (
 	evictionInterval = 1 * time.Minute
 )
 
-// a2aConv is the subset of *Conversation the A2A server needs.
-type a2aConv interface {
-	Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
-	Close() error
+// Authenticator validates incoming requests. Return a non-nil error to reject.
+type Authenticator interface {
+	Authenticate(r *http.Request) error
 }
 
-// A2AConversationOpener creates or retrieves a conversation for a context ID.
-type A2AConversationOpener func(contextID string) (a2aConv, error)
-
-// A2AServerOption configures an [A2AServer].
-type A2AServerOption func(*A2AServer)
-
-// WithA2ACard sets the agent card served at /.well-known/agent.json.
-func WithA2ACard(card *a2a.AgentCard) A2AServerOption {
-	return func(s *A2AServer) { s.card = *card }
+// AgentCardProvider returns the agent card to serve at /.well-known/agent.json.
+type AgentCardProvider interface {
+	AgentCard(r *http.Request) (*a2a.AgentCard, error)
 }
 
-// WithA2APort sets the TCP port for ListenAndServe.
-func WithA2APort(port int) A2AServerOption {
-	return func(s *A2AServer) { s.port = port }
+// StaticCard is an AgentCardProvider that always returns the same card.
+type StaticCard struct {
+	Card a2a.AgentCard
 }
 
-// WithA2ATaskStore sets a custom task store. Defaults to an in-memory store.
-func WithA2ATaskStore(store A2ATaskStore) A2AServerOption {
-	return func(s *A2AServer) { s.taskStore = store }
+// AgentCard returns the static card.
+func (s *StaticCard) AgentCard(*http.Request) (*a2a.AgentCard, error) {
+	return &s.Card, nil
 }
 
-// WithA2AReadTimeout sets the maximum duration for reading the entire request.
+// Option configures a [Server].
+type Option func(*Server)
+
+// WithCard sets the agent card served at /.well-known/agent.json.
+func WithCard(card *a2a.AgentCard) Option {
+	return func(s *Server) { s.cardProvider = &StaticCard{Card: *card} }
+}
+
+// WithCardProvider sets a dynamic agent card provider.
+func WithCardProvider(p AgentCardProvider) Option {
+	return func(s *Server) { s.cardProvider = p }
+}
+
+// WithPort sets the TCP port for ListenAndServe.
+func WithPort(port int) Option {
+	return func(s *Server) { s.port = port }
+}
+
+// WithTaskStore sets a custom task store. Defaults to an in-memory store.
+func WithTaskStore(store TaskStore) Option {
+	return func(s *Server) { s.taskStore = store }
+}
+
+// WithReadTimeout sets the maximum duration for reading the entire request.
 // Default: 30s.
-func WithA2AReadTimeout(d time.Duration) A2AServerOption {
-	return func(s *A2AServer) { s.readTimeout = d }
+func WithReadTimeout(d time.Duration) Option {
+	return func(s *Server) { s.readTimeout = d }
 }
 
-// WithA2AWriteTimeout sets the maximum duration before timing out writes of
+// WithWriteTimeout sets the maximum duration before timing out writes of
 // the response. Default: 60s.
-func WithA2AWriteTimeout(d time.Duration) A2AServerOption {
-	return func(s *A2AServer) { s.writeTimeout = d }
+func WithWriteTimeout(d time.Duration) Option {
+	return func(s *Server) { s.writeTimeout = d }
 }
 
-// WithA2AIdleTimeout sets the maximum amount of time to wait for the next
+// WithIdleTimeout sets the maximum amount of time to wait for the next
 // request when keep-alives are enabled. Default: 120s.
-func WithA2AIdleTimeout(d time.Duration) A2AServerOption {
-	return func(s *A2AServer) { s.idleTimeout = d }
+func WithIdleTimeout(d time.Duration) Option {
+	return func(s *Server) { s.idleTimeout = d }
 }
 
-// WithA2AMaxBodySize sets the maximum allowed request body size in bytes.
+// WithMaxBodySize sets the maximum allowed request body size in bytes.
 // Default: 10 MB.
-func WithA2AMaxBodySize(n int64) A2AServerOption {
-	return func(s *A2AServer) { s.maxBodySize = n }
+func WithMaxBodySize(n int64) Option {
+	return func(s *Server) { s.maxBodySize = n }
 }
 
-// WithA2ATaskTTL sets how long completed/failed/canceled tasks are retained
+// WithTaskTTL sets how long completed/failed/canceled tasks are retained
 // before automatic eviction. Default: 1 hour. Set to 0 to disable eviction.
-func WithA2ATaskTTL(d time.Duration) A2AServerOption {
-	return func(s *A2AServer) { s.taskTTL = d }
+func WithTaskTTL(d time.Duration) Option {
+	return func(s *Server) { s.taskTTL = d }
 }
 
-// WithA2AConversationTTL sets how long idle conversations are retained before
+// WithConversationTTL sets how long idle conversations are retained before
 // automatic eviction. A conversation is considered idle when its last-use
 // timestamp exceeds this duration. Default: 1 hour. Set to 0 to disable.
-func WithA2AConversationTTL(d time.Duration) A2AServerOption {
-	return func(s *A2AServer) { s.convTTL = d }
+func WithConversationTTL(d time.Duration) Option {
+	return func(s *Server) { s.convTTL = d }
 }
 
-// A2AServer is an HTTP server that exposes a PromptKit Conversation as an
+// WithAuthenticator sets an authenticator for incoming requests.
+func WithAuthenticator(auth Authenticator) Option {
+	return func(s *Server) { s.authenticator = auth }
+}
+
+// Server is an HTTP server that exposes a Conversation as an
 // A2A-compliant JSON-RPC endpoint.
-type A2AServer struct {
-	opener    A2AConversationOpener
-	taskStore A2ATaskStore
-	card      a2a.AgentCard
-	port      int
-	httpSrv   *http.Server
-	httpSrvMu sync.Mutex
+type Server struct {
+	opener        ConversationOpener
+	taskStore     TaskStore
+	cardProvider  AgentCardProvider
+	authenticator Authenticator
+	port          int
+	httpSrv       *http.Server
+	httpSrvMu     sync.Mutex
 
 	readTimeout  time.Duration
 	writeTimeout time.Duration
@@ -144,8 +166,8 @@ type A2AServer struct {
 	stopCh   chan struct{} // closed to stop the eviction goroutine
 
 	convsMu     sync.RWMutex
-	convs       map[string]a2aConv   // context_id → conversation
-	convLastUse map[string]time.Time // context_id → last activity timestamp
+	convs       map[string]Conversation // context_id → conversation
+	convLastUse map[string]time.Time    // context_id → last activity timestamp
 
 	cancelsMu sync.Mutex
 	cancels   map[string]context.CancelFunc // task_id → cancel for in-flight Send
@@ -154,11 +176,11 @@ type A2AServer struct {
 	subs   map[string]*taskBroadcaster // task_id → broadcaster
 }
 
-// NewA2AServer creates a new A2A server.
-func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2AServer {
-	s := &A2AServer{
+// NewServer creates a new A2A server.
+func NewServer(opener ConversationOpener, opts ...Option) *Server {
+	s := &Server{
 		opener:       opener,
-		convs:        make(map[string]a2aConv),
+		convs:        make(map[string]Conversation),
 		convLastUse:  make(map[string]time.Time),
 		cancels:      make(map[string]context.CancelFunc),
 		subs:         make(map[string]*taskBroadcaster),
@@ -174,7 +196,7 @@ func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2ASer
 		opt(s)
 	}
 	if s.taskStore == nil {
-		s.taskStore = NewInMemoryA2ATaskStore()
+		s.taskStore = NewInMemoryTaskStore()
 	}
 
 	// Start background eviction if at least one TTL is enabled.
@@ -186,7 +208,7 @@ func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2ASer
 }
 
 // Handler returns an http.Handler implementing the A2A protocol.
-func (s *A2AServer) Handler() http.Handler {
+func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/agent.json", s.handleAgentCard)
 	mux.HandleFunc("POST /a2a", s.handleRPC)
@@ -194,7 +216,7 @@ func (s *A2AServer) Handler() http.Handler {
 }
 
 // ListenAndServe starts the HTTP server on the configured port.
-func (s *A2AServer) ListenAndServe() error {
+func (s *Server) ListenAndServe() error {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.port),
 		Handler:           s.Handler(),
@@ -213,7 +235,7 @@ func (s *A2AServer) ListenAndServe() error {
 
 // Shutdown gracefully shuts down the server: stops the eviction goroutine,
 // drains HTTP requests, cancels in-flight tasks, and closes all conversations.
-func (s *A2AServer) Shutdown(ctx context.Context) error {
+func (s *Server) Shutdown(ctx context.Context) error {
 	// Stop the eviction goroutine.
 	s.stopOnce.Do(func() { close(s.stopCh) })
 
@@ -252,7 +274,7 @@ func (s *A2AServer) Shutdown(ctx context.Context) error {
 }
 
 // Serve starts the HTTP server on the given listener.
-func (s *A2AServer) Serve(ln net.Listener) error {
+func (s *Server) Serve(ln net.Listener) error {
 	srv := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
@@ -269,13 +291,31 @@ func (s *A2AServer) Serve(ln net.Listener) error {
 }
 
 // handleAgentCard serves the agent card as JSON.
-func (s *A2AServer) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
+	if s.cardProvider == nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(a2a.AgentCard{})
+		return
+	}
+	card, err := s.cardProvider.AgentCard(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(s.card)
+	_ = json.NewEncoder(w).Encode(card)
 }
 
 // handleRPC dispatches a JSON-RPC 2.0 request to the appropriate handler.
-func (s *A2AServer) handleRPC(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
+	// Authenticate if configured.
+	if s.authenticator != nil {
+		if err := s.authenticator.Authenticate(r); err != nil {
+			writeRPCError(w, nil, -32000, fmt.Sprintf("Authentication failed: %v", err))
+			return
+		}
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodySize)
 
 	var req a2a.JSONRPCRequest
@@ -303,7 +343,7 @@ func (s *A2AServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSendMessage processes a message/send request.
-func (s *A2AServer) handleSendMessage(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
+func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
 	var params a2a.SendMessageRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
@@ -355,7 +395,7 @@ func (s *A2AServer) handleSendMessage(w http.ResponseWriter, r *http.Request, re
 
 // runConversation spawns a goroutine that drives the conversation for a task.
 // It returns a channel that is closed when the goroutine completes.
-func (s *A2AServer) runConversation(parent context.Context, taskID string, conv a2aConv, pkMsg any) <-chan struct{} {
+func (s *Server) runConversation(parent context.Context, taskID string, conv Conversation, pkMsg any) <-chan struct{} {
 	ctx, cancel := context.WithCancel(parent)
 	s.cancelsMu.Lock()
 	s.cancels[taskID] = cancel
@@ -383,7 +423,7 @@ func (s *A2AServer) runConversation(parent context.Context, taskID string, conv 
 			return
 		}
 
-		if len(resp.PendingTools()) > 0 {
+		if resp.HasPendingTools() {
 			_ = s.taskStore.SetState(taskID, a2a.TaskStateInputRequired, nil)
 			return
 		}
@@ -405,7 +445,7 @@ func (s *A2AServer) runConversation(parent context.Context, taskID string, conv 
 }
 
 // handleGetTask processes a tasks/get request.
-func (s *A2AServer) handleGetTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+func (s *Server) handleGetTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
 	var params a2a.GetTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
@@ -422,7 +462,7 @@ func (s *A2AServer) handleGetTask(w http.ResponseWriter, req *a2a.JSONRPCRequest
 }
 
 // handleCancelTask processes a tasks/cancel request.
-func (s *A2AServer) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+func (s *Server) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
 	var params a2a.CancelTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
@@ -447,7 +487,7 @@ func (s *A2AServer) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequ
 }
 
 // handleListTasks processes a tasks/list request.
-func (s *A2AServer) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
+func (s *Server) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
 	var params a2a.ListTasksRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")
@@ -480,7 +520,7 @@ func (s *A2AServer) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCReque
 // getOrCreateConversation retrieves an existing conversation for the context ID
 // or creates a new one via the opener (double-check lock pattern).
 // It also updates the last-use timestamp for conversation TTL tracking.
-func (s *A2AServer) getOrCreateConversation(contextID string) (a2aConv, error) {
+func (s *Server) getOrCreateConversation(contextID string) (Conversation, error) {
 	s.convsMu.RLock()
 	if conv, ok := s.convs[contextID]; ok {
 		s.convsMu.RUnlock()
@@ -540,7 +580,7 @@ func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
 
 // evictionLoop periodically sweeps expired tasks, conversations, and
 // broadcasters. It runs until stopCh is closed (via Shutdown).
-func (s *A2AServer) evictionLoop() {
+func (s *Server) evictionLoop() {
 	ticker := time.NewTicker(evictionInterval)
 	defer ticker.Stop()
 
@@ -555,7 +595,7 @@ func (s *A2AServer) evictionLoop() {
 }
 
 // evictOnce runs a single eviction pass. It is safe to call concurrently.
-func (s *A2AServer) evictOnce() {
+func (s *Server) evictOnce() {
 	now := time.Now()
 	s.evictTerminalTasks(now)
 	s.evictClosedBroadcasters()
@@ -564,7 +604,7 @@ func (s *A2AServer) evictOnce() {
 
 // evictTerminalTasks removes expired terminal tasks and their associated
 // cancel functions and broadcasters.
-func (s *A2AServer) evictTerminalTasks(now time.Time) {
+func (s *Server) evictTerminalTasks(now time.Time) {
 	if s.taskTTL <= 0 {
 		return
 	}
@@ -584,7 +624,7 @@ func (s *A2AServer) evictTerminalTasks(now time.Time) {
 }
 
 // evictClosedBroadcasters removes broadcasters that have already been closed.
-func (s *A2AServer) evictClosedBroadcasters() {
+func (s *Server) evictClosedBroadcasters() {
 	s.subsMu.Lock()
 	defer s.subsMu.Unlock()
 	for id, b := range s.subs {
@@ -599,7 +639,7 @@ func (s *A2AServer) evictClosedBroadcasters() {
 
 // evictIdleConversations closes and removes conversations whose last-use
 // timestamp exceeds the conversation TTL.
-func (s *A2AServer) evictIdleConversations(now time.Time) {
+func (s *Server) evictIdleConversations(now time.Time) {
 	if s.convTTL <= 0 {
 		return
 	}

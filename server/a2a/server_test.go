@@ -1,4 +1,4 @@
-package sdk
+package a2aserver
 
 import (
 	"bytes"
@@ -26,28 +26,51 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// --- mock conversation for A2A server tests ---
+// --- mock SendResult ---
 
-type mockA2AConv struct {
-	sendFunc func(ctx context.Context, message any, opts ...SendOption) (*Response, error)
+type mockSendResult struct {
+	parts      []types.ContentPart
+	text       string
+	hasPending bool
+}
+
+func (r *mockSendResult) HasPendingTools() bool       { return r.hasPending }
+func (r *mockSendResult) Parts() []types.ContentPart { return r.parts }
+func (r *mockSendResult) Text() string               { return r.text }
+
+// --- mock conversation for server tests ---
+
+type mockConv struct {
+	sendFunc func(ctx context.Context, message any) (SendResult, error)
 	closed   atomic.Bool
 }
 
-func (m *mockA2AConv) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
-	return m.sendFunc(ctx, message, opts...)
+func (m *mockConv) Send(ctx context.Context, message any) (SendResult, error) {
+	return m.sendFunc(ctx, message)
 }
 
-func (m *mockA2AConv) Close() error {
+func (m *mockConv) Close() error {
 	m.closed.Store(true)
 	return nil
+}
+
+// --- mock streaming conversation ---
+
+type mockStreamConv struct {
+	mockConv
+	streamFunc func(ctx context.Context, message any) <-chan StreamEvent
+}
+
+func (m *mockStreamConv) Stream(ctx context.Context, message any) <-chan StreamEvent {
+	return m.streamFunc(ctx, message)
 }
 
 // --- helpers ---
 
 func serverTextPtr(s string) *string { return &s }
 
-func newA2ATestServer(opener A2AConversationOpener, opts ...A2AServerOption) (*A2AServer, *httptest.Server) {
-	srv := NewA2AServer(opener, opts...)
+func newTestServer(opener ConversationOpener, opts ...Option) (*Server, *httptest.Server) {
+	srv := NewServer(opener, opts...)
 	ts := httptest.NewServer(srv.Handler())
 	return srv, ts
 }
@@ -107,32 +130,61 @@ func a2aSendMessage(t *testing.T, ts *httptest.Server, contextID, text string) *
 	})
 }
 
-func nopA2AOpener(string) (a2aConv, error) {
+func nopOpener(string) (Conversation, error) {
 	return nil, errors.New("should not be called")
 }
 
-func completingA2AMock() *mockA2AConv {
-	return &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("ok")},
-				},
+func completingMock() *mockConv {
+	return &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
 			}, nil
 		},
 	}
 }
 
+// --- helper for sending custom A2A Parts ---
+
+func a2aSendMessageWithParts(t *testing.T, ts *httptest.Server, contextID string, parts []a2a.Part) *a2a.Task {
+	t.Helper()
+	return a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: contextID,
+			Role:      a2a.RoleUser,
+			Parts:     parts,
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+}
+
+// --- errorClosingConv is a mock conversation whose Close() returns an error ---
+
+type errorClosingConv struct {
+	closeErr error
+}
+
+func (e *errorClosingConv) Send(_ context.Context, _ any) (SendResult, error) {
+	return &mockSendResult{
+		parts: []types.ContentPart{types.NewTextPart("ok")},
+		text:  "ok",
+	}, nil
+}
+
+func (e *errorClosingConv) Close() error {
+	return e.closeErr
+}
+
 // --- tests ---
 
-func TestA2AServer_AgentCardDiscovery(t *testing.T) {
+func TestServer_AgentCardDiscovery(t *testing.T) {
 	card := a2a.AgentCard{
 		Name:        "test-agent",
 		Description: "A test agent",
 		Version:     "1.0",
 	}
-	_, ts := newA2ATestServer(nopA2AOpener, WithA2ACard(&card))
+	_, ts := newTestServer(nopOpener, WithCard(&card))
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/.well-known/agent.json")
@@ -157,20 +209,18 @@ func TestA2AServer_AgentCardDiscovery(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_Completed(t *testing.T) {
+func TestServer_SendMessage_Completed(t *testing.T) {
 	replyText := "Hello from the agent"
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart(replyText)},
-				},
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart(replyText)},
+				text:  replyText,
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-1", "Hello")
@@ -186,14 +236,14 @@ func TestA2AServer_SendMessage_Completed(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_Failed(t *testing.T) {
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+func TestServer_SendMessage_Failed(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
 			return nil, errors.New("provider error")
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-fail", "Hello")
@@ -206,17 +256,14 @@ func TestA2AServer_SendMessage_Failed(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_InputRequired(t *testing.T) {
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message:      &types.Message{Role: "assistant"},
-				pendingTools: []PendingTool{{ID: "tool-1", Name: "approve"}},
-			}, nil
+func TestServer_SendMessage_InputRequired(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{hasPending: true}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-tools", "Hello")
@@ -226,9 +273,9 @@ func TestA2AServer_SendMessage_InputRequired(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_Multimodal(t *testing.T) {
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+func TestServer_SendMessage_Multimodal(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, message any) (SendResult, error) {
 			msg, ok := message.(*types.Message)
 			if !ok {
 				return nil, errors.New("expected *types.Message")
@@ -242,16 +289,14 @@ func TestA2AServer_SendMessage_Multimodal(t *testing.T) {
 			if msg.Parts[1].Type != types.ContentTypeImage {
 				return nil, errors.New("expected image part second")
 			}
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("got it")},
-				},
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("got it")},
+				text:  "got it",
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	imgURL := "https://example.com/image.png"
@@ -272,29 +317,27 @@ func TestA2AServer_SendMessage_Multimodal(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_MultimodalArtifacts(t *testing.T) {
+func TestServer_SendMessage_MultimodalArtifacts(t *testing.T) {
 	imgURL := "https://example.com/result.png"
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role: "assistant",
-					Parts: []types.ContentPart{
-						types.NewTextPart("Here is the image"),
-						{
-							Type: types.ContentTypeImage,
-							Media: &types.MediaContent{
-								URL:      &imgURL,
-								MIMEType: "image/png",
-							},
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{
+					types.NewTextPart("Here is the image"),
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							URL:      &imgURL,
+							MIMEType: "image/png",
 						},
 					},
 				},
+				text: "Here is the image",
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-multimodal-out", "Generate an image")
@@ -320,8 +363,8 @@ func TestA2AServer_SendMessage_MultimodalArtifacts(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_OpenerError(t *testing.T) {
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
+func TestServer_SendMessage_OpenerError(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) {
 		return nil, errors.New("opener failed")
 	})
 	defer ts.Close()
@@ -341,9 +384,9 @@ func TestA2AServer_SendMessage_OpenerError(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_NoContextID(t *testing.T) {
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_SendMessage_NoContextID(t *testing.T) {
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
@@ -362,9 +405,9 @@ func TestA2AServer_SendMessage_NoContextID(t *testing.T) {
 	}
 }
 
-func TestA2AServer_GetTask(t *testing.T) {
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_GetTask(t *testing.T) {
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-get", "Hello")
@@ -379,8 +422,8 @@ func TestA2AServer_GetTask(t *testing.T) {
 	}
 }
 
-func TestA2AServer_GetTask_NotFound(t *testing.T) {
-	_, ts := newA2ATestServer(nopA2AOpener)
+func TestServer_GetTask_NotFound(t *testing.T) {
+	_, ts := newTestServer(nopOpener)
 	defer ts.Close()
 
 	resp := a2aRPCRequest(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: "nonexistent"})
@@ -392,17 +435,17 @@ func TestA2AServer_GetTask_NotFound(t *testing.T) {
 	}
 }
 
-func TestA2AServer_CancelTask(t *testing.T) {
+func TestServer_CancelTask(t *testing.T) {
 	sendStarted := make(chan struct{})
-	mock := &mockA2AConv{
-		sendFunc: func(ctx context.Context, _ any, _ ...SendOption) (*Response, error) {
+	mock := &mockConv{
+		sendFunc: func(ctx context.Context, _ any) (SendResult, error) {
 			close(sendStarted)
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
@@ -436,8 +479,8 @@ func TestA2AServer_CancelTask(t *testing.T) {
 	}
 }
 
-func TestA2AServer_CancelTask_NotFound(t *testing.T) {
-	_, ts := newA2ATestServer(nopA2AOpener)
+func TestServer_CancelTask_NotFound(t *testing.T) {
+	_, ts := newTestServer(nopOpener)
 	defer ts.Close()
 
 	resp := a2aRPCRequest(t, ts, a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: "nonexistent"})
@@ -449,8 +492,8 @@ func TestA2AServer_CancelTask_NotFound(t *testing.T) {
 	}
 }
 
-func TestA2AServer_UnknownMethod(t *testing.T) {
-	_, ts := newA2ATestServer(nopA2AOpener)
+func TestServer_UnknownMethod(t *testing.T) {
+	_, ts := newTestServer(nopOpener)
 	defer ts.Close()
 
 	resp := a2aRPCRequest(t, ts, "bogus/method", nil)
@@ -462,8 +505,8 @@ func TestA2AServer_UnknownMethod(t *testing.T) {
 	}
 }
 
-func TestA2AServer_InvalidJSON(t *testing.T) {
-	_, ts := newA2ATestServer(nopA2AOpener)
+func TestServer_InvalidJSON(t *testing.T) {
+	_, ts := newTestServer(nopOpener)
 	defer ts.Close()
 
 	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader([]byte("not json")))
@@ -484,11 +527,11 @@ func TestA2AServer_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestA2AServer_ConversationReuse(t *testing.T) {
+func TestServer_ConversationReuse(t *testing.T) {
 	var openCount atomic.Int32
-	mock := completingA2AMock()
+	mock := completingMock()
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
+	_, ts := newTestServer(func(string) (Conversation, error) {
 		openCount.Add(1)
 		return mock, nil
 	})
@@ -502,11 +545,11 @@ func TestA2AServer_ConversationReuse(t *testing.T) {
 	}
 }
 
-func TestA2AServer_ConcurrentRequests(t *testing.T) {
+func TestServer_ConcurrentRequests(t *testing.T) {
 	var openCount atomic.Int32
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
+	_, ts := newTestServer(func(string) (Conversation, error) {
 		openCount.Add(1)
-		return completingA2AMock(), nil
+		return completingMock(), nil
 	})
 	defer ts.Close()
 
@@ -537,27 +580,22 @@ func TestA2AServer_ConcurrentRequests(t *testing.T) {
 	}
 }
 
-func TestA2AServer_HITL(t *testing.T) {
+func TestServer_HITL(t *testing.T) {
 	var callCount atomic.Int32
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
 			n := callCount.Add(1)
 			if n == 1 {
-				return &Response{
-					message:      &types.Message{Role: "assistant"},
-					pendingTools: []PendingTool{{ID: "tool-1", Name: "approve"}},
-				}, nil
+				return &mockSendResult{hasPending: true}, nil
 			}
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("final answer")},
-				},
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("final answer")},
+				text:  "final answer",
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task1 := a2aSendMessage(t, ts, "ctx-hitl", "start")
@@ -571,9 +609,9 @@ func TestA2AServer_HITL(t *testing.T) {
 	}
 }
 
-func TestA2AServer_ListTasks(t *testing.T) {
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_ListTasks(t *testing.T) {
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	a2aSendMessage(t, ts, "ctx-list", "msg1")
@@ -595,9 +633,9 @@ func TestA2AServer_ListTasks(t *testing.T) {
 	}
 }
 
-func TestA2AServer_Shutdown(t *testing.T) {
-	mock := completingA2AMock()
-	srv, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_Shutdown(t *testing.T) {
+	mock := completingMock()
+	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	a2aSendMessage(t, ts, "ctx-shutdown", "Hello")
@@ -613,10 +651,10 @@ func TestA2AServer_Shutdown(t *testing.T) {
 	}
 }
 
-func TestA2AServer_WithTaskStore(t *testing.T) {
-	store := NewInMemoryA2ATaskStore()
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil }, WithA2ATaskStore(store))
+func TestServer_WithTaskStore(t *testing.T) {
+	store := NewInMemoryTaskStore()
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil }, WithTaskStore(store))
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-store", "Hello")
@@ -630,8 +668,8 @@ func TestA2AServer_WithTaskStore(t *testing.T) {
 	}
 }
 
-func TestA2AServer_WithPort(t *testing.T) {
-	srv := NewA2AServer(nopA2AOpener, WithA2APort(0))
+func TestServer_WithPort(t *testing.T) {
+	srv := NewServer(nopOpener, WithPort(0))
 	if srv.port != 0 {
 		t.Fatalf("port = %d, want 0", srv.port)
 	}
@@ -660,19 +698,17 @@ func TestTraceContextPropagation_SendMessage(t *testing.T) {
 	wantTP := carrier.Get("traceparent")
 
 	var gotSC trace.SpanContext
-	mock := &mockA2AConv{
-		sendFunc: func(ctx context.Context, _ any, _ ...SendOption) (*Response, error) {
+	mock := &mockConv{
+		sendFunc: func(ctx context.Context, _ any) (SendResult, error) {
 			gotSC = trace.SpanContextFromContext(ctx)
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("ok")},
-				},
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
 			}, nil
 		},
 	}
 
-	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+	srv := NewServer(func(string) (Conversation, error) { return mock, nil })
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -731,22 +767,22 @@ func TestTraceContextPropagation_StreamMessage(t *testing.T) {
 	wantTP := carrier.Get("traceparent")
 
 	var gotSC trace.SpanContext
-	mock := &mockA2AStreamConv{
-		mockA2AConv: mockA2AConv{
-			sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(_ context.Context, _ any) (SendResult, error) {
 				return nil, errors.New("should not be called")
 			},
 		},
-		streamFunc: func(ctx context.Context, _ any, _ ...SendOption) <-chan StreamChunk {
+		streamFunc: func(ctx context.Context, _ any) <-chan StreamEvent {
 			gotSC = trace.SpanContextFromContext(ctx)
-			ch := make(chan StreamChunk, 1)
-			ch <- StreamChunk{Type: ChunkDone}
+			ch := make(chan StreamEvent, 1)
+			ch <- StreamEvent{Kind: EventDone}
 			close(ch)
 			return ch
 		},
 	}
 
-	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+	srv := NewServer(func(string) (Conversation, error) { return mock, nil })
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -790,40 +826,21 @@ func TestTraceContextPropagation_StreamMessage(t *testing.T) {
 	}
 }
 
-// --- helper for sending custom A2A Parts ---
-
-func a2aSendMessageWithParts(t *testing.T, ts *httptest.Server, contextID string, parts []a2a.Part) *a2a.Task {
-	t.Helper()
-	return a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
-		Message: a2a.Message{
-			ContextID: contextID,
-			Role:      a2a.RoleUser,
-			Parts:     parts,
-		},
-		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
-	})
-}
-
 // --- Group A: End-to-End Data Propagation (P0) ---
 
-func TestA2AServer_SendMessage_Base64DataArtifact(t *testing.T) {
-	// Mock returns ContentPart with base64-encoded image data.
-	// Verify artifact Part has Raw bytes matching original + correct MediaType.
-	originalBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A} // PNG header
+func TestServer_SendMessage_Base64DataArtifact(t *testing.T) {
+	originalBytes := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 	b64 := base64.StdEncoding.EncodeToString(originalBytes)
 
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role: "assistant",
-					Parts: []types.ContentPart{
-						{
-							Type: types.ContentTypeImage,
-							Media: &types.MediaContent{
-								Data:     &b64,
-								MIMEType: "image/png",
-							},
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							Data:     &b64,
+							MIMEType: "image/png",
 						},
 					},
 				},
@@ -831,7 +848,7 @@ func TestA2AServer_SendMessage_Base64DataArtifact(t *testing.T) {
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-base64", "Generate image")
@@ -854,34 +871,27 @@ func TestA2AServer_SendMessage_Base64DataArtifact(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_URLMediaRoundTrip(t *testing.T) {
-	// Send URL-based A2A Part inbound → mock receives ContentPart with Media.URL
-	// → mock echoes it back → artifact has same URL and MediaType.
+func TestServer_SendMessage_URLMediaRoundTrip(t *testing.T) {
 	imgURL := "https://example.com/photo.jpg"
 	var receivedParts []types.ContentPart
 
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, message any) (SendResult, error) {
 			msg := message.(*types.Message)
 			receivedParts = msg.Parts
-			// Echo the media back.
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: msg.Parts,
-				},
+			return &mockSendResult{
+				parts: msg.Parts,
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessageWithParts(t, ts, "ctx-url-rt", []a2a.Part{
 		{URL: &imgURL, MediaType: "image/jpeg"},
 	})
 
-	// Verify inbound conversion.
 	if len(receivedParts) != 1 {
 		t.Fatalf("mock received %d parts, want 1", len(receivedParts))
 	}
@@ -892,7 +902,6 @@ func TestA2AServer_SendMessage_URLMediaRoundTrip(t *testing.T) {
 		t.Errorf("inbound URL = %q, want %q", *receivedParts[0].Media.URL, imgURL)
 	}
 
-	// Verify outbound artifact.
 	if task.Status.State != a2a.TaskStateCompleted {
 		t.Fatalf("state = %q, want completed", task.Status.State)
 	}
@@ -908,33 +917,28 @@ func TestA2AServer_SendMessage_URLMediaRoundTrip(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_MixedPartsPreserved(t *testing.T) {
-	// Send 3 parts (text + base64 image + URL audio). Mock returns 3 parts.
-	// Artifact contains all 3 in order with correct types and data.
-	imgBytes := []byte{0xFF, 0xD8, 0xFF, 0xE0} // JPEG header
+func TestServer_SendMessage_MixedPartsPreserved(t *testing.T) {
+	imgBytes := []byte{0xFF, 0xD8, 0xFF, 0xE0}
 	imgB64 := base64.StdEncoding.EncodeToString(imgBytes)
 	audioURL := "https://example.com/audio.wav"
 
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role: "assistant",
-					Parts: []types.ContentPart{
-						types.NewTextPart("Here is the result"),
-						{
-							Type: types.ContentTypeImage,
-							Media: &types.MediaContent{
-								Data:     &imgB64,
-								MIMEType: "image/jpeg",
-							},
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{
+					types.NewTextPart("Here is the result"),
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							Data:     &imgB64,
+							MIMEType: "image/jpeg",
 						},
-						{
-							Type: types.ContentTypeAudio,
-							Media: &types.MediaContent{
-								URL:      &audioURL,
-								MIMEType: "audio/wav",
-							},
+					},
+					{
+						Type: types.ContentTypeAudio,
+						Media: &types.MediaContent{
+							URL:      &audioURL,
+							MIMEType: "audio/wav",
 						},
 					},
 				},
@@ -942,7 +946,7 @@ func TestA2AServer_SendMessage_MixedPartsPreserved(t *testing.T) {
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-mixed", "Do all the things")
@@ -958,18 +962,15 @@ func TestA2AServer_SendMessage_MixedPartsPreserved(t *testing.T) {
 		t.Fatalf("expected 3 parts, got %d", len(parts))
 	}
 
-	// Part 0: text
 	if parts[0].Text == nil || *parts[0].Text != "Here is the result" {
 		t.Errorf("part[0] text = %v, want 'Here is the result'", parts[0].Text)
 	}
-	// Part 1: base64 image
 	if !bytes.Equal(parts[1].Raw, imgBytes) {
 		t.Errorf("part[1] Raw mismatch: got %x, want %x", parts[1].Raw, imgBytes)
 	}
 	if parts[1].MediaType != "image/jpeg" {
 		t.Errorf("part[1] mediaType = %q, want image/jpeg", parts[1].MediaType)
 	}
-	// Part 2: URL audio
 	if parts[2].URL == nil || *parts[2].URL != audioURL {
 		t.Errorf("part[2] URL = %v, want %q", parts[2].URL, audioURL)
 	}
@@ -978,25 +979,19 @@ func TestA2AServer_SendMessage_MixedPartsPreserved(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_RawBinaryRoundTrip(t *testing.T) {
-	// Send raw binary A2A Part inbound, mock echoes media data back.
-	// Verify bytes survive both inbound and outbound conversion.
+func TestServer_SendMessage_RawBinaryRoundTrip(t *testing.T) {
 	rawData := []byte{0x00, 0x01, 0x02, 0xFE, 0xFF}
 
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, message any) (SendResult, error) {
 			msg := message.(*types.Message)
-			// Echo back the received parts.
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: msg.Parts,
-				},
+			return &mockSendResult{
+				parts: msg.Parts,
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessageWithParts(t, ts, "ctx-raw-rt", []a2a.Part{
@@ -1018,28 +1013,24 @@ func TestA2AServer_SendMessage_RawBinaryRoundTrip(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_AudioVideoDocTypes(t *testing.T) {
-	// Tests audio/wav, video/mp4, application/pdf through full pipeline.
+func TestServer_SendMessage_AudioVideoDocTypes(t *testing.T) {
 	audioURL := "https://example.com/sound.wav"
 	videoURL := "https://example.com/clip.mp4"
 	pdfURL := "https://example.com/doc.pdf"
 
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role: "assistant",
-					Parts: []types.ContentPart{
-						{Type: types.ContentTypeAudio, Media: &types.MediaContent{URL: &audioURL, MIMEType: "audio/wav"}},
-						{Type: types.ContentTypeVideo, Media: &types.MediaContent{URL: &videoURL, MIMEType: "video/mp4"}},
-						{Type: types.ContentTypeDocument, Media: &types.MediaContent{URL: &pdfURL, MIMEType: "application/pdf"}},
-					},
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{
+					{Type: types.ContentTypeAudio, Media: &types.MediaContent{URL: &audioURL, MIMEType: "audio/wav"}},
+					{Type: types.ContentTypeVideo, Media: &types.MediaContent{URL: &videoURL, MIMEType: "video/mp4"}},
+					{Type: types.ContentTypeDocument, Media: &types.MediaContent{URL: &pdfURL, MIMEType: "application/pdf"}},
 				},
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-media-types", "Give me all types")
@@ -1067,29 +1058,23 @@ func TestA2AServer_SendMessage_AudioVideoDocTypes(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_PartMetadataDocumented(t *testing.T) {
-	// Documents that Part.Metadata and Part.Filename are silently dropped at
-	// PartToContentPart (no error, just lost) — ContentPart has no fields for these.
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+func TestServer_SendMessage_PartMetadataDocumented(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, message any) (SendResult, error) {
 			msg := message.(*types.Message)
-			// Verify the text was preserved even though metadata/filename were dropped.
 			if len(msg.Parts) != 1 || msg.Parts[0].Text == nil {
 				return nil, errors.New("expected 1 text part")
 			}
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("ok")},
-				},
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	// Part with Metadata and Filename — these fields will be dropped.
 	task := a2aSendMessageWithParts(t, ts, "ctx-meta", []a2a.Part{
 		{
 			Text:     serverTextPtr("hello"),
@@ -1103,25 +1088,21 @@ func TestA2AServer_SendMessage_PartMetadataDocumented(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_MessageMetadata(t *testing.T) {
-	// Sends A2A Message with Metadata: {"trace_id": "abc"}.
-	// Mock asserts it receives types.Message with matching metadata.
-	var gotMeta map[string]interface{}
+func TestServer_SendMessage_MessageMetadata(t *testing.T) {
+	var gotMeta map[string]any
 
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, message any) (SendResult, error) {
 			msg := message.(*types.Message)
 			gotMeta = msg.Meta
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("ok")},
-				},
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
@@ -1142,18 +1123,14 @@ func TestA2AServer_SendMessage_MessageMetadata(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_EmptyPartsTextFallback(t *testing.T) {
-	// Mock returns Response with nil Parts but non-empty Text().
-	// Verifies the GH-428 fallback path creates a text artifact.
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			msg := &types.Message{Role: "assistant"}
-			msg.Content = "fallback text"
-			return &Response{message: msg}, nil
+func TestServer_SendMessage_EmptyPartsTextFallback(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{text: "fallback text"}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-fallback", "Hello")
@@ -1170,30 +1147,24 @@ func TestA2AServer_SendMessage_EmptyPartsTextFallback(t *testing.T) {
 	}
 }
 
-func TestA2AServer_GetTask_ReturnsArtifacts(t *testing.T) {
-	// Send blocking message with multimodal response, then tasks/get.
-	// Verify artifacts survive the task store round-trip.
+func TestServer_GetTask_ReturnsArtifacts(t *testing.T) {
 	imgURL := "https://example.com/stored.png"
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role: "assistant",
-					Parts: []types.ContentPart{
-						types.NewTextPart("See the image"),
-						{Type: types.ContentTypeImage, Media: &types.MediaContent{URL: &imgURL, MIMEType: "image/png"}},
-					},
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{
+					types.NewTextPart("See the image"),
+					{Type: types.ContentTypeImage, Media: &types.MediaContent{URL: &imgURL, MIMEType: "image/png"}},
 				},
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-get-art", "Show me")
 
-	// Now retrieve via tasks/get.
 	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID})
 
 	if len(got.Artifacts) == 0 {
@@ -1211,27 +1182,22 @@ func TestA2AServer_GetTask_ReturnsArtifacts(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_LargeBinaryData(t *testing.T) {
-	// 1MB raw binary through full pipeline. Guards against truncation or
-	// corruption at JSON serialization boundaries.
+func TestServer_SendMessage_LargeBinaryData(t *testing.T) {
 	largeData := make([]byte, 1<<20) // 1 MB
 	for i := range largeData {
 		largeData[i] = byte(i % 256)
 	}
 	b64 := base64.StdEncoding.EncodeToString(largeData)
 
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role: "assistant",
-					Parts: []types.ContentPart{
-						{
-							Type: types.ContentTypeImage,
-							Media: &types.MediaContent{
-								Data:     &b64,
-								MIMEType: "image/png",
-							},
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							Data:     &b64,
+							MIMEType: "image/png",
 						},
 					},
 				},
@@ -1239,7 +1205,7 @@ func TestA2AServer_SendMessage_LargeBinaryData(t *testing.T) {
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-large", "Big data")
@@ -1261,22 +1227,18 @@ func TestA2AServer_SendMessage_LargeBinaryData(t *testing.T) {
 
 // --- Group C: Protocol Compliance ---
 
-func TestA2AServer_SendMessage_NonBlocking(t *testing.T) {
-	// Send without Blocking: true, mock takes 100ms. Response returns quickly
-	// with task in submitted or working (not completed).
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+func TestServer_SendMessage_NonBlocking(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
 			time.Sleep(100 * time.Millisecond)
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("done")},
-				},
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("done")},
+				text:  "done",
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
@@ -1285,21 +1247,18 @@ func TestA2AServer_SendMessage_NonBlocking(t *testing.T) {
 			Role:      a2a.RoleUser,
 			Parts:     []a2a.Part{{Text: serverTextPtr("Hello")}},
 		},
-		// No Configuration — non-blocking by default.
 	})
 
-	// Should NOT be completed yet since mock takes 100ms and settle time is 5ms.
 	if task.Status.State == a2a.TaskStateCompleted {
 		t.Fatalf("state = completed, want submitted or working for non-blocking call")
 	}
 }
 
-func TestA2AServer_ListTasks_PageSize(t *testing.T) {
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_ListTasks_PageSize(t *testing.T) {
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	// Create 5 tasks on the same context.
 	for i := range 5 {
 		a2aSendMessage(t, ts, "ctx-page", "msg"+string(rune('0'+i)))
 	}
@@ -1321,14 +1280,12 @@ func TestA2AServer_ListTasks_PageSize(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_InvalidParams(t *testing.T) {
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
-		return completingA2AMock(), nil
+func TestServer_SendMessage_InvalidParams(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) {
+		return completingMock(), nil
 	})
 	defer ts.Close()
 
-	// Send valid JSON-RPC but with params that don't match SendMessageRequest schema.
-	// "message" field is missing the required "role" and "parts".
 	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, map[string]any{
 		"message": "not-a-message-object",
 	})
@@ -1341,10 +1298,9 @@ func TestA2AServer_SendMessage_InvalidParams(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_InvalidPart(t *testing.T) {
-	// Empty Part{} → PartToContentPart error → error -32602 from server.
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
-		return completingA2AMock(), nil
+func TestServer_SendMessage_InvalidPart(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) {
+		return completingMock(), nil
 	})
 	defer ts.Close()
 
@@ -1352,7 +1308,7 @@ func TestA2AServer_SendMessage_InvalidPart(t *testing.T) {
 		Message: a2a.Message{
 			ContextID: "ctx-invalid-part",
 			Role:      a2a.RoleUser,
-			Parts:     []a2a.Part{{}}, // Empty part.
+			Parts:     []a2a.Part{{}},
 		},
 		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
 	})
@@ -1364,16 +1320,14 @@ func TestA2AServer_SendMessage_InvalidPart(t *testing.T) {
 	}
 }
 
-func TestA2AServer_ListTasks_StatusFilterIgnored(t *testing.T) {
-	// P2: Documents that Status filter param is accepted but currently ignored.
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_ListTasks_StatusFilterIgnored(t *testing.T) {
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	a2aSendMessage(t, ts, "ctx-filter", "msg1")
 	a2aSendMessage(t, ts, "ctx-filter", "msg2")
 
-	// Filter for "failed" — should still return all tasks since filter is ignored.
 	failedState := a2a.TaskStateFailed
 	resp := a2aRPCRequest(t, ts, a2a.MethodListTasks, a2a.ListTasksRequest{
 		ContextID: "ctx-filter",
@@ -1387,16 +1341,14 @@ func TestA2AServer_ListTasks_StatusFilterIgnored(t *testing.T) {
 	if err := json.Unmarshal(resp.Result, &listResp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	// All tasks returned because Status filter is not implemented.
 	if len(listResp.Tasks) != 2 {
 		t.Fatalf("got %d tasks, want 2 (status filter should be ignored)", len(listResp.Tasks))
 	}
 }
 
-func TestA2AServer_GetTask_HistoryLengthIgnored(t *testing.T) {
-	// P2: Documents that HistoryLength param is accepted but has no effect.
-	mock := completingA2AMock()
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+func TestServer_GetTask_HistoryLengthIgnored(t *testing.T) {
+	mock := completingMock()
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-histlen", "Hello")
@@ -1407,7 +1359,6 @@ func TestA2AServer_GetTask_HistoryLengthIgnored(t *testing.T) {
 		HistoryLength: &histLen,
 	})
 
-	// HistoryLength=0 would mean "no history" if implemented, but it's ignored.
 	if got.ID != task.ID {
 		t.Fatalf("task ID = %q, want %q", got.ID, task.ID)
 	}
@@ -1418,16 +1369,14 @@ func TestA2AServer_GetTask_HistoryLengthIgnored(t *testing.T) {
 
 // --- Group D: Error Handling at Boundaries ---
 
-func TestA2AServer_SendMessage_FailedTaskErrorParts(t *testing.T) {
-	// Mock returns error. Failed task's Status.Message has Parts[0].Text
-	// with error string and role "agent".
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
+func TestServer_SendMessage_FailedTaskErrorParts(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
 			return nil, errors.New("provider crashed")
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
 	task := a2aSendMessage(t, ts, "ctx-err-parts", "Hello")
@@ -1449,21 +1398,19 @@ func TestA2AServer_SendMessage_FailedTaskErrorParts(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_CancelDuringProcessing(t *testing.T) {
-	// Start slow message, cancel it. Task becomes "canceled", NOT "failed".
+func TestServer_SendMessage_CancelDuringProcessing(t *testing.T) {
 	sendStarted := make(chan struct{})
-	mock := &mockA2AConv{
-		sendFunc: func(ctx context.Context, _ any, _ ...SendOption) (*Response, error) {
+	mock := &mockConv{
+		sendFunc: func(ctx context.Context, _ any) (SendResult, error) {
 			close(sendStarted)
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	// Non-blocking send.
 	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
 		Message: a2a.Message{
 			ContextID: "ctx-cancel-processing",
@@ -1472,30 +1419,24 @@ func TestA2AServer_SendMessage_CancelDuringProcessing(t *testing.T) {
 		},
 	})
 
-	// Wait for send to start.
 	<-sendStarted
 
-	// Cancel the task.
 	cancelResp := a2aRPCRequest(t, ts, a2a.MethodCancelTask, a2a.CancelTaskRequest{ID: task.ID})
 	if cancelResp.Error != nil {
 		t.Fatalf("cancel error: %d %s", cancelResp.Error.Code, cancelResp.Error.Message)
 	}
 
-	// Wait a bit for the goroutine to notice cancellation.
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify via tasks/get.
 	got := a2aRPCRequestTask(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: task.ID})
 	if got.Status.State != a2a.TaskStateCanceled {
 		t.Fatalf("state = %q, want canceled (not failed)", got.Status.State)
 	}
 }
 
-func TestA2AServer_SendMessage_DataPartRejected(t *testing.T) {
-	// Part with Data: {"key": "val"} (structured data). Error -32602 because
-	// structured data parts are unsupported.
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) {
-		return completingA2AMock(), nil
+func TestServer_SendMessage_DataPartRejected(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) {
+		return completingMock(), nil
 	})
 	defer ts.Close()
 
@@ -1515,35 +1456,29 @@ func TestA2AServer_SendMessage_DataPartRejected(t *testing.T) {
 	}
 }
 
-func TestA2AServer_SendMessage_ConversationReuseMultimodal(t *testing.T) {
-	// Two multimodal messages to same contextID. Both get correct responses.
+func TestServer_SendMessage_ConversationReuseMultimodal(t *testing.T) {
 	var callCount atomic.Int32
 	imgURL := "https://example.com/img.png"
 
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, message any, _ ...SendOption) (*Response, error) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, message any) (SendResult, error) {
 			n := callCount.Add(1)
 			msg := message.(*types.Message)
-			// Verify each message has the expected parts.
 			if len(msg.Parts) != 2 {
 				return nil, fmt.Errorf("call %d: expected 2 parts, got %d", n, len(msg.Parts))
 			}
-			return &Response{
-				message: &types.Message{
-					Role: "assistant",
-					Parts: []types.ContentPart{
-						types.NewTextPart(fmt.Sprintf("response %d", n)),
-						{Type: types.ContentTypeImage, Media: &types.MediaContent{URL: &imgURL, MIMEType: "image/png"}},
-					},
+			return &mockSendResult{
+				parts: []types.ContentPart{
+					types.NewTextPart(fmt.Sprintf("response %d", n)),
+					{Type: types.ContentTypeImage, Media: &types.MediaContent{URL: &imgURL, MIMEType: "image/png"}},
 				},
 			}, nil
 		},
 	}
 
-	_, ts := newA2ATestServer(func(string) (a2aConv, error) { return mock, nil })
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
 	defer ts.Close()
 
-	// First multimodal message.
 	task1 := a2aSendMessageWithParts(t, ts, "ctx-reuse-multi", []a2a.Part{
 		{Text: serverTextPtr("msg1")},
 		{URL: &imgURL, MediaType: "image/png"},
@@ -1555,7 +1490,6 @@ func TestA2AServer_SendMessage_ConversationReuseMultimodal(t *testing.T) {
 		t.Fatal("task1: expected 2 artifact parts")
 	}
 
-	// Second multimodal message to same context.
 	task2 := a2aSendMessageWithParts(t, ts, "ctx-reuse-multi", []a2a.Part{
 		{Text: serverTextPtr("msg2")},
 		{URL: &imgURL, MediaType: "image/png"},
@@ -1574,8 +1508,8 @@ func TestA2AServer_SendMessage_ConversationReuseMultimodal(t *testing.T) {
 
 // --- timeout and body size option tests ---
 
-func TestA2AServerDefaultTimeouts(t *testing.T) {
-	srv := NewA2AServer(func(string) (a2aConv, error) {
+func TestServerDefaultTimeouts(t *testing.T) {
+	srv := NewServer(func(string) (Conversation, error) {
 		return nil, nil
 	})
 
@@ -1593,13 +1527,13 @@ func TestA2AServerDefaultTimeouts(t *testing.T) {
 	}
 }
 
-func TestA2AServerCustomTimeouts(t *testing.T) {
-	srv := NewA2AServer(
-		func(string) (a2aConv, error) { return nil, nil },
-		WithA2AReadTimeout(5*time.Second),
-		WithA2AWriteTimeout(10*time.Second),
-		WithA2AIdleTimeout(15*time.Second),
-		WithA2AMaxBodySize(1024),
+func TestServerCustomTimeouts(t *testing.T) {
+	srv := NewServer(
+		func(string) (Conversation, error) { return nil, nil },
+		WithReadTimeout(5*time.Second),
+		WithWriteTimeout(10*time.Second),
+		WithIdleTimeout(15*time.Second),
+		WithMaxBodySize(1024),
 	)
 
 	if srv.readTimeout != 5*time.Second {
@@ -1616,26 +1550,22 @@ func TestA2AServerCustomTimeouts(t *testing.T) {
 	}
 }
 
-func TestA2AServerMaxBodySizeRejectsOversizedRequest(t *testing.T) {
-	opener := func(string) (a2aConv, error) {
-		return &mockA2AConv{
-			sendFunc: func(context.Context, any, ...SendOption) (*Response, error) {
-				return &Response{
-					message: &types.Message{
-						Role:  "assistant",
-						Parts: []types.ContentPart{types.NewTextPart("ok")},
-					},
+func TestServerMaxBodySizeRejectsOversizedRequest(t *testing.T) {
+	opener := func(string) (Conversation, error) {
+		return &mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
+				return &mockSendResult{
+					parts: []types.ContentPart{types.NewTextPart("ok")},
+					text:  "ok",
 				}, nil
 			},
 		}, nil
 	}
 
-	// Set a very small body size limit.
-	srv := NewA2AServer(opener, WithA2AMaxBodySize(16))
+	srv := NewServer(opener, WithMaxBodySize(16))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	// Build a valid JSON-RPC request that exceeds the 16-byte limit.
 	params, _ := json.Marshal(a2a.SendMessageRequest{
 		Message: a2a.Message{
 			Role:      a2a.RoleUser,
@@ -1669,15 +1599,14 @@ func TestA2AServerMaxBodySizeRejectsOversizedRequest(t *testing.T) {
 	}
 }
 
-func TestA2AServerListenAndServeTimeouts(t *testing.T) {
-	srv := NewA2AServer(
-		func(string) (a2aConv, error) { return nil, nil },
-		WithA2AReadTimeout(15*time.Second),
-		WithA2AWriteTimeout(30*time.Second),
-		WithA2AIdleTimeout(60*time.Second),
+func TestServerListenAndServeTimeouts(t *testing.T) {
+	srv := NewServer(
+		func(string) (Conversation, error) { return nil, nil },
+		WithReadTimeout(15*time.Second),
+		WithWriteTimeout(30*time.Second),
+		WithIdleTimeout(60*time.Second),
 	)
 
-	// Use a listener on :0 so we get a free port.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -1685,7 +1614,6 @@ func TestA2AServerListenAndServeTimeouts(t *testing.T) {
 
 	go func() { _ = srv.Serve(ln) }()
 
-	// Wait for server to be ready by attempting a TCP connection.
 	addr := ln.Addr().String()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -1697,7 +1625,6 @@ func TestA2AServerListenAndServeTimeouts(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Validate timeouts were propagated to the A2AServer during construction.
 	if srv.readTimeout != 15*time.Second {
 		t.Errorf("readTimeout = %v, want 15s", srv.readTimeout)
 	}
@@ -1713,20 +1640,19 @@ func TestA2AServerListenAndServeTimeouts(t *testing.T) {
 	_ = srv.Shutdown(ctx)
 }
 
-func TestA2AServerListenAndServe(t *testing.T) {
-	mock := completingA2AMock()
-	srv := NewA2AServer(
-		func(string) (a2aConv, error) { return mock, nil },
-		WithA2APort(0), // :0 lets the OS pick a free port
-		WithA2AReadTimeout(15*time.Second),
-		WithA2AWriteTimeout(30*time.Second),
-		WithA2AIdleTimeout(60*time.Second),
+func TestServerListenAndServe(t *testing.T) {
+	mock := completingMock()
+	srv := NewServer(
+		func(string) (Conversation, error) { return mock, nil },
+		WithPort(0),
+		WithReadTimeout(15*time.Second),
+		WithWriteTimeout(30*time.Second),
+		WithIdleTimeout(60*time.Second),
 	)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 
-	// Poll until httpSrv is set (ListenAndServe stores it before blocking).
 	var addr string
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -1744,18 +1670,12 @@ func TestA2AServerListenAndServe(t *testing.T) {
 		t.Fatal("httpSrv was never set by ListenAndServe")
 	}
 
-	// Since port 0 resolves at listen time, we need to find the actual port.
-	// ListenAndServe calls net.Listen internally; we poll for a successful TCP dial.
-	// With port 0, http.Server.ListenAndServe will get an ephemeral port, but the
-	// Addr field still says ":0". We need to connect to discover the real port.
-	// Instead, let's just shut down and verify everything worked.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		t.Fatalf("Shutdown: %v", err)
 	}
 
-	// ListenAndServe should return http.ErrServerClosed after Shutdown.
 	select {
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -1766,15 +1686,13 @@ func TestA2AServerListenAndServe(t *testing.T) {
 	}
 }
 
-func TestA2AServerListenAndServeWithTraffic(t *testing.T) {
-	mock := completingA2AMock()
-	srv := NewA2AServer(
-		func(string) (a2aConv, error) { return mock, nil },
-		WithA2APort(0),
+func TestServerListenAndServeWithTraffic(t *testing.T) {
+	mock := completingMock()
+	srv := NewServer(
+		func(string) (Conversation, error) { return mock, nil },
+		WithPort(0),
 	)
 
-	// Use Serve with a real listener so we know the port, but exercise the
-	// same code path that ListenAndServe sets up (httpSrv stored, Shutdown drains).
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -1784,7 +1702,6 @@ func TestA2AServerListenAndServeWithTraffic(t *testing.T) {
 	go func() { errCh <- srv.Serve(ln) }()
 
 	addr := ln.Addr().String()
-	// Wait for server to be ready.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		conn, dialErr := net.DialTimeout("tcp", addr, 50*time.Millisecond)
@@ -1795,7 +1712,6 @@ func TestA2AServerListenAndServeWithTraffic(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// Send a message to create a conversation, so Shutdown has something to close.
 	text := "hello"
 	reqBody := a2a.JSONRPCRequest{
 		JSONRPC: "2.0",
@@ -1822,7 +1738,6 @@ func TestA2AServerListenAndServeWithTraffic(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 
-	// Shutdown should drain HTTP, cancel tasks, and close conversations.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
@@ -1843,22 +1758,17 @@ func TestA2AServerListenAndServeWithTraffic(t *testing.T) {
 	}
 }
 
-func TestA2AServerShutdownWithNilHTTPServer(t *testing.T) {
-	// Shutdown when ListenAndServe/Serve was never called — httpSrv is nil.
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("done")},
-				},
+func TestServerShutdownWithNilHTTPServer(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("done")},
+				text:  "done",
 			}, nil
 		},
 	}
-	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+	srv := NewServer(func(string) (Conversation, error) { return mock, nil })
 
-	// Manually register a conversation and a cancel func to exercise those
-	// Shutdown branches even without an HTTP server.
 	srv.convsMu.Lock()
 	srv.convs["ctx-1"] = mock
 	srv.convsMu.Unlock()
@@ -1882,7 +1792,6 @@ func TestA2AServerShutdownWithNilHTTPServer(t *testing.T) {
 		t.Error("conversation was not closed")
 	}
 
-	// Verify maps were cleaned up.
 	srv.cancelsMu.Lock()
 	if len(srv.cancels) != 0 {
 		t.Error("cancels map not cleared")
@@ -1896,21 +1805,17 @@ func TestA2AServerShutdownWithNilHTTPServer(t *testing.T) {
 	srv.convsMu.RUnlock()
 }
 
-func TestA2AServerShutdownConvCloseError(t *testing.T) {
-	// When a conversation's Close() returns an error, Shutdown should propagate it.
+func TestServerShutdownConvCloseError(t *testing.T) {
 	wantErr := errors.New("close failed")
-	mock := &mockA2AConv{
-		sendFunc: func(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("ok")},
-				},
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("ok")},
+				text:  "ok",
 			}, nil
 		},
 	}
-	// Override Close to return an error.
-	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+	srv := NewServer(func(string) (Conversation, error) { return mock, nil })
 
 	failConv := &errorClosingConv{closeErr: wantErr}
 	srv.convsMu.Lock()
@@ -1923,22 +1828,4 @@ func TestA2AServerShutdownConvCloseError(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Shutdown error = %v, want %v", err, wantErr)
 	}
-}
-
-// errorClosingConv is a mock conversation whose Close() returns an error.
-type errorClosingConv struct {
-	closeErr error
-}
-
-func (e *errorClosingConv) Send(_ context.Context, _ any, _ ...SendOption) (*Response, error) {
-	return &Response{
-		message: &types.Message{
-			Role:  "assistant",
-			Parts: []types.ContentPart{types.NewTextPart("ok")},
-		},
-	}, nil
-}
-
-func (e *errorClosingConv) Close() error {
-	return e.closeErr
 }

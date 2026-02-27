@@ -1,4 +1,4 @@
-package a2a
+package a2aserver
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	rta2a "github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 )
 
 // Task store errors.
@@ -18,44 +18,44 @@ var (
 )
 
 // terminalStates are states from which no further transitions are allowed.
-var terminalStates = map[rta2a.TaskState]bool{
-	rta2a.TaskStateCompleted: true,
-	rta2a.TaskStateFailed:    true,
-	rta2a.TaskStateCanceled:  true,
-	rta2a.TaskStateRejected:  true,
+var terminalStates = map[a2a.TaskState]bool{
+	a2a.TaskStateCompleted: true,
+	a2a.TaskStateFailed:    true,
+	a2a.TaskStateCanceled:  true,
+	a2a.TaskStateRejected:  true,
 }
 
 // validTransitions defines the allowed state machine transitions.
-var validTransitions = map[rta2a.TaskState]map[rta2a.TaskState]bool{
-	rta2a.TaskStateSubmitted: {
-		rta2a.TaskStateWorking: true,
+var validTransitions = map[a2a.TaskState]map[a2a.TaskState]bool{
+	a2a.TaskStateSubmitted: {
+		a2a.TaskStateWorking: true,
 	},
-	rta2a.TaskStateWorking: {
-		rta2a.TaskStateCompleted:     true,
-		rta2a.TaskStateFailed:        true,
-		rta2a.TaskStateCanceled:      true,
-		rta2a.TaskStateInputRequired: true,
-		rta2a.TaskStateAuthRequired:  true,
-		rta2a.TaskStateRejected:      true,
+	a2a.TaskStateWorking: {
+		a2a.TaskStateCompleted:     true,
+		a2a.TaskStateFailed:        true,
+		a2a.TaskStateCanceled:      true,
+		a2a.TaskStateInputRequired: true,
+		a2a.TaskStateAuthRequired:  true,
+		a2a.TaskStateRejected:      true,
 	},
-	rta2a.TaskStateInputRequired: {
-		rta2a.TaskStateWorking:  true,
-		rta2a.TaskStateCanceled: true,
+	a2a.TaskStateInputRequired: {
+		a2a.TaskStateWorking:  true,
+		a2a.TaskStateCanceled: true,
 	},
-	rta2a.TaskStateAuthRequired: {
-		rta2a.TaskStateWorking:  true,
-		rta2a.TaskStateCanceled: true,
+	a2a.TaskStateAuthRequired: {
+		a2a.TaskStateWorking:  true,
+		a2a.TaskStateCanceled: true,
 	},
 }
 
 // TaskStore defines the interface for task persistence and lifecycle management.
 type TaskStore interface {
-	Create(taskID, contextID string) (*rta2a.Task, error)
-	Get(taskID string) (*rta2a.Task, error)
-	SetState(taskID string, state rta2a.TaskState, msg *rta2a.Message) error
-	AddArtifacts(taskID string, artifacts []rta2a.Artifact) error
+	Create(taskID, contextID string) (*a2a.Task, error)
+	Get(taskID string) (*a2a.Task, error)
+	SetState(taskID string, state a2a.TaskState, msg *a2a.Message) error
+	AddArtifacts(taskID string, artifacts []a2a.Artifact) error
 	Cancel(taskID string) error
-	List(contextID string, limit, offset int) ([]*rta2a.Task, error)
+	List(contextID string, limit, offset int) ([]*a2a.Task, error)
 
 	// EvictTerminal removes tasks in a terminal state whose last status
 	// timestamp is older than the given cutoff time. It returns the IDs
@@ -66,18 +66,18 @@ type TaskStore interface {
 // InMemoryTaskStore is a concurrency-safe, in-memory implementation of TaskStore.
 type InMemoryTaskStore struct {
 	mu    sync.RWMutex
-	tasks map[string]*rta2a.Task
+	tasks map[string]*a2a.Task
 }
 
 // NewInMemoryTaskStore creates a new InMemoryTaskStore.
 func NewInMemoryTaskStore() *InMemoryTaskStore {
 	return &InMemoryTaskStore{
-		tasks: make(map[string]*rta2a.Task),
+		tasks: make(map[string]*a2a.Task),
 	}
 }
 
 // Create initializes a new task in the submitted state.
-func (s *InMemoryTaskStore) Create(taskID, contextID string) (*rta2a.Task, error) {
+func (s *InMemoryTaskStore) Create(taskID, contextID string) (*a2a.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -86,11 +86,11 @@ func (s *InMemoryTaskStore) Create(taskID, contextID string) (*rta2a.Task, error
 	}
 
 	now := time.Now().UTC()
-	task := &rta2a.Task{
+	task := &a2a.Task{
 		ID:        taskID,
 		ContextID: contextID,
-		Status: rta2a.TaskStatus{
-			State:     rta2a.TaskStateSubmitted,
+		Status: a2a.TaskStatus{
+			State:     a2a.TaskStateSubmitted,
 			Timestamp: &now,
 		},
 	}
@@ -100,7 +100,7 @@ func (s *InMemoryTaskStore) Create(taskID, contextID string) (*rta2a.Task, error
 }
 
 // Get retrieves a task by ID.
-func (s *InMemoryTaskStore) Get(taskID string) (*rta2a.Task, error) {
+func (s *InMemoryTaskStore) Get(taskID string) (*a2a.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -112,7 +112,7 @@ func (s *InMemoryTaskStore) Get(taskID string) (*rta2a.Task, error) {
 }
 
 // SetState transitions the task to a new state with an optional status message.
-func (s *InMemoryTaskStore) SetState(taskID string, state rta2a.TaskState, msg *rta2a.Message) error {
+func (s *InMemoryTaskStore) SetState(taskID string, state a2a.TaskState, msg *a2a.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -133,7 +133,7 @@ func (s *InMemoryTaskStore) SetState(taskID string, state rta2a.TaskState, msg *
 	}
 
 	now := time.Now().UTC()
-	task.Status = rta2a.TaskStatus{
+	task.Status = a2a.TaskStatus{
 		State:     state,
 		Message:   msg,
 		Timestamp: &now,
@@ -142,7 +142,7 @@ func (s *InMemoryTaskStore) SetState(taskID string, state rta2a.TaskState, msg *
 }
 
 // AddArtifacts appends artifacts to a task.
-func (s *InMemoryTaskStore) AddArtifacts(taskID string, artifacts []rta2a.Artifact) error {
+func (s *InMemoryTaskStore) AddArtifacts(taskID string, artifacts []a2a.Artifact) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -169,8 +169,8 @@ func (s *InMemoryTaskStore) Cancel(taskID string) error {
 	}
 
 	now := time.Now().UTC()
-	task.Status = rta2a.TaskStatus{
-		State:     rta2a.TaskStateCanceled,
+	task.Status = a2a.TaskStatus{
+		State:     a2a.TaskStateCanceled,
 		Timestamp: &now,
 	}
 	return nil
@@ -197,11 +197,11 @@ func (s *InMemoryTaskStore) EvictTerminal(cutoff time.Time) []string {
 
 // List returns tasks matching the given contextID with pagination.
 // If contextID is empty, all tasks are returned. Offset and limit control pagination.
-func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*rta2a.Task, error) {
+func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*a2a.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var matched []*rta2a.Task
+	var matched []*a2a.Task
 	for _, task := range s.tasks {
 		if contextID == "" || task.ContextID == contextID {
 			matched = append(matched, task)

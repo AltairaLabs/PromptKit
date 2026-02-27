@@ -1,4 +1,4 @@
-package sdk
+package a2aserver
 
 import (
 	"context"
@@ -10,12 +10,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
-
-// a2aStreamConv extends a2aConv with streaming support.
-type a2aStreamConv interface {
-	a2aConv
-	Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
-}
 
 // subscriberBuffer is the channel buffer size for broadcast subscribers.
 const subscriberBuffer = 64
@@ -88,7 +82,7 @@ func (b *taskBroadcaster) close() {
 }
 
 // getBroadcaster returns or creates a broadcaster for the given task ID.
-func (s *A2AServer) getBroadcaster(taskID string) *taskBroadcaster {
+func (s *Server) getBroadcaster(taskID string) *taskBroadcaster {
 	s.subsMu.Lock()
 	defer s.subsMu.Unlock()
 	b, ok := s.subs[taskID]
@@ -100,14 +94,14 @@ func (s *A2AServer) getBroadcaster(taskID string) *taskBroadcaster {
 }
 
 // removeBroadcaster removes a broadcaster from the map.
-func (s *A2AServer) removeBroadcaster(taskID string) {
+func (s *Server) removeBroadcaster(taskID string) {
 	s.subsMu.Lock()
 	defer s.subsMu.Unlock()
 	delete(s.subs, taskID)
 }
 
 // closeAllBroadcasters closes all active broadcasters.
-func (s *A2AServer) closeAllBroadcasters() {
+func (s *Server) closeAllBroadcasters() {
 	s.subsMu.Lock()
 	defer s.subsMu.Unlock()
 	for id, b := range s.subs {
@@ -145,7 +139,7 @@ func broadcastEvent(b *taskBroadcaster, rpcID, event any) {
 
 // streamCtx bundles the common parameters for streaming SSE to a client.
 type streamCtx struct {
-	srv       *A2AServer
+	srv       *Server
 	w         http.ResponseWriter
 	flusher   http.Flusher
 	b         *taskBroadcaster
@@ -191,7 +185,7 @@ func (sc *streamCtx) complete() {
 }
 
 // handleStreamMessage processes a message/stream request.
-func (s *A2AServer) handleStreamMessage(
+func (s *Server) handleStreamMessage(
 	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
 ) {
 	var params a2a.SendMessageRequest
@@ -212,7 +206,7 @@ func (s *A2AServer) handleStreamMessage(
 		return
 	}
 
-	streamConv, ok := conv.(a2aStreamConv)
+	streamConv, ok := conv.(StreamingConversation)
 	if !ok {
 		writeRPCError(w, req.ID, -32601,
 			"Streaming not supported by this agent")
@@ -270,15 +264,15 @@ func (s *A2AServer) handleStreamMessage(
 	s.cancels[taskID] = cancel
 	s.cancelsMu.Unlock()
 
-	chunks := streamConv.Stream(ctx, pkMsg)
+	events := streamConv.Stream(ctx, pkMsg)
 
-	sc.processChunks(ctx, chunks)
+	sc.processEvents(ctx, events)
 }
 
-// processChunks iterates over the stream channel and emits SSE events.
+// processEvents iterates over the stream channel and emits SSE events.
 // It monitors ctx for client disconnects so the loop exits promptly instead
 // of blocking on a channel read indefinitely (preventing goroutine leaks).
-func (sc *streamCtx) processChunks(ctx context.Context, chunks <-chan StreamChunk) {
+func (sc *streamCtx) processEvents(ctx context.Context, events <-chan StreamEvent) {
 	artifactIdx := 0
 
 	for {
@@ -290,14 +284,14 @@ func (sc *streamCtx) processChunks(ctx context.Context, chunks <-chan StreamChun
 			sc.srv.removeBroadcaster(sc.taskID)
 			return
 
-		case chunk, ok := <-chunks:
+		case evt, ok := <-events:
 			if !ok {
-				// Channel closed without a Done chunk — treat as completed.
+				// Channel closed without a Done event — treat as completed.
 				sc.complete()
 				return
 			}
 
-			done, idx := sc.handleChunk(chunk, artifactIdx)
+			done, idx := sc.handleEvent(evt, artifactIdx)
 			if done {
 				return
 			}
@@ -306,26 +300,26 @@ func (sc *streamCtx) processChunks(ctx context.Context, chunks <-chan StreamChun
 	}
 }
 
-// handleChunk processes a single stream chunk and returns whether the stream
+// handleEvent processes a single stream event and returns whether the stream
 // is finished and the updated artifact index.
-func (sc *streamCtx) handleChunk(chunk StreamChunk, artifactIdx int) (done bool, nextIdx int) {
-	if chunk.Error != nil {
-		sc.fail(chunk.Error.Error())
+func (sc *streamCtx) handleEvent(evt StreamEvent, artifactIdx int) (done bool, nextIdx int) {
+	if evt.Error != nil {
+		sc.fail(evt.Error.Error())
 		return true, artifactIdx
 	}
 
-	switch chunk.Type {
-	case ChunkText:
-		sc.emitArtifact(artifactIdx, []a2a.Part{{Text: &chunk.Text}})
+	switch evt.Kind {
+	case EventText:
+		sc.emitArtifact(artifactIdx, []a2a.Part{{Text: &evt.Text}})
 		return false, artifactIdx + 1
 
-	case ChunkMedia:
-		if chunk.Media == nil {
+	case EventMedia:
+		if evt.Media == nil {
 			return false, artifactIdx
 		}
 		part, convErr := a2a.ContentPartToA2APart(types.ContentPart{
-			Type:  a2a.InferContentType(chunk.Media.MIMEType),
-			Media: chunk.Media,
+			Type:  a2a.InferContentType(evt.Media.MIMEType),
+			Media: evt.Media,
 		})
 		if convErr != nil {
 			return false, artifactIdx
@@ -333,11 +327,11 @@ func (sc *streamCtx) handleChunk(chunk StreamChunk, artifactIdx int) (done bool,
 		sc.emitArtifact(artifactIdx, []a2a.Part{part})
 		return false, artifactIdx + 1
 
-	case ChunkToolCall:
+	case EventToolCall:
 		// Suppressed — agent opacity. Task stays working.
 		return false, artifactIdx
 
-	case ChunkDone:
+	case EventDone:
 		sc.complete()
 		return true, artifactIdx
 
@@ -360,7 +354,7 @@ func (sc *streamCtx) emitArtifact(idx int, parts []a2a.Part) {
 }
 
 // handleTaskSubscribe processes a tasks/subscribe request.
-func (s *A2AServer) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
+func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest) {
 	var params a2a.SubscribeTaskRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		writeRPCError(w, req.ID, -32602, "Invalid params")

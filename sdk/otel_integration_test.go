@@ -19,6 +19,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
 	"github.com/AltairaLabs/PromptKit/sdk/session"
@@ -217,20 +218,9 @@ func TestOTelIntegration_A2ATraceRoundTrip(t *testing.T) {
 	parentSpan.End()
 
 	// Set up an A2A server backed by a mock conversation.
-	mock := &mockA2AConv{
-		sendFunc: func(ctx context.Context, _ any, _ ...SendOption) (*Response, error) {
-			// The send handler runs in a goroutine with trace context
-			// propagated from the HTTP request.
-			return &Response{
-				message: &types.Message{
-					Role:  "assistant",
-					Parts: []types.ContentPart{types.NewTextPart("ok")},
-				},
-			}, nil
-		},
-	}
+	mock := &otelMockConv{}
 
-	srv := NewA2AServer(func(string) (a2aConv, error) { return mock, nil })
+	srv := NewA2AServer(func(string) (a2aserver.Conversation, error) { return mock, nil })
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -239,7 +229,7 @@ func TestOTelIntegration_A2ATraceRoundTrip(t *testing.T) {
 	resp, err := client.SendMessage(parentCtx, &a2a.SendMessageRequest{
 		Message: a2a.Message{
 			Role:  a2a.RoleUser,
-			Parts: []a2a.Part{{Text: serverTextPtr("test trace")}},
+			Parts: []a2a.Part{{Text: ptrStr("test trace")}},
 		},
 		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
 	})
@@ -343,3 +333,20 @@ func spanNameList(spans []tracetest.SpanStub) []string {
 	}
 	return names
 }
+
+// otelMockConv implements a2aserver.Conversation for the OTel integration test.
+type otelMockConv struct{}
+
+func (m *otelMockConv) Send(_ context.Context, _ any) (a2aserver.SendResult, error) {
+	return &otelMockResult{}, nil
+}
+
+func (m *otelMockConv) Close() error { return nil }
+
+type otelMockResult struct{}
+
+func (r *otelMockResult) HasPendingTools() bool       { return false }
+func (r *otelMockResult) Parts() []types.ContentPart { return []types.ContentPart{types.NewTextPart("ok")} }
+func (r *otelMockResult) Text() string               { return "ok" }
+
+func ptrStr(s string) *string { return &s }
