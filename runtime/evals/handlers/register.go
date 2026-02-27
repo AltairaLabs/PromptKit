@@ -58,4 +58,10 @@ func init() {
 	evals.RegisterDefault(&LLMJudgeHandler{})
 	evals.RegisterDefault(&LLMJudgeSessionHandler{})
 	evals.RegisterDefault(&LLMJudgeToolCallsHandler{})
+
+	// External eval handlers
+	evals.RegisterDefault(&RestEvalHandler{})
+	evals.RegisterDefault(&RestEvalSessionHandler{})
+	evals.RegisterDefault(&A2AEvalHandler{})
+	evals.RegisterDefault(&A2AEvalSessionHandler{})
 }

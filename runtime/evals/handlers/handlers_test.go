@@ -814,6 +814,12 @@ func TestRegisterInit(t *testing.T) {
 		"llm_judge",
 		"llm_judge_session",
 		"llm_judge_tool_calls",
+
+		// External eval handlers
+		"rest_eval",
+		"rest_eval_session",
+		"a2a_eval",
+		"a2a_eval_session",
 	}
 
 	r := evals.NewEvalTypeRegistry()

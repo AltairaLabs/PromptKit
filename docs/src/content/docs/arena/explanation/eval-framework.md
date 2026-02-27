@@ -20,7 +20,7 @@ PromptKit offers two complementary evaluation mechanisms:
 | **Defined in** | Pack file (`evals` array) | Arena scenario YAML |
 | **Scope** | Any conversation using the pack | Specific test scenarios |
 | **When** | Production + testing | Testing only |
-| **Types** | Deterministic + LLM judge | Content matching + LLM judge |
+| **Types** | Deterministic + LLM judge + External | Content matching + LLM judge + External |
 | **Trigger** | Configurable (every turn, sampling) | Every turn / conversation end |
 
 **Pack evals** travel with your pack — they run in production, in Arena tests, and anywhere the pack is used. Think of them as built-in quality monitors.
@@ -70,6 +70,19 @@ Use an LLM to evaluate quality when deterministic checks aren't sufficient:
 | `llm_judge_session` | LLM evaluates full session | `criteria` (string) |
 
 LLM judge evals require a judge provider configured in the eval context metadata.
+
+### External Evals
+
+Delegate evaluation to an external service — a REST endpoint or an A2A agent:
+
+| Type | Description | Key Params |
+|------|-------------|------------|
+| `rest_eval` | POST turn to an HTTP endpoint | `url` (string), `criteria` (string) |
+| `rest_eval_session` | POST full session to an HTTP endpoint | `url` (string), `criteria` (string) |
+| `a2a_eval` | Send turn to an A2A eval agent | `agent_url` (string), `criteria` (string) |
+| `a2a_eval_session` | Send full session to an A2A eval agent | `agent_url` (string), `criteria` (string) |
+
+External eval handlers send conversation context (messages, tool calls, variables) to the external service and expect a `{passed, score, reasoning}` JSON response. They support `${ENV_VAR}` interpolation for authentication headers and tokens, configurable timeouts, and a `min_score` threshold. REST evals use standard HTTP; A2A evals use the A2A protocol's `message/send` method.
 
 ## Triggers
 

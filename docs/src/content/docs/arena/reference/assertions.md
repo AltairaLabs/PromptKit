@@ -1323,6 +1323,180 @@ conversation_assertions:
 
 ---
 
+### External Eval Assertions
+
+External eval assertions delegate evaluation to an external service — either a REST endpoint or an A2A agent. Both return a structured `{passed, score, reasoning}` JSON response. These are useful when you have specialized evaluation logic deployed as a service, or when you want to use a custom model or evaluation pipeline that isn't available as a local handler.
+
+#### `rest_eval`
+
+POSTs conversation context to an external HTTP endpoint and interprets the structured JSON response as an eval result.
+
+**Use Cases**:
+- Delegate evaluation to a specialized evaluation microservice
+- Use custom ML models or pipelines for evaluation
+- Integrate with third-party evaluation APIs
+- Run evaluations that require access to external data sources
+
+**Parameters**:
+- `url` (string, required): Endpoint URL to POST to
+- `method` (string, optional, default: `POST`): HTTP method
+- `headers` (map, optional): Request headers — values support `${ENV_VAR}` interpolation
+- `timeout` (string, optional, default: `30s`): Request timeout (Go duration format)
+- `criteria` (string, optional): Evaluation criteria forwarded in the request body
+- `min_score` (float, optional): Minimum score to pass. If set, overrides the `passed` field from the response
+- `include_messages` (boolean, optional, default: `true`): Include conversation history in the request
+- `include_tool_calls` (boolean, optional, default: `false`): Include tool call records in the request
+- `extra` (map, optional): Arbitrary data forwarded in the request body
+
+**Request Schema** (POST body sent to the endpoint):
+```json
+{
+  "current_output": "The assistant's latest response...",
+  "messages": [
+    {"role": "user", "content": "..."},
+    {"role": "assistant", "content": "..."}
+  ],
+  "tool_calls": [],
+  "criteria": "Is the response helpful?",
+  "variables": {},
+  "extra": {}
+}
+```
+
+**Response Schema** (expected from the endpoint):
+```json
+{
+  "passed": true,
+  "score": 0.95,
+  "reasoning": "The response provides clear, actionable steps..."
+}
+```
+
+All three fields are optional. Pass logic: if `passed` is present, use it; else if `min_score` is set, use `score >= min_score`; else default to `score >= 0.5`.
+
+**Example**:
+```yaml
+- role: user
+  content: "Explain how to reset my password"
+  assertions:
+    - type: rest_eval
+      params:
+        url: "https://eval-service.example.com/evaluate"
+        headers:
+          Authorization: "Bearer ${EVAL_API_KEY}"
+        criteria: "Response should provide clear step-by-step instructions"
+        min_score: 0.8
+      message: "Response quality meets threshold"
+```
+
+**With Extra Context**:
+```yaml
+assertions:
+  - type: rest_eval
+    params:
+      url: "https://eval-service.example.com/evaluate"
+      headers:
+        Authorization: "Bearer ${EVAL_API_KEY}"
+        X-Team: "support"
+      timeout: "15s"
+      criteria: "Is the response helpful and accurate?"
+      include_tool_calls: true
+      extra:
+        scenario_id: "helpfulness-1"
+        domain: "customer-support"
+    message: "External eval passed"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "score": 0.4,
+  "explanation": "The response lacks specific steps and uses vague language..."
+}
+```
+
+**Conversation-Level**: Use `rest_eval_session` in `conversation_assertions` to evaluate the full conversation. The session variant sends all assistant messages (joined by newlines) as `current_output`.
+
+```yaml
+conversation_assertions:
+  - type: rest_eval_session
+    params:
+      url: "https://eval-service.example.com/evaluate"
+      headers:
+        Authorization: "Bearer ${EVAL_API_KEY}"
+      criteria: "The assistant should maintain a helpful tone throughout the conversation"
+      min_score: 0.8
+    message: "Consistent quality across conversation"
+```
+
+---
+
+#### `a2a_eval`
+
+Sends conversation context to an A2A (Agent-to-Agent) agent and interprets the agent's response as an eval result. Uses the A2A protocol (`message/send`) for communication.
+
+**Use Cases**:
+- Use a specialized eval agent that has its own tools and reasoning capabilities
+- Leverage A2A agents that can cross-reference external knowledge bases
+- Run complex multi-step evaluations that require agent-level reasoning
+- Evaluate responses using agents hosted on different platforms
+
+**Parameters**:
+- `agent_url` (string, required): Base URL of the A2A eval agent
+- `auth_token` (string, optional): Authentication token — supports `${ENV_VAR}` interpolation. Sent as `Bearer` token.
+- `timeout` (string, optional, default: `60s`): Request timeout (Go duration format)
+- `criteria` (string, optional): Evaluation criteria included in the message to the agent
+- `min_score` (float, optional): Minimum score to pass
+- `include_messages` (boolean, optional, default: `true`): Include conversation history
+- `include_tool_calls` (boolean, optional, default: `false`): Include tool call records
+- `extra` (map, optional): Arbitrary data forwarded in the message
+
+**Behavior**:
+1. Creates an A2A client for the `agent_url`
+2. Builds a user message containing evaluation instructions, criteria, and conversation context as structured JSON
+3. Calls `message/send` (blocking mode)
+4. Parses the agent's text response for a JSON block with `{passed, score, reasoning}`
+5. Applies pass logic (same as `rest_eval`)
+
+**Example**:
+```yaml
+- role: user
+  content: "What are the side effects of ibuprofen?"
+  assertions:
+    - type: a2a_eval
+      params:
+        agent_url: "https://medical-eval-agent.example.com"
+        auth_token: "${A2A_EVAL_TOKEN}"
+        criteria: "Response should be medically accurate and include appropriate disclaimers"
+        min_score: 0.9
+      message: "Medical accuracy check"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "score": 0.5,
+  "explanation": "The response lists common side effects but omits the disclaimer to consult a healthcare provider..."
+}
+```
+
+**Conversation-Level**: Use `a2a_eval_session` in `conversation_assertions` to evaluate the full conversation.
+
+```yaml
+conversation_assertions:
+  - type: a2a_eval_session
+    params:
+      agent_url: "https://eval-agent.example.com"
+      auth_token: "${A2A_EVAL_TOKEN}"
+      criteria: "The agent should demonstrate progressive problem-solving across turns"
+      min_score: 0.8
+    message: "Conversation quality check"
+```
+
+---
+
 ### JSON Validation Assertions
 
 #### `is_valid_json`

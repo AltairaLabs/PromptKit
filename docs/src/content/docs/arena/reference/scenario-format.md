@@ -125,6 +125,10 @@ assertions:
   # LLM Judge
   - type: llm_judge
 
+  # External Evals
+  - type: rest_eval
+  - type: a2a_eval
+
 # Conversation-level assertions (in conversation_assertions field)
 conversation_assertions:
   - type: tools_called

@@ -539,6 +539,16 @@ assertions:
       criteria: "Response follows business rules and policies"
       judge_provider: "openai/gpt-4o-mini"
       message: "Must follow business rules"
+
+  # Level 6: External evaluation
+  - type: rest_eval
+    params:
+      url: "https://eval-service.example.com/evaluate"
+      headers:
+        Authorization: "Bearer ${EVAL_API_KEY}"
+      criteria: "Response meets domain-specific compliance requirements"
+      min_score: 0.9
+      message: "Must pass external compliance check"
 ```
 
 **Benefits:**
@@ -546,6 +556,7 @@ assertions:
 - Detailed validation only if basics pass
 - Clear failure diagnostics
 - Efficient test execution
+- External services can apply specialized evaluation logic
 
 ### The Specificity Spectrum
 
