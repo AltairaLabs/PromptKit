@@ -27,6 +27,7 @@ install: ## Install dependencies
 	@cd runtime && go mod download
 	@cd sdk && go mod download
 	@cd pkg && go mod download || echo "No pkg dependencies yet"
+	@cd server/a2a && go mod download
 	@cd tools/arena && go mod download
 	@cd tools/packc && go mod download
 	@cd tools/inspect-state && go mod download
@@ -34,6 +35,8 @@ install: ## Install dependencies
 build: ## Build current components
 	@echo "Building runtime..."
 	@cd runtime && go build ./...
+	@echo "Building server/a2a..."
+	@cd server/a2a && go build ./...
 	@echo "Building SDK..."
 	@cd sdk && go build ./...
 	@echo "Building pkg..."
@@ -186,6 +189,8 @@ demo-vhs-docker-single: ## Record a single VHS tape in Docker (usage: make demo-
 test: ## Run all tests
 	@echo "Testing runtime..."
 	@cd runtime && go test -v ./...
+	@echo "Testing server/a2a..."
+	@cd server/a2a && go test -v ./...
 	@echo "Testing SDK..."
 	@cd sdk && go test -v ./...
 	@echo "Testing pkg..."
@@ -445,6 +450,13 @@ test-race: ## Run tests with race detector
 		rm race-test.log; \
 		exit 1; \
 	fi
+	@echo "Testing server/a2a with race detector..."
+	@cd server/a2a && go test -race -v ./... 2>&1 | tee -a race-test.log || echo "server/a2a race test completed"; \
+	if grep -q "^FAIL" race-test.log; then \
+		echo "server/a2a tests failed"; \
+		rm race-test.log; \
+		exit 1; \
+	fi
 	@echo "Testing arena with race detector..."
 	@cd tools/arena && go test -race -v ./... 2>&1 | tee -a race-test.log || echo "Arena race test completed"; \
 	if grep -q "^FAIL" race-test.log; then \
@@ -481,6 +493,9 @@ coverage: ## Generate test coverage report
 	@echo "Generating coverage for pkg..."
 	@cd pkg && go test -coverprofile=pkg-coverage.out ./... || echo "No pkg test coverage"
 	@cd pkg && go tool cover -func=pkg-coverage.out | grep "^total:" 2>/dev/null || echo "No pkg coverage data"
+	@echo "Generating coverage for server/a2a..."
+	@cd server/a2a && go test -coverprofile=server-a2a-coverage.out ./... || echo "No server/a2a test coverage"
+	@cd server/a2a && go tool cover -func=server-a2a-coverage.out | grep "^total:" 2>/dev/null || echo "No server/a2a coverage data"
 	@echo "Generating coverage for arena..."
 	@cd tools/arena && go test -coverprofile=arena-coverage.out ./... || echo "No arena test coverage"
 	@cd tools/arena && go tool cover -func=arena-coverage.out | grep "^total:" 2>/dev/null || echo "No arena coverage data"
@@ -497,13 +512,14 @@ coverage: ## Generate test coverage report
 	@cp runtime/runtime-coverage.out runtime-coverage.out 2>/dev/null || true
 	@cp sdk/sdk-coverage.out sdk-coverage.out 2>/dev/null || true
 	@cp pkg/pkg-coverage.out pkg-coverage.out 2>/dev/null || true
+	@cp server/a2a/server-a2a-coverage.out server-a2a-coverage.out 2>/dev/null || true
 	@cp tools/arena/arena-coverage.out arena-coverage.out 2>/dev/null || true
 	@cp tools/packc/packc-coverage.out packc-coverage.out 2>/dev/null || true
 	@cp tools/inspect-state/inspect-state-coverage.out inspect-state-coverage.out 2>/dev/null || true
 	@cp tools/schema-gen/schema-gen-coverage.out schema-gen-coverage.out 2>/dev/null || true
 	@echo "Merging coverage files..."
 	@echo "mode: set" > coverage.out
-	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out tools/arena/arena-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
+	@grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out pkg/pkg-coverage.out server/a2a/server-a2a-coverage.out tools/arena/arena-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out >> coverage.out 2>/dev/null || true
 	@echo "Coverage report generated: coverage.out"
 
 lint: ## Run linters
@@ -516,6 +532,9 @@ lint: ## Run linters
 	@echo "Linting pkg..."
 	@cd pkg && go vet ./...
 	@cd pkg && go fmt ./...
+	@echo "Linting server/a2a..."
+	@cd server/a2a && go vet ./...
+	@cd server/a2a && go fmt ./...
 	@echo "Linting CLI tools..."
 	@cd tools/arena && go vet ./... && go fmt ./...
 	@cd tools/packc && go vet ./... && go fmt ./...
@@ -524,6 +543,7 @@ lint: ## Run linters
 	@cd runtime && golangci-lint run ./...
 	@cd sdk && golangci-lint run ./...
 	@cd pkg && golangci-lint run ./...
+	@cd server/a2a && golangci-lint run ./...
 	@cd tools/arena && golangci-lint run ./...
 	@cd tools/packc && golangci-lint run ./...
 	@cd tools/inspect-state && golangci-lint run ./...
@@ -534,7 +554,7 @@ lint: ## Run linters
 
 lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 	@echo "🔍 Linting changed code only..."
-	@MODULES="runtime sdk pkg tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
+	@MODULES="runtime sdk pkg server/a2a tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
 	CHANGED=0; \
 	for module in $$MODULES; do \
 		if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
@@ -554,7 +574,7 @@ lint-diff: ## Run linters on changed code only (fast, for pre-commit)
 security-scan: ## Run gosec security scanner on all code
 	@if command -v gosec >/dev/null 2>&1; then \
 		echo "🔒 Running security scan..."; \
-		gosec -quiet -fmt=text ./runtime/... ./sdk/... ./pkg/... ./tools/...; \
+		gosec -quiet -fmt=text ./runtime/... ./sdk/... ./pkg/... ./server/... ./tools/...; \
 	else \
 		echo "⚠️  gosec not installed. Install with: brew install gosec"; \
 		echo "   Or visit: https://github.com/securego/gosec"; \
@@ -562,7 +582,7 @@ security-scan: ## Run gosec security scanner on all code
 
 security-scan-diff: ## Run gosec on changed code only (for pre-commit)
 	@if command -v gosec >/dev/null 2>&1; then \
-		MODULES="runtime sdk pkg tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
+		MODULES="runtime sdk pkg server/a2a tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
 		for module in $$MODULES; do \
 			if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
 				echo "Security scan: $$module"; \
@@ -575,7 +595,7 @@ security-scan-diff: ## Run gosec on changed code only (for pre-commit)
 
 test-fast: ## Run tests for changed packages only (fast, for pre-commit)
 	@echo "🧪 Testing changed packages..."
-	@MODULES="runtime sdk pkg tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
+	@MODULES="runtime sdk pkg server/a2a tools/arena tools/packc tools/inspect-state tools/schema-gen"; \
 	CHANGED=0; \
 	for module in $$MODULES; do \
 		if git diff --name-only HEAD | grep -q "^$$module/.*\.go$$"; then \
