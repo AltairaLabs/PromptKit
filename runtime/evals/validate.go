@@ -87,6 +87,23 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 	return errs
 }
 
+// ValidateEvalTypes checks that every EvalDef's Type has a registered handler
+// in the given registry. Returns a list of human-readable error strings for
+// any unknown types. This is safe to call from any package that has access
+// to both the defs and the registry.
+func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
+	var errs []string
+	for i := range defs {
+		if defs[i].Type != "" && !registry.Has(defs[i].Type) {
+			errs = append(errs, fmt.Sprintf(
+				"eval %q: unknown type %q (registered types: %v)",
+				defs[i].ID, defs[i].Type, registry.Types(),
+			))
+		}
+	}
+	return errs
+}
+
 // validateMetric validates a MetricDef within an eval.
 func validateMetric(m *MetricDef, prefix string) []string {
 	var errs []string

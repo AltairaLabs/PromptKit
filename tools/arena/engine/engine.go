@@ -132,7 +132,14 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	eng.toolRegistry = toolRegistry
 	// Build pack eval hook for workflow executor (conversation executors get their own copy)
 	if cfg.LoadedPack != nil {
-		eng.packEvalHook = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+		var hookErr error
+		eng.packEvalHook, hookErr = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+		if hookErr != nil {
+			if a2aCleanup != nil {
+				a2aCleanup()
+			}
+			return nil, fmt.Errorf("failed to build pack eval hook: %w", hookErr)
+		}
 	}
 	return eng, nil
 }

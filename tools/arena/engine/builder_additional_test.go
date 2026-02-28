@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -251,6 +253,79 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, composite.GetDefaultExecutor())
 	require.NotNil(t, composite.GetDuplexExecutor())
+}
+
+func TestBuildPackEvalHook_UnknownEvalType(t *testing.T) {
+	cfg := &config.Config{
+		LoadedPack: &prompt.Pack{
+			ID: "test-pack",
+			Evals: []evals.EvalDef{
+				{ID: "good", Type: "contains", Trigger: evals.TriggerEveryTurn},
+				{ID: "bad", Type: "contians", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+	}
+
+	hook, err := buildPackEvalHook(cfg, false, nil)
+	require.Error(t, err)
+	require.Nil(t, hook)
+	require.Contains(t, err.Error(), "unknown eval types")
+	require.Contains(t, err.Error(), `"contians"`)
+}
+
+func TestBuildPackEvalHook_AllKnownTypes(t *testing.T) {
+	cfg := &config.Config{
+		LoadedPack: &prompt.Pack{
+			ID: "test-pack",
+			Evals: []evals.EvalDef{
+				{ID: "check", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+	}
+
+	hook, err := buildPackEvalHook(cfg, false, nil)
+	require.NoError(t, err)
+	require.NotNil(t, hook)
+}
+
+func TestBuildPackEvalHook_EmptyEvalsReturnsNil(t *testing.T) {
+	cfg := &config.Config{
+		LoadedPack: &prompt.Pack{
+			ID: "test-pack",
+		},
+	}
+
+	hook, err := buildPackEvalHook(cfg, false, nil)
+	require.NoError(t, err)
+	require.Nil(t, hook)
+}
+
+func TestBuildEngineComponents_UnknownEvalTypeError(t *testing.T) {
+	cfg := &config.Config{
+		LoadedProviders: map[string]*config.Provider{
+			"mock-assistant": {
+				ID:    "mock-assistant",
+				Type:  "mock",
+				Model: "mock-model",
+				Defaults: config.ProviderDefaults{
+					Temperature: 0.1,
+					MaxTokens:   128,
+					TopP:        1.0,
+				},
+			},
+		},
+		LoadedPack: &prompt.Pack{
+			ID: "test-pack",
+			Evals: []evals.EvalDef{
+				{ID: "bad", Type: "nonexistent_type", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+	}
+
+	_, _, _, _, _, _, _, err := BuildEngineComponents(cfg)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to build pack eval hook")
+	require.Contains(t, err.Error(), "unknown eval types")
 }
 
 func TestNewConversationExecutor_WithoutSelfPlay(t *testing.T) {

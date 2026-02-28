@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -124,7 +125,13 @@ func BuildEngineComponents(cfg *config.Config) (
 	// Build pack eval hook if pack is loaded
 	var packEvalHook *PackEvalHook
 	if cfg.LoadedPack != nil {
-		packEvalHook = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+		packEvalHook, err = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+		if err != nil {
+			if a2aCleanupFn != nil {
+				a2aCleanupFn()
+			}
+			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
+		}
 	}
 
 	// Inject judge metadata so eval handlers (llm_judge, llm_judge_session)
@@ -467,8 +474,9 @@ func newConversationExecutor(
 
 // buildPackEvalHook creates a PackEvalHook from the loaded pack.
 // It resolves pack-level and prompt-level evals, creates a registry with default handlers,
-// and returns a hook ready for use in conversation executors.
-func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []string) *PackEvalHook {
+// and validates that all referenced eval types have registered handlers.
+// Returns an error if any eval references an unknown type.
+func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []string) (*PackEvalHook, error) {
 	pack := cfg.LoadedPack
 
 	// Collect all eval defs from pack level
@@ -482,13 +490,18 @@ func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []stri
 	}
 
 	if len(allDefs) == 0 && !skipEvals {
-		return nil
+		return nil, nil
 	}
 
 	// Create registry with default handlers (registered via init() in handlers package)
 	registry := evals.NewEvalTypeRegistry()
 
-	return NewPackEvalHook(registry, allDefs, skipEvals, evalTypeFilter, pack.ID)
+	// Validate that all eval types have registered handlers
+	if typeErrs := evals.ValidateEvalTypes(allDefs, registry); len(typeErrs) > 0 {
+		return nil, fmt.Errorf("unknown eval types:\n  %s", strings.Join(typeErrs, "\n  "))
+	}
+
+	return NewPackEvalHook(registry, allDefs, skipEvals, evalTypeFilter, pack.ID), nil
 }
 
 // buildEvalExecutor creates the eval conversation executor with required registries.

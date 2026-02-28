@@ -294,6 +294,108 @@ func TestValidateEvals_ValidAllMetricTypes(t *testing.T) {
 	}
 }
 
+func TestValidateEvalTypes(t *testing.T) {
+	// Create a registry with only "contains" and "regex" handlers
+	registry := NewEmptyEvalTypeRegistry()
+	registry.Register(&stubHandler{typeName: "contains"})
+	registry.Register(&stubHandler{typeName: "regex"})
+
+	tests := []struct {
+		name      string
+		defs      []EvalDef
+		wantCount int
+		wantMsgs  []string
+	}{
+		{
+			name:      "nil defs returns no errors",
+			defs:      nil,
+			wantCount: 0,
+		},
+		{
+			name:      "empty defs returns no errors",
+			defs:      []EvalDef{},
+			wantCount: 0,
+		},
+		{
+			name: "all known types pass",
+			defs: []EvalDef{
+				{ID: "a", Type: "contains"},
+				{ID: "b", Type: "regex"},
+			},
+			wantCount: 0,
+		},
+		{
+			name: "unknown type returns error",
+			defs: []EvalDef{
+				{ID: "a", Type: "contians"},
+			},
+			wantCount: 1,
+			wantMsgs:  []string{`unknown type "contians"`, `eval "a"`},
+		},
+		{
+			name: "multiple unknown types",
+			defs: []EvalDef{
+				{ID: "a", Type: "contians"},
+				{ID: "b", Type: "regx"},
+			},
+			wantCount: 2,
+			wantMsgs:  []string{`"contians"`, `"regx"`},
+		},
+		{
+			name: "empty type is skipped (caught by ValidateEvals)",
+			defs: []EvalDef{
+				{ID: "a", Type: ""},
+			},
+			wantCount: 0,
+		},
+		{
+			name: "mix of known and unknown types",
+			defs: []EvalDef{
+				{ID: "a", Type: "contains"},
+				{ID: "b", Type: "bogus"},
+				{ID: "c", Type: "regex"},
+			},
+			wantCount: 1,
+			wantMsgs:  []string{`"bogus"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateEvalTypes(tt.defs, registry)
+			if len(errs) != tt.wantCount {
+				t.Errorf("got %d errors, want %d:\n%s", len(errs), tt.wantCount, strings.Join(errs, "\n"))
+				return
+			}
+			for _, msg := range tt.wantMsgs {
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err, msg) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected error containing %q, got:\n%s", msg, strings.Join(errs, "\n"))
+				}
+			}
+		})
+	}
+}
+
+func TestValidateEvalTypes_ErrorIncludesRegisteredTypes(t *testing.T) {
+	registry := NewEmptyEvalTypeRegistry()
+	registry.Register(&stubHandler{typeName: "contains"})
+
+	errs := ValidateEvalTypes([]EvalDef{{ID: "x", Type: "typo"}}, registry)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(errs))
+	}
+	if !strings.Contains(errs[0], "contains") {
+		t.Errorf("error should list registered types, got: %s", errs[0])
+	}
+}
+
 func TestValidateEvals_DisabledEvalStillValidated(t *testing.T) {
 	defs := []EvalDef{{
 		ID:      "test",
