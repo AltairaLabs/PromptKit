@@ -3,6 +3,8 @@ package evals
 import (
 	"fmt"
 	"regexp"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // prometheusNameRe matches valid Prometheus metric names.
@@ -21,11 +23,11 @@ func ValidateEvals(defs []EvalDef, scope string) []string {
 	var errs []string
 	seen := make(map[string]bool, len(defs))
 
-	for i, def := range defs {
+	for i := range defs {
 		prefix := fmt.Sprintf("%s evals[%d]", scope, i)
-		prefix, idErrs := validateEvalID(&def, prefix, scope, i, seen)
+		prefix, idErrs := validateEvalID(&defs[i], prefix, scope, i, seen)
 		errs = append(errs, idErrs...)
-		errs = append(errs, validateEvalFields(&def, prefix)...)
+		errs = append(errs, validateEvalFields(&defs[i], prefix)...)
 	}
 
 	return errs
@@ -92,6 +94,7 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 // any unknown types. This is safe to call from any package that has access
 // to both the defs and the registry.
 func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
+	logger.Debug("evals: validating eval types", "def_count", len(defs), "registered_types", registry.Types())
 	var errs []string
 	for i := range defs {
 		if defs[i].Type != "" && !registry.Has(defs[i].Type) {

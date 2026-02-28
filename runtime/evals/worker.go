@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // EvalWorker is a reusable worker loop for Pattern B event-driven
@@ -27,9 +28,9 @@ type Logger interface {
 // defaultLogger wraps the standard log package.
 type defaultLogger struct{}
 
-// Printf logs using the standard log package.
+// Printf logs using the structured logger at warn level.
 func (defaultLogger) Printf(format string, v ...any) {
-	log.Printf(format, v...)
+	logger.Warn(fmt.Sprintf(format, v...))
 }
 
 // WorkerOption configures an EvalWorker.
@@ -62,6 +63,7 @@ func NewEvalWorker(
 // Start subscribes to turn and session eval events and processes them.
 // It blocks until the context is canceled or a subscription error occurs.
 func (w *EvalWorker) Start(ctx context.Context) error {
+	logger.Info("evals: worker starting", "subscriptions", []string{"eval.turn.*", "eval.session.*"})
 	turnErr := make(chan error, 1)
 	sessErr := make(chan error, 1)
 
@@ -88,6 +90,7 @@ func (w *EvalWorker) Start(ctx context.Context) error {
 }
 
 func (w *EvalWorker) handleTurnEvent(event []byte) error {
+	logger.Debug("evals: worker received turn event")
 	payload, err := w.decode(event)
 	if err != nil {
 		return err
@@ -95,10 +98,12 @@ func (w *EvalWorker) handleTurnEvent(event []byte) error {
 	results := w.runner.RunTurnEvals(
 		context.Background(), payload.Defs, payload.EvalCtx,
 	)
+	logger.Debug("evals: worker turn event processed", "results", len(results))
 	return w.writeResults(results)
 }
 
 func (w *EvalWorker) handleSessionEvent(event []byte) error {
+	logger.Debug("evals: worker received session event")
 	payload, err := w.decode(event)
 	if err != nil {
 		return err
@@ -106,6 +111,7 @@ func (w *EvalWorker) handleSessionEvent(event []byte) error {
 	results := w.runner.RunSessionEvals(
 		context.Background(), payload.Defs, payload.EvalCtx,
 	)
+	logger.Debug("evals: worker session event processed", "results", len(results))
 	return w.writeResults(results)
 }
 

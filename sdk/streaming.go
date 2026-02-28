@@ -211,7 +211,16 @@ func (c *Conversation) executeStreamingPipeline(
 	}
 
 	// Process stream and finalize
-	return c.processAndFinalizeStream(streamCh, outCh, startTime)
+	if err := c.processAndFinalizeStream(streamCh, outCh, startTime); err != nil {
+		return err
+	}
+
+	// Dispatch turn-level evals (mirrors Send() behavior)
+	c.sessionHooks.IncrementTurn()
+	c.sessionHooks.SessionUpdate(ctx)
+	c.evalMW.dispatchTurnEvals(ctx)
+
+	return nil
 }
 
 // processAndFinalizeStream handles the streaming response and emits the final chunk.

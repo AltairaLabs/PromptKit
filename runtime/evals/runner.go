@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // DefaultEvalTimeout is the per-eval execution timeout.
@@ -108,6 +110,7 @@ func (r *EvalRunner) runEvals(
 	trigCtx *TriggerContext,
 	allowedTriggers map[EvalTrigger]bool,
 ) []EvalResult {
+	logger.Debug("evals: running evals", "count", len(defs), "session_id", evalCtx.SessionID)
 	var results []EvalResult
 	for i := range defs {
 		if ctx.Err() != nil {
@@ -131,22 +134,26 @@ func (r *EvalRunner) runOne(
 ) *EvalResult {
 	// Skip disabled evals
 	if !def.IsEnabled() {
+		logger.Debug("evals: skipping disabled eval", "eval_id", def.ID)
 		return nil
 	}
 
 	// Skip evals whose trigger doesn't match this execution mode
 	if !allowedTriggers[def.Trigger] {
+		logger.Debug("evals: skipping eval, trigger mismatch", "eval_id", def.ID, "trigger", def.Trigger)
 		return nil
 	}
 
 	// Check sampling
 	if !ShouldRun(def.Trigger, def.GetSamplePercentage(), trigCtx) {
+		logger.Debug("evals: skipping eval, sampling excluded", "eval_id", def.ID)
 		return nil
 	}
 
 	// Check when-conditions (tool call preconditions)
 	if def.When != nil {
 		if shouldRun, reason := ShouldRunWhen(def.When, evalCtx.ToolCalls); !shouldRun {
+			logger.Debug("evals: skipping eval, when-condition not met", "eval_id", def.ID, "reason", reason)
 			return &EvalResult{
 				EvalID:     def.ID,
 				Type:       def.Type,
@@ -160,12 +167,15 @@ func (r *EvalRunner) runOne(
 	// Look up handler
 	handler, err := r.registry.Get(def.Type)
 	if err != nil {
+		logger.Warn("evals: handler not found", "eval_id", def.ID, "type", def.Type, "error", err)
 		return &EvalResult{
 			EvalID: def.ID,
 			Type:   def.Type,
 			Error:  fmt.Sprintf("handler not found: %v", err),
 		}
 	}
+
+	logger.Debug("evals: executing eval", "eval_id", def.ID, "type", def.Type)
 
 	// Execute with timeout and panic recovery
 	return r.executeHandler(ctx, handler, def, evalCtx)
@@ -189,6 +199,7 @@ func (r *EvalRunner) executeHandler(
 	func() {
 		defer func() {
 			if rec := recover(); rec != nil {
+				logger.Warn("evals: handler panic recovered", "eval_id", def.ID, "panic", rec)
 				evalErr = fmt.Errorf("panic in eval %q: %v", def.ID, rec)
 			}
 		}()
@@ -198,6 +209,7 @@ func (r *EvalRunner) executeHandler(
 	durationMs := time.Since(start).Milliseconds()
 
 	if evalErr != nil {
+		logger.Warn("evals: eval error", "eval_id", def.ID, "type", def.Type, "error", evalErr, "duration_ms", durationMs)
 		return &EvalResult{
 			EvalID:     def.ID,
 			Type:       def.Type,
@@ -207,6 +219,7 @@ func (r *EvalRunner) executeHandler(
 	}
 
 	if result == nil {
+		logger.Warn("evals: handler returned nil result", "eval_id", def.ID, "type", def.Type)
 		return &EvalResult{
 			EvalID:     def.ID,
 			Type:       def.Type,
@@ -224,5 +237,9 @@ func (r *EvalRunner) executeHandler(
 		def.Threshold.Apply(result)
 	}
 
+	logger.Info("evals: eval completed",
+		"eval_id", def.ID, "type", def.Type,
+		"passed", result.Passed, "duration_ms", durationMs,
+	)
 	return result
 }
