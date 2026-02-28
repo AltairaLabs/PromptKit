@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // EvalDispatcher controls WHERE evals execute. Implementations decide
@@ -70,7 +72,9 @@ func NewInProcDispatcher(
 func (d *InProcDispatcher) DispatchTurnEvals(
 	ctx context.Context, defs []EvalDef, evalCtx *EvalContext,
 ) ([]EvalResult, error) {
+	logger.Info("evals: dispatching turn evals", "count", len(defs), "session_id", evalCtx.SessionID)
 	results := d.runner.RunTurnEvals(ctx, defs, evalCtx)
+	logger.Debug("evals: turn evals completed", "results", len(results), "session_id", evalCtx.SessionID)
 	if err := d.writeResults(ctx, results); err != nil {
 		return results, err
 	}
@@ -81,7 +85,9 @@ func (d *InProcDispatcher) DispatchTurnEvals(
 func (d *InProcDispatcher) DispatchSessionEvals(
 	ctx context.Context, defs []EvalDef, evalCtx *EvalContext,
 ) ([]EvalResult, error) {
+	logger.Info("evals: dispatching session evals", "count", len(defs), "session_id", evalCtx.SessionID)
 	results := d.runner.RunSessionEvals(ctx, defs, evalCtx)
+	logger.Debug("evals: session evals completed", "results", len(results), "session_id", evalCtx.SessionID)
 	if err := d.writeResults(ctx, results); err != nil {
 		return results, err
 	}
@@ -92,7 +98,9 @@ func (d *InProcDispatcher) DispatchSessionEvals(
 func (d *InProcDispatcher) DispatchConversationEvals(
 	ctx context.Context, defs []EvalDef, evalCtx *EvalContext,
 ) ([]EvalResult, error) {
+	logger.Info("evals: dispatching conversation evals", "count", len(defs), "session_id", evalCtx.SessionID)
 	results := d.runner.RunConversationEvals(ctx, defs, evalCtx)
+	logger.Debug("evals: conversation evals completed", "results", len(results), "session_id", evalCtx.SessionID)
 	if err := d.writeResults(ctx, results); err != nil {
 		return results, err
 	}
@@ -105,7 +113,11 @@ func (d *InProcDispatcher) writeResults(
 	if d.resultWriter == nil || len(results) == 0 {
 		return nil
 	}
-	return d.resultWriter.WriteResults(ctx, results)
+	if err := d.resultWriter.WriteResults(ctx, results); err != nil {
+		logger.Warn("evals: failed to write results", "error", err)
+		return err
+	}
+	return nil
 }
 
 // evalEventPayload is the JSON payload published by EventDispatcher.
@@ -159,9 +171,11 @@ func (d *EventDispatcher) publish(
 	payload := evalEventPayload{Defs: defs, EvalCtx: evalCtx}
 	data, err := json.Marshal(payload)
 	if err != nil {
+		logger.Warn("evals: failed to marshal eval event", "prefix", prefix, "error", err)
 		return fmt.Errorf("marshal eval event: %w", err)
 	}
 	subject := fmt.Sprintf("%s.%s", prefix, evalCtx.SessionID)
+	logger.Info("evals: publishing eval event", "subject", subject, "count", len(defs))
 	return d.publisher.Publish(ctx, subject, data)
 }
 

@@ -2,11 +2,11 @@ package evals
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -212,6 +212,8 @@ func (l *EventBusEvalListener) Handle(event *events.Event) {
 		return
 	}
 
+	logger.Debug("evals: message event received", "session_id", sessionID, "role", data.Role)
+
 	// Accumulate message
 	l.accumulator.AddMessage(sessionID, "", data.Role, data.Content)
 
@@ -227,6 +229,7 @@ func (l *EventBusEvalListener) Handle(event *events.Event) {
 // CloseSession runs session-complete evals and removes the session.
 // The provided context is propagated to eval dispatch and result writing.
 func (l *EventBusEvalListener) CloseSession(ctx context.Context, sessionID string) {
+	logger.Info("evals: closing session", "session_id", sessionID)
 	promptID := l.accumulator.PromptID(sessionID)
 	if promptID == "" {
 		l.accumulator.Remove(sessionID)
@@ -235,7 +238,7 @@ func (l *EventBusEvalListener) CloseSession(ctx context.Context, sessionID strin
 
 	defs, err := l.evalLoader.LoadEvals(promptID)
 	if err != nil {
-		log.Printf("evals: failed to load evals for prompt %q: %v", promptID, err)
+		logger.Warn("evals: failed to load evals for prompt", "prompt_id", promptID, "error", err)
 		l.accumulator.Remove(sessionID)
 		return
 	}
@@ -244,12 +247,12 @@ func (l *EventBusEvalListener) CloseSession(ctx context.Context, sessionID strin
 
 	results, err := l.dispatcher.DispatchSessionEvals(ctx, defs, evalCtx)
 	if err != nil {
-		log.Printf("evals: session eval dispatch error for session %q: %v", sessionID, err)
+		logger.Warn("evals: session eval dispatch error", "session_id", sessionID, "error", err)
 	}
 
 	if l.resultWriter != nil && len(results) > 0 {
 		if err := l.resultWriter.WriteResults(ctx, results); err != nil {
-			log.Printf("evals: result write error for session %q: %v", sessionID, err)
+			logger.Warn("evals: result write error", "session_id", sessionID, "error", err)
 		}
 	}
 
@@ -278,9 +281,11 @@ func (l *EventBusEvalListener) dispatchTurnEvals(sessionID string) {
 		return
 	}
 
+	logger.Debug("evals: dispatching turn evals from listener", "session_id", sessionID, "prompt_id", promptID)
+
 	defs, err := l.evalLoader.LoadEvals(promptID)
 	if err != nil {
-		log.Printf("evals: failed to load evals for prompt %q: %v", promptID, err)
+		logger.Warn("evals: failed to load evals for prompt", "prompt_id", promptID, "error", err)
 		return
 	}
 
@@ -288,12 +293,12 @@ func (l *EventBusEvalListener) dispatchTurnEvals(sessionID string) {
 
 	results, err := l.dispatcher.DispatchTurnEvals(l.ctx, defs, evalCtx)
 	if err != nil {
-		log.Printf("evals: turn eval dispatch error for session %q: %v", sessionID, err)
+		logger.Warn("evals: turn eval dispatch error", "session_id", sessionID, "error", err)
 	}
 
 	if l.resultWriter != nil && len(results) > 0 {
 		if err := l.resultWriter.WriteResults(l.ctx, results); err != nil {
-			log.Printf("evals: result write error for session %q: %v", sessionID, err)
+			logger.Warn("evals: result write error", "session_id", sessionID, "error", err)
 		}
 	}
 }
@@ -309,7 +314,10 @@ func (l *EventBusEvalListener) cleanupLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			cutoff := time.Now().Add(-l.ttl)
-			l.accumulator.CleanupBefore(cutoff)
+			removed := l.accumulator.CleanupBefore(cutoff)
+			if removed > 0 {
+				logger.Debug("evals: cleanup removed expired sessions", "removed", removed)
+			}
 		}
 	}
 }
