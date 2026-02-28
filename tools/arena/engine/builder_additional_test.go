@@ -300,6 +300,35 @@ func TestBuildPackEvalHook_EmptyEvalsReturnsNil(t *testing.T) {
 	require.Nil(t, hook)
 }
 
+func TestNewEngineFromConfig_UnknownEvalTypeError(t *testing.T) {
+	cfg := &config.Config{
+		LoadedProviders: map[string]*config.Provider{
+			"mock-assistant": {
+				ID:    "mock-assistant",
+				Type:  "mock",
+				Model: "mock-model",
+				Defaults: config.ProviderDefaults{
+					Temperature: 0.1,
+					MaxTokens:   128,
+					TopP:        1.0,
+				},
+			},
+		},
+		LoadedPack: &prompt.Pack{
+			ID: "test-pack",
+			Evals: []evals.EvalDef{
+				{ID: "bad", Type: "nonexistent_type", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+	}
+
+	eng, err := NewEngineFromConfig(cfg)
+	require.Error(t, err)
+	require.Nil(t, eng)
+	require.Contains(t, err.Error(), "failed to build pack eval hook")
+	require.Contains(t, err.Error(), "unknown eval types")
+}
+
 func TestBuildEngineComponents_UnknownEvalTypeError(t *testing.T) {
 	cfg := &config.Config{
 		LoadedProviders: map[string]*config.Provider{
