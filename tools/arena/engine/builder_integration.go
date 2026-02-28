@@ -102,6 +102,15 @@ func BuildEngineComponents(cfg *config.Config) (
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)
 	}
 
+	// Build pack eval hook if pack is loaded (before A2A/skill setup to fail fast on config errors)
+	var packEvalHook *PackEvalHook
+	if cfg.LoadedPack != nil {
+		packEvalHook, err = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+		if err != nil {
+			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
+		}
+	}
+
 	// Build media storage service
 	mediaStorage, storageErr := buildMediaStorage(cfg)
 	if storageErr != nil {
@@ -120,18 +129,6 @@ func BuildEngineComponents(cfg *config.Config) (
 			a2aCleanupFn()
 		}
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to register skill tools: %w", skillErr)
-	}
-
-	// Build pack eval hook if pack is loaded
-	var packEvalHook *PackEvalHook
-	if cfg.LoadedPack != nil {
-		packEvalHook, err = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
-		if err != nil {
-			if a2aCleanupFn != nil {
-				a2aCleanupFn()
-			}
-			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
-		}
 	}
 
 	// Inject judge metadata so eval handlers (llm_judge, llm_judge_session)
