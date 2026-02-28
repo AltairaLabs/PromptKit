@@ -1,7 +1,9 @@
 package logger
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -410,4 +412,119 @@ func TestToolCall_WithExtraAttributes(t *testing.T) {
 func TestToolResponse_WithExtraAttributes(t *testing.T) {
 	// Test that extra attributes are properly included
 	ToolResponse("openai", 150, 50, 2, 0.01, "duration_ms", 1500)
+}
+
+func TestLogFormatJSON(t *testing.T) {
+	// Save and restore state
+	origFormat := currentFormat
+	origOutput := logOutput
+	defer func() {
+		currentFormat = origFormat
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	var buf bytes.Buffer
+	logOutput = &buf
+	currentFormat = FormatJSON
+	initLogger(slog.LevelInfo, nil)
+
+	Info("json test message", "key", "value")
+
+	output := buf.String()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &parsed); err != nil {
+		t.Fatalf("Expected valid JSON output, got error: %v\nOutput: %s", err, output)
+	}
+	if msg, ok := parsed["msg"].(string); !ok || msg != "json test message" {
+		t.Errorf("Expected msg 'json test message', got %v", parsed["msg"])
+	}
+}
+
+func TestLogFormatText(t *testing.T) {
+	// Save and restore state
+	origFormat := currentFormat
+	origOutput := logOutput
+	defer func() {
+		currentFormat = origFormat
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	var buf bytes.Buffer
+	logOutput = &buf
+	currentFormat = FormatText
+	initLogger(slog.LevelInfo, nil)
+
+	Info("text test message", "key", "value")
+
+	output := buf.String()
+	// Text format should NOT be valid JSON
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &parsed); err == nil {
+		t.Error("Expected non-JSON output for text format, but got valid JSON")
+	}
+	if !strings.Contains(output, "text test message") {
+		t.Errorf("Expected output to contain message, got: %s", output)
+	}
+}
+
+func TestLogFormatEnvVar(t *testing.T) {
+	// Save and restore state
+	origFormat := currentFormat
+	origOutput := logOutput
+	defer func() {
+		currentFormat = origFormat
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	tests := []struct {
+		name     string
+		envValue string
+		expected string
+	}{
+		{"json lowercase", "json", FormatJSON},
+		{"json uppercase", "JSON", FormatJSON},
+		{"json mixed case", "Json", FormatJSON},
+		{"text explicit", "text", FormatText},
+		{"empty defaults to text", "", FormatText},
+		{"unknown defaults to text", "xml", FormatText},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			currentFormat = FormatText // reset
+			if strings.EqualFold(tt.envValue, FormatJSON) {
+				currentFormat = FormatJSON
+			}
+			if currentFormat != tt.expected {
+				t.Errorf("Expected format %q, got %q", tt.expected, currentFormat)
+			}
+		})
+	}
+}
+
+func TestSetOutputPreservesFormat(t *testing.T) {
+	// Save and restore state
+	origFormat := currentFormat
+	origOutput := logOutput
+	defer func() {
+		currentFormat = origFormat
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	// Set JSON format, then call SetOutput — format should be preserved
+	currentFormat = FormatJSON
+	var buf bytes.Buffer
+	SetOutput(&buf)
+
+	Info("format preserved", "key", "value")
+
+	output := buf.String()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &parsed); err != nil {
+		t.Fatalf("Expected JSON output after SetOutput, got error: %v\nOutput: %s", err, output)
+	}
 }

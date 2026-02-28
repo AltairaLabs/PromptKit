@@ -36,6 +36,9 @@ var (
 // currentLevel stores the current log level for reuse when recreating handlers.
 var currentLevel = slog.LevelInfo
 
+// currentFormat stores the current log format for reuse when recreating handlers.
+var currentFormat = FormatText
+
 func init() {
 	// Check LOG_LEVEL environment variable
 	currentLevel = slog.LevelInfo
@@ -43,7 +46,12 @@ func init() {
 		currentLevel = ParseLevel(envLevel)
 	}
 
-	// Initialize with text handler wrapped in context handler
+	// Check LOG_FORMAT environment variable
+	if envFormat := os.Getenv("LOG_FORMAT"); strings.EqualFold(envFormat, FormatJSON) {
+		currentFormat = FormatJSON
+	}
+
+	// Initialize with appropriate handler wrapped in context handler
 	initLogger(currentLevel, nil)
 
 	// Log version info at startup (debug level only)
@@ -52,10 +60,18 @@ func init() {
 
 // initLogger creates the logger with the given level and common fields.
 func initLogger(level slog.Level, commonFields []slog.Attr) {
-	textHandler := slog.NewTextHandler(logOutput, &slog.HandlerOptions{
+	opts := &slog.HandlerOptions{
 		Level: level,
-	})
-	contextHandler := NewContextHandler(textHandler, commonFields...)
+	}
+
+	var baseHandler slog.Handler
+	if currentFormat == FormatJSON {
+		baseHandler = slog.NewJSONHandler(logOutput, opts)
+	} else {
+		baseHandler = slog.NewTextHandler(logOutput, opts)
+	}
+
+	contextHandler := NewContextHandler(baseHandler, commonFields...)
 	DefaultLogger = slog.New(contextHandler)
 	// Set as default slog logger so other packages using slog directly get the same config
 	slog.SetDefault(DefaultLogger)
