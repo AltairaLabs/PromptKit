@@ -131,15 +131,10 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	eng.a2aCleanup = a2aCleanup
 	eng.toolRegistry = toolRegistry
 	// Build pack eval hook for workflow executor (conversation executors get their own copy).
-	// Eval type validation already passed in BuildEngineComponents, so this cannot fail
-	// for unknown types — but we still propagate errors defensively.
+	// Eval type validation already passed in BuildEngineComponents above, so this call
+	// cannot fail — unknown types were already rejected.
 	if cfg.LoadedPack != nil {
-		var hookErr error
-		eng.packEvalHook, hookErr = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
-		if hookErr != nil {
-			_ = eng.Close()
-			return nil, fmt.Errorf("failed to build pack eval hook: %w", hookErr)
-		}
+		eng.packEvalHook, _ = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
 	}
 	return eng, nil
 }
