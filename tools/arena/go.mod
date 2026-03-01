@@ -2,13 +2,9 @@ module github.com/AltairaLabs/PromptKit/tools/arena
 
 go 1.25.1
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
-
-replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
-
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.2.0
-	github.com/AltairaLabs/PromptKit/runtime v1.2.0
+	github.com/AltairaLabs/PromptKit/pkg v1.3.4
+	github.com/AltairaLabs/PromptKit/runtime v1.3.4
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0

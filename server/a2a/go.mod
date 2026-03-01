@@ -3,7 +3,7 @@ module github.com/AltairaLabs/PromptKit/server/a2a
 go 1.25.1
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.2.0
+	github.com/AltairaLabs/PromptKit/runtime v1.3.4
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0
 	go.opentelemetry.io/otel v1.40.0
@@ -55,5 +55,3 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
-
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
