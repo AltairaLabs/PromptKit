@@ -124,6 +124,11 @@ func Configure(cfg *LoggingConfigSpec) error {
 		return nil
 	}
 
+	// If a custom logger was set via SetLogger(), preserve it.
+	if customHandler != nil {
+		return nil
+	}
+
 	// Parse and set default level
 	defaultLevel := slog.LevelInfo
 	if cfg.DefaultLevel != "" {
@@ -177,6 +182,7 @@ func initLoggerWithConfig(level slog.Level, commonFields []slog.Attr, moduleConf
 	}
 
 	DefaultLogger = slog.New(handler)
+	slog.SetDefault(DefaultLogger)
 }
 
 // GetModuleConfig returns the global module configuration.

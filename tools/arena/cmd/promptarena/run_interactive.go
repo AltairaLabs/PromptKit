@@ -302,13 +302,10 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log interceptor: %w", err)
 	}
-	// Install the interceptor as the default logger
+	// Install the interceptor as the default logger and runtime logger.
+	// Use SetLogger so the customHandler guard is updated correctly.
 	interceptedLogger := slog.New(logInterceptor)
-	slog.SetDefault(interceptedLogger)
-
-	// CRITICAL: Also replace runtime logger which is used by providers
-	// This is what actually captures the logs we're seeing
-	logger.DefaultLogger = interceptedLogger
+	logger.SetLogger(interceptedLogger)
 
 	// Start execution in background
 	var runIDs []string
@@ -343,6 +340,9 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 		logInterceptor.FlushBuffer()
 		_ = logInterceptor.Close()
 	}
+
+	// Reset the logger to the built-in default now that the TUI interceptor is done.
+	logger.SetLogger(nil)
 
 	// Build and print summary after TUI exits
 	summary := model.BuildSummary(params.OutDir, params.HTMLFile)

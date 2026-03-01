@@ -530,6 +530,33 @@ func TestSetLogger_Custom(t *testing.T) {
 	}
 }
 
+func TestSetLogger_SetLevelPreservesCustomLogger(t *testing.T) {
+	// Save and restore state
+	origLogger := DefaultLogger
+	origOutput := logOutput
+	origHandler := customHandler
+	defer func() {
+		customHandler = origHandler
+		DefaultLogger = origLogger
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	var buf bytes.Buffer
+	custom := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	SetLogger(custom)
+
+	// SetLevel should NOT replace the custom logger
+	SetLevel(slog.LevelDebug)
+
+	Info("after set level", "key", "value")
+
+	output := buf.String()
+	if !strings.Contains(output, "after set level") {
+		t.Errorf("Expected custom logger to still capture output after SetLevel(), got: %s", output)
+	}
+}
+
 func TestSetLogger_NilResetsDefault(t *testing.T) {
 	// Save and restore state
 	origLogger := DefaultLogger
@@ -579,6 +606,38 @@ func TestSetLogger_SlogDefaultUpdated(t *testing.T) {
 
 	if slog.Default() != custom {
 		t.Error("Expected slog.Default() to return the custom logger")
+	}
+}
+
+func TestSetLogger_ConfigureDoesNotOverwrite(t *testing.T) {
+	// Save and restore state
+	origLogger := DefaultLogger
+	origOutput := logOutput
+	origHandler := customHandler
+	defer func() {
+		customHandler = origHandler
+		DefaultLogger = origLogger
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	// Set a custom logger writing to a buffer
+	var buf bytes.Buffer
+	custom := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	SetLogger(custom)
+
+	// Configure should not overwrite the custom logger
+	err := Configure(&LoggingConfigSpec{DefaultLevel: "debug"})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+
+	// Log a message — it should still go to the custom buffer
+	Info("after configure", "source", "test")
+
+	output := buf.String()
+	if !strings.Contains(output, "after configure") {
+		t.Errorf("Expected custom logger to still capture output after Configure(), got: %s", output)
 	}
 }
 

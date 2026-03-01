@@ -31,6 +31,11 @@ var (
 	// logOutput is the destination for log output.
 	// Defaults to os.Stderr but can be changed for testing.
 	logOutput io.Writer = os.Stderr
+
+	// customHandler is set when an external logger is provided via SetLogger.
+	// When non-nil, SetLevel and other reinit functions preserve this handler
+	// instead of creating a new TextHandler/JSONHandler.
+	customHandler slog.Handler
 )
 
 // currentLevel stores the current log level for reuse when recreating handlers.
@@ -101,8 +106,14 @@ func ParseLevel(s string) slog.Level {
 
 // SetLevel changes the logging level for all subsequent log operations.
 // This is safe for concurrent use as it replaces the entire logger instance.
+// If a custom logger was set via SetLogger, it is preserved — only the level
+// tracking variable is updated.
 func SetLevel(level slog.Level) {
 	currentLevel = level
+	if customHandler != nil {
+		// Preserve the external handler; don't recreate with TextHandler.
+		return
+	}
 	initLogger(level, nil)
 }
 
@@ -123,24 +134,32 @@ func SetVerbose(verbose bool) {
 //
 // The provided logger is also set as the slog default so that any
 // code using slog directly picks it up.
+//
+// Once a custom logger is set, SetLevel and SetVerbose will no longer
+// recreate the handler — the custom logger is preserved until reset.
 // Pass nil to reset to the built-in default logger.
 func SetLogger(l *slog.Logger) {
 	if l == nil {
+		customHandler = nil
 		initLogger(currentLevel, nil)
 		return
 	}
+	customHandler = l.Handler()
 	DefaultLogger = l
 	slog.SetDefault(l)
 }
 
 // SetOutput changes the log output destination and reinitializes the logger.
 // This is primarily for testing. Pass nil to reset to os.Stderr.
+// Note: This clears any custom logger set via SetLogger, since the output
+// destination is changing.
 func SetOutput(w io.Writer) {
 	if w == nil {
 		logOutput = os.Stderr
 	} else {
 		logOutput = w
 	}
+	customHandler = nil
 	initLogger(currentLevel, nil)
 }
 

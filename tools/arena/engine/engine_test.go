@@ -54,11 +54,11 @@ func newTestLogger(t *testing.T) *testLogger {
 		t:         t,
 	}
 
-	logger.DefaultLogger = slog.New(handler)
+	logger.SetLogger(slog.New(handler))
 
 	// Register cleanup to restore original logger
 	t.Cleanup(func() {
-		logger.DefaultLogger = tl.oldLogger
+		logger.SetLogger(tl.oldLogger)
 	})
 
 	return tl
