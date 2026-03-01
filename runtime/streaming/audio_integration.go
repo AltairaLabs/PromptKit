@@ -56,7 +56,8 @@ func (a *AudioStreamer) StreamBurst(
 	chunkSize := a.getChunkSize()
 	totalChunks := (len(audioData) + chunkSize - 1) / chunkSize
 
-	logger.Debug("Streaming audio in BURST MODE",
+	logger.Debug("Streaming audio",
+		"mode", "burst",
 		"chunk_size", chunkSize,
 		"sample_rate", sampleRate,
 		"total_bytes", len(audioData),
@@ -92,7 +93,8 @@ func (a *AudioStreamer) StreamRealtime(
 	totalChunks := (len(audioData) + chunkSize - 1) / chunkSize
 	chunkInterval := time.Duration(a.getChunkIntervalMs()) * time.Millisecond
 
-	logger.Debug("Streaming audio in REALTIME MODE",
+	logger.Debug("Streaming audio",
+		"mode", "realtime",
 		"chunk_size", chunkSize,
 		"sample_rate", sampleRate,
 		"total_bytes", len(audioData),

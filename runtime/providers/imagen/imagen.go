@@ -168,7 +168,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	// Build URL for Gemini API: models/{model}:predict
 	url := fmt.Sprintf("%s/models/%s:predict", p.BaseURL, p.modelName)
 
-	logger.Debug("🔵 API Request", "provider", "Imagen", "method", "POST", "url", url)
+	logger.Debug("API request", "provider", "Imagen", "method", "POST", "url", url)
 
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
@@ -192,7 +192,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		return providers.PredictionResponse{}, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	logger.Debug("🟢 API Response", "provider", "Imagen", "status_code", resp.StatusCode)
+	logger.Debug("API response", "provider", "Imagen", "status_code", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
 		return providers.PredictionResponse{}, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))

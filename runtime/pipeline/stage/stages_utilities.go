@@ -103,7 +103,7 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 		return
 	}
 
-	logger.Debug(fmt.Sprintf("🐛 [%s:%s] StreamElement:\n%s", s.stageName, timing, string(data)))
+	logger.Debug("StreamElement snapshot", "stage", s.stageName, "timing", timing, "element", string(data))
 }
 
 // getKeys extracts keys from a map for logging.

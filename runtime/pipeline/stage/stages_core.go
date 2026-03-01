@@ -80,7 +80,7 @@ func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamEl
 
 func (s *PromptAssemblyStage) assemblePrompt() *prompt.AssembledPrompt {
 	if s.promptRegistry == nil {
-		logger.Warn("⚠️  Using default system prompt - no prompt registry configured", "task_type", s.taskType)
+		logger.Warn("Using default system prompt, no prompt registry configured", "task_type", s.taskType)
 		return &prompt.AssembledPrompt{
 			SystemPrompt: "You are a helpful AI assistant.",
 			AllowedTools: nil,
@@ -90,7 +90,7 @@ func (s *PromptAssemblyStage) assemblePrompt() *prompt.AssembledPrompt {
 
 	assembled := s.promptRegistry.LoadWithVars(s.taskType, s.baseVariables, "")
 	if assembled == nil {
-		logger.Warn("⚠️  Using default system prompt - no prompt found for task type", "task_type", s.taskType)
+		logger.Warn("Using default system prompt, no prompt found for task type", "task_type", s.taskType)
 		return &prompt.AssembledPrompt{
 			SystemPrompt: "You are a helpful AI assistant.",
 			AllowedTools: nil,

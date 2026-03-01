@@ -129,7 +129,7 @@ func (s *RealtimeSession) waitForSessionCreated() error {
 
 	created, ok := event.(*SessionCreatedEvent)
 	if !ok {
-		logger.Error("OpenAI Realtime: unexpected event type", "got", fmt.Sprintf("%T", event))
+		logger.Error("OpenAI Realtime: unexpected event type", "got", event)
 		return fmt.Errorf("expected session.created, got: %T", event)
 	}
 

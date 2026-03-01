@@ -675,6 +675,6 @@ func (s *StreamSession) reconnect() bool {
 		return true
 	}
 
-	logger.Error("StreamSession: all reconnection attempts failed")
+	logger.Error("StreamSession: all reconnection attempts failed", "max_attempts", s.maxReconnectTries)
 	return false
 }

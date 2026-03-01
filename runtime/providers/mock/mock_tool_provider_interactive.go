@@ -30,7 +30,7 @@ func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig m
 			// Create file-based repository and use ToolProvider for tool call simulation
 			repository, err := NewFileMockRepository(mockConfigPath)
 			if err != nil {
-				logger.Warn("failed to load mock config from %s: %w", mockConfigPath, err)
+				logger.Warn("failed to load mock config", "path", mockConfigPath, "error", err)
 				streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
 			} else {
 				streamingProvider = NewStreamingProviderWithRepository(id, model, includeRawOutput, repository)

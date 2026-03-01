@@ -54,7 +54,7 @@ func (de *DuplexConversationExecutor) processDuplexTurns(
 	outputChan <-chan stage.StreamElement,
 	emitter *events.Emitter,
 ) error {
-	logger.Debug("processDuplexTurns: starting", "numTurns", len(req.Scenario.Turns))
+	logger.Debug("processDuplexTurns: starting", "num_turns", len(req.Scenario.Turns))
 
 	args := &turnProcessingArgs{
 		req:        req,
@@ -93,9 +93,9 @@ func (de *DuplexConversationExecutor) processAllTurns(ctx context.Context, args 
 		turnsToExecute := de.getTurnsToExecute(turn)
 
 		logger.Debug("processDuplexTurns: processing turn",
-			"scenarioTurnIdx", scenarioTurnIdx,
+			"scenario_turn_idx", scenarioTurnIdx,
 			"role", turn.Role,
-			"turnsToExecute", turnsToExecute)
+			"turns_to_execute", turnsToExecute)
 
 		de.processTurnIterations(ctx, args, turn, scenarioTurnIdx, turnsToExecute)
 
@@ -159,15 +159,15 @@ func (de *DuplexConversationExecutor) handleTurnError(
 	if errors.Is(err, errSessionEnded) {
 		if args.cfg.ignoreLastTurnSessionEnd && isLastTurn && args.state.logicalTurnIdx > 0 {
 			logger.Info("Session ended on final turn, treating as complete",
-				"logicalTurnIdx", args.state.logicalTurnIdx)
+				"logical_turn_idx", args.state.logicalTurnIdx)
 			de.emitTurnCompleted(args.emitter, args.state.logicalTurnIdx, turn.Role, scenarioID, nil)
 			return
 		}
 
 		if args.state.logicalTurnIdx >= args.cfg.partialSuccessMinTurns {
 			logger.Info("Session ended early, accepting partial success",
-				"logicalTurnIdx", args.state.logicalTurnIdx,
-				"minTurnsForSuccess", args.cfg.partialSuccessMinTurns)
+				"logical_turn_idx", args.state.logicalTurnIdx,
+				"min_turns_for_success", args.cfg.partialSuccessMinTurns)
 			de.emitTurnCompleted(args.emitter, args.state.logicalTurnIdx, turn.Role, scenarioID, nil)
 			args.state.turnErr = errPartialSuccess
 			return
@@ -175,7 +175,7 @@ func (de *DuplexConversationExecutor) handleTurnError(
 	}
 
 	logger.Error("processDuplexTurns: turn failed",
-		"logicalTurnIdx", args.state.logicalTurnIdx,
+		"logical_turn_idx", args.state.logicalTurnIdx,
 		"iteration", iteration,
 		"error", err)
 	de.emitTurnCompleted(args.emitter, args.state.logicalTurnIdx, turn.Role, scenarioID, err)
@@ -190,7 +190,7 @@ func (de *DuplexConversationExecutor) handleTurnSuccess(
 	logicalTurnIdx int,
 	emitter *events.Emitter,
 ) {
-	logger.Debug("processDuplexTurns: turn completed successfully", "logicalTurnIdx", logicalTurnIdx)
+	logger.Debug("processDuplexTurns: turn completed successfully", "logical_turn_idx", logicalTurnIdx)
 
 	if len(turn.Assertions) > 0 {
 		de.evaluateTurnAssertions(ctx, req, turn, logicalTurnIdx)
@@ -206,7 +206,7 @@ func (de *DuplexConversationExecutor) applyInterTurnDelay(turn *config.TurnDefin
 	if de.isSelfPlayRole(turn.Role) {
 		delayMS = cfg.selfplayInterTurnDelayMS
 	}
-	logger.Debug("Inter-turn delay before next turn", "delayMs", delayMS, "wasSelfplay", de.isSelfPlayRole(turn.Role))
+	logger.Debug("Inter-turn delay before next turn", "delay_ms", delayMS, "was_selfplay", de.isSelfPlayRole(turn.Role))
 	time.Sleep(time.Duration(delayMS) * time.Millisecond)
 }
 
@@ -448,7 +448,7 @@ func (de *DuplexConversationExecutor) waitForResponse(
 	logPrefix string,
 ) error {
 	err := streaming.WaitForResponse(ctx, responseDone)
-	logger.Debug(logPrefix+": response received", "error", err)
+	logger.Debug("response received", "component", logPrefix, "error", err)
 	return err
 }
 

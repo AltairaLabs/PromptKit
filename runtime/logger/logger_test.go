@@ -505,6 +505,83 @@ func TestLogFormatEnvVar(t *testing.T) {
 	}
 }
 
+func TestSetLogger_Custom(t *testing.T) {
+	// Save and restore state
+	origLogger := DefaultLogger
+	origOutput := logOutput
+	defer func() {
+		DefaultLogger = origLogger
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	var buf bytes.Buffer
+	custom := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	SetLogger(custom)
+
+	Info("custom logger test", "key", "value")
+
+	output := buf.String()
+	if !strings.Contains(output, "custom logger test") {
+		t.Errorf("Expected custom logger to capture output, got: %s", output)
+	}
+	if !strings.Contains(output, "key=value") {
+		t.Errorf("Expected structured attrs in output, got: %s", output)
+	}
+}
+
+func TestSetLogger_NilResetsDefault(t *testing.T) {
+	// Save and restore state
+	origLogger := DefaultLogger
+	origOutput := logOutput
+	defer func() {
+		DefaultLogger = origLogger
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	// Set a custom logger
+	var buf bytes.Buffer
+	custom := slog.New(slog.NewTextHandler(&buf, nil))
+	SetLogger(custom)
+
+	if DefaultLogger != custom {
+		t.Error("Expected DefaultLogger to be the custom logger")
+	}
+
+	// Reset with nil
+	SetLogger(nil)
+
+	if DefaultLogger == custom {
+		t.Error("Expected DefaultLogger to be reset after SetLogger(nil)")
+	}
+	if DefaultLogger == nil {
+		t.Error("Expected DefaultLogger to not be nil after SetLogger(nil)")
+	}
+
+	// Logging should still work
+	Info("after reset")
+}
+
+func TestSetLogger_SlogDefaultUpdated(t *testing.T) {
+	// Save and restore state
+	origLogger := DefaultLogger
+	origOutput := logOutput
+	defer func() {
+		DefaultLogger = origLogger
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	var buf bytes.Buffer
+	custom := slog.New(slog.NewTextHandler(&buf, nil))
+	SetLogger(custom)
+
+	if slog.Default() != custom {
+		t.Error("Expected slog.Default() to return the custom logger")
+	}
+}
+
 func TestSetOutputPreservesFormat(t *testing.T) {
 	// Save and restore state
 	origFormat := currentFormat

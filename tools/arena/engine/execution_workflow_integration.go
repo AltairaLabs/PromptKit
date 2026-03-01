@@ -110,7 +110,7 @@ func (e *Engine) executeWorkflowRun(
 	}
 
 	logger.Debug("Saving workflow run metadata",
-		"runID", runID,
+		"run_id", runID,
 		"scenario", combo.ScenarioID,
 		"final_state", result.FinalState,
 		"steps", len(result.Steps),

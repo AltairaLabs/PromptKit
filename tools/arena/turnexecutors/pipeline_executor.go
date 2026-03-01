@@ -259,7 +259,7 @@ func convertTruncationStrategy(strategy string) stage.TruncationStrategy {
 func (e *PipelineExecutor) buildStagePipeline(
 	req *TurnRequest, baseVariables map[string]string,
 ) (*stage.StreamPipeline, error) {
-	logger.Info("🔧 buildStagePipeline called", "provider_type", fmt.Sprintf("%T", req.Provider))
+	logger.Debug("Building stage pipeline", "provider_type", fmt.Sprintf("%T", req.Provider))
 	builder := stage.NewPipelineBuilder()
 
 	// Merge prompt vars into base variables

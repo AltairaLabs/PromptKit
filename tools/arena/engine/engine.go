@@ -221,7 +221,7 @@ func (e *Engine) SetEventBus(bus *events.EventBus) {
 	// Wire event store to bus if both are configured
 	if e.eventStore != nil && bus != nil {
 		bus.WithStore(e.eventStore)
-		logger.Debug("Wired event store to event bus for session recording")
+		logger.Debug("Wired event store for existing session recording")
 	}
 }
 
@@ -240,7 +240,7 @@ func (e *Engine) EnableSessionRecording(recordingDir string) error {
 	// Wire to existing event bus if present
 	if e.eventBus != nil {
 		e.eventBus.WithStore(store)
-		logger.Debug("Wired event store to event bus for session recording")
+		logger.Debug("Wired event store for new session recording")
 	}
 
 	logger.Info("Session recording enabled", "directory", recordingDir)

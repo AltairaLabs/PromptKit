@@ -2,9 +2,9 @@ package sdk
 
 import (
 	"context"
-	"log"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // evalMiddleware holds dispatch state for eval execution within a conversation.
@@ -20,6 +20,9 @@ type evalMiddleware struct {
 // Returns nil if no dispatcher is configured or no eval defs are resolved.
 func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 	if conv.config == nil || conv.config.evalDispatcher == nil {
+		logger.Debug("evals: middleware skipped, no dispatcher configured",
+			"has_config", conv.config != nil,
+			"has_dispatcher", conv.config != nil && conv.config.evalDispatcher != nil)
 		return nil
 	}
 
@@ -32,10 +35,17 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		promptEvals = conv.prompt.Evals
 	}
 
+	logger.Debug("evals: resolving defs",
+		"pack_evals", len(packEvals), "prompt_evals", len(promptEvals),
+		"has_pack", conv.pack != nil, "has_prompt", conv.prompt != nil)
+
 	defs := evals.ResolveEvals(packEvals, promptEvals)
 	if len(defs) == 0 {
+		logger.Debug("evals: middleware skipped, no eval defs resolved", "reason", "no defs resolved")
 		return nil
 	}
+
+	logger.Info("evals: middleware created", "defs", len(defs))
 
 	// Build composite result writer from configured writers
 	var resultWriter evals.ResultWriter
@@ -67,11 +77,11 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	go func() {
 		results, err := em.dispatcher.DispatchTurnEvals(ctx, em.defs, evalCtx)
 		if err != nil {
-			log.Printf("evals: turn dispatch error: %v", err)
+			logger.Error("evals: turn dispatch error", "error", err)
 		}
 		if em.resultWriter != nil && len(results) > 0 {
 			if writeErr := em.resultWriter.WriteResults(ctx, results); writeErr != nil {
-				log.Printf("evals: result write error: %v", writeErr)
+				logger.Error("evals: result write error", "error", writeErr)
 			}
 		}
 	}()
@@ -89,11 +99,11 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 
 	results, err := em.dispatcher.DispatchSessionEvals(ctx, em.defs, evalCtx)
 	if err != nil {
-		log.Printf("evals: session dispatch error: %v", err)
+		logger.Error("evals: session dispatch error", "error", err)
 	}
 	if em.resultWriter != nil && len(results) > 0 {
 		if writeErr := em.resultWriter.WriteResults(ctx, results); writeErr != nil {
-			log.Printf("evals: session result write error: %v", writeErr)
+			logger.Error("evals: session result write error", "error", writeErr)
 		}
 	}
 }

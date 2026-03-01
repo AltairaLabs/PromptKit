@@ -148,6 +148,11 @@ func initConversation(
 		return nil, nil, err
 	}
 
+	// Set custom logger before any logging occurs
+	if cfg.logger != nil {
+		logger.SetLogger(cfg.logger)
+	}
+
 	// Load and validate pack
 	p, prompt, err := loadAndValidatePack(packPath, promptName, cfg)
 	if err != nil {

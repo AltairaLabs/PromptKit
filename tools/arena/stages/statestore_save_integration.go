@@ -53,9 +53,9 @@ func (d *collectedData) collectFromElement(elem *stage.StreamElement) {
 		}
 		logger.Debug("ArenaStateStoreSaveStage: collecting message",
 			"role", elem.Message.Role,
-			"contentLen", len(elem.Message.Content),
-			"contentPreview", contentPreview,
-			"totalMessagesNow", len(d.messages)+1)
+			"content_len", len(elem.Message.Content),
+			"content_preview", contentPreview,
+			"total_messages", len(d.messages)+1)
 		d.messages = append(d.messages, *elem.Message)
 	}
 	if elem.Metadata == nil {
@@ -102,17 +102,17 @@ func (d *collectedData) applyTranscriptionByTurnID(transcript, turnID string) {
 				if msgTurnID, ok := d.messages[i].Meta["turn_id"].(string); ok && msgTurnID == turnID {
 					d.applyTranscriptionToMessage(i, transcript)
 					logger.Debug("ArenaStateStoreSaveStage: applied transcription by turn_id",
-						"messageIndex", i,
-						"turnID", turnID,
-						"transcriptionLen", len(transcript))
+						"message_index", i,
+						"turn_id", turnID,
+						"transcription_len", len(transcript))
 					return
 				}
 			}
 		}
 	}
 	logger.Warn("ArenaStateStoreSaveStage: no user message found with turn_id",
-		"turnID", turnID,
-		"totalMessages", len(d.messages))
+		"turn_id", turnID,
+		"total_messages", len(d.messages))
 }
 
 // applyNextTranscription applies a transcription to the N-th user message in order.
@@ -138,18 +138,18 @@ func (d *collectedData) applyNextTranscription(transcript string) {
 				d.applyTranscriptionToMessage(i, transcript)
 				d.transcriptionsApplied++
 				logger.Debug("ArenaStateStoreSaveStage: applied input transcription to user message",
-					"messageIndex", i,
-					"transcriptionNumber", d.transcriptionsApplied,
-					"transcriptionLen", len(transcript))
+					"message_index", i,
+					"transcription_number", d.transcriptionsApplied,
+					"transcription_len", len(transcript))
 				return
 			}
 			userCount++
 		}
 	}
 	logger.Warn("ArenaStateStoreSaveStage: no user message found to apply transcription",
-		"transcriptionNumber", d.transcriptionsApplied+1,
-		"userMessagesFound", userCount,
-		"totalMessages", len(d.messages))
+		"transcription_number", d.transcriptionsApplied+1,
+		"user_messages_found", userCount,
+		"total_messages", len(d.messages))
 }
 
 // applyTranscriptionToMessage applies a transcription to a specific message by index.
@@ -225,9 +225,9 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 		// This ensures each turn is saved to state store immediately
 		if elem.Message != nil {
 			logger.Debug("ArenaStateStoreSaveStage: saving after turn completion",
-				"messageCount", len(data.messages),
-				"lastRole", elem.Message.Role,
-				"lastContentLen", len(elem.Message.Content))
+				"message_count", len(data.messages),
+				"last_role", elem.Message.Role,
+				"last_content_len", len(elem.Message.Content))
 
 			// Use background context for saves - we want to capture data even if main ctx is canceled
 			// NOSONAR: Intentional background context - ensures data persistence on cancellation
@@ -258,7 +258,7 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 
 	// Final save at end (in case any metadata/trace was collected after last message)
 	logger.Debug("ArenaStateStoreSaveStage: final save",
-		"messageCount", len(data.messages))
+		"message_count", len(data.messages))
 
 	// Use background context for final save if main context was canceled
 	// This ensures we save all collected data including partial responses

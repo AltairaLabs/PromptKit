@@ -370,10 +370,10 @@ func (m *Model) handleTurnCompleted(msg *TurnCompletedMsg) {
 // handleMessageCreated processes a message.created event for real-time conversation updates
 func (m *Model) handleMessageCreated(msg *MessageCreatedMsg) {
 	logger.Debug("MessageCreatedMsg received",
-		"conversationID", msg.ConversationID,
+		"conversation_id", msg.ConversationID,
 		"role", msg.Role,
 		"index", msg.Index,
-		"currentPage", m.currentPage)
+		"current_page", m.currentPage)
 
 	// Convert message data to types.Message
 	var toolCalls []types.MessageToolCall
@@ -408,8 +408,8 @@ func (m *Model) handleMessageCreated(msg *MessageCreatedMsg) {
 	}
 	m.conversationMessages[msg.ConversationID] = append(m.conversationMessages[msg.ConversationID], newMsg)
 	logger.Debug("Message cached",
-		"conversationID", msg.ConversationID,
-		"totalCached", len(m.conversationMessages[msg.ConversationID]))
+		"conversation_id", msg.ConversationID,
+		"total_cached", len(m.conversationMessages[msg.ConversationID]))
 
 	// Also update the panel if we're viewing this conversation
 	if m.currentPage == pageConversation {
@@ -420,8 +420,8 @@ func (m *Model) handleMessageCreated(msg *MessageCreatedMsg) {
 				if panel != nil {
 					panel.AppendMessage(&newMsg)
 					logger.Debug("Message appended to conversation panel",
-						"toolCalls", len(toolCalls),
-						"hasToolResult", toolResult != nil)
+						"tool_calls", len(toolCalls),
+						"has_tool_result", toolResult != nil)
 				}
 			}
 		}
@@ -431,7 +431,7 @@ func (m *Model) handleMessageCreated(msg *MessageCreatedMsg) {
 // handleConversationStarted processes a conversation.started event to set the system prompt
 func (m *Model) handleConversationStarted(msg *ConversationStartedMsg) {
 	logger.Debug("ConversationStartedMsg received",
-		"conversationID", msg.ConversationID)
+		"conversation_id", msg.ConversationID)
 
 	// Store the system prompt for this conversation so it can be displayed
 	// when the user navigates to the conversation page
@@ -462,7 +462,7 @@ func (m *Model) handleConversationStarted(msg *ConversationStartedMsg) {
 // handleMessageUpdated processes a message.updated event for cost/latency updates
 func (m *Model) handleMessageUpdated(msg *MessageUpdatedMsg) {
 	logger.Debug("MessageUpdatedMsg received",
-		"conversationID", msg.ConversationID,
+		"conversation_id", msg.ConversationID,
 		"index", msg.Index)
 
 	// Only update if we're viewing the conversation page and the message is for the selected run
@@ -642,7 +642,7 @@ func (m *Model) getConversationResult(run *RunInfo) *statestore.RunResult {
 		if res, err := m.stateStore.GetResult(ctx, run.RunID); err == nil {
 			return res
 		}
-		logger.Debug("Could not load from state store, using cached messages", "runID", run.RunID)
+		logger.Debug("Could not load from state store, using cached messages", "run_id", run.RunID)
 	}
 
 	// Fall back to cached messages

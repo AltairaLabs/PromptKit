@@ -41,7 +41,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	var cancel context.CancelFunc
 	if p.config.ExecutionTimeout > 0 {
 		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
-		logger.Info("Pipeline ExecutionTimeout configured",
+		logger.Debug("Pipeline ExecutionTimeout configured",
 			"timeout", p.config.ExecutionTimeout,
 			"stages", len(p.stages))
 	}
@@ -103,7 +103,7 @@ func (p *StreamPipeline) monitorExecutionTimeout(ctx context.Context, start time
 		<-ctx.Done()
 		if ctx.Err() == context.DeadlineExceeded {
 			elapsed := time.Since(start)
-			logger.Error("PIPELINE EXECUTION TIMEOUT TRIGGERED",
+			logger.Error("Pipeline execution timeout triggered",
 				"configured_timeout", p.config.ExecutionTimeout,
 				"elapsed", elapsed,
 				"stages", len(p.stages),

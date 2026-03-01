@@ -545,7 +545,7 @@ func (e *Engine) saveRunMetadata(
 	}
 
 	logger.Debug("Saving run metadata",
-		"runID", runID,
+		"run_id", runID,
 		"recording_path", metadata.RecordingPath,
 		"conv_assertions_count", len(result.ConversationAssertionResults),
 		"conv_assertions_results", result.ConversationAssertionResults)
