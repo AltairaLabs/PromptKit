@@ -582,6 +582,38 @@ func TestSetLogger_SlogDefaultUpdated(t *testing.T) {
 	}
 }
 
+func TestSetLogger_ConfigureDoesNotOverwrite(t *testing.T) {
+	// Save and restore state
+	origLogger := DefaultLogger
+	origOutput := logOutput
+	origHandler := customHandler
+	defer func() {
+		customHandler = origHandler
+		DefaultLogger = origLogger
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	// Set a custom logger writing to a buffer
+	var buf bytes.Buffer
+	custom := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	SetLogger(custom)
+
+	// Configure should not overwrite the custom logger
+	err := Configure(&LoggingConfigSpec{DefaultLevel: "debug"})
+	if err != nil {
+		t.Fatalf("Configure returned error: %v", err)
+	}
+
+	// Log a message — it should still go to the custom buffer
+	Info("after configure", "source", "test")
+
+	output := buf.String()
+	if !strings.Contains(output, "after configure") {
+		t.Errorf("Expected custom logger to still capture output after Configure(), got: %s", output)
+	}
+}
+
 func TestSetOutputPreservesFormat(t *testing.T) {
 	// Save and restore state
 	origFormat := currentFormat
