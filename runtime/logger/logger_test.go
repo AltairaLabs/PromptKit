@@ -530,6 +530,33 @@ func TestSetLogger_Custom(t *testing.T) {
 	}
 }
 
+func TestSetLogger_SetLevelPreservesCustomLogger(t *testing.T) {
+	// Save and restore state
+	origLogger := DefaultLogger
+	origOutput := logOutput
+	origHandler := customHandler
+	defer func() {
+		customHandler = origHandler
+		DefaultLogger = origLogger
+		logOutput = origOutput
+		initLogger(currentLevel, nil)
+	}()
+
+	var buf bytes.Buffer
+	custom := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	SetLogger(custom)
+
+	// SetLevel should NOT replace the custom logger
+	SetLevel(slog.LevelDebug)
+
+	Info("after set level", "key", "value")
+
+	output := buf.String()
+	if !strings.Contains(output, "after set level") {
+		t.Errorf("Expected custom logger to still capture output after SetLevel(), got: %s", output)
+	}
+}
+
 func TestSetLogger_NilResetsDefault(t *testing.T) {
 	// Save and restore state
 	origLogger := DefaultLogger
