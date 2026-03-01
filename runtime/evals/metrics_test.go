@@ -280,6 +280,179 @@ func TestMetricCollector_IntegrationWithMetricResultWriter(t *testing.T) {
 	}
 }
 
+func TestMetricCollector_GaugeWithDefLabels(t *testing.T) {
+	mc := NewMetricCollector()
+	metric := &MetricDef{
+		Name:   "quality",
+		Type:   MetricGauge,
+		Labels: map[string]string{"eval_type": "contains"},
+	}
+	_ = mc.Record(EvalResult{Score: float64Ptr(0.85)}, metric)
+
+	var buf bytes.Buffer
+	_ = mc.WritePrometheus(&buf)
+	output := buf.String()
+
+	if !strings.Contains(output, "# TYPE promptpack_quality gauge") {
+		t.Errorf("expected TYPE line, got:\n%s", output)
+	}
+	if !strings.Contains(output, `promptpack_quality{eval_type="contains"} 0.85`) {
+		t.Errorf("expected labeled gauge, got:\n%s", output)
+	}
+}
+
+func TestMetricCollector_WithBaseLabels(t *testing.T) {
+	mc := NewMetricCollector(WithLabels(map[string]string{"env": "prod", "tenant": "acme"}))
+	metric := &MetricDef{Name: "quality", Type: MetricGauge}
+	_ = mc.Record(EvalResult{Score: float64Ptr(0.9)}, metric)
+
+	var buf bytes.Buffer
+	_ = mc.WritePrometheus(&buf)
+	output := buf.String()
+
+	if !strings.Contains(output, `env="prod"`) {
+		t.Errorf("expected env label, got:\n%s", output)
+	}
+	if !strings.Contains(output, `tenant="acme"`) {
+		t.Errorf("expected tenant label, got:\n%s", output)
+	}
+}
+
+func TestMetricCollector_LabelMergeBaseWins(t *testing.T) {
+	mc := NewMetricCollector(WithLabels(map[string]string{"env": "prod"}))
+	metric := &MetricDef{
+		Name:   "quality",
+		Type:   MetricGauge,
+		Labels: map[string]string{"env": "staging", "category": "tone"},
+	}
+	_ = mc.Record(EvalResult{Score: float64Ptr(0.7)}, metric)
+
+	var buf bytes.Buffer
+	_ = mc.WritePrometheus(&buf)
+	output := buf.String()
+
+	// base label "env=prod" should win over def "env=staging"
+	if !strings.Contains(output, `env="prod"`) {
+		t.Errorf("base label should win on conflict, got:\n%s", output)
+	}
+	if !strings.Contains(output, `category="tone"`) {
+		t.Errorf("non-conflicting def label should be present, got:\n%s", output)
+	}
+}
+
+func TestMetricCollector_HistogramWithLabels(t *testing.T) {
+	mc := NewMetricCollector(WithBuckets([]float64{1, 5, 10}))
+	metric := &MetricDef{
+		Name:   "latency",
+		Type:   MetricHistogram,
+		Labels: map[string]string{"eval_type": "custom"},
+	}
+	_ = mc.Record(EvalResult{MetricValue: float64Ptr(3)}, metric)
+
+	var buf bytes.Buffer
+	_ = mc.WritePrometheus(&buf)
+	output := buf.String()
+
+	// Buckets should have both custom label and le
+	if !strings.Contains(output, `promptpack_latency_bucket{eval_type="custom",le="1"} 0`) {
+		t.Errorf("expected labeled bucket, got:\n%s", output)
+	}
+	if !strings.Contains(output, `promptpack_latency_bucket{eval_type="custom",le="+Inf"} 1`) {
+		t.Errorf("expected labeled +Inf bucket, got:\n%s", output)
+	}
+	// _sum and _count should have labels
+	if !strings.Contains(output, `promptpack_latency_sum{eval_type="custom"} 3`) {
+		t.Errorf("expected labeled sum, got:\n%s", output)
+	}
+	if !strings.Contains(output, `promptpack_latency_count{eval_type="custom"} 1`) {
+		t.Errorf("expected labeled count, got:\n%s", output)
+	}
+}
+
+func TestMetricCollector_NoLabelsBackwardCompat(t *testing.T) {
+	mc := NewMetricCollector()
+	metric := &MetricDef{Name: "quality", Type: MetricGauge}
+	_ = mc.Record(EvalResult{Score: float64Ptr(0.85)}, metric)
+
+	var buf bytes.Buffer
+	_ = mc.WritePrometheus(&buf)
+	output := buf.String()
+
+	// No labels should produce output without braces
+	if strings.Contains(output, "{") {
+		t.Errorf("no-label metric should not have braces, got:\n%s", output)
+	}
+	if !strings.Contains(output, "promptpack_quality 0.85") {
+		t.Errorf("expected plain gauge value, got:\n%s", output)
+	}
+}
+
+func TestMetricCollector_SameNameDifferentLabels(t *testing.T) {
+	mc := NewMetricCollector()
+	metricA := &MetricDef{
+		Name:   "quality",
+		Type:   MetricGauge,
+		Labels: map[string]string{"eval_type": "contains"},
+	}
+	metricB := &MetricDef{
+		Name:   "quality",
+		Type:   MetricGauge,
+		Labels: map[string]string{"eval_type": "regex"},
+	}
+
+	_ = mc.Record(EvalResult{Score: float64Ptr(0.8)}, metricA)
+	_ = mc.Record(EvalResult{Score: float64Ptr(0.9)}, metricB)
+
+	var buf bytes.Buffer
+	_ = mc.WritePrometheus(&buf)
+	output := buf.String()
+
+	// Should have both time series
+	if !strings.Contains(output, `promptpack_quality{eval_type="contains"} 0.8`) {
+		t.Errorf("expected contains series, got:\n%s", output)
+	}
+	if !strings.Contains(output, `promptpack_quality{eval_type="regex"} 0.9`) {
+		t.Errorf("expected regex series, got:\n%s", output)
+	}
+	// TYPE line should appear only once
+	if strings.Count(output, "# TYPE promptpack_quality gauge") != 1 {
+		t.Errorf("TYPE line should appear once, got:\n%s", output)
+	}
+}
+
+func TestMetricCollector_CounterWithLabels(t *testing.T) {
+	mc := NewMetricCollector(WithLabels(map[string]string{"env": "test"}))
+	metric := &MetricDef{Name: "eval_runs", Type: MetricCounter}
+	_ = mc.Record(EvalResult{}, metric)
+	_ = mc.Record(EvalResult{}, metric)
+
+	var buf bytes.Buffer
+	_ = mc.WritePrometheus(&buf)
+	output := buf.String()
+
+	if !strings.Contains(output, `promptpack_eval_runs{env="test"} 2`) {
+		t.Errorf("expected labeled counter, got:\n%s", output)
+	}
+}
+
+func TestMetricCollector_BooleanWithLabels(t *testing.T) {
+	mc := NewMetricCollector()
+	metric := &MetricDef{
+		Name:   "check",
+		Type:   MetricBoolean,
+		Labels: map[string]string{"category": "safety"},
+	}
+	_ = mc.Record(EvalResult{Passed: true}, metric)
+
+	var buf bytes.Buffer
+	_ = mc.WritePrometheus(&buf)
+	output := buf.String()
+
+	if !strings.Contains(output, `promptpack_check{category="safety"} 1`) {
+		t.Errorf("expected labeled boolean, got:\n%s", output)
+	}
+}
+
 func TestMetricCollector_CustomBuckets(t *testing.T) {
 	mc := NewMetricCollector(WithBuckets([]float64{1, 5, 10}))
 	metric := &MetricDef{Name: "custom_hist", Type: MetricHistogram}

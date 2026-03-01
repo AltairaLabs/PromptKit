@@ -118,6 +118,8 @@ func (r *EvalRunner) runEvals(
 		}
 		result := r.runOne(ctx, &defs[i], evalCtx, trigCtx, allowedTriggers)
 		if result != nil {
+			result.SessionID = evalCtx.SessionID
+			result.TurnIndex = evalCtx.TurnIndex
 			results = append(results, *result)
 		}
 	}

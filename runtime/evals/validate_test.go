@@ -271,6 +271,75 @@ func TestValidateEvals(t *testing.T) {
 	}
 }
 
+func TestValidateEvals_MetricLabelValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		labels    map[string]string
+		wantCount int
+		wantMsgs  []string
+	}{
+		{
+			name:      "valid label names",
+			labels:    map[string]string{"env": "prod", "eval_type": "contains", "_private": "val"},
+			wantCount: 0,
+		},
+		{
+			name:      "digit prefix is invalid",
+			labels:    map[string]string{"1bad": "val"},
+			wantCount: 1,
+			wantMsgs:  []string{"must match Prometheus label naming"},
+		},
+		{
+			name:      "dash is invalid",
+			labels:    map[string]string{"my-label": "val"},
+			wantCount: 1,
+			wantMsgs:  []string{"must match Prometheus label naming"},
+		},
+		{
+			name:      "reserved __ prefix",
+			labels:    map[string]string{"__internal": "val"},
+			wantCount: 1,
+			wantMsgs:  []string{`must not start with "__"`},
+		},
+		{
+			name:      "nil labels is valid",
+			labels:    nil,
+			wantCount: 0,
+		},
+		{
+			name:      "empty labels is valid",
+			labels:    map[string]string{},
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defs := []EvalDef{{
+				ID: "test", Type: "custom", Trigger: TriggerEveryTurn,
+				Metric: &MetricDef{Name: "test_metric", Type: MetricGauge, Labels: tt.labels},
+			}}
+			errs := ValidateEvals(defs, "pack")
+			if len(errs) != tt.wantCount {
+				t.Errorf("got %d errors, want %d:\n%s", len(errs), tt.wantCount, strings.Join(errs, "\n"))
+				return
+			}
+			for _, msg := range tt.wantMsgs {
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err, msg) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected error containing %q, got:\n%s", msg, strings.Join(errs, "\n"))
+				}
+			}
+		})
+	}
+}
+
 func TestValidateEvals_ValidAllTriggerTypes(t *testing.T) {
 	for trigger := range ValidTriggers {
 		defs := []EvalDef{{ID: "test", Type: "custom", Trigger: trigger}}

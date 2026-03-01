@@ -105,6 +105,97 @@ func TestMetricResultWriter_RecorderError(t *testing.T) {
 	}
 }
 
+func TestMetricResultWriter_InjectsDynamicLabels(t *testing.T) {
+	rec := &mockRecorder{}
+	defs := []EvalDef{
+		{
+			ID:   "e1",
+			Type: "test",
+			Metric: &MetricDef{
+				Name:   "quality",
+				Type:   MetricGauge,
+				Labels: map[string]string{"eval_type": "contains"},
+			},
+		},
+	}
+	writer := NewMetricResultWriter(rec, defs)
+
+	results := []EvalResult{
+		{EvalID: "e1", Passed: true, SessionID: "sess-123", TurnIndex: 2},
+	}
+	err := writer.WriteResults(context.Background(), results)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rec.recordings) != 1 {
+		t.Fatalf("got %d recordings, want 1", len(rec.recordings))
+	}
+	labels := rec.recordings[0].Metric.Labels
+	if labels["session_id"] != "sess-123" {
+		t.Errorf("session_id = %q, want %q", labels["session_id"], "sess-123")
+	}
+	if labels["turn_index"] != "2" {
+		t.Errorf("turn_index = %q, want %q", labels["turn_index"], "2")
+	}
+	if labels["eval_type"] != "contains" {
+		t.Errorf("eval_type = %q, want %q (original label preserved)", labels["eval_type"], "contains")
+	}
+}
+
+func TestMetricResultWriter_NoDynamicLabelsWhenAbsent(t *testing.T) {
+	rec := &mockRecorder{}
+	defs := []EvalDef{
+		{
+			ID:   "e1",
+			Type: "test",
+			Metric: &MetricDef{
+				Name: "quality",
+				Type: MetricGauge,
+			},
+		},
+	}
+	writer := NewMetricResultWriter(rec, defs)
+
+	// No SessionID or TurnIndex — should not inject labels.
+	results := []EvalResult{
+		{EvalID: "e1", Passed: true},
+	}
+	err := writer.WriteResults(context.Background(), results)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rec.recordings[0].Metric.Labels) != 0 {
+		t.Errorf("expected no labels, got %v", rec.recordings[0].Metric.Labels)
+	}
+}
+
+func TestMetricResultWriter_DynamicLabelsDoNotMutateOriginal(t *testing.T) {
+	rec := &mockRecorder{}
+	origLabels := map[string]string{"eval_type": "contains"}
+	defs := []EvalDef{
+		{
+			ID:   "e1",
+			Type: "test",
+			Metric: &MetricDef{
+				Name:   "quality",
+				Type:   MetricGauge,
+				Labels: origLabels,
+			},
+		},
+	}
+	writer := NewMetricResultWriter(rec, defs)
+
+	results := []EvalResult{
+		{EvalID: "e1", Passed: true, SessionID: "sess-1", TurnIndex: 1},
+	}
+	_ = writer.WriteResults(context.Background(), results)
+
+	// Original MetricDef labels should not be mutated.
+	if _, ok := origLabels["session_id"]; ok {
+		t.Error("original labels were mutated with session_id")
+	}
+}
+
 func TestMetadataResultWriter_NoOp(t *testing.T) {
 	writer := &MetadataResultWriter{}
 	err := writer.WriteResults(context.Background(), []EvalResult{

@@ -144,9 +144,10 @@ type EvalViolation struct {
 // MetricDef defines a Prometheus-style metric associated with an eval.
 // The Extra field captures additionalProperties from the schema.
 type MetricDef struct {
-	Name  string     `json:"name" yaml:"name"`
-	Type  MetricType `json:"type" yaml:"type"`
-	Range *Range     `json:"range,omitempty" yaml:"range,omitempty"`
+	Name   string            `json:"name" yaml:"name"`
+	Type   MetricType        `json:"type" yaml:"type"`
+	Range  *Range            `json:"range,omitempty" yaml:"range,omitempty"`
+	Labels map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
 
 	// Extra holds additional properties beyond the defined schema fields.
 	// This supports the RFC's additionalProperties: true on metric.
@@ -163,9 +164,12 @@ func (m MetricDef) MarshalJSON() ([]byte, error) {
 	if m.Range != nil {
 		result["range"] = m.Range
 	}
+	if len(m.Labels) > 0 {
+		result["labels"] = m.Labels
+	}
 	// Merge extra fields
 	for k, v := range m.Extra {
-		if k != "name" && k != "type" && k != "range" {
+		if k != "name" && k != "type" && k != "range" && k != "labels" {
 			result[k] = v
 		}
 	}
@@ -189,8 +193,8 @@ func (m *MetricDef) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Extract extra fields (anything not name, type, range)
-	knownFields := map[string]bool{"name": true, "type": true, "range": true}
+	// Extract extra fields (anything not name, type, range, labels)
+	knownFields := map[string]bool{"name": true, "type": true, "range": true, "labels": true}
 	for k, v := range raw {
 		if !knownFields[k] {
 			if m.Extra == nil {
@@ -221,6 +225,8 @@ type EvalResult struct {
 	Violations  []EvalViolation `json:"violations,omitempty"`
 	Skipped     bool            `json:"skipped,omitempty"`
 	SkipReason  string          `json:"skip_reason,omitempty"`
+	SessionID   string          `json:"session_id,omitempty"`
+	TurnIndex   int             `json:"turn_index,omitempty"`
 }
 
 // EvalContext provides data to eval handlers.
