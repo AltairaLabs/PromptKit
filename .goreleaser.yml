@@ -135,6 +135,7 @@ release:
     **Libraries:**
     - `runtime/{{.Version}}` - Core runtime components
     - `pkg/{{.Version}}` - Shared packages
+    - `server/a2a/{{.Version}}` - A2A server module
     - `sdk/{{.Version}}` - Production SDK library
     
     **Tools:**
