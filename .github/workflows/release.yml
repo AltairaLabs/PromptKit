@@ -171,6 +171,19 @@ jobs:
           echo "✓ Tagged pkg/$VERSION"
         fi
     
+    - name: Tag server/a2a
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Tagging server/a2a/$VERSION"
+        if git rev-parse "server/a2a/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag server/a2a/$VERSION already exists, skipping"
+        else
+          git tag -a "server/a2a/$VERSION" -m "Release server/a2a $VERSION"
+          git push origin "server/a2a/$VERSION"
+          echo "✓ Tagged server/a2a/$VERSION"
+        fi
+
     - name: Tag sdk
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -220,28 +233,34 @@ jobs:
           return 1
         }
         
-        # Check all three modules
+        # Check all modules
         check_module "runtime" "$VERSION" &
         PID_RUNTIME=$!
-        
+
         check_module "pkg" "$VERSION" &
         PID_PKG=$!
-        
+
+        check_module "server/a2a" "$VERSION" &
+        PID_SERVER_A2A=$!
+
         check_module "sdk" "$VERSION" &
         PID_SDK=$!
-        
+
         # Wait for all checks to complete
         wait $PID_RUNTIME
         RESULT_RUNTIME=$?
-        
+
         wait $PID_PKG
         RESULT_PKG=$?
-        
+
+        wait $PID_SERVER_A2A
+        RESULT_SERVER_A2A=$?
+
         wait $PID_SDK
         RESULT_SDK=$?
-        
+
         # Report overall status (non-blocking - Go proxy can take time to propagate)
-        if [ $RESULT_RUNTIME -eq 0 ] && [ $RESULT_PKG -eq 0 ] && [ $RESULT_SDK -eq 0 ]; then
+        if [ $RESULT_RUNTIME -eq 0 ] && [ $RESULT_PKG -eq 0 ] && [ $RESULT_SERVER_A2A -eq 0 ] && [ $RESULT_SDK -eq 0 ]; then
           echo "✓ All modules are available on Go proxy"
         else
           echo "⚠ Some modules may need more time to propagate"
@@ -290,6 +309,43 @@ jobs:
           echo "✓ Created branch $BRANCH"
         fi
     
+    - name: Update server/a2a dependencies
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Updating server/a2a to use $VERSION..."
+        cd server/a2a
+
+        # Update go.mod to require new versions
+        echo "Setting required versions to $VERSION..."
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+
+        # Remove local replace directives
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+
+        cd ../..
+        echo "✓ Updated server/a2a go.mod to $VERSION"
+
+    - name: Update sdk dependencies
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Updating sdk to use $VERSION..."
+        cd sdk
+
+        # Update go.mod to require new versions
+        echo "Setting required versions to $VERSION..."
+        go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
+        go mod edit -require="github.com/AltairaLabs/PromptKit/server/a2a@$VERSION"
+
+        # Remove local replace directives
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/server/a2a
+
+        cd ..
+        echo "✓ Updated sdk go.mod to $VERSION"
+
     - name: Update arena dependencies
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -335,12 +391,14 @@ jobs:
         BRANCH="release/tools/$VERSION"
         
         # Check if there are changes to commit
-        if git diff --quiet tools/arena/go.mod tools/arena/go.sum tools/packc/go.mod tools/packc/go.sum; then
+        if git diff --quiet server/a2a/go.mod server/a2a/go.sum sdk/go.mod sdk/go.sum tools/arena/go.mod tools/arena/go.sum tools/packc/go.mod tools/packc/go.sum; then
           echo "⚠ No changes to commit (already up to date)"
         else
+          git add server/a2a/go.mod server/a2a/go.sum
+          git add sdk/go.mod sdk/go.sum
           git add tools/arena/go.mod tools/arena/go.sum
           git add tools/packc/go.mod tools/packc/go.sum
-          git commit -m "release: update tools to $VERSION"
+          git commit -m "release: update modules to $VERSION"
           git push origin "$BRANCH"
           echo "✓ Pushed $BRANCH"
         fi
