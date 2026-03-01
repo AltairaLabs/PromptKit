@@ -41,8 +41,15 @@ func main() {
 	}
 	fmt.Printf("Loaded pack %q with %d eval(s)\n\n", pack.Name, len(pack.Evals))
 
-	// 2. Create a MetricCollector and wire it to a MetricResultWriter.
-	collector := evals.NewMetricCollector()
+	// 2. Create a MetricCollector with platform-level base labels and wire
+	//    it to a MetricResultWriter. Base labels are merged with per-metric
+	//    labels declared in the pack (base labels win on conflict).
+	collector := evals.NewMetricCollector(
+		evals.WithLabels(map[string]string{
+			"env":    "demo",
+			"tenant": "acme",
+		}),
+	)
 	metricWriter := evals.NewMetricResultWriter(collector, pack.Evals)
 
 	// 3. Create an EvalRunner with the default handler registry, then

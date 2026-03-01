@@ -87,11 +87,14 @@ func TestE2E_InProcDispatcher_FullFlow(t *testing.T) {
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "promptpack_response_quality 0.92") {
-		t.Errorf("expected quality gauge, got:\n%s", output)
+	if !strings.Contains(output, `promptpack_response_quality{session_id="test-session",turn_index="1"} 0.92`) {
+		t.Errorf("expected labeled quality gauge, got:\n%s", output)
 	}
 	if !strings.Contains(output, "# TYPE promptpack_response_length histogram") {
 		t.Errorf("expected length histogram, got:\n%s", output)
+	}
+	if !strings.Contains(output, `session_id="test-session"`) {
+		t.Errorf("expected session_id label in output, got:\n%s", output)
 	}
 }
 

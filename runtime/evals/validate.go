@@ -3,12 +3,16 @@ package evals
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // prometheusNameRe matches valid Prometheus metric names.
 var prometheusNameRe = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+
+// prometheusLabelRe matches valid Prometheus label names.
+var prometheusLabelRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // ValidateEvals validates a slice of EvalDef for correctness.
 // The scope parameter is used in error messages (e.g. "pack", "prompt:foo").
@@ -137,6 +141,21 @@ func validateMetric(m *MetricDef, prefix string) []string {
 			errs = append(errs, fmt.Sprintf(
 				"%s: metric.range.min (%g) must be <= range.max (%g)",
 				prefix, *m.Range.Min, *m.Range.Max,
+			))
+		}
+	}
+
+	for labelName := range m.Labels {
+		if !prometheusLabelRe.MatchString(labelName) {
+			errs = append(errs, fmt.Sprintf(
+				"%s: metric.labels key %q must match Prometheus label naming: %s",
+				prefix, labelName, prometheusLabelRe.String(),
+			))
+		}
+		if strings.HasPrefix(labelName, "__") {
+			errs = append(errs, fmt.Sprintf(
+				"%s: metric.labels key %q must not start with \"__\" (reserved by Prometheus)",
+				prefix, labelName,
 			))
 		}
 	}

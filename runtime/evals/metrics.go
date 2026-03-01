@@ -17,6 +17,7 @@ var DefaultBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 // metricEntry stores the state for a single named metric.
 type metricEntry struct {
 	name       string
+	labels     map[string]string // merged MetricDef + base labels
 	metricType MetricType
 	// Gauge / Boolean
 	value float64
@@ -31,10 +32,11 @@ type metricEntry struct {
 // MetricCollector implements MetricRecorder and provides Prometheus text
 // exposition. It is safe for concurrent use.
 type MetricCollector struct {
-	mu        sync.RWMutex
-	metrics   map[string]*metricEntry
-	namespace string
-	buckets   []float64
+	mu         sync.RWMutex
+	metrics    map[string]*metricEntry
+	namespace  string
+	buckets    []float64
+	baseLabels map[string]string
 }
 
 // MetricCollectorOption configures a MetricCollector.
@@ -48,6 +50,13 @@ func WithNamespace(ns string) MetricCollectorOption {
 // WithBuckets sets custom histogram bucket boundaries.
 func WithBuckets(buckets []float64) MetricCollectorOption {
 	return func(mc *MetricCollector) { mc.buckets = buckets }
+}
+
+// WithLabels sets base labels that are merged into every recorded metric.
+// These are typically platform-level labels (e.g. env, tenant_id, region).
+// Base labels take precedence over MetricDef labels on conflict.
+func WithLabels(labels map[string]string) MetricCollectorOption {
+	return func(mc *MetricCollector) { mc.baseLabels = labels }
 }
 
 // NewMetricCollector creates a new MetricCollector with the given options.
@@ -77,16 +86,23 @@ func (mc *MetricCollector) Record(result EvalResult, metric *MetricDef) error {
 
 	mc.validateRange(name, value, metric.Range)
 
+	merged := mergeLabels(metric.Labels, mc.baseLabels)
+	key := name
+	if lk := labelKey(merged); lk != "" {
+		key = name + "|" + lk
+	}
+
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 
-	entry, ok := mc.metrics[name]
+	entry, ok := mc.metrics[key]
 	if !ok {
 		entry = &metricEntry{
 			name:       name,
+			labels:     merged,
 			metricType: metric.Type,
 		}
-		mc.metrics[name] = entry
+		mc.metrics[key] = entry
 	}
 
 	switch metric.Type {
@@ -116,16 +132,17 @@ func (mc *MetricCollector) WritePrometheus(w io.Writer) error {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
 
-	// Sort metric names for deterministic output
-	names := make([]string, 0, len(mc.metrics))
-	for name := range mc.metrics {
-		names = append(names, name)
+	// Sort map keys for deterministic output
+	keys := make([]string, 0, len(mc.metrics))
+	for k := range mc.metrics {
+		keys = append(keys, k)
 	}
-	sort.Strings(names)
+	sort.Strings(keys)
 
-	for _, name := range names {
-		entry := mc.metrics[name]
-		if err := mc.writeEntry(w, entry); err != nil {
+	lastTypeName := ""
+	for _, key := range keys {
+		entry := mc.metrics[key]
+		if err := mc.writeEntry(w, entry, &lastTypeName); err != nil {
 			return err
 		}
 	}
@@ -141,48 +158,65 @@ func (mc *MetricCollector) Reset() {
 }
 
 // writeEntry writes a single metric entry in Prometheus format.
-func (mc *MetricCollector) writeEntry(w io.Writer, entry *metricEntry) error {
+// lastTypeName tracks the last emitted TYPE line to deduplicate when the
+// same metric name appears with different label sets.
+func (mc *MetricCollector) writeEntry(w io.Writer, entry *metricEntry, lastTypeName *string) error {
 	switch entry.metricType {
 	case MetricGauge, MetricBoolean:
-		return writeGaugeEntry(w, entry)
+		return writeGaugeEntry(w, entry, lastTypeName)
 	case MetricCounter:
-		return writeCounterEntry(w, entry)
+		return writeCounterEntry(w, entry, lastTypeName)
 	case MetricHistogram:
-		return mc.writeHistogramEntry(w, entry)
+		return mc.writeHistogramEntry(w, entry, lastTypeName)
 	}
 	return nil
 }
 
+// writeTypeLine writes a TYPE comment if the metric name differs from the last emitted one.
+func writeTypeLine(w io.Writer, name, metricType string, lastTypeName *string) error {
+	if *lastTypeName == name {
+		return nil
+	}
+	*lastTypeName = name
+	_, err := fmt.Fprintf(w, "# TYPE %s %s\n", name, metricType)
+	return err
+}
+
 // writeGaugeEntry writes a gauge or boolean metric.
-func writeGaugeEntry(w io.Writer, entry *metricEntry) error {
-	if _, err := fmt.Fprintf(w, "# TYPE %s gauge\n", entry.name); err != nil {
+func writeGaugeEntry(w io.Writer, entry *metricEntry, lastTypeName *string) error {
+	if err := writeTypeLine(w, entry.name, "gauge", lastTypeName); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(w, "%s %s\n", entry.name, formatFloat(entry.value))
+	labels := formatLabels(entry.labels)
+	_, err := fmt.Fprintf(w, "%s%s %s\n", entry.name, labels, formatFloat(entry.value))
 	return err
 }
 
 // writeCounterEntry writes a counter metric.
-func writeCounterEntry(w io.Writer, entry *metricEntry) error {
-	if _, err := fmt.Fprintf(w, "# TYPE %s counter\n", entry.name); err != nil {
+func writeCounterEntry(w io.Writer, entry *metricEntry, lastTypeName *string) error {
+	if err := writeTypeLine(w, entry.name, "counter", lastTypeName); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(w, "%s %s\n", entry.name, formatFloat(entry.count))
+	labels := formatLabels(entry.labels)
+	_, err := fmt.Fprintf(w, "%s%s %s\n", entry.name, labels, formatFloat(entry.count))
 	return err
 }
 
 // writeHistogramEntry writes a histogram metric with buckets.
-func (mc *MetricCollector) writeHistogramEntry(w io.Writer, entry *metricEntry) error {
-	if _, err := fmt.Fprintf(w, "# TYPE %s histogram\n", entry.name); err != nil {
+func (mc *MetricCollector) writeHistogramEntry(
+	w io.Writer, entry *metricEntry, lastTypeName *string,
+) error {
+	if err := writeTypeLine(w, entry.name, "histogram", lastTypeName); err != nil {
 		return err
 	}
 	if err := mc.writeHistogramBuckets(w, entry); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "%s_sum %s\n", entry.name, formatFloat(entry.sum)); err != nil {
+	labels := formatLabels(entry.labels)
+	if _, err := fmt.Fprintf(w, "%s_sum%s %s\n", entry.name, labels, formatFloat(entry.sum)); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(w, "%s_count %d\n", entry.name, entry.obsCount)
+	_, err := fmt.Fprintf(w, "%s_count%s %d\n", entry.name, labels, entry.obsCount)
 	return err
 }
 
@@ -195,14 +229,16 @@ func (mc *MetricCollector) writeHistogramBuckets(w io.Writer, entry *metricEntry
 				count++
 			}
 		}
-		if _, err := fmt.Fprintf(w, "%s_bucket{le=\"%s\"} %d\n",
-			entry.name, formatFloat(bound), count); err != nil {
+		labelsWithLE := formatLabelsWithLE(entry.labels, formatFloat(bound))
+		if _, err := fmt.Fprintf(w, "%s_bucket%s %d\n",
+			entry.name, labelsWithLE, count); err != nil {
 			return err
 		}
 	}
 	// +Inf bucket
-	if _, err := fmt.Fprintf(w, "%s_bucket{le=\"+Inf\"} %d\n",
-		entry.name, entry.obsCount); err != nil {
+	labelsWithLE := formatLabelsWithLE(entry.labels, "+Inf")
+	if _, err := fmt.Fprintf(w, "%s_bucket%s %d\n",
+		entry.name, labelsWithLE, entry.obsCount); err != nil {
 		return err
 	}
 	return nil
@@ -250,6 +286,97 @@ func formatFloat(v float64) string {
 		return fmt.Sprintf("%g", v)
 	}
 	return fmt.Sprintf("%g", v)
+}
+
+// mergeLabels merges def-level labels with base labels.
+// Base labels take precedence on conflict.
+func mergeLabels(defLabels, baseLabels map[string]string) map[string]string {
+	if len(defLabels) == 0 && len(baseLabels) == 0 {
+		return nil
+	}
+	merged := make(map[string]string, len(defLabels)+len(baseLabels))
+	for k, v := range defLabels {
+		merged[k] = v
+	}
+	for k, v := range baseLabels {
+		merged[k] = v
+	}
+	return merged
+}
+
+// labelKey returns a deterministic string representation of labels for use as
+// part of a composite map key. Returns "" if labels is empty.
+func labelKey(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(labels[k])
+	}
+	return b.String()
+}
+
+// formatLabels returns labels in Prometheus format: {k1="v1",k2="v2"}.
+// Returns "" if labels is empty.
+func formatLabels(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteByte('{')
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(k)
+		b.WriteString(`="`)
+		b.WriteString(labels[k])
+		b.WriteByte('"')
+	}
+	b.WriteByte('}')
+	return b.String()
+}
+
+// formatLabelsWithLE returns Prometheus-format labels that include the le
+// bucket boundary alongside any custom labels.
+func formatLabelsWithLE(labels map[string]string, le string) string {
+	if len(labels) == 0 {
+		return `{le="` + le + `"}`
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteByte('{')
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteString(`="`)
+		b.WriteString(labels[k])
+		b.WriteString(`",`)
+	}
+	b.WriteString(`le="`)
+	b.WriteString(le)
+	b.WriteByte('"')
+	b.WriteByte('}')
+	return b.String()
 }
 
 // Ensure MetricCollector implements MetricRecorder.

@@ -24,7 +24,11 @@
       "description": "Verify the assistant always returns valid JSON",
       "metric": {
         "name": "json_format_valid",
-        "type": "boolean"
+        "type": "boolean",
+        "labels": {
+          "eval_type": "json_valid",
+          "category": "format"
+        }
       }
     },
     {
@@ -37,7 +41,11 @@
       },
       "metric": {
         "name": "response_has_content",
-        "type": "boolean"
+        "type": "boolean",
+        "labels": {
+          "eval_type": "contains",
+          "category": "content"
+        }
       }
     },
     {
@@ -51,7 +59,11 @@
       },
       "metric": {
         "name": "no_unnecessary_apologies",
-        "type": "boolean"
+        "type": "boolean",
+        "labels": {
+          "eval_type": "regex",
+          "category": "tone"
+        }
       }
     },
     {
@@ -64,7 +76,11 @@
       },
       "metric": {
         "name": "session_has_substance",
-        "type": "boolean"
+        "type": "boolean",
+        "labels": {
+          "eval_type": "contains_any",
+          "category": "coverage"
+        }
       }
     }
   ]
