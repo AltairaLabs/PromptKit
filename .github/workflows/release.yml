@@ -171,32 +171,6 @@ jobs:
           echo "✓ Tagged pkg/$VERSION"
         fi
     
-    - name: Tag server/a2a
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Tagging server/a2a/$VERSION"
-        if git rev-parse "server/a2a/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag server/a2a/$VERSION already exists, skipping"
-        else
-          git tag -a "server/a2a/$VERSION" -m "Release server/a2a $VERSION"
-          git push origin "server/a2a/$VERSION"
-          echo "✓ Tagged server/a2a/$VERSION"
-        fi
-
-    - name: Tag sdk
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        echo "Tagging sdk/$VERSION"
-        if git rev-parse "sdk/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag sdk/$VERSION already exists, skipping"
-        else
-          git tag -a "sdk/$VERSION" -m "Release sdk $VERSION"
-          git push origin "sdk/$VERSION"
-          echo "✓ Tagged sdk/$VERSION"
-        fi
-    
     - name: Tag root version (for GoReleaser)
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -233,18 +207,13 @@ jobs:
           return 1
         }
         
-        # Check all modules
+        # Check leaf modules (runtime and pkg have no replace directives)
+        # server/a2a and sdk are tagged later in update-tools after go.mod cleanup
         check_module "runtime" "$VERSION" &
         PID_RUNTIME=$!
 
         check_module "pkg" "$VERSION" &
         PID_PKG=$!
-
-        check_module "server/a2a" "$VERSION" &
-        PID_SERVER_A2A=$!
-
-        check_module "sdk" "$VERSION" &
-        PID_SDK=$!
 
         # Wait for all checks to complete
         wait $PID_RUNTIME
@@ -253,15 +222,9 @@ jobs:
         wait $PID_PKG
         RESULT_PKG=$?
 
-        wait $PID_SERVER_A2A
-        RESULT_SERVER_A2A=$?
-
-        wait $PID_SDK
-        RESULT_SDK=$?
-
         # Report overall status (non-blocking - Go proxy can take time to propagate)
-        if [ $RESULT_RUNTIME -eq 0 ] && [ $RESULT_PKG -eq 0 ] && [ $RESULT_SERVER_A2A -eq 0 ] && [ $RESULT_SDK -eq 0 ]; then
-          echo "✓ All modules are available on Go proxy"
+        if [ $RESULT_RUNTIME -eq 0 ] && [ $RESULT_PKG -eq 0 ]; then
+          echo "✓ Leaf modules are available on Go proxy"
         else
           echo "⚠ Some modules may need more time to propagate"
           echo "  This is normal and they will be available shortly"
@@ -403,6 +366,32 @@ jobs:
           echo "✓ Pushed $BRANCH"
         fi
     
+    - name: Tag server/a2a
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Tagging server/a2a/$VERSION from release branch (replace directives removed)"
+        if git rev-parse "server/a2a/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag server/a2a/$VERSION already exists, skipping"
+        else
+          git tag -a "server/a2a/$VERSION" -m "Release server/a2a $VERSION"
+          git push origin "server/a2a/$VERSION"
+          echo "✓ Tagged server/a2a/$VERSION"
+        fi
+
+    - name: Tag sdk
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        echo "Tagging sdk/$VERSION from release branch (replace directives removed)"
+        if git rev-parse "sdk/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag sdk/$VERSION already exists, skipping"
+        else
+          git tag -a "sdk/$VERSION" -m "Release sdk $VERSION"
+          git push origin "sdk/$VERSION"
+          echo "✓ Tagged sdk/$VERSION"
+        fi
+
     - name: Tag arena
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -536,6 +525,40 @@ jobs:
         else
           echo "⚠ Packc installation needs more time to propagate"
         fi
+
+    - name: Verify library modules on Go proxy
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      continue-on-error: true
+      run: |
+        echo "Verifying library modules are available on Go proxy..."
+
+        check_module() {
+          local module=$1
+          local version=$2
+          echo "Checking $module..."
+          for i in {1..10}; do
+            if curl -f -s "https://proxy.golang.org/github.com/!altaira!labs/!prompt!kit/$module/@v/$version.info" >/dev/null 2>&1; then
+              echo "✓ $module@$version is available"
+              return 0
+            fi
+            echo "  Attempt $i/10: Not available yet, waiting 20s..."
+            sleep 20
+          done
+          echo "⚠ $module@$version still not available after 200s"
+          return 1
+        }
+
+        check_module "server/a2a" "$VERSION" &
+        PID_SERVER_A2A=$!
+
+        check_module "sdk" "$VERSION" &
+        PID_SDK=$!
+
+        wait $PID_SERVER_A2A
+        wait $PID_SDK
+
+        echo "Library module verification complete"
 
   create-release:
     name: Create GitHub Release
