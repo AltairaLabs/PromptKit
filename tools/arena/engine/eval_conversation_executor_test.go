@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -679,6 +680,98 @@ func TestEvalConversationExecutor_ExecuteConversationStream(t *testing.T) {
 	// Should have same failure as non-streaming (no adapter found)
 	if !chunks[0].Result.Failed {
 		t.Error("Expected failed result when adapter not found")
+	}
+}
+
+func TestEvalConversationExecutor_ConversationAssertionsWithEvalOnlyHook(t *testing.T) {
+	// Build a PackEvalHook with empty defs (eval-only mode, no pack).
+	// This simulates the fix: eval mode creates a hook so assertions execute.
+	registry := evals.NewEvalTypeRegistry()
+	hook := NewPackEvalHook(registry, nil, false, nil, "")
+
+	executor := NewEvalConversationExecutor(
+		adapters.NewRegistry(),
+		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
+		providers.NewRegistry(),
+		hook,
+	)
+
+	convCtx := &assertions.ConversationContext{
+		AllTurns: []types.Message{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "I can help you with billing and account issues."},
+		},
+		Metadata: assertions.ConversationMetadata{
+			Extras: map[string]interface{}{},
+		},
+	}
+
+	assertionCfgs := []assertions.AssertionConfig{
+		{
+			Type:    "contains_any",
+			Params:  map[string]interface{}{"patterns": []interface{}{"billing", "support"}},
+			Message: "should mention billing or support",
+		},
+		{
+			Type:    "contains_any",
+			Params:  map[string]interface{}{"patterns": []interface{}{"nonexistent-keyword"}},
+			Message: "should fail - keyword not present",
+		},
+	}
+
+	results := executor.evaluateConversationAssertions(context.Background(), assertionCfgs, convCtx)
+
+	if len(results) != 2 {
+		t.Fatalf("Expected 2 results, got %d", len(results))
+	}
+	if !results[0].Passed {
+		t.Errorf("Expected first assertion (contains_any 'billing') to pass, got failed: %s", results[0].Details)
+	}
+	if results[1].Passed {
+		t.Errorf("Expected second assertion (contains_any 'nonexistent-keyword') to fail, got passed")
+	}
+}
+
+func TestEvalConversationExecutor_TurnAssertionsWithEvalOnlyHook(t *testing.T) {
+	registry := evals.NewEvalTypeRegistry()
+	hook := NewPackEvalHook(registry, nil, false, nil, "")
+
+	executor := NewEvalConversationExecutor(
+		adapters.NewRegistry(),
+		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
+		providers.NewRegistry(),
+		hook,
+	)
+
+	msg := &types.Message{Role: "assistant", Content: "Here is your account summary."}
+	convCtx := &assertions.ConversationContext{
+		AllTurns: []types.Message{*msg},
+		Metadata: assertions.ConversationMetadata{
+			Extras: map[string]interface{}{},
+		},
+	}
+
+	assertionCfgs := []assertions.AssertionConfig{
+		{
+			Type:   "contains_any",
+			Params: map[string]interface{}{"patterns": []interface{}{"account"}},
+		},
+	}
+
+	executor.applyTurnAssertions(assertionCfgs, msg, convCtx)
+
+	if msg.Meta == nil {
+		t.Fatal("Expected message metadata to be set")
+	}
+	results, ok := msg.Meta["assertions"].([]assertions.AssertionResult)
+	if !ok {
+		t.Fatal("Expected assertions in message metadata")
+	}
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 assertion result, got %d", len(results))
+	}
+	if !results[0].Passed {
+		t.Errorf("Expected assertion to pass, got failed")
 	}
 }
 

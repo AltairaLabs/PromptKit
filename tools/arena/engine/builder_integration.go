@@ -109,6 +109,8 @@ func BuildEngineComponents(cfg *config.Config) (
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
 		}
+	} else if hasEvalConfigs(cfg) {
+		packEvalHook = buildEvalOnlyHook()
 	}
 
 	// Build media storage service
@@ -499,6 +501,19 @@ func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []stri
 	}
 
 	return NewPackEvalHook(registry, allDefs, skipEvals, evalTypeFilter, pack.ID), nil
+}
+
+// hasEvalConfigs returns true if the config has eval scenarios that need assertion execution.
+func hasEvalConfigs(cfg *config.Config) bool {
+	return len(cfg.LoadedEvals) > 0 || len(cfg.Evals) > 0 || len(cfg.EvalSpecs) > 0
+}
+
+// buildEvalOnlyHook creates a PackEvalHook with an empty defs list and a fresh registry.
+// This is used in eval mode (no pack) so that RunAssertionsAsEvals and
+// RunAssertionsAsConversationResults can dispatch ad-hoc assertion configs.
+func buildEvalOnlyHook() *PackEvalHook {
+	registry := evals.NewEvalTypeRegistry()
+	return NewPackEvalHook(registry, nil, false, nil, "")
 }
 
 // buildEvalExecutor creates the eval conversation executor with required registries.
