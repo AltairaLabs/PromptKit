@@ -306,6 +306,12 @@
         },
         "range": {
           "$ref": "#/$defs/Range"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
         }
       },
       "additionalProperties": false,
