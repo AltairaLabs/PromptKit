@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
@@ -79,6 +80,11 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 		if optErr := opt(cfg); optErr != nil {
 			return nil, fmt.Errorf("failed to apply option: %w", optErr)
 		}
+	}
+
+	// Set custom logger before any logging occurs
+	if cfg.logger != nil {
+		logger.SetLogger(cfg.logger)
 	}
 
 	p, err := pack.Load(absPath, pack.LoadOptions{

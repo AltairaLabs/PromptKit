@@ -138,7 +138,8 @@ func (s *VideoStreamer) StreamChunksBurst(
 		return nil
 	}
 
-	logger.Debug("Streaming video chunks in BURST MODE",
+	logger.Debug("Streaming video chunks",
+		"mode", "burst",
 		"total_chunks", totalChunks,
 		"mime_type", mimeType,
 	)
@@ -168,7 +169,8 @@ func (s *VideoStreamer) StreamChunksRealtime(
 		return nil
 	}
 
-	logger.Debug("Streaming video chunks in REALTIME MODE",
+	logger.Debug("Streaming video chunks",
+		"mode", "realtime",
 		"total_chunks", totalChunks,
 		"mime_type", mimeType,
 		"target_chunk_duration_ms", s.getChunkDurationMs(),

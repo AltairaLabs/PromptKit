@@ -161,10 +161,10 @@ func BuildStreamPipeline(cfg *Config) (*stage.StreamPipeline, error) {
 //nolint:gocognit // Complex pipeline construction logic
 func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	logger.Info("Building stage-based pipeline",
-		"taskType", cfg.TaskType,
-		"hasStateStore", cfg.StateStore != nil,
-		"hasToolRegistry", cfg.ToolRegistry != nil,
-		"hasStreamProvider", cfg.StreamInputProvider != nil)
+		"task_type", cfg.TaskType,
+		"has_state_store", cfg.StateStore != nil,
+		"has_tool_registry", cfg.ToolRegistry != nil,
+		"has_stream_provider", cfg.StreamInputProvider != nil)
 
 	builder := newPipelineBuilder(cfg)
 

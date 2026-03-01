@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -156,6 +157,9 @@ type config struct {
 
 	// Telemetry: OTel TracerProvider for distributed tracing
 	tracerProvider trace.TracerProvider
+
+	// Custom logger for SDK consumers
+	logger *slog.Logger
 }
 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.
@@ -491,6 +495,24 @@ func WithEventStore(store events.EventStore) Option {
 func WithTracerProvider(tp trace.TracerProvider) Option {
 	return func(c *config) error {
 		c.tracerProvider = tp
+		return nil
+	}
+}
+
+// WithLogger sets a custom *slog.Logger for the SDK. This replaces
+// the process-wide default logger, so all PromptKit components
+// (runtime, pipeline, providers, evals) will use it.
+//
+// Since all major Go logging libraries ship slog adapters (e.g.
+// zapslog, slogzerolog), this gives full control over the logging
+// backend without requiring a custom interface.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil))),
+//	)
+func WithLogger(l *slog.Logger) Option {
+	return func(c *config) error {
+		c.logger = l
 		return nil
 	}
 }

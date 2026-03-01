@@ -3,11 +3,12 @@ package evals
 import (
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // DefaultBuckets are the default Prometheus histogram bucket boundaries.
@@ -259,10 +260,10 @@ func (mc *MetricCollector) validateRange(name string, value float64, r *Range) {
 		return
 	}
 	if r.Min != nil && value < *r.Min {
-		log.Printf("WARNING: metric %q value %g below range minimum %g", name, value, *r.Min)
+		logger.Warn("metric value below range minimum", "metric", name, "value", value, "min", *r.Min)
 	}
 	if r.Max != nil && value > *r.Max {
-		log.Printf("WARNING: metric %q value %g above range maximum %g", name, value, *r.Max)
+		logger.Warn("metric value above range maximum", "metric", name, "value", value, "max", *r.Max)
 	}
 }
 

@@ -3,12 +3,13 @@ package skills
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // skillMDFile is the filename expected in every skill directory.
@@ -100,7 +101,7 @@ func (r *Registry) discoverDirectory(src SkillSource) error {
 
 		skillDir := filepath.Dir(path)
 		if _, exists := r.skills[meta.Name]; exists {
-			log.Printf("skills: duplicate skill %q ignored (already registered)", meta.Name)
+			logger.Warn("skills: duplicate skill ignored (already registered)", "skill", meta.Name)
 			return nil
 		}
 
@@ -117,7 +118,7 @@ func (r *Registry) discoverDirectory(src SkillSource) error {
 // Must be called with r.mu held.
 func (r *Registry) registerInline(src SkillSource) {
 	if _, exists := r.skills[src.Name]; exists {
-		log.Printf("skills: duplicate skill %q ignored (already registered)", src.Name)
+		logger.Warn("skills: duplicate skill ignored (already registered)", "skill", src.Name)
 		return
 	}
 
@@ -284,7 +285,7 @@ func (r *Registry) PreloadedSkills() []*Skill {
 		skillPath := filepath.Join(rs.path, skillMDFile)
 		skill, err := ParseSkillFile(skillPath)
 		if err != nil {
-			log.Printf("skills: failed to preload skill %q: %v", name, err)
+			logger.Error("skills: failed to preload skill", "skill", name, "error", err)
 			continue
 		}
 		skill.Path = rs.path

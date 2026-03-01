@@ -47,8 +47,8 @@ func (de *DuplexConversationExecutor) executeDuplexConversation(
 		if attempt > 0 {
 			logger.Info("Retrying duplex conversation",
 				"attempt", attempt,
-				"maxRetries", maxRetries,
-				"retryDelayMs", retryDelayMS)
+				"max_retries", maxRetries,
+				"retry_delay_ms", retryDelayMS)
 			time.Sleep(time.Duration(retryDelayMS) * time.Millisecond)
 
 			// Clear state store for fresh retry
@@ -77,7 +77,7 @@ func (de *DuplexConversationExecutor) executeDuplexConversation(
 		if attempt < maxRetries {
 			logger.Warn("Duplex conversation failed with recoverable error, will retry",
 				"attempt", attempt+1,
-				"maxRetries", maxRetries,
+				"max_retries", maxRetries,
 				"error", result.Error)
 		}
 	}

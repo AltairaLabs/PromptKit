@@ -262,7 +262,7 @@ func (m *MockStreamSession) emitAutoResponse() {
 
 	// Check if we should close WITHOUT responding (simulates Gemini closing after interruption)
 	if m.closeNoResponse && m.closeAfterTurns > 0 && currentTurn >= m.closeAfterTurns {
-		logger.Info("MockStreamSession: SIMULATING GEMINI CLOSURE - closing WITHOUT response",
+		logger.Info("MockStreamSession: simulating provider closure without response",
 			"turn", currentTurn)
 		m.responseCount++
 		m.closeCalled = true
@@ -341,8 +341,8 @@ func (m *MockStreamSession) emitAutoResponse() {
 	// Close the response channel if configured - allows duplex tests to complete
 	if (m.closeAfterResponse || shouldClose) && !m.closeCalled {
 		if shouldClose {
-			logger.Info("MockStreamSession: SIMULATING GEMINI CLOSURE - closing session unexpectedly",
-				"afterTurns", m.responseCount)
+			logger.Info("MockStreamSession: simulating provider closure after turns",
+				"after_turns", m.responseCount)
 		}
 		m.closeCalled = true
 		close(m.doneCh)

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	mcpToolSuccess      = "✅ MCP Tool Success"
+	mcpToolSuccess      = "MCP tool success"
 	mcpToolReturnedErr  = "MCP tool returned error"
 	mcpContentTypeText  = "text"
 	mcpDefaultTimeoutSc = 30
@@ -43,7 +43,7 @@ func (e *MCPExecutor) Execute(
 		return nil, ErrMCPExecutorOnly
 	}
 
-	logger.Info("🔧 MCP Tool Call", "tool", descriptor.Name, "args", string(args))
+	logger.Info("MCP tool call", "tool", descriptor.Name, "args", string(args))
 
 	response, err := e.callMCPTool(ctx, descriptor.Name, args)
 	if err != nil {
@@ -68,13 +68,13 @@ func (e *MCPExecutor) callMCPTool(
 
 	client, err := e.registry.GetClientForTool(ctx, rawName)
 	if err != nil {
-		logger.Error("❌ MCP Tool Failed", "tool", toolName, "error", err)
+		logger.Error("MCP tool failed to get client", "tool", toolName, "error", err)
 		return nil, fmt.Errorf("failed to get MCP client for tool %s: %w", toolName, err)
 	}
 
 	response, err := client.CallTool(ctx, rawName, args)
 	if err != nil {
-		logger.Error("❌ MCP Tool Failed", "tool", toolName, "error", err)
+		logger.Error("MCP tool call failed", "tool", toolName, "error", err)
 		return nil, fmt.Errorf("MCP tool call failed: %w", err)
 	}
 
@@ -99,7 +99,7 @@ func mcpRawToolName(qualifiedName string) string {
 
 func (e *MCPExecutor) handleErrorResponse(toolName string, response *mcp.ToolCallResponse) error {
 	errorMsg := e.extractErrorMessage(response.Content)
-	logger.Error("❌ MCP Tool Error", "tool", toolName, "error", errorMsg)
+	logger.Error("MCP tool returned error", "tool", toolName, "error", errorMsg)
 	return fmt.Errorf("%s", errorMsg)
 }
 

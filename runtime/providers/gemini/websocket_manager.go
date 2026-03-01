@@ -127,20 +127,20 @@ type geminiLoggerAdapter struct{}
 
 // Debug implements streaming.Logger.
 func (a *geminiLoggerAdapter) Debug(msg string, keysAndValues ...interface{}) {
-	logger.Debug("Gemini: "+msg, keysAndValues...)
+	logger.Debug(msg, append([]interface{}{"component", "Gemini"}, keysAndValues...)...)
 }
 
 // Info implements streaming.Logger.
 func (a *geminiLoggerAdapter) Info(msg string, keysAndValues ...interface{}) {
-	logger.Info("Gemini: "+msg, keysAndValues...)
+	logger.Info(msg, append([]interface{}{"component", "Gemini"}, keysAndValues...)...)
 }
 
 // Warn implements streaming.Logger.
 func (a *geminiLoggerAdapter) Warn(msg string, keysAndValues ...interface{}) {
-	logger.Warn("Gemini: "+msg, keysAndValues...)
+	logger.Warn(msg, append([]interface{}{"component", "Gemini"}, keysAndValues...)...)
 }
 
 // Error implements streaming.Logger.
 func (a *geminiLoggerAdapter) Error(msg string, keysAndValues ...interface{}) {
-	logger.Error("Gemini: "+msg, keysAndValues...)
+	logger.Error(msg, append([]interface{}{"component", "Gemini"}, keysAndValues...)...)
 }

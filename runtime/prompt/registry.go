@@ -373,7 +373,7 @@ func (r *Registry) Load(activity string) *AssembledPrompt {
 func (r *Registry) LoadWithVars(activity string, vars map[string]string, model string) *AssembledPrompt {
 	config, err := r.loadConfig(activity)
 	if err != nil {
-		logger.Error("Failed to load prompt config for activity '%s': %v", activity, err)
+		logger.Error("Failed to load prompt config", "activity", activity, "error", err)
 		return nil
 	}
 
@@ -394,7 +394,7 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 func (r *Registry) prepareVariables(config *Config, vars map[string]string, activity string) (map[string]string, error) {
 	// Validate required variables
 	if err := r.validateRequiredVars(config, vars); err != nil {
-		logger.Error("Prompt missing required vars for activity '%s': %v", activity, err)
+		logger.Error("Prompt missing required vars", "activity", activity, "error", err)
 		return nil, err
 	}
 
@@ -420,7 +420,7 @@ func (r *Registry) prepareVariables(config *Config, vars map[string]string, acti
 func (r *Registry) assembleFragmentVars(config *Config, finalVars map[string]string, activity string) (map[string]string, error) {
 	fragmentVars, err := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, "")
 	if err != nil {
-		logger.Error("Fragment assembly failed for activity '%s': %v", activity, err)
+		logger.Error("Fragment assembly failed", "activity", activity, "error", err)
 		return nil, err
 	}
 	return fragmentVars, nil
@@ -454,7 +454,7 @@ func (r *Registry) renderAndAssemble(config *Config, systemTemplate string, fina
 	// Render template with variables
 	assembledText, err := r.templateRenderer.Render(systemTemplate, finalVars)
 	if err != nil {
-		logger.Error("Template rendering failed for activity '%s': %v", activity, err)
+		logger.Error("Template rendering failed", "activity", activity, "error", err)
 		return nil
 	}
 
@@ -469,7 +469,7 @@ func (r *Registry) renderAndAssemble(config *Config, systemTemplate string, fina
 	}
 
 	// Debug logging (controlled by global log level via -v flag)
-	logger.Debug("🔧 Assembled prompt",
+	logger.Debug("Assembled prompt",
 		"task_type", config.Spec.TaskType,
 		"hash", hash[:8],
 		"tools", len(config.Spec.AllowedTools),

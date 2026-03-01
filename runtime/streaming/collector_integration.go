@@ -74,7 +74,7 @@ func (c *ResponseCollector) collect(
 
 		case elem, ok := <-outputChan:
 			if !ok {
-				logger.Debug(logPrefix + ": response channel closed before receiving complete response")
+				logger.Debug("response channel closed before receiving complete response", "component", logPrefix)
 				responseDone <- fmt.Errorf("session ended before receiving response: %w", ErrSessionEnded)
 				return
 			}
@@ -130,19 +130,19 @@ func (c *ResponseCollector) executeAndSendToolResults(
 	logPrefix string,
 ) error {
 	if c.config.ToolExecutor == nil {
-		logger.Warn(logPrefix + ": received tool calls but no ToolExecutor configured")
+		logger.Warn("received tool calls but no ToolExecutor configured", "component", logPrefix)
 		return errors.New("received tool calls but no ToolExecutor configured")
 	}
 
 	result, err := c.config.ToolExecutor.Execute(ctx, elem.Message.ToolCalls)
 	if err != nil {
-		logger.Error(logPrefix+": tool execution failed", "error", err)
+		logger.Error("tool execution failed", "component", logPrefix, "error", err)
 		return err
 	}
 
 	if result != nil && len(result.ProviderResponses) > 0 {
 		if err := SendToolResults(ctx, result, inputChan); err != nil {
-			logger.Error(logPrefix+": failed to send tool results", "error", err)
+			logger.Error("failed to send tool results", "component", logPrefix, "error", err)
 			return err
 		}
 	}

@@ -715,7 +715,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("SESSION CLOSURE: Context canceled (user or timeout)")
+			logger.Info("Session closure: context canceled")
 			// Emit any accumulated content as partial response before returning
 			accumulatedText := s.accumulatedText.String()
 			hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
@@ -784,7 +784,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 				select {
 				case <-s.allResponsesReceivedCh:
 					// All responses received - close session immediately, no need to wait
-					logger.Info("INPUT COMPLETE: All responses already received, closing session immediately")
+					logger.Info("Input complete, all responses already received, closing session")
 					weClosedSession = true
 					if s.session != nil {
 						_ = s.session.Close()
@@ -792,7 +792,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 					// Continue to drain any remaining chunks
 				default:
 					// Not all responses received - wait for final response with timeout
-					logger.Info("INPUT COMPLETE: All turns sent, waiting for final response",
+					logger.Info("Input complete, waiting for final response",
 						"timeout", finalResponseTimeout)
 					finalResponseTimer = time.After(finalResponseTimeout)
 				}
@@ -800,7 +800,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 
 		case <-finalResponseTimer:
 			// Timeout waiting for final response - close session and emit partial content
-			logger.Warn("SESSION CLOSURE: WE are closing (timeout waiting for final response)",
+			logger.Warn("Session closure: timeout waiting for final response",
 				"timeout", finalResponseTimeout)
 			weClosedSession = true
 			if s.session != nil {
@@ -815,12 +815,12 @@ func (s *DuplexProviderStage) forwardResponseElements(
 				hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
 
 				if weClosedSession {
-					logger.Info("SESSION ENDED: Response channel closed (we initiated closure)")
+					logger.Info("Session ended, response channel closed (we initiated closure)")
 				} else {
-					logger.Warn("SESSION CLOSURE: GEMINI closed the connection (unexpected)",
-						"hasAccumulatedContent", hasContent,
-						"accumulatedTextLen", len(accumulatedText),
-						"accumulatedMediaLen", len(s.accumulatedMedia))
+					logger.Warn("Session closure: provider closed the connection unexpectedly",
+						"has_accumulated_content", hasContent,
+						"accumulated_text_len", len(accumulatedText),
+						"accumulated_media_len", len(s.accumulatedMedia))
 				}
 
 				if hasContent {

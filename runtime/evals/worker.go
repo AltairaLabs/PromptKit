@@ -29,6 +29,7 @@ type Logger interface {
 type defaultLogger struct{}
 
 // Printf logs using the structured logger at warn level.
+// Uses Sprintf to bridge the Printf-based Logger interface to structured logging.
 func (defaultLogger) Printf(format string, v ...any) {
 	logger.Warn(fmt.Sprintf(format, v...))
 }

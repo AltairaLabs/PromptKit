@@ -64,21 +64,22 @@ func ProcessResponseElement(elem *stage.StreamElement, logPrefix string) (Respon
 		// Interruption signal: provider detected user started speaking during response.
 		// The partial response has been captured, now waiting for the new response.
 		if interrupted, ok := elem.Metadata["interrupted"].(bool); ok && interrupted {
-			logger.Debug(logPrefix + ": response interrupted, waiting for new response")
+			logger.Debug("response interrupted, waiting for new response", "component", logPrefix)
 			return ResponseActionContinue, nil
 		}
 
 		// Interrupted turn complete: Empty turnComplete after interruption.
 		// This is just the provider closing the interrupted turn, not the final response.
 		if itc, ok := elem.Metadata["interrupted_turn_complete"].(bool); ok && itc {
-			logger.Debug(logPrefix + ": interrupted turn complete, waiting for real response")
+			logger.Debug("interrupted turn complete, waiting for real response", "component", logPrefix)
 			return ResponseActionContinue, nil
 		}
 	}
 
 	// Check for turn completion (EndOfStream from DuplexProviderStage)
 	if elem.EndOfStream {
-		logger.Debug(logPrefix+": EndOfStream received",
+		logger.Debug("EndOfStream received",
+			"component", logPrefix,
 			"hasMessage", elem.Message != nil,
 			"hasText", elem.Text != nil)
 
@@ -88,14 +89,15 @@ func ProcessResponseElement(elem *stage.StreamElement, logPrefix string) (Respon
 		hasContent := elem.Message != nil && (elem.Message.Content != "" || len(elem.Message.Parts) > 0)
 		hasToolCalls := elem.Message != nil && len(elem.Message.ToolCalls) > 0
 		if !hasContent && !hasToolCalls {
-			logger.Debug(logPrefix + ": empty response, treating as retriable error")
+			logger.Debug("empty response, treating as retriable error", "component", logPrefix)
 			return ResponseActionError, ErrEmptyResponse
 		}
 
 		// If response contains tool calls, signal that tools need to be executed
 		// The caller will execute tools and send results back, then continue waiting
 		if hasToolCalls {
-			logger.Debug(logPrefix+": received tool call response, needs execution",
+			logger.Debug("received tool call response, needs execution",
+				"component", logPrefix,
 				"tool_count", len(elem.Message.ToolCalls))
 			return ResponseActionToolCalls, nil
 		}

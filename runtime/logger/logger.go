@@ -116,6 +116,23 @@ func SetVerbose(verbose bool) {
 	}
 }
 
+// SetLogger replaces the global logger with a custom *slog.Logger.
+// This allows SDK consumers to plug in their own logging backend
+// (e.g. zap via zapslog, zerolog via slogzerolog) while all
+// PromptKit internals continue to call package-level functions.
+//
+// The provided logger is also set as the slog default so that any
+// code using slog directly picks it up.
+// Pass nil to reset to the built-in default logger.
+func SetLogger(l *slog.Logger) {
+	if l == nil {
+		initLogger(currentLevel, nil)
+		return
+	}
+	DefaultLogger = l
+	slog.SetDefault(l)
+}
+
 // SetOutput changes the log output destination and reinitializes the logger.
 // This is primarily for testing. Pass nil to reset to os.Stderr.
 func SetOutput(w io.Writer) {

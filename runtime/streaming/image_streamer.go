@@ -122,7 +122,8 @@ func (s *ImageStreamer) StreamFramesBurst(
 		return nil
 	}
 
-	logger.Debug("Streaming frames in BURST MODE",
+	logger.Debug("Streaming frames",
+		"mode", "burst",
 		"total_frames", totalFrames,
 		"mime_type", mimeType,
 	)
@@ -154,7 +155,8 @@ func (s *ImageStreamer) StreamFramesRealtime(
 
 	frameInterval := s.getFrameInterval()
 
-	logger.Debug("Streaming frames in REALTIME MODE",
+	logger.Debug("Streaming frames",
+		"mode", "realtime",
 		"total_frames", totalFrames,
 		"mime_type", mimeType,
 		"target_fps", s.getTargetFPS(),
