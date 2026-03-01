@@ -143,18 +143,27 @@ func (m *Metrics) Attach(conv *sdk.Conversation) {
 
 ## Collect Eval Metrics
 
-The `MetricCollector` records eval results as Prometheus-compatible metrics. Configure it as a `ResultWriter` on conversations:
+The `MetricCollector` records eval results as Prometheus-compatible metrics with labels. Three label sources are merged at record time:
+
+1. **Pack-author labels** — per-metric labels declared in the pack file
+2. **Platform base labels** — deployment-level labels set via `WithLabels`
+3. **Dynamic labels** — `session_id` and `turn_index` injected automatically
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/evals"
 
-// Create a MetricCollector
-collector := evals.NewMetricCollector()
+// Create a MetricCollector with platform-level base labels
+collector := evals.NewMetricCollector(
+    evals.WithLabels(map[string]string{
+        "env":    "prod",
+        "tenant": "acme",
+    }),
+)
 
 // Wire it into conversation options
 conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithEvalDispatcher(evals.NewInProcDispatcher(nil)),
-    sdk.WithResultWriters(evals.NewMetricResultWriter(collector)),
+    sdk.WithEvalDispatcher(evals.NewInProcDispatcher(runner, nil)),
+    sdk.WithResultWriters(evals.NewMetricResultWriter(collector, pack.Evals)),
 )
 defer conv.Close()
 
@@ -165,7 +174,14 @@ resp, _ := conv.Send(ctx, "Hello!")
 collector.WritePrometheus(os.Stdout)
 ```
 
-Pack evals define metrics in the pack file:
+Output includes all three label sources:
+
+```
+# TYPE promptpack_response_relevance_score gauge
+promptpack_response_relevance_score{category="quality",env="prod",eval_type="llm_judge",session_id="abc-123",tenant="acme",turn_index="1"} 0.85
+```
+
+Pack evals define per-metric labels in the `metric.labels` field:
 
 ```json
 {
@@ -176,7 +192,11 @@ Pack evals define metrics in the pack file:
       "trigger": "every_turn",
       "metric": {
         "name": "response_relevance_score",
-        "type": "gauge"
+        "type": "gauge",
+        "labels": {
+          "eval_type": "llm_judge",
+          "category": "quality"
+        }
       },
       "params": {
         "criteria": "Is the response relevant to the user's question?"
@@ -186,7 +206,7 @@ Pack evals define metrics in the pack file:
 }
 ```
 
-The `MetricCollector` supports four metric types:
+### Metric Types
 
 | Type | Behavior |
 |------|----------|
@@ -194,6 +214,16 @@ The `MetricCollector` supports four metric types:
 | `counter` | Increment on each eval execution |
 | `histogram` | Observe score with configurable buckets |
 | `boolean` | Record 1.0 (pass) or 0.0 (fail) |
+
+### Collector Options
+
+| Option | Description |
+|--------|-------------|
+| `WithNamespace(ns)` | Set metric name prefix (default: `"promptpack"`) |
+| `WithBuckets(b)` | Set custom histogram bucket boundaries |
+| `WithLabels(m)` | Set base labels merged into every metric (base wins on conflict) |
+
+Label names must match `^[a-zA-Z_][a-zA-Z0-9_]*$` and must not start with `__` (reserved by Prometheus).
 
 ## Debug Mode
 

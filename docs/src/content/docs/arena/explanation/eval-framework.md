@@ -154,11 +154,21 @@ This enables offline evaluation of historical conversations without re-running t
 
 ## MetricCollector & Prometheus
 
-The `MetricCollector` records eval results and exports them in Prometheus text format:
+The `MetricCollector` records eval results and exports them in Prometheus text format. It supports three label sources that are merged at record time:
+
+1. **Pack-author labels** — declared per-metric in the pack file (e.g. `eval_type`, `category`)
+2. **Platform base labels** — injected at collector creation via `WithLabels` (e.g. `env`, `tenant_id`)
+3. **Dynamic context labels** — `session_id` and `turn_index` injected automatically by `MetricResultWriter`
 
 ```go
-collector := evals.NewMetricCollector()
-writer := evals.NewMetricResultWriter(collector)
+// Platform injects deployment-level labels at collector creation
+collector := evals.NewMetricCollector(
+    evals.WithLabels(map[string]string{
+        "env":    "prod",
+        "tenant": "acme",
+    }),
+)
+writer := evals.NewMetricResultWriter(collector, pack.Evals)
 
 // After evals run, export metrics
 collector.WritePrometheus(os.Stdout)
@@ -167,11 +177,13 @@ collector.WritePrometheus(os.Stdout)
 Output:
 
 ```
-# TYPE promptpack_response_relevance_score gauge
-promptpack_response_relevance_score 0.85
-# TYPE promptpack_json_valid_pass_rate boolean
-promptpack_json_valid_pass_rate 1
+# TYPE promptpack_response_quality gauge
+promptpack_response_quality{category="tone",env="prod",eval_type="llm_judge",session_id="abc-123",tenant="acme",turn_index="1"} 0.85
+# TYPE promptpack_json_valid gauge
+promptpack_json_valid{category="format",env="prod",eval_type="json_valid",session_id="abc-123",tenant="acme",turn_index="1"} 1
 ```
+
+The same metric name with different label sets produces separate time series, with a single deduplicated `# TYPE` comment line.
 
 ### Metric Types
 
@@ -182,7 +194,17 @@ promptpack_json_valid_pass_rate 1
 | `histogram` | Observe value with configurable buckets, track sum/count |
 | `boolean` | 1.0 if passed, 0.0 if failed |
 
-Metrics are defined in pack files alongside eval definitions:
+### Collector Options
+
+| Option | Description |
+|--------|-------------|
+| `WithNamespace(ns)` | Set metric name prefix (default: `"promptpack"`) |
+| `WithBuckets(b)` | Set custom histogram bucket boundaries |
+| `WithLabels(m)` | Set base labels merged into every recorded metric. Base labels take precedence over pack-author labels on conflict. |
+
+### Label Sources
+
+**Pack-author labels** are declared in the `metric.labels` field of each eval definition. These describe per-metric dimensions controlled by the pack author:
 
 ```json
 {
@@ -192,13 +214,23 @@ Metrics are defined in pack files alongside eval definitions:
   "metric": {
     "name": "response_quality_score",
     "type": "histogram",
-    "range": { "min": 0, "max": 1 }
+    "range": { "min": 0, "max": 1 },
+    "labels": {
+      "eval_type": "llm_judge",
+      "category": "quality"
+    }
   },
   "params": {
     "criteria": "Rate the quality of the response"
   }
 }
 ```
+
+**Platform base labels** are set via `WithLabels()` when creating the collector. These are deployment-level labels (e.g. `env`, `tenant_id`, `region`) that the hosting platform controls. Base labels win on conflict with pack-author labels.
+
+**Dynamic context labels** (`session_id`, `turn_index`) are injected automatically by `MetricResultWriter` from the `EvalResult`. No configuration needed — every metric gets these labels when they are available.
+
+Label names must match Prometheus naming rules (`^[a-zA-Z_][a-zA-Z0-9_]*$`) and must not start with `__` (reserved by Prometheus). Invalid label names are caught during pack validation.
 
 ## Pack Eval Resolution
 
