@@ -436,6 +436,7 @@ func initEventBus(cfg *config) {
 		tracer := telemetry.Tracer(cfg.tracerProvider)
 		listener := telemetry.NewOTelEventListener(tracer)
 		cfg.eventBus.SubscribeAll(listener.OnEvent)
+		cfg.otelListener = listener
 	}
 }
 

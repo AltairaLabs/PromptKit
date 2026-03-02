@@ -203,6 +203,8 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 		return nil, err
 	}
 
+	c.startOTelSession(ctx)
+
 	// Build user message from input
 	userMsg, err := c.buildUserMessage(message)
 	if err != nil {
@@ -773,6 +775,14 @@ func (c *Conversation) Fork() *Conversation {
 	return fork
 }
 
+// startOTelSession registers (or re-registers) the caller's context with the
+// OTel event listener so that pipeline spans are parented under the caller's span.
+func (c *Conversation) startOTelSession(ctx context.Context) {
+	if c.config != nil && c.config.otelListener != nil {
+		c.config.otelListener.StartSession(ctx, c.ID())
+	}
+}
+
 // Close releases resources associated with the conversation.
 //
 // After Close is called, Send and Stream will return [ErrConversationClosed].
@@ -785,6 +795,12 @@ func (c *Conversation) Close() error {
 		return nil
 	}
 	c.closed = true
+
+	// End the OTel session span (deferred to Close so late-arriving async events
+	// from the EventBus still have a parent context).
+	if c.config != nil && c.config.otelListener != nil {
+		c.config.otelListener.EndSession(c.ID())
+	}
 
 	// Run session end hooks before cleanup
 	c.sessionHooks.SessionEnd(context.Background())

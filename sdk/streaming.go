@@ -90,6 +90,10 @@ type streamState struct {
 func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk {
 	ch := make(chan StreamChunk, streamChannelBufferSize)
 
+	// Register the caller's context with the OTel listener before launching the
+	// goroutine so the session exists when pipeline events start arriving.
+	c.startOTelSession(ctx)
+
 	go func() {
 		defer close(ch)
 		startTime := time.Now()
