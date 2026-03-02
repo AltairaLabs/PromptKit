@@ -11,7 +11,7 @@ replace (
 require (
 	github.com/AltairaLabs/PromptKit/pkg v1.2.0
 	github.com/invopop/jsonschema v0.13.0
-	k8s.io/apimachinery v0.35.1
+	k8s.io/apimachinery v0.35.2
 )
 
 require (
