@@ -56,14 +56,23 @@ func NewOTelEventListener(tracer trace.Tracer) *OTelEventListener {
 
 // StartSession creates a root span for the given session, optionally parented
 // under the span context in parentCtx.
+// It is idempotent: if a session already exists for the given ID, the previous
+// session span is ended before creating a new one. This allows callers to call
+// StartSession on every Send/Stream with a fresh parent context.
 func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID string) {
 	ctx, span := l.tracer.Start(parentCtx, "promptkit.session",
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(attribute.String("session.id", sessionID)),
 	)
 	l.mu.Lock()
+	prev, hadPrev := l.sessions[sessionID]
 	l.sessions[sessionID] = &sessionState{span: span, ctx: ctx}
 	l.mu.Unlock()
+
+	// End previous session span outside the lock to avoid holding it during span.End().
+	if hadPrev {
+		prev.span.End()
+	}
 }
 
 // EndSession ends the root span for the given session.

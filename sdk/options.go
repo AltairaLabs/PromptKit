@@ -19,6 +19,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
@@ -157,6 +158,10 @@ type config struct {
 
 	// Telemetry: OTel TracerProvider for distributed tracing
 	tracerProvider trace.TracerProvider
+
+	// OTel event listener reference (set by initEventBus when tracerProvider is configured).
+	// Used by Send/Stream to call StartSession so pipeline spans are parented under the caller's context.
+	otelListener *telemetry.OTelEventListener
 
 	// Custom logger for SDK consumers
 	logger *slog.Logger

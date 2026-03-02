@@ -42,6 +42,11 @@ func TestOTelIntegration_SpansFromConversation(t *testing.T) {
 		t.Fatal("initEventBus should create an event bus")
 	}
 
+	// Verify that initEventBus stores the listener reference in config.
+	if cfg.otelListener == nil {
+		t.Fatal("initEventBus should store otelListener in config when tracerProvider is set")
+	}
+
 	// Track events for debug visibility.
 	var eventTypes []events.EventType
 	var eventMu sync.Mutex
@@ -175,6 +180,75 @@ func TestOTelIntegration_SpansParentedUnderSession(t *testing.T) {
 				s.Name, s.SpanContext.TraceID(), sessionTraceID)
 		}
 	}
+}
+
+// TestOTelIntegration_SpansParentedUnderCallerContext verifies the fix for #588:
+// when Send() is called with a context carrying a parent span, all PromptKit
+// spans share the same trace ID as the caller's span (not orphaned).
+func TestOTelIntegration_SpansParentedUnderCallerContext(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	// Wire via initEventBus so otelListener is stored — this is the production path.
+	cfg := &config{tracerProvider: tp}
+	initEventBus(cfg)
+
+	conv := buildOTelTestConversation(t, cfg)
+
+	// Create a parent span simulating an HTTP handler or gRPC interceptor.
+	tracer := tp.Tracer("test-caller")
+	parentCtx, parentSpan := tracer.Start(context.Background(), "caller-request")
+	parentTraceID := parentSpan.SpanContext().TraceID()
+
+	// Send() should call StartSession with parentCtx, parenting all pipeline spans.
+	resp, err := conv.Send(parentCtx, "Hello from caller context")
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if resp == nil || resp.Text() == "" {
+		t.Fatal("expected non-empty response")
+	}
+	parentSpan.End()
+
+	// Allow async event processing to complete.
+	time.Sleep(200 * time.Millisecond)
+
+	// Close ends the OTel session span so it appears in the exporter.
+	conv.Close()
+
+	if err := tp.ForceFlush(context.Background()); err != nil {
+		t.Fatalf("ForceFlush: %v", err)
+	}
+
+	spans := exp.GetSpans()
+
+	// Every span emitted by PromptKit (session, pipeline, provider, middleware)
+	// must share the same trace ID as the caller's parent span.
+	for _, s := range spans {
+		if s.Name == "caller-request" {
+			continue // skip the caller's own span
+		}
+		if s.SpanContext.TraceID() != parentTraceID {
+			t.Errorf("span %q has trace ID %v, want %v (same as caller)",
+				s.Name, s.SpanContext.TraceID(), parentTraceID)
+		}
+	}
+
+	// Verify we got at least the session and pipeline spans.
+	spanNames := make(map[string]bool)
+	for _, s := range spans {
+		spanNames[s.Name] = true
+	}
+	if !spanNames["promptkit.session"] {
+		t.Errorf("missing promptkit.session span; got: %v", spanNameList(spans))
+	}
+	if !spanNames["promptkit.pipeline"] {
+		t.Errorf("missing promptkit.pipeline span; got: %v", spanNameList(spans))
+	}
+
+	t.Logf("captured %d span(s) all under trace %v: %v",
+		len(spans), parentTraceID, spanNameList(spans))
 }
 
 // TestOTelIntegration_NoTracerProvider verifies that conversations work
