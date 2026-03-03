@@ -11,8 +11,11 @@ import (
 
 // localExecutor is a tool executor for locally-handled tools (Mode: "local").
 // It dispatches to the appropriate ToolHandler based on the tool name.
+// Context-aware handlers (ctxHandlers) are preferred over plain handlers
+// so that pipeline context (tracing, cancellation) propagates to tool calls.
 type localExecutor struct {
-	handlers map[string]ToolHandler
+	handlers    map[string]ToolHandler
+	ctxHandlers map[string]ToolHandlerCtx
 }
 
 // Name returns "local" to match the Mode on tools in the pack.
@@ -21,22 +24,26 @@ func (e *localExecutor) Name() string {
 }
 
 // Execute dispatches to the appropriate handler based on tool name.
+// Context-aware handlers are preferred so that tracing and cancellation propagate.
 func (e *localExecutor) Execute(
-	_ context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
-	handler, ok := e.handlers[descriptor.Name]
-	if !ok {
-		return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
-	}
-
 	// Parse args to map
 	var argsMap map[string]any
 	if err := json.Unmarshal(args, &argsMap); err != nil {
 		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
 	}
 
-	// Call handler
-	result, err := handler(argsMap)
+	// Prefer context-aware handler
+	var result any
+	var err error
+	if ctxHandler, ok := e.ctxHandlers[descriptor.Name]; ok {
+		result, err = ctxHandler(ctx, argsMap)
+	} else if handler, ok := e.handlers[descriptor.Name]; ok {
+		result, err = handler(argsMap)
+	} else {
+		return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
+	}
 	if err != nil {
 		return nil, err
 	}

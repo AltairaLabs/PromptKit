@@ -163,6 +163,11 @@ type config struct {
 	// Used by Send/Stream to call StartSession so pipeline spans are parented under the caller's context.
 	otelListener *telemetry.OTelEventListener
 
+	// Pipeline execution timeout override.
+	// When non-nil, overrides the default 30s execution timeout.
+	// Use 0 to disable timeout entirely (useful for long-running tool-calling pipelines).
+	executionTimeout *time.Duration
+
 	// Custom logger for SDK consumers
 	logger *slog.Logger
 }
@@ -518,6 +523,20 @@ func WithTracerProvider(tp trace.TracerProvider) Option {
 func WithLogger(l *slog.Logger) Option {
 	return func(c *config) error {
 		c.logger = l
+		return nil
+	}
+}
+
+// WithExecutionTimeout overrides the default pipeline execution timeout (30s).
+// Use this for pipelines that need more time, such as multi-round tool-calling
+// with slower providers like Ollama. Pass 0 to disable the timeout entirely.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithExecutionTimeout(120 * time.Second),
+//	)
+func WithExecutionTimeout(d time.Duration) Option {
+	return func(c *config) error {
+		c.executionTimeout = &d
 		return nil
 	}
 }

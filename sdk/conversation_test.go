@@ -170,16 +170,21 @@ func TestConversationOnToolCtx(t *testing.T) {
 		return "ctx_result", nil
 	})
 
-	// Verify handler was registered (wrapped)
+	// Verify handler was stored in ctxHandlers (not wrapped in handlers)
 	conv.handlersMu.RLock()
-	handler, ok := conv.handlers["ctx_tool"]
+	ctxHandler, ok := conv.ctxHandlers["ctx_tool"]
+	_, inPlain := conv.handlers["ctx_tool"]
 	conv.handlersMu.RUnlock()
 
 	assert.True(t, ok)
-	result, err := handler(map[string]any{})
+	assert.False(t, inPlain, "OnToolCtx should not store in plain handlers map")
+
+	// Call the ctx handler directly with a real context
+	testCtx := context.WithValue(context.Background(), struct{ k string }{"test"}, "value")
+	result, err := ctxHandler(testCtx, map[string]any{})
 	assert.NoError(t, err)
 	assert.Equal(t, "ctx_result", result)
-	assert.NotNil(t, receivedCtx)
+	assert.Equal(t, testCtx, receivedCtx)
 }
 
 func TestConversationOnTools(t *testing.T) {
@@ -494,7 +499,7 @@ func TestOnToolHTTP(t *testing.T) {
 		conv.OnToolHTTP("http_tool", cfg)
 
 		conv.handlersMu.RLock()
-		_, exists := conv.handlers["http_tool"]
+		_, exists := conv.ctxHandlers["http_tool"]
 		conv.handlersMu.RUnlock()
 
 		assert.True(t, exists)
@@ -525,13 +530,13 @@ func TestOnToolExecutor(t *testing.T) {
 		conv.OnToolExecutor("custom_tool", executor)
 
 		conv.handlersMu.RLock()
-		handler, exists := conv.handlers["custom_tool"]
+		handler, exists := conv.ctxHandlers["custom_tool"]
 		conv.handlersMu.RUnlock()
 
 		assert.True(t, exists)
 
-		// Test the handler
-		result, err := handler(map[string]any{"input": "test"})
+		// Test the handler — context is now propagated
+		result, err := handler(context.Background(), map[string]any{"input": "test"})
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 	})
@@ -547,10 +552,10 @@ func TestOnToolExecutor(t *testing.T) {
 		conv.OnToolExecutor("missing_tool", executor)
 
 		conv.handlersMu.RLock()
-		handler := conv.handlers["missing_tool"]
+		handler := conv.ctxHandlers["missing_tool"]
 		conv.handlersMu.RUnlock()
 
-		_, err := handler(map[string]any{})
+		_, err := handler(context.Background(), map[string]any{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not found in pack")
 	})
@@ -643,6 +648,93 @@ func TestLocalExecutorExecute(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "handler failed")
 	})
+}
+
+func TestLocalExecutorCtxHandler(t *testing.T) {
+	t.Run("context-aware handler receives pipeline context", func(t *testing.T) {
+		type ctxKey string
+		var receivedCtx context.Context
+
+		executor := &localExecutor{
+			handlers: make(map[string]ToolHandler),
+			ctxHandlers: map[string]ToolHandlerCtx{
+				"search": func(ctx context.Context, args map[string]any) (any, error) {
+					receivedCtx = ctx
+					return "found", nil
+				},
+			},
+		}
+
+		pipelineCtx := context.WithValue(context.Background(), ctxKey("trace"), "abc123")
+		descriptor := &tools.ToolDescriptor{Name: "search"}
+		result, err := executor.Execute(pipelineCtx, descriptor, json.RawMessage(`{}`))
+
+		assert.NoError(t, err)
+		assert.Equal(t, `"found"`, string(result))
+		assert.Equal(t, "abc123", receivedCtx.Value(ctxKey("trace")))
+	})
+
+	t.Run("ctxHandler takes priority over plain handler", func(t *testing.T) {
+		executor := &localExecutor{
+			handlers: map[string]ToolHandler{
+				"search": func(args map[string]any) (any, error) {
+					return "plain", nil
+				},
+			},
+			ctxHandlers: map[string]ToolHandlerCtx{
+				"search": func(ctx context.Context, args map[string]any) (any, error) {
+					return "ctx-aware", nil
+				},
+			},
+		}
+
+		descriptor := &tools.ToolDescriptor{Name: "search"}
+		result, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
+
+		assert.NoError(t, err)
+		assert.Equal(t, `"ctx-aware"`, string(result))
+	})
+
+	t.Run("falls back to plain handler when no ctxHandler", func(t *testing.T) {
+		executor := &localExecutor{
+			handlers: map[string]ToolHandler{
+				"search": func(args map[string]any) (any, error) {
+					return "plain", nil
+				},
+			},
+			ctxHandlers: make(map[string]ToolHandlerCtx),
+		}
+
+		descriptor := &tools.ToolDescriptor{Name: "search"}
+		result, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
+
+		assert.NoError(t, err)
+		assert.Equal(t, `"plain"`, string(result))
+	})
+}
+
+func TestOnToolCtxStoresCtxHandler(t *testing.T) {
+	conv := newTestConversation()
+
+	var receivedCtx context.Context
+	conv.OnToolCtx("search", func(ctx context.Context, args map[string]any) (any, error) {
+		receivedCtx = ctx
+		return "ok", nil
+	})
+
+	// ctxHandlers should have the handler, handlers should not
+	assert.NotNil(t, conv.ctxHandlers["search"])
+	assert.Nil(t, conv.handlers["search"])
+
+	// Execute through localExecutor to verify context propagation
+	type ctxKey string
+	pipelineCtx := context.WithValue(context.Background(), ctxKey("span"), "test-span")
+	executor := &localExecutor{handlers: conv.handlers, ctxHandlers: conv.ctxHandlers}
+	result, err := executor.Execute(pipelineCtx, &tools.ToolDescriptor{Name: "search"}, json.RawMessage(`{}`))
+
+	assert.NoError(t, err)
+	assert.Equal(t, `"ok"`, string(result))
+	assert.Equal(t, "test-span", receivedCtx.Value(ctxKey("span")))
 }
 
 // =============================================================================
