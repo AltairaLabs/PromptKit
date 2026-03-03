@@ -1228,11 +1228,17 @@ func TestProviderStage_ExecuteToolCalls_Pending(t *testing.T) {
 
 	results, err := stage.executeToolCalls(context.Background(), toolCalls)
 
-	require.NoError(t, err)
-	require.Len(t, results, 1)
-	assert.Equal(t, "tool", results[0].Role)
-	assert.Contains(t, results[0].ToolResult.Content, "requires")
-	assert.Empty(t, results[0].ToolResult.Error)
+	// Pending tools now return ErrToolsPending
+	require.Error(t, err)
+	ep, ok := tools.IsErrToolsPending(err)
+	require.True(t, ok, "error should be *ErrToolsPending")
+	require.Len(t, ep.Pending, 1)
+	assert.Equal(t, "call-1", ep.Pending[0].CallID)
+	assert.Equal(t, "pending_tool", ep.Pending[0].ToolName)
+	assert.Contains(t, ep.Pending[0].ToolResult.Content, "requires")
+
+	// No completed results since only tool was pending
+	assert.Empty(t, results)
 }
 
 func TestProviderStage_ExecuteToolCalls_Failed(t *testing.T) {
@@ -1586,4 +1592,52 @@ func TestProviderStage_EmitsBothStartAndCompletedEvents(t *testing.T) {
 	assert.Len(t, receivedTypes, 2, "should receive both Started and Completed events")
 	assert.Contains(t, receivedTypes, events.EventProviderCallStarted)
 	assert.Contains(t, receivedTypes, events.EventProviderCallCompleted)
+}
+
+func TestProviderStage_ExecuteToolCalls_PendingSuspends(t *testing.T) {
+	// When a tool returns ToolStatusPending, executeToolCalls should return
+	// an ErrToolsPending error alongside completed tool results.
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "normal_tool",
+		Description: "A normal tool",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "mock",
+		MockResult:  json.RawMessage(`"ok"`),
+	})
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "pending_tool",
+		Description: "A pending tool",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "client",
+	})
+
+	// Register an async executor that returns pending for client tools
+	pendingExec := &mockAsyncExecutor{
+		name:       "client",
+		status:     tools.ToolStatusPending,
+		pendingMsg: "awaiting caller",
+	}
+	registry.RegisterExecutor(pendingExec)
+
+	provider := mock.NewProvider("test", "model", false)
+	s := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "normal_tool", Args: json.RawMessage(`{}`)},
+		{ID: "call-2", Name: "pending_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := s.executeToolCalls(context.Background(), toolCalls)
+
+	// Should return ErrToolsPending
+	require.Error(t, err)
+	ep, ok := tools.IsErrToolsPending(err)
+	require.True(t, ok, "error should be *ErrToolsPending")
+	require.Len(t, ep.Pending, 1)
+	assert.Equal(t, "call-2", ep.Pending[0].CallID)
+	assert.Equal(t, "pending_tool", ep.Pending[0].ToolName)
+
+	// Completed results should still be returned
+	require.Len(t, results, 1, "completed tool results should be returned")
 }

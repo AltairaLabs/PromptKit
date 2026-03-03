@@ -42,6 +42,9 @@ type Response struct {
 
 	// HITL state - tools awaiting approval
 	pendingTools []PendingTool
+
+	// Client tools awaiting caller fulfillment (deferred mode)
+	clientTools []PendingClientTool
 }
 
 // Text returns the text content of the response.
@@ -166,4 +169,42 @@ type PendingTool struct {
 
 	// Human-readable message about why approval is needed
 	Message string
+}
+
+// ClientTools returns client tools awaiting fulfillment by the caller.
+//
+// When no [Conversation.OnClientTool] handler is registered for a tool,
+// the pipeline suspends and the pending client tools are returned here.
+// The caller should fulfillthem via [Conversation.SendToolResult] or
+// [Conversation.RejectClientTool], then call [Conversation.Resume].
+func (r *Response) ClientTools() []PendingClientTool {
+	return r.clientTools
+}
+
+// HasPendingClientTools returns true if the response contains client tools
+// that the caller must fulfillbefore the conversation can continue.
+func (r *Response) HasPendingClientTools() bool {
+	return len(r.clientTools) > 0
+}
+
+// PendingClientTool represents a client-mode tool call that was deferred
+// because no OnClientTool handler was registered. The caller must supply a
+// result via [Conversation.SendToolResult] or reject it via
+// [Conversation.RejectClientTool] and then call [Conversation.Resume].
+type PendingClientTool struct {
+	// CallID is the provider-assigned ID for this tool invocation.
+	CallID string
+
+	// ToolName is the tool's name as defined in the pack.
+	ToolName string
+
+	// Args contains the parsed arguments from the LLM.
+	Args map[string]any
+
+	// ConsentMsg is the human-readable consent message from the pack's
+	// client.consent.message field. Empty when no consent is configured.
+	ConsentMsg string
+
+	// Categories are the semantic consent categories (e.g., ["location"]).
+	Categories []string
 }
