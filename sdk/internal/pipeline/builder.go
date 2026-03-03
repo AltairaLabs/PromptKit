@@ -3,6 +3,7 @@ package pipeline
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -132,6 +133,11 @@ type Config struct {
 	// HookRegistry for policy enforcement hooks (optional)
 	// When provided, ProviderStage will use hooks for provider call, chunk, and tool interception
 	HookRegistry *hooks.Registry
+
+	// ExecutionTimeout overrides the default pipeline execution timeout.
+	// When non-nil, the pointed-to duration is used instead of the default 30s.
+	// A zero value disables timeout entirely.
+	ExecutionTimeout *time.Duration
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -196,6 +202,11 @@ func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
 		// since the session runs indefinitely until user ends it
 		pipelineConfig := stage.DefaultPipelineConfig()
 		pipelineConfig.ExecutionTimeout = 0 // Disable timeout for duplex
+		return stage.NewPipelineBuilderWithConfig(pipelineConfig)
+	}
+	if cfg.ExecutionTimeout != nil {
+		pipelineConfig := stage.DefaultPipelineConfig()
+		pipelineConfig.ExecutionTimeout = *cfg.ExecutionTimeout
 		return stage.NewPipelineBuilderWithConfig(pipelineConfig)
 	}
 	return stage.NewPipelineBuilder()

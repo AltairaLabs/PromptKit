@@ -44,12 +44,10 @@ func (c *Conversation) OnTool(name string, handler ToolHandler) {
 func (c *Conversation) OnToolCtx(name string, handler ToolHandlerCtx) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
-	// Wrap ToolHandlerCtx as ToolHandler (context will be injected at call time)
-	c.handlers[name] = func(args map[string]any) (any, error) {
-		// Note: This wrapper will be replaced with proper context injection
-		// when the pipeline is built
-		return handler(context.Background(), args)
+	if c.ctxHandlers == nil {
+		c.ctxHandlers = make(map[string]ToolHandlerCtx)
 	}
+	c.ctxHandlers[name] = handler
 }
 
 // OnTools registers multiple tool handlers at once.
@@ -83,7 +81,10 @@ func (c *Conversation) OnTools(handlers map[string]ToolHandler) {
 func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
-	c.handlers[name] = config.Handler()
+	if c.ctxHandlers == nil {
+		c.ctxHandlers = make(map[string]ToolHandlerCtx)
+	}
+	c.ctxHandlers[name] = config.HandlerCtx()
 }
 
 // OnToolExecutor registers a custom executor for tools.
@@ -98,7 +99,10 @@ func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) 
 func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
-	c.handlers[name] = func(args map[string]any) (any, error) {
+	if c.ctxHandlers == nil {
+		c.ctxHandlers = make(map[string]ToolHandlerCtx)
+	}
+	c.ctxHandlers[name] = func(ctx context.Context, args map[string]any) (any, error) {
 		// Convert args to JSON for the executor
 		argsJSON, err := json.Marshal(args)
 		if err != nil {
@@ -122,9 +126,8 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 			InputSchema: paramsJSON,
 		}
 
-		// Execute
-		// TODO: propagate context from ToolHandler once the handler signature supports it.
-		result, err := executor.Execute(context.TODO(), desc, argsJSON)
+		// Execute with pipeline context for tracing and cancellation
+		result, err := executor.Execute(ctx, desc, argsJSON)
 		if err != nil {
 			return nil, err
 		}

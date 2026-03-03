@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
@@ -907,6 +908,42 @@ func TestBuildWithHookRegistry(t *testing.T) {
 }
 
 // testVariableProvider implements variables.Provider for testing
+func TestNewPipelineBuilderWithExecutionTimeout(t *testing.T) {
+	t.Run("uses default timeout when ExecutionTimeout is nil", func(t *testing.T) {
+		cfg := &Config{}
+		builder := newPipelineBuilder(cfg)
+		assert.NotNil(t, builder)
+	})
+
+	t.Run("uses custom timeout when ExecutionTimeout is set", func(t *testing.T) {
+		timeout := 120 * time.Second
+		registry := createTestRegistry("chat")
+		cfg := &Config{
+			PromptRegistry:   registry,
+			TaskType:         "chat",
+			ExecutionTimeout: &timeout,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+
+	t.Run("disables timeout when ExecutionTimeout is zero", func(t *testing.T) {
+		timeout := time.Duration(0)
+		registry := createTestRegistry("chat")
+		cfg := &Config{
+			PromptRegistry:   registry,
+			TaskType:         "chat",
+			ExecutionTimeout: &timeout,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+}
+
 type testVariableProvider struct {
 	vars map[string]string
 	err  error

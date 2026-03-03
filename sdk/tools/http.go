@@ -308,15 +308,26 @@ func (c *HTTPToolConfig) ToDescriptorConfig() *tools.HTTPConfig {
 // Handler returns a tool handler function that makes the HTTP request.
 // This is used with OnTool to register an HTTP-based tool.
 func (c *HTTPToolConfig) Handler() func(args map[string]any) (any, error) {
+	ctxHandler := c.HandlerCtx()
+	return func(args map[string]any) (any, error) {
+		return ctxHandler(context.Background(), args)
+	}
+}
+
+// HandlerCtx returns a context-aware tool handler function that makes the HTTP request.
+// The context is propagated to the underlying HTTP executor for tracing and cancellation.
+func (c *HTTPToolConfig) HandlerCtx() func(ctx context.Context, args map[string]any) (any, error) {
 	executor := NewHTTPExecutor()
 
-	return func(args map[string]any) (any, error) {
-		return c.executeHandler(executor, args)
+	return func(ctx context.Context, args map[string]any) (any, error) {
+		return c.executeHandler(ctx, executor, args)
 	}
 }
 
 // executeHandler performs the HTTP request with transforms and post-processing.
-func (c *HTTPToolConfig) executeHandler(executor *HTTPExecutor, args map[string]any) (any, error) {
+func (c *HTTPToolConfig) executeHandler(
+	ctx context.Context, executor *HTTPExecutor, args map[string]any,
+) (any, error) {
 	// Apply transform if configured
 	if c.transform != nil {
 		var err error
@@ -338,9 +349,8 @@ func (c *HTTPToolConfig) executeHandler(executor *HTTPExecutor, args map[string]
 		return nil, fmt.Errorf("failed to serialize arguments: %w", err)
 	}
 
-	// Execute the HTTP request
-	// TODO: propagate context from ToolHandler once the handler signature supports it.
-	result, err := executor.Execute(context.TODO(), descriptor, argsJSON)
+	// Execute the HTTP request with pipeline context for tracing and cancellation
+	result, err := executor.Execute(ctx, descriptor, argsJSON)
 	if err != nil {
 		return nil, err
 	}

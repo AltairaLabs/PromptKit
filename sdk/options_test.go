@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,6 +45,26 @@ func TestWithConversationID(t *testing.T) {
 	err := opt(cfg)
 	assert.NoError(t, err)
 	assert.Equal(t, "conv-123", cfg.conversationID)
+}
+
+func TestWithExecutionTimeout(t *testing.T) {
+	t.Run("sets timeout", func(t *testing.T) {
+		opt := WithExecutionTimeout(120 * time.Second)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.executionTimeout)
+		assert.Equal(t, 120*time.Second, *cfg.executionTimeout)
+	})
+
+	t.Run("zero disables timeout", func(t *testing.T) {
+		opt := WithExecutionTimeout(0)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.executionTimeout)
+		assert.Equal(t, time.Duration(0), *cfg.executionTimeout)
+	})
 }
 
 func TestWithTokenBudget(t *testing.T) {

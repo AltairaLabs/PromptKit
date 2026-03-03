@@ -119,8 +119,9 @@ type Conversation struct {
 	duplexSession session.DuplexSession
 
 	// Tool handlers
-	handlers   map[string]ToolHandler
-	handlersMu sync.RWMutex
+	handlers    map[string]ToolHandler
+	ctxHandlers map[string]ToolHandlerCtx
+	handlersMu  sync.RWMutex
 
 	// Async tool handlers for HITL
 	asyncHandlers   map[string]sdktools.AsyncToolHandler
@@ -282,7 +283,7 @@ func (c *Conversation) buildPipelineConfig(
 
 	// Build tool registry
 	c.handlersMu.RLock()
-	localExec := &localExecutor{handlers: c.handlers}
+	localExec := &localExecutor{handlers: c.handlers, ctxHandlers: c.ctxHandlers}
 	c.toolRegistry.RegisterExecutor(localExec)
 	c.registerMCPExecutors()
 	// Register capability tools (includes A2A)
@@ -323,6 +324,7 @@ func (c *Conversation) buildPipelineConfig(
 		SummarizeThreshold:    c.config.summarizeThreshold,
 		SummarizeBatchSize:    c.config.summarizeBatchSize,
 		HookRegistry:          c.hookRegistry,
+		ExecutionTimeout:      c.config.executionTimeout,
 	}
 
 	// Wire up RAG context components from SDK options
