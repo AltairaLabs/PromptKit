@@ -894,3 +894,84 @@ func TestGetByNamespace(t *testing.T) {
 		t.Errorf("expected 0 workflow tools, got %d", len(noneTools))
 	}
 }
+
+// TestGetExecutorForTool_ClientModePreference verifies that a registered
+// "client" executor takes priority over mock fallback for mode: "client".
+func TestGetExecutorForTool_ClientModePreference(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	// Register a custom executor named "client"
+	customExec := &mockCustomExecutor{
+		name:   "client",
+		result: json.RawMessage(`{"source": "client_executor"}`),
+	}
+	registry.RegisterExecutor(customExec)
+
+	descriptor := &tools.ToolDescriptor{
+		Name:         "get_location",
+		Description:  "Get GPS coordinates",
+		InputSchema:  json.RawMessage(`{"type": "object"}`),
+		OutputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:         "client",
+		MockResult:   json.RawMessage(`{"source": "mock"}`),
+		TimeoutMs:    1000,
+	}
+
+	if err := registry.Register(descriptor); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	result, err := registry.Execute(
+		context.Background(), "get_location", json.RawMessage(`{}`),
+	)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	var data map[string]any
+	if err := json.Unmarshal(result.Result, &data); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	// Should come from custom executor, not mock
+	if data["source"] != "client_executor" {
+		t.Errorf("Expected client_executor, got %v", data["source"])
+	}
+}
+
+// TestGetExecutorForTool_ClientModeFallsBackToMock verifies that without
+// a registered "client" executor, client mode falls back to mock.
+func TestGetExecutorForTool_ClientModeFallsBackToMock(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	descriptor := &tools.ToolDescriptor{
+		Name:         "get_location_mock",
+		Description:  "Get GPS coordinates",
+		InputSchema:  json.RawMessage(`{"type": "object"}`),
+		OutputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:         "client",
+		MockResult:   json.RawMessage(`{"source": "mock"}`),
+		TimeoutMs:    1000,
+	}
+
+	if err := registry.Register(descriptor); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	result, err := registry.Execute(
+		context.Background(), "get_location_mock", json.RawMessage(`{}`),
+	)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	var data map[string]any
+	if err := json.Unmarshal(result.Result, &data); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	// Should come from mock since no client executor is registered
+	if data["source"] != "mock" {
+		t.Errorf("Expected mock, got %v", data["source"])
+	}
+}
