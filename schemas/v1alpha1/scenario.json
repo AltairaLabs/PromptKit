@@ -396,6 +396,12 @@
         "streaming": {
           "type": "boolean"
         },
+        "consent_overrides": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
         "assertions": {
           "items": {
             "$ref": "#/$defs/AssertionConfig"

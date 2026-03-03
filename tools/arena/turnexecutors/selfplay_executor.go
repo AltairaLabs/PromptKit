@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/consent"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
@@ -321,6 +322,12 @@ func (e *SelfPlayExecutor) executeStreamingPipeline(
 ) {
 	messages := []types.Message{*userMessage}
 
+	// Inject consent overrides into context if present
+	if len(req.ConsentOverrides) > 0 {
+		ctx = consent.WithConsentOverrides(ctx, req.ConsentOverrides)
+		ctx = consent.WithToolRegistry(ctx, e.pipelineExecutor.toolRegistry)
+	}
+
 	// Build and execute stage pipeline
 	pl, err := e.buildStreamingStages(req)
 	if err != nil {
@@ -406,9 +413,7 @@ func (e *SelfPlayExecutor) buildStreamingStages(req *TurnRequest) (*stage.Stream
 		Seed:        req.Seed,
 	}
 
-	stages = append(stages,
-		stage.NewProviderStage(req.Provider, e.pipelineExecutor.toolRegistry, buildToolPolicy(req.Scenario), providerConfig),
-	)
+	stages = append(stages, e.pipelineExecutor.buildProviderStage(req, providerConfig))
 
 	// StateStore Save stage
 	if req.StateStoreConfig != nil && req.ConversationID != "" {

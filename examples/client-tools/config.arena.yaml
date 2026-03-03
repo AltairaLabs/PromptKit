@@ -1,0 +1,28 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: client-tools-consent
+spec:
+  prompt_configs:
+    - id: chat
+      file: prompts/chat.yaml
+
+  providers:
+    - file: providers/mock-provider.yaml
+
+  scenarios:
+    - file: scenarios/consent-grant.scenario.yaml
+    - file: scenarios/consent-deny.scenario.yaml
+
+  tools:
+    - file: tools/get_location.tool.yaml
+
+  defaults:
+    temperature: 0.0
+    max_tokens: 500
+    seed: 42
+    output:
+      dir: out
+      formats: ["json", "html"]
+    fail_on:
+      - provider_error
