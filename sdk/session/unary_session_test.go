@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
 )
@@ -73,7 +74,7 @@ func TestNewUnarySession(t *testing.T) {
 		cfg := UnarySessionConfig{
 			Pipeline: pipe,
 			UserID:   "user123",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"key": "value",
 			},
 		}
@@ -358,6 +359,111 @@ func TestUnarySession_ResumeWithToolResults(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.NotNil(t, result.Response)
+}
+
+func TestProcessStreamElements_PropagatesPendingTools(t *testing.T) {
+	stageChan := make(chan stage.StreamElement, 5)
+
+	pendingTools := []tools.PendingToolExecution{
+		{
+			CallID:   "call-1",
+			ToolName: "get_location",
+			Args:     map[string]any{"accuracy": "fine"},
+			PendingInfo: &tools.PendingToolInfo{
+				Message: "Allow location?",
+			},
+		},
+	}
+
+	// Send a text element, then a pending_tools element
+	text := "I need your location."
+	stageChan <- stage.StreamElement{Text: &text}
+	stageChan <- stage.StreamElement{
+		Metadata: map[string]any{
+			"pending_tools": pendingTools,
+		},
+	}
+	close(stageChan)
+
+	// Use convertStreamOutput which properly wraps processStreamElements with close
+	chunkChan := convertStreamOutput(stageChan)
+
+	var chunks []providers.StreamChunk
+	for chunk := range chunkChan {
+		chunks = append(chunks, chunk)
+	}
+
+	// Should have text chunk + pending_tools chunk (no "stop" chunk)
+	require.Len(t, chunks, 2)
+
+	// First: text delta
+	assert.Equal(t, "I need your location.", chunks[0].Delta)
+	assert.Nil(t, chunks[0].FinishReason)
+
+	// Second: pending_tools
+	require.NotNil(t, chunks[1].FinishReason)
+	assert.Equal(t, "pending_tools", *chunks[1].FinishReason)
+	require.Len(t, chunks[1].PendingTools, 1)
+	assert.Equal(t, "call-1", chunks[1].PendingTools[0].CallID)
+	assert.Equal(t, "get_location", chunks[1].PendingTools[0].ToolName)
+}
+
+func TestProcessStreamElements_NoPendingTools(t *testing.T) {
+	stageChan := make(chan stage.StreamElement, 5)
+
+	text := "Hello world"
+	stageChan <- stage.StreamElement{Text: &text}
+	close(stageChan)
+
+	chunkChan := convertStreamOutput(stageChan)
+
+	var chunks []providers.StreamChunk
+	for chunk := range chunkChan {
+		chunks = append(chunks, chunk)
+	}
+
+	// Should have text chunk + "stop" final chunk
+	require.Len(t, chunks, 2)
+	assert.Equal(t, "Hello world", chunks[0].Delta)
+	require.NotNil(t, chunks[1].FinishReason)
+	assert.Equal(t, "stop", *chunks[1].FinishReason)
+	assert.Empty(t, chunks[1].PendingTools)
+}
+
+func TestUnarySession_ResumeStreamWithToolResults(t *testing.T) {
+	pipe := createTestPipeline(t)
+
+	cfg := UnarySessionConfig{
+		ConversationID: "resume-stream-session",
+		Pipeline:       pipe,
+	}
+
+	sess, err := NewUnarySession(cfg)
+	require.NoError(t, err)
+
+	// First execute to get the conversation started
+	_, err = sess.Execute(context.Background(), "user", "Hello")
+	require.NoError(t, err)
+
+	// Resume with tool results in streaming mode
+	toolResults := []types.Message{
+		types.NewToolResultMessage(types.MessageToolResult{
+			ID:      "call-1",
+			Content: `{"lat": 37.7749}`,
+		}),
+	}
+
+	stream, err := sess.ResumeStreamWithToolResults(context.Background(), toolResults)
+	require.NoError(t, err)
+	assert.NotNil(t, stream)
+
+	// Consume stream
+	var chunks []providers.StreamChunk
+	for chunk := range stream {
+		chunks = append(chunks, chunk)
+	}
+
+	assert.NotEmpty(t, chunks)
 }
 
 func TestUnarySession_ForkSession(t *testing.T) {

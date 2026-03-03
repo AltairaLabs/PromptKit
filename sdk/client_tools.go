@@ -227,14 +227,88 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 		return nil, err
 	}
 
-	// Pop all resolved tool results
+	toolMsgs, err := c.buildToolResultMessages()
+	if err != nil {
+		return nil, err
+	}
+
+	// Inject tool results into session history and re-execute
+	result, err := c.unarySession.ResumeWithToolResults(ctx, toolMsgs)
+	if err != nil {
+		return nil, fmt.Errorf("resume failed: %w", err)
+	}
+
+	resp := c.buildResponse(result, startTime)
+	c.sessionHooks.IncrementTurn()
+	c.sessionHooks.SessionUpdate(ctx)
+	return resp, nil
+}
+
+// ResumeStream is the streaming equivalent of [Conversation.Resume].
+//
+// It continues pipeline execution after deferred client tools have been resolved,
+// returning a channel of [StreamChunk] values. The final chunk (Type == ChunkDone)
+// contains the complete Response.
+//
+// Example:
+//
+//	conv.SendToolResult(ctx, "call-1", locationData)
+//	for chunk := range conv.ResumeStream(ctx) {
+//	    if chunk.Error != nil { break }
+//	    fmt.Print(chunk.Text)
+//	}
+func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
+	ch := make(chan StreamChunk, streamChannelBufferSize)
+
+	c.startOTelSession(ctx)
+
+	go func() {
+		defer close(ch)
+		startTime := time.Now()
+
+		if err := c.validateSendState(); err != nil {
+			ch <- StreamChunk{Error: err}
+			return
+		}
+
+		toolMsgs, err := c.buildToolResultMessages()
+		if err != nil {
+			ch <- StreamChunk{Error: err}
+			return
+		}
+
+		streamCh, err := c.unarySession.ResumeStreamWithToolResults(ctx, toolMsgs)
+		if err != nil {
+			ch <- StreamChunk{Error: fmt.Errorf("resume stream failed: %w", err)}
+			return
+		}
+
+		state := &streamState{}
+		if err := c.processAndFinalizeStreamWithState(streamCh, ch, startTime, state); err != nil {
+			ch <- StreamChunk{Error: err}
+			return
+		}
+
+		// Skip lifecycle hooks when pipeline is suspended for pending tools
+		if len(state.pendingTools) == 0 {
+			c.sessionHooks.IncrementTurn()
+			c.sessionHooks.SessionUpdate(ctx)
+			c.evalMW.dispatchTurnEvals(ctx)
+		}
+	}()
+
+	return ch
+}
+
+// buildToolResultMessages pops all resolved tool results and builds
+// tool-result messages. Shared by Resume() and ResumeStream().
+func (c *Conversation) buildToolResultMessages() ([]types.Message, error) {
 	resolutions := c.resolvedStore.PopAll()
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
 	}
 
-	// Build tool result messages from resolutions
-	var toolMsgs []types.Message
+	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
 		var content string
 		if res.Rejected {
@@ -250,16 +324,7 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 		}))
 	}
 
-	// Inject tool results into session history and re-execute
-	result, err := c.unarySession.ResumeWithToolResults(ctx, toolMsgs)
-	if err != nil {
-		return nil, fmt.Errorf("resume failed: %w", err)
-	}
-
-	resp := c.buildResponse(result, startTime)
-	c.sessionHooks.IncrementTurn()
-	c.sessionHooks.SessionUpdate(ctx)
-	return resp, nil
+	return toolMsgs, nil
 }
 
 // executeHandler runs a ClientToolHandler and returns serialized JSON.

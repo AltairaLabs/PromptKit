@@ -3,6 +3,7 @@ package providers
 import (
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -49,6 +50,10 @@ type StreamChunk struct {
 
 	// CostInfo contains cost breakdown (only present in final chunk when FinishReason != nil)
 	CostInfo *types.CostInfo `json:"cost_info,omitempty"`
+
+	// PendingTools contains client-mode tools awaiting caller fulfillment.
+	// Only set when FinishReason is "pending_tools".
+	PendingTools []tools.PendingToolExecution `json:"pending_tools,omitempty"`
 }
 
 // StreamEvent is sent to observers for monitoring

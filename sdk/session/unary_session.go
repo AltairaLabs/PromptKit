@@ -202,6 +202,39 @@ func (s *unarySession) ExecuteStreamWithMessage(
 	return convertStreamOutput(outputChan), nil
 }
 
+// ResumeStreamWithToolResults injects tool result messages and returns a streaming channel.
+func (s *unarySession) ResumeStreamWithToolResults(
+	ctx context.Context,
+	toolResults []types.Message,
+) (<-chan providers.StreamChunk, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Build input elements: one per tool result message
+	inputElems := make([]stage.StreamElement, 0, len(toolResults))
+	for i := range toolResults {
+		inputElems = append(inputElems, stage.StreamElement{
+			Message:  &toolResults[i],
+			Metadata: map[string]interface{}{"variables": s.variables},
+		})
+	}
+
+	// Create input channel from tool result messages
+	inputChan := make(chan stage.StreamElement, len(inputElems))
+	for i := range inputElems {
+		inputChan <- inputElems[i]
+	}
+	close(inputChan)
+
+	// Execute as stream
+	outputChan, err := s.pipeline.Execute(ctx, inputChan)
+	if err != nil {
+		return nil, err
+	}
+
+	return convertStreamOutput(outputChan), nil
+}
+
 // SetVar sets a template variable that will be available for substitution.
 func (s *unarySession) SetVar(name, value string) {
 	s.mu.Lock()
@@ -325,6 +358,7 @@ func convertStreamOutput(stageChan <-chan stage.StreamElement) <-chan providers.
 func processStreamElements(stageChan <-chan stage.StreamElement, chunkChan chan<- providers.StreamChunk) {
 	var accumulatedContent string
 	var finalResult *pipeline.ExecutionResult
+	var pendingToolsEmitted bool
 
 	for elem := range stageChan {
 		// Handle errors
@@ -350,14 +384,28 @@ func processStreamElements(stageChan <-chan stage.StreamElement, chunkChan chan<
 			if stageResult, ok := elem.Metadata["__final_result__"].(*stage.ExecutionResult); ok {
 				finalResult = convertExecutionResult(stageResult)
 			}
+
+			// Check for pending client tools (pipeline suspended)
+			if pt, ok := elem.Metadata["pending_tools"]; ok {
+				if pending, ok := pt.([]tools.PendingToolExecution); ok && len(pending) > 0 {
+					chunkChan <- providers.StreamChunk{
+						FinishReason: strPtr("pending_tools"),
+						PendingTools: pending,
+						FinalResult:  finalResult,
+					}
+					pendingToolsEmitted = true
+				}
+			}
 		}
 	}
 
-	// Send final chunk
-	finishReason := "stop"
-	chunkChan <- providers.StreamChunk{
-		FinishReason: &finishReason,
-		FinalResult:  finalResult,
+	// Send final chunk only if we didn't already emit a pending_tools chunk
+	if !pendingToolsEmitted {
+		finishReason := "stop"
+		chunkChan <- providers.StreamChunk{
+			FinishReason: &finishReason,
+			FinalResult:  finalResult,
+		}
 	}
 }
 

@@ -326,6 +326,14 @@ func (e *Emitter) AudioOutput(data *AudioOutputData) {
 	e.emit(EventAudioOutput, data)
 }
 
+// ClientToolRequest emits the tool.client.request event.
+func (e *Emitter) ClientToolRequest(data *ClientToolRequestData) {
+	if data == nil {
+		return
+	}
+	e.emit(EventClientToolRequest, data)
+}
+
 // WorkflowTransitioned emits the workflow.transitioned event.
 func (e *Emitter) WorkflowTransitioned(fromState, toState, event, promptTask string) {
 	e.emit(EventWorkflowTransitioned, &WorkflowTransitionedData{

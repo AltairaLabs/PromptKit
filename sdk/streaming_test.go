@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	mock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
@@ -575,6 +576,114 @@ func TestAddContentPartsAudioFileError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to add audio from file")
+}
+
+func TestChunkClientToolType_String(t *testing.T) {
+	assert.Equal(t, "client_tool", ChunkClientTool.String())
+}
+
+func TestEmitStreamChunk_ClientTool(t *testing.T) {
+	conv := newTestConversation()
+	outCh := make(chan StreamChunk, 10)
+	state := &streamState{}
+
+	finishReason := "pending_tools"
+	providerChunk := &providers.StreamChunk{
+		FinishReason: &finishReason,
+		PendingTools: []tools.PendingToolExecution{
+			{
+				CallID:   "call-1",
+				ToolName: "get_location",
+				Args:     map[string]any{"accuracy": "fine"},
+				PendingInfo: &tools.PendingToolInfo{
+					Message: "Allow location?",
+					Metadata: map[string]any{
+						"categories": []string{"location"},
+					},
+				},
+			},
+			{
+				CallID:   "call-2",
+				ToolName: "read_contacts",
+				Args:     map[string]any{},
+			},
+		},
+	}
+
+	conv.emitStreamChunk(providerChunk, outCh, state)
+	close(outCh)
+
+	var chunks []StreamChunk
+	for chunk := range outCh {
+		chunks = append(chunks, chunk)
+	}
+
+	// Should emit one ChunkClientTool per pending tool
+	require.Len(t, chunks, 2)
+	assert.Equal(t, ChunkClientTool, chunks[0].Type)
+	assert.Equal(t, "call-1", chunks[0].ClientTool.CallID)
+	assert.Equal(t, "get_location", chunks[0].ClientTool.ToolName)
+	assert.Equal(t, "Allow location?", chunks[0].ClientTool.ConsentMsg)
+	assert.Equal(t, []string{"location"}, chunks[0].ClientTool.Categories)
+
+	assert.Equal(t, ChunkClientTool, chunks[1].Type)
+	assert.Equal(t, "call-2", chunks[1].ClientTool.CallID)
+	assert.Equal(t, "read_contacts", chunks[1].ClientTool.ToolName)
+	assert.Empty(t, chunks[1].ClientTool.ConsentMsg)
+
+	// State should have pending tools recorded
+	assert.Len(t, state.pendingTools, 2)
+}
+
+func TestBuildStreamingResponse_WithPendingTools(t *testing.T) {
+	conv := newTestConversation()
+
+	state := &streamState{
+		accumulatedContent: "I need your location.",
+		pendingTools: []PendingClientTool{
+			{
+				CallID:     "call-1",
+				ToolName:   "get_location",
+				Args:       map[string]any{"accuracy": "fine"},
+				ConsentMsg: "Allow location?",
+				Categories: []string{"location"},
+			},
+		},
+	}
+
+	resp := conv.buildStreamingResponse(state, time.Now())
+	require.NotNil(t, resp)
+	assert.True(t, resp.HasPendingClientTools())
+	require.Len(t, resp.ClientTools(), 1)
+	assert.Equal(t, "call-1", resp.ClientTools()[0].CallID)
+	assert.Equal(t, "get_location", resp.ClientTools()[0].ToolName)
+}
+
+func TestEmitStreamChunk_NormalFinish(t *testing.T) {
+	// Verify that a normal "stop" finish reason doesn't emit ChunkClientTool
+	conv := newTestConversation()
+	outCh := make(chan StreamChunk, 10)
+	state := &streamState{}
+
+	finishReason := "stop"
+	providerChunk := &providers.StreamChunk{
+		Delta:        "Hello",
+		Content:      "Hello",
+		FinishReason: &finishReason,
+	}
+
+	conv.emitStreamChunk(providerChunk, outCh, state)
+	close(outCh)
+
+	var chunks []StreamChunk
+	for chunk := range outCh {
+		chunks = append(chunks, chunk)
+	}
+
+	// Should only emit text, no client tool
+	require.Len(t, chunks, 1)
+	assert.Equal(t, ChunkText, chunks[0].Type)
+	assert.Empty(t, state.pendingTools)
 }
 
 func TestStreamingError(t *testing.T) {

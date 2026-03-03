@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -567,6 +568,14 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	// Copy metadata
 	if elem.Metadata != nil {
 		chunk.Metadata = elem.Metadata
+
+		// Detect pending client tools (pipeline suspended)
+		if pt, ok := elem.Metadata["pending_tools"]; ok {
+			if pending, ok := pt.([]tools.PendingToolExecution); ok && len(pending) > 0 {
+				chunk.PendingTools = pending
+				chunk.FinishReason = strPtr("pending_tools")
+			}
+		}
 	}
 
 	return chunk

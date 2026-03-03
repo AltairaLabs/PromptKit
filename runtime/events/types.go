@@ -93,6 +93,9 @@ const (
 	EventWorkflowTransitioned EventType = "workflow.transitioned"
 	// EventWorkflowCompleted marks a workflow reaching a terminal state.
 	EventWorkflowCompleted EventType = "workflow.completed"
+
+	// EventClientToolRequest marks a client-mode tool request awaiting caller fulfillment.
+	EventClientToolRequest EventType = "tool.client.request"
 )
 
 // EventData is a marker interface for event payloads.
@@ -520,6 +523,21 @@ type (
 	// ImageOutputData is an alias for ImageEventData (backward compatibility).
 	ImageOutputData = ImageEventData
 )
+
+// ClientToolRequestData contains data for client tool request events.
+type ClientToolRequestData struct {
+	baseEventData
+	// CallID is the provider-assigned ID for this tool invocation.
+	CallID string `json:"call_id"`
+	// ToolName is the tool's name as defined in the pack.
+	ToolName string `json:"tool_name"`
+	// Args contains the parsed arguments from the LLM.
+	Args map[string]any `json:"args,omitempty"`
+	// ConsentMsg is the human-readable consent message.
+	ConsentMsg string `json:"consent_msg,omitempty"`
+	// Categories are the semantic consent categories.
+	Categories []string `json:"categories,omitempty"`
+}
 
 // WorkflowTransitionedData contains data for workflow state transition events.
 type WorkflowTransitionedData struct {
