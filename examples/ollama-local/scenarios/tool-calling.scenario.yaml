@@ -1,0 +1,46 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tool-calling
+  annotations:
+    description: "Verify that Ollama models can use tools via function calling"
+spec:
+  id: tool-calling
+  description: "Test tool calling capabilities with local Ollama models"
+  task_type: tool-assistant
+
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 5
+
+  turns:
+    - role: user
+      content: "What's the weather like in San Francisco?"
+      assertions:
+        - type: min_length
+          params:
+            min_chars: 20
+            message: "Response should describe the weather"
+
+    - role: user
+      content: "What time is it in New York?"
+      assertions:
+        - type: min_length
+          params:
+            min_chars: 10
+            message: "Response should include time information"
+
+  conversation_assertions:
+    - type: tools_called
+      params:
+        tool_names:
+          - get_weather
+        min_calls: 1
+        message: "Should call get_weather tool for weather query"
+    - type: tools_called
+      params:
+        tool_names:
+          - get_time
+        min_calls: 1
+        message: "Should call get_time tool for time query"

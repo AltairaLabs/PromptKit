@@ -1,0 +1,29 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: get_time
+spec:
+  name: get_time
+  description: Get the current date and time for a given timezone
+  input_schema:
+    type: object
+    properties:
+      timezone:
+        type: string
+        description: "Timezone identifier (e.g., 'America/New_York', 'Europe/London', 'UTC')"
+    required:
+      - timezone
+  output_schema:
+    type: object
+    properties:
+      datetime:
+        type: string
+        description: Current date and time in ISO 8601 format
+      timezone:
+        type: string
+        description: The timezone used
+  mode: mock
+  timeout_ms: 1000
+  mock_result:
+    datetime: "2026-03-03T14:30:00-05:00"
+    timezone: "America/New_York"

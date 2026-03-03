@@ -5,9 +5,16 @@ metadata:
   annotations:
     description: "Example demonstrating local LLM inference with Ollama"
 spec:
+  # Tool definitions (mock implementations for testing)
+  tools:
+    - file: tools/get_weather.tool.yaml
+    - file: tools/get_time.tool.yaml
+
   prompt_configs:
     - id: assistant
       file: prompts/assistant.yaml
+    - id: tool-assistant
+      file: prompts/tool-assistant.yaml
     - id: vision-assistant
       file: prompts/vision-assistant.yaml
 
@@ -20,6 +27,9 @@ spec:
     # Basic functionality tests
     - file: scenarios/basic-chat.scenario.yaml
     - file: scenarios/code-generation.scenario.yaml
+    # Tool calling tests
+    - file: scenarios/tool-calling.scenario.yaml
+    - file: scenarios/tool-calling-streaming.scenario.yaml
     # Streaming verification tests
     - file: scenarios/streaming-verification.scenario.yaml
     # Uncomment for multimodal testing (requires vision provider)

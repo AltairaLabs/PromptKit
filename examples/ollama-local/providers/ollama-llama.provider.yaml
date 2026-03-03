@@ -7,7 +7,7 @@ metadata:
 spec:
   id: "ollama-llama"
   type: ollama
-  model: llama3.2:1b
+  model: llama3.2:3b
   base_url: "http://localhost:11434"
   additional_config:
     # Keep the model loaded in memory for 5 minutes between requests
