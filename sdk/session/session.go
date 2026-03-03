@@ -35,6 +35,10 @@ type UnarySession interface {
 	ExecuteStream(ctx context.Context, role, content string) (<-chan providers.StreamChunk, error)
 	ExecuteStreamWithMessage(ctx context.Context, message types.Message) (<-chan providers.StreamChunk, error)
 
+	// ResumeWithToolResults injects tool result messages into the session
+	// history and re-executes the pipeline so the LLM can continue.
+	ResumeWithToolResults(ctx context.Context, toolResults []types.Message) (*pipeline.ExecutionResult, error)
+
 	// ForkSession creates a new session that is a fork of this one.
 	// The new session will have an independent copy of the conversation state.
 	ForkSession(ctx context.Context, forkID string, pipeline *stage.StreamPipeline) (UnarySession, error)

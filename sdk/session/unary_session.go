@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -110,6 +111,31 @@ func (s *unarySession) ExecuteWithMessage(
 	}
 
 	// Convert stage.ExecutionResult to pipeline.ExecutionResult
+	return convertExecutionResult(result), nil
+}
+
+// ResumeWithToolResults injects tool result messages and re-executes the pipeline.
+func (s *unarySession) ResumeWithToolResults(
+	ctx context.Context,
+	toolResults []types.Message,
+) (*pipeline.ExecutionResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Build input elements: one per tool result message
+	inputElems := make([]stage.StreamElement, 0, len(toolResults))
+	for i := range toolResults {
+		inputElems = append(inputElems, stage.StreamElement{
+			Message:  &toolResults[i],
+			Metadata: map[string]interface{}{"variables": s.variables},
+		})
+	}
+
+	result, err := s.pipeline.ExecuteSync(ctx, inputElems...)
+	if err != nil {
+		return nil, err
+	}
+
 	return convertExecutionResult(result), nil
 }
 
@@ -268,6 +294,13 @@ func convertExecutionResult(result *stage.ExecutionResult) *pipeline.ExecutionRe
 			Content:   result.Response.Content,
 			Parts:     result.Response.Parts,
 			ToolCalls: result.Response.ToolCalls,
+		}
+	}
+
+	// Propagate pending tools from stage metadata
+	if pt, ok := result.Metadata["pending_tools"]; ok {
+		if pending, ok := pt.([]tools.PendingToolExecution); ok {
+			pipelineResult.PendingTools = pending
 		}
 	}
 

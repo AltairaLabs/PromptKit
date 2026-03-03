@@ -456,6 +456,24 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 		}
 	}
 
+	// Populate pending client tools from pipeline result
+	for _, pt := range result.PendingTools {
+		pct := PendingClientTool{
+			CallID:   pt.CallID,
+			ToolName: pt.ToolName,
+			Args:     pt.Args,
+		}
+		if pt.PendingInfo != nil {
+			pct.ConsentMsg = pt.PendingInfo.Message
+			if cats, ok := pt.PendingInfo.Metadata["categories"]; ok {
+				if catSlice, ok := cats.([]string); ok {
+					pct.Categories = catSlice
+				}
+			}
+		}
+		resp.clientTools = append(resp.clientTools, pct)
+	}
+
 	return resp
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -133,9 +134,10 @@ type Response struct {
 
 // ExecutionResult is the output of a pipeline execution.
 type ExecutionResult struct {
-	Messages []types.Message        `json:"messages"`  // All messages including history and responses
-	Response *Response              `json:"response"`  // The final response
-	Trace    ExecutionTrace         `json:"trace"`     // Complete execution trace with all LLM calls
-	CostInfo types.CostInfo         `json:"cost_info"` // Aggregate cost across all LLM calls
-	Metadata map[string]interface{} `json:"metadata"`  // Metadata populated by stages
+	Messages     []types.Message              `json:"messages"`
+	Response     *Response                    `json:"response"`
+	Trace        ExecutionTrace               `json:"trace"`
+	CostInfo     types.CostInfo               `json:"cost_info"`
+	Metadata     map[string]interface{}       `json:"metadata"`
+	PendingTools []tools.PendingToolExecution `json:"pending_tools,omitempty"`
 }

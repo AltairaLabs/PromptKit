@@ -331,6 +331,35 @@ func TestUnarySession_ExecuteStreamWithMessage(t *testing.T) {
 	assert.NotEmpty(t, chunks)
 }
 
+func TestUnarySession_ResumeWithToolResults(t *testing.T) {
+	pipe := createTestPipeline(t)
+
+	cfg := UnarySessionConfig{
+		ConversationID: "resume-session",
+		Pipeline:       pipe,
+	}
+
+	sess, err := NewUnarySession(cfg)
+	require.NoError(t, err)
+
+	// First execute to get the conversation started
+	_, err = sess.Execute(context.Background(), "user", "Hello")
+	require.NoError(t, err)
+
+	// Resume with tool results — sends tool result messages through pipeline
+	toolResults := []types.Message{
+		types.NewToolResultMessage(types.MessageToolResult{
+			ID:      "call-1",
+			Content: `{"lat": 37.7749}`,
+		}),
+	}
+
+	result, err := sess.ResumeWithToolResults(context.Background(), toolResults)
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.NotNil(t, result.Response)
+}
+
 func TestUnarySession_ForkSession(t *testing.T) {
 	pipe := createTestPipeline(t)
 

@@ -184,6 +184,25 @@ func (s *ProviderStage) executeAndEmit(
 	}
 
 	if err != nil {
+		// If tools are pending, emit collected messages and propagate pending
+		// info as metadata so the SDK can surface them to the caller.
+		if ep, ok := tools.IsErrToolsPending(err); ok {
+			if emitErr := s.emitResponseMessages(ctx, responseMessages, acc.metadata, output); emitErr != nil {
+				return emitErr
+			}
+			// Send a marker element with pending tool info in metadata
+			pendingElem := StreamElement{
+				Metadata: map[string]interface{}{
+					"pending_tools": ep.Pending,
+				},
+			}
+			select {
+			case output <- pendingElem:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			return nil
+		}
 		output <- NewErrorElement(err)
 		return err
 	}
@@ -242,6 +261,11 @@ func (s *ProviderStage) executeMultiRound(
 
 		toolResults, err := s.executeToolCalls(ctx, response.ToolCalls)
 		if err != nil {
+			// If tools are pending, append completed results and propagate
+			if _, ok := tools.IsErrToolsPending(err); ok {
+				messages = append(messages, toolResults...)
+				return messages, err
+			}
 			return messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
 		}
 
@@ -299,6 +323,11 @@ func (s *ProviderStage) executeStreamingMultiRound(
 
 		toolResults, err := s.executeToolCalls(ctx, response.ToolCalls)
 		if err != nil {
+			// If tools are pending, append completed results and propagate
+			if _, ok := tools.IsErrToolsPending(err); ok {
+				messages = append(messages, toolResults...)
+				return messages, err
+			}
 			return messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
 		}
 
@@ -742,6 +771,7 @@ func (s *ProviderStage) executeToolCalls(
 	}
 
 	results := make([]types.Message, 0, len(toolCalls))
+	var pendingTools []tools.PendingToolExecution
 
 	for _, toolCall := range toolCalls {
 		// Check if tool is blocked by policy
@@ -789,6 +819,23 @@ func (s *ProviderStage) executeToolCalls(
 			continue
 		}
 
+		// Check for pending status — collect for pipeline suspension
+		if asyncResult.Status == tools.ToolStatusPending {
+			var argsMap map[string]any
+			if toolCall.Args != nil {
+				_ = json.Unmarshal(toolCall.Args, &argsMap)
+			}
+			toolResult := s.handleToolResult(toolCall, asyncResult)
+			pendingTools = append(pendingTools, tools.PendingToolExecution{
+				CallID:      toolCall.ID,
+				ToolName:    toolCall.Name,
+				Args:        argsMap,
+				PendingInfo: asyncResult.PendingInfo,
+				ToolResult:  toolResult,
+			})
+			continue
+		}
+
 		// Convert tool execution result to message
 		result := s.handleToolResult(toolCall, asyncResult)
 		results = append(results, types.NewToolResultMessage(result))
@@ -809,6 +856,10 @@ func (s *ProviderStage) executeToolCalls(
 			}
 			s.hookRegistry.RunAfterToolExecution(ctx, toolReq, toolResp)
 		}
+	}
+
+	if len(pendingTools) > 0 {
+		return results, &tools.ErrToolsPending{Pending: pendingTools}
 	}
 
 	return results, nil

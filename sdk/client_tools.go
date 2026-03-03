@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
 // ClientToolRequest contains information about a client-side tool invocation.
@@ -31,7 +34,7 @@ type ClientToolRequest struct {
 	Descriptor *tools.ToolDescriptor
 }
 
-// ClientToolHandler is a function that fulfills a client-side tool call.
+// ClientToolHandler is a function that fulfillls a client-side tool call.
 // It receives a context (carrying the tool timeout from ClientConfig.TimeoutMs)
 // and a [ClientToolRequest] with the invocation details.
 //
@@ -41,7 +44,7 @@ type ClientToolHandler func(ctx context.Context, req ClientToolRequest) (any, er
 
 // OnClientTool registers a handler for a client-side tool.
 //
-// Client tools (mode: "client") are tools that must be fulfilled on the
+// Client tools (mode: "client") are tools that must be fulfillled on the
 // caller's device — for example GPS, camera, or biometric sensors. The
 // handler is invoked synchronously when the LLM calls the tool.
 //
@@ -107,6 +110,7 @@ func (e *clientExecutor) Name() string {
 }
 
 // Execute dispatches to the registered ClientToolHandler for the tool.
+// Returns an error if no handler is registered (sync fallback path).
 func (e *clientExecutor) Execute(
 	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
@@ -125,7 +129,144 @@ func (e *clientExecutor) Execute(
 		return nil, fmt.Errorf("no client handler registered for tool: %s", descriptor.Name)
 	}
 
-	// Build request
+	return e.executeHandler(ctx, handler, descriptor, argsMap)
+}
+
+// ExecuteAsync checks for a registered handler. If one exists it executes
+// synchronously and returns ToolStatusComplete. If no handler is registered
+// the tool is deferred: a ToolStatusPending result is returned so the
+// pipeline suspends and the caller can fulfill the tool via SendToolResult.
+func (e *clientExecutor) ExecuteAsync(
+	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (*tools.ToolExecutionResult, error) {
+	// Parse args
+	var argsMap map[string]any
+	if err := json.Unmarshal(args, &argsMap); err != nil {
+		return nil, fmt.Errorf("failed to parse client tool arguments: %w", err)
+	}
+
+	// Look up handler — first from snapshot, then live via mutex accessor
+	handler, ok := e.handlers[descriptor.Name]
+	if !ok && e.handlersMu != nil {
+		handler, ok = e.handlersMu.getHandler(descriptor.Name)
+	}
+
+	// No handler → deferred mode: return Pending
+	if !ok {
+		info := &tools.PendingToolInfo{
+			Reason:   "client_tool_deferred",
+			Message:  fmt.Sprintf("Client tool %q awaiting caller fulfillment", descriptor.Name),
+			ToolName: descriptor.Name,
+			Args:     args,
+		}
+		if descriptor.ClientConfig != nil {
+			if descriptor.ClientConfig.Consent != nil {
+				info.Message = descriptor.ClientConfig.Consent.Message
+			}
+			info.Metadata = map[string]any{
+				"categories": descriptor.ClientConfig.Categories,
+			}
+		}
+		return &tools.ToolExecutionResult{
+			Status:      tools.ToolStatusPending,
+			PendingInfo: info,
+		}, nil
+	}
+
+	// Handler present → execute synchronously
+	resultJSON, err := e.executeHandler(ctx, handler, descriptor, argsMap)
+	if err != nil {
+		return nil, err
+	}
+	return &tools.ToolExecutionResult{
+		Status:  tools.ToolStatusComplete,
+		Content: resultJSON,
+	}, nil
+}
+
+// SendToolResult provides the result for a deferred client tool.
+//
+// callID must match one of the [PendingClientTool.CallID] values returned in
+// the [Response]. result should be JSON-serializable.
+//
+// After all pending tools have been resolved (via SendToolResult or
+// RejectClientTool), call [Conversation.Resume] to continue the pipeline.
+func (c *Conversation) SendToolResult(_ context.Context, callID string, result any) error {
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("failed to serialize client tool result: %w", err)
+	}
+	c.resolvedStore.Add(&sdktools.ToolResolution{
+		ID:         callID,
+		ResultJSON: resultJSON,
+	})
+	return nil
+}
+
+// RejectClientTool rejects a deferred client tool with a human-readable reason.
+//
+// callID must match one of the [PendingClientTool.CallID] values returned in
+// the [Response]. The rejection reason is sent to the LLM as the tool result.
+func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string) {
+	c.resolvedStore.Add(&sdktools.ToolResolution{
+		ID:              callID,
+		Rejected:        true,
+		RejectionReason: reason,
+	})
+}
+
+// Resume continues pipeline execution after all deferred client tools have
+// been resolved via [Conversation.SendToolResult] or [Conversation.RejectClientTool].
+//
+// The resolved tool results are injected as tool-result messages and a new
+// LLM round is triggered. The returned Response contains the assistant's reply.
+func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
+	startTime := time.Now()
+
+	if err := c.validateSendState(); err != nil {
+		return nil, err
+	}
+
+	// Pop all resolved tool results
+	resolutions := c.resolvedStore.PopAll()
+	if len(resolutions) == 0 {
+		return nil, fmt.Errorf("no resolved tool results to resume with")
+	}
+
+	// Build tool result messages from resolutions
+	var toolMsgs []types.Message
+	for _, res := range resolutions {
+		var content string
+		if res.Rejected {
+			content = fmt.Sprintf("Tool rejected: %s", res.RejectionReason)
+		} else if res.Error != nil {
+			content = fmt.Sprintf("Tool error: %v", res.Error)
+		} else {
+			content = string(res.ResultJSON)
+		}
+		toolMsgs = append(toolMsgs, types.NewToolResultMessage(types.MessageToolResult{
+			ID:      res.ID,
+			Content: content,
+		}))
+	}
+
+	// Inject tool results into session history and re-execute
+	result, err := c.unarySession.ResumeWithToolResults(ctx, toolMsgs)
+	if err != nil {
+		return nil, fmt.Errorf("resume failed: %w", err)
+	}
+
+	resp := c.buildResponse(result, startTime)
+	c.sessionHooks.IncrementTurn()
+	c.sessionHooks.SessionUpdate(ctx)
+	return resp, nil
+}
+
+// executeHandler runs a ClientToolHandler and returns serialized JSON.
+func (e *clientExecutor) executeHandler(
+	ctx context.Context, handler ClientToolHandler,
+	descriptor *tools.ToolDescriptor, argsMap map[string]any,
+) (json.RawMessage, error) {
 	req := ClientToolRequest{
 		ToolName:   descriptor.Name,
 		Args:       argsMap,
