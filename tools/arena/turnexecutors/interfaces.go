@@ -89,6 +89,10 @@ type TurnRequest struct {
 	SelfPlayRole    string                   // SelfPlayExecutor: the self-play role
 	SelfPlayPersona string                   // SelfPlayExecutor: the persona to use
 
+	// ConsentOverrides controls consent simulation for client-side tools.
+	// Keys are tool names, values are "grant", "deny", or "timeout".
+	ConsentOverrides map[string]string
+
 	// Assertions to validate after turn execution
 	Assertions     []assertions.AssertionConfig
 	TurnEvalRunner interface{} // Optional stages.TurnEvalRunner for dual-write (Phase 2)

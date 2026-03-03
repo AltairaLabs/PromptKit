@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/media"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -17,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/consent"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
@@ -313,17 +315,10 @@ func (e *PipelineExecutor) buildStagePipeline(
 		stages = append(stages, stage.NewMediaConvertStage(mediaConvertConfig))
 	}
 
-	// 6. Provider stage
-	providerConfig := buildProviderConfig(req)
-	stages = append(stages, stage.NewProviderStage(
-		req.Provider,
-		e.toolRegistry,
-		buildToolPolicy(req.Scenario),
-		providerConfig,
-	))
-
+	// 6. Provider stage (with consent simulation hook if overrides are present)
 	// 7. Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
-	stages = append(stages, arenastages.NewGuardrailEvalStage())
+	providerConfig := buildProviderConfig(req)
+	stages = append(stages, e.buildProviderStage(req, providerConfig), arenastages.NewGuardrailEvalStage())
 
 	// 7a. Media externalization (if configured)
 	if mediaConfig := buildMediaConfig(req.ConversationID, e.mediaStorage); mediaConfig != nil {
@@ -360,6 +355,16 @@ func (e *PipelineExecutor) handleExecutionError(provider providers.Provider, err
 	return fmt.Errorf("pipeline execution failed: %w", err)
 }
 
+// buildProviderStage creates a provider stage, attaching a consent simulation hook if overrides are present.
+func (e *PipelineExecutor) buildProviderStage(req *TurnRequest, providerConfig *stage.ProviderConfig) stage.Stage {
+	toolPolicy := buildToolPolicy(req.Scenario)
+	if len(req.ConsentOverrides) > 0 {
+		hookReg := hooks.NewRegistry(hooks.WithToolHook(consent.NewSimulationHook()))
+		return stage.NewProviderStageWithHooks(req.Provider, e.toolRegistry, toolPolicy, providerConfig, nil, hookReg)
+	}
+	return stage.NewProviderStage(req.Provider, e.toolRegistry, toolPolicy, providerConfig)
+}
+
 // Execute runs the conversation through the pipeline and returns the new messages generated.
 // This is the new flattened API that works directly with message lists.
 //
@@ -370,6 +375,12 @@ func (e *PipelineExecutor) Execute(
 	req *TurnRequest,
 	userMessage *types.Message,
 ) error {
+	// Inject consent overrides into context if present
+	if len(req.ConsentOverrides) > 0 {
+		ctx = consent.WithConsentOverrides(ctx, req.ConsentOverrides)
+		ctx = consent.WithToolRegistry(ctx, e.toolRegistry)
+	}
+
 	// Build base variables and stage pipeline
 	baseVariables := buildBaseVariables(req.Region)
 	p, err := e.buildStagePipeline(req, baseVariables)

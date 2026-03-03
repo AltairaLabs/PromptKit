@@ -939,6 +939,10 @@ type TurnDefinition struct {
 	// Streaming control - if nil, uses scenario-level streaming setting
 	Streaming *bool `json:"streaming,omitempty" yaml:"streaming,omitempty"` // Override streaming for this turn
 
+	// ConsentOverrides controls consent simulation for client-side tools.
+	// Keys are tool names, values are "grant", "deny", or "timeout".
+	ConsentOverrides map[string]string `json:"consent_overrides,omitempty" yaml:"consent_overrides,omitempty"`
+
 	// Turn-level assertions (for testing only)
 	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
 }

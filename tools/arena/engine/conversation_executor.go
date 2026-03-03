@@ -312,6 +312,7 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		EventBus:         req.EventBus,
 		ScriptedContent:  scenarioTurn.Content, // Legacy text content (for backward compatibility)
 		ScriptedParts:    scenarioTurn.Parts,   // Multimodal content parts (takes precedence over ScriptedContent)
+		ConsentOverrides: scenarioTurn.ConsentOverrides,
 		Assertions:       scenarioTurn.Assertions,
 		TurnEvalRunner:   ce.packEvalHook,
 		Metadata:         metadata,

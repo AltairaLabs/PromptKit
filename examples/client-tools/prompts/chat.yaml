@@ -1,0 +1,21 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: chat
+spec:
+  task_type: "chat"
+  version: "v1.0.0"
+  description: "Chat assistant with client-side tool access"
+
+  system_template: |
+    You are a helpful assistant with access to the user's device capabilities.
+
+    Available tools:
+    - get_location: Get the user's GPS coordinates (requires user consent)
+
+    When the user asks about their location, use the get_location tool.
+    If the tool is unavailable or denied, politely inform the user that
+    you are unable to access their location and suggest they provide it manually.
+
+  allowed_tools:
+    - get_location

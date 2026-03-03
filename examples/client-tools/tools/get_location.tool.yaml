@@ -1,0 +1,32 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: get_location
+spec:
+  description: "Get the user's current GPS coordinates"
+  mode: client
+  timeout_ms: 5000
+  input_schema:
+    type: object
+    properties:
+      accuracy:
+        type: string
+        enum: ["high", "low"]
+        description: "Desired accuracy level"
+  output_schema:
+    type: object
+    properties:
+      lat:
+        type: number
+      lng:
+        type: number
+  mock_result:
+    lat: 37.7749
+    lng: -122.4194
+  client:
+    consent:
+      required: true
+      message: "Allow location access?"
+      decline_strategy: error
+    categories:
+      - location

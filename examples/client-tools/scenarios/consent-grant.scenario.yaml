@@ -1,0 +1,25 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: consent-grant
+spec:
+  id: consent-grant
+  task_type: chat
+  description: "Verifies that a client tool executes when consent is granted (default)"
+
+  turns:
+    - role: user
+      content: "Where am I right now?"
+      assertions:
+        - type: tool_called
+          params:
+            tool_name: get_location
+            message: "Should call get_location tool when user asks for location"
+
+    - role: user
+      content: "Tell me more about this area"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(san francisco|37\\.77|location)"
+            message: "Should reference the location data from the tool result"

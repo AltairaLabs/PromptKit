@@ -1,0 +1,24 @@
+# Mock responses for client-tools consent simulation example
+
+defaultResponse: "I can help you with that."
+
+scenarios:
+  consent-grant:
+    defaultResponse: "Here is your location information."
+    turns:
+      1:
+        tool_calls:
+          - name: "get_location"
+            arguments:
+              accuracy: "high"
+      2: "Based on your location at latitude 37.7749, longitude -122.4194, you appear to be in San Francisco, California."
+
+  consent-deny:
+    defaultResponse: "I'm unable to access your location."
+    turns:
+      1:
+        tool_calls:
+          - name: "get_location"
+            arguments:
+              accuracy: "high"
+      2: "I'm sorry, I was unable to access your location because the request was denied. Could you please provide your location manually so I can assist you?"
