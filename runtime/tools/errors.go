@@ -20,7 +20,7 @@ var (
 	ErrOutputSchemaRequired = errors.New("output schema is required")
 
 	// ErrInvalidToolMode is returned when a tool has an invalid mode.
-	ErrInvalidToolMode = errors.New("mode must be 'mock', 'live', 'mcp', or a registered executor name")
+	ErrInvalidToolMode = errors.New("mode must be 'mock', 'live', 'mcp', 'client', or a registered executor name")
 
 	// ErrMockExecutorOnly is returned when a non-mock tool is passed to a mock executor.
 	ErrMockExecutorOnly = errors.New("executor can only execute mock tools")

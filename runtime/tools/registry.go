@@ -359,7 +359,7 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 
 	// First, handle built-in modes with their established mappings
 	switch tool.Mode {
-	case modeMock, "": // Empty mode defaults to mock behavior
+	case modeMock, modeClient, "": // Empty/mock/client modes use mock executors
 		// Check for templated mock first
 		if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
 			executorName = executorMockScripted
@@ -476,7 +476,8 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 
 	// Mode must be empty (defaults to mock), a built-in mode, or a registered executor name
 	isBuiltinMode := descriptor.Mode == "" || descriptor.Mode == modeMock ||
-		descriptor.Mode == modeLive || descriptor.Mode == modeMCP
+		descriptor.Mode == modeLive || descriptor.Mode == modeMCP ||
+		descriptor.Mode == modeClient
 	_, isRegisteredExecutor := r.executors[descriptor.Mode]
 	if !isBuiltinMode && !isRegisteredExecutor {
 		return ErrInvalidToolMode

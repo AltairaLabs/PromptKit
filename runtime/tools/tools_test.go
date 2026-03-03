@@ -218,6 +218,141 @@ func TestMockExecutorErrors(t *testing.T) {
 	})
 }
 
+func TestClientModeTool_StaticExecution(t *testing.T) {
+	staticExec := tools.NewMockStaticExecutor()
+
+	desc := &tools.ToolDescriptor{
+		Name:       "get_location",
+		Mode:       "client",
+		MockResult: json.RawMessage(`{"lat": 37.7749, "lng": -122.4194}`),
+	}
+
+	result, err := staticExec.Execute(context.Background(), desc, json.RawMessage(`{"accuracy": "fine"}`))
+	if err != nil {
+		t.Fatalf("Client mode static execution failed: %v", err)
+	}
+
+	var resultMap map[string]interface{}
+	if err := json.Unmarshal(result, &resultMap); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+
+	if resultMap["lat"] != 37.7749 {
+		t.Errorf("Expected lat 37.7749, got %v", resultMap["lat"])
+	}
+}
+
+func TestClientModeTool_ScriptedExecution(t *testing.T) {
+	scriptedExec := tools.NewMockScriptedExecutor()
+
+	desc := &tools.ToolDescriptor{
+		Name:         "get_location",
+		Mode:         "client",
+		MockTemplate: `{"lat": 37.7749, "accuracy": "{{.accuracy}}"}`,
+	}
+
+	result, err := scriptedExec.Execute(context.Background(), desc, json.RawMessage(`{"accuracy": "fine"}`))
+	if err != nil {
+		t.Fatalf("Client mode scripted execution failed: %v", err)
+	}
+
+	var resultMap map[string]interface{}
+	if err := json.Unmarshal(result, &resultMap); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+
+	if resultMap["accuracy"] != "fine" {
+		t.Errorf("Expected accuracy 'fine', got %v", resultMap["accuracy"])
+	}
+}
+
+func TestClientModeTool_RegistryExecution(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	descriptor := &tools.ToolDescriptor{
+		Name:         "get_location",
+		Description:  "Get GPS coordinates",
+		InputSchema:  json.RawMessage(`{"type": "object", "properties": {"accuracy": {"type": "string"}}}`),
+		OutputSchema: json.RawMessage(`{"type": "object", "properties": {"lat": {"type": "number"}, "lng": {"type": "number"}}}`),
+		Mode:         "client",
+		MockResult:   json.RawMessage(`{"lat": 37.7749, "lng": -122.4194}`),
+		TimeoutMs:    5000,
+	}
+
+	if err := registry.Register(descriptor); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	result, err := registry.Execute(context.Background(), "get_location", json.RawMessage(`{"accuracy": "fine"}`))
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if result.Error != "" {
+		t.Errorf("Expected no error, got '%s'", result.Error)
+	}
+
+	var resultData map[string]interface{}
+	if err := json.Unmarshal(result.Result, &resultData); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	if resultData["lat"] != 37.7749 {
+		t.Errorf("Expected lat 37.7749, got %v", resultData["lat"])
+	}
+}
+
+func TestClientModeTool_YAMLLoad(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	yamlTool := `
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: get_location
+spec:
+  description: "Get GPS coordinates"
+  mode: client
+  input_schema:
+    type: object
+    properties:
+      accuracy:
+        type: string
+  output_schema:
+    type: object
+    properties:
+      lat:
+        type: number
+      lng:
+        type: number
+  mock_result:
+    lat: 37.7749
+    lng: -122.4194
+`
+
+	if err := registry.LoadToolFromBytes("get_location.tool.yaml", []byte(yamlTool)); err != nil {
+		t.Fatalf("LoadToolFromBytes failed: %v", err)
+	}
+
+	tool := registry.Get("get_location")
+	if tool == nil {
+		t.Fatal("Tool not found after loading")
+	}
+
+	if tool.Mode != "client" {
+		t.Errorf("Expected mode 'client', got '%s'", tool.Mode)
+	}
+
+	result, err := registry.Execute(context.Background(), "get_location", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if result.Error != "" {
+		t.Errorf("Expected no error, got '%s'", result.Error)
+	}
+}
+
 func TestSchemaValidator(t *testing.T) {
 	validator := tools.NewSchemaValidator()
 

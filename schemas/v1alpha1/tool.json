@@ -72,6 +72,45 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "ToolClientConfig": {
+      "properties": {
+        "consent": {
+          "$ref": "#/$defs/ToolConsentConfig"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "validate_output": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolConsentConfig": {
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        },
+        "decline_strategy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "required"
+      ]
+    },
     "ToolSpec": {
       "properties": {
         "name": {
@@ -94,6 +133,9 @@
         },
         "http": {
           "$ref": "#/$defs/HTTPConfig"
+        },
+        "client": {
+          "$ref": "#/$defs/ToolClientConfig"
         }
       },
       "additionalProperties": false,

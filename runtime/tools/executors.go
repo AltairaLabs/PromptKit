@@ -14,6 +14,7 @@ const (
 	modeMock             = "mock"
 	modeLive             = "live"
 	modeMCP              = "mcp"
+	modeClient           = "client"
 	executorMockStatic   = "mock-static"
 	executorMockScripted = "mock-scripted"
 )
@@ -35,7 +36,7 @@ func (e *MockStaticExecutor) Name() string {
 func (e *MockStaticExecutor) Execute(
 	_ context.Context, descriptor *ToolDescriptor, _ json.RawMessage,
 ) (json.RawMessage, error) {
-	if descriptor.Mode != modeMock {
+	if descriptor.Mode != modeMock && descriptor.Mode != modeClient {
 		return nil, ErrMockExecutorOnly
 	}
 
@@ -74,7 +75,7 @@ func (e *MockScriptedExecutor) Name() string {
 func (e *MockScriptedExecutor) Execute(
 	_ context.Context, descriptor *ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
-	if descriptor.Mode != modeMock {
+	if descriptor.Mode != modeMock && descriptor.Mode != modeClient {
 		return nil, ErrMockExecutorOnly
 	}
 

@@ -220,6 +220,100 @@ func TestParseToolName_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestClientConfig_MarshalJSON(t *testing.T) {
+	cfg := ClientConfig{
+		Consent: &ConsentConfig{
+			Required:        true,
+			Message:         "This app wants to access your location.",
+			DeclineStrategy: DeclineStrategyFallback,
+		},
+		TimeoutMs:      30000,
+		Categories:     []string{"location", "sensors"},
+		ValidateOutput: true,
+	}
+
+	data, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	var decoded ClientConfig
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, cfg.TimeoutMs, decoded.TimeoutMs)
+	assert.Equal(t, cfg.Categories, decoded.Categories)
+	assert.Equal(t, cfg.ValidateOutput, decoded.ValidateOutput)
+	require.NotNil(t, decoded.Consent)
+	assert.True(t, decoded.Consent.Required)
+	assert.Equal(t, "This app wants to access your location.", decoded.Consent.Message)
+	assert.Equal(t, DeclineStrategyFallback, decoded.Consent.DeclineStrategy)
+}
+
+func TestClientConfig_OptionalFields(t *testing.T) {
+	cfg := ClientConfig{}
+
+	data, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	var decoded ClientConfig
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Nil(t, decoded.Consent)
+	assert.Zero(t, decoded.TimeoutMs)
+	assert.Nil(t, decoded.Categories)
+	assert.False(t, decoded.ValidateOutput)
+}
+
+func TestConsentConfig_DeclineStrategies(t *testing.T) {
+	strategies := []string{
+		DeclineStrategyFallback,
+		DeclineStrategyError,
+		DeclineStrategyRetry,
+	}
+	assert.Equal(t, "fallback", strategies[0])
+	assert.Equal(t, "error", strategies[1])
+	assert.Equal(t, "retry", strategies[2])
+}
+
+func TestToolDescriptor_WithClientConfig(t *testing.T) {
+	descriptor := ToolDescriptor{
+		Name:         "get_location",
+		Description:  "Get GPS coordinates",
+		InputSchema:  json.RawMessage(`{"type":"object"}`),
+		OutputSchema: json.RawMessage(`{"type":"object","properties":{"lat":{"type":"number"},"lng":{"type":"number"}}}`),
+		Mode:         "client",
+		ClientConfig: &ClientConfig{
+			Consent: &ConsentConfig{
+				Required:        true,
+				Message:         "Allow location access?",
+				DeclineStrategy: DeclineStrategyError,
+			},
+			TimeoutMs:      15000,
+			Categories:     []string{"location"},
+			ValidateOutput: true,
+		},
+		MockResult: json.RawMessage(`{"lat":37.7749,"lng":-122.4194}`),
+	}
+
+	data, err := json.Marshal(descriptor)
+	require.NoError(t, err)
+
+	var decoded ToolDescriptor
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, "client", decoded.Mode)
+	require.NotNil(t, decoded.ClientConfig)
+	require.NotNil(t, decoded.ClientConfig.Consent)
+	assert.True(t, decoded.ClientConfig.Consent.Required)
+	assert.Equal(t, "Allow location access?", decoded.ClientConfig.Consent.Message)
+	assert.Equal(t, DeclineStrategyError, decoded.ClientConfig.Consent.DeclineStrategy)
+	assert.Equal(t, 15000, decoded.ClientConfig.TimeoutMs)
+	assert.Equal(t, []string{"location"}, decoded.ClientConfig.Categories)
+	assert.True(t, decoded.ClientConfig.ValidateOutput)
+	assert.NotEmpty(t, decoded.MockResult)
+}
+
 // Mock executor for testing AsyncToolExecutor interface
 type mockAsyncExecutor struct {
 	name   string
