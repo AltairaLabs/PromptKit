@@ -87,8 +87,9 @@ type ToolDescriptor struct {
 	MockResultFile   string `json:"mock_result_file,omitempty" yaml:"mock_result_file,omitempty"`
 	MockTemplateFile string `json:"mock_template_file,omitempty" yaml:"mock_template_file,omitempty"`
 
-	HTTPConfig *HTTPConfig `json:"http,omitempty" yaml:"http,omitempty"` // Live HTTP configuration
-	A2AConfig  *A2AConfig  `json:"a2a,omitempty" yaml:"a2a,omitempty"`   // A2A agent configuration
+	HTTPConfig   *HTTPConfig   `json:"http,omitempty" yaml:"http,omitempty"`     // Live HTTP configuration
+	A2AConfig    *A2AConfig    `json:"a2a,omitempty" yaml:"a2a,omitempty"`       // A2A agent configuration
+	ClientConfig *ClientConfig `json:"client,omitempty" yaml:"client,omitempty"` // Client-side execution configuration
 }
 
 // HTTPConfig defines configuration for live HTTP tool execution
@@ -107,6 +108,31 @@ type A2AConfig struct {
 	SkillID   string `json:"skill_id" yaml:"skill_id"`
 	TimeoutMs int    `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
 }
+
+// ClientConfig defines configuration for client-side tool execution.
+// Tools with mode "client" are fulfilled by the SDK caller's device
+// (e.g., GPS, camera, contacts, biometrics).
+type ClientConfig struct {
+	Consent        *ConsentConfig `json:"consent,omitempty" yaml:"consent,omitempty"`
+	TimeoutMs      int            `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	Categories     []string       `json:"categories,omitempty" yaml:"categories,omitempty"`
+	ValidateOutput bool           `json:"validate_output,omitempty" yaml:"validate_output,omitempty"`
+}
+
+// ConsentConfig defines consent requirements for client-side tools.
+type ConsentConfig struct {
+	Required bool   `json:"required" yaml:"required"`
+	Message  string `json:"message,omitempty" yaml:"message,omitempty"`
+	// DeclineStrategy: "fallback" | "error" | "retry"
+	DeclineStrategy string `json:"decline_strategy,omitempty" yaml:"decline_strategy,omitempty"`
+}
+
+// Decline strategy constants for ConsentConfig.DeclineStrategy.
+const (
+	DeclineStrategyFallback = "fallback"
+	DeclineStrategyError    = "error"
+	DeclineStrategyRetry    = "retry"
+)
 
 // ToolCall represents a tool invocation request
 type ToolCall struct {

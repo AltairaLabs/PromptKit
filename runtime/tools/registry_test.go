@@ -596,6 +596,16 @@ func TestGetExecutorForTool_BuiltInModes(t *testing.T) {
 			mode:        "mcp",
 			expectError: true, // mcp executor not registered by default
 		},
+		{
+			name:       "client mode with static result",
+			mode:       "client",
+			mockResult: json.RawMessage(`{"result": "client_data"}`),
+		},
+		{
+			name:         "client mode with template",
+			mode:         "client",
+			mockTemplate: `{"result": "client_templated"}`,
+		},
 	}
 
 	for _, tt := range tests {
