@@ -359,7 +359,16 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 
 	// First, handle built-in modes with their established mappings
 	switch tool.Mode {
-	case modeMock, modeClient, "": // Empty/mock/client modes use mock executors
+	case modeClient:
+		// Prefer registered "client" executor (SDK); fall back to mock
+		if _, ok := r.executors["client"]; ok {
+			executorName = "client"
+		} else if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
+			executorName = executorMockScripted
+		} else {
+			executorName = executorMockStatic
+		}
+	case modeMock, "": // Empty/mock modes use mock executors
 		// Check for templated mock first
 		if tool.MockTemplate != "" || tool.MockTemplateFile != "" {
 			executorName = executorMockScripted

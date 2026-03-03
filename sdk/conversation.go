@@ -123,6 +123,10 @@ type Conversation struct {
 	ctxHandlers map[string]ToolHandlerCtx
 	handlersMu  sync.RWMutex
 
+	// Client tool handlers (mode: "client")
+	clientHandlers   map[string]ClientToolHandler
+	clientHandlersMu sync.RWMutex
+
 	// Async tool handlers for HITL
 	asyncHandlers   map[string]sdktools.AsyncToolHandler
 	asyncHandlersMu sync.RWMutex
@@ -285,6 +289,16 @@ func (c *Conversation) buildPipelineConfig(
 	c.handlersMu.RLock()
 	localExec := &localExecutor{handlers: c.handlers, ctxHandlers: c.ctxHandlers}
 	c.toolRegistry.RegisterExecutor(localExec)
+
+	// Register client executor for mode: "client" tools
+	c.clientHandlersMu.RLock()
+	clientExec := &clientExecutor{
+		handlers:   c.clientHandlers,
+		handlersMu: &clientHandlersMuAccessor{conv: c},
+	}
+	c.clientHandlersMu.RUnlock()
+	c.toolRegistry.RegisterExecutor(clientExec)
+
 	c.registerMCPExecutors()
 	// Register capability tools (includes A2A)
 	for _, cap := range c.capabilities {
@@ -707,6 +721,14 @@ func (c *Conversation) Fork() *Conversation {
 	}
 	c.asyncHandlersMu.RUnlock()
 
+	c.clientHandlersMu.RLock()
+	// Copy client handlers
+	clientHandlers := make(map[string]ClientToolHandler, len(c.clientHandlers))
+	for k, v := range c.clientHandlers {
+		clientHandlers[k] = v
+	}
+	c.clientHandlersMu.RUnlock()
+
 	// Create fork with new ID
 	sess := c.getBaseSession()
 	forkID := sess.ID() + "-fork"
@@ -736,6 +758,7 @@ func (c *Conversation) Fork() *Conversation {
 		config:         c.config,
 		mode:           c.mode,
 		handlers:       handlers,
+		clientHandlers: clientHandlers,
 		asyncHandlers:  asyncHandlers,
 		pendingStore:   sdktools.NewPendingStore(),
 		resolvedStore:  sdktools.NewResolvedStore(),
