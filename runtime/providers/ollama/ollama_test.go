@@ -952,7 +952,8 @@ func TestSendDoneChunk(t *testing.T) {
 	outChan := make(chan providers.StreamChunk, 1)
 	toolCalls := []types.MessageToolCall{{ID: "call_1"}}
 
-	provider.sendDoneChunk("content", toolCalls, 10, outChan)
+	// Test without usage
+	provider.sendDoneChunk("content", toolCalls, 10, nil, outChan)
 
 	chunk := <-outChan
 
@@ -966,6 +967,20 @@ func TestSendDoneChunk(t *testing.T) {
 
 	if chunk.FinishReason == nil || *chunk.FinishReason != "stop" {
 		t.Error("Expected stop finish reason")
+	}
+
+	// Test with usage - should override estimated token count
+	usage := &ollamaUsage{PromptTokens: 50, CompletionTokens: 25, TotalTokens: 75}
+	provider.sendDoneChunk("content", toolCalls, 10, usage, outChan)
+
+	chunk = <-outChan
+
+	if chunk.TokenCount != 75 {
+		t.Errorf("Expected TokenCount 75 from usage, got %d", chunk.TokenCount)
+	}
+
+	if chunk.CostInfo == nil {
+		t.Error("Expected CostInfo to be set when usage is provided")
 	}
 }
 
@@ -983,7 +998,7 @@ func TestProcessStreamChoice(t *testing.T) {
 	}
 
 	newAccum, newTokens := provider.processStreamChoice(
-		choice, "", 0, &toolCalls, nil, outChan,
+		choice, "", 0, &toolCalls, outChan,
 	)
 
 	if newAccum != "Hello" {

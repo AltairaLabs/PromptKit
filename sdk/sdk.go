@@ -174,6 +174,7 @@ func initConversation(
 		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
+		ctxHandlers:    make(map[string]ToolHandlerCtx),
 		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
 		pendingStore:   sdktools.NewPendingStore(),
 		resolvedStore:  sdktools.NewResolvedStore(),

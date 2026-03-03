@@ -327,6 +327,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 	// Add streaming options
 	ollamaReq["stream"] = true
+	ollamaReq["stream_options"] = map[string]any{"include_usage": true}
 
 	reqBody, err := json.Marshal(ollamaReq)
 	if err != nil {

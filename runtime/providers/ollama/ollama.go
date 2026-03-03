@@ -271,6 +271,7 @@ func (p *Provider) createFinalStreamChunk(
 	if usage != nil {
 		costBreakdown := p.CalculateCost(usage.PromptTokens, usage.CompletionTokens, 0)
 		finalChunk.CostInfo = &costBreakdown
+		finalChunk.TokenCount = usage.PromptTokens + usage.CompletionTokens
 	}
 
 	return finalChunk
@@ -289,6 +290,8 @@ func (p *Provider) streamResponse(
 	accumulated := ""
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall
+	var lastUsage *ollamaUsage
+	var finishReason *string
 
 	for scanner.Scan() {
 		if p.handleContextCancellation(ctx, accumulated, accumulatedToolCalls, outChan) {
@@ -297,22 +300,30 @@ func (p *Provider) streamResponse(
 
 		data := scanner.Data()
 		if data == "[DONE]" {
-			p.sendDoneChunk(accumulated, accumulatedToolCalls, totalTokens, outChan)
-			return
+			break
 		}
 
 		chunk, ok := p.parseStreamChunk(data)
-		if !ok || len(chunk.Choices) == 0 {
+		if !ok {
+			continue
+		}
+
+		// Track usage from any chunk (may arrive in a usage-only chunk after finish)
+		if chunk.Usage != nil {
+			lastUsage = chunk.Usage
+		}
+
+		if len(chunk.Choices) == 0 {
 			continue
 		}
 
 		choice := chunk.Choices[0]
 		accumulated, totalTokens = p.processStreamChoice(
 			choice, accumulated, totalTokens,
-			&accumulatedToolCalls, chunk.Usage, outChan,
+			&accumulatedToolCalls, outChan,
 		)
 		if choice.FinishReason != nil {
-			return
+			finishReason = choice.FinishReason
 		}
 	}
 
@@ -323,7 +334,16 @@ func (p *Provider) streamResponse(
 			Error:        err,
 			FinishReason: providers.StringPtr("error"),
 		}
+		return
 	}
+
+	// Send final chunk with usage data (collected from usage-only chunk after finish)
+	if finishReason == nil {
+		finishReason = providers.StringPtr("stop")
+	}
+	outChan <- p.createFinalStreamChunk(
+		accumulated, accumulatedToolCalls, totalTokens, finishReason, lastUsage,
+	)
 }
 
 // handleContextCancellation checks for context cancellation and sends appropriate chunk
@@ -352,14 +372,13 @@ func (p *Provider) sendDoneChunk(
 	accumulated string,
 	accumulatedToolCalls []types.MessageToolCall,
 	totalTokens int,
+	usage *ollamaUsage,
 	outChan chan<- providers.StreamChunk,
 ) {
-	outChan <- providers.StreamChunk{
-		Content:      accumulated,
-		ToolCalls:    accumulatedToolCalls,
-		TokenCount:   totalTokens,
-		FinishReason: providers.StringPtr("stop"),
-	}
+	finalChunk := p.createFinalStreamChunk(
+		accumulated, accumulatedToolCalls, totalTokens, providers.StringPtr("stop"), usage,
+	)
+	outChan <- finalChunk
 }
 
 // parseStreamChunk parses a stream chunk from JSON
@@ -371,13 +390,14 @@ func (p *Provider) parseStreamChunk(data string) (ollamaStreamChunk, bool) {
 	return chunk, true
 }
 
-// processStreamChoice processes a single stream choice and returns updated state
+// processStreamChoice processes a single stream choice and returns updated state.
+// It sends intermediate delta chunks but NOT the final chunk — the caller handles that
+// after collecting usage data from the post-finish usage-only chunk.
 func (p *Provider) processStreamChoice(
 	choice ollamaStreamChoice,
 	accumulated string,
 	totalTokens int,
 	accumulatedToolCalls *[]types.MessageToolCall,
-	usage *ollamaUsage,
 	outChan chan<- providers.StreamChunk,
 ) (newAccumulated string, newTotalTokens int) {
 	// Handle content delta
@@ -403,14 +423,6 @@ func (p *Provider) processStreamChoice(
 			TokenCount:  totalTokens,
 			DeltaTokens: 0,
 		}
-	}
-
-	// Handle finish reason
-	if choice.FinishReason != nil {
-		finalChunk := p.createFinalStreamChunk(
-			accumulated, *accumulatedToolCalls, totalTokens, choice.FinishReason, usage,
-		)
-		outChan <- finalChunk
 	}
 
 	return accumulated, totalTokens
@@ -598,7 +610,8 @@ func (p *Provider) predictStreamWithMessages(
 		"temperature": temperature,
 		"top_p":       topP,
 		"max_tokens":  maxTokens,
-		"stream":      true,
+		"stream":         true,
+		"stream_options": map[string]any{"include_usage": true},
 	}
 	if req.Seed != nil {
 		ollamaReq["seed"] = *req.Seed

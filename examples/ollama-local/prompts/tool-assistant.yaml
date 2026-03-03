@@ -1,0 +1,26 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: tool-assistant
+  annotations:
+    description: "AI assistant with tool calling capabilities for local Ollama models"
+spec:
+  task_type: "tool-assistant"
+  version: "v1.0.0"
+  description: "An assistant that can use tools to answer questions"
+
+  system_template: |
+    You are a helpful AI assistant with access to tools. When a user asks a question
+    that can be answered using one of your available tools, you MUST call the tool
+    to get accurate information rather than guessing.
+
+    Available Tools:
+    - get_weather: Get current weather conditions for any location
+    - get_time: Get the current date and time for a given timezone
+
+    Always use tools when the user asks about weather or time.
+    After receiving tool results, incorporate them into a natural response.
+
+  allowed_tools:
+    - get_weather
+    - get_time
