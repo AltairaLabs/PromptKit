@@ -8,6 +8,7 @@ import (
 
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	streamPkg "github.com/AltairaLabs/PromptKit/sdk/stream"
 )
@@ -25,6 +26,10 @@ type StreamChunk struct {
 
 	// Media content (for ChunkMedia type)
 	Media *types.MediaContent
+
+	// ClientTool contains a pending client tool request (for ChunkClientTool type).
+	// The caller should fulfill it via SendToolResult/RejectClientTool, then call ResumeStream.
+	ClientTool *PendingClientTool
 
 	// Complete response (for ChunkDone type)
 	Message *Response
@@ -48,6 +53,9 @@ const (
 
 	// ChunkDone indicates streaming is complete.
 	ChunkDone
+
+	// ChunkClientTool indicates a client tool request that needs caller fulfillment.
+	ChunkClientTool
 )
 
 // String returns the string representation of the chunk type.
@@ -61,6 +69,8 @@ func (t ChunkType) String() string {
 		return "media"
 	case ChunkDone:
 		return "done"
+	case ChunkClientTool:
+		return "client_tool"
 	default:
 		return "unknown"
 	}
@@ -71,6 +81,7 @@ type streamState struct {
 	accumulatedContent string
 	lastToolCalls      []types.MessageToolCall
 	finalResult        *rtpipeline.ExecutionResult
+	pendingTools       []PendingClientTool
 }
 
 // Stream sends a message and returns a channel of response chunks.
@@ -215,14 +226,17 @@ func (c *Conversation) executeStreamingPipeline(
 	}
 
 	// Process stream and finalize
-	if err := c.processAndFinalizeStream(streamCh, outCh, startTime); err != nil {
+	state := &streamState{}
+	if err := c.processAndFinalizeStreamWithState(streamCh, outCh, startTime, state); err != nil {
 		return err
 	}
 
-	// Dispatch turn-level evals (mirrors Send() behavior)
-	c.sessionHooks.IncrementTurn()
-	c.sessionHooks.SessionUpdate(ctx)
-	c.evalMW.dispatchTurnEvals(ctx)
+	// Skip lifecycle hooks when pipeline is suspended for pending tools
+	if len(state.pendingTools) == 0 {
+		c.sessionHooks.IncrementTurn()
+		c.sessionHooks.SessionUpdate(ctx)
+		c.evalMW.dispatchTurnEvals(ctx)
+	}
 
 	return nil
 }
@@ -233,15 +247,24 @@ func (c *Conversation) processAndFinalizeStream(
 	outCh chan<- StreamChunk,
 	startTime time.Time,
 ) error {
-	state := &streamState{}
+	return c.processAndFinalizeStreamWithState(streamCh, outCh, startTime, &streamState{})
+}
 
+// processAndFinalizeStreamWithState is like processAndFinalizeStream but uses a caller-provided state
+// so the caller can inspect pendingTools after the stream completes.
+func (c *Conversation) processAndFinalizeStreamWithState(
+	streamCh <-chan providers.StreamChunk,
+	outCh chan<- StreamChunk,
+	startTime time.Time,
+	state *streamState,
+) error {
 	// Process all stream chunks
 	if err := c.processStreamChunks(streamCh, outCh, state); err != nil {
 		return err
 	}
 
 	// Build response from accumulated data
-	resp := c.buildStreamingResponse(state.finalResult, state.accumulatedContent, state.lastToolCalls, startTime)
+	resp := c.buildStreamingResponse(state, startTime)
 
 	// Emit final ChunkDone with complete response
 	outCh <- StreamChunk{
@@ -293,6 +316,19 @@ func (c *Conversation) emitStreamChunk(
 		state.lastToolCalls = chunk.ToolCalls
 	}
 
+	// Handle pending client tools
+	if chunk.FinishReason != nil && *chunk.FinishReason == "pending_tools" && len(chunk.PendingTools) > 0 {
+		for i := range chunk.PendingTools {
+			pct := buildPendingClientToolFromExecution(&chunk.PendingTools[i])
+			state.pendingTools = append(state.pendingTools, pct)
+			outCh <- StreamChunk{Type: ChunkClientTool, ClientTool: &pct}
+		}
+		if result, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
+			state.finalResult = result
+		}
+		return
+	}
+
 	// Capture final result
 	if chunk.FinishReason != nil {
 		if result, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
@@ -301,16 +337,34 @@ func (c *Conversation) emitStreamChunk(
 	}
 }
 
+// buildPendingClientToolFromExecution converts a tools.PendingToolExecution to a PendingClientTool.
+func buildPendingClientToolFromExecution(pt *tools.PendingToolExecution) PendingClientTool {
+	pct := PendingClientTool{
+		CallID:   pt.CallID,
+		ToolName: pt.ToolName,
+		Args:     pt.Args,
+	}
+	if pt.PendingInfo != nil {
+		pct.ConsentMsg = pt.PendingInfo.Message
+		if cats, ok := pt.PendingInfo.Metadata["categories"]; ok {
+			if catSlice, ok := cats.([]string); ok {
+				pct.Categories = catSlice
+			}
+		}
+	}
+	return pct
+}
+
 // buildStreamingResponse creates a Response from streaming data.
 func (c *Conversation) buildStreamingResponse(
-	result *rtpipeline.ExecutionResult,
-	content string,
-	toolCalls []types.MessageToolCall,
+	state *streamState,
 	startTime time.Time,
 ) *Response {
 	resp := &Response{
 		duration: time.Since(startTime),
 	}
+
+	result := state.finalResult
 
 	// Use result data if available
 	if result != nil && result.Response != nil {
@@ -336,11 +390,16 @@ func (c *Conversation) buildStreamingResponse(
 		// Build from accumulated streaming data
 		resp.message = &types.Message{
 			Role:    roleAssistant,
-			Content: content,
+			Content: state.accumulatedContent,
 		}
-		if len(toolCalls) > 0 {
-			resp.toolCalls = toolCalls
+		if len(state.lastToolCalls) > 0 {
+			resp.toolCalls = state.lastToolCalls
 		}
+	}
+
+	// Populate pending client tools from stream state
+	if len(state.pendingTools) > 0 {
+		resp.clientTools = state.pendingTools
 	}
 
 	return resp
@@ -378,6 +437,9 @@ func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan strea
 			case ChunkMedia:
 				chunk.Type = streamPkg.ChunkMedia
 				chunk.Media = sdkChunk.Media
+			case ChunkClientTool:
+				// Client tool requests are SDK-level; skip in raw stream
+				continue
 			case ChunkDone:
 				chunk.Done = true
 			}

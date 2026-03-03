@@ -98,6 +98,11 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 		},
 		func() { emitter.WorkflowTransitioned("s1", "s2", "Next", "p2") },
 		func() { emitter.WorkflowCompleted("done", 1) },
+		func() {
+			emitter.ClientToolRequest(&ClientToolRequestData{
+				CallID: "call-1", ToolName: "test_tool",
+			})
+		},
 	}
 
 	wg.Add(len(tests))
@@ -485,4 +490,61 @@ func TestEmitter_WorkflowCompleted(t *testing.T) {
 	if data.FinalState != "done" || data.TransitionCount != 3 {
 		t.Fatalf("unexpected data: state=%s count=%d", data.FinalState, data.TransitionCount)
 	}
+}
+
+func TestEmitter_ClientToolRequest(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctr", "session-ctr", "conv-ctr")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventClientToolRequest, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.ClientToolRequest(&ClientToolRequestData{
+		CallID:     "call-1",
+		ToolName:   "get_location",
+		Args:       map[string]any{"accuracy": "fine"},
+		ConsentMsg: "Allow location access?",
+		Categories: []string{"location", "sensors"},
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for tool.client.request event")
+	}
+
+	if got.RunID != "run-ctr" || got.SessionID != "session-ctr" || got.ConversationID != "conv-ctr" {
+		t.Fatalf("unexpected context: %+v", got)
+	}
+
+	data, ok := got.Data.(*ClientToolRequestData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.CallID != "call-1" || data.ToolName != "get_location" {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+	if data.ConsentMsg != "Allow location access?" {
+		t.Fatalf("unexpected consent msg: %s", data.ConsentMsg)
+	}
+	if len(data.Categories) != 2 || data.Categories[0] != "location" {
+		t.Fatalf("unexpected categories: %v", data.Categories)
+	}
+}
+
+func TestEmitter_ClientToolRequest_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctrn", "session-ctrn", "conv-ctrn")
+
+	// Should not panic when data is nil
+	emitter.ClientToolRequest(nil)
 }

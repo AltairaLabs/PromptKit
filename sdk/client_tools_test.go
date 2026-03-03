@@ -482,3 +482,51 @@ func TestResume_BuildsToolMessages(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 }
+
+func TestResumeStream_NoResolutions(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+
+	ch := conv.ResumeStream(context.Background())
+	chunk := <-ch
+	require.Error(t, chunk.Error)
+	assert.Contains(t, chunk.Error.Error(), "no resolved tool results")
+}
+
+func TestResumeStream_WithResolutions(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+
+	err := conv.SendToolResult(context.Background(), "call-1", map[string]any{"lat": 37.7})
+	require.NoError(t, err)
+
+	ch := conv.ResumeStream(context.Background())
+
+	var chunks []StreamChunk
+	for chunk := range ch {
+		chunks = append(chunks, chunk)
+	}
+
+	// Should get at least a ChunkDone
+	require.NotEmpty(t, chunks)
+	lastChunk := chunks[len(chunks)-1]
+	assert.Equal(t, ChunkDone, lastChunk.Type)
+	assert.NotNil(t, lastChunk.Message)
+}
+
+func TestBuildToolResultMessages_ErrorBranch(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+
+	// Add a resolution with error
+	conv.resolvedStore.Add(&sdktools.ToolResolution{
+		ID:    "call-err",
+		Error: assert.AnError,
+	})
+
+	msgs, err := conv.buildToolResultMessages()
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	// The message content should contain "Tool error"
+	assert.Contains(t, msgs[0].GetContent(), "Tool error")
+}

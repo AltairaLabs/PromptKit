@@ -152,6 +152,9 @@ type Conversation struct {
 	// Eval middleware for dispatching evals after Send/Close
 	evalMW *evalMiddleware
 
+	// Stream event handler for StreamWithCallback
+	streamEventHandler StreamEventHandler
+
 	// Closed flag
 	closed bool
 	mu     sync.RWMutex
@@ -457,21 +460,8 @@ func (c *Conversation) buildResponse(result *rtpipeline.ExecutionResult, startTi
 	}
 
 	// Populate pending client tools from pipeline result
-	for _, pt := range result.PendingTools {
-		pct := PendingClientTool{
-			CallID:   pt.CallID,
-			ToolName: pt.ToolName,
-			Args:     pt.Args,
-		}
-		if pt.PendingInfo != nil {
-			pct.ConsentMsg = pt.PendingInfo.Message
-			if cats, ok := pt.PendingInfo.Metadata["categories"]; ok {
-				if catSlice, ok := cats.([]string); ok {
-					pct.Categories = catSlice
-				}
-			}
-		}
-		resp.clientTools = append(resp.clientTools, pct)
+	for i := range result.PendingTools {
+		resp.clientTools = append(resp.clientTools, buildPendingClientToolFromExecution(&result.PendingTools[i]))
 	}
 
 	return resp
