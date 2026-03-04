@@ -137,13 +137,28 @@ func (l *OTelEventListener) sessionCtx(sessionID string) context.Context {
 	return context.Background()
 }
 
-// startSpan starts a span parented under the session root and stores it in inflight.
+// parentCtxForRun returns the context of the inflight pipeline span for the
+// given runID, falling back to the session root span context if no pipeline
+// span is active. This ensures provider, tool, and middleware spans are nested
+// under their pipeline span in trace viewers.
+func (l *OTelEventListener) parentCtxForRun(sessionID, runID string) context.Context {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if entry, ok := l.inflight["pipeline:"+runID]; ok {
+		return entry.ctx
+	}
+	if ss, ok := l.sessions[sessionID]; ok {
+		return ss.ctx
+	}
+	return context.Background()
+}
+
+// startSpan starts a span parented under the given parent context and stores it in inflight.
 // If a completion was already buffered (out-of-order delivery), the span is
 // immediately ended.
 func (l *OTelEventListener) startSpan(
-	sessionID, key, name string, kind trace.SpanKind, attrs ...attribute.KeyValue,
+	parentCtx context.Context, key, name string, kind trace.SpanKind, attrs ...attribute.KeyValue,
 ) {
-	parentCtx := l.sessionCtx(sessionID)
 	ctx, span := l.tracer.Start(parentCtx, name,
 		trace.WithSpanKind(kind),
 		trace.WithAttributes(attrs...),
@@ -223,7 +238,7 @@ func asPtr[T any](data any) (*T, bool) {
 // --- Pipeline ---
 
 func (l *OTelEventListener) startPipeline(evt *events.Event) {
-	l.startSpan(evt.SessionID, "pipeline:"+evt.RunID, "promptkit.pipeline",
+	l.startSpan(l.sessionCtx(evt.SessionID), "pipeline:"+evt.RunID, "promptkit.pipeline",
 		trace.SpanKindInternal,
 		attribute.String("run.id", evt.RunID),
 	)
@@ -259,7 +274,7 @@ func (l *OTelEventListener) startProvider(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.startSpan(evt.SessionID, "provider:"+evt.RunID, "promptkit.provider."+data.Provider,
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "provider:"+evt.RunID, "promptkit.provider."+data.Provider,
 		trace.SpanKindClient,
 		attribute.String("gen_ai.system", data.Provider),
 		attribute.String("gen_ai.request.model", data.Model),
@@ -308,7 +323,7 @@ func (l *OTelEventListener) startTool(evt *events.Event) {
 			attrs = append(attrs, attribute.String("tool.args", string(argsJSON)))
 		}
 	}
-	l.startSpan(evt.SessionID, "tool:"+data.CallID, "promptkit.tool."+data.ToolName,
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "tool:"+data.CallID, "promptkit.tool."+data.ToolName,
 		trace.SpanKindInternal,
 		attrs...,
 	)
@@ -342,7 +357,7 @@ func (l *OTelEventListener) startMiddleware(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.startSpan(evt.SessionID, "middleware:"+data.Name, "promptkit.middleware."+data.Name,
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "middleware:"+data.Name, "promptkit.middleware."+data.Name,
 		trace.SpanKindInternal,
 		attribute.String("middleware.name", data.Name),
 		attribute.Int("middleware.index", data.Index),
