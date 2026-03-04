@@ -855,14 +855,14 @@ func (s *ProviderStage) executeToolCalls(
 			continue
 		}
 
+		// Convert tool execution result to message
+		result := s.handleToolResult(toolCall, asyncResult)
+
 		// Emit tool call completed event
 		if s.emitter != nil {
 			status := string(asyncResult.Status)
-			s.emitter.ToolCallCompleted(toolCall.Name, toolCall.ID, time.Since(startTime), status)
+			s.emitter.ToolCallCompleted(toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Content)
 		}
-
-		// Convert tool execution result to message
-		result := s.handleToolResult(toolCall, asyncResult)
 		resultMsg := types.NewToolResultMessage(result)
 		if hookDecision.Metadata != nil {
 			resultMsg.Meta = hookDecision.Metadata

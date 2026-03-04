@@ -83,7 +83,7 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 		},
 		func() { emitter.ProviderCallFailed("provider", "model", errors.New("fail"), time.Millisecond) },
 		func() { emitter.ToolCallStarted("tool", "call", map[string]interface{}{"k": "v"}) },
-		func() { emitter.ToolCallCompleted("tool", "call", time.Millisecond, "success") },
+		func() { emitter.ToolCallCompleted("tool", "call", time.Millisecond, "success", "tool result") },
 		func() { emitter.ToolCallFailed("tool", "call", errors.New("fail"), time.Millisecond) },
 		func() { emitter.ValidationStarted("validator", "input") },
 		func() { emitter.ValidationPassed("validator", "input", time.Millisecond) },

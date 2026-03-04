@@ -237,6 +237,7 @@ type ToolCallEventData struct {
 	Args     map[string]interface{} // Set on started
 	Duration time.Duration          // Set on completed/failed
 	Status   string                 // Set on completed (e.g. "success", "error", "pending")
+	Result   string                 // Set on completed — tool result content
 	Error    error                  // Set on failed
 }
 
