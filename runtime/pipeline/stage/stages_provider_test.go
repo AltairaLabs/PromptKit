@@ -1689,16 +1689,28 @@ func TestProviderStage_ExecuteToolCalls_EmitsStartedCompleted(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.Len(t, captured, 2)
-	assert.Equal(t, events.EventToolCallStarted, captured[0].Type)
-	assert.Equal(t, events.EventToolCallCompleted, captured[1].Type)
 
-	startedData, ok := captured[0].Data.(events.ToolCallStartedData)
+	// Find events by type (event bus delivery order is non-deterministic under -race)
+	var startedEvt, completedEvt *events.Event
+	for _, e := range captured {
+		switch e.Type {
+		case events.EventToolCallStarted:
+			startedEvt = e
+		case events.EventToolCallCompleted:
+			completedEvt = e
+		}
+	}
+
+	require.NotNil(t, startedEvt, "expected a tool.call.started event")
+	require.NotNil(t, completedEvt, "expected a tool.call.completed event")
+
+	startedData, ok := startedEvt.Data.(events.ToolCallStartedData)
 	require.True(t, ok)
 	assert.Equal(t, "emit_tool", startedData.ToolName)
 	assert.Equal(t, "call-1", startedData.CallID)
 	assert.Equal(t, "value", startedData.Args["key"])
 
-	completedData, ok := captured[1].Data.(events.ToolCallCompletedData)
+	completedData, ok := completedEvt.Data.(events.ToolCallCompletedData)
 	require.True(t, ok)
 	assert.Equal(t, "emit_tool", completedData.ToolName)
 	assert.Equal(t, "call-1", completedData.CallID)
