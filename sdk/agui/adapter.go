@@ -2,6 +2,7 @@ package agui
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	aguievents "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -14,11 +15,29 @@ import (
 // eventChannelBufferSize is the default buffer size for the AG-UI event channel.
 const eventChannelBufferSize = 64
 
-// Sender abstracts the conversation Send method so the adapter can be tested
-// without a real Conversation. In production code, *sdk.Conversation satisfies
-// this interface.
+// toolResultCompleted is the status string for a successfully resolved tool call.
+const toolResultCompleted = "completed"
+
+// Sender abstracts the conversation methods needed by the adapter. In
+// production code, *sdk.Conversation satisfies this interface.
 type Sender interface {
 	Send(ctx context.Context, message any, opts ...sdk.SendOption) (*sdk.Response, error)
+	SendToolResult(ctx context.Context, callID string, result any) error
+	RejectClientTool(ctx context.Context, callID, reason string)
+	Resume(ctx context.Context) (*sdk.Response, error)
+}
+
+// ToolResultProvider is a callback the caller implements to supply results for
+// pending client tools. The adapter calls it when the LLM response contains
+// deferred client tools that need fulfillment before the pipeline can continue.
+type ToolResultProvider func(ctx context.Context, tools []sdk.PendingClientTool) ([]ToolResult, error)
+
+// ToolResult carries the caller-provided outcome for a single client tool call.
+type ToolResult struct {
+	CallID   string // must match PendingClientTool.CallID
+	Result   any    // JSON-serializable; ignored when Rejected is true
+	Rejected bool
+	Reason   string // rejection reason (used when Rejected is true)
 }
 
 // EventBusProvider abstracts access to the conversation's event bus.
@@ -35,10 +54,11 @@ type StateProvider interface {
 type AdapterOption func(*adapterConfig)
 
 type adapterConfig struct {
-	threadID      string
-	runID         string
-	stateProvider StateProvider
-	workflowSteps bool
+	threadID           string
+	runID              string
+	stateProvider      StateProvider
+	workflowSteps      bool
+	toolResultProvider ToolResultProvider
 }
 
 // WithThreadID sets the AG-UI thread ID for emitted events.
@@ -67,6 +87,15 @@ func WithStateProvider(sp StateProvider) AdapterOption {
 func WithWorkflowSteps(enabled bool) AdapterOption {
 	return func(c *adapterConfig) {
 		c.workflowSteps = enabled
+	}
+}
+
+// WithToolResultProvider sets a callback that supplies results for pending
+// client tools. When configured, the adapter will suspend, call the provider,
+// resolve each tool, then call Resume to continue the pipeline.
+func WithToolResultProvider(provider ToolResultProvider) AdapterOption {
+	return func(c *adapterConfig) {
+		c.toolResultProvider = provider
 	}
 }
 
@@ -127,6 +156,10 @@ func (a *EventAdapter) RunID() string {
 	return a.cfg.runID
 }
 
+// clientToolsPendingEvent is the custom event name emitted when the adapter
+// suspends to wait for client tool results.
+const clientToolsPendingEvent = "promptkit.client_tools_pending"
+
 // RunSend sends a message through the conversation and emits AG-UI events.
 //
 // Event sequence on success:
@@ -134,11 +167,16 @@ func (a *EventAdapter) RunID() string {
 //  2. StateSnapshotEvent (if StateProvider is configured)
 //  3. TextMessageStartEvent
 //  4. TextMessageContentEvent (full text in a single delta)
-//  5. For each tool call: ToolCallStartEvent, ToolCallArgsEvent, ToolCallEndEvent
-//  6. TextMessageEndEvent
-//  7. RunFinishedEvent
+//  5. For each server-side tool call: ToolCallStartEvent, ToolCallArgsEvent, ToolCallEndEvent
+//  6. If pending client tools (and ToolResultProvider configured):
+//     a. ToolCallStart/Args/End for each pending tool
+//     b. CustomEvent("promptkit.client_tools_pending")
+//     c. Provider is called → ToolCallResult per resolved tool
+//     d. Resume → loop back to step 4
+//  7. TextMessageEndEvent
+//  8. RunFinishedEvent
 //
-// On error, a RunErrorEvent is emitted instead of steps 3-7.
+// On error, a RunErrorEvent is emitted instead of steps 3-8.
 // The events channel is always closed when RunSend returns.
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 	defer a.closeEvents()
@@ -171,18 +209,29 @@ func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 		return err
 	}
 
-	// 5. Emit text message events
+	// 5. Emit text message events (may loop if client tools require resume)
 	msgID := aguievents.GenerateMessageID()
 	a.emit(aguievents.NewTextMessageStartEvent(msgID, aguievents.WithRole(roleAssistant)))
 
-	text := resp.Text()
-	if text != "" {
-		a.emit(aguievents.NewTextMessageContentEvent(msgID, text))
-	}
+	for {
+		a.emitResponseContent(resp, msgID, &toolResults, &toolResultsMu)
 
-	// 6. Emit tool call events
-	for _, tc := range resp.ToolCalls() {
-		a.emitToolCallEvents(tc, msgID, &toolResults, &toolResultsMu)
+		if !resp.HasPendingClientTools() {
+			break
+		}
+
+		a.emitPendingClientTools(resp.ClientTools(), msgID)
+
+		if a.cfg.toolResultProvider == nil {
+			break // no provider — emit events only (backward-compat)
+		}
+
+		var resumeErr error
+		resp, resumeErr = a.fulfillAndResume(ctx, resp.ClientTools())
+		if resumeErr != nil {
+			a.emit(aguievents.NewRunErrorEvent(resumeErr.Error()))
+			return resumeErr
+		}
 	}
 
 	// 7. End message
@@ -191,6 +240,95 @@ func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 	// 8. Emit RunFinished
 	a.emit(aguievents.NewRunFinishedEvent(a.cfg.threadID, a.cfg.runID))
 
+	return nil
+}
+
+// emitResponseContent emits text content and server-side tool call events from a response.
+func (a *EventAdapter) emitResponseContent(
+	resp *sdk.Response,
+	msgID string,
+	toolResults *[]toolResultCapture,
+	toolResultsMu *sync.Mutex,
+) {
+	text := resp.Text()
+	if text != "" {
+		a.emit(aguievents.NewTextMessageContentEvent(msgID, text))
+	}
+	for _, tc := range resp.ToolCalls() {
+		a.emitToolCallEvents(tc, msgID, toolResults, toolResultsMu)
+	}
+}
+
+// fulfillAndResume calls the ToolResultProvider, resolves each tool result via the
+// sender, then calls Resume to continue the pipeline. Returns the new response.
+func (a *EventAdapter) fulfillAndResume(
+	ctx context.Context, pendingTools []sdk.PendingClientTool,
+) (*sdk.Response, error) {
+	results, err := a.cfg.toolResultProvider(ctx, pendingTools)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.resolveClientTools(ctx, results); err != nil {
+		return nil, err
+	}
+	return a.sender.Resume(ctx)
+}
+
+// emitPendingClientTools emits ToolCallStart/Args/End for each pending client tool,
+// then a CustomEvent signaling the frontend that these tools need client fulfillment.
+func (a *EventAdapter) emitPendingClientTools(tools []sdk.PendingClientTool, parentMsgID string) {
+	type pendingToolInfo struct {
+		CallID   string         `json:"callID"`
+		ToolName string         `json:"toolName"`
+		Args     map[string]any `json:"args,omitempty"`
+	}
+
+	var infos []pendingToolInfo
+	for _, t := range tools {
+		a.emit(aguievents.NewToolCallStartEvent(
+			t.CallID,
+			t.ToolName,
+			aguievents.WithParentMessageID(parentMsgID),
+		))
+		if len(t.Args) > 0 {
+			argsJSON, _ := json.Marshal(t.Args)
+			a.emit(aguievents.NewToolCallArgsEvent(t.CallID, string(argsJSON)))
+		}
+		a.emit(aguievents.NewToolCallEndEvent(t.CallID))
+		infos = append(infos, pendingToolInfo{
+			CallID:   t.CallID,
+			ToolName: t.ToolName,
+			Args:     t.Args,
+		})
+	}
+
+	a.emit(aguievents.NewCustomEvent(
+		clientToolsPendingEvent,
+		aguievents.WithValue(map[string]any{"tools": infos}),
+	))
+}
+
+// resolveClientTools calls SendToolResult or RejectClientTool on the sender for
+// each result, and emits a ToolCallResult event per tool.
+func (a *EventAdapter) resolveClientTools(ctx context.Context, results []ToolResult) error {
+	for _, r := range results {
+		if r.Rejected {
+			a.sender.RejectClientTool(ctx, r.CallID, r.Reason)
+		} else {
+			if err := a.sender.SendToolResult(ctx, r.CallID, r.Result); err != nil {
+				return err
+			}
+		}
+		resultMsgID := aguievents.GenerateMessageID()
+		content := toolResultCompleted
+		if r.Rejected {
+			content = "rejected"
+			if r.Reason != "" {
+				content = "rejected: " + r.Reason
+			}
+		}
+		a.emit(aguievents.NewToolCallResultEvent(resultMsgID, r.CallID, content))
+	}
 	return nil
 }
 
