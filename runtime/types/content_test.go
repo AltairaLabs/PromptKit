@@ -465,6 +465,134 @@ func TestGetBase64Data_URL(t *testing.T) {
 	}
 }
 
+func TestMetadataOnlyParts(t *testing.T) {
+	t.Run("nil input returns nil", func(t *testing.T) {
+		result := MetadataOnlyParts(nil)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+
+	t.Run("empty input returns empty", func(t *testing.T) {
+		result := MetadataOnlyParts([]ContentPart{})
+		if len(result) != 0 {
+			t.Errorf("expected empty, got %d parts", len(result))
+		}
+	})
+
+	t.Run("text parts are preserved", func(t *testing.T) {
+		text := "Hello, world!"
+		parts := []ContentPart{
+			{Type: ContentTypeText, Text: &text},
+		}
+		result := MetadataOnlyParts(parts)
+		if len(result) != 1 {
+			t.Fatalf("expected 1 part, got %d", len(result))
+		}
+		if result[0].Type != ContentTypeText || result[0].Text == nil || *result[0].Text != text {
+			t.Errorf("text part not preserved: %+v", result[0])
+		}
+	})
+
+	t.Run("binary data is stripped from media parts", func(t *testing.T) {
+		data := "base64encodedimagedata"
+		filePath := "/path/to/image.jpg"
+		sizeKB := int64(150)
+		width := 800
+		height := 600
+		parts := []ContentPart{
+			{
+				Type: ContentTypeImage,
+				Media: &MediaContent{
+					Data:     &data,
+					MIMEType: MIMETypeImageJPEG,
+					SizeKB:   &sizeKB,
+					Width:    &width,
+					Height:   &height,
+				},
+			},
+			{
+				Type: ContentTypeAudio,
+				Media: &MediaContent{
+					FilePath: &filePath,
+					MIMEType: MIMETypeAudioMP3,
+					SizeKB:   &sizeKB,
+				},
+			},
+		}
+
+		result := MetadataOnlyParts(parts)
+		if len(result) != 2 {
+			t.Fatalf("expected 2 parts, got %d", len(result))
+		}
+
+		// Image: Data should be nil, metadata preserved
+		img := result[0]
+		if img.Media.Data != nil {
+			t.Error("expected Data to be nil")
+		}
+		if img.Media.MIMEType != MIMETypeImageJPEG {
+			t.Errorf("expected MIMEType %s, got %s", MIMETypeImageJPEG, img.Media.MIMEType)
+		}
+		if img.Media.SizeKB == nil || *img.Media.SizeKB != sizeKB {
+			t.Error("SizeKB not preserved")
+		}
+		if img.Media.Width == nil || *img.Media.Width != width {
+			t.Error("Width not preserved")
+		}
+		if img.Media.Height == nil || *img.Media.Height != height {
+			t.Error("Height not preserved")
+		}
+
+		// Audio: FilePath should be nil, metadata preserved
+		aud := result[1]
+		if aud.Media.FilePath != nil {
+			t.Error("expected FilePath to be nil")
+		}
+		if aud.Media.MIMEType != MIMETypeAudioMP3 {
+			t.Errorf("expected MIMEType %s, got %s", MIMETypeAudioMP3, aud.Media.MIMEType)
+		}
+	})
+
+	t.Run("URL is preserved", func(t *testing.T) {
+		url := "https://example.com/image.png"
+		parts := []ContentPart{
+			{
+				Type: ContentTypeImage,
+				Media: &MediaContent{
+					URL:      &url,
+					MIMEType: MIMETypeImagePNG,
+				},
+			},
+		}
+
+		result := MetadataOnlyParts(parts)
+		if result[0].Media.URL == nil || *result[0].Media.URL != url {
+			t.Error("URL should be preserved")
+		}
+	})
+
+	t.Run("original parts are not mutated", func(t *testing.T) {
+		data := "base64data"
+		parts := []ContentPart{
+			{
+				Type: ContentTypeImage,
+				Media: &MediaContent{
+					Data:     &data,
+					MIMEType: MIMETypeImageJPEG,
+				},
+			},
+		}
+
+		_ = MetadataOnlyParts(parts)
+
+		// Original should still have data
+		if parts[0].Media.Data == nil || *parts[0].Media.Data != data {
+			t.Error("original part was mutated")
+		}
+	})
+}
+
 func TestInferMIMETypeFromURL_Fallback(t *testing.T) {
 	// URL with no extension should default to JPEG
 	result := inferMIMETypeFromURL("https://example.com/image")

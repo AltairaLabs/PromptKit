@@ -319,6 +319,39 @@ func (mc *MediaContent) ReadData() (io.ReadCloser, error) {
 	return nil, fmt.Errorf("no data source available")
 }
 
+// MetadataOnlyParts returns a copy of parts with binary data stripped.
+// Text parts are preserved as-is. Media parts keep metadata (MIMEType, SizeKB,
+// Width, Height, Duration, etc.) and URL references, but Data and FilePath
+// are set to nil. This is useful for event emission where binary payloads
+// are unnecessary overhead.
+func MetadataOnlyParts(parts []ContentPart) []ContentPart {
+	if len(parts) == 0 {
+		return parts
+	}
+
+	result := make([]ContentPart, len(parts))
+	for i, p := range parts {
+		if p.Media == nil {
+			// Text parts and parts without media pass through unchanged
+			result[i] = p
+			continue
+		}
+
+		// Copy the media content, stripping binary sources
+		stripped := *p.Media
+		stripped.Data = nil
+		stripped.FilePath = nil
+
+		result[i] = ContentPart{
+			Type:  p.Type,
+			Text:  p.Text,
+			Media: &stripped,
+		}
+	}
+
+	return result
+}
+
 // inferMIMEType infers the MIME type from a file path based on extension
 func inferMIMEType(filePath string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(filePath))

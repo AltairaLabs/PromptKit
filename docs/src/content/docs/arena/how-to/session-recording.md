@@ -56,19 +56,62 @@ Each recording is a JSONL file containing:
 
 ## Captured Events
 
-Session recordings capture a comprehensive event stream:
+Session recordings capture a comprehensive event stream covering all runtime activity:
 
-| Event Type | Description |
-|------------|-------------|
-| `conversation.started` | Session initialization with system prompt |
-| `message.created` | User and assistant messages |
-| `audio.input` | User audio chunks (voice conversations) |
-| `audio.output` | Assistant audio chunks (voice responses) |
-| `provider.call.started` | LLM API call initiation |
-| `provider.call.completed` | LLM API call completion with tokens/cost |
-| `tool.call.started` | Tool/function call initiation |
-| `tool.call.completed` | Tool result with timing |
-| `validation.*` | Validator execution and results |
+| Category | Event Type | Description |
+|----------|------------|-------------|
+| **Conversation** | `conversation.started` | Session initialization with system prompt |
+| **Messages** | `message.created` | User and assistant messages with multimodal content parts |
+| | `message.updated` | Metadata updates (latency, token counts, cost) |
+| **Pipeline** | `pipeline.started` | Pipeline execution start with middleware count |
+| | `pipeline.completed` | Pipeline completion with total cost/tokens |
+| | `pipeline.failed` | Pipeline failure with error |
+| **Stages** | `stage.started` | Streaming stage start with type info |
+| | `stage.completed` | Stage completion with duration |
+| | `stage.failed` | Stage failure with error and duration |
+| **Middleware** | `middleware.started` | Middleware execution start |
+| | `middleware.completed` | Middleware completion with duration |
+| | `middleware.failed` | Middleware failure with error |
+| **Provider** | `provider.call.started` | LLM API call initiation (provider, model, message count) |
+| | `provider.call.completed` | LLM API call completion (tokens, cost, cached tokens) |
+| | `provider.call.failed` | LLM API call failure with error |
+| **Tools** | `tool.call.started` | Tool execution start with arguments |
+| | `tool.call.completed` | Tool completion with duration and status |
+| | `tool.call.failed` | Tool failure with error and duration |
+| **Client Tools** | `tool.client.request` | Client-side tool request with consent message and categories |
+| **Validation** | `validation.started` | Validator execution start |
+| | `validation.passed` | Validation success with duration |
+| | `validation.failed` | Validation failure with violations |
+| **Context** | `context.built` | Context window assembly (token count, budget, truncation) |
+| | `context.token_budget_exceeded` | Token budget overflow (required vs. budget) |
+| **State** | `state.loaded` | Conversation state loaded from store |
+| | `state.saved` | Conversation state persisted |
+| **Streaming** | `stream.interrupted` | Stream interruption with reason |
+| **Workflow** | `workflow.transitioned` | Workflow state transition (from/to states, event, prompt task) |
+| | `workflow.completed` | Workflow reached terminal state (final state, transition count) |
+| **Audio** | `audio.input` | User/environment audio chunks |
+| | `audio.output` | Assistant audio chunks |
+| | `audio.transcription` | Speech-to-text transcription result |
+| **Video** | `video.frame` | Video frame capture |
+| **Images** | `image.input` | Image input from user/environment |
+| | `image.output` | Image output from agent |
+| | `screenshot` | Screenshot capture |
+
+### Multimodal Content in Events
+
+The `message.created` event includes a `Parts` field (`[]ContentPart`) for multimodal messages. Each `ContentPart` has a `Type` field indicating the content kind:
+
+- **`text`** — Text content with a `Text` field
+- **`image`** — Image content with a `Media` field containing MIME type, URL, or inline data
+- **`audio`** — Audio content with a `Media` field
+- **`video`** — Video content with a `Media` field
+
+Audio, video, and image events use `BinaryPayload` for content storage:
+- `InlineData` — Raw bytes for small payloads
+- `StorageReference` — Backend-specific storage reference for externalized content
+- `MIMEType` — Content type (e.g., `audio/pcm`, `image/png`)
+
+Audio events include `AudioMetadata` (sample rate, channels, encoding, duration) and video events include `VideoMetadata` (width, height, frame rate) for media reconstruction.
 
 ## Working with Recordings
 
@@ -352,9 +395,12 @@ Save recordings as artifacts for debugging failed tests:
 ### Captured in Recordings
 - Complete event stream with precise timestamps
 - Audio chunks for voice conversations
-- Message content and metadata
-- Tool calls with arguments and results
+- Message content and metadata, including multimodal content parts
+- Tool calls with arguments, results, and timing
+- Client tool requests with consent information
 - Provider call timing and token usage
+- Stage and middleware execution lifecycle
+- Workflow state transitions and completion
 - Validation results
 
 ### Not Captured (stored separately)

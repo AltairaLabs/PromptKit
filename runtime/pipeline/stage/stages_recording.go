@@ -160,6 +160,7 @@ func (rs *RecordingStage) recordMessageElement(elem *StreamElement) {
 	data := &events.MessageCreatedData{
 		Role:    msg.Role,
 		Content: msg.Content,
+		Parts:   msg.Parts,
 	}
 
 	// Convert tool calls if present

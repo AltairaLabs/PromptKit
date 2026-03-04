@@ -123,6 +123,28 @@ Attach a video file.
 sdk.WithVideoFile("/path/to/video.mp4")
 ```
 
+### WithRecording
+
+Enable session recording by inserting RecordingStages into the pipeline. These stages capture full binary content (images, audio, video) and publish events directly to the EventBus for session replay.
+
+If `cfg` is nil, default settings are used (audio=true, video=false, images=true). An EventBus is automatically created if none was provided via `WithEventBus`.
+
+```go
+// Use defaults
+sdk.WithRecording(nil)
+
+// Custom config
+sdk.WithRecording(&sdk.RecordingConfig{
+    IncludeAudio:  true,
+    IncludeVideo:  true,
+    IncludeImages: true,
+})
+```
+
+:::note
+Without `WithRecording`, the emitter's `MessageCreated` events strip binary data from content parts (keeping only metadata like MIMEType, SizeKB, dimensions). RecordingStages bypass the emitter and publish full binary data directly to the EventBus.
+:::
+
 ## Conversation Type
 
 ### Send

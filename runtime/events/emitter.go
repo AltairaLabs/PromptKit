@@ -1,6 +1,10 @@
 package events
 
-import "time"
+import (
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+)
 
 // Emitter provides helpers for publishing runtime events with shared metadata.
 type Emitter struct {
@@ -275,9 +279,13 @@ func (e *Emitter) EmitCustom(
 }
 
 // MessageCreated emits the message.created event.
+// Binary data (base64 Data, FilePath) is stripped from content parts to avoid
+// large payloads in observability events. RecordingStage bypasses the emitter
+// and publishes directly to the EventBus with full binary data.
 func (e *Emitter) MessageCreated(
 	role, content string,
 	index int,
+	parts []types.ContentPart,
 	toolCalls []MessageToolCall,
 	toolResult *MessageToolResult,
 ) {
@@ -285,6 +293,7 @@ func (e *Emitter) MessageCreated(
 		Role:       role,
 		Content:    content,
 		Index:      index,
+		Parts:      types.MetadataOnlyParts(parts),
 		ToolCalls:  toolCalls,
 		ToolResult: toolResult,
 	})

@@ -26,19 +26,25 @@ Session recording provides a complete audit trail of LLM interactions. Unlike si
 
 ### Event Emitter
 
-The `Emitter` is the heart of session recording. It captures events as they occur:
+The `Emitter` captures events as they occur during a conversation:
 
 ```go
 emitter := events.NewEmitter(eventBus, runID, scenarioID, conversationID)
 
 // Events are emitted automatically during conversation
 emitter.ConversationStarted(systemPrompt)
-emitter.MessageCreated(role, content)
+emitter.MessageCreated(role, content, index, parts, toolCalls, toolResult)
 emitter.AudioInput(audioData)
 emitter.ProviderCallStarted(provider, model)
 emitter.ToolCallStarted(toolName, args)
 // ...
 ```
+
+:::note[Binary data handling]
+The emitter's `MessageCreated()` automatically strips binary data (base64 `Data` and `FilePath`) from content parts, emitting only metadata (MIMEType, SizeKB, dimensions). This keeps observability events lightweight.
+
+**RecordingStage** bypasses the emitter and publishes events directly to the EventBus with full binary data intact. Use `sdk.WithRecording()` to enable this in SDK pipelines, or insert RecordingStages manually in Arena pipelines.
+:::
 
 Events flow through an EventBus to registered subscribers:
 

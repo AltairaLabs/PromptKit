@@ -1641,3 +1641,167 @@ func TestProviderStage_ExecuteToolCalls_PendingSuspends(t *testing.T) {
 	// Completed results should still be returned
 	require.Len(t, results, 1, "completed tool results should be returned")
 }
+
+func TestProviderStage_ExecuteToolCalls_EmitsStartedCompleted(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+
+	executor := &mockAsyncExecutor{
+		name:    "test-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`{"result": "ok"}`),
+	}
+	registry.RegisterExecutor(executor)
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "emit_tool",
+		Description: "A tool for testing event emission",
+		Mode:        "test-executor",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var captured []*events.Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(2) // expect started + completed
+
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	stage := NewProviderStageWithEmitter(provider, registry, nil, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "emit_tool", Args: json.RawMessage(`{"key":"value"}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, captured, 2)
+	assert.Equal(t, events.EventToolCallStarted, captured[0].Type)
+	assert.Equal(t, events.EventToolCallCompleted, captured[1].Type)
+
+	startedData, ok := captured[0].Data.(events.ToolCallStartedData)
+	require.True(t, ok)
+	assert.Equal(t, "emit_tool", startedData.ToolName)
+	assert.Equal(t, "call-1", startedData.CallID)
+	assert.Equal(t, "value", startedData.Args["key"])
+
+	completedData, ok := captured[1].Data.(events.ToolCallCompletedData)
+	require.True(t, ok)
+	assert.Equal(t, "emit_tool", completedData.ToolName)
+	assert.Equal(t, "call-1", completedData.CallID)
+	assert.Equal(t, "complete", completedData.Status)
+}
+
+func TestProviderStage_ExecuteToolCalls_EmitsFailed(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+	// Don't register any tool — ExecuteAsync will return "tool not found" error
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var captured []*events.Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(2) // expect started + failed
+
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	stage := NewProviderStageWithEmitter(provider, registry, nil, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "nonexistent_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].ToolResult.Error, "nonexistent_tool")
+
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, captured, 2)
+
+	// Events may arrive in any order from async bus — find by type
+	var startedEvent, failedEvent *events.Event
+	for _, e := range captured {
+		switch e.Type {
+		case events.EventToolCallStarted:
+			startedEvent = e
+		case events.EventToolCallFailed:
+			failedEvent = e
+		}
+	}
+	require.NotNil(t, startedEvent, "expected tool.call.started event")
+	require.NotNil(t, failedEvent, "expected tool.call.failed event")
+
+	failedData, ok := failedEvent.Data.(events.ToolCallFailedData)
+	require.True(t, ok)
+	assert.Equal(t, "nonexistent_tool", failedData.ToolName)
+	assert.Equal(t, "call-1", failedData.CallID)
+	assert.Error(t, failedData.Error)
+}
+
+func TestProviderStage_ExecuteToolCalls_BlockedNoEvents(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "blocked_tool",
+		Description: "A blocked tool",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	toolPolicy := &pipeline.ToolPolicy{
+		Blocklist: []string{"blocked_tool"},
+	}
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var captured []*events.Event
+	var mu sync.Mutex
+
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+	})
+
+	stage := NewProviderStageWithEmitter(provider, registry, toolPolicy, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].ToolResult.Content, "blocked by policy")
+
+	// Give the event bus a moment to process any events
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Empty(t, captured, "blocked tools should not emit any tool call events")
+}

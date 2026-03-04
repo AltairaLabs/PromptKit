@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -966,3 +967,45 @@ func (h *testSessionHook) OnSessionUpdate(_ context.Context, _ hooks.SessionEven
 	return nil
 }
 func (h *testSessionHook) OnSessionEnd(_ context.Context, _ hooks.SessionEvent) error { return nil }
+
+func TestWithRecording(t *testing.T) {
+	t.Run("nil config uses defaults", func(t *testing.T) {
+		cfg := &config{}
+		err := WithRecording(nil)(cfg)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.recordingConfig)
+		assert.True(t, cfg.recordingConfig.IncludeAudio)
+		assert.False(t, cfg.recordingConfig.IncludeVideo)
+		assert.True(t, cfg.recordingConfig.IncludeImages)
+		assert.NotNil(t, cfg.eventBus, "should auto-create event bus")
+	})
+
+	t.Run("custom config is used", func(t *testing.T) {
+		cfg := &config{}
+		err := WithRecording(&RecordingConfig{
+			IncludeAudio:  false,
+			IncludeVideo:  true,
+			IncludeImages: false,
+		})(cfg)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.recordingConfig)
+		assert.False(t, cfg.recordingConfig.IncludeAudio)
+		assert.True(t, cfg.recordingConfig.IncludeVideo)
+		assert.False(t, cfg.recordingConfig.IncludeImages)
+	})
+
+	t.Run("does not overwrite existing event bus", func(t *testing.T) {
+		bus := &events.EventBus{}
+		cfg := &config{eventBus: bus}
+		err := WithRecording(nil)(cfg)
+		require.NoError(t, err)
+		assert.Same(t, bus, cfg.eventBus, "should not overwrite existing event bus")
+	})
+}
+
+func TestDefaultRecordingConfig(t *testing.T) {
+	cfg := DefaultRecordingConfig()
+	assert.True(t, cfg.IncludeAudio)
+	assert.False(t, cfg.IncludeVideo)
+	assert.True(t, cfg.IncludeImages)
+}

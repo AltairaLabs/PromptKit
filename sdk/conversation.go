@@ -344,6 +344,18 @@ func (c *Conversation) buildPipelineConfig(
 		ExecutionTimeout:      c.config.executionTimeout,
 	}
 
+	// Wire recording config if enabled
+	if c.config.recordingConfig != nil && c.config.eventBus != nil {
+		pipelineCfg.RecordingConfig = &stage.RecordingStageConfig{
+			SessionID:      conversationID,
+			ConversationID: conversationID,
+			IncludeAudio:   c.config.recordingConfig.IncludeAudio,
+			IncludeVideo:   c.config.recordingConfig.IncludeVideo,
+			IncludeImages:  c.config.recordingConfig.IncludeImages,
+		}
+		pipelineCfg.RecordingEventBus = c.config.eventBus
+	}
+
 	// Wire up RAG context components from SDK options
 	if c.config.retrievalProvider != nil {
 		pipelineCfg.MessageIndex = statestore.NewInMemoryIndex(c.config.retrievalProvider)

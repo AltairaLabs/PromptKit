@@ -168,6 +168,11 @@ type config struct {
 	// Use 0 to disable timeout entirely (useful for long-running tool-calling pipelines).
 	executionTimeout *time.Duration
 
+	// Recording configuration for session recording via RecordingStage.
+	// When set, RecordingStages are inserted into the pipeline to capture
+	// full message content (including binary data) for session replay.
+	recordingConfig *RecordingConfig
+
 	// Custom logger for SDK consumers
 	logger *slog.Logger
 }
@@ -486,6 +491,63 @@ func WithEventBus(bus *events.EventBus) Option {
 func WithEventStore(store events.EventStore) Option {
 	return func(c *config) error {
 		c.eventStore = store
+		return nil
+	}
+}
+
+// RecordingConfig configures session recording via RecordingStage.
+// RecordingStages capture full message content (including binary data)
+// and publish directly to the EventBus for session replay.
+type RecordingConfig struct {
+	// IncludeAudio records audio data (may be large). Default: true.
+	IncludeAudio bool
+
+	// IncludeVideo records video data (may be large). Default: false.
+	IncludeVideo bool
+
+	// IncludeImages records image data. Default: true.
+	IncludeImages bool
+}
+
+// DefaultRecordingConfig returns a RecordingConfig with sensible defaults.
+func DefaultRecordingConfig() RecordingConfig {
+	return RecordingConfig{
+		IncludeAudio:  true,
+		IncludeVideo:  false,
+		IncludeImages: true,
+	}
+}
+
+// WithRecording enables session recording by inserting RecordingStages
+// into the pipeline. These stages capture full binary content and publish
+// events directly to the EventBus, bypassing the emitter's binary stripping.
+//
+// If cfg is nil, default settings are used (audio=true, video=false, images=true).
+// An EventBus is automatically created if none was provided via WithEventBus.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithRecording(nil), // use defaults
+//	)
+//
+//	// Or with custom config:
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithRecording(&sdk.RecordingConfig{
+//	        IncludeAudio:  true,
+//	        IncludeVideo:  true,
+//	        IncludeImages: true,
+//	    }),
+//	)
+func WithRecording(cfg *RecordingConfig) Option {
+	return func(c *config) error {
+		if cfg == nil {
+			defaults := DefaultRecordingConfig()
+			cfg = &defaults
+		}
+		c.recordingConfig = cfg
+		// Ensure an event bus exists for recording stages
+		if c.eventBus == nil {
+			c.eventBus = events.NewEventBus()
+		}
 		return nil
 	}
 }

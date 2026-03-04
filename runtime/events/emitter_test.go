@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestEmitterPublishesSharedContext(t *testing.T) {
@@ -133,7 +135,7 @@ func TestEmitterHandlesNilEmitter(t *testing.T) {
 	var emitter *Emitter
 	// Should not panic when emitter is nil
 	emitter.PipelineStarted(1)
-	emitter.MessageCreated("user", "hello", 0, nil, nil)
+	emitter.MessageCreated("user", "hello", 0, nil, nil, nil)
 	emitter.MessageUpdated(0, 100, 10, 20, 0.001)
 	emitter.ConversationStarted("system prompt")
 	emitter.AudioInput(&AudioInputData{Actor: "user"})
@@ -158,7 +160,7 @@ func TestEmitter_MessageCreated(t *testing.T) {
 	toolCalls := []MessageToolCall{
 		{Name: "test_tool", Args: `{"key":"value"}`},
 	}
-	emitter.MessageCreated("assistant", "Hello!", 1, toolCalls, nil)
+	emitter.MessageCreated("assistant", "Hello!", 1, nil, toolCalls, nil)
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for message.created event")
@@ -200,7 +202,7 @@ func TestEmitter_MessageCreated_WithToolResult(t *testing.T) {
 		Name:    "weather_tool",
 		Content: `{"temp": 72}`,
 	}
-	emitter.MessageCreated("tool", "", 2, nil, toolResult)
+	emitter.MessageCreated("tool", "", 2, nil, nil, toolResult)
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for message.created event with tool result")
@@ -216,6 +218,125 @@ func TestEmitter_MessageCreated_WithToolResult(t *testing.T) {
 	}
 	if data.ToolResult == nil || data.ToolResult.Name != "weather_tool" {
 		t.Fatalf("unexpected tool result: %+v", data.ToolResult)
+	}
+}
+
+func TestEmitter_MessageCreated_WithParts(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-mp", "session-mp", "conv-mp")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventMessageCreated, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	textVal := "Hello with image"
+	imgURL := "https://example.com/img.png"
+	parts := []types.ContentPart{
+		{Type: "text", Text: &textVal},
+		{Type: "image", Media: &types.MediaContent{MIMEType: "image/png", URL: &imgURL}},
+	}
+	emitter.MessageCreated("user", "Hello with image", 0, parts, nil, nil)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for message.created event with parts")
+	}
+
+	data, ok := got.Data.(MessageCreatedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if len(data.Parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(data.Parts))
+	}
+	if data.Parts[0].Type != "text" || data.Parts[1].Type != "image" {
+		t.Fatalf("unexpected part types: %v, %v", data.Parts[0].Type, data.Parts[1].Type)
+	}
+}
+
+func TestEmitter_MessageCreated_StripsBinaryData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-sb", "session-sb", "conv-sb")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventMessageCreated, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	base64Data := "aGVsbG8gd29ybGQ=" // "hello world" in base64
+	filePath := "/tmp/audio.mp3"
+	sizeKB := int64(500)
+	textVal := "Check this out"
+	parts := []types.ContentPart{
+		{Type: "text", Text: &textVal},
+		{
+			Type: "image",
+			Media: &types.MediaContent{
+				Data:     &base64Data,
+				MIMEType: "image/jpeg",
+				SizeKB:   &sizeKB,
+			},
+		},
+		{
+			Type: "audio",
+			Media: &types.MediaContent{
+				FilePath: &filePath,
+				MIMEType: "audio/mp3",
+			},
+		},
+	}
+	emitter.MessageCreated("user", "Check this out", 0, parts, nil, nil)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for message.created event")
+	}
+
+	data, ok := got.Data.(MessageCreatedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if len(data.Parts) != 3 {
+		t.Fatalf("expected 3 parts, got %d", len(data.Parts))
+	}
+
+	// Text part should be unchanged
+	if data.Parts[0].Type != "text" || *data.Parts[0].Text != textVal {
+		t.Fatal("text part was modified")
+	}
+
+	// Image: Data should be stripped, metadata preserved
+	imgPart := data.Parts[1]
+	if imgPart.Media.Data != nil {
+		t.Error("expected Data to be stripped from image part")
+	}
+	if imgPart.Media.MIMEType != "image/jpeg" {
+		t.Errorf("expected MIMEType image/jpeg, got %s", imgPart.Media.MIMEType)
+	}
+	if imgPart.Media.SizeKB == nil || *imgPart.Media.SizeKB != sizeKB {
+		t.Error("SizeKB metadata was not preserved")
+	}
+
+	// Audio: FilePath should be stripped
+	audPart := data.Parts[2]
+	if audPart.Media.FilePath != nil {
+		t.Error("expected FilePath to be stripped from audio part")
+	}
+	if audPart.Media.MIMEType != "audio/mp3" {
+		t.Errorf("expected MIMEType audio/mp3, got %s", audPart.Media.MIMEType)
 	}
 }
 

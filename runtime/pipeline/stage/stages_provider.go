@@ -811,10 +811,23 @@ func (s *ProviderStage) executeToolCalls(
 			}
 		}
 
+		// Emit tool call started event
+		if s.emitter != nil {
+			var argsMap map[string]interface{}
+			if toolCall.Args != nil {
+				_ = json.Unmarshal(toolCall.Args, &argsMap)
+			}
+			s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap)
+		}
+
 		// Execute tool via registry (handles both sync and async tools)
 		startTime := time.Now()
 		asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
 		if err != nil {
+			// Emit tool call failed event
+			if s.emitter != nil {
+				s.emitter.ToolCallFailed(toolCall.Name, toolCall.ID, err, time.Since(startTime))
+			}
 			// Tool not found or execution setup failed
 			results = append(results, types.NewToolResultMessage(types.MessageToolResult{
 				ID:      toolCall.ID,
@@ -840,6 +853,12 @@ func (s *ProviderStage) executeToolCalls(
 				ToolResult:  toolResult,
 			})
 			continue
+		}
+
+		// Emit tool call completed event
+		if s.emitter != nil {
+			status := string(asyncResult.Status)
+			s.emitter.ToolCallCompleted(toolCall.Name, toolCall.ID, time.Since(startTime), status)
 		}
 
 		// Convert tool execution result to message
