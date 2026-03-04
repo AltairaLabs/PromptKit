@@ -153,3 +153,27 @@ SonarCloud runs on every PR and enforces quality on new code:
 - Coverage >= 80% on new/changed lines
 - Duplicated lines <= 3%
 - Reliability, Security, Maintainability ratings: A
+
+## Releases
+
+**Never create releases manually** (no `gh release create`). Use the release pipeline:
+
+```bash
+# Trigger a full release (tags all modules, builds binaries, creates GitHub release)
+gh workflow run release.yml -f version=v1.3.9 -f phase=full
+
+# Re-run just the tools phase (if libs were already tagged)
+gh workflow run release.yml -f version=v1.3.9 -f phase=tools-only
+
+# Skip tests (use only if CI already passed on main)
+gh workflow run release.yml -f version=v1.3.9 -f phase=full -f skip_tests=true
+```
+
+The release workflow (`.github/workflows/release.yml`) handles:
+1. **Validate** — semver format, version ordering, optional test suite
+2. **Tag libraries** — tags `runtime/`, `pkg/`, and root `vX.Y.Z`, verifies Go proxy propagation
+3. **Update & tag tools** — removes `replace` directives, tags `sdk/`, `server/a2a/`, `tools/arena/`, `tools/packc/`, GitHub Actions
+4. **Create GitHub release** — GoReleaser builds multi-platform binaries and draft release
+5. **Notify downstream** — dispatches `promptkit-release` event to `promptarena-deploy-agentcore`
+
+Phases: `full` (all steps), `libs-only` (steps 1-2), `tools-only` (steps 1,3).
