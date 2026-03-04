@@ -29,14 +29,18 @@ import (
 // --- mock SendResult ---
 
 type mockSendResult struct {
-	parts      []types.ContentPart
-	text       string
-	hasPending bool
+	parts              []types.ContentPart
+	text               string
+	hasPending         bool
+	hasPendingClient   bool
+	pendingClientTools []PendingClientToolInfo
 }
 
-func (r *mockSendResult) HasPendingTools() bool       { return r.hasPending }
-func (r *mockSendResult) Parts() []types.ContentPart { return r.parts }
-func (r *mockSendResult) Text() string               { return r.text }
+func (r *mockSendResult) HasPendingTools() bool                    { return r.hasPending }
+func (r *mockSendResult) HasPendingClientTools() bool              { return r.hasPendingClient }
+func (r *mockSendResult) PendingClientTools() []PendingClientToolInfo { return r.pendingClientTools }
+func (r *mockSendResult) Parts() []types.ContentPart               { return r.parts }
+func (r *mockSendResult) Text() string                             { return r.text }
 
 // --- mock conversation for server tests ---
 
@@ -1827,5 +1831,297 @@ func TestServerShutdownConvCloseError(t *testing.T) {
 	err := srv.Shutdown(ctx)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Shutdown error = %v, want %v", err, wantErr)
+	}
+}
+
+// --- mock resumable conversation ---
+
+type mockResumableConv struct {
+	mockConv
+	toolResults    []toolResultEntry
+	rejected       []toolResultEntry
+	resumeFunc     func(ctx context.Context) (SendResult, error)
+	resumeStreamFn func(ctx context.Context) <-chan StreamEvent
+	mu             sync.Mutex
+}
+
+func (m *mockResumableConv) SendToolResult(callID string, result any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.toolResults = append(m.toolResults, toolResultEntry{CallID: callID, Result: result})
+	return nil
+}
+
+func (m *mockResumableConv) RejectClientTool(callID string, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rejected = append(m.rejected, toolResultEntry{CallID: callID, Rejected: true, Reason: reason})
+}
+
+func (m *mockResumableConv) Resume(ctx context.Context) (SendResult, error) {
+	return m.resumeFunc(ctx)
+}
+
+func (m *mockResumableConv) ResumeStream(ctx context.Context) <-chan StreamEvent {
+	if m.resumeStreamFn != nil {
+		return m.resumeStreamFn(ctx)
+	}
+	ch := make(chan StreamEvent)
+	close(ch)
+	return ch
+}
+
+// --- client tool tests ---
+
+func TestServer_ClientTool_InputRequired(t *testing.T) {
+	mock := &mockConv{
+		sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+			return &mockSendResult{
+				hasPending:       true,
+				hasPendingClient: true,
+				pendingClientTools: []PendingClientToolInfo{
+					{CallID: "call-1", ToolName: "get_location", Args: map[string]any{"accuracy": "high"}, ConsentMsg: "Allow location access?"},
+				},
+			}, nil
+		},
+	}
+
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	defer ts.Close()
+
+	task := a2aSendMessage(t, ts, "ctx-client-tool", "Where am I?")
+
+	if task.Status.State != a2a.TaskStateInputRequired {
+		t.Fatalf("state = %q, want input_required", task.Status.State)
+	}
+	if task.Status.Message == nil {
+		t.Fatal("expected status message with tool metadata")
+	}
+	if len(task.Status.Message.Parts) != 1 {
+		t.Fatalf("parts = %d, want 1", len(task.Status.Message.Parts))
+	}
+	part := task.Status.Message.Parts[0]
+	if part.Metadata["tool_call_id"] != "call-1" {
+		t.Errorf("tool_call_id = %v, want call-1", part.Metadata["tool_call_id"])
+	}
+	if part.Metadata["tool_name"] != "get_location" {
+		t.Errorf("tool_name = %v, want get_location", part.Metadata["tool_name"])
+	}
+}
+
+func TestServer_ClientTool_ResumeCompleted(t *testing.T) {
+	mock := &mockResumableConv{
+		mockConv: mockConv{
+			sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+				return &mockSendResult{
+					hasPending:       true,
+					hasPendingClient: true,
+					pendingClientTools: []PendingClientToolInfo{
+						{CallID: "call-1", ToolName: "get_location"},
+					},
+				}, nil
+			},
+		},
+		resumeFunc: func(_ context.Context) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("You are in NYC")},
+				text:  "You are in NYC",
+			}, nil
+		},
+	}
+
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	defer ts.Close()
+
+	// First: trigger client tool suspension.
+	task1 := a2aSendMessage(t, ts, "ctx-resume", "Where am I?")
+	if task1.Status.State != a2a.TaskStateInputRequired {
+		t.Fatalf("state = %q, want input_required", task1.Status.State)
+	}
+
+	// Second: send tool result on same context ID.
+	task2 := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-resume",
+			Role:      a2a.RoleUser,
+			Parts: []a2a.Part{
+				{
+					Metadata: map[string]any{
+						"tool_call_id": "call-1",
+						"tool_result":  map[string]any{"lat": 40.7, "lon": -74.0},
+					},
+				},
+			},
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+
+	if task2.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task2.Status.State)
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.toolResults) != 1 {
+		t.Fatalf("tool results = %d, want 1", len(mock.toolResults))
+	}
+	if mock.toolResults[0].CallID != "call-1" {
+		t.Errorf("call ID = %q, want call-1", mock.toolResults[0].CallID)
+	}
+}
+
+func TestServer_ClientTool_Reject(t *testing.T) {
+	mock := &mockResumableConv{
+		mockConv: mockConv{
+			sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+				return &mockSendResult{
+					hasPending:       true,
+					hasPendingClient: true,
+					pendingClientTools: []PendingClientToolInfo{
+						{CallID: "call-1", ToolName: "get_location"},
+					},
+				}, nil
+			},
+		},
+		resumeFunc: func(_ context.Context) (SendResult, error) {
+			return &mockSendResult{
+				parts: []types.ContentPart{types.NewTextPart("Location denied")},
+				text:  "Location denied",
+			}, nil
+		},
+	}
+
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	defer ts.Close()
+
+	// Trigger suspension.
+	a2aSendMessage(t, ts, "ctx-reject", "Where am I?")
+
+	// Reject the tool.
+	task := a2aRPCRequestTask(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-reject",
+			Role:      a2a.RoleUser,
+			Parts: []a2a.Part{
+				{
+					Metadata: map[string]any{
+						"tool_call_id": "call-1",
+						"rejected":     "user declined location access",
+					},
+				},
+			},
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.rejected) != 1 {
+		t.Fatalf("rejected = %d, want 1", len(mock.rejected))
+	}
+	if mock.rejected[0].Reason != "user declined location access" {
+		t.Errorf("reason = %q, want 'user declined location access'", mock.rejected[0].Reason)
+	}
+}
+
+func TestServer_ClientTool_NonResumable(t *testing.T) {
+	// A regular (non-resumable) conversation should return an error
+	// when tool results are sent.
+	mock := completingMock()
+
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	defer ts.Close()
+
+	// Send an initial message to create the conversation.
+	a2aSendMessage(t, ts, "ctx-nonresumable", "Hello")
+
+	// Try to send tool results to a non-resumable conversation.
+	resp := a2aRPCRequest(t, ts, a2a.MethodSendMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-nonresumable",
+			Role:      a2a.RoleUser,
+			Parts: []a2a.Part{
+				{
+					Metadata: map[string]any{
+						"tool_call_id": "call-1",
+						"tool_result":  "some result",
+					},
+				},
+			},
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+
+	if resp.Error == nil {
+		t.Fatal("expected RPC error for non-resumable conversation")
+	}
+	if resp.Error.Code != -32000 {
+		t.Errorf("error code = %d, want -32000", resp.Error.Code)
+	}
+}
+
+func TestExtractToolResults(t *testing.T) {
+	parts := []a2a.Part{
+		{Text: serverTextPtr("just text")},
+		{
+			Metadata: map[string]any{
+				"tool_call_id": "call-1",
+				"tool_result":  map[string]any{"lat": 40.7},
+			},
+		},
+		{
+			Metadata: map[string]any{
+				"tool_call_id": "call-2",
+				"rejected":     "user denied",
+			},
+		},
+	}
+
+	results := extractToolResults(parts)
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want 2", len(results))
+	}
+
+	if results[0].CallID != "call-1" || results[0].Rejected {
+		t.Errorf("result[0] = %+v, want call-1 non-rejected", results[0])
+	}
+	if results[1].CallID != "call-2" || !results[1].Rejected || results[1].Reason != "user denied" {
+		t.Errorf("result[1] = %+v, want call-2 rejected with reason", results[1])
+	}
+}
+
+func TestBuildPendingToolsMessage(t *testing.T) {
+	resp := &mockSendResult{
+		hasPending:       true,
+		hasPendingClient: true,
+		pendingClientTools: []PendingClientToolInfo{
+			{CallID: "c1", ToolName: "camera", Args: map[string]any{"mode": "photo"}, ConsentMsg: "Allow camera?"},
+		},
+	}
+
+	msg := buildPendingToolsMessage(resp)
+	if msg == nil {
+		t.Fatal("expected non-nil message")
+	}
+	if len(msg.Parts) != 1 {
+		t.Fatalf("parts = %d, want 1", len(msg.Parts))
+	}
+	if msg.Parts[0].Metadata["tool_call_id"] != "c1" {
+		t.Errorf("tool_call_id = %v, want c1", msg.Parts[0].Metadata["tool_call_id"])
+	}
+	if msg.Parts[0].Metadata["tool_name"] != "camera" {
+		t.Errorf("tool_name = %v, want camera", msg.Parts[0].Metadata["tool_name"])
+	}
+}
+
+func TestBuildPendingToolsMessage_HITLOnly(t *testing.T) {
+	resp := &mockSendResult{hasPending: true}
+	msg := buildPendingToolsMessage(resp)
+	if msg != nil {
+		t.Fatalf("expected nil message for HITL-only pending, got %+v", msg)
 	}
 }

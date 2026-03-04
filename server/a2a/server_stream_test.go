@@ -968,3 +968,178 @@ func TestServer_StreamMessage_TaskStoreAfterStream(t *testing.T) {
 		t.Fatalf("task ID = %q, want %q", got.ID, taskID)
 	}
 }
+
+func TestServer_StreamMessage_ClientTool_InputRequired(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+				return &mockSendResult{}, nil
+			},
+		},
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 3)
+			ch <- StreamEvent{Kind: EventText, Text: "Looking up..."}
+			ch <- StreamEvent{
+				Kind: EventClientTool,
+				ClientTool: &PendingClientToolInfo{
+					CallID:     "call-loc",
+					ToolName:   "get_location",
+					Args:       map[string]any{"accuracy": "high"},
+					ConsentMsg: "Allow location?",
+				},
+			}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-stream-client",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Where am I?")}},
+		},
+	})
+
+	// Expect: working status, artifact (text), input_required status.
+	var foundInputRequired bool
+	for _, evt := range events {
+		if evt.StatusUpdate != nil && evt.StatusUpdate.Status.State == a2a.TaskStateInputRequired {
+			foundInputRequired = true
+			if evt.StatusUpdate.Status.Message == nil {
+				t.Error("expected status message with tool metadata")
+			} else if len(evt.StatusUpdate.Status.Message.Parts) == 0 {
+				t.Error("expected message parts with tool metadata")
+			} else {
+				meta := evt.StatusUpdate.Status.Message.Parts[0].Metadata
+				if meta["tool_call_id"] != "call-loc" {
+					t.Errorf("tool_call_id = %v, want call-loc", meta["tool_call_id"])
+				}
+				if meta["tool_name"] != "get_location" {
+					t.Errorf("tool_name = %v, want get_location", meta["tool_name"])
+				}
+			}
+		}
+	}
+	if !foundInputRequired {
+		t.Fatal("no input_required event found in stream")
+	}
+}
+
+// mockResumableStreamConv is a streaming conversation that also implements ResumableConversation.
+type mockResumableStreamConv struct {
+	mockStreamConv
+	toolResults    []toolResultEntry
+	rejected       []toolResultEntry
+	resumeStreamFn func(ctx context.Context) <-chan StreamEvent
+	mu             sync.Mutex
+}
+
+func (m *mockResumableStreamConv) SendToolResult(callID string, result any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.toolResults = append(m.toolResults, toolResultEntry{CallID: callID, Result: result})
+	return nil
+}
+
+func (m *mockResumableStreamConv) RejectClientTool(callID string, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rejected = append(m.rejected, toolResultEntry{CallID: callID, Rejected: true, Reason: reason})
+}
+
+func (m *mockResumableStreamConv) Resume(_ context.Context) (SendResult, error) {
+	return &mockSendResult{parts: []types.ContentPart{types.NewTextPart("resumed")}}, nil
+}
+
+func (m *mockResumableStreamConv) ResumeStream(ctx context.Context) <-chan StreamEvent {
+	return m.resumeStreamFn(ctx)
+}
+
+func TestServer_StreamMessage_ClientTool_ResumeStream(t *testing.T) {
+	mock := &mockResumableStreamConv{
+		mockStreamConv: mockStreamConv{
+			mockConv: mockConv{
+				sendFunc: func(_ context.Context, _ any) (SendResult, error) {
+					return &mockSendResult{}, nil
+				},
+			},
+			streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+				ch := make(chan StreamEvent, 2)
+				ch <- StreamEvent{
+					Kind: EventClientTool,
+					ClientTool: &PendingClientToolInfo{
+						CallID:   "call-1",
+						ToolName: "get_location",
+					},
+				}
+				close(ch)
+				return ch
+			},
+		},
+		resumeStreamFn: func(_ context.Context) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 2)
+			ch <- StreamEvent{Kind: EventText, Text: "You are in NYC"}
+			ch <- StreamEvent{Kind: EventDone}
+			close(ch)
+			return ch
+		},
+	}
+
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	defer ts.Close()
+
+	// Step 1: stream triggers input_required.
+	events1 := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-stream-resume",
+			Role:      a2a.RoleUser,
+			Parts:     []a2a.Part{{Text: serverTextPtr("Where am I?")}},
+		},
+	})
+
+	var foundInputRequired bool
+	for _, evt := range events1 {
+		if evt.StatusUpdate != nil && evt.StatusUpdate.Status.State == a2a.TaskStateInputRequired {
+			foundInputRequired = true
+		}
+	}
+	if !foundInputRequired {
+		t.Fatal("expected input_required in first stream")
+	}
+
+	// Step 2: send tool results via streaming, triggering ResumeStream.
+	events2 := readSSEEvents(t, ts, a2a.MethodSendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{
+			ContextID: "ctx-stream-resume",
+			Role:      a2a.RoleUser,
+			Parts: []a2a.Part{
+				{
+					Metadata: map[string]any{
+						"tool_call_id": "call-1",
+						"tool_result":  map[string]any{"lat": 40.7, "lon": -74.0},
+					},
+				},
+			},
+		},
+	})
+
+	var foundCompleted bool
+	for _, evt := range events2 {
+		if evt.StatusUpdate != nil && evt.StatusUpdate.Status.State == a2a.TaskStateCompleted {
+			foundCompleted = true
+		}
+	}
+	if !foundCompleted {
+		t.Fatal("expected completed in resume stream")
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.toolResults) != 1 || mock.toolResults[0].CallID != "call-1" {
+		t.Errorf("tool results = %+v, want [{call-1 ...}]", mock.toolResults)
+	}
+}

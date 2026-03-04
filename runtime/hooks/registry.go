@@ -119,12 +119,18 @@ func (r *Registry) RunBeforeToolExecution(ctx context.Context, req ToolRequest) 
 	if r == nil {
 		return Allow
 	}
+	var lastAllow Decision
+	lastAllow.Allow = true
 	for _, h := range r.toolHooks {
-		if d := h.BeforeExecution(ctx, req); !d.Allow {
+		d := h.BeforeExecution(ctx, req)
+		if !d.Allow {
 			return d
 		}
+		if d.Metadata != nil {
+			lastAllow = d
+		}
 	}
-	return Allow
+	return lastAllow
 }
 
 // RunAfterToolExecution executes all tool hooks' AfterExecution in order.

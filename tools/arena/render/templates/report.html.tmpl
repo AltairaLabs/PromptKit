@@ -923,6 +923,18 @@
             display: none;
         }
         
+        .devtools-consent-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            margin-left: auto;
+        }
+        .devtools-consent-granted { background: #166534; color: #dcfce7; }
+        .devtools-consent-denied { background: #991b1b; color: #fecaca; }
+        .devtools-consent-timeout { background: #92400e; color: #fef3c7; }
+
         .turn-error {
             background: #fed7d7;
             border: 1px solid #fc8181;
@@ -2109,7 +2121,8 @@
                                     </div>
                                     {{end}}
                                     {{if eq $msg.Role "tool"}}
-                                    <div class="tool-response">
+                                    {{$consent := consentStatus $msg}}
+                                    <div class="tool-response"{{if and $consent $msg.ToolResult}} data-consent-status="{{$consent}}" data-tool-call-id="{{$msg.ToolResult.ID}}"{{end}}>
                                         <div class="tool-response-header" onclick="toggleToolResponse(this)">
                                             {{if $msg.ToolResult}}
                                             <span class="tool-response-name{{if isAgentTool $msg.ToolResult.Name}} agent{{else if isWorkflowTool $msg.ToolResult.Name}} workflow{{end}}">{{if isAgentTool $msg.ToolResult.Name}}<span class="agent-icon">🤖</span>{{else if isWorkflowTool $msg.ToolResult.Name}}<span class="workflow-icon">⚡</span>{{end}}{{$msg.ToolResult.Name}}</span>
@@ -2532,6 +2545,16 @@
 
                 // Tool calls made in this turn
                 if (toolcallsEl) {
+                    // Build consent status map from tool-response elements in the same result
+                    var consentMap = {};
+                    var resultContainer = data.closest('.result-card') || data.parentElement;
+                    if (resultContainer) {
+                        resultContainer.querySelectorAll('.tool-response[data-consent-status]').forEach(function(el) {
+                            var callId = el.getAttribute('data-tool-call-id');
+                            var status = el.getAttribute('data-consent-status');
+                            if (callId && status) consentMap[callId] = status;
+                        });
+                    }
                     html += '<div class="devtools-section"><div class="devtools-section-title">Tool Calls Made</div>';
                     try {
                         var calls = JSON.parse(toolcallsEl.textContent);
@@ -2543,11 +2566,16 @@
                                 else if (tc.name && tc.name.startsWith('a2a__')) { badge = 'a2a'; badgeLabel = 'a2a'; }
                                 else if (tc.name && tc.name.startsWith('mcp__')) { badge = 'a2a'; badgeLabel = 'mcp'; }
                                 else if (tc.name && tc.name.startsWith('memory__')) { badge = 'skill'; badgeLabel = 'mem'; }
+                                var consentStatus = tc.id ? (consentMap[tc.id] || '') : '';
                                 html += '<div style="margin-bottom:0.75rem;border:1px solid #313244;border-radius:4px;overflow:hidden;">';
                                 html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;background:#181825;border-bottom:1px solid #313244;">';
                                 html += '<span class="devtools-tool-badge ' + badge + '">' + badgeLabel + '</span>';
                                 html += '<span style="font-family:monospace;font-size:0.8rem;color:#89b4fa;">' + escapeHtml(stripToolNamespace(tc.name || 'unknown')) + '</span>';
-                                if (tc.id) html += '<span style="margin-left:auto;font-size:0.65rem;color:#585b70;">' + tc.id + '</span>';
+                                if (consentStatus) {
+                                    var cLabel = consentStatus === 'granted' ? '✓ granted' : consentStatus === 'denied' ? '✗ denied' : '⏱ timeout';
+                                    html += '<span class="devtools-consent-badge devtools-consent-' + consentStatus + '">' + cLabel + '</span>';
+                                }
+                                if (tc.id) html += '<span style="' + (consentStatus ? '' : 'margin-left:auto;') + 'font-size:0.65rem;color:#585b70;">' + tc.id + '</span>';
                                 html += '</div>';
                                 if (tc.args) {
                                     var argsStr = typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args, null, 2);

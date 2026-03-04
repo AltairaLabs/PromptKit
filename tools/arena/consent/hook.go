@@ -47,16 +47,20 @@ func (h *SimulationHook) BeforeExecution(ctx context.Context, req hooks.ToolRequ
 	switch action {
 	case "deny":
 		reason := buildDenyMessage(req.Name, h.lookupDeclineStrategy(ctx, req.Name))
-		return hooks.Decision{Allow: false, Reason: reason}
+		return hooks.DenyWithMetadata(reason, map[string]any{
+			"consent_status": "denied",
+		})
 
 	case "timeout":
-		return hooks.Decision{
-			Allow:  false,
-			Reason: fmt.Sprintf("Tool %s timed out waiting for user consent", req.Name),
-		}
+		return hooks.DenyWithMetadata(
+			fmt.Sprintf("Tool %s timed out waiting for user consent", req.Name),
+			map[string]any{"consent_status": "timeout"},
+		)
 
 	default: // "grant" or any other value
-		return hooks.Allow
+		return hooks.Decision{Allow: true, Metadata: map[string]any{
+			"consent_status": "granted",
+		}}
 	}
 }
 

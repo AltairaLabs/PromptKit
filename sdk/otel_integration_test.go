@@ -419,8 +419,10 @@ func (m *otelMockConv) Close() error { return nil }
 
 type otelMockResult struct{}
 
-func (r *otelMockResult) HasPendingTools() bool       { return false }
-func (r *otelMockResult) Parts() []types.ContentPart { return []types.ContentPart{types.NewTextPart("ok")} }
-func (r *otelMockResult) Text() string               { return "ok" }
+func (r *otelMockResult) HasPendingTools() bool                                 { return false }
+func (r *otelMockResult) HasPendingClientTools() bool                           { return false }
+func (r *otelMockResult) PendingClientTools() []a2aserver.PendingClientToolInfo { return nil }
+func (r *otelMockResult) Parts() []types.ContentPart                            { return []types.ContentPart{types.NewTextPart("ok")} }
+func (r *otelMockResult) Text() string                                          { return "ok" }
 
 func ptrStr(s string) *string { return &s }

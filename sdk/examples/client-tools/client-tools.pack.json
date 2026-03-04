@@ -1,0 +1,44 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "client-tools-example",
+  "name": "Client Tools Example",
+  "version": "1.0.0",
+  "description": "Example demonstrating client-side tool execution",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "assistant": {
+      "id": "assistant",
+      "name": "Location Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant. When asked about the user's location, use the get_location tool to get their GPS coordinates.",
+      "tools": ["get_location"]
+    }
+  },
+  "tools": {
+    "get_location": {
+      "name": "get_location",
+      "description": "Get the user's current GPS location",
+      "mode": "client",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "accuracy": {
+            "type": "string",
+            "enum": ["high", "low"],
+            "description": "GPS accuracy level"
+          }
+        }
+      },
+      "client": {
+        "consent": {
+          "required": true,
+          "message": "This app wants to access your location",
+          "decline_strategy": "graceful"
+        }
+      }
+    }
+  }
+}

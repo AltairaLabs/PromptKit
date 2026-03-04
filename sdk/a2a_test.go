@@ -314,8 +314,10 @@ func (m *a2aTestConv) Close() error { return nil }
 
 type a2aTestResult struct{}
 
-func (r *a2aTestResult) HasPendingTools() bool       { return false }
-func (r *a2aTestResult) Parts() []types.ContentPart { return []types.ContentPart{types.NewTextPart("mock response")} }
-func (r *a2aTestResult) Text() string               { return "mock response" }
+func (r *a2aTestResult) HasPendingTools() bool                                 { return false }
+func (r *a2aTestResult) HasPendingClientTools() bool                           { return false }
+func (r *a2aTestResult) PendingClientTools() []a2aserver.PendingClientToolInfo { return nil }
+func (r *a2aTestResult) Parts() []types.ContentPart                            { return []types.ContentPart{types.NewTextPart("mock response")} }
+func (r *a2aTestResult) Text() string                                          { return "mock response" }
 
 func a2aTextPtr(s string) *string { return &s }
