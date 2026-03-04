@@ -20,10 +20,48 @@ import (
 type mockSender struct {
 	resp *sdk.Response
 	err  error
+
+	// Client tool tracking
+	sendToolResultCalls []sendToolResultCall
+	sendToolResultErr   error
+	rejectCalls         []rejectCall
+	resumeResponses     []*sdk.Response // shifted off in order
+	resumeErr           error
+}
+
+type sendToolResultCall struct {
+	callID string
+	result any
+}
+
+type rejectCall struct {
+	callID string
+	reason string
 }
 
 func (m *mockSender) Send(_ context.Context, _ any, _ ...sdk.SendOption) (*sdk.Response, error) {
 	return m.resp, m.err
+}
+
+func (m *mockSender) SendToolResult(_ context.Context, callID string, result any) error {
+	m.sendToolResultCalls = append(m.sendToolResultCalls, sendToolResultCall{callID, result})
+	return m.sendToolResultErr
+}
+
+func (m *mockSender) RejectClientTool(_ context.Context, callID, reason string) {
+	m.rejectCalls = append(m.rejectCalls, rejectCall{callID, reason})
+}
+
+func (m *mockSender) Resume(_ context.Context) (*sdk.Response, error) {
+	if m.resumeErr != nil {
+		return nil, m.resumeErr
+	}
+	if len(m.resumeResponses) == 0 {
+		return sdk.NewResponseForTest("resumed", nil), nil
+	}
+	r := m.resumeResponses[0]
+	m.resumeResponses = m.resumeResponses[1:]
+	return r, nil
 }
 
 // mockEventBusProvider implements EventBusProvider for testing.
@@ -786,4 +824,325 @@ type delaySender struct {
 func (d *delaySender) Send(ctx context.Context, msg any, opts ...sdk.SendOption) (*sdk.Response, error) {
 	time.Sleep(d.delay)
 	return d.inner.Send(ctx, msg, opts...)
+}
+
+func (d *delaySender) SendToolResult(ctx context.Context, callID string, result any) error {
+	return d.inner.SendToolResult(ctx, callID, result)
+}
+
+func (d *delaySender) RejectClientTool(ctx context.Context, callID, reason string) {
+	d.inner.RejectClientTool(ctx, callID, reason)
+}
+
+func (d *delaySender) Resume(ctx context.Context) (*sdk.Response, error) {
+	return d.inner.Resume(ctx)
+}
+
+// --- Client tool tests ---
+
+func TestRunSend_ClientTools_WithProvider(t *testing.T) {
+	pendingTools := []sdk.PendingClientTool{
+		{CallID: "ct-1", ToolName: "get_location", Args: map[string]any{"city": "NYC"}},
+	}
+	initialResp := sdk.NewResponseForTest("need location", nil,
+		sdk.WithClientToolsForTest(pendingTools),
+	)
+	finalResp := sdk.NewResponseForTest("location is NYC", nil)
+
+	sender := &mockSender{
+		resp:            initialResp,
+		resumeResponses: []*sdk.Response{finalResp},
+	}
+	ebp := &mockEventBusProvider{}
+
+	providerCalled := false
+	provider := func(_ context.Context, tools []sdk.PendingClientTool) ([]ToolResult, error) {
+		providerCalled = true
+		require.Len(t, tools, 1)
+		assert.Equal(t, "ct-1", tools[0].CallID)
+		return []ToolResult{
+			{CallID: "ct-1", Result: map[string]any{"lat": 40.7}},
+		}, nil
+	}
+
+	a := newTestAdapter(sender, ebp, WithToolResultProvider(provider))
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("where am I?"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	assert.True(t, providerCalled)
+
+	// Verify sender was called correctly
+	require.Len(t, sender.sendToolResultCalls, 1)
+	assert.Equal(t, "ct-1", sender.sendToolResultCalls[0].callID)
+
+	// Verify event types include: RunStarted, TextMessageStart,
+	// TextMessageContent("need location"), ToolCallStart(ct-1), ToolCallArgs,
+	// ToolCallEnd, Custom, ToolCallResult, TextMessageContent("location is NYC"),
+	// TextMessageEnd, RunFinished
+	var evtTypes []aguievents.EventType
+	for _, ev := range evts {
+		evtTypes = append(evtTypes, ev.Type())
+	}
+
+	assert.Equal(t, aguievents.EventTypeRunStarted, evtTypes[0])
+	assert.Equal(t, aguievents.EventTypeTextMessageStart, evtTypes[1])
+	assert.Contains(t, evtTypes, aguievents.EventTypeCustom)
+	assert.Contains(t, evtTypes, aguievents.EventTypeToolCallResult)
+	assert.Equal(t, aguievents.EventTypeRunFinished, evtTypes[len(evtTypes)-1])
+
+	// Verify custom event content
+	for _, ev := range evts {
+		if ev.Type() == aguievents.EventTypeCustom {
+			ce, ok := ev.(*aguievents.CustomEvent)
+			require.True(t, ok)
+			assert.Equal(t, "promptkit.client_tools_pending", ce.Name)
+			break
+		}
+	}
+}
+
+func TestRunSend_ClientTools_NoProvider(t *testing.T) {
+	pendingTools := []sdk.PendingClientTool{
+		{CallID: "ct-1", ToolName: "get_location"},
+	}
+	resp := sdk.NewResponseForTest("pending", nil,
+		sdk.WithClientToolsForTest(pendingTools),
+	)
+
+	sender := &mockSender{resp: resp}
+	ebp := &mockEventBusProvider{}
+
+	// No provider configured
+	a := newTestAdapter(sender, ebp)
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("hi"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	// Should emit tool call events for the pending tool + custom event, then finish normally
+	var evtTypes []aguievents.EventType
+	for _, ev := range evts {
+		evtTypes = append(evtTypes, ev.Type())
+	}
+
+	assert.Contains(t, evtTypes, aguievents.EventTypeToolCallStart)
+	assert.Contains(t, evtTypes, aguievents.EventTypeCustom)
+	assert.Equal(t, aguievents.EventTypeRunFinished, evtTypes[len(evtTypes)-1])
+
+	// Resume should NOT have been called
+	assert.Empty(t, sender.sendToolResultCalls)
+}
+
+func TestRunSend_ClientTools_ProviderError(t *testing.T) {
+	pendingTools := []sdk.PendingClientTool{
+		{CallID: "ct-1", ToolName: "get_location"},
+	}
+	resp := sdk.NewResponseForTest("pending", nil,
+		sdk.WithClientToolsForTest(pendingTools),
+	)
+
+	sender := &mockSender{resp: resp}
+	ebp := &mockEventBusProvider{}
+
+	provider := func(_ context.Context, _ []sdk.PendingClientTool) ([]ToolResult, error) {
+		return nil, errors.New("provider failed")
+	}
+
+	a := newTestAdapter(sender, ebp, WithToolResultProvider(provider))
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("hi"))
+	require.Error(t, err)
+	assert.Equal(t, "provider failed", err.Error())
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	// Should have RunError event
+	var hasRunError bool
+	for _, ev := range evts {
+		if ev.Type() == aguievents.EventTypeRunError {
+			hasRunError = true
+			re, ok := ev.(*aguievents.RunErrorEvent)
+			require.True(t, ok)
+			assert.Equal(t, "provider failed", re.Message)
+		}
+	}
+	assert.True(t, hasRunError)
+}
+
+func TestRunSend_ClientTools_MultipleRounds(t *testing.T) {
+	// First response: pending tool ct-1
+	pendingTools1 := []sdk.PendingClientTool{
+		{CallID: "ct-1", ToolName: "get_location"},
+	}
+	initialResp := sdk.NewResponseForTest("round 1", nil,
+		sdk.WithClientToolsForTest(pendingTools1),
+	)
+
+	// Second response (after Resume): pending tool ct-2
+	pendingTools2 := []sdk.PendingClientTool{
+		{CallID: "ct-2", ToolName: "confirm_action"},
+	}
+	secondResp := sdk.NewResponseForTest("round 2", nil,
+		sdk.WithClientToolsForTest(pendingTools2),
+	)
+
+	// Final response (after second Resume): no pending tools
+	finalResp := sdk.NewResponseForTest("done", nil)
+
+	sender := &mockSender{
+		resp:            initialResp,
+		resumeResponses: []*sdk.Response{secondResp, finalResp},
+	}
+	ebp := &mockEventBusProvider{}
+
+	providerCallCount := 0
+	provider := func(_ context.Context, tools []sdk.PendingClientTool) ([]ToolResult, error) {
+		providerCallCount++
+		return []ToolResult{
+			{CallID: tools[0].CallID, Result: "ok"},
+		}, nil
+	}
+
+	a := newTestAdapter(sender, ebp, WithToolResultProvider(provider))
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("go"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	// Provider should have been called twice
+	assert.Equal(t, 2, providerCallCount)
+
+	// Should have 2 SendToolResult calls
+	require.Len(t, sender.sendToolResultCalls, 2)
+	assert.Equal(t, "ct-1", sender.sendToolResultCalls[0].callID)
+	assert.Equal(t, "ct-2", sender.sendToolResultCalls[1].callID)
+
+	// Should end with RunFinished
+	var evtTypes []aguievents.EventType
+	for _, ev := range evts {
+		evtTypes = append(evtTypes, ev.Type())
+	}
+	assert.Equal(t, aguievents.EventTypeRunFinished, evtTypes[len(evtTypes)-1])
+
+	// Should have 2 CustomEvents (one per round)
+	var customCount int
+	for _, ev := range evts {
+		if ev.Type() == aguievents.EventTypeCustom {
+			customCount++
+		}
+	}
+	assert.Equal(t, 2, customCount)
+}
+
+func TestRunSend_ClientTools_Rejection(t *testing.T) {
+	pendingTools := []sdk.PendingClientTool{
+		{CallID: "ct-1", ToolName: "get_location"},
+		{CallID: "ct-2", ToolName: "send_email"},
+	}
+	initialResp := sdk.NewResponseForTest("need tools", nil,
+		sdk.WithClientToolsForTest(pendingTools),
+	)
+	finalResp := sdk.NewResponseForTest("handled rejection", nil)
+
+	sender := &mockSender{
+		resp:            initialResp,
+		resumeResponses: []*sdk.Response{finalResp},
+	}
+	ebp := &mockEventBusProvider{}
+
+	provider := func(_ context.Context, tools []sdk.PendingClientTool) ([]ToolResult, error) {
+		return []ToolResult{
+			{CallID: "ct-1", Result: map[string]any{"lat": 40.7}},
+			{CallID: "ct-2", Rejected: true, Reason: "user declined"},
+		}, nil
+	}
+
+	a := newTestAdapter(sender, ebp, WithToolResultProvider(provider))
+
+	var evts []aguievents.Event
+	done := make(chan struct{})
+	go func() {
+		evts = collectEvents(a.Events())
+		close(done)
+	}()
+
+	err := a.RunSend(context.Background(), userMsg("do things"))
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+
+	// ct-1 should be sent as tool result
+	require.Len(t, sender.sendToolResultCalls, 1)
+	assert.Equal(t, "ct-1", sender.sendToolResultCalls[0].callID)
+
+	// ct-2 should be rejected
+	require.Len(t, sender.rejectCalls, 1)
+	assert.Equal(t, "ct-2", sender.rejectCalls[0].callID)
+	assert.Equal(t, "user declined", sender.rejectCalls[0].reason)
+
+	// Verify ToolCallResult events — one "completed", one "rejected: user declined"
+	var resultContents []string
+	for _, ev := range evts {
+		if ev.Type() == aguievents.EventTypeToolCallResult {
+			tcr, ok := ev.(*aguievents.ToolCallResultEvent)
+			require.True(t, ok)
+			resultContents = append(resultContents, tcr.Content)
+		}
+	}
+	require.Len(t, resultContents, 2)
+	assert.Equal(t, "completed", resultContents[0])
+	assert.Equal(t, "rejected: user declined", resultContents[1])
 }

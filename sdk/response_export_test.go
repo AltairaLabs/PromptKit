@@ -32,3 +32,20 @@ func TestNewResponseForTest_WithToolCalls(t *testing.T) {
 		t.Fatalf("expected tool name %q, got %q", "search", resp.ToolCalls()[0].Name)
 	}
 }
+
+func TestNewResponseForTest_WithClientTools(t *testing.T) {
+	tools := []PendingClientTool{
+		{CallID: "ct-1", ToolName: "get_location", Args: map[string]any{"city": "NYC"}},
+		{CallID: "ct-2", ToolName: "confirm"},
+	}
+	resp := NewResponseForTest("text", nil, WithClientToolsForTest(tools))
+	if !resp.HasPendingClientTools() {
+		t.Fatal("expected pending client tools")
+	}
+	if len(resp.ClientTools()) != 2 {
+		t.Fatalf("expected 2 client tools, got %d", len(resp.ClientTools()))
+	}
+	if resp.ClientTools()[0].CallID != "ct-1" {
+		t.Fatalf("expected callID %q, got %q", "ct-1", resp.ClientTools()[0].CallID)
+	}
+}
