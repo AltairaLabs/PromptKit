@@ -787,20 +787,26 @@ func (s *ProviderStage) executeToolCalls(
 		}
 
 		// Run BeforeExecution tool hooks
+		var hookDecision hooks.Decision
 		if s.hookRegistry != nil {
 			toolReq := hooks.ToolRequest{
 				Name:   toolCall.Name,
 				Args:   toolCall.Args,
 				CallID: toolCall.ID,
 			}
-			if d := s.hookRegistry.RunBeforeToolExecution(ctx, toolReq); !d.Allow {
-				errMsg := fmt.Sprintf("Tool %s blocked by hook: %s", toolCall.Name, d.Reason)
-				results = append(results, types.NewToolResultMessage(types.MessageToolResult{
+			hookDecision = s.hookRegistry.RunBeforeToolExecution(ctx, toolReq)
+			if !hookDecision.Allow {
+				errMsg := fmt.Sprintf("Tool %s blocked by hook: %s", toolCall.Name, hookDecision.Reason)
+				msg := types.NewToolResultMessage(types.MessageToolResult{
 					ID:      toolCall.ID,
 					Name:    toolCall.Name,
 					Content: errMsg,
 					Error:   errMsg,
-				}))
+				})
+				if hookDecision.Metadata != nil {
+					msg.Meta = hookDecision.Metadata
+				}
+				results = append(results, msg)
 				continue
 			}
 		}
@@ -838,7 +844,11 @@ func (s *ProviderStage) executeToolCalls(
 
 		// Convert tool execution result to message
 		result := s.handleToolResult(toolCall, asyncResult)
-		results = append(results, types.NewToolResultMessage(result))
+		resultMsg := types.NewToolResultMessage(result)
+		if hookDecision.Metadata != nil {
+			resultMsg.Meta = hookDecision.Metadata
+		}
+		results = append(results, resultMsg)
 
 		// Run AfterExecution tool hooks
 		if s.hookRegistry != nil {

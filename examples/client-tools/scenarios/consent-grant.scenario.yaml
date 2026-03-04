@@ -10,6 +10,8 @@ spec:
   turns:
     - role: user
       content: "Where am I right now?"
+      consent_overrides:
+        get_location: grant
       assertions:
         - type: tool_called
           params:

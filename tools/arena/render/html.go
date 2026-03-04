@@ -373,6 +373,7 @@ func generateHTML(data HTMLReportData) (string, error) {
 		"isWorkflowTool":      isWorkflowTool,
 		"hasA2AAgents":        hasA2AAgents,
 		"renderA2AAgentCards": renderA2AAgentCards,
+		"consentStatus":       consentStatus,
 	}).Parse(reportTemplate))
 
 	var buf strings.Builder
@@ -1085,6 +1086,20 @@ func renderConversationDetails(result assertions.ConversationValidationResult) s
 	}
 	b.WriteString(`</details>`)
 	return b.String()
+}
+
+// consentStatus extracts consent status from a message's Meta field.
+// Returns "granted", "denied", "timeout", or "" if no consent metadata.
+//
+//nolint:gocritic // hugeParam: template functions can't use pointers
+func consentStatus(msg types.Message) string {
+	if msg.Meta == nil {
+		return ""
+	}
+	if status, ok := msg.Meta["consent_status"].(string); ok {
+		return status
+	}
+	return ""
 }
 
 // isAgentTool returns true if the tool name is an A2A agent tool.

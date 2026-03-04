@@ -2818,3 +2818,57 @@ func TestRenderA2AAgentCards(t *testing.T) {
 		}
 	})
 }
+
+func TestConsentStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     map[string]interface{}
+		expected string
+	}{
+		{
+			name:     "granted",
+			meta:     map[string]interface{}{"consent_status": "granted"},
+			expected: "granted",
+		},
+		{
+			name:     "denied",
+			meta:     map[string]interface{}{"consent_status": "denied"},
+			expected: "denied",
+		},
+		{
+			name:     "timeout",
+			meta:     map[string]interface{}{"consent_status": "timeout"},
+			expected: "timeout",
+		},
+		{
+			name:     "nil meta",
+			meta:     nil,
+			expected: "",
+		},
+		{
+			name:     "empty meta",
+			meta:     map[string]interface{}{},
+			expected: "",
+		},
+		{
+			name:     "wrong type in meta",
+			meta:     map[string]interface{}{"consent_status": 42},
+			expected: "",
+		},
+		{
+			name:     "other meta keys only",
+			meta:     map[string]interface{}{"some_key": "some_value"},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := types.Message{Role: "tool", Meta: tt.meta}
+			got := consentStatus(msg)
+			if got != tt.expected {
+				t.Errorf("consentStatus() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}

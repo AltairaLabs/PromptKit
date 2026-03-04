@@ -419,7 +419,7 @@
       "type": "object",
       "description": "A tool definition following OpenAI's function calling format. Tools enable the LLM to call external functions to retrieve data or perform actions.",
       "required": ["name", "description"],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "name": {
           "type": "string",

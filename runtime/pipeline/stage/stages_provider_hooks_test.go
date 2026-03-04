@@ -393,6 +393,131 @@ func TestProviderStage_ToolHook_AfterExecution_Records(t *testing.T) {
 }
 
 // =============================================================================
+// Tool hook metadata threading tests
+// =============================================================================
+
+// denyToolHookWithMetadata blocks tools and includes metadata in the decision.
+type denyToolHookWithMetadata struct {
+	blockedTool string
+	reason      string
+	metadata    map[string]any
+}
+
+func (h *denyToolHookWithMetadata) Name() string { return "deny_tool_meta" }
+
+func (h *denyToolHookWithMetadata) BeforeExecution(
+	_ context.Context, req hooks.ToolRequest,
+) hooks.Decision {
+	if req.Name == h.blockedTool {
+		return hooks.DenyWithMetadata(h.reason, h.metadata)
+	}
+	return hooks.Allow
+}
+
+func (h *denyToolHookWithMetadata) AfterExecution(
+	_ context.Context, _ hooks.ToolRequest, _ hooks.ToolResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+// allowToolHookWithMetadata allows execution but includes metadata in the decision.
+type allowToolHookWithMetadata struct {
+	metadata map[string]any
+}
+
+func (h *allowToolHookWithMetadata) Name() string { return "allow_tool_meta" }
+
+func (h *allowToolHookWithMetadata) BeforeExecution(
+	_ context.Context, _ hooks.ToolRequest,
+) hooks.Decision {
+	return hooks.Decision{Allow: true, Metadata: h.metadata}
+}
+
+func (h *allowToolHookWithMetadata) AfterExecution(
+	_ context.Context, _ hooks.ToolRequest, _ hooks.ToolResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+func TestProviderStage_ToolHook_DenyMetadataThreaded(t *testing.T) {
+	provider := mock.NewProvider("p", "m", false)
+	toolReg := tools.NewRegistry()
+
+	executor := &mockAsyncExecutor{
+		name:    "meta-deny-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`{"ok":true}`),
+	}
+	toolReg.RegisterExecutor(executor)
+	toolReg.Register(&tools.ToolDescriptor{
+		Name:        "consent_tool",
+		Description: "test",
+		Mode:        "meta-deny-executor",
+		InputSchema: []byte(`{"type":"object"}`),
+	})
+
+	hookReg := hooks.NewRegistry(hooks.WithToolHook(&denyToolHookWithMetadata{
+		blockedTool: "consent_tool",
+		reason:      "user declined consent",
+		metadata:    map[string]any{"consent_status": "denied"},
+	}))
+
+	stage := NewProviderStageWithHooks(
+		provider, toolReg, nil, nil, nil, hookReg,
+	)
+
+	calls := []types.MessageToolCall{
+		{ID: "c1", Name: "consent_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), calls)
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].ToolResult.Error, "blocked by hook")
+	assert.NotNil(t, results[0].Meta, "expected Meta to be populated from hook decision")
+	assert.Equal(t, "denied", results[0].Meta["consent_status"])
+}
+
+func TestProviderStage_ToolHook_AllowMetadataThreaded(t *testing.T) {
+	provider := mock.NewProvider("p", "m", false)
+	toolReg := tools.NewRegistry()
+
+	executor := &mockAsyncExecutor{
+		name:    "meta-allow-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`{"ok":true}`),
+	}
+	toolReg.RegisterExecutor(executor)
+	toolReg.Register(&tools.ToolDescriptor{
+		Name:        "consent_tool",
+		Description: "test",
+		Mode:        "meta-allow-executor",
+		InputSchema: []byte(`{"type":"object"}`),
+	})
+
+	hookReg := hooks.NewRegistry(hooks.WithToolHook(&allowToolHookWithMetadata{
+		metadata: map[string]any{"consent_status": "granted"},
+	}))
+
+	stage := NewProviderStageWithHooks(
+		provider, toolReg, nil, nil, nil, hookReg,
+	)
+
+	calls := []types.MessageToolCall{
+		{ID: "c1", Name: "consent_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), calls)
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Empty(t, results[0].ToolResult.Error)
+	assert.NotNil(t, results[0].Meta, "expected Meta to be populated from hook decision")
+	assert.Equal(t, "granted", results[0].Meta["consent_status"])
+}
+
+// =============================================================================
 // Constructor chaining
 // =============================================================================
 
