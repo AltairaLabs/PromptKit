@@ -213,6 +213,12 @@ func (s *Server) handleStreamMessage(
 		return
 	}
 
+	// Check if this is a tool-result message for a resumable conversation.
+	if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
+		s.handleStreamToolResultMessage(w, r, req, streamConv, contextID, toolResults)
+		return
+	}
+
 	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
 		writeRPCError(w, req.ID, -32602,
@@ -266,6 +272,73 @@ func (s *Server) handleStreamMessage(
 
 	events := streamConv.Stream(ctx, pkMsg)
 
+	sc.processEvents(ctx, events)
+}
+
+// handleStreamToolResultMessage processes a streaming message/send that carries
+// client tool results. It submits results, then resumes via ResumeStream.
+func (s *Server) handleStreamToolResultMessage(
+	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
+	conv StreamingConversation, contextID string, results []toolResultEntry,
+) {
+	resumable, ok := conv.(ResumableConversation)
+	if !ok {
+		writeRPCError(w, req.ID, -32000, "Conversation does not support client tool results")
+		return
+	}
+
+	for _, tr := range results {
+		if tr.Rejected {
+			resumable.RejectClientTool(tr.CallID, tr.Reason)
+		} else {
+			if err := resumable.SendToolResult(tr.CallID, tr.Result); err != nil {
+				writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to submit tool result: %v", err))
+				return
+			}
+		}
+	}
+
+	taskID := generateID()
+	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
+		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to create task: %v", err))
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeRPCError(w, req.ID, -32000, "Streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	sc := &streamCtx{
+		srv:       s,
+		w:         w,
+		flusher:   flusher,
+		b:         s.getBroadcaster(taskID),
+		rpcID:     req.ID,
+		taskID:    taskID,
+		contextID: contextID,
+	}
+
+	_ = s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil)
+	sc.emit(a2a.TaskStatusUpdateEvent{
+		TaskID:    taskID,
+		ContextID: contextID,
+		Status:    a2a.TaskStatus{State: a2a.TaskStateWorking},
+	})
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	s.cancelsMu.Lock()
+	s.cancels[taskID] = cancel
+	s.cancelsMu.Unlock()
+
+	events := resumable.ResumeStream(ctx)
 	sc.processEvents(ctx, events)
 }
 
@@ -331,6 +404,10 @@ func (sc *streamCtx) handleEvent(evt StreamEvent, artifactIdx int) (done bool, n
 		// Suppressed — agent opacity. Task stays working.
 		return false, artifactIdx
 
+	case EventClientTool:
+		sc.emitInputRequired(evt)
+		return true, artifactIdx
+
 	case EventDone:
 		sc.complete()
 		return true, artifactIdx
@@ -338,6 +415,38 @@ func (sc *streamCtx) handleEvent(evt StreamEvent, artifactIdx int) (done bool, n
 	default:
 		return false, artifactIdx
 	}
+}
+
+// emitInputRequired emits a task status update with input_required state
+// and client tool metadata so the A2A client can fulfill the tool request.
+func (sc *streamCtx) emitInputRequired(evt StreamEvent) {
+	var msg *a2a.Message
+	if evt.ClientTool != nil {
+		text := fmt.Sprintf("Client tool required: %s", evt.ClientTool.ToolName)
+		msg = &a2a.Message{
+			Role: a2a.RoleAgent,
+			Parts: []a2a.Part{{
+				Text: &text,
+				Metadata: map[string]any{
+					"tool_call_id":    evt.ClientTool.CallID,
+					"tool_name":       evt.ClientTool.ToolName,
+					"tool_args":       evt.ClientTool.Args,
+					"consent_message": evt.ClientTool.ConsentMsg,
+				},
+			}},
+		}
+	}
+	_ = sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateInputRequired, msg)
+	sc.emit(a2a.TaskStatusUpdateEvent{
+		TaskID:    sc.taskID,
+		ContextID: sc.contextID,
+		Status: a2a.TaskStatus{
+			State:   a2a.TaskStateInputRequired,
+			Message: msg,
+		},
+	})
+	sc.b.close()
+	sc.srv.removeBroadcaster(sc.taskID)
 }
 
 // emitArtifact emits a single artifact update event.

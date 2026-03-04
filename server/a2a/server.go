@@ -361,6 +361,12 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 		return
 	}
 
+	// Check if this is a tool-result message for a resumable conversation.
+	if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
+		s.handleToolResultMessage(w, req, conv, contextID, toolResults, params.Configuration)
+		return
+	}
+
 	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
 		writeRPCError(w, req.ID, -32602, fmt.Sprintf("Invalid message: %v", err))
@@ -393,6 +399,112 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	writeRPCResult(w, req.ID, task)
 }
 
+// toolResultEntry represents a single client tool result extracted from an A2A message.
+type toolResultEntry struct {
+	CallID   string
+	Result   any
+	Rejected bool
+	Reason   string
+}
+
+// extractToolResults inspects message parts for client tool results.
+// Parts with metadata containing "tool_call_id" are treated as tool results.
+func extractToolResults(parts []a2a.Part) []toolResultEntry {
+	var results []toolResultEntry
+	for _, p := range parts {
+		callID, ok := p.Metadata["tool_call_id"].(string)
+		if !ok || callID == "" {
+			continue
+		}
+		entry := toolResultEntry{CallID: callID}
+		if reason, rejected := p.Metadata["rejected"].(string); rejected {
+			entry.Rejected = true
+			entry.Reason = reason
+		} else {
+			entry.Result = p.Metadata["tool_result"]
+		}
+		results = append(results, entry)
+	}
+	return results
+}
+
+// handleToolResultMessage processes a message/send that carries client tool results.
+// It submits each result to the ResumableConversation and resumes execution.
+func (s *Server) handleToolResultMessage(
+	w http.ResponseWriter, req *a2a.JSONRPCRequest,
+	conv Conversation, contextID string,
+	results []toolResultEntry, cfg *a2a.SendMessageConfiguration,
+) {
+	resumable, ok := conv.(ResumableConversation)
+	if !ok {
+		writeRPCError(w, req.ID, -32000, "Conversation does not support client tool results")
+		return
+	}
+
+	for _, r := range results {
+		if r.Rejected {
+			resumable.RejectClientTool(r.CallID, r.Reason)
+		} else {
+			if err := resumable.SendToolResult(r.CallID, r.Result); err != nil {
+				writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to submit tool result: %v", err))
+				return
+			}
+		}
+	}
+
+	taskID := generateID()
+	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
+		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to create task: %v", err))
+		return
+	}
+
+	done := s.runResume(context.Background(), taskID, resumable)
+
+	if cfg != nil && cfg.Blocking {
+		<-done
+	} else {
+		select {
+		case <-done:
+		case <-time.After(sendSettleTime):
+		}
+	}
+
+	task, _ := s.taskStore.Get(taskID)
+	writeRPCResult(w, req.ID, task)
+}
+
+// runResume spawns a goroutine that calls Resume on a ResumableConversation.
+func (s *Server) runResume(parent context.Context, taskID string, conv ResumableConversation) <-chan struct{} {
+	ctx, cancel := context.WithCancel(parent)
+	s.cancelsMu.Lock()
+	s.cancels[taskID] = cancel
+	s.cancelsMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer cancel()
+
+		_ = s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil)
+
+		resp, err := conv.Resume(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				errText := err.Error()
+				_ = s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
+					Role:  a2a.RoleAgent,
+					Parts: []a2a.Part{{Text: &errText}},
+				})
+			}
+			return
+		}
+
+		s.finalizeTask(taskID, resp)
+	}()
+
+	return done
+}
+
 // runConversation spawns a goroutine that drives the conversation for a task.
 // It returns a channel that is closed when the goroutine completes.
 func (s *Server) runConversation(parent context.Context, taskID string, conv Conversation, pkMsg any) <-chan struct{} {
@@ -423,25 +535,62 @@ func (s *Server) runConversation(parent context.Context, taskID string, conv Con
 			return
 		}
 
-		if resp.HasPendingTools() {
-			_ = s.taskStore.SetState(taskID, a2a.TaskStateInputRequired, nil)
-			return
-		}
-
-		artifacts, convErr := a2a.ContentPartsToArtifacts(resp.Parts())
-		if convErr == nil && len(artifacts) > 0 {
-			_ = s.taskStore.AddArtifacts(taskID, artifacts)
-		} else if text := resp.Text(); text != "" {
-			// Fallback: if Parts() is empty (see GH-428), use Text() content.
-			_ = s.taskStore.AddArtifacts(taskID, []a2a.Artifact{{
-				ArtifactID: "artifact-1",
-				Parts:      []a2a.Part{{Text: &text}},
-			}})
-		}
-		_ = s.taskStore.SetState(taskID, a2a.TaskStateCompleted, nil)
+		s.finalizeTask(taskID, resp)
 	}()
 
 	return done
+}
+
+// finalizeTask handles the terminal state of a task based on the SendResult.
+// If client tools are pending, it sets input_required with tool metadata.
+// Otherwise it stores artifacts and marks the task completed.
+func (s *Server) finalizeTask(taskID string, resp SendResult) {
+	if resp.HasPendingTools() {
+		msg := buildPendingToolsMessage(resp)
+		_ = s.taskStore.SetState(taskID, a2a.TaskStateInputRequired, msg)
+		return
+	}
+
+	artifacts, convErr := a2a.ContentPartsToArtifacts(resp.Parts())
+	if convErr == nil && len(artifacts) > 0 {
+		_ = s.taskStore.AddArtifacts(taskID, artifacts)
+	} else if text := resp.Text(); text != "" {
+		// Fallback: if Parts() is empty (see GH-428), use Text() content.
+		_ = s.taskStore.AddArtifacts(taskID, []a2a.Artifact{{
+			ArtifactID: "artifact-1",
+			Parts:      []a2a.Part{{Text: &text}},
+		}})
+	}
+	_ = s.taskStore.SetState(taskID, a2a.TaskStateCompleted, nil)
+}
+
+// buildPendingToolsMessage creates an A2A message describing pending tools.
+// For client tools, it includes tool metadata (call ID, name, args, consent)
+// in the message parts so the A2A client can fulfill them.
+func buildPendingToolsMessage(resp SendResult) *a2a.Message {
+	clientTools := resp.PendingClientTools()
+	if len(clientTools) == 0 {
+		// HITL-only pending tools — no metadata needed.
+		return nil
+	}
+
+	parts := make([]a2a.Part, len(clientTools))
+	for i, t := range clientTools {
+		text := fmt.Sprintf("Client tool required: %s", t.ToolName)
+		parts[i] = a2a.Part{
+			Text: &text,
+			Metadata: map[string]any{
+				"tool_call_id":    t.CallID,
+				"tool_name":       t.ToolName,
+				"tool_args":       t.Args,
+				"consent_message": t.ConsentMsg,
+			},
+		}
+	}
+	return &a2a.Message{
+		Role:  a2a.RoleAgent,
+		Parts: parts,
+	}
 }
 
 // handleGetTask processes a tasks/get request.
