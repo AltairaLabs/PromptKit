@@ -169,12 +169,13 @@ func (e *Emitter) ToolCallStarted(toolName, callID string, args map[string]inter
 }
 
 // ToolCallCompleted emits the tool.call.completed event.
-func (e *Emitter) ToolCallCompleted(toolName, callID string, duration time.Duration, status string) {
+func (e *Emitter) ToolCallCompleted(toolName, callID string, duration time.Duration, status, result string) {
 	e.emit(EventToolCallCompleted, ToolCallCompletedData{
 		ToolName: toolName,
 		CallID:   callID,
 		Duration: duration,
 		Status:   status,
+		Result:   result,
 	})
 }
 
