@@ -89,6 +89,11 @@ const (
 	// EventImageOutput marks image output from agent (multimodal recording).
 	EventImageOutput EventType = "image.output"
 
+	// EventEvalCompleted marks a successful eval completion.
+	EventEvalCompleted EventType = "eval.completed"
+	// EventEvalFailed marks an eval failure (eval ran but result.Passed == false or error).
+	EventEvalFailed EventType = "eval.failed"
+
 	// EventWorkflowTransitioned marks a workflow state transition.
 	EventWorkflowTransitioned EventType = "workflow.transitioned"
 	// EventWorkflowCompleted marks a workflow reaching a terminal state.
@@ -539,6 +544,33 @@ type ClientToolRequestData struct {
 	// Categories are the semantic consent categories.
 	Categories []string `json:"categories,omitempty"`
 }
+
+// --- Eval events (consolidated) ---
+
+// EvalEventData is the unified payload for eval lifecycle events
+// (completed, failed). It captures the eval result and metadata.
+type EvalEventData struct {
+	baseEventData
+	EvalID      string   `json:"eval_id"`
+	EvalType    string   `json:"eval_type"` // handler type: "llm_judge", "content_check", etc.
+	Trigger     string   `json:"trigger"`   // "every_turn", "on_session_complete", etc.
+	Passed      bool     `json:"passed"`
+	Score       *float64 `json:"score,omitempty"`
+	Explanation string   `json:"explanation,omitempty"`
+	DurationMs  int64    `json:"duration_ms"`
+	Error       string   `json:"error,omitempty"`
+	Message     string   `json:"message,omitempty"`
+	Violations  []string `json:"violations,omitempty"` // flattened from EvalViolation
+	Skipped     bool     `json:"skipped,omitempty"`
+	SkipReason  string   `json:"skip_reason,omitempty"`
+}
+
+type (
+	// EvalCompletedData is an alias for EvalEventData (backward compatibility).
+	EvalCompletedData = EvalEventData
+	// EvalFailedData is an alias for EvalEventData (backward compatibility).
+	EvalFailedData = EvalEventData
+)
 
 // WorkflowTransitionedData contains data for workflow state transition events.
 type WorkflowTransitionedData struct {

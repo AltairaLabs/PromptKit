@@ -4,9 +4,33 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
+
+// recordingWriter records batches of results for assertion.
+type recordingWriter struct {
+	mu      sync.Mutex
+	batches [][]EvalResult
+	err     error
+}
+
+func (w *recordingWriter) WriteResults(_ context.Context, results []EvalResult) error {
+	if w.err != nil {
+		return w.err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.batches = append(w.batches, results)
+	return nil
+}
+
+func (w *recordingWriter) getBatches() [][]EvalResult {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.batches
+}
 
 // mockSubscriber calls handlers with pre-configured events.
 type mockSubscriber struct {

@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"context"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
 // stubHandler is a configurable eval handler for testing.
@@ -32,8 +29,8 @@ func (h *stubHandler) Eval(
 
 func float64P(v float64) *float64 { return &v }
 
-func TestE2E_InProcDispatcher_FullFlow(t *testing.T) {
-	// Setup: Registry → EvalDefs → InProcDispatcher → MetricResultWriter → MetricCollector
+func TestE2E_EvalRunner_FullFlow(t *testing.T) {
+	// Setup: Registry → EvalDefs → EvalRunner → MetricResultWriter → MetricCollector
 	registry := evals.NewEmptyEvalTypeRegistry()
 	registry.Register(&stubHandler{
 		evalType: "quality_check",
@@ -62,7 +59,6 @@ func TestE2E_InProcDispatcher_FullFlow(t *testing.T) {
 	collector := evals.NewMetricCollector()
 	metricWriter := evals.NewMetricResultWriter(collector, defs)
 	runner := evals.NewEvalRunner(registry)
-	dispatcher := evals.NewInProcDispatcher(runner, metricWriter)
 
 	evalCtx := &evals.EvalContext{
 		SessionID:     "test-session",
@@ -70,14 +66,15 @@ func TestE2E_InProcDispatcher_FullFlow(t *testing.T) {
 		CurrentOutput: "Hello, how can I help?",
 	}
 
-	// Dispatch
-	results, err := dispatcher.DispatchTurnEvals(context.Background(), defs, evalCtx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	// Run evals directly
+	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	// Write results to metrics
+	if err := metricWriter.WriteResults(context.Background(), results); err != nil {
+		t.Fatal(err)
 	}
 
 	// Verify metrics via WritePrometheus
@@ -128,15 +125,10 @@ func TestE2E_PackPromptOverrideResolution(t *testing.T) {
 	}
 
 	runner := evals.NewEvalRunner(registry)
-	dispatcher := evals.NewInProcDispatcher(runner, nil)
-
-	results, err := dispatcher.DispatchTurnEvals(context.Background(), resolved, &evals.EvalContext{
+	results := runner.RunTurnEvals(context.Background(), resolved, &evals.EvalContext{
 		SessionID: "s1",
 		TurnIndex: 1,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	if len(results) != 3 {
 		t.Fatalf("expected 3 results, got %d", len(results))
@@ -149,95 +141,6 @@ func TestE2E_PackPromptOverrideResolution(t *testing.T) {
 	// Verify c ran and failed
 	if results[2].Passed {
 		t.Error("expected eval c to fail")
-	}
-}
-
-// e2eEvalLoader is a test PackEvalLoader for integration tests.
-type e2eEvalLoader struct {
-	defs []evals.EvalDef
-}
-
-func (l *e2eEvalLoader) LoadEvals(_ string) ([]evals.EvalDef, error) {
-	return l.defs, nil
-}
-
-// e2eResultWriter records results with a notification channel.
-type e2eResultWriter struct {
-	mu      sync.Mutex
-	results []evals.EvalResult
-	written chan struct{}
-}
-
-func newE2EResultWriter() *e2eResultWriter {
-	return &e2eResultWriter{written: make(chan struct{}, 100)}
-}
-
-func (w *e2eResultWriter) WriteResults(_ context.Context, results []evals.EvalResult) error {
-	w.mu.Lock()
-	w.results = append(w.results, results...)
-	w.mu.Unlock()
-	w.written <- struct{}{}
-	return nil
-}
-
-func (w *e2eResultWriter) Results() []evals.EvalResult {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	r := make([]evals.EvalResult, len(w.results))
-	copy(r, w.results)
-	return r
-}
-
-func TestE2E_EventBusEvalListener_MessageCreated(t *testing.T) {
-	// Setup registry with a stub handler
-	registry := evals.NewEmptyEvalTypeRegistry()
-	registry.Register(&stubHandler{
-		evalType: "contains",
-		result:   &evals.EvalResult{Passed: true, Score: float64P(1.0)},
-	})
-
-	defs := []evals.EvalDef{
-		{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
-	}
-
-	runner := evals.NewEvalRunner(registry)
-	writer := newE2EResultWriter()
-	dispatcher := evals.NewInProcDispatcher(runner, writer)
-	loader := &e2eEvalLoader{defs: defs}
-
-	bus := events.NewEventBus()
-	listener := evals.NewEventBusEvalListener(bus, dispatcher, loader, writer)
-	defer listener.Close()
-
-	// Pre-seed the session accumulator with a promptID.
-	// In production, the SDK would set this when starting a conversation.
-	// The EventBusEvalListener uses the promptID to load eval definitions.
-	listener.Accumulator().AddMessage("session-1", "test-prompt", "user", "hello")
-
-	// Now publish assistant message to trigger evals
-	bus.Publish(&events.Event{
-		Type:      events.EventMessageCreated,
-		SessionID: "session-1",
-		Data: &events.MessageCreatedData{
-			Role:    "assistant",
-			Content: "Hi there! How can I help?",
-		},
-	})
-
-	// Wait for async results — the EventBus dispatches listeners async,
-	// and the listener dispatches evals async
-	select {
-	case <-writer.written:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timeout waiting for eval results")
-	}
-
-	results := writer.Results()
-	if len(results) < 1 {
-		t.Fatalf("expected at least 1 result, got %d", len(results))
-	}
-	if !results[0].Passed {
-		t.Error("expected eval to pass")
 	}
 }
 

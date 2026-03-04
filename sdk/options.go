@@ -137,10 +137,10 @@ type config struct {
 	localAgentExecutor *LocalAgentExecutor
 
 	// Eval configuration
-	evalDispatcher    evals.EvalDispatcher
-	evalRegistry      *evals.EvalTypeRegistry
-	evalResultWriters []evals.ResultWriter
-	judgeProvider     handlers.JudgeProvider
+	evalRunner    *evals.EvalRunner
+	evalRegistry  *evals.EvalTypeRegistry
+	judgeProvider handlers.JudgeProvider
+	evalsDisabled bool
 
 	// Workflow context carry-forward (used by OpenWorkflow)
 	contextCarryForward bool
@@ -1629,25 +1629,23 @@ type documentDataPart struct {
 	mimeType string
 }
 
-// WithEvalDispatcher configures the eval dispatcher for running evals.
+// WithEvalRunner configures the eval runner for executing evals in-process.
 //
-// The dispatcher controls how evals execute:
-//   - InProcDispatcher: runs evals in-process (simplest, synchronous)
-//   - EventDispatcher: publishes eval events to an event bus (async)
-//   - NoOpDispatcher: disables eval execution at the SDK level
+// Eval results are emitted as events on the EventBus (eval.completed / eval.failed).
+// If no runner is provided and eval definitions exist in the pack, a default
+// runner is created automatically using the configured eval registry.
 //
 // Example:
 //
 //	registry := evals.NewEvalTypeRegistry()
 //	runner := evals.NewEvalRunner(registry)
-//	dispatcher := evals.NewInProcDispatcher(runner, nil)
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithEvalDispatcher(dispatcher),
+//	    sdk.WithEvalRunner(runner),
 //	)
-func WithEvalDispatcher(d evals.EvalDispatcher) Option {
+func WithEvalRunner(r *evals.EvalRunner) Option {
 	return func(c *config) error {
-		c.evalDispatcher = d
+		c.evalRunner = r
 		return nil
 	}
 }
@@ -1663,22 +1661,11 @@ func WithEvalRegistry(r *evals.EvalTypeRegistry) Option {
 	}
 }
 
-// WithResultWriters configures where eval results are sent.
-//
-// Multiple writers can be provided; they are composed into a CompositeResultWriter.
-//
-// Example:
-//
-//	mc := evals.NewMetricCollector()
-//	metricWriter := evals.NewMetricResultWriter(mc, defs)
-//
-//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithEvalDispatcher(dispatcher),
-//	    sdk.WithResultWriters(metricWriter),
-//	)
-func WithResultWriters(writers ...evals.ResultWriter) Option {
+// WithEvalsDisabled disables eval execution even when eval definitions exist
+// in the pack. Use this to temporarily suppress evals without removing definitions.
+func WithEvalsDisabled() Option {
 	return func(c *config) error {
-		c.evalResultWriters = append(c.evalResultWriters, writers...)
+		c.evalsDisabled = true
 		return nil
 	}
 }

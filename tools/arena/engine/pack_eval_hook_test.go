@@ -38,18 +38,18 @@ func sampleDefs() []evals.EvalDef {
 
 func TestNewPackEvalHook_SkipEvalsTrue(t *testing.T) {
 	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), true, nil, "chat")
-	// When skipEvals is true, defs are still stored but a NoOpDispatcher is used.
-	// HasEvals reflects whether defs exist, not whether the dispatcher is active.
-	// RunTurnEvals/RunSessionEvals will still produce nil results via the NoOp path.
+	// When skipEvals is true, defs are still stored but runner is nil.
+	// HasEvals reflects whether defs exist, not whether the runner is set.
+	// RunTurnEvals/RunSessionEvals will still produce nil results via nil runner guard.
 	assert.True(t, hook.HasEvals(), "HasEvals reflects stored defs even when skipEvals is true")
 
-	// Verify that the NoOp dispatcher means no actual results are produced.
+	// Verify that nil runner means no actual results are produced.
 	messages := []types.Message{
 		types.NewUserMessage("hello"),
 		types.NewAssistantMessage("hi"),
 	}
 	results := hook.RunTurnEvals(context.Background(), messages, 1, "session-1")
-	assert.Empty(t, results, "NoOpDispatcher should produce no results")
+	assert.Empty(t, results, "nil runner should produce no results")
 }
 
 func TestNewPackEvalHook_EmptyDefs(t *testing.T) {
