@@ -91,6 +91,45 @@ func TestOTelEventListener_PipelineSpan(t *testing.T) {
 		SessionID: "sess-1", RunID: "run-1",
 		Data: &events.PipelineStartedData{MiddlewareCount: 2},
 	})
+
+	// Emit provider, tool, and middleware spans inside the pipeline.
+	listener.OnEvent(&events.Event{
+		Type: events.EventMiddlewareStarted, Timestamp: now.Add(10 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.MiddlewareStartedData{Name: "guard", Index: 0},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventMiddlewareCompleted, Timestamp: now.Add(20 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.MiddlewareCompletedData{Name: "guard", Index: 0, Duration: 10 * time.Millisecond},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventProviderCallStarted, Timestamp: now.Add(50 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventProviderCallCompleted, Timestamp: now.Add(200 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ProviderCallCompletedData{
+			Provider: "openai", Model: "gpt-4",
+			Duration: 150 * time.Millisecond, FinishReason: "stop",
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventToolCallStarted, Timestamp: now.Add(300 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ToolCallStartedData{ToolName: "search", CallID: "call-h1"},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventToolCallCompleted, Timestamp: now.Add(400 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ToolCallCompletedData{
+			ToolName: "search", CallID: "call-h1",
+			Duration: 100 * time.Millisecond, Status: "success",
+		},
+	})
+
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineCompleted, Timestamp: now.Add(time.Second),
 		SessionID: "sess-1", RunID: "run-1",
@@ -108,10 +147,28 @@ func TestOTelEventListener_PipelineSpan(t *testing.T) {
 		t.Errorf("expected Ok status, got %v", pipelineSpan.Status.Code)
 	}
 
-	// Verify parent relationship.
+	// Pipeline should be child of session.
 	sessionSpan := findSpan(t, spans, "promptkit.session")
 	if pipelineSpan.Parent.SpanID() != sessionSpan.SpanContext.SpanID() {
 		t.Error("pipeline span should be child of session span")
+	}
+
+	// Provider, tool, and middleware should be children of pipeline (not session).
+	pipelineSpanID := pipelineSpan.SpanContext.SpanID()
+
+	providerSpan := findSpan(t, spans, "promptkit.provider.openai")
+	if providerSpan.Parent.SpanID() != pipelineSpanID {
+		t.Error("provider span should be child of pipeline span")
+	}
+
+	toolSpan := findSpan(t, spans, "promptkit.tool.search")
+	if toolSpan.Parent.SpanID() != pipelineSpanID {
+		t.Error("tool span should be child of pipeline span")
+	}
+
+	mwSpan := findSpan(t, spans, "promptkit.middleware.guard")
+	if mwSpan.Parent.SpanID() != pipelineSpanID {
+		t.Error("middleware span should be child of pipeline span")
 	}
 }
 
@@ -684,6 +741,39 @@ func TestOTelEventListener_OutOfOrderDelivery(t *testing.T) {
 	}
 	if v, ok := attrMap["pipeline.total_cost"]; !ok || v.AsFloat64() != 0.01 {
 		t.Errorf("expected pipeline.total_cost=0.01, got %v", attrMap["pipeline.total_cost"])
+	}
+}
+
+func TestOTelEventListener_SpanHierarchy_NoPipeline_FallsBackToSession(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	// Start a provider span without a pipeline span inflight.
+	listener.OnEvent(&events.Event{
+		Type: events.EventProviderCallStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventProviderCallCompleted, Timestamp: now.Add(100 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ProviderCallCompletedData{
+			Provider: "openai", Model: "gpt-4",
+			Duration: 100 * time.Millisecond, FinishReason: "stop",
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	sessionSpan := findSpan(t, spans, "promptkit.session")
+	providerSpan := findSpan(t, spans, "promptkit.provider.openai")
+
+	// Without a pipeline, provider should fall back to being a child of the session.
+	if providerSpan.Parent.SpanID() != sessionSpan.SpanContext.SpanID() {
+		t.Error("provider span should be child of session span when no pipeline is active")
 	}
 }
 
