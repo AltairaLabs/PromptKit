@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -899,6 +900,101 @@ func TestBuildWithHookRegistry(t *testing.T) {
 			TaskType:       "chat",
 			Provider:       provider,
 			HookRegistry:   nil,
+		}
+
+		pipeline, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+}
+
+func TestBuildWithRecordingConfig(t *testing.T) {
+	t.Run("builds with recording stages", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+		bus := events.NewEventBus()
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       provider,
+			RecordingConfig: &stage.RecordingStageConfig{
+				SessionID:      "test-session",
+				ConversationID: "test-conv",
+				IncludeAudio:   true,
+				IncludeVideo:   false,
+				IncludeImages:  true,
+			},
+			RecordingEventBus: bus,
+		}
+
+		pipeline, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("recording stages execute successfully", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+		bus := events.NewEventBus()
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       provider,
+			RecordingConfig: &stage.RecordingStageConfig{
+				SessionID:      "test-session",
+				ConversationID: "test-conv",
+				IncludeAudio:   true,
+				IncludeImages:  true,
+			},
+			RecordingEventBus: bus,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Hello with recording!")
+
+		elem := stage.StreamElement{
+			Message:  &userMsg,
+			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+		}
+
+		result, err := pipe.ExecuteSync(context.Background(), elem)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Response)
+	})
+
+	t.Run("no recording stages without config", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       provider,
+		}
+
+		pipeline, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("no recording stages without event bus", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       provider,
+			RecordingConfig: &stage.RecordingStageConfig{
+				IncludeAudio: true,
+			},
+			// RecordingEventBus is nil — stages should not be added
 		}
 
 		pipeline, err := Build(cfg)

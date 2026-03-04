@@ -138,6 +138,15 @@ type Config struct {
 	// When non-nil, the pointed-to duration is used instead of the default 30s.
 	// A zero value disables timeout entirely.
 	ExecutionTimeout *time.Duration
+
+	// RecordingConfig enables recording stages in the pipeline.
+	// When set, input and output RecordingStages are inserted to capture
+	// full binary content for session replay.
+	RecordingConfig *stage.RecordingStageConfig
+
+	// RecordingEventBus is the event bus used by recording stages.
+	// Required when RecordingConfig is set.
+	RecordingEventBus *events.EventBus
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -247,6 +256,13 @@ func collectPipelineStages(
 		stage.NewTemplateStage(),
 	)
 
+	// 4.1 Input recording stage - captures user input with full binary data
+	if cfg.RecordingConfig != nil && cfg.RecordingEventBus != nil {
+		inputCfg := *cfg.RecordingConfig
+		inputCfg.Position = stage.RecordingPositionInput
+		stages = append(stages, stage.NewRecordingStage(cfg.RecordingEventBus, inputCfg))
+	}
+
 	// 4.5 Context builder stage - manages token budget and truncation
 	if cfg.TokenBudget > 0 {
 		contextPolicy := buildContextBuilderPolicy(cfg)
@@ -264,6 +280,13 @@ func collectPipelineStages(
 		return nil, err
 	}
 	stages = append(stages, providerStages...)
+
+	// 5.5 Output recording stage - captures assistant output with full binary data
+	if cfg.RecordingConfig != nil && cfg.RecordingEventBus != nil {
+		outputCfg := *cfg.RecordingConfig
+		outputCfg.Position = stage.RecordingPositionOutput
+		stages = append(stages, stage.NewRecordingStage(cfg.RecordingEventBus, outputCfg))
+	}
 
 	// 6. State store save stage - saves conversation state LAST
 	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig, useRAGContext)

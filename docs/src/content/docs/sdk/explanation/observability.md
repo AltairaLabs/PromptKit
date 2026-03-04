@@ -157,7 +157,19 @@ type BlobStore interface {
 }
 ```
 
-**RecordingStage** is a pipeline stage that publishes content-carrying events (like `message.created`) to the EventBus as elements flow through the pipeline. It observes without modifying data, making it safe to insert at any position:
+**Binary stripping in events**: The `Emitter.MessageCreated()` method automatically strips binary data (base64 `Data` and `FilePath`) from content parts, keeping only metadata (MIMEType, SizeKB, dimensions, URL references). This prevents large binary payloads from flowing through observability events when recording is not enabled.
+
+**RecordingStage** is a pipeline stage that publishes content-carrying events (like `message.created`) directly to the EventBus, bypassing the emitter's binary stripping. This ensures that full binary data is captured for session replay. RecordingStages observe without modifying data, making them safe to insert at any position.
+
+To enable RecordingStages via the SDK, use `WithRecording()`:
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "assistant",
+    sdk.WithRecording(nil), // defaults: audio=true, video=false, images=true
+)
+```
+
+This inserts an input RecordingStage (after template assembly) and an output RecordingStage (before state store save). For manual pipeline construction:
 
 ```go
 pipeline := stage.NewPipelineBuilder().
