@@ -1,10 +1,12 @@
 package evals
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -382,3 +384,75 @@ func formatLabelsWithLE(labels map[string]string, le string) string {
 
 // Ensure MetricCollector implements MetricRecorder.
 var _ MetricRecorder = (*MetricCollector)(nil)
+
+// MetricRecorder records eval results as metrics. This interface is
+// implemented by MetricCollector and injected into MetricResultWriter
+// to avoid circular dependencies.
+type MetricRecorder interface {
+	Record(result EvalResult, metric *MetricDef) error
+}
+
+// MetricResultWriter feeds eval results to a MetricRecorder for
+// Prometheus exposition. Only results whose corresponding EvalDef
+// has a Metric definition are recorded.
+type MetricResultWriter struct {
+	recorder MetricRecorder
+	// defs maps eval ID to its definition for metric lookup.
+	defs map[string]*EvalDef
+}
+
+// NewMetricResultWriter creates a writer that records metrics.
+// The defs slice provides the metric definitions keyed by eval ID.
+func NewMetricResultWriter(
+	recorder MetricRecorder, defs []EvalDef,
+) *MetricResultWriter {
+	m := make(map[string]*EvalDef, len(defs))
+	for i := range defs {
+		m[defs[i].ID] = &defs[i]
+	}
+	return &MetricResultWriter{recorder: recorder, defs: m}
+}
+
+// WriteResults records each result that has an associated metric.
+// If the result carries SessionID or TurnIndex, they are injected as
+// additional labels on a per-call copy of the MetricDef so each
+// time series includes its execution context.
+func (w *MetricResultWriter) WriteResults(
+	_ context.Context, results []EvalResult,
+) error {
+	for i := range results {
+		def, ok := w.defs[results[i].EvalID]
+		if !ok || def.Metric == nil {
+			continue
+		}
+		metric := w.withDynamicLabels(def.Metric, &results[i])
+		if err := w.recorder.Record(results[i], metric); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// withDynamicLabels returns a MetricDef copy with session_id and
+// turn_index labels injected from the EvalResult. If neither is set,
+// the original pointer is returned to avoid allocation.
+func (w *MetricResultWriter) withDynamicLabels(
+	m *MetricDef, result *EvalResult,
+) *MetricDef {
+	if result.SessionID == "" && result.TurnIndex == 0 {
+		return m
+	}
+	cp := *m
+	numDynamicLabels := 2 // session_id + turn_index
+	cp.Labels = make(map[string]string, len(m.Labels)+numDynamicLabels)
+	for k, v := range m.Labels {
+		cp.Labels[k] = v
+	}
+	if result.SessionID != "" {
+		cp.Labels["session_id"] = result.SessionID
+	}
+	if result.TurnIndex > 0 {
+		cp.Labels["turn_index"] = strconv.Itoa(result.TurnIndex)
+	}
+	return &cp
+}

@@ -73,6 +73,10 @@ EventScreenshot         EventType = "screenshot"
 EventImageInput         EventType = "image.input"
 EventImageOutput        EventType = "image.output"
 
+// Evals
+EventEvalCompleted EventType = "eval.completed"
+EventEvalFailed    EventType = "eval.failed"
+
 // Stream control
 EventStreamInterrupted EventType = "stream.interrupted"
 ```
@@ -160,14 +164,17 @@ collector := evals.NewMetricCollector(
     }),
 )
 
-// Wire it into conversation options
+// Create an EvalRunner and wire it into conversation options
+registry := evals.NewEvalTypeRegistry()
+runner := evals.NewEvalRunner(registry)
+
 conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithEvalDispatcher(evals.NewInProcDispatcher(runner, nil)),
-    sdk.WithResultWriters(evals.NewMetricResultWriter(collector, pack.Evals)),
+    sdk.WithEvalRunner(runner),
 )
 defer conv.Close()
 
-// Use the conversation normally — evals run automatically based on pack config
+// Use the conversation normally — evals run automatically based on pack config.
+// Eval results are emitted as eval.completed / eval.failed events on the event bus.
 resp, _ := conv.Send(ctx, "Hello!")
 
 // Export metrics in Prometheus text format

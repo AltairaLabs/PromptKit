@@ -10,17 +10,17 @@ import (
 )
 
 // PackEvalHook manages pack eval execution during Arena conversation runs.
-// It wraps an EvalDispatcher and converts results into the assertion format
+// It wraps an EvalRunner and converts results into the assertion format
 // used by Arena's reporting pipeline.
 type PackEvalHook struct {
-	dispatcher evals.EvalDispatcher
-	defs       []evals.EvalDef
-	taskType   string
-	metadata   map[string]any // injected into every EvalContext (e.g. judge_targets)
+	runner   *evals.EvalRunner
+	defs     []evals.EvalDef
+	taskType string
+	metadata map[string]any // injected into every EvalContext (e.g. judge_targets)
 }
 
 // NewPackEvalHook creates a hook for executing pack evals during Arena runs.
-// If skipEvals is true, a NoOpDispatcher is used internally.
+// If skipEvals is true, the runner is nil and all methods are no-ops.
 // The evalTypeFilter, when non-empty, restricts execution to matching eval types.
 func NewPackEvalHook(
 	registry *evals.EvalTypeRegistry,
@@ -32,21 +32,15 @@ func NewPackEvalHook(
 	// Filter defs by eval type if filter is set
 	filteredDefs := filterEvalDefs(defs, evalTypeFilter)
 
-	var dispatcher evals.EvalDispatcher
-	if skipEvals {
-		dispatcher = &evals.NoOpDispatcher{}
-	} else {
-		// Always use InProcDispatcher even when pack has no evals,
-		// because RunAssertionsAsEvals dispatches ad-hoc defs from
-		// scenario turn assertions through the same dispatcher.
-		runner := evals.NewEvalRunner(registry)
-		dispatcher = evals.NewInProcDispatcher(runner, nil)
+	var runner *evals.EvalRunner
+	if !skipEvals {
+		runner = evals.NewEvalRunner(registry)
 	}
 
 	return &PackEvalHook{
-		dispatcher: dispatcher,
-		defs:       filteredDefs,
-		taskType:   taskType,
+		runner:   runner,
+		defs:     filteredDefs,
+		taskType: taskType,
 	}
 }
 
@@ -75,12 +69,12 @@ func (h *PackEvalHook) RunTurnEvals(
 	turnIndex int,
 	sessionID string,
 ) []assertions.ConversationValidationResult {
-	if h == nil || !h.HasEvals() {
+	if h == nil || !h.HasEvals() || h.runner == nil {
 		return nil
 	}
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
-	results, _ := h.dispatcher.DispatchTurnEvals(ctx, h.defs, evalCtx)
+	results := h.runner.RunTurnEvals(ctx, h.defs, evalCtx)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -91,7 +85,7 @@ func (h *PackEvalHook) RunSessionEvals(
 	messages []types.Message,
 	sessionID string,
 ) []assertions.ConversationValidationResult {
-	if h == nil || !h.HasEvals() {
+	if h == nil || !h.HasEvals() || h.runner == nil {
 		return nil
 	}
 
@@ -100,7 +94,7 @@ func (h *PackEvalHook) RunSessionEvals(
 		turnIndex = 0
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
-	results, _ := h.dispatcher.DispatchSessionEvals(ctx, h.defs, evalCtx)
+	results := h.runner.RunSessionEvals(ctx, h.defs, evalCtx)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -111,7 +105,7 @@ func (h *PackEvalHook) RunConversationEvals(
 	messages []types.Message,
 	sessionID string,
 ) []assertions.ConversationValidationResult {
-	if h == nil || !h.HasEvals() {
+	if h == nil || !h.HasEvals() || h.runner == nil {
 		return nil
 	}
 
@@ -120,12 +114,12 @@ func (h *PackEvalHook) RunConversationEvals(
 		turnIndex = 0
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
-	results, _ := h.dispatcher.DispatchConversationEvals(ctx, h.defs, evalCtx)
+	results := h.runner.RunConversationEvals(ctx, h.defs, evalCtx)
 	return assertions.ConvertEvalResults(results)
 }
 
 // RunAssertionsAsEvals converts assertion configs to EvalDefs and runs them
-// through the dispatcher. Returns raw EvalResults (not converted to assertion format).
+// through the runner. Returns raw EvalResults (not converted to assertion format).
 // The trigger parameter overrides the default trigger on each converted def.
 func (h *PackEvalHook) RunAssertionsAsEvals(
 	ctx context.Context,
@@ -135,7 +129,7 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 	sessionID string,
 	trigger evals.EvalTrigger,
 ) []evals.EvalResult {
-	if h == nil || len(assertionConfigs) == 0 {
+	if h == nil || h.runner == nil || len(assertionConfigs) == 0 {
 		return nil
 	}
 
@@ -147,24 +141,18 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 
-	var results []evals.EvalResult
-	var err error
 	switch trigger { //nolint:exhaustive // Only conversation and turn triggers are meaningful here
 	case evals.TriggerOnConversationComplete:
-		results, err = h.dispatcher.DispatchConversationEvals(ctx, defs, evalCtx)
+		return h.runner.RunConversationEvals(ctx, defs, evalCtx)
 	case evals.TriggerEveryTurn:
-		results, err = h.dispatcher.DispatchTurnEvals(ctx, defs, evalCtx)
+		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
 	default:
-		results, err = h.dispatcher.DispatchTurnEvals(ctx, defs, evalCtx)
+		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
 	}
-	if err != nil {
-		return nil
-	}
-	return results
 }
 
 // RunAssertionsAsConversationResults converts assertion configs to EvalDefs,
-// runs them through the dispatcher, and wraps results in ConversationValidationResult.
+// runs them through the runner, and wraps results in ConversationValidationResult.
 func (h *PackEvalHook) RunAssertionsAsConversationResults(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,

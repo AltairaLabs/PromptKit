@@ -52,17 +52,17 @@ func main() {
 	)
 	metricWriter := evals.NewMetricResultWriter(collector, pack.Evals)
 
-	// 3. Create an EvalRunner with the default handler registry, then
-	//    wrap it in an InProcDispatcher for synchronous in-process execution.
+	// 3. Create an EvalRunner with the default handler registry.
+	//    Eval results are emitted as events on the EventBus; the
+	//    MetricResultWriter is wired separately below.
 	registry := evals.NewEvalTypeRegistry()
 	runner := evals.NewEvalRunner(registry)
-	dispatcher := evals.NewInProcDispatcher(runner, nil)
 
 	// 4. Build SDK options — use mock provider unless --live flag is passed.
 	opts := []sdk.Option{
-		sdk.WithEvalDispatcher(dispatcher),
-		sdk.WithResultWriters(metricWriter),
+		sdk.WithEvalRunner(runner),
 	}
+	_ = metricWriter // TODO: wire as event bus subscriber in follow-up
 
 	live := len(os.Args) > 1 && os.Args[1] == "--live"
 	if !live {

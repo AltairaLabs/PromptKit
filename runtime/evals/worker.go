@@ -8,11 +8,35 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
-// EvalWorker is a reusable worker loop for Pattern B event-driven
-// eval execution. It subscribes to eval events via EventSubscriber,
-// deserializes payloads, calls EvalRunner, and writes results via
-// ResultWriter. Platforms wire this with their own EventSubscriber
-// and ResultWriter implementations.
+// ResultWriter controls WHERE eval results go. Implementations may
+// write to Prometheus metrics, message metadata, telemetry spans,
+// databases, or external APIs. Platform-specific writers are
+// implemented outside PromptKit.
+type ResultWriter interface {
+	WriteResults(ctx context.Context, results []EvalResult) error
+}
+
+// EventSubscriber subscribes to eval events from an event bus.
+// PromptKit ships this interface only — platforms provide concrete
+// implementations backed by Redis Streams, NATS, Kafka, etc.
+type EventSubscriber interface {
+	Subscribe(
+		ctx context.Context,
+		subject string,
+		handler func(event []byte) error,
+	) error
+}
+
+// evalEventPayload is the JSON payload processed by EvalWorker.
+type evalEventPayload struct {
+	Defs    []EvalDef    `json:"defs"`
+	EvalCtx *EvalContext `json:"eval_ctx"`
+}
+
+// EvalWorker is a reusable worker loop for event-driven eval execution.
+// It subscribes to eval events via EventSubscriber, deserializes payloads,
+// calls EvalRunner, and writes results via ResultWriter. Platforms wire
+// this with their own EventSubscriber and ResultWriter implementations.
 type EvalWorker struct {
 	runner       *EvalRunner
 	subscriber   EventSubscriber

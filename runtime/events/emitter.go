@@ -344,6 +344,16 @@ func (e *Emitter) ClientToolRequest(data *ClientToolRequestData) {
 	e.emit(EventClientToolRequest, data)
 }
 
+// EvalCompleted emits the eval.completed event for a passed eval.
+func (e *Emitter) EvalCompleted(data *EvalCompletedData) {
+	e.emit(EventEvalCompleted, data)
+}
+
+// EvalFailed emits the eval.failed event for a failed eval or eval error.
+func (e *Emitter) EvalFailed(data *EvalFailedData) {
+	e.emit(EventEvalFailed, data)
+}
+
 // WorkflowTransitioned emits the workflow.transitioned event.
 func (e *Emitter) WorkflowTransitioned(fromState, toState, event, promptTask string) {
 	e.emit(EventWorkflowTransitioned, &WorkflowTransitionedData{

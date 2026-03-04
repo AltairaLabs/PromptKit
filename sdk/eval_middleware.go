@@ -4,25 +4,26 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // evalMiddleware holds dispatch state for eval execution within a conversation.
 type evalMiddleware struct {
-	dispatcher   evals.EvalDispatcher
-	defs         []evals.EvalDef
-	resultWriter evals.ResultWriter
-	conv         *Conversation
-	turnIndex    int
+	runner    *evals.EvalRunner
+	defs      []evals.EvalDef
+	emitter   *events.Emitter // nil-safe (bus may not be configured)
+	conv      *Conversation
+	turnIndex int
 }
 
 // newEvalMiddleware creates eval middleware for a conversation.
-// Returns nil if no dispatcher is configured or no eval defs are resolved.
+// Returns nil if evals are disabled, no runner is available, or no eval defs are resolved.
 func newEvalMiddleware(conv *Conversation) *evalMiddleware {
-	if conv.config == nil || conv.config.evalDispatcher == nil {
-		logger.Debug("evals: middleware skipped, no dispatcher configured",
+	if conv.config == nil || conv.config.evalsDisabled {
+		logger.Debug("evals: middleware skipped",
 			"has_config", conv.config != nil,
-			"has_dispatcher", conv.config != nil && conv.config.evalDispatcher != nil)
+			"disabled", conv.config != nil && conv.config.evalsDisabled)
 		return nil
 	}
 
@@ -45,21 +46,29 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		return nil
 	}
 
-	logger.Info("evals: middleware created", "defs", len(defs))
-
-	// Build composite result writer from configured writers
-	var resultWriter evals.ResultWriter
-	if len(conv.config.evalResultWriters) == 1 {
-		resultWriter = conv.config.evalResultWriters[0]
-	} else if len(conv.config.evalResultWriters) > 1 {
-		resultWriter = evals.NewCompositeResultWriter(conv.config.evalResultWriters...)
+	// Get or create runner
+	runner := conv.config.evalRunner
+	if runner == nil {
+		registry := conv.config.evalRegistry
+		if registry == nil {
+			registry = evals.NewEvalTypeRegistry()
+		}
+		runner = evals.NewEvalRunner(registry)
 	}
 
+	// Build emitter from event bus (nil-safe)
+	var emitter *events.Emitter
+	if conv.config.eventBus != nil {
+		emitter = events.NewEmitter(conv.config.eventBus, "", "", "")
+	}
+
+	logger.Info("evals: middleware created", "defs", len(defs))
+
 	return &evalMiddleware{
-		dispatcher:   conv.config.evalDispatcher,
-		defs:         defs,
-		resultWriter: resultWriter,
-		conv:         conv,
+		runner:  runner,
+		defs:    defs,
+		emitter: emitter,
+		conv:    conv,
 	}
 }
 
@@ -75,15 +84,8 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 
 	// Dispatch async — don't block Send()
 	go func() {
-		results, err := em.dispatcher.DispatchTurnEvals(ctx, em.defs, evalCtx)
-		if err != nil {
-			logger.Error("evals: turn dispatch error", "error", err)
-		}
-		if em.resultWriter != nil && len(results) > 0 {
-			if writeErr := em.resultWriter.WriteResults(ctx, results); writeErr != nil {
-				logger.Error("evals: result write error", "error", writeErr)
-			}
-		}
+		results := em.runner.RunTurnEvals(ctx, em.defs, evalCtx)
+		em.emitResults(results)
 	}()
 }
 
@@ -96,14 +98,36 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 	}
 
 	evalCtx := em.buildEvalContext(ctx)
+	results := em.runner.RunSessionEvals(ctx, em.defs, evalCtx)
+	em.emitResults(results)
+}
 
-	results, err := em.dispatcher.DispatchSessionEvals(ctx, em.defs, evalCtx)
-	if err != nil {
-		logger.Error("evals: session dispatch error", "error", err)
+// emitResults emits eval results as events on the event bus.
+func (em *evalMiddleware) emitResults(results []evals.EvalResult) {
+	if em.emitter == nil {
+		return
 	}
-	if em.resultWriter != nil && len(results) > 0 {
-		if writeErr := em.resultWriter.WriteResults(ctx, results); writeErr != nil {
-			logger.Error("evals: session result write error", "error", writeErr)
+	for i := range results {
+		r := &results[i]
+		data := events.EvalEventData{
+			EvalID:      r.EvalID,
+			EvalType:    r.Type,
+			Passed:      r.Passed,
+			Score:       r.Score,
+			Explanation: r.Explanation,
+			DurationMs:  r.DurationMs,
+			Error:       r.Error,
+			Message:     r.Message,
+			Skipped:     r.Skipped,
+			SkipReason:  r.SkipReason,
+		}
+		for _, v := range r.Violations {
+			data.Violations = append(data.Violations, v.Description)
+		}
+		if r.Passed {
+			em.emitter.EvalCompleted(&data)
+		} else {
+			em.emitter.EvalFailed(&data)
 		}
 	}
 }

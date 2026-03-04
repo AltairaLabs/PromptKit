@@ -2,101 +2,29 @@ package sdk
 
 import (
 	"context"
-	"errors"
-	"sync"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
 
-// testDispatcher records dispatch calls.
-type testDispatcher struct {
-	mu           sync.Mutex
-	turnCalls    int
-	sessionCalls int
-	turnCh       chan struct{}
-	sessionCh    chan struct{}
-}
-
-func newTestDispatcher() *testDispatcher {
-	return &testDispatcher{
-		turnCh:    make(chan struct{}, 100),
-		sessionCh: make(chan struct{}, 100),
-	}
-}
-
-func (d *testDispatcher) DispatchTurnEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	d.mu.Lock()
-	d.turnCalls++
-	d.mu.Unlock()
-	d.turnCh <- struct{}{}
-	return nil, nil
-}
-
-func (d *testDispatcher) DispatchSessionEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	d.mu.Lock()
-	d.sessionCalls++
-	d.mu.Unlock()
-	d.sessionCh <- struct{}{}
-	return nil, nil
-}
-
-func (d *testDispatcher) DispatchConversationEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	return nil, nil
-}
-
-func (d *testDispatcher) TurnCalls() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.turnCalls
-}
-
-func (d *testDispatcher) SessionCalls() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.sessionCalls
-}
-
-// testResultWriter records written results.
-type testResultWriter struct {
-	mu      sync.Mutex
-	results []evals.EvalResult
-	calls   int
-}
-
-func (w *testResultWriter) WriteResults(_ context.Context, results []evals.EvalResult) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.calls++
-	w.results = append(w.results, results...)
-	return nil
-}
-
-func TestNewEvalMiddleware_NilDispatcherReturnsNil(t *testing.T) {
+func TestNewEvalMiddleware_DisabledReturnsNil(t *testing.T) {
 	conv := &Conversation{
-		config: &config{},
+		config: &config{evalsDisabled: true},
 		pack:   &pack.Pack{},
 		prompt: &pack.Prompt{},
 	}
 
 	mw := newEvalMiddleware(conv)
 	if mw != nil {
-		t.Error("expected nil middleware when no dispatcher configured")
+		t.Error("expected nil middleware when evals disabled")
 	}
 }
 
 func TestNewEvalMiddleware_NoDefsReturnsNil(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &evals.NoOpDispatcher{},
-		},
+		config: &config{},
 		pack:   &pack.Pack{}, // No evals
 		prompt: &pack.Prompt{},
 	}
@@ -109,9 +37,7 @@ func TestNewEvalMiddleware_NoDefsReturnsNil(t *testing.T) {
 
 func TestNewEvalMiddleware_WithDefs(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &evals.NoOpDispatcher{},
-		},
+		config: &config{},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
@@ -129,6 +55,29 @@ func TestNewEvalMiddleware_WithDefs(t *testing.T) {
 	}
 }
 
+func TestNewEvalMiddleware_WithExplicitRunner(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	runner := evals.NewEvalRunner(registry)
+
+	conv := &Conversation{
+		config: &config{evalRunner: runner},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if mw.runner != runner {
+		t.Error("expected explicit runner to be used")
+	}
+}
+
 func TestEvalMiddleware_NilMiddlewareSafeNoOp(t *testing.T) {
 	// Should not panic
 	var mw *evalMiddleware
@@ -138,9 +87,7 @@ func TestEvalMiddleware_NilMiddlewareSafeNoOp(t *testing.T) {
 
 func TestEvalMiddleware_ResolvesPackAndPromptEvals(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &evals.NoOpDispatcher{},
-		},
+		config: &config{},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn},
@@ -175,15 +122,11 @@ func TestEvalMiddleware_ResolvesPackAndPromptEvals(t *testing.T) {
 	}
 }
 
-func TestEvalMiddleware_MultipleResultWritersComposed(t *testing.T) {
-	w1 := &testResultWriter{}
-	w2 := &testResultWriter{}
+func TestEvalMiddleware_EmitterFromEventBus(t *testing.T) {
+	bus := events.NewEventBus()
 
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher:    &evals.NoOpDispatcher{},
-			evalResultWriters: []evals.ResultWriter{w1, w2},
-		},
+		config: &config{eventBus: bus},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
@@ -196,21 +139,14 @@ func TestEvalMiddleware_MultipleResultWritersComposed(t *testing.T) {
 	if mw == nil {
 		t.Fatal("expected non-nil middleware")
 	}
-
-	// Verify it's a composite writer
-	if _, ok := mw.resultWriter.(*evals.CompositeResultWriter); !ok {
-		t.Error("expected CompositeResultWriter when multiple writers provided")
+	if mw.emitter == nil {
+		t.Error("expected non-nil emitter when event bus is configured")
 	}
 }
 
-func TestEvalMiddleware_SingleResultWriter(t *testing.T) {
-	w := &testResultWriter{}
-
+func TestEvalMiddleware_NoEventBusNilEmitter(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher:    &evals.NoOpDispatcher{},
-			evalResultWriters: []evals.ResultWriter{w},
-		},
+		config: &config{},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
@@ -223,32 +159,8 @@ func TestEvalMiddleware_SingleResultWriter(t *testing.T) {
 	if mw == nil {
 		t.Fatal("expected non-nil middleware")
 	}
-
-	// Single writer should be used directly, not wrapped
-	if mw.resultWriter != w {
-		t.Error("expected single writer to be used directly")
-	}
-}
-
-func TestEvalMiddleware_NoResultWriters(t *testing.T) {
-	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &evals.NoOpDispatcher{},
-		},
-		pack: &pack.Pack{
-			Evals: []evals.EvalDef{
-				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
-			},
-		},
-		prompt: &pack.Prompt{},
-	}
-
-	mw := newEvalMiddleware(conv)
-	if mw == nil {
-		t.Fatal("expected non-nil middleware")
-	}
-	if mw.resultWriter != nil {
-		t.Error("expected nil result writer")
+	if mw.emitter != nil {
+		t.Error("expected nil emitter when no event bus")
 	}
 }
 
@@ -265,9 +177,7 @@ func TestEvalMiddleware_NilConfig(t *testing.T) {
 
 func TestEvalMiddleware_NilPack(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &evals.NoOpDispatcher{},
-		},
+		config: &config{},
 		pack:   nil,
 		prompt: nil,
 	}
@@ -280,9 +190,7 @@ func TestEvalMiddleware_NilPack(t *testing.T) {
 
 func TestEvalMiddleware_BuildEvalContext_NoSession(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &evals.NoOpDispatcher{},
-		},
+		config: &config{},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
@@ -314,35 +222,9 @@ func TestEvalMiddleware_BuildEvalContext_NoSession(t *testing.T) {
 	}
 }
 
-// errorDispatcher returns errors on dispatch.
-type errorDispatcher struct {
-	turnErr    error
-	sessionErr error
-}
-
-func (d *errorDispatcher) DispatchTurnEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	return nil, d.turnErr
-}
-
-func (d *errorDispatcher) DispatchSessionEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	return nil, d.sessionErr
-}
-
-func (d *errorDispatcher) DispatchConversationEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	return nil, nil
-}
-
-func TestEvalMiddleware_DispatchTurnEvalsError(t *testing.T) {
+func TestEvalMiddleware_DispatchTurnEvalsDoesNotPanic(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &errorDispatcher{turnErr: errors.New("turn error")},
-		},
+		config: &config{},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
@@ -356,16 +238,13 @@ func TestEvalMiddleware_DispatchTurnEvalsError(t *testing.T) {
 		t.Fatal("expected non-nil middleware")
 	}
 
-	// Should not panic on error — runs async so we can't easily check,
-	// but at least verify it doesn't crash
+	// Should not panic — runs async, handler may not be found but that's ok
 	mw.dispatchTurnEvals(context.Background())
 }
 
-func TestEvalMiddleware_DispatchSessionEvalsError(t *testing.T) {
+func TestEvalMiddleware_DispatchSessionEvalsDoesNotPanic(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &errorDispatcher{sessionErr: errors.New("session error")},
-		},
+		config: &config{},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
@@ -379,48 +258,13 @@ func TestEvalMiddleware_DispatchSessionEvalsError(t *testing.T) {
 		t.Fatal("expected non-nil middleware")
 	}
 
-	// Should not panic on error — runs synchronously
+	// Should not panic — runs synchronously
 	mw.dispatchSessionEvals(context.Background())
 }
 
-// errorResultWriter returns an error on WriteResults.
-type errorResultWriter struct{}
-
-func (w *errorResultWriter) WriteResults(_ context.Context, _ []evals.EvalResult) error {
-	return errors.New("write error")
-}
-
-// returningDispatcher always returns results.
-type returningDispatcher struct {
-	results []evals.EvalResult
-}
-
-func (d *returningDispatcher) DispatchTurnEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	return d.results, nil
-}
-
-func (d *returningDispatcher) DispatchSessionEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	return d.results, nil
-}
-
-func (d *returningDispatcher) DispatchConversationEvals(
-	_ context.Context, _ []evals.EvalDef, _ *evals.EvalContext,
-) ([]evals.EvalResult, error) {
-	return d.results, nil
-}
-
-func TestEvalMiddleware_SessionEvalsResultWriterError(t *testing.T) {
+func TestEvalMiddleware_EmitResults_NilEmitter(t *testing.T) {
 	conv := &Conversation{
-		config: &config{
-			evalDispatcher: &returningDispatcher{
-				results: []evals.EvalResult{{EvalID: "e1", Passed: true}},
-			},
-			evalResultWriters: []evals.ResultWriter{&errorResultWriter{}},
-		},
+		config: &config{},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
@@ -434,6 +278,56 @@ func TestEvalMiddleware_SessionEvalsResultWriterError(t *testing.T) {
 		t.Fatal("expected non-nil middleware")
 	}
 
-	// Should not panic even when result writer errors
-	mw.dispatchSessionEvals(context.Background())
+	// Should not panic with nil emitter
+	mw.emitResults([]evals.EvalResult{{EvalID: "e1", Passed: true}})
+}
+
+func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
+	bus := events.NewEventBus()
+	received := make(chan *events.Event, 10)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
+		received <- e
+	})
+	bus.Subscribe(events.EventEvalFailed, func(e *events.Event) {
+		received <- e
+	})
+
+	conv := &Conversation{
+		config: &config{eventBus: bus},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	mw.emitResults([]evals.EvalResult{
+		{EvalID: "e1", Type: "contains", Passed: true},
+		{EvalID: "e2", Type: "regex", Passed: false},
+	})
+
+	// Check we got 2 events
+	e1 := <-received
+	e2 := <-received
+
+	if e1.Type != events.EventEvalCompleted {
+		t.Errorf("expected eval.completed, got %s", e1.Type)
+	}
+	if e2.Type != events.EventEvalFailed {
+		t.Errorf("expected eval.failed, got %s", e2.Type)
+	}
+
+	data1, ok := e1.Data.(*events.EvalCompletedData)
+	if !ok {
+		t.Fatal("expected *EvalCompletedData")
+	}
+	if data1.EvalID != "e1" {
+		t.Errorf("expected eval ID e1, got %q", data1.EvalID)
+	}
 }
