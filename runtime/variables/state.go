@@ -2,6 +2,7 @@ package variables
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -69,18 +70,20 @@ func (p *StateProvider) Provide(ctx context.Context) (map[string]string, error) 
 		return nil, nil
 	}
 
-	state, err := p.store.Load(ctx, p.conversationID)
+	// Use MetadataAccessor if available to avoid deep-copying the entire message
+	// history. This is significantly cheaper for conversations with many messages.
+	metadata, err := p.loadMetadata(ctx)
 	if err != nil {
 		// Conversation not found is not an error - just return no variables
 		return nil, nil
 	}
 
-	if state == nil || state.Metadata == nil {
+	if metadata == nil {
 		return nil, nil
 	}
 
 	result := make(map[string]string)
-	for k, v := range state.Metadata {
+	for k, v := range metadata {
 		// Apply prefix filter if configured
 		if p.KeyPrefix != "" && !strings.HasPrefix(k, p.KeyPrefix) {
 			continue
@@ -97,4 +100,31 @@ func (p *StateProvider) Provide(ctx context.Context) (map[string]string, error) 
 	}
 
 	return result, nil
+}
+
+// loadMetadata returns the metadata map for the current conversation.
+// It uses MetadataAccessor if available to avoid deep-copying the full state,
+// otherwise falls back to Store.Load.
+func (p *StateProvider) loadMetadata(ctx context.Context) (map[string]interface{}, error) {
+	// Try MetadataAccessor first (avoids deep-copying messages)
+	if accessor, ok := p.store.(statestore.MetadataAccessor); ok {
+		metadata, err := accessor.LoadMetadata(ctx, p.conversationID)
+		if err != nil {
+			if errors.Is(err, statestore.ErrNotFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return metadata, nil
+	}
+
+	// Fall back to full Load
+	state, err := p.store.Load(ctx, p.conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		return nil, nil
+	}
+	return state.Metadata, nil
 }

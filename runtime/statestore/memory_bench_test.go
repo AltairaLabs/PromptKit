@@ -414,6 +414,88 @@ func BenchmarkCloneMessage_WithMeta(b *testing.B) {
 }
 
 // =============================================================================
+// LoadMetadata vs Load benchmarks — shows savings from avoiding message deep copy
+// =============================================================================
+
+func BenchmarkLoad_Medium(b *testing.B) {
+	store := NewMemoryStore(WithNoTTL(), WithNoMaxEntries())
+	ctx := context.Background()
+	state := buildMediumState()
+	_ = store.Save(ctx, state)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = store.Load(ctx, state.ID)
+	}
+}
+
+func BenchmarkLoadMetadata_Medium(b *testing.B) {
+	store := NewMemoryStore(WithNoTTL(), WithNoMaxEntries())
+	ctx := context.Background()
+	state := buildMediumState()
+	_ = store.Save(ctx, state)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = store.LoadMetadata(ctx, state.ID)
+	}
+}
+
+func BenchmarkLoad_Large(b *testing.B) {
+	store := NewMemoryStore(WithNoTTL(), WithNoMaxEntries())
+	ctx := context.Background()
+	state := buildLargeState()
+	_ = store.Save(ctx, state)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = store.Load(ctx, state.ID)
+	}
+}
+
+func BenchmarkLoadMetadata_Large(b *testing.B) {
+	store := NewMemoryStore(WithNoTTL(), WithNoMaxEntries())
+	ctx := context.Background()
+	state := buildLargeState()
+	_ = store.Save(ctx, state)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = store.LoadMetadata(ctx, state.ID)
+	}
+}
+
+func BenchmarkMessageCount_RLock(b *testing.B) {
+	store := NewMemoryStore(WithNoTTL(), WithNoMaxEntries())
+	ctx := context.Background()
+	state := buildLargeState()
+	_ = store.Save(ctx, state)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = store.MessageCount(ctx, state.ID)
+	}
+}
+
+func BenchmarkLoadSummaries_RLock(b *testing.B) {
+	store := NewMemoryStore(WithNoTTL(), WithNoMaxEntries())
+	ctx := context.Background()
+	state := buildMediumState() // has summaries
+	_ = store.Save(ctx, state)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = store.LoadSummaries(ctx, state.ID)
+	}
+}
+
+// =============================================================================
 // LRU eviction benchmarks — heap-based vs linear scan
 // =============================================================================
 

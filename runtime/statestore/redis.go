@@ -499,6 +499,30 @@ func (s *RedisStore) summariesKey(id string) string {
 	return fmt.Sprintf("%s:conversation:%s:summaries", s.prefix, id)
 }
 
+// LoadMetadata returns just the metadata map for the given conversation.
+// This only loads the meta key, avoiding deserialization of the messages and summaries lists.
+func (s *RedisStore) LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error) {
+	if id == "" {
+		return nil, ErrInvalidID
+	}
+
+	// Try decomposed meta key first
+	meta, err := s.loadMeta(ctx, id)
+	if err == nil {
+		return meta.Metadata, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	// Fall back to monolithic key (loads full state, but this is the legacy path)
+	state, err := s.loadMonolithic(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return state.Metadata, nil
+}
+
 // LoadRecentMessages returns the last n messages using LRANGE on the messages list.
 // Falls back to loading from the monolithic key if the list doesn't exist.
 func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error) {

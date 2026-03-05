@@ -411,14 +411,16 @@ func (s *MemoryStore) LoadRecentMessages(ctx context.Context, id string, n int) 
 }
 
 // MessageCount returns the total number of messages in the conversation.
-// Expired entries return ErrNotFound.
+// Uses a read lock since it only needs the message count, not a mutable reference.
+// Expired entries return ErrNotFound but are not eagerly evicted under RLock;
+// they will be cleaned up on the next write operation or background eviction.
 func (s *MemoryStore) MessageCount(ctx context.Context, id string) (int, error) {
 	if id == "" {
 		return 0, ErrInvalidID
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	state, exists := s.states[id]
 	if !exists {
@@ -426,15 +428,40 @@ func (s *MemoryStore) MessageCount(ctx context.Context, id string) (int, error) 
 	}
 
 	if s.isExpired(state) {
-		s.deleteStateLocked(id, state)
 		return 0, ErrNotFound
+	}
+
+	return len(state.Messages), nil
+}
+
+// LoadMetadata returns just the metadata map for the given conversation.
+// This avoids the cost of deep-copying the entire message history, making it
+// significantly cheaper than Load() for callers that only need metadata.
+// Expired entries are lazily evicted and return ErrNotFound.
+func (s *MemoryStore) LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error) {
+	if id == "" {
+		return nil, ErrInvalidID
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, exists := s.states[id]
+	if !exists {
+		return nil, ErrNotFound
+	}
+
+	if s.isExpired(state) {
+		s.deleteStateLocked(id, state)
+		return nil, ErrNotFound
 	}
 
 	now := time.Now()
 	state.LastAccessedAt = now
 	s.touchLRULocked(id, now)
 
-	return len(state.Messages), nil
+	// Only deep copy the metadata map, not the entire state
+	return cloneMapStringInterface(state.Metadata), nil
 }
 
 // AppendMessages appends messages to the conversation's message history.
@@ -476,14 +503,16 @@ func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []
 }
 
 // LoadSummaries returns all summaries for the given conversation.
-// Expired entries return nil.
+// Uses a read lock since summaries contain only value types and cloning
+// is a simple slice copy that doesn't benefit from write-lock protection.
+// Expired entries return nil but are not eagerly evicted under RLock.
 func (s *MemoryStore) LoadSummaries(ctx context.Context, id string) ([]Summary, error) {
 	if id == "" {
 		return nil, ErrInvalidID
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	state, exists := s.states[id]
 	if !exists {
@@ -491,19 +520,15 @@ func (s *MemoryStore) LoadSummaries(ctx context.Context, id string) ([]Summary, 
 	}
 
 	if s.isExpired(state) {
-		s.deleteStateLocked(id, state)
 		return nil, nil
 	}
-
-	now := time.Now()
-	state.LastAccessedAt = now
-	s.touchLRULocked(id, now)
 
 	if len(state.Summaries) == 0 {
 		return nil, nil
 	}
 
-	// Deep copy summaries using structural cloning
+	// Summary contains only value types (int, string, time.Time),
+	// so a simple slice copy suffices for isolation.
 	return cloneSummaries(state.Summaries), nil
 }
 

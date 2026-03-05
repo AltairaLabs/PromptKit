@@ -1210,6 +1210,147 @@ func TestMemoryStore_DeepCloneMultimodalAndToolCalls(t *testing.T) {
 	assert.Equal(t, int64(250), toolMsg.ToolResult.LatencyMs)
 }
 
+func TestMemoryStore_LoadMetadata(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Save a conversation with metadata and messages
+	state := &ConversationState{
+		ID:     "conv-meta",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello", Timestamp: time.Now()},
+			{Role: "assistant", Content: "Hi there!", Timestamp: time.Now()},
+			{Role: "user", Content: "How are you?", Timestamp: time.Now()},
+		},
+		Metadata: map[string]interface{}{
+			"topic":  "greetings",
+			"nested": map[string]interface{}{"key": "value"},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// LoadMetadata should return only the metadata, not messages
+	metadata, err := store.LoadMetadata(ctx, "conv-meta")
+	require.NoError(t, err)
+	assert.Equal(t, "greetings", metadata["topic"])
+	nested, ok := metadata["nested"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "value", nested["key"])
+
+	// Mutating the returned metadata should not affect the store
+	metadata["topic"] = "mutated"
+	nested["key"] = "mutated"
+
+	metadata2, err := store.LoadMetadata(ctx, "conv-meta")
+	require.NoError(t, err)
+	assert.Equal(t, "greetings", metadata2["topic"])
+	nested2 := metadata2["nested"].(map[string]interface{})
+	assert.Equal(t, "value", nested2["key"])
+
+	// Not found
+	_, err = store.LoadMetadata(ctx, "nonexistent")
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	// Invalid ID
+	_, err = store.LoadMetadata(ctx, "")
+	assert.ErrorIs(t, err, ErrInvalidID)
+
+	// Nil metadata
+	noMetaState := &ConversationState{
+		ID:     "conv-no-meta",
+		UserID: "user-alice",
+	}
+	err = store.Save(ctx, noMetaState)
+	require.NoError(t, err)
+
+	metadata, err = store.LoadMetadata(ctx, "conv-no-meta")
+	require.NoError(t, err)
+	assert.Nil(t, metadata)
+}
+
+func TestMemoryStore_LoadMetadata_Expired(t *testing.T) {
+	store := NewMemoryStore(WithMemoryTTL(10 * time.Millisecond))
+	ctx := context.Background()
+
+	state := &ConversationState{
+		ID:       "conv-expire",
+		UserID:   "user-alice",
+		Metadata: map[string]interface{}{"key": "value"},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Wait for TTL to expire
+	time.Sleep(20 * time.Millisecond)
+
+	_, err = store.LoadMetadata(ctx, "conv-expire")
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestMemoryStore_MessageCount_ReadOnly(t *testing.T) {
+	// Verify MessageCount works correctly with RLock (no LRU touch)
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	state := &ConversationState{
+		ID:     "conv-count-ro",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello", Timestamp: time.Now()},
+			{Role: "assistant", Content: "Hi", Timestamp: time.Now()},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// MessageCount should work with concurrent reads
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			count, err := store.MessageCount(ctx, "conv-count-ro")
+			assert.NoError(t, err)
+			assert.Equal(t, 2, count)
+		}()
+	}
+	wg.Wait()
+}
+
+func TestMemoryStore_LoadSummaries_ReadOnly(t *testing.T) {
+	// Verify LoadSummaries works correctly with RLock
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	now := time.Now()
+	state := &ConversationState{
+		ID:     "conv-sum-ro",
+		UserID: "user-alice",
+		Summaries: []Summary{
+			{StartTurn: 0, EndTurn: 5, Content: "Summary 1", TokenCount: 20, CreatedAt: now},
+			{StartTurn: 6, EndTurn: 10, Content: "Summary 2", TokenCount: 25, CreatedAt: now},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Concurrent reads should not race
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			summaries, err := store.LoadSummaries(ctx, "conv-sum-ro")
+			assert.NoError(t, err)
+			assert.Len(t, summaries, 2)
+			assert.Equal(t, "Summary 1", summaries[0].Content)
+		}()
+	}
+	wg.Wait()
+}
+
 func TestDeepCopyState_Nil(t *testing.T) {
 	result := deepCopyState(nil)
 	assert.Nil(t, result)
