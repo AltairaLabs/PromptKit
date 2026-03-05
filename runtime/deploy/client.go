@@ -71,8 +71,18 @@ const (
 // NewAdapterClient starts the adapter binary at the given path and returns
 // a client ready for JSON-RPC calls. The process is kept alive for the
 // lifetime of the client; call Close when done.
+//
+// Deprecated: Use [NewAdapterClientWithContext] to pass a context that
+// controls the subprocess lifetime.
 func NewAdapterClient(binaryPath string) (*AdapterClient, error) {
-	cmd := exec.CommandContext(context.Background(), binaryPath)
+	return NewAdapterClientWithContext(context.Background(), binaryPath)
+}
+
+// NewAdapterClientWithContext starts the adapter binary at the given path,
+// using ctx to control the subprocess lifetime. If ctx is canceled, the
+// subprocess is killed. Call Close when done.
+func NewAdapterClientWithContext(ctx context.Context, binaryPath string) (*AdapterClient, error) {
+	cmd := exec.CommandContext(ctx, binaryPath)
 	return newAdapterClient(cmd)
 }
 
@@ -135,8 +145,10 @@ func (c *AdapterClient) Close() error {
 	return nil
 }
 
-// call sends a JSON-RPC request and reads the response. Thread-safe.
-func (c *AdapterClient) call(method string, params, result any) error {
+// callCtx sends a JSON-RPC request and reads the response with context support.
+// The context controls the read timeout — if no response arrives before the
+// context deadline, the call returns the context error.
+func (c *AdapterClient) callCtx(ctx context.Context, method string, params, result any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -164,15 +176,38 @@ func (c *AdapterClient) call(method string, params, result any) error {
 		return fmt.Errorf("write request: %w", err)
 	}
 
-	if !c.stdout.Scan() {
-		if err := c.stdout.Err(); err != nil {
-			return fmt.Errorf("read response: %w", err)
+	// Read response with context-based timeout.
+	type scanResult struct {
+		line []byte
+		ok   bool
+		err  error
+	}
+	ch := make(chan scanResult, 1)
+	go func() {
+		ok := c.stdout.Scan()
+		ch <- scanResult{
+			line: append([]byte(nil), c.stdout.Bytes()...),
+			ok:   ok,
+			err:  c.stdout.Err(),
+		}
+	}()
+
+	var sr scanResult
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("read response: %w", ctx.Err())
+	case sr = <-ch:
+	}
+
+	if !sr.ok {
+		if sr.err != nil {
+			return fmt.Errorf("read response: %w", sr.err)
 		}
 		return fmt.Errorf("adapter closed connection unexpectedly")
 	}
 
 	var resp rpcResponse
-	if err := json.Unmarshal(c.stdout.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(sr.line, &resp); err != nil {
 		return fmt.Errorf("unmarshal response: %w", err)
 	}
 
@@ -192,7 +227,7 @@ func (c *AdapterClient) call(method string, params, result any) error {
 // GetProviderInfo returns metadata about the adapter.
 func (c *AdapterClient) GetProviderInfo(ctx context.Context) (*ProviderInfo, error) {
 	var info ProviderInfo
-	if err := c.call(methodProviderInfo, nil, &info); err != nil {
+	if err := c.callCtx(ctx, methodProviderInfo, nil, &info); err != nil {
 		return nil, err
 	}
 	return &info, nil
@@ -201,7 +236,7 @@ func (c *AdapterClient) GetProviderInfo(ctx context.Context) (*ProviderInfo, err
 // ValidateConfig validates provider-specific configuration.
 func (c *AdapterClient) ValidateConfig(ctx context.Context, req *ValidateRequest) (*ValidateResponse, error) {
 	var resp ValidateResponse
-	if err := c.call(methodValidate, req, &resp); err != nil {
+	if err := c.callCtx(ctx, methodValidate, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -210,7 +245,7 @@ func (c *AdapterClient) ValidateConfig(ctx context.Context, req *ValidateRequest
 // Plan generates a deployment plan showing what would change.
 func (c *AdapterClient) Plan(ctx context.Context, req *PlanRequest) (*PlanResponse, error) {
 	var resp PlanResponse
-	if err := c.call(methodPlan, req, &resp); err != nil {
+	if err := c.callCtx(ctx, methodPlan, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -226,7 +261,7 @@ type applyResult struct {
 // than streaming them. The returned string is the opaque adapter state.
 func (c *AdapterClient) Apply(ctx context.Context, req *PlanRequest, callback ApplyCallback) (string, error) {
 	var result applyResult
-	if err := c.call(methodApply, req, &result); err != nil {
+	if err := c.callCtx(ctx, methodApply, req, &result); err != nil {
 		return "", err
 	}
 	return result.AdapterState, nil
@@ -234,13 +269,13 @@ func (c *AdapterClient) Apply(ctx context.Context, req *PlanRequest, callback Ap
 
 // Destroy tears down the deployment.
 func (c *AdapterClient) Destroy(ctx context.Context, req *DestroyRequest, callback DestroyCallback) error {
-	return c.call(methodDestroy, req, nil)
+	return c.callCtx(ctx, methodDestroy, req, nil)
 }
 
 // Status returns the current deployment status.
 func (c *AdapterClient) Status(ctx context.Context, req *StatusRequest) (*StatusResponse, error) {
 	var resp StatusResponse
-	if err := c.call(methodStatus, req, &resp); err != nil {
+	if err := c.callCtx(ctx, methodStatus, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -249,7 +284,7 @@ func (c *AdapterClient) Status(ctx context.Context, req *StatusRequest) (*Status
 // Import imports a pre-existing resource into the deployment state.
 func (c *AdapterClient) Import(ctx context.Context, req *ImportRequest) (*ImportResponse, error) {
 	var resp ImportResponse
-	if err := c.call(methodImport, req, &resp); err != nil {
+	if err := c.callCtx(ctx, methodImport, req, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil

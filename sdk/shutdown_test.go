@@ -248,6 +248,47 @@ func TestGracefulShutdownOnSignal_WithErrors(t *testing.T) {
 	}
 }
 
+func TestShutdownManager_BoundedConcurrency(t *testing.T) {
+	mgr := NewShutdownManager()
+
+	const total = 300 // well above maxConcurrentClosures
+	var peakConcurrency atomic.Int32
+	var currentConcurrency atomic.Int32
+
+	for i := range total {
+		c := &mockCloser{
+			closeFunc: func() error {
+				cur := currentConcurrency.Add(1)
+				// Track peak concurrency
+				for {
+					peak := peakConcurrency.Load()
+					if cur <= peak || peakConcurrency.CompareAndSwap(peak, cur) {
+						break
+					}
+				}
+				time.Sleep(time.Millisecond) // simulate work
+				currentConcurrency.Add(-1)
+				return nil
+			},
+		}
+		_ = mgr.Register(idFromIndex(i), c)
+	}
+
+	err := mgr.Shutdown(context.Background())
+	if err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	peak := int(peakConcurrency.Load())
+	if peak > maxConcurrentClosures {
+		t.Errorf("peak concurrency %d exceeds limit %d", peak, maxConcurrentClosures)
+	}
+	// Verify meaningful parallelism happened (at least a few concurrent closures).
+	if peak < 2 {
+		t.Errorf("peak concurrency %d is too low; expected at least some parallelism", peak)
+	}
+}
+
 // idFromIndex is a helper that converts an integer index to a string ID.
 func idFromIndex(i int) string {
 	return "conv-" + string(rune('A'+i%26)) + string(rune('0'+i/26))

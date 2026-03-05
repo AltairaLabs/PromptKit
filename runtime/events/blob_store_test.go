@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,6 +226,253 @@ func TestFileBlobStore_StoreReader(t *testing.T) {
 			t.Errorf("data mismatch: got %q, want %q", loaded, original)
 		}
 	})
+}
+
+func TestFileBlobStore_ConcurrentStore(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	// Store the same data concurrently from multiple goroutines.
+	const goroutines = 20
+	data := []byte("concurrent test data")
+	errs := make(chan error, goroutines)
+	refs := make(chan string, goroutines)
+
+	for range goroutines {
+		go func() {
+			p, err := store.Store(ctx, "session-concurrent", data, "text/plain")
+			if err != nil {
+				errs <- err
+				return
+			}
+			refs <- p.StorageRef
+			errs <- nil
+		}()
+	}
+
+	var firstRef string
+	for range goroutines {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent store: %v", err)
+		}
+	}
+	close(refs)
+	for ref := range refs {
+		if firstRef == "" {
+			firstRef = ref
+		}
+		if ref != firstRef {
+			t.Error("concurrent stores of same data should return same ref")
+		}
+	}
+
+	// Verify the data loads correctly.
+	loaded, err := store.Load(ctx, firstRef)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if string(loaded) != string(data) {
+		t.Errorf("data mismatch: got %q, want %q", loaded, data)
+	}
+}
+
+func TestFileBlobStore_StoreReader_Streaming(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	// Use a pipe to prove data is streamed (not buffered into memory all at once).
+	pr, pw := io.Pipe()
+	original := "streaming data content for test"
+
+	go func() {
+		// Write in small chunks to simulate streaming.
+		for i := 0; i < len(original); i++ {
+			pw.Write([]byte{original[i]})
+		}
+		pw.Close()
+	}()
+
+	payload, err := store.StoreReader(ctx, "session-stream", pr, "text/plain")
+	if err != nil {
+		t.Fatalf("store reader: %v", err)
+	}
+
+	if payload.Size != int64(len(original)) {
+		t.Errorf("size = %d, want %d", payload.Size, len(original))
+	}
+
+	loaded, err := store.Load(ctx, payload.StorageRef)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if string(loaded) != original {
+		t.Errorf("data mismatch: got %q, want %q", loaded, original)
+	}
+}
+
+func TestFileBlobStore_StoreReader_Dedup(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	original := "dedup reader data"
+
+	// Store once via Store()
+	p1, err := store.Store(ctx, "session-dedup", []byte(original), "text/plain")
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+
+	// Store same data via StoreReader — should dedup via in-memory map
+	p2, err := store.StoreReader(ctx, "session-dedup", strings.NewReader(original), "text/plain")
+	if err != nil {
+		t.Fatalf("store reader dedup: %v", err)
+	}
+
+	if p1.StorageRef != p2.StorageRef {
+		t.Error("StoreReader should dedup with same ref as Store")
+	}
+}
+
+func TestFileBlobStore_StoreReader_DedupFilesystem(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	original := "filesystem dedup reader data"
+
+	// Store once via StoreReader
+	p1, err := store.StoreReader(ctx, "session-fsdedup", strings.NewReader(original), "text/plain")
+	if err != nil {
+		t.Fatalf("store reader 1: %v", err)
+	}
+
+	// Create a fresh store instance pointing to the same directory to bypass
+	// in-memory map but hit the filesystem dedup check.
+	store2, err := NewFileBlobStore(store.baseDir)
+	if err != nil {
+		t.Fatalf("create store2: %v", err)
+	}
+	defer store2.Close()
+
+	p2, err := store2.StoreReader(ctx, "session-fsdedup", strings.NewReader(original), "text/plain")
+	if err != nil {
+		t.Fatalf("store reader 2: %v", err)
+	}
+
+	if p1.StorageRef != p2.StorageRef {
+		t.Error("StoreReader should dedup via filesystem check")
+	}
+}
+
+func TestFileBlobStore_Store_FilesystemDedup(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := NewFileBlobStore(dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	data := []byte("filesystem dedup test")
+	p1, err := store.Store(ctx, "session-1", data, "text/plain")
+	if err != nil {
+		t.Fatalf("store 1: %v", err)
+	}
+
+	// Create a fresh store to bypass in-memory map
+	store2, err := NewFileBlobStore(dir)
+	if err != nil {
+		t.Fatalf("create store2: %v", err)
+	}
+	defer store2.Close()
+
+	p2, err := store2.Store(ctx, "session-1", data, "text/plain")
+	if err != nil {
+		t.Fatalf("store 2: %v", err)
+	}
+
+	if p1.StorageRef != p2.StorageRef {
+		t.Error("Store should dedup via filesystem check")
+	}
+}
+
+func TestFileBlobStore_ContextCancelled(t *testing.T) {
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	_, err = store.Store(ctx, "session-1", []byte("data"), "text/plain")
+	if err == nil {
+		t.Error("Store with cancelled context should error")
+	}
+
+	_, err = store.StoreReader(ctx, "session-1", strings.NewReader("data"), "text/plain")
+	if err == nil {
+		t.Error("StoreReader with cancelled context should error")
+	}
+
+	_, err = store.Load(ctx, "file://any")
+	if err == nil {
+		t.Error("Load with cancelled context should error")
+	}
+
+	_, err = store.LoadReader(ctx, "file://any")
+	if err == nil {
+		t.Error("LoadReader with cancelled context should error")
+	}
+
+	err = store.Delete(ctx, "file://any")
+	if err == nil {
+		t.Error("Delete with cancelled context should error")
+	}
+}
+
+func TestFileBlobStore_AtomicWrite(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store, err := NewFileBlobStore(dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	// Store data and verify no temp files remain.
+	_, err = store.Store(ctx, "session-atomic", []byte("atomic data"), "text/plain")
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+
+	// Check for leftover temp files in the session directory.
+	sessionDir := filepath.Join(dir, "session-atomic")
+	entries, err := os.ReadDir(sessionDir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".blob-") {
+			t.Errorf("leftover temp file: %s", entry.Name())
+		}
+	}
 }
 
 func TestNewEventStoreWithBlobs(t *testing.T) {

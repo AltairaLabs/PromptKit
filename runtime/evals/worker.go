@@ -87,20 +87,26 @@ func NewEvalWorker(
 
 // Start subscribes to turn and session eval events and processes them.
 // It blocks until the context is canceled or a subscription error occurs.
+// If either subscription fails, the other is canceled to avoid goroutine leaks.
 func (w *EvalWorker) Start(ctx context.Context) error {
 	logger.Info("evals: worker starting", "subscriptions", []string{"eval.turn.*", "eval.session.*"})
+
+	// Derive a child context so we can cancel both subscriptions if either fails.
+	subCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	turnErr := make(chan error, 1)
 	sessErr := make(chan error, 1)
 
 	go func() {
 		turnErr <- w.subscriber.Subscribe(
-			ctx, "eval.turn.*", w.handleTurnEvent,
+			subCtx, "eval.turn.*", w.handleTurnEvent,
 		)
 	}()
 
 	go func() {
 		sessErr <- w.subscriber.Subscribe(
-			ctx, "eval.session.*", w.handleSessionEvent,
+			subCtx, "eval.session.*", w.handleSessionEvent,
 		)
 	}()
 

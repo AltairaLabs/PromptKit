@@ -38,6 +38,11 @@ const (
 	// The default bufio.Scanner buffer of 64KB is too small for large artifacts
 	// such as base64-encoded images.
 	sseMaxTokenSize = 1 << 20
+
+	// DefaultSSEIdleTimeout is the default idle timeout for SSE streams.
+	// If no event is received within this duration, ReadSSE returns an error
+	// so callers can reconnect.
+	DefaultSSEIdleTimeout = 5 * time.Minute
 )
 
 // RPCError represents a JSON-RPC error returned by an A2A agent.
@@ -83,14 +88,27 @@ func WithAuth(scheme, token string) ClientOption {
 	}
 }
 
+// WithSSEIdleTimeout sets the idle timeout for SSE streams. If no event
+// is received within this duration, the stream is considered stale and
+// ReadSSE returns [ErrSSEIdleTimeout] so callers can reconnect.
+// A zero or negative value disables the idle timeout.
+func WithSSEIdleTimeout(d time.Duration) ClientOption {
+	return func(c *Client) { c.sseIdleTimeout = d }
+}
+
+// ErrSSEIdleTimeout is returned when an SSE stream has not received any
+// event within the configured idle timeout period.
+var ErrSSEIdleTimeout = fmt.Errorf("a2a: SSE idle timeout exceeded")
+
 // Client is an HTTP client for discovering and calling external A2A agents.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
-	sseClient  *http.Client // separate client for long-lived SSE streams
-	authScheme string
-	authToken  string
-	reqID      int64
+	baseURL        string
+	httpClient     *http.Client
+	sseClient      *http.Client // separate client for long-lived SSE streams
+	sseIdleTimeout time.Duration
+	authScheme     string
+	authToken      string
+	reqID          int64
 
 	mu        sync.RWMutex
 	agentCard *AgentCard
@@ -136,9 +154,10 @@ func newDefaultSSEClient() *http.Client {
 // NewClient creates a Client targeting baseURL.
 func NewClient(baseURL string, opts ...ClientOption) *Client {
 	c := &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		httpClient: newDefaultHTTPClient(),
-		sseClient:  newDefaultSSEClient(),
+		baseURL:        strings.TrimRight(baseURL, "/"),
+		httpClient:     newDefaultHTTPClient(),
+		sseClient:      newDefaultSSEClient(),
+		sseIdleTimeout: DefaultSSEIdleTimeout,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -307,7 +326,7 @@ func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageReque
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
-		ReadSSE(ctx, resp.Body, ch)
+		ReadSSEWithIdleTimeout(ctx, resp.Body, ch, c.sseIdleTimeout)
 	}()
 
 	return ch, nil
@@ -341,35 +360,117 @@ func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Ta
 }
 
 // ReadSSE reads SSE events from r and sends parsed StreamEvents to ch.
+// It has no idle timeout; use [ReadSSEWithIdleTimeout] for timeout support.
 func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent) {
+	ReadSSEWithIdleTimeout(ctx, r, ch, 0)
+}
+
+// scanLine is a line read by the background scanner goroutine.
+type scanLine struct {
+	text string
+}
+
+// startScanner launches a background goroutine that reads lines from r and
+// sends them to the returned channel. The channel is closed on EOF or error.
+func startScanner(r io.Reader) <-chan scanLine {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, sseMaxTokenSize), sseMaxTokenSize)
-	var buf strings.Builder
 
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if strings.HasPrefix(line, ":") {
-			continue // SSE comment
+	lineCh := make(chan scanLine, 1)
+	go func() {
+		defer close(lineCh)
+		for scanner.Scan() {
+			lineCh <- scanLine{text: scanner.Text()}
 		}
+	}()
+	return lineCh
+}
 
-		if strings.HasPrefix(line, "data:") {
-			appendDataLine(&buf, line)
-			continue
-		}
+// idleTimer wraps an optional timer for SSE idle detection.
+type idleTimer struct {
+	timer  *time.Timer
+	C      <-chan time.Time
+	period time.Duration
+}
 
-		// Empty line terminates the current event.
-		if line == "" && buf.Len() > 0 {
-			if !emitEvent(ctx, buf.String(), ch) {
-				return
-			}
-			buf.Reset()
+// newIdleTimer creates an idle timer. If d <= 0, the timer is disabled (C is nil).
+func newIdleTimer(d time.Duration) *idleTimer {
+	if d <= 0 {
+		return &idleTimer{}
+	}
+	t := time.NewTimer(d)
+	return &idleTimer{timer: t, C: t.C, period: d}
+}
+
+// reset restarts the idle timer. No-op if disabled.
+func (it *idleTimer) reset() {
+	if it.timer == nil {
+		return
+	}
+	if !it.timer.Stop() {
+		select {
+		case <-it.timer.C:
+		default:
 		}
 	}
+	it.timer.Reset(it.period)
+}
 
-	// Handle any remaining buffered data.
-	if buf.Len() > 0 {
-		emitEvent(ctx, buf.String(), ch)
+// stop releases timer resources. No-op if disabled.
+func (it *idleTimer) stop() {
+	if it.timer != nil {
+		it.timer.Stop()
+	}
+}
+
+// processSSELine processes a single SSE line, updating buf and emitting events.
+// Returns false if the caller should stop reading.
+func processSSELine(ctx context.Context, line string, buf *strings.Builder, ch chan<- StreamEvent) bool {
+	if strings.HasPrefix(line, ":") {
+		return true // SSE comment
+	}
+	if strings.HasPrefix(line, "data:") {
+		appendDataLine(buf, line)
+		return true
+	}
+	// Empty line terminates the current event.
+	if line == "" && buf.Len() > 0 {
+		if !emitEvent(ctx, buf.String(), ch) {
+			return false
+		}
+		buf.Reset()
+	}
+	return true
+}
+
+// ReadSSEWithIdleTimeout reads SSE events from r and sends parsed StreamEvents
+// to ch. If idleTimeout is positive and no line is received within that
+// duration, reading stops (callers should reconnect). A zero or negative
+// idleTimeout disables idle detection.
+func ReadSSEWithIdleTimeout(ctx context.Context, r io.Reader, ch chan<- StreamEvent, idleTimeout time.Duration) {
+	var buf strings.Builder
+	lineCh := startScanner(r)
+	idle := newIdleTimer(idleTimeout)
+	defer idle.stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-idle.C:
+			return
+		case sl, open := <-lineCh:
+			if !open {
+				if buf.Len() > 0 {
+					emitEvent(ctx, buf.String(), ch)
+				}
+				return
+			}
+			idle.reset()
+			if !processSSELine(ctx, sl.text, &buf, ch) {
+				return
+			}
+		}
 	}
 }
 

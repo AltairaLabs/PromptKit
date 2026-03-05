@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/httputil"
@@ -22,21 +23,31 @@ import (
 
 // Default configuration values
 const (
-	defaultHTTPMethod = "POST"
-	maxResponseSize   = 10 * 1024 * 1024 // 10MB
-	envHeaderParts    = 2                // key=value split parts
+	defaultHTTPMethod       = "POST"
+	maxResponseSize         = 10 * 1024 * 1024 // 10MB per response
+	DefaultMaxAggregateSize = 50 * 1024 * 1024 // 50MB cumulative across all responses
+	envHeaderParts          = 2                // key=value split parts
 )
+
+// ErrAggregateResponseSizeExceeded is returned when the cumulative response
+// size across all HTTP tool calls exceeds the configured maximum.
+var ErrAggregateResponseSizeExceeded = fmt.Errorf("aggregate HTTP response size limit exceeded")
 
 // HTTPExecutor executes tools that make HTTP calls based on pack configuration.
 // It reads the HTTPConfig from the tool descriptor and makes the appropriate HTTP request.
+// It tracks cumulative response sizes and rejects calls once the aggregate limit is reached.
 type HTTPExecutor struct {
-	client *http.Client
+	client           *http.Client
+	aggregateSize    atomic.Int64
+	maxAggregateSize int64
 }
 
-// NewHTTPExecutor creates a new HTTP executor with the default HTTP client.
+// NewHTTPExecutor creates a new HTTP executor with the default HTTP client
+// and default aggregate response size limit.
 func NewHTTPExecutor() *HTTPExecutor {
 	return &HTTPExecutor{
-		client: httputil.NewHTTPClient(httputil.DefaultToolTimeout),
+		client:           httputil.NewHTTPClient(httputil.DefaultToolTimeout),
+		maxAggregateSize: DefaultMaxAggregateSize,
 	}
 }
 
@@ -44,8 +55,28 @@ func NewHTTPExecutor() *HTTPExecutor {
 // This is useful for testing or when custom transport configuration is needed.
 func NewHTTPExecutorWithClient(client *http.Client) *HTTPExecutor {
 	return &HTTPExecutor{
-		client: client,
+		client:           client,
+		maxAggregateSize: DefaultMaxAggregateSize,
 	}
+}
+
+// NewHTTPExecutorWithMaxAggregate creates a new HTTP executor with a custom
+// aggregate response size limit. Use 0 or a negative value to disable.
+func NewHTTPExecutorWithMaxAggregate(maxAggregate int64) *HTTPExecutor {
+	return &HTTPExecutor{
+		client:           httputil.NewHTTPClient(httputil.DefaultToolTimeout),
+		maxAggregateSize: maxAggregate,
+	}
+}
+
+// AggregateResponseSize returns the cumulative response size consumed so far.
+func (e *HTTPExecutor) AggregateResponseSize() int64 {
+	return e.aggregateSize.Load()
+}
+
+// ResetAggregateSize resets the cumulative response size counter to zero.
+func (e *HTTPExecutor) ResetAggregateSize() {
+	e.aggregateSize.Store(0)
 }
 
 // Name returns the executor name used for registration.
@@ -158,11 +189,24 @@ func (e *HTTPExecutor) applyHeaders(req *http.Request, cfg *tools.HTTPConfig) {
 
 // processResponse reads and processes the HTTP response.
 func (e *HTTPExecutor) processResponse(resp *http.Response, cfg *tools.HTTPConfig) (json.RawMessage, error) {
-	// Read response body with size limit
+	// Check aggregate limit before reading (fast fail).
+	if e.maxAggregateSize > 0 && e.aggregateSize.Load() >= e.maxAggregateSize {
+		return nil, fmt.Errorf("%w: %d bytes consumed, limit is %d",
+			ErrAggregateResponseSizeExceeded, e.aggregateSize.Load(), e.maxAggregateSize)
+	}
+
+	// Read response body with per-response size limit.
 	limitedReader := io.LimitReader(resp.Body, maxResponseSize)
 	respBody, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Track cumulative size and enforce aggregate limit.
+	newTotal := e.aggregateSize.Add(int64(len(respBody)))
+	if e.maxAggregateSize > 0 && newTotal > e.maxAggregateSize {
+		return nil, fmt.Errorf("%w: %d bytes consumed, limit is %d",
+			ErrAggregateResponseSizeExceeded, newTotal, e.maxAggregateSize)
 	}
 
 	// Check for HTTP errors

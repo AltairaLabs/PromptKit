@@ -9,6 +9,49 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
+// TestIsRootStage tests the precomputed root stage O(1) lookup.
+func TestIsRootStage(t *testing.T) {
+	// Build a pipeline: A -> B -> C (A is root, B and C are not)
+	stageA := &testPassthroughStage{name: "stageA"}
+	stageB := &testPassthroughStage{name: "stageB"}
+	stageC := &testPassthroughStage{name: "stageC"}
+
+	pipeline, err := NewPipelineBuilder().
+		Chain(stageA, stageB, stageC).
+		Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if !pipeline.isRootStage("stageA") {
+		t.Error("stageA should be a root stage")
+	}
+	if pipeline.isRootStage("stageB") {
+		t.Error("stageB should not be a root stage")
+	}
+	if pipeline.isRootStage("stageC") {
+		t.Error("stageC should not be a root stage")
+	}
+	if pipeline.isRootStage("nonexistent") {
+		t.Error("nonexistent stage should not be a root stage")
+	}
+}
+
+// testPassthroughStage is a minimal stage that passes elements through.
+type testPassthroughStage struct {
+	name string
+}
+
+func (s *testPassthroughStage) Name() string      { return s.name }
+func (s *testPassthroughStage) Type() StageType   { return StageTypeTransform }
+func (s *testPassthroughStage) Process(_ context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
+	defer close(out)
+	for elem := range in {
+		out <- elem
+	}
+	return nil
+}
+
 // TestMonitorExecutionTimeout tests the monitorExecutionTimeout helper function.
 func TestMonitorExecutionTimeout(t *testing.T) {
 	t.Run("no timeout configured", func(t *testing.T) {

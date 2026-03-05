@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -244,5 +245,49 @@ func TestEvalWorker_WriterError(t *testing.T) {
 	err := worker.Start(ctx)
 	if err == nil {
 		t.Fatal("expected error from writer failure")
+	}
+}
+
+// partialFailSubscriber fails immediately on turn subscription but blocks
+// on session subscription. This lets us verify that when one subscription
+// fails, the other's context is canceled (no goroutine leak).
+type partialFailSubscriber struct {
+	sessionCanceled atomic.Bool
+}
+
+func (s *partialFailSubscriber) Subscribe(
+	ctx context.Context,
+	subject string,
+	_ func(event []byte) error,
+) error {
+	if subject == "eval.turn.*" {
+		return errors.New("turn subscription failed")
+	}
+	// Session subscription blocks until context is canceled.
+	<-ctx.Done()
+	s.sessionCanceled.Store(true)
+	return ctx.Err()
+}
+
+func TestEvalWorker_PartialFailureCancelsOther(t *testing.T) {
+	reg := newTestRegistry(&stubHandler{typeName: "test"})
+	runner := NewEvalRunner(reg)
+
+	sub := &partialFailSubscriber{}
+	worker := NewEvalWorker(runner, sub, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := worker.Start(ctx)
+	if err == nil {
+		t.Fatal("expected error from partial subscription failure")
+	}
+
+	// Give the session goroutine time to observe cancellation.
+	time.Sleep(50 * time.Millisecond)
+
+	if !sub.sessionCanceled.Load() {
+		t.Error("session subscription should have been canceled when turn subscription failed")
 	}
 }

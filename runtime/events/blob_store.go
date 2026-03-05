@@ -39,9 +39,13 @@ type BlobStore interface {
 
 // FileBlobStore implements BlobStore using the local filesystem.
 // Blobs are stored in a directory structure: baseDir/sessionID/hash.ext
+//
+// The store uses atomic write-to-temp-then-rename for crash safety and
+// holds locks only for the in-memory deduplication map, not during file I/O.
 type FileBlobStore struct {
 	baseDir string
 	mu      sync.RWMutex
+	known   map[string]struct{} // tracks hashes already stored on disk
 }
 
 // Blob storage constants.
@@ -59,10 +63,14 @@ func NewFileBlobStore(dir string) (*FileBlobStore, error) {
 	}
 	return &FileBlobStore{
 		baseDir: dir,
+		known:   make(map[string]struct{}),
 	}, nil
 }
 
 // Store saves binary data and returns a storage reference.
+// File I/O is performed outside the lock; the lock only protects the
+// in-memory deduplication map. Writes use atomic temp-file-then-rename
+// to avoid partial-write corruption.
 func (s *FileBlobStore) Store(
 	ctx context.Context, sessionID string, data []byte, mimeType string,
 ) (*BinaryPayload, error) {
@@ -80,51 +88,159 @@ func (s *FileBlobStore) Store(
 	ext := extensionFromMIME(mimeType)
 	filename := hashStr + ext
 
+	// Create session directory (safe to call concurrently)
+	sessionDir := filepath.Join(s.baseDir, sessionID)
+	if err := os.MkdirAll(sessionDir, blobDirPermissions); err != nil {
+		return nil, fmt.Errorf("create session blob directory: %w", err)
+	}
+
+	path := filepath.Join(sessionDir, filename)
+	ref := s.pathToRef(path)
+	payload := &BinaryPayload{
+		StorageRef: ref,
+		MIMEType:   mimeType,
+		Size:       int64(len(data)),
+		Checksum:   "sha256:" + hashStr,
+	}
+
+	// Fast-path: check in-memory dedup map (read lock only)
+	s.mu.RLock()
+	_, alreadyKnown := s.known[hashStr]
+	s.mu.RUnlock()
+	if alreadyKnown {
+		return payload, nil
+	}
+
+	// Check filesystem — no lock held
+	if _, err := os.Stat(path); err == nil {
+		// File exists on disk; record in map for future fast-path
+		s.mu.Lock()
+		s.known[hashStr] = struct{}{}
+		s.mu.Unlock()
+		return payload, nil
+	}
+
+	// Atomic write: temp file → rename (no lock held during I/O)
+	if err := atomicWriteFile(sessionDir, path, data); err != nil {
+		return nil, fmt.Errorf("write blob: %w", err)
+	}
+
+	// Record in dedup map
+	s.mu.Lock()
+	s.known[hashStr] = struct{}{}
+	s.mu.Unlock()
+
+	return payload, nil
+}
+
+// atomicWriteFile writes data to a temp file in dir and renames it to dest.
+func atomicWriteFile(dir, dest string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, ".blob-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+
+	if _, writeErr := tmp.Write(data); writeErr != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return writeErr
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Chmod(tmpPath, blobFilePermissions); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return os.Rename(tmpPath, dest)
+}
+
+// StoreReader saves binary data from a reader and returns a storage reference.
+// Data is streamed directly to a temp file, hashed, and then renamed to the
+// content-addressable path. This avoids reading the entire stream into memory.
+func (s *FileBlobStore) StoreReader(
+	ctx context.Context, sessionID string, r io.Reader, mimeType string,
+) (*BinaryPayload, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	// Create session directory
 	sessionDir := filepath.Join(s.baseDir, sessionID)
 	if err := os.MkdirAll(sessionDir, blobDirPermissions); err != nil {
 		return nil, fmt.Errorf("create session blob directory: %w", err)
 	}
 
-	// Write the file
+	// Stream to temp file while computing hash
+	tmp, err := os.CreateTemp(sessionDir, ".blob-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	hasher := sha256.New()
+	writer := io.MultiWriter(tmp, hasher)
+
+	size, err := io.Copy(writer, r)
+	if err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("stream blob data: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("close temp file: %w", err)
+	}
+
+	hashStr := hex.EncodeToString(hasher.Sum(nil))
+	ext := extensionFromMIME(mimeType)
+	filename := hashStr + ext
 	path := filepath.Join(sessionDir, filename)
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	// Check if file already exists (deduplication)
-	if _, err := os.Stat(path); err == nil {
-		// File exists, return reference without rewriting
-		return &BinaryPayload{
-			StorageRef: s.pathToRef(path),
-			MIMEType:   mimeType,
-			Size:       int64(len(data)),
-			Checksum:   "sha256:" + hashStr,
-		}, nil
-	}
-
-	if err := os.WriteFile(path, data, blobFilePermissions); err != nil {
-		return nil, fmt.Errorf("write blob: %w", err)
-	}
-
-	return &BinaryPayload{
+	payload := &BinaryPayload{
 		StorageRef: s.pathToRef(path),
 		MIMEType:   mimeType,
-		Size:       int64(len(data)),
+		Size:       size,
 		Checksum:   "sha256:" + hashStr,
-	}, nil
-}
-
-// StoreReader saves binary data from a reader and returns a storage reference.
-func (s *FileBlobStore) StoreReader(
-	ctx context.Context, sessionID string, r io.Reader, mimeType string,
-) (*BinaryPayload, error) {
-	// For simplicity, read all data into memory
-	// A more sophisticated implementation could stream to a temp file and rename
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("read blob data: %w", err)
 	}
-	return s.Store(ctx, sessionID, data, mimeType)
+
+	// Check dedup
+	s.mu.RLock()
+	_, alreadyKnown := s.known[hashStr]
+	s.mu.RUnlock()
+	if alreadyKnown {
+		_ = os.Remove(tmpPath)
+		return payload, nil
+	}
+
+	// Check filesystem
+	if _, statErr := os.Stat(path); statErr == nil {
+		_ = os.Remove(tmpPath)
+		s.mu.Lock()
+		s.known[hashStr] = struct{}{}
+		s.mu.Unlock()
+		return payload, nil
+	}
+
+	// Rename temp file to final path
+	if err := os.Chmod(tmpPath, blobFilePermissions); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("chmod blob: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("rename blob: %w", err)
+	}
+
+	s.mu.Lock()
+	s.known[hashStr] = struct{}{}
+	s.mu.Unlock()
+
+	return payload, nil
 }
 
 // Load retrieves binary data by storage reference.
@@ -136,8 +252,6 @@ func (s *FileBlobStore) Load(ctx context.Context, ref string) ([]byte, error) {
 	}
 
 	path := s.refToPath(ref)
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	data, err := os.ReadFile(path) //nolint:gosec // path from trusted reference
 	if err != nil {
@@ -155,8 +269,6 @@ func (s *FileBlobStore) LoadReader(ctx context.Context, ref string) (io.ReadClos
 	}
 
 	path := s.refToPath(ref)
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 
 	f, err := os.Open(path) //nolint:gosec // path from trusted reference
 	if err != nil {
@@ -174,8 +286,6 @@ func (s *FileBlobStore) Delete(ctx context.Context, ref string) error {
 	}
 
 	path := s.refToPath(ref)
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete blob: %w", err)
