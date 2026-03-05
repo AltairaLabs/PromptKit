@@ -348,7 +348,7 @@ func TestProviderStage_ToolHook_BlocksToolExecution(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Contains(t, results[0].ToolResult.Error, "blocked by hook")
-	assert.Contains(t, results[0].ToolResult.Content, "policy forbids this tool")
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "policy forbids this tool")
 }
 
 func TestProviderStage_ToolHook_AfterExecution_Records(t *testing.T) {

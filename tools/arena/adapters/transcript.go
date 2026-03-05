@@ -136,10 +136,8 @@ func (a *TranscriptAdapter) buildMessage(msg *TranscriptMessage) types.Message {
 
 	// Set tool result for tool role messages
 	if msg.ToolCallID != "" {
-		result.ToolResult = &types.MessageToolResult{
-			ID:      msg.ToolCallID,
-			Content: msg.Content,
-		}
+		toolResult := types.NewTextToolResult(msg.ToolCallID, "", msg.Content)
+		result.ToolResult = &toolResult
 	}
 
 	return result

@@ -283,11 +283,8 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 			content = fmt.Sprintf("%v", res.Result)
 		}
 
-		toolResult := types.MessageToolResult{
-			ID:      res.ID,
-			Content: content,
-			Error:   errStr,
-		}
+		toolResult := types.NewTextToolResult(res.ID, "", content)
+		toolResult.Error = errStr
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}
 

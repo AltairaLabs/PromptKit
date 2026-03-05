@@ -386,10 +386,12 @@ func (m *Model) handleMessageCreated(msg *MessageCreatedMsg) {
 	}
 	var toolResult *types.MessageToolResult
 	if msg.ToolResult != nil {
+		partsCopy := make([]types.ContentPart, len(msg.ToolResult.Parts))
+		copy(partsCopy, msg.ToolResult.Parts)
 		toolResult = &types.MessageToolResult{
 			ID:        msg.ToolResult.ID,
 			Name:      msg.ToolResult.Name,
-			Content:   msg.ToolResult.Content,
+			Parts:     partsCopy,
 			Error:     msg.ToolResult.Error,
 			LatencyMs: msg.ToolResult.LatencyMs,
 		}
@@ -714,7 +716,6 @@ func (m *Model) convertToLogEntries() []panels.LogEntry {
 	}
 	return logs
 }
-
 
 //nolint:unused // used by tests (golangci-lint runs with tests:false)
 func (m *Model) currentRunForDetail() *RunInfo {

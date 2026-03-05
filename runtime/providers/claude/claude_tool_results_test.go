@@ -64,11 +64,10 @@ func TestToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 		{
 			Role:    "tool",
 			Content: `{"temperature": 72, "condition": "sunny"}`,
-			ToolResult: &types.MessageToolResult{
-				ID:      "toolu_123",
-				Name:    "get_weather",
-				Content: `{"temperature": 72, "condition": "sunny"}`,
-			},
+			ToolResult: func() *types.MessageToolResult {
+				r := types.NewTextToolResult("toolu_123", "get_weather", `{"temperature": 72, "condition": "sunny"}`)
+				return &r
+			}(),
 		},
 		{Role: "user", Content: "Thanks! Now check NYC."},
 	}
@@ -200,20 +199,18 @@ func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 		{
 			Role:    "tool",
 			Content: `{"temperature": 72, "condition": "sunny"}`,
-			ToolResult: &types.MessageToolResult{
-				ID:      "toolu_sf",
-				Name:    "get_weather",
-				Content: `{"temperature": 72, "condition": "sunny"}`,
-			},
+			ToolResult: func() *types.MessageToolResult {
+				r := types.NewTextToolResult("toolu_sf", "get_weather", `{"temperature": 72, "condition": "sunny"}`)
+				return &r
+			}(),
 		},
 		{
 			Role:    "tool",
 			Content: `{"temperature": 65, "condition": "cloudy"}`,
-			ToolResult: &types.MessageToolResult{
-				ID:      "toolu_nyc",
-				Name:    "get_weather",
-				Content: `{"temperature": 65, "condition": "cloudy"}`,
-			},
+			ToolResult: func() *types.MessageToolResult {
+				r := types.NewTextToolResult("toolu_nyc", "get_weather", `{"temperature": 65, "condition": "cloudy"}`)
+				return &r
+			}(),
 		},
 	}
 
@@ -286,12 +283,10 @@ func TestProcessClaudeToolResult_UsesToolResultContent(t *testing.T) {
 	toolResultMsg := types.Message{
 		Role: "tool",
 		// Content is intentionally empty - this is how the SDK creates tool result messages
-		ToolResult: &types.MessageToolResult{
-			ID:      "toolu_abc123",
-			Name:    "weather",
-			Content: `{"temperature": 73, "conditions": "sunny"}`,
-			Error:   "",
-		},
+		ToolResult: func() *types.MessageToolResult {
+			r := types.NewTextToolResult("toolu_abc123", "weather", `{"temperature": 73, "conditions": "sunny"}`)
+			return &r
+		}(),
 	}
 
 	// Process the tool result

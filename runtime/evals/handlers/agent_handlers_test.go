@@ -150,10 +150,10 @@ func TestAgentResponseContainsHandler_ViaMessages(t *testing.T) {
 		Messages: []types.Message{
 			{
 				Role: "tool",
-				ToolResult: &types.MessageToolResult{
-					Name:    "billing_agent",
-					Content: "Your balance is $100",
-				},
+				ToolResult: func() *types.MessageToolResult {
+					r := types.NewTextToolResult("", "billing_agent", "Your balance is $100")
+					return &r
+				}(),
 			},
 		},
 	}

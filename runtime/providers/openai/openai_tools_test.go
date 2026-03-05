@@ -979,7 +979,8 @@ func TestToolProvider_ConvertToolResultMessage_ContentIsSet(t *testing.T) {
 		ToolResult: &types.MessageToolResult{
 			ID:      "call_123",
 			Name:    "weather",
-			Content: `{"temperature": 73, "conditions": "sunny"}`,
+			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 73, "conditions": "sunny"}`)},
+
 			Error:   "",
 		},
 	}
@@ -1028,7 +1029,8 @@ func TestToolProvider_ConvertRequestMessages_ToolResultHasContent(t *testing.T) 
 				ToolResult: &types.MessageToolResult{
 					ID:      "call_abc",
 					Name:    "weather",
-					Content: `{"temp": 75, "conditions": "partly cloudy"}`,
+					Parts:     []types.ContentPart{types.NewTextPart(`{"temp": 75, "conditions": "partly cloudy"}`)},
+
 				},
 			},
 		},

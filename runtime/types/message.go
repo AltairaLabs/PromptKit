@@ -50,11 +50,48 @@ type MessageToolCall struct {
 // MessageToolResult represents the result of a tool execution in a Message.
 // When embedded in Message, the Message.Role should be "tool".
 type MessageToolResult struct {
-	ID        string `json:"id"`              // References the MessageToolCall.ID that triggered this result
-	Name      string `json:"name"`            // Tool name that was executed
-	Content   string `json:"content"`         // Result content or error message
-	Error     string `json:"error,omitempty"` // Error message if tool execution failed
-	LatencyMs int64  `json:"latency_ms"`      // Tool execution latency in milliseconds
+	ID    string `json:"id"`              // References the MessageToolCall.ID that triggered this result
+	Name  string `json:"name"`            // Tool name that was executed
+	Error string `json:"error,omitempty"` // Error message if tool execution failed
+
+	// Parts contains the multimodal result content (text, images, etc.).
+	Parts     []ContentPart `json:"parts,omitempty" yaml:"parts,omitempty"`
+	LatencyMs int64         `json:"latency_ms"` // Tool execution latency in milliseconds
+}
+
+// GetTextContent returns concatenated text from all text parts.
+// This is the recommended way to access tool result content as text.
+func (r *MessageToolResult) GetTextContent() string {
+	var sb strings.Builder
+	for _, part := range r.Parts {
+		if part.Type == ContentTypeText && part.Text != nil {
+			sb.WriteString(*part.Text)
+		}
+	}
+	return sb.String()
+}
+
+// HasMedia returns true if any non-text parts exist in the tool result.
+func (r *MessageToolResult) HasMedia() bool {
+	for _, part := range r.Parts {
+		if part.Type != ContentTypeText {
+			return true
+		}
+	}
+	return false
+}
+
+// NewTextToolResult creates a MessageToolResult with text-only content.
+// This is the most common case and should be used everywhere that previously
+// set a text string Content.
+func NewTextToolResult(id, name, text string) MessageToolResult {
+	return MessageToolResult{
+		ID:   id,
+		Name: name,
+		Parts: []ContentPart{
+			NewTextPart(text),
+		},
+	}
 }
 
 // ToolDef represents a tool definition that can be provided to an LLM.
@@ -108,10 +145,10 @@ type ValidationResult struct {
 // 2. For multimodal messages: returns concatenated text parts
 // 3. For legacy messages: returns the Content field
 func (m *Message) GetContent() string {
-	// Tool messages: ToolResult.Content is the authoritative source
-	// This handles the case where Content field may be empty but ToolResult.Content is set
+	// Tool messages: ToolResult.Parts is the authoritative source
+	// This handles the case where Content field may be empty but ToolResult.Parts is set
 	if m.Role == "tool" && m.ToolResult != nil {
-		return m.ToolResult.Content
+		return m.ToolResult.GetTextContent()
 	}
 
 	// Multimodal messages: extract text from parts
@@ -249,16 +286,16 @@ func NewSystemMessage(content string) Message {
 }
 
 // NewToolResultMessage creates a properly normalized tool result message.
-// This ensures Content and ToolResult.Content are always synchronized,
+// This ensures Content and ToolResult.Parts are always synchronized,
 // which is required for provider compatibility and consistent behavior.
 //
 // IMPORTANT: Always use this constructor instead of directly creating
-// Message{Role: "tool", ToolResult: ...} to avoid Content/ToolResult.Content
+// Message{Role: "tool", ToolResult: ...} to avoid Content/ToolResult.Parts
 // synchronization issues.
 func NewToolResultMessage(result MessageToolResult) Message {
 	return Message{
 		Role:       "tool",
-		Content:    result.Content, // Sync Content for backward compatibility
+		Content:    result.GetTextContent(), // Sync Content for backward compatibility
 		ToolResult: &result,
 	}
 }
@@ -342,9 +379,9 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
-	// If tool result is present but Content is empty, copy from ToolResult
+	// If tool result is present but Content is empty, copy text from ToolResult.Parts
 	if m.ToolResult != nil && m.Content == "" {
-		m.Content = m.ToolResult.Content
+		m.Content = m.ToolResult.GetTextContent()
 	}
 	return nil
 }

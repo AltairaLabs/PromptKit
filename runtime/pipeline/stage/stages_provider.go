@@ -843,10 +843,10 @@ func (s *ProviderStage) preExecCheck(
 ) (hooks.Decision, toolCallResult, bool) {
 	if s.toolPolicy != nil && isToolBlocked(toolCall.Name, s.toolPolicy.Blocklist) {
 		errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
+		result := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
+		result.Error = errMsg
 		return hooks.Decision{}, toolCallResult{
-			message: types.NewToolResultMessage(types.MessageToolResult{
-				ID: toolCall.ID, Name: toolCall.Name, Content: errMsg, Error: errMsg,
-			}),
+			message: types.NewToolResultMessage(result),
 		}, true
 	}
 
@@ -860,9 +860,9 @@ func (s *ProviderStage) preExecCheck(
 			errMsg := fmt.Sprintf(
 				"Tool %s blocked by hook: %s", toolCall.Name, hookDecision.Reason,
 			)
-			msg := types.NewToolResultMessage(types.MessageToolResult{
-				ID: toolCall.ID, Name: toolCall.Name, Content: errMsg, Error: errMsg,
-			})
+			hookResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
+			hookResult.Error = errMsg
+			msg := types.NewToolResultMessage(hookResult)
 			if hookDecision.Metadata != nil {
 				msg.Meta = hookDecision.Metadata
 			}
@@ -895,13 +895,10 @@ func (s *ProviderStage) executeSingleToolCall(
 				toolCall.Name, toolCall.ID, err, time.Since(startTime),
 			)
 		}
+		errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
+		errResult.Error = err.Error()
 		return toolCallResult{
-			message: types.NewToolResultMessage(types.MessageToolResult{
-				ID:      toolCall.ID,
-				Name:    toolCall.Name,
-				Content: fmt.Sprintf("Error: %v", err),
-				Error:   err.Error(),
-			}),
+			message: types.NewToolResultMessage(errResult),
 		}
 	}
 
@@ -913,7 +910,7 @@ func (s *ProviderStage) executeSingleToolCall(
 	if s.emitter != nil {
 		status := string(asyncResult.Status)
 		s.emitter.ToolCallCompleted(
-			toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Content,
+			toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Parts,
 		)
 	}
 	resultMsg := types.NewToolResultMessage(result)
@@ -974,7 +971,7 @@ func (s *ProviderStage) runAfterToolHooks(
 	toolResp := hooks.ToolResponse{
 		Name:      toolCall.Name,
 		CallID:    toolCall.ID,
-		Content:   result.Content,
+		Content:   result.GetTextContent(),
 		Error:     result.Error,
 		LatencyMs: time.Since(startTime).Milliseconds(),
 	}
@@ -996,20 +993,18 @@ func (s *ProviderStage) handleToolResult(
 		}
 		logger.Warn("Tool requires approval in ProviderStage - pending tool support not yet implemented",
 			"tool", call.Name, "call_id", call.ID)
-		return types.MessageToolResult{
-			ID:      call.ID,
-			Name:    call.Name,
-			Content: pendingMsg + " (Note: Async tool approval workflows not yet implemented in stages)",
-			Error:   "",
-		}
+		return types.NewTextToolResult(
+			call.ID, call.Name,
+			pendingMsg+" (Note: Async tool approval workflows not yet implemented in stages)",
+		)
 
 	case tools.ToolStatusFailed:
-		return types.MessageToolResult{
-			ID:      call.ID,
-			Name:    call.Name,
-			Content: fmt.Sprintf("Tool execution failed: %s", asyncResult.Error),
-			Error:   asyncResult.Error,
-		}
+		failResult := types.NewTextToolResult(
+			call.ID, call.Name,
+			fmt.Sprintf("Tool execution failed: %s", asyncResult.Error),
+		)
+		failResult.Error = asyncResult.Error
+		return failResult
 
 	case tools.ToolStatusComplete:
 		// Tool completed successfully
@@ -1024,20 +1019,13 @@ func (s *ProviderStage) handleToolResult(
 		// Enforce tool result size limit
 		content = s.enforceResultSizeLimit(call.Name, content)
 
-		return types.MessageToolResult{
-			ID:      call.ID,
-			Name:    call.Name,
-			Content: content,
-			Error:   "",
-		}
+		return types.NewTextToolResult(call.ID, call.Name, content)
 
 	default:
-		return types.MessageToolResult{
-			ID:      call.ID,
-			Name:    call.Name,
-			Content: fmt.Sprintf("Unknown tool status: %v", asyncResult.Status),
-			Error:   fmt.Sprintf("Unknown tool status: %v", asyncResult.Status),
-		}
+		unknownMsg := fmt.Sprintf("Unknown tool status: %v", asyncResult.Status)
+		unknownResult := types.NewTextToolResult(call.ID, call.Name, unknownMsg)
+		unknownResult.Error = unknownMsg
+		return unknownResult
 	}
 }
 

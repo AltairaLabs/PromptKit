@@ -83,7 +83,9 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 		},
 		func() { emitter.ProviderCallFailed("provider", "model", errors.New("fail"), time.Millisecond) },
 		func() { emitter.ToolCallStarted("tool", "call", map[string]interface{}{"k": "v"}) },
-		func() { emitter.ToolCallCompleted("tool", "call", time.Millisecond, "success", "tool result") },
+		func() {
+			emitter.ToolCallCompleted("tool", "call", time.Millisecond, "success", []types.ContentPart{types.NewTextPart("tool result")})
+		},
 		func() { emitter.ToolCallFailed("tool", "call", errors.New("fail"), time.Millisecond) },
 		func() { emitter.ValidationStarted("validator", "input") },
 		func() { emitter.ValidationPassed("validator", "input", time.Millisecond) },
@@ -199,8 +201,8 @@ func TestEmitter_MessageCreated_WithToolResult(t *testing.T) {
 	})
 
 	toolResult := &MessageToolResult{
-		Name:    "weather_tool",
-		Content: `{"temp": 72}`,
+		Name:  "weather_tool",
+		Parts: []types.ContentPart{types.NewTextPart(`{"temp": 72}`)},
 	}
 	emitter.MessageCreated("tool", "", 2, nil, nil, toolResult)
 

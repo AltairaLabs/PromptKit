@@ -14,23 +14,23 @@ type stubEntry struct {
 	result   *types.MessageToolResult
 }
 
-func (s *stubEntry) callID() string                              { return s.id }
-func (s *stubEntry) callName() string                            { return s.name }
-func (s *stubEntry) isResolved() bool                            { return s.resolved }
-func (s *stubEntry) applyResult(r *types.MessageToolResult)      { s.result = r; s.resolved = true }
+func (s *stubEntry) callID() string                         { return s.id }
+func (s *stubEntry) callName() string                       { return s.name }
+func (s *stubEntry) isResolved() bool                       { return s.resolved }
+func (s *stubEntry) applyResult(r *types.MessageToolResult) { s.result = r; s.resolved = true }
 
 func TestMatchResult_ByID(t *testing.T) {
 	a := &stubEntry{id: "tc1", name: "search"}
 	b := &stubEntry{id: "tc2", name: "lookup"}
 	entries := []toolCallEntry{a, b}
 
-	result := &types.MessageToolResult{ID: "tc2", Name: "lookup", Content: "found"}
+	result := &types.MessageToolResult{ID: "tc2", Name: "lookup", Parts: []types.ContentPart{types.NewTextPart("found")}}
 	matchResult(entries, result)
 
 	if a.resolved {
 		t.Error("entry a should not be resolved")
 	}
-	if !b.resolved || b.result.Content != "found" {
+	if !b.resolved || b.result.GetTextContent() != "found" {
 		t.Errorf("entry b should be resolved with content 'found', got resolved=%v", b.resolved)
 	}
 }
@@ -40,13 +40,13 @@ func TestMatchResult_ByNameFallback(t *testing.T) {
 	b := &stubEntry{id: "", name: "lookup"}
 	entries := []toolCallEntry{a, b}
 
-	result := &types.MessageToolResult{ID: "", Name: "lookup", Content: "result"}
+	result := &types.MessageToolResult{ID: "", Name: "lookup", Parts: []types.ContentPart{types.NewTextPart("result")}}
 	matchResult(entries, result)
 
 	if a.resolved {
 		t.Error("entry a should not be resolved")
 	}
-	if !b.resolved || b.result.Content != "result" {
+	if !b.resolved || b.result.GetTextContent() != "result" {
 		t.Errorf("entry b should be resolved with content 'result', got resolved=%v", b.resolved)
 	}
 }
@@ -57,13 +57,13 @@ func TestMatchResult_IDTakesPrecedenceOverName(t *testing.T) {
 	entries := []toolCallEntry{a, b}
 
 	// ID matches b, name would match a first.
-	result := &types.MessageToolResult{ID: "tc2", Name: "search", Content: "matched-by-id"}
+	result := &types.MessageToolResult{ID: "tc2", Name: "search", Parts: []types.ContentPart{types.NewTextPart("matched-by-id")}}
 	matchResult(entries, result)
 
 	if a.resolved {
 		t.Error("entry a should not be resolved (ID match should win)")
 	}
-	if !b.resolved || b.result.Content != "matched-by-id" {
+	if !b.resolved || b.result.GetTextContent() != "matched-by-id" {
 		t.Error("entry b should be resolved via ID match")
 	}
 }
@@ -73,10 +73,10 @@ func TestMatchResult_SkipsAlreadyResolved(t *testing.T) {
 	b := &stubEntry{id: "tc2", name: "search"}
 	entries := []toolCallEntry{a, b}
 
-	result := &types.MessageToolResult{ID: "", Name: "search", Content: "second"}
+	result := &types.MessageToolResult{ID: "", Name: "search", Parts: []types.ContentPart{types.NewTextPart("second")}}
 	matchResult(entries, result)
 
-	if b.result == nil || b.result.Content != "second" {
+	if b.result == nil || b.result.GetTextContent() != "second" {
 		t.Error("should match second unresolved entry with same name")
 	}
 }
@@ -85,7 +85,7 @@ func TestMatchResult_NoMatch(t *testing.T) {
 	a := &stubEntry{id: "tc1", name: "search"}
 	entries := []toolCallEntry{a}
 
-	result := &types.MessageToolResult{ID: "tc99", Name: "unknown", Content: "orphan"}
+	result := &types.MessageToolResult{ID: "tc99", Name: "unknown", Parts: []types.ContentPart{types.NewTextPart("orphan")}}
 	matchResult(entries, result)
 
 	if a.resolved {
@@ -95,7 +95,7 @@ func TestMatchResult_NoMatch(t *testing.T) {
 
 func TestMatchResult_EmptyEntries(t *testing.T) {
 	// Should not panic on empty entries.
-	result := &types.MessageToolResult{ID: "tc1", Name: "search", Content: "x"}
+	result := &types.MessageToolResult{ID: "tc1", Name: "search", Parts: []types.ContentPart{types.NewTextPart("x")}}
 	matchResult(nil, result)
 	matchResult([]toolCallEntry{}, result)
 }
@@ -105,11 +105,11 @@ func TestMatchResult_IDMatchSkipsResolvedByID(t *testing.T) {
 	b := &stubEntry{id: "tc1", name: "search"}
 	entries := []toolCallEntry{a, b}
 
-	result := &types.MessageToolResult{ID: "tc1", Name: "search", Content: "dup-id"}
+	result := &types.MessageToolResult{ID: "tc1", Name: "search", Parts: []types.ContentPart{types.NewTextPart("dup-id")}}
 	matchResult(entries, result)
 
 	// a is already resolved, so b should get the match even though both have same ID.
-	if !b.resolved || b.result.Content != "dup-id" {
+	if !b.resolved || b.result.GetTextContent() != "dup-id" {
 		t.Error("should match second entry with same ID when first is resolved")
 	}
 }

@@ -91,13 +91,8 @@ func (a *ArenaOutputAdapter) convertToMessages(output *ArenaOutputFile) ([]types
 
 		// Add tool result messages
 		for _, toolResult := range turn.ToolResults {
-			msg := types.Message{
-				Role: "tool",
-				ToolResult: &types.MessageToolResult{
-					ID:      toolResult.ToolCallID,
-					Content: toolResult.Content,
-				},
-			}
+			result := types.NewTextToolResult(toolResult.ToolCallID, "", toolResult.Content)
+			msg := types.NewToolResultMessage(result)
 			messages = append(messages, msg)
 			timestamps = append(timestamps, turn.Timestamp)
 		}

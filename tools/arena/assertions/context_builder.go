@@ -102,7 +102,7 @@ func (e *toolCallRecordEntry) isResolved() bool {
 }
 
 func (e *toolCallRecordEntry) applyResult(result *types.MessageToolResult) {
-	e.rec.Result = result.Content
+	e.rec.Result = result.GetTextContent()
 	e.rec.Error = result.Error
 	e.rec.Duration = time.Duration(result.LatencyMs) * time.Millisecond
 }

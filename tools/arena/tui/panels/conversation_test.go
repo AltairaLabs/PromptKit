@@ -501,11 +501,9 @@ func TestConversationPanel_AppendToolResultMarkdown(t *testing.T) {
 	panel := NewConversationPanel()
 	var md strings.Builder
 
+	toolResult := types.NewTextToolResult("", "test_tool", `{"result":"success"}`)
 	msg := &types.Message{
-		ToolResult: &types.MessageToolResult{
-			Name:    "test_tool",
-			Content: `{"result":"success"}`,
-		},
+		ToolResult: &toolResult,
 	}
 
 	panel.appendToolResultMarkdown(&md, msg)

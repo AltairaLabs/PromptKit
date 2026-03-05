@@ -53,12 +53,9 @@ func (e *arenaToolExecutor) Execute(
 				Result:     fmt.Sprintf(`{"error": %q}`, errMsg),
 				IsError:    true,
 			})
-			result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(types.MessageToolResult{
-				ID:      tc.ID,
-				Name:    tc.Name,
-				Content: errMsg,
-				Error:   errMsg,
-			}))
+			errResult := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
+			errResult.Error = errMsg
+			result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(errResult))
 			continue
 		}
 
@@ -71,13 +68,10 @@ func (e *arenaToolExecutor) Execute(
 				Result:     fmt.Sprintf(`{"error": %q}`, toolResult.Error),
 				IsError:    true,
 			})
-			result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(types.MessageToolResult{
-				ID:        tc.ID,
-				Name:      tc.Name,
-				Content:   toolResult.Error,
-				Error:     toolResult.Error,
-				LatencyMs: toolResult.LatencyMs,
-			}))
+			toolErrResult := types.NewTextToolResult(tc.ID, tc.Name, toolResult.Error)
+			toolErrResult.Error = toolResult.Error
+			toolErrResult.LatencyMs = toolResult.LatencyMs
+			result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(toolErrResult))
 			continue
 		}
 
@@ -94,12 +88,9 @@ func (e *arenaToolExecutor) Execute(
 			Result:     resultStr,
 			IsError:    false,
 		})
-		result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(types.MessageToolResult{
-			ID:        tc.ID,
-			Name:      tc.Name,
-			Content:   resultStr,
-			LatencyMs: toolResult.LatencyMs,
-		}))
+		successResult := types.NewTextToolResult(tc.ID, tc.Name, resultStr)
+		successResult.LatencyMs = toolResult.LatencyMs
+		result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(successResult))
 	}
 
 	return result, nil

@@ -178,9 +178,9 @@ func (rs *RecordingStage) recordMessageElement(elem *StreamElement) {
 	// Convert tool result if present
 	if msg.ToolResult != nil {
 		data.ToolResult = &events.MessageToolResult{
-			ID:      msg.ToolResult.ID,
-			Name:    msg.ToolResult.Name,
-			Content: msg.ToolResult.Content,
+			ID:    msg.ToolResult.ID,
+			Name:  msg.ToolResult.Name,
+			Parts: msg.ToolResult.Parts,
 		}
 	}
 

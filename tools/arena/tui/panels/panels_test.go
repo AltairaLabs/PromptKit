@@ -25,10 +25,10 @@ func TestConversationPanel_ViewAndNavigation(t *testing.T) {
 				ToolCalls: []types.MessageToolCall{
 					{Name: "list_devices", Args: []byte(`{"customer_id":"acme"}`)},
 				},
-				ToolResult: &types.MessageToolResult{
-					Name:    "list_devices",
-					Content: `{"devices":[1,2]}`,
-				},
+				ToolResult: func() *types.MessageToolResult {
+					r := types.NewTextToolResult("", "list_devices", `{"devices":[1,2]}`)
+					return &r
+				}(),
 				CostInfo: &types.CostInfo{
 					InputTokens:  50,
 					OutputTokens: 100,

@@ -117,10 +117,8 @@ func (a *SessionRecordingAdapter) buildMessage(recordedMsg *RecordedMsg) types.M
 
 	// Set tool result for tool role messages
 	if recordedMsg.ToolCallID != "" {
-		msg.ToolResult = &types.MessageToolResult{
-			ID:      recordedMsg.ToolCallID,
-			Content: recordedMsg.Content,
-		}
+		result := types.NewTextToolResult(recordedMsg.ToolCallID, "", recordedMsg.Content)
+		msg.ToolResult = &result
 	}
 
 	return msg

@@ -72,15 +72,8 @@ func TestPredictMessage_WithToolCalls(t *testing.T) {
 }
 
 func TestPredictMessage_ToolResult(t *testing.T) {
-	msg := types.Message{
-		Role:    "tool",
-		Content: `{"result": "found"}`,
-		ToolResult: &types.MessageToolResult{
-			ID:      "call-123",
-			Name:    "search",
-			Content: `{"result": "found"}`,
-		},
-	}
+	result := types.NewTextToolResult("call-123", "search", `{"result": "found"}`)
+	msg := types.NewToolResultMessage(result)
 
 	if msg.Role != "tool" {
 		t.Error("Expected role 'tool'")
@@ -333,13 +326,8 @@ func TestToolDescriptor_Structure(t *testing.T) {
 
 func TestToolResult_Structure(t *testing.T) {
 	resultContent := `{"results": ["item1", "item2"]}`
-	result := ToolResult{
-		Name:      "search",
-		ID:        "call-789",
-		Content:   resultContent,
-		LatencyMs: 250,
-		Error:     "",
-	}
+	result := types.NewTextToolResult("call-789", "search", resultContent)
+	result.LatencyMs = 250
 
 	if result.Name != "search" {
 		t.Error("Name mismatch")
@@ -359,13 +347,9 @@ func TestToolResult_Structure(t *testing.T) {
 }
 
 func TestToolResult_WithError(t *testing.T) {
-	result := ToolResult{
-		Name:      "failing_tool",
-		ID:        "call-error",
-		Content:   "",
-		LatencyMs: 100,
-		Error:     "tool execution failed",
-	}
+	result := types.NewTextToolResult("call-error", "failing_tool", "")
+	result.LatencyMs = 100
+	result.Error = "tool execution failed"
 
 	if result.Error == "" {
 		t.Error("Expected error message")

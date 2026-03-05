@@ -597,14 +597,11 @@ func TestRecordingStage_MessageWithToolResult(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
+	toolResult := types.NewTextToolResult("call_123", "get_weather", "Sunny, 72°F")
 	msg := &types.Message{
-		Role:    "tool",
-		Content: "Weather result",
-		ToolResult: &types.MessageToolResult{
-			ID:      "call_123",
-			Name:    "get_weather",
-			Content: "Sunny, 72°F",
-		},
+		Role:       "tool",
+		Content:    "Weather result",
+		ToolResult: &toolResult,
 	}
 	input <- StreamElement{Message: msg, Timestamp: time.Now()}
 	close(input)

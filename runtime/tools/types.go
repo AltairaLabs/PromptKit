@@ -19,6 +19,8 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // NamespaceSep is the separator used in qualified tool names.
@@ -143,11 +145,12 @@ type ToolCall struct {
 
 // ToolResult represents the result of a tool execution
 type ToolResult struct {
-	Name      string          `json:"name"`
-	ID        string          `json:"id"` // Matches ToolCall.ID
-	Result    json.RawMessage `json:"result"`
-	LatencyMs int64           `json:"latency_ms"`
-	Error     string          `json:"error,omitempty"`
+	Name      string              `json:"name"`
+	ID        string              `json:"id"` // Matches ToolCall.ID
+	Result    json.RawMessage     `json:"result"`
+	Parts     []types.ContentPart `json:"parts,omitempty"`
+	LatencyMs int64               `json:"latency_ms"`
+	Error     string              `json:"error,omitempty"`
 }
 
 // ToolExecutionStatus represents whether a tool completed or needs external input
@@ -166,6 +169,7 @@ const (
 type ToolExecutionResult struct {
 	Status  ToolExecutionStatus `json:"status"`
 	Content json.RawMessage     `json:"content,omitempty"`
+	Parts   []types.ContentPart `json:"parts,omitempty"`
 	Error   string              `json:"error,omitempty"`
 
 	// Present when Status == ToolStatusPending

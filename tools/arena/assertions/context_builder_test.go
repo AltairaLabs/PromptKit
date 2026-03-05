@@ -13,8 +13,9 @@ func TestBuildConversationContextFromMessages_Basic(t *testing.T) {
 		{Role: "system", Content: "You are a helpful assistant."},
 		{Role: "user", Content: "Hello"},
 		{
-			Role:    "assistant",
-			Content: "Let me look that up.",
+			Role:  "assistant",
+			Parts: []types.ContentPart{types.NewTextPart("Let me look that up.")},
+
 			ToolCalls: []types.MessageToolCall{
 				{ID: "tc1", Name: "search", Args: json.RawMessage(`{"query":"hello"}`)},
 			},
@@ -54,9 +55,10 @@ func TestBuildConversationContextFromMessages_ToolResults(t *testing.T) {
 		{
 			Role: "tool",
 			ToolResult: &types.MessageToolResult{
-				ID:        "tc1",
-				Name:      "search",
-				Content:   "found 3 results",
+				ID:    "tc1",
+				Name:  "search",
+				Parts: []types.ContentPart{types.NewTextPart("found 3 results")},
+
 				Error:     "",
 				LatencyMs: 150,
 			},
@@ -92,9 +94,9 @@ func TestBuildConversationContextFromMessages_ToolResultWithError(t *testing.T) 
 		{
 			Role: "tool",
 			ToolResult: &types.MessageToolResult{
-				ID:        "tc1",
-				Name:      "db_query",
-				Content:   "",
+				ID:   "tc1",
+				Name: "db_query",
+
 				Error:     "connection refused",
 				LatencyMs: 50,
 			},
@@ -124,13 +126,13 @@ func TestBuildConversationContextFromMessages_MultipleToolCalls(t *testing.T) {
 		{
 			Role: "tool",
 			ToolResult: &types.MessageToolResult{
-				ID: "tc1", Name: "search", Content: "result-a", LatencyMs: 10,
+				ID: "tc1", Name: "search", Parts: []types.ContentPart{types.NewTextPart("result-a")}, LatencyMs: 10,
 			},
 		},
 		{
 			Role: "tool",
 			ToolResult: &types.MessageToolResult{
-				ID: "tc2", Name: "lookup", Content: "result-b", LatencyMs: 20,
+				ID: "tc2", Name: "lookup", Parts: []types.ContentPart{types.NewTextPart("result-b")}, LatencyMs: 20,
 			},
 		},
 		{
@@ -142,7 +144,7 @@ func TestBuildConversationContextFromMessages_MultipleToolCalls(t *testing.T) {
 		{
 			Role: "tool",
 			ToolResult: &types.MessageToolResult{
-				ID: "tc3", Name: "search", Content: "result-c", LatencyMs: 30,
+				ID: "tc3", Name: "search", Parts: []types.ContentPart{types.NewTextPart("result-c")}, LatencyMs: 30,
 			},
 		},
 	}
@@ -170,16 +172,18 @@ func TestBuildConversationContextFromMessages_MultipleToolCalls(t *testing.T) {
 func TestBuildConversationContextFromMessages_WorkflowMetadata(t *testing.T) {
 	messages := []types.Message{
 		{
-			Role:    "assistant",
-			Content: "Transitioning...",
+			Role:  "assistant",
+			Parts: []types.ContentPart{types.NewTextPart("Transitioning...")},
+
 			Meta: map[string]interface{}{
 				"_workflow_state":       "greeting",
 				"_workflow_transitions": []string{"init->greeting"},
 			},
 		},
 		{
-			Role:    "assistant",
-			Content: "Done.",
+			Role:  "assistant",
+			Parts: []types.ContentPart{types.NewTextPart("Done.")},
+
 			Meta: map[string]interface{}{
 				"_workflow_state":    "complete",
 				"_workflow_complete": true,

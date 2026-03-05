@@ -1119,12 +1119,11 @@ func TestMemoryStore_DeepCloneMultimodalAndToolCalls(t *testing.T) {
 			{
 				Role:    "tool",
 				Content: "Analysis complete",
-				ToolResult: &types.MessageToolResult{
-					ID:        "call-1",
-					Name:      "analyze_image",
-					Content:   "Analysis complete",
-					LatencyMs: 250,
-				},
+				ToolResult: func() *types.MessageToolResult {
+					r := types.NewTextToolResult("call-1", "analyze_image", "Analysis complete")
+					r.LatencyMs = 250
+					return &r
+				}(),
 				Timestamp: time.Now(),
 			},
 		},
@@ -1153,7 +1152,7 @@ func TestMemoryStore_DeepCloneMultimodalAndToolCalls(t *testing.T) {
 	*state.Messages[0].Parts[3].Media.StorageReference = "MUTATED"
 	state.Messages[1].ToolCalls[0].Args = json.RawMessage(`{"mutated":true}`)
 	state.Messages[1].ToolCalls[0].Name = "MUTATED"
-	state.Messages[2].ToolResult.Content = "MUTATED"
+	state.Messages[2].ToolResult.Parts = []types.ContentPart{types.NewTextPart("MUTATED")}
 
 	// Load and verify original values are preserved
 	loaded, err := store.Load(ctx, "conv-multimodal")
@@ -1205,7 +1204,7 @@ func TestMemoryStore_DeepCloneMultimodalAndToolCalls(t *testing.T) {
 	// Verify tool result preserved
 	toolMsg := loaded.Messages[2]
 	require.NotNil(t, toolMsg.ToolResult)
-	assert.Equal(t, "Analysis complete", toolMsg.ToolResult.Content)
+	assert.Equal(t, "Analysis complete", toolMsg.ToolResult.GetTextContent())
 	assert.Equal(t, "call-1", toolMsg.ToolResult.ID)
 	assert.Equal(t, int64(250), toolMsg.ToolResult.LatencyMs)
 }

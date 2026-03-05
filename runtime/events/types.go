@@ -242,7 +242,7 @@ type ToolCallEventData struct {
 	Args     map[string]interface{} // Set on started
 	Duration time.Duration          // Set on completed/failed
 	Status   string                 // Set on completed (e.g. "success", "error", "pending")
-	Result   string                 // Set on completed — tool result content
+	Parts    []types.ContentPart    // Set on completed — tool result content parts
 	Error    error                  // Set on failed
 }
 
@@ -335,11 +335,11 @@ type MessageToolCall struct {
 
 // MessageToolResult represents a tool result in a message event (mirrors runtime/types.MessageToolResult).
 type MessageToolResult struct {
-	ID        string `json:"id"`                   // References the MessageToolCall.ID
-	Name      string `json:"name"`                 // Tool name that was executed
-	Content   string `json:"content"`              // Result content
-	Error     string `json:"error,omitempty"`      // Error message if tool failed
-	LatencyMs int64  `json:"latency_ms,omitempty"` // Tool execution latency
+	ID        string              `json:"id"`                   // References the MessageToolCall.ID
+	Name      string              `json:"name"`                 // Tool name that was executed
+	Parts     []types.ContentPart `json:"parts,omitempty"`      // Multimodal result content
+	Error     string              `json:"error,omitempty"`      // Error message if tool failed
+	LatencyMs int64               `json:"latency_ms,omitempty"` // Tool execution latency
 }
 
 // MessageCreatedData contains data for message creation events.

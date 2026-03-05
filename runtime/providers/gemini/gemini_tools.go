@@ -148,8 +148,8 @@ func (p *ToolProvider) PredictWithTools(
 //
 //nolint:gocritic // hugeParam: types.Message is part of established API
 func processToolMessage(msg types.Message) map[string]any {
-	// Use ToolResult.Content (not msg.Content which is empty for tool result messages)
-	content := msg.ToolResult.Content
+	// Use ToolResult.GetTextContent() (not msg.Content which is empty for tool result messages)
+	content := msg.ToolResult.GetTextContent()
 
 	var response any
 	if err := json.Unmarshal([]byte(content), &response); err != nil {

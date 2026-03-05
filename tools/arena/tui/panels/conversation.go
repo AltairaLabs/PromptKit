@@ -635,9 +635,9 @@ func (c *ConversationPanel) appendToolResultMarkdown(md *strings.Builder, msg *t
 	}
 
 	fmt.Fprintf(md, "## ✅ Tool Result: %s\n\n", msg.ToolResult.Name)
-	if msg.ToolResult.Content != "" {
+	if textContent := msg.ToolResult.GetTextContent(); textContent != "" {
 		md.WriteString("```json\n")
-		md.WriteString(formatJSON(msg.ToolResult.Content))
+		md.WriteString(formatJSON(textContent))
 		md.WriteString("\n```\n\n")
 	}
 	if msg.ToolResult.Error != "" {

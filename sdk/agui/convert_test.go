@@ -80,11 +80,9 @@ func TestMessageToAGUI_AssistantWithToolCalls(t *testing.T) {
 }
 
 func TestMessageToAGUI_ToolResultMessage(t *testing.T) {
-	msg := types.NewToolResultMessage(types.MessageToolResult{
-		ID:      "call-123",
-		Name:    "get_weather",
-		Content: `{"temperature":72,"condition":"sunny"}`,
-	})
+	msg := types.NewToolResultMessage(
+		types.NewTextToolResult("call-123", "get_weather", `{"temperature":72,"condition":"sunny"}`),
+	)
 
 	result := MessageToAGUI(&msg)
 
@@ -219,7 +217,7 @@ func TestMessageFromAGUI_ToolResultMessage(t *testing.T) {
 	assert.Equal(t, `{"result":"success"}`, result.Content)
 	require.NotNil(t, result.ToolResult)
 	assert.Equal(t, "call-789", result.ToolResult.ID)
-	assert.Equal(t, `{"result":"success"}`, result.ToolResult.Content)
+	assert.Equal(t, `{"result":"success"}`, result.ToolResult.GetTextContent())
 }
 
 func TestMessageFromAGUI_AssistantWithToolCalls(t *testing.T) {
@@ -333,11 +331,9 @@ func TestRoundTrip_AssistantWithToolCalls(t *testing.T) {
 }
 
 func TestRoundTrip_ToolResultMessage(t *testing.T) {
-	original := types.NewToolResultMessage(types.MessageToolResult{
-		ID:      "call-rt2",
-		Name:    "fetch",
-		Content: "result data",
-	})
+	original := types.NewToolResultMessage(
+		types.NewTextToolResult("call-rt2", "fetch", "result data"),
+	)
 
 	aguiMsg := MessageToAGUI(&original)
 	roundTripped := MessageFromAGUI(&aguiMsg)
@@ -345,7 +341,7 @@ func TestRoundTrip_ToolResultMessage(t *testing.T) {
 	assert.Equal(t, "tool", roundTripped.Role)
 	require.NotNil(t, roundTripped.ToolResult)
 	assert.Equal(t, "call-rt2", roundTripped.ToolResult.ID)
-	assert.Equal(t, "result data", roundTripped.ToolResult.Content)
+	assert.Equal(t, "result data", roundTripped.ToolResult.GetTextContent())
 }
 
 func TestRoundTrip_MultimodalImageURL(t *testing.T) {

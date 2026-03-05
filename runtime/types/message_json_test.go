@@ -11,14 +11,11 @@ import (
 // TestMessage_JSONMarshal_ToolResultOmitsContent tests that when a message has a ToolResult,
 // the Content field is omitted from JSON to avoid duplication
 func TestMessage_JSONMarshal_ToolResultOmitsContent(t *testing.T) {
+	result := NewTextToolResult("call_123", "test_tool", `{"result": "success"}`)
 	msg := Message{
-		Role:    "tool",
-		Content: `{"result": "success"}`,
-		ToolResult: &MessageToolResult{
-			ID:      "call_123",
-			Name:    "test_tool",
-			Content: `{"result": "success"}`,
-		},
+		Role:       "tool",
+		Content:    `{"result": "success"}`,
+		ToolResult: &result,
 	}
 
 	data, err := json.Marshal(msg)
@@ -37,10 +34,15 @@ func TestMessage_JSONMarshal_ToolResultOmitsContent(t *testing.T) {
 	toolResult, hasToolResult := parsed["tool_result"]
 	assert.True(t, hasToolResult, "ToolResult should be present")
 
-	// ToolResult.Content should have the content
+	// ToolResult.Parts should have the content
 	if hasToolResult {
 		toolResultMap := toolResult.(map[string]interface{})
-		assert.Equal(t, `{"result": "success"}`, toolResultMap["content"])
+		parts, hasParts := toolResultMap["parts"]
+		assert.True(t, hasParts, "ToolResult should have parts")
+		partsArr := parts.([]interface{})
+		assert.Len(t, partsArr, 1)
+		partMap := partsArr[0].(map[string]interface{})
+		assert.Equal(t, `{"result": "success"}`, partMap["text"])
 	}
 }
 
@@ -72,7 +74,7 @@ func TestMessage_JSONUnmarshal_ToolResult(t *testing.T) {
 		"tool_result": {
 			"id": "call_123",
 			"name": "test_tool",
-			"content": "{\"result\": \"success\"}"
+			"parts": [{"type": "text", "text": "{\"result\": \"success\"}"}]
 		}
 	}`
 
@@ -84,8 +86,8 @@ func TestMessage_JSONUnmarshal_ToolResult(t *testing.T) {
 	require.NotNil(t, msg.ToolResult)
 	assert.Equal(t, "call_123", msg.ToolResult.ID)
 	assert.Equal(t, "test_tool", msg.ToolResult.Name)
-	assert.Equal(t, `{"result": "success"}`, msg.ToolResult.Content)
+	assert.Equal(t, `{"result": "success"}`, msg.ToolResult.GetTextContent())
 
-	// After unmarshaling, Content should be set from ToolResult for provider compatibility
+	// After unmarshaling, Content should be set from ToolResult.GetTextContent() for provider compatibility
 	assert.Equal(t, `{"result": "success"}`, msg.Content)
 }

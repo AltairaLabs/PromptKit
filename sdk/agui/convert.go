@@ -44,7 +44,7 @@ func MessageToAGUI(msg *types.Message) aguitypes.Message {
 	// Handle tool result messages
 	if msg.Role == "tool" && msg.ToolResult != nil {
 		aguiMsg.ToolCallID = msg.ToolResult.ID
-		aguiMsg.Content = msg.ToolResult.Content
+		aguiMsg.Content = msg.ToolResult.GetTextContent()
 		return aguiMsg
 	}
 
@@ -74,10 +74,8 @@ func MessageFromAGUI(msg *aguitypes.Message) types.Message {
 	if msg.Role == aguitypes.RoleTool {
 		content := contentString(msg)
 		pkMsg.Content = content
-		pkMsg.ToolResult = &types.MessageToolResult{
-			ID:      msg.ToolCallID,
-			Content: content,
-		}
+		result := types.NewTextToolResult(msg.ToolCallID, "", content)
+		pkMsg.ToolResult = &result
 		return pkMsg
 	}
 
