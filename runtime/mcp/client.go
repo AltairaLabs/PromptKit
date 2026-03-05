@@ -109,29 +109,9 @@ func (c *StdioClient) Initialize(ctx context.Context) (*InitializeResponse, erro
 		return nil, ErrClientClosed
 	}
 
-	// Start the server process with retries
-	var startErr error
-	for attempt := 0; attempt <= c.options.MaxRetries; attempt++ {
-		if attempt > 0 {
-			delay := c.options.RetryDelay * time.Duration(1<<uint(attempt-1)) // Exponential backoff
-			time.Sleep(delay)
-		}
-
-		startErr = c.startProcess()
-		if startErr == nil {
-			break
-		}
-
-		if attempt < c.options.MaxRetries {
-			logger.Warn("MCP failed to start process, retrying",
-				"server", c.config.Name, "attempt", attempt+1, "maxAttempts", c.options.MaxRetries+1, "error", startErr)
-		}
-	}
-
-	if startErr != nil {
-		c.mu.Unlock()
-		return nil, fmt.Errorf("failed to start server process after %d attempts: %w",
-			c.options.MaxRetries+1, startErr)
+	// Start the server process with retries (caller must hold c.mu; released on error)
+	if err := c.startProcessWithRetry(ctx); err != nil {
+		return nil, err
 	}
 
 	// Start background reader
@@ -261,6 +241,46 @@ func (c *StdioClient) IsAlive() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.started && !c.closed && c.cmd != nil && c.cmd.Process != nil
+}
+
+// startProcessWithRetry attempts to start the server process with exponential backoff.
+// The caller must hold c.mu.Lock(). On error, the mutex is released before returning.
+// On success, the mutex remains held.
+func (c *StdioClient) startProcessWithRetry(ctx context.Context) error {
+	var startErr error
+	for attempt := 0; attempt <= c.options.MaxRetries; attempt++ {
+		if attempt > 0 {
+			delay := c.options.RetryDelay * time.Duration(1<<uint(attempt-1)) //nolint:gosec // bounded by MaxRetries
+			// Release the mutex during sleep so other operations are not blocked
+			c.mu.Unlock()
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			c.mu.Lock()
+			// Re-check state after re-acquiring the lock
+			if c.closed {
+				c.mu.Unlock()
+				return ErrClientClosed
+			}
+		}
+
+		startErr = c.startProcess()
+		if startErr == nil {
+			return nil
+		}
+
+		if attempt < c.options.MaxRetries {
+			logger.Warn("MCP failed to start process, retrying",
+				"server", c.config.Name, "attempt", attempt+1,
+				"maxAttempts", c.options.MaxRetries+1, "error", startErr)
+		}
+	}
+
+	c.mu.Unlock()
+	return fmt.Errorf("failed to start server process after %d attempts: %w",
+		c.options.MaxRetries+1, startErr)
 }
 
 // startProcess launches the MCP server process
