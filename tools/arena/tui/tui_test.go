@@ -507,7 +507,6 @@ func TestConvertToLogEntries(t *testing.T) {
 	assert.Equal(t, "ERROR", logs[2].Level)
 }
 
-
 func TestRenderMainPage_NoStateStore(t *testing.T) {
 	m := NewModel("test.yaml", 1)
 	m.width = 100
@@ -1176,7 +1175,7 @@ func TestHandleMessageCreated_WithToolResult(t *testing.T) {
 		ToolResult: &MessageToolResult{
 			ID:        "call-1",
 			Name:      "get_weather",
-			Content:   `{"temp": 72}`,
+			Parts:     []types.ContentPart{types.NewTextPart(`{"temp": 72}`)},
 			LatencyMs: 100,
 		},
 		Time: time.Now(),

@@ -11,15 +11,11 @@ import (
 // 3. Unmarshal from JSON (should restore Content from ToolResult)
 func TestMessage_Integration_ToolResultHandling(t *testing.T) {
 	// Step 1: Create a tool result message with Content set
+	result := NewTextToolResult("call_123", "get_weather", "The weather is sunny")
 	originalMsg := &Message{
-		Role:    "tool",
-		Content: "The weather is sunny",
-		ToolResult: &MessageToolResult{
-			ID:      "call_123",
-			Name:    "get_weather",
-			Content: "The weather is sunny",
-			Error:   "",
-		},
+		Role:       "tool",
+		Content:    "The weather is sunny",
+		ToolResult: &result,
 	}
 
 	// Verify Content is set initially
@@ -43,13 +39,22 @@ func TestMessage_Integration_ToolResultHandling(t *testing.T) {
 		t.Errorf("JSON should NOT contain 'content' field when ToolResult is present\nJSON: %s", string(jsonData))
 	}
 
-	// Verify tool_result.content is present
+	// Verify tool_result.parts is present
 	toolResult, ok := rawJSON["tool_result"].(map[string]interface{})
 	if !ok {
 		t.Fatal("tool_result field missing or wrong type")
 	}
-	if toolResult["content"] != "The weather is sunny" {
-		t.Errorf("tool_result.content = %v, want 'The weather is sunny'", toolResult["content"])
+	parts, hasParts := toolResult["parts"]
+	if !hasParts {
+		t.Fatal("tool_result.parts missing")
+	}
+	partsArr := parts.([]interface{})
+	if len(partsArr) != 1 {
+		t.Fatalf("Expected 1 part, got %d", len(partsArr))
+	}
+	partMap := partsArr[0].(map[string]interface{})
+	if partMap["text"] != "The weather is sunny" {
+		t.Errorf("tool_result.parts[0].text = %v, want 'The weather is sunny'", partMap["text"])
 	}
 
 	// Step 3: Unmarshal back from JSON
@@ -60,7 +65,7 @@ func TestMessage_Integration_ToolResultHandling(t *testing.T) {
 
 	// Verify Content field is restored for provider compatibility
 	if restoredMsg.Content != "The weather is sunny" {
-		t.Errorf("Content should be restored from ToolResult.Content\nGot: %q\nWant: %q",
+		t.Errorf("Content should be restored from ToolResult.GetTextContent()\nGot: %q\nWant: %q",
 			restoredMsg.Content, "The weather is sunny")
 	}
 
@@ -68,7 +73,8 @@ func TestMessage_Integration_ToolResultHandling(t *testing.T) {
 	if restoredMsg.ToolResult == nil {
 		t.Fatal("ToolResult should not be nil")
 	}
-	if restoredMsg.ToolResult.Content != "The weather is sunny" {
-		t.Errorf("ToolResult.Content = %q, want 'The weather is sunny'", restoredMsg.ToolResult.Content)
+	if restoredMsg.ToolResult.GetTextContent() != "The weather is sunny" {
+		t.Errorf("ToolResult.GetTextContent() = %q, want 'The weather is sunny'",
+			restoredMsg.ToolResult.GetTextContent())
 	}
 }

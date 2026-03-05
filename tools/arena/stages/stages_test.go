@@ -678,11 +678,10 @@ func TestDeepCloneMessages_WithToolResult(t *testing.T) {
 	original := []types.Message{
 		{
 			Role: "tool",
-			ToolResult: &types.MessageToolResult{
-				ID:      "call1",
-				Name:    "tool1",
-				Content: "result",
-			},
+			ToolResult: func() *types.MessageToolResult {
+				r := types.NewTextToolResult("call1", "tool1", "result")
+				return &r
+			}(),
 		},
 	}
 
@@ -693,8 +692,8 @@ func TestDeepCloneMessages_WithToolResult(t *testing.T) {
 	assert.Equal(t, "call1", cloned[0].ToolResult.ID)
 
 	// Modify original should not affect clone
-	original[0].ToolResult.Content = "modified"
-	assert.Equal(t, "result", cloned[0].ToolResult.Content)
+	original[0].ToolResult.Parts = []types.ContentPart{types.NewTextPart("modified")}
+	assert.Equal(t, "result", cloned[0].ToolResult.GetTextContent())
 }
 
 func TestDeepCloneMessages_WithCostInfo(t *testing.T) {

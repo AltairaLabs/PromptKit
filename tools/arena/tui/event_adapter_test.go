@@ -628,7 +628,7 @@ func TestEventAdapter_HandleMessageCreated(t *testing.T) {
 				ToolResult: &events.MessageToolResult{
 					ID:        "call-1",
 					Name:      "get_weather",
-					Content:   `{"temp": 72, "conditions": "sunny"}`,
+					Parts:     []types.ContentPart{types.NewTextPart(`{"temp": 72, "conditions": "sunny"}`)},
 					LatencyMs: 150,
 				},
 			},

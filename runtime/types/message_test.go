@@ -110,7 +110,7 @@ func TestMessage_WithToolResult(t *testing.T) {
 		ToolResult: &MessageToolResult{
 			ID:        "call_123",
 			Name:      "get_weather",
-			Content:   `{"temp":72,"condition":"sunny"}`,
+			Parts:     []ContentPart{NewTextPart(`{"temp":72,"condition":"sunny"}`)},
 			LatencyMs: 250,
 		},
 	}
@@ -146,10 +146,9 @@ func TestMessage_WithToolError(t *testing.T) {
 		Role:    "tool",
 		Content: "",
 		ToolResult: &MessageToolResult{
-			ID:      "call_456",
-			Name:    "invalid_tool",
-			Content: "",
-			Error:   "Tool not found",
+			ID:    "call_456",
+			Name:  "invalid_tool",
+			Error: "Tool not found",
 		},
 	}
 
@@ -559,12 +558,8 @@ func TestNewSystemMessage(t *testing.T) {
 }
 
 func TestNewToolResultMessage(t *testing.T) {
-	result := MessageToolResult{
-		ID:        "call_123",
-		Name:      "get_weather",
-		Content:   `{"temp": 72, "condition": "sunny"}`,
-		LatencyMs: 150,
-	}
+	result := NewTextToolResult("call_123", "get_weather", `{"temp": 72, "condition": "sunny"}`)
+	result.LatencyMs = 150
 
 	msg := NewToolResultMessage(result)
 
@@ -580,26 +575,22 @@ func TestNewToolResultMessage(t *testing.T) {
 	if msg.ToolResult.Name != "get_weather" {
 		t.Errorf("ToolResult.Name mismatch: got %q, want %q", msg.ToolResult.Name, "get_weather")
 	}
-	// Content should be synced from ToolResult.Content
-	if msg.Content != result.Content {
-		t.Errorf("Content not synced: got %q, want %q", msg.Content, result.Content)
+	// Content should be synced from ToolResult.GetTextContent()
+	if msg.Content != result.GetTextContent() {
+		t.Errorf("Content not synced: got %q, want %q", msg.Content, result.GetTextContent())
 	}
 }
 
 func TestNewToolResultMessage_ContentSync(t *testing.T) {
-	// Verify that Content and ToolResult.Content are synchronized
-	result := MessageToolResult{
-		ID:      "call_456",
-		Name:    "calculator",
-		Content: "42",
-	}
+	// Verify that Content and ToolResult.GetTextContent() are synchronized
+	result := NewTextToolResult("call_456", "calculator", "42")
 
 	msg := NewToolResultMessage(result)
 
 	// Both should have the same content
-	if msg.Content != msg.ToolResult.Content {
-		t.Errorf("Content not synced with ToolResult.Content: Content=%q, ToolResult.Content=%q",
-			msg.Content, msg.ToolResult.Content)
+	if msg.Content != msg.ToolResult.GetTextContent() {
+		t.Errorf("Content not synced with ToolResult.GetTextContent(): Content=%q, GetTextContent()=%q",
+			msg.Content, msg.ToolResult.GetTextContent())
 	}
 
 	// GetContent should return the content
@@ -609,12 +600,8 @@ func TestNewToolResultMessage_ContentSync(t *testing.T) {
 }
 
 func TestNewToolResultMessage_WithError(t *testing.T) {
-	result := MessageToolResult{
-		ID:      "call_789",
-		Name:    "invalid_tool",
-		Content: "Tool execution failed",
-		Error:   "Tool not found",
-	}
+	result := NewTextToolResult("call_789", "invalid_tool", "Tool execution failed")
+	result.Error = "Tool not found"
 
 	msg := NewToolResultMessage(result)
 

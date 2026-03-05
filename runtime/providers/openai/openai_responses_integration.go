@@ -230,7 +230,7 @@ func (p *Provider) convertSingleMessageToResponsesInput(msg *types.Message) []ma
 		return []map[string]any{{
 			"type":    "function_call_output",
 			"call_id": callID,
-			"output":  msg.ToolResult.Content,
+			"output":  msg.ToolResult.GetTextContent(),
 		}}
 	}
 

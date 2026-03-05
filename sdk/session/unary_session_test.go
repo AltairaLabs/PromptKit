@@ -349,10 +349,9 @@ func TestUnarySession_ResumeWithToolResults(t *testing.T) {
 
 	// Resume with tool results — sends tool result messages through pipeline
 	toolResults := []types.Message{
-		types.NewToolResultMessage(types.MessageToolResult{
-			ID:      "call-1",
-			Content: `{"lat": 37.7749}`,
-		}),
+		types.NewToolResultMessage(
+			types.NewTextToolResult("call-1", "", `{"lat": 37.7749}`),
+		),
 	}
 
 	result, err := sess.ResumeWithToolResults(context.Background(), toolResults)
@@ -447,10 +446,9 @@ func TestUnarySession_ResumeStreamWithToolResults(t *testing.T) {
 
 	// Resume with tool results in streaming mode
 	toolResults := []types.Message{
-		types.NewToolResultMessage(types.MessageToolResult{
-			ID:      "call-1",
-			Content: `{"lat": 37.7749}`,
-		}),
+		types.NewToolResultMessage(
+			types.NewTextToolResult("call-1", "", `{"lat": 37.7749}`),
+		),
 	}
 
 	stream, err := sess.ResumeStreamWithToolResults(context.Background(), toolResults)

@@ -340,14 +340,11 @@ func TestToolProvider_ConvertSingleMessageForTools(t *testing.T) {
 	})
 
 	t.Run("tool result message", func(t *testing.T) {
+		toolResult := types.NewTextToolResult("call_1", "test", "result")
 		msg := &types.Message{
-			Role: "tool",
-			ToolResult: &types.MessageToolResult{
-				ID:      "call_1",
-				Name:    "test",
-				Content: "result",
-			},
-			Content: "result",
+			Role:       "tool",
+			Content:    "result",
+			ToolResult: &toolResult,
 		}
 
 		result := provider.convertSingleMessageForTools(msg)

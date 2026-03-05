@@ -183,11 +183,9 @@ func (d *arenaWorkflowDriver) Send(ctx context.Context, message string) (string,
 			} else {
 				content = string(result.Result)
 			}
-			toolResultMsg := types.NewToolResultMessage(types.MessageToolResult{
-				ID:      tc.ID,
-				Name:    tc.Name,
-				Content: content,
-			})
+			toolResultMsg := types.NewToolResultMessage(
+				types.NewTextToolResult(tc.ID, tc.Name, content),
+			)
 			// Only append to trace, not to d.messages — tool results in d.messages
 			// cause the mock provider to inflate the turn number (turn skew).
 			d.messageTrace = append(d.messageTrace, toolResultMsg)
@@ -229,11 +227,9 @@ func (d *arenaWorkflowDriver) processTransitionToolCall(tc types.MessageToolCall
 		NewState: toState,
 		Event:    args.Event,
 	})
-	toolResultMsg := types.NewToolResultMessage(types.MessageToolResult{
-		ID:      tc.ID,
-		Name:    workflowTransitionTool,
-		Content: string(resultJSON),
-	})
+	toolResultMsg := types.NewToolResultMessage(
+		types.NewTextToolResult(tc.ID, workflowTransitionTool, string(resultJSON)),
+	)
 	d.messageTrace = append(d.messageTrace, toolResultMsg)
 
 	// Append new state's system prompt to trace with full diagnostics

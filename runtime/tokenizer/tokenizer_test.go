@@ -511,7 +511,8 @@ func TestCountMessageTokens_ToolCalls(t *testing.T) {
 	messages := []types.Message{
 		{
 			Role:    "assistant",
-			Content: "Let me check that for you.",
+			Parts:     []types.ContentPart{types.NewTextPart("Let me check that for you.")},
+
 			ToolCalls: []types.MessageToolCall{
 				{
 					ID:   "call_1",
@@ -533,7 +534,8 @@ func TestCountMessageTokens_ToolResult(t *testing.T) {
 			ToolResult: &types.MessageToolResult{
 				ID:      "call_1",
 				Name:    "get_weather",
-				Content: "The temperature in San Francisco is 18C",
+				Parts:     []types.ContentPart{types.NewTextPart("The temperature in San Francisco is 18C")},
+
 			},
 		},
 	}
@@ -571,7 +573,8 @@ func TestCountMessageTokens_LargeConversation(t *testing.T) {
 		}
 		messages[i] = types.Message{
 			Role:    role,
-			Content: "This is a test message with some content for counting tokens.",
+			Parts:     []types.ContentPart{types.NewTextPart("This is a test message with some content for counting tokens.")},
+
 		}
 	}
 	tokens := counter.CountMessageTokens(messages)

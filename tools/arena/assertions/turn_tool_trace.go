@@ -116,7 +116,7 @@ func (e *turnToolCallEntry) isResolved() bool {
 }
 
 func (e *turnToolCallEntry) applyResult(result *types.MessageToolResult) {
-	e.tc.Result = result.Content
+	e.tc.Result = result.GetTextContent()
 	e.tc.Error = result.Error
 	e.tc.LatencyMs = result.LatencyMs
 	e.tc.resolved = true

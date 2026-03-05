@@ -255,15 +255,15 @@ func TestParallelToolCalls_OneFailureDoesNotCancelOthers(t *testing.T) {
 
 	// First tool succeeded.
 	assert.Empty(t, results[0].ToolResult.Error)
-	assert.Contains(t, results[0].ToolResult.Content, "ok")
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "ok")
 
 	// Second tool failed but is still in results.
 	assert.NotEmpty(t, results[1].ToolResult.Error)
-	assert.Contains(t, results[1].ToolResult.Content, "failed")
+	assert.Contains(t, results[1].ToolResult.GetTextContent(), "failed")
 
 	// Third tool succeeded despite failure in the second.
 	assert.Empty(t, results[2].ToolResult.Error)
-	assert.Contains(t, results[2].ToolResult.Content, "ok")
+	assert.Contains(t, results[2].ToolResult.GetTextContent(), "ok")
 }
 
 func TestParallelToolCalls_MixedBlockedAndExecuted(t *testing.T) {
@@ -410,7 +410,7 @@ func TestParallelToolCalls_SingleToolCall(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "c1", results[0].ToolResult.ID)
-	assert.Contains(t, results[0].ToolResult.Content, "hello")
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "hello")
 }
 
 func TestParallelToolCalls_EmptyToolCalls(t *testing.T) {

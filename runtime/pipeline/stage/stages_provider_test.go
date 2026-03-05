@@ -1143,7 +1143,7 @@ func TestProviderStage_ExecuteToolCalls_BlockedTool(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "tool", results[0].Role)
-	assert.Contains(t, results[0].ToolResult.Content, "blocked by policy")
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "blocked by policy")
 	assert.Contains(t, results[0].ToolResult.Error, "blocked by policy")
 }
 
@@ -1161,7 +1161,7 @@ func TestProviderStage_ExecuteToolCalls_ToolNotFound(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "tool", results[0].Role)
-	assert.Contains(t, results[0].ToolResult.Content, "Error:")
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "Error:")
 	assert.NotEmpty(t, results[0].ToolResult.Error)
 }
 
@@ -1198,7 +1198,7 @@ func TestProviderStage_ExecuteToolCalls_Complete(t *testing.T) {
 	assert.Equal(t, "tool", results[0].Role)
 	assert.NotNil(t, results[0].ToolResult)
 	assert.Empty(t, results[0].ToolResult.Error)
-	assert.Contains(t, results[0].ToolResult.Content, "result")
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "result")
 }
 
 func TestProviderStage_ExecuteToolCalls_Pending(t *testing.T) {
@@ -1235,7 +1235,7 @@ func TestProviderStage_ExecuteToolCalls_Pending(t *testing.T) {
 	require.Len(t, ep.Pending, 1)
 	assert.Equal(t, "call-1", ep.Pending[0].CallID)
 	assert.Equal(t, "pending_tool", ep.Pending[0].ToolName)
-	assert.Contains(t, ep.Pending[0].ToolResult.Content, "requires")
+	assert.Contains(t, ep.Pending[0].ToolResult.GetTextContent(), "requires")
 
 	// No completed results since only tool was pending
 	assert.Empty(t, results)
@@ -1271,7 +1271,7 @@ func TestProviderStage_ExecuteToolCalls_Failed(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "tool", results[0].Role)
-	assert.Contains(t, results[0].ToolResult.Content, "failed")
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "failed")
 	assert.NotEmpty(t, results[0].ToolResult.Error)
 }
 
@@ -1521,7 +1521,7 @@ func TestProviderStage_HandleToolResult_AllStatuses(t *testing.T) {
 
 			assert.Equal(t, "test-call-id", result.ID)
 			assert.Equal(t, "test_tool", result.Name)
-			assert.Contains(t, result.Content, tc.contentContain)
+			assert.Contains(t, result.GetTextContent(), tc.contentContain)
 			if tc.expectError {
 				assert.NotEmpty(t, result.Error)
 			}
@@ -1808,7 +1808,7 @@ func TestProviderStage_ExecuteToolCalls_BlockedNoEvents(t *testing.T) {
 	results, err := stage.executeToolCalls(context.Background(), toolCalls)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.Contains(t, results[0].ToolResult.Content, "blocked by policy")
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "blocked by policy")
 
 	// Give the event bus a moment to process any events
 	time.Sleep(50 * time.Millisecond)

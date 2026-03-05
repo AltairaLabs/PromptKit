@@ -370,10 +370,12 @@ func (s *ArenaStateStore) cloneMessageToolCalls(cloned *types.Message, msg *type
 // cloneMessageToolResult clones the ToolResult
 func (s *ArenaStateStore) cloneMessageToolResult(cloned *types.Message, msg *types.Message) {
 	if msg.ToolResult != nil {
+		partsCopy := make([]types.ContentPart, len(msg.ToolResult.Parts))
+		copy(partsCopy, msg.ToolResult.Parts)
 		cloned.ToolResult = &types.MessageToolResult{
 			ID:        msg.ToolResult.ID,
 			Name:      msg.ToolResult.Name,
-			Content:   msg.ToolResult.Content,
+			Parts:     partsCopy,
 			Error:     msg.ToolResult.Error,
 			LatencyMs: msg.ToolResult.LatencyMs,
 		}

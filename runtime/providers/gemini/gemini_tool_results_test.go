@@ -65,18 +65,21 @@ func TestToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 		{Role: "user", Content: "What's the weather?"},
 		{
 			Role:    "assistant",
-			Content: "Let me check the weather for you.",
+			Parts:     []types.ContentPart{types.NewTextPart("Let me check the weather for you.")},
+
 			ToolCalls: []types.MessageToolCall{
 				{ID: "call_123", Name: "get_weather", Args: json.RawMessage(`{"location":"SF"}`)},
 			},
 		},
 		{
 			Role:    "tool",
-			Content: `{"temperature": 72, "condition": "sunny"}`,
+			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
+
 			ToolResult: &types.MessageToolResult{
 				ID:      "call_123",
 				Name:    "get_weather",
-				Content: `{"temperature": 72, "condition": "sunny"}`,
+				Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
+
 			},
 		},
 		{Role: "user", Content: "Thanks! Now check NYC."},
@@ -217,20 +220,24 @@ func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 		},
 		{
 			Role:    "tool",
-			Content: `{"temperature": 72, "condition": "sunny"}`,
+			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
+
 			ToolResult: &types.MessageToolResult{
 				ID:      "call_sf",
 				Name:    "get_weather",
-				Content: `{"temperature": 72, "condition": "sunny"}`,
+				Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
+
 			},
 		},
 		{
 			Role:    "tool",
-			Content: `{"temperature": 65, "condition": "cloudy"}`,
+			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 65, "condition": "cloudy"}`)},
+
 			ToolResult: &types.MessageToolResult{
 				ID:      "call_nyc",
 				Name:    "get_weather",
-				Content: `{"temperature": 65, "condition": "cloudy"}`,
+				Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 65, "condition": "cloudy"}`)},
+
 			},
 		},
 	}
@@ -300,14 +307,15 @@ func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 func TestProcessToolMessage_UsesToolResultContent(t *testing.T) {
 	// Create a tool result message as the SDK creates them:
 	// - msg.Content is NOT set (empty)
-	// - msg.ToolResult.Content has the actual data
+	// - msg.ToolResult.GetTextContent() has the actual data
 	toolResultMsg := types.Message{
 		Role: "tool",
 		// Content is intentionally empty - this is how the SDK creates tool result messages
 		ToolResult: &types.MessageToolResult{
 			ID:      "call_abc123",
 			Name:    "weather",
-			Content: `{"temperature": 73, "conditions": "sunny"}`,
+			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 73, "conditions": "sunny"}`)},
+
 			Error:   "",
 		},
 	}

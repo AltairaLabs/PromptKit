@@ -216,8 +216,8 @@ func TestArenaOutputAdapter_Load_WithToolResults(t *testing.T) {
 	if messages[2].ToolResult == nil || messages[2].ToolResult.ID != "call_123" {
 		t.Errorf("messages[2].ToolResult.ID = %v, want call_123", messages[2].ToolResult)
 	}
-	if messages[2].ToolResult.Content != "Sunny, 72°F" {
-		t.Errorf("messages[2].ToolResult.Content = %s, want 'Sunny, 72°F'", messages[2].ToolResult.Content)
+	if messages[2].ToolResult.GetTextContent() != "Sunny, 72°F" {
+		t.Errorf("messages[2].ToolResult.GetTextContent() = %s, want 'Sunny, 72°F'", messages[2].ToolResult.GetTextContent())
 	}
 }
 

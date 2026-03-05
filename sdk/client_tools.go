@@ -318,10 +318,9 @@ func (c *Conversation) buildToolResultMessages() ([]types.Message, error) {
 		} else {
 			content = string(res.ResultJSON)
 		}
-		toolMsgs = append(toolMsgs, types.NewToolResultMessage(types.MessageToolResult{
-			ID:      res.ID,
-			Content: content,
-		}))
+		toolMsgs = append(toolMsgs, types.NewToolResultMessage(
+			types.NewTextToolResult(res.ID, "", content),
+		))
 	}
 
 	return toolMsgs, nil

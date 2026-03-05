@@ -51,7 +51,7 @@ func (h *AgentResponseContainsHandler) Eval(
 	for i := range evalCtx.Messages {
 		msg := &evalCtx.Messages[i]
 		if msg.Role == "tool" && msg.ToolResult != nil && msg.ToolResult.Name == agent {
-			if strings.Contains(msg.ToolResult.Content, contains) {
+			if strings.Contains(msg.ToolResult.GetTextContent(), contains) {
 				return &evals.EvalResult{
 					Type: h.Type(), Passed: true,
 					Explanation: fmt.Sprintf("agent %q response contains expected text", agent),

@@ -26,12 +26,11 @@ func buildWhenParams(toolCalls ...TurnToolCall) map[string]interface{} {
 		for _, tc := range toolCalls {
 			msgs = append(msgs, types.Message{
 				Role: "tool",
-				ToolResult: &types.MessageToolResult{
-					ID:      tc.CallID,
-					Name:    tc.Name,
-					Content: tc.Result,
-					Error:   tc.Error,
-				},
+				ToolResult: func() *types.MessageToolResult {
+					r := types.NewTextToolResult(tc.CallID, tc.Name, tc.Result)
+					r.Error = tc.Error
+					return &r
+				}(),
 			})
 		}
 	} else {

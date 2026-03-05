@@ -12,7 +12,8 @@ import (
 func TestToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
 	msg := types.Message{
 		Role:    "user",
-		Content: "Hello",
+		Parts:     []types.ContentPart{types.NewTextPart("Hello")},
+
 	}
 
 	parts := buildMessageParts(msg, []map[string]interface{}{})
@@ -24,7 +25,8 @@ func TestToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
 func TestToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
 	msg := types.Message{
 		Role:    "user",
-		Content: "Process result",
+		Parts:     []types.ContentPart{types.NewTextPart("Process result")},
+
 	}
 
 	toolResults := []map[string]interface{}{
@@ -46,7 +48,8 @@ func TestToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
 func TestToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
 	msg := types.Message{
 		Role:    "assistant",
-		Content: "Let me check that",
+		Parts:     []types.ContentPart{types.NewTextPart("Let me check that")},
+
 		ToolCalls: []types.MessageToolCall{
 			{
 				ID:   "call_1",
@@ -66,11 +69,13 @@ func TestToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
 func TestToolProvider_ProcessToolMessage_EmptyName(t *testing.T) {
 	msg := types.Message{
 		Role:    "tool",
-		Content: `{"result": "success"}`,
+		Parts:     []types.ContentPart{types.NewTextPart(`{"result": "success"}`)},
+
 		ToolResult: &types.MessageToolResult{
 			ID:      "call_1",
 			Name:    "", // Empty name
-			Content: `{"result": "success"}`,
+			Parts:     []types.ContentPart{types.NewTextPart(`{"result": "success"}`)},
+
 		},
 	}
 
@@ -94,11 +99,13 @@ func TestToolProvider_ProcessToolMessage_EmptyName(t *testing.T) {
 func TestToolProvider_ProcessToolMessage_StringContent(t *testing.T) {
 	msg := types.Message{
 		Role:    "tool",
-		Content: "plain string result",
+		Parts:     []types.ContentPart{types.NewTextPart("plain string result")},
+
 		ToolResult: &types.MessageToolResult{
 			ID:      "call_1",
 			Name:    "test_tool",
-			Content: "plain string result",
+			Parts:     []types.ContentPart{types.NewTextPart("plain string result")},
+
 		},
 	}
 
@@ -119,7 +126,8 @@ func TestToolProvider_ProcessToolMessage_PrimitiveContent(t *testing.T) {
 		ToolResult: &types.MessageToolResult{
 			ID:      "call_1",
 			Name:    "get_number",
-			Content: "42",
+			Parts:     []types.ContentPart{types.NewTextPart("42")},
+
 		},
 	}
 
