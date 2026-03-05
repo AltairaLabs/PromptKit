@@ -31,7 +31,13 @@ const (
 	geminiumSampleRate = 24000
 	geminiumBitDepth   = 16
 	geminiumChannels   = 1
+
+	// DefaultMaxFileSize is the default maximum file size (50 MB).
+	DefaultMaxFileSize = 50 * 1024 * 1024
 )
+
+// ErrFileTooLarge is returned when data exceeds the configured MaxFileSize.
+var ErrFileTooLarge = fmt.Errorf("file size exceeds maximum allowed size")
 
 // FileStoreConfig configures the local filesystem storage backend.
 type FileStoreConfig struct {
@@ -46,6 +52,22 @@ type FileStoreConfig struct {
 
 	// DefaultPolicy is the default retention policy to apply to new media
 	DefaultPolicy string
+
+	// MaxFileSize is the maximum allowed file size in bytes.
+	// If zero, DefaultMaxFileSize (50 MB) is used.
+	// Set to a negative value to disable the size limit.
+	MaxFileSize int64
+}
+
+// FileStoreOption is a functional option for configuring a FileStore.
+type FileStoreOption func(*FileStoreConfig)
+
+// WithMaxFileSize returns an option that sets the maximum file size in bytes.
+// Set to a negative value to disable the size limit.
+func WithMaxFileSize(size int64) FileStoreOption {
+	return func(c *FileStoreConfig) {
+		c.MaxFileSize = size
+	}
 }
 
 // FileStore implements MediaStorageService using local filesystem storage.
@@ -108,7 +130,13 @@ func (fs *FileStore) validatePath(path string) error {
 }
 
 // NewFileStore creates a new local filesystem storage backend.
-func NewFileStore(config FileStoreConfig) (*FileStore, error) {
+// Optional FileStoreOption values can be passed to override config fields.
+func NewFileStore(config FileStoreConfig, opts ...FileStoreOption) (*FileStore, error) {
+	// Apply functional options
+	for _, opt := range opts {
+		opt(&config)
+	}
+
 	if config.BaseDir == "" {
 		return nil, fmt.Errorf("base directory is required")
 	}
@@ -121,6 +149,11 @@ func NewFileStore(config FileStoreConfig) (*FileStore, error) {
 	// Default to by-session organization
 	if config.Organization == "" {
 		config.Organization = storage.OrganizationBySession
+	}
+
+	// Default max file size
+	if config.MaxFileSize == 0 {
+		config.MaxFileSize = DefaultMaxFileSize
 	}
 
 	fs := &FileStore{
@@ -156,6 +189,11 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 	// Gemini Live API outputs 24kHz, 16-bit, mono PCM
 	if isPCMAudio(content.MIMEType) {
 		data = wrapPCMInWAV(data, geminiumSampleRate, geminiumBitDepth, geminiumChannels)
+	}
+
+	// Check final data size against MaxFileSize (after any transformations like WAV wrapping)
+	if sizeErr := fs.checkSize(int64(len(data))); sizeErr != nil {
+		return "", fmt.Errorf("failed to store media: %w", sizeErr)
 	}
 
 	// Compute hash if deduplication is enabled
@@ -341,19 +379,27 @@ func (fs *FileStore) GetURL(ctx context.Context, reference storage.Reference, ex
 
 // Helper methods
 
+// maxFileSize returns the effective max file size, or -1 if disabled.
+func (fs *FileStore) maxFileSize() int64 {
+	return fs.config.MaxFileSize
+}
+
+// checkSize validates that data does not exceed the configured max file size.
+func (fs *FileStore) checkSize(size int64) error {
+	maxSize := fs.maxFileSize()
+	if maxSize > 0 && size > maxSize {
+		return fmt.Errorf("%w: %d bytes exceeds limit of %d bytes", ErrFileTooLarge, size, maxSize)
+	}
+	return nil
+}
+
 func (fs *FileStore) getMediaData(content *types.MediaContent) ([]byte, error) {
 	if content.Data != nil {
-		// Decode base64 data
-		reader, err := content.ReadData()
-		if err != nil {
-			return nil, err
-		}
-		defer reader.Close()
-		return io.ReadAll(reader)
+		return fs.readBase64Data(content)
 	}
 
 	if content.FilePath != nil {
-		return os.ReadFile(*content.FilePath)
+		return fs.readFileData(content)
 	}
 
 	if content.URL != nil {
@@ -361,6 +407,44 @@ func (fs *FileStore) getMediaData(content *types.MediaContent) ([]byte, error) {
 	}
 
 	return nil, fmt.Errorf("no data source available")
+}
+
+func (fs *FileStore) readBase64Data(content *types.MediaContent) ([]byte, error) {
+	reader, err := content.ReadData()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	maxSize := fs.maxFileSize()
+	if maxSize > 0 {
+		// Use LimitReader to prevent reading unbounded data.
+		// Read up to maxSize+1 bytes so we can detect if the data exceeds the limit.
+		limited := io.LimitReader(reader, maxSize+1)
+		data, readErr := io.ReadAll(limited)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if int64(len(data)) > maxSize {
+			return nil, fmt.Errorf("%w: data exceeds limit of %d bytes", ErrFileTooLarge, maxSize)
+		}
+		return data, nil
+	}
+	return io.ReadAll(reader)
+}
+
+func (fs *FileStore) readFileData(content *types.MediaContent) ([]byte, error) {
+	maxSize := fs.maxFileSize()
+	if maxSize > 0 {
+		info, err := os.Stat(*content.FilePath)
+		if err != nil {
+			return nil, err
+		}
+		if err := fs.checkSize(info.Size()); err != nil {
+			return nil, err
+		}
+	}
+	return os.ReadFile(*content.FilePath) //#nosec G304 -- path validated by caller
 }
 
 func (fs *FileStore) computeHash(data []byte) string {
