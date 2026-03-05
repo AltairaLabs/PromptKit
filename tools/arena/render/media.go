@@ -477,6 +477,70 @@ const (
 	maxSourceLength = 40
 )
 
+// renderToolResultMediaBadges creates HTML metadata badges for media parts in tool results.
+// Since binary data is stripped via MetadataOnlyParts(), this renders metadata-only indicators
+// showing content type, MIME type, dimensions, and file size.
+// Returns empty template.HTML if no media parts exist.
+func renderToolResultMediaBadges(result *types.MessageToolResult) template.HTML {
+	if result == nil || !result.HasMedia() {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(`<div class="tool-result-media-badges">`)
+
+	for _, part := range result.Parts {
+		if part.Type == types.ContentTypeText {
+			continue
+		}
+		renderToolResultMediaBadge(&b, part)
+	}
+
+	b.WriteString(divCloseTag)
+	//nolint:gosec // G203: HTML generation is intentional for template rendering
+	return template.HTML(b.String())
+}
+
+// renderToolResultMediaBadge writes a single media metadata badge for a content part.
+func renderToolResultMediaBadge(b *strings.Builder, part types.ContentPart) {
+	b.WriteString(`<div class="tool-result-media-badge">`)
+
+	// Type icon and label
+	icon := getMediaTypeIcon(part.Type)
+	fmt.Fprintf(b, `<span class="trmb-icon">%s</span>`, icon)
+	fmt.Fprintf(b, `<span class="trmb-type">%s</span>`, part.Type)
+
+	if part.Media != nil {
+		renderToolResultMediaMeta(b, part.Media)
+	}
+
+	b.WriteString(divCloseTag)
+}
+
+// renderToolResultMediaMeta writes the metadata spans (MIME, dimensions, size, duration).
+func renderToolResultMediaMeta(b *strings.Builder, media *types.MediaContent) {
+	if media.MIMEType != "" {
+		fmt.Fprintf(b, `<span class="trmb-mime">%s</span>`,
+			template.HTMLEscapeString(media.MIMEType))
+	}
+
+	if media.Width != nil && media.Height != nil &&
+		*media.Width > 0 && *media.Height > 0 {
+		fmt.Fprintf(b, `<span class="trmb-dimensions">%d×%d</span>`,
+			*media.Width, *media.Height)
+	}
+
+	if media.SizeKB != nil && *media.SizeKB > 0 {
+		fmt.Fprintf(b, `<span class="trmb-size">%s</span>`,
+			formatBytes(int(*media.SizeKB*bytesPerKB)))
+	}
+
+	if media.Duration != nil && *media.Duration > 0 {
+		fmt.Fprintf(b, `<span class="trmb-duration">%ds</span>`,
+			*media.Duration)
+	}
+}
+
 // MediaStats holds aggregate media statistics across multiple run results.
 type MediaStats struct {
 	TotalImages      int

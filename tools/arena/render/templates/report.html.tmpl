@@ -615,7 +615,50 @@
             margin-bottom: 0.5rem;
             font-weight: 600;
         }
-        
+
+        .tool-result-media-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .tool-result-media-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            background: #edf2f7;
+            border: 1px solid #cbd5e0;
+            border-radius: 6px;
+            padding: 0.3rem 0.6rem;
+            font-size: 0.8rem;
+            color: #2d3748;
+        }
+
+        .trmb-icon {
+            font-size: 1rem;
+        }
+
+        .trmb-type {
+            font-weight: 600;
+            text-transform: capitalize;
+        }
+
+        .trmb-mime {
+            color: #718096;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+        }
+
+        .trmb-dimensions,
+        .trmb-size,
+        .trmb-duration {
+            color: #4a5568;
+            font-size: 0.75rem;
+            padding-left: 0.25rem;
+            border-left: 1px solid #cbd5e0;
+        }
+
         .raw-request-content {
             display: none;
             margin-top: 0.75rem;
@@ -2135,6 +2178,7 @@
                                         <div class="tool-response-content">
                                             <div class="tool-response-label">Response:</div>
                                             <div class="json-content">{{prettyJSON $msg.Content}}</div>
+                                            {{if $msg.ToolResult}}{{renderToolResultMediaBadges $msg.ToolResult}}{{end}}
                                         </div>
                                     </div>
                                     {{if $msg.ToolResult}}

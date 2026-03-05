@@ -9,6 +9,145 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
+func TestRenderToolResultMediaBadges(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  *types.MessageToolResult
+		want    []string // Strings that should appear in output
+		wantNot []string // Strings that should NOT appear
+	}{
+		{
+			name:   "nil result",
+			result: nil,
+			want:   []string{},
+		},
+		{
+			name: "text-only result unchanged",
+			result: &types.MessageToolResult{
+				ID:   "call_1",
+				Name: "get_weather",
+				Parts: []types.ContentPart{
+					{Type: types.ContentTypeText, Text: testutil.Ptr("sunny")},
+				},
+			},
+			want:    []string{},
+			wantNot: []string{"tool-result-media-badge"},
+		},
+		{
+			name: "image part shows metadata badge",
+			result: &types.MessageToolResult{
+				ID:   "call_2",
+				Name: "generate_image",
+				Parts: []types.ContentPart{
+					{Type: types.ContentTypeText, Text: testutil.Ptr("Generated image")},
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							MIMEType: "image/png",
+							Width:    testutil.Ptr(1024),
+							Height:   testutil.Ptr(768),
+							SizeKB:   testutil.Ptr[int64](245),
+						},
+					},
+				},
+			},
+			want: []string{
+				"tool-result-media-badges",
+				"tool-result-media-badge",
+				"trmb-type", "image",
+				"trmb-mime", "image/png",
+				"trmb-dimensions", "1024×768",
+				"trmb-size", "245.0 KB",
+			},
+			wantNot: []string{"audio", "video", "document"},
+		},
+		{
+			name: "document part shows metadata badge",
+			result: &types.MessageToolResult{
+				ID:   "call_3",
+				Name: "read_file",
+				Parts: []types.ContentPart{
+					{
+						Type: types.ContentTypeDocument,
+						Media: &types.MediaContent{
+							MIMEType: "application/pdf",
+							SizeKB:   testutil.Ptr[int64](512),
+						},
+					},
+				},
+			},
+			want: []string{
+				"tool-result-media-badge",
+				"trmb-type", "document",
+				"trmb-mime", "application/pdf",
+				"trmb-size", "512.0 KB",
+			},
+			wantNot: []string{"trmb-dimensions"},
+		},
+		{
+			name: "mixed text and media shows both text unaffected and badge",
+			result: &types.MessageToolResult{
+				ID:   "call_4",
+				Name: "analyze",
+				Parts: []types.ContentPart{
+					{Type: types.ContentTypeText, Text: testutil.Ptr("Analysis complete")},
+					{
+						Type: types.ContentTypeImage,
+						Media: &types.MediaContent{
+							MIMEType: "image/jpeg",
+							Width:    testutil.Ptr(800),
+							Height:   testutil.Ptr(600),
+						},
+					},
+					{
+						Type: types.ContentTypeAudio,
+						Media: &types.MediaContent{
+							MIMEType: "audio/wav",
+							Duration: testutil.Ptr(30),
+							SizeKB:   testutil.Ptr[int64](1024),
+						},
+					},
+				},
+			},
+			want: []string{
+				"tool-result-media-badges",
+				"image/jpeg", "800×600",
+				"audio/wav", "30s", "1.0 MB",
+			},
+		},
+		{
+			name: "media part without media content",
+			result: &types.MessageToolResult{
+				ID:   "call_5",
+				Name: "broken_tool",
+				Parts: []types.ContentPart{
+					{Type: types.ContentTypeImage, Media: nil},
+				},
+			},
+			want:    []string{"tool-result-media-badge", "trmb-type", "image"},
+			wantNot: []string{"trmb-mime", "trmb-dimensions", "trmb-size"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := string(renderToolResultMediaBadges(tt.result))
+
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("renderToolResultMediaBadges() missing expected string %q\nGot: %s", want, got)
+				}
+			}
+
+			for _, wantNot := range tt.wantNot {
+				if strings.Contains(got, wantNot) {
+					t.Errorf("renderToolResultMediaBadges() contains unexpected string %q\nGot: %s", wantNot, got)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderMediaSummaryBadge(t *testing.T) {
 	tests := []struct {
 		name    string
