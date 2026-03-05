@@ -1,0 +1,40 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: generate_chart
+spec:
+  name: generate_chart
+  description: Generates a chart visualization from data points
+  input_schema:
+    type: object
+    properties:
+      title:
+        type: string
+        description: The title for the chart
+      data_points:
+        type: array
+        items:
+          type: number
+        description: Numeric data points to visualize
+    required:
+      - title
+      - data_points
+  output_schema:
+    type: object
+    properties:
+      status:
+        type: string
+      chart_id:
+        type: string
+  mode: mock
+  timeout_ms: 5000
+  mock_result:
+    status: success
+    chart_id: chart-001
+  mock_parts:
+    - type: text
+      text: "Bar chart showing quarterly sales: Q1=$50K, Q2=$75K, Q3=$120K, Q4=$180K"
+    - type: image
+      media:
+        file_path: testdata/sample-chart.png
+        mime_type: image/png

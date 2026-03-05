@@ -1,0 +1,39 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: chart-generation
+  annotations:
+    description: Test multimodal tool results with mocked binary image responses
+spec:
+  id: chart-generation
+  task_type: data-visualization
+  description: "Verifies that a tool call returns multimodal content (text + image)"
+
+  turns:
+    # Turn 1: User requests a chart - triggers generate_chart tool call
+    - role: user
+      content: "Create a bar chart of our quarterly sales: Q1 $50K, Q2 $75K, Q3 $120K, Q4 $180K"
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - generate_chart
+            message: "Should call generate_chart tool"
+        - type: tool_result_has_media
+          params:
+            tool: generate_chart
+            media_type: image
+        - type: tool_result_media_type
+          params:
+            tool: generate_chart
+            mime_type: image/png
+
+    # Turn 2: LLM describes the chart that was generated
+    - role: user
+      content: "Can you describe what the chart shows?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - chart
+            message: "Response should mention the chart"

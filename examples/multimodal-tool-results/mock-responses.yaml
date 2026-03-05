@@ -1,0 +1,16 @@
+# Mock responses for the multimodal tool results example.
+# Turn 1 triggers the generate_chart tool call.
+# Turn 2 provides a text response describing the chart output.
+
+defaultResponse: "I can help you create data visualizations. What data would you like to chart?"
+
+scenarios:
+  chart-generation:
+    turns:
+      1:
+        tool_calls:
+          - name: generate_chart
+            arguments:
+              title: "Quarterly Sales"
+              data_points: [50000, 75000, 120000, 180000]
+      2: "Here's your quarterly sales chart. The bar chart shows strong growth across all four quarters: Q1 at $50K, Q2 at $75K, Q3 at $120K, and Q4 at $180K. This represents a 260% increase from Q1 to Q4, indicating excellent year-over-year momentum."

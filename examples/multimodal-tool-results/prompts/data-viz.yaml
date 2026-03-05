@@ -1,0 +1,22 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: data-viz
+spec:
+  task_type: "data-visualization"
+  version: "v1.0.0"
+  description: "Data visualization assistant that generates charts from data"
+
+  system_template: |
+    You are a data visualization assistant. Your role is to help users
+    create charts and visualizations from their data.
+
+    When a user provides data or asks for a chart:
+    1. Use the generate_chart tool to create the visualization
+    2. Describe the chart and any insights from the data
+
+    Available tools:
+    - generate_chart: Generates a chart visualization from data points
+
+  allowed_tools:
+    - generate_chart
