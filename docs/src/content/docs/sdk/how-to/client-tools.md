@@ -157,6 +157,58 @@ To reject a tool, use `"rejected": "reason"` instead of `"tool_result"`:
 }
 ```
 
+## Multimodal Tool Results
+
+Use `SendToolResultMultimodal()` to return rich content (images, audio, etc.) from client tools alongside text.
+
+### Returning an Image with Text
+
+```go
+resp, _ := conv.Send(ctx, "Generate a chart of monthly sales")
+
+if resp.HasPendingClientTools() {
+    for _, tool := range resp.ClientTools() {
+        // Generate the chart image
+        chartPNG, _ := generateChart(tool.Arguments)
+
+        // Return multimodal result with text and image
+        conv.SendToolResultMultimodal(ctx, tool.CallID, []types.ContentPart{
+            {Type: "text", Text: "Monthly sales chart for Q1 2026"},
+            {
+                Type: "image",
+                ImageURL: &types.ImageURL{
+                    URL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(chartPNG),
+                },
+            },
+        })
+    }
+
+    resp, _ = conv.Resume(ctx)
+    fmt.Println(resp.Text()) // LLM describes the chart
+}
+```
+
+### Synchronous Multimodal Handler
+
+For synchronous handlers, return `[]types.ContentPart` directly:
+
+```go
+conv.OnClientTool("capture_photo", func(ctx context.Context, req sdk.ClientToolRequest) (any, error) {
+    photoBytes, _ := capturePhoto()
+    return []types.ContentPart{
+        {Type: "text", Text: "Photo captured at entrance"},
+        {
+            Type: "image",
+            ImageURL: &types.ImageURL{
+                URL: "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(photoBytes),
+            },
+        },
+    }, nil
+})
+```
+
+When the handler returns `[]types.ContentPart`, the SDK automatically constructs a multimodal `MessageToolResult`. For any other return type, the result is serialized as JSON text.
+
 ## See Also
 
 - [Register Tools](register-tools)
