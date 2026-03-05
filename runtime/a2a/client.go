@@ -50,6 +50,16 @@ func (e *RPCError) Error() string {
 	return fmt.Sprintf("a2a: rpc error %d: %s", e.Code, e.Message)
 }
 
+// HTTPStatusError is returned when an A2A HTTP request receives a non-200 status code.
+type HTTPStatusError struct {
+	StatusCode int
+	Method     string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("a2a: %s: status %d", e.Method, e.StatusCode)
+}
+
 // StreamEvent represents a single event received during message streaming.
 // Exactly one field will be non-nil.
 type StreamEvent struct {
@@ -222,7 +232,7 @@ func (c *Client) rpcCall(ctx context.Context, method string, params, result any)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("a2a: %s: status %d", method, resp.StatusCode)
+		return &HTTPStatusError{StatusCode: resp.StatusCode, Method: method}
 	}
 
 	var rpcResp JSONRPCResponse
@@ -290,7 +300,7 @@ func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageReque
 
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("a2a: stream: status %d", resp.StatusCode)
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Method: MethodSendStreamingMessage}
 	}
 
 	ch := make(chan StreamEvent)
