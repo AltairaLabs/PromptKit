@@ -850,9 +850,12 @@ func (c *Conversation) Close() error {
 	// Run session end hooks before cleanup
 	c.sessionHooks.SessionEnd(context.Background())
 
-	// Dispatch session-complete evals before cleanup
+	// Wait for any in-flight turn evals, then dispatch session-complete evals.
+	// Finally close the middleware to cancel its context and release resources.
 	if c.evalMW != nil {
+		c.evalMW.wait()
 		c.evalMW.dispatchSessionEvals(context.Background())
+		c.evalMW.close()
 	}
 
 	// Close duplex session if in duplex mode
