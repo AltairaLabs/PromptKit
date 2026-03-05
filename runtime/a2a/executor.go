@@ -16,6 +16,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // Default retry constants for A2A executor.
@@ -444,8 +445,115 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 	return c
 }
 
+// ExecuteMultimodal calls a remote A2A agent and returns both the JSON result
+// and any multimodal content parts extracted from the task response.
+// This implements the tools.MultimodalExecutor interface.
+func (e *Executor) ExecuteMultimodal(
+	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, []types.ContentPart, error) {
+	if descriptor.A2AConfig == nil {
+		return nil, nil, fmt.Errorf("a2a executor: tool %q has no A2AConfig", descriptor.Name)
+	}
+
+	cfg := descriptor.A2AConfig
+	client := e.getOrCreateClient(cfg.AgentURL)
+
+	// Parse arguments
+	var input struct {
+		Query     string `json:"query"`
+		ImageURL  string `json:"image_url,omitempty"`
+		ImageData string `json:"image_data,omitempty"`
+		AudioData string `json:"audio_data,omitempty"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return nil, nil, fmt.Errorf("a2a executor: parse args: %w", err)
+	}
+
+	// Build message parts
+	text := input.Query
+	parts := []Part{{Text: &text}}
+
+	if input.ImageURL != "" {
+		parts = append(parts, Part{URL: &input.ImageURL, MediaType: "image/*"})
+	}
+	if input.ImageData != "" {
+		parts = append(parts, Part{Raw: []byte(input.ImageData), MediaType: "image/*"})
+	}
+	if input.AudioData != "" {
+		parts = append(parts, Part{Raw: []byte(input.AudioData), MediaType: "audio/*"})
+	}
+
+	// Build metadata with skillId for mock server routing.
+	var metadata map[string]any
+	if cfg.SkillID != "" {
+		metadata = map[string]any{"skillId": cfg.SkillID}
+	}
+
+	req := &SendMessageRequest{
+		Message: Message{
+			Role:     RoleUser,
+			Parts:    parts,
+			Metadata: metadata,
+		},
+	}
+
+	// Apply timeout on top of the caller's context
+	if cfg.TimeoutMs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.TimeoutMs)*time.Millisecond)
+		defer cancel()
+	}
+
+	task, err := e.sendWithRetry(ctx, client, req, cfg.AgentURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("a2a executor: send message: %w", err)
+	}
+
+	responseParts := ExtractResponseParts(task)
+	responseText := ExtractResponseText(task)
+	result := map[string]string{"response": responseText}
+	jsonResult, err := json.Marshal(result)
+	if err != nil {
+		return nil, nil, fmt.Errorf("a2a executor: marshal result: %w", err)
+	}
+	return jsonResult, responseParts, nil
+}
+
+// ExtractResponseParts converts all A2A Parts from a completed task (status message
+// and artifacts) into PromptKit ContentParts. Parts that fail to convert are skipped
+// with a warning log.
+func ExtractResponseParts(task *Task) []types.ContentPart {
+	var result []types.ContentPart
+
+	if task.Status.Message != nil {
+		for i := range task.Status.Message.Parts {
+			cp, err := PartToContentPart(&task.Status.Message.Parts[i])
+			if err != nil {
+				logger.Warn("a2a: skipping unconvertible status part", "index", i, "error", err)
+				continue
+			}
+			result = append(result, cp)
+		}
+	}
+
+	for _, artifact := range task.Artifacts {
+		for i := range artifact.Parts {
+			cp, err := PartToContentPart(&artifact.Parts[i])
+			if err != nil {
+				logger.Warn("a2a: skipping unconvertible artifact part", "index", i, "error", err)
+				continue
+			}
+			result = append(result, cp)
+		}
+	}
+
+	return result
+}
+
 // ExtractResponseText extracts text from a completed A2A task.
-// It checks the status message first, then artifacts.
+// It calls ExtractResponseParts and concatenates all text parts.
+// Status message text is checked first for single-text fast path;
+// otherwise all text parts from status and artifacts are joined.
 func ExtractResponseText(task *Task) string {
 	if task.Status.Message != nil {
 		for _, part := range task.Status.Message.Parts {

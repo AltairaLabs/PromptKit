@@ -536,6 +536,11 @@ func (r *Registry) executeSyncFallback(
 	ctx context.Context, executor Executor, tool *ToolDescriptor,
 	_ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
+	// Try multimodal execution if the executor supports it.
+	if mmExec, ok := executor.(MultimodalExecutor); ok {
+		return r.executeMultimodal(ctx, mmExec, tool, args)
+	}
+
 	start := getCurrentTimeMs()
 	result, err := executor.Execute(ctx, tool, args)
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
@@ -563,6 +568,46 @@ func (r *Registry) executeSyncFallback(
 	}
 
 	return r.validateAndCoerceResult(tool, result)
+}
+
+// executeMultimodal executes a tool via its MultimodalExecutor interface,
+// returning both the JSON content and multimodal parts in the result.
+func (r *Registry) executeMultimodal(
+	ctx context.Context, executor MultimodalExecutor, tool *ToolDescriptor, args json.RawMessage,
+) (*ToolExecutionResult, error) {
+	start := getCurrentTimeMs()
+	result, parts, err := executor.ExecuteMultimodal(ctx, tool, args)
+	_ = getCurrentTimeMs() - start
+
+	if err != nil {
+		errMsg := err.Error()
+		if ctx.Err() == context.DeadlineExceeded {
+			errMsg = fmt.Sprintf(
+				"%s: %s exceeded %dms timeout",
+				ErrToolTimeout, tool.Name, tool.TimeoutMs,
+			)
+		}
+		return &ToolExecutionResult{
+			Status: ToolStatusFailed,
+			Error:  errMsg,
+		}, nil
+	}
+
+	// Skip validation for MCP tools
+	if tool.Mode == modeMCP {
+		return &ToolExecutionResult{
+			Status:  ToolStatusComplete,
+			Content: result,
+			Parts:   parts,
+		}, nil
+	}
+
+	execResult, validateErr := r.validateAndCoerceResult(tool, result)
+	if validateErr != nil {
+		return execResult, validateErr
+	}
+	execResult.Parts = parts
+	return execResult, nil
 }
 
 // validateAndCoerceResult validates and coerces tool execution results

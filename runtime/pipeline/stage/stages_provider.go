@@ -1019,7 +1019,12 @@ func (s *ProviderStage) handleToolResult(
 		// Enforce tool result size limit
 		content = s.enforceResultSizeLimit(call.Name, content)
 
-		return types.NewTextToolResult(call.ID, call.Name, content)
+		result := types.NewTextToolResult(call.ID, call.Name, content)
+		// Propagate multimodal parts from executors that support them (e.g., A2A).
+		if len(asyncResult.Parts) > 0 {
+			result.Parts = append(result.Parts, asyncResult.Parts...)
+		}
+		return result
 
 	default:
 		unknownMsg := fmt.Sprintf("Unknown tool status: %v", asyncResult.Status)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,7 +75,7 @@ func TestRegistry_ExecuteAsync_Complete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with ExecuteAsync
-	result, err := registry.ExecuteAsync(context.Background(),"test_async_tool", json.RawMessage(`{"name": "test"}`))
+	result, err := registry.ExecuteAsync(context.Background(), "test_async_tool", json.RawMessage(`{"name": "test"}`))
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -106,7 +107,7 @@ func TestRegistry_ExecuteAsync_Pending(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with ExecuteAsync
-	result, err := registry.ExecuteAsync(context.Background(),"test_pending_tool", json.RawMessage(`{"name": "test"}`))
+	result, err := registry.ExecuteAsync(context.Background(), "test_pending_tool", json.RawMessage(`{"name": "test"}`))
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -141,7 +142,7 @@ func TestRegistry_ExecuteAsync_Failed(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with ExecuteAsync
-	result, err := registry.ExecuteAsync(context.Background(),"test_failing_tool", json.RawMessage(`{"name": "test"}`))
+	result, err := registry.ExecuteAsync(context.Background(), "test_failing_tool", json.RawMessage(`{"name": "test"}`))
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -169,7 +170,7 @@ func TestRegistry_ExecuteAsync_FallbackToSync(t *testing.T) {
 	require.NoError(t, err)
 
 	// Execute with ExecuteAsync - should fall back to sync execution
-	result, err := registry.ExecuteAsync(context.Background(),"test_sync_tool", json.RawMessage(`{"name": "test"}`))
+	result, err := registry.ExecuteAsync(context.Background(), "test_sync_tool", json.RawMessage(`{"name": "test"}`))
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
@@ -177,4 +178,86 @@ func TestRegistry_ExecuteAsync_FallbackToSync(t *testing.T) {
 	assert.Contains(t, string(result.Content), "sync_mock")
 	assert.Empty(t, result.Error)
 	assert.Nil(t, result.PendingInfo)
+}
+
+// mockMultimodalExecutor implements MultimodalExecutor for testing.
+type mockMultimodalExecutor struct {
+	parts []types.ContentPart
+}
+
+func (m *mockMultimodalExecutor) Name() string { return "mock-multimodal" }
+
+func (m *mockMultimodalExecutor) Execute(
+	_ context.Context, _ *ToolDescriptor, _ json.RawMessage,
+) (json.RawMessage, error) {
+	return json.RawMessage(`{"result": "text-only"}`), nil
+}
+
+func (m *mockMultimodalExecutor) ExecuteMultimodal(
+	_ context.Context, _ *ToolDescriptor, _ json.RawMessage,
+) (json.RawMessage, []types.ContentPart, error) {
+	return json.RawMessage(`{"result": "multimodal"}`), m.parts, nil
+}
+
+func TestRegistry_ExecuteAsync_MultimodalExecutor(t *testing.T) {
+	registry := NewRegistry()
+
+	imgText := "chart analysis"
+	mmExec := &mockMultimodalExecutor{
+		parts: []types.ContentPart{
+			{Type: types.ContentTypeText, Text: &imgText},
+			{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/png"}},
+		},
+	}
+
+	// Replace the "http" executor with our multimodal executor
+	registry.executors["http"] = mmExec
+
+	tool := &ToolDescriptor{
+		Name:         "test_multimodal_tool",
+		Description:  "Test multimodal tool",
+		InputSchema:  json.RawMessage(`{"type": "object", "properties": {"name": {"type": "string"}}}`),
+		OutputSchema: json.RawMessage(`{"type": "object", "properties": {"result": {"type": "string"}}}`),
+		Mode:         "live",
+		TimeoutMs:    1000,
+	}
+
+	err := registry.Register(tool)
+	require.NoError(t, err)
+
+	result, err := registry.ExecuteAsync(context.Background(), "test_multimodal_tool", json.RawMessage(`{"name": "test"}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, ToolStatusComplete, result.Status)
+	assert.Contains(t, string(result.Content), "multimodal")
+	require.Len(t, result.Parts, 2)
+	assert.Equal(t, types.ContentTypeText, result.Parts[0].Type)
+	assert.Equal(t, types.ContentTypeImage, result.Parts[1].Type)
+}
+
+func TestRegistry_ExecuteAsync_MultimodalFallsBackWhenNotImplemented(t *testing.T) {
+	registry := NewRegistry()
+
+	// Register a regular (non-multimodal) tool using mock-static executor
+	tool := &ToolDescriptor{
+		Name:         "test_regular_tool",
+		Description:  "Test regular tool",
+		InputSchema:  json.RawMessage(`{"type": "object", "properties": {"name": {"type": "string"}}}`),
+		OutputSchema: json.RawMessage(`{"type": "object", "properties": {"result": {"type": "string"}}}`),
+		Mode:         "mock",
+		MockResult:   json.RawMessage(`{"result": "regular"}`),
+		TimeoutMs:    1000,
+	}
+
+	err := registry.Register(tool)
+	require.NoError(t, err)
+
+	result, err := registry.ExecuteAsync(context.Background(), "test_regular_tool", json.RawMessage(`{"name": "test"}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, ToolStatusComplete, result.Status)
+	assert.Contains(t, string(result.Content), "regular")
+	assert.Empty(t, result.Parts) // No multimodal parts from regular executor
 }

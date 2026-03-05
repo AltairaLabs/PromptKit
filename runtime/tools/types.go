@@ -231,6 +231,16 @@ type Executor interface {
 	Name() string
 }
 
+// MultimodalExecutor extends Executor to return multimodal content parts alongside
+// the standard JSON result. Executors that produce rich content (images, audio, etc.)
+// should implement this interface so the pipeline can populate ToolResult.Parts.
+type MultimodalExecutor interface {
+	Executor
+	ExecuteMultimodal(
+		ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+	) (json.RawMessage, []types.ContentPart, error)
+}
+
 // AsyncToolExecutor is a tool that can return pending status instead of blocking.
 // Tools that require human approval or external async operations should implement this.
 type AsyncToolExecutor interface {
