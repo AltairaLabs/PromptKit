@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -997,12 +998,13 @@ func TestProcessStreamChoice(t *testing.T) {
 		},
 	}
 
-	newAccum, newTokens := provider.processStreamChoice(
-		choice, "", 0, &toolCalls, outChan,
+	var sb strings.Builder
+	newTokens := provider.processStreamChoice(
+		choice, &sb, 0, &toolCalls, outChan,
 	)
 
-	if newAccum != "Hello" {
-		t.Errorf("Expected accumulated 'Hello', got '%s'", newAccum)
+	if sb.String() != "Hello" {
+		t.Errorf("Expected accumulated 'Hello', got '%s'", sb.String())
 	}
 
 	if newTokens != 1 {

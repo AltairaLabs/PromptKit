@@ -8,11 +8,32 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 )
+
+// Option configures a TimeBasedPolicyHandler.
+type Option func(*TimeBasedPolicyHandler)
+
+// WithAutoStart controls whether the background enforcement goroutine starts
+// automatically when the handler is created. Requires WithBaseDir to be set.
+// Default is false for backward compatibility with NewTimeBasedPolicyHandler.
+func WithAutoStart(autoStart bool) Option {
+	return func(h *TimeBasedPolicyHandler) {
+		h.autoStart = autoStart
+	}
+}
+
+// WithBaseDir sets the base directory for automatic policy enforcement.
+// This is required when WithAutoStart(true) is used.
+func WithBaseDir(baseDir string) Option {
+	return func(h *TimeBasedPolicyHandler) {
+		h.baseDir = baseDir
+	}
+}
 
 // TimeBasedPolicyHandler implements PolicyHandler for time-based retention policies.
 // It applies expiration times to media based on policy names and enforces deletion
@@ -24,21 +45,53 @@ type TimeBasedPolicyHandler struct {
 	// enforcementInterval is how often to scan for expired media
 	enforcementInterval time.Duration
 
+	// baseDir is the directory to enforce policies in (used for auto-start)
+	baseDir string
+
+	// autoStart controls whether enforcement starts automatically
+	autoStart bool
+
 	// stopCh signals the enforcement goroutine to stop
 	stopCh chan struct{}
 
 	// doneCh signals when enforcement has finished
 	doneCh chan struct{}
+
+	// started tracks whether enforcement has been started
+	started bool
+
+	// stopped tracks whether Stop has been called
+	stopped bool
+
+	// mu protects started and stopped fields
+	mu sync.Mutex
+
+	// ctx is the context used for auto-started enforcement
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewTimeBasedPolicyHandler creates a new time-based policy handler.
-func NewTimeBasedPolicyHandler(enforcementInterval time.Duration) *TimeBasedPolicyHandler {
-	return &TimeBasedPolicyHandler{
+// It accepts optional configuration via Option functions.
+// To auto-start enforcement, use WithAutoStart(true) and WithBaseDir(dir).
+func NewTimeBasedPolicyHandler(enforcementInterval time.Duration, opts ...Option) *TimeBasedPolicyHandler {
+	h := &TimeBasedPolicyHandler{
 		policies:            make(map[string]Config),
 		enforcementInterval: enforcementInterval,
 		stopCh:              make(chan struct{}),
 		doneCh:              make(chan struct{}),
 	}
+
+	for _, opt := range opts {
+		opt(h)
+	}
+
+	if h.autoStart && h.baseDir != "" && h.enforcementInterval > 0 {
+		h.ctx, h.cancel = context.WithCancel(context.Background())
+		h.StartEnforcement(h.ctx, h.baseDir)
+	}
+
+	return h
 }
 
 // RegisterPolicy adds a policy configuration to the handler.
@@ -146,6 +199,14 @@ func (h *TimeBasedPolicyHandler) processMetaFile(metaPath string, now time.Time)
 
 // StartEnforcement starts a background goroutine that periodically enforces policies.
 func (h *TimeBasedPolicyHandler) StartEnforcement(ctx context.Context, baseDir string) {
+	h.mu.Lock()
+	if h.started {
+		h.mu.Unlock()
+		return
+	}
+	h.started = true
+	h.mu.Unlock()
+
 	go func() {
 		defer close(h.doneCh)
 
@@ -168,9 +229,25 @@ func (h *TimeBasedPolicyHandler) StartEnforcement(ctx context.Context, baseDir s
 }
 
 // Stop signals the enforcement goroutine to stop and waits for it to finish.
+// It is safe to call Stop multiple times or when enforcement was never started.
 func (h *TimeBasedPolicyHandler) Stop() {
+	h.mu.Lock()
+	if h.stopped {
+		h.mu.Unlock()
+		return
+	}
+	h.stopped = true
+	wasStarted := h.started
+	h.mu.Unlock()
+
+	if h.cancel != nil {
+		h.cancel()
+	}
+
 	close(h.stopCh)
-	<-h.doneCh
+	if wasStarted {
+		<-h.doneCh
+	}
 }
 
 // loadPolicyMetadata loads policy metadata from a .meta file.

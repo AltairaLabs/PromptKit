@@ -14,6 +14,7 @@ package stream
 
 import (
 	"context"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -109,14 +110,14 @@ func Process(ctx context.Context, streamer Streamer, message any, handler Handle
 //
 //	text, err := stream.CollectText(ctx, conv, "Summarize this document")
 func CollectText(ctx context.Context, streamer Streamer, message any) (string, error) {
-	var result string
+	var sb strings.Builder
 
 	err := Process(ctx, streamer, message, func(chunk Chunk) error {
 		if chunk.Type == ChunkText {
-			result += chunk.Text
+			sb.WriteString(chunk.Text)
 		}
 		return nil
 	})
 
-	return result, err
+	return sb.String(), err
 }

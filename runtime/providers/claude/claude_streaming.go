@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -126,25 +127,25 @@ func (p *Provider) processClaudeContentDeltaInternal(
 		Type string `json:"type"`
 		Text string `json:"text"`
 	},
-	accumulated string,
+	sb *strings.Builder,
 	totalTokens int,
 	outChan chan<- providers.StreamChunk,
-) (newAccumulated string, newTokenCount int) {
+) int {
 	if delta == nil || delta.Type != textDeltaType {
-		return accumulated, totalTokens
+		return totalTokens
 	}
 
-	accumulated += delta.Text
+	sb.WriteString(delta.Text)
 	totalTokens++
 
 	outChan <- providers.StreamChunk{
-		Content:     accumulated,
+		Content:     sb.String(),
 		Delta:       delta.Text,
 		TokenCount:  totalTokens,
 		DeltaTokens: 1,
 	}
 
-	return accumulated, totalTokens
+	return totalTokens
 }
 
 // processClaudeContentDelta handles content_block_delta events from Claude stream
@@ -163,26 +164,26 @@ func (p *Provider) processClaudeContentDelta(
 			Usage      *claudeUsage `json:"usage,omitempty"`
 		} `json:"message,omitempty"`
 	},
-	accumulated string,
+	sb *strings.Builder,
 	totalTokens int,
 	outChan chan<- providers.StreamChunk,
-) (newAccumulated string, newTotalTokens int) {
+) int {
 	if event.Delta == nil || event.Delta.Type != textDeltaType {
-		return accumulated, totalTokens
+		return totalTokens
 	}
 
 	delta := event.Delta.Text
-	accumulated += delta
+	sb.WriteString(delta)
 	totalTokens++ // Approximate
 
 	outChan <- providers.StreamChunk{
-		Content:     accumulated,
+		Content:     sb.String(),
 		Delta:       delta,
 		TokenCount:  totalTokens,
 		DeltaTokens: 1,
 	}
 
-	return accumulated, totalTokens
+	return totalTokens
 }
 
 // processClaudeMessageStop handles message_stop events from Claude stream
@@ -241,7 +242,7 @@ func (p *Provider) streamResponse(
 ) {
 	defer close(outChan)
 	defer body.Close()
-	accumulated := ""
+	var sb strings.Builder
 	totalTokens := 0
 
 	// Track usage from message_start and message_delta events
@@ -251,13 +252,13 @@ func (p *Provider) streamResponse(
 	// Track tool calls from content_block_start and content_block_delta events
 	var accumulatedToolCalls []types.MessageToolCall
 	var currentToolCallIndex = -1
-	var currentToolCallJSON string
+	var currentToolCallJSON strings.Builder
 
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
 			outChan <- providers.StreamChunk{
-				Content:      accumulated,
+				Content:      sb.String(),
 				ToolCalls:    accumulatedToolCalls,
 				Error:        ctx.Err(),
 				FinishReason: providers.StringPtr("canceled"),
@@ -305,7 +306,7 @@ func (p *Provider) streamResponse(
 				if blockStartEvent.ContentBlock != nil && blockStartEvent.ContentBlock.Type == "tool_use" {
 					// Start a new tool call
 					currentToolCallIndex = len(accumulatedToolCalls)
-					currentToolCallJSON = ""
+					currentToolCallJSON.Reset()
 					accumulatedToolCalls = append(accumulatedToolCalls, types.MessageToolCall{
 						ID:   blockStartEvent.ContentBlock.ID,
 						Name: blockStartEvent.ContentBlock.Name,
@@ -335,16 +336,16 @@ func (p *Provider) streamResponse(
 							Type: deltaEvent.Delta.Type,
 							Text: deltaEvent.Delta.Text,
 						}
-						accumulated, totalTokens = p.processClaudeContentDeltaInternal(textDelta, accumulated, totalTokens, outChan)
+						totalTokens = p.processClaudeContentDeltaInternal(textDelta, &sb, totalTokens, outChan)
 					case "input_json_delta":
 						// Handle tool call input JSON delta
 						if currentToolCallIndex >= 0 && currentToolCallIndex < len(accumulatedToolCalls) {
-							currentToolCallJSON += deltaEvent.Delta.PartialJSON
+							currentToolCallJSON.WriteString(deltaEvent.Delta.PartialJSON)
 							// Update the tool call args with accumulated JSON
-							accumulatedToolCalls[currentToolCallIndex].Args = json.RawMessage(currentToolCallJSON)
+							accumulatedToolCalls[currentToolCallIndex].Args = json.RawMessage(currentToolCallJSON.String())
 							// Emit chunk with updated tool calls
 							outChan <- providers.StreamChunk{
-								Content:    accumulated,
+								Content:    sb.String(),
 								ToolCalls:  accumulatedToolCalls,
 								TokenCount: totalTokens,
 							}
@@ -356,7 +357,7 @@ func (p *Provider) streamResponse(
 		case "content_block_stop":
 			// Reset current tool call tracking when block ends
 			currentToolCallIndex = -1
-			currentToolCallJSON = ""
+			currentToolCallJSON.Reset()
 
 		case "message_delta":
 			// message_delta contains output tokens and stop reason
@@ -382,7 +383,7 @@ func (p *Provider) streamResponse(
 				finishReason = finishReasonStop
 			}
 			finalChunk := providers.StreamChunk{
-				Content:      accumulated,
+				Content:      sb.String(),
 				ToolCalls:    accumulatedToolCalls,
 				TokenCount:   totalTokens,
 				FinishReason: &finishReason,
@@ -401,7 +402,7 @@ func (p *Provider) streamResponse(
 
 	if err := scanner.Err(); err != nil {
 		outChan <- providers.StreamChunk{
-			Content:      accumulated,
+			Content:      sb.String(),
 			ToolCalls:    accumulatedToolCalls,
 			Error:        err,
 			FinishReason: providers.StringPtr("error"),

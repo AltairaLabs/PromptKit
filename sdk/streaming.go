@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -78,10 +79,15 @@ func (t ChunkType) String() string {
 
 // streamState tracks state during stream processing.
 type streamState struct {
-	accumulatedContent string
-	lastToolCalls      []types.MessageToolCall
-	finalResult        *rtpipeline.ExecutionResult
-	pendingTools       []PendingClientTool
+	contentBuilder strings.Builder
+	lastToolCalls  []types.MessageToolCall
+	finalResult    *rtpipeline.ExecutionResult
+	pendingTools   []PendingClientTool
+}
+
+// accumulatedContent returns the accumulated content as a string.
+func (s *streamState) accumulatedContent() string {
+	return s.contentBuilder.String()
 }
 
 // Stream sends a message and returns a channel of response chunks.
@@ -299,7 +305,7 @@ func (c *Conversation) emitStreamChunk(
 ) {
 	// Emit text delta
 	if chunk.Delta != "" {
-		state.accumulatedContent += chunk.Delta
+		state.contentBuilder.WriteString(chunk.Delta)
 		outCh <- StreamChunk{Type: ChunkText, Text: chunk.Delta}
 	}
 
@@ -390,7 +396,7 @@ func (c *Conversation) buildStreamingResponse(
 		// Build from accumulated streaming data
 		resp.message = &types.Message{
 			Role:    roleAssistant,
-			Content: state.accumulatedContent,
+			Content: state.accumulatedContent(),
 		}
 		if len(state.lastToolCalls) > 0 {
 			resp.toolCalls = state.lastToolCalls

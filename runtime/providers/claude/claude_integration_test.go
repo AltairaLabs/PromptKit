@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -667,9 +668,10 @@ func TestProcessClaudeContentDelta(t *testing.T) {
 		},
 	}
 
-	accumulated, tokens := provider.processClaudeContentDelta(event, "", 0, outChan)
+	var sb strings.Builder
+	tokens := provider.processClaudeContentDelta(event, &sb, 0, outChan)
 
-	assert.Equal(t, "Hello", accumulated)
+	assert.Equal(t, "Hello", sb.String())
 	assert.Equal(t, 1, tokens)
 	assert.Len(t, outChan, 1)
 

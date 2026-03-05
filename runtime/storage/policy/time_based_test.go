@@ -221,3 +221,119 @@ func TestTimeBasedPolicyHandler_StartEnforcement(t *testing.T) {
 	// Stop enforcement
 	handler.Stop()
 }
+
+func TestTimeBasedPolicyHandler_AutoStart(t *testing.T) {
+	t.Run("auto-starts enforcement when configured", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		// Create an expired media file before constructing the handler
+		mediaPath := filepath.Join(tempDir, "auto-expire.jpg")
+		err := os.WriteFile(mediaPath, []byte("test data"), 0600)
+		require.NoError(t, err)
+
+		metadata := storage.MediaMetadata{
+			PolicyName: "delete-after-5min",
+			Timestamp:  time.Now().Add(-6 * time.Minute),
+			MIMEType:   "image/jpeg",
+		}
+
+		metaPath := mediaPath + ".meta"
+		metaData, err := json.Marshal(metadata)
+		require.NoError(t, err)
+		err = os.WriteFile(metaPath, metaData, 0600)
+		require.NoError(t, err)
+
+		// Create handler with auto-start — enforcement should begin immediately
+		handler := policy.NewTimeBasedPolicyHandler(
+			100*time.Millisecond,
+			policy.WithAutoStart(true),
+			policy.WithBaseDir(tempDir),
+		)
+
+		// Wait for enforcement to run
+		time.Sleep(250 * time.Millisecond)
+
+		// Verify files are deleted by auto-started background process
+		assert.NoFileExists(t, mediaPath)
+		assert.NoFileExists(t, metaPath)
+
+		handler.Stop()
+	})
+
+	t.Run("does not auto-start without WithAutoStart", func(t *testing.T) {
+		tempDir := t.TempDir()
+
+		mediaPath := filepath.Join(tempDir, "no-auto.jpg")
+		err := os.WriteFile(mediaPath, []byte("test data"), 0600)
+		require.NoError(t, err)
+
+		metadata := storage.MediaMetadata{
+			PolicyName: "delete-after-5min",
+			Timestamp:  time.Now().Add(-6 * time.Minute),
+			MIMEType:   "image/jpeg",
+		}
+
+		metaPath := mediaPath + ".meta"
+		metaData, err := json.Marshal(metadata)
+		require.NoError(t, err)
+		err = os.WriteFile(metaPath, metaData, 0600)
+		require.NoError(t, err)
+
+		// Create handler without auto-start
+		_ = policy.NewTimeBasedPolicyHandler(
+			100*time.Millisecond,
+			policy.WithBaseDir(tempDir),
+		)
+
+		// Wait to confirm enforcement does NOT run
+		time.Sleep(250 * time.Millisecond)
+
+		// Files should still exist
+		assert.FileExists(t, mediaPath)
+		assert.FileExists(t, metaPath)
+	})
+
+	t.Run("does not auto-start without base dir", func(t *testing.T) {
+		// Should not panic or start enforcement when base dir is missing
+		handler := policy.NewTimeBasedPolicyHandler(
+			100*time.Millisecond,
+			policy.WithAutoStart(true),
+		)
+		assert.NotNil(t, handler)
+	})
+}
+
+func TestTimeBasedPolicyHandler_StopIdempotent(t *testing.T) {
+	t.Run("stop is safe when enforcement never started", func(t *testing.T) {
+		handler := policy.NewTimeBasedPolicyHandler(100 * time.Millisecond)
+		// Should not panic
+		handler.Stop()
+	})
+
+	t.Run("stop is safe to call multiple times", func(t *testing.T) {
+		tempDir := t.TempDir()
+		handler := policy.NewTimeBasedPolicyHandler(
+			100*time.Millisecond,
+			policy.WithAutoStart(true),
+			policy.WithBaseDir(tempDir),
+		)
+
+		handler.Stop()
+		// Second call should not panic
+		handler.Stop()
+	})
+}
+
+func TestTimeBasedPolicyHandler_StartEnforcementIdempotent(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tempDir := t.TempDir()
+	handler := policy.NewTimeBasedPolicyHandler(100 * time.Millisecond)
+
+	// Calling StartEnforcement twice should not panic or start two goroutines
+	handler.StartEnforcement(ctx, tempDir)
+	handler.StartEnforcement(ctx, tempDir)
+
+	handler.Stop()
+}
