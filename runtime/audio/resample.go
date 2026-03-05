@@ -4,7 +4,38 @@ package audio
 import (
 	"encoding/binary"
 	"fmt"
+	"sync"
 )
+
+// defaultPoolSliceCap is the default capacity for pooled sample slices.
+// 4096 samples covers ~170ms at 24kHz, a reasonable default for typical audio chunks.
+const defaultPoolSliceCap = 4096
+
+// resamplePool provides pooled []int16 slices for resampling to reduce GC pressure.
+var resamplePool = sync.Pool{
+	New: func() any {
+		s := make([]int16, 0, defaultPoolSliceCap)
+		return &s
+	},
+}
+
+// getInt16Slice retrieves a pooled []int16 slice and resets it to the requested size.
+func getInt16Slice(size int) *[]int16 {
+	sp := resamplePool.Get().(*[]int16)
+	if cap(*sp) < size {
+		*sp = make([]int16, size)
+	} else {
+		*sp = (*sp)[:size]
+	}
+	return sp
+}
+
+// putInt16Slice returns a []int16 slice to the pool after clearing it.
+func putInt16Slice(sp *[]int16) {
+	// Reset length to zero but keep capacity
+	*sp = (*sp)[:0]
+	resamplePool.Put(sp)
+}
 
 // Standard audio sample rates for common use cases.
 const (
@@ -44,16 +75,22 @@ func ResamplePCM16(input []byte, fromRate, toRate int) ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	// Convert input bytes to samples
+	// Convert input bytes to samples using pooled slices to reduce GC pressure.
 	// Note: The uint16->int16 conversion is safe because PCM16 audio uses
 	// the full int16 range (-32768 to 32767) stored as unsigned bytes.
-	inputSamples := make([]int16, numInputSamples)
+	inputSamplesPtr := getInt16Slice(numInputSamples)
+	defer putInt16Slice(inputSamplesPtr)
+	inputSamples := *inputSamplesPtr
+
 	for i := 0; i < numInputSamples; i++ {
 		inputSamples[i] = int16(binary.LittleEndian.Uint16(input[i*bytesPerSample:])) //nolint:gosec // Safe PCM16 conversion
 	}
 
 	// Resample using linear interpolation
-	outputSamples := make([]int16, numOutputSamples)
+	outputSamplesPtr := getInt16Slice(numOutputSamples)
+	defer putInt16Slice(outputSamplesPtr)
+	outputSamples := *outputSamplesPtr
+
 	ratio := float64(fromRate) / float64(toRate)
 
 	for i := 0; i < numOutputSamples; i++ {

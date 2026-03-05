@@ -184,6 +184,93 @@ func TestSilenceDetector_SetTranscript(t *testing.T) {
 	}
 }
 
+func TestSilenceDetector_WithMaxAudioBufferSize(t *testing.T) {
+	d := NewSilenceDetector(500*time.Millisecond, WithMaxAudioBufferSize(1024))
+	if d.MaxBufferSize != 1024 {
+		t.Errorf("MaxBufferSize = %d, want 1024", d.MaxBufferSize)
+	}
+}
+
+func TestSilenceDetector_DefaultMaxBufferSize(t *testing.T) {
+	d := NewSilenceDetector(500 * time.Millisecond)
+	if d.MaxBufferSize != DefaultMaxAudioBufferSize {
+		t.Errorf("MaxBufferSize = %d, want %d", d.MaxBufferSize, DefaultMaxAudioBufferSize)
+	}
+}
+
+func TestSilenceDetector_BufferCapTruncation(t *testing.T) {
+	maxSize := 10
+	d := NewSilenceDetector(500*time.Millisecond, WithMaxAudioBufferSize(maxSize))
+
+	// Start speaking so audio accumulates
+	d.ProcessVADState(context.Background(), VADStateSpeaking)
+
+	// Add data that will exceed the cap
+	chunk1 := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+	chunk2 := []byte{9, 10, 11, 12, 13}
+	d.ProcessAudio(context.Background(), chunk1)
+	d.ProcessAudio(context.Background(), chunk2)
+
+	// Total would be 13 bytes, but max is 10. Should keep the most recent 10 bytes.
+	audio := d.GetAccumulatedAudio()
+	if len(audio) != maxSize {
+		t.Fatalf("buffer length = %d, want %d", len(audio), maxSize)
+	}
+
+	// Should contain the last 10 bytes: [4,5,6,7,8,9,10,11,12,13]
+	expected := []byte{4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
+	for i, v := range expected {
+		if audio[i] != v {
+			t.Errorf("audio[%d] = %d, want %d", i, audio[i], v)
+		}
+	}
+}
+
+func TestSilenceDetector_BufferCapMultipleOverflows(t *testing.T) {
+	maxSize := 5
+	d := NewSilenceDetector(500*time.Millisecond, WithMaxAudioBufferSize(maxSize))
+
+	d.ProcessVADState(context.Background(), VADStateSpeaking)
+
+	// Overflow multiple times
+	for i := 0; i < 10; i++ {
+		d.ProcessAudio(context.Background(), []byte{byte(i), byte(i + 10)})
+	}
+
+	audio := d.GetAccumulatedAudio()
+	if len(audio) != maxSize {
+		t.Fatalf("buffer length = %d, want %d", len(audio), maxSize)
+	}
+}
+
+func TestSilenceDetector_BufferCapExactFit(t *testing.T) {
+	maxSize := 8
+	d := NewSilenceDetector(500*time.Millisecond, WithMaxAudioBufferSize(maxSize))
+
+	d.ProcessVADState(context.Background(), VADStateSpeaking)
+
+	// Add exactly maxSize bytes -- should not trigger trimming
+	d.ProcessAudio(context.Background(), make([]byte, maxSize))
+
+	audio := d.GetAccumulatedAudio()
+	if len(audio) != maxSize {
+		t.Fatalf("buffer length = %d, want %d", len(audio), maxSize)
+	}
+}
+
+func TestSilenceDetector_BufferCapUnderLimit(t *testing.T) {
+	maxSize := 100
+	d := NewSilenceDetector(500*time.Millisecond, WithMaxAudioBufferSize(maxSize))
+
+	d.ProcessVADState(context.Background(), VADStateSpeaking)
+	d.ProcessAudio(context.Background(), []byte{1, 2, 3})
+
+	audio := d.GetAccumulatedAudio()
+	if len(audio) != 3 {
+		t.Fatalf("buffer length = %d, want 3", len(audio))
+	}
+}
+
 func TestSilenceDetector_Reset(t *testing.T) {
 	d := NewSilenceDetector(500 * time.Millisecond)
 

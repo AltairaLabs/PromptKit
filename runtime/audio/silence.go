@@ -2,15 +2,25 @@ package audio
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 )
+
+// DefaultMaxAudioBufferSize is the maximum size of the audio buffer in bytes.
+// At 16kHz/16-bit mono (32KB/s), 10MB holds approximately 5 minutes of audio.
+const DefaultMaxAudioBufferSize = 10 * 1024 * 1024
 
 // SilenceDetector detects turn boundaries based on silence duration.
 // It triggers end-of-turn when silence exceeds a configurable threshold.
 type SilenceDetector struct {
 	// Threshold is the silence duration required to trigger turn end.
 	Threshold time.Duration
+
+	// MaxBufferSize is the maximum audio buffer size in bytes.
+	// When exceeded, the oldest audio data is discarded to stay within the limit.
+	// Default: DefaultMaxAudioBufferSize (10MB).
+	MaxBufferSize int
 
 	mu           sync.RWMutex
 	silenceStart time.Time
@@ -23,15 +33,31 @@ type SilenceDetector struct {
 	hadSpeech    bool // Track if we've had any speech this turn
 }
 
+// SilenceDetectorOption configures a SilenceDetector.
+type SilenceDetectorOption func(*SilenceDetector)
+
+// WithMaxAudioBufferSize sets the maximum audio buffer size in bytes.
+// When the buffer exceeds this limit, the oldest data is trimmed.
+func WithMaxAudioBufferSize(size int) SilenceDetectorOption {
+	return func(d *SilenceDetector) {
+		d.MaxBufferSize = size
+	}
+}
+
 // NewSilenceDetector creates a SilenceDetector with the given threshold.
 // threshold is the duration of silence required to trigger end-of-turn.
-func NewSilenceDetector(threshold time.Duration) *SilenceDetector {
-	return &SilenceDetector{
-		Threshold:    threshold,
-		silenceStart: time.Now(),
-		inSilence:    true,
-		lastVADState: VADStateQuiet,
+func NewSilenceDetector(threshold time.Duration, opts ...SilenceDetectorOption) *SilenceDetector {
+	d := &SilenceDetector{
+		Threshold:     threshold,
+		MaxBufferSize: DefaultMaxAudioBufferSize,
+		silenceStart:  time.Now(),
+		inSilence:     true,
+		lastVADState:  VADStateQuiet,
 	}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
 }
 
 // Name returns the detector identifier.
@@ -47,6 +73,17 @@ func (d *SilenceDetector) ProcessAudio(ctx context.Context, audio []byte) (bool,
 	// Accumulate audio if we're tracking a turn
 	if d.userSpeaking || d.hadSpeech {
 		d.audioBuffer = append(d.audioBuffer, audio...)
+
+		// Cap the buffer to MaxBufferSize, keeping the most recent data
+		if d.MaxBufferSize > 0 && len(d.audioBuffer) > d.MaxBufferSize {
+			excess := len(d.audioBuffer) - d.MaxBufferSize
+			copy(d.audioBuffer, d.audioBuffer[excess:])
+			d.audioBuffer = d.audioBuffer[:d.MaxBufferSize]
+			slog.Warn("audio buffer exceeded max size, trimmed oldest data",
+				"excess_bytes", excess,
+				"max_buffer_size", d.MaxBufferSize,
+			)
+		}
 	}
 	d.mu.Unlock()
 
