@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -61,6 +63,17 @@ func TestParsePlatformHTTPError_AzurePlatform(t *testing.T) {
 	}
 	if !strings.Contains(errMsg, "Rate limit exceeded") {
 		t.Errorf("expected extracted message, got: %s", errMsg)
+	}
+}
+
+func TestErrPayloadTooLarge_IsSentinel(t *testing.T) {
+	// Verify ErrPayloadTooLarge works as a sentinel error with fmt.Errorf wrapping.
+	wrapped := fmt.Errorf("%w: payload size 200 bytes exceeds maximum 100 bytes", ErrPayloadTooLarge)
+	if !errors.Is(wrapped, ErrPayloadTooLarge) {
+		t.Error("Expected errors.Is to match ErrPayloadTooLarge through wrapping")
+	}
+	if !strings.Contains(wrapped.Error(), "request payload too large") {
+		t.Errorf("Expected wrapped error to contain sentinel message, got: %s", wrapped.Error())
 	}
 }
 

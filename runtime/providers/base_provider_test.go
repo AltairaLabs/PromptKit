@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -709,6 +710,176 @@ func containsStr(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestBaseProvider_DefaultMaxPayloadSize(t *testing.T) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test-provider", false, client)
+
+	if base.MaxPayloadSize() != DefaultMaxPayloadSize {
+		t.Errorf("Expected default max payload size %d, got %d", DefaultMaxPayloadSize, base.MaxPayloadSize())
+	}
+}
+
+func TestBaseProvider_SetMaxPayloadSize(t *testing.T) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test-provider", false, client)
+
+	// Set a custom size
+	base.SetMaxPayloadSize(50 * 1024 * 1024)
+	if base.MaxPayloadSize() != 50*1024*1024 {
+		t.Errorf("Expected max payload size %d, got %d", 50*1024*1024, base.MaxPayloadSize())
+	}
+
+	// Disable checking with zero
+	base.SetMaxPayloadSize(0)
+	if base.MaxPayloadSize() != 0 {
+		t.Errorf("Expected max payload size 0, got %d", base.MaxPayloadSize())
+	}
+
+	// Disable checking with negative
+	base.SetMaxPayloadSize(-1)
+	if base.MaxPayloadSize() != -1 {
+		t.Errorf("Expected max payload size -1, got %d", base.MaxPayloadSize())
+	}
+}
+
+func TestBaseProvider_MakeRawRequest_PayloadTooLarge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test-provider", false, client)
+	// Set a very small max to trigger the error
+	base.SetMaxPayloadSize(100)
+
+	ctx := t.Context()
+	largeBody := make([]byte, 200)
+	for i := range largeBody {
+		largeBody[i] = 'x'
+	}
+
+	_, err := base.MakeRawRequest(ctx, server.URL, largeBody, nil, "TestProvider")
+	if err == nil {
+		t.Fatal("Expected error for oversized payload")
+	}
+	if !errors.Is(err, ErrPayloadTooLarge) {
+		t.Errorf("Expected ErrPayloadTooLarge, got: %v", err)
+	}
+	if !containsStr(err.Error(), "200") {
+		t.Errorf("Expected error to contain actual size '200', got: %v", err)
+	}
+	if !containsStr(err.Error(), "100") {
+		t.Errorf("Expected error to contain max size '100', got: %v", err)
+	}
+}
+
+func TestBaseProvider_MakeRawRequest_PayloadExactlyAtLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test-provider", false, client)
+	base.SetMaxPayloadSize(100)
+
+	ctx := t.Context()
+	body := make([]byte, 100)
+	for i := range body {
+		body[i] = 'x'
+	}
+
+	result, err := base.MakeRawRequest(ctx, server.URL, body, nil, "TestProvider")
+	if err != nil {
+		t.Errorf("Expected no error for payload at exact limit, got: %v", err)
+	}
+	if string(result) != `{"ok":true}` {
+		t.Errorf("Expected response body, got: %s", string(result))
+	}
+}
+
+func TestBaseProvider_MakeRawRequest_PayloadCheckDisabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test-provider", false, client)
+	// Disable payload size checking
+	base.SetMaxPayloadSize(0)
+
+	ctx := t.Context()
+	body := make([]byte, 200)
+	for i := range body {
+		body[i] = 'x'
+	}
+
+	_, err := base.MakeRawRequest(ctx, server.URL, body, nil, "TestProvider")
+	if err != nil {
+		t.Errorf("Expected no error with payload check disabled, got: %v", err)
+	}
+}
+
+func TestBaseProvider_MakeJSONRequest_PayloadTooLarge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test-provider", false, client)
+	base.SetMaxPayloadSize(10) // Very small limit
+
+	ctx := t.Context()
+	// This will marshal to more than 10 bytes
+	request := map[string]string{"key": "a longer value that exceeds limit"}
+
+	_, err := base.MakeJSONRequest(ctx, server.URL, request, nil, "TestProvider")
+	if err == nil {
+		t.Fatal("Expected error for oversized JSON payload")
+	}
+	if !errors.Is(err, ErrPayloadTooLarge) {
+		t.Errorf("Expected ErrPayloadTooLarge, got: %v", err)
+	}
+}
+
+func TestBaseProvider_MakeRawRequest_LargePayloadWarning(t *testing.T) {
+	// This test verifies that a payload above the warning threshold
+	// but below the max limit succeeds (warning is logged but we can't
+	// easily assert on log output in a unit test).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test-provider", false, client)
+	// Set max well above warning threshold
+	base.SetMaxPayloadSize(20 * 1024 * 1024)
+
+	ctx := t.Context()
+	// Create a payload just above the 10MB warning threshold
+	body := make([]byte, 10*1024*1024+1)
+	for i := range body {
+		body[i] = 'a'
+	}
+
+	result, err := base.MakeRawRequest(ctx, server.URL, body, nil, "TestProvider")
+	if err != nil {
+		t.Errorf("Expected no error for payload under max limit, got: %v", err)
+	}
+	if string(result) != `{"ok":true}` {
+		t.Errorf("Expected response body, got: %s", string(result))
+	}
 }
 
 func TestBaseProvider_Integration(t *testing.T) {

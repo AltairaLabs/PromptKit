@@ -2,8 +2,13 @@ package providers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
+
+// ErrPayloadTooLarge is returned when a request payload exceeds the provider's
+// configured maximum size (MaxRequestPayloadSize).
+var ErrPayloadTooLarge = errors.New("request payload too large")
 
 // ParsePlatformHTTPError extracts a human-readable error from platform-specific
 // HTTP error responses (Bedrock, Vertex, Azure). These platforms return JSON
