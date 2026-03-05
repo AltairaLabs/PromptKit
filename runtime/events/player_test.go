@@ -221,13 +221,18 @@ func TestSessionPlayer_Stop(t *testing.T) {
 
 	var eventCount int
 	var mu sync.Mutex
+	stopAfter := make(chan struct{}) // signals when we've seen enough events to stop
 
 	config := &PlayerConfig{
 		Speed: 1.0,
 		OnEvent: func(event *Event, position time.Duration) bool {
 			mu.Lock()
 			eventCount++
+			n := eventCount
 			mu.Unlock()
+			if n == 2 {
+				close(stopAfter)
+			}
 			return true
 		},
 	}
@@ -236,8 +241,17 @@ func TestSessionPlayer_Stop(t *testing.T) {
 	require.NoError(t, player.Load(context.Background()))
 
 	player.Play(context.Background())
-	time.Sleep(100 * time.Millisecond)
+
+	// Wait until at least 2 events have been delivered, then stop
+	select {
+	case <-stopAfter:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
 	player.Stop()
+
+	// Allow any in-flight event delivery to complete
+	time.Sleep(50 * time.Millisecond)
 
 	mu.Lock()
 	countAtStop := eventCount
@@ -246,11 +260,15 @@ func TestSessionPlayer_Stop(t *testing.T) {
 	assert.Equal(t, PlayerStateStopped, player.State())
 	assert.Equal(t, 0, player.Position()) // Position should reset
 
-	// Verify no more events
-	time.Sleep(100 * time.Millisecond)
+	// Verify no more events are delivered after stop
+	time.Sleep(200 * time.Millisecond)
 	mu.Lock()
 	assert.Equal(t, countAtStop, eventCount)
 	mu.Unlock()
+
+	// We saw at least 2 events but not all 10 (stopped early)
+	assert.GreaterOrEqual(t, countAtStop, 2)
+	assert.Less(t, countAtStop, 10)
 }
 
 func TestSessionPlayer_Seek(t *testing.T) {
