@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1103,7 +1104,9 @@ func TestLogStderr(t *testing.T) {
 }
 
 func TestInitialize_ProcessStartsButHandshakeFails(t *testing.T) {
-	// Use "cat" which starts successfully but won't respond with valid JSON-RPC
+	// Use "cat" which starts successfully but won't respond with valid JSON-RPC.
+	// With equal InitTimeout and RequestTimeout, either timeout may fire first,
+	// producing either "initialization timeout" or "initialize request failed".
 	config := ServerConfig{
 		Name:    "test-server",
 		Command: "cat",
@@ -1119,7 +1122,11 @@ func TestInitialize_ProcessStartsButHandshakeFails(t *testing.T) {
 	resp, err := client.Initialize(context.Background())
 	assert.Nil(t, resp)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "initialize request failed")
+	errMsg := err.Error()
+	assert.True(t,
+		strings.Contains(errMsg, "initialize request failed") ||
+			strings.Contains(errMsg, "initialization timeout"),
+		"expected init failure error, got: %s", errMsg)
 }
 
 func TestInitialize_InitTimeout(t *testing.T) {
