@@ -369,11 +369,12 @@ func generateHTML(data HTMLReportData) (string, error) {
 		"getConversationAssertionResults": func(r engine.RunResult) []assertions.ConversationValidationResult {
 			return r.ConversationAssertions.Results
 		},
-		"isAgentTool":         isAgentTool,
-		"isWorkflowTool":      isWorkflowTool,
-		"hasA2AAgents":        hasA2AAgents,
-		"renderA2AAgentCards": renderA2AAgentCards,
-		"consentStatus":       consentStatus,
+		"renderToolResultMediaBadges": renderToolResultMediaBadges,
+		"isAgentTool":                 isAgentTool,
+		"isWorkflowTool":              isWorkflowTool,
+		"hasA2AAgents":                hasA2AAgents,
+		"renderA2AAgentCards":         renderA2AAgentCards,
+		"consentStatus":               consentStatus,
 	}).Parse(reportTemplate))
 
 	var buf strings.Builder
