@@ -28,6 +28,8 @@ func init() {
 	evals.RegisterDefault(&ToolCallCountHandler{})
 	evals.RegisterDefault(&ToolResultIncludesHandler{})
 	evals.RegisterDefault(&ToolResultMatchesHandler{})
+	evals.RegisterDefault(&ToolResultHasMediaHandler{})
+	evals.RegisterDefault(&ToolResultMediaTypeHandler{})
 	evals.RegisterDefault(&ToolCallSequenceHandler{})
 	evals.RegisterDefault(&ToolCallChainHandler{})
 	evals.RegisterDefault(&ToolCallsWithArgsHandler{})

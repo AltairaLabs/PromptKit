@@ -784,6 +784,8 @@ func TestRegisterInit(t *testing.T) {
 		"tool_call_count",
 		"tool_result_includes",
 		"tool_result_matches",
+		"tool_result_has_media",
+		"tool_result_media_type",
 		"tool_call_sequence",
 		"tool_call_chain",
 		"tool_calls_with_args",
