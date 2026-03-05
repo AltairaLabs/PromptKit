@@ -16,6 +16,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // Default retry constants for A2A executor.
@@ -88,7 +89,13 @@ func WithMaxClients(n int) ExecutorOption {
 	return func(e *Executor) { e.maxClients = n }
 }
 
-// Executor implements tools.Executor for A2A agent tools.
+// Compile-time interface checks.
+var (
+	_ tools.Executor           = (*Executor)(nil)
+	_ tools.MultimodalExecutor = (*Executor)(nil)
+)
+
+// Executor implements tools.Executor and tools.MultimodalExecutor for A2A agent tools.
 // It dispatches tool calls to remote A2A agents via the A2A client.
 // The executor maintains a cache of A2A clients with TTL-based eviction.
 // Call Close when the executor is no longer needed to release resources.
@@ -128,26 +135,28 @@ func NewExecutor(opts ...ExecutorOption) *Executor {
 // Name returns "a2a" to match the Mode on A2A tool descriptors.
 func (e *Executor) Name() string { return "a2a" }
 
-// Execute calls a remote A2A agent with the tool arguments and returns the response.
-func (e *Executor) Execute(
-	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
-) (json.RawMessage, error) {
+// a2aInput holds parsed arguments for an A2A tool call.
+type a2aInput struct {
+	Query     string `json:"query"`
+	ImageURL  string `json:"image_url,omitempty"`
+	ImageData string `json:"image_data,omitempty"`
+	AudioData string `json:"audio_data,omitempty"`
+}
+
+// buildRequest validates the descriptor, parses args, and constructs a SendMessageRequest.
+// It returns the A2A config and the request, or an error.
+func buildRequest(
+	descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (*tools.A2AConfig, *SendMessageRequest, error) {
 	if descriptor.A2AConfig == nil {
-		return nil, fmt.Errorf("a2a executor: tool %q has no A2AConfig", descriptor.Name)
+		return nil, nil, fmt.Errorf("a2a executor: tool %q has no A2AConfig", descriptor.Name)
 	}
 
 	cfg := descriptor.A2AConfig
-	client := e.getOrCreateClient(cfg.AgentURL)
 
-	// Parse arguments
-	var input struct {
-		Query     string `json:"query"`
-		ImageURL  string `json:"image_url,omitempty"`
-		ImageData string `json:"image_data,omitempty"`
-		AudioData string `json:"audio_data,omitempty"`
-	}
+	var input a2aInput
 	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("a2a executor: parse args: %w", err)
+		return nil, nil, fmt.Errorf("a2a executor: parse args: %w", err)
 	}
 
 	// Build message parts
@@ -178,7 +187,15 @@ func (e *Executor) Execute(
 		},
 	}
 
-	// Apply timeout on top of the caller's context
+	return cfg, req, nil
+}
+
+// executeRequest sends an A2A request with timeout and retry, returning the completed task.
+func (e *Executor) executeRequest(
+	ctx context.Context, cfg *tools.A2AConfig, req *SendMessageRequest,
+) (*Task, error) {
+	client := e.getOrCreateClient(cfg.AgentURL)
+
 	if cfg.TimeoutMs > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.TimeoutMs)*time.Millisecond)
@@ -189,10 +206,51 @@ func (e *Executor) Execute(
 	if err != nil {
 		return nil, fmt.Errorf("a2a executor: send message: %w", err)
 	}
+	return task, nil
+}
+
+// Execute calls a remote A2A agent with the tool arguments and returns the response.
+func (e *Executor) Execute(
+	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
+	cfg, req, err := buildRequest(descriptor, args)
+	if err != nil {
+		return nil, err
+	}
+
+	task, err := e.executeRequest(ctx, cfg, req)
+	if err != nil {
+		return nil, err
+	}
 
 	responseText := ExtractResponseText(task)
 	result := map[string]string{"response": responseText}
 	return json.Marshal(result)
+}
+
+// ExecuteMultimodal calls a remote A2A agent and returns both JSON result and multimodal content parts.
+// It implements [tools.MultimodalExecutor].
+func (e *Executor) ExecuteMultimodal(
+	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, []types.ContentPart, error) {
+	cfg, req, err := buildRequest(descriptor, args)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	task, err := e.executeRequest(ctx, cfg, req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	parts := ExtractResponseParts(task)
+	responseText := ExtractResponseText(task)
+	result := map[string]string{"response": responseText}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return nil, nil, fmt.Errorf("a2a executor: marshal result: %w", err)
+	}
+	return raw, parts, nil
 }
 
 // sendWithRetry wraps client.SendMessage with exponential backoff retry logic.
@@ -442,6 +500,35 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 	c := NewClient(agentURL)
 	e.clients[agentURL] = &clientEntry{client: c, lastUsed: now}
 	return c
+}
+
+// ExtractResponseParts converts all A2A Parts from a completed task into PromptKit ContentParts.
+// It collects parts from the status message (if present) and all artifacts.
+// Parts that fail conversion (e.g., structured data) are silently skipped.
+func ExtractResponseParts(task *Task) []types.ContentPart {
+	var result []types.ContentPart
+
+	if task.Status.Message != nil {
+		for i := range task.Status.Message.Parts {
+			cp, err := PartToContentPart(&task.Status.Message.Parts[i])
+			if err != nil {
+				continue
+			}
+			result = append(result, cp)
+		}
+	}
+
+	for _, artifact := range task.Artifacts {
+		for i := range artifact.Parts {
+			cp, err := PartToContentPart(&artifact.Parts[i])
+			if err != nil {
+				continue
+			}
+			result = append(result, cp)
+		}
+	}
+
+	return result
 }
 
 // ExtractResponseText extracts text from a completed A2A task.
