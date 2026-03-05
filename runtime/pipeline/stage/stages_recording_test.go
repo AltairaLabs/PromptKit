@@ -620,3 +620,65 @@ func TestRecordingStage_MessageWithToolResult(t *testing.T) {
 	assert.Equal(t, "get_weather", data.ToolResult.Name)
 	mu.Unlock()
 }
+
+func TestRecordingStage_MessageWithMultimodalToolResult(t *testing.T) {
+	bus := events.NewEventBus()
+	config := RecordingStageConfig{
+		Position:  RecordingPositionInput,
+		SessionID: "test-session",
+	}
+
+	stage := NewRecordingStage(bus, config)
+
+	var captured []*events.Event
+	var mu sync.Mutex
+	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+	})
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// Create a multimodal tool result with text and image parts
+	textPart := types.NewTextPart("Weather is sunny")
+	imgPart := types.NewImagePartFromData("base64imgdata", "image/jpeg", nil)
+	toolResult := types.MessageToolResult{
+		ID:   "call_456",
+		Name: "weather_visual",
+		Parts: []types.ContentPart{
+			textPart,
+			imgPart,
+		},
+	}
+	msg := &types.Message{
+		Role:       "tool",
+		Content:    "Weather is sunny",
+		ToolResult: &toolResult,
+	}
+	input <- StreamElement{Message: msg, Timestamp: time.Now()}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, captured, 1)
+	data := captured[0].Data.(*events.MessageCreatedData)
+	assert.Equal(t, "tool", data.Role)
+	require.NotNil(t, data.ToolResult)
+	assert.Equal(t, "call_456", data.ToolResult.ID)
+	assert.Equal(t, "weather_visual", data.ToolResult.Name)
+
+	// Verify Parts are preserved in the recording
+	require.Len(t, data.ToolResult.Parts, 2)
+	assert.Equal(t, types.ContentTypeText, data.ToolResult.Parts[0].Type)
+	assert.Equal(t, "Weather is sunny", *data.ToolResult.Parts[0].Text)
+	assert.Equal(t, types.ContentTypeImage, data.ToolResult.Parts[1].Type)
+	require.NotNil(t, data.ToolResult.Parts[1].Media)
+	assert.Equal(t, "image/jpeg", data.ToolResult.Parts[1].Media.MIMEType)
+}
