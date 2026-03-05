@@ -1019,6 +1019,16 @@ func (s *ProviderStage) handleToolResult(
 		// Enforce tool result size limit
 		content = s.enforceResultSizeLimit(call.Name, content)
 
+		// If the executor returned multimodal parts, propagate them directly;
+		// otherwise wrap the text content as a single text ContentPart (legacy path).
+		if len(asyncResult.Parts) > 0 {
+			return types.MessageToolResult{
+				ID:    call.ID,
+				Name:  call.Name,
+				Parts: asyncResult.Parts,
+			}
+		}
+
 		return types.NewTextToolResult(call.ID, call.Name, content)
 
 	default:

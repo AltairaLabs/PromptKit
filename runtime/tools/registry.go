@@ -528,7 +528,13 @@ func (r *Registry) executeWithAsyncExecutor(
 	}
 
 	// result.Content is already json.RawMessage
-	return r.validateAndCoerceResult(tool, result.Content)
+	validated, err := r.validateAndCoerceResult(tool, result.Content)
+	if err != nil {
+		return validated, err
+	}
+	// Propagate multimodal parts from the executor through validation
+	validated.Parts = result.Parts
+	return validated, nil
 }
 
 // executeSyncFallback executes a tool synchronously for non-async executors

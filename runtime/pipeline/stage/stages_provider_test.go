@@ -1072,6 +1072,7 @@ type mockAsyncExecutor struct {
 	name       string
 	status     tools.ToolExecutionStatus
 	content    []byte
+	parts      []types.ContentPart
 	errorMsg   string
 	pendingMsg string
 }
@@ -1091,6 +1092,7 @@ func (m *mockAsyncExecutor) ExecuteAsync(_ context.Context, descriptor *tools.To
 	result := &tools.ToolExecutionResult{
 		Status:  m.status,
 		Content: m.content,
+		Parts:   m.parts,
 		Error:   m.errorMsg,
 	}
 	if m.status == tools.ToolStatusPending {
@@ -1816,4 +1818,164 @@ func TestProviderStage_ExecuteToolCalls_BlockedNoEvents(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Empty(t, captured, "blocked tools should not emit any tool call events")
+}
+
+// =============================================================================
+// Multimodal Tool Result Tests — Issue #622
+// =============================================================================
+
+func TestProviderStage_HandleToolResult_MultimodalParts(t *testing.T) {
+	// When asyncResult.Parts is non-empty, handleToolResult should propagate
+	// those parts directly instead of wrapping text content.
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	call := types.MessageToolCall{
+		ID:   "call-mm",
+		Name: "image_tool",
+		Args: json.RawMessage(`{}`),
+	}
+
+	imgPart := types.NewImagePartFromData("base64data", "image/png", nil)
+	textPart := types.NewTextPart("image description")
+
+	asyncResult := &tools.ToolExecutionResult{
+		Status:  tools.ToolStatusComplete,
+		Content: []byte(`"image description"`),
+		Parts:   []types.ContentPart{textPart, imgPart},
+	}
+
+	result := stage.handleToolResult(call, asyncResult)
+
+	assert.Equal(t, "call-mm", result.ID)
+	assert.Equal(t, "image_tool", result.Name)
+	require.Len(t, result.Parts, 2)
+	assert.Equal(t, types.ContentTypeText, result.Parts[0].Type)
+	assert.Equal(t, types.ContentTypeImage, result.Parts[1].Type)
+	assert.Empty(t, result.Error)
+}
+
+func TestProviderStage_HandleToolResult_LegacyTextOnly(t *testing.T) {
+	// When asyncResult.Parts is empty, handleToolResult wraps the text
+	// content as a single text ContentPart (legacy path).
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	call := types.MessageToolCall{
+		ID:   "call-txt",
+		Name: "text_tool",
+		Args: json.RawMessage(`{}`),
+	}
+
+	asyncResult := &tools.ToolExecutionResult{
+		Status:  tools.ToolStatusComplete,
+		Content: []byte("plain text result"),
+	}
+
+	result := stage.handleToolResult(call, asyncResult)
+
+	assert.Equal(t, "call-txt", result.ID)
+	assert.Equal(t, "text_tool", result.Name)
+	require.Len(t, result.Parts, 1)
+	assert.Equal(t, types.ContentTypeText, result.Parts[0].Type)
+	assert.Contains(t, *result.Parts[0].Text, "plain text result")
+	assert.Empty(t, result.Error)
+}
+
+func TestProviderStage_ExecuteToolCalls_PropagatesMultimodalParts(t *testing.T) {
+	// End-to-end: multimodal Parts from executor flow through to MessageToolResult.
+	registry := tools.NewRegistry()
+	imgPart := types.NewImagePartFromData("base64data", "image/png", nil)
+	textPart := types.NewTextPart("caption")
+	executor := &mockAsyncExecutor{
+		name:    "mm-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`"caption"`),
+		parts:   []types.ContentPart{textPart, imgPart},
+	}
+	registry.RegisterExecutor(executor)
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "mm_tool",
+		Description: "multimodal tool",
+		Mode:        "mm-executor",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	})
+
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "mm_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].ToolResult)
+	require.Len(t, results[0].ToolResult.Parts, 2)
+	assert.Equal(t, types.ContentTypeText, results[0].ToolResult.Parts[0].Type)
+	assert.Equal(t, types.ContentTypeImage, results[0].ToolResult.Parts[1].Type)
+}
+
+func TestProviderStage_ToolCallCompletedEvent_MetadataOnlyParts(t *testing.T) {
+	// ToolCallCompleted events should contain metadata-only parts (no binary data).
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run", "sess", "conv")
+
+	var mu sync.Mutex
+	var captured []*events.Event
+	bus.Subscribe(events.EventToolCallCompleted, func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+	})
+
+	registry := tools.NewRegistry()
+	base64Data := "iVBORw0KGgoAAAANSUhEUg"
+	imgPart := types.NewImagePartFromData(base64Data, "image/png", nil)
+	textPart := types.NewTextPart("result text")
+	executor := &mockAsyncExecutor{
+		name:    "img-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`"result text"`),
+		parts:   []types.ContentPart{textPart, imgPart},
+	}
+	registry.RegisterExecutor(executor)
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "img_tool",
+		Description: "image tool",
+		Mode:        "img-executor",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	})
+
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStageWithEmitter(provider, registry, nil, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-img", Name: "img_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	// Give the event bus time to deliver
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, captured, 1)
+	data := captured[0].Data.(events.ToolCallEventData)
+	assert.Equal(t, "img_tool", data.ToolName)
+	require.Len(t, data.Parts, 2)
+
+	// Text part should be preserved
+	assert.Equal(t, types.ContentTypeText, data.Parts[0].Type)
+	assert.Equal(t, "result text", *data.Parts[0].Text)
+
+	// Image part should have binary data stripped (metadata only)
+	assert.Equal(t, types.ContentTypeImage, data.Parts[1].Type)
+	require.NotNil(t, data.Parts[1].Media)
+	assert.Nil(t, data.Parts[1].Media.Data, "binary data should be stripped from events")
+	assert.Equal(t, "image/png", data.Parts[1].Media.MIMEType)
 }
