@@ -12,6 +12,7 @@ import (
 
 func TestExecutor_Name(t *testing.T) {
 	e := NewExecutor()
+	defer e.Close()
 	if got := e.Name(); got != "a2a" {
 		t.Errorf("Name() = %q, want %q", got, "a2a")
 	}
@@ -19,6 +20,7 @@ func TestExecutor_Name(t *testing.T) {
 
 func TestExecutor_Execute_NoA2AConfig(t *testing.T) {
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{Name: "test-tool"}
 	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
 	if err == nil {
@@ -49,6 +51,7 @@ func TestExecutor_Execute_BasicTextQuery(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name: "a2a__research_agent__search",
 		A2AConfig: &tools.A2AConfig{
@@ -92,6 +95,7 @@ func TestExecutor_Execute_ArtifactFallback(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -126,6 +130,7 @@ func TestExecutor_Execute_EmptyResponse(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -147,6 +152,7 @@ func TestExecutor_Execute_EmptyResponse(t *testing.T) {
 
 func TestExecutor_Execute_InvalidArgs(t *testing.T) {
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: "http://localhost:1"},
@@ -181,6 +187,7 @@ func TestExecutor_Execute_WithSkillIDMetadata(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name: "test-tool",
 		A2AConfig: &tools.A2AConfig{
@@ -225,6 +232,7 @@ func TestExecutor_Execute_NoSkillIDMetadata(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -263,6 +271,7 @@ func TestExecutor_Execute_WithMediaParts(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -310,6 +319,7 @@ func TestExecutor_ClientCaching(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -340,6 +350,7 @@ func TestExecutor_Execute_ServerError(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor()
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},

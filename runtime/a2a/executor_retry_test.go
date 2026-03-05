@@ -44,6 +44,7 @@ func TestExecutor_RetryOn502(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -84,6 +85,7 @@ func TestExecutor_RetryOn503(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -116,6 +118,7 @@ func TestExecutor_RetryOn504(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -143,6 +146,7 @@ func TestExecutor_NoRetryOn400(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -171,6 +175,7 @@ func TestExecutor_NoRetryOnRPCError(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -198,6 +203,7 @@ func TestExecutor_RetryExhausted(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -229,6 +235,7 @@ func TestExecutor_NoRetryOnContextCanceled(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -249,6 +256,7 @@ func TestExecutor_WithNoRetry(t *testing.T) {
 	defer srv.Close()
 
 	e := NewExecutor(WithNoRetry())
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -277,6 +285,7 @@ func TestExecutor_RetryOnConnectionRefused(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: "http://" + addr},
@@ -408,6 +417,7 @@ func TestExecutor_RetryOn429(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
@@ -436,6 +446,7 @@ func TestExecutor_RetrySucceedsFirstAttempt(t *testing.T) {
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     10 * time.Millisecond,
 	}))
+	defer e.Close()
 	desc := &tools.ToolDescriptor{
 		Name:      "test-tool",
 		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
