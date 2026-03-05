@@ -279,7 +279,7 @@ func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 func TestProcessClaudeToolResult_UsesToolResultContent(t *testing.T) {
 	// Create a tool result message as the SDK creates them:
 	// - msg.Content is NOT set (empty)
-	// - msg.ToolResult.Content has the actual data
+	// - msg.ToolResult.Parts has the actual data
 	toolResultMsg := types.Message{
 		Role: "tool",
 		// Content is intentionally empty - this is how the SDK creates tool result messages
@@ -292,14 +292,231 @@ func TestProcessClaudeToolResult_UsesToolResultContent(t *testing.T) {
 	// Process the tool result
 	result := processClaudeToolResult(toolResultMsg)
 
-	// Verify the result uses ToolResult.Content
-	if result.Content == "" {
-		t.Fatal("Tool result content is empty - ToolResult.Content should be used")
+	// Verify the result uses ToolResult text content as a plain string
+	contentStr, ok := result.Content.(string)
+	if !ok {
+		t.Fatalf("Expected string content for text-only tool result, got %T", result.Content)
 	}
-	if result.Content != `{"temperature": 73, "conditions": "sunny"}` {
-		t.Errorf("Expected ToolResult.Content, got '%s'", result.Content)
+	if contentStr == "" {
+		t.Fatal("Tool result content is empty - ToolResult.Parts should be used")
+	}
+	if contentStr != `{"temperature": 73, "conditions": "sunny"}` {
+		t.Errorf("Expected ToolResult text content, got '%s'", contentStr)
 	}
 	if result.ToolUseID != "toolu_abc123" {
 		t.Errorf("Expected ToolUseID 'toolu_abc123', got '%s'", result.ToolUseID)
+	}
+}
+
+// TestProcessClaudeToolResult_MultimodalImageResult verifies that tool results
+// containing images are serialized as Claude content block arrays.
+func TestProcessClaudeToolResult_MultimodalImageResult(t *testing.T) {
+	imgData := "iVBORw0KGgoAAAANSUhEUg=="
+	textContent := "Chart generated successfully"
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "toolu_img_123",
+			Name: "generate_chart",
+			Parts: []types.ContentPart{
+				types.NewTextPart(textContent),
+				types.NewImagePartFromData(imgData, types.MIMETypeImagePNG, nil),
+			},
+		},
+	}
+
+	result := processClaudeToolResult(msg)
+
+	if result.ToolUseID != "toolu_img_123" {
+		t.Errorf("Expected ToolUseID 'toolu_img_123', got '%s'", result.ToolUseID)
+	}
+
+	// Content should be an array since we have media
+	blocks, ok := result.Content.([]interface{})
+	if !ok {
+		t.Fatalf("Expected []interface{} content for multimodal tool result, got %T", result.Content)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("Expected 2 content blocks, got %d", len(blocks))
+	}
+
+	// Verify by marshaling to JSON and inspecting
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Failed to marshal result: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	content, ok := parsed["content"].([]interface{})
+	if !ok {
+		t.Fatalf("Expected content to be array in JSON, got %T", parsed["content"])
+	}
+
+	// First block: text
+	textBlock := content[0].(map[string]interface{})
+	if textBlock["type"] != "text" {
+		t.Errorf("Expected first block type 'text', got '%s'", textBlock["type"])
+	}
+	if textBlock["text"] != textContent {
+		t.Errorf("Expected text '%s', got '%s'", textContent, textBlock["text"])
+	}
+
+	// Second block: image
+	imgBlock := content[1].(map[string]interface{})
+	if imgBlock["type"] != "image" {
+		t.Errorf("Expected second block type 'image', got '%s'", imgBlock["type"])
+	}
+	source := imgBlock["source"].(map[string]interface{})
+	if source["type"] != "base64" {
+		t.Errorf("Expected source type 'base64', got '%s'", source["type"])
+	}
+	if source["media_type"] != types.MIMETypeImagePNG {
+		t.Errorf("Expected media_type '%s', got '%s'", types.MIMETypeImagePNG, source["media_type"])
+	}
+	if source["data"] != imgData {
+		t.Errorf("Expected base64 data to match")
+	}
+}
+
+// TestProcessClaudeToolResult_DocumentResult verifies that tool results
+// containing PDF documents serialize correctly.
+func TestProcessClaudeToolResult_DocumentResult(t *testing.T) {
+	pdfData := "JVBERi0xLjQK"
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "toolu_doc_456",
+			Name: "generate_report",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Report generated"),
+				types.NewDocumentPartFromData(pdfData, types.MIMETypePDF),
+			},
+		},
+	}
+
+	result := processClaudeToolResult(msg)
+
+	blocks, ok := result.Content.([]interface{})
+	if !ok {
+		t.Fatalf("Expected []interface{} content for document tool result, got %T", result.Content)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("Expected 2 content blocks, got %d", len(blocks))
+	}
+
+	// Marshal and verify document block structure
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Failed to marshal result: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	content := parsed["content"].([]interface{})
+	docBlock := content[1].(map[string]interface{})
+	if docBlock["type"] != "document" {
+		t.Errorf("Expected block type 'document', got '%s'", docBlock["type"])
+	}
+	source := docBlock["source"].(map[string]interface{})
+	if source["type"] != "base64" {
+		t.Errorf("Expected source type 'base64', got '%s'", source["type"])
+	}
+	if source["media_type"] != types.MIMETypePDF {
+		t.Errorf("Expected media_type '%s', got '%s'", types.MIMETypePDF, source["media_type"])
+	}
+	if source["data"] != pdfData {
+		t.Errorf("Expected base64 data to match")
+	}
+}
+
+// TestProcessClaudeToolResult_TextOnlyRegression verifies that text-only tool results
+// still serialize as a plain string (not wrapped in an array).
+func TestProcessClaudeToolResult_TextOnlyRegression(t *testing.T) {
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: func() *types.MessageToolResult {
+			r := types.NewTextToolResult("toolu_text_789", "lookup", "found result: 42")
+			return &r
+		}(),
+	}
+
+	result := processClaudeToolResult(msg)
+
+	// Should be a plain string, not an array
+	contentStr, ok := result.Content.(string)
+	if !ok {
+		t.Fatalf("Expected string content for text-only result, got %T", result.Content)
+	}
+	if contentStr != "found result: 42" {
+		t.Errorf("Expected 'found result: 42', got '%s'", contentStr)
+	}
+
+	// Verify JSON serialization produces a string, not an array
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	// content should be a string in JSON
+	if _, ok := parsed["content"].(string); !ok {
+		t.Errorf("Expected content to be string in JSON, got %T: %v", parsed["content"], parsed["content"])
+	}
+}
+
+// TestProcessClaudeToolResult_ImageWithURL verifies image parts with URL source.
+func TestProcessClaudeToolResult_ImageWithURL(t *testing.T) {
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "toolu_url_123",
+			Name: "fetch_image",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Image fetched"),
+				types.NewImagePartFromURL("https://example.com/chart.png", nil),
+			},
+		},
+	}
+
+	result := processClaudeToolResult(msg)
+
+	blocks, ok := result.Content.([]interface{})
+	if !ok {
+		t.Fatalf("Expected []interface{} content, got %T", result.Content)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("Expected 2 blocks, got %d", len(blocks))
+	}
+
+	// Verify URL-based image block via JSON
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(jsonBytes, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	content := parsed["content"].([]interface{})
+	imgBlock := content[1].(map[string]interface{})
+	source := imgBlock["source"].(map[string]interface{})
+	if source["type"] != "url" {
+		t.Errorf("Expected source type 'url', got '%s'", source["type"])
+	}
+	if source["url"] != "https://example.com/chart.png" {
+		t.Errorf("Expected URL 'https://example.com/chart.png', got '%s'", source["url"])
 	}
 }
