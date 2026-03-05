@@ -118,10 +118,25 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 		return nil, err
 	}
 
+	// Precompute root stages (stages with no incoming edges) for O(1) lookup.
+	hasIncoming := make(map[string]struct{})
+	for _, toStages := range b.edges {
+		for _, toStage := range toStages {
+			hasIncoming[toStage] = struct{}{}
+		}
+	}
+	rootStages := make(map[string]struct{})
+	for _, s := range b.stages {
+		if _, ok := hasIncoming[s.Name()]; !ok {
+			rootStages[s.Name()] = struct{}{}
+		}
+	}
+
 	// Build the pipeline
 	return &StreamPipeline{
 		stages:       b.stages,
 		edges:        b.edges,
+		rootStages:   rootStages,
 		config:       b.config,
 		eventEmitter: b.eventEmitter,
 		shutdown:     make(chan struct{}),

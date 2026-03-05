@@ -17,6 +17,7 @@ import (
 type StreamPipeline struct {
 	stages       []Stage
 	edges        map[string][]string // stage name -> downstream stage names
+	rootStages   map[string]struct{} // precomputed set of stages with no incoming edges
 	config       *PipelineConfig
 	eventEmitter *events.Emitter
 
@@ -204,16 +205,10 @@ func (p *StreamPipeline) getStageInput(stage Stage, pipelineInput <-chan StreamE
 	return nil
 }
 
-// isRootStage checks if a stage has no incoming edges.
+// isRootStage checks if a stage has no incoming edges (O(1) lookup).
 func (p *StreamPipeline) isRootStage(stageName string) bool {
-	for _, toStages := range p.edges {
-		for _, toStage := range toStages {
-			if toStage == stageName {
-				return false
-			}
-		}
-	}
-	return true
+	_, ok := p.rootStages[stageName]
+	return ok
 }
 
 // findUpstreamStage finds the stage that feeds into the given stage.
