@@ -467,6 +467,164 @@ func (h *countingEvalHandler) Eval(
 	return &evals.EvalResult{Passed: true}, nil
 }
 
+func TestEvalMiddleware_SemaphoreSkipsWhenAtCapacity(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	started := make(chan struct{}, 5)
+	unblock := make(chan struct{})
+	registry.Register(&gatedEvalHandler{
+		typeName: "gated",
+		started:  started,
+		unblock:  unblock,
+	})
+	runner := evals.NewEvalRunner(registry)
+
+	conv := &Conversation{
+		config: &config{
+			evalRunner:         runner,
+			maxConcurrentEvals: 2, // Only allow 2 concurrent evals
+		},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "gated", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if cap(mw.sem) != 2 {
+		t.Fatalf("expected semaphore capacity 2, got %d", cap(mw.sem))
+	}
+
+	// Dispatch 2 evals — both should be accepted (fill the semaphore)
+	mw.dispatchTurnEvals(context.Background())
+	mw.dispatchTurnEvals(context.Background())
+
+	// Wait for both goroutines to start running
+	<-started
+	<-started
+
+	// Dispatch a 3rd — should be skipped because semaphore is full
+	turnBefore := mw.turnIndex
+	mw.dispatchTurnEvals(context.Background())
+	// turnIndex still increments, but no goroutine was launched
+	if mw.turnIndex != turnBefore+1 {
+		t.Errorf("expected turnIndex to increment, got %d", mw.turnIndex)
+	}
+
+	// Unblock all goroutines and wait
+	close(unblock)
+	mw.wait()
+
+	// Verify only 2 evals actually ran (the 3rd was skipped)
+	if len(started) != 0 {
+		t.Errorf("expected started channel to be drained, got %d remaining", len(started))
+	}
+}
+
+func TestEvalMiddleware_SemaphoreDefaultCapacity(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if cap(mw.sem) != DefaultMaxConcurrentEvals {
+		t.Errorf("expected default semaphore capacity %d, got %d",
+			DefaultMaxConcurrentEvals, cap(mw.sem))
+	}
+}
+
+func TestEvalMiddleware_SemaphoreReleasedAfterCompletion(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	var count int32
+	var mu sync.Mutex
+	registry.Register(&countingEvalHandler{
+		typeName: "counting",
+		count:    &count,
+		mu:       &mu,
+	})
+	runner := evals.NewEvalRunner(registry)
+
+	conv := &Conversation{
+		config: &config{
+			evalRunner:         runner,
+			maxConcurrentEvals: 1, // Only 1 at a time
+		},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "counting", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	// Dispatch 3 evals sequentially, waiting between each so the semaphore is released
+	for range 3 {
+		mw.dispatchTurnEvals(context.Background())
+		mw.wait()
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if count != 3 {
+		t.Errorf("expected 3 eval runs (semaphore released after each), got %d", count)
+	}
+}
+
+func TestEvalMiddleware_CustomMaxConcurrentEvals(t *testing.T) {
+	conv := &Conversation{
+		config: &config{maxConcurrentEvals: 5},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if cap(mw.sem) != 5 {
+		t.Errorf("expected semaphore capacity 5, got %d", cap(mw.sem))
+	}
+}
+
+// gatedEvalHandler signals when started and blocks until unblock is closed.
+type gatedEvalHandler struct {
+	typeName string
+	started  chan struct{}
+	unblock  chan struct{}
+}
+
+func (h *gatedEvalHandler) Type() string { return h.typeName }
+
+func (h *gatedEvalHandler) Eval(
+	_ context.Context, _ *evals.EvalContext, _ map[string]any,
+) (*evals.EvalResult, error) {
+	h.started <- struct{}{}
+	<-h.unblock
+	return &evals.EvalResult{Passed: true}, nil
+}
+
 func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 	bus := events.NewEventBus()
 	received := make(chan *events.Event, 10)

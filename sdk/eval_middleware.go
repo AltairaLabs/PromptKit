@@ -9,6 +9,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
+// DefaultMaxConcurrentEvals is the default maximum number of concurrent eval goroutines.
+const DefaultMaxConcurrentEvals = 10
+
 // evalMiddleware holds dispatch state for eval execution within a conversation.
 type evalMiddleware struct {
 	runner    *evals.EvalRunner
@@ -21,6 +24,9 @@ type evalMiddleware struct {
 	wg     sync.WaitGroup     // tracks in-flight turn eval goroutines
 	ctx    context.Context    // canceled on close to stop in-flight evals
 	cancel context.CancelFunc // cancels ctx
+
+	// Bounded concurrency: sem limits how many eval goroutines run simultaneously.
+	sem chan struct{}
 }
 
 // newEvalMiddleware creates eval middleware for a conversation.
@@ -68,7 +74,12 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		emitter = events.NewEmitter(conv.config.eventBus, "", "", "")
 	}
 
-	logger.Info("evals: middleware created", "defs", len(defs))
+	maxConcurrent := DefaultMaxConcurrentEvals
+	if conv.config.maxConcurrentEvals > 0 {
+		maxConcurrent = conv.config.maxConcurrentEvals
+	}
+
+	logger.Info("evals: middleware created", "defs", len(defs), "max_concurrent", maxConcurrent)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	return &evalMiddleware{
@@ -78,6 +89,7 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		conv:    conv,
 		ctx:     ctx,
 		cancel:  cancel,
+		sem:     make(chan struct{}, maxConcurrent),
 	}
 }
 
@@ -91,6 +103,18 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	}
 
 	em.turnIndex++
+
+	// Try to acquire the semaphore without blocking. If all slots are taken,
+	// skip this eval dispatch to prevent unbounded goroutine growth.
+	select {
+	case em.sem <- struct{}{}:
+		// Acquired — proceed
+	default:
+		logger.Warn("evals: semaphore full, skipping turn eval dispatch",
+			"turn", em.turnIndex, "capacity", cap(em.sem))
+		return
+	}
+
 	evalCtx := em.buildEvalContext(ctx)
 
 	// Use the middleware's lifecycle context so that close() can cancel
@@ -99,6 +123,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	em.wg.Add(1)
 	go func() {
 		defer em.wg.Done()
+		defer func() { <-em.sem }()
 		results := em.runner.RunTurnEvals(em.ctx, em.defs, evalCtx)
 		em.emitResults(results)
 	}()

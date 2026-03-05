@@ -137,10 +137,11 @@ type config struct {
 	localAgentExecutor *LocalAgentExecutor
 
 	// Eval configuration
-	evalRunner    *evals.EvalRunner
-	evalRegistry  *evals.EvalTypeRegistry
-	judgeProvider handlers.JudgeProvider
-	evalsDisabled bool
+	evalRunner         *evals.EvalRunner
+	evalRegistry       *evals.EvalTypeRegistry
+	judgeProvider      handlers.JudgeProvider
+	evalsDisabled      bool
+	maxConcurrentEvals int
 
 	// Workflow context carry-forward (used by OpenWorkflow)
 	contextCarryForward bool
@@ -1677,6 +1678,22 @@ func WithEvalsDisabled() Option {
 func WithJudgeProvider(jp handlers.JudgeProvider) Option {
 	return func(c *config) error {
 		c.judgeProvider = jp
+		return nil
+	}
+}
+
+// WithMaxConcurrentEvals sets the maximum number of concurrent eval goroutines.
+//
+// Each Send() call dispatches turn evals asynchronously. This option limits how
+// many eval goroutines can run concurrently. If the limit is reached, additional
+// eval dispatches are skipped (non-blocking) to prevent unbounded goroutine growth.
+// The default is DefaultMaxConcurrentEvals (10).
+func WithMaxConcurrentEvals(n int) Option {
+	return func(c *config) error {
+		if n <= 0 {
+			return fmt.Errorf("maxConcurrentEvals must be positive, got %d", n)
+		}
+		c.maxConcurrentEvals = n
 		return nil
 	}
 }
