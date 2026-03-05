@@ -5,12 +5,17 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // Default configuration values for the event bus worker pool.
 const (
-	DefaultWorkerPoolSize  = 10
-	DefaultEventBufferSize = 1000
+	DefaultWorkerPoolSize    = 10
+	DefaultEventBufferSize   = 1000
+	DefaultSubscriberTimeout = 5 * time.Second
+	dropLogRateLimit         = 100 // log every Nth drop to avoid spam
 )
 
 // Listener is a function that handles events.
@@ -20,8 +25,9 @@ type Listener func(*Event)
 type BusOption func(*busConfig)
 
 type busConfig struct {
-	workerPoolSize  int
-	eventBufferSize int
+	workerPoolSize    int
+	eventBufferSize   int
+	subscriberTimeout time.Duration
 }
 
 // WithWorkerPoolSize sets the number of worker goroutines that process events.
@@ -44,6 +50,16 @@ func WithEventBufferSize(size int) BusOption {
 	}
 }
 
+// WithSubscriberTimeout sets the maximum duration a listener is allowed to run
+// before it is considered timed out and skipped. Defaults to DefaultSubscriberTimeout (5s).
+func WithSubscriberTimeout(d time.Duration) BusOption {
+	return func(c *busConfig) {
+		if d > 0 {
+			c.subscriberTimeout = d
+		}
+	}
+}
+
 // listenerEntry holds a listener with a unique ID for unsubscription.
 type listenerEntry struct {
 	id       uint64
@@ -58,9 +74,11 @@ type EventBus struct {
 	store           EventStore
 	nextID          atomic.Uint64
 
-	eventCh chan *Event
-	wg      sync.WaitGroup
-	closed  atomic.Bool
+	eventCh           chan *Event
+	wg                sync.WaitGroup
+	closed            atomic.Bool
+	droppedCount      atomic.Int64
+	subscriberTimeout time.Duration
 }
 
 // NewEventBus creates a new event bus with a worker pool.
@@ -68,16 +86,18 @@ type EventBus struct {
 // The zero-argument form uses sensible defaults and is fully backward-compatible.
 func NewEventBus(opts ...BusOption) *EventBus {
 	cfg := &busConfig{
-		workerPoolSize:  DefaultWorkerPoolSize,
-		eventBufferSize: DefaultEventBufferSize,
+		workerPoolSize:    DefaultWorkerPoolSize,
+		eventBufferSize:   DefaultEventBufferSize,
+		subscriberTimeout: DefaultSubscriberTimeout,
 	}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
 	eb := &EventBus{
-		listeners: make(map[EventType][]listenerEntry),
-		eventCh:   make(chan *Event, cfg.eventBufferSize),
+		listeners:         make(map[EventType][]listenerEntry),
+		eventCh:           make(chan *Event, cfg.eventBufferSize),
+		subscriberTimeout: cfg.subscriberTimeout,
 	}
 
 	eb.wg.Add(cfg.workerPoolSize)
@@ -97,6 +117,8 @@ func (eb *EventBus) worker() {
 }
 
 // dispatch delivers an event to all matching listeners.
+// Each listener is invoked with a timeout; if a listener exceeds the subscriber
+// timeout it is skipped and a warning is logged.
 func (eb *EventBus) dispatch(event *Event) {
 	eb.mu.RLock()
 	typeListeners := eb.listeners[event.Type]
@@ -109,10 +131,30 @@ func (eb *EventBus) dispatch(event *Event) {
 	eb.mu.RUnlock()
 
 	for _, entry := range specificEntries {
-		safeInvoke(entry.listener, event)
+		eb.invokeWithTimeout(entry.listener, event)
 	}
 	for _, entry := range globalEntries {
-		safeInvoke(entry.listener, event)
+		eb.invokeWithTimeout(entry.listener, event)
+	}
+}
+
+// invokeWithTimeout runs a listener with the configured subscriber timeout.
+// If the listener does not complete in time, a warning is logged and the call is skipped.
+func (eb *EventBus) invokeWithTimeout(listener Listener, event *Event) {
+	done := make(chan struct{}, 1)
+	go func() {
+		safeInvoke(listener, event)
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-done:
+		return
+	case <-time.After(eb.subscriberTimeout):
+		logger.Warn("event subscriber timed out",
+			"event_type", string(event.Type),
+			"timeout", eb.subscriberTimeout.String(),
+		)
 	}
 }
 
@@ -205,8 +247,20 @@ func (eb *EventBus) Publish(event *Event) bool {
 	case eb.eventCh <- event:
 		return true
 	default:
+		dropped := eb.droppedCount.Add(1)
+		if dropped%dropLogRateLimit == 1 {
+			logger.Warn("event dropped: buffer full",
+				"event_type", string(event.Type),
+				"total_dropped", dropped,
+			)
+		}
 		return false
 	}
+}
+
+// DroppedCount returns the total number of events dropped due to a full buffer.
+func (eb *EventBus) DroppedCount() int64 {
+	return eb.droppedCount.Load()
 }
 
 // Close shuts down the event bus gracefully. It closes the event channel and
