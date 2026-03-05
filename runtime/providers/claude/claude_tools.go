@@ -18,6 +18,10 @@ const (
 	roleAssistant   = "assistant"
 	apiKeyHeader    = "x-api-key"
 	providerNameLog = "Claude-Tools"
+
+	// Claude content source types
+	sourceTypeBase64 = "base64"
+	sourceTypeURL    = "url"
 )
 
 // ToolProvider extends ClaudeProvider with tool support
@@ -58,9 +62,9 @@ type claudeToolUse struct {
 }
 
 type claudeToolResult struct {
-	Type      string `json:"type"`
-	ToolUseID string `json:"tool_use_id"`
-	Content   string `json:"content"`
+	Type      string      `json:"type"`
+	ToolUseID string      `json:"tool_use_id"`
+	Content   interface{} `json:"content"` // string for text-only, []interface{} for multimodal
 }
 
 type claudeToolMessage struct {
@@ -127,14 +131,85 @@ func (p *ToolProvider) PredictWithTools(
 	return p.parseToolResponse(respBytes, &predictResp, latency)
 }
 
-// processClaudeToolResult converts a tool message to Claude's tool_result format
+// processClaudeToolResult converts a tool message to Claude's tool_result format.
+// For text-only results, content is a plain string.
+// For multimodal results (containing images, documents, etc.), content is an array of content blocks.
+//
+//nolint:gocritic // hugeParam: types.Message is part of established API
 func processClaudeToolResult(msg types.Message) claudeToolResult {
-	return claudeToolResult{
+	result := claudeToolResult{
 		Type:      "tool_result",
 		ToolUseID: msg.ToolResult.ID,
-		// Use ToolResult.GetTextContent() (not msg.Content which is empty)
-		Content: msg.ToolResult.GetTextContent(),
 	}
+
+	// If the tool result has media parts, serialize as an array of content blocks
+	if msg.ToolResult.HasMedia() {
+		result.Content = buildToolResultContentBlocks(msg.ToolResult.Parts)
+		return result
+	}
+
+	// Text-only: use plain string to avoid unnecessary array wrapping
+	result.Content = msg.ToolResult.GetTextContent()
+	return result
+}
+
+// buildToolResultContentBlocks converts tool result parts to Claude content block array.
+// Each part is converted independently via convertToolResultPart.
+func buildToolResultContentBlocks(parts []types.ContentPart) []interface{} {
+	blocks := make([]interface{}, 0, len(parts))
+	for _, part := range parts {
+		if block := convertToolResultPart(part); block != nil {
+			blocks = append(blocks, block)
+		}
+	}
+	return blocks
+}
+
+// convertToolResultPart converts a single content part to a Claude content block.
+// Returns nil if the part cannot be converted.
+func convertToolResultPart(part types.ContentPart) interface{} {
+	switch part.Type {
+	case types.ContentTypeText:
+		if part.Text != nil && *part.Text != "" {
+			return claudeTextContent{Type: "text", Text: *part.Text}
+		}
+	case types.ContentTypeImage:
+		if part.Media != nil {
+			return buildToolResultMediaBlock("image", part)
+		}
+	case types.ContentTypeDocument:
+		if part.Media != nil {
+			return buildToolResultMediaBlock("document", part)
+		}
+	}
+	return nil
+}
+
+// buildToolResultMediaBlock creates a Claude media content block (image or document).
+func buildToolResultMediaBlock(blockType string, part types.ContentPart) interface{} {
+	block := claudeContentBlockMultimodal{
+		Type: blockType,
+		Source: &claudeImageSource{
+			MediaType: part.Media.MIMEType,
+		},
+	}
+
+	// For images, check URL source first
+	if blockType == "image" && part.Media.URL != nil && *part.Media.URL != "" {
+		block.Source.Type = sourceTypeURL
+		block.Source.URL = *part.Media.URL
+		return block
+	}
+
+	// Use MediaLoader for base64 data (supports Data, FilePath, StorageReference)
+	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	data, err := loader.GetBase64Data(context.Background(), part.Media)
+	if err != nil {
+		return nil
+	}
+	block.Source.Type = sourceTypeBase64
+	block.Source.Data = data
+	return block
 }
 
 // buildClaudeMessageContent creates content array for a message including text, images, and tool calls
