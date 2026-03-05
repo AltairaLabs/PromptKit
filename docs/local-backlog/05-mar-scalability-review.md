@@ -22,8 +22,9 @@ Comprehensive review of limits, bottlenecks, and scalability concerns across the
 - ~~Every `Load()` and `Save()` deep-copies the entire state including all messages, content parts, and media.~~
 - **Fixed in `feat/scalability-medium-priority-fixes`**: Optimized `deepCopyMessages` with slab allocation (`batchCopyStringPtrs`/`batchCopyIntPtrs`) to reduce per-pointer heap allocations. Added fast paths for text-only content parts and simple messages (single text part, no metadata) that avoid reflection-heavy generic copy. Reduces GC pressure significantly for typical conversation workloads.
 
-### 1.5 Redis state store serializes monolithically (MEDIUM)
-- **runtime/statestore/redis.go:96-131** — `Save` serializes the entire `ConversationState` as a single JSON blob. For conversations with thousands of messages or embedded media, this creates very large Redis values. An incremental `AppendMessages` path exists but isn't the default.
+### 1.5 ~~Redis state store serializes monolithically~~ RESOLVED
+- ~~**runtime/statestore/redis.go:96-131** — `Save` serializes the entire `ConversationState` as a single JSON blob.~~
+- **Fixed in `feat/scalability-remaining-fixes`**: Decomposed storage into 3 separate Redis keys: meta (small JSON), messages list (per-message entries), and summaries list. `Save()` only serializes metadata fully; messages/summaries use Redis lists. `Load()` falls back to legacy monolithic format for backward compatibility.
 
 ---
 
@@ -66,8 +67,9 @@ Comprehensive review of limits, bottlenecks, and scalability concerns across the
 - ~~**runtime/providers/openai/openai.go:799** and **claude/claude_streaming.go:115** — Create unbuffered `chan StreamChunk`. A slow consumer causes the streaming goroutine to block on every send, which can idle the HTTP connection long enough for proxy timeouts.~~
 - **Fixed in `feat/scalability-remaining-fixes`**: All 17 stream channel allocations across all providers now use `DefaultStreamBufferSize = 32` elements. Reduces backpressure-induced stalls.
 
-### 3.5 No idle timeout between stream chunks (MEDIUM)
-- If a provider stops sending data mid-stream, the only protection is the HTTP client timeout (60s). No heartbeat or inactivity detection between chunks.
+### 3.5 ~~No idle timeout between stream chunks~~ RESOLVED
+- ~~If a provider stops sending data mid-stream, the only protection is the HTTP client timeout (60s). No heartbeat or inactivity detection between chunks.~~
+- **Fixed in `feat/scalability-remaining-fixes`**: Added `IdleTimeoutReader` that wraps response bodies with `DefaultStreamIdleTimeout = 30s`. Timer resets on each successful read. If no data arrives within the timeout, the body is closed and `ErrStreamIdleTimeout` is returned. Applied to all 6 providers.
 
 ### 3.6 ~~Context cancellation doesn't unblock scanner~~ RESOLVED
 - ~~**runtime/providers/openai/openai.go:445-545** — The streaming goroutine checks `ctx.Done()` via select/default, but if blocked on `scanner.Scan()` (I/O), it stays blocked until the HTTP connection times out. The response body needs to be closed to unblock the scanner.~~
@@ -85,11 +87,13 @@ Comprehensive review of limits, bottlenecks, and scalability concerns across the
 - ~~`dispatch()` calls listeners synchronously. A slow listener blocks the worker.~~
 - **Fixed in `feat/scalability-medium-priority-fixes`**: Added `invokeWithTimeout()` that wraps subscriber calls with a configurable timeout (default 5s via `WithSubscriberTimeout()`). Slow subscribers are interrupted and logged rather than blocking workers indefinitely.
 
-### 4.3 Synchronous event store in publish path (MEDIUM)
-- **runtime/events/bus.go:197-199** — When an event store is configured, `store.Append()` is called synchronously *before* queuing. If backed by a database, this adds latency to every `Publish()` on the critical path.
+### 4.3 ~~Synchronous event store in publish path~~ RESOLVED
+- ~~**runtime/events/bus.go:197-199** — When an event store is configured, `store.Append()` is called synchronously *before* queuing.~~
+- **Fixed in `feat/scalability-remaining-fixes`**: Moved `store.Append()` from `Publish()` to `dispatch()` worker goroutine. Store writes are now asynchronous relative to the publisher.
 
-### 4.4 Event bus always created (LOW)
-- **sdk/sdk.go:427-442** — `initEventBus()` creates an `EventBus` and spawns 10 worker goroutines even when no one subscribes.
+### 4.4 ~~Event bus always created~~ RESOLVED
+- ~~**sdk/sdk.go:427-442** — `initEventBus()` creates an `EventBus` and spawns 10 worker goroutines even when no one subscribes.~~
+- **Fixed in `feat/scalability-remaining-fixes`**: Workers are now started lazily via `ensureStarted()` (atomic CAS) on first `Subscribe()`, `SubscribeAll()`, or `WithStore()` call.
 
 ---
 
@@ -135,15 +139,17 @@ Comprehensive review of limits, bottlenecks, and scalability concerns across the
 - ~~`getMediaData` uses `io.ReadAll` with no size limit.~~
 - **Fixed in `feat/scalability-high-priority-fixes`**: Read paths now use `io.LimitReader` capped at `MaxFileSize`. File reads check `os.Stat` before reading.
 
-### 6.5 Dedup index fully in memory (MEDIUM)
-- **runtime/storage/local/filestore.go:56-62, 450-479** — `dedupIndex` is a `map[string]string` re-serialized to JSON on every store. O(N) writes for N stored files.
+### 6.5 ~~Dedup index fully in memory~~ RESOLVED
+- ~~**runtime/storage/local/filestore.go:56-62, 450-479** — `dedupIndex` is a `map[string]string` re-serialized to JSON on every store. O(N) writes for N stored files.~~
+- **Fixed in `feat/scalability-remaining-fixes`**: Added `dedupDirty` flag — index is only written when actually modified. Dedup hits skip writes entirely. Added `Flush()` method for explicit persistence.
 
 ### 6.6 ~~No policy enforcement started by default~~ RESOLVED
 - ~~`StartEnforcement` is never called automatically. Media files with retention policies are never cleaned up.~~
 - **Fixed in `feat/scalability-medium-priority-fixes`**: Added `WithAutoStart(bool)` and `WithBaseDir(string)` functional options. When `autoStart=true`, enforcement starts automatically on construction. `StartEnforcement` and `Stop` are now idempotent.
 
-### 6.7 Policy enforcement walks entire directory tree (MEDIUM)
-- **runtime/storage/policy/time_based.go:77-115** — Uses `filepath.Walk` to scan the entire media directory on every enforcement tick. No index of expiring files.
+### 6.7 ~~Policy enforcement walks entire directory tree~~ RESOLVED
+- ~~**runtime/storage/policy/time_based.go:77-115** — Uses `filepath.Walk` to scan the entire media directory on every enforcement tick. No index of expiring files.~~
+- **Fixed in `feat/scalability-remaining-fixes`**: Added `expiryIndex` map with `BuildExpiryIndex()` (scans once on startup). Subsequent ticks only check files whose expiry has passed — O(expired) instead of O(total). `TrackFile()`/`UntrackFile()` maintain index incrementally.
 
 ---
 
@@ -197,15 +203,17 @@ Comprehensive review of limits, bottlenecks, and scalability concerns across the
 
 ## 10. MCP Client
 
-### 10.1 No reconnection on process death (MEDIUM)
-- **runtime/mcp/client.go:309-327** — `checkHealth` detects `ErrProcessDied` but has no reconnection logic. The registry's `GetClient` does check `IsAlive()` and creates new clients, but the dead client's pending requests leak until context timeout.
+### 10.1 ~~No reconnection on process death~~ RESOLVED
+- ~~**runtime/mcp/client.go:309-327** — `checkHealth` detects `ErrProcessDied` but has no reconnection logic. Dead client's pending requests leak until context timeout.~~
+- **Fixed in `feat/scalability-remaining-fixes`**: `checkHealth()` now attempts auto-reconnection via `reconnect()` with configurable `MaxReconnectAttempts` (default 3). `failPendingRequests()` sends error responses to all pending RPC channels before reconnecting. `cleanupDeadProcess()` properly releases pipes and waits for goroutines.
 
 ### 10.2 ~~Sleep while holding mutex during init retry~~ RESOLVED
 - ~~`time.Sleep(delay)` during init retry blocks `c.mu`, preventing all other operations during retry delays.~~
 - **Fixed in `feat/scalability-medium-priority-fixes`**: Extracted `startProcessWithRetry()` that releases the mutex before sleeping. Sleep is now cancellable via `select` on `time.After`/`ctx.Done()` instead of blocking `time.Sleep`.
 
-### 10.3 No limit on concurrent MCP processes (MEDIUM)
-- **runtime/mcp/registry.go** — Each MCP server is a child process. No limit on concurrent processes — can exhaust OS process/FD limits.
+### 10.3 ~~No limit on concurrent MCP processes~~ RESOLVED
+- ~~**runtime/mcp/registry.go** — Each MCP server is a child process. No limit on concurrent processes — can exhaust OS process/FD limits.~~
+- **Fixed in `feat/scalability-remaining-fixes`**: Added `RegistryOptions` with `MaxProcesses` field. Non-blocking counting semaphore via buffered channel. Returns `ErrMaxProcessesReached` when limit is hit. `ActiveProcessCount()` exposes current usage.
 
 ---
 
@@ -277,24 +285,19 @@ Comprehensive review of limits, bottlenecks, and scalability concerns across the
 
 ## Recommended Next Steps
 
-All critical, high, medium, and most low-priority items have been addressed. Remaining work:
+Nearly all code-level scalability issues have been addressed across 4 PRs (#630, #631, #632, #634). Remaining work is primarily architectural/infrastructure:
 
-### Remaining Items (not yet addressed)
+### Remaining Code Items
 1. **Integrate tiktoken-go** — replace heuristic token counter for accurate context window management (currently improved but still heuristic).
-2. **No idle timeout between stream chunks** (3.5) — if a provider stops sending data mid-stream, the only protection is the HTTP client timeout.
-3. **Synchronous event store in publish path** (4.3) — `store.Append()` is called synchronously before queuing.
-4. **Event bus always created** (4.4) — `initEventBus()` creates an EventBus even when no one subscribes.
-5. **Dedup index fully in memory** (6.5) — re-serialized to JSON on every store.
-6. **Policy enforcement walks entire directory tree** (6.7) — `filepath.Walk` on every tick.
-7. **Redis state store serializes monolithically** (1.5) — entire state as single JSON blob.
-8. **MCP no reconnection on process death** (10.1) — dead client's pending requests leak.
-9. **No limit on concurrent MCP processes** (10.3) — can exhaust OS process/FD limits.
+2. **StreamChunk carries accumulated content** (3.3) — O(N²) memory for all chunks in the channel.
+3. **Hardcoded HTTP client timeout** (2.4) — 60s covers entire request lifecycle including streaming.
+4. **Full response body read into memory** (2.5) — non-streaming responses use `io.ReadAll` with no size limit.
 
 ### K8s / Production Deployment (infrastructure gaps)
-10. **Share MCP registry across conversations** — prevent O(N) child processes.
-11. **Cloud storage backend** — replace `FileStore` with S3/GCS for persistent media storage.
-12. **Share provider instances** — avoid per-conversation HTTP connection pools.
-13. **External pub/sub for cross-pod events** — EventBus is in-process only.
+5. **Share MCP registry across conversations** — prevent O(N) child processes.
+6. **Cloud storage backend** — replace `FileStore` with S3/GCS for persistent media storage.
+7. **Share provider instances** — avoid per-conversation HTTP connection pools.
+8. **External pub/sub for cross-pod events** — EventBus is in-process only.
 
 ---
 
