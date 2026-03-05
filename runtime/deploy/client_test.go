@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"io"
 	"os/exec"
+	"strings"
 	"testing"
+	"time"
 )
 
 // mockServer reads JSON-RPC requests from r and writes responses to w,
@@ -288,7 +290,7 @@ func TestClientAdapterError(t *testing.T) {
 
 	// Call a method that doesn't exist to trigger an error response.
 	var result json.RawMessage
-	err := client.call("nonexistent", nil, &result)
+	err := client.callCtx(context.Background(), "nonexistent", nil, &result)
 	if err == nil {
 		t.Fatal("expected error for unknown method")
 	}
@@ -387,6 +389,54 @@ func TestClientImport_Error(t *testing.T) {
 	}
 	if rpcErr.Code != -32603 {
 		t.Errorf("error code = %d, want -32603", rpcErr.Code)
+	}
+}
+
+func TestNewAdapterClientWithContext(t *testing.T) {
+	// Non-existent binary should fail.
+	_, err := NewAdapterClientWithContext(context.Background(), "/nonexistent/binary/path")
+	if err == nil {
+		t.Fatal("expected error for nonexistent binary")
+	}
+}
+
+func TestCallCtx_Timeout(t *testing.T) {
+	// Create a server that never responds.
+	serverReader, clientWriter := io.Pipe()
+	clientReader, _ := io.Pipe() // server never writes
+
+	// Start a goroutine to drain the server reader so writes don't block.
+	go func() {
+		scanner := bufio.NewScanner(serverReader)
+		for scanner.Scan() {
+			// Read and discard
+		}
+	}()
+
+	client := NewAdapterClientIO(clientReader, clientWriter)
+	defer client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := client.GetProviderInfo(ctx)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Errorf("expected context deadline error, got: %v", err)
+	}
+}
+
+func TestCallCtx_CancelledContext(t *testing.T) {
+	client := startTestClient(t, defaultHandler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := client.GetProviderInfo(ctx)
+	if err == nil {
+		t.Fatal("expected error with cancelled context")
 	}
 }
 
