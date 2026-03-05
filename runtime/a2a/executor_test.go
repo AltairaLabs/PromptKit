@@ -8,7 +8,11 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// Compile-time interface check.
+var _ tools.MultimodalExecutor = (*Executor)(nil)
 
 func TestExecutor_Name(t *testing.T) {
 	e := NewExecutor()
@@ -416,5 +420,280 @@ func TestExtractResponseText_StatusPrecedence(t *testing.T) {
 	// Status message text takes precedence over artifacts
 	if got := ExtractResponseText(task); got != "from status" {
 		t.Errorf("got %q, want %q", got, "from status")
+	}
+}
+
+func TestExtractResponseParts_TextOnly(t *testing.T) {
+	text := "hello world"
+	task := &Task{
+		Status: TaskStatus{
+			Message: &Message{
+				Parts: []Part{{Text: &text}},
+			},
+		},
+	}
+	parts := ExtractResponseParts(task)
+	if len(parts) != 1 {
+		t.Fatalf("got %d parts, want 1", len(parts))
+	}
+	if parts[0].Type != types.ContentTypeText {
+		t.Errorf("type = %q, want %q", parts[0].Type, types.ContentTypeText)
+	}
+	if parts[0].Text == nil || *parts[0].Text != "hello world" {
+		t.Errorf("text = %v, want %q", parts[0].Text, "hello world")
+	}
+}
+
+func TestExtractResponseParts_ImageBase64(t *testing.T) {
+	task := &Task{
+		Status: TaskStatus{
+			Message: &Message{
+				Parts: []Part{
+					{Raw: []byte("raw-image-bytes"), MediaType: "image/png"},
+				},
+			},
+		},
+	}
+	parts := ExtractResponseParts(task)
+	if len(parts) != 1 {
+		t.Fatalf("got %d parts, want 1", len(parts))
+	}
+	if parts[0].Type != types.ContentTypeImage {
+		t.Errorf("type = %q, want %q", parts[0].Type, types.ContentTypeImage)
+	}
+	if parts[0].Media == nil || parts[0].Media.Data == nil {
+		t.Fatal("expected media with data")
+	}
+}
+
+func TestExtractResponseParts_URLPart(t *testing.T) {
+	url := "https://example.com/image.png"
+	task := &Task{
+		Status: TaskStatus{
+			Message: &Message{
+				Parts: []Part{
+					{URL: &url, MediaType: "image/png"},
+				},
+			},
+		},
+	}
+	parts := ExtractResponseParts(task)
+	if len(parts) != 1 {
+		t.Fatalf("got %d parts, want 1", len(parts))
+	}
+	if parts[0].Media == nil || parts[0].Media.URL == nil || *parts[0].Media.URL != url {
+		t.Errorf("expected URL %q in media", url)
+	}
+}
+
+func TestExtractResponseParts_Artifacts(t *testing.T) {
+	text := "artifact text"
+	task := &Task{
+		Status: TaskStatus{State: TaskStateCompleted},
+		Artifacts: []Artifact{
+			{Parts: []Part{{Text: &text}}},
+			{Parts: []Part{{Raw: []byte("img"), MediaType: "image/jpeg"}}},
+		},
+	}
+	parts := ExtractResponseParts(task)
+	if len(parts) != 2 {
+		t.Fatalf("got %d parts, want 2", len(parts))
+	}
+	if parts[0].Type != types.ContentTypeText {
+		t.Errorf("part 0 type = %q, want %q", parts[0].Type, types.ContentTypeText)
+	}
+	if parts[1].Type != types.ContentTypeImage {
+		t.Errorf("part 1 type = %q, want %q", parts[1].Type, types.ContentTypeImage)
+	}
+}
+
+func TestExtractResponseParts_Empty(t *testing.T) {
+	task := &Task{
+		Status: TaskStatus{State: TaskStateCompleted},
+	}
+	parts := ExtractResponseParts(task)
+	if len(parts) != 0 {
+		t.Errorf("got %d parts, want 0", len(parts))
+	}
+}
+
+func TestExtractResponseParts_SkipsUnsupported(t *testing.T) {
+	text := "ok"
+	task := &Task{
+		Status: TaskStatus{
+			Message: &Message{
+				Parts: []Part{
+					{Text: &text},
+					{Data: map[string]any{"key": "value"}}, // structured data — unsupported
+				},
+			},
+		},
+	}
+	parts := ExtractResponseParts(task)
+	if len(parts) != 1 {
+		t.Fatalf("got %d parts, want 1 (structured data should be skipped)", len(parts))
+	}
+}
+
+func TestExtractResponseParts_StatusAndArtifacts(t *testing.T) {
+	statusText := "status"
+	artifactText := "artifact"
+	task := &Task{
+		Status: TaskStatus{
+			Message: &Message{
+				Parts: []Part{{Text: &statusText}},
+			},
+		},
+		Artifacts: []Artifact{
+			{Parts: []Part{{Text: &artifactText}}},
+		},
+	}
+	parts := ExtractResponseParts(task)
+	// Should include both status and artifact parts
+	if len(parts) != 2 {
+		t.Fatalf("got %d parts, want 2", len(parts))
+	}
+	if *parts[0].Text != "status" {
+		t.Errorf("part 0 = %q, want %q", *parts[0].Text, "status")
+	}
+	if *parts[1].Text != "artifact" {
+		t.Errorf("part 1 = %q, want %q", *parts[1].Text, "artifact")
+	}
+}
+
+func TestExecutor_ExecuteMultimodal_BasicFlow(t *testing.T) {
+	text := "multimodal response"
+	task := &Task{
+		ID: "task-mm-1",
+		Status: TaskStatus{
+			State: TaskStateCompleted,
+			Message: &Message{
+				Role: RoleAgent,
+				Parts: []Part{
+					{Text: &text},
+					{Raw: []byte("image-data"), MediaType: "image/png"},
+				},
+			},
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		rpcResult(w, req.ID, task)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name:      "a2a__agent__skill",
+		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
+	}
+
+	result, parts, err := e.ExecuteMultimodal(
+		context.Background(), desc, json.RawMessage(`{"query":"analyze image"}`),
+	)
+	if err != nil {
+		t.Fatalf("ExecuteMultimodal() error = %v", err)
+	}
+
+	// Check JSON result
+	var out map[string]string
+	if err := json.Unmarshal(result, &out); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if out["response"] != "multimodal response" {
+		t.Errorf("response = %q, want %q", out["response"], "multimodal response")
+	}
+
+	// Check content parts
+	if len(parts) != 2 {
+		t.Fatalf("got %d parts, want 2", len(parts))
+	}
+	if parts[0].Type != types.ContentTypeText {
+		t.Errorf("part 0 type = %q, want %q", parts[0].Type, types.ContentTypeText)
+	}
+	if parts[1].Type != types.ContentTypeImage {
+		t.Errorf("part 1 type = %q, want %q", parts[1].Type, types.ContentTypeImage)
+	}
+}
+
+func TestExecutor_ExecuteMultimodal_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		rpcErrorResp(w, req.ID, -32600, "bad request")
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name:      "test-tool",
+		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
+	}
+
+	_, _, err := e.ExecuteMultimodal(
+		context.Background(), desc, json.RawMessage(`{"query":"test"}`),
+	)
+	if err == nil {
+		t.Fatal("expected error from server error response")
+	}
+}
+
+func TestExecutor_ExecuteMultimodal_NoA2AConfig(t *testing.T) {
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	desc := &tools.ToolDescriptor{Name: "test-tool"}
+
+	_, _, err := e.ExecuteMultimodal(
+		context.Background(), desc, json.RawMessage(`{"query":"hello"}`),
+	)
+	if err == nil {
+		t.Fatal("expected error for missing A2AConfig")
+	}
+}
+
+func TestExecutor_ExecuteMultimodal_WithTimeout(t *testing.T) {
+	text := "ok"
+	task := &Task{
+		ID: "task-mm-t",
+		Status: TaskStatus{
+			State:   TaskStateCompleted,
+			Message: &Message{Role: RoleAgent, Parts: []Part{{Text: &text}}},
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		rpcResult(w, req.ID, task)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name: "test-tool",
+		A2AConfig: &tools.A2AConfig{
+			AgentURL:  srv.URL,
+			TimeoutMs: 5000,
+		},
+	}
+
+	result, parts, err := e.ExecuteMultimodal(
+		context.Background(), desc, json.RawMessage(`{"query":"hello"}`),
+	)
+	if err != nil {
+		t.Fatalf("ExecuteMultimodal() error = %v", err)
+	}
+
+	var out map[string]string
+	if err := json.Unmarshal(result, &out); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if out["response"] != "ok" {
+		t.Errorf("response = %q, want %q", out["response"], "ok")
+	}
+	if len(parts) != 1 {
+		t.Fatalf("got %d parts, want 1", len(parts))
 	}
 }
