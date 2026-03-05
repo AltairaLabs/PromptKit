@@ -297,6 +297,10 @@ func TestEventBus_WithStore(t *testing.T) {
 	}
 	bus.Publish(event)
 
+	// Close the bus to ensure the worker finishes processing the event
+	// (store writes are now asynchronous in the dispatch worker).
+	bus.Close()
+
 	// Sync to disk
 	require.NoError(t, store.Sync())
 
