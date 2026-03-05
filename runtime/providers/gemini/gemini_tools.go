@@ -144,36 +144,28 @@ func (p *ToolProvider) PredictWithTools(
 	return p.parseToolResponse(respBytes, predictResp)
 }
 
-// processToolMessage converts a tool result message to Gemini's functionResponse format
+// processToolMessage converts a tool result message to Gemini's functionResponse format.
+// For multimodal tool results (containing images, audio, etc.), it builds a response
+// with text and inlineData entries per Gemini's multimodal function response format.
 //
 //nolint:gocritic // hugeParam: types.Message is part of established API
 func processToolMessage(msg types.Message) map[string]any {
-	// Use ToolResult.GetTextContent() (not msg.Content which is empty for tool result messages)
-	content := msg.ToolResult.GetTextContent()
-
-	var response any
-	if err := json.Unmarshal([]byte(content), &response); err != nil {
-		// If unmarshal fails, wrap the content in an object
-		response = map[string]any{
-			"result": content,
-		}
-	} else {
-		// Successfully unmarshaled, but check if it's a map (object) or primitive
-		if _, isMap := response.(map[string]any); !isMap {
-			response = map[string]any{
-				"result": response,
-			}
-		}
-	}
-
 	// Debug: log tool message details
 	logger.Debug("Processing tool message",
 		"name", msg.ToolResult.Name,
-		"content_length", len(content),
+		"has_media", msg.ToolResult.HasMedia(),
 		"tool_result_id", msg.ToolResult.ID)
 
 	if msg.ToolResult.Name == "" {
 		logger.Warn("Tool message has empty Name field - functionResponse will be invalid")
+	}
+
+	var response any
+
+	if msg.ToolResult.HasMedia() {
+		response = buildMultimodalToolResponse(msg.ToolResult)
+	} else {
+		response = buildTextToolResponse(msg.ToolResult.GetTextContent())
 	}
 
 	return map[string]any{
@@ -182,6 +174,60 @@ func processToolMessage(msg types.Message) map[string]any {
 			"response": response,
 		},
 	}
+}
+
+// buildTextToolResponse creates a response object from text-only tool result content.
+// It attempts to parse the content as JSON; if successful and it's a JSON object,
+// it uses it directly. Otherwise, it wraps the content in a {"result": ...} object.
+func buildTextToolResponse(content string) any {
+	var response any
+	if err := json.Unmarshal([]byte(content), &response); err != nil {
+		return map[string]any{
+			"result": content,
+		}
+	}
+	// Successfully unmarshaled, but check if it's a map (object) or primitive
+	if _, isMap := response.(map[string]any); !isMap {
+		return map[string]any{
+			"result": response,
+		}
+	}
+	return response
+}
+
+// buildMultimodalToolResponse creates a response object from a multimodal tool result.
+// It emits text fields and inlineData entries for media parts, matching Gemini's format:
+//
+//	{
+//	  "text": "Chart generated successfully",
+//	  "inlineData": { "mimeType": "image/png", "data": "..." }
+//	}
+func buildMultimodalToolResponse(result *types.MessageToolResult) map[string]any {
+	response := make(map[string]any)
+
+	// Collect text content from all text parts
+	textContent := result.GetTextContent()
+	if textContent != "" {
+		response["text"] = textContent
+	}
+
+	// Find the first media part and add it as inlineData.
+	// Gemini's functionResponse.response is a flat object, so we use the first media part.
+	for _, part := range result.Parts {
+		if part.Type == types.ContentTypeText || part.Media == nil {
+			continue
+		}
+		mediaMap := convertMediaPartToMap(part)
+		if mediaMap != nil {
+			// mediaMap is {"inlineData": {"mimeType": ..., "data": ...}}
+			if inlineData, ok := mediaMap["inlineData"]; ok {
+				response["inlineData"] = inlineData
+				break
+			}
+		}
+	}
+
+	return response
 }
 
 // buildMessageParts creates parts array for a message including text, images, and tool calls
