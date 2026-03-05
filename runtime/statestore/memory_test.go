@@ -1230,31 +1230,6 @@ func TestCloneMediaContent_Nil(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-func TestCloneToolResult_Nil(t *testing.T) {
-	result := cloneToolResult(nil)
-	assert.Nil(t, result)
-}
-
-func TestCloneCostInfo_Nil(t *testing.T) {
-	result := cloneCostInfo(nil)
-	assert.Nil(t, result)
-}
-
-func TestCloneStringPtr_Nil(t *testing.T) {
-	result := cloneStringPtr(nil)
-	assert.Nil(t, result)
-}
-
-func TestCloneIntPtr_Nil(t *testing.T) {
-	result := cloneIntPtr(nil)
-	assert.Nil(t, result)
-}
-
-func TestCloneInt64Ptr_Nil(t *testing.T) {
-	result := cloneInt64Ptr(nil)
-	assert.Nil(t, result)
-}
-
 func TestCloneRawMessage_Nil(t *testing.T) {
 	result := cloneRawMessage(nil)
 	assert.Nil(t, result)

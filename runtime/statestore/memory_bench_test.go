@@ -240,3 +240,174 @@ func BenchmarkDeepCopyMessages_100_Structural(b *testing.B) {
 		cloneMessages(state.Messages)
 	}
 }
+
+// buildMultimodalState creates a state with multimodal messages containing media content.
+// This simulates conversations with embedded base64 images where deep copy cost is highest.
+func buildMultimodalState() *ConversationState {
+	strPtr := func(s string) *string { return &s }
+	intPtr := func(i int) *int { return &i }
+	int64Ptr := func(i int64) *int64 { return &i }
+
+	// Simulate a 100KB base64 image payload
+	largeBase64 := make([]byte, 100*1024)
+	for i := range largeBase64 {
+		largeBase64[i] = 'A'
+	}
+	imageData := string(largeBase64)
+
+	msgs := make([]types.Message, 10)
+	for i := range msgs {
+		if i%2 == 0 {
+			// User message with multimodal content
+			msgs[i] = types.Message{
+				Role:      "user",
+				Timestamp: time.Now(),
+				Parts: []types.ContentPart{
+					{Type: "text", Text: strPtr("Please analyze this image")},
+					{
+						Type: "image",
+						Media: &types.MediaContent{
+							Data:     strPtr(imageData),
+							MIMEType: "image/jpeg",
+							Detail:   strPtr("high"),
+							SizeKB:   int64Ptr(100),
+							Width:    intPtr(1920),
+							Height:   intPtr(1080),
+							Caption:  strPtr("An example image for analysis"),
+						},
+					},
+				},
+			}
+		} else {
+			// Assistant response
+			msgs[i] = types.Message{
+				Role:      "assistant",
+				Content:   "I can see the image. It shows a landscape with mountains.",
+				Timestamp: time.Now(),
+				CostInfo: &types.CostInfo{
+					InputTokens:   500,
+					OutputTokens:  100,
+					InputCostUSD:  0.005,
+					OutputCostUSD: 0.001,
+					TotalCost:     0.006,
+				},
+			}
+		}
+	}
+	return &ConversationState{
+		ID:             "conv-bench-multimodal",
+		UserID:         "user-alice",
+		SystemPrompt:   "You are a multimodal assistant that can analyze images.",
+		Messages:       msgs,
+		TokenCount:     5000,
+		LastAccessedAt: time.Now(),
+		Metadata:       map[string]interface{}{"mode": "multimodal"},
+	}
+}
+
+func BenchmarkDeepCopyState_Multimodal_Structural(b *testing.B) {
+	state := buildMultimodalState()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		deepCopyState(state)
+	}
+}
+
+func BenchmarkCloneMediaContent(b *testing.B) {
+	strPtr := func(s string) *string { return &s }
+	intPtr := func(i int) *int { return &i }
+	int64Ptr := func(i int64) *int64 { return &i }
+
+	mc := &types.MediaContent{
+		Data:     strPtr("base64encodedimagedata"),
+		MIMEType: "image/jpeg",
+		Detail:   strPtr("high"),
+		SizeKB:   int64Ptr(512),
+		Width:    intPtr(1920),
+		Height:   intPtr(1080),
+		Caption:  strPtr("A scenic photo"),
+		Format:   strPtr("jpeg"),
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		cloneMediaContent(mc)
+	}
+}
+
+func BenchmarkCloneContentPart_TextOnly(b *testing.B) {
+	strPtr := func(s string) *string { return &s }
+	cp := &types.ContentPart{
+		Type: "text",
+		Text: strPtr("This is a text content part with some content."),
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		cloneContentPart(cp)
+	}
+}
+
+func BenchmarkCloneContentPart_WithMedia(b *testing.B) {
+	strPtr := func(s string) *string { return &s }
+	intPtr := func(i int) *int { return &i }
+	int64Ptr := func(i int64) *int64 { return &i }
+
+	cp := &types.ContentPart{
+		Type: "image",
+		Media: &types.MediaContent{
+			Data:     strPtr("base64encodedimagedata"),
+			MIMEType: "image/jpeg",
+			Detail:   strPtr("high"),
+			SizeKB:   int64Ptr(512),
+			Width:    intPtr(1920),
+			Height:   intPtr(1080),
+		},
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		cloneContentPart(cp)
+	}
+}
+
+func BenchmarkCloneMessage_Simple(b *testing.B) {
+	msg := &types.Message{
+		Role:      "user",
+		Content:   "Hello, how are you?",
+		Timestamp: time.Now(),
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		cloneMessage(msg)
+	}
+}
+
+func BenchmarkCloneMessage_WithMeta(b *testing.B) {
+	msg := &types.Message{
+		Role:      "assistant",
+		Content:   "I can help with that!",
+		Timestamp: time.Now(),
+		Meta: map[string]interface{}{
+			"assertions": map[string]interface{}{"passed": true},
+			"score":      0.95,
+		},
+		CostInfo: &types.CostInfo{
+			InputTokens:   100,
+			OutputTokens:  50,
+			TotalCost:     0.003,
+		},
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		cloneMessage(msg)
+	}
+}

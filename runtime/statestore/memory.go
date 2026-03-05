@@ -656,33 +656,6 @@ func deepCopyState(state *ConversationState) *ConversationState {
 	}
 }
 
-// cloneStringPtr returns a deep copy of a *string.
-func cloneStringPtr(s *string) *string {
-	if s == nil {
-		return nil
-	}
-	v := *s
-	return &v
-}
-
-// cloneIntPtr returns a deep copy of a *int.
-func cloneIntPtr(p *int) *int {
-	if p == nil {
-		return nil
-	}
-	v := *p
-	return &v
-}
-
-// cloneInt64Ptr returns a deep copy of a *int64.
-func cloneInt64Ptr(p *int64) *int64 {
-	if p == nil {
-		return nil
-	}
-	v := *p
-	return &v
-}
-
 // cloneRawMessage returns a deep copy of a json.RawMessage.
 func cloneRawMessage(raw json.RawMessage) json.RawMessage {
 	if raw == nil {
@@ -727,38 +700,100 @@ func cloneInterface(v interface{}) interface{} {
 	}
 }
 
+// batchCopyStringPtrs copies non-nil *string values using a single slab allocation.
+// Each source/dest pair is matched by index. Nil sources are skipped, leaving the dest nil.
+func batchCopyStringPtrs(dests []**string, srcs []*string) {
+	count := 0
+	for _, s := range srcs {
+		if s != nil {
+			count++
+		}
+	}
+	if count == 0 {
+		return
+	}
+	slab := make([]string, count)
+	idx := 0
+	for i, s := range srcs {
+		if s != nil {
+			slab[idx] = *s
+			*dests[i] = &slab[idx]
+			idx++
+		}
+	}
+}
+
+// batchCopyIntPtrs copies non-nil *int values using a single slab allocation.
+func batchCopyIntPtrs(dests []**int, srcs []*int) {
+	count := 0
+	for _, p := range srcs {
+		if p != nil {
+			count++
+		}
+	}
+	if count == 0 {
+		return
+	}
+	slab := make([]int, count)
+	idx := 0
+	for i, p := range srcs {
+		if p != nil {
+			slab[idx] = *p
+			*dests[i] = &slab[idx]
+			idx++
+		}
+	}
+}
+
 // cloneMediaContent returns a deep copy of a *types.MediaContent.
+// It batch-allocates pointer storage to reduce the number of heap allocations.
+// Strings are immutable in Go, so only the pointer (not the underlying bytes) needs copying.
 func cloneMediaContent(mc *types.MediaContent) *types.MediaContent {
 	if mc == nil {
 		return nil
 	}
-	return &types.MediaContent{
-		Data:             cloneStringPtr(mc.Data),
-		FilePath:         cloneStringPtr(mc.FilePath),
-		URL:              cloneStringPtr(mc.URL),
-		StorageReference: cloneStringPtr(mc.StorageReference),
-		MIMEType:         mc.MIMEType,
-		Format:           cloneStringPtr(mc.Format),
-		SizeKB:           cloneInt64Ptr(mc.SizeKB),
-		Detail:           cloneStringPtr(mc.Detail),
-		Caption:          cloneStringPtr(mc.Caption),
-		Duration:         cloneIntPtr(mc.Duration),
-		BitRate:          cloneIntPtr(mc.BitRate),
-		Channels:         cloneIntPtr(mc.Channels),
-		Width:            cloneIntPtr(mc.Width),
-		Height:           cloneIntPtr(mc.Height),
-		FPS:              cloneIntPtr(mc.FPS),
-		PolicyName:       cloneStringPtr(mc.PolicyName),
+
+	cp := &types.MediaContent{
+		MIMEType: mc.MIMEType,
 	}
+
+	// Batch-allocate and copy string pointers (reduces up to 8 allocs to 1)
+	batchCopyStringPtrs(
+		[]**string{&cp.Data, &cp.FilePath, &cp.URL, &cp.StorageReference,
+			&cp.Format, &cp.Detail, &cp.Caption, &cp.PolicyName},
+		[]*string{mc.Data, mc.FilePath, mc.URL, mc.StorageReference,
+			mc.Format, mc.Detail, mc.Caption, mc.PolicyName},
+	)
+
+	// Batch-allocate and copy int pointers (reduces up to 6 allocs to 1)
+	batchCopyIntPtrs(
+		[]**int{&cp.Duration, &cp.BitRate, &cp.Channels, &cp.Width, &cp.Height, &cp.FPS},
+		[]*int{mc.Duration, mc.BitRate, mc.Channels, mc.Width, mc.Height, mc.FPS},
+	)
+
+	// int64 pointer (only SizeKB)
+	if mc.SizeKB != nil {
+		v := *mc.SizeKB
+		cp.SizeKB = &v
+	}
+
+	return cp
 }
 
 // cloneContentPart returns a deep copy of a types.ContentPart.
+// For text-only parts (no Media), this avoids the cloneMediaContent call entirely.
 func cloneContentPart(cp *types.ContentPart) types.ContentPart {
-	return types.ContentPart{
-		Type:  cp.Type,
-		Text:  cloneStringPtr(cp.Text),
-		Media: cloneMediaContent(cp.Media),
+	result := types.ContentPart{
+		Type: cp.Type,
 	}
+	if cp.Text != nil {
+		v := *cp.Text
+		result.Text = &v
+	}
+	if cp.Media != nil {
+		result.Media = cloneMediaContent(cp.Media)
+	}
+	return result
 }
 
 // cloneToolCall returns a deep copy of a types.MessageToolCall.
@@ -768,24 +803,6 @@ func cloneToolCall(tc *types.MessageToolCall) types.MessageToolCall {
 		Name: tc.Name,
 		Args: cloneRawMessage(tc.Args),
 	}
-}
-
-// cloneToolResult returns a deep copy of a *types.MessageToolResult.
-func cloneToolResult(tr *types.MessageToolResult) *types.MessageToolResult {
-	if tr == nil {
-		return nil
-	}
-	cp := *tr
-	return &cp
-}
-
-// cloneCostInfo returns a deep copy of a *types.CostInfo.
-func cloneCostInfo(ci *types.CostInfo) *types.CostInfo {
-	if ci == nil {
-		return nil
-	}
-	cp := *ci
-	return &cp
 }
 
 // cloneValidationResult returns a deep copy of a types.ValidationResult.
@@ -799,16 +816,28 @@ func cloneValidationResult(vr *types.ValidationResult) types.ValidationResult {
 }
 
 // cloneMessage returns a deep copy of a types.Message.
+// String fields (Role, Content, Source) are assigned directly since Go strings are immutable.
+// Only reference types (slices, maps, pointers) need deep copying for isolation.
 func cloneMessage(msg *types.Message) types.Message {
 	cp := types.Message{
-		Role:       msg.Role,
-		Content:    msg.Content,
-		Source:     msg.Source,
-		Timestamp:  msg.Timestamp,
-		LatencyMs:  msg.LatencyMs,
-		CostInfo:   cloneCostInfo(msg.CostInfo),
-		ToolResult: cloneToolResult(msg.ToolResult),
-		Meta:       cloneMapStringInterface(msg.Meta),
+		Role:      msg.Role,
+		Content:   msg.Content,
+		Source:    msg.Source,
+		Timestamp: msg.Timestamp,
+		LatencyMs: msg.LatencyMs,
+	}
+
+	// Only clone reference-type fields when non-nil to avoid unnecessary allocations
+	if msg.CostInfo != nil {
+		v := *msg.CostInfo
+		cp.CostInfo = &v
+	}
+	if msg.ToolResult != nil {
+		v := *msg.ToolResult
+		cp.ToolResult = &v
+	}
+	if len(msg.Meta) > 0 {
+		cp.Meta = cloneMapStringInterface(msg.Meta)
 	}
 	if len(msg.Parts) > 0 {
 		cp.Parts = make([]types.ContentPart, len(msg.Parts))
