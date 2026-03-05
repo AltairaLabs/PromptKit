@@ -229,11 +229,71 @@ func (p *ToolProvider) convertSingleMessageForTools(msg types.Message) map[strin
 	if msg.Role == "tool" && msg.ToolResult != nil {
 		openaiMsg["tool_call_id"] = msg.ToolResult.ID
 		openaiMsg["name"] = msg.ToolResult.Name
-		// Use ToolResult.GetTextContent() as the message content (not msg.Content which is empty)
-		openaiMsg["content"] = msg.ToolResult.GetTextContent()
+		openaiMsg["content"] = convertToolResultContent(msg.ToolResult)
 	}
 
 	return openaiMsg
+}
+
+// convertToolResultContent converts a MessageToolResult's Parts into OpenAI content format.
+// For text-only results (single text part), it returns a plain string.
+// For multimodal results (containing images), it returns an array of content blocks.
+func convertToolResultContent(result *types.MessageToolResult) interface{} {
+	if !result.HasMedia() {
+		// Text-only: return plain string for backward compatibility
+		return result.GetTextContent()
+	}
+
+	// Multimodal: build content array
+	parts := make([]map[string]interface{}, 0, len(result.Parts))
+	for _, part := range result.Parts {
+		switch part.Type {
+		case types.ContentTypeText:
+			if part.Text != nil {
+				parts = append(parts, map[string]interface{}{
+					"type": "text",
+					"text": *part.Text,
+				})
+			}
+		case types.ContentTypeImage:
+			if part.Media != nil {
+				if imgURL := resolveImageURL(part.Media); imgURL != "" {
+					parts = append(parts, map[string]interface{}{
+						"type":      "image_url",
+						"image_url": map[string]interface{}{"url": imgURL},
+					})
+				}
+			}
+		default:
+			// Unsupported media types in tool results are skipped
+		}
+	}
+
+	if len(parts) == 0 {
+		return result.GetTextContent()
+	}
+	return parts
+}
+
+// resolveImageURL returns the URL string for an image media content.
+// For URL-referenced images, it returns the URL directly.
+// For base64 data, it returns a data URI (data:<mime>;base64,<data>).
+// For file paths, it reads and encodes the file as base64.
+func resolveImageURL(media *types.MediaContent) string {
+	if media.URL != nil && *media.URL != "" {
+		return *media.URL
+	}
+	if media.Data != nil && *media.Data != "" {
+		return "data:" + media.MIMEType + ";base64," + *media.Data
+	}
+	if media.FilePath != nil && *media.FilePath != "" {
+		b64, err := media.GetBase64Data() //nolint:staticcheck // simple file read; MediaLoader not needed
+		if err != nil {
+			return ""
+		}
+		return "data:" + media.MIMEType + ";base64," + b64
+	}
+	return ""
 }
 
 // convertToolCallsToOpenAI converts ToolCalls to OpenAI format
