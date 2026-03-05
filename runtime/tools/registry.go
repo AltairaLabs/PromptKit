@@ -14,6 +14,11 @@ import (
 const (
 	errInvalidToolDescriptor  = "invalid tool descriptor in %s: %w"
 	errResultValidationFailed = "result validation failed: %v"
+
+	// DefaultToolTimeout is the default execution timeout applied to tools
+	// that don't specify their own TimeoutMs. 30 seconds accommodates HTTP-calling
+	// tools and other network-dependent operations.
+	DefaultToolTimeout = 30000
 )
 
 // ToolRepository provides abstract access to tool descriptors (local interface to avoid import cycles)
@@ -23,31 +28,48 @@ type ToolRepository interface {
 	SaveTool(descriptor *ToolDescriptor) error
 }
 
+// RegistryOption configures a Registry during construction.
+type RegistryOption func(*Registry)
+
+// WithDefaultTimeout sets the default timeout (in milliseconds) applied to tools
+// that don't declare their own TimeoutMs. Pass 0 to disable timeouts by default.
+func WithDefaultTimeout(ms int) RegistryOption {
+	return func(r *Registry) {
+		r.defaultTimeoutMs = ms
+	}
+}
+
 // Registry manages tool descriptors and provides access to executors
 type Registry struct {
-	repository ToolRepository             // Optional repository for loading tools
-	tools      map[string]*ToolDescriptor // Cache of loaded tool descriptors
-	validator  *SchemaValidator           // Schema validator for tool arguments
-	executors  map[string]Executor        // Registered tool executors
+	repository       ToolRepository             // Optional repository for loading tools
+	tools            map[string]*ToolDescriptor // Cache of loaded tool descriptors
+	validator        *SchemaValidator           // Schema validator for tool arguments
+	executors        map[string]Executor        // Registered tool executors
+	defaultTimeoutMs int                        // Default timeout for tools without explicit TimeoutMs
 }
 
 // NewRegistry creates a new tool registry without a repository backend (legacy mode)
-func NewRegistry() *Registry {
-	return newRegistry(nil)
+func NewRegistry(opts ...RegistryOption) *Registry {
+	return newRegistry(nil, opts...)
 }
 
 // NewRegistryWithRepository creates a new tool registry with a repository backend
-func NewRegistryWithRepository(repository ToolRepository) *Registry {
-	return newRegistry(repository)
+func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Registry {
+	return newRegistry(repo, opts...)
 }
 
 // newRegistry is the internal constructor for creating registries
-func newRegistry(repository ToolRepository) *Registry {
+func newRegistry(repository ToolRepository, opts ...RegistryOption) *Registry {
 	registry := &Registry{
-		repository: repository,
-		tools:      make(map[string]*ToolDescriptor),
-		validator:  NewSchemaValidator(),
-		executors:  make(map[string]Executor),
+		repository:       repository,
+		tools:            make(map[string]*ToolDescriptor),
+		validator:        NewSchemaValidator(),
+		executors:        make(map[string]Executor),
+		defaultTimeoutMs: DefaultToolTimeout,
+	}
+
+	for _, opt := range opts {
+		opt(registry)
 	}
 
 	// Register default executors
@@ -263,8 +285,23 @@ func (r *Registry) RegisterExecutor(executor Executor) {
 	r.executors[executor.Name()] = executor
 }
 
+// withTimeout wraps ctx with a deadline derived from the tool's TimeoutMs.
+// If TimeoutMs is 0, no timeout is applied and the cancel func is a no-op.
+func (r *Registry) withTimeout(
+	ctx context.Context, tool *ToolDescriptor,
+) (context.Context, context.CancelFunc) {
+	if tool.TimeoutMs > 0 {
+		return context.WithTimeout(
+			ctx, time.Duration(tool.TimeoutMs)*time.Millisecond,
+		)
+	}
+	return ctx, func() {}
+}
+
 // Execute executes a tool with the given arguments
-func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMessage) (*ToolResult, error) {
+func (r *Registry) Execute(
+	ctx context.Context, toolName string, args json.RawMessage,
+) (*ToolResult, error) {
 	tool, err := r.GetTool(toolName)
 	if err != nil {
 		return nil, err
@@ -281,15 +318,26 @@ func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMe
 		return nil, err
 	}
 
+	// Apply timeout from tool descriptor
+	execCtx, cancel := r.withTimeout(ctx, tool)
+	defer cancel()
+
 	// Execute the tool
 	start := getCurrentTimeMs()
-	result, err := executor.Execute(ctx, tool, args)
+	result, err := executor.Execute(execCtx, tool, args)
 	latency := getCurrentTimeMs() - start
 
 	if err != nil {
+		errMsg := err.Error()
+		if execCtx.Err() == context.DeadlineExceeded {
+			errMsg = fmt.Sprintf(
+				"%s: %s exceeded %dms timeout",
+				ErrToolTimeout, toolName, tool.TimeoutMs,
+			)
+		}
 		return &ToolResult{
 			Name:      toolName,
-			Error:     err.Error(),
+			Error:     errMsg,
 			LatencyMs: latency,
 		}, nil
 	}
@@ -341,13 +389,19 @@ func (r *Registry) ExecuteAsync(
 		return nil, err
 	}
 
+	// Apply timeout from tool descriptor
+	execCtx, cancel := r.withTimeout(ctx, tool)
+	defer cancel()
+
 	// Try async execution if supported
 	if asyncExecutor, ok := executor.(AsyncToolExecutor); ok {
-		return r.executeWithAsyncExecutor(ctx, asyncExecutor, tool, toolName, args)
+		return r.executeWithAsyncExecutor(
+			execCtx, asyncExecutor, tool, toolName, args,
+		)
 	}
 
 	// Fall back to synchronous execution
-	return r.executeSyncFallback(ctx, executor, tool, toolName, args)
+	return r.executeSyncFallback(execCtx, executor, tool, toolName, args)
 }
 
 // getExecutorForTool finds the appropriate executor for a tool.
@@ -394,16 +448,24 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 
 // executeWithAsyncExecutor executes a tool with async support
 func (r *Registry) executeWithAsyncExecutor(
-	ctx context.Context, asyncExecutor AsyncToolExecutor, tool *ToolDescriptor, _ string, args json.RawMessage,
+	ctx context.Context, asyncExecutor AsyncToolExecutor,
+	tool *ToolDescriptor, _ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
 	start := getCurrentTimeMs()
 	result, err := asyncExecutor.ExecuteAsync(ctx, tool, args)
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
 	if err != nil {
+		errMsg := err.Error()
+		if ctx.Err() == context.DeadlineExceeded {
+			errMsg = fmt.Sprintf(
+				"%s: %s exceeded %dms timeout",
+				ErrToolTimeout, tool.Name, tool.TimeoutMs,
+			)
+		}
 		return &ToolExecutionResult{
 			Status: ToolStatusFailed,
-			Error:  err.Error(),
+			Error:  errMsg,
 		}, nil
 	}
 
@@ -423,16 +485,24 @@ func (r *Registry) executeWithAsyncExecutor(
 
 // executeSyncFallback executes a tool synchronously for non-async executors
 func (r *Registry) executeSyncFallback(
-	ctx context.Context, executor Executor, tool *ToolDescriptor, _ string, args json.RawMessage,
+	ctx context.Context, executor Executor, tool *ToolDescriptor,
+	_ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
 	start := getCurrentTimeMs()
 	result, err := executor.Execute(ctx, tool, args)
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
 	if err != nil {
+		errMsg := err.Error()
+		if ctx.Err() == context.DeadlineExceeded {
+			errMsg = fmt.Sprintf(
+				"%s: %s exceeded %dms timeout",
+				ErrToolTimeout, tool.Name, tool.TimeoutMs,
+			)
+		}
 		return &ToolExecutionResult{
 			Status: ToolStatusFailed,
-			Error:  err.Error(),
+			Error:  errMsg,
 		}, nil
 	}
 
@@ -493,7 +563,7 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 	}
 
 	if descriptor.TimeoutMs <= 0 {
-		descriptor.TimeoutMs = 3000 // default timeout
+		descriptor.TimeoutMs = r.defaultTimeoutMs
 	}
 
 	// Validate schemas by attempting to compile them
