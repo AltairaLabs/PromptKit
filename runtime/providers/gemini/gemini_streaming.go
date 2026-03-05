@@ -185,7 +185,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		var chunk geminiResponse
 		if err := dec.Decode(&chunk); err != nil {
 			outChan <- providers.StreamChunk{
-				Content:      accumulated,
+				Content:      sb.String(),
 				Error:        fmt.Errorf("failed to decode streaming chunk: %w", err),
 				FinishReason: providers.StringPtr("error"),
 			}
@@ -203,7 +203,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	// Read the closing ']' token
 	if _, err := dec.Token(); err != nil {
 		outChan <- providers.StreamChunk{
-			Content:      accumulated,
+			Content:      sb.String(),
 			Error:        fmt.Errorf("failed to read closing token: %w", err),
 			FinishReason: providers.StringPtr("error"),
 		}

@@ -347,12 +347,14 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 	t.Run("empty candidates returns unchanged state", func(t *testing.T) {
 		chunk := geminiResponse{Candidates: []geminiCandidate{}}
 		outChan := make(chan providers.StreamChunk, 10)
+		var sb strings.Builder
+		sb.WriteString("prev")
 
-		acc, tokens, toolCalls, finished := provider.processGeminiStreamChunk(
-			chunk, "prev", 5, nil, outChan)
+		tokens, toolCalls, finished := provider.processGeminiStreamChunk(
+			chunk, &sb, 5, nil, outChan)
 
-		if acc != "prev" || tokens != 5 || finished {
-			t.Errorf("expected unchanged state, got acc=%q tokens=%d finished=%v", acc, tokens, finished)
+		if sb.String() != "prev" || tokens != 5 || finished {
+			t.Errorf("expected unchanged state, got acc=%q tokens=%d finished=%v", sb.String(), tokens, finished)
 		}
 		if len(toolCalls) != 0 {
 			t.Errorf("expected no tool calls, got %d", len(toolCalls))
@@ -366,12 +368,14 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 			},
 		}
 		outChan := make(chan providers.StreamChunk, 10)
+		var sb strings.Builder
+		sb.WriteString("prev")
 
-		acc, tokens, _, finished := provider.processGeminiStreamChunk(
-			chunk, "prev", 5, nil, outChan)
+		tokens, _, finished := provider.processGeminiStreamChunk(
+			chunk, &sb, 5, nil, outChan)
 
-		if acc != "prev" || tokens != 5 || finished {
-			t.Errorf("expected unchanged state, got acc=%q tokens=%d finished=%v", acc, tokens, finished)
+		if sb.String() != "prev" || tokens != 5 || finished {
+			t.Errorf("expected unchanged state, got acc=%q tokens=%d finished=%v", sb.String(), tokens, finished)
 		}
 	})
 
@@ -382,12 +386,14 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 			},
 		}
 		outChan := make(chan providers.StreamChunk, 10)
+		var sb strings.Builder
+		sb.WriteString("prev")
 
-		acc, tokens, _, finished := provider.processGeminiStreamChunk(
-			chunk, "prev", 5, nil, outChan)
+		tokens, _, finished := provider.processGeminiStreamChunk(
+			chunk, &sb, 5, nil, outChan)
 
-		if acc != "prevdelta" {
-			t.Errorf("expected accumulated 'prevdelta', got %q", acc)
+		if sb.String() != "prevdelta" {
+			t.Errorf("expected accumulated 'prevdelta', got %q", sb.String())
 		}
 		if tokens != 6 {
 			t.Errorf("expected 6 tokens, got %d", tokens)
@@ -425,9 +431,10 @@ func TestProcessGeminiStreamChunk_Incremental(t *testing.T) {
 			},
 		}
 		outChan := make(chan providers.StreamChunk, 10)
+		var sb strings.Builder
 
-		_, _, toolCalls, finished := provider.processGeminiStreamChunk(
-			chunk, "", 0, nil, outChan)
+		_, toolCalls, finished := provider.processGeminiStreamChunk(
+			chunk, &sb, 0, nil, outChan)
 
 		if !finished {
 			t.Error("expected finished")
