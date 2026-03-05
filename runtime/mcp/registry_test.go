@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 
@@ -429,4 +431,351 @@ func TestRegistry_ToolIndexSynchronization(t *testing.T) {
 		assert.NotContains(t, registry.toolIndex, "tool2")
 		assert.Equal(t, "server2", registry.toolIndex["tool3"])
 	})
+}
+
+// --- Process limiter tests ---
+
+func TestNewRegistryWithOptions_Unlimited(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 0})
+	assert.NotNil(t, registry)
+	assert.Nil(t, registry.processSem)
+	assert.Equal(t, 0, registry.options.MaxProcesses)
+}
+
+func TestNewRegistryWithOptions_WithLimit(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 5})
+	assert.NotNil(t, registry)
+	assert.NotNil(t, registry.processSem)
+	assert.Equal(t, 5, cap(registry.processSem))
+	assert.Equal(t, 5, registry.options.MaxProcesses)
+}
+
+func TestNewRegistry_DefaultUnlimited(t *testing.T) {
+	registry := NewRegistry()
+	assert.Nil(t, registry.processSem, "default registry should have no process limit")
+}
+
+func TestRegistry_AcquireProcessSlot_Unlimited(t *testing.T) {
+	registry := NewRegistry()
+	// Should always succeed with no limit
+	err := registry.acquireProcessSlot()
+	assert.NoError(t, err)
+}
+
+func TestRegistry_AcquireProcessSlot_WithCapacity(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 2})
+
+	// Acquire first slot
+	err := registry.acquireProcessSlot()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(registry.processSem))
+
+	// Acquire second slot
+	err = registry.acquireProcessSlot()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(registry.processSem))
+
+	// Third should fail immediately
+	err = registry.acquireProcessSlot()
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, ErrMaxProcessesReached))
+}
+
+func TestRegistry_ReleaseProcessSlot(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 2})
+
+	// Acquire both slots
+	_ = registry.acquireProcessSlot()
+	_ = registry.acquireProcessSlot()
+	assert.Equal(t, 2, len(registry.processSem))
+
+	// Release one
+	registry.releaseProcessSlot()
+	assert.Equal(t, 1, len(registry.processSem))
+
+	// Should be able to acquire again
+	err := registry.acquireProcessSlot()
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(registry.processSem))
+}
+
+func TestRegistry_ReleaseProcessSlot_Unlimited(t *testing.T) {
+	registry := NewRegistry()
+	// Should not panic
+	registry.releaseProcessSlot()
+}
+
+func TestRegistry_ReleaseProcessSlot_Empty(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 2})
+	// Should not block when semaphore is empty
+	registry.releaseProcessSlot()
+}
+
+func TestRegistry_ActiveProcessCount_Unlimited(t *testing.T) {
+	registry := NewRegistry()
+	assert.Equal(t, 0, registry.ActiveProcessCount())
+}
+
+func TestRegistry_ActiveProcessCount_WithLimit(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 5})
+	assert.Equal(t, 0, registry.ActiveProcessCount())
+
+	_ = registry.acquireProcessSlot()
+	assert.Equal(t, 1, registry.ActiveProcessCount())
+
+	_ = registry.acquireProcessSlot()
+	assert.Equal(t, 2, registry.ActiveProcessCount())
+
+	registry.releaseProcessSlot()
+	assert.Equal(t, 1, registry.ActiveProcessCount())
+}
+
+func TestRegistry_ProcessLimit_CreateNewClientFails(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 1})
+
+	// Register two servers
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "/nonexistent/cmd1"})
+	_ = registry.RegisterServer(ServerConfig{Name: "server2", Command: "/nonexistent/cmd2"})
+
+	// First client creation should acquire a slot (then fail on init, releasing the slot)
+	_, err := registry.GetClient(context.Background(), "server1")
+	assert.Error(t, err) // Init fails
+
+	// Slot should have been released, so another attempt should be possible
+	_, err = registry.GetClient(context.Background(), "server2")
+	assert.Error(t, err) // Init fails too, but slot was acquired
+}
+
+func TestRegistry_ProcessLimit_ExhaustedSlots(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 1})
+
+	// Manually consume the semaphore slot
+	registry.processSem <- struct{}{}
+
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "echo"})
+
+	// Should fail immediately because semaphore is full
+	_, err := registry.GetClient(context.Background(), "server1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to acquire process slot")
+}
+
+func TestRegistry_Close_ReleasesSlots(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 3})
+
+	// Simulate active clients by consuming semaphore slots
+	_ = registry.acquireProcessSlot()
+	_ = registry.acquireProcessSlot()
+
+	// Create mock clients in the registry
+	mockClient1 := &mockClient{}
+	mockClient2 := &mockClient{}
+	registry.clients["server1"] = mockClient1
+	registry.clients["server2"] = mockClient2
+
+	err := registry.Close()
+	assert.NoError(t, err)
+
+	// After close, the semaphore should have released the 2 slots
+	assert.Equal(t, 0, len(registry.processSem))
+}
+
+func TestRegistry_CreateNewClient_DoubleCheckReturnsAlive(t *testing.T) {
+	// Test the double-check path: if a client was created by another goroutine
+	// between tryGetExistingClient and createNewClient
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 2})
+
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "/nonexistent"})
+
+	// Pre-populate with an alive mock client
+	aliveClient := &mockClient{alive: true}
+	registry.clients["server1"] = aliveClient
+
+	// GetClient should find the alive client via tryGetExistingClient
+	client, err := registry.GetClient(context.Background(), "server1")
+	assert.NoError(t, err)
+	assert.Equal(t, aliveClient, client)
+}
+
+func TestRegistry_CreateNewClient_ReplacesDeadClient(t *testing.T) {
+	// Test the path where an existing dead client is replaced
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 3})
+
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "/nonexistent"})
+
+	// Pre-populate with a dead client (simulate a slot already consumed for it)
+	deadClient := &mockClient{alive: false}
+	registry.clients["server1"] = deadClient
+	_ = registry.acquireProcessSlot() // simulate the slot for the dead client
+
+	// Before GetClient: 1 slot in use
+	assert.Equal(t, 1, len(registry.processSem))
+
+	// tryGetExistingClient will return nil,nil (client exists but not alive)
+	// createNewClient will:
+	//   1. acquireProcessSlot (sem=2)
+	//   2. detect dead client, releaseProcessSlot (sem=1, replacing the dead one's slot)
+	//   3. Init fails, releaseProcessSlot (sem=0)
+	_, err := registry.GetClient(context.Background(), "server1")
+	assert.Error(t, err) // Init will fail (bad command)
+
+	// Both slots were released (the dead client's and the new attempt's)
+	assert.Equal(t, 0, len(registry.processSem))
+}
+
+func TestRegistry_CreateNewClient_InitFailsReleasesSlot(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 3})
+
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "/nonexistent"})
+
+	// Before GetClient, no slots are used
+	assert.Equal(t, 0, len(registry.processSem))
+
+	_, err := registry.GetClient(context.Background(), "server1")
+	assert.Error(t, err)
+
+	// After failed init, slot should be released
+	assert.Equal(t, 0, len(registry.processSem))
+}
+
+func TestRegistry_CreateNewClient_SemaphoreAcquireFails(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 1})
+
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "/nonexistent"})
+
+	// Fill the semaphore
+	registry.processSem <- struct{}{}
+
+	_, err := registry.GetClient(context.Background(), "server1")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to acquire process slot")
+	assert.ErrorIs(t, err, ErrMaxProcessesReached)
+}
+
+func TestErrMaxProcessesReached(t *testing.T) {
+	assert.NotNil(t, ErrMaxProcessesReached)
+	assert.Contains(t, ErrMaxProcessesReached.Error(), "maximum concurrent processes")
+}
+
+func TestRegistryOptions_Defaults(t *testing.T) {
+	assert.Equal(t, 0, DefaultMaxProcesses, "default should be unlimited (0)")
+}
+
+// mockClient implements the Client interface for testing
+type mockClient struct {
+	alive    bool
+	closed   bool
+	initErr  error
+	tools    []Tool
+	toolsErr error
+}
+
+func (m *mockClient) Initialize(_ context.Context) (*InitializeResponse, error) {
+	if m.initErr != nil {
+		return nil, m.initErr
+	}
+	m.alive = true
+	return &InitializeResponse{ProtocolVersion: ProtocolVersion}, nil
+}
+
+func (m *mockClient) ListTools(_ context.Context) ([]Tool, error) {
+	return m.tools, m.toolsErr
+}
+
+func (m *mockClient) CallTool(_ context.Context, _ string, _ json.RawMessage) (*ToolCallResponse, error) {
+	return nil, nil
+}
+func (m *mockClient) Close() error  { m.closed = true; m.alive = false; return nil }
+func (m *mockClient) IsAlive() bool { return m.alive }
+
+func TestRegistry_CreateNewClient_SuccessWithMock(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 3})
+
+	// Override client factory to return a mock
+	registry.newClientFunc = func(_ ServerConfig) Client {
+		return &mockClient{tools: []Tool{{Name: "tool1"}}}
+	}
+
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "mock"})
+
+	client, err := registry.GetClient(context.Background(), "server1")
+	require.NoError(t, err)
+	assert.NotNil(t, client)
+	assert.True(t, client.IsAlive())
+
+	// Should use 1 process slot
+	assert.Equal(t, 1, registry.ActiveProcessCount())
+}
+
+func TestRegistry_CreateNewClient_DoubleCheckRace(t *testing.T) {
+	// Test the final race-check path: if someone else created the client
+	// while we were initializing ours.
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 5})
+
+	callCount := 0
+	registry.newClientFunc = func(_ ServerConfig) Client {
+		callCount++
+		// On the first call, simulate another goroutine inserting a client
+		if callCount == 1 {
+			aliveClient := &mockClient{alive: true, tools: []Tool{{Name: "tool2"}}}
+			registry.mu.Lock()
+			registry.clients["server1"] = aliveClient
+			registry.mu.Unlock()
+		}
+		return &mockClient{tools: []Tool{{Name: "tool1"}}}
+	}
+
+	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "mock"})
+
+	client, err := registry.GetClient(context.Background(), "server1")
+	require.NoError(t, err)
+	assert.NotNil(t, client)
+	// Should have gotten the pre-existing alive client, not the one we just created
+	assert.True(t, client.IsAlive())
+}
+
+func TestRegistry_CreateNewClient_WithSemaphoreSuccess(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 2})
+
+	registry.newClientFunc = func(_ ServerConfig) Client {
+		return &mockClient{tools: []Tool{{Name: "tool-a"}}}
+	}
+
+	_ = registry.RegisterServer(ServerConfig{Name: "s1", Command: "mock"})
+	_ = registry.RegisterServer(ServerConfig{Name: "s2", Command: "mock"})
+
+	c1, err := registry.GetClient(context.Background(), "s1")
+	require.NoError(t, err)
+	assert.NotNil(t, c1)
+
+	c2, err := registry.GetClient(context.Background(), "s2")
+	require.NoError(t, err)
+	assert.NotNil(t, c2)
+
+	assert.Equal(t, 2, registry.ActiveProcessCount())
+
+	// Close releases slots
+	err = registry.Close()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(registry.processSem))
+}
+
+func TestRegistry_Close_WithMockClients(t *testing.T) {
+	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 3})
+
+	registry.newClientFunc = func(_ ServerConfig) Client {
+		return &mockClient{}
+	}
+
+	_ = registry.RegisterServer(ServerConfig{Name: "s1", Command: "mock"})
+	_ = registry.RegisterServer(ServerConfig{Name: "s2", Command: "mock"})
+
+	_, _ = registry.GetClient(context.Background(), "s1")
+	_, _ = registry.GetClient(context.Background(), "s2")
+
+	assert.Equal(t, 2, registry.ActiveProcessCount())
+
+	err := registry.Close()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, len(registry.processSem))
 }

@@ -65,6 +65,17 @@ type MessageAppender interface {
 	AppendMessages(ctx context.Context, id string, messages []types.Message) error
 }
 
+// MetadataAccessor allows reading metadata without loading the full state.
+// This is an optional interface — stores that implement it enable efficient
+// metadata reads without the cost of deep-copying the message history.
+// Pipeline stages type-assert for this interface and fall back to Store.Load when unavailable.
+type MetadataAccessor interface {
+	// LoadMetadata returns just the metadata map for the given conversation.
+	// Returns ErrNotFound if the conversation doesn't exist.
+	// The returned map is a deep copy safe for mutation by the caller.
+	LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error)
+}
+
 // SummaryAccessor allows reading and writing summaries independently of the full state.
 // This is an optional interface for stores that support efficient summary operations.
 type SummaryAccessor interface {

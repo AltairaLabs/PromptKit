@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -143,6 +144,33 @@ func WithAuthenticator(auth Authenticator) Option {
 	return func(s *Server) { s.authenticator = auth }
 }
 
+// HealthChecker performs a named health check. Implementations should return
+// nil when healthy and a non-nil error describing the problem otherwise.
+type HealthChecker interface {
+	Check(ctx context.Context) error
+}
+
+// HealthCheckerFunc adapts an ordinary function to the [HealthChecker] interface.
+type HealthCheckerFunc func(ctx context.Context) error
+
+// Check calls f(ctx).
+func (f HealthCheckerFunc) Check(ctx context.Context) error { return f(ctx) }
+
+// WithHealthCheck registers a named health checker that is evaluated by the
+// /readyz endpoint. Multiple checkers can be registered; each is reported
+// individually in the response body.
+func WithHealthCheck(name string, checker HealthChecker) Option {
+	return func(s *Server) {
+		s.healthChecks = append(s.healthChecks, namedChecker{name: name, checker: checker})
+	}
+}
+
+// namedChecker pairs a human-readable name with a [HealthChecker].
+type namedChecker struct {
+	name    string
+	checker HealthChecker
+}
+
 // Server is an HTTP server that exposes a Conversation as an
 // A2A-compliant JSON-RPC endpoint.
 type Server struct {
@@ -158,6 +186,12 @@ type Server struct {
 	writeTimeout time.Duration
 	idleTimeout  time.Duration
 	maxBodySize  int64
+
+	// Readiness flag: set to true after NewServer completes, false on Shutdown.
+	isReady atomic.Bool
+
+	// Optional health checkers evaluated by /readyz.
+	healthChecks []namedChecker
 
 	// TTL-based eviction configuration.
 	taskTTL  time.Duration // 0 disables task eviction
@@ -204,6 +238,8 @@ func NewServer(opener ConversationOpener, opts ...Option) *Server {
 		go s.evictionLoop()
 	}
 
+	s.isReady.Store(true)
+
 	return s
 }
 
@@ -212,6 +248,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/agent.json", s.handleAgentCard)
 	mux.HandleFunc("POST /a2a", s.handleRPC)
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	return otelhttp.NewHandler(mux, "a2a-server")
 }
 
@@ -236,6 +274,9 @@ func (s *Server) ListenAndServe() error {
 // Shutdown gracefully shuts down the server: stops the eviction goroutine,
 // drains HTTP requests, cancels in-flight tasks, and closes all conversations.
 func (s *Server) Shutdown(ctx context.Context) error {
+	// Mark as not ready so /readyz returns 503 immediately.
+	s.isReady.Store(false)
+
 	// Stop the eviction goroutine.
 	s.stopOnce.Do(func() { close(s.stopCh) })
 
@@ -288,6 +329,61 @@ func (s *Server) Serve(ln net.Listener) error {
 	s.httpSrvMu.Unlock()
 
 	return srv.Serve(ln)
+}
+
+// handleHealthz is a liveness probe: it returns 200 whenever the HTTP server
+// is accepting connections.
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// handleReadyz is a readiness probe: it returns 200 when the server is ready
+// to accept traffic and 503 otherwise. It checks the isReady flag and all
+// registered health checkers.
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if !s.isReady.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"status": "not_ready",
+			"reason": "server is shutting down or not yet initialized",
+		})
+		return
+	}
+
+	// Run registered health checks.
+	type checkResult struct {
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
+	}
+	checks := make(map[string]checkResult, len(s.healthChecks))
+	allOK := true
+	for _, nc := range s.healthChecks {
+		if err := nc.checker.Check(r.Context()); err != nil {
+			checks[nc.name] = checkResult{Status: "fail", Error: err.Error()}
+			allOK = false
+		} else {
+			checks[nc.name] = checkResult{Status: "pass"}
+		}
+	}
+
+	if !allOK {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "not_ready",
+			"reason": "one or more health checks failed",
+			"checks": checks,
+		})
+		return
+	}
+
+	resp := map[string]any{"status": "ready"}
+	if len(checks) > 0 {
+		resp["checks"] = checks
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleAgentCard serves the agent card as JSON.

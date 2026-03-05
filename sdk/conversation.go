@@ -841,6 +841,9 @@ func (c *Conversation) Close() error {
 	}
 	c.closed = true
 
+	// Deregister from shutdown manager if configured
+	c.deregisterFromShutdownManager()
+
 	// End the OTel session span (deferred to Close so late-arriving async events
 	// from the EventBus still have a parent context).
 	if c.config != nil && c.config.otelListener != nil {
@@ -879,10 +882,23 @@ func (c *Conversation) Close() error {
 		}
 	}
 
+	// Stop the pending store cleanup goroutine
+	if c.pendingStore != nil {
+		c.pendingStore.Close()
+	}
+
 	// State is automatically persisted by the StateStore middleware in the pipeline
 	// No explicit save needed here
 
 	return nil
+}
+
+// deregisterFromShutdownManager removes the conversation from its shutdown
+// manager, if one is configured. Must be called while c.mu is held.
+func (c *Conversation) deregisterFromShutdownManager() {
+	if c.config != nil && c.config.shutdownManager != nil {
+		c.config.shutdownManager.Deregister(c.ID())
+	}
 }
 
 // ID returns the conversation's unique identifier.

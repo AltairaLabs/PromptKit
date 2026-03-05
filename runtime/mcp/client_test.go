@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -23,6 +24,7 @@ func TestDefaultClientOptions(t *testing.T) {
 	assert.Equal(t, 3, opts.MaxRetries)
 	assert.Equal(t, 100*time.Millisecond, opts.RetryDelay)
 	assert.True(t, opts.EnableGracefulDegradation)
+	assert.Equal(t, 3, opts.MaxReconnectAttempts)
 }
 
 func TestClientErrors(t *testing.T) {
@@ -98,11 +100,27 @@ func TestCheckHealth(t *testing.T) {
 		assert.Equal(t, ErrClientClosed, err)
 	})
 
-	t.Run("started but no process", func(t *testing.T) {
-		client := NewStdioClient(config)
+	t.Run("started but no process with reconnect disabled", func(t *testing.T) {
+		opts := DefaultClientOptions()
+		opts.MaxReconnectAttempts = 0
+		client := NewStdioClientWithOptions(config, opts)
 		client.started = true
 		err := client.checkHealth()
 		assert.Equal(t, ErrProcessDied, err)
+	})
+
+	t.Run("started but no process with reconnect enabled fails", func(t *testing.T) {
+		opts := DefaultClientOptions()
+		opts.MaxReconnectAttempts = 1
+		opts.RetryDelay = 10 * time.Millisecond
+		opts.InitTimeout = 100 * time.Millisecond
+		client := NewStdioClientWithOptions(config, opts)
+		client.started = true
+		// cmd is nil and command is "echo" which won't work as MCP server
+		err := client.checkHealth()
+		assert.Error(t, err)
+		// Should attempt reconnection and fail
+		assert.Contains(t, err.Error(), "reconnection failed")
 	})
 }
 
@@ -1258,6 +1276,278 @@ func TestInitialize_ProcessStartsHandshakeSucceeds(t *testing.T) {
 	_ = client2.cmd.Process.Kill()
 	_ = client2.cmd.Wait()
 	client2.wg.Wait()
+}
+
+func TestCheckHealth_ReconnectionDisabled(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+
+	opts := DefaultClientOptions()
+	opts.MaxReconnectAttempts = 0 // Disable auto-reconnection
+	client := NewStdioClientWithOptions(config, opts)
+	client.started = true
+	// cmd is nil — process is dead
+
+	err := client.checkHealth()
+	assert.Equal(t, ErrProcessDied, err)
+}
+
+func TestCheckHealth_HealthyProcess(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "sleep",
+	}
+	client := NewStdioClient(config)
+	client.started = true
+	client.cmd = exec.Command("sleep", "60")
+	require.NoError(t, client.cmd.Start())
+	t.Cleanup(func() {
+		if client.cmd.Process != nil {
+			_ = client.cmd.Process.Kill()
+			_ = client.cmd.Wait()
+		}
+	})
+
+	err := client.checkHealth()
+	assert.NoError(t, err)
+}
+
+func TestFailPendingRequests(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+	client := NewStdioClient(config)
+
+	// Add some pending requests
+	ch1 := make(chan *JSONRPCMessage, 1)
+	ch2 := make(chan *JSONRPCMessage, 1)
+	ch3 := make(chan *JSONRPCMessage, 1)
+	client.pendingReqs.Store(int64(1), ch1)
+	client.pendingReqs.Store(int64(2), ch2)
+	client.pendingReqs.Store(int64(3), ch3)
+
+	client.failPendingRequests()
+
+	// All channels should have received error messages
+	for i, ch := range []chan *JSONRPCMessage{ch1, ch2, ch3} {
+		select {
+		case msg := <-ch:
+			require.NotNil(t, msg, "channel %d should have a message", i+1)
+			assert.NotNil(t, msg.Error, "channel %d should have an error", i+1)
+			assert.Equal(t, -32000, msg.Error.Code)
+			assert.Contains(t, msg.Error.Message, "process died")
+		default:
+			t.Fatalf("channel %d should have received an error message", i+1)
+		}
+	}
+
+	// Pending requests should be cleared
+	count := 0
+	client.pendingReqs.Range(func(_, _ interface{}) bool {
+		count++
+		return true
+	})
+	assert.Equal(t, 0, count, "pending requests should be cleared")
+}
+
+func TestFailPendingRequests_FullChannel(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+	client := NewStdioClient(config)
+
+	// Add a pending request with a channel that's already full
+	ch := make(chan *JSONRPCMessage, 1)
+	ch <- &JSONRPCMessage{} // Fill the channel
+	client.pendingReqs.Store(int64(1), ch)
+
+	// Should not panic when channel is full
+	client.failPendingRequests()
+
+	count := 0
+	client.pendingReqs.Range(func(_, _ interface{}) bool {
+		count++
+		return true
+	})
+	assert.Equal(t, 0, count, "pending requests should be cleared even if channel was full")
+}
+
+func TestCleanupDeadProcess(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "sleep",
+	}
+	client := NewStdioClient(config)
+
+	// Start a real process
+	client.cmd = exec.Command("sleep", "60")
+	var err error
+	client.stdin, err = client.cmd.StdinPipe()
+	require.NoError(t, err)
+	client.stdout, err = client.cmd.StdoutPipe()
+	require.NoError(t, err)
+	client.stderr, err = client.cmd.StderrPipe()
+	require.NoError(t, err)
+	require.NoError(t, client.cmd.Start())
+
+	// cleanupDeadProcess should not panic
+	client.cleanupDeadProcess()
+}
+
+func TestReconnect_ClientClosed(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+	client := NewStdioClient(config)
+	client.started = true
+	client.closed = true
+
+	err := client.reconnect()
+	assert.ErrorIs(t, err, ErrClientClosed)
+}
+
+func TestReconnect_AlreadyAlive(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "sleep",
+	}
+	client := NewStdioClient(config)
+	client.started = true
+	client.cmd = exec.Command("sleep", "60")
+	require.NoError(t, client.cmd.Start())
+	t.Cleanup(func() {
+		if client.cmd.Process != nil {
+			_ = client.cmd.Process.Kill()
+			_ = client.cmd.Wait()
+		}
+	})
+
+	// reconnect should return nil since process is alive
+	err := client.reconnect()
+	assert.NoError(t, err)
+}
+
+func TestReconnect_FailsWithBadCommand(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "/nonexistent/command",
+	}
+
+	opts := DefaultClientOptions()
+	opts.MaxReconnectAttempts = 2
+	opts.RetryDelay = 10 * time.Millisecond
+	opts.InitTimeout = 100 * time.Millisecond
+	client := NewStdioClientWithOptions(config, opts)
+	client.started = true
+	// cmd is nil — process is dead
+
+	err := client.reconnect()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "reconnection failed after 2 attempts")
+}
+
+func TestReconnect_ClosedDuringAttempt(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "/nonexistent/command",
+	}
+
+	opts := DefaultClientOptions()
+	opts.MaxReconnectAttempts = 5
+	opts.RetryDelay = 200 * time.Millisecond
+	opts.InitTimeout = 100 * time.Millisecond
+	client := NewStdioClientWithOptions(config, opts)
+	client.started = true
+
+	// Close the client during reconnection
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		client.mu.Lock()
+		client.closed = true
+		client.mu.Unlock()
+	}()
+
+	err := client.reconnect()
+	assert.Error(t, err)
+	// Should detect closed state
+	assert.True(t,
+		errors.Is(err, ErrClientClosed) ||
+			strings.Contains(err.Error(), "reconnection failed"),
+		"expected closed or failed error, got: %s", err.Error())
+}
+
+func TestWaitForReconnect_Success(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "sleep",
+	}
+	client := NewStdioClient(config)
+	client.started = true
+	client.reconnecting = true
+
+	// Simulate reconnection completing
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		client.mu.Lock()
+		client.reconnecting = false
+		client.cmd = exec.Command("sleep", "60")
+		_ = client.cmd.Start()
+		client.mu.Unlock()
+	}()
+	t.Cleanup(func() {
+		if client.cmd != nil && client.cmd.Process != nil {
+			_ = client.cmd.Process.Kill()
+			_ = client.cmd.Wait()
+		}
+	})
+
+	err := client.waitForReconnect()
+	assert.NoError(t, err)
+}
+
+func TestWaitForReconnect_ClosedDuringWait(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+	client := NewStdioClient(config)
+	client.reconnecting = true
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		client.mu.Lock()
+		client.closed = true
+		client.reconnecting = false
+		client.mu.Unlock()
+	}()
+
+	err := client.waitForReconnect()
+	assert.ErrorIs(t, err, ErrClientClosed)
+}
+
+func TestWaitForReconnect_ReconnectFailed(t *testing.T) {
+	config := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+	}
+	client := NewStdioClient(config)
+	client.reconnecting = true
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		client.mu.Lock()
+		client.reconnecting = false
+		// cmd stays nil — reconnect failed
+		client.mu.Unlock()
+	}()
+
+	err := client.waitForReconnect()
+	assert.Equal(t, ErrProcessDied, err)
 }
 
 func TestSendRequest_UnmarshalResultError(t *testing.T) {

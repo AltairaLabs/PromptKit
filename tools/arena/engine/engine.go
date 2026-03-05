@@ -419,8 +419,19 @@ func (e *Engine) ExecuteRuns(ctx context.Context, plan *RunPlan, concurrency int
 		go func(idx int, combo RunCombination) {
 			defer wg.Done()
 
-			// Acquire semaphore
-			semaphore <- struct{}{}
+			// Check if context is already canceled before blocking on semaphore.
+			// This prevents canceled runs from wastefully occupying goroutines
+			// waiting on an already-exhausted semaphore.
+			select {
+			case <-ctx.Done():
+				mu.Lock()
+				runIDs[idx] = ""
+				errors[idx] = ctx.Err()
+				mu.Unlock()
+				return
+			case semaphore <- struct{}{}:
+				// acquired
+			}
 			defer func() { <-semaphore }()
 
 			runID, err := e.executeRun(ctx, combo)

@@ -67,6 +67,8 @@ type listenerEntry struct {
 }
 
 // EventBus manages event distribution to listeners via a fixed-size worker pool.
+// Workers are started lazily on the first Subscribe/SubscribeAll call to avoid
+// spawning goroutines when no one is listening.
 type EventBus struct {
 	mu              sync.RWMutex
 	listeners       map[EventType][]listenerEntry
@@ -77,13 +79,20 @@ type EventBus struct {
 	eventCh           chan *Event
 	wg                sync.WaitGroup
 	closed            atomic.Bool
+	started           atomic.Bool // true once workers have been launched
 	droppedCount      atomic.Int64
 	subscriberTimeout time.Duration
+
+	// Saved config for lazy worker startup.
+	workerPoolSize int
 }
 
 // NewEventBus creates a new event bus with a worker pool.
 // Options can be provided to configure pool size and buffer capacity.
 // The zero-argument form uses sensible defaults and is fully backward-compatible.
+//
+// Workers are started lazily: goroutines are only spawned when the first
+// subscriber is added via Subscribe or SubscribeAll.
 func NewEventBus(opts ...BusOption) *EventBus {
 	cfg := &busConfig{
 		workerPoolSize:    DefaultWorkerPoolSize,
@@ -98,14 +107,21 @@ func NewEventBus(opts ...BusOption) *EventBus {
 		listeners:         make(map[EventType][]listenerEntry),
 		eventCh:           make(chan *Event, cfg.eventBufferSize),
 		subscriberTimeout: cfg.subscriberTimeout,
-	}
-
-	eb.wg.Add(cfg.workerPoolSize)
-	for range cfg.workerPoolSize {
-		go eb.worker()
+		workerPoolSize:    cfg.workerPoolSize,
 	}
 
 	return eb
+}
+
+// ensureStarted launches workers if they haven't been started yet.
+// Caller must NOT hold eb.mu (this method is lock-free via atomic CAS).
+func (eb *EventBus) ensureStarted() {
+	if eb.started.CompareAndSwap(false, true) {
+		eb.wg.Add(eb.workerPoolSize)
+		for range eb.workerPoolSize {
+			go eb.worker()
+		}
+	}
 }
 
 // worker processes events from the buffered channel.
@@ -117,9 +133,27 @@ func (eb *EventBus) worker() {
 }
 
 // dispatch delivers an event to all matching listeners.
+// If an event store is configured, the event is persisted asynchronously here
+// (in the worker goroutine) rather than in the Publish() caller's goroutine,
+// keeping the publish path fast.
 // Each listener is invoked with a timeout; if a listener exceeds the subscriber
 // timeout it is skipped and a warning is logged.
 func (eb *EventBus) dispatch(event *Event) {
+	// Persist to store if configured (asynchronous — runs in worker goroutine)
+	eb.mu.RLock()
+	store := eb.store
+	eb.mu.RUnlock()
+
+	if store != nil && event.SessionID != "" {
+		if err := store.Append(context.Background(), event); err != nil {
+			logger.Warn("event store append failed",
+				"event_type", string(event.Type),
+				"session_id", event.SessionID,
+				"error", err,
+			)
+		}
+	}
+
 	eb.mu.RLock()
 	typeListeners := eb.listeners[event.Type]
 
@@ -159,10 +193,16 @@ func (eb *EventBus) invokeWithTimeout(listener Listener, event *Event) {
 }
 
 // WithStore returns the event bus configured with the given store for persistence.
+// If a non-nil store is provided, workers are started immediately since store
+// writes happen in the dispatch worker goroutine.
 func (eb *EventBus) WithStore(store EventStore) *EventBus {
 	eb.mu.Lock()
-	defer eb.mu.Unlock()
 	eb.store = store
+	eb.mu.Unlock()
+
+	if store != nil {
+		eb.ensureStarted()
+	}
 	return eb
 }
 
@@ -175,7 +215,10 @@ func (eb *EventBus) Store() EventStore {
 
 // Subscribe registers a listener for a specific event type and returns
 // an unsubscribe function that removes the listener when called.
+// On the first call, workers are started lazily.
 func (eb *EventBus) Subscribe(eventType EventType, listener Listener) func() {
+	eb.ensureStarted()
+
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
@@ -200,7 +243,10 @@ func (eb *EventBus) Subscribe(eventType EventType, listener Listener) func() {
 
 // SubscribeAll registers a listener for all event types and returns
 // an unsubscribe function that removes the listener when called.
+// On the first call, workers are started lazily.
 func (eb *EventBus) SubscribeAll(listener Listener) func() {
+	eb.ensureStarted()
+
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
@@ -224,21 +270,11 @@ func (eb *EventBus) SubscribeAll(listener Listener) func() {
 
 // Publish sends an event to the worker pool for asynchronous delivery to all
 // registered listeners. If a store is configured, the event is persisted
-// synchronously before being queued for dispatch.
+// asynchronously in the dispatch worker (not in the caller's goroutine).
 // Returns false if the bus has been closed.
 func (eb *EventBus) Publish(event *Event) bool {
 	if eb.closed.Load() {
 		return false
-	}
-
-	eb.mu.RLock()
-	store := eb.store
-	eb.mu.RUnlock()
-
-	// Persist to store if configured (synchronous to ensure ordering)
-	if store != nil && event.SessionID != "" {
-		// Use background context for persistence - don't block on caller context
-		_ = store.Append(context.Background(), event)
 	}
 
 	// Non-blocking send: if the buffer is full, drop the event rather than blocking
@@ -266,10 +302,19 @@ func (eb *EventBus) DroppedCount() int64 {
 // Close shuts down the event bus gracefully. It closes the event channel and
 // waits for all workers to finish processing remaining events.
 // After Close returns, Publish calls will return false.
+// If no workers were ever started (no subscribers), Close simply marks the bus
+// as closed and drains any buffered events.
 func (eb *EventBus) Close() {
 	if eb.closed.CompareAndSwap(false, true) {
 		close(eb.eventCh)
-		eb.wg.Wait()
+		if eb.started.Load() {
+			eb.wg.Wait()
+		} else {
+			// Drain any buffered events that were published before Close
+			// when no workers were started.
+			for range eb.eventCh { //nolint:revive // intentional drain
+			}
+		}
 	}
 }
 

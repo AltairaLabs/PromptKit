@@ -25,6 +25,26 @@ func (m *mockStateStore) Fork(_ context.Context, _, _ string) error {
 	return nil
 }
 
+// mockMetadataStore implements both statestore.Store and statestore.MetadataAccessor.
+// It tracks whether LoadMetadata was called to verify the fast path is used.
+type mockMetadataStore struct {
+	mockStateStore
+	metadata         map[string]interface{}
+	metadataErr      error
+	loadMetaCalled   bool
+	loadStateCalled  bool
+}
+
+func (m *mockMetadataStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
+	m.loadStateCalled = true
+	return m.mockStateStore.Load(nil, "")
+}
+
+func (m *mockMetadataStore) LoadMetadata(_ context.Context, _ string) (map[string]interface{}, error) {
+	m.loadMetaCalled = true
+	return m.metadata, m.metadataErr
+}
+
 func TestStateProvider_Name(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -173,5 +193,76 @@ func TestStateProvider_Provide(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestStateProvider_UsesMetadataAccessor(t *testing.T) {
+	// Verify that when the store implements MetadataAccessor,
+	// the provider uses LoadMetadata instead of Load (avoids deep-copying messages).
+	store := &mockMetadataStore{
+		metadata: map[string]interface{}{
+			"user_name": "Alice",
+			"count":     42,
+		},
+	}
+
+	provider := NewStateProvider(store, "test-conv")
+	got, err := provider.Provide(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have used LoadMetadata, not Load
+	if !store.loadMetaCalled {
+		t.Error("expected LoadMetadata to be called")
+	}
+	if store.loadStateCalled {
+		t.Error("Load should not be called when MetadataAccessor is available")
+	}
+
+	// Verify the values
+	if got["user_name"] != "Alice" {
+		t.Errorf("user_name = %v, want Alice", got["user_name"])
+	}
+	if got["count"] != "42" {
+		t.Errorf("count = %v, want 42", got["count"])
+	}
+}
+
+func TestStateProvider_FallsBackToLoad(t *testing.T) {
+	// Verify that when MetadataAccessor is NOT implemented,
+	// the provider falls back to Load.
+	store := &mockStateStore{
+		state: &statestore.ConversationState{
+			Metadata: map[string]interface{}{
+				"key": "value",
+			},
+		},
+	}
+
+	provider := NewStateProvider(store, "test-conv")
+	got, err := provider.Provide(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got["key"] != "value" {
+		t.Errorf("key = %v, want value", got["key"])
+	}
+}
+
+func TestStateProvider_MetadataAccessorNotFound(t *testing.T) {
+	// Verify that ErrNotFound from MetadataAccessor returns nil (not error).
+	store := &mockMetadataStore{
+		metadataErr: statestore.ErrNotFound,
+	}
+
+	provider := NewStateProvider(store, "test-conv")
+	got, err := provider.Provide(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil, got %v", got)
 	}
 }

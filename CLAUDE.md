@@ -141,6 +141,19 @@ promptarena run --ci --format html
 - The `--mock-provider` flag replaces all providers with a generic mock that does NOT load scenario-specific response files
 - Mock responses support `tool_calls` for simulating LLM-initiated tool use (e.g., `workflow__transition`)
 
+## Concurrent Agents and Worktrees
+
+When running in a worktree or when concurrent agents may operate on the repo, **always use `git -C <path>` instead of `cd <path> && git ...`**. Compound `cd && git` commands require extra approval to prevent bare repository attacks, whereas `git -C` is safe and non-interactive.
+
+```bash
+# Good — works in worktrees and concurrent agents
+git -C /Users/chaholl/repos/altairalabs/promptkit push
+git -C /Users/chaholl/repos/altairalabs/promptkit log --oneline -5
+
+# Bad — requires approval, breaks in some worktree contexts
+cd /Users/chaholl/repos/altairalabs/promptkit && git push
+```
+
 ## Go Code Standards
 
 - **golangci-lint** config in `.golangci.yml` — line length 120, linters include errcheck, gocritic, gosec, govet, revive, staticcheck, unused

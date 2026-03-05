@@ -1021,6 +1021,9 @@ func (s *ProviderStage) handleToolResult(
 			content = formatToolResult(resultValue)
 		}
 
+		// Enforce tool result size limit
+		content = s.enforceResultSizeLimit(call.Name, content)
+
 		return types.MessageToolResult{
 			ID:      call.ID,
 			Name:    call.Name,
@@ -1036,6 +1039,32 @@ func (s *ProviderStage) handleToolResult(
 			Error:   fmt.Sprintf("Unknown tool status: %v", asyncResult.Status),
 		}
 	}
+}
+
+// enforceResultSizeLimit truncates the tool result content if it exceeds the
+// configured maximum size from the tool registry.
+func (s *ProviderStage) enforceResultSizeLimit(toolName, content string) string {
+	if s.toolRegistry == nil {
+		return content
+	}
+	maxSize := s.toolRegistry.MaxToolResultSize()
+	if maxSize <= 0 {
+		return content
+	}
+	size := len(content)
+	if size <= maxSize {
+		return content
+	}
+	logger.Warn("Tool result truncated",
+		"tool", toolName,
+		"size", size,
+		"limit", maxSize,
+	)
+	truncated := content[:maxSize]
+	return fmt.Sprintf(
+		"%s\n... [truncated, %d bytes exceeded limit of %d bytes]",
+		truncated, size, maxSize,
+	)
 }
 
 // isToolBlocked checks if a tool is in the blocklist

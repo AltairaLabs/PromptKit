@@ -626,7 +626,10 @@ func (h *gatedEvalHandler) Eval(
 }
 
 func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
-	bus := events.NewEventBus()
+	// Use a single worker to guarantee ordered dispatch of events.
+	bus := events.NewEventBus(events.WithWorkerPoolSize(1))
+	defer bus.Close()
+
 	received := make(chan *events.Event, 10)
 	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
 		received <- e
@@ -655,22 +658,40 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 		{EvalID: "e2", Type: "regex", Passed: false},
 	})
 
-	// Check we got 2 events
-	e1 := <-received
-	e2 := <-received
+	// Collect 2 events (order may vary with multiple workers, so use maps).
+	var got []*events.Event
+	for range 2 {
+		select {
+		case e := <-received:
+			got = append(got, e)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for eval events")
+		}
+	}
 
-	if e1.Type != events.EventEvalCompleted {
-		t.Errorf("expected eval.completed, got %s", e1.Type)
-	}
-	if e2.Type != events.EventEvalFailed {
-		t.Errorf("expected eval.failed, got %s", e2.Type)
+	// Verify we received one completed and one failed event.
+	typeCount := map[events.EventType]int{}
+	for _, e := range got {
+		typeCount[e.Type]++
 	}
 
-	data1, ok := e1.Data.(*events.EvalCompletedData)
-	if !ok {
-		t.Fatal("expected *EvalCompletedData")
+	if typeCount[events.EventEvalCompleted] != 1 {
+		t.Errorf("expected 1 eval.completed, got %d", typeCount[events.EventEvalCompleted])
 	}
-	if data1.EvalID != "e1" {
-		t.Errorf("expected eval ID e1, got %q", data1.EvalID)
+	if typeCount[events.EventEvalFailed] != 1 {
+		t.Errorf("expected 1 eval.failed, got %d", typeCount[events.EventEvalFailed])
+	}
+
+	// Verify eval IDs are present.
+	for _, e := range got {
+		if e.Type == events.EventEvalCompleted {
+			data, ok := e.Data.(*events.EvalCompletedData)
+			if !ok {
+				t.Fatal("expected *EvalCompletedData")
+			}
+			if data.EvalID != "e1" {
+				t.Errorf("expected eval ID e1, got %q", data.EvalID)
+			}
+		}
 	}
 }

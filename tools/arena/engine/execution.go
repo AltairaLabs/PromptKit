@@ -14,6 +14,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
+// DefaultRunTimeout is the default maximum duration for a single run execution.
+// If a provider call hangs, the run will be canceled after this timeout,
+// freeing up the semaphore slot for other runs.
+const DefaultRunTimeout = 5 * time.Minute
+
 // GenerateRunPlan creates a comprehensive test execution plan from filter criteria.
 // The plan contains all combinations of regions × providers × scenarios OR evals that match
 // the provided filters. Scenarios and evals are mutually exclusive.
@@ -322,6 +327,11 @@ func (e *Engine) intersectProviders(scenarioProviders, providerFilter []string) 
 // Handles errors gracefully, always returning a RunID (with Error saved in StateStore if failed).
 // Returns the RunID. Results can be retrieved from StateStore using GetRunResult().
 func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, error) {
+	// Apply per-run timeout to prevent hanging provider calls from blocking indefinitely
+	runTimeout := e.resolveRunTimeout()
+	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
+
 	startTime := time.Now()
 	runID := generateRunID(combo)
 	runEmitter := e.createRunEmitter(runID, combo)
@@ -339,7 +349,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Check if this is an eval run
 	if combo.EvalID != "" {
-		return e.executeEvalRun(ctx, combo, runID, startTime, arenaStore, runEmitter, saveError)
+		return e.executeEvalRun(runCtx, combo, runID, startTime, arenaStore, runEmitter, saveError)
 	}
 
 	// Otherwise it's a scenario run
@@ -351,7 +361,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Route workflow scenarios to the workflow executor
 	if scenario.IsWorkflow() {
-		return e.executeWorkflowRun(ctx, &combo, runID, startTime, arenaStore, runEmitter, saveError)
+		return e.executeWorkflowRun(runCtx, &combo, runID, startTime, arenaStore, runEmitter, saveError)
 	}
 
 	// Get provider
@@ -383,17 +393,26 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	// Use RunID as ConversationID for Arena executions
 	req.ConversationID = runID
 
-	convResult := e.conversationExecutor.ExecuteConversation(ctx, req)
+	convResult := e.conversationExecutor.ExecuteConversation(runCtx, req)
+
+	// Check if the run was canceled due to timeout
+	if runCtx.Err() != nil {
+		timeoutMsg := fmt.Sprintf("run timed out after %s", runTimeout)
+		if convResult != nil && convResult.Error != "" {
+			timeoutMsg = fmt.Sprintf("%s: %s", timeoutMsg, convResult.Error)
+		}
+		return saveError(timeoutMsg)
+	}
 
 	// Enrich conversation messages with tool descriptor metadata for reports
-	e.enrichMessagesWithToolDescriptors(ctx, arenaStore, runID)
+	e.enrichMessagesWithToolDescriptors(runCtx, arenaStore, runID)
 
 	// Calculate duration and cost
 	duration := time.Since(startTime)
 	cost := convResult.Cost.TotalCost
 
 	// Save run metadata to StateStore
-	if err := e.saveRunMetadata(ctx, arenaStore, combo, convResult, runID, startTime, duration); err != nil {
+	if err := e.saveRunMetadata(runCtx, arenaStore, combo, convResult, runID, startTime, duration); err != nil {
 		return runID, fmt.Errorf("failed to save run metadata: %w", err)
 	}
 
@@ -728,6 +747,20 @@ func convertA2AAgentsFromConfig(agents []config.A2AAgentConfig) []statestore.A2A
 		result[i] = info
 	}
 	return result
+}
+
+// resolveRunTimeout returns the per-run timeout from config, or DefaultRunTimeout if not set.
+func (e *Engine) resolveRunTimeout() time.Duration {
+	if e.config != nil && e.config.Defaults.RunTimeout != "" {
+		d, err := time.ParseDuration(e.config.Defaults.RunTimeout)
+		if err == nil && d > 0 {
+			return d
+		}
+		logger.Warn("Invalid run_timeout in config, using default",
+			"configured", e.config.Defaults.RunTimeout,
+			"default", DefaultRunTimeout)
+	}
+	return DefaultRunTimeout
 }
 
 // generateRunID creates a unique run ID for a combination

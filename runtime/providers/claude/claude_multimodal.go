@@ -457,8 +457,9 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 		if err != nil {
 			return nil, err
 		}
-		outChan := make(chan providers.StreamChunk)
-		go p.streamResponseMultimodal(ctx, body, scanner, outChan)
+		idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+		outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
+		go p.streamResponseMultimodal(ctx, idleBody, scanner, outChan)
 		return outChan, nil
 	}
 
@@ -491,10 +492,11 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 		return nil, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	outChan := make(chan providers.StreamChunk)
-	scanner := providers.NewSSEScanner(resp.Body)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
+	idleBody := providers.NewIdleTimeoutReader(resp.Body, providers.DefaultStreamIdleTimeout)
+	scanner := providers.NewSSEScanner(idleBody)
 
-	go p.streamResponseMultimodal(ctx, resp.Body, scanner, outChan)
+	go p.streamResponseMultimodal(ctx, idleBody, scanner, outChan)
 
 	return outChan, nil
 }

@@ -448,6 +448,9 @@
         "concurrency": {
           "type": "integer"
         },
+        "run_timeout": {
+          "type": "string"
+        },
         "output": {
           "$ref": "#/$defs/OutputConfig"
         },

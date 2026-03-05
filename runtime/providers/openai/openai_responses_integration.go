@@ -568,7 +568,7 @@ func (p *Provider) predictStreamWithResponses(
 		return nil, err
 	}
 
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 	go p.streamResponsesResponse(ctx, resp.Body, outChan)
 
 	return outChan, nil
@@ -766,9 +766,18 @@ func (p *Provider) streamResponsesResponse(
 	outChan chan<- providers.StreamChunk,
 ) {
 	defer close(outChan)
-	defer body.Close()
 
-	scanner := bufio.NewScanner(body)
+	// Close the response body when context is canceled to unblock scanner.Scan()
+	go func() {
+		<-ctx.Done()
+		_ = body.Close()
+	}()
+
+	// Wrap body with idle timeout detection to guard against stalled streams
+	idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+	defer idleBody.Close()
+
+	scanner := bufio.NewScanner(idleBody)
 	var sb strings.Builder
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall

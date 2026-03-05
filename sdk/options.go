@@ -176,6 +176,9 @@ type config struct {
 
 	// Custom logger for SDK consumers
 	logger *slog.Logger
+
+	// Shutdown manager for graceful conversation cleanup
+	shutdownManager *ShutdownManager
 }
 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.
@@ -1738,6 +1741,24 @@ func WithMaxActiveSkillsOption(n int) Option {
 			return fmt.Errorf("WithMaxActiveSkillsOption: n must be positive, got %d", n)
 		}
 		c.maxActiveSkills = n
+		return nil
+	}
+}
+
+// WithShutdownManager attaches a [ShutdownManager] to the conversation.
+// When set, [Open] and [OpenDuplex] automatically register the conversation
+// with the manager, and [Conversation.Close] automatically deregisters it.
+//
+//	mgr := sdk.NewShutdownManager()
+//	go sdk.GracefulShutdown(mgr, 30*time.Second)
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithShutdownManager(mgr),
+//	)
+//	defer conv.Close()
+func WithShutdownManager(mgr *ShutdownManager) Option {
+	return func(c *config) error {
+		c.shutdownManager = mgr
 		return nil
 	}
 }

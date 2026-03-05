@@ -17,18 +17,30 @@ import (
 // This simulates Gemini's behavior of dropping connections mid-conversation.
 func TestStreamSession_ReconnectOnUnexpectedClose(t *testing.T) {
 	var connectionCount atomic.Int32
+	// Use a done channel to prevent t.Log calls after test completion (avoids data race).
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done) })
+
+	logf := func(format string, args ...interface{}) {
+		select {
+		case <-done:
+			return
+		default:
+			t.Logf(format, args...)
+		}
+	}
 
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		count := connectionCount.Add(1)
-		t.Logf("Server: connection #%d established", count)
+		logf("Server: connection #%d established", count)
 
 		// Read setup message
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			t.Logf("Server: error reading setup: %v", err)
+			logf("Server: error reading setup: %v", err)
 			return
 		}
-		t.Logf("Server: received setup message: %s", string(data))
+		logf("Server: received setup message: %s", string(data))
 
 		// Send setup_complete response
 		setupResponse := ServerMessage{
@@ -36,26 +48,26 @@ func TestStreamSession_ReconnectOnUnexpectedClose(t *testing.T) {
 		}
 		setupData, _ := json.Marshal(setupResponse)
 		if err := conn.WriteMessage(websocket.TextMessage, setupData); err != nil {
-			t.Logf("Server: error sending setup_complete: %v", err)
+			logf("Server: error sending setup_complete: %v", err)
 			return
 		}
-		t.Logf("Server: sent setup_complete")
+		logf("Server: sent setup_complete")
 
 		if count == 1 {
 			// First connection: close unexpectedly after a short delay
 			// This simulates Gemini closing the connection mid-conversation
 			time.Sleep(100 * time.Millisecond)
-			t.Log("Server: closing connection unexpectedly (simulating Gemini behavior)")
+			logf("Server: closing connection unexpectedly (simulating Gemini behavior)")
 			conn.Close()
 			return
 		}
 
 		// Second connection: stay alive and handle messages
-		t.Log("Server: second connection - staying alive")
+		logf("Server: second connection - staying alive")
 		for {
 			_, _, err := conn.ReadMessage()
 			if err != nil {
-				t.Logf("Server: connection #%d closed: %v", count, err)
+				logf("Server: connection #%d closed: %v", count, err)
 				return
 			}
 		}

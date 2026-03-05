@@ -6,7 +6,12 @@ import (
 
 const (
 	// DefaultChannelBufferSize is the default buffer size for channels between stages.
-	DefaultChannelBufferSize = 16
+	// For text pipelines, 16 provides adequate buffering.
+	// For audio pipelines at ~50 chunks/sec, consider using DefaultAudioChannelBufferSize.
+	DefaultChannelBufferSize = 32
+	// DefaultAudioChannelBufferSize is the recommended buffer size for audio pipelines.
+	// At 50 chunks/sec, 64 buffers provide ~1.3 seconds of buffering to absorb jitter.
+	DefaultAudioChannelBufferSize = 64
 	// DefaultMaxConcurrentPipelines is the default maximum number of concurrent pipeline executions.
 	DefaultMaxConcurrentPipelines = 100
 	// DefaultExecutionTimeoutSeconds is the default execution timeout in seconds.

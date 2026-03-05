@@ -1,6 +1,8 @@
 package events
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -537,6 +539,242 @@ func TestEventBusDroppedCountRateLimitedLogging(t *testing.T) {
 
 	close(blockCh)
 }
+
+func TestEventBusLazyWorkerStartup(t *testing.T) {
+	t.Parallel()
+
+	// NewEventBus should NOT start workers immediately.
+	bus := NewEventBus()
+	defer bus.Close()
+
+	if bus.started.Load() {
+		t.Fatal("expected workers to NOT be started before any subscription")
+	}
+
+	// Subscribe should trigger worker startup.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventPipelineStarted, func(*Event) {
+		wg.Done()
+	})
+
+	if !bus.started.Load() {
+		t.Fatal("expected workers to be started after Subscribe")
+	}
+
+	bus.Publish(&Event{Type: EventPipelineStarted})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event after lazy start")
+	}
+}
+
+func TestEventBusLazyWorkerStartupViaSubscribeAll(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	defer bus.Close()
+
+	if bus.started.Load() {
+		t.Fatal("expected workers to NOT be started before any subscription")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.SubscribeAll(func(*Event) {
+		wg.Done()
+	})
+
+	if !bus.started.Load() {
+		t.Fatal("expected workers to be started after SubscribeAll")
+	}
+
+	bus.Publish(&Event{Type: EventPipelineStarted})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event after lazy start via SubscribeAll")
+	}
+}
+
+func TestEventBusCloseWithoutSubscribers(t *testing.T) {
+	t.Parallel()
+
+	// Create bus, publish events, close — no subscribers ever added.
+	bus := NewEventBus()
+
+	bus.Publish(&Event{Type: EventPipelineStarted})
+	bus.Publish(&Event{Type: EventPipelineStarted})
+
+	// Close should not hang even though no workers were started.
+	done := make(chan struct{})
+	go func() {
+		bus.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// OK
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() hung when no subscribers were ever added")
+	}
+
+	if !bus.closed.Load() {
+		t.Fatal("expected bus to be closed")
+	}
+}
+
+func TestEventBusStoreWriteInDispatchWorker(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus(WithWorkerPoolSize(1))
+	defer bus.Close()
+
+	// Use a mock store that records which goroutine Append runs on.
+	store := &goroutineTrackingStore{}
+	bus.WithStore(store)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventPipelineStarted, func(*Event) {
+		wg.Done()
+	})
+
+	// Publish from the test goroutine.
+	bus.Publish(&Event{Type: EventPipelineStarted, SessionID: "test-session"})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event")
+	}
+
+	// Verify store.Append was called.
+	if store.appendCount.Load() != 1 {
+		t.Fatalf("expected 1 store append, got %d", store.appendCount.Load())
+	}
+}
+
+func TestEventBusStoreWriteSkipsEmptySessionID(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus(WithWorkerPoolSize(1))
+	defer bus.Close()
+
+	store := &goroutineTrackingStore{}
+	bus.WithStore(store)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventPipelineStarted, func(*Event) {
+		wg.Done()
+	})
+
+	// Publish event without SessionID — store should NOT be called.
+	bus.Publish(&Event{Type: EventPipelineStarted})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event")
+	}
+
+	if store.appendCount.Load() != 0 {
+		t.Fatalf("expected 0 store appends for empty session ID, got %d", store.appendCount.Load())
+	}
+}
+
+func TestEventBusStoreAppendErrorLogged(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus(WithWorkerPoolSize(1))
+	defer bus.Close()
+
+	store := &failingStore{}
+	bus.WithStore(store)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventPipelineStarted, func(*Event) {
+		wg.Done()
+	})
+
+	// Even though store.Append fails, the event should still be dispatched to listeners.
+	bus.Publish(&Event{Type: EventPipelineStarted, SessionID: "test-session"})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("listener should fire even when store.Append fails")
+	}
+}
+
+func TestEventBusEnsureStartedIdempotent(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus(WithWorkerPoolSize(2))
+	defer bus.Close()
+
+	// Call ensureStarted multiple times — should only start workers once.
+	bus.ensureStarted()
+	bus.ensureStarted()
+	bus.ensureStarted()
+
+	if !bus.started.Load() {
+		t.Fatal("expected started to be true after ensureStarted")
+	}
+
+	// Verify bus still works correctly.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventPipelineStarted, func(*Event) {
+		wg.Done()
+	})
+
+	bus.Publish(&Event{Type: EventPipelineStarted})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event after multiple ensureStarted calls")
+	}
+}
+
+// goroutineTrackingStore is a mock EventStore that counts Append calls.
+type goroutineTrackingStore struct {
+	appendCount atomic.Int32
+}
+
+func (s *goroutineTrackingStore) Append(_ context.Context, _ *Event) error {
+	s.appendCount.Add(1)
+	return nil
+}
+
+func (s *goroutineTrackingStore) Query(context.Context, *EventFilter) ([]*Event, error) {
+	return nil, nil
+}
+
+func (s *goroutineTrackingStore) QueryRaw(context.Context, *EventFilter) ([]*StoredEvent, error) {
+	return nil, nil
+}
+
+func (s *goroutineTrackingStore) Stream(context.Context, string) (<-chan *Event, error) {
+	ch := make(chan *Event)
+	close(ch)
+	return ch, nil
+}
+
+func (s *goroutineTrackingStore) Close() error { return nil }
+
+// failingStore is a mock EventStore whose Append always returns an error.
+type failingStore struct{}
+
+func (s *failingStore) Append(context.Context, *Event) error {
+	return fmt.Errorf("store unavailable")
+}
+
+func (s *failingStore) Query(context.Context, *EventFilter) ([]*Event, error) { return nil, nil }
+
+func (s *failingStore) QueryRaw(context.Context, *EventFilter) ([]*StoredEvent, error) {
+	return nil, nil
+}
+
+func (s *failingStore) Stream(context.Context, string) (<-chan *Event, error) {
+	ch := make(chan *Event)
+	close(ch)
+	return ch, nil
+}
+
+func (s *failingStore) Close() error { return nil }
 
 func waitForWG(wg *sync.WaitGroup, timeout time.Duration) bool {
 	done := make(chan struct{})

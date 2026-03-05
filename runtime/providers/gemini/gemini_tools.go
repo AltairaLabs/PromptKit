@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -432,13 +433,13 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 	}
 
 	// Extract text content and tool calls
-	var textContent string
+	var textBuilder strings.Builder
 	var toolCalls []types.MessageToolCall
 
 	for i, part := range candidate.Content.Parts {
 		// Check for text content
 		if part.Text != "" {
-			textContent += part.Text
+			textBuilder.WriteString(part.Text)
 		}
 
 		// Check for function call
@@ -466,7 +467,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 	// Calculate cost breakdown (Gemini doesn't support cached tokens yet)
 	costBreakdown := p.Provider.CalculateCost(tokensIn, tokensOut, 0)
 
-	predictResp.Content = textContent
+	predictResp.Content = textBuilder.String()
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = time.Since(start)
 	predictResp.Raw = respBytes
@@ -572,7 +573,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
 	}
 
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 	go p.streamResponse(ctx, resp.Body, outChan)
 
 	return outChan, nil

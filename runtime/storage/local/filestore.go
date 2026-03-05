@@ -34,6 +34,9 @@ const (
 
 	// DefaultMaxFileSize is the default maximum file size (50 MB).
 	DefaultMaxFileSize = 50 * 1024 * 1024
+
+	// filePermissions is the default file permission mode for created files.
+	filePermissions = 0600
 )
 
 // ErrFileTooLarge is returned when data exceeds the configured MaxFileSize.
@@ -76,6 +79,7 @@ type FileStore struct {
 
 	// dedupIndex maps content hashes to file paths for deduplication
 	dedupIndex map[string]string
+	dedupDirty bool // tracks whether the in-memory index has unsaved changes
 	dedupMu    sync.RWMutex
 
 	// refCounts tracks how many references exist for each deduplicated file
@@ -237,13 +241,14 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 	if fs.config.EnableDeduplication && hash != "" {
 		fs.dedupMu.Lock()
 		fs.dedupIndex[hash] = filePath
+		fs.dedupDirty = true
 		fs.dedupMu.Unlock()
 
 		fs.refMu.Lock()
 		fs.refCounts[filePath] = 1
 		fs.refMu.Unlock()
 
-		// Persist index
+		// Persist index (skips write if not dirty)
 		_ = fs.saveDedupIndex()
 	}
 
@@ -338,10 +343,13 @@ func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Referenc
 		for hash, path := range fs.dedupIndex {
 			if path == filePath {
 				delete(fs.dedupIndex, hash)
+				fs.dedupDirty = true
 				break
 			}
 		}
 		fs.dedupMu.Unlock()
+
+		// Persist index (skips write if not dirty)
 		_ = fs.saveDedupIndex()
 	}
 
@@ -552,6 +560,11 @@ func (fs *FileStore) saveDedupIndex() error {
 	indexPath := filepath.Join(fs.config.BaseDir, ".dedup_index.json")
 
 	fs.dedupMu.RLock()
+	dirty := fs.dedupDirty
+	if !dirty {
+		fs.dedupMu.RUnlock()
+		return nil
+	}
 	data, err := json.MarshalIndent(fs.dedupIndex, "", "  ")
 	fs.dedupMu.RUnlock()
 
@@ -559,7 +572,24 @@ func (fs *FileStore) saveDedupIndex() error {
 		return err
 	}
 
-	return os.WriteFile(indexPath, data, 0600)
+	if err := os.WriteFile(indexPath, data, filePermissions); err != nil {
+		return err
+	}
+
+	fs.dedupMu.Lock()
+	fs.dedupDirty = false
+	fs.dedupMu.Unlock()
+
+	return nil
+}
+
+// Flush persists any pending dedup index changes to disk.
+// Call this periodically or before shutting down to ensure the index is saved.
+func (fs *FileStore) Flush() error {
+	if !fs.config.EnableDeduplication {
+		return nil
+	}
+	return fs.saveDedupIndex()
 }
 
 func (fs *FileStore) cleanupEmptyDirs(dir string) {

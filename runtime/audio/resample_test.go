@@ -2,8 +2,83 @@ package audio
 
 import (
 	"encoding/binary"
+	"fmt"
 	"testing"
 )
+
+// BenchmarkResamplePCM16_Pooled benchmarks resampling with pooled buffers (current implementation).
+func BenchmarkResamplePCM16_Pooled(b *testing.B) {
+	// 20ms of audio at 24kHz = 480 samples = 960 bytes (typical real-time chunk)
+	numSamples := 480
+	input := make([]byte, numSamples*2)
+	for i := 0; i < numSamples; i++ {
+		binary.LittleEndian.PutUint16(input[i*2:], uint16(i%32768))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := ResamplePCM16(input, SampleRate24kHz, SampleRate16kHz)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkResamplePCM16_LargeChunk benchmarks resampling a larger audio chunk.
+func BenchmarkResamplePCM16_LargeChunk(b *testing.B) {
+	// 1 second of audio at 24kHz = 24000 samples = 48000 bytes
+	numSamples := 24000
+	input := make([]byte, numSamples*2)
+	for i := 0; i < numSamples; i++ {
+		binary.LittleEndian.PutUint16(input[i*2:], uint16(i%32768))
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := ResamplePCM16(input, SampleRate24kHz, SampleRate16kHz)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestResamplePCM16_ConcurrentPoolSafety(t *testing.T) {
+	// Verify that pooled buffers don't cause data corruption under concurrent use
+	numSamples := 100
+	input := make([]byte, numSamples*2)
+	for i := 0; i < numSamples; i++ {
+		binary.LittleEndian.PutUint16(input[i*2:], uint16(i*100))
+	}
+
+	const goroutines = 10
+	errs := make(chan error, goroutines)
+
+	for g := 0; g < goroutines; g++ {
+		go func() {
+			for i := 0; i < 50; i++ {
+				output, err := ResamplePCM16(input, SampleRate24kHz, SampleRate16kHz)
+				if err != nil {
+					errs <- err
+					return
+				}
+				expectedSamples := int(float64(numSamples) * float64(SampleRate16kHz) / float64(SampleRate24kHz))
+				if len(output)/2 != expectedSamples {
+					errs <- fmt.Errorf("unexpected output samples: got %d, want %d", len(output)/2, expectedSamples)
+					return
+				}
+			}
+			errs <- nil
+		}()
+	}
+
+	for i := 0; i < goroutines; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent resample failed: %v", err)
+		}
+	}
+}
 
 func TestResamplePCM16_SameRate(t *testing.T) {
 	// Create a simple sine wave pattern

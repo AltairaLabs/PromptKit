@@ -77,6 +77,14 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		return nil, err
 	}
 
+	// Register with shutdown manager if configured
+	if conv.config.shutdownManager != nil {
+		if err := conv.config.shutdownManager.Register(conv.ID(), conv); err != nil {
+			_ = conv.Close()
+			return nil, fmt.Errorf("failed to register with shutdown manager: %w", err)
+		}
+	}
+
 	return conv, nil
 }
 
@@ -130,6 +138,14 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	// Finalize conversation (eval middleware, MCP, session start hooks)
 	if err := finalizeConversation(conv, conv.config); err != nil {
 		return nil, err
+	}
+
+	// Register with shutdown manager if configured
+	if conv.config.shutdownManager != nil {
+		if err := conv.config.shutdownManager.Register(conv.ID(), conv); err != nil {
+			_ = conv.Close()
+			return nil, fmt.Errorf("failed to register with shutdown manager: %w", err)
+		}
 	}
 
 	return conv, nil

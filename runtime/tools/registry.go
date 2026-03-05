@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -19,6 +20,10 @@ const (
 	// that don't specify their own TimeoutMs. 30 seconds accommodates HTTP-calling
 	// tools and other network-dependent operations.
 	DefaultToolTimeout = 30000
+
+	// DefaultMaxToolResultSize is the maximum allowed size (in bytes) of a
+	// JSON-marshaled tool result. Results exceeding this limit are truncated.
+	DefaultMaxToolResultSize = 1 * 1024 * 1024 // 1 MB
 )
 
 // ToolRepository provides abstract access to tool descriptors (local interface to avoid import cycles)
@@ -39,13 +44,24 @@ func WithDefaultTimeout(ms int) RegistryOption {
 	}
 }
 
-// Registry manages tool descriptors and provides access to executors
+// WithMaxToolResultSize sets the maximum allowed size (in bytes) of a
+// JSON-marshaled tool result. Pass 0 to disable size checking.
+func WithMaxToolResultSize(bytes int) RegistryOption {
+	return func(r *Registry) {
+		r.maxToolResultSize = bytes
+	}
+}
+
+// Registry manages tool descriptors and provides access to executors.
+// All map access is protected by mu (RWMutex) for safe concurrent use.
 type Registry struct {
-	repository       ToolRepository             // Optional repository for loading tools
-	tools            map[string]*ToolDescriptor // Cache of loaded tool descriptors
-	validator        *SchemaValidator           // Schema validator for tool arguments
-	executors        map[string]Executor        // Registered tool executors
-	defaultTimeoutMs int                        // Default timeout for tools without explicit TimeoutMs
+	mu                sync.RWMutex
+	repository        ToolRepository             // Optional repository for loading tools
+	tools             map[string]*ToolDescriptor // Cache of loaded tool descriptors
+	validator         *SchemaValidator           // Schema validator for tool arguments
+	executors         map[string]Executor        // Registered tool executors
+	defaultTimeoutMs  int                        // Default timeout for tools without explicit TimeoutMs
+	maxToolResultSize int                        // Max result size in bytes (0 = unlimited)
 }
 
 // NewRegistry creates a new tool registry without a repository backend (legacy mode)
@@ -61,11 +77,12 @@ func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Reg
 // newRegistry is the internal constructor for creating registries
 func newRegistry(repository ToolRepository, opts ...RegistryOption) *Registry {
 	registry := &Registry{
-		repository:       repository,
-		tools:            make(map[string]*ToolDescriptor),
-		validator:        NewSchemaValidator(),
-		executors:        make(map[string]Executor),
-		defaultTimeoutMs: DefaultToolTimeout,
+		repository:        repository,
+		tools:             make(map[string]*ToolDescriptor),
+		validator:         NewSchemaValidator(),
+		executors:         make(map[string]Executor),
+		defaultTimeoutMs:  DefaultToolTimeout,
+		maxToolResultSize: DefaultMaxToolResultSize,
 	}
 
 	for _, opt := range opts {
@@ -90,7 +107,7 @@ func newRegistry(repository ToolRepository, opts ...RegistryOption) *Registry {
 	return registry
 }
 
-// Register adds a tool descriptor to the registry with validation
+// Register adds a tool descriptor to the registry with validation.
 func (r *Registry) Register(descriptor *ToolDescriptor) error {
 	// Test validation setup (errors here indicate schema compilation issues, which are acceptable during registration)
 	_ = r.validator.ValidateArgs(descriptor, []byte("{}"))
@@ -106,21 +123,28 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error {
 	descriptor.Namespace, _ = ParseToolName(descriptor.Name)
 
 	// Cache the descriptor
+	r.mu.Lock()
 	r.tools[descriptor.Name] = descriptor
+	r.mu.Unlock()
 	return nil
 }
 
-// Get retrieves a tool descriptor by name with repository fallback
+// Get retrieves a tool descriptor by name with repository fallback.
 func (r *Registry) Get(name string) *ToolDescriptor {
 	// Check cache first
-	if tool, ok := r.tools[name]; ok {
+	r.mu.RLock()
+	tool, ok := r.tools[name]
+	r.mu.RUnlock()
+	if ok {
 		return tool
 	}
 
 	// Try loading from repository if available
 	if r.repository != nil {
 		if tool, _ := r.repository.LoadTool(name); tool != nil {
+			r.mu.Lock()
 			r.tools[name] = tool // Cache the loaded tool
+			r.mu.Unlock()
 			return tool
 		}
 	}
@@ -128,7 +152,7 @@ func (r *Registry) Get(name string) *ToolDescriptor {
 	return nil // Not found
 }
 
-// List returns all tool names from repository or cache
+// List returns all tool names from repository or cache.
 func (r *Registry) List() []string {
 	// Try repository first for complete list
 	if r.repository != nil {
@@ -138,6 +162,8 @@ func (r *Registry) List() []string {
 	}
 
 	// Fallback to cache
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	names := make([]string, 0, len(r.tools))
 	for name := range r.tools {
 		names = append(names, name)
@@ -203,7 +229,9 @@ func (r *Registry) loadK8sManifest(filename string, temp any) error {
 	}
 
 	toolConfig.Spec.Namespace, _ = ParseToolName(toolConfig.Spec.Name)
+	r.mu.Lock()
 	r.tools[toolConfig.Spec.Name] = &toolConfig.Spec
+	r.mu.Unlock()
 	return nil
 }
 
@@ -233,23 +261,29 @@ func (r *Registry) loadJSONTool(filename string, data []byte) error {
 	}
 
 	descriptor.Namespace, _ = ParseToolName(descriptor.Name)
+	r.mu.Lock()
 	r.tools[descriptor.Name] = &descriptor
+	r.mu.Unlock()
 	return nil
 }
 
-// GetTool retrieves a tool descriptor by name
+// GetTool retrieves a tool descriptor by name.
 func (r *Registry) GetTool(name string) (*ToolDescriptor, error) {
+	r.mu.RLock()
 	tool, exists := r.tools[name]
+	r.mu.RUnlock()
 	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrToolNotFound, name)
 	}
 	return tool, nil
 }
 
-// GetTools returns all loaded tool descriptors
+// GetTools returns all loaded tool descriptors.
 func (r *Registry) GetTools() map[string]*ToolDescriptor {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	// Return a copy to prevent external modification
-	result := make(map[string]*ToolDescriptor)
+	result := make(map[string]*ToolDescriptor, len(r.tools))
 	for name, tool := range r.tools {
 		result[name] = tool
 	}
@@ -271,6 +305,8 @@ func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error) {
 
 // GetByNamespace returns all tool descriptors in the given namespace.
 func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	var result []*ToolDescriptor
 	for _, tool := range r.tools {
 		if tool.Namespace == ns {
@@ -280,9 +316,18 @@ func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
 	return result
 }
 
-// RegisterExecutor registers a tool executor
+// RegisterExecutor registers a tool executor.
 func (r *Registry) RegisterExecutor(executor Executor) {
+	r.mu.Lock()
 	r.executors[executor.Name()] = executor
+	r.mu.Unlock()
+}
+
+// MaxToolResultSize returns the configured maximum tool result size in bytes.
+func (r *Registry) MaxToolResultSize() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.maxToolResultSize
 }
 
 // withTimeout wraps ctx with a deadline derived from the tool's TimeoutMs.
@@ -409,6 +454,9 @@ func (r *Registry) ExecuteAsync(
 // 1. Built-in mode mapping (mock, live, mcp) for backwards compatibility
 // 2. If tool.Mode matches a registered executor name, use it (enables custom executors)
 func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	var executorName string
 
 	// First, handle built-in modes with their established mappings
@@ -557,7 +605,9 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 	isBuiltinMode := descriptor.Mode == "" || descriptor.Mode == modeMock ||
 		descriptor.Mode == modeLive || descriptor.Mode == modeMCP ||
 		descriptor.Mode == modeClient
+	r.mu.RLock()
 	_, isRegisteredExecutor := r.executors[descriptor.Mode]
+	r.mu.RUnlock()
 	if !isBuiltinMode && !isRegisteredExecutor {
 		return ErrInvalidToolMode
 	}

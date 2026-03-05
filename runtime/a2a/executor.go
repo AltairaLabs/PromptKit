@@ -24,11 +24,28 @@ const (
 	DefaultA2AInitialDelay = 500 * time.Millisecond
 	DefaultA2AMaxDelay     = 30 * time.Second
 
+	// DefaultClientTTL is the default time-to-live for cached A2A clients.
+	// Clients not used within this duration are evicted from the cache.
+	DefaultClientTTL = 30 * time.Minute
+
+	// DefaultMaxClients is the default maximum number of cached A2A clients.
+	// When exceeded, the least recently used client is evicted.
+	DefaultMaxClients = 100
+
+	// defaultCleanupInterval is the interval between cache cleanup sweeps.
+	defaultCleanupInterval = 5 * time.Minute
+
 	a2aExponentialBase   = 2
 	a2aMaxJitterFraction = 0.5
 	a2aFloat64MantBits   = 53
 	a2aUint64Bits        = 64
 )
+
+// clientEntry wraps a cached Client with usage metadata for TTL-based eviction.
+type clientEntry struct {
+	client   *Client
+	lastUsed time.Time
+}
 
 // RetryPolicy configures retry behavior for the A2A executor.
 type RetryPolicy struct {
@@ -59,22 +76,52 @@ func WithNoRetry() ExecutorOption {
 	return func(e *Executor) { e.retryPolicy = RetryPolicy{MaxRetries: 0} }
 }
 
+// WithClientTTL sets the time-to-live for cached A2A clients.
+// Clients not used within this duration are evicted from the cache.
+func WithClientTTL(d time.Duration) ExecutorOption {
+	return func(e *Executor) { e.clientTTL = d }
+}
+
+// WithMaxClients sets the maximum number of cached A2A clients.
+// When exceeded, the least recently used client is evicted.
+func WithMaxClients(n int) ExecutorOption {
+	return func(e *Executor) { e.maxClients = n }
+}
+
 // Executor implements tools.Executor for A2A agent tools.
 // It dispatches tool calls to remote A2A agents via the A2A client.
+// The executor maintains a cache of A2A clients with TTL-based eviction.
+// Call Close when the executor is no longer needed to release resources.
 type Executor struct {
 	mu          sync.RWMutex
-	clients     map[string]*Client
+	clients     map[string]*clientEntry
 	retryPolicy RetryPolicy
+	clientTTL   time.Duration
+	maxClients  int
+	stopCleanup chan struct{}
+	cleanupDone chan struct{}
+	closed      bool
+
+	// nowFunc is used for testing to control time. Defaults to time.Now.
+	nowFunc func() time.Time
 }
 
 // NewExecutor creates a new A2A executor with optional configuration.
+// The executor starts a background goroutine for cache cleanup.
+// Call Close when the executor is no longer needed.
 func NewExecutor(opts ...ExecutorOption) *Executor {
 	e := &Executor{
 		retryPolicy: DefaultRetryPolicy(),
+		clientTTL:   DefaultClientTTL,
+		maxClients:  DefaultMaxClients,
+		stopCleanup: make(chan struct{}),
+		cleanupDone: make(chan struct{}),
+		nowFunc:     time.Now,
 	}
 	for _, opt := range opts {
 		opt(e)
 	}
+	go e.cleanupLoop(defaultCleanupInterval)
 	return e
 }
 
@@ -293,26 +340,107 @@ func a2aCryptoRandFloat64() float64 {
 	return float64(n) / float64(maxMantissa)
 }
 
+// Close stops the background cleanup goroutine and clears the client cache.
+func (e *Executor) Close() error {
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return nil
+	}
+	e.closed = true
+	e.mu.Unlock()
+
+	close(e.stopCleanup)
+	<-e.cleanupDone
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.clients = nil
+	return nil
+}
+
+// cleanupLoop periodically removes stale clients from the cache.
+func (e *Executor) cleanupLoop(interval time.Duration) {
+	defer close(e.cleanupDone)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-e.stopCleanup:
+			return
+		case <-ticker.C:
+			e.evictStale()
+		}
+	}
+}
+
+// evictStale removes clients that have not been used within the TTL.
+func (e *Executor) evictStale() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	now := e.nowFunc()
+	for url, entry := range e.clients {
+		if now.Sub(entry.lastUsed) > e.clientTTL {
+			delete(e.clients, url)
+		}
+	}
+}
+
+// evictLRU removes the least recently used client from the cache.
+// Must be called with e.mu held for writing.
+func (e *Executor) evictLRU() {
+	var oldestURL string
+	var oldestTime time.Time
+
+	for url, entry := range e.clients {
+		if oldestURL == "" || entry.lastUsed.Before(oldestTime) {
+			oldestURL = url
+			oldestTime = entry.lastUsed
+		}
+	}
+
+	if oldestURL != "" {
+		delete(e.clients, oldestURL)
+	}
+}
+
 // getOrCreateClient returns a cached client or creates a new one.
+// It updates the lastUsed timestamp on cache hits and enforces
+// the maximum client count by evicting the least recently used entry.
 func (e *Executor) getOrCreateClient(agentURL string) *Client {
+	now := e.nowFunc()
+
 	e.mu.RLock()
-	if c, ok := e.clients[agentURL]; ok {
+	if entry, ok := e.clients[agentURL]; ok {
 		e.mu.RUnlock()
-		return c
+		// Update lastUsed under write lock.
+		e.mu.Lock()
+		entry.lastUsed = now
+		e.mu.Unlock()
+		return entry.client
 	}
 	e.mu.RUnlock()
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	// Double-check after acquiring write lock
-	if c, ok := e.clients[agentURL]; ok {
-		return c
+	if entry, ok := e.clients[agentURL]; ok {
+		entry.lastUsed = now
+		return entry.client
 	}
 	if e.clients == nil {
-		e.clients = make(map[string]*Client)
+		e.clients = make(map[string]*clientEntry)
 	}
+
+	// Evict LRU if at capacity.
+	if len(e.clients) >= e.maxClients {
+		e.evictLRU()
+	}
+
 	c := NewClient(agentURL)
-	e.clients[agentURL] = c
+	e.clients[agentURL] = &clientEntry{client: c, lastUsed: now}
 	return c
 }
 

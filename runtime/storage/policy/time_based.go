@@ -35,9 +35,19 @@ func WithBaseDir(baseDir string) Option {
 	}
 }
 
+// expiryEntry tracks a file and its expiration time in the in-memory index.
+type expiryEntry struct {
+	metaPath  string
+	expiresAt time.Time
+}
+
 // TimeBasedPolicyHandler implements PolicyHandler for time-based retention policies.
 // It applies expiration times to media based on policy names and enforces deletion
 // of expired media through background scanning.
+//
+// When an expiry index is built (via buildExpiryIndex or TrackFile), enforcement
+// uses the index to check only files whose expiry time has passed, avoiding a
+// full directory walk on every tick.
 type TimeBasedPolicyHandler struct {
 	// policies maps policy names to their configurations
 	policies map[string]Config
@@ -66,6 +76,15 @@ type TimeBasedPolicyHandler struct {
 	// mu protects started and stopped fields
 	mu sync.Mutex
 
+	// expiryIndex holds files with their expiry times, keyed by meta path.
+	// When populated, EnforcePolicy uses this index instead of walking the
+	// entire directory tree.
+	expiryIndex map[string]expiryEntry
+	expiryMu    sync.RWMutex
+
+	// indexBuilt indicates whether the expiry index has been populated
+	indexBuilt bool
+
 	// ctx is the context used for auto-started enforcement
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -80,6 +99,7 @@ func NewTimeBasedPolicyHandler(enforcementInterval time.Duration, opts ...Option
 		enforcementInterval: enforcementInterval,
 		stopCh:              make(chan struct{}),
 		doneCh:              make(chan struct{}),
+		expiryIndex:         make(map[string]expiryEntry),
 	}
 
 	for _, opt := range opts {
@@ -126,8 +146,60 @@ func (h *TimeBasedPolicyHandler) ApplyPolicy(ctx context.Context, metadata *stor
 	return nil
 }
 
-// EnforcePolicy implements storage.PolicyHandler.EnforcePolicy
+// EnforcePolicy implements storage.PolicyHandler.EnforcePolicy.
+// When an expiry index has been built (via BuildExpiryIndex or TrackFile),
+// this method only checks files whose expiry time has passed, avoiding a
+// full directory walk. Otherwise it falls back to walking the directory tree.
 func (h *TimeBasedPolicyHandler) EnforcePolicy(ctx context.Context, baseDir string) error {
+	h.expiryMu.RLock()
+	indexed := h.indexBuilt
+	h.expiryMu.RUnlock()
+
+	if indexed {
+		return h.enforceFromIndex(ctx)
+	}
+	return h.enforceFromWalk(ctx, baseDir)
+}
+
+// enforceFromIndex checks only files in the expiry index whose time has passed.
+func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
+	now := time.Now()
+	deleted := 0
+	errors := 0
+
+	// Collect expired entries under read lock
+	h.expiryMu.RLock()
+	var expired []expiryEntry
+	for _, entry := range h.expiryIndex {
+		if entry.expiresAt.Before(now) {
+			expired = append(expired, entry)
+		}
+	}
+	h.expiryMu.RUnlock()
+
+	// Process expired entries
+	for _, entry := range expired {
+		if h.processMetaFile(entry.metaPath, now) {
+			// Remove from index after successful deletion
+			h.expiryMu.Lock()
+			delete(h.expiryIndex, entry.metaPath)
+			h.expiryMu.Unlock()
+			deleted++
+		} else {
+			errors++
+		}
+	}
+
+	if deleted > 0 || errors > 0 {
+		logger.Info("Policy enforcement completed (indexed)", "deleted", deleted, "errors", errors)
+	}
+
+	return nil
+}
+
+// enforceFromWalk is the original full directory walk implementation, used
+// when no expiry index has been built.
+func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir string) error {
 	now := time.Now()
 	deleted := 0
 	errors := 0
@@ -198,6 +270,8 @@ func (h *TimeBasedPolicyHandler) processMetaFile(metaPath string, now time.Time)
 }
 
 // StartEnforcement starts a background goroutine that periodically enforces policies.
+// On the first call it builds an in-memory expiry index by scanning the base directory
+// once, then uses that index on subsequent ticks to avoid repeated full directory walks.
 func (h *TimeBasedPolicyHandler) StartEnforcement(ctx context.Context, baseDir string) {
 	h.mu.Lock()
 	if h.started {
@@ -206,6 +280,11 @@ func (h *TimeBasedPolicyHandler) StartEnforcement(ctx context.Context, baseDir s
 	}
 	h.started = true
 	h.mu.Unlock()
+
+	// Build the expiry index once at startup
+	if err := h.BuildExpiryIndex(baseDir); err != nil {
+		logger.Warn("Failed to build expiry index, falling back to directory walk", "error", err)
+	}
 
 	go func() {
 		defer close(h.doneCh)
@@ -248,6 +327,80 @@ func (h *TimeBasedPolicyHandler) Stop() {
 	if wasStarted {
 		<-h.doneCh
 	}
+}
+
+// BuildExpiryIndex scans the base directory once and builds an in-memory
+// index of files with their expiry times. Subsequent calls to EnforcePolicy
+// will use this index instead of walking the directory tree.
+func (h *TimeBasedPolicyHandler) BuildExpiryIndex(baseDir string) error {
+	index := make(map[string]expiryEntry)
+
+	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // skip errors
+		}
+		if info.IsDir() || !strings.HasSuffix(path, ".meta") {
+			return nil
+		}
+
+		meta, loadErr := h.loadPolicyMetadata(path)
+		if loadErr != nil {
+			return nil // skip unreadable files
+		}
+
+		if meta.ExpiresAt != nil {
+			index[path] = expiryEntry{
+				metaPath:  path,
+				expiresAt: *meta.ExpiresAt,
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to build expiry index: %w", err)
+	}
+
+	h.expiryMu.Lock()
+	h.expiryIndex = index
+	h.indexBuilt = true
+	h.expiryMu.Unlock()
+
+	return nil
+}
+
+// TrackFile adds a file to the in-memory expiry index. This should be called
+// when a new file with a retention policy is stored, to keep the index current
+// without requiring a full directory scan.
+func (h *TimeBasedPolicyHandler) TrackFile(metaPath string, expiresAt time.Time) {
+	h.expiryMu.Lock()
+	defer h.expiryMu.Unlock()
+
+	h.expiryIndex[metaPath] = expiryEntry{
+		metaPath:  metaPath,
+		expiresAt: expiresAt,
+	}
+	// Mark index as built if this is the first tracked file,
+	// enabling index-based enforcement going forward.
+	h.indexBuilt = true
+}
+
+// UntrackFile removes a file from the in-memory expiry index. This should be
+// called when a file is explicitly deleted, to keep the index current.
+func (h *TimeBasedPolicyHandler) UntrackFile(metaPath string) {
+	h.expiryMu.Lock()
+	defer h.expiryMu.Unlock()
+
+	delete(h.expiryIndex, metaPath)
+}
+
+// ExpiryIndexLen returns the number of entries in the expiry index.
+// This is primarily useful for testing.
+func (h *TimeBasedPolicyHandler) ExpiryIndexLen() int {
+	h.expiryMu.RLock()
+	defer h.expiryMu.RUnlock()
+	return len(h.expiryIndex)
 }
 
 // loadPolicyMetadata loads policy metadata from a .meta file.
