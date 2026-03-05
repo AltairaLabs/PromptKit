@@ -66,12 +66,128 @@ func NewRedisStore(client *redis.Client, opts ...RedisOption) *RedisStore {
 	return store
 }
 
+// redisStateMeta holds the non-message, non-summary fields of a ConversationState.
+// It is stored as a single JSON value in the meta key, keeping it small and fast to serialize.
+type redisStateMeta struct {
+	ID             string                 `json:"id"`
+	UserID         string                 `json:"user_id"`
+	SystemPrompt   string                 `json:"system_prompt,omitempty"`
+	TokenCount     int                    `json:"token_count,omitempty"`
+	LastAccessedAt time.Time              `json:"last_accessed_at"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+}
+
 // Load retrieves a conversation state by ID from Redis.
+// Tries the decomposed format (meta key + messages list + summaries list) first,
+// then falls back to the legacy monolithic JSON string for backward compatibility.
 func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, error) {
 	if id == "" {
 		return nil, ErrInvalidID
 	}
 
+	// Try decomposed format first
+	state, err := s.loadDecomposed(ctx, id)
+	if err == nil {
+		return state, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	// Fall back to legacy monolithic format
+	return s.loadMonolithic(ctx, id)
+}
+
+// loadDecomposed loads a conversation state from decomposed keys (meta + messages list + summaries list).
+func (s *RedisStore) loadDecomposed(ctx context.Context, id string) (*ConversationState, error) {
+	meta, err := s.loadMeta(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	state := metaToState(meta)
+
+	state.Messages, err = s.loadMessagesList(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	state.Summaries, err = s.loadSummariesList(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return state, nil
+}
+
+// loadMeta loads and unmarshals the meta key for a conversation.
+func (s *RedisStore) loadMeta(ctx context.Context, id string) (*redisStateMeta, error) {
+	data, err := s.client.Get(ctx, s.metaKey(id)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("redis get meta failed: %w", err)
+	}
+
+	var meta redisStateMeta
+	if unmarshalErr := json.Unmarshal(data, &meta); unmarshalErr != nil {
+		return nil, fmt.Errorf("failed to unmarshal meta: %w", unmarshalErr)
+	}
+	return &meta, nil
+}
+
+// metaToState converts a redisStateMeta to a ConversationState (without messages/summaries).
+func metaToState(meta *redisStateMeta) *ConversationState {
+	return &ConversationState{
+		ID:             meta.ID,
+		UserID:         meta.UserID,
+		SystemPrompt:   meta.SystemPrompt,
+		TokenCount:     meta.TokenCount,
+		LastAccessedAt: meta.LastAccessedAt,
+		Metadata:       meta.Metadata,
+	}
+}
+
+// loadMessagesList loads messages from a Redis list key.
+func (s *RedisStore) loadMessagesList(ctx context.Context, id string) ([]types.Message, error) {
+	vals, err := s.client.LRange(ctx, s.messagesKey(id), 0, -1).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis lrange messages failed: %w", err)
+	}
+	messages := make([]types.Message, 0, len(vals))
+	for _, v := range vals {
+		var msg types.Message
+		if unmarshalErr := json.Unmarshal([]byte(v), &msg); unmarshalErr != nil {
+			return nil, fmt.Errorf("failed to unmarshal message: %w", unmarshalErr)
+		}
+		messages = append(messages, msg)
+	}
+	return messages, nil
+}
+
+// loadSummariesList loads summaries from a Redis list key.
+func (s *RedisStore) loadSummariesList(ctx context.Context, id string) ([]Summary, error) {
+	vals, err := s.client.LRange(ctx, s.summariesKey(id), 0, -1).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis lrange summaries failed: %w", err)
+	}
+	if len(vals) == 0 {
+		return nil, nil
+	}
+	summaries := make([]Summary, 0, len(vals))
+	for _, v := range vals {
+		var sm Summary
+		if unmarshalErr := json.Unmarshal([]byte(v), &sm); unmarshalErr != nil {
+			return nil, fmt.Errorf("failed to unmarshal summary: %w", unmarshalErr)
+		}
+		summaries = append(summaries, sm)
+	}
+	return summaries, nil
+}
+
+// loadMonolithic loads a conversation state from the legacy monolithic JSON string.
+func (s *RedisStore) loadMonolithic(ctx context.Context, id string) (*ConversationState, error) {
 	key := s.conversationKey(id)
 	data, err := s.client.Get(ctx, key).Bytes()
 	if err != nil {
@@ -89,8 +205,11 @@ func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, e
 	return &state, nil
 }
 
-// Save persists a conversation state to Redis with TTL.
-// Uses a pipeline to batch the SET and optional user index update into a single round-trip.
+// Save persists a conversation state to Redis using decomposed keys.
+// Metadata is stored in a meta key, messages in a Redis list, and summaries in a separate list.
+// This avoids serializing the entire state as one monolithic JSON blob, significantly reducing
+// serialization cost for conversations with many messages since only the meta (small) is
+// fully rewritten, while messages and summaries are replaced in their list keys.
 func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	if state == nil {
 		return ErrInvalidState
@@ -102,30 +221,105 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	// Update timestamp
 	state.LastAccessedAt = time.Now()
 
-	// Serialize to JSON
-	data, err := json.Marshal(state)
+	// Serialize metadata (small — excludes messages and summaries)
+	metaData, err := json.Marshal(stateToMeta(state))
 	if err != nil {
-		return fmt.Errorf("failed to marshal state: %w", err)
+		return fmt.Errorf("failed to marshal meta: %w", err)
 	}
 
-	// Pipeline: SET conversation + optional SAdd/Expire for user index
-	key := s.conversationKey(state.ID)
+	// Build pipeline: write meta, replace messages/summaries lists, cleanup legacy key, update index
 	pipe := s.client.Pipeline()
-	pipe.Set(ctx, key, data, s.ttl)
+	pipe.Set(ctx, s.metaKey(state.ID), metaData, s.ttl)
 
-	if state.UserID != "" {
-		indexKey := s.userIndexKey(state.UserID)
-		pipe.SAdd(ctx, indexKey, state.ID)
-		if s.ttl > 0 {
-			pipe.Expire(ctx, indexKey, s.ttl)
-		}
+	if err := s.pipeReplaceList(ctx, pipe, s.messagesKey(state.ID), marshalMessages(state.Messages)); err != nil {
+		return err
 	}
+	if err := s.pipeReplaceList(ctx, pipe, s.summariesKey(state.ID), marshalSummaries(state.Summaries)); err != nil {
+		return err
+	}
+
+	// Remove legacy monolithic key if it exists
+	pipe.Del(ctx, s.conversationKey(state.ID))
+
+	s.pipeUpdateUserIndex(ctx, pipe, state.UserID, state.ID)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("redis pipeline failed: %w", err)
 	}
 
 	return nil
+}
+
+// stateToMeta extracts the metadata fields from a ConversationState.
+func stateToMeta(state *ConversationState) redisStateMeta {
+	return redisStateMeta{
+		ID:             state.ID,
+		UserID:         state.UserID,
+		SystemPrompt:   state.SystemPrompt,
+		TokenCount:     state.TokenCount,
+		LastAccessedAt: state.LastAccessedAt,
+		Metadata:       state.Metadata,
+	}
+}
+
+// marshalMessages serializes messages to a list of JSON byte slices.
+// Returns a marshalResult that is evaluated lazily when added to the pipeline.
+func marshalMessages(msgs []types.Message) func() ([]interface{}, error) {
+	return func() ([]interface{}, error) {
+		vals := make([]interface{}, 0, len(msgs))
+		for i := range msgs {
+			data, err := json.Marshal(&msgs[i])
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal message: %w", err)
+			}
+			vals = append(vals, data)
+		}
+		return vals, nil
+	}
+}
+
+// marshalSummaries serializes summaries to a list of JSON byte slices.
+func marshalSummaries(sums []Summary) func() ([]interface{}, error) {
+	return func() ([]interface{}, error) {
+		vals := make([]interface{}, 0, len(sums))
+		for i := range sums {
+			data, err := json.Marshal(&sums[i])
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal summary: %w", err)
+			}
+			vals = append(vals, data)
+		}
+		return vals, nil
+	}
+}
+
+// pipeReplaceList deletes a list key and re-populates it via RPUSH in the given pipeline.
+func (s *RedisStore) pipeReplaceList(
+	ctx context.Context, pipe redis.Pipeliner, key string, marshalFn func() ([]interface{}, error),
+) error {
+	pipe.Del(ctx, key)
+	vals, err := marshalFn()
+	if err != nil {
+		return err
+	}
+	if len(vals) > 0 {
+		pipe.RPush(ctx, key, vals...)
+		if s.ttl > 0 {
+			pipe.Expire(ctx, key, s.ttl)
+		}
+	}
+	return nil
+}
+
+// pipeUpdateUserIndex adds commands to the pipeline to update the user conversation index.
+func (s *RedisStore) pipeUpdateUserIndex(ctx context.Context, pipe redis.Pipeliner, userID, convID string) {
+	if userID != "" {
+		indexKey := s.userIndexKey(userID)
+		pipe.SAdd(ctx, indexKey, convID)
+		if s.ttl > 0 {
+			pipe.Expire(ctx, indexKey, s.ttl)
+		}
+	}
 }
 
 // Fork creates a copy of an existing conversation state with a new ID.
@@ -149,7 +343,8 @@ func (s *RedisStore) Fork(ctx context.Context, sourceID, newID string) error {
 }
 
 // Delete removes a conversation state from Redis.
-// Uses a pipeline to batch the DEL and optional user index cleanup.
+// Removes both decomposed keys (meta, messages, summaries) and legacy monolithic key.
+// Uses a pipeline to batch all DEL commands and optional user index cleanup.
 func (s *RedisStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return ErrInvalidID
@@ -161,10 +356,14 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Pipeline: DEL conversation key + optional SRem from user index
-	key := s.conversationKey(id)
+	// Pipeline: DEL all keys for this conversation + optional SRem from user index
 	pipe := s.client.Pipeline()
-	delCmd := pipe.Del(ctx, key)
+	delCmd := pipe.Del(ctx,
+		s.conversationKey(id), // legacy monolithic key
+		s.metaKey(id),         // decomposed meta
+		s.messagesKey(id),     // decomposed messages list
+		s.summariesKey(id),    // decomposed summaries list
+	)
 
 	if state.UserID != "" {
 		indexKey := s.userIndexKey(state.UserID)
@@ -217,20 +416,42 @@ func (s *RedisStore) fetchUserConversations(ctx context.Context, userID string) 
 	return members, nil
 }
 
-// scanAllConversations scans all conversation keys in Redis
+// scanAllConversations scans all conversation keys in Redis.
+// Scans both legacy monolithic keys and decomposed meta keys to find all conversations.
 func (s *RedisStore) scanAllConversations(ctx context.Context) ([]string, error) {
-	var ids []string
+	seen := make(map[string]struct{})
+
+	// Scan legacy monolithic keys: prefix:conversation:ID
 	pattern := s.conversationKey("*")
 	iter := s.client.Scan(ctx, 0, pattern, 0).Iterator()
 	for iter.Next(ctx) {
 		key := iter.Val()
 		id := s.extractIDFromKey(key)
-		if id != "" {
-			ids = append(ids, id)
+		if id != "" && !s.isSubKey(id) {
+			seen[id] = struct{}{}
 		}
 	}
 	if err := iter.Err(); err != nil {
 		return nil, fmt.Errorf("redis scan failed: %w", err)
+	}
+
+	// Scan decomposed meta keys: prefix:conversation:ID:meta
+	metaPattern := fmt.Sprintf("%s:conversation:*:meta", s.prefix)
+	iter = s.client.Scan(ctx, 0, metaPattern, 0).Iterator()
+	for iter.Next(ctx) {
+		key := iter.Val()
+		id := s.extractIDFromMetaKey(key)
+		if id != "" {
+			seen[id] = struct{}{}
+		}
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("redis scan meta failed: %w", err)
+	}
+
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
 	}
 	return ids, nil
 }
@@ -408,16 +629,35 @@ func (s *RedisStore) rpushMessages(ctx context.Context, key string, messages []t
 	return nil
 }
 
-// updateMetaTTL updates TTL and last accessed time.
-// Uses a pipeline to batch EXPIRE and SET meta into a single round-trip.
-func (s *RedisStore) updateMetaTTL(ctx context.Context, id, key string) error {
+// updateMetaTTL updates TTL and last accessed time on the meta key.
+// Loads the existing meta, updates the timestamp, and writes it back to preserve all fields.
+// Uses a pipeline for the EXPIRE + SET to minimize round-trips.
+func (s *RedisStore) updateMetaTTL(ctx context.Context, id, msgKey string) error {
 	metaKey := s.metaKey(id)
-	meta := map[string]any{"last_accessed_at": time.Now()}
-	metaData, _ := json.Marshal(meta)
+
+	// Load existing meta to preserve all fields
+	var meta redisStateMeta
+	data, err := s.client.Get(ctx, metaKey).Bytes()
+	if err == nil {
+		// Existing meta found — update timestamp
+		if unmarshalErr := json.Unmarshal(data, &meta); unmarshalErr != nil {
+			return fmt.Errorf("failed to unmarshal meta: %w", unmarshalErr)
+		}
+	} else if !errors.Is(err, redis.Nil) {
+		return fmt.Errorf("redis get meta failed: %w", err)
+	}
+	// If meta doesn't exist, we create a minimal one with just the ID and timestamp
+	meta.ID = id
+	meta.LastAccessedAt = time.Now()
+
+	metaData, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal meta: %w", err)
+	}
 
 	pipe := s.client.Pipeline()
 	if s.ttl > 0 {
-		pipe.Expire(ctx, key, s.ttl)
+		pipe.Expire(ctx, msgKey, s.ttl)
 	}
 	pipe.Set(ctx, metaKey, metaData, s.ttl)
 
@@ -565,6 +805,25 @@ func (s *RedisStore) extractIDFromKey(key string) string {
 	return ""
 }
 
+// isSubKey returns true if the extracted ID contains a colon suffix, indicating
+// it is a sub-key (e.g., :messages, :meta, :summaries) rather than a conversation ID.
+func (s *RedisStore) isSubKey(id string) bool {
+	return strings.Contains(id, ":")
+}
+
+// extractIDFromMetaKey extracts the conversation ID from a meta key.
+// Meta keys have the format: prefix:conversation:ID:meta
+func (s *RedisStore) extractIDFromMetaKey(key string) string {
+	prefix := s.conversationKey("")
+	suffix := ":meta"
+	if strings.HasPrefix(key, prefix) && strings.HasSuffix(key, suffix) {
+		id := strings.TrimPrefix(key, prefix)
+		id = strings.TrimSuffix(id, suffix)
+		return id
+	}
+	return ""
+}
+
 // sortConversations sorts conversation IDs using pipelined GET to fetch all states
 // in a single round-trip, then sorts in memory.
 func (s *RedisStore) sortConversations(ctx context.Context, ids []string, sortBy, sortOrder string) error {
@@ -594,33 +853,65 @@ type stateWithID struct {
 	state *ConversationState
 }
 
-// pipelinedLoadStates fetches multiple conversation states using a single pipelined GET.
+// pipelinedLoadStates fetches multiple conversation states using pipelined GETs.
+// Tries decomposed meta keys first, then falls back to legacy monolithic keys.
 func (s *RedisStore) pipelinedLoadStates(ctx context.Context, ids []string) ([]stateWithID, error) {
+	// Pipeline: GET meta key and GET monolithic key for each ID
 	pipe := s.client.Pipeline()
-	cmds := make([]*redis.StringCmd, len(ids))
+	metaCmds := make([]*redis.StringCmd, len(ids))
+	monoCmds := make([]*redis.StringCmd, len(ids))
 	for i, id := range ids {
-		cmds[i] = pipe.Get(ctx, s.conversationKey(id))
+		metaCmds[i] = pipe.Get(ctx, s.metaKey(id))
+		monoCmds[i] = pipe.Get(ctx, s.conversationKey(id))
 	}
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("redis pipeline failed: %w", err)
 	}
 
 	states := make([]stateWithID, 0, len(ids))
-	for i, cmd := range cmds {
-		data, err := cmd.Bytes()
+	for i := range ids {
+		st, err := s.resolveStateFromCmds(ids[i], metaCmds[i], monoCmds[i])
 		if err != nil {
-			if errors.Is(err, redis.Nil) {
-				continue
-			}
-			return nil, fmt.Errorf("redis get failed: %w", err)
+			return nil, err
 		}
-		var state ConversationState
-		if err := json.Unmarshal(data, &state); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal state: %w", err)
+		if st != nil {
+			states = append(states, stateWithID{id: ids[i], state: st})
 		}
-		states = append(states, stateWithID{id: ids[i], state: &state})
 	}
 	return states, nil
+}
+
+// resolveStateFromCmds tries the decomposed meta command first, falls back to monolithic.
+// Returns nil state (no error) if neither key exists.
+func (s *RedisStore) resolveStateFromCmds(
+	id string, metaCmd, monoCmd *redis.StringCmd,
+) (*ConversationState, error) {
+	// Try decomposed meta first
+	data, err := metaCmd.Bytes()
+	if err == nil {
+		var meta redisStateMeta
+		if unmarshalErr := json.Unmarshal(data, &meta); unmarshalErr != nil {
+			return nil, fmt.Errorf("failed to unmarshal meta for %s: %w", id, unmarshalErr)
+		}
+		return metaToState(&meta), nil
+	}
+	if !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis get meta failed: %w", err)
+	}
+
+	// Fall back to monolithic key
+	data, err = monoCmd.Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("redis get failed: %w", err)
+	}
+	var state ConversationState
+	if unmarshalErr := json.Unmarshal(data, &state); unmarshalErr != nil {
+		return nil, fmt.Errorf("failed to unmarshal state: %w", unmarshalErr)
+	}
+	return &state, nil
 }
 
 // sortStatesByField sorts a slice of stateWithID entries by the given field and direction.

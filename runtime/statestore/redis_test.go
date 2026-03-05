@@ -2,6 +2,7 @@ package statestore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -355,9 +356,9 @@ func TestRedisStore_CustomPrefix(t *testing.T) {
 	err := store.Save(ctx, state)
 	require.NoError(t, err)
 
-	// Check Redis directly for key with custom prefix
+	// Check Redis directly for keys with custom prefix (decomposed format)
 	keys := mr.Keys()
-	assert.Contains(t, keys, "myapp:conversation:conv-123")
+	assert.Contains(t, keys, "myapp:conversation:conv-123:meta")
 	assert.Contains(t, keys, "myapp:user:user-alice:conversations")
 }
 
@@ -1265,4 +1266,788 @@ func TestRedisStore_SaveSummary_WithTTL(t *testing.T) {
 		assert.Equal(t, "First", summaries[0].Content)
 		assert.Equal(t, "Second", summaries[1].Content)
 	})
+}
+
+func TestRedisStore_DecomposedFormat(t *testing.T) {
+	t.Run("save uses decomposed keys instead of monolithic", func(t *testing.T) {
+		store, mr := setupRedisStore(t)
+		ctx := context.Background()
+
+		state := &ConversationState{
+			ID:           "conv-decomposed",
+			UserID:       "user-alice",
+			SystemPrompt: "Be helpful",
+			Messages: []types.Message{
+				{Role: "user", Content: "Hello"},
+				{Role: "assistant", Content: "Hi there"},
+			},
+			Summaries: []Summary{
+				{StartTurn: 0, EndTurn: 5, Content: "A summary", TokenCount: 10},
+			},
+			TokenCount: 42,
+			Metadata:   map[string]interface{}{"key": "value"},
+		}
+		err := store.Save(ctx, state)
+		require.NoError(t, err)
+
+		keys := mr.Keys()
+		// Decomposed keys should exist
+		assert.Contains(t, keys, store.metaKey("conv-decomposed"))
+		assert.Contains(t, keys, store.messagesKey("conv-decomposed"))
+		assert.Contains(t, keys, store.summariesKey("conv-decomposed"))
+		// Monolithic key should NOT exist
+		assert.NotContains(t, keys, store.conversationKey("conv-decomposed"))
+	})
+
+	t.Run("load reconstructs state from decomposed keys", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		original := &ConversationState{
+			ID:           "conv-reconstruct",
+			UserID:       "user-bob",
+			SystemPrompt: "System prompt",
+			Messages: []types.Message{
+				{Role: "user", Content: "msg1"},
+				{Role: "assistant", Content: "msg2"},
+				{Role: "user", Content: "msg3"},
+			},
+			Summaries: []Summary{
+				{StartTurn: 0, EndTurn: 3, Content: "Summary text", TokenCount: 15},
+			},
+			TokenCount: 100,
+			Metadata:   map[string]interface{}{"nested": map[string]interface{}{"a": "b"}},
+		}
+		err := store.Save(ctx, original)
+		require.NoError(t, err)
+
+		loaded, err := store.Load(ctx, "conv-reconstruct")
+		require.NoError(t, err)
+
+		assert.Equal(t, original.ID, loaded.ID)
+		assert.Equal(t, original.UserID, loaded.UserID)
+		assert.Equal(t, original.SystemPrompt, loaded.SystemPrompt)
+		assert.Equal(t, original.TokenCount, loaded.TokenCount)
+		assert.Len(t, loaded.Messages, 3)
+		assert.Equal(t, "msg1", loaded.Messages[0].Content)
+		assert.Equal(t, "msg3", loaded.Messages[2].Content)
+		assert.Len(t, loaded.Summaries, 1)
+		assert.Equal(t, "Summary text", loaded.Summaries[0].Content)
+	})
+
+	t.Run("backward compat: loads legacy monolithic format", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		// Write a monolithic key directly (simulating legacy data)
+		legacyState := &ConversationState{
+			ID:           "conv-legacy",
+			UserID:       "user-legacy",
+			SystemPrompt: "Legacy prompt",
+			Messages: []types.Message{
+				{Role: "user", Content: "legacy msg"},
+			},
+			TokenCount: 5,
+		}
+		data, err := json.Marshal(legacyState)
+		require.NoError(t, err)
+		err = store.client.Set(ctx, store.conversationKey("conv-legacy"), data, 0).Err()
+		require.NoError(t, err)
+
+		// Load should fall back to monolithic
+		loaded, err := store.Load(ctx, "conv-legacy")
+		require.NoError(t, err)
+		assert.Equal(t, "conv-legacy", loaded.ID)
+		assert.Equal(t, "Legacy prompt", loaded.SystemPrompt)
+		assert.Len(t, loaded.Messages, 1)
+		assert.Equal(t, "legacy msg", loaded.Messages[0].Content)
+	})
+
+	t.Run("save removes legacy monolithic key", func(t *testing.T) {
+		store, mr := setupRedisStore(t)
+		ctx := context.Background()
+
+		// Write a monolithic key directly (simulating legacy data)
+		legacyState := &ConversationState{
+			ID:     "conv-cleanup",
+			UserID: "user-cleanup",
+		}
+		data, err := json.Marshal(legacyState)
+		require.NoError(t, err)
+		err = store.client.Set(ctx, store.conversationKey("conv-cleanup"), data, 0).Err()
+		require.NoError(t, err)
+		assert.True(t, mr.Exists(store.conversationKey("conv-cleanup")))
+
+		// Save with new format should remove monolithic key
+		err = store.Save(ctx, legacyState)
+		require.NoError(t, err)
+		assert.False(t, mr.Exists(store.conversationKey("conv-cleanup")))
+		assert.True(t, mr.Exists(store.metaKey("conv-cleanup")))
+	})
+
+	t.Run("save with no messages creates meta but no messages key", func(t *testing.T) {
+		store, mr := setupRedisStore(t)
+		ctx := context.Background()
+
+		state := &ConversationState{
+			ID:     "conv-empty-msgs",
+			UserID: "user-empty",
+		}
+		err := store.Save(ctx, state)
+		require.NoError(t, err)
+
+		assert.True(t, mr.Exists(store.metaKey("conv-empty-msgs")))
+		// Messages key should not exist since there are no messages
+		assert.False(t, mr.Exists(store.messagesKey("conv-empty-msgs")))
+	})
+
+	t.Run("TTL applied to all decomposed keys", func(t *testing.T) {
+		store, mr := setupRedisStore(t, WithTTL(10*time.Minute))
+		ctx := context.Background()
+
+		state := &ConversationState{
+			ID:     "conv-ttl-decomposed",
+			UserID: "user-ttl",
+			Messages: []types.Message{
+				{Role: "user", Content: "msg"},
+			},
+			Summaries: []Summary{
+				{StartTurn: 0, EndTurn: 1, Content: "sum", TokenCount: 5},
+			},
+		}
+		err := store.Save(ctx, state)
+		require.NoError(t, err)
+
+		// All keys should have TTL
+		assert.True(t, mr.TTL(store.metaKey("conv-ttl-decomposed")) > 0)
+		assert.True(t, mr.TTL(store.messagesKey("conv-ttl-decomposed")) > 0)
+		assert.True(t, mr.TTL(store.summariesKey("conv-ttl-decomposed")) > 0)
+
+		// Fast-forward past TTL
+		mr.FastForward(11 * time.Minute)
+
+		_, err = store.Load(ctx, "conv-ttl-decomposed")
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("delete removes all decomposed keys", func(t *testing.T) {
+		store, mr := setupRedisStore(t)
+		ctx := context.Background()
+
+		state := &ConversationState{
+			ID:     "conv-del-decomposed",
+			UserID: "user-del",
+			Messages: []types.Message{
+				{Role: "user", Content: "msg"},
+			},
+			Summaries: []Summary{
+				{StartTurn: 0, EndTurn: 1, Content: "sum", TokenCount: 5},
+			},
+		}
+		err := store.Save(ctx, state)
+		require.NoError(t, err)
+
+		err = store.Delete(ctx, "conv-del-decomposed")
+		require.NoError(t, err)
+
+		assert.False(t, mr.Exists(store.metaKey("conv-del-decomposed")))
+		assert.False(t, mr.Exists(store.messagesKey("conv-del-decomposed")))
+		assert.False(t, mr.Exists(store.summariesKey("conv-del-decomposed")))
+	})
+
+	t.Run("list finds decomposed-format conversations", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		for i := 0; i < 3; i++ {
+			state := &ConversationState{
+				ID:     fmt.Sprintf("conv-list-%d", i),
+				UserID: "user-list",
+			}
+			err := store.Save(ctx, state)
+			require.NoError(t, err)
+		}
+
+		ids, err := store.List(ctx, ListOptions{UserID: "user-list"})
+		require.NoError(t, err)
+		assert.Len(t, ids, 3)
+	})
+
+	t.Run("list all finds decomposed-format conversations via scan", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		for i := 0; i < 3; i++ {
+			state := &ConversationState{
+				ID: fmt.Sprintf("conv-scan-%d", i),
+			}
+			err := store.Save(ctx, state)
+			require.NoError(t, err)
+		}
+
+		ids, err := store.List(ctx, ListOptions{})
+		require.NoError(t, err)
+		assert.Len(t, ids, 3)
+	})
+
+	t.Run("AppendMessages preserves meta fields", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		state := &ConversationState{
+			ID:           "conv-append-meta",
+			UserID:       "user-append",
+			SystemPrompt: "Keep this prompt",
+			Messages: []types.Message{
+				{Role: "user", Content: "initial"},
+			},
+			TokenCount: 50,
+			Metadata:   map[string]interface{}{"important": "data"},
+		}
+		err := store.Save(ctx, state)
+		require.NoError(t, err)
+
+		// AppendMessages should preserve meta fields
+		err = store.AppendMessages(ctx, "conv-append-meta", []types.Message{
+			{Role: "assistant", Content: "appended"},
+		})
+		require.NoError(t, err)
+
+		// Reload and verify meta is preserved
+		loaded, err := store.Load(ctx, "conv-append-meta")
+		require.NoError(t, err)
+		assert.Equal(t, "user-append", loaded.UserID)
+		assert.Equal(t, "Keep this prompt", loaded.SystemPrompt)
+		assert.Equal(t, 50, loaded.TokenCount)
+		assert.Equal(t, "data", loaded.Metadata["important"])
+		assert.Len(t, loaded.Messages, 2)
+		assert.Equal(t, "appended", loaded.Messages[1].Content)
+	})
+}
+
+// saveMonolithicLegacy writes a ConversationState directly as a monolithic JSON key,
+// simulating legacy data that predates the decomposed format.
+func saveMonolithicLegacy(t *testing.T, store *RedisStore, state *ConversationState) {
+	t.Helper()
+	data, err := json.Marshal(state)
+	require.NoError(t, err)
+	err = store.client.Set(context.Background(), store.conversationKey(state.ID), data, 0).Err()
+	require.NoError(t, err)
+}
+
+func TestRedisStore_MigrateToListFormat(t *testing.T) {
+	t.Run("migrates monolithic messages to list format", func(t *testing.T) {
+		store, mr := setupRedisStore(t)
+		ctx := context.Background()
+
+		// Write legacy monolithic key directly (no decomposed keys)
+		legacyState := &ConversationState{
+			ID:     "conv-migrate-legacy",
+			UserID: "user-alice",
+			Messages: []types.Message{
+				{Role: "user", Content: "legacy msg 1"},
+				{Role: "assistant", Content: "legacy msg 2"},
+			},
+		}
+		saveMonolithicLegacy(t, store, legacyState)
+
+		// Verify only monolithic key exists
+		assert.True(t, mr.Exists(store.conversationKey("conv-migrate-legacy")))
+		assert.False(t, mr.Exists(store.messagesKey("conv-migrate-legacy")))
+
+		// AppendMessages triggers ensureListFormat -> migrateToListFormat
+		err := store.AppendMessages(ctx, "conv-migrate-legacy", []types.Message{
+			{Role: "user", Content: "new msg 3"},
+		})
+		require.NoError(t, err)
+
+		// Verify messages were migrated + appended
+		msgs, err := store.LoadRecentMessages(ctx, "conv-migrate-legacy", 10)
+		require.NoError(t, err)
+		assert.Len(t, msgs, 3)
+		assert.Equal(t, "legacy msg 1", msgs[0].Content)
+		assert.Equal(t, "legacy msg 2", msgs[1].Content)
+		assert.Equal(t, "new msg 3", msgs[2].Content)
+	})
+
+	t.Run("migrates monolithic with summaries to list format", func(t *testing.T) {
+		store, mr := setupRedisStore(t)
+		ctx := context.Background()
+
+		legacyState := &ConversationState{
+			ID:     "conv-migrate-with-sums",
+			UserID: "user-alice",
+			Messages: []types.Message{
+				{Role: "user", Content: "msg1"},
+			},
+			Summaries: []Summary{
+				{StartTurn: 0, EndTurn: 5, Content: "Legacy summary", TokenCount: 20},
+			},
+		}
+		saveMonolithicLegacy(t, store, legacyState)
+
+		// Verify only monolithic key exists
+		assert.False(t, mr.Exists(store.summariesKey("conv-migrate-with-sums")))
+
+		// AppendMessages triggers full migration
+		err := store.AppendMessages(ctx, "conv-migrate-with-sums", []types.Message{
+			{Role: "assistant", Content: "msg2"},
+		})
+		require.NoError(t, err)
+
+		// Verify summaries were migrated
+		assert.True(t, mr.Exists(store.summariesKey("conv-migrate-with-sums")))
+		summaries, err := store.LoadSummaries(ctx, "conv-migrate-with-sums")
+		require.NoError(t, err)
+		assert.Len(t, summaries, 1)
+		assert.Equal(t, "Legacy summary", summaries[0].Content)
+	})
+
+	t.Run("migration with TTL sets expiry on migrated keys", func(t *testing.T) {
+		store, mr := setupRedisStore(t, WithTTL(10*time.Minute))
+		ctx := context.Background()
+
+		legacyState := &ConversationState{
+			ID:     "conv-migrate-ttl-legacy",
+			UserID: "user-alice",
+			Messages: []types.Message{
+				{Role: "user", Content: "msg1"},
+			},
+			Summaries: []Summary{
+				{StartTurn: 0, EndTurn: 3, Content: "Summary", TokenCount: 10},
+			},
+		}
+		saveMonolithicLegacy(t, store, legacyState)
+
+		err := store.AppendMessages(ctx, "conv-migrate-ttl-legacy", []types.Message{
+			{Role: "assistant", Content: "msg2"},
+		})
+		require.NoError(t, err)
+
+		// Verify migrated keys have TTL
+		msgKey := store.messagesKey("conv-migrate-ttl-legacy")
+		sumKey := store.summariesKey("conv-migrate-ttl-legacy")
+		assert.True(t, mr.TTL(msgKey) > 0, "migrated messages key should have TTL")
+		assert.True(t, mr.TTL(sumKey) > 0, "migrated summaries key should have TTL")
+	})
+
+	t.Run("migration with no TTL skips expiry", func(t *testing.T) {
+		store, mr := setupRedisStore(t, WithTTL(0))
+		ctx := context.Background()
+
+		legacyState := &ConversationState{
+			ID:     "conv-migrate-no-ttl",
+			UserID: "user-alice",
+			Messages: []types.Message{
+				{Role: "user", Content: "msg1"},
+			},
+			Summaries: []Summary{
+				{StartTurn: 0, EndTurn: 3, Content: "Summary", TokenCount: 10},
+			},
+		}
+		saveMonolithicLegacy(t, store, legacyState)
+
+		err := store.AppendMessages(ctx, "conv-migrate-no-ttl", []types.Message{
+			{Role: "assistant", Content: "msg2"},
+		})
+		require.NoError(t, err)
+
+		// Verify no TTL on migrated keys
+		msgKey := store.messagesKey("conv-migrate-no-ttl")
+		sumKey := store.summariesKey("conv-migrate-no-ttl")
+		assert.Equal(t, time.Duration(0), mr.TTL(msgKey), "migrated messages key should have no TTL")
+		assert.Equal(t, time.Duration(0), mr.TTL(sumKey), "migrated summaries key should have no TTL")
+	})
+}
+
+func TestRedisStore_ResolveStateFromCmds(t *testing.T) {
+	t.Run("resolves from monolithic when meta is missing", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		// Write only a monolithic key
+		legacyState := &ConversationState{
+			ID:           "conv-resolve-mono",
+			UserID:       "user-alice",
+			SystemPrompt: "Mono prompt",
+			TokenCount:   42,
+		}
+		saveMonolithicLegacy(t, store, legacyState)
+
+		// List with sorting triggers pipelinedLoadStates -> resolveStateFromCmds
+		ids, err := store.List(ctx, ListOptions{
+			SortBy:    SortByUpdatedAt,
+			SortOrder: "asc",
+		})
+		require.NoError(t, err)
+		assert.Contains(t, ids, "conv-resolve-mono")
+	})
+
+	t.Run("returns nil when neither key exists", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		// Add ghost IDs to the user index (no actual data behind them)
+		err := store.client.SAdd(ctx, store.userIndexKey("user-ghost"), "conv-ghost-1", "conv-ghost-2").Err()
+		require.NoError(t, err)
+
+		// List with sorting — resolveStateFromCmds returns nil for both,
+		// pipelinedLoadStates skips them
+		ids, err := store.List(ctx, ListOptions{
+			UserID:    "user-ghost",
+			SortBy:    SortByUpdatedAt,
+			SortOrder: "desc",
+		})
+		require.NoError(t, err)
+		// The IDs list comes from SMembers (2 entries), but sorting overwrites
+		// only positions with real states (0 states found), so we still get the original 2 IDs back
+		assert.Len(t, ids, 2)
+	})
+}
+
+func TestRedisStore_SortStatesByField(t *testing.T) {
+	t.Run("sort by created_at ascending", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		// Save conversations with metadata containing created_at
+		for i, id := range []string{"conv-sort-a", "conv-sort-b", "conv-sort-c"} {
+			state := &ConversationState{
+				ID:     id,
+				UserID: "user-sort",
+				Metadata: map[string]interface{}{
+					"created_at": time.Date(2025, 1, 1+i, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
+				},
+			}
+			err := store.Save(ctx, state)
+			require.NoError(t, err)
+		}
+
+		// Sort by created_at ascending
+		ids, err := store.List(ctx, ListOptions{
+			UserID:    "user-sort",
+			SortBy:    SortByCreatedAt,
+			SortOrder: "asc",
+		})
+		require.NoError(t, err)
+		assert.Len(t, ids, 3)
+		assert.Equal(t, "conv-sort-a", ids[0])
+		assert.Equal(t, "conv-sort-c", ids[2])
+	})
+
+	t.Run("sort by created_at descending", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		for i, id := range []string{"conv-sort-d", "conv-sort-e", "conv-sort-f"} {
+			state := &ConversationState{
+				ID:     id,
+				UserID: "user-sort-desc",
+				Metadata: map[string]interface{}{
+					"created_at": time.Date(2025, 1, 1+i, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
+				},
+			}
+			err := store.Save(ctx, state)
+			require.NoError(t, err)
+		}
+
+		ids, err := store.List(ctx, ListOptions{
+			UserID:    "user-sort-desc",
+			SortBy:    SortByCreatedAt,
+			SortOrder: "desc",
+		})
+		require.NoError(t, err)
+		assert.Len(t, ids, 3)
+		assert.Equal(t, "conv-sort-f", ids[0])
+		assert.Equal(t, "conv-sort-d", ids[2])
+	})
+
+	t.Run("sort by unknown field preserves order", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		for _, id := range []string{"conv-unk-a", "conv-unk-b"} {
+			state := &ConversationState{
+				ID:     id,
+				UserID: "user-unk-sort",
+			}
+			err := store.Save(ctx, state)
+			require.NoError(t, err)
+		}
+
+		ids, err := store.List(ctx, ListOptions{
+			UserID:    "user-unk-sort",
+			SortBy:    "nonexistent_field",
+			SortOrder: "asc",
+		})
+		require.NoError(t, err)
+		assert.Len(t, ids, 2)
+	})
+}
+
+func TestRedisStore_ExtractIDFromKey_Variations(t *testing.T) {
+	store, _ := setupRedisStore(t)
+
+	// Valid conversation key
+	assert.Equal(t, "conv-123", store.extractIDFromKey("promptkit:conversation:conv-123"))
+	// Key with wrong prefix returns empty
+	assert.Equal(t, "", store.extractIDFromKey("other:prefix:conv-123"))
+	// Empty key returns empty
+	assert.Equal(t, "", store.extractIDFromKey(""))
+}
+
+func TestRedisStore_LoadMeta_InvalidJSON(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Write invalid JSON to the meta key
+	metaKey := store.metaKey("conv-bad-json")
+	err := store.client.Set(ctx, metaKey, "not valid json{{{", 0).Err()
+	require.NoError(t, err)
+
+	_, err = store.Load(ctx, "conv-bad-json")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to unmarshal meta")
+}
+
+func TestRedisStore_LoadRecentFromMonolithic_NGreaterThanTotal(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Write monolithic key with messages
+	legacyState := &ConversationState{
+		ID:     "conv-mono-recent",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "msg1"},
+			{Role: "assistant", Content: "msg2"},
+		},
+	}
+	saveMonolithicLegacy(t, store, legacyState)
+
+	// Request more messages than exist — should return all
+	msgs, err := store.LoadRecentMessages(ctx, "conv-mono-recent", 100)
+	require.NoError(t, err)
+	assert.Len(t, msgs, 2)
+	assert.Equal(t, "msg1", msgs[0].Content)
+}
+
+func TestRedisStore_LoadRecentFromMonolithic_SliceLast(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Write monolithic key with messages
+	legacyState := &ConversationState{
+		ID:     "conv-mono-slice",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "msg1"},
+			{Role: "assistant", Content: "msg2"},
+			{Role: "user", Content: "msg3"},
+			{Role: "assistant", Content: "msg4"},
+		},
+	}
+	saveMonolithicLegacy(t, store, legacyState)
+
+	// Request last 2 — should slice from monolithic
+	msgs, err := store.LoadRecentMessages(ctx, "conv-mono-slice", 2)
+	require.NoError(t, err)
+	assert.Len(t, msgs, 2)
+	assert.Equal(t, "msg3", msgs[0].Content)
+	assert.Equal(t, "msg4", msgs[1].Content)
+}
+
+func TestRedisStore_MessageCount_MonolithicFallback(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Write monolithic key directly
+	legacyState := &ConversationState{
+		ID:     "conv-count-mono-legacy",
+		UserID: "user-alice",
+		Messages: []types.Message{
+			{Role: "user", Content: "a"},
+			{Role: "assistant", Content: "b"},
+			{Role: "user", Content: "c"},
+		},
+	}
+	saveMonolithicLegacy(t, store, legacyState)
+
+	count, err := store.MessageCount(ctx, "conv-count-mono-legacy")
+	require.NoError(t, err)
+	assert.Equal(t, 3, count)
+}
+
+func TestRedisStore_AppendMessages_EmptySlice(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Append empty messages — rpushMessages returns nil early
+	err := store.AppendMessages(ctx, "conv-empty-append", []types.Message{})
+	require.NoError(t, err)
+}
+
+func TestRedisStore_List_SortError(t *testing.T) {
+	// This test validates that List with sorting on empty result returns gracefully
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	ids, err := store.List(ctx, ListOptions{
+		UserID:    "nonexistent-user",
+		SortBy:    SortByUpdatedAt,
+		SortOrder: "desc",
+	})
+	require.NoError(t, err)
+	assert.Len(t, ids, 0)
+}
+
+func TestRedisStore_SaveWithNoUserID(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Save with empty UserID — pipeUpdateUserIndex should skip
+	state := &ConversationState{
+		ID: "conv-no-user",
+		Messages: []types.Message{
+			{Role: "user", Content: "msg"},
+		},
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	loaded, err := store.Load(ctx, "conv-no-user")
+	require.NoError(t, err)
+	assert.Equal(t, "", loaded.UserID)
+}
+
+func TestRedisStore_ResolveStateFromCmds_MonolithicFallback(t *testing.T) {
+	t.Run("sorts conversations from monolithic format", func(t *testing.T) {
+		store, _ := setupRedisStore(t)
+		ctx := context.Background()
+
+		// Write two monolithic-only conversations with different timestamps
+		state1 := &ConversationState{
+			ID:             "conv-mono-sort-1",
+			UserID:         "user-mono-sort",
+			LastAccessedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		}
+		saveMonolithicLegacy(t, store, state1)
+
+		state2 := &ConversationState{
+			ID:             "conv-mono-sort-2",
+			UserID:         "user-mono-sort",
+			LastAccessedAt: time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
+		}
+		saveMonolithicLegacy(t, store, state2)
+
+		// Add both to user index manually (since saveMonolithicLegacy doesn't)
+		indexKey := store.userIndexKey("user-mono-sort")
+		err := store.client.SAdd(ctx, indexKey, "conv-mono-sort-1", "conv-mono-sort-2").Err()
+		require.NoError(t, err)
+
+		// List with sorting — resolveStateFromCmds should fall back to monolithic
+		ids, err := store.List(ctx, ListOptions{
+			UserID:    "user-mono-sort",
+			SortBy:    SortByUpdatedAt,
+			SortOrder: "asc",
+		})
+		require.NoError(t, err)
+		assert.Len(t, ids, 2)
+		assert.Equal(t, "conv-mono-sort-1", ids[0])
+		assert.Equal(t, "conv-mono-sort-2", ids[1])
+	})
+}
+
+func TestRedisStore_LoadDecomposed_MessageListError(t *testing.T) {
+	// This covers the loadDecomposed error path when messages list has bad data
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Write valid meta
+	meta := redisStateMeta{
+		ID:     "conv-bad-msgs",
+		UserID: "user-alice",
+	}
+	metaData, err := json.Marshal(meta)
+	require.NoError(t, err)
+	err = store.client.Set(ctx, store.metaKey("conv-bad-msgs"), metaData, 0).Err()
+	require.NoError(t, err)
+
+	// Write invalid JSON to messages list
+	err = store.client.RPush(ctx, store.messagesKey("conv-bad-msgs"), "not-valid-json{{{").Err()
+	require.NoError(t, err)
+
+	_, loadErr := store.Load(ctx, "conv-bad-msgs")
+	assert.Error(t, loadErr)
+	assert.Contains(t, loadErr.Error(), "failed to unmarshal message")
+}
+
+func TestRedisStore_LoadSummariesList_Error(t *testing.T) {
+	// This covers the loadSummariesList error path when summaries list has bad data
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Write valid meta and messages
+	meta := redisStateMeta{
+		ID:     "conv-bad-sums",
+		UserID: "user-alice",
+	}
+	metaData, err := json.Marshal(meta)
+	require.NoError(t, err)
+	err = store.client.Set(ctx, store.metaKey("conv-bad-sums"), metaData, 0).Err()
+	require.NoError(t, err)
+
+	// Write invalid JSON to summaries list
+	err = store.client.RPush(ctx, store.summariesKey("conv-bad-sums"), "not-valid-json{{{").Err()
+	require.NoError(t, err)
+
+	_, loadErr := store.Load(ctx, "conv-bad-sums")
+	assert.Error(t, loadErr)
+	assert.Contains(t, loadErr.Error(), "failed to unmarshal summary")
+}
+
+func TestRedisStore_LoadSummaries_UnmarshalError(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Write invalid JSON to summaries list key
+	sumKey := store.summariesKey("conv-bad-sum-load")
+	err := store.client.RPush(ctx, sumKey, "invalid-json{").Err()
+	require.NoError(t, err)
+
+	_, loadErr := store.LoadSummaries(ctx, "conv-bad-sum-load")
+	assert.Error(t, loadErr)
+	assert.Contains(t, loadErr.Error(), "failed to unmarshal summary")
+}
+
+func TestRedisStore_LoadRecentMessages_UnmarshalError(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Write invalid JSON to messages list key
+	msgKey := store.messagesKey("conv-bad-msg-load")
+	err := store.client.RPush(ctx, msgKey, "invalid-json{").Err()
+	require.NoError(t, err)
+
+	_, loadErr := store.LoadRecentMessages(ctx, "conv-bad-msg-load", 5)
+	assert.Error(t, loadErr)
+	assert.Contains(t, loadErr.Error(), "failed to unmarshal message")
+}
+
+func TestRedisStore_IsSubKey(t *testing.T) {
+	store, _ := setupRedisStore(t)
+
+	assert.False(t, store.isSubKey("conv-123"))
+	assert.True(t, store.isSubKey("conv-123:messages"))
+	assert.True(t, store.isSubKey("conv-123:meta"))
+	assert.True(t, store.isSubKey("conv-123:summaries"))
+}
+
+func TestRedisStore_ExtractIDFromMetaKey(t *testing.T) {
+	store, _ := setupRedisStore(t)
+
+	assert.Equal(t, "conv-123", store.extractIDFromMetaKey("promptkit:conversation:conv-123:meta"))
+	assert.Equal(t, "", store.extractIDFromMetaKey("promptkit:conversation:conv-123:messages"))
+	assert.Equal(t, "", store.extractIDFromMetaKey("other:conversation:conv-123:meta"))
+	assert.Equal(t, "", store.extractIDFromMetaKey(""))
 }
