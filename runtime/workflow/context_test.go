@@ -146,6 +146,74 @@ func TestLastTransition(t *testing.T) {
 	}
 }
 
+func TestCloneDeepCopiesNestedMetadata(t *testing.T) {
+	now := time.Date(2026, 2, 17, 10, 0, 0, 0, time.UTC)
+	ctx := NewContext("intake", now)
+	ctx.Metadata["nested"] = map[string]any{
+		"inner_key": "inner_value",
+		"numbers":   []any{1.0, 2.0, 3.0},
+	}
+	ctx.Metadata["list"] = []any{"a", "b", map[string]any{"deep": true}}
+
+	clone := ctx.Clone()
+
+	// Verify values are equal.
+	nestedOrig := ctx.Metadata["nested"].(map[string]any)
+	nestedClone := clone.Metadata["nested"].(map[string]any)
+	if nestedClone["inner_key"] != "inner_value" {
+		t.Errorf("nested inner_key = %v, want inner_value", nestedClone["inner_key"])
+	}
+
+	// Mutate the clone's nested map and verify original is unaffected.
+	nestedClone["inner_key"] = "changed"
+	if nestedOrig["inner_key"] != "inner_value" {
+		t.Error("original nested map was mutated via clone")
+	}
+
+	// Mutate nested slice in clone.
+	cloneList := clone.Metadata["list"].([]any)
+	cloneList[0] = "z"
+	origList := ctx.Metadata["list"].([]any)
+	if origList[0] != "a" {
+		t.Error("original slice was mutated via clone")
+	}
+
+	// Mutate deeply nested map inside slice.
+	cloneDeep := cloneList[2].(map[string]any)
+	cloneDeep["deep"] = false
+	origDeep := origList[2].(map[string]any)
+	if origDeep["deep"] != true {
+		t.Error("original deeply nested map in slice was mutated via clone")
+	}
+}
+
+func TestHistoryCap(t *testing.T) {
+	now := time.Now()
+	ctx := NewContext("s0", now)
+
+	// Record more than MaxHistoryLength transitions.
+	for i := 0; i < MaxHistoryLength+100; i++ {
+		from := "s0"
+		to := "s1"
+		if i%2 == 1 {
+			from = "s1"
+			to = "s0"
+		}
+		ctx.RecordTransition(from, to, "E", now.Add(time.Duration(i)*time.Millisecond))
+	}
+
+	if len(ctx.History) != MaxHistoryLength {
+		t.Errorf("History len = %d, want %d", len(ctx.History), MaxHistoryLength)
+	}
+
+	// Verify the oldest entries were trimmed (first kept entry should be index 100 of the original).
+	// The 100th transition (0-indexed) has index 100 which is even -> from=s0, to=s1.
+	first := ctx.History[0]
+	if first.From != "s0" || first.To != "s1" {
+		t.Errorf("first kept transition = %s->%s, want s0->s1", first.From, first.To)
+	}
+}
+
 func TestContextRoundTripThroughJSON(t *testing.T) {
 	now := time.Date(2026, 2, 17, 10, 0, 0, 0, time.UTC)
 	ctx := NewContext("intake", now)
