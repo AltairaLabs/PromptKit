@@ -1150,3 +1150,142 @@ func TestFileStore_SpecialCases(t *testing.T) {
 		assert.Nil(t, retrieved.PolicyName)
 	})
 }
+
+func TestFileStore_Flush(t *testing.T) {
+	t.Run("flush persists dedup index", func(t *testing.T) {
+		tempDir := t.TempDir()
+		fs1, err := local.NewFileStore(local.FileStoreConfig{
+			BaseDir:             tempDir,
+			Organization:        storage.OrganizationByRun,
+			EnableDeduplication: true,
+		})
+		require.NoError(t, err)
+
+		ctx := context.Background()
+		testData := []byte("flush test data")
+		base64Data := base64.StdEncoding.EncodeToString(testData)
+		content := &types.MediaContent{
+			Data:     &base64Data,
+			MIMEType: "image/jpeg",
+		}
+		metadata := storage.MediaMetadata{
+			RunID:      "run-flush",
+			MessageIdx: 0,
+			PartIdx:    0,
+			MIMEType:   "image/jpeg",
+			SizeBytes:  int64(len(testData)),
+			Timestamp:  time.Now(),
+		}
+
+		ref1, err := fs1.StoreMedia(ctx, content, &metadata)
+		require.NoError(t, err)
+
+		// Flush should succeed
+		err = fs1.Flush()
+		assert.NoError(t, err)
+
+		// Create new instance - should load persisted index
+		fs2, err := local.NewFileStore(local.FileStoreConfig{
+			BaseDir:             tempDir,
+			Organization:        storage.OrganizationByRun,
+			EnableDeduplication: true,
+		})
+		require.NoError(t, err)
+
+		metadata2 := metadata
+		metadata2.RunID = "run-flush-2"
+		metadata2.MessageIdx = 1
+		ref2, err := fs2.StoreMedia(ctx, content, &metadata2)
+		require.NoError(t, err)
+
+		// Should deduplicate using loaded index
+		assert.Equal(t, ref1, ref2)
+	})
+
+	t.Run("flush is no-op when dedup disabled", func(t *testing.T) {
+		tempDir := t.TempDir()
+		fs, err := local.NewFileStore(local.FileStoreConfig{
+			BaseDir:      tempDir,
+			Organization: storage.OrganizationByRun,
+		})
+		require.NoError(t, err)
+
+		err = fs.Flush()
+		assert.NoError(t, err)
+	})
+
+	t.Run("flush is no-op when index unchanged", func(t *testing.T) {
+		tempDir := t.TempDir()
+		fs, err := local.NewFileStore(local.FileStoreConfig{
+			BaseDir:             tempDir,
+			Organization:        storage.OrganizationByRun,
+			EnableDeduplication: true,
+		})
+		require.NoError(t, err)
+
+		// Flush without any stores - should be no-op
+		err = fs.Flush()
+		assert.NoError(t, err)
+
+		// Dedup index file should not exist (nothing written)
+		indexPath := filepath.Join(tempDir, ".dedup_index.json")
+		assert.NoFileExists(t, indexPath)
+	})
+}
+
+func TestFileStore_DedupSkipsWriteOnHit(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	fs, err := local.NewFileStore(local.FileStoreConfig{
+		BaseDir:             tempDir,
+		Organization:        storage.OrganizationByRun,
+		EnableDeduplication: true,
+	})
+	require.NoError(t, err)
+
+	testData := []byte("dedup hit test data")
+	base64Data := base64.StdEncoding.EncodeToString(testData)
+	content := &types.MediaContent{
+		Data:     &base64Data,
+		MIMEType: "image/jpeg",
+	}
+
+	// Store first copy
+	metadata1 := storage.MediaMetadata{
+		RunID:      "run-hit-1",
+		MessageIdx: 0,
+		PartIdx:    0,
+		MIMEType:   "image/jpeg",
+		SizeBytes:  int64(len(testData)),
+		Timestamp:  time.Now(),
+	}
+	ref1, err := fs.StoreMedia(ctx, content, &metadata1)
+	require.NoError(t, err)
+
+	// Record modification time of dedup index file
+	indexPath := filepath.Join(tempDir, ".dedup_index.json")
+	info1, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	modTime1 := info1.ModTime()
+
+	// Small delay to ensure filesystem timestamp granularity
+	time.Sleep(10 * time.Millisecond)
+
+	// Store duplicate - should be a dedup hit (no index write needed)
+	metadata2 := storage.MediaMetadata{
+		RunID:      "run-hit-2",
+		MessageIdx: 1,
+		PartIdx:    0,
+		MIMEType:   "image/jpeg",
+		SizeBytes:  int64(len(testData)),
+		Timestamp:  time.Now(),
+	}
+	ref2, err := fs.StoreMedia(ctx, content, &metadata2)
+	require.NoError(t, err)
+	assert.Equal(t, ref1, ref2)
+
+	// Verify index file was not rewritten (mod time unchanged)
+	info2, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	assert.Equal(t, modTime1, info2.ModTime(), "dedup index should not be rewritten on dedup hit")
+}
