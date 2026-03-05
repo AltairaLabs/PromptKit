@@ -457,8 +457,9 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 		if err != nil {
 			return nil, err
 		}
+		idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
 		outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-		go p.streamResponseMultimodal(ctx, body, scanner, outChan)
+		go p.streamResponseMultimodal(ctx, idleBody, scanner, outChan)
 		return outChan, nil
 	}
 
@@ -492,9 +493,10 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 	}
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	scanner := providers.NewSSEScanner(resp.Body)
+	idleBody := providers.NewIdleTimeoutReader(resp.Body, providers.DefaultStreamIdleTimeout)
+	scanner := providers.NewSSEScanner(idleBody)
 
-	go p.streamResponseMultimodal(ctx, resp.Body, scanner, outChan)
+	go p.streamResponseMultimodal(ctx, idleBody, scanner, outChan)
 
 	return outChan, nil
 }

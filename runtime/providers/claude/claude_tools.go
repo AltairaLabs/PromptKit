@@ -480,8 +480,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 		if err != nil {
 			return nil, err
 		}
+		idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
 		outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-		go p.streamResponse(ctx, body, scanner, outChan)
+		go p.streamResponse(ctx, idleBody, scanner, outChan)
 		return outChan, nil
 	}
 
@@ -514,8 +515,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 	}
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	scanner := providers.NewSSEScanner(resp.Body)
-	go p.streamResponse(ctx, resp.Body, scanner, outChan)
+	idleBody := providers.NewIdleTimeoutReader(resp.Body, providers.DefaultStreamIdleTimeout)
+	scanner := providers.NewSSEScanner(idleBody)
+	go p.streamResponse(ctx, idleBody, scanner, outChan)
 
 	return outChan, nil
 }

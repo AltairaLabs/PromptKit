@@ -142,7 +142,6 @@ func (p *Provider) processGeminiStreamChunk(
 // as it arrives, preserving the streaming benefit.
 func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
 	defer close(outChan)
-	defer body.Close()
 
 	// Close the response body when context is canceled to unblock decoder reads
 	go func() {
@@ -150,7 +149,11 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		_ = body.Close()
 	}()
 
-	dec := json.NewDecoder(body)
+	// Wrap body with idle timeout detection to guard against stalled streams
+	idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+	defer idleBody.Close()
+
+	dec := json.NewDecoder(idleBody)
 
 	// Read the opening '[' token of the JSON array
 	tok, err := dec.Token()

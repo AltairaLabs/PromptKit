@@ -77,8 +77,9 @@ func (p *Provider) PredictStream(
 		if err != nil {
 			return nil, err
 		}
+		idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
 		outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-		go p.streamResponse(ctx, body, scanner, outChan)
+		go p.streamResponse(ctx, idleBody, scanner, outChan)
 		return outChan, nil
 	}
 
@@ -114,9 +115,10 @@ func (p *Provider) PredictStream(
 	}
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	scanner := providers.NewSSEScanner(resp.Body)
+	idleBody := providers.NewIdleTimeoutReader(resp.Body, providers.DefaultStreamIdleTimeout)
+	scanner := providers.NewSSEScanner(idleBody)
 
-	go p.streamResponse(ctx, resp.Body, scanner, outChan)
+	go p.streamResponse(ctx, idleBody, scanner, outChan)
 
 	return outChan, nil
 }
@@ -241,6 +243,7 @@ func (p *Provider) streamResponse(
 	ctx context.Context, body io.ReadCloser, scanner providers.StreamScanner, outChan chan<- providers.StreamChunk,
 ) {
 	defer close(outChan)
+
 	defer body.Close()
 
 	// Close the response body when context is canceled to unblock scanner.Scan()

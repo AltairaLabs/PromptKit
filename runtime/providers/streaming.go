@@ -12,6 +12,11 @@ import (
 // when the consumer is slow, while keeping memory usage reasonable.
 const DefaultStreamBufferSize = 32
 
+// DefaultStreamIdleTimeout is the maximum time to wait between stream chunks
+// before considering the stream stalled. If no data is received within this
+// duration, the response body is closed to unblock the reader.
+const DefaultStreamIdleTimeout = 30 * time.Second
+
 // ExecutionResult is a forward declaration to avoid circular import.
 type ExecutionResult interface{}
 

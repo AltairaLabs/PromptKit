@@ -285,7 +285,6 @@ func (p *Provider) streamResponse(
 	outChan chan<- providers.StreamChunk,
 ) {
 	defer close(outChan)
-	defer body.Close()
 
 	// Close the response body when context is canceled to unblock scanner.Scan()
 	go func() {
@@ -293,7 +292,11 @@ func (p *Provider) streamResponse(
 		_ = body.Close()
 	}()
 
-	scanner := providers.NewSSEScanner(body)
+	// Wrap body with idle timeout detection to guard against stalled streams
+	idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+	defer idleBody.Close()
+
+	scanner := providers.NewSSEScanner(idleBody)
 	var sb strings.Builder
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall
