@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -423,6 +424,150 @@ func TestNewClient_DefaultHTTPClient(t *testing.T) {
 	}
 	if !transport.ForceAttemptHTTP2 {
 		t.Error("ForceAttemptHTTP2 should be true")
+	}
+}
+
+func TestNewClient_SSEClientHasLongerTimeout(t *testing.T) {
+	c := NewClient("http://example.com")
+
+	if c.sseClient == nil {
+		t.Fatal("expected non-nil SSE client")
+	}
+	if c.sseClient.Timeout != sseClientTimeout {
+		t.Errorf("SSE client Timeout = %v, want %v", c.sseClient.Timeout, sseClientTimeout)
+	}
+	if c.httpClient.Timeout == c.sseClient.Timeout {
+		t.Error("SSE client should have a different timeout than the regular HTTP client")
+	}
+
+	transport, ok := c.sseClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", c.sseClient.Transport)
+	}
+	if transport.MaxIdleConns != defaultMaxIdleConns {
+		t.Errorf("SSE MaxIdleConns = %d, want %d", transport.MaxIdleConns, defaultMaxIdleConns)
+	}
+	if !transport.ForceAttemptHTTP2 {
+		t.Error("SSE ForceAttemptHTTP2 should be true")
+	}
+}
+
+func TestSendMessageStream_UsesSSEClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		fmt.Fprint(w, sseEvent(TaskStatusUpdateEvent{
+			TaskID: "task-1",
+			Status: TaskStatus{State: TaskStateCompleted},
+		}))
+		f.Flush()
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+
+	// Set a very short timeout on the regular HTTP client to verify it is NOT used
+	// for streaming. If SendMessageStream used httpClient, this would fail.
+	c.httpClient.Timeout = 1 * time.Millisecond
+
+	ch, err := c.SendMessageStream(context.Background(), &SendMessageRequest{
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("hi")}}},
+	})
+	if err != nil {
+		t.Fatalf("SendMessageStream() error = %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	if events[0].StatusUpdate == nil || events[0].StatusUpdate.Status.State != TaskStateCompleted {
+		t.Error("expected status=completed event")
+	}
+}
+
+func TestReadSSE_LargePayloadWithinBuffer(t *testing.T) {
+	// Create a payload larger than the default 64KB scanner buffer but within 1MB.
+	largeText := strings.Repeat("A", 100*1024) // 100KB
+	artifact := TaskArtifactUpdateEvent{
+		TaskID:   "task-1",
+		Artifact: Artifact{ArtifactID: "a1", Parts: []Part{{Text: &largeText}}},
+	}
+	payload, _ := json.Marshal(artifact)
+
+	// Build SSE frame: "data: <json>\n\n"
+	var sseData strings.Builder
+	sseData.WriteString("data: ")
+	sseData.Write(payload)
+	sseData.WriteString("\n\n")
+
+	ch := make(chan StreamEvent, 1)
+	ReadSSE(context.Background(), strings.NewReader(sseData.String()), ch)
+	close(ch)
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	if events[0].ArtifactUpdate == nil {
+		t.Fatal("expected ArtifactUpdate event")
+	}
+	if *events[0].ArtifactUpdate.Artifact.Parts[0].Text != largeText {
+		t.Error("large payload text mismatch")
+	}
+}
+
+func TestSendMessageStream_LargeArtifact(t *testing.T) {
+	// Verify end-to-end that the SSE scanner handles payloads > 64KB.
+	largeText := strings.Repeat("B", 200*1024) // 200KB
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+
+		fmt.Fprint(w, sseEvent(TaskArtifactUpdateEvent{
+			TaskID:   "task-1",
+			Artifact: Artifact{ArtifactID: "a1", Parts: []Part{{Text: &largeText}}},
+		}))
+		f.Flush()
+
+		fmt.Fprint(w, sseEvent(TaskStatusUpdateEvent{
+			TaskID: "task-1",
+			Status: TaskStatus{State: TaskStateCompleted},
+		}))
+		f.Flush()
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	ch, err := c.SendMessageStream(context.Background(), &SendMessageRequest{
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: testutil.Ptr("go")}}},
+	})
+	if err != nil {
+		t.Fatalf("SendMessageStream() error = %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+	if events[0].ArtifactUpdate == nil {
+		t.Fatal("event 0: expected ArtifactUpdate")
+	}
+	if *events[0].ArtifactUpdate.Artifact.Parts[0].Text != largeText {
+		t.Error("event 0: large artifact text mismatch")
+	}
+	if events[1].StatusUpdate == nil || events[1].StatusUpdate.Status.State != TaskStateCompleted {
+		t.Error("event 1: expected status=completed")
 	}
 }
 
