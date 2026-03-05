@@ -135,27 +135,30 @@ func (p *Provider) processGeminiStreamChunk(
 	return accumulated, totalTokens, toolCalls, false
 }
 
-// streamResponse reads JSON stream from Gemini and sends chunks
+// streamResponse reads a JSON array stream from Gemini and sends chunks incrementally.
+// Gemini returns a JSON array [obj1, obj2, ...] where each element is a GenerateContentResponse.
+// Instead of reading the entire body into memory, we use json.Decoder to parse each element
+// as it arrives, preserving the streaming benefit.
 func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
 	defer close(outChan)
 	defer body.Close()
 
-	// Gemini returns JSON array: [{"candidates": [...], ...}, {"candidates": [...], ...}]
-	// We need to read the entire body and parse it as an array
-	bodyBytes, err := io.ReadAll(body)
+	dec := json.NewDecoder(body)
+
+	// Read the opening '[' token of the JSON array
+	tok, err := dec.Token()
 	if err != nil {
 		outChan <- providers.StreamChunk{
-			Error:        fmt.Errorf("failed to read response body: %w", err),
+			Error:        fmt.Errorf("failed to read response stream: %w", err),
 			FinishReason: providers.StringPtr("error"),
 		}
 		return
 	}
 
-	// Parse as array of responses
-	var responses []geminiResponse
-	if err := json.Unmarshal(bodyBytes, &responses); err != nil {
+	delim, ok := tok.(json.Delim)
+	if !ok || delim != '[' {
 		outChan <- providers.StreamChunk{
-			Error:        fmt.Errorf("failed to parse streaming response: %w", err),
+			Error:        fmt.Errorf("expected JSON array start '[', got %v", tok),
 			FinishReason: providers.StringPtr("error"),
 		}
 		return
@@ -165,8 +168,8 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	totalTokens := 0
 	var toolCalls []types.MessageToolCall
 
-	// Process each chunk in the array
-	for _, chunk := range responses {
+	// Decode each element incrementally as it arrives
+	for dec.More() {
 		select {
 		case <-ctx.Done():
 			outChan <- providers.StreamChunk{
@@ -178,12 +181,32 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		default:
 		}
 
+		var chunk geminiResponse
+		if err := dec.Decode(&chunk); err != nil {
+			outChan <- providers.StreamChunk{
+				Content:      accumulated,
+				Error:        fmt.Errorf("failed to decode streaming chunk: %w", err),
+				FinishReason: providers.StringPtr("error"),
+			}
+			return
+		}
+
 		var finished bool
 		accumulated, totalTokens, toolCalls, finished = p.processGeminiStreamChunk(
 			chunk, accumulated, totalTokens, toolCalls, outChan)
 		if finished {
 			return
 		}
+	}
+
+	// Read the closing ']' token
+	if _, err := dec.Token(); err != nil {
+		outChan <- providers.StreamChunk{
+			Content:      accumulated,
+			Error:        fmt.Errorf("failed to read closing token: %w", err),
+			FinishReason: providers.StringPtr("error"),
+		}
+		return
 	}
 
 	// No finish reason received, send final chunk

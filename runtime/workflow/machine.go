@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 )
 
@@ -19,6 +20,7 @@ type TimeFunc func() time.Time
 
 // StateMachine manages workflow state transitions.
 type StateMachine struct {
+	mu      sync.RWMutex
 	spec    *Spec
 	context *Context
 	now     TimeFunc
@@ -45,17 +47,23 @@ func NewStateMachineFromContext(spec *Spec, ctx *Context) *StateMachine {
 
 // WithTimeFunc sets a custom time function for deterministic tests.
 func (sm *StateMachine) WithTimeFunc(fn TimeFunc) *StateMachine {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	sm.now = fn
 	return sm
 }
 
 // CurrentState returns the name of the current state.
 func (sm *StateMachine) CurrentState() string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	return sm.context.CurrentState
 }
 
 // CurrentPromptTask returns the prompt_task for the current state.
 func (sm *StateMachine) CurrentPromptTask() string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	state := sm.spec.States[sm.context.CurrentState]
 	if state == nil {
 		return ""
@@ -65,6 +73,9 @@ func (sm *StateMachine) CurrentPromptTask() string {
 
 // ProcessEvent applies an event and transitions to the target state.
 func (sm *StateMachine) ProcessEvent(event string) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
 	state := sm.spec.States[sm.context.CurrentState]
 	if state == nil {
 		return fmt.Errorf("%w: state %q not found in spec", ErrInvalidEvent, sm.context.CurrentState)
@@ -77,7 +88,7 @@ func (sm *StateMachine) ProcessEvent(event string) error {
 	target, ok := state.OnEvent[event]
 	if !ok {
 		return fmt.Errorf("%w: event %q not defined for state %q (available: %v)",
-			ErrInvalidEvent, event, sm.context.CurrentState, sm.AvailableEvents())
+			ErrInvalidEvent, event, sm.context.CurrentState, sm.availableEventsLocked())
 	}
 
 	sm.context.RecordTransition(sm.context.CurrentState, target, event, sm.now())
@@ -86,6 +97,8 @@ func (sm *StateMachine) ProcessEvent(event string) error {
 
 // IsTerminal returns true if the current state has no outgoing transitions.
 func (sm *StateMachine) IsTerminal() bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	state := sm.spec.States[sm.context.CurrentState]
 	if state == nil {
 		return true
@@ -95,6 +108,13 @@ func (sm *StateMachine) IsTerminal() bool {
 
 // AvailableEvents returns the set of valid events for the current state, sorted.
 func (sm *StateMachine) AvailableEvents() []string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.availableEventsLocked()
+}
+
+// availableEventsLocked returns the set of valid events. Caller must hold at least a read lock.
+func (sm *StateMachine) availableEventsLocked() []string {
 	state := sm.spec.States[sm.context.CurrentState]
 	if state == nil || len(state.OnEvent) == 0 {
 		return nil
@@ -109,5 +129,7 @@ func (sm *StateMachine) AvailableEvents() []string {
 
 // Context returns a snapshot of the current workflow context for persistence.
 func (sm *StateMachine) Context() *Context {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	return sm.context.Clone()
 }

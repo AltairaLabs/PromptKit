@@ -11,6 +11,17 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const (
+	// DefaultMaxMessages is the maximum number of messages retained when no
+	// explicit context window is configured. Older non-system messages are
+	// discarded to prevent unbounded context growth.
+	DefaultMaxMessages = 200
+
+	// DefaultWarningThreshold is the message count above which a warning is
+	// logged when no context window or token budget is configured.
+	DefaultWarningThreshold = 100
+)
+
 // ContextAssemblyConfig configures the ContextAssemblyStage.
 type ContextAssemblyConfig struct {
 	// StateStoreConfig for accessing the store.
@@ -25,6 +36,26 @@ type ContextAssemblyConfig struct {
 
 	// RetrievalTopK is the number of results to retrieve from the message index.
 	RetrievalTopK int
+
+	// MaxMessages is the hard cap on total messages retained when no explicit
+	// context window is set. System messages at the start are always preserved.
+	// Default: DefaultMaxMessages (200).
+	MaxMessages int
+
+	// WarningThreshold is the message count above which a warning is logged
+	// when no context window or token budget is configured.
+	// Default: DefaultWarningThreshold (100).
+	WarningThreshold int
+
+	// HasTokenBudget indicates whether a token budget stage is configured
+	// downstream. When true, the large-conversation warning is suppressed
+	// because the token budget stage handles overflow.
+	HasTokenBudget bool
+
+	// HasContextWindow indicates whether an explicit context window (hot
+	// window) size was set by the caller. When false and messages exceed
+	// MaxMessages, automatic truncation is applied.
+	HasContextWindow bool
 }
 
 // ContextAssemblyStage loads a subset of conversation history using efficient
@@ -41,6 +72,14 @@ type ContextAssemblyStage struct {
 
 // NewContextAssemblyStage creates a new context assembly stage.
 func NewContextAssemblyStage(config *ContextAssemblyConfig) *ContextAssemblyStage {
+	if config != nil {
+		if config.MaxMessages <= 0 {
+			config.MaxMessages = DefaultMaxMessages
+		}
+		if config.WarningThreshold <= 0 {
+			config.WarningThreshold = DefaultWarningThreshold
+		}
+	}
 	return &ContextAssemblyStage{
 		BaseStage: NewBaseStage("context_assembly", StageTypeTransform),
 		config:    config,
@@ -85,6 +124,12 @@ func (s *ContextAssemblyStage) Process(
 		}
 		historyMessages = msgs
 	}
+
+	// Warn about large conversations without token budget or context window
+	s.warnLargeConversation(historyMessages)
+
+	// Apply default message limit when no explicit context window is set
+	historyMessages = s.applyDefaultMessageLimit(historyMessages)
 
 	// Emit history messages
 	if err := s.emitHistory(ctx, historyMessages, output); err != nil {
@@ -227,6 +272,72 @@ func (s *ContextAssemblyStage) emitHistory(
 		}
 	}
 	return nil
+}
+
+// warnLargeConversation logs a warning when the conversation has many
+// messages and neither a token budget nor an explicit context window is set.
+func (s *ContextAssemblyStage) warnLargeConversation(messages []types.Message) {
+	if s.config == nil {
+		return
+	}
+	if s.config.HasTokenBudget || s.config.HasContextWindow {
+		return
+	}
+	if len(messages) > s.config.WarningThreshold {
+		logger.Warn("Large conversation detected without token budget or context window",
+			"message_count", len(messages),
+			"threshold", s.config.WarningThreshold,
+			"suggestion", "Configure WithTokenBudget or WithContextWindow to manage context size")
+	}
+}
+
+// applyDefaultMessageLimit truncates messages to DefaultMaxMessages when no
+// explicit context window is configured. System messages at the beginning
+// are always preserved; only non-system messages are subject to truncation.
+func (s *ContextAssemblyStage) applyDefaultMessageLimit(messages []types.Message) []types.Message {
+	if s.config == nil || s.config.HasContextWindow {
+		return messages
+	}
+	if len(messages) <= s.config.MaxMessages {
+		return messages
+	}
+
+	// Separate leading system messages from the rest
+	systemCount := 0
+	for i := range messages {
+		if messages[i].Role == roleSystem {
+			systemCount++
+		} else {
+			break
+		}
+	}
+
+	systemMsgs := messages[:systemCount]
+	conversationMsgs := messages[systemCount:]
+
+	// Keep the most recent conversation messages that fit within the limit
+	maxConversation := s.config.MaxMessages - systemCount
+	if maxConversation <= 0 {
+		// System messages alone exceed the limit; return them all
+		return systemMsgs
+	}
+
+	if len(conversationMsgs) <= maxConversation {
+		return messages
+	}
+
+	truncated := len(conversationMsgs) - maxConversation
+
+	logger.Warn("Truncating conversation to default message limit",
+		"original_count", len(messages),
+		"kept_count", systemCount+maxConversation,
+		"truncated_count", truncated,
+		"max_messages", s.config.MaxMessages)
+
+	result := make([]types.Message, 0, s.config.MaxMessages)
+	result = append(result, systemMsgs...)
+	result = append(result, conversationMsgs[truncated:]...)
+	return result
 }
 
 // forwardWithMetadata forwards input elements with conversation metadata.

@@ -1,9 +1,12 @@
 package workflow
 
 import (
-	"maps"
 	"time"
 )
+
+// MaxHistoryLength is the maximum number of state transitions retained in context history.
+// When exceeded, the oldest transitions are discarded.
+const MaxHistoryLength = 1000
 
 // NewContext creates a new Context initialized at the given entry state.
 func NewContext(entryState string, now time.Time) *Context {
@@ -24,6 +27,9 @@ func (ctx *Context) RecordTransition(from, to, event string, ts time.Time) {
 		Event:     event,
 		Timestamp: ts,
 	})
+	if len(ctx.History) > MaxHistoryLength {
+		ctx.History = ctx.History[len(ctx.History)-MaxHistoryLength:]
+	}
 	ctx.CurrentState = to
 	ctx.UpdatedAt = ts
 }
@@ -40,10 +46,35 @@ func (ctx *Context) Clone() *Context {
 		copy(c.History, ctx.History)
 	}
 	if ctx.Metadata != nil {
-		c.Metadata = make(map[string]any, len(ctx.Metadata))
-		maps.Copy(c.Metadata, ctx.Metadata)
+		c.Metadata = deepCopyMap(ctx.Metadata)
 	}
 	return c
+}
+
+// deepCopyMap performs a deep copy of a map[string]any, recursively copying
+// nested maps and slices to prevent shared references between original and clone.
+func deepCopyMap(m map[string]any) map[string]any {
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		result[k] = deepCopyValue(v)
+	}
+	return result
+}
+
+// deepCopyValue deep-copies a single value, handling nested maps and slices.
+func deepCopyValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		return deepCopyMap(val)
+	case []any:
+		cp := make([]any, len(val))
+		for i, item := range val {
+			cp[i] = deepCopyValue(item)
+		}
+		return cp
+	default:
+		return v
+	}
 }
 
 // TransitionCount returns the number of transitions recorded.

@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -262,5 +263,144 @@ func TestTransitionHistoryTimestamps(t *testing.T) {
 	}
 	if !ctx.History[1].Timestamp.Equal(times[1]) {
 		t.Errorf("History[1].Timestamp = %v, want %v", ctx.History[1].Timestamp, times[1])
+	}
+}
+
+// longChainSpec creates a linear spec with many states for concurrency tests.
+func longChainSpec() *Spec {
+	states := map[string]*State{}
+	for i := 0; i < 100; i++ {
+		name := stateNameForIndex(i)
+		next := stateNameForIndex(i + 1)
+		if i == 99 {
+			states[name] = &State{PromptTask: "task_" + name}
+		} else {
+			states[name] = &State{PromptTask: "task_" + name, OnEvent: map[string]string{"Next": next}}
+		}
+	}
+	return &Spec{Version: 1, Entry: "s0", States: states}
+}
+
+func stateNameForIndex(i int) string {
+	return "s" + string(rune('0'+i/10)) + string(rune('0'+i%10))
+}
+
+func TestConcurrentReads(t *testing.T) {
+	sm := NewStateMachine(loopingSpec())
+	_ = sm.ProcessEvent("Review")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = sm.CurrentState()
+			_ = sm.CurrentPromptTask()
+			_ = sm.IsTerminal()
+			_ = sm.AvailableEvents()
+			_ = sm.Context()
+		}()
+	}
+	wg.Wait()
+}
+
+func TestConcurrentProcessEvent(t *testing.T) {
+	// Use the looping spec so events keep cycling: draft -> review -> draft -> ...
+	spec := loopingSpec()
+	sm := NewStateMachine(spec)
+
+	var wg sync.WaitGroup
+	const goroutines = 20
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				// Try all possible events; ignore errors from invalid state combos
+				_ = sm.ProcessEvent("Review")
+				_ = sm.ProcessEvent("Revise")
+				_ = sm.ProcessEvent("Approve")
+			}
+		}()
+	}
+	wg.Wait()
+
+	// After all goroutines, the state machine should be in a valid state.
+	state := sm.CurrentState()
+	if state != "draft" && state != "review" && state != "done" {
+		t.Errorf("unexpected state %q after concurrent processing", state)
+	}
+}
+
+func TestConcurrentReadsDuringWrites(t *testing.T) {
+	spec := loopingSpec()
+	sm := NewStateMachine(spec)
+
+	var wg sync.WaitGroup
+
+	// Writers
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_ = sm.ProcessEvent("Review")
+				_ = sm.ProcessEvent("Revise")
+			}
+		}()
+	}
+
+	// Readers
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_ = sm.CurrentState()
+				_ = sm.CurrentPromptTask()
+				_ = sm.IsTerminal()
+				_ = sm.AvailableEvents()
+				_ = sm.Context()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestConcurrentContextSnapshot(t *testing.T) {
+	spec := loopingSpec()
+	sm := NewStateMachine(spec)
+
+	var wg sync.WaitGroup
+	snapshots := make([]*Context, 20)
+
+	// Take snapshots concurrently while events are being processed.
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = sm.ProcessEvent("Review")
+			_ = sm.ProcessEvent("Revise")
+		}()
+	}
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			snapshots[idx] = sm.Context()
+		}(i)
+	}
+	wg.Wait()
+
+	// All snapshots should be valid contexts with a known state.
+	for i, snap := range snapshots {
+		if snap == nil {
+			t.Fatalf("snapshot %d is nil", i)
+		}
+		if snap.CurrentState != "draft" && snap.CurrentState != "review" && snap.CurrentState != "done" {
+			t.Errorf("snapshot %d has invalid state %q", i, snap.CurrentState)
+		}
 	}
 }

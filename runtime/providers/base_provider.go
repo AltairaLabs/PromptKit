@@ -30,6 +30,20 @@ const (
 	DefaultDialKeepAlive       = 30 * time.Second
 )
 
+// Payload size limits.
+const (
+	// DefaultMaxPayloadSize is the default maximum request payload size (100 MB).
+	// This is generous but prevents accidentally sending multi-GB payloads.
+	DefaultMaxPayloadSize int64 = 100 * 1024 * 1024
+
+	// payloadWarningThreshold is the size above which a warning is logged
+	// even if the payload is under the max limit, as large payloads are likely slow.
+	payloadWarningThreshold int64 = 10 * 1024 * 1024
+
+	// bytesPerMB is used for converting bytes to megabytes in log messages.
+	bytesPerMB = 1024 * 1024
+)
+
 // NewPooledTransport creates an *http.Transport configured with connection
 // pooling settings suitable for high-throughput provider communication.
 func NewPooledTransport() *http.Transport {
@@ -51,20 +65,22 @@ func NewPooledTransport() *http.Transport {
 // BaseProvider provides common functionality shared across all provider implementations.
 // It should be embedded in concrete provider structs to avoid code duplication.
 type BaseProvider struct {
-	id               string
-	includeRawOutput bool
-	client           *http.Client
-	rateLimiter      *rate.Limiter
-	retryPolicy      pipeline.RetryPolicy
+	id                    string
+	includeRawOutput      bool
+	client                *http.Client
+	rateLimiter           *rate.Limiter
+	retryPolicy           pipeline.RetryPolicy
+	maxRequestPayloadSize int64
 }
 
 // NewBaseProvider creates a new BaseProvider with common fields
 func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) BaseProvider {
 	return BaseProvider{
-		id:               id,
-		includeRawOutput: includeRawOutput,
-		client:           client,
-		retryPolicy:      DefaultRetryPolicy(),
+		id:                    id,
+		includeRawOutput:      includeRawOutput,
+		client:                client,
+		retryPolicy:           DefaultRetryPolicy(),
+		maxRequestPayloadSize: DefaultMaxPayloadSize,
 	}
 }
 
@@ -162,6 +178,17 @@ func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int) {
 	b.rateLimiter = rate.NewLimiter(rate.Limit(requestsPerSecond), burst)
 }
 
+// SetMaxPayloadSize configures the maximum allowed request payload size in bytes.
+// A zero or negative value disables payload size checking.
+func (b *BaseProvider) SetMaxPayloadSize(size int64) {
+	b.maxRequestPayloadSize = size
+}
+
+// MaxPayloadSize returns the current maximum request payload size in bytes.
+func (b *BaseProvider) MaxPayloadSize() int64 {
+	return b.maxRequestPayloadSize
+}
+
 // RateLimiter returns the current rate limiter, or nil if rate limiting is
 // not configured. This is useful for inspecting or sharing limiters.
 func (b *BaseProvider) RateLimiter() *rate.Limiter {
@@ -205,6 +232,26 @@ func SetErrorResponse(predictResp *PredictionResponse, respBody []byte, start ti
 	predictResp.Raw = respBody
 }
 
+// checkPayloadSize validates the request body against the configured maximum
+// payload size and logs a warning for payloads above the warning threshold.
+func (b *BaseProvider) checkPayloadSize(body []byte, providerName string) error {
+	payloadSize := int64(len(body))
+	if b.maxRequestPayloadSize > 0 && payloadSize > b.maxRequestPayloadSize {
+		return fmt.Errorf(
+			"%w: payload size %d bytes exceeds maximum %d bytes",
+			ErrPayloadTooLarge, payloadSize, b.maxRequestPayloadSize,
+		)
+	}
+	if payloadSize > payloadWarningThreshold {
+		logger.Warn("large request payload",
+			"provider", providerName,
+			"payload_bytes", payloadSize,
+			"payload_mb", fmt.Sprintf("%.1f", float64(payloadSize)/float64(bytesPerMB)),
+		)
+	}
+	return nil
+}
+
 // RequestHeaders is a map of HTTP header key-value pairs
 type RequestHeaders map[string]string
 
@@ -246,6 +293,11 @@ func (b *BaseProvider) MakeRawRequest(
 		}
 	}
 	logger.APIRequest(providerName, "POST", url, logHeaders, json.RawMessage(body))
+
+	// Validate payload size before sending the request.
+	if err := b.checkPayloadSize(body, providerName); err != nil {
+		return nil, err
+	}
 
 	// Wait for rate limiter before making the HTTP call
 	if waitErr := b.WaitForRateLimit(ctx); waitErr != nil {

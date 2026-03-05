@@ -29,6 +29,15 @@ const (
 	defaultMaxConnsPerHost     = 10
 	defaultIdleConnTimeout     = 90 * time.Second
 	defaultTLSHandshakeTimeout = 10 * time.Second
+
+	// sseClientTimeout is the HTTP client timeout for SSE streaming requests.
+	// SSE connections are long-lived, so the default 60s timeout is too short.
+	sseClientTimeout = 30 * time.Minute
+
+	// sseMaxTokenSize is the maximum token size for the SSE scanner (1MB).
+	// The default bufio.Scanner buffer of 64KB is too small for large artifacts
+	// such as base64-encoded images.
+	sseMaxTokenSize = 1 << 20
 )
 
 // RPCError represents a JSON-RPC error returned by an A2A agent.
@@ -68,6 +77,7 @@ func WithAuth(scheme, token string) ClientOption {
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	sseClient  *http.Client // separate client for long-lived SSE streams
 	authScheme string
 	authToken  string
 	reqID      int64
@@ -76,24 +86,40 @@ type Client struct {
 	agentCard *AgentCard
 }
 
+// newDefaultTransport creates an HTTP transport with connection pooling,
+// shared by both the regular and SSE HTTP clients.
+func newDefaultTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   defaultDialTimeout,
+			KeepAlive: defaultDialKeepAlive,
+		}).DialContext,
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
+		MaxIdleConns:        defaultMaxIdleConns,
+		MaxIdleConnsPerHost: defaultMaxIdleConnsPerHost,
+		MaxConnsPerHost:     defaultMaxConnsPerHost,
+		IdleConnTimeout:     defaultIdleConnTimeout,
+		TLSHandshakeTimeout: defaultTLSHandshakeTimeout,
+		ForceAttemptHTTP2:   true,
+	}
+}
+
 // newDefaultHTTPClient creates an HTTP client with connection pooling and a timeout,
-// used as the default for A2A communication when no custom client is provided.
+// used as the default for non-streaming A2A communication.
 func newDefaultHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: defaultClientTimeout,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   defaultDialTimeout,
-				KeepAlive: defaultDialKeepAlive,
-			}).DialContext,
-			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
-			MaxIdleConns:        defaultMaxIdleConns,
-			MaxIdleConnsPerHost: defaultMaxIdleConnsPerHost,
-			MaxConnsPerHost:     defaultMaxConnsPerHost,
-			IdleConnTimeout:     defaultIdleConnTimeout,
-			TLSHandshakeTimeout: defaultTLSHandshakeTimeout,
-			ForceAttemptHTTP2:   true,
-		},
+		Timeout:   defaultClientTimeout,
+		Transport: newDefaultTransport(),
+	}
+}
+
+// newDefaultSSEClient creates an HTTP client for long-lived SSE streaming
+// connections. It uses a longer timeout than the regular client because SSE
+// streams remain open for the duration of a task.
+func newDefaultSSEClient() *http.Client {
+	return &http.Client{
+		Timeout:   sseClientTimeout,
+		Transport: newDefaultTransport(),
 	}
 }
 
@@ -102,6 +128,7 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 	c := &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		httpClient: newDefaultHTTPClient(),
+		sseClient:  newDefaultSSEClient(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -256,7 +283,7 @@ func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageReque
 	c.setAuth(httpReq)
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(httpReq.Header))
 
-	resp, err := c.httpClient.Do(httpReq) //nolint:bodyclose // closed in goroutine below
+	resp, err := c.sseClient.Do(httpReq) //nolint:bodyclose // closed in goroutine below
 	if err != nil {
 		return nil, fmt.Errorf("a2a: stream: %w", err)
 	}
@@ -306,6 +333,7 @@ func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Ta
 // ReadSSE reads SSE events from r and sends parsed StreamEvents to ch.
 func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent) {
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, sseMaxTokenSize), sseMaxTokenSize)
 	var buf strings.Builder
 
 	for scanner.Scan() {

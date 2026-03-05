@@ -310,6 +310,8 @@ func appendStateStoreLoadStages(
 			RecentMessages:   cfg.ContextWindow,
 			MessageIndex:     cfg.MessageIndex,
 			RetrievalTopK:    cfg.RetrievalTopK,
+			HasTokenBudget:   cfg.TokenBudget > 0,
+			HasContextWindow: cfg.ContextWindow > 0,
 		}))
 	}
 	return append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
