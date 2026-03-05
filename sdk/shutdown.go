@@ -67,9 +67,17 @@ func (m *ShutdownManager) Deregister(id string) {
 	delete(m.convs, id)
 }
 
+// maxConcurrentClosures is the maximum number of conversations closed
+// concurrently during Shutdown. This bounds goroutine creation to avoid
+// resource exhaustion when thousands of conversations are tracked.
+const maxConcurrentClosures = 100
+
 // Shutdown closes all tracked conversations. It respects the context deadline,
 // returning a context error if the deadline is exceeded before all conversations
 // are closed. After Shutdown returns, new registrations are rejected.
+//
+// Concurrency is bounded by [maxConcurrentClosures] to avoid spawning an
+// unbounded number of goroutines.
 //
 // Errors from individual Close calls are collected and returned as a combined
 // error using [errors.Join].
@@ -94,8 +102,13 @@ func (m *ShutdownManager) Shutdown(ctx context.Context) error {
 	}
 
 	results := make(chan result, len(snapshot))
+
+	// Use a semaphore to bound concurrent Close calls.
+	sem := make(chan struct{}, maxConcurrentClosures)
 	for id, conv := range snapshot {
 		go func(id string, conv io.Closer) {
+			sem <- struct{}{}        // acquire
+			defer func() { <-sem }() // release
 			results <- result{id: id, err: conv.Close()}
 		}(id, conv)
 	}
