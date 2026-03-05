@@ -655,18 +655,29 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 		{EvalID: "e2", Type: "regex", Passed: false},
 	})
 
-	// Check we got 2 events
-	e1 := <-received
-	e2 := <-received
+	// Check we got 2 events (order is non-deterministic).
+	ev1 := <-received
+	ev2 := <-received
 
-	if e1.Type != events.EventEvalCompleted {
-		t.Errorf("expected eval.completed, got %s", e1.Type)
-	}
-	if e2.Type != events.EventEvalFailed {
-		t.Errorf("expected eval.failed, got %s", e2.Type)
+	got := []*events.Event{ev1, ev2}
+	var completed, failed *events.Event
+	for _, e := range got {
+		switch e.Type {
+		case events.EventEvalCompleted:
+			completed = e
+		case events.EventEvalFailed:
+			failed = e
+		}
 	}
 
-	data1, ok := e1.Data.(*events.EvalCompletedData)
+	if completed == nil {
+		t.Fatal("expected an eval.completed event")
+	}
+	if failed == nil {
+		t.Fatal("expected an eval.failed event")
+	}
+
+	data1, ok := completed.Data.(*events.EvalCompletedData)
 	if !ok {
 		t.Fatal("expected *EvalCompletedData")
 	}
