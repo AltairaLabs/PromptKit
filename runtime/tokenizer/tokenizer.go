@@ -4,7 +4,9 @@
 // fit within model limits. This package provides:
 //   - TokenCounter interface for pluggable implementations
 //   - HeuristicTokenCounter with model-aware word-to-token ratios
+//   - MessageTokenCounter for counting tokens across multimodal messages
 //   - Support for different model families (GPT, Claude, Gemini, etc.)
+//   - Content-aware ratio adjustment (code, CJK text, mixed content)
 //
 // The heuristic approach is suitable for context truncation decisions where
 // approximate counts are sufficient. For exact token counts (billing, etc.),
@@ -14,6 +16,9 @@ package tokenizer
 import (
 	"strings"
 	"sync"
+	"unicode"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // TokenCounter provides token counting functionality.
@@ -170,4 +175,207 @@ func GetModelFamily(modelName string) ModelFamily {
 // NewTokenCounterForModel creates a token counter appropriate for the given model.
 func NewTokenCounterForModel(modelName string) TokenCounter {
 	return NewHeuristicTokenCounter(GetModelFamily(modelName))
+}
+
+// Content type ratio adjustments for more accurate token counting.
+// These are multiplied with the base model ratio.
+const (
+	// codeRatioMultiplier adjusts for code-heavy content.
+	// Code typically produces more tokens due to operators, punctuation,
+	// and short identifiers that each consume a token.
+	codeRatioMultiplier = 1.55
+
+	// cjkRatioMultiplier adjusts for CJK (Chinese, Japanese, Korean) text.
+	// CJK characters are typically split into multiple tokens by
+	// byte-pair encoding tokenizers.
+	cjkRatioMultiplier = 1.15
+
+	// cjkCharThreshold is the fraction of CJK characters needed to apply the
+	// CJK adjustment.
+	cjkCharThreshold = 0.3
+
+	// codeCharThreshold is the fraction of code-like characters needed to
+	// apply the code adjustment.
+	codeCharThreshold = 0.15
+
+	// imageTokensLowDetail is the estimated token count for a low-detail image.
+	// Based on provider documentation: ~85 tokens for thumbnail/low-res.
+	imageTokensLowDetail = 85
+
+	// imageTokensHighDetail is the estimated token count for a high-detail image.
+	// Based on provider documentation: ~170K tokens for full-resolution.
+	imageTokensHighDetail = 170000
+
+	// imageTokensAutoDetail is the estimated token count for auto-detail images.
+	// Uses a middle-ground estimate since actual detail is chosen by the provider.
+	imageTokensAutoDetail = 1024
+
+	// perMessageOverhead accounts for per-message formatting tokens added by
+	// providers (role markers, separators, etc.).
+	perMessageOverhead = 4
+)
+
+// DetectContentType analyzes text content and returns an adjusted token ratio
+// multiplier based on content characteristics (code, CJK text, etc.).
+func DetectContentType(text string) float64 {
+	if text == "" {
+		return 1.0
+	}
+
+	var cjkCount, codeCount, totalCount int
+	for _, r := range text {
+		totalCount++
+		if isCJK(r) {
+			cjkCount++
+		}
+		if isCodeChar(r) {
+			codeCount++
+		}
+	}
+
+	if totalCount == 0 {
+		return 1.0
+	}
+
+	cjkFraction := float64(cjkCount) / float64(totalCount)
+	codeFraction := float64(codeCount) / float64(totalCount)
+
+	// Apply the highest applicable multiplier
+	if codeFraction > codeCharThreshold {
+		return codeRatioMultiplier
+	}
+	if cjkFraction > cjkCharThreshold {
+		return cjkRatioMultiplier
+	}
+
+	return 1.0
+}
+
+// isCJK returns true if the rune is a CJK Unified Ideograph or common
+// Japanese/Korean script character.
+func isCJK(r rune) bool {
+	return unicode.In(r,
+		unicode.Han,      // CJK Unified Ideographs
+		unicode.Hiragana, // Japanese
+		unicode.Katakana, // Japanese
+		unicode.Hangul,   // Korean
+	)
+}
+
+// isCodeChar returns true if the rune is common in source code but uncommon
+// in natural language prose.
+func isCodeChar(r rune) bool {
+	switch r {
+	case '{', '}', '(', ')', '[', ']', ';', '=', '<', '>', '|',
+		'&', '!', '~', '^', '%', '#', '@', '\\', '`':
+		return true
+	default:
+		return false
+	}
+}
+
+// CountTokensContentAware estimates token count with content-type awareness.
+// It adjusts the base ratio based on whether the text appears to be code,
+// CJK text, or regular prose.
+func (h *HeuristicTokenCounter) CountTokensContentAware(text string) int {
+	if text == "" {
+		return 0
+	}
+	h.mu.RLock()
+	ratio := h.ratio
+	h.mu.RUnlock()
+
+	multiplier := DetectContentType(text)
+	words := strings.Fields(text)
+	return int(float64(len(words)) * ratio * multiplier)
+}
+
+// CountMessageTokens estimates the total token count for a slice of messages.
+// It handles multimodal content by estimating image tokens based on detail
+// level and counting text tokens with content-aware heuristics.
+func (h *HeuristicTokenCounter) CountMessageTokens(messages []types.Message) int {
+	total := 0
+	for i := range messages {
+		total += h.countSingleMessage(&messages[i])
+	}
+	return total
+}
+
+// countSingleMessage estimates the token count for a single message.
+func (h *HeuristicTokenCounter) countSingleMessage(msg *types.Message) int {
+	tokens := perMessageOverhead // role markers, separators
+
+	// Handle multimodal parts
+	if len(msg.Parts) > 0 {
+		for i := range msg.Parts {
+			tokens += h.countContentPart(&msg.Parts[i])
+		}
+		return tokens
+	}
+
+	// Text-only message
+	content := msg.GetContent()
+	if content != "" {
+		tokens += h.CountTokensContentAware(content)
+	}
+
+	// Tool call arguments contribute tokens
+	for _, tc := range msg.ToolCalls {
+		tokens += h.CountTokensContentAware(tc.Name)
+		if len(tc.Args) > 0 {
+			tokens += h.CountTokensContentAware(string(tc.Args))
+		}
+	}
+
+	return tokens
+}
+
+// countContentPart estimates token count for a single content part.
+func (h *HeuristicTokenCounter) countContentPart(part *types.ContentPart) int {
+	switch part.Type {
+	case types.ContentTypeText:
+		if part.Text != nil {
+			return h.CountTokensContentAware(*part.Text)
+		}
+		return 0
+
+	case types.ContentTypeImage:
+		return estimateImageTokens(part.Media)
+
+	default:
+		// Audio, video, document — use a conservative estimate
+		// based on any caption text present.
+		if part.Media != nil && part.Media.Caption != nil {
+			return h.CountTokensContentAware(*part.Media.Caption)
+		}
+		return 0
+	}
+}
+
+// estimateImageTokens returns an estimated token count for an image based
+// on its detail level, following provider documentation guidelines.
+func estimateImageTokens(media *types.MediaContent) int {
+	if media == nil {
+		return imageTokensAutoDetail
+	}
+
+	detail := "auto"
+	if media.Detail != nil {
+		detail = *media.Detail
+	}
+
+	switch detail {
+	case "low":
+		return imageTokensLowDetail
+	case "high":
+		return imageTokensHighDetail
+	default:
+		return imageTokensAutoDetail
+	}
+}
+
+// CountMessageTokensDefault is a convenience function that counts message
+// tokens using the default token counter.
+func CountMessageTokensDefault(messages []types.Message) int {
+	return DefaultTokenCounter.CountMessageTokens(messages)
 }

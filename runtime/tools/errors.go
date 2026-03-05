@@ -33,6 +33,9 @@ var (
 
 	// ErrMCPExecutorOnly is returned when a non-mcp tool is passed to an MCP executor.
 	ErrMCPExecutorOnly = errors.New("MCP executor can only execute mcp tools")
+
+	// ErrToolTimeout is returned when a tool execution exceeds its configured timeout.
+	ErrToolTimeout = errors.New("tool execution timed out")
 )
 
 // PendingToolExecution captures a single tool call that returned ToolStatusPending.

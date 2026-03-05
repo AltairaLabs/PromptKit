@@ -60,8 +60,8 @@ func TestE2E_EvalMiddleware_DispatchesTurnEvalsAndEmitsEvents(t *testing.T) {
 
 	// Simulate turn dispatch
 	mw.dispatchTurnEvals(context.Background())
+	mw.wait() // ensure goroutine completes
 
-	// Wait for async dispatch + event emission
 	select {
 	case evt := <-received:
 		data, ok := evt.Data.(*events.EvalCompletedData)

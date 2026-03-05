@@ -2,7 +2,9 @@ package sdk
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -83,6 +85,8 @@ func TestEvalMiddleware_NilMiddlewareSafeNoOp(t *testing.T) {
 	var mw *evalMiddleware
 	mw.dispatchTurnEvals(context.Background())
 	mw.dispatchSessionEvals(context.Background())
+	mw.wait()
+	mw.close()
 }
 
 func TestEvalMiddleware_ResolvesPackAndPromptEvals(t *testing.T) {
@@ -240,6 +244,7 @@ func TestEvalMiddleware_DispatchTurnEvalsDoesNotPanic(t *testing.T) {
 
 	// Should not panic — runs async, handler may not be found but that's ok
 	mw.dispatchTurnEvals(context.Background())
+	mw.wait() // ensure goroutine completes before test exits
 }
 
 func TestEvalMiddleware_DispatchSessionEvalsDoesNotPanic(t *testing.T) {
@@ -280,6 +285,186 @@ func TestEvalMiddleware_EmitResults_NilEmitter(t *testing.T) {
 
 	// Should not panic with nil emitter
 	mw.emitResults([]evals.EvalResult{{EvalID: "e1", Passed: true}})
+}
+
+func TestEvalMiddleware_WaitBlocksUntilGoroutinesComplete(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	started := make(chan struct{})
+	registry.Register(&blockingEvalHandler{
+		typeName: "blocking",
+		started:  started,
+		result:   &evals.EvalResult{Passed: true},
+	})
+	runner := evals.NewEvalRunner(registry)
+
+	conv := &Conversation{
+		config: &config{evalRunner: runner},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "blocking", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	mw.dispatchTurnEvals(context.Background())
+
+	// Wait for the goroutine to start
+	<-started
+
+	// wait() should block until the goroutine completes
+	done := make(chan struct{})
+	go func() {
+		mw.wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// wait() returned — goroutine completed
+	case <-time.After(2 * time.Second):
+		t.Fatal("wait() did not return in time")
+	}
+}
+
+func TestEvalMiddleware_CloseStopsInFlightEvals(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	started := make(chan struct{})
+	registry.Register(&cancellableEvalHandler{
+		typeName: "cancellable",
+		started:  started,
+	})
+	runner := evals.NewEvalRunner(registry)
+
+	conv := &Conversation{
+		config: &config{evalRunner: runner},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "cancellable", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	mw.dispatchTurnEvals(context.Background())
+
+	// Wait for the goroutine to start
+	<-started
+
+	// close() cancels context and waits for goroutines
+	done := make(chan struct{})
+	go func() {
+		mw.close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// close() returned — goroutine was cancelled and completed
+	case <-time.After(2 * time.Second):
+		t.Fatal("close() did not return in time")
+	}
+}
+
+func TestEvalMiddleware_MultipleDispatchesAllTracked(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	var count int32
+	var mu sync.Mutex
+	registry.Register(&countingEvalHandler{
+		typeName: "counting",
+		count:    &count,
+		mu:       &mu,
+	})
+	runner := evals.NewEvalRunner(registry)
+
+	conv := &Conversation{
+		config: &config{evalRunner: runner},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "counting", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	// Dispatch 5 turns
+	for range 5 {
+		mw.dispatchTurnEvals(context.Background())
+	}
+
+	// wait() should ensure all 5 goroutines complete
+	mw.wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if count != 5 {
+		t.Errorf("expected 5 eval runs, got %d", count)
+	}
+}
+
+// blockingEvalHandler signals when started and completes quickly.
+type blockingEvalHandler struct {
+	typeName string
+	started  chan struct{}
+	result   *evals.EvalResult
+}
+
+func (h *blockingEvalHandler) Type() string { return h.typeName }
+
+func (h *blockingEvalHandler) Eval(
+	_ context.Context, _ *evals.EvalContext, _ map[string]any,
+) (*evals.EvalResult, error) {
+	close(h.started)
+	return h.result, nil
+}
+
+// cancellableEvalHandler blocks until the context is cancelled.
+type cancellableEvalHandler struct {
+	typeName string
+	started  chan struct{}
+}
+
+func (h *cancellableEvalHandler) Type() string { return h.typeName }
+
+func (h *cancellableEvalHandler) Eval(
+	ctx context.Context, _ *evals.EvalContext, _ map[string]any,
+) (*evals.EvalResult, error) {
+	close(h.started)
+	<-ctx.Done()
+	return &evals.EvalResult{Passed: false, Error: "cancelled"}, nil
+}
+
+// countingEvalHandler increments a counter on each eval call.
+type countingEvalHandler struct {
+	typeName string
+	count    *int32
+	mu       *sync.Mutex
+}
+
+func (h *countingEvalHandler) Type() string { return h.typeName }
+
+func (h *countingEvalHandler) Eval(
+	_ context.Context, _ *evals.EvalContext, _ map[string]any,
+) (*evals.EvalResult, error) {
+	h.mu.Lock()
+	*h.count++
+	h.mu.Unlock()
+	return &evals.EvalResult{Passed: true}, nil
 }
 
 func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {

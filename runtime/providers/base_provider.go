@@ -12,8 +12,11 @@ import (
 	"os"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/AltairaLabs/PromptKit/pkg/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 )
 
 // Connection pooling defaults for HTTP transports shared across providers.
@@ -51,6 +54,8 @@ type BaseProvider struct {
 	id               string
 	includeRawOutput bool
 	client           *http.Client
+	rateLimiter      *rate.Limiter
+	retryPolicy      pipeline.RetryPolicy
 }
 
 // NewBaseProvider creates a new BaseProvider with common fields
@@ -59,7 +64,18 @@ func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) Base
 		id:               id,
 		includeRawOutput: includeRawOutput,
 		client:           client,
+		retryPolicy:      DefaultRetryPolicy(),
 	}
+}
+
+// SetRetryPolicy configures the retry policy for this provider.
+func (b *BaseProvider) SetRetryPolicy(policy pipeline.RetryPolicy) {
+	b.retryPolicy = policy
+}
+
+// GetRetryPolicy returns the current retry policy.
+func (b *BaseProvider) GetRetryPolicy() pipeline.RetryPolicy {
+	return b.retryPolicy
 }
 
 // NewBaseProviderWithAPIKey creates a BaseProvider and retrieves API key from environment
@@ -134,6 +150,35 @@ func (b *BaseProvider) GetHTTPClient() *http.Client {
 	return b.client
 }
 
+// SetRateLimit configures per-provider rate limiting. requestsPerSecond controls
+// the sustained rate, and burst controls how many requests can be made
+// simultaneously before throttling kicks in. A zero or negative
+// requestsPerSecond disables rate limiting (the default).
+func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int) {
+	if requestsPerSecond <= 0 {
+		b.rateLimiter = nil
+		return
+	}
+	b.rateLimiter = rate.NewLimiter(rate.Limit(requestsPerSecond), burst)
+}
+
+// RateLimiter returns the current rate limiter, or nil if rate limiting is
+// not configured. This is useful for inspecting or sharing limiters.
+func (b *BaseProvider) RateLimiter() *rate.Limiter {
+	return b.rateLimiter
+}
+
+// WaitForRateLimit blocks until the rate limiter allows the request to
+// proceed, or until the context is canceled. If no rate limiter is
+// configured, it returns immediately. Providers should call this before
+// making HTTP requests to respect rate limits.
+func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error {
+	if b.rateLimiter == nil {
+		return nil
+	}
+	return b.rateLimiter.Wait(ctx)
+}
+
 // CheckHTTPError checks if HTTP response is an error and returns formatted error with body
 func CheckHTTPError(resp *http.Response, url string) error {
 	if resp.StatusCode != http.StatusOK {
@@ -182,7 +227,8 @@ func (b *BaseProvider) MakeJSONRequest(
 }
 
 // MakeRawRequest performs an HTTP POST request with pre-marshaled body.
-// Use this when you need to control the serialization yourself.
+// It automatically retries on transient errors (429, 502, 503, 504 and
+// network errors) according to the provider's RetryPolicy.
 func (b *BaseProvider) MakeRawRequest(
 	ctx context.Context,
 	url string,
@@ -190,17 +236,7 @@ func (b *BaseProvider) MakeRawRequest(
 	headers RequestHeaders,
 	providerName string,
 ) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set all headers
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	// Log the request (mask sensitive headers for logging)
+	// Log the request once (mask sensitive headers for logging).
 	logHeaders := make(map[string]string)
 	for k, v := range headers {
 		if k == "Authorization" || k == "x-api-key" {
@@ -211,7 +247,25 @@ func (b *BaseProvider) MakeRawRequest(
 	}
 	logger.APIRequest(providerName, "POST", url, logHeaders, json.RawMessage(body))
 
-	resp, err := b.client.Do(req)
+	// Wait for rate limiter before making the HTTP call
+	if waitErr := b.WaitForRateLimit(ctx); waitErr != nil {
+		return nil, fmt.Errorf("rate limit wait: %w", waitErr)
+	}
+
+	doFn := func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(
+			ctx, "POST", url, bytes.NewReader(body),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
+		return b.client.Do(req)
+	}
+
+	resp, err := DoWithRetry(ctx, b.retryPolicy, providerName, doFn)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -222,10 +276,15 @@ func (b *BaseProvider) MakeRawRequest(
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	logger.APIResponse(providerName, resp.StatusCode, string(respBytes), nil)
+	logger.APIResponse(
+		providerName, resp.StatusCode, string(respBytes), nil,
+	)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf(
+			"API error (status %d): %s",
+			resp.StatusCode, string(respBytes),
+		)
 	}
 
 	return respBytes, nil

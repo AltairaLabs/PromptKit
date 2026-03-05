@@ -13,10 +13,11 @@ import (
 
 // ToolPolicy defines constraints on tool usage.
 type ToolPolicy struct {
-	ToolChoice          string   `json:"tool_choice,omitempty"` // "auto", "required", "none", or specific tool name
-	MaxRounds           int      `json:"max_rounds,omitempty"`
-	MaxToolCallsPerTurn int      `json:"max_tool_calls_per_turn,omitempty"`
-	Blocklist           []string `json:"blocklist,omitempty"`
+	ToolChoice           string   `json:"tool_choice,omitempty"` // "auto", "required", "none", or specific tool name
+	MaxRounds            int      `json:"max_rounds,omitempty"`
+	MaxToolCallsPerTurn  int      `json:"max_tool_calls_per_turn,omitempty"`
+	MaxParallelToolCalls int      `json:"max_parallel_tool_calls,omitempty"` // Max concurrent tool executions (default 10)
+	Blocklist            []string `json:"blocklist,omitempty"`
 }
 
 // PipelineConfig represents the complete pipeline configuration for pack format

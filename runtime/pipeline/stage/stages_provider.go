@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
@@ -17,7 +20,8 @@ import (
 )
 
 const (
-	defaultMaxRounds = 10
+	defaultMaxRounds            = 10
+	defaultMaxParallelToolCalls = 10
 )
 
 // ProviderStage implementation notes:
@@ -763,6 +767,22 @@ func (s *ProviderStage) emitChunkElement(
 	}
 }
 
+// toolCallResult holds the outcome of a single tool call execution,
+// including its original index for preserving result ordering.
+type toolCallResult struct {
+	index   int
+	message types.Message
+	pending *tools.PendingToolExecution // non-nil if tool returned pending status
+}
+
+// getMaxParallelToolCalls returns the max concurrency for parallel tool execution.
+func (s *ProviderStage) getMaxParallelToolCalls() int {
+	if s.toolPolicy != nil && s.toolPolicy.MaxParallelToolCalls > 0 {
+		return s.toolPolicy.MaxParallelToolCalls
+	}
+	return defaultMaxParallelToolCalls
+}
+
 func (s *ProviderStage) executeToolCalls(
 	ctx context.Context, toolCalls []types.MessageToolCall,
 ) ([]types.Message, error) {
@@ -770,121 +790,42 @@ func (s *ProviderStage) executeToolCalls(
 		return nil, errors.New("tool registry not configured but tool calls present")
 	}
 
-	results := make([]types.Message, 0, len(toolCalls))
+	resultSlots := make([]toolCallResult, len(toolCalls))
+	var mu sync.Mutex
 	var pendingTools []tools.PendingToolExecution
 
-	for _, toolCall := range toolCalls {
-		// Check if tool is blocked by policy
-		if s.toolPolicy != nil && isToolBlocked(toolCall.Name, s.toolPolicy.Blocklist) {
-			errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
-			results = append(results, types.NewToolResultMessage(types.MessageToolResult{
-				ID:      toolCall.ID,
-				Name:    toolCall.Name,
-				Content: errMsg,
-				Error:   errMsg,
-			}))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(s.getMaxParallelToolCalls())
+
+	for i, tc := range toolCalls {
+		idx := i
+		toolCall := tc
+
+		g.Go(func() error {
+			result := s.executeSingleToolCall(gctx, toolCall)
+			mu.Lock()
+			defer mu.Unlock()
+			result.index = idx
+			resultSlots[idx] = result
+			if result.pending != nil {
+				pendingTools = append(pendingTools, *result.pending)
+			}
+			return nil
+		})
+	}
+
+	// errgroup goroutines always return nil, so this only errors on ctx cancel.
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Collect results in original order, excluding pending entries.
+	results := make([]types.Message, 0, len(toolCalls))
+	for i := range resultSlots {
+		if resultSlots[i].pending != nil {
 			continue
 		}
-
-		// Run BeforeExecution tool hooks
-		var hookDecision hooks.Decision
-		if s.hookRegistry != nil {
-			toolReq := hooks.ToolRequest{
-				Name:   toolCall.Name,
-				Args:   toolCall.Args,
-				CallID: toolCall.ID,
-			}
-			hookDecision = s.hookRegistry.RunBeforeToolExecution(ctx, toolReq)
-			if !hookDecision.Allow {
-				errMsg := fmt.Sprintf("Tool %s blocked by hook: %s", toolCall.Name, hookDecision.Reason)
-				msg := types.NewToolResultMessage(types.MessageToolResult{
-					ID:      toolCall.ID,
-					Name:    toolCall.Name,
-					Content: errMsg,
-					Error:   errMsg,
-				})
-				if hookDecision.Metadata != nil {
-					msg.Meta = hookDecision.Metadata
-				}
-				results = append(results, msg)
-				continue
-			}
-		}
-
-		// Emit tool call started event
-		if s.emitter != nil {
-			var argsMap map[string]interface{}
-			if toolCall.Args != nil {
-				_ = json.Unmarshal(toolCall.Args, &argsMap)
-			}
-			s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap)
-		}
-
-		// Execute tool via registry (handles both sync and async tools)
-		startTime := time.Now()
-		asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
-		if err != nil {
-			// Emit tool call failed event
-			if s.emitter != nil {
-				s.emitter.ToolCallFailed(toolCall.Name, toolCall.ID, err, time.Since(startTime))
-			}
-			// Tool not found or execution setup failed
-			results = append(results, types.NewToolResultMessage(types.MessageToolResult{
-				ID:      toolCall.ID,
-				Name:    toolCall.Name,
-				Content: fmt.Sprintf("Error: %v", err),
-				Error:   err.Error(),
-			}))
-			continue
-		}
-
-		// Check for pending status — collect for pipeline suspension
-		if asyncResult.Status == tools.ToolStatusPending {
-			var argsMap map[string]any
-			if toolCall.Args != nil {
-				_ = json.Unmarshal(toolCall.Args, &argsMap)
-			}
-			toolResult := s.handleToolResult(toolCall, asyncResult)
-			pendingTools = append(pendingTools, tools.PendingToolExecution{
-				CallID:      toolCall.ID,
-				ToolName:    toolCall.Name,
-				Args:        argsMap,
-				PendingInfo: asyncResult.PendingInfo,
-				ToolResult:  toolResult,
-			})
-			continue
-		}
-
-		// Convert tool execution result to message
-		result := s.handleToolResult(toolCall, asyncResult)
-
-		// Emit tool call completed event
-		if s.emitter != nil {
-			status := string(asyncResult.Status)
-			s.emitter.ToolCallCompleted(toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Content)
-		}
-		resultMsg := types.NewToolResultMessage(result)
-		if hookDecision.Metadata != nil {
-			resultMsg.Meta = hookDecision.Metadata
-		}
-		results = append(results, resultMsg)
-
-		// Run AfterExecution tool hooks
-		if s.hookRegistry != nil {
-			toolReq := hooks.ToolRequest{
-				Name:   toolCall.Name,
-				Args:   toolCall.Args,
-				CallID: toolCall.ID,
-			}
-			toolResp := hooks.ToolResponse{
-				Name:      toolCall.Name,
-				CallID:    toolCall.ID,
-				Content:   result.Content,
-				Error:     result.Error,
-				LatencyMs: time.Since(startTime).Milliseconds(),
-			}
-			s.hookRegistry.RunAfterToolExecution(ctx, toolReq, toolResp)
-		}
+		results = append(results, resultSlots[i].message)
 	}
 
 	if len(pendingTools) > 0 {
@@ -892,6 +833,152 @@ func (s *ProviderStage) executeToolCalls(
 	}
 
 	return results, nil
+}
+
+// preExecCheck runs policy and hook checks before tool execution.
+// Returns (hookDecision, blocked result, shouldSkip).
+// When shouldSkip is true the caller should return the blocked result directly.
+func (s *ProviderStage) preExecCheck(
+	ctx context.Context, toolCall types.MessageToolCall,
+) (hooks.Decision, toolCallResult, bool) {
+	if s.toolPolicy != nil && isToolBlocked(toolCall.Name, s.toolPolicy.Blocklist) {
+		errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
+		return hooks.Decision{}, toolCallResult{
+			message: types.NewToolResultMessage(types.MessageToolResult{
+				ID: toolCall.ID, Name: toolCall.Name, Content: errMsg, Error: errMsg,
+			}),
+		}, true
+	}
+
+	var hookDecision hooks.Decision
+	if s.hookRegistry != nil {
+		toolReq := hooks.ToolRequest{
+			Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
+		}
+		hookDecision = s.hookRegistry.RunBeforeToolExecution(ctx, toolReq)
+		if !hookDecision.Allow {
+			errMsg := fmt.Sprintf(
+				"Tool %s blocked by hook: %s", toolCall.Name, hookDecision.Reason,
+			)
+			msg := types.NewToolResultMessage(types.MessageToolResult{
+				ID: toolCall.ID, Name: toolCall.Name, Content: errMsg, Error: errMsg,
+			})
+			if hookDecision.Metadata != nil {
+				msg.Meta = hookDecision.Metadata
+			}
+			return hookDecision, toolCallResult{message: msg}, true
+		}
+	}
+	return hookDecision, toolCallResult{}, false
+}
+
+// executeSingleToolCall handles policy checks, hooks, execution, and event
+// emission for a single tool call. It never returns an error — failures are
+// captured as error results in the returned message, matching the previous
+// sequential behavior where one tool failure does not cancel others.
+func (s *ProviderStage) executeSingleToolCall(
+	ctx context.Context,
+	toolCall types.MessageToolCall,
+) toolCallResult {
+	hookDecision, blocked, skip := s.preExecCheck(ctx, toolCall)
+	if skip {
+		return blocked
+	}
+
+	s.emitToolStarted(toolCall)
+
+	startTime := time.Now()
+	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
+	if err != nil {
+		if s.emitter != nil {
+			s.emitter.ToolCallFailed(
+				toolCall.Name, toolCall.ID, err, time.Since(startTime),
+			)
+		}
+		return toolCallResult{
+			message: types.NewToolResultMessage(types.MessageToolResult{
+				ID:      toolCall.ID,
+				Name:    toolCall.Name,
+				Content: fmt.Sprintf("Error: %v", err),
+				Error:   err.Error(),
+			}),
+		}
+	}
+
+	if asyncResult.Status == tools.ToolStatusPending {
+		return s.buildPendingResult(toolCall, asyncResult)
+	}
+
+	result := s.handleToolResult(toolCall, asyncResult)
+	if s.emitter != nil {
+		status := string(asyncResult.Status)
+		s.emitter.ToolCallCompleted(
+			toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Content,
+		)
+	}
+	resultMsg := types.NewToolResultMessage(result)
+	if hookDecision.Metadata != nil {
+		resultMsg.Meta = hookDecision.Metadata
+	}
+
+	s.runAfterToolHooks(ctx, toolCall, result, startTime)
+
+	return toolCallResult{message: resultMsg}
+}
+
+// emitToolStarted emits the tool call started event if an emitter is configured.
+func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall) {
+	if s.emitter == nil {
+		return
+	}
+	var argsMap map[string]interface{}
+	if toolCall.Args != nil {
+		_ = json.Unmarshal(toolCall.Args, &argsMap)
+	}
+	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap)
+}
+
+// buildPendingResult creates a toolCallResult for a pending tool execution.
+func (s *ProviderStage) buildPendingResult(
+	toolCall types.MessageToolCall, asyncResult *tools.ToolExecutionResult,
+) toolCallResult {
+	var argsMap map[string]any
+	if toolCall.Args != nil {
+		_ = json.Unmarshal(toolCall.Args, &argsMap)
+	}
+	toolResult := s.handleToolResult(toolCall, asyncResult)
+	return toolCallResult{
+		pending: &tools.PendingToolExecution{
+			CallID:      toolCall.ID,
+			ToolName:    toolCall.Name,
+			Args:        argsMap,
+			PendingInfo: asyncResult.PendingInfo,
+			ToolResult:  toolResult,
+		},
+	}
+}
+
+// runAfterToolHooks runs AfterExecution hooks if a hook registry is configured.
+func (s *ProviderStage) runAfterToolHooks(
+	ctx context.Context,
+	toolCall types.MessageToolCall,
+	result types.MessageToolResult,
+	startTime time.Time,
+) {
+	if s.hookRegistry == nil {
+		return
+	}
+	toolReq := hooks.ToolRequest{
+		Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
+	}
+	toolResp := hooks.ToolResponse{
+		Name:      toolCall.Name,
+		CallID:    toolCall.ID,
+		Content:   result.Content,
+		Error:     result.Error,
+		LatencyMs: time.Since(startTime).Milliseconds(),
+	}
+	s.hookRegistry.RunAfterToolExecution(ctx, toolReq, toolResp)
 }
 
 // handleToolResult converts tool execution result to MessageToolResult

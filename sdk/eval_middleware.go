@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -15,6 +16,11 @@ type evalMiddleware struct {
 	emitter   *events.Emitter // nil-safe (bus may not be configured)
 	conv      *Conversation
 	turnIndex int
+
+	// Goroutine lifecycle management for async turn evals.
+	wg     sync.WaitGroup     // tracks in-flight turn eval goroutines
+	ctx    context.Context    // canceled on close to stop in-flight evals
+	cancel context.CancelFunc // cancels ctx
 }
 
 // newEvalMiddleware creates eval middleware for a conversation.
@@ -64,16 +70,21 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 
 	logger.Info("evals: middleware created", "defs", len(defs))
 
+	ctx, cancel := context.WithCancel(context.Background())
 	return &evalMiddleware{
 		runner:  runner,
 		defs:    defs,
 		emitter: emitter,
 		conv:    conv,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
 // dispatchTurnEvals dispatches turn-level evals asynchronously.
 // Nil-safe: no-op if middleware is nil.
+// The goroutine is tracked via a WaitGroup and respects the middleware's
+// cancellation context so that close() can drain in-flight work.
 func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	if em == nil {
 		return
@@ -82,9 +93,13 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	em.turnIndex++
 	evalCtx := em.buildEvalContext(ctx)
 
-	// Dispatch async — don't block Send()
+	// Use the middleware's lifecycle context so that close() can cancel
+	// in-flight evals. The middleware context is derived from
+	// context.Background() so it outlives any single Send() call.
+	em.wg.Add(1)
 	go func() {
-		results := em.runner.RunTurnEvals(ctx, em.defs, evalCtx)
+		defer em.wg.Done()
+		results := em.runner.RunTurnEvals(em.ctx, em.defs, evalCtx)
 		em.emitResults(results)
 	}()
 }
@@ -100,6 +115,27 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 	evalCtx := em.buildEvalContext(ctx)
 	results := em.runner.RunSessionEvals(ctx, em.defs, evalCtx)
 	em.emitResults(results)
+}
+
+// wait blocks until all in-flight turn eval goroutines have completed.
+// Nil-safe: no-op if middleware is nil.
+func (em *evalMiddleware) wait() {
+	if em == nil {
+		return
+	}
+	em.wg.Wait()
+}
+
+// close cancels the middleware's context and waits for all in-flight turn
+// eval goroutines to finish. It should be called during conversation Close()
+// to prevent goroutine leaks.
+// Nil-safe: no-op if middleware is nil.
+func (em *evalMiddleware) close() {
+	if em == nil {
+		return
+	}
+	em.cancel()
+	em.wg.Wait()
 }
 
 // emitResults emits eval results as events on the event bus.

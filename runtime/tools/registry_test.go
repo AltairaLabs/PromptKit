@@ -470,8 +470,8 @@ func TestDefaultTimeout(t *testing.T) {
 	}
 
 	tool := registry.Get("timeout_tool")
-	if tool.TimeoutMs != 3000 {
-		t.Errorf("Expected default timeout 3000ms, got %d", tool.TimeoutMs)
+	if tool.TimeoutMs != tools.DefaultToolTimeout {
+		t.Errorf("Expected default timeout %dms, got %d", tools.DefaultToolTimeout, tool.TimeoutMs)
 	}
 }
 
