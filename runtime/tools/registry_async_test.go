@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -180,6 +181,23 @@ func TestRegistry_ExecuteAsync_FallbackToSync(t *testing.T) {
 	assert.Nil(t, result.PendingInfo)
 }
 
+// mockMultimodalErrorExecutor implements MultimodalExecutor that always errors.
+type mockMultimodalErrorExecutor struct{}
+
+func (m *mockMultimodalErrorExecutor) Name() string { return "mock-multimodal-error" }
+
+func (m *mockMultimodalErrorExecutor) Execute(
+	_ context.Context, _ *ToolDescriptor, _ json.RawMessage,
+) (json.RawMessage, error) {
+	return nil, fmt.Errorf("multimodal exec failed")
+}
+
+func (m *mockMultimodalErrorExecutor) ExecuteMultimodal(
+	_ context.Context, _ *ToolDescriptor, _ json.RawMessage,
+) (json.RawMessage, []types.ContentPart, error) {
+	return nil, nil, fmt.Errorf("multimodal exec failed")
+}
+
 // mockMultimodalExecutor implements MultimodalExecutor for testing.
 type mockMultimodalExecutor struct {
 	parts []types.ContentPart
@@ -234,6 +252,65 @@ func TestRegistry_ExecuteAsync_MultimodalExecutor(t *testing.T) {
 	require.Len(t, result.Parts, 2)
 	assert.Equal(t, types.ContentTypeText, result.Parts[0].Type)
 	assert.Equal(t, types.ContentTypeImage, result.Parts[1].Type)
+}
+
+func TestRegistry_ExecuteAsync_MultimodalExecutor_Error(t *testing.T) {
+	registry := NewRegistry()
+
+	mmExec := &mockMultimodalErrorExecutor{}
+	registry.executors["http"] = mmExec
+
+	tool := &ToolDescriptor{
+		Name:         "test_mm_error_tool",
+		Description:  "Test multimodal error tool",
+		InputSchema:  json.RawMessage(`{"type": "object", "properties": {"name": {"type": "string"}}}`),
+		OutputSchema: json.RawMessage(`{"type": "object", "properties": {"result": {"type": "string"}}}`),
+		Mode:         "live",
+		TimeoutMs:    1000,
+	}
+
+	err := registry.Register(tool)
+	require.NoError(t, err)
+
+	result, err := registry.ExecuteAsync(context.Background(), "test_mm_error_tool", json.RawMessage(`{"name": "test"}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, ToolStatusFailed, result.Status)
+	assert.Contains(t, result.Error, "multimodal exec failed")
+}
+
+func TestRegistry_ExecuteAsync_MultimodalExecutor_MCP(t *testing.T) {
+	registry := NewRegistry()
+
+	imgText := "mcp result"
+	mmExec := &mockMultimodalExecutor{
+		parts: []types.ContentPart{
+			{Type: types.ContentTypeText, Text: &imgText},
+		},
+	}
+	registry.executors["mcp"] = mmExec
+
+	tool := &ToolDescriptor{
+		Name:         "test_mm_mcp_tool",
+		Description:  "Test multimodal MCP tool",
+		InputSchema:  json.RawMessage(`{"type": "object", "properties": {"name": {"type": "string"}}}`),
+		OutputSchema: json.RawMessage(`{"type": "object", "properties": {"result": {"type": "string"}}}`),
+		Mode:         "mcp",
+		TimeoutMs:    1000,
+	}
+
+	err := registry.Register(tool)
+	require.NoError(t, err)
+
+	result, err := registry.ExecuteAsync(context.Background(), "test_mm_mcp_tool", json.RawMessage(`{"name": "test"}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, ToolStatusComplete, result.Status)
+	assert.Contains(t, string(result.Content), "multimodal")
+	require.Len(t, result.Parts, 1)
+	assert.Equal(t, types.ContentTypeText, result.Parts[0].Type)
 }
 
 func TestRegistry_ExecuteAsync_MultimodalFallsBackWhenNotImplemented(t *testing.T) {

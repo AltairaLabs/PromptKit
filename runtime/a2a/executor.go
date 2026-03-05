@@ -129,32 +129,34 @@ func NewExecutor(opts ...ExecutorOption) *Executor {
 // Name returns "a2a" to match the Mode on A2A tool descriptors.
 func (e *Executor) Name() string { return "a2a" }
 
-// Execute calls a remote A2A agent with the tool arguments and returns the response.
-func (e *Executor) Execute(
+// executorInput holds parsed arguments for an A2A call.
+type executorInput struct {
+	Query     string `json:"query"`
+	ImageURL  string `json:"image_url,omitempty"`
+	ImageData string `json:"image_data,omitempty"`
+	AudioData string `json:"audio_data,omitempty"`
+}
+
+// buildRequest parses args and builds the A2A SendMessageRequest and timeout context.
+// It is the shared entry point for both Execute and ExecuteMultimodal.
+func (e *Executor) buildRequest(
 	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
-) (json.RawMessage, error) {
+) (context.Context, context.CancelFunc, *Client, *SendMessageRequest, error) {
 	if descriptor.A2AConfig == nil {
-		return nil, fmt.Errorf("a2a executor: tool %q has no A2AConfig", descriptor.Name)
+		return ctx, func() {}, nil, nil, fmt.Errorf("a2a executor: tool %q has no A2AConfig", descriptor.Name)
 	}
 
 	cfg := descriptor.A2AConfig
 	client := e.getOrCreateClient(cfg.AgentURL)
 
-	// Parse arguments
-	var input struct {
-		Query     string `json:"query"`
-		ImageURL  string `json:"image_url,omitempty"`
-		ImageData string `json:"image_data,omitempty"`
-		AudioData string `json:"audio_data,omitempty"`
-	}
+	var input executorInput
 	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, fmt.Errorf("a2a executor: parse args: %w", err)
+		return ctx, func() {}, nil, nil, fmt.Errorf("a2a executor: parse args: %w", err)
 	}
 
 	// Build message parts
 	text := input.Query
 	parts := []Part{{Text: &text}}
-
 	if input.ImageURL != "" {
 		parts = append(parts, Part{URL: &input.ImageURL, MediaType: "image/*"})
 	}
@@ -180,13 +182,25 @@ func (e *Executor) Execute(
 	}
 
 	// Apply timeout on top of the caller's context
+	cancel := func() {}
 	if cfg.TimeoutMs > 0 {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.TimeoutMs)*time.Millisecond)
-		defer cancel()
 	}
 
-	task, err := e.sendWithRetry(ctx, client, req, cfg.AgentURL)
+	return ctx, cancel, client, req, nil
+}
+
+// Execute calls a remote A2A agent with the tool arguments and returns the response.
+func (e *Executor) Execute(
+	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
+	ctx, cancel, client, req, err := e.buildRequest(ctx, descriptor, args)
+	defer cancel()
+	if err != nil {
+		return nil, err
+	}
+
+	task, err := e.sendWithRetry(ctx, client, req, descriptor.A2AConfig.AgentURL)
 	if err != nil {
 		return nil, fmt.Errorf("a2a executor: send message: %w", err)
 	}
@@ -451,60 +465,13 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 func (e *Executor) ExecuteMultimodal(
 	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, []types.ContentPart, error) {
-	if descriptor.A2AConfig == nil {
-		return nil, nil, fmt.Errorf("a2a executor: tool %q has no A2AConfig", descriptor.Name)
+	ctx, cancel, client, req, err := e.buildRequest(ctx, descriptor, args)
+	defer cancel()
+	if err != nil {
+		return nil, nil, err
 	}
 
-	cfg := descriptor.A2AConfig
-	client := e.getOrCreateClient(cfg.AgentURL)
-
-	// Parse arguments
-	var input struct {
-		Query     string `json:"query"`
-		ImageURL  string `json:"image_url,omitempty"`
-		ImageData string `json:"image_data,omitempty"`
-		AudioData string `json:"audio_data,omitempty"`
-	}
-	if err := json.Unmarshal(args, &input); err != nil {
-		return nil, nil, fmt.Errorf("a2a executor: parse args: %w", err)
-	}
-
-	// Build message parts
-	text := input.Query
-	parts := []Part{{Text: &text}}
-
-	if input.ImageURL != "" {
-		parts = append(parts, Part{URL: &input.ImageURL, MediaType: "image/*"})
-	}
-	if input.ImageData != "" {
-		parts = append(parts, Part{Raw: []byte(input.ImageData), MediaType: "image/*"})
-	}
-	if input.AudioData != "" {
-		parts = append(parts, Part{Raw: []byte(input.AudioData), MediaType: "audio/*"})
-	}
-
-	// Build metadata with skillId for mock server routing.
-	var metadata map[string]any
-	if cfg.SkillID != "" {
-		metadata = map[string]any{"skillId": cfg.SkillID}
-	}
-
-	req := &SendMessageRequest{
-		Message: Message{
-			Role:     RoleUser,
-			Parts:    parts,
-			Metadata: metadata,
-		},
-	}
-
-	// Apply timeout on top of the caller's context
-	if cfg.TimeoutMs > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.TimeoutMs)*time.Millisecond)
-		defer cancel()
-	}
-
-	task, err := e.sendWithRetry(ctx, client, req, cfg.AgentURL)
+	task, err := e.sendWithRetry(ctx, client, req, descriptor.A2AConfig.AgentURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("a2a executor: send message: %w", err)
 	}

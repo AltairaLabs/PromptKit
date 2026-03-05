@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 const (
@@ -546,28 +548,10 @@ func (r *Registry) executeSyncFallback(
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
 	if err != nil {
-		errMsg := err.Error()
-		if ctx.Err() == context.DeadlineExceeded {
-			errMsg = fmt.Sprintf(
-				"%s: %s exceeded %dms timeout",
-				ErrToolTimeout, tool.Name, tool.TimeoutMs,
-			)
-		}
-		return &ToolExecutionResult{
-			Status: ToolStatusFailed,
-			Error:  errMsg,
-		}, nil
+		return r.failedResult(ctx, tool, err), nil
 	}
 
-	// Skip validation for MCP tools
-	if tool.Mode == modeMCP {
-		return &ToolExecutionResult{
-			Status:  ToolStatusComplete,
-			Content: result,
-		}, nil
-	}
-
-	return r.validateAndCoerceResult(tool, result)
+	return r.completeResult(tool, result, nil)
 }
 
 // executeMultimodal executes a tool via its MultimodalExecutor interface,
@@ -580,29 +564,42 @@ func (r *Registry) executeMultimodal(
 	_ = getCurrentTimeMs() - start
 
 	if err != nil {
-		errMsg := err.Error()
-		if ctx.Err() == context.DeadlineExceeded {
-			errMsg = fmt.Sprintf(
-				"%s: %s exceeded %dms timeout",
-				ErrToolTimeout, tool.Name, tool.TimeoutMs,
-			)
-		}
-		return &ToolExecutionResult{
-			Status: ToolStatusFailed,
-			Error:  errMsg,
-		}, nil
+		return r.failedResult(ctx, tool, err), nil
 	}
 
-	// Skip validation for MCP tools
+	return r.completeResult(tool, result, parts)
+}
+
+// failedResult builds a failed ToolExecutionResult, using a timeout message
+// when the context deadline was exceeded.
+func (r *Registry) failedResult(ctx context.Context, tool *ToolDescriptor, err error) *ToolExecutionResult {
+	errMsg := err.Error()
+	if ctx.Err() == context.DeadlineExceeded {
+		errMsg = fmt.Sprintf(
+			"%s: %s exceeded %dms timeout",
+			ErrToolTimeout, tool.Name, tool.TimeoutMs,
+		)
+	}
+	return &ToolExecutionResult{
+		Status: ToolStatusFailed,
+		Error:  errMsg,
+	}
+}
+
+// completeResult builds a complete ToolExecutionResult, skipping validation
+// for MCP tools and otherwise coercing the result through schema validation.
+func (r *Registry) completeResult(
+	tool *ToolDescriptor, content json.RawMessage, parts []types.ContentPart,
+) (*ToolExecutionResult, error) {
 	if tool.Mode == modeMCP {
 		return &ToolExecutionResult{
 			Status:  ToolStatusComplete,
-			Content: result,
+			Content: content,
 			Parts:   parts,
 		}, nil
 	}
 
-	execResult, validateErr := r.validateAndCoerceResult(tool, result)
+	execResult, validateErr := r.validateAndCoerceResult(tool, content)
 	if validateErr != nil {
 		return execResult, validateErr
 	}

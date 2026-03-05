@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -626,4 +627,217 @@ func TestExecutor_ImplementsMultimodalExecutor(t *testing.T) {
 	defer e.Close()
 
 	var _ tools.MultimodalExecutor = e
+}
+
+func TestExecutor_ExecuteMultimodal_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		rpcErrorResp(w, req.ID, -32600, "bad request")
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name:      "test-tool",
+		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
+	}
+
+	_, _, err := e.ExecuteMultimodal(context.Background(), desc, json.RawMessage(`{"query":"test"}`))
+	if err == nil {
+		t.Fatal("expected error from server error response")
+	}
+	if !strings.Contains(err.Error(), "send message") {
+		t.Errorf("error = %q, want to contain 'send message'", err.Error())
+	}
+}
+
+func TestExecutor_ExecuteMultimodal_WithTimeout(t *testing.T) {
+	text := "ok"
+	task := &Task{
+		ID: "task-timeout",
+		Status: TaskStatus{
+			State:   TaskStateCompleted,
+			Message: &Message{Role: RoleAgent, Parts: []Part{{Text: &text}}},
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		rpcResult(w, req.ID, task)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor()
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name: "test-tool",
+		A2AConfig: &tools.A2AConfig{
+			AgentURL:  srv.URL,
+			TimeoutMs: 5000,
+		},
+	}
+
+	result, parts, err := e.ExecuteMultimodal(
+		context.Background(), desc, json.RawMessage(`{"query":"hello"}`),
+	)
+	if err != nil {
+		t.Fatalf("ExecuteMultimodal() error = %v", err)
+	}
+
+	var out map[string]string
+	if err := json.Unmarshal(result, &out); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if out["response"] != "ok" {
+		t.Errorf("response = %q, want %q", out["response"], "ok")
+	}
+	if len(parts) != 1 {
+		t.Fatalf("got %d parts, want 1", len(parts))
+	}
+}
+
+func TestExtractResponseParts_SkipsUnconvertibleArtifact(t *testing.T) {
+	text := "valid"
+	task := &Task{
+		Status: TaskStatus{State: TaskStateCompleted},
+		Artifacts: []Artifact{
+			{Parts: []Part{
+				{Text: &text},
+				{Data: map[string]any{"key": "val"}}, // structured data — not convertible
+			}},
+		},
+	}
+	parts := ExtractResponseParts(task)
+	if len(parts) != 1 {
+		t.Fatalf("got %d parts, want 1 (unconvertible artifact part should be skipped)", len(parts))
+	}
+	if *parts[0].Text != "valid" {
+		t.Errorf("text = %q, want 'valid'", *parts[0].Text)
+	}
+}
+
+func TestExecutor_Execute_WithTimeout(t *testing.T) {
+	text := "ok"
+	task := &Task{
+		ID: "task-exec-timeout",
+		Status: TaskStatus{
+			State:   TaskStateCompleted,
+			Message: &Message{Role: RoleAgent, Parts: []Part{{Text: &text}}},
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		rpcResult(w, req.ID, task)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor()
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name: "test-tool",
+		A2AConfig: &tools.A2AConfig{
+			AgentURL:  srv.URL,
+			TimeoutMs: 5000,
+		},
+	}
+
+	result, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var out map[string]string
+	if err := json.Unmarshal(result, &out); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if out["response"] != "ok" {
+		t.Errorf("response = %q, want %q", out["response"], "ok")
+	}
+}
+
+func TestExecutor_ExecuteMultimodal_WithMediaParts(t *testing.T) {
+	var receivedParts []Part
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		var params SendMessageRequest
+		raw, _ := json.Marshal(req.Params)
+		_ = json.Unmarshal(raw, &params)
+		receivedParts = params.Message.Parts
+
+		text := "analyzed"
+		task := &Task{
+			ID: "task-mm-media",
+			Status: TaskStatus{
+				State:   TaskStateCompleted,
+				Message: &Message{Role: RoleAgent, Parts: []Part{{Text: &text}}},
+			},
+		}
+		rpcResult(w, req.ID, task)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor()
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name:      "test-tool",
+		A2AConfig: &tools.A2AConfig{AgentURL: srv.URL},
+	}
+
+	args := `{"query":"analyze","image_url":"http://example.com/img.png","image_data":"base64data","audio_data":"audiodata"}`
+	_, _, err := e.ExecuteMultimodal(context.Background(), desc, json.RawMessage(args))
+	if err != nil {
+		t.Fatalf("ExecuteMultimodal() error = %v", err)
+	}
+
+	if len(receivedParts) != 4 {
+		t.Fatalf("got %d parts, want 4", len(receivedParts))
+	}
+}
+
+func TestExecutor_ExecuteMultimodal_WithSkillID(t *testing.T) {
+	var receivedMetadata map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		var params SendMessageRequest
+		raw, _ := json.Marshal(req.Params)
+		_ = json.Unmarshal(raw, &params)
+		receivedMetadata = params.Message.Metadata
+
+		text := "ok"
+		task := &Task{
+			ID: "task-mm-skill",
+			Status: TaskStatus{
+				State:   TaskStateCompleted,
+				Message: &Message{Role: RoleAgent, Parts: []Part{{Text: &text}}},
+			},
+		}
+		rpcResult(w, req.ID, task)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor()
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name: "test-tool",
+		A2AConfig: &tools.A2AConfig{
+			AgentURL: srv.URL,
+			SkillID:  "my_skill",
+		},
+	}
+
+	_, _, err := e.ExecuteMultimodal(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
+	if err != nil {
+		t.Fatalf("ExecuteMultimodal() error = %v", err)
+	}
+
+	if receivedMetadata == nil {
+		t.Fatal("expected metadata to be set")
+	}
+	if receivedMetadata["skillId"] != "my_skill" {
+		t.Errorf("skillId = %v, want %q", receivedMetadata["skillId"], "my_skill")
+	}
 }
