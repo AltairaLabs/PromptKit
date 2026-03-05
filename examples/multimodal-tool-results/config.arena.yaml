@@ -1,0 +1,32 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: multimodal-tool-results
+spec:
+  prompt_configs:
+    - id: analyst
+      file: prompts/analyst.yaml
+
+  providers:
+    - file: providers/mock-provider.yaml
+
+  scenarios:
+    - file: scenarios/chart-generation.scenario.yaml
+    - file: scenarios/document-scan.scenario.yaml
+
+  tools:
+    - file: tools/generate-chart.tool.yaml
+    - file: tools/scan-document.tool.yaml
+
+  defaults:
+    temperature: 0.0
+    max_tokens: 1500
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html
+    fail_on:
+      - provider_error

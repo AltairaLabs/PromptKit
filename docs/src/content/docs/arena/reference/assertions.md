@@ -1088,6 +1088,99 @@ assertions:
 
 ---
 
+#### `tool_result_has_media`
+
+Asserts that a tool result contains multimodal media content (images, audio, video, or documents).
+
+**Use Cases**:
+- Verify that a chart generation tool returns an image
+- Confirm audio synthesis tools produce audio output
+- Validate that document tools return file attachments
+
+**Parameters**:
+- `tool` (string, required): Name of the tool to check
+- `media_type` (string, optional): Required media type — `"image"`, `"audio"`, `"video"`, or `"document"`. If omitted, passes for any non-text content.
+
+**Example**:
+```yaml
+- role: user
+  content: "Generate a bar chart of Q1 sales"
+  assertions:
+    - type: tool_result_has_media
+      params:
+        tool: generate_chart
+        media_type: image
+      message: "Chart tool should return an image"
+```
+
+**Without media_type filter** (any media passes):
+```yaml
+assertions:
+  - type: tool_result_has_media
+    params:
+      tool: generate_report
+    message: "Report tool should return some media"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "tool 'generate_chart' result has no media parts matching type 'image'",
+    "tool": "generate_chart",
+    "expected_media_type": "image",
+    "actual_part_types": ["text"]
+  }
+}
+```
+
+**Conversation-Level**: Also available in `conversation_assertions`.
+
+---
+
+#### `tool_result_media_type`
+
+Asserts that a tool result contains media with a specific MIME type.
+
+**Use Cases**:
+- Verify exact output format (e.g., PNG vs JPEG)
+- Check audio encoding (e.g., `audio/wav` vs `audio/mp3`)
+- Validate document format (e.g., `application/pdf`)
+
+**Parameters**:
+- `tool` (string, required): Name of the tool to check
+- `mime_type` (string, required): Expected MIME type (e.g., `"image/png"`, `"audio/wav"`, `"application/pdf"`)
+
+**Example**:
+```yaml
+- role: user
+  content: "Export the dashboard as a PNG"
+  assertions:
+    - type: tool_result_media_type
+      params:
+        tool: export_dashboard
+        mime_type: "image/png"
+      message: "Dashboard export should be PNG format"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "details": {
+    "message": "tool 'export_dashboard' result has no media matching MIME type 'image/png'",
+    "tool": "export_dashboard",
+    "expected_mime_type": "image/png",
+    "actual_mime_types": ["image/jpeg"]
+  }
+}
+```
+
+**Conversation-Level**: Also available in `conversation_assertions`.
+
+---
+
 #### `tool_call_chain`
 
 Asserts a **dependency chain**: tool calls must appear in order (subsequence matching), and each step can have additional per-call constraints on arguments, result content, regex matching, and error presence.

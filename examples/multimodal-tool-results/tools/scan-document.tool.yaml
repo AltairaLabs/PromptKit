@@ -1,0 +1,38 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: scan-document
+spec:
+  name: scan_document
+  description: Scans a physical document and returns the image along with extracted text
+  input_schema:
+    type: object
+    properties:
+      source:
+        type: string
+        description: Document source identifier (e.g., receipt, invoice, contract)
+    required:
+      - source
+  output_schema:
+    type: object
+    properties:
+      extracted_text:
+        type: string
+      confidence:
+        type: number
+  mode: mock
+  timeout_ms: 5000
+  mock_result:
+    extracted_text: "OfficeMax Receipt - Date: 2026-03-01 - Total: $247.50"
+    confidence: 0.95
+  # Multimodal mock parts: text + document image
+  mock_parts:
+    - type: text
+      text: "Scanned document: OfficeMax Receipt"
+    - type: image
+      media:
+        file_path: testdata/sample-chart.png
+        mime_type: image/png
+        width: 600
+        height: 800
+        caption: "Scanned receipt from OfficeMax"

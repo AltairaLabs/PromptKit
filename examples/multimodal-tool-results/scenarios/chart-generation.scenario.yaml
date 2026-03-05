@@ -1,0 +1,46 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: chart-generation
+spec:
+  id: chart-generation
+  task_type: analysis
+  description: "Demonstrates multimodal tool results — LLM requests a chart and receives an image back"
+
+  turns:
+    # Turn 1: User asks for a chart — LLM should call generate_chart
+    - role: user
+      content: "Generate a revenue chart for Q1-2026."
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - generate_chart
+            message: "Should call generate_chart tool"
+        - type: tool_result_has_media
+          params:
+            tool: generate_chart
+            message: "Tool result should contain media (chart image)"
+        - type: tool_result_media_type
+          params:
+            tool: generate_chart
+            media_type: image
+            message: "Tool result media should be an image"
+
+    # Turn 2: Follow-up — LLM describes the chart
+    - role: user
+      content: "What does the chart show?"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(revenue|chart|trend|growth|Q1)"
+            message: "Should describe the chart content"
+
+  context:
+    goal: "generate and interpret a revenue chart"
+    timeline: "immediate"
+
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 2
+    max_total_tool_calls: 5

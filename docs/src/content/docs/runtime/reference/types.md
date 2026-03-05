@@ -109,22 +109,67 @@ toolCall := types.MessageToolCall{
 
 ```go
 type MessageToolResult struct {
-    ID      string
-    Name    string
-    Content json.RawMessage
-    IsError bool
+    ID        string           `json:"id"`
+    Name      string           `json:"name"`
+    Parts     []ContentPart    `json:"parts,omitempty"`
+    Error     string           `json:"error,omitempty"`
+    LatencyMs int64            `json:"latency_ms,omitempty"`
 }
 ```
 
-Result of tool execution.
+Result of tool execution. Supports multimodal content through the `Parts` field, allowing tools to return text, images, audio, video, and documents in a single result.
 
-**Example**:
+**Fields:**
+
+- **ID**: The tool call ID this result corresponds to
+- **Name**: The tool name
+- **Parts**: Multimodal content parts (text, images, audio, video, documents). A result can contain multiple parts of different types.
+- **Error**: Error message if the tool call failed (empty on success)
+- **LatencyMs**: Execution time in milliseconds
+
+**Methods:**
+
+- `GetTextContent() string` — Concatenates text from all text parts into a single string. Useful when you only need the textual portion of a multimodal result.
+- `HasMedia() bool` — Returns `true` if any non-text parts are present (images, audio, video, documents).
+- `NewTextToolResult(id, name, text string) MessageToolResult` — Constructor for creating a simple text-only tool result.
+
+**Examples:**
+
+Text-only result (using constructor):
+```go
+result := types.NewTextToolResult("call_123", "get_weather", `{"temp": 72, "conditions": "sunny"}`)
+```
+
+Multimodal result with text and an image:
 ```go
 result := types.MessageToolResult{
-    ID:      "call_123",
-    Name:    "get_weather",
-    Content: json.RawMessage(`{"temp": 72, "conditions": "sunny"}`),
-    IsError: false,
+    ID:   "call_456",
+    Name: "generate_chart",
+    Parts: []types.ContentPart{
+        {Type: "text", Text: "Here is the requested chart:"},
+        {
+            Type:     "image",
+            ImageURL: &types.ImageURL{
+                URL: "data:image/png;base64,iVBORw0KGgo...",
+            },
+        },
+    },
+    LatencyMs: 230,
+}
+
+// Access just the text
+fmt.Println(result.GetTextContent()) // "Here is the requested chart:"
+
+// Check for media
+fmt.Println(result.HasMedia()) // true
+```
+
+Error result:
+```go
+result := types.MessageToolResult{
+    ID:    "call_789",
+    Name:  "fetch_data",
+    Error: "connection timeout after 30s",
 }
 ```
 
@@ -526,15 +571,27 @@ func ValidateMessage(msg types.Message) error {
 ### 2. Safe Type Assertions
 
 ```go
-// Safe JSON unmarshaling
+// Extract text from a multimodal tool result
+text := toolResult.GetTextContent()
+
+// Parse structured text content
 var result map[string]interface{}
-if err := json.Unmarshal(toolResult.Content, &result); err != nil {
+if err := json.Unmarshal([]byte(text), &result); err != nil {
     return fmt.Errorf("invalid tool result: %w", err)
 }
 
 // Safe type assertion with check
 if temp, ok := result["temperature"].(float64); ok {
     fmt.Printf("Temperature: %.0f\n", temp)
+}
+
+// Check for media content
+if toolResult.HasMedia() {
+    for _, part := range toolResult.Parts {
+        if part.Type == "image" {
+            fmt.Printf("Image: %s\n", part.ImageURL.URL)
+        }
+    }
 }
 ```
 
