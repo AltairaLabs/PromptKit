@@ -547,6 +547,421 @@ func (s *nilStateStore) Fork(_ context.Context, _, _ string) error {
 	return nil
 }
 
+// =============================================================================
+// Default Message Limit and Large Conversation Warning Tests
+// =============================================================================
+
+func TestContextAssemblyStage_DefaultMaxMessages(t *testing.T) {
+	// Verify that DefaultMaxMessages and DefaultWarningThreshold are set
+	assert.Equal(t, 200, DefaultMaxMessages)
+	assert.Equal(t, 100, DefaultWarningThreshold)
+}
+
+func TestContextAssemblyStage_DefaultConfigValues(t *testing.T) {
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          statestore.NewMemoryStore(),
+			ConversationID: "test",
+		},
+	}
+	s := NewContextAssemblyStage(config)
+	assert.Equal(t, DefaultMaxMessages, s.config.MaxMessages)
+	assert.Equal(t, DefaultWarningThreshold, s.config.WarningThreshold)
+}
+
+func TestContextAssemblyStage_CustomConfigValues(t *testing.T) {
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          statestore.NewMemoryStore(),
+			ConversationID: "test",
+		},
+		MaxMessages:      50,
+		WarningThreshold: 25,
+	}
+	s := NewContextAssemblyStage(config)
+	assert.Equal(t, 50, s.config.MaxMessages)
+	assert.Equal(t, 25, s.config.WarningThreshold)
+}
+
+func TestContextAssemblyStage_TruncatesWhenExceedsDefaultLimit(t *testing.T) {
+	store := newMinimalStore()
+	ctx := context.Background()
+
+	// Create 80 messages with MaxMessages=50 to test truncation
+	// (keeps output under 100-element channel buffer in runTestStage)
+	msgs := make([]types.Message, 80)
+	for i := 0; i < 80; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		msgs[i] = types.Message{
+			Role:    role,
+			Content: fmt.Sprintf("Message %d", i),
+		}
+	}
+
+	err := store.Save(ctx, &statestore.ConversationState{
+		ID:       "conv-truncate",
+		Messages: msgs,
+	})
+	require.NoError(t, err)
+
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-truncate",
+		},
+		MaxMessages:      50,
+		HasContextWindow: false, // No explicit context window
+		HasTokenBudget:   false,
+	}
+
+	s := NewContextAssemblyStage(config)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Current message"),
+	}
+
+	results := runTestStage(t, s, inputs)
+
+	// Should have 50 history messages + 1 current = 51
+	require.Len(t, results, 51)
+
+	// The first history message should be Message 30 (80 - 50 = 30 truncated)
+	assert.Equal(t, "Message 30", results[0].Message.Content)
+
+	// The last history message should be Message 79
+	assert.Equal(t, "Message 79", results[49].Message.Content)
+
+	// Current message
+	assert.Equal(t, "Current message", results[50].Message.Content)
+}
+
+func TestContextAssemblyStage_PreservesSystemMessagesOnTruncation(t *testing.T) {
+	store := newMinimalStore()
+	ctx := context.Background()
+
+	// Create messages: 2 system + 80 conversation with MaxMessages=50
+	msgs := make([]types.Message, 0, 82)
+	msgs = append(msgs, types.Message{Role: "system", Content: "System prompt 1"})
+	msgs = append(msgs, types.Message{Role: "system", Content: "System prompt 2"})
+	for i := 0; i < 80; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		msgs = append(msgs, types.Message{
+			Role:    role,
+			Content: fmt.Sprintf("Message %d", i),
+		})
+	}
+
+	err := store.Save(ctx, &statestore.ConversationState{
+		ID:       "conv-sys-trunc",
+		Messages: msgs,
+	})
+	require.NoError(t, err)
+
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-sys-trunc",
+		},
+		MaxMessages:      50,
+		HasContextWindow: false,
+		HasTokenBudget:   false,
+	}
+
+	s := NewContextAssemblyStage(config)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Current message"),
+	}
+
+	results := runTestStage(t, s, inputs)
+
+	// Should have 50 history messages (2 system + 48 conversation) + 1 current = 51
+	require.Len(t, results, 51)
+
+	// First two should be system messages
+	assert.Equal(t, "system", results[0].Message.Role)
+	assert.Equal(t, "System prompt 1", results[0].Message.Content)
+	assert.Equal(t, "system", results[1].Message.Role)
+	assert.Equal(t, "System prompt 2", results[1].Message.Content)
+
+	// Next should be conversation messages starting from Message 32
+	// (80 - 48 = 32 conversation messages truncated)
+	assert.Equal(t, "Message 32", results[2].Message.Content)
+
+	// Last history message should be Message 79
+	assert.Equal(t, "Message 79", results[49].Message.Content)
+}
+
+func TestContextAssemblyStage_NoTruncationWhenWithinLimit(t *testing.T) {
+	store := newMinimalStore()
+	ctx := context.Background()
+
+	// Create 50 messages (well within DefaultMaxMessages)
+	msgs := make([]types.Message, 50)
+	for i := 0; i < 50; i++ {
+		msgs[i] = types.Message{
+			Role:    "user",
+			Content: fmt.Sprintf("Message %d", i),
+		}
+	}
+
+	err := store.Save(ctx, &statestore.ConversationState{
+		ID:       "conv-no-trunc",
+		Messages: msgs,
+	})
+	require.NoError(t, err)
+
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-no-trunc",
+		},
+		HasContextWindow: false,
+	}
+
+	s := NewContextAssemblyStage(config)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Current message"),
+	}
+
+	results := runTestStage(t, s, inputs)
+
+	// Should have all 50 history messages + 1 current = 51
+	require.Len(t, results, 51)
+	assert.Equal(t, "Message 0", results[0].Message.Content)
+}
+
+func TestContextAssemblyStage_NoTruncationWhenContextWindowSet(t *testing.T) {
+	store := newMinimalStore()
+	ctx := context.Background()
+
+	// Create 90 messages with MaxMessages=50 but HasContextWindow=true
+	msgs := make([]types.Message, 90)
+	for i := 0; i < 90; i++ {
+		msgs[i] = types.Message{
+			Role:    "user",
+			Content: fmt.Sprintf("Message %d", i),
+		}
+	}
+
+	err := store.Save(ctx, &statestore.ConversationState{
+		ID:       "conv-cw-set",
+		Messages: msgs,
+	})
+	require.NoError(t, err)
+
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-cw-set",
+		},
+		MaxMessages:      50,
+		HasContextWindow: true, // Explicit context window set — skip truncation
+	}
+
+	s := NewContextAssemblyStage(config)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Current message"),
+	}
+
+	results := runTestStage(t, s, inputs)
+
+	// Should have all 90 history messages + 1 current = 91 (no truncation)
+	require.Len(t, results, 91)
+}
+
+func TestContextAssemblyStage_CustomMaxMessages(t *testing.T) {
+	store := newMinimalStore()
+	ctx := context.Background()
+
+	// Create 100 messages
+	msgs := make([]types.Message, 100)
+	for i := 0; i < 100; i++ {
+		msgs[i] = types.Message{
+			Role:    "user",
+			Content: fmt.Sprintf("Message %d", i),
+		}
+	}
+
+	err := store.Save(ctx, &statestore.ConversationState{
+		ID:       "conv-custom-max",
+		Messages: msgs,
+	})
+	require.NoError(t, err)
+
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-custom-max",
+		},
+		MaxMessages:      50,
+		HasContextWindow: false,
+	}
+
+	s := NewContextAssemblyStage(config)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Current message"),
+	}
+
+	results := runTestStage(t, s, inputs)
+
+	// Should have 50 history messages + 1 current = 51
+	require.Len(t, results, 51)
+
+	// First history message should be Message 50 (100 - 50 = 50 truncated)
+	assert.Equal(t, "Message 50", results[0].Message.Content)
+}
+
+func TestContextAssemblyStage_WarnLargeConversation_NilConfig(t *testing.T) {
+	// Ensure warnLargeConversation doesn't panic with nil config
+	s := NewContextAssemblyStage(nil)
+	// This should not panic
+	s.warnLargeConversation(make([]types.Message, 200))
+}
+
+func TestContextAssemblyStage_ApplyDefaultMessageLimit_NilConfig(t *testing.T) {
+	// Ensure applyDefaultMessageLimit returns messages unchanged with nil config
+	s := NewContextAssemblyStage(nil)
+	msgs := make([]types.Message, 5)
+	result := s.applyDefaultMessageLimit(msgs)
+	assert.Len(t, result, 5)
+}
+
+func TestContextAssemblyStage_ApplyDefaultMessageLimit_HasContextWindow(t *testing.T) {
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          statestore.NewMemoryStore(),
+			ConversationID: "test",
+		},
+		HasContextWindow: true,
+	}
+	s := NewContextAssemblyStage(config)
+	msgs := make([]types.Message, 300)
+	result := s.applyDefaultMessageLimit(msgs)
+	// Should not truncate when context window is set
+	assert.Len(t, result, 300)
+}
+
+func TestContextAssemblyStage_WarnSuppressedWithTokenBudget(t *testing.T) {
+	// When HasTokenBudget is true, warning should be suppressed.
+	// We can't directly test logger output, but we verify the code path doesn't panic
+	// and the messages pass through correctly.
+	store := newMinimalStore()
+	ctx := context.Background()
+
+	msgs := make([]types.Message, 90)
+	for i := 0; i < 90; i++ {
+		msgs[i] = types.Message{Role: "user", Content: fmt.Sprintf("Msg %d", i)}
+	}
+
+	err := store.Save(ctx, &statestore.ConversationState{
+		ID:       "conv-budget",
+		Messages: msgs,
+	})
+	require.NoError(t, err)
+
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-budget",
+		},
+		HasTokenBudget:   true,
+		HasContextWindow: false,
+	}
+
+	s := NewContextAssemblyStage(config)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Current"),
+	}
+
+	results := runTestStage(t, s, inputs)
+	// 90 history + 1 current = 91 (no truncation since within default 200 limit)
+	require.Len(t, results, 91)
+}
+
+func TestContextAssemblyStage_WarningFires_AboveThreshold(t *testing.T) {
+	// Verify warning fires when messages exceed threshold and
+	// no token budget/context window. Use low threshold and MaxMessages
+	// to keep output within channel buffer.
+	store := newMinimalStore()
+	ctx := context.Background()
+
+	msgs := make([]types.Message, 20)
+	for i := 0; i < 20; i++ {
+		msgs[i] = types.Message{Role: "user", Content: fmt.Sprintf("Msg %d", i)}
+	}
+
+	err := store.Save(ctx, &statestore.ConversationState{
+		ID:       "conv-warn",
+		Messages: msgs,
+	})
+	require.NoError(t, err)
+
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-warn",
+		},
+		WarningThreshold: 10,  // Low threshold — 20 msgs will trigger warning
+		MaxMessages:      50,  // High enough to not truncate
+		HasContextWindow: false,
+		HasTokenBudget:   false,
+	}
+
+	s := NewContextAssemblyStage(config)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Current"),
+	}
+
+	// No panic, no truncation — just verifies code path runs
+	results := runTestStage(t, s, inputs)
+	require.Len(t, results, 21) // 20 history + 1 current
+}
+
+func TestContextAssemblyStage_TruncateAllSystemMessages(t *testing.T) {
+	// Edge case: when system messages alone fill the limit
+	config := &ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          statestore.NewMemoryStore(),
+			ConversationID: "test",
+		},
+		MaxMessages:      2,
+		HasContextWindow: false,
+	}
+	s := NewContextAssemblyStage(config)
+
+	// 3 system messages + 5 conversation messages
+	msgs := []types.Message{
+		{Role: "system", Content: "sys1"},
+		{Role: "system", Content: "sys2"},
+		{Role: "system", Content: "sys3"},
+		{Role: "user", Content: "user1"},
+		{Role: "assistant", Content: "asst1"},
+		{Role: "user", Content: "user2"},
+		{Role: "assistant", Content: "asst2"},
+		{Role: "user", Content: "user3"},
+	}
+
+	result := s.applyDefaultMessageLimit(msgs)
+
+	// MaxMessages=2, 3 system messages -> maxConversation = -1 -> returns only system
+	assert.Len(t, result, 3)
+	assert.Equal(t, "sys1", result[0].Content)
+	assert.Equal(t, "sys2", result[1].Content)
+	assert.Equal(t, "sys3", result[2].Content)
+}
+
 func TestContextAssemblyStage_ForwardAll_ContextCancelled(t *testing.T) {
 	// Test forwardAll with a cancelled context
 	ctx, cancel := context.WithCancel(context.Background())
