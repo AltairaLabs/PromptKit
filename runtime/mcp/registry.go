@@ -2,11 +2,28 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
+
+// DefaultMaxProcesses is the default maximum number of concurrent MCP processes.
+// 0 means unlimited.
+const DefaultMaxProcesses = 0
+
+var (
+	// ErrMaxProcessesReached is returned when the concurrent process limit has been reached.
+	ErrMaxProcessesReached = errors.New("mcp: maximum concurrent processes reached")
+)
+
+// RegistryOptions configures the MCP registry behavior.
+type RegistryOptions struct {
+	// MaxProcesses limits the number of concurrent MCP server processes.
+	// 0 means unlimited (no limit enforced).
+	MaxProcesses int
+}
 
 // RegistryImpl implements the Registry interface
 type RegistryImpl struct {
@@ -23,15 +40,42 @@ type RegistryImpl struct {
 
 	// Lifecycle
 	closed bool
+
+	// Options
+	options RegistryOptions
+
+	// Process limiter — buffered channel used as a counting semaphore.
+	// nil when MaxProcesses is 0 (unlimited).
+	processSem chan struct{}
+
+	// newClientFunc creates a new MCP client. Defaults to newStdioClientAdapter.
+	// Can be overridden in tests to inject mock clients.
+	newClientFunc func(config ServerConfig) Client
 }
 
-// NewRegistry creates a new MCP server registry
+// NewRegistry creates a new MCP server registry with default options (unlimited processes).
 func NewRegistry() *RegistryImpl {
-	return &RegistryImpl{
-		servers:   make(map[string]ServerConfig),
-		clients:   make(map[string]Client),
-		toolIndex: make(map[string]string),
+	return NewRegistryWithOptions(RegistryOptions{MaxProcesses: DefaultMaxProcesses})
+}
+
+// newStdioClientAdapter wraps NewStdioClient to return the Client interface.
+func newStdioClientAdapter(config ServerConfig) Client {
+	return NewStdioClient(config)
+}
+
+// NewRegistryWithOptions creates a new MCP server registry with custom options.
+func NewRegistryWithOptions(opts RegistryOptions) *RegistryImpl {
+	r := &RegistryImpl{
+		servers:       make(map[string]ServerConfig),
+		clients:       make(map[string]Client),
+		toolIndex:     make(map[string]string),
+		options:       opts,
+		newClientFunc: newStdioClientAdapter,
 	}
+	if opts.MaxProcesses > 0 {
+		r.processSem = make(chan struct{}, opts.MaxProcesses)
+	}
+	return r
 }
 
 // RegisterServer adds a new MCP server configuration
@@ -92,24 +136,48 @@ func (r *RegistryImpl) tryGetExistingClient(serverName string) (Client, error) {
 	return nil, nil // No existing client, need to create new one
 }
 
-// createNewClient creates and initializes a new client
+// createNewClient creates and initializes a new client.
+// If a process limit is configured, it acquires a semaphore slot before creating the process.
 func (r *RegistryImpl) createNewClient(ctx context.Context, serverName string) (Client, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Acquire process semaphore before creating a new process
+	if err := r.acquireProcessSlot(); err != nil {
+		return nil, fmt.Errorf("failed to acquire process slot for %s: %w", serverName, err)
+	}
 
-	// Double-check after acquiring write lock
+	r.mu.Lock()
+
+	// Double-check after acquiring write lock — another goroutine may have created it
 	if client, exists := r.clients[serverName]; exists && client.IsAlive() {
+		r.mu.Unlock()
+		r.releaseProcessSlot() // We didn't need the slot after all
 		return client, nil
 	}
 
-	config := r.servers[serverName]
+	// If we're replacing a dead client, release its slot conceptually
+	// (the dead client's slot is already consumed; we acquired a new one above)
+	if _, exists := r.clients[serverName]; exists {
+		// Old client was dead — release the extra slot since we're replacing, not adding
+		r.releaseProcessSlot()
+	}
 
-	// Create and initialize new client
-	newClient := NewStdioClient(config)
+	config := r.servers[serverName]
+	r.mu.Unlock()
+
+	// Create and initialize new client (outside the lock to avoid holding it during I/O)
+	newClient := r.newClientFunc(config)
 	if _, err := newClient.Initialize(ctx); err != nil {
+		r.releaseProcessSlot()
 		return nil, fmt.Errorf("failed to initialize MCP server %s: %w", serverName, err)
 	}
 
+	r.mu.Lock()
+	// Final check — if someone else beat us, close our client and use theirs
+	if client, exists := r.clients[serverName]; exists && client.IsAlive() {
+		r.mu.Unlock()
+		_ = newClient.Close()
+		r.releaseProcessSlot()
+		return client, nil
+	}
 	r.clients[serverName] = newClient
 
 	// Refresh tool index for this server
@@ -117,8 +185,51 @@ func (r *RegistryImpl) createNewClient(ctx context.Context, serverName string) (
 		// Log error but don't fail - client is still usable
 		logger.Warn("Failed to refresh tool index", "server", serverName, "error", err)
 	}
+	r.mu.Unlock()
 
 	return newClient, nil
+}
+
+// acquireProcessSlot attempts to acquire a process slot from the semaphore.
+// Returns nil immediately if no process limit is configured.
+// Returns ErrMaxProcessesReached if all slots are occupied.
+func (r *RegistryImpl) acquireProcessSlot() error {
+	if r.processSem == nil {
+		return nil // No limit configured
+	}
+
+	select {
+	case r.processSem <- struct{}{}:
+		return nil
+	default:
+		// Semaphore is full — return error immediately instead of blocking
+		return ErrMaxProcessesReached
+	}
+}
+
+// releaseProcessSlot releases a process slot back to the semaphore.
+// No-op if no process limit is configured.
+func (r *RegistryImpl) releaseProcessSlot() {
+	if r.processSem == nil {
+		return
+	}
+	select {
+	case <-r.processSem:
+	default:
+		// Should not happen, but don't block
+	}
+}
+
+// ActiveProcessCount returns the number of active MCP processes.
+// Returns -1 if no process limit is configured.
+func (r *RegistryImpl) ActiveProcessCount() int {
+	if r.processSem == nil {
+		r.mu.RLock()
+		count := len(r.clients)
+		r.mu.RUnlock()
+		return count
+	}
+	return len(r.processSem)
 }
 
 // GetClientForTool returns the client that provides the specified tool
@@ -250,10 +361,16 @@ func (r *RegistryImpl) Close() error {
 	r.closed = true
 
 	var firstErr error
+	clientCount := len(r.clients)
 	for name, client := range r.clients {
 		if err := client.Close(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("failed to close client %s: %w", name, err)
 		}
+	}
+
+	// Release all process slots
+	for i := 0; i < clientCount; i++ {
+		r.releaseProcessSlot()
 	}
 
 	// Clear all state

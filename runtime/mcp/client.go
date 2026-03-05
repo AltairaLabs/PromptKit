@@ -27,6 +27,9 @@ type ClientOptions struct {
 	RetryDelay time.Duration
 	// EnableGracefulDegradation allows operations to continue even if MCP is unavailable
 	EnableGracefulDegradation bool
+	// MaxReconnectAttempts is the maximum number of times to attempt reconnection
+	// when a process death is detected. 0 disables auto-reconnection.
+	MaxReconnectAttempts int
 }
 
 // DefaultClientOptions returns sensible defaults
@@ -37,8 +40,18 @@ func DefaultClientOptions() ClientOptions {
 		MaxRetries:                3,
 		RetryDelay:                100 * time.Millisecond,
 		EnableGracefulDegradation: true,
+		MaxReconnectAttempts:      defaultMaxReconnectAttempts,
 	}
 }
+
+const (
+	// defaultMaxReconnectAttempts is the default number of reconnection attempts.
+	defaultMaxReconnectAttempts = 3
+	// reconnectPollInterval is the polling interval when waiting for a concurrent reconnection.
+	reconnectPollInterval = 100 * time.Millisecond
+	// reconnectPollMaxIterations is the max iterations to poll for concurrent reconnection.
+	reconnectPollMaxIterations = 50
+)
 
 var (
 	// ErrClientNotInitialized is returned when attempting operations on uninitialized client
@@ -72,6 +85,9 @@ type StdioClient struct {
 
 	// Health monitoring
 	lastActivity atomic.Int64 // Unix timestamp of last successful RPC
+
+	// Reconnection state
+	reconnecting bool
 
 	// Background goroutine management
 	ctx    context.Context
@@ -325,25 +341,231 @@ func (c *StdioClient) startProcess() error {
 	return nil
 }
 
-// checkHealth verifies the client is in a healthy state
+// checkHealth verifies the client is in a healthy state.
+// If the process has died and auto-reconnection is configured, it attempts to reconnect.
 func (c *StdioClient) checkHealth() error {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 
 	if c.closed {
+		c.mu.RUnlock()
 		return ErrClientClosed
 	}
 
 	if !c.started {
+		c.mu.RUnlock()
 		return ErrClientNotInitialized
 	}
 
 	// Check if process is still alive
-	if c.cmd == nil || c.cmd.Process == nil {
+	if c.cmd != nil && c.cmd.Process != nil {
+		c.mu.RUnlock()
+		return nil
+	}
+
+	// Process is dead — attempt reconnection if configured
+	reconnectAttempts := c.options.MaxReconnectAttempts
+	c.mu.RUnlock()
+
+	if reconnectAttempts <= 0 {
 		return ErrProcessDied
 	}
 
+	return c.reconnect()
+}
+
+// reconnect attempts to restart the MCP server process and re-initialize the connection.
+// It fails all pending requests on the dead client before attempting to restart.
+func (c *StdioClient) reconnect() error {
+	c.mu.Lock()
+
+	// Another goroutine may have already reconnected
+	if c.cmd != nil && c.cmd.Process != nil {
+		c.mu.Unlock()
+		return nil
+	}
+
+	// If already reconnecting, wait and re-check
+	if c.reconnecting {
+		c.mu.Unlock()
+		return c.waitForReconnect()
+	}
+
+	if c.closed {
+		c.mu.Unlock()
+		return ErrClientClosed
+	}
+
+	c.reconnecting = true
+	c.mu.Unlock()
+
+	defer func() {
+		c.mu.Lock()
+		c.reconnecting = false
+		c.mu.Unlock()
+	}()
+
+	// Fail all pending requests so callers don't hang until context timeout
+	c.failPendingRequests()
+
+	// Clean up old process resources
+	c.cleanupDeadProcess()
+
+	// Attempt to restart with retries
+	logger.Warn("MCP process died, attempting reconnection", "server", c.config.Name)
+
+	// Use a background-derived context so we're not affected by the old process's canceled context
+	totalTimeout := c.options.InitTimeout * time.Duration(c.options.MaxReconnectAttempts+1)
+	ctx, cancel := context.WithTimeout(context.Background(), totalTimeout)
+	defer cancel()
+
+	var lastErr error
+	for attempt := 0; attempt < c.options.MaxReconnectAttempts; attempt++ {
+		if attempt > 0 {
+			delay := c.options.RetryDelay * time.Duration(1<<uint(attempt-1)) //nolint:gosec // bounded
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return fmt.Errorf("reconnection canceled: %w", ctx.Err())
+			}
+		}
+
+		err := c.attemptReconnect(ctx, attempt+1)
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, ErrClientClosed) {
+			return err
+		}
+		lastErr = err
+	}
+
+	return fmt.Errorf("reconnection failed after %d attempts: %w", c.options.MaxReconnectAttempts, lastErr)
+}
+
+// attemptReconnect performs a single reconnection attempt: restarts the process and re-initializes.
+func (c *StdioClient) attemptReconnect(ctx context.Context, attemptNum int) error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return ErrClientClosed
+	}
+
+	// Reset the context/cancel for the new process
+	c.cancel()
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+
+	err := c.startProcess()
+	if err != nil {
+		c.mu.Unlock()
+		logger.Warn("MCP reconnection attempt failed to start process",
+			"server", c.config.Name, "attempt", attemptNum, "error", err)
+		return err
+	}
+
+	// Start background reader
+	c.wg.Add(1)
+	go c.readLoop()
+	c.mu.Unlock()
+
+	// Re-initialize the MCP handshake
+	initCtx, initCancel := context.WithTimeout(ctx, c.options.InitTimeout)
+	defer initCancel()
+
+	req := InitializeRequest{
+		ProtocolVersion: ProtocolVersion,
+		Capabilities:    ClientCapabilities{Elicitation: &ElicitationCapability{}},
+		ClientInfo:      Implementation{Name: "promptkit", Version: "0.1.0"},
+	}
+
+	var resp InitializeResponse
+	if err = c.sendRequestWithRetry(initCtx, "initialize", req, &resp); err != nil {
+		logger.Warn("MCP reconnection attempt failed handshake",
+			"server", c.config.Name, "attempt", attemptNum, "error", err)
+		return err
+	}
+
+	// Send initialized notification (non-fatal)
+	if notifyErr := c.sendNotification("notifications/initialized", nil); notifyErr != nil {
+		logger.Warn("MCP initialized notification failed after reconnect",
+			"server", c.config.Name, "error", notifyErr)
+	}
+
+	c.mu.Lock()
+	c.serverInfo = &resp
+	c.mu.Unlock()
+	c.updateActivity()
+
+	logger.Info("MCP reconnection successful", "server", c.config.Name, "attempt", attemptNum)
 	return nil
+}
+
+// waitForReconnect waits for an in-progress reconnection to complete, then re-checks health.
+func (c *StdioClient) waitForReconnect() error {
+	// Poll briefly for the reconnecting flag to clear
+	for i := 0; i < reconnectPollMaxIterations; i++ {
+		time.Sleep(reconnectPollInterval)
+		c.mu.RLock()
+		reconnecting := c.reconnecting
+		alive := c.cmd != nil && c.cmd.Process != nil
+		closed := c.closed
+		c.mu.RUnlock()
+
+		if closed {
+			return ErrClientClosed
+		}
+		if !reconnecting {
+			if alive {
+				return nil
+			}
+			return ErrProcessDied
+		}
+	}
+	return fmt.Errorf("timed out waiting for reconnection")
+}
+
+// failPendingRequests sends an error response to all pending requests so they don't
+// hang until their context timeout.
+func (c *StdioClient) failPendingRequests() {
+	c.pendingReqs.Range(func(key, value interface{}) bool {
+		ch := value.(chan *JSONRPCMessage)
+		errMsg := &JSONRPCMessage{
+			JSONRPC: "2.0",
+			ID:      key,
+			Error: &JSONRPCError{
+				Code:    -32000,
+				Message: "server process died",
+			},
+		}
+		select {
+		case ch <- errMsg:
+		default:
+		}
+		c.pendingReqs.Delete(key)
+		return true
+	})
+}
+
+// cleanupDeadProcess releases resources from a dead process without marking the client as closed.
+func (c *StdioClient) cleanupDeadProcess() {
+	// Close pipes (safe to call on already-closed pipes; errors are non-actionable)
+	if c.stdin != nil {
+		_ = c.stdin.Close()
+	}
+	if c.stdout != nil {
+		_ = c.stdout.Close()
+	}
+	if c.stderr != nil {
+		_ = c.stderr.Close()
+	}
+
+	// Clean up zombie process
+	if c.cmd != nil && c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+		_ = c.cmd.Wait()
+	}
+
+	// Wait for background goroutines from the old process to finish
+	c.wg.Wait()
 }
 
 // updateActivity records the timestamp of the last successful operation
