@@ -1962,7 +1962,34 @@ func TestCloseWithErrors(t *testing.T) {
 		err := conv.Close()
 		assert.NoError(t, err) // Safe to call multiple times
 	})
+
+	t.Run("collects all errors from capabilities", func(t *testing.T) {
+		conv := newTestConversation()
+		errCap1 := errors.New("capability-1 close error")
+		errCap2 := errors.New("capability-2 close error")
+		conv.capabilities = []Capability{
+			&closeErrorCapability{name: "cap1", closeErr: errCap1},
+			&closeErrorCapability{name: "cap2", closeErr: errCap2},
+		}
+
+		err := conv.Close()
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errCap1), "should contain cap1 error")
+		assert.True(t, errors.Is(err, errCap2), "should contain cap2 error")
+		assert.True(t, conv.closed, "conversation should be marked closed")
+	})
 }
+
+// closeErrorCapability is a test capability whose Close returns a configured error.
+type closeErrorCapability struct {
+	name     string
+	closeErr error
+}
+
+func (c *closeErrorCapability) Name() string                        { return c.name }
+func (c *closeErrorCapability) Init(_ CapabilityContext) error      { return nil }
+func (c *closeErrorCapability) RegisterTools(_ *tools.Registry)     {}
+func (c *closeErrorCapability) Close() error                        { return c.closeErr }
 
 func TestForkErrorHandling(t *testing.T) {
 	t.Run("fork preserves handlers", func(t *testing.T) {

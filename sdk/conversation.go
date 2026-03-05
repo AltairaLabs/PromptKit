@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -861,24 +862,27 @@ func (c *Conversation) Close() error {
 		c.evalMW.close()
 	}
 
+	// Collect all errors and always execute all cleanup steps.
+	var errs []error
+
 	// Close duplex session if in duplex mode
 	if c.mode == DuplexMode && c.duplexSession != nil {
 		if err := c.duplexSession.Close(); err != nil {
-			return fmt.Errorf("failed to close duplex session: %w", err)
+			errs = append(errs, fmt.Errorf("failed to close duplex session: %w", err))
 		}
 	}
 
 	// Close capabilities
 	for _, cap := range c.capabilities {
 		if err := cap.Close(); err != nil {
-			return fmt.Errorf("failed to close capability %q: %w", cap.Name(), err)
+			errs = append(errs, fmt.Errorf("failed to close capability %q: %w", cap.Name(), err))
 		}
 	}
 
 	// Close MCP registry if present
 	if c.mcpRegistry != nil {
 		if err := c.mcpRegistry.Close(); err != nil {
-			return fmt.Errorf("failed to close MCP registry: %w", err)
+			errs = append(errs, fmt.Errorf("failed to close MCP registry: %w", err))
 		}
 	}
 
@@ -890,7 +894,7 @@ func (c *Conversation) Close() error {
 	// State is automatically persisted by the StateStore middleware in the pipeline
 	// No explicit save needed here
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // deregisterFromShutdownManager removes the conversation from its shutdown
