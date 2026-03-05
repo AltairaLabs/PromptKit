@@ -12,6 +12,8 @@ import (
 	"os"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/AltairaLabs/PromptKit/pkg/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
@@ -51,6 +53,7 @@ type BaseProvider struct {
 	id               string
 	includeRawOutput bool
 	client           *http.Client
+	rateLimiter      *rate.Limiter
 }
 
 // NewBaseProvider creates a new BaseProvider with common fields
@@ -134,6 +137,35 @@ func (b *BaseProvider) GetHTTPClient() *http.Client {
 	return b.client
 }
 
+// SetRateLimit configures per-provider rate limiting. requestsPerSecond controls
+// the sustained rate, and burst controls how many requests can be made
+// simultaneously before throttling kicks in. A zero or negative
+// requestsPerSecond disables rate limiting (the default).
+func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int) {
+	if requestsPerSecond <= 0 {
+		b.rateLimiter = nil
+		return
+	}
+	b.rateLimiter = rate.NewLimiter(rate.Limit(requestsPerSecond), burst)
+}
+
+// RateLimiter returns the current rate limiter, or nil if rate limiting is
+// not configured. This is useful for inspecting or sharing limiters.
+func (b *BaseProvider) RateLimiter() *rate.Limiter {
+	return b.rateLimiter
+}
+
+// WaitForRateLimit blocks until the rate limiter allows the request to
+// proceed, or until the context is canceled. If no rate limiter is
+// configured, it returns immediately. Providers should call this before
+// making HTTP requests to respect rate limits.
+func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error {
+	if b.rateLimiter == nil {
+		return nil
+	}
+	return b.rateLimiter.Wait(ctx)
+}
+
 // CheckHTTPError checks if HTTP response is an error and returns formatted error with body
 func CheckHTTPError(resp *http.Response, url string) error {
 	if resp.StatusCode != http.StatusOK {
@@ -210,6 +242,11 @@ func (b *BaseProvider) MakeRawRequest(
 		}
 	}
 	logger.APIRequest(providerName, "POST", url, logHeaders, json.RawMessage(body))
+
+	// Wait for rate limiter before making the HTTP call
+	if waitErr := b.WaitForRateLimit(ctx); waitErr != nil {
+		return nil, fmt.Errorf("rate limit wait: %w", waitErr)
+	}
 
 	resp, err := b.client.Do(req)
 	if err != nil {
