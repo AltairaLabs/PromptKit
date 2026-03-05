@@ -1,6 +1,7 @@
 package statestore
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"sort"
@@ -10,6 +11,42 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// =============================================================================
+// Min-heap for O(log N) LRU eviction
+// =============================================================================
+
+// accessEntry tracks a key's last access time for the LRU heap.
+type accessEntry struct {
+	key        string
+	lastAccess time.Time
+	index      int // position in the heap, maintained by heap.Interface
+}
+
+// accessHeap is a min-heap of accessEntry ordered by lastAccess (oldest first).
+type accessHeap []*accessEntry
+
+func (h accessHeap) Len() int           { return len(h) }
+func (h accessHeap) Less(i, j int) bool { return h[i].lastAccess.Before(h[j].lastAccess) }
+func (h accessHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i]; h[i].index = i; h[j].index = j }
+
+// Push adds an element to the heap. Required by heap.Interface.
+func (h *accessHeap) Push(x interface{}) {
+	entry := x.(*accessEntry)
+	entry.index = len(*h)
+	*h = append(*h, entry)
+}
+
+// Pop removes and returns the minimum element from the heap. Required by heap.Interface.
+func (h *accessHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	entry := old[n-1]
+	old[n-1] = nil // avoid memory leak
+	entry.index = -1
+	*h = old[:n-1]
+	return entry
+}
 
 // DefaultTTL is the default time-to-live for conversation states in a MemoryStore.
 // Entries that have not been accessed within the TTL are considered expired and
@@ -93,6 +130,10 @@ type MemoryStore struct {
 	// Index for efficient user-based lookups
 	userIndex map[string]map[string]struct{} // userID -> set of conversationIDs
 
+	// LRU eviction heap (min-heap ordered by lastAccess)
+	lruHeap   accessHeap
+	heapIndex map[string]*accessEntry // key -> heap entry for O(log N) updates
+
 	// TTL and eviction settings
 	ttl              time.Duration // zero means no expiry
 	maxEntries       int           // zero means no limit
@@ -112,6 +153,7 @@ func NewMemoryStore(opts ...MemoryStoreOption) *MemoryStore {
 	s := &MemoryStore{
 		states:    make(map[string]*ConversationState),
 		userIndex: make(map[string]map[string]struct{}),
+		heapIndex: make(map[string]*accessEntry),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -164,7 +206,9 @@ func (s *MemoryStore) Load(ctx context.Context, id string) (*ConversationState, 
 		return nil, ErrNotFound
 	}
 
-	state.LastAccessedAt = time.Now()
+	now := time.Now()
+	state.LastAccessedAt = now
+	s.touchLRULocked(id, now)
 
 	// Return a deep copy to prevent external mutations
 	return deepCopyState(state), nil
@@ -194,10 +238,12 @@ func (s *MemoryStore) Save(ctx context.Context, state *ConversationState) error 
 
 	// Store a deep copy to prevent external mutations
 	stateCopy := deepCopyState(state)
-	stateCopy.LastAccessedAt = time.Now()
+	now := time.Now()
+	stateCopy.LastAccessedAt = now
 
 	// Update main storage
 	s.states[state.ID] = stateCopy
+	s.touchLRULocked(state.ID, now)
 
 	// Update user index if UserID is set
 	if state.UserID != "" {
@@ -238,10 +284,12 @@ func (s *MemoryStore) Fork(ctx context.Context, sourceID, newID string) error {
 	// Deep copy the state
 	forked := deepCopyState(source)
 	forked.ID = newID
-	forked.LastAccessedAt = time.Now()
+	now := time.Now()
+	forked.LastAccessedAt = now
 
 	// Store the forked state
 	s.states[newID] = forked
+	s.touchLRULocked(newID, now)
 
 	// Update user index if UserID is set
 	if forked.UserID != "" {
@@ -348,7 +396,9 @@ func (s *MemoryStore) LoadRecentMessages(ctx context.Context, id string, n int) 
 		return nil, ErrNotFound
 	}
 
-	state.LastAccessedAt = time.Now()
+	now := time.Now()
+	state.LastAccessedAt = now
+	s.touchLRULocked(id, now)
 
 	msgs := state.Messages
 	if n >= len(msgs) {
@@ -380,7 +430,9 @@ func (s *MemoryStore) MessageCount(ctx context.Context, id string) (int, error) 
 		return 0, ErrNotFound
 	}
 
-	state.LastAccessedAt = time.Now()
+	now := time.Now()
+	state.LastAccessedAt = now
+	s.touchLRULocked(id, now)
 
 	return len(state.Messages), nil
 }
@@ -416,7 +468,9 @@ func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []
 
 	// Deep copy new messages before appending using structural cloning
 	state.Messages = append(state.Messages, cloneMessages(messages)...)
-	state.LastAccessedAt = time.Now()
+	now := time.Now()
+	state.LastAccessedAt = now
+	s.touchLRULocked(id, now)
 
 	return nil
 }
@@ -441,7 +495,9 @@ func (s *MemoryStore) LoadSummaries(ctx context.Context, id string) ([]Summary, 
 		return nil, nil
 	}
 
-	state.LastAccessedAt = time.Now()
+	now := time.Now()
+	state.LastAccessedAt = now
+	s.touchLRULocked(id, now)
 
 	if len(state.Summaries) == 0 {
 		return nil, nil
@@ -472,7 +528,9 @@ func (s *MemoryStore) SaveSummary(ctx context.Context, id string, summary Summar
 	}
 
 	state.Summaries = append(state.Summaries, summary)
-	state.LastAccessedAt = time.Now()
+	now := time.Now()
+	state.LastAccessedAt = now
+	s.touchLRULocked(id, now)
 
 	return nil
 }
@@ -505,41 +563,81 @@ func (s *MemoryStore) deleteStateLocked(id string, state *ConversationState) {
 		s.removeFromUserIndex(state.UserID, id)
 	}
 	delete(s.states, id)
+
+	// Remove from LRU heap
+	if entry, ok := s.heapIndex[id]; ok {
+		heap.Remove(&s.lruHeap, entry.index)
+		delete(s.heapIndex, id)
+	}
+}
+
+// touchLRULocked updates or inserts a key in the LRU heap with the given access time.
+// Must be called with the write lock held.
+func (s *MemoryStore) touchLRULocked(key string, accessTime time.Time) {
+	if entry, ok := s.heapIndex[key]; ok {
+		entry.lastAccess = accessTime
+		heap.Fix(&s.lruHeap, entry.index)
+	} else {
+		entry = &accessEntry{key: key, lastAccess: accessTime}
+		heap.Push(&s.lruHeap, entry)
+		s.heapIndex[key] = entry
+	}
 }
 
 // evictLRULocked removes the least-recently-accessed entry from the store.
+// Uses a min-heap for O(log N) eviction instead of O(N) full scan.
 // Must be called with the write lock held.
 func (s *MemoryStore) evictLRULocked() {
-	var oldestID string
-	var oldestTime time.Time
-	first := true
+	for s.lruHeap.Len() > 0 {
+		entry := heap.Pop(&s.lruHeap).(*accessEntry)
+		delete(s.heapIndex, entry.key)
 
-	for id, state := range s.states {
-		if first || state.LastAccessedAt.Before(oldestTime) {
-			oldestID = id
-			oldestTime = state.LastAccessedAt
-			first = false
+		if state, ok := s.states[entry.key]; ok {
+			if state.UserID != "" {
+				s.removeFromUserIndex(state.UserID, entry.key)
+			}
+			delete(s.states, entry.key)
+			return
 		}
-	}
-
-	if !first {
-		if state, ok := s.states[oldestID]; ok {
-			s.deleteStateLocked(oldestID, state)
-		}
+		// Entry was already deleted from states (e.g., by TTL expiry); pop next.
 	}
 }
 
-// evictExpiredLocked removes all expired entries from the store.
-// Must be called with the write lock held.
-func (s *MemoryStore) evictExpiredLocked() {
+// collectExpiredKeys scans under RLock and returns the IDs of all expired entries.
+func (s *MemoryStore) collectExpiredKeys() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var expired []string
 	for id, state := range s.states {
 		if s.isExpired(state) {
+			expired = append(expired, id)
+		}
+	}
+	return expired
+}
+
+// deleteExpiredKeys takes a write lock and deletes the given keys if they are still expired.
+// Keys that were refreshed between the scan and delete phases are skipped.
+func (s *MemoryStore) deleteExpiredKeys(keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, id := range keys {
+		state, ok := s.states[id]
+		if ok && s.isExpired(state) {
 			s.deleteStateLocked(id, state)
 		}
 	}
 }
 
 // backgroundEviction runs periodic cleanup of expired entries.
+// Uses a two-phase approach: RLock scan to collect expired keys, then write lock to delete.
+// This allows concurrent reads during the scan phase.
 func (s *MemoryStore) backgroundEviction() {
 	ticker := time.NewTicker(s.evictionInterval)
 	defer ticker.Stop()
@@ -549,9 +647,8 @@ func (s *MemoryStore) backgroundEviction() {
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
-			s.mu.Lock()
-			s.evictExpiredLocked()
-			s.mu.Unlock()
+			expired := s.collectExpiredKeys()
+			s.deleteExpiredKeys(expired)
 		}
 	}
 }

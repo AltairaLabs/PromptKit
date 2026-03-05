@@ -1,6 +1,7 @@
 package statestore
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -409,5 +410,190 @@ func BenchmarkCloneMessage_WithMeta(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		cloneMessage(msg)
+	}
+}
+
+// =============================================================================
+// LRU eviction benchmarks — heap-based vs linear scan
+// =============================================================================
+
+// linearEvictLRU is the old O(N) implementation kept for benchmarking comparison.
+func linearEvictLRU(states map[string]*ConversationState) string {
+	var oldestID string
+	var oldestTime time.Time
+	first := true
+
+	for id, state := range states {
+		if first || state.LastAccessedAt.Before(oldestTime) {
+			oldestID = id
+			oldestTime = state.LastAccessedAt
+			first = false
+		}
+	}
+	return oldestID
+}
+
+// setupStoreForEviction creates a MemoryStore with n entries for eviction benchmarking.
+func setupStoreForEviction(n int) *MemoryStore {
+	store := NewMemoryStore(WithNoTTL(), WithMemoryMaxEntries(n+1))
+	ctx := context.Background()
+	base := time.Now()
+	for i := 0; i < n; i++ {
+		state := &ConversationState{
+			ID:             "conv-" + string(rune(i)),
+			LastAccessedAt: base.Add(time.Duration(i) * time.Millisecond),
+		}
+		_ = store.Save(ctx, state)
+	}
+	return store
+}
+
+func BenchmarkEvictLRU_Heap_100(b *testing.B) {
+	benchmarkHeapEvict(b, 100)
+}
+
+func BenchmarkEvictLRU_Heap_1000(b *testing.B) {
+	benchmarkHeapEvict(b, 1000)
+}
+
+func BenchmarkEvictLRU_Heap_10000(b *testing.B) {
+	benchmarkHeapEvict(b, 10000)
+}
+
+func BenchmarkEvictLRU_Linear_100(b *testing.B) {
+	benchmarkLinearEvict(b, 100)
+}
+
+func BenchmarkEvictLRU_Linear_1000(b *testing.B) {
+	benchmarkLinearEvict(b, 1000)
+}
+
+func BenchmarkEvictLRU_Linear_10000(b *testing.B) {
+	benchmarkLinearEvict(b, 10000)
+}
+
+func benchmarkHeapEvict(b *testing.B, n int) {
+	b.Helper()
+	store := setupStoreForEviction(n)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		// Pop from heap (O(log N))
+		store.mu.Lock()
+		store.evictLRULocked()
+		store.mu.Unlock()
+
+		// Re-add an entry to keep the store at size n
+		store.mu.Lock()
+		now := time.Now()
+		id := "refill"
+		state := &ConversationState{ID: id, LastAccessedAt: now}
+		store.states[id] = state
+		store.touchLRULocked(id, now)
+		store.mu.Unlock()
+	}
+}
+
+func benchmarkLinearEvict(b *testing.B, n int) {
+	b.Helper()
+	store := setupStoreForEviction(n)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		// Linear scan (O(N))
+		store.mu.Lock()
+		oldestID := linearEvictLRU(store.states)
+		if state, ok := store.states[oldestID]; ok {
+			store.deleteStateLocked(oldestID, state)
+		}
+		store.mu.Unlock()
+
+		// Re-add an entry to keep the store at size n
+		store.mu.Lock()
+		now := time.Now()
+		id := "refill"
+		state := &ConversationState{ID: id, LastAccessedAt: now}
+		store.states[id] = state
+		store.touchLRULocked(id, now)
+		store.mu.Unlock()
+	}
+}
+
+// =============================================================================
+// Background expiration benchmarks — two-phase RLock vs single write lock
+// =============================================================================
+
+// setupStoreForExpiration creates a MemoryStore with n entries, half of which are expired.
+func setupStoreForExpiration(n int) *MemoryStore {
+	store := NewMemoryStore(WithMemoryTTL(50*time.Millisecond), WithNoMaxEntries())
+	now := time.Now()
+	store.mu.Lock()
+	for i := 0; i < n; i++ {
+		id := "conv-" + string(rune(i))
+		accessTime := now
+		if i%2 == 0 {
+			// Make half of the entries expired
+			accessTime = now.Add(-1 * time.Second)
+		}
+		state := &ConversationState{
+			ID:             id,
+			LastAccessedAt: accessTime,
+		}
+		store.states[id] = state
+		store.touchLRULocked(id, accessTime)
+	}
+	store.mu.Unlock()
+	return store
+}
+
+func BenchmarkExpiration_TwoPhase_1000(b *testing.B) {
+	benchmarkTwoPhaseExpire(b, 1000)
+}
+
+func BenchmarkExpiration_TwoPhase_10000(b *testing.B) {
+	benchmarkTwoPhaseExpire(b, 10000)
+}
+
+func BenchmarkExpiration_WriteLock_1000(b *testing.B) {
+	benchmarkWriteLockExpire(b, 1000)
+}
+
+func BenchmarkExpiration_WriteLock_10000(b *testing.B) {
+	benchmarkWriteLockExpire(b, 10000)
+}
+
+func benchmarkTwoPhaseExpire(b *testing.B, n int) {
+	b.Helper()
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		store := setupStoreForExpiration(n)
+		b.StartTimer()
+
+		expired := store.collectExpiredKeys()
+		store.deleteExpiredKeys(expired)
+	}
+}
+
+// evictExpiredWriteLocked is the old single-lock implementation kept for benchmarking comparison.
+func evictExpiredWriteLocked(s *MemoryStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, state := range s.states {
+		if s.isExpired(state) {
+			s.deleteStateLocked(id, state)
+		}
+	}
+}
+
+func benchmarkWriteLockExpire(b *testing.B, n int) {
+	b.Helper()
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		store := setupStoreForExpiration(n)
+		b.StartTimer()
+
+		evictExpiredWriteLocked(store)
 	}
 }

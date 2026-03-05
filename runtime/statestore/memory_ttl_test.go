@@ -490,7 +490,7 @@ func TestMemoryStore_UserIndexSetBehavior(t *testing.T) {
 	assert.Len(t, ids, 1)
 }
 
-func TestMemoryStore_EvictExpiredLocked(t *testing.T) {
+func TestMemoryStore_EvictExpiredTwoPhase(t *testing.T) {
 	store := NewMemoryStore(WithMemoryTTL(50 * time.Millisecond))
 	ctx := context.Background()
 
@@ -505,10 +505,10 @@ func TestMemoryStore_EvictExpiredLocked(t *testing.T) {
 
 	time.Sleep(80 * time.Millisecond)
 
-	// Trigger eviction manually via internal method
-	store.mu.Lock()
-	store.evictExpiredLocked()
-	store.mu.Unlock()
+	// Trigger two-phase eviction manually
+	expired := store.collectExpiredKeys()
+	assert.Len(t, expired, 5)
+	store.deleteExpiredKeys(expired)
 
 	assert.Equal(t, 0, store.Len())
 }
