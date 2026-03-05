@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 const (
@@ -367,9 +369,20 @@ func (r *Registry) Execute(
 	execCtx, cancel := r.withTimeout(ctx, tool)
 	defer cancel()
 
-	// Execute the tool
+	// Execute the tool, preferring multimodal if supported
 	start := getCurrentTimeMs()
-	result, err := executor.Execute(execCtx, tool, args)
+	var result json.RawMessage
+	var parts []types.ContentPart
+
+	if mmExec, ok := executor.(MultimodalExecutor); ok {
+		var mmErr error
+		result, parts, mmErr = mmExec.ExecuteMultimodal(execCtx, tool, args)
+		if mmErr != nil {
+			err = mmErr
+		}
+	} else {
+		result, err = executor.Execute(execCtx, tool, args)
+	}
 	latency := getCurrentTimeMs() - start
 
 	if err != nil {
@@ -393,6 +406,7 @@ func (r *Registry) Execute(
 		return &ToolResult{
 			Name:      toolName,
 			Result:    result,
+			Parts:     parts,
 			LatencyMs: latency,
 		}, nil
 	}
@@ -410,6 +424,7 @@ func (r *Registry) Execute(
 	return &ToolResult{
 		Name:      toolName,
 		Result:    validatedResult,
+		Parts:     parts,
 		LatencyMs: latency,
 	}, nil
 }
@@ -537,7 +552,16 @@ func (r *Registry) executeSyncFallback(
 	_ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
 	start := getCurrentTimeMs()
-	result, err := executor.Execute(ctx, tool, args)
+
+	var result json.RawMessage
+	var parts []types.ContentPart
+	var err error
+
+	if mmExec, ok := executor.(MultimodalExecutor); ok {
+		result, parts, err = mmExec.ExecuteMultimodal(ctx, tool, args)
+	} else {
+		result, err = executor.Execute(ctx, tool, args)
+	}
 	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
 	if err != nil {
@@ -559,10 +583,16 @@ func (r *Registry) executeSyncFallback(
 		return &ToolExecutionResult{
 			Status:  ToolStatusComplete,
 			Content: result,
+			Parts:   parts,
 		}, nil
 	}
 
-	return r.validateAndCoerceResult(tool, result)
+	execResult, resultErr := r.validateAndCoerceResult(tool, result)
+	if resultErr != nil {
+		return execResult, resultErr
+	}
+	execResult.Parts = parts
+	return execResult, nil
 }
 
 // validateAndCoerceResult validates and coerces tool execution results

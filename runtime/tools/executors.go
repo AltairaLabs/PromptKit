@@ -3,11 +3,14 @@ package tools
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"text/template"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 const (
@@ -56,6 +59,70 @@ func (e *MockStaticExecutor) Execute(
 
 	// Generate a basic mock response if no mock_result is specified
 	return json.RawMessage(`{"result": "mock response"}`), nil
+}
+
+// ExecuteMultimodal executes a tool and returns both JSON result and content parts.
+// When MockParts are configured on the descriptor, file_path references in media
+// content are resolved to base64 data, and URL references are passed through as-is.
+func (e *MockStaticExecutor) ExecuteMultimodal(
+	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, []types.ContentPart, error) {
+	result, err := e.Execute(ctx, descriptor, args)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(descriptor.MockParts) == 0 {
+		return result, nil, nil
+	}
+
+	resolvedParts, err := ResolveMockParts(descriptor.MockParts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve mock_parts for tool %s: %w", descriptor.Name, err)
+	}
+
+	return result, resolvedParts, nil
+}
+
+// ResolveMockParts processes a slice of ContentPart, resolving any file_path
+// references in MediaContent to base64-encoded data. URL references and
+// already-encoded data are passed through unchanged.
+func ResolveMockParts(parts []types.ContentPart) ([]types.ContentPart, error) {
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	resolved := make([]types.ContentPart, len(parts))
+	for i, part := range parts {
+		if part.Media != nil && part.Media.FilePath != nil && *part.Media.FilePath != "" {
+			resolvedPart, err := resolveFilePathPart(part)
+			if err != nil {
+				return nil, err
+			}
+			resolved[i] = resolvedPart
+		} else {
+			resolved[i] = part
+		}
+	}
+	return resolved, nil
+}
+
+// resolveFilePathPart reads a file from disk and converts it to a base64 data part.
+func resolveFilePathPart(part types.ContentPart) (types.ContentPart, error) {
+	data, err := os.ReadFile(filepath.Clean(*part.Media.FilePath))
+	if err != nil {
+		return types.ContentPart{}, fmt.Errorf("failed to read file %s: %w", *part.Media.FilePath, err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(data)
+	mediaCopy := *part.Media
+	mediaCopy.Data = &encoded
+	mediaCopy.FilePath = nil
+
+	return types.ContentPart{
+		Type:  part.Type,
+		Text:  part.Text,
+		Media: &mediaCopy,
+	}, nil
 }
 
 // MockScriptedExecutor executes tools using templated mock data
