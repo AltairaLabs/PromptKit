@@ -84,6 +84,8 @@ type ToolDescriptor struct {
 
 	// Static mock data (in-memory)
 	MockResult json.RawMessage `json:"mock_result,omitempty" yaml:"mock_result,omitempty"`
+	// Multimodal mock parts (text, image, audio, etc.)
+	MockParts []types.ContentPart `json:"mock_parts,omitempty" yaml:"mock_parts,omitempty"`
 	// Template for dynamic mocks (inline or file)
 	MockTemplate     string `json:"mock_template,omitempty" yaml:"mock_template,omitempty"`
 	MockResultFile   string `json:"mock_result_file,omitempty" yaml:"mock_result_file,omitempty"`
@@ -229,6 +231,17 @@ func (e *ValidationError) Error() string {
 type Executor interface {
 	Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
 	Name() string
+}
+
+// MultimodalExecutor extends Executor with support for returning multimodal content parts.
+// Executors that can return images, audio, or other non-text content should implement this.
+type MultimodalExecutor interface {
+	Executor
+
+	// ExecuteMultimodal returns both the JSON result and optional content parts.
+	ExecuteMultimodal(
+		ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+	) (json.RawMessage, []types.ContentPart, error)
 }
 
 // AsyncToolExecutor is a tool that can return pending status instead of blocking.
