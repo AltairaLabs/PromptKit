@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg" // Register JPEG decoder
 	_ "image/png"  // Register PNG decoder
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -284,14 +285,7 @@ func (s *VideoToFramesStage) buildFFmpegArgs(inputPath, outputPattern string) []
 
 // ffmpegJoinFilters joins FFmpeg video filters with comma separator.
 func ffmpegJoinFilters(filters []string) string {
-	if len(filters) == 0 {
-		return ""
-	}
-	result := filters[0]
-	for i := 1; i < len(filters); i++ {
-		result += "," + filters[i]
-	}
-	return result
+	return strings.Join(filters, ",")
 }
 
 // generateVideoID creates a unique identifier for video correlation.

@@ -244,28 +244,6 @@ func TestIntsOverlap(t *testing.T) {
 	}
 }
 
-func TestJoinStrings(t *testing.T) {
-	tests := []struct {
-		name   string
-		strs   []string
-		sep    string
-		expect string
-	}{
-		{"empty", []string{}, "|", ""},
-		{"single", []string{"a"}, "|", "a"},
-		{"multiple", []string{"a", "b", "c"}, "|", "a|b|c"},
-		{"different sep", []string{"x", "y"}, ",", "x,y"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := joinStrings(tt.strs, tt.sep); got != tt.expect {
-				t.Errorf("joinStrings() = %q, want %q", got, tt.expect)
-			}
-		})
-	}
-}
-
 func TestDescribeAudioCapability(t *testing.T) {
 	tests := []struct {
 		name   string

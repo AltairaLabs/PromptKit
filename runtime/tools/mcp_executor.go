@@ -108,21 +108,17 @@ func (e *MCPExecutor) extractErrorMessage(content []mcp.Content) string {
 		return mcpToolReturnedErr
 	}
 
-	var errorMsg string
-	for i, item := range content {
+	var parts []string
+	for _, item := range content {
 		if item.Text != "" {
-			if i == 0 {
-				errorMsg = item.Text
-			} else {
-				errorMsg += "; " + item.Text
-			}
+			parts = append(parts, item.Text)
 		}
 	}
 
-	if errorMsg == "" {
+	if len(parts) == 0 {
 		return mcpToolReturnedErr
 	}
-	return errorMsg
+	return strings.Join(parts, "; ")
 }
 
 func (e *MCPExecutor) formatSuccessResponse(toolName string, response *mcp.ToolCallResponse) (json.RawMessage, error) {

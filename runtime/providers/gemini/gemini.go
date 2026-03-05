@@ -324,25 +324,28 @@ func (p *Provider) handleNoCandidatesError(geminiResp geminiResponse, predictRes
 
 	// Check if prompt was blocked
 	if geminiResp.PromptFeedback != nil && geminiResp.PromptFeedback.BlockReason != "" {
-		errorMsg := fmt.Sprintf("no candidates in response - prompt blocked: %s", geminiResp.PromptFeedback.BlockReason)
+		var b strings.Builder
+		fmt.Fprintf(&b, "no candidates in response - prompt blocked: %s", geminiResp.PromptFeedback.BlockReason)
 		if len(geminiResp.PromptFeedback.SafetyRatings) > 0 {
-			errorMsg += " (safety ratings:"
+			b.WriteString(" (safety ratings:")
 			for _, rating := range geminiResp.PromptFeedback.SafetyRatings {
-				errorMsg += fmt.Sprintf(" %s=%s", rating.Category, rating.Probability)
+				fmt.Fprintf(&b, " %s=%s", rating.Category, rating.Probability)
 			}
-			errorMsg += ")"
+			b.WriteString(")")
 		}
-		errorMsg += " - consider adjusting safety settings or prompt content"
-		return predictResp, errors.New(errorMsg)
+		b.WriteString(" - consider adjusting safety settings or prompt content")
+		return predictResp, errors.New(b.String())
 	}
 
 	// No candidates but also no explicit block reason
-	errorMsg := "no candidates in response (prompt consumed tokens but generated no output)"
+	var b strings.Builder
+	b.WriteString("no candidates in response (prompt consumed tokens but generated no output)")
 	if geminiResp.UsageMetadata != nil {
-		errorMsg += fmt.Sprintf(" - used %d prompt tokens", geminiResp.UsageMetadata.PromptTokenCount)
+		fmt.Fprintf(&b, " - used %d prompt tokens", geminiResp.UsageMetadata.PromptTokenCount)
 	}
-	errorMsg += " - this may indicate the model refused to generate content, try rephrasing the prompt or checking system instructions"
-	return predictResp, errors.New(errorMsg)
+	b.WriteString(" - this may indicate the model refused to generate content, " +
+		"try rephrasing the prompt or checking system instructions")
+	return predictResp, errors.New(b.String())
 }
 
 // makeGeminiHTTPRequest sends the HTTP request to Gemini API

@@ -2,6 +2,8 @@
 package stage
 
 import (
+	"strings"
+
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
@@ -217,27 +219,15 @@ func joinContentTypes(types []ContentType) string {
 	for i, ct := range types {
 		strs[i] = ct.String()
 	}
-	return joinStrings(strs, "|")
+	return strings.Join(strs, "|")
 }
 
 func describeAudioCapability(audio *AudioCapability) string {
 	if audio == nil {
 		return ""
 	}
-	result := ""
 	if len(audio.Formats) > 0 {
-		result = joinStrings(audioFormatsToStrings(audio.Formats), "|")
+		return strings.Join(audioFormatsToStrings(audio.Formats), "|")
 	}
-	return result
-}
-
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
+	return ""
 }
