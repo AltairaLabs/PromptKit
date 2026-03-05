@@ -11,10 +11,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMemoryStore_DefaultNoTTL(t *testing.T) {
+func TestMemoryStore_DefaultTTLAndMaxEntries(t *testing.T) {
 	store := NewMemoryStore()
-	ctx := context.Background()
 
+	// Defaults should be applied
+	assert.Equal(t, DefaultTTL, store.ttl)
+	assert.Equal(t, DefaultMaxEntries, store.maxEntries)
+
+	ctx := context.Background()
+	state := &ConversationState{
+		ID:     "conv-1",
+		UserID: "user-alice",
+	}
+	err := store.Save(ctx, state)
+	require.NoError(t, err)
+
+	// Within TTL, entries are accessible
+	loaded, err := store.Load(ctx, "conv-1")
+	require.NoError(t, err)
+	assert.Equal(t, "conv-1", loaded.ID)
+}
+
+func TestMemoryStore_WithNoTTL(t *testing.T) {
+	store := NewMemoryStore(WithNoTTL())
+
+	assert.Equal(t, time.Duration(0), store.ttl)
+	assert.True(t, store.ttlSet)
+
+	ctx := context.Background()
 	state := &ConversationState{
 		ID:     "conv-1",
 		UserID: "user-alice",
@@ -26,6 +50,46 @@ func TestMemoryStore_DefaultNoTTL(t *testing.T) {
 	loaded, err := store.Load(ctx, "conv-1")
 	require.NoError(t, err)
 	assert.Equal(t, "conv-1", loaded.ID)
+}
+
+func TestMemoryStore_WithNoMaxEntries(t *testing.T) {
+	store := NewMemoryStore(WithNoMaxEntries())
+
+	assert.Equal(t, 0, store.maxEntries)
+	assert.True(t, store.maxEntriesSet)
+
+	ctx := context.Background()
+	for i := 0; i < 20; i++ {
+		err := store.Save(ctx, &ConversationState{
+			ID: "conv-" + string(rune('a'+i)),
+		})
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 20, store.Len())
+}
+
+func TestMemoryStore_WithTTLZeroDisablesTTL(t *testing.T) {
+	store := NewMemoryStore(WithMemoryTTL(0))
+
+	assert.Equal(t, time.Duration(0), store.ttl)
+	assert.True(t, store.ttlSet)
+}
+
+func TestMemoryStore_WithMaxEntriesZeroDisablesLimit(t *testing.T) {
+	store := NewMemoryStore(WithMemoryMaxEntries(0))
+
+	assert.Equal(t, 0, store.maxEntries)
+	assert.True(t, store.maxEntriesSet)
+}
+
+func TestMemoryStore_OverrideDefaultTTL(t *testing.T) {
+	store := NewMemoryStore(WithMemoryTTL(5 * time.Minute))
+	assert.Equal(t, 5*time.Minute, store.ttl)
+}
+
+func TestMemoryStore_OverrideDefaultMaxEntries(t *testing.T) {
+	store := NewMemoryStore(WithMemoryMaxEntries(500))
+	assert.Equal(t, 500, store.maxEntries)
 }
 
 func TestMemoryStore_TTLExpiry(t *testing.T) {
@@ -352,7 +416,7 @@ func TestMemoryStore_TTLConcurrentAccess(t *testing.T) {
 }
 
 func TestMemoryStore_MaxEntriesWithZeroIsUnlimited(t *testing.T) {
-	store := NewMemoryStore(WithMemoryMaxEntries(0))
+	store := NewMemoryStore(WithMemoryMaxEntries(0), WithNoTTL())
 	ctx := context.Background()
 
 	for i := 0; i < 10; i++ {
@@ -365,7 +429,7 @@ func TestMemoryStore_MaxEntriesWithZeroIsUnlimited(t *testing.T) {
 }
 
 func TestMemoryStore_MaxEntriesNegativeIsIgnored(t *testing.T) {
-	store := NewMemoryStore(WithMemoryMaxEntries(-5))
+	store := NewMemoryStore(WithMemoryMaxEntries(-5), WithNoTTL())
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
