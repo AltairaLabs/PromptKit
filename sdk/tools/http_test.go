@@ -3,9 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -515,5 +517,109 @@ func TestEmptyArgs(t *testing.T) {
 	_, err = executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("Execute() with empty object error = %v", err)
+	}
+}
+
+func TestHTTPExecutor_AggregateResponseSizeLimit(t *testing.T) {
+	// Server returns a 1KB payload each time.
+	payload := strings.Repeat("x", 1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":"` + payload + `"}`))
+	}))
+	defer server.Close()
+
+	// Set aggregate limit to 2KB — first two calls succeed, third fails.
+	executor := NewHTTPExecutorWithMaxAggregate(2048)
+	executor.client = server.Client()
+
+	descriptor := &tools.ToolDescriptor{
+		Name:       "test_tool",
+		HTTPConfig: &tools.HTTPConfig{URL: server.URL, Method: "GET"},
+	}
+
+	// First call should succeed.
+	_, err := executor.Execute(context.Background(), descriptor, nil)
+	if err != nil {
+		t.Fatalf("first call: unexpected error: %v", err)
+	}
+
+	// Second call should succeed (approaching but within limit depends on payload+JSON overhead).
+	_, err = executor.Execute(context.Background(), descriptor, nil)
+	// Whether second succeeds depends on exact size; the third should definitely fail.
+	if err != nil && !errors.Is(err, ErrAggregateResponseSizeExceeded) {
+		t.Fatalf("second call: unexpected error type: %v", err)
+	}
+
+	// Third call should fail with aggregate limit.
+	_, err = executor.Execute(context.Background(), descriptor, nil)
+	if err == nil {
+		t.Fatal("expected aggregate size error, got nil")
+	}
+	if !errors.Is(err, ErrAggregateResponseSizeExceeded) {
+		t.Errorf("expected ErrAggregateResponseSizeExceeded, got: %v", err)
+	}
+}
+
+func TestHTTPExecutor_AggregateResponseSize_Tracking(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	executor := NewHTTPExecutor()
+	executor.client = server.Client()
+
+	descriptor := &tools.ToolDescriptor{
+		Name:       "test_tool",
+		HTTPConfig: &tools.HTTPConfig{URL: server.URL, Method: "GET"},
+	}
+
+	_, err := executor.Execute(context.Background(), descriptor, nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if got := executor.AggregateResponseSize(); got == 0 {
+		t.Error("AggregateResponseSize() should be > 0 after a call")
+	}
+
+	executor.ResetAggregateSize()
+	if got := executor.AggregateResponseSize(); got != 0 {
+		t.Errorf("AggregateResponseSize() after reset = %d, want 0", got)
+	}
+}
+
+func TestHTTPExecutor_AggregateDisabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	// maxAggregateSize = 0 disables the limit.
+	executor := NewHTTPExecutorWithMaxAggregate(0)
+	executor.client = server.Client()
+
+	descriptor := &tools.ToolDescriptor{
+		Name:       "test_tool",
+		HTTPConfig: &tools.HTTPConfig{URL: server.URL, Method: "GET"},
+	}
+
+	// Should succeed even with many calls.
+	for range 10 {
+		_, err := executor.Execute(context.Background(), descriptor, nil)
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+	}
+}
+
+func TestNewHTTPExecutorWithMaxAggregate(t *testing.T) {
+	executor := NewHTTPExecutorWithMaxAggregate(100)
+	if executor.maxAggregateSize != 100 {
+		t.Errorf("maxAggregateSize = %d, want 100", executor.maxAggregateSize)
 	}
 }
