@@ -1,0 +1,42 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: generate-chart
+spec:
+  name: generate_chart
+  description: Generates a chart image from the specified metric and time period
+  input_schema:
+    type: object
+    properties:
+      metric:
+        type: string
+        description: The metric to chart (e.g., revenue, users, orders)
+      period:
+        type: string
+        description: Time period for the chart (e.g., Q1-2026)
+    required:
+      - metric
+      - period
+  output_schema:
+    type: object
+    properties:
+      title:
+        type: string
+      data_points:
+        type: integer
+  mode: mock
+  timeout_ms: 5000
+  mock_result:
+    title: "Revenue Chart Q1-2026"
+    data_points: 90
+  # Multimodal mock parts: text summary + image from file
+  mock_parts:
+    - type: text
+      text: "Revenue Chart Q1-2026 — 90 data points"
+    - type: image
+      media:
+        file_path: testdata/sample-chart.png
+        mime_type: image/png
+        width: 800
+        height: 600
+        caption: "Q1 2026 revenue trend"

@@ -1,0 +1,31 @@
+# Mock LLM responses for multimodal tool results example.
+# The provider returns canned responses including tool_calls so the
+# pipeline invokes tools that have mock_parts configured.
+
+defaultResponse: "I can help you with charts and document scanning."
+
+scenarios:
+  chart-generation:
+    turns:
+      # Turn 1: LLM decides to call generate_chart
+      1:
+        tool_calls:
+          - name: generate_chart
+            arguments:
+              metric: revenue
+              period: Q1-2026
+        content: ""
+      # Turn 2: LLM describes the chart it received
+      2: "The revenue chart for Q1-2026 shows a steady upward trend with monthly revenue increasing from $1.2M in January to $1.8M in March — a 50% growth over the quarter."
+
+  document-scan:
+    turns:
+      # Turn 1: LLM decides to call scan_document
+      1:
+        tool_calls:
+          - name: scan_document
+            arguments:
+              source: "receipt"
+        content: ""
+      # Turn 2: LLM summarizes the scanned document
+      2: "The scanned receipt shows a purchase of office supplies totaling $247.50 from OfficeMax on March 1, 2026."
