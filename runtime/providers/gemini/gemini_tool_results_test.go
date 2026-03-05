@@ -64,22 +64,21 @@ func TestToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 	messages := []types.Message{
 		{Role: "user", Content: "What's the weather?"},
 		{
-			Role:    "assistant",
-			Parts:     []types.ContentPart{types.NewTextPart("Let me check the weather for you.")},
+			Role:  "assistant",
+			Parts: []types.ContentPart{types.NewTextPart("Let me check the weather for you.")},
 
 			ToolCalls: []types.MessageToolCall{
 				{ID: "call_123", Name: "get_weather", Args: json.RawMessage(`{"location":"SF"}`)},
 			},
 		},
 		{
-			Role:    "tool",
-			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
+			Role:  "tool",
+			Parts: []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
 
 			ToolResult: &types.MessageToolResult{
-				ID:      "call_123",
-				Name:    "get_weather",
-				Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
-
+				ID:    "call_123",
+				Name:  "get_weather",
+				Parts: []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
 			},
 		},
 		{Role: "user", Content: "Thanks! Now check NYC."},
@@ -219,25 +218,23 @@ func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 			},
 		},
 		{
-			Role:    "tool",
-			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
+			Role:  "tool",
+			Parts: []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
 
 			ToolResult: &types.MessageToolResult{
-				ID:      "call_sf",
-				Name:    "get_weather",
-				Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
-
+				ID:    "call_sf",
+				Name:  "get_weather",
+				Parts: []types.ContentPart{types.NewTextPart(`{"temperature": 72, "condition": "sunny"}`)},
 			},
 		},
 		{
-			Role:    "tool",
-			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 65, "condition": "cloudy"}`)},
+			Role:  "tool",
+			Parts: []types.ContentPart{types.NewTextPart(`{"temperature": 65, "condition": "cloudy"}`)},
 
 			ToolResult: &types.MessageToolResult{
-				ID:      "call_nyc",
-				Name:    "get_weather",
-				Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 65, "condition": "cloudy"}`)},
-
+				ID:    "call_nyc",
+				Name:  "get_weather",
+				Parts: []types.ContentPart{types.NewTextPart(`{"temperature": 65, "condition": "cloudy"}`)},
 			},
 		},
 	}
@@ -301,6 +298,249 @@ func TestToolProvider_MultipleToolResultsGrouped(t *testing.T) {
 	t.Logf("✅ Multiple tool results properly grouped in single user content")
 }
 
+// TestProcessToolMessage_TextOnly verifies that text-only tool results serialize correctly (regression).
+func TestProcessToolMessage_TextOnly(t *testing.T) {
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "call_1",
+			Name: "lookup",
+			Parts: []types.ContentPart{
+				types.NewTextPart(`{"status": "ok", "count": 42}`),
+			},
+		},
+	}
+
+	result := processToolMessage(msg)
+	funcResp, ok := result["functionResponse"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected functionResponse map, got %T", result["functionResponse"])
+	}
+
+	if funcResp["name"] != "lookup" {
+		t.Errorf("Expected name 'lookup', got '%v'", funcResp["name"])
+	}
+
+	response, ok := funcResp["response"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected response to be map, got %T", funcResp["response"])
+	}
+
+	// JSON object should be used directly (not wrapped in "result")
+	if response["status"] != "ok" {
+		t.Errorf("Expected status 'ok', got %v", response["status"])
+	}
+	if response["count"] != float64(42) {
+		t.Errorf("Expected count 42, got %v", response["count"])
+	}
+
+	// Should NOT have inlineData for text-only results
+	if _, hasInlineData := response["inlineData"]; hasInlineData {
+		t.Error("Text-only tool result should not have inlineData")
+	}
+}
+
+// TestProcessToolMessage_ImagePart verifies that tool results with image parts
+// emit inlineData with the correct mimeType.
+func TestProcessToolMessage_ImagePart(t *testing.T) {
+	imageData := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "call_chart",
+			Name: "generate_chart",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Chart generated successfully"),
+				{
+					Type: types.ContentTypeImage,
+					Media: &types.MediaContent{
+						MIMEType: "image/png",
+						Data:     &imageData,
+					},
+				},
+			},
+		},
+	}
+
+	result := processToolMessage(msg)
+	funcResp := result["functionResponse"].(map[string]any)
+
+	if funcResp["name"] != "generate_chart" {
+		t.Errorf("Expected name 'generate_chart', got '%v'", funcResp["name"])
+	}
+
+	response, ok := funcResp["response"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected response to be map, got %T", funcResp["response"])
+	}
+
+	// Should have text
+	if response["text"] != "Chart generated successfully" {
+		t.Errorf("Expected text 'Chart generated successfully', got '%v'", response["text"])
+	}
+
+	// Should have inlineData
+	inlineData, ok := response["inlineData"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected inlineData map, got %T", response["inlineData"])
+	}
+
+	if inlineData["mimeType"] != "image/png" {
+		t.Errorf("Expected mimeType 'image/png', got '%v'", inlineData["mimeType"])
+	}
+
+	if inlineData["data"] != imageData {
+		t.Errorf("Expected base64 data to match, got '%v'", inlineData["data"])
+	}
+}
+
+// TestProcessToolMessage_MixedContent tests tool results with text and media parts.
+func TestProcessToolMessage_MixedContent(t *testing.T) {
+	audioData := "AAABAAAAAAEAAQBFAAEAAQBF"
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "call_tts",
+			Name: "text_to_speech",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Audio generated"),
+				{
+					Type: types.ContentTypeAudio,
+					Media: &types.MediaContent{
+						MIMEType: "audio/wav",
+						Data:     &audioData,
+					},
+				},
+			},
+		},
+	}
+
+	result := processToolMessage(msg)
+	funcResp := result["functionResponse"].(map[string]any)
+	response := funcResp["response"].(map[string]any)
+
+	// Should have both text and inlineData
+	if response["text"] != "Audio generated" {
+		t.Errorf("Expected text 'Audio generated', got '%v'", response["text"])
+	}
+
+	inlineData := response["inlineData"].(map[string]any)
+	if inlineData["mimeType"] != "audio/wav" {
+		t.Errorf("Expected mimeType 'audio/wav', got '%v'", inlineData["mimeType"])
+	}
+}
+
+// TestProcessToolMessage_ImageOnlyNoText tests tool results with only an image and no text.
+func TestProcessToolMessage_ImageOnlyNoText(t *testing.T) {
+	imageData := "iVBORw0KGgoAAAANSUhEUg"
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "call_screenshot",
+			Name: "take_screenshot",
+			Parts: []types.ContentPart{
+				{
+					Type: types.ContentTypeImage,
+					Media: &types.MediaContent{
+						MIMEType: "image/jpeg",
+						Data:     &imageData,
+					},
+				},
+			},
+		},
+	}
+
+	result := processToolMessage(msg)
+	funcResp := result["functionResponse"].(map[string]any)
+	response := funcResp["response"].(map[string]any)
+
+	// Should NOT have text key
+	if _, hasText := response["text"]; hasText {
+		t.Error("Image-only tool result should not have text key")
+	}
+
+	// Should have inlineData
+	inlineData := response["inlineData"].(map[string]any)
+	if inlineData["mimeType"] != "image/jpeg" {
+		t.Errorf("Expected mimeType 'image/jpeg', got '%v'", inlineData["mimeType"])
+	}
+	if inlineData["data"] != imageData {
+		t.Error("Expected base64 data to match")
+	}
+}
+
+// TestBuildTextToolResponse_JSONObject tests that JSON objects are used directly.
+func TestBuildTextToolResponse_JSONObject(t *testing.T) {
+	response := buildTextToolResponse(`{"key": "value"}`)
+	respMap, ok := response.(map[string]any)
+	if !ok {
+		t.Fatalf("Expected map, got %T", response)
+	}
+	if respMap["key"] != "value" {
+		t.Errorf("Expected key 'value', got '%v'", respMap["key"])
+	}
+}
+
+// TestBuildTextToolResponse_PlainString tests that plain strings get wrapped.
+func TestBuildTextToolResponse_PlainString(t *testing.T) {
+	response := buildTextToolResponse("hello world")
+	respMap, ok := response.(map[string]any)
+	if !ok {
+		t.Fatalf("Expected map, got %T", response)
+	}
+	if respMap["result"] != "hello world" {
+		t.Errorf("Expected result 'hello world', got '%v'", respMap["result"])
+	}
+}
+
+// TestBuildTextToolResponse_Primitive tests that primitives get wrapped.
+func TestBuildTextToolResponse_Primitive(t *testing.T) {
+	response := buildTextToolResponse("42")
+	respMap, ok := response.(map[string]any)
+	if !ok {
+		t.Fatalf("Expected map, got %T", response)
+	}
+	if respMap["result"] != float64(42) {
+		t.Errorf("Expected result 42, got '%v'", respMap["result"])
+	}
+}
+
+// TestBuildMultimodalToolResponse tests the multimodal response builder directly.
+func TestBuildMultimodalToolResponse(t *testing.T) {
+	imgData := "base64data"
+	result := &types.MessageToolResult{
+		ID:   "call_1",
+		Name: "gen_image",
+		Parts: []types.ContentPart{
+			types.NewTextPart("Image ready"),
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType: "image/png",
+					Data:     &imgData,
+				},
+			},
+		},
+	}
+
+	response := buildMultimodalToolResponse(result)
+
+	if response["text"] != "Image ready" {
+		t.Errorf("Expected text 'Image ready', got '%v'", response["text"])
+	}
+
+	inlineData, ok := response["inlineData"].(map[string]any)
+	if !ok {
+		t.Fatalf("Expected inlineData map, got %T", response["inlineData"])
+	}
+	if inlineData["mimeType"] != "image/png" {
+		t.Errorf("Expected mimeType 'image/png', got '%v'", inlineData["mimeType"])
+	}
+	if inlineData["data"] != imgData {
+		t.Error("Expected data to match")
+	}
+}
+
 // TestProcessToolMessage_UsesToolResultContent verifies that processToolMessage
 // uses ToolResult.Content (not msg.Content) for the tool response.
 // This is critical for streaming with tools to work correctly.
@@ -312,11 +552,11 @@ func TestProcessToolMessage_UsesToolResultContent(t *testing.T) {
 		Role: "tool",
 		// Content is intentionally empty - this is how the SDK creates tool result messages
 		ToolResult: &types.MessageToolResult{
-			ID:      "call_abc123",
-			Name:    "weather",
-			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 73, "conditions": "sunny"}`)},
+			ID:    "call_abc123",
+			Name:  "weather",
+			Parts: []types.ContentPart{types.NewTextPart(`{"temperature": 73, "conditions": "sunny"}`)},
 
-			Error:   "",
+			Error: "",
 		},
 	}
 
