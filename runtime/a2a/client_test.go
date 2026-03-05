@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -841,5 +842,98 @@ func TestClient_PropagatesTraceHeaders(t *testing.T) {
 	}
 	if gotTP != "" {
 		t.Errorf("expected no traceparent without span context, got %q", gotTP)
+	}
+}
+
+func TestReadSSEWithIdleTimeout(t *testing.T) {
+	t.Run("returns after idle timeout", func(t *testing.T) {
+		// Create a reader that blocks forever (no data).
+		r, _ := io.Pipe()
+		ch := make(chan StreamEvent, 1)
+
+		done := make(chan struct{})
+		go func() {
+			ReadSSEWithIdleTimeout(context.Background(), r, ch, 50*time.Millisecond)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Expected: returned due to idle timeout.
+		case <-time.After(2 * time.Second):
+			t.Fatal("ReadSSEWithIdleTimeout did not return within expected time")
+		}
+	})
+
+	t.Run("resets timer on activity", func(t *testing.T) {
+		// Send events with short delays, verify no idle timeout.
+		status := TaskStatusUpdateEvent{
+			TaskID: "t1",
+			Status: TaskStatus{State: TaskStateWorking},
+		}
+		payload, _ := json.Marshal(status)
+
+		pr, pw := io.Pipe()
+		ch := make(chan StreamEvent, 10)
+
+		go func() {
+			// Send two events with 30ms gap, idle timeout is 100ms.
+			for range 2 {
+				fmt.Fprintf(pw, "data: %s\n\n", payload)
+				time.Sleep(30 * time.Millisecond)
+			}
+			pw.Close()
+		}()
+
+		done := make(chan struct{})
+		go func() {
+			ReadSSEWithIdleTimeout(context.Background(), pr, ch, 100*time.Millisecond)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("ReadSSEWithIdleTimeout did not complete")
+		}
+
+		// Should have received 2 events.
+		close(ch)
+		var count int
+		for range ch {
+			count++
+		}
+		if count != 2 {
+			t.Errorf("got %d events, want 2", count)
+		}
+	})
+
+	t.Run("zero timeout disables idle detection", func(t *testing.T) {
+		// With zero timeout, ReadSSE should work as before (block until EOF).
+		status := TaskStatusUpdateEvent{
+			TaskID: "t1",
+			Status: TaskStatus{State: TaskStateCompleted},
+		}
+		payload, _ := json.Marshal(status)
+		data := fmt.Sprintf("data: %s\n\n", payload)
+
+		ch := make(chan StreamEvent, 1)
+		ReadSSEWithIdleTimeout(context.Background(), strings.NewReader(data), ch, 0)
+		close(ch)
+
+		var count int
+		for range ch {
+			count++
+		}
+		if count != 1 {
+			t.Errorf("got %d events, want 1", count)
+		}
+	})
+}
+
+func TestWithSSEIdleTimeout(t *testing.T) {
+	c := NewClient("http://example.com", WithSSEIdleTimeout(30*time.Second))
+	if c.sseIdleTimeout != 30*time.Second {
+		t.Errorf("sseIdleTimeout = %v, want 30s", c.sseIdleTimeout)
 	}
 }
