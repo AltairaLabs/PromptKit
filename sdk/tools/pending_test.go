@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -288,6 +289,32 @@ func TestResolvedStore(t *testing.T) {
 
 		store.PopAll()
 		assert.Equal(t, 0, store.Len())
+	})
+}
+
+func TestToolResolution_PartsField(t *testing.T) {
+	t.Run("parts field stores multimodal content", func(t *testing.T) {
+		text := "result text"
+		imgData := "base64data"
+		res := &ToolResolution{
+			ID: "call-1",
+			Parts: []types.ContentPart{
+				types.NewTextPart(text),
+				types.NewImagePartFromData(imgData, "image/png", nil),
+			},
+		}
+
+		assert.Equal(t, "call-1", res.ID)
+		require.Len(t, res.Parts, 2)
+		assert.Equal(t, "text", res.Parts[0].Type)
+		assert.Equal(t, &text, res.Parts[0].Text)
+		assert.Equal(t, "image", res.Parts[1].Type)
+		assert.Equal(t, "image/png", res.Parts[1].Media.MIMEType)
+	})
+
+	t.Run("nil parts by default", func(t *testing.T) {
+		res := &ToolResolution{ID: "call-2"}
+		assert.Nil(t, res.Parts)
 	})
 }
 

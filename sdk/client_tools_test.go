@@ -514,6 +514,151 @@ func TestResumeStream_WithResolutions(t *testing.T) {
 	assert.NotNil(t, lastChunk.Message)
 }
 
+func TestSendToolResultMultimodal(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+
+	text := "screenshot of the result"
+	imgData := "base64data"
+	parts := []types.ContentPart{
+		types.NewTextPart(text),
+		types.NewImagePartFromData(imgData, "image/png", nil),
+	}
+
+	err := conv.SendToolResultMultimodal(context.Background(), "call-mm", parts)
+	require.NoError(t, err)
+
+	resolutions := conv.resolvedStore.PopAll()
+	require.Len(t, resolutions, 1)
+	assert.Equal(t, "call-mm", resolutions[0].ID)
+	require.Len(t, resolutions[0].Parts, 2)
+	assert.Equal(t, "text", resolutions[0].Parts[0].Type)
+	assert.Equal(t, "image", resolutions[0].Parts[1].Type)
+}
+
+func TestSendToolResultMultimodal_EmptyParts(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+
+	err := conv.SendToolResultMultimodal(context.Background(), "call-mm", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parts must not be empty")
+
+	err = conv.SendToolResultMultimodal(context.Background(), "call-mm", []types.ContentPart{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parts must not be empty")
+}
+
+func TestBuildToolResultMessages_MultimodalParts(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+
+	text := "here is the image"
+	imgData := "base64imagedata"
+	parts := []types.ContentPart{
+		types.NewTextPart(text),
+		types.NewImagePartFromData(imgData, "image/jpeg", nil),
+	}
+
+	conv.resolvedStore.Add(&sdktools.ToolResolution{
+		ID:    "call-mm",
+		Parts: parts,
+	})
+
+	msgs, err := conv.buildToolResultMessages()
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	toolResult := msgs[0].ToolResult
+	require.NotNil(t, toolResult)
+	require.Len(t, toolResult.Parts, 2)
+	assert.Equal(t, "text", toolResult.Parts[0].Type)
+	assert.Equal(t, &text, toolResult.Parts[0].Text)
+	assert.Equal(t, "image", toolResult.Parts[1].Type)
+	assert.Equal(t, "image/jpeg", toolResult.Parts[1].Media.MIMEType)
+}
+
+func TestBuildToolResultMessages_TextOnlyWrapsAsContentPart(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+
+	err := conv.SendToolResult(context.Background(), "call-text", map[string]any{"status": "ok"})
+	require.NoError(t, err)
+
+	msgs, err := conv.buildToolResultMessages()
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	toolResult := msgs[0].ToolResult
+	require.NotNil(t, toolResult)
+	require.Len(t, toolResult.Parts, 1)
+	assert.Equal(t, "text", toolResult.Parts[0].Type)
+	assert.Contains(t, *toolResult.Parts[0].Text, "status")
+}
+
+func TestBuildToolResultMessages_RejectionWrapsAsContentPart(t *testing.T) {
+	conv := newTestConversation()
+	conv.resolvedStore = sdktools.NewResolvedStore()
+
+	conv.RejectClientTool(context.Background(), "call-rej", "not allowed")
+
+	msgs, err := conv.buildToolResultMessages()
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	toolResult := msgs[0].ToolResult
+	require.NotNil(t, toolResult)
+	require.Len(t, toolResult.Parts, 1)
+	assert.Equal(t, "text", toolResult.Parts[0].Type)
+	assert.Contains(t, *toolResult.Parts[0].Text, "Tool rejected: not allowed")
+}
+
+func TestClientExecutor_ExecuteAsync_ReturnsContentParts(t *testing.T) {
+	conv := newTestConversation()
+
+	text := "captured image"
+	conv.OnClientTool("camera", func(_ context.Context, _ ClientToolRequest) (any, error) {
+		return []types.ContentPart{
+			types.NewTextPart(text),
+			types.NewImagePartFromData("base64img", "image/png", nil),
+		}, nil
+	})
+
+	exec := &clientExecutor{
+		handlers:   conv.clientHandlers,
+		handlersMu: &clientHandlersMuAccessor{conv: conv},
+	}
+
+	desc := &tools.ToolDescriptor{Name: "camera", Mode: "client"}
+	result, err := exec.ExecuteAsync(context.Background(), desc, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, tools.ToolStatusComplete, result.Status)
+	require.Len(t, result.Parts, 2)
+	assert.Equal(t, "text", result.Parts[0].Type)
+	assert.Equal(t, "image", result.Parts[1].Type)
+	// Content should be empty since parts take precedence
+	assert.Empty(t, result.Content)
+}
+
+func TestClientExecutor_ExecuteAsync_NonContentPartsJSON(t *testing.T) {
+	conv := newTestConversation()
+	conv.OnClientTool("simple", func(_ context.Context, _ ClientToolRequest) (any, error) {
+		return map[string]any{"result": "ok"}, nil
+	})
+
+	exec := &clientExecutor{
+		handlers:   conv.clientHandlers,
+		handlersMu: &clientHandlersMuAccessor{conv: conv},
+	}
+
+	desc := &tools.ToolDescriptor{Name: "simple", Mode: "client"}
+	result, err := exec.ExecuteAsync(context.Background(), desc, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, tools.ToolStatusComplete, result.Status)
+	assert.NotEmpty(t, result.Content)
+	assert.Empty(t, result.Parts)
+}
+
 func TestBuildToolResultMessages_ErrorBranch(t *testing.T) {
 	conv := newTestConversation()
 	conv.resolvedStore = sdktools.NewResolvedStore()

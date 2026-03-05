@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 const (
@@ -244,6 +246,11 @@ type ToolResolution struct {
 
 	// ResultJSON is the JSON-encoded result
 	ResultJSON json.RawMessage
+
+	// Parts contains multimodal content parts for the tool result.
+	// When set, these are used directly as MessageToolResult.Parts,
+	// taking precedence over ResultJSON.
+	Parts []types.ContentPart
 
 	// Error if execution failed
 	Error error

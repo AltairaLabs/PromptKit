@@ -173,15 +173,8 @@ func (e *clientExecutor) ExecuteAsync(
 		}, nil
 	}
 
-	// Handler present → execute synchronously
-	resultJSON, err := e.executeHandler(ctx, handler, descriptor, argsMap)
-	if err != nil {
-		return nil, err
-	}
-	return &tools.ToolExecutionResult{
-		Status:  tools.ToolStatusComplete,
-		Content: resultJSON,
-	}, nil
+	// Handler present → execute synchronously (with multimodal support)
+	return e.executeHandlerAsync(ctx, handler, descriptor, argsMap)
 }
 
 // SendToolResult provides the result for a deferred client tool.
@@ -199,6 +192,26 @@ func (c *Conversation) SendToolResult(_ context.Context, callID string, result a
 	c.resolvedStore.Add(&sdktools.ToolResolution{
 		ID:         callID,
 		ResultJSON: resultJSON,
+	})
+	return nil
+}
+
+// SendToolResultMultimodal provides a multimodal result for a deferred client tool.
+//
+// callID must match one of the [PendingClientTool.CallID] values returned in
+// the [Response]. parts should contain one or more [types.ContentPart] values
+// (text, images, audio, etc.) that will be sent directly to the LLM.
+//
+// After all pending tools have been resolved (via SendToolResult,
+// SendToolResultMultimodal, or RejectClientTool), call [Conversation.Resume]
+// to continue the pipeline.
+func (c *Conversation) SendToolResultMultimodal(_ context.Context, callID string, parts []types.ContentPart) error {
+	if len(parts) == 0 {
+		return fmt.Errorf("parts must not be empty")
+	}
+	c.resolvedStore.Add(&sdktools.ToolResolution{
+		ID:    callID,
+		Parts: parts,
 	})
 	return nil
 }
@@ -310,17 +323,25 @@ func (c *Conversation) buildToolResultMessages() ([]types.Message, error) {
 
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
-		var content string
-		if res.Rejected {
-			content = fmt.Sprintf("Tool rejected: %s", res.RejectionReason)
-		} else if res.Error != nil {
-			content = fmt.Sprintf("Tool error: %v", res.Error)
-		} else {
-			content = string(res.ResultJSON)
+		var toolResult types.MessageToolResult
+
+		switch {
+		case res.Rejected:
+			toolResult = types.NewTextToolResult(res.ID, "",
+				fmt.Sprintf("Tool rejected: %s", res.RejectionReason))
+		case res.Error != nil:
+			toolResult = types.NewTextToolResult(res.ID, "",
+				fmt.Sprintf("Tool error: %v", res.Error))
+		case len(res.Parts) > 0:
+			toolResult = types.MessageToolResult{
+				ID:    res.ID,
+				Parts: res.Parts,
+			}
+		default:
+			toolResult = types.NewTextToolResult(res.ID, "", string(res.ResultJSON))
 		}
-		toolMsgs = append(toolMsgs, types.NewToolResultMessage(
-			types.NewTextToolResult(res.ID, "", content),
-		))
+
+		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}
 
 	return toolMsgs, nil
@@ -358,4 +379,49 @@ func (e *clientExecutor) executeHandler(
 	}
 
 	return resultJSON, nil
+}
+
+// executeHandlerAsync runs a ClientToolHandler and returns a ToolExecutionResult.
+// If the handler returns []types.ContentPart, the parts are stored directly
+// instead of being JSON-serialized. Other return types are JSON-serialized as usual.
+func (e *clientExecutor) executeHandlerAsync(
+	ctx context.Context, handler ClientToolHandler,
+	descriptor *tools.ToolDescriptor, argsMap map[string]any,
+) (*tools.ToolExecutionResult, error) {
+	req := ClientToolRequest{
+		ToolName:   descriptor.Name,
+		Args:       argsMap,
+		Descriptor: descriptor,
+	}
+
+	if descriptor.ClientConfig != nil {
+		if descriptor.ClientConfig.Consent != nil {
+			req.ConsentMsg = descriptor.ClientConfig.Consent.Message
+		}
+		req.Categories = descriptor.ClientConfig.Categories
+	}
+
+	result, err := handler(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for multimodal content parts
+	if parts, ok := result.([]types.ContentPart); ok {
+		return &tools.ToolExecutionResult{
+			Status: tools.ToolStatusComplete,
+			Parts:  parts,
+		}, nil
+	}
+
+	// Default: JSON-serialize result
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize client tool result: %w", err)
+	}
+
+	return &tools.ToolExecutionResult{
+		Status:  tools.ToolStatusComplete,
+		Content: resultJSON,
+	}, nil
 }
