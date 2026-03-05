@@ -47,24 +47,24 @@ type ArenaConfigK8s struct {
 // Config represents the main configuration structure
 type Config struct {
 	// File references for YAML serialization
-	PromptConfigs []PromptConfigRef `yaml:"prompt_configs,omitempty" json:"prompt_configs,omitempty"`
-	Providers     []ProviderRef     `yaml:"providers" json:"providers"`
-	Judges        []JudgeRef        `yaml:"judges,omitempty" json:"judges,omitempty"`
-	JudgeDefaults *JudgeDefaults    `yaml:"judge_defaults,omitempty" json:"judge_defaults,omitempty"`
-	Scenarios     []ScenarioRef     `yaml:"scenarios,omitempty" json:"scenarios,omitempty"`
-	Evals         []EvalRef         `yaml:"evals,omitempty" json:"evals,omitempty"`
-	Tools         []ToolRef         `yaml:"tools,omitempty" json:"tools,omitempty"`
+	PromptConfigs  []PromptConfigRef      `yaml:"prompt_configs,omitempty" json:"prompt_configs,omitempty"`
+	Providers      []ProviderRef          `yaml:"providers" json:"providers"`
+	Judges         []JudgeRef             `yaml:"judges,omitempty" json:"judges,omitempty"`
+	JudgeDefaults  *JudgeDefaults         `yaml:"judge_defaults,omitempty" json:"judge_defaults,omitempty"`
+	Scenarios      []ScenarioRef          `yaml:"scenarios,omitempty" json:"scenarios,omitempty"`
+	Evals          []EvalRef              `yaml:"evals,omitempty" json:"evals,omitempty"`
+	Tools          []ToolRef              `yaml:"tools,omitempty" json:"tools,omitempty"`
 	PackEvals      []evals.EvalDef        `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
 	PackAssertions []asrt.AssertionConfig `yaml:"pack_assertions,omitempty" json:"pack_assertions,omitempty"`
-	Workflow      interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
-	Agents        interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Deploy        *DeployConfig     `yaml:"deploy,omitempty" json:"deploy,omitempty"`
-	MCPServers    []MCPServerConfig `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
-	A2AAgents     []A2AAgentConfig  `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
-	StateStore    *StateStoreConfig `yaml:"state_store,omitempty" json:"state_store,omitempty"`
-	Defaults      Defaults          `yaml:"defaults" json:"defaults"`
-	SelfPlay      *SelfPlayConfig   `yaml:"self_play,omitempty" json:"self_play,omitempty"`
-	PackFile      string            `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
+	Workflow       interface{}            `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+	Agents         interface{}            `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Deploy         *DeployConfig          `yaml:"deploy,omitempty" json:"deploy,omitempty"`
+	MCPServers     []MCPServerConfig      `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
+	A2AAgents      []A2AAgentConfig       `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
+	StateStore     *StateStoreConfig      `yaml:"state_store,omitempty" json:"state_store,omitempty"`
+	Defaults       Defaults               `yaml:"defaults" json:"defaults"`
+	SelfPlay       *SelfPlayConfig        `yaml:"self_play,omitempty" json:"self_play,omitempty"`
+	PackFile       string                 `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
 
 	// Inline resource specs (alternative to file refs, merged into LoadedX during load)
 	ProviderSpecs map[string]*Provider    `yaml:"provider_specs,omitempty" json:"provider_specs,omitempty"`
@@ -300,11 +300,13 @@ type SelfPlayRoleGroup struct {
 
 // Defaults contains default configuration values
 type Defaults struct {
-	Temperature float32      `yaml:"temperature,omitempty" json:"temperature,omitempty"`
-	MaxTokens   int          `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
-	Seed        int          `yaml:"seed,omitempty" json:"seed,omitempty"`
-	Concurrency int          `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
-	Output      OutputConfig `yaml:"output,omitempty" json:"output,omitempty"`
+	Temperature float32 `yaml:"temperature,omitempty" json:"temperature,omitempty"`
+	MaxTokens   int     `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	Seed        int     `yaml:"seed,omitempty" json:"seed,omitempty"`
+	Concurrency int     `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
+	// RunTimeout is the per-run timeout duration (e.g. "5m", "30s"). Defaults to 5m.
+	RunTimeout string       `yaml:"run_timeout,omitempty" json:"run_timeout,omitempty"`
+	Output     OutputConfig `yaml:"output,omitempty" json:"output,omitempty"`
 	// ConfigDir is the base directory for all config files (prompts, providers, scenarios, tools).
 	// If not set, defaults to the directory containing the main config file.
 	// If the main config file path is not known, defaults to current working directory.
