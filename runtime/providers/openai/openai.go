@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -447,7 +448,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	defer body.Close()
 
 	scanner := providers.NewSSEScanner(body)
-	accumulated := ""
+	var sb strings.Builder
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall
 
@@ -455,7 +456,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		select {
 		case <-ctx.Done():
 			outChan <- providers.StreamChunk{
-				Content:      accumulated,
+				Content:      sb.String(),
 				ToolCalls:    accumulatedToolCalls,
 				Error:        ctx.Err(),
 				FinishReason: providers.StringPtr("cancelled"),
@@ -467,7 +468,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		data := scanner.Data()
 		if data == "[DONE]" {
 			outChan <- providers.StreamChunk{
-				Content:      accumulated,
+				Content:      sb.String(),
 				ToolCalls:    accumulatedToolCalls,
 				TokenCount:   totalTokens,
 				FinishReason: providers.StringPtr("stop"),
@@ -487,7 +488,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 				// Send final chunk with usage data
 				stopReason := providers.StringPtr("stop")
 				finalChunk := p.createFinalStreamChunk(
-					accumulated, accumulatedToolCalls, totalTokens, stopReason, chunk.Usage)
+					sb.String(), accumulatedToolCalls, totalTokens, stopReason, chunk.Usage)
 				outChan <- finalChunk
 			}
 			continue
@@ -497,11 +498,11 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 
 		// Handle content delta
 		if choice.Delta.Content != "" {
-			accumulated += choice.Delta.Content
+			sb.WriteString(choice.Delta.Content)
 			totalTokens++
 
 			outChan <- providers.StreamChunk{
-				Content:     accumulated,
+				Content:     sb.String(),
 				Delta:       choice.Delta.Content,
 				ToolCalls:   accumulatedToolCalls,
 				TokenCount:  totalTokens,
@@ -513,7 +514,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		if len(choice.Delta.ToolCalls) > 0 {
 			processToolCallDeltas(&accumulatedToolCalls, choice.Delta.ToolCalls)
 			outChan <- providers.StreamChunk{
-				Content:     accumulated,
+				Content:     sb.String(),
 				ToolCalls:   accumulatedToolCalls,
 				TokenCount:  totalTokens,
 				DeltaTokens: 0,
@@ -526,7 +527,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 			// If usage is included in this chunk, send final chunk now
 			if chunk.Usage != nil {
 				finalChunk := p.createFinalStreamChunk(
-					accumulated, accumulatedToolCalls, totalTokens, choice.FinishReason, chunk.Usage)
+					sb.String(), accumulatedToolCalls, totalTokens, choice.FinishReason, chunk.Usage)
 				outChan <- finalChunk
 				return
 			}
@@ -536,7 +537,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 
 	if err := scanner.Err(); err != nil {
 		outChan <- providers.StreamChunk{
-			Content:      accumulated,
+			Content:      sb.String(),
 			ToolCalls:    accumulatedToolCalls,
 			Error:        err,
 			FinishReason: providers.StringPtr("error"),
@@ -560,13 +561,13 @@ func extractContentString(content interface{}) string {
 
 // extractTextFromParts extracts text from an array of content parts
 func extractTextFromParts(parts []interface{}) string {
-	var text string
+	var sb strings.Builder
 	for _, part := range parts {
 		if textVal := getTextFromPart(part); textVal != "" {
-			text += textVal
+			sb.WriteString(textVal)
 		}
 	}
-	return text
+	return sb.String()
 }
 
 // getTextFromPart extracts text from a single content part

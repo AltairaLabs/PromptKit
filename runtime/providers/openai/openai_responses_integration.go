@@ -602,58 +602,59 @@ func (p *Provider) sendFinalChunk(
 func (p *Provider) handleStreamEvent(
 	event responsesStreamEvent,
 	data string,
-	accumulated string,
+	sb *strings.Builder,
 	totalTokens int,
 	toolCalls []types.MessageToolCall,
 	usage *responsesUsage,
 	outChan chan<- providers.StreamChunk,
-) (newAccumulated string, newTokens int, newToolCalls []types.MessageToolCall, newUsage *responsesUsage) {
+) (newTokens int, newToolCalls []types.MessageToolCall, newUsage *responsesUsage) {
 	switch event.Type {
 	case eventTypeTextDelta:
-		return p.handleTextDelta(data, accumulated, totalTokens, toolCalls, outChan)
+		newTokens = p.handleTextDelta(data, sb, totalTokens, toolCalls, outChan)
+		return newTokens, toolCalls, nil
 
 	case eventTypeFuncArgsDelta:
-		return accumulated, totalTokens, p.handleFuncArgsDelta(event, toolCalls), usage
+		return totalTokens, p.handleFuncArgsDelta(event, toolCalls), usage
 
 	case eventTypeOutputAdded:
-		return accumulated, totalTokens, p.handleOutputAdded(data, toolCalls), usage
+		return totalTokens, p.handleOutputAdded(data, toolCalls), usage
 
 	case eventTypeCompleted:
-		usage = p.handleCompleted(data, accumulated, toolCalls, totalTokens, outChan)
-		return accumulated, totalTokens, toolCalls, usage
+		usage = p.handleCompleted(data, sb.String(), toolCalls, totalTokens, outChan)
+		return totalTokens, toolCalls, usage
 
 	case eventTypeError:
-		p.handleErrorEvent(data, accumulated, toolCalls, outChan)
-		return accumulated, totalTokens, toolCalls, usage
+		p.handleErrorEvent(data, sb.String(), toolCalls, outChan)
+		return totalTokens, toolCalls, usage
 	}
 
-	return accumulated, totalTokens, toolCalls, usage
+	return totalTokens, toolCalls, usage
 }
 
 // handleTextDelta processes text delta events
 func (p *Provider) handleTextDelta(
 	data string,
-	accumulated string,
+	sb *strings.Builder,
 	totalTokens int,
 	toolCalls []types.MessageToolCall,
 	outChan chan<- providers.StreamChunk,
-) (newAccumulated string, newTokens int, newToolCalls []types.MessageToolCall, newUsage *responsesUsage) {
+) int {
 	var textDelta struct {
 		Type  string `json:"type"`
 		Delta string `json:"delta"`
 	}
 	if err := json.Unmarshal([]byte(data), &textDelta); err == nil && textDelta.Delta != "" {
-		accumulated += textDelta.Delta
+		sb.WriteString(textDelta.Delta)
 		totalTokens++
 		outChan <- providers.StreamChunk{
-			Content:     accumulated,
+			Content:     sb.String(),
 			Delta:       textDelta.Delta,
 			ToolCalls:   toolCalls,
 			TokenCount:  totalTokens,
 			DeltaTokens: 1,
 		}
 	}
-	return accumulated, totalTokens, toolCalls, nil
+	return totalTokens
 }
 
 // handleFuncArgsDelta processes function call arguments delta events
@@ -768,7 +769,7 @@ func (p *Provider) streamResponsesResponse(
 	defer body.Close()
 
 	scanner := bufio.NewScanner(body)
-	accumulated := ""
+	var sb strings.Builder
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall
 	var usage *responsesUsage
@@ -777,7 +778,7 @@ func (p *Provider) streamResponsesResponse(
 		select {
 		case <-ctx.Done():
 			outChan <- providers.StreamChunk{
-				Content:      accumulated,
+				Content:      sb.String(),
 				ToolCalls:    accumulatedToolCalls,
 				Error:        ctx.Err(),
 				FinishReason: providers.StringPtr(finishCanceled),
@@ -800,7 +801,7 @@ func (p *Provider) streamResponsesResponse(
 
 		data := strings.TrimPrefix(line, "data: ")
 		if data == sseStreamDone {
-			p.sendFinalChunk(outChan, accumulated, accumulatedToolCalls, totalTokens, usage)
+			p.sendFinalChunk(outChan, sb.String(), accumulatedToolCalls, totalTokens, usage)
 			return
 		}
 
@@ -811,8 +812,8 @@ func (p *Provider) streamResponsesResponse(
 		}
 
 		// Handle different event types
-		accumulated, totalTokens, accumulatedToolCalls, usage = p.handleStreamEvent(
-			event, data, accumulated, totalTokens, accumulatedToolCalls, usage, outChan,
+		totalTokens, accumulatedToolCalls, usage = p.handleStreamEvent(
+			event, data, &sb, totalTokens, accumulatedToolCalls, usage, outChan,
 		)
 
 		// Check if we should return (completed or error events signal this via usage being set and returned)
@@ -823,7 +824,7 @@ func (p *Provider) streamResponsesResponse(
 
 	if err := scanner.Err(); err != nil {
 		outChan <- providers.StreamChunk{
-			Content:      accumulated,
+			Content:      sb.String(),
 			ToolCalls:    accumulatedToolCalls,
 			Error:        err,
 			FinishReason: providers.StringPtr(finishError),

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -68,29 +69,29 @@ func (p *Provider) PredictStream(
 // processGeminiStreamChunk processes a single chunk from the Gemini stream
 func (p *Provider) processGeminiStreamChunk(
 	chunk geminiResponse,
-	accumulated string,
+	sb *strings.Builder,
 	totalTokens int,
 	toolCalls []types.MessageToolCall,
 	outChan chan<- providers.StreamChunk,
-) (newAccumulated string, newTotalTokens int, newToolCalls []types.MessageToolCall, finished bool) {
+) (newTotalTokens int, newToolCalls []types.MessageToolCall, finished bool) {
 	if len(chunk.Candidates) == 0 {
-		return accumulated, totalTokens, toolCalls, false
+		return totalTokens, toolCalls, false
 	}
 
 	candidate := chunk.Candidates[0]
 	if len(candidate.Content.Parts) == 0 {
-		return accumulated, totalTokens, toolCalls, false
+		return totalTokens, toolCalls, false
 	}
 
 	// Process all parts in the candidate
 	for i, part := range candidate.Content.Parts {
 		// Handle text content
 		if part.Text != "" {
-			accumulated += part.Text
+			sb.WriteString(part.Text)
 			totalTokens++ // Approximate
 
 			outChan <- providers.StreamChunk{
-				Content:     accumulated,
+				Content:     sb.String(),
 				Delta:       part.Text,
 				TokenCount:  totalTokens,
 				DeltaTokens: 1,
@@ -112,7 +113,7 @@ func (p *Provider) processGeminiStreamChunk(
 
 	if candidate.FinishReason != "" {
 		finalChunk := providers.StreamChunk{
-			Content:      accumulated,
+			Content:      sb.String(),
 			TokenCount:   totalTokens,
 			FinishReason: &candidate.FinishReason,
 			ToolCalls:    toolCalls,
@@ -129,10 +130,10 @@ func (p *Provider) processGeminiStreamChunk(
 		}
 
 		outChan <- finalChunk
-		return accumulated, totalTokens, toolCalls, true // Signal finish
+		return totalTokens, toolCalls, true // Signal finish
 	}
 
-	return accumulated, totalTokens, toolCalls, false
+	return totalTokens, toolCalls, false
 }
 
 // streamResponse reads a JSON array stream from Gemini and sends chunks incrementally.
@@ -164,7 +165,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		return
 	}
 
-	accumulated := ""
+	var sb strings.Builder
 	totalTokens := 0
 	var toolCalls []types.MessageToolCall
 
@@ -173,7 +174,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		select {
 		case <-ctx.Done():
 			outChan <- providers.StreamChunk{
-				Content:      accumulated,
+				Content:      sb.String(),
 				Error:        ctx.Err(),
 				FinishReason: providers.StringPtr("canceled"),
 			}
@@ -192,8 +193,8 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 
 		var finished bool
-		accumulated, totalTokens, toolCalls, finished = p.processGeminiStreamChunk(
-			chunk, accumulated, totalTokens, toolCalls, outChan)
+		totalTokens, toolCalls, finished = p.processGeminiStreamChunk(
+			chunk, &sb, totalTokens, toolCalls, outChan)
 		if finished {
 			return
 		}
@@ -211,7 +212,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 
 	// No finish reason received, send final chunk
 	outChan <- providers.StreamChunk{
-		Content:      accumulated,
+		Content:      sb.String(),
 		TokenCount:   totalTokens,
 		ToolCalls:    toolCalls,
 		FinishReason: providers.StringPtr("stop"),

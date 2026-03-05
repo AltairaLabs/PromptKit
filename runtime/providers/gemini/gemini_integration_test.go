@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -557,9 +558,11 @@ func TestProcessGeminiStreamChunk(t *testing.T) {
 			outChan := make(chan providers.StreamChunk, 10)
 			defer close(outChan)
 
-			content, tokens, _, finished := provider.processGeminiStreamChunk(tt.chunk, tt.accumulated, tt.totalTokens, nil, outChan)
+			var sb strings.Builder
+			sb.WriteString(tt.accumulated)
+			tokens, _, finished := provider.processGeminiStreamChunk(tt.chunk, &sb, tt.totalTokens, nil, outChan)
 
-			assert.Equal(t, tt.wantContent, content)
+			assert.Equal(t, tt.wantContent, sb.String())
 			assert.Equal(t, tt.wantTokens, tokens)
 			assert.Equal(t, tt.wantFinished, finished)
 		})

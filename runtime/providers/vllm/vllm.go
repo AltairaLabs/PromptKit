@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -493,7 +494,7 @@ func (p *Provider) streamResponse(
 	defer body.Close()
 
 	scanner := providers.NewSSEScanner(body)
-	accumulated := "" // Track accumulated content
+	var sb strings.Builder // Track accumulated content
 
 	for scanner.Scan() {
 		select {
@@ -522,9 +523,9 @@ func (p *Provider) streamResponse(
 
 		// Send content chunk
 		if choice.Delta.Content != "" {
-			accumulated += choice.Delta.Content
+			sb.WriteString(choice.Delta.Content)
 			outChan <- providers.StreamChunk{
-				Content:     accumulated,
+				Content:     sb.String(),
 				Delta:       choice.Delta.Content,
 				DeltaTokens: 1,
 			}
@@ -534,7 +535,7 @@ func (p *Provider) streamResponse(
 		if choice.FinishReason != "" && chunk.Usage != nil {
 			costInfo := p.CalculateCost(chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, 0)
 			outChan <- providers.StreamChunk{
-				Content:      accumulated,
+				Content:      sb.String(),
 				FinishReason: &choice.FinishReason,
 				CostInfo:     &costInfo,
 			}

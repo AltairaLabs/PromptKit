@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -287,14 +288,14 @@ func (p *Provider) streamResponse(
 	defer body.Close()
 
 	scanner := providers.NewSSEScanner(body)
-	accumulated := ""
+	var sb strings.Builder
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall
 	var lastUsage *ollamaUsage
 	var finishReason *string
 
 	for scanner.Scan() {
-		if p.handleContextCancellation(ctx, accumulated, accumulatedToolCalls, outChan) {
+		if p.handleContextCancellation(ctx, sb.String(), accumulatedToolCalls, outChan) {
 			return
 		}
 
@@ -318,8 +319,8 @@ func (p *Provider) streamResponse(
 		}
 
 		choice := chunk.Choices[0]
-		accumulated, totalTokens = p.processStreamChoice(
-			choice, accumulated, totalTokens,
+		totalTokens = p.processStreamChoice(
+			choice, &sb, totalTokens,
 			&accumulatedToolCalls, outChan,
 		)
 		if choice.FinishReason != nil {
@@ -329,7 +330,7 @@ func (p *Provider) streamResponse(
 
 	if err := scanner.Err(); err != nil {
 		outChan <- providers.StreamChunk{
-			Content:      accumulated,
+			Content:      sb.String(),
 			ToolCalls:    accumulatedToolCalls,
 			Error:        err,
 			FinishReason: providers.StringPtr("error"),
@@ -342,7 +343,7 @@ func (p *Provider) streamResponse(
 		finishReason = providers.StringPtr("stop")
 	}
 	outChan <- p.createFinalStreamChunk(
-		accumulated, accumulatedToolCalls, totalTokens, finishReason, lastUsage,
+		sb.String(), accumulatedToolCalls, totalTokens, finishReason, lastUsage,
 	)
 }
 
@@ -395,18 +396,18 @@ func (p *Provider) parseStreamChunk(data string) (ollamaStreamChunk, bool) {
 // after collecting usage data from the post-finish usage-only chunk.
 func (p *Provider) processStreamChoice(
 	choice ollamaStreamChoice,
-	accumulated string,
+	sb *strings.Builder,
 	totalTokens int,
 	accumulatedToolCalls *[]types.MessageToolCall,
 	outChan chan<- providers.StreamChunk,
-) (newAccumulated string, newTotalTokens int) {
+) int {
 	// Handle content delta
 	if choice.Delta.Content != "" {
-		accumulated += choice.Delta.Content
+		sb.WriteString(choice.Delta.Content)
 		totalTokens++
 
 		outChan <- providers.StreamChunk{
-			Content:     accumulated,
+			Content:     sb.String(),
 			Delta:       choice.Delta.Content,
 			ToolCalls:   *accumulatedToolCalls,
 			TokenCount:  totalTokens,
@@ -418,14 +419,14 @@ func (p *Provider) processStreamChoice(
 	if len(choice.Delta.ToolCalls) > 0 {
 		processToolCallDeltas(accumulatedToolCalls, choice.Delta.ToolCalls)
 		outChan <- providers.StreamChunk{
-			Content:     accumulated,
+			Content:     sb.String(),
 			ToolCalls:   *accumulatedToolCalls,
 			TokenCount:  totalTokens,
 			DeltaTokens: 0,
 		}
 	}
 
-	return accumulated, totalTokens
+	return totalTokens
 }
 
 // extractContentString extracts text content from Ollama's response content
@@ -444,13 +445,13 @@ func extractContentString(content any) string {
 
 // extractTextFromParts extracts text from an array of content parts
 func extractTextFromParts(parts []any) string {
-	var text string
+	var sb strings.Builder
 	for _, part := range parts {
 		if textVal := getTextFromPart(part); textVal != "" {
-			text += textVal
+			sb.WriteString(textVal)
 		}
 	}
-	return text
+	return sb.String()
 }
 
 // getTextFromPart extracts text from a single content part

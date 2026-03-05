@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -356,7 +357,7 @@ func convertStreamOutput(stageChan <-chan stage.StreamElement) <-chan providers.
 
 // processStreamElements processes stream elements and sends chunks
 func processStreamElements(stageChan <-chan stage.StreamElement, chunkChan chan<- providers.StreamChunk) {
-	var accumulatedContent string
+	var sb strings.Builder
 	var finalResult *pipeline.ExecutionResult
 	var pendingToolsEmitted bool
 
@@ -372,10 +373,10 @@ func processStreamElements(stageChan <-chan stage.StreamElement, chunkChan chan<
 
 		// Emit text chunks
 		if elem.Text != nil && *elem.Text != "" {
-			accumulatedContent += *elem.Text
+			sb.WriteString(*elem.Text)
 			chunkChan <- providers.StreamChunk{
 				Delta:   *elem.Text,
-				Content: accumulatedContent,
+				Content: sb.String(),
 			}
 		}
 

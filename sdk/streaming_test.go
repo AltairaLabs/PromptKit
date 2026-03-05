@@ -639,7 +639,6 @@ func TestBuildStreamingResponse_WithPendingTools(t *testing.T) {
 	conv := newTestConversation()
 
 	state := &streamState{
-		accumulatedContent: "I need your location.",
 		pendingTools: []PendingClientTool{
 			{
 				CallID:     "call-1",
@@ -650,6 +649,7 @@ func TestBuildStreamingResponse_WithPendingTools(t *testing.T) {
 			},
 		},
 	}
+	state.contentBuilder.WriteString("I need your location.")
 
 	resp := conv.buildStreamingResponse(state, time.Now())
 	require.NotNil(t, resp)
