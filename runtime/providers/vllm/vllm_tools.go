@@ -22,7 +22,6 @@ const (
 	toolChoiceNone     = "none"
 	toolChoiceAuto     = "auto"
 	sseDoneMessage     = "[DONE]"
-	streamBufferSize   = 10
 )
 
 // vLLM-specific tool structures (OpenAI-compatible format)
@@ -255,7 +254,7 @@ func (p *Provider) PredictStreamWithTools(
 	}
 
 	// Create output channel
-	chunks := make(chan providers.StreamChunk, streamBufferSize)
+	chunks := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 
 	// Start goroutine to process SSE stream
 	go p.streamToolResponse(ctx, httpResp.Body, chunks)
@@ -350,6 +349,12 @@ func (p *Provider) buildToolRequest(
 func (p *Provider) streamToolResponse(ctx context.Context, body io.ReadCloser, chunks chan<- providers.StreamChunk) {
 	defer close(chunks)
 	defer body.Close()
+
+	// Close the response body when context is canceled to unblock scanner.Scan()
+	go func() {
+		<-ctx.Done()
+		_ = body.Close()
+	}()
 
 	scanner := bufio.NewScanner(body)
 	var accumulated strings.Builder

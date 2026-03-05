@@ -543,6 +543,38 @@ func (m *mockStreamObserver) OnError(err error) {
 	m.errors = append(m.errors, err)
 }
 
+func TestDefaultStreamBufferSize(t *testing.T) {
+	if providers.DefaultStreamBufferSize != 32 {
+		t.Errorf("DefaultStreamBufferSize: got %d, want 32", providers.DefaultStreamBufferSize)
+	}
+}
+
+func TestStreamChannelBufferCapacity(t *testing.T) {
+	ch := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
+
+	if cap(ch) != 32 {
+		t.Errorf("channel capacity: got %d, want 32", cap(ch))
+	}
+
+	// Verify we can send DefaultStreamBufferSize chunks without blocking
+	for i := 0; i < providers.DefaultStreamBufferSize; i++ {
+		select {
+		case ch <- providers.StreamChunk{Delta: "chunk"}:
+			// ok
+		default:
+			t.Fatalf("channel blocked on send %d, expected buffer of %d", i, providers.DefaultStreamBufferSize)
+		}
+	}
+
+	// The next send should block (buffer full)
+	select {
+	case ch <- providers.StreamChunk{Delta: "overflow"}:
+		t.Fatal("channel should block when buffer is full")
+	default:
+		// expected
+	}
+}
+
 func TestMockObserver(t *testing.T) {
 	observer := &mockStreamObserver{}
 

@@ -572,7 +572,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
 	}
 
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 	go p.streamResponse(ctx, resp.Body, outChan)
 
 	return outChan, nil

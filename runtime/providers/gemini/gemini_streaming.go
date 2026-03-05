@@ -59,7 +59,7 @@ func (p *Provider) PredictStream(
 		return nil, err
 	}
 
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 
 	go p.streamResponse(ctx, resp.Body, outChan)
 
@@ -143,6 +143,12 @@ func (p *Provider) processGeminiStreamChunk(
 func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
 	defer close(outChan)
 	defer body.Close()
+
+	// Close the response body when context is canceled to unblock decoder reads
+	go func() {
+		<-ctx.Done()
+		_ = body.Close()
+	}()
 
 	dec := json.NewDecoder(body)
 

@@ -418,3 +418,114 @@ func TestIsValidationAbortWithNil(t *testing.T) {
 		t.Error("providers.IsValidationAbort(nil) should return false")
 	}
 }
+
+func TestContextCancelUnblocksScannerOpenAI(t *testing.T) {
+	// Create a server that holds the connection open indefinitely (simulating a slow/stalled stream)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+
+		// Hold connection open until client disconnects
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	provider := openai.NewProvider(
+		"test", "gpt-4o-mini", server.URL,
+		providers.ProviderDefaults{MaxTokens: 100}, false,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	})
+	if err != nil {
+		t.Fatalf("PredictStream failed: %v", err)
+	}
+
+	// Read the first chunk to confirm streaming is working
+	chunk, ok := <-stream
+	if !ok {
+		t.Fatal("expected at least one chunk")
+	}
+	if chunk.Content != "hi" {
+		t.Errorf("expected content 'hi', got %q", chunk.Content)
+	}
+
+	// Cancel context - the body-close watcher should unblock the scanner
+	cancel()
+
+	// The channel should close promptly (within 2 seconds).
+	// Without the body-close fix, this would hang indefinitely.
+	done := make(chan struct{})
+	go func() {
+		for range stream {
+			// drain remaining chunks
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success - stream closed promptly after cancel
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream did not close within 2s after context cancellation; scanner may be stuck on I/O")
+	}
+}
+
+func TestContextCancelUnblocksScannerClaude(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		_, _ = w.Write([]byte("data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	provider := claude.NewProvider(
+		"test", "claude-3-5-haiku-20241022", server.URL,
+		providers.ProviderDefaults{MaxTokens: 100}, false,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	stream, err := provider.PredictStream(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	})
+	if err != nil {
+		t.Fatalf("PredictStream failed: %v", err)
+	}
+
+	// Read the first chunk
+	_, ok := <-stream
+	if !ok {
+		t.Fatal("expected at least one chunk")
+	}
+
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		for range stream {
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream did not close within 2s after context cancellation")
+	}
+}

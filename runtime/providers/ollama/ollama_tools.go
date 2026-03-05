@@ -355,7 +355,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, err
 	}
 
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 
 	go p.streamResponse(ctx, resp.Body, outChan)
 

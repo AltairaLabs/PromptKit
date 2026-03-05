@@ -480,7 +480,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		if err != nil {
 			return nil, err
 		}
-		outChan := make(chan providers.StreamChunk)
+		outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 		go p.streamResponse(ctx, body, scanner, outChan)
 		return outChan, nil
 	}
@@ -513,7 +513,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}
 
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 	scanner := providers.NewSSEScanner(resp.Body)
 	go p.streamResponse(ctx, resp.Body, scanner, outChan)
 

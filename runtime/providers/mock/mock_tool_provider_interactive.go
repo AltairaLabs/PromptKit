@@ -305,7 +305,7 @@ func (m *ToolProvider) PredictStreamWithTools(
 	}
 
 	// Create a channel and send the response as chunks
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 
 	go func() {
 		defer close(outChan)

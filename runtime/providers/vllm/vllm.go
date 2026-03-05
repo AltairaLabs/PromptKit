@@ -477,7 +477,7 @@ func (p *Provider) predictStreamWithMessages(
 		return nil, err
 	}
 
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 
 	go p.streamResponse(ctx, resp.Body, outChan)
 
@@ -492,6 +492,12 @@ func (p *Provider) streamResponse(
 ) {
 	defer close(outChan)
 	defer body.Close()
+
+	// Close the response body when context is canceled to unblock scanner.Scan()
+	go func() {
+		<-ctx.Done()
+		_ = body.Close()
+	}()
 
 	scanner := providers.NewSSEScanner(body)
 	var sb strings.Builder // Track accumulated content

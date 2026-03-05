@@ -402,7 +402,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
 	}
 
-	outChan := make(chan providers.StreamChunk)
+	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 
 	go p.streamResponse(ctx, resp.Body, outChan)
 

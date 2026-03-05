@@ -7,6 +7,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// DefaultStreamBufferSize is the default buffer size for streaming channels.
+// A buffer of 32 prevents the streaming goroutine from blocking on every send
+// when the consumer is slow, while keeping memory usage reasonable.
+const DefaultStreamBufferSize = 32
+
 // ExecutionResult is a forward declaration to avoid circular import.
 type ExecutionResult interface{}
 
