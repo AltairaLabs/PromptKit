@@ -1,11 +1,320 @@
 package openai
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// ============================================================================
+// Multimodal Tool Result Serialization Tests (#619)
+// ============================================================================
+
+func TestConvertToolResultContent_TextOnly(t *testing.T) {
+	result := &types.MessageToolResult{
+		ID:   "call_1",
+		Name: "weather",
+		Parts: []types.ContentPart{
+			types.NewTextPart(`{"temperature": 72}`),
+		},
+	}
+
+	content := convertToolResultContent(result)
+
+	str, ok := content.(string)
+	if !ok {
+		t.Fatalf("Expected string for text-only result, got %T", content)
+	}
+	if str != `{"temperature": 72}` {
+		t.Errorf("Expected tool result text, got %q", str)
+	}
+}
+
+func TestConvertToolResultContent_MultipleTextParts(t *testing.T) {
+	result := &types.MessageToolResult{
+		ID:   "call_2",
+		Name: "search",
+		Parts: []types.ContentPart{
+			types.NewTextPart("Result 1. "),
+			types.NewTextPart("Result 2."),
+		},
+	}
+
+	content := convertToolResultContent(result)
+
+	// Multiple text-only parts still return concatenated string
+	str, ok := content.(string)
+	if !ok {
+		t.Fatalf("Expected string for text-only result, got %T", content)
+	}
+	if str != "Result 1. Result 2." {
+		t.Errorf("Expected concatenated text, got %q", str)
+	}
+}
+
+func TestConvertToolResultContent_Base64Image(t *testing.T) {
+	b64Data := "iVBORw0KGgoAAAANSUhEUg=="
+	result := &types.MessageToolResult{
+		ID:   "call_3",
+		Name: "chart_gen",
+		Parts: []types.ContentPart{
+			types.NewTextPart("Chart generated successfully"),
+			types.NewImagePartFromData(b64Data, types.MIMETypeImagePNG, nil),
+		},
+	}
+
+	content := convertToolResultContent(result)
+
+	parts, ok := content.([]map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected []map[string]interface{} for multimodal result, got %T", content)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("Expected 2 parts, got %d", len(parts))
+	}
+
+	// Verify text part
+	if parts[0]["type"] != "text" {
+		t.Errorf("Expected first part type 'text', got %v", parts[0]["type"])
+	}
+	if parts[0]["text"] != "Chart generated successfully" {
+		t.Errorf("Expected text content, got %v", parts[0]["text"])
+	}
+
+	// Verify image part
+	if parts[1]["type"] != "image_url" {
+		t.Errorf("Expected second part type 'image_url', got %v", parts[1]["type"])
+	}
+	imgURL, ok := parts[1]["image_url"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected image_url to be a map, got %T", parts[1]["image_url"])
+	}
+	expectedURL := "data:image/png;base64," + b64Data
+	if imgURL["url"] != expectedURL {
+		t.Errorf("Expected data URI %q, got %v", expectedURL, imgURL["url"])
+	}
+}
+
+func TestConvertToolResultContent_URLImage(t *testing.T) {
+	imgURL := "https://example.com/chart.png"
+	result := &types.MessageToolResult{
+		ID:   "call_4",
+		Name: "screenshot",
+		Parts: []types.ContentPart{
+			types.NewTextPart("Screenshot captured"),
+			types.NewImagePartFromURL(imgURL, nil),
+		},
+	}
+
+	content := convertToolResultContent(result)
+
+	parts, ok := content.([]map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected []map[string]interface{} for multimodal result, got %T", content)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("Expected 2 parts, got %d", len(parts))
+	}
+
+	// Verify image part URL is passed through
+	imgBlock, ok := parts[1]["image_url"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected image_url map, got %T", parts[1]["image_url"])
+	}
+	if imgBlock["url"] != imgURL {
+		t.Errorf("Expected URL %q, got %v", imgURL, imgBlock["url"])
+	}
+}
+
+func TestConvertToolResultContent_ImageOnly(t *testing.T) {
+	b64Data := "AAAA"
+	result := &types.MessageToolResult{
+		ID:   "call_5",
+		Name: "render",
+		Parts: []types.ContentPart{
+			types.NewImagePartFromData(b64Data, types.MIMETypeImageJPEG, nil),
+		},
+	}
+
+	content := convertToolResultContent(result)
+
+	parts, ok := content.([]map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected []map[string]interface{} for image-only result, got %T", content)
+	}
+	if len(parts) != 1 {
+		t.Fatalf("Expected 1 part, got %d", len(parts))
+	}
+	if parts[0]["type"] != "image_url" {
+		t.Errorf("Expected type 'image_url', got %v", parts[0]["type"])
+	}
+}
+
+func TestConvertToolResultContent_MixedContent(t *testing.T) {
+	b64Data := "AAAA"
+	imgURL := "https://example.com/plot.png"
+	result := &types.MessageToolResult{
+		ID:   "call_6",
+		Name: "analysis",
+		Parts: []types.ContentPart{
+			types.NewTextPart("Analysis complete"),
+			types.NewImagePartFromData(b64Data, types.MIMETypeImagePNG, nil),
+			types.NewTextPart("See charts above"),
+			types.NewImagePartFromURL(imgURL, nil),
+		},
+	}
+
+	content := convertToolResultContent(result)
+
+	parts, ok := content.([]map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected []map[string]interface{}, got %T", content)
+	}
+	if len(parts) != 4 {
+		t.Fatalf("Expected 4 parts, got %d", len(parts))
+	}
+
+	// Verify ordering and types
+	expectedTypes := []string{"text", "image_url", "text", "image_url"}
+	for i, expected := range expectedTypes {
+		if parts[i]["type"] != expected {
+			t.Errorf("Part %d: expected type %q, got %v", i, expected, parts[i]["type"])
+		}
+	}
+}
+
+func TestConvertToolResultContent_EmptyParts(t *testing.T) {
+	result := &types.MessageToolResult{
+		ID:    "call_7",
+		Name:  "noop",
+		Parts: nil,
+	}
+
+	content := convertToolResultContent(result)
+
+	// No parts means text-only path returns empty string
+	str, ok := content.(string)
+	if !ok {
+		t.Fatalf("Expected string for empty result, got %T", content)
+	}
+	if str != "" {
+		t.Errorf("Expected empty string, got %q", str)
+	}
+}
+
+func TestConvertToolResultContent_UnsupportedMediaSkipped(t *testing.T) {
+	audioData := "AAAA"
+	result := &types.MessageToolResult{
+		ID:   "call_8",
+		Name: "transcribe",
+		Parts: []types.ContentPart{
+			types.NewTextPart("Transcription done"),
+			types.NewAudioPartFromData(audioData, types.MIMETypeAudioMP3),
+		},
+	}
+
+	content := convertToolResultContent(result)
+
+	// HasMedia() returns true, so we get array format, but audio is skipped
+	parts, ok := content.([]map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected []map[string]interface{}, got %T", content)
+	}
+	// Only text part should remain (audio is skipped)
+	if len(parts) != 1 {
+		t.Fatalf("Expected 1 part (audio skipped), got %d", len(parts))
+	}
+	if parts[0]["type"] != "text" {
+		t.Errorf("Expected text part, got %v", parts[0]["type"])
+	}
+}
+
+// TestConvertSingleMessageForTools_MultimodalToolResult verifies end-to-end conversion
+// of a tool result message with multimodal content through convertSingleMessageForTools.
+func TestConvertSingleMessageForTools_MultimodalToolResult(t *testing.T) {
+	provider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+
+	b64Data := "iVBORw0KGgoAAAANSUhEUg=="
+	msg := types.Message{
+		Role: "tool",
+		ToolResult: &types.MessageToolResult{
+			ID:   "call_100",
+			Name: "chart_gen",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Chart generated"),
+				types.NewImagePartFromData(b64Data, types.MIMETypeImagePNG, nil),
+			},
+		},
+	}
+
+	openaiMsg := provider.convertSingleMessageForTools(msg)
+
+	if openaiMsg["tool_call_id"] != "call_100" {
+		t.Errorf("Expected tool_call_id 'call_100', got %v", openaiMsg["tool_call_id"])
+	}
+	if openaiMsg["name"] != "chart_gen" {
+		t.Errorf("Expected name 'chart_gen', got %v", openaiMsg["name"])
+	}
+
+	// Content should be an array (multimodal)
+	parts, ok := openaiMsg["content"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected multimodal content array, got %T", openaiMsg["content"])
+	}
+	if len(parts) != 2 {
+		t.Fatalf("Expected 2 parts, got %d", len(parts))
+	}
+
+	// Verify JSON serialization is valid
+	data, err := json.Marshal(openaiMsg)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+	if parsed["role"] != "tool" {
+		t.Errorf("Expected role 'tool', got %v", parsed["role"])
+	}
+}
+
+func TestResolveImageURL_Base64(t *testing.T) {
+	data := "AAAA"
+	media := &types.MediaContent{
+		Data:     &data,
+		MIMEType: types.MIMETypeImagePNG,
+	}
+	got := resolveImageURL(media)
+	expected := "data:image/png;base64,AAAA"
+	if got != expected {
+		t.Errorf("Expected %q, got %q", expected, got)
+	}
+}
+
+func TestResolveImageURL_URL(t *testing.T) {
+	url := "https://example.com/img.jpg"
+	media := &types.MediaContent{
+		URL:      &url,
+		MIMEType: types.MIMETypeImageJPEG,
+	}
+	got := resolveImageURL(media)
+	if got != url {
+		t.Errorf("Expected %q, got %q", url, got)
+	}
+}
+
+func TestResolveImageURL_Empty(t *testing.T) {
+	media := &types.MediaContent{
+		MIMEType: types.MIMETypeImagePNG,
+	}
+	got := resolveImageURL(media)
+	if got != "" {
+		t.Errorf("Expected empty string, got %q", got)
+	}
+}
 
 // TestToolProvider_WithMultimodalMessages tests if tool calls work with multimodal messages
 func TestToolProvider_WithMultimodalMessages(t *testing.T) {
