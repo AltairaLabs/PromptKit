@@ -126,6 +126,7 @@ func TestResolveTool(t *testing.T) {
 	t.Run("returns error for non-existent id", func(t *testing.T) {
 		conv := newTestConversation()
 		conv.pendingStore = sdktools.NewPendingStore()
+		defer conv.pendingStore.Close()
 
 		_, err := conv.ResolveTool("non-existent")
 		assert.Error(t, err)
@@ -144,10 +145,11 @@ func TestRejectTool(t *testing.T) {
 	t.Run("rejects pending tool", func(t *testing.T) {
 		conv := newTestConversation()
 		conv.pendingStore = sdktools.NewPendingStore()
-		conv.pendingStore.Add(&sdktools.PendingToolCall{
+		defer conv.pendingStore.Close()
+		require.NoError(t, conv.pendingStore.Add(&sdktools.PendingToolCall{
 			ID:   "test-id",
 			Name: "test_tool",
-		})
+		}))
 
 		resolution, err := conv.RejectTool("test-id", "not authorized")
 		require.NoError(t, err)
@@ -172,8 +174,9 @@ func TestPendingTools(t *testing.T) {
 	t.Run("returns pending tools", func(t *testing.T) {
 		conv := newTestConversation()
 		conv.pendingStore = sdktools.NewPendingStore()
-		conv.pendingStore.Add(&sdktools.PendingToolCall{ID: "1", Name: "tool1"})
-		conv.pendingStore.Add(&sdktools.PendingToolCall{ID: "2", Name: "tool2"})
+		defer conv.pendingStore.Close()
+		require.NoError(t, conv.pendingStore.Add(&sdktools.PendingToolCall{ID: "1", Name: "tool1"}))
+		require.NoError(t, conv.pendingStore.Add(&sdktools.PendingToolCall{ID: "2", Name: "tool2"}))
 
 		pending := conv.PendingTools()
 		assert.Len(t, pending, 2)
@@ -302,13 +305,14 @@ func TestRejectToolStoresResolution(t *testing.T) {
 	t.Run("stores rejection for continue", func(t *testing.T) {
 		conv := newTestConversation()
 		conv.pendingStore = sdktools.NewPendingStore()
+		defer conv.pendingStore.Close()
 		conv.resolvedStore = sdktools.NewResolvedStore()
 
 		// Add a pending tool
-		conv.pendingStore.Add(&sdktools.PendingToolCall{
+		require.NoError(t, conv.pendingStore.Add(&sdktools.PendingToolCall{
 			ID:   "test-id",
 			Name: "test_tool",
-		})
+		}))
 
 		// Reject it
 		resolution, err := conv.RejectTool("test-id", "not allowed")

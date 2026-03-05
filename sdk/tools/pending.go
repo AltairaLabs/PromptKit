@@ -3,9 +3,27 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
+
+const (
+	// DefaultPendingTTL is the default time-to-live for pending tool calls.
+	// Entries older than this are automatically removed by the cleanup goroutine.
+	DefaultPendingTTL = 5 * time.Minute
+
+	// DefaultMaxPending is the default maximum number of pending tool calls
+	// that can be stored simultaneously. New adds are rejected when full.
+	DefaultMaxPending = 1000
+
+	// pendingCleanupInterval is the interval between TTL cleanup sweeps.
+	pendingCleanupInterval = 30 * time.Second
+)
+
+// ErrPendingStoreFull is returned when the store has reached its maximum capacity.
+var ErrPendingStoreFull = errors.New("pending store is full")
 
 // PendingResult is returned by async tool handlers to indicate
 // that the tool execution requires external approval.
@@ -62,6 +80,9 @@ type PendingToolCall struct {
 
 	// The underlying handler to execute if approved
 	handler func(args map[string]any) (any, error)
+
+	// createdAt tracks when this entry was added for TTL expiration.
+	createdAt time.Time
 }
 
 // SetHandler sets the execution handler for this pending call.
@@ -70,24 +91,107 @@ func (p *PendingToolCall) SetHandler(h func(args map[string]any) (any, error)) {
 	p.handler = h
 }
 
-// PendingStore manages pending tool calls for a conversation.
-type PendingStore struct {
-	pending map[string]*PendingToolCall
-	mu      sync.RWMutex
-}
+// PendingStoreOption configures a PendingStore during construction.
+type PendingStoreOption func(*PendingStore)
 
-// NewPendingStore creates a new pending tool store.
-func NewPendingStore() *PendingStore {
-	return &PendingStore{
-		pending: make(map[string]*PendingToolCall),
+// WithPendingTTL sets the time-to-live for pending tool calls.
+// Entries older than this are removed during periodic cleanup.
+func WithPendingTTL(ttl time.Duration) PendingStoreOption {
+	return func(s *PendingStore) {
+		s.ttl = ttl
 	}
 }
 
-// Add stores a pending tool call.
-func (s *PendingStore) Add(call *PendingToolCall) {
+// WithMaxPending sets the maximum number of pending tool calls allowed.
+func WithMaxPending(limit int) PendingStoreOption {
+	return func(s *PendingStore) {
+		s.maxPending = limit
+	}
+}
+
+// PendingStore manages pending tool calls for a conversation.
+type PendingStore struct {
+	pending    map[string]*PendingToolCall
+	mu         sync.RWMutex
+	ttl        time.Duration
+	maxPending int
+	stopCh     chan struct{}
+	stopped    chan struct{}
+	nowFunc    func() time.Time // for testing
+}
+
+// NewPendingStore creates a new pending tool store with TTL-based cleanup.
+// Call Close() when the store is no longer needed to stop the cleanup goroutine.
+func NewPendingStore(opts ...PendingStoreOption) *PendingStore {
+	s := &PendingStore{
+		pending:    make(map[string]*PendingToolCall),
+		ttl:        DefaultPendingTTL,
+		maxPending: DefaultMaxPending,
+		stopCh:     make(chan struct{}),
+		stopped:    make(chan struct{}),
+		nowFunc:    time.Now,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	go s.cleanupLoop()
+	return s
+}
+
+// cleanupLoop periodically removes expired entries.
+func (s *PendingStore) cleanupLoop() {
+	defer close(s.stopped)
+	ticker := time.NewTicker(pendingCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			s.removeExpired()
+		}
+	}
+}
+
+// removeExpired removes all entries that have exceeded the TTL.
+func (s *PendingStore) removeExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	now := s.nowFunc()
+	for id, call := range s.pending {
+		if now.Sub(call.createdAt) > s.ttl {
+			delete(s.pending, id)
+		}
+	}
+}
+
+// Close stops the background cleanup goroutine and waits for it to finish.
+func (s *PendingStore) Close() {
+	select {
+	case <-s.stopCh:
+		// Already closed
+		return
+	default:
+		close(s.stopCh)
+	}
+	<-s.stopped
+}
+
+// Add stores a pending tool call. Returns ErrPendingStoreFull if the store
+// has reached its maximum capacity.
+func (s *PendingStore) Add(call *PendingToolCall) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.pending) >= s.maxPending {
+		return ErrPendingStoreFull
+	}
+
+	call.createdAt = s.nowFunc()
 	s.pending[call.ID] = call
+	return nil
 }
 
 // Get retrieves a pending tool call by ID.

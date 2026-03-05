@@ -359,7 +359,9 @@ func (c *Conversation) CheckPending(
 	}
 
 	// Store it
-	c.pendingStore.Add(pending)
+	if err := c.pendingStore.Add(pending); err != nil {
+		return nil, false
+	}
 
 	return pending, true
 }

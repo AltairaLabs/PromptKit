@@ -879,6 +879,11 @@ func (c *Conversation) Close() error {
 		}
 	}
 
+	// Stop the pending store cleanup goroutine
+	if c.pendingStore != nil {
+		c.pendingStore.Close()
+	}
+
 	// State is automatically persisted by the StateStore middleware in the pipeline
 	// No explicit save needed here
 

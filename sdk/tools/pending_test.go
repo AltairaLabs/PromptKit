@@ -2,6 +2,7 @@ package tools
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,7 @@ func TestPendingResult(t *testing.T) {
 func TestPendingStore(t *testing.T) {
 	t.Run("add and get", func(t *testing.T) {
 		store := NewPendingStore()
+		defer store.Close()
 		call := &PendingToolCall{
 			ID:        "call-1",
 			Name:      "test_tool",
@@ -42,7 +44,8 @@ func TestPendingStore(t *testing.T) {
 			Reason:    "test",
 		}
 
-		store.Add(call)
+		err := store.Add(call)
+		require.NoError(t, err)
 
 		retrieved, ok := store.Get("call-1")
 		assert.True(t, ok)
@@ -52,14 +55,16 @@ func TestPendingStore(t *testing.T) {
 
 	t.Run("get non-existent", func(t *testing.T) {
 		store := NewPendingStore()
+		defer store.Close()
 		_, ok := store.Get("non-existent")
 		assert.False(t, ok)
 	})
 
 	t.Run("remove", func(t *testing.T) {
 		store := NewPendingStore()
-		store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"})
-		store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"})
+		defer store.Close()
+		require.NoError(t, store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"}))
+		require.NoError(t, store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"}))
 
 		assert.Equal(t, 2, store.Len())
 
@@ -72,8 +77,9 @@ func TestPendingStore(t *testing.T) {
 
 	t.Run("list", func(t *testing.T) {
 		store := NewPendingStore()
-		store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"})
-		store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"})
+		defer store.Close()
+		require.NoError(t, store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"}))
+		require.NoError(t, store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"}))
 
 		calls := store.List()
 		assert.Len(t, calls, 2)
@@ -81,8 +87,9 @@ func TestPendingStore(t *testing.T) {
 
 	t.Run("clear", func(t *testing.T) {
 		store := NewPendingStore()
-		store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"})
-		store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"})
+		defer store.Close()
+		require.NoError(t, store.Add(&PendingToolCall{ID: "call-1", Name: "tool1"}))
+		require.NoError(t, store.Add(&PendingToolCall{ID: "call-2", Name: "tool2"}))
 
 		store.Clear()
 		assert.Equal(t, 0, store.Len())
@@ -92,6 +99,7 @@ func TestPendingStore(t *testing.T) {
 func TestPendingStoreResolve(t *testing.T) {
 	t.Run("resolve successful", func(t *testing.T) {
 		store := NewPendingStore()
+		defer store.Close()
 		call := &PendingToolCall{
 			ID:        "call-1",
 			Name:      "test_tool",
@@ -101,7 +109,7 @@ func TestPendingStoreResolve(t *testing.T) {
 				return map[string]any{"result": x * 2}, nil
 			},
 		}
-		store.Add(call)
+		require.NoError(t, store.Add(call))
 
 		resolution, err := store.Resolve("call-1")
 		require.NoError(t, err)
@@ -117,12 +125,14 @@ func TestPendingStoreResolve(t *testing.T) {
 
 	t.Run("resolve non-existent", func(t *testing.T) {
 		store := NewPendingStore()
+		defer store.Close()
 		_, err := store.Resolve("non-existent")
 		assert.Error(t, err)
 	})
 
 	t.Run("resolve handler error", func(t *testing.T) {
 		store := NewPendingStore()
+		defer store.Close()
 		call := &PendingToolCall{
 			ID:   "call-1",
 			Name: "failing_tool",
@@ -130,7 +140,7 @@ func TestPendingStoreResolve(t *testing.T) {
 				return nil, assert.AnError
 			},
 		}
-		store.Add(call)
+		require.NoError(t, store.Add(call))
 
 		resolution, err := store.Resolve("call-1")
 		require.NoError(t, err) // Resolution itself succeeds
@@ -141,7 +151,8 @@ func TestPendingStoreResolve(t *testing.T) {
 func TestPendingStoreReject(t *testing.T) {
 	t.Run("reject successful", func(t *testing.T) {
 		store := NewPendingStore()
-		store.Add(&PendingToolCall{ID: "call-1", Name: "test_tool"})
+		defer store.Close()
+		require.NoError(t, store.Add(&PendingToolCall{ID: "call-1", Name: "test_tool"}))
 
 		resolution, err := store.Reject("call-1", "not authorized")
 		require.NoError(t, err)
@@ -156,6 +167,7 @@ func TestPendingStoreReject(t *testing.T) {
 
 	t.Run("reject non-existent", func(t *testing.T) {
 		store := NewPendingStore()
+		defer store.Close()
 		_, err := store.Reject("non-existent", "reason")
 		assert.Error(t, err)
 	})
@@ -188,6 +200,7 @@ func TestAsyncToolHandler(t *testing.T) {
 func TestPendingToolCall_SetHandler(t *testing.T) {
 	t.Run("sets handler and can resolve", func(t *testing.T) {
 		store := NewPendingStore()
+		defer store.Close()
 		call := &PendingToolCall{
 			ID:        "call-1",
 			Name:      "test_tool",
@@ -200,7 +213,7 @@ func TestPendingToolCall_SetHandler(t *testing.T) {
 			return map[string]any{"result": x * 2}, nil
 		})
 
-		store.Add(call)
+		require.NoError(t, store.Add(call))
 
 		resolution, err := store.Resolve("call-1")
 		assert.NoError(t, err)
@@ -275,5 +288,120 @@ func TestResolvedStore(t *testing.T) {
 
 		store.PopAll()
 		assert.Equal(t, 0, store.Len())
+	})
+}
+
+func TestPendingStoreMaxEntries(t *testing.T) {
+	t.Run("rejects when full", func(t *testing.T) {
+		store := NewPendingStore(WithMaxPending(2))
+		defer store.Close()
+
+		require.NoError(t, store.Add(&PendingToolCall{ID: "1", Name: "t1"}))
+		require.NoError(t, store.Add(&PendingToolCall{ID: "2", Name: "t2"}))
+
+		err := store.Add(&PendingToolCall{ID: "3", Name: "t3"})
+		assert.ErrorIs(t, err, ErrPendingStoreFull)
+		assert.Equal(t, 2, store.Len())
+	})
+
+	t.Run("accepts after removal frees space", func(t *testing.T) {
+		store := NewPendingStore(WithMaxPending(2))
+		defer store.Close()
+
+		require.NoError(t, store.Add(&PendingToolCall{ID: "1", Name: "t1"}))
+		require.NoError(t, store.Add(&PendingToolCall{ID: "2", Name: "t2"}))
+
+		store.Remove("1")
+		require.NoError(t, store.Add(&PendingToolCall{ID: "3", Name: "t3"}))
+		assert.Equal(t, 2, store.Len())
+	})
+}
+
+func TestPendingStoreTTL(t *testing.T) {
+	t.Run("expired entries are removed", func(t *testing.T) {
+		now := time.Now()
+		store := NewPendingStore(WithPendingTTL(1 * time.Minute))
+		store.nowFunc = func() time.Time { return now }
+		defer store.Close()
+
+		require.NoError(t, store.Add(&PendingToolCall{ID: "old", Name: "t1"}))
+		require.NoError(t, store.Add(&PendingToolCall{ID: "new", Name: "t2"}))
+
+		// Advance time past TTL for "old" entry
+		store.nowFunc = func() time.Time { return now.Add(2 * time.Minute) }
+
+		// Add a fresh entry so its createdAt is after TTL
+		require.NoError(t, store.Add(&PendingToolCall{ID: "fresh", Name: "t3"}))
+
+		// Run cleanup
+		store.removeExpired()
+
+		// "old" and "new" should be gone, "fresh" should remain
+		_, oldOk := store.Get("old")
+		assert.False(t, oldOk, "expired entry 'old' should be removed")
+
+		_, newOk := store.Get("new")
+		assert.False(t, newOk, "expired entry 'new' should be removed")
+
+		_, freshOk := store.Get("fresh")
+		assert.True(t, freshOk, "fresh entry should remain")
+	})
+
+	t.Run("non-expired entries are kept", func(t *testing.T) {
+		now := time.Now()
+		store := NewPendingStore(WithPendingTTL(10 * time.Minute))
+		store.nowFunc = func() time.Time { return now }
+		defer store.Close()
+
+		require.NoError(t, store.Add(&PendingToolCall{ID: "1", Name: "t1"}))
+
+		// Advance only slightly
+		store.nowFunc = func() time.Time { return now.Add(1 * time.Minute) }
+		store.removeExpired()
+
+		assert.Equal(t, 1, store.Len())
+	})
+}
+
+func TestPendingStoreClose(t *testing.T) {
+	t.Run("close stops cleanup goroutine", func(t *testing.T) {
+		store := NewPendingStore()
+		store.Close()
+
+		// Double close should not panic
+		store.Close()
+	})
+
+	t.Run("close waits for goroutine", func(t *testing.T) {
+		store := NewPendingStore()
+		store.Close()
+		// After Close, the stopped channel should be closed
+		select {
+		case <-store.stopped:
+			// expected
+		default:
+			t.Error("stopped channel should be closed after Close()")
+		}
+	})
+}
+
+func TestPendingStoreOptions(t *testing.T) {
+	t.Run("custom TTL", func(t *testing.T) {
+		store := NewPendingStore(WithPendingTTL(10 * time.Second))
+		defer store.Close()
+		assert.Equal(t, 10*time.Second, store.ttl)
+	})
+
+	t.Run("custom max pending", func(t *testing.T) {
+		store := NewPendingStore(WithMaxPending(50))
+		defer store.Close()
+		assert.Equal(t, 50, store.maxPending)
+	})
+
+	t.Run("defaults", func(t *testing.T) {
+		store := NewPendingStore()
+		defer store.Close()
+		assert.Equal(t, DefaultPendingTTL, store.ttl)
+		assert.Equal(t, DefaultMaxPending, store.maxPending)
 	})
 }
