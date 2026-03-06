@@ -19,6 +19,10 @@ type AssertionConfig struct {
 	Params  map[string]interface{} `json:"params" yaml:"params"`
 	Message string                 `json:"message,omitempty" yaml:"message,omitempty"`
 	When    *AssertionWhen         `json:"when,omitempty" yaml:"when,omitempty"`
+	// PassThreshold is the minimum pass rate (0.0-1.0) required across trials.
+	// Only meaningful when the parent scenario has Trials > 1.
+	// If unset, defaults to 1.0 (must pass every trial).
+	PassThreshold *float64 `json:"pass_threshold,omitempty" yaml:"pass_threshold,omitempty"`
 }
 
 // AssertionWhen specifies preconditions that must be met for an assertion to run.
@@ -552,6 +556,9 @@ type Scenario struct {
 	ContextCarryForward bool `json:"context_carry_forward,omitempty" yaml:"context_carry_forward,omitempty" jsonschema:"description=Enable conversation context hand-off between workflow states"` //nolint:lll
 	// Variables are injected into the pack's template variables.
 	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty" jsonschema:"description=Template variables to inject into the pack"` //nolint:lll
+	// Trials is the number of times to execute this scenario for statistical evaluation.
+	// When > 1, assertion results are aggregated across trials using pass rates and flakiness scores.
+	Trials int `json:"trials,omitempty" yaml:"trials,omitempty" jsonschema:"description=Number of times to run this scenario for statistical evaluation"` //nolint:lll
 }
 
 // IsWorkflow returns true if this scenario is a workflow scenario (has a pack reference).
