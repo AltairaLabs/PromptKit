@@ -11,7 +11,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
 )
+
+// DefaultMaxAnnotationFiles is the default maximum number of open annotation files
+// before LRU eviction closes the least recently used ones.
+const DefaultMaxAnnotationFiles = 256
 
 // Store persists annotations separately from the event stream.
 type Store interface {
@@ -77,10 +83,13 @@ type Filter struct {
 
 // FileStore implements Store using JSON Lines files.
 // Annotations for each session are stored in a separate file.
+// An in-memory index maps annotation IDs to session IDs for O(1) lookups.
+// Open file handles are managed with LRU eviction to bound resource usage.
 type FileStore struct {
-	dir   string
-	mu    sync.RWMutex
-	files map[string]*os.File
+	dir     string
+	mu      sync.RWMutex
+	files   *lru.Cache[string, *os.File]
+	idIndex map[string]string // annotation ID → session ID
 }
 
 // Store constants.
@@ -95,10 +104,15 @@ func NewFileStore(dir string) (*FileStore, error) {
 	if err := os.MkdirAll(dir, storeDirPermissions); err != nil {
 		return nil, fmt.Errorf("create annotation store directory: %w", err)
 	}
-	return &FileStore{
-		dir:   dir,
-		files: make(map[string]*os.File),
-	}, nil
+	fs := &FileStore{
+		dir:     dir,
+		idIndex: make(map[string]string),
+	}
+	fs.files = lru.New[string, *os.File](DefaultMaxAnnotationFiles, func(_ string, f *os.File) {
+		_ = f.Sync()
+		_ = f.Close()
+	})
+	return fs, nil
 }
 
 // storedAnnotation wraps an Annotation with storage metadata.
@@ -154,9 +168,25 @@ func (s *FileStore) Update(ctx context.Context, previousID string, ann *Annotati
 }
 
 // Get retrieves an annotation by ID.
+// Uses an in-memory index to look up the session ID for O(1) file targeting.
+// Falls back to scanning all session files if the annotation is not in the index.
 func (s *FileStore) Get(ctx context.Context, id string) (*Annotation, error) {
-	// We need to search all session files since we don't know the session ID
-	// A more efficient implementation would maintain an index
+	s.mu.RLock()
+
+	// Fast path: check the in-memory index for this annotation's session
+	if sessionID, ok := s.idIndex[id]; ok {
+		s.mu.RUnlock()
+		path := s.sessionPath(sessionID)
+		ann, err := s.findByID(ctx, path, id)
+		if err == nil && ann != nil {
+			return ann, nil
+		}
+		// If not found in the expected file (e.g., concurrent deletion), fall through
+	} else {
+		s.mu.RUnlock()
+	}
+
+	// Slow path: scan all session files
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -174,8 +204,8 @@ func (s *FileStore) Get(ctx context.Context, id string) (*Annotation, error) {
 		}
 
 		path := filepath.Join(s.dir, entry.Name())
-		ann, err := s.findByID(ctx, path, id)
-		if err == nil && ann != nil {
+		ann, findErr := s.findByID(ctx, path, id)
+		if findErr == nil && ann != nil {
 			return ann, nil
 		}
 	}
@@ -353,15 +383,20 @@ func (s *FileStore) Close() error {
 	defer s.mu.Unlock()
 
 	var errs []error
-	for _, f := range s.files {
-		if err := f.Sync(); err != nil {
-			errs = append(errs, err)
-		}
-		if err := f.Close(); err != nil {
-			errs = append(errs, err)
+	for _, key := range s.files.Keys() {
+		if f, ok := s.files.Get(key); ok {
+			if err := f.Sync(); err != nil {
+				errs = append(errs, err)
+			}
+			if err := f.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
-	s.files = make(map[string]*os.File)
+	s.files = lru.New[string, *os.File](DefaultMaxAnnotationFiles, func(_ string, f *os.File) {
+		_ = f.Sync()
+		_ = f.Close()
+	})
 
 	if len(errs) > 0 {
 		return fmt.Errorf("close files: %v", errs)
@@ -394,6 +429,11 @@ func (s *FileStore) write(ctx context.Context, sessionID string, stored *storedA
 		return fmt.Errorf("write annotation: %w", err)
 	}
 
+	// Update the in-memory ID → session index
+	if stored.Annotation != nil && stored.Annotation.ID != "" {
+		s.idIndex[stored.Annotation.ID] = sessionID
+	}
+
 	return nil
 }
 
@@ -403,9 +443,10 @@ func (s *FileStore) sessionPath(sessionID string) string {
 }
 
 // getOrCreateFile returns the file for a session, creating it if needed.
+// Uses LRU eviction to bound the number of open file handles.
 // Caller must hold s.mu.
 func (s *FileStore) getOrCreateFile(sessionID string) (*os.File, error) {
-	if f, ok := s.files[sessionID]; ok {
+	if f, ok := s.files.Get(sessionID); ok {
 		return f, nil
 	}
 
@@ -416,7 +457,7 @@ func (s *FileStore) getOrCreateFile(sessionID string) (*os.File, error) {
 		return nil, fmt.Errorf("create annotations file: %w", err)
 	}
 
-	s.files[sessionID] = f
+	s.files.Put(sessionID, f)
 	return f, nil
 }
 

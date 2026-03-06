@@ -6,9 +6,14 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// DefaultMaxIndexedConversations is the default maximum number of conversations
+// that can be indexed in memory before LRU eviction of the least recently used.
+const DefaultMaxIndexedConversations = 1000
 
 // messageEmbedding stores a message with its embedding vector.
 type messageEmbedding struct {
@@ -20,18 +25,38 @@ type messageEmbedding struct {
 // InMemoryIndex provides an in-memory implementation of MessageIndex using
 // brute-force cosine similarity search. Suitable for development, testing,
 // and conversations with up to ~10K messages.
+//
+// The number of indexed conversations is bounded by maxConversations with
+// LRU eviction to prevent unbounded memory growth.
 type InMemoryIndex struct {
-	mu       sync.RWMutex
-	provider providers.EmbeddingProvider
-	entries  map[string][]messageEmbedding // conversationID → embeddings
+	mu               sync.RWMutex
+	provider         providers.EmbeddingProvider
+	entries          *lru.Cache[string, []messageEmbedding] // conversationID → embeddings
+	maxConversations int
+}
+
+// InMemoryIndexOption configures an InMemoryIndex.
+type InMemoryIndexOption func(*InMemoryIndex)
+
+// WithMaxIndexedConversations sets the maximum number of conversations to index.
+// Default is DefaultMaxIndexedConversations (1000).
+func WithMaxIndexedConversations(maxConv int) InMemoryIndexOption {
+	return func(idx *InMemoryIndex) {
+		idx.maxConversations = maxConv
+	}
 }
 
 // NewInMemoryIndex creates a new in-memory message index.
-func NewInMemoryIndex(provider providers.EmbeddingProvider) *InMemoryIndex {
-	return &InMemoryIndex{
-		provider: provider,
-		entries:  make(map[string][]messageEmbedding),
+func NewInMemoryIndex(provider providers.EmbeddingProvider, opts ...InMemoryIndexOption) *InMemoryIndex {
+	idx := &InMemoryIndex{
+		provider:         provider,
+		maxConversations: DefaultMaxIndexedConversations,
 	}
+	for _, opt := range opts {
+		opt(idx)
+	}
+	idx.entries = lru.New[string, []messageEmbedding](idx.maxConversations, nil)
+	return idx
 }
 
 // Index adds a message to the search index by computing its embedding.
@@ -60,11 +85,12 @@ func (idx *InMemoryIndex) Index(
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	idx.entries[conversationID] = append(idx.entries[conversationID], messageEmbedding{
+	existing, _ := idx.entries.Get(conversationID)
+	idx.entries.Put(conversationID, append(existing, messageEmbedding{
 		turnIndex: turnIndex,
 		message:   message,
 		vector:    resp.Embeddings[0],
-	})
+	}))
 
 	return nil
 }
@@ -92,7 +118,7 @@ func (idx *InMemoryIndex) Search(ctx context.Context, conversationID, query stri
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	entries, exists := idx.entries[conversationID]
+	entries, exists := idx.entries.Get(conversationID)
 	if !exists || len(entries) == 0 {
 		return nil, nil
 	}
@@ -136,7 +162,7 @@ func (idx *InMemoryIndex) Delete(_ context.Context, conversationID string) error
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	delete(idx.entries, conversationID)
+	idx.entries.Remove(conversationID)
 	return nil
 }
 

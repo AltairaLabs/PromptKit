@@ -472,3 +472,94 @@ func TestAnnotationValueHelpers(t *testing.T) {
 		}
 	})
 }
+
+func TestFileStore_IDIndex_FastLookup(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	// Add annotations to two different sessions
+	ann1 := &Annotation{
+		Type:      TypeScore,
+		SessionID: "session-1",
+		Target:    ForSession(),
+		Key:       "key-1",
+		Value:     NewScoreValue(0.5),
+	}
+	if err := store.Add(ctx, ann1); err != nil {
+		t.Fatalf("add ann1: %v", err)
+	}
+
+	ann2 := &Annotation{
+		Type:      TypeScore,
+		SessionID: "session-2",
+		Target:    ForSession(),
+		Key:       "key-2",
+		Value:     NewScoreValue(0.7),
+	}
+	if err := store.Add(ctx, ann2); err != nil {
+		t.Fatalf("add ann2: %v", err)
+	}
+
+	// Verify Get uses the ID index for fast lookup
+	store.mu.RLock()
+	_, ok1 := store.idIndex[ann1.ID]
+	_, ok2 := store.idIndex[ann2.ID]
+	store.mu.RUnlock()
+
+	if !ok1 || !ok2 {
+		t.Error("expected annotations to be in ID index")
+	}
+
+	// Get should succeed for both
+	got1, err := store.Get(ctx, ann1.ID)
+	if err != nil {
+		t.Fatalf("get ann1: %v", err)
+	}
+	if got1.Key != "key-1" {
+		t.Errorf("expected key-1, got %s", got1.Key)
+	}
+
+	got2, err := store.Get(ctx, ann2.ID)
+	if err != nil {
+		t.Fatalf("get ann2: %v", err)
+	}
+	if got2.Key != "key-2" {
+		t.Errorf("expected key-2, got %s", got2.Key)
+	}
+}
+
+func TestFileStore_LRUEviction(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	// Write to many sessions
+	for i := 0; i < DefaultMaxAnnotationFiles+10; i++ {
+		ann := &Annotation{
+			Type:      TypeLabel,
+			SessionID: "sess-" + time.Now().Format("20060102150405.000000000") + "-" + string(rune('a'+i%26)),
+			Target:    ForSession(),
+			Key:       "label",
+			Value:     NewLabelValue("test"),
+		}
+		if addErr := store.Add(ctx, ann); addErr != nil {
+			t.Fatalf("add: %v", addErr)
+		}
+	}
+
+	// File handle count should be bounded
+	store.mu.RLock()
+	fileCount := store.files.Len()
+	store.mu.RUnlock()
+
+	if fileCount > DefaultMaxAnnotationFiles {
+		t.Errorf("expected at most %d files, got %d", DefaultMaxAnnotationFiles, fileCount)
+	}
+}
