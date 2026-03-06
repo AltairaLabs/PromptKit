@@ -790,6 +790,12 @@ func TestRegisterInit(t *testing.T) {
 		"tool_call_chain",
 		"tool_calls_with_args",
 
+		// Tool pattern and efficiency handlers (Batch 1b)
+		"tool_anti_pattern",
+		"tool_no_repeat",
+		"tool_efficiency",
+		"cost_budget",
+
 		// JSON path, agent, guardrail handlers (Batch 2)
 		"json_path",
 		"agent_invoked",

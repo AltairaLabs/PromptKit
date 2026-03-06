@@ -34,6 +34,12 @@ func init() {
 	evals.RegisterDefault(&ToolCallChainHandler{})
 	evals.RegisterDefault(&ToolCallsWithArgsHandler{})
 
+	// Tool pattern and efficiency handlers (Batch 1b)
+	evals.RegisterDefault(&ToolAntiPatternHandler{})
+	evals.RegisterDefault(&ToolNoRepeatHandler{})
+	evals.RegisterDefault(&ToolEfficiencyHandler{})
+	evals.RegisterDefault(&CostBudgetHandler{})
+
 	// JSON path, agent, and guardrail handlers (Batch 2)
 	evals.RegisterDefault(&JSONPathHandler{})
 	evals.RegisterDefault(&AgentInvokedHandler{})
