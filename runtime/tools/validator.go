@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"container/list"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -8,16 +9,41 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-// SchemaValidator handles JSON schema validation for tool inputs and outputs
-type SchemaValidator struct {
-	cache map[string]*gojsonschema.Schema
-	mu    sync.RWMutex
+// DefaultMaxSchemaCacheSize is the maximum number of compiled JSON schemas
+// held in the validator cache. When full the least-recently-used entry is
+// evicted.
+const DefaultMaxSchemaCacheSize = 128
+
+// schemaEntry is a single entry in the LRU schema cache.
+type schemaEntry struct {
+	key    string
+	schema *gojsonschema.Schema
 }
 
-// NewSchemaValidator creates a new schema validator
+// SchemaValidator handles JSON schema validation for tool inputs and outputs.
+// It maintains an LRU cache of compiled schemas bounded by maxCacheSize.
+type SchemaValidator struct {
+	cache   map[string]*list.Element
+	order   *list.List // front = most recently used
+	maxSize int
+	mu      sync.RWMutex
+}
+
+// NewSchemaValidator creates a new schema validator with the default cache size.
 func NewSchemaValidator() *SchemaValidator {
+	return NewSchemaValidatorWithSize(DefaultMaxSchemaCacheSize)
+}
+
+// NewSchemaValidatorWithSize creates a new schema validator with the given
+// maximum cache size. If maxSize <= 0 it defaults to DefaultMaxSchemaCacheSize.
+func NewSchemaValidatorWithSize(maxSize int) *SchemaValidator {
+	if maxSize <= 0 {
+		maxSize = DefaultMaxSchemaCacheSize
+	}
 	return &SchemaValidator{
-		cache: make(map[string]*gojsonschema.Schema),
+		cache:   make(map[string]*list.Element, maxSize),
+		order:   list.New(),
+		maxSize: maxSize,
 	}
 }
 
@@ -87,33 +113,60 @@ func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result jso
 	return nil
 }
 
-// getSchema retrieves or compiles a JSON schema
+// getSchema retrieves or compiles a JSON schema. Compiled schemas are cached
+// in an LRU cache bounded by maxSize; when full the least-recently-used entry
+// is evicted.
 func (sv *SchemaValidator) getSchema(schemaJSON string) (*gojsonschema.Schema, error) {
-	// First check with read lock
+	// Fast path: read lock lookup + promote to front.
 	sv.mu.RLock()
-	if schema, exists := sv.cache[schemaJSON]; exists {
+	if elem, exists := sv.cache[schemaJSON]; exists {
 		sv.mu.RUnlock()
-		return schema, nil
+		// Promote requires write lock.
+		sv.mu.Lock()
+		sv.order.MoveToFront(elem)
+		sv.mu.Unlock()
+		return elem.Value.(*schemaEntry).schema, nil
 	}
 	sv.mu.RUnlock()
 
-	// Compile schema outside of lock
+	// Compile schema outside of lock.
 	schemaLoader := gojsonschema.NewStringLoader(schemaJSON)
 	schema, err := gojsonschema.NewSchema(schemaLoader)
 	if err != nil {
 		return nil, err
 	}
 
-	// Write to cache with write lock
+	// Write to cache with write lock.
 	sv.mu.Lock()
-	// Double-check in case another goroutine added it
-	if existing, exists := sv.cache[schemaJSON]; exists {
+	// Double-check in case another goroutine added it.
+	if elem, exists := sv.cache[schemaJSON]; exists {
+		sv.order.MoveToFront(elem)
 		sv.mu.Unlock()
-		return existing, nil
+		return elem.Value.(*schemaEntry).schema, nil
 	}
-	sv.cache[schemaJSON] = schema
+
+	// Evict LRU if at capacity.
+	if sv.order.Len() >= sv.maxSize {
+		oldest := sv.order.Back()
+		if oldest != nil {
+			sv.order.Remove(oldest)
+			delete(sv.cache, oldest.Value.(*schemaEntry).key)
+		}
+	}
+
+	entry := &schemaEntry{key: schemaJSON, schema: schema}
+	elem := sv.order.PushFront(entry)
+	sv.cache[schemaJSON] = elem
 	sv.mu.Unlock()
 	return schema, nil
+}
+
+// CacheLen returns the number of entries currently in the schema cache.
+// Exported for testing and monitoring.
+func (sv *SchemaValidator) CacheLen() int {
+	sv.mu.RLock()
+	defer sv.mu.RUnlock()
+	return sv.order.Len()
 }
 
 // CoerceResult attempts to coerce simple type mismatches in tool results

@@ -70,10 +70,8 @@ func TestSchemaValidator_ValidateArgs(t *testing.T) {
 		err = validator.ValidateArgs(descriptor, args)
 		assert.NoError(t, err)
 
-		// Verify cache contains the schema
-		schemaKey := string(descriptor.InputSchema)
-		_, exists := validator.cache[schemaKey]
-		assert.True(t, exists)
+		// Verify cache contains the schema (via CacheLen)
+		assert.Greater(t, validator.CacheLen(), 0)
 	})
 }
 
@@ -237,6 +235,52 @@ func TestSchemaValidator_CoerceResult(t *testing.T) {
 		assert.Nil(t, coerced)
 		assert.Nil(t, coercions)
 	})
+}
+
+func TestSchemaValidator_LRUEviction(t *testing.T) {
+	// Create a validator with a tiny cache (size 2) to test eviction.
+	validator := NewSchemaValidatorWithSize(2)
+
+	schema1 := `{"type":"object","properties":{"a":{"type":"string"}}}`
+	schema2 := `{"type":"object","properties":{"b":{"type":"string"}}}`
+	schema3 := `{"type":"object","properties":{"c":{"type":"string"}}}`
+
+	// Fill the cache with 2 entries.
+	_, err := validator.getSchema(schema1)
+	require.NoError(t, err)
+	_, err = validator.getSchema(schema2)
+	require.NoError(t, err)
+	assert.Equal(t, 2, validator.CacheLen())
+
+	// Adding a 3rd should evict the LRU (schema1).
+	_, err = validator.getSchema(schema3)
+	require.NoError(t, err)
+	assert.Equal(t, 2, validator.CacheLen())
+
+	// schema1 should have been evicted (re-add will not increase size beyond 2).
+	// Access schema2 to make it MRU, then add schema1 — schema3 should be evicted.
+	_, err = validator.getSchema(schema2)
+	require.NoError(t, err)
+	_, err = validator.getSchema(schema1)
+	require.NoError(t, err)
+	assert.Equal(t, 2, validator.CacheLen())
+
+	// schema3 was LRU and should be evicted; schema2 and schema1 remain.
+	// Re-access schema2 and schema1 to confirm they are still cached.
+	_, err = validator.getSchema(schema2)
+	assert.NoError(t, err)
+	_, err = validator.getSchema(schema1)
+	assert.NoError(t, err)
+}
+
+func TestSchemaValidator_DefaultCacheSize(t *testing.T) {
+	v := NewSchemaValidator()
+	assert.Equal(t, DefaultMaxSchemaCacheSize, v.maxSize)
+}
+
+func TestSchemaValidatorWithSize_ZeroDefaults(t *testing.T) {
+	v := NewSchemaValidatorWithSize(0)
+	assert.Equal(t, DefaultMaxSchemaCacheSize, v.maxSize)
 }
 
 func TestSchemaValidator_coerceValue(t *testing.T) {

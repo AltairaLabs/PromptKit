@@ -188,40 +188,50 @@ func (s *TokenBudgetStage) enforceTokenBudget(
 // truncateMessages removes old non-system messages to fit within the budget.
 // It keeps system messages at the start and fills from the most recent
 // messages backward until the budget is exhausted.
+//
+// Token counts are pre-computed once per message and reused via a running
+// sum to avoid re-counting during selection.
 func (s *TokenBudgetStage) truncateMessages(
 	messages []types.Message,
 	systemPrompt string,
 	budget int,
 ) []types.Message {
-	// Separate system messages (at the start) from conversation messages
+	// Pre-compute per-message token counts once.
+	tokenCounts := s.precomputeTokenCounts(messages)
+
+	// Separate system messages from conversation messages, tracking
+	// token totals via the precomputed counts.
 	var systemMsgs []types.Message
 	var conversationMsgs []types.Message
+	var conversationTokens []int
 
+	systemTokens := 0
 	for i := range messages {
 		if messages[i].Role == roleSystem {
 			systemMsgs = append(systemMsgs, messages[i])
+			systemTokens += tokenCounts[i]
 		} else {
 			conversationMsgs = append(conversationMsgs, messages[i])
+			conversationTokens = append(conversationTokens, tokenCounts[i])
 		}
 	}
 
-	// Calculate tokens used by system messages and prompt
-	usedTokens := s.config.TokenCounter.CountMessageTokens(systemMsgs)
+	// Account for system prompt tokens.
 	if systemPrompt != "" {
-		usedTokens += s.config.TokenCounter.CountTokensContentAware(systemPrompt)
+		systemTokens += s.config.TokenCounter.CountTokensContentAware(systemPrompt)
 	}
 
-	remainingBudget := budget - usedTokens
+	remainingBudget := budget - systemTokens
 	if remainingBudget <= 0 {
 		// System messages alone exceed the budget; return them anyway
 		logger.Warn("System messages exceed token budget",
-			"system_tokens", usedTokens,
+			"system_tokens", systemTokens,
 			"budget", budget)
 		return systemMsgs
 	}
 
-	// Fill from most recent messages backward
-	kept := s.selectRecentMessages(conversationMsgs, remainingBudget)
+	// Fill from most recent messages backward using precomputed counts.
+	kept := s.selectRecentMessagesPrecomputed(conversationMsgs, conversationTokens, remainingBudget)
 
 	originalCount := len(messages)
 	truncatedCount := originalCount - len(systemMsgs) - len(kept)
@@ -238,23 +248,41 @@ func (s *TokenBudgetStage) truncateMessages(
 	return result
 }
 
+// precomputeTokenCounts returns per-message token counts so that subsequent
+// logic can use a running sum instead of re-counting.
+func (s *TokenBudgetStage) precomputeTokenCounts(messages []types.Message) []int {
+	counts := make([]int, len(messages))
+	for i := range messages {
+		counts[i] = s.config.TokenCounter.CountMessageTokens(messages[i : i+1])
+	}
+	return counts
+}
+
 // selectRecentMessages picks the most recent messages that fit within
 // the given token budget, working backward from the end.
 func (s *TokenBudgetStage) selectRecentMessages(
 	messages []types.Message,
 	budget int,
 ) []types.Message {
+	counts := s.precomputeTokenCounts(messages)
+	return s.selectRecentMessagesPrecomputed(messages, counts, budget)
+}
+
+// selectRecentMessagesPrecomputed picks the most recent messages using
+// precomputed per-message token counts, avoiding redundant counting.
+func (s *TokenBudgetStage) selectRecentMessagesPrecomputed(
+	messages []types.Message,
+	tokenCounts []int,
+	budget int,
+) []types.Message {
 	usedTokens := 0
 	startIdx := len(messages)
 
 	for i := len(messages) - 1; i >= 0; i-- {
-		msgTokens := s.config.TokenCounter.CountMessageTokens(
-			messages[i : i+1],
-		)
-		if usedTokens+msgTokens > budget {
+		if usedTokens+tokenCounts[i] > budget {
 			break
 		}
-		usedTokens += msgTokens
+		usedTokens += tokenCounts[i]
 		startIdx = i
 	}
 

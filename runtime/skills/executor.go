@@ -14,6 +14,7 @@ type Executor struct {
 	selector  SkillSelector
 	active    map[string]*Skill // currently active skills, keyed by name
 	packTools []string          // all tools declared in the pack (the ceiling)
+	packSet   map[string]bool   // pre-built set from packTools for O(1) membership checks
 	maxActive int               // max concurrent active skills (0 = unlimited)
 	mu        sync.RWMutex
 }
@@ -33,11 +34,18 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	if sel == nil {
 		sel = NewModelDrivenSelector()
 	}
+	// Pre-build the packSet map once so intersectPackTools avoids
+	// rebuilding it on every call.
+	packSet := make(map[string]bool, len(cfg.PackTools))
+	for _, t := range cfg.PackTools {
+		packSet[t] = true
+	}
 	return &Executor{
 		registry:  cfg.Registry,
 		selector:  sel,
 		active:    make(map[string]*Skill),
 		packTools: cfg.PackTools,
+		packSet:   packSet,
 		maxActive: cfg.MaxActive,
 	}
 }
@@ -181,20 +189,17 @@ func (e *Executor) ActiveTools() []string {
 }
 
 // intersectPackTools returns elements of skillTools that also appear in packTools.
+// Uses the pre-built packSet for O(1) membership checks instead of rebuilding
+// the map on every call.
 // Must be called with e.mu held (read or write).
 func (e *Executor) intersectPackTools(skillTools []string) []string {
-	if len(e.packTools) == 0 || len(skillTools) == 0 {
+	if len(e.packSet) == 0 || len(skillTools) == 0 {
 		return nil
-	}
-
-	packSet := make(map[string]bool, len(e.packTools))
-	for _, t := range e.packTools {
-		packSet[t] = true
 	}
 
 	var result []string
 	for _, t := range skillTools {
-		if packSet[t] {
+		if e.packSet[t] {
 			result = append(result, t)
 		}
 	}

@@ -280,7 +280,9 @@ func (r *Registry) GetTool(name string) (*ToolDescriptor, error) {
 	return tool, nil
 }
 
-// GetTools returns all loaded tool descriptors.
+// GetTools returns all loaded tool descriptors. The returned map is a shallow
+// copy (safe to iterate/delete keys), but the *ToolDescriptor pointers are
+// shared with the registry. Callers MUST NOT mutate the returned descriptors.
 func (r *Registry) GetTools() map[string]*ToolDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -290,6 +292,19 @@ func (r *Registry) GetTools() map[string]*ToolDescriptor {
 		result[name] = tool
 	}
 	return result
+}
+
+// IterateTools calls fn for each loaded tool descriptor while holding the
+// read lock. This avoids the map copy that GetTools performs, which matters
+// when the registry is large and the caller only needs to inspect each tool
+// once (e.g. building a provider tool list).
+// The callback MUST NOT call back into the Registry (deadlock).
+func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor)) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for name, tool := range r.tools {
+		fn(name, tool)
+	}
 }
 
 // GetToolsByNames returns tool descriptors for the specified names

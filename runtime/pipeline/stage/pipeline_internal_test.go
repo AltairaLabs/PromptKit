@@ -42,8 +42,8 @@ type testPassthroughStage struct {
 	name string
 }
 
-func (s *testPassthroughStage) Name() string      { return s.name }
-func (s *testPassthroughStage) Type() StageType   { return StageTypeTransform }
+func (s *testPassthroughStage) Name() string    { return s.name }
+func (s *testPassthroughStage) Type() StageType { return StageTypeTransform }
 func (s *testPassthroughStage) Process(_ context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
 	defer close(out)
 	for elem := range in {
@@ -166,6 +166,112 @@ func TestWaitForStageErrors(t *testing.T) {
 			t.Errorf("expected %v, got %v", testErr, result)
 		}
 	})
+}
+
+// TestFindUpstreamStage_ReverseEdges verifies O(1) lookup via precomputed reverseEdges.
+func TestFindUpstreamStage_ReverseEdges(t *testing.T) {
+	stageA := &testPassthroughStage{name: "stageA"}
+	stageB := &testPassthroughStage{name: "stageB"}
+	stageC := &testPassthroughStage{name: "stageC"}
+
+	pipeline, err := NewPipelineBuilder().
+		Chain(stageA, stageB, stageC).
+		Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// reverseEdges should be populated by Build.
+	if pipeline.reverseEdges == nil {
+		t.Fatal("reverseEdges should not be nil")
+	}
+
+	if upstream := pipeline.findUpstreamStage("stageB"); upstream != "stageA" {
+		t.Errorf("expected stageA upstream of stageB, got %q", upstream)
+	}
+	if upstream := pipeline.findUpstreamStage("stageC"); upstream != "stageB" {
+		t.Errorf("expected stageB upstream of stageC, got %q", upstream)
+	}
+	if upstream := pipeline.findUpstreamStage("stageA"); upstream != "" {
+		t.Errorf("expected empty upstream for root stageA, got %q", upstream)
+	}
+	if upstream := pipeline.findUpstreamStage("nonexistent"); upstream != "" {
+		t.Errorf("expected empty upstream for nonexistent, got %q", upstream)
+	}
+}
+
+// TestFindUpstreamStage_FallbackNilReverseEdges tests the fallback linear scan
+// when reverseEdges is nil (should not happen in practice).
+func TestFindUpstreamStage_FallbackNilReverseEdges(t *testing.T) {
+	pipeline := &StreamPipeline{
+		edges: map[string][]string{
+			"A": {"B"},
+			"B": {"C"},
+		},
+		reverseEdges: nil, // force fallback
+	}
+
+	if upstream := pipeline.findUpstreamStage("B"); upstream != "A" {
+		t.Errorf("fallback: expected A upstream of B, got %q", upstream)
+	}
+	if upstream := pipeline.findUpstreamStage("X"); upstream != "" {
+		t.Errorf("fallback: expected empty for X, got %q", upstream)
+	}
+}
+
+// TestCollectOutput_ConcurrentLeafStages verifies that collectOutput fans
+// in from multiple leaf stages concurrently.
+func TestCollectOutput_ConcurrentLeafStages(t *testing.T) {
+	// Build a fan-out pipeline: A -> B, A -> C (B and C are leaves)
+	stageA := &testPassthroughStage{name: "stageA"}
+	stageB := &testPassthroughStage{name: "stageB"}
+	stageC := &testPassthroughStage{name: "stageC"}
+
+	pipeline, err := NewPipelineBuilder().
+		AddStage(stageA).
+		AddStage(stageB).
+		AddStage(stageC).
+		Connect("stageA", "stageB").
+		Connect("stageA", "stageC").
+		Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// Create channels mimicking the stage output channels.
+	channels := map[string]chan StreamElement{
+		"stageA": make(chan StreamElement, 10),
+		"stageB": make(chan StreamElement, 10),
+		"stageC": make(chan StreamElement, 10),
+	}
+
+	// stageA is not a leaf (has outgoing edges), close its channel.
+	close(channels["stageA"])
+
+	// stageB and stageC are leaves; push test elements.
+	text1 := "from-B"
+	text2 := "from-C"
+	channels["stageB"] <- StreamElement{Text: &text1}
+	close(channels["stageB"])
+	channels["stageC"] <- StreamElement{Text: &text2}
+	close(channels["stageC"])
+
+	output := make(chan StreamElement, 10)
+	go func() {
+		pipeline.collectOutput(channels, output)
+		close(output)
+	}()
+
+	var collected []string
+	for elem := range output {
+		if elem.Text != nil {
+			collected = append(collected, *elem.Text)
+		}
+	}
+
+	if len(collected) != 2 {
+		t.Fatalf("expected 2 elements, got %d", len(collected))
+	}
 }
 
 // TestEmitCompletionEvent tests the emitCompletionEvent helper function.
