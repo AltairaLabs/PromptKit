@@ -631,13 +631,14 @@ func parseDetailLevel(detail string) *string {
 
 // privateIPNets defines CIDR ranges considered private or reserved.
 // Used by validateURLNotPrivate to prevent SSRF attacks.
+// These are well-known RFC 1918/4193/5737 ranges — hardcoded intentionally for security.
 var privateIPNets = func() []*net.IPNet {
 	cidrs := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"127.0.0.0/8",
-		"169.254.0.0/16",
+		"10.0.0.0/8",     // NOSONAR — RFC 1918 private range for SSRF protection
+		"172.16.0.0/12",  // NOSONAR — RFC 1918 private range for SSRF protection
+		"192.168.0.0/16", // NOSONAR — RFC 1918 private range for SSRF protection
+		"127.0.0.0/8",    // NOSONAR — loopback range for SSRF protection
+		"169.254.0.0/16", // NOSONAR — link-local range for SSRF protection
 		"::1/128",
 		"fc00::/7",
 		"fe80::/10",
