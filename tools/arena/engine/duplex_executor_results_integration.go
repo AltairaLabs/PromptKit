@@ -11,6 +11,7 @@ import (
 
 // buildResultFromStateStore loads final state and builds result.
 func (de *DuplexConversationExecutor) buildResultFromStateStore(
+	ctx context.Context,
 	req *ConversationRequest,
 ) *ConversationResult {
 	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil {
@@ -30,7 +31,7 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 		}
 	}
 
-	state, err := store.Load(context.Background(), req.ConversationID)
+	state, err := store.Load(ctx, req.ConversationID)
 	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
 		return &ConversationResult{
 			Messages: []types.Message{},
@@ -50,12 +51,12 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 	toolStats := de.calculateToolStats(messages)
 
 	// Evaluate conversation-level assertions
-	convAssertionResults := de.evaluateConversationAssertions(req, messages)
+	convAssertionResults := de.evaluateConversationAssertions(ctx, req, messages)
 
 	// Run pack eval session-level evals if configured
 	if de.packEvalHook != nil && de.packEvalHook.HasEvals() {
 		packResults := de.packEvalHook.RunSessionEvals(
-			context.Background(), messages, req.ConversationID)
+			ctx, messages, req.ConversationID)
 		convAssertionResults = append(convAssertionResults, packResults...)
 	}
 
@@ -92,7 +93,9 @@ func (de *DuplexConversationExecutor) calculateToolStats(messages []types.Messag
 }
 
 // getConversationHistory retrieves the conversation history from state store.
-func (de *DuplexConversationExecutor) getConversationHistory(req *ConversationRequest) []types.Message {
+func (de *DuplexConversationExecutor) getConversationHistory(
+	ctx context.Context, req *ConversationRequest,
+) []types.Message {
 	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil {
 		return nil
 	}
@@ -102,7 +105,7 @@ func (de *DuplexConversationExecutor) getConversationHistory(req *ConversationRe
 		return nil
 	}
 
-	state, err := store.Load(context.Background(), req.ConversationID)
+	state, err := store.Load(ctx, req.ConversationID)
 	if err != nil {
 		return nil
 	}

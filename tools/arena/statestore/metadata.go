@@ -32,8 +32,8 @@ func (s *ArenaStateStore) SaveMetadata(ctx context.Context, conversationID strin
 		s.conversations[conversationID] = arenaState
 	}
 
-	// Save metadata
-	arenaState.RunMetadata = metadata
+	// Deep clone metadata before storing to prevent external mutation
+	arenaState.RunMetadata = s.deepCloneRunMetadata(metadata)
 
 	return nil
 }

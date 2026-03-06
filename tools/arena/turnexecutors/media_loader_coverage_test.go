@@ -247,7 +247,8 @@ func TestConvertImagePart_URLWithHTTPLoader(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader.allowPrivateIP = true // Allow localhost for test
 	ctx := context.Background()
 
 	turnPart := config.TurnContentPart{
@@ -291,7 +292,7 @@ func TestConvertImagePart_URLWithoutHTTPLoader(t *testing.T) {
 
 // Test HTTP loader edge cases - currently 82.8% coverage
 func TestHTTPMediaLoader_UnsupportedScheme(t *testing.T) {
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
 	_, _, err := httpLoader.loadMediaFromURL(ctx, "ftp://example.com/file.jpg", "image", 0, "")
@@ -315,7 +316,7 @@ func TestHTTPMediaLoader_ContextCancelled(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -337,7 +338,7 @@ func TestHTTPMediaLoader_NonOKStatus(t *testing.T) {
 	server.Start()
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
 	_, _, err = httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0, "")
@@ -354,7 +355,7 @@ func TestHTTPMediaLoader_ContentLengthExceedsLimit(t *testing.T) {
 	server := newLocalServer(t, handler)
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024) // 10MB limit
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024) // 10MB limit
 	ctx := context.Background()
 
 	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0, "")
@@ -372,7 +373,7 @@ func TestHTTPMediaLoader_BodyExceedsLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024) // 10MB limit
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024) // 10MB limit
 	ctx := context.Background()
 
 	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "video", 0, "")
@@ -390,7 +391,7 @@ func TestHTTPMediaLoader_ContentTypeFromHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
 	// URL says .mp3, but header says wav - header should win
@@ -413,7 +414,7 @@ func TestHTTPMediaLoader_MaxRedirects(t *testing.T) {
 	}))
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
 	_, _, err := httpLoader.loadMediaFromURL(ctx, server.URL, "image", 0, "")
@@ -558,7 +559,7 @@ func TestConvertAudioPart_FromURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
 	turnPart := config.TurnContentPart{
@@ -584,7 +585,7 @@ func TestConvertVideoPart_FromURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	httpLoader := NewHTTPMediaLoader(5*time.Second, 10*1024*1024)
+	httpLoader := newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 	ctx := context.Background()
 
 	turnPart := config.TurnContentPart{

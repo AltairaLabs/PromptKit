@@ -13,7 +13,10 @@ func TestWrapPCMInWAV(t *testing.T) {
 	}
 
 	// Call wrapPCMInWAV
-	wavData := wrapPCMInWAV(pcmData, 24000, 16, 1)
+	wavData, err := wrapPCMInWAV(pcmData, 24000, 16, 1)
+	if err != nil {
+		t.Fatalf("wrapPCMInWAV failed: %v", err)
+	}
 
 	// Verify WAV header size (44 bytes + data)
 	expectedSize := 44 + len(pcmData)
@@ -91,7 +94,10 @@ func TestWrapPCMInWAVDifferentParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			wavData := wrapPCMInWAV(pcmData, tt.sampleRate, tt.bitsPerSample, tt.numChannels)
+			wavData, err := wrapPCMInWAV(pcmData, tt.sampleRate, tt.bitsPerSample, tt.numChannels)
+			if err != nil {
+				t.Fatalf("wrapPCMInWAV failed: %v", err)
+			}
 
 			// Verify header integrity
 			if string(wavData[0:4]) != "RIFF" {
@@ -122,7 +128,10 @@ func TestWrapPCMInWAVDifferentParams(t *testing.T) {
 func TestWrapPCMInWAVEmptyData(t *testing.T) {
 	// Test with empty PCM data
 	pcmData := []byte{}
-	wavData := wrapPCMInWAV(pcmData, 16000, 16, 1)
+	wavData, err := wrapPCMInWAV(pcmData, 16000, 16, 1)
+	if err != nil {
+		t.Fatalf("wrapPCMInWAV failed: %v", err)
+	}
 
 	// Should still have valid WAV header
 	if len(wavData) != 44 {

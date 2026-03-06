@@ -61,7 +61,7 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 	}
 
 	convCtx := e.buildConversationContext(&req, messages, metadata)
-	e.applyAllTurnAssertions(req.Eval.Turns, messages, convCtx)
+	e.applyAllTurnAssertions(ctx, req.Eval.Turns, messages, convCtx)
 	mergedEvalAssertions := mergeAssertionConfigs(req.Config, req.Eval.ConversationAssertions)
 	convResults := e.evaluateConversationAssertions(ctx, mergedEvalAssertions, convCtx)
 
@@ -121,6 +121,7 @@ func (e *EvalConversationExecutor) loadRecording(
 
 // applyAllTurnAssertions extracts and applies all turn-level assertions to assistant messages.
 func (e *EvalConversationExecutor) applyAllTurnAssertions(
+	ctx context.Context,
 	turns []config.EvalTurnConfig,
 	messages []types.Message,
 	convCtx *assertions.ConversationContext,
@@ -128,7 +129,7 @@ func (e *EvalConversationExecutor) applyAllTurnAssertions(
 	turnAssertions := e.extractTurnAssertions(turns)
 	for i := range messages {
 		if messages[i].Role == roleAssistant {
-			e.applyTurnAssertions(turnAssertions, &messages[i], convCtx)
+			e.applyTurnAssertions(ctx, turnAssertions, &messages[i], convCtx)
 		}
 	}
 }
@@ -246,6 +247,7 @@ func (e *EvalConversationExecutor) buildConversationContext(
 
 // applyTurnAssertions applies turn-level assertions to a single message via PackEvalHook.
 func (e *EvalConversationExecutor) applyTurnAssertions(
+	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
 	msg *types.Message,
 	convCtx *assertions.ConversationContext,
@@ -256,7 +258,7 @@ func (e *EvalConversationExecutor) applyTurnAssertions(
 
 	// Run assertions through eval pipeline
 	evalResults := e.packEvalHook.RunAssertionsAsEvals(
-		context.Background(), assertionConfigs, convCtx.AllTurns,
+		ctx, assertionConfigs, convCtx.AllTurns,
 		len(convCtx.AllTurns)-1, "",
 		evals.TriggerEveryTurn,
 	)
@@ -278,7 +280,6 @@ func (e *EvalConversationExecutor) applyTurnAssertions(
 	}
 	msg.Meta["assertions"] = results
 }
-
 
 // calculateCost estimates or extracts cost information from the messages.
 func (e *EvalConversationExecutor) calculateCost(messages []types.Message) types.CostInfo {

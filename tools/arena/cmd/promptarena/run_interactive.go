@@ -307,6 +307,9 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 	interceptedLogger := slog.New(logInterceptor)
 	logger.SetLogger(interceptedLogger)
 
+	// Use a cancellable context so background work stops when the TUI exits.
+	ctx, cancel := context.WithCancel(ctx)
+
 	// Start execution in background
 	var runIDs []string
 	var execErr error
@@ -320,8 +323,12 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 
 	// Run the TUI (blocks until user quits with 'q' or Ctrl+C)
 	if _, tuiErr := program.Run(); tuiErr != nil {
+		cancel()
 		return nil, fmt.Errorf("TUI error: %w", tuiErr)
 	}
+
+	// Cancel background work now that the TUI has exited.
+	cancel()
 
 	// Check if execution completed, but don't block - user might have quit early
 	select {

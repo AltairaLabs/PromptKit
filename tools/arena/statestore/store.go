@@ -237,6 +237,9 @@ func (s *ArenaStateStore) Fork(ctx context.Context, sourceID, newID string) erro
 
 // UpdateLastAssistantMessage updates the metadata of the last assistant message.
 // This is used by duplex mode to attach assertion results to messages after evaluation.
+//
+// TODO(perf): Content-based message matching is O(N) per conversation. Consider passing
+// conversation ID for direct lookup instead of scanning all conversations.
 func (s *ArenaStateStore) UpdateLastAssistantMessage(msg *types.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

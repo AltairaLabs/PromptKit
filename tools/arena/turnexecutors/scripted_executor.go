@@ -31,6 +31,7 @@ const (
 // ScriptedExecutor executes turns where the user message is scripted (predefined)
 type ScriptedExecutor struct {
 	pipelineExecutor *PipelineExecutor
+	httpLoader       *HTTPMediaLoader // Optional: if nil, a default loader is created
 }
 
 // NewScriptedExecutor creates a new executor for scripted user turns
@@ -64,8 +65,11 @@ func (e *ScriptedExecutor) buildUserMessage(req *TurnRequest) (types.Message, er
 		// Use the base directory from the request (resolved from config directory)
 		baseDir := req.BaseDir
 
-		// Create HTTP loader for URL-based media
-		httpLoader := NewHTTPMediaLoader(httpLoaderTimeout, httpLoaderMaxSize)
+		// Use pre-configured loader or create a default one
+		httpLoader := e.httpLoader
+		if httpLoader == nil {
+			httpLoader = NewHTTPMediaLoader(httpLoaderTimeout, httpLoaderMaxSize)
+		}
 
 		parts, err := ConvertTurnPartsToMessageParts(context.Background(), req.ScriptedParts, baseDir, httpLoader, nil)
 		if err != nil {

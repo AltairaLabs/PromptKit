@@ -25,7 +25,7 @@ func (de *DuplexConversationExecutor) evaluateTurnAssertions(
 	}
 
 	// Get messages from state store to find the latest assistant message
-	messages := de.getConversationHistory(req)
+	messages := de.getConversationHistory(ctx, req)
 	if len(messages) == 0 {
 		logger.Debug("No messages to evaluate assertions against", "turn", turnIdx)
 		return
@@ -159,6 +159,7 @@ func (de *DuplexConversationExecutor) countFailedAssertions(results []arenaasser
 
 // evaluateConversationAssertions evaluates pack + scenario conversation assertions via PackEvalHook.
 func (de *DuplexConversationExecutor) evaluateConversationAssertions(
+	ctx context.Context,
 	req *ConversationRequest,
 	messages []types.Message,
 ) []arenaassertions.ConversationValidationResult {
@@ -181,7 +182,7 @@ func (de *DuplexConversationExecutor) evaluateConversationAssertions(
 		"assertion_count", len(assertionConfigs))
 
 	results := de.packEvalHook.RunAssertionsAsConversationResults(
-		context.Background(), assertionConfigs, messages,
+		ctx, assertionConfigs, messages,
 		len(messages)-1, req.ConversationID,
 		evals.TriggerOnConversationComplete,
 	)

@@ -23,7 +23,7 @@ func TestEvaluateConversationAssertions_NoAssertions(t *testing.T) {
 	req := ConversationRequest{Scenario: &config.Scenario{ID: "sc"}}
 	msgs := []types.Message{{Role: "assistant", Content: "hello"}}
 
-	res := ce.evaluateConversationAssertions(&req, msgs)
+	res := ce.evaluateConversationAssertions(context.Background(), &req, msgs)
 	if res != nil {
 		t.Fatalf("expected nil results when no conversation assertions present, got %v", res)
 	}
@@ -34,7 +34,7 @@ func TestConversationExecutor_HandleTurnExecutionError(t *testing.T) {
 	req := ConversationRequest{
 		Scenario: &config.Scenario{},
 	}
-	result := ce.handleTurnExecutionError(req, assertErr{}, 0, config.TurnDefinition{Role: "user"})
+	result := ce.handleTurnExecutionError(context.Background(), &req, assertErr{}, 0, config.TurnDefinition{Role: "user"})
 
 	require.True(t, result.Failed)
 	require.Equal(t, "failed", result.Error)
@@ -88,7 +88,7 @@ func TestEvaluateConversationAssertions_WithContentNotIncludes(t *testing.T) {
 		{Role: "assistant", Content: "this has forbidden phrase"},
 	}
 
-	res := ce.evaluateConversationAssertions(&req, msgs)
+	res := ce.evaluateConversationAssertions(context.Background(), &req, msgs)
 	if res != nil {
 		t.Fatalf("expected nil results without packEvalHook, got %v", res)
 	}
@@ -869,7 +869,7 @@ func TestEvaluateConversationAssertions_PackAssertionsEvaluated(t *testing.T) {
 		{Role: "assistant", Content: "this has forbidden phrase"},
 	}
 
-	res := ce.evaluateConversationAssertions(&req, msgs)
+	res := ce.evaluateConversationAssertions(context.Background(), &req, msgs)
 	if res != nil {
 		t.Fatalf("expected nil results without packEvalHook, got %v", res)
 	}
@@ -899,7 +899,7 @@ func TestEvaluateConversationAssertions_PackAndScenarioBothProduceResults(t *tes
 		{Role: "assistant", Content: "this has pack-bad and scenario-bad words"},
 	}
 
-	res := ce.evaluateConversationAssertions(&req, msgs)
+	res := ce.evaluateConversationAssertions(context.Background(), &req, msgs)
 	if res != nil {
 		t.Fatalf("expected nil results without packEvalHook, got %v", res)
 	}

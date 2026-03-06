@@ -100,7 +100,7 @@ func TestEvalConversationExecutor_ApplyAllTurnAssertions(t *testing.T) {
 	}
 
 	// This tests that the function runs without error
-	executor.applyAllTurnAssertions(turns, messages, convCtx)
+	executor.applyAllTurnAssertions(context.Background(), turns, messages, convCtx)
 }
 
 func TestEvalConversationExecutor_ExtractTurnAssertions(t *testing.T) {

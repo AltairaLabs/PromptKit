@@ -199,7 +199,7 @@ func TestDuplexStateStore_BuildResultFromStateStore(t *testing.T) {
 		},
 	}
 
-	result := executor.buildResultFromStateStore(req)
+	result := executor.buildResultFromStateStore(context.Background(), req)
 
 	// Check result
 	t.Logf("Result: Failed=%v, Error=%q, Messages=%d", result.Failed, result.Error, len(result.Messages))
@@ -280,7 +280,7 @@ func TestDuplexStateStore_MediaOutputCaptured(t *testing.T) {
 		},
 	}
 
-	result := executor.buildResultFromStateStore(req)
+	result := executor.buildResultFromStateStore(context.Background(), req)
 
 	// Check result
 	t.Logf("Result: Failed=%v, Error=%q, Messages=%d, MediaOutputs=%d",

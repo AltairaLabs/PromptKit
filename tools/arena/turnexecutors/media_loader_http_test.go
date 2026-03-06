@@ -14,6 +14,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// newTestHTTPMediaLoader creates an HTTPMediaLoader that allows private IPs (for localhost test servers).
+func newTestHTTPMediaLoader(timeout time.Duration, maxFileSize int64) *HTTPMediaLoader {
+	loader := NewHTTPMediaLoader(timeout, maxFileSize)
+	loader.allowPrivateIP = true
+	return loader
+}
+
 // TestHTTPMediaLoader_Success tests successful HTTP media loading
 func TestHTTPMediaLoader_Success(t *testing.T) {
 	// Create test image data
@@ -29,7 +36,7 @@ func TestHTTPMediaLoader_Success(t *testing.T) {
 	defer server.Close()
 
 	// Create HTTP loader
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Load media
 	data, mimeType, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
@@ -55,7 +62,7 @@ func TestHTTPMediaLoader_404Error(t *testing.T) {
 	defer server.Close()
 
 	// Create HTTP loader
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Attempt to load media
 	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
@@ -78,7 +85,7 @@ func TestHTTPMediaLoader_Timeout(t *testing.T) {
 	defer server.Close()
 
 	// Create HTTP loader with short timeout
-	loader := NewHTTPMediaLoader(100*time.Millisecond, 1024*1024)
+	loader := newTestHTTPMediaLoader(100*time.Millisecond, 1024*1024)
 
 	// Attempt to load media
 	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
@@ -102,7 +109,7 @@ func TestHTTPMediaLoader_ContextCancellation(t *testing.T) {
 	defer server.Close()
 
 	// Create HTTP loader
-	loader := NewHTTPMediaLoader(10*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(10*time.Second, 1024*1024)
 
 	// Create context that will be cancelled
 	ctx, cancel := context.WithCancel(context.Background())
@@ -134,7 +141,7 @@ func TestHTTPMediaLoader_FileSizeLimit(t *testing.T) {
 	defer server.Close()
 
 	// Create HTTP loader with 1KB limit
-	loader := NewHTTPMediaLoader(5*time.Second, 1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024)
 
 	// Attempt to load media
 	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
@@ -169,7 +176,7 @@ func TestHTTPMediaLoader_FileSizeLimitWithoutContentLength(t *testing.T) {
 	defer server.Close()
 
 	// Create HTTP loader with 1KB limit
-	loader := NewHTTPMediaLoader(5*time.Second, 1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024)
 
 	// Attempt to load media
 	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
@@ -192,7 +199,7 @@ func TestHTTPMediaLoader_FileSizeLimitWithoutContentLength(t *testing.T) {
 
 // TestHTTPMediaLoader_InvalidURL tests handling of invalid URLs
 func TestHTTPMediaLoader_InvalidURL(t *testing.T) {
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Test invalid URL
 	_, _, err := loader.loadMediaFromURL(context.Background(), "ht!tp://invalid-url", "image", 0, "")
@@ -213,7 +220,7 @@ func TestHTTPMediaLoader_MIMETypeFromHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	_, mimeType, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err != nil {
@@ -242,7 +249,7 @@ func TestHTTPMediaLoader_MIMETypeFromURL(t *testing.T) {
 	// Add .jpg extension to URL
 	testURL := server.URL + "/image.jpg"
 
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	_, mimeType, err := loader.loadMediaFromURL(context.Background(), testURL, "image", 0, "")
 	if err != nil {
@@ -275,7 +282,7 @@ func TestHTTPMediaLoader_RedirectHandling(t *testing.T) {
 	}))
 	defer redirectServer.Close()
 
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	data, mimeType, err := loader.loadMediaFromURL(context.Background(), redirectServer.URL, "image", 0, "")
 	if err != nil {
@@ -300,7 +307,7 @@ func TestHTTPMediaLoader_TooManyRedirects(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	_, _, err := loader.loadMediaFromURL(context.Background(), server.URL, "image", 0, "")
 	if err == nil {
@@ -337,7 +344,7 @@ func TestConvertTurnPartsToMessageParts_ImageFromURLWithLoader(t *testing.T) {
 	}
 
 	// Create HTTP loader
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Convert with HTTP loader
 	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader, nil)
@@ -391,7 +398,7 @@ func TestConvertTurnPartsToMessageParts_AudioFromURLWithLoader(t *testing.T) {
 	}
 
 	// Create HTTP loader
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Convert with HTTP loader
 	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader, nil)
@@ -445,7 +452,7 @@ func TestConvertTurnPartsToMessageParts_VideoFromURLWithLoader(t *testing.T) {
 	}
 
 	// Create HTTP loader
-	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
 
 	// Convert with HTTP loader
 	parts, err := ConvertTurnPartsToMessageParts(context.Background(), turnParts, "", loader, nil)
@@ -472,6 +479,99 @@ func TestConvertTurnPartsToMessageParts_VideoFromURLWithLoader(t *testing.T) {
 
 	if parts[0].Media.MIMEType != "video/mp4" {
 		t.Errorf("Expected MIME type 'video/mp4', got: %s", parts[0].Media.MIMEType)
+	}
+}
+
+func TestValidateURLNotPrivate_RejectsLoopback(t *testing.T) {
+	err := validateURLNotPrivate("http://127.0.0.1/image.jpg")
+	if err == nil {
+		t.Fatal("Expected error for loopback address")
+	}
+	if !strings.Contains(err.Error(), "private/reserved") {
+		t.Errorf("Expected private IP error, got: %v", err)
+	}
+}
+
+func TestValidateURLNotPrivate_RejectsLocalhost(t *testing.T) {
+	err := validateURLNotPrivate("http://localhost/image.jpg")
+	if err == nil {
+		t.Fatal("Expected error for localhost")
+	}
+	if !strings.Contains(err.Error(), "private/reserved") {
+		t.Errorf("Expected private IP error, got: %v", err)
+	}
+}
+
+func TestValidateURLNotPrivate_AllowsPublic(t *testing.T) {
+	// This will attempt a DNS lookup of example.com - a real public domain
+	err := validateURLNotPrivate("https://example.com/image.jpg")
+	if err != nil {
+		t.Skipf("DNS lookup failed (expected in offline environments): %v", err)
+	}
+}
+
+func TestValidateURLNotPrivate_InvalidURL(t *testing.T) {
+	err := validateURLNotPrivate("://invalid")
+	if err == nil {
+		t.Fatal("Expected error for invalid URL")
+	}
+}
+
+func TestValidateURLNotPrivate_NoHostname(t *testing.T) {
+	err := validateURLNotPrivate("http:///path")
+	if err == nil {
+		t.Fatal("Expected error for URL with no hostname")
+	}
+	if !strings.Contains(err.Error(), "no hostname") {
+		t.Errorf("Expected 'no hostname' error, got: %v", err)
+	}
+}
+
+func TestValidateURLNotPrivate_UnresolvableHost(t *testing.T) {
+	err := validateURLNotPrivate("http://this-host-does-not-exist-xyz123.invalid/img.jpg")
+	if err == nil {
+		t.Fatal("Expected error for unresolvable hostname")
+	}
+	if !strings.Contains(err.Error(), "failed to resolve") {
+		t.Errorf("Expected resolve error, got: %v", err)
+	}
+}
+
+func TestHTTPMediaLoader_SSRFBlocksPrivateIP(t *testing.T) {
+	// Default loader should block private IPs
+	loader := NewHTTPMediaLoader(5*time.Second, 1024*1024)
+	ctx := context.Background()
+
+	_, _, err := loader.loadMediaFromURL(ctx, "http://127.0.0.1:12345/img.jpg", "image", 0, "")
+	if err == nil {
+		t.Fatal("Expected SSRF error for private IP")
+	}
+	if !strings.Contains(err.Error(), "private/reserved") {
+		t.Errorf("Expected private IP error, got: %v", err)
+	}
+}
+
+func TestHTTPMediaLoader_AllowPrivateIPBypass(t *testing.T) {
+	// Test that allowPrivateIP bypasses SSRF check (for test loaders)
+	loader := newTestHTTPMediaLoader(5*time.Second, 1024*1024)
+
+	// Create a local test server
+	server := newLocalServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte("fake-image"))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	data, mimeType, err := loader.loadMediaFromURL(ctx, server.URL+"/img.jpg", "image", 0, "")
+	if err != nil {
+		t.Fatalf("Expected no error with allowPrivateIP, got: %v", err)
+	}
+	if data == "" {
+		t.Error("Expected non-empty data")
+	}
+	if mimeType != "image/jpeg" {
+		t.Errorf("Expected image/jpeg, got %s", mimeType)
 	}
 }
 

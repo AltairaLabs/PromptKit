@@ -6,7 +6,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,8 +50,9 @@ const (
 
 // HTTPMediaLoader handles loading media from HTTP/HTTPS URLs
 type HTTPMediaLoader struct {
-	client      *http.Client
-	maxFileSize int64 // Maximum file size in bytes
+	client         *http.Client
+	maxFileSize    int64 // Maximum file size in bytes
+	allowPrivateIP bool  // If true, skip SSRF private-IP check (for testing only)
 }
 
 // NewHTTPMediaLoader creates a new HTTP media loader with the specified timeout and max file size
@@ -367,7 +371,10 @@ func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 			return types.ContentPart{}, NewFileError(index, "audio", fullPath, "failed to decode PCM data", decErr)
 		}
 		// Wrap in WAV header (16kHz, 16-bit, mono - standard input format)
-		wavData := wrapPCMInWAV(pcmData, geminiumSampleRate, geminiumBitDepth, geminiumChannelsCount)
+		wavData, wavErr := wrapPCMInWAV(pcmData, geminiumSampleRate, geminiumBitDepth, geminiumChannelsCount)
+		if wavErr != nil {
+			return types.ContentPart{}, NewFileError(index, "audio", fullPath, "failed to wrap PCM in WAV", wavErr)
+		}
 		data = base64.StdEncoding.EncodeToString(wavData)
 		mimeType = "audio/wav"
 	}
@@ -381,8 +388,14 @@ func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 // wrapPCMInWAV wraps raw PCM audio data in a WAV header for playability.
 //
 //nolint:gosec // G115: Integer conversions are safe for audio parameters
-func wrapPCMInWAV(pcmData []byte, sampleRate, bitsPerSample, numChannels int) []byte {
+func wrapPCMInWAV(pcmData []byte, sampleRate, bitsPerSample, numChannels int) ([]byte, error) {
 	dataSize := len(pcmData)
+
+	// Guard against integer overflow when casting to uint32 for the WAV header.
+	if dataSize > math.MaxUint32-wavChunkSizeOffset {
+		return nil, fmt.Errorf("PCM data too large for WAV format: %d bytes exceeds uint32 limit", dataSize)
+	}
+
 	byteRate := sampleRate * numChannels * bitsPerSample / audioBitsPerByte
 	blockAlign := numChannels * bitsPerSample / audioBitsPerByte
 
@@ -413,7 +426,7 @@ func wrapPCMInWAV(pcmData []byte, sampleRate, bitsPerSample, numChannels int) []
 	copy(wav[0:44], header)
 	copy(wav[44:], pcmData)
 
-	return wav
+	return wav, nil
 }
 
 // loadVideoFromFile loads video from disk and returns a content part
@@ -472,6 +485,13 @@ func (h *HTTPMediaLoader) loadMediaFromURL(
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		return "", "", NewValidationError(
 			index, contentType, url, "unsupported URL scheme (only http:// and https:// are supported)")
+	}
+
+	// SSRF protection: reject URLs that resolve to private/reserved IP ranges
+	if !h.allowPrivateIP {
+		if ssrfErr := validateURLNotPrivate(url); ssrfErr != nil {
+			return "", "", NewValidationError(index, contentType, url, ssrfErr.Error())
+		}
 	}
 
 	// Create request with context
@@ -607,4 +627,62 @@ func parseDetailLevel(detail string) *string {
 		return nil
 	}
 	return &detail
+}
+
+// privateIPNets defines CIDR ranges considered private or reserved.
+// Used by validateURLNotPrivate to prevent SSRF attacks.
+var privateIPNets = func() []*net.IPNet {
+	cidrs := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"127.0.0.0/8",
+		"169.254.0.0/16",
+		"::1/128",
+		"fc00::/7",
+		"fe80::/10",
+	}
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, ipNet, _ := net.ParseCIDR(cidr)
+		nets = append(nets, ipNet)
+	}
+	return nets
+}()
+
+// ssrfResolver is a package-level DNS resolver used for SSRF hostname checks.
+var ssrfResolver = &net.Resolver{}
+
+// validateURLNotPrivate resolves the hostname in the URL and rejects
+// addresses that fall within private/reserved IP ranges (SSRF protection).
+func validateURLNotPrivate(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return fmt.Errorf("URL has no hostname")
+	}
+
+	ctx := context.Background()
+	ips, err := ssrfResolver.LookupHost(ctx, hostname)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hostname %q: %w", hostname, err)
+	}
+
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			continue
+		}
+		for _, ipNet := range privateIPNets {
+			if ipNet.Contains(ip) {
+				return fmt.Errorf("URL resolves to private/reserved IP address %s", ipStr)
+			}
+		}
+	}
+
+	return nil
 }

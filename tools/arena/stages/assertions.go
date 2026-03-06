@@ -89,7 +89,7 @@ func (s *ArenaAssertionStage) Process(
 	lastAssistantElemIdx := s.findLastAssistantElementIndex(elements)
 
 	// Run assertions - this will return results and any errors
-	validationErrors := s.runAssertionsOnElements(elements, messages, metadata, lastAssistantElemIdx)
+	validationErrors := s.runAssertionsOnElements(ctx, elements, messages, metadata, lastAssistantElemIdx)
 
 	// Forward all elements (now with assertions attached to assistant message)
 	for i := range elements {
@@ -137,6 +137,7 @@ func (s *ArenaAssertionStage) findLastAssistantElementIndex(elements []stage.Str
 
 // runAssertionsOnElements executes assertions and attaches results to the original element.
 func (s *ArenaAssertionStage) runAssertionsOnElements(
+	ctx context.Context,
 	elements []stage.StreamElement,
 	messages []types.Message,
 	metadata map[string]interface{},
@@ -153,7 +154,7 @@ func (s *ArenaAssertionStage) runAssertionsOnElements(
 	turnMessages := s.extractTurnMessages(messages)
 
 	// Execute all assertions
-	_, errors := s.executeAssertions(lastAssistantMsg, turnMessages, messages, metadata)
+	_, errors := s.executeAssertions(ctx, lastAssistantMsg, turnMessages, messages, metadata)
 
 	return errors
 }
@@ -171,6 +172,7 @@ func (s *ArenaAssertionStage) extractTurnMessages(messages []types.Message) []ty
 
 // executeAssertions runs all configured assertions via TurnEvalRunner and returns results and errors.
 func (s *ArenaAssertionStage) executeAssertions(
+	ctx context.Context,
 	lastAssistantMsg *types.Message,
 	turnMessages []types.Message,
 	allMessages []types.Message,
@@ -208,7 +210,7 @@ func (s *ArenaAssertionStage) executeAssertions(
 
 	// Run filtered assertions through eval runner
 	evalResults := s.turnEvalRunner.RunAssertionsAsEvals(
-		context.Background(), filteredConfigs, allMessages,
+		ctx, filteredConfigs, allMessages,
 		len(allMessages)-1, s.sessionID,
 		evals.TriggerEveryTurn,
 	)
@@ -267,7 +269,7 @@ func (s *ArenaAssertionStage) buildWhenParams(
 	params["_turn_messages"] = deepCloneMessages(turnMessages)
 	params["_execution_context_messages"] = deepCloneMessages(allMessages)
 	if metadata != nil {
-		params["_metadata"] = deepCopyMap(metadata)
+		params["_metadata"] = shallowCopyMap(metadata)
 	}
 
 	if len(turnMessages) > 0 {
@@ -338,8 +340,9 @@ func deepCloneMessages(messages []types.Message) []types.Message {
 	return cloned
 }
 
-// deepCopyMap shallow-copies a map with interface values.
-func deepCopyMap(src map[string]interface{}) map[string]interface{} {
+// shallowCopyMap creates a shallow copy of a map with interface values.
+// Note: nested values are not deep-cloned; callers must ensure nested maps are not mutated.
+func shallowCopyMap(src map[string]interface{}) map[string]interface{} {
 	if src == nil {
 		return nil
 	}

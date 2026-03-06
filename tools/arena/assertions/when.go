@@ -60,15 +60,21 @@ func (w *AssertionWhen) checkToolCalledPattern(
 	if w.ToolCalledPattern == "" {
 		return true, ""
 	}
-	re, err := regexp.Compile(w.ToolCalledPattern)
-	if err != nil {
-		return false, fmt.Sprintf(
-			"invalid tool_called_pattern %q: %v",
-			w.ToolCalledPattern, err,
-		)
+
+	// Compile once and cache the regex for subsequent calls.
+	if w.compiledPattern == nil {
+		re, err := regexp.Compile(w.ToolCalledPattern)
+		if err != nil {
+			return false, fmt.Sprintf(
+				"invalid tool_called_pattern %q: %v",
+				w.ToolCalledPattern, err,
+			)
+		}
+		w.compiledPattern = re
 	}
+
 	for _, tc := range trace {
-		if re.MatchString(tc.Name) {
+		if w.compiledPattern.MatchString(tc.Name) {
 			return true, ""
 		}
 	}

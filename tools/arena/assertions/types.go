@@ -2,6 +2,7 @@ package assertions
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -26,6 +27,9 @@ type AssertionWhen struct {
 	AnyToolCalled bool `json:"any_tool_called,omitempty" yaml:"any_tool_called,omitempty"`
 	// MinToolCalls is the minimum number of tool calls required.
 	MinToolCalls int `json:"min_tool_calls,omitempty" yaml:"min_tool_calls,omitempty"`
+
+	// compiledPattern caches the compiled ToolCalledPattern regex.
+	compiledPattern *regexp.Regexp `json:"-" yaml:"-"`
 }
 
 // AssertionResult holds the result of an assertion evaluation.
