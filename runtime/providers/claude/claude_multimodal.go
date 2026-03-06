@@ -349,7 +349,7 @@ func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages [
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
 	if err != nil {
 		logger.APIResponse("Claude", resp.StatusCode, "", err)
 		predictResp.Latency = time.Since(start)
@@ -488,7 +488,7 @@ func (p *Provider) predictStreamWithContentsMultimodal(ctx context.Context, mess
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body) // NOSONAR: Read error results in empty body in error message
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, providers.MaxErrorResponseSize)) // NOSONAR
 		return nil, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(body))
 	}
 

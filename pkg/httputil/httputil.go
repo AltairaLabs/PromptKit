@@ -19,6 +19,11 @@ const (
 	// made by the SDK HTTP executor. These are typically shorter-lived
 	// API requests.
 	DefaultToolTimeout = 30 * time.Second
+
+	// DefaultStreamingTimeout is the HTTP timeout for streaming provider
+	// responses (e.g. SSE streams). Streaming connections stay open much
+	// longer than regular request/response cycles.
+	DefaultStreamingTimeout = 300 * time.Second
 )
 
 // NewHTTPClient returns an *http.Client configured with the given timeout.

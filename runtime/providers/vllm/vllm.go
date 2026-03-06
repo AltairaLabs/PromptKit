@@ -366,7 +366,7 @@ func (p *Provider) predictWithMessages(
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
 	if err != nil {
 		predictResp.Latency = time.Since(start)
 		return predictResp, fmt.Errorf("failed to read response body: %w", err)

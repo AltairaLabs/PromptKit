@@ -244,6 +244,49 @@ func TestNewBaseProviderWithCredential_UsesPooledTransport(t *testing.T) {
 	}
 }
 
+func TestBaseProvider_SetHTTPTimeout(t *testing.T) {
+	base, _ := NewBaseProviderWithAPIKey("test-id", false, "NONEXISTENT_KEY1", "NONEXISTENT_KEY2")
+
+	// Verify the default timeout
+	if base.HTTPTimeout() != httputil.DefaultProviderTimeout {
+		t.Errorf("Expected default timeout %v, got %v", httputil.DefaultProviderTimeout, base.HTTPTimeout())
+	}
+
+	// Get the original transport
+	origTransport := base.GetHTTPClient().Transport
+
+	// Change the timeout
+	base.SetHTTPTimeout(120 * time.Second)
+
+	if base.HTTPTimeout() != 120*time.Second {
+		t.Errorf("Expected timeout 120s, got %v", base.HTTPTimeout())
+	}
+
+	// Verify the transport was preserved
+	if base.GetHTTPClient().Transport != origTransport {
+		t.Error("Expected transport to be preserved after SetHTTPTimeout")
+	}
+}
+
+func TestBaseProvider_SetHTTPTimeout_NilClient(t *testing.T) {
+	base := BaseProvider{id: "test", client: nil}
+
+	if base.HTTPTimeout() != 0 {
+		t.Errorf("Expected 0 timeout for nil client, got %v", base.HTTPTimeout())
+	}
+
+	// SetHTTPTimeout with nil client should create a new client
+	base.SetHTTPTimeout(30 * time.Second)
+
+	if base.HTTPTimeout() != 30*time.Second {
+		t.Errorf("Expected timeout 30s, got %v", base.HTTPTimeout())
+	}
+
+	if base.GetHTTPClient() == nil {
+		t.Error("Expected HTTP client to be created")
+	}
+}
+
 func TestBaseProvider_Close(t *testing.T) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	base := NewBaseProvider("test-provider", false, client)
@@ -501,14 +544,14 @@ func TestSetErrorResponse(t *testing.T) {
 
 func TestBaseProvider_MakeJSONRequest(t *testing.T) {
 	tests := []struct {
-		name           string
-		statusCode     int
-		responseBody   string
-		requestBody    interface{}
-		headers        RequestHeaders
-		expectError    bool
-		errorContains  string
-		validateReq    func(*testing.T, *http.Request)
+		name          string
+		statusCode    int
+		responseBody  string
+		requestBody   interface{}
+		headers       RequestHeaders
+		expectError   bool
+		errorContains string
+		validateReq   func(*testing.T, *http.Request)
 	}{
 		{
 			name:         "Successful request",

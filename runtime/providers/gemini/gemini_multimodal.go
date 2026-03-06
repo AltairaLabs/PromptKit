@@ -264,7 +264,7 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
 	if err != nil {
 		logger.APIResponse("Gemini", resp.StatusCode, "", err)
 		predictResp.Latency = time.Since(start)
@@ -394,7 +394,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, providers.MaxErrorResponseSize))
 		if p.platform != "" {
 			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
 		}

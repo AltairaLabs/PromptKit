@@ -979,6 +979,105 @@ func TestDuplexSession_SendVideoChunk(t *testing.T) {
 	})
 }
 
+func TestDuplexSession_Drain_GracefulCompletion(t *testing.T) {
+	ctx := context.Background()
+
+	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+	sess, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+		Provider:        provider,
+		Config:          &providers.StreamingInputConfig{},
+		PipelineBuilder: testPipelineBuilder,
+	})
+	require.NoError(t, err)
+
+	// Send a chunk to start the pipeline
+	err = sess.SendText(ctx, "hello")
+	require.NoError(t, err)
+
+	// Wait for the mock session to be created
+	mockSession := waitForSession(provider, 1*time.Second)
+	require.NotNil(t, mockSession, "mock session should be created after sending data")
+
+	// Close the mock session so the pipeline can complete after EndOfStream
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		mockSession.Close()
+	}()
+
+	// Drain should complete gracefully
+	drainCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	err = sess.Drain(drainCtx)
+	assert.NoError(t, err)
+}
+
+func TestDuplexSession_Drain_Timeout(t *testing.T) {
+	ctx := context.Background()
+
+	// Use a no-op stage that blocks until input closes (simulates slow pipeline)
+	blockingBuilder := func(_ context.Context, p providers.Provider, _ providers.StreamInputSupport, _ *providers.StreamingInputConfig, _ string, _ statestore.Store) (*stage.StreamPipeline, error) {
+		pipelineConfig := stage.DefaultPipelineConfig()
+		pipelineConfig.ExecutionTimeout = 0
+		builder := stage.NewPipelineBuilderWithConfig(pipelineConfig)
+		return builder.Chain(&blockingStage{}).Build()
+	}
+
+	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+	sess, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+		Provider:        provider,
+		PipelineBuilder: blockingBuilder,
+	})
+	require.NoError(t, err)
+
+	// Send a chunk to start the pipeline
+	err = sess.SendText(ctx, "hello")
+	require.NoError(t, err)
+
+	// Drain with a very short timeout — pipeline will not finish in time
+	drainCtx, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer cancel()
+
+	err = sess.Drain(drainCtx)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "drain timed out")
+}
+
+func TestDuplexSession_Drain_AlreadyClosed(t *testing.T) {
+	ctx := context.Background()
+
+	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+	sess, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+		Provider:        provider,
+		PipelineBuilder: testPipelineBuilder,
+	})
+	require.NoError(t, err)
+
+	// Close the session first
+	err = sess.Close()
+	require.NoError(t, err)
+
+	// Drain on an already-closed session should return nil
+	drainCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+
+	err = sess.Drain(drainCtx)
+	assert.NoError(t, err)
+}
+
+// blockingStage is a test stage that never completes processing (blocks forever).
+type blockingStage struct{}
+
+func (s *blockingStage) Name() string          { return "test-blocking" }
+func (s *blockingStage) Type() stage.StageType { return stage.StageTypeTransform }
+func (s *blockingStage) Process(_ context.Context, in <-chan stage.StreamElement, _ chan<- stage.StreamElement) error {
+	// Read from input forever without producing output — simulates a stuck pipeline.
+	for range in {
+	}
+	// Block forever after input closes.
+	select {}
+}
+
 // mockErrorStore is a test helper that returns errors for specific operations
 type mockErrorStore struct {
 	statestore.Store

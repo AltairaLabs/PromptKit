@@ -556,7 +556,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := io.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
 	if err != nil {
 		logger.APIResponse(providerNameLog, resp.StatusCode, "", err)
 		return nil, fmt.Errorf("failed to read response: %w", err)
@@ -610,7 +610,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, providers.MaxErrorResponseSize))
 		_ = resp.Body.Close()
 		if p.platform != "" {
 			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)

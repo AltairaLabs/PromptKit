@@ -187,7 +187,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to read response: %w", err)
 	}

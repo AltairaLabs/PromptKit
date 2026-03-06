@@ -30,6 +30,10 @@ const (
 	DefaultDialKeepAlive       = 30 * time.Second
 )
 
+// MaxErrorResponseSize is the maximum size for error response bodies (1 MB).
+// Error responses should be small; this prevents reading huge bodies on failures.
+const MaxErrorResponseSize int64 = 1 << 20
+
 // Payload size limits.
 const (
 	// DefaultMaxPayloadSize is the default maximum request payload size (100 MB).
@@ -164,6 +168,27 @@ func (b *BaseProvider) SupportsStreaming() bool {
 // GetHTTPClient returns the underlying HTTP client for provider-specific use
 func (b *BaseProvider) GetHTTPClient() *http.Client {
 	return b.client
+}
+
+// SetHTTPTimeout replaces the HTTP client with a new one that uses the given
+// timeout while preserving the existing transport configuration.
+func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
+	var transport http.RoundTripper
+	if b.client != nil {
+		transport = b.client.Transport
+	}
+	b.client = &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+}
+
+// HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.
+func (b *BaseProvider) HTTPTimeout() time.Duration {
+	if b.client == nil {
+		return 0
+	}
+	return b.client.Timeout
 }
 
 // SetRateLimit configures per-provider rate limiting. requestsPerSecond controls
