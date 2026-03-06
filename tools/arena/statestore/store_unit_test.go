@@ -487,3 +487,44 @@ func TestCloneHelpers(t *testing.T) {
 		}
 	})
 }
+
+func TestExtractValidations_TurnIndexCountsUserMessages(t *testing.T) {
+	store := NewArenaStateStore()
+
+	// Simulate a conversation with tool-call messages breaking strict alternation:
+	// user(0), assistant(1), tool(2), assistant(3), user(4), assistant(5)
+	state := &ArenaConversationState{
+		ConversationState: runtimestore.ConversationState{Messages: []types.Message{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "hi", Validations: []types.ValidationResult{
+				{ValidatorType: "v1", Passed: true},
+			}},
+			{Role: "tool", Content: "tool result"},
+			{Role: "assistant", Content: "here you go", Validations: []types.ValidationResult{
+				{ValidatorType: "v2", Passed: false},
+			}},
+			{Role: "user", Content: "thanks"},
+			{Role: "assistant", Content: "bye", Validations: []types.ValidationResult{
+				{ValidatorType: "v3", Passed: true},
+			}},
+		}},
+	}
+
+	validations := store.extractValidations(state)
+	if len(validations) != 3 {
+		t.Fatalf("expected 3 validations, got %d", len(validations))
+	}
+
+	// After first user message (userTurns=1), assistant at index 1 should have turnIndex=1
+	if validations[0].TurnIndex != 1 {
+		t.Errorf("expected turnIndex 1 for first validation, got %d", validations[0].TurnIndex)
+	}
+	// Tool message doesn't increment userTurns; assistant at index 3 still has turnIndex=1
+	if validations[1].TurnIndex != 1 {
+		t.Errorf("expected turnIndex 1 for second validation (after tool msg), got %d", validations[1].TurnIndex)
+	}
+	// After second user message (userTurns=2), assistant at index 5 should have turnIndex=2
+	if validations[2].TurnIndex != 2 {
+		t.Errorf("expected turnIndex 2 for third validation, got %d", validations[2].TurnIndex)
+	}
+}

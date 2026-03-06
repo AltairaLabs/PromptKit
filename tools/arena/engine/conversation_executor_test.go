@@ -14,6 +14,7 @@ import (
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -352,6 +353,25 @@ func createTestPromptRegistry(t *testing.T) *prompt.Registry {
 	registry := prompt.NewRegistryWithRepository(memRepo)
 
 	return registry
+}
+
+func TestExecuteConversation_NilScenario(t *testing.T) {
+	executor := NewDefaultConversationExecutor(
+		&MockTurnExecutor{},
+		nil,
+		nil,
+		createTestPromptRegistry(t),
+		nil,
+	)
+
+	req := ConversationRequest{
+		ConversationID: "conv-nil",
+		Scenario:       nil, // nil scenario should not panic
+	}
+
+	result := executor.ExecuteConversation(context.Background(), req)
+	assert.True(t, result.Failed)
+	assert.Contains(t, result.Error, "scenario is nil")
 }
 
 func TestExecuteConversation_BasicScriptedScenario(t *testing.T) {
