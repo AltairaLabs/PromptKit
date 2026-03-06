@@ -17,6 +17,7 @@ import (
 type StreamPipeline struct {
 	stages       []Stage
 	edges        map[string][]string // stage name -> downstream stage names
+	reverseEdges map[string]string   // stage name -> upstream stage name (O(1) lookup)
 	rootStages   map[string]struct{} // precomputed set of stages with no incoming edges
 	config       *PipelineConfig
 	eventEmitter *events.Emitter
@@ -211,11 +212,16 @@ func (p *StreamPipeline) isRootStage(stageName string) bool {
 	return ok
 }
 
-// findUpstreamStage finds the stage that feeds into the given stage.
+// findUpstreamStage finds the stage that feeds into the given stage using a
+// precomputed reverse-edge map for O(1) lookup.
 // Note: Fan-in (multiple stages feeding into one) is a Phase 5 enhancement.
 // Current implementation supports single upstream stage per stage (sufficient for linear chains and fan-out).
 // For fan-in/merge patterns, a dedicated MergeStage will be implemented in Phase 5.
 func (p *StreamPipeline) findUpstreamStage(stageName string) string {
+	if p.reverseEdges != nil {
+		return p.reverseEdges[stageName]
+	}
+	// Fallback to linear scan (should not happen with properly built pipelines).
 	for fromStage, toStages := range p.edges {
 		for _, toStage := range toStages {
 			if toStage == stageName {
@@ -269,18 +275,40 @@ func (p *StreamPipeline) runStage(
 	}
 }
 
-// collectOutput collects output from all leaf stages into the pipeline output channel.
+// collectOutput collects output from all leaf stages into the pipeline output
+// channel. Leaf stages are read concurrently so that a slow leaf does not
+// block faster ones.
 func (p *StreamPipeline) collectOutput(channels map[string]chan StreamElement, output chan<- StreamElement) {
-	// Find leaf stages (stages with no outgoing edges)
+	// Identify leaf stages (stages with no outgoing edges).
+	var leafChans []<-chan StreamElement
 	for _, stage := range p.stages {
 		if len(p.edges[stage.Name()]) == 0 {
-			// This is a leaf stage - collect its output
-			stageChan := channels[stage.Name()]
-			for elem := range stageChan {
+			leafChans = append(leafChans, channels[stage.Name()])
+		}
+	}
+
+	if len(leafChans) <= 1 {
+		// Fast path: single leaf — no extra goroutines needed.
+		for _, ch := range leafChans {
+			for elem := range ch {
 				output <- elem
 			}
 		}
+		return
 	}
+
+	// Fan-in: one goroutine per leaf forwards to the shared output channel.
+	var wg sync.WaitGroup
+	wg.Add(len(leafChans))
+	for _, ch := range leafChans {
+		go func(src <-chan StreamElement) {
+			defer wg.Done()
+			for elem := range src {
+				output <- elem
+			}
+		}(ch)
+	}
+	wg.Wait()
 }
 
 // ExecuteSync runs the pipeline synchronously and returns the accumulated result.

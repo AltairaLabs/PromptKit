@@ -10,6 +10,11 @@ import (
 
 // elementPool is a sync.Pool for reusing StreamElement instances.
 // This reduces GC pressure in high-throughput pipeline scenarios.
+//
+// TODO: Wire elementPool into hot paths (e.g. collectOutput, runStage,
+// ProviderStage streaming loops) so that elements are obtained via
+// GetElement/PutElement instead of direct allocation. The pool is defined
+// and ready to use but currently unused by the pipeline internals.
 var elementPool = sync.Pool{
 	New: func() interface{} {
 		return &StreamElement{

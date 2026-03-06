@@ -1099,6 +1099,9 @@ func formatToolResult(value interface{}) string {
 	}
 }
 
+// buildProviderTools constructs the tool descriptors sent to the provider.
+// It is called once at the start of each multi-round execution (not per round)
+// so the resulting snapshot is reused across all tool-call rounds.
 func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, string, error) {
 	if s.toolRegistry == nil {
 		return nil, "", nil
@@ -1131,16 +1134,17 @@ func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, 
 
 	// 2. Add capability tools (system-namespaced: skill__, a2a__, workflow__, mcp__, memory__)
 	//    These are registered by capabilities and are always available to the LLM.
-	for name, tool := range s.toolRegistry.GetTools() {
+	//    Uses IterateTools to avoid a full map copy from GetTools.
+	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
 		if seen[name] || !tools.IsSystemTool(name) {
-			continue
+			return
 		}
 		descriptors = append(descriptors, &providers.ToolDescriptor{
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
 		})
-	}
+	})
 
 	if len(descriptors) == 0 {
 		return nil, "", nil

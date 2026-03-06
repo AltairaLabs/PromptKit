@@ -8,10 +8,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"text/template"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// templateCache caches compiled Go text/templates keyed by the raw template
+// string. This avoids re-parsing the same template on every mock call.
+var templateCache sync.Map // map[string]*template.Template
 
 const (
 	modeMock             = "mock"
@@ -185,8 +190,10 @@ func (e *MockScriptedExecutor) Execute(
 }
 
 // processTemplate renders a Go text/template with provided arguments.
+// Compiled templates are cached by template string via templateCache (sync.Map)
+// so that repeated calls with the same template skip the parse step.
 func (e *MockScriptedExecutor) processTemplate(tmpl string, args map[string]any) (string, error) {
-	t, err := template.New("mock").Option("missingkey=zero").Parse(tmpl)
+	t, err := getOrParseTemplate(tmpl)
 	if err != nil {
 		return "", err
 	}
@@ -195,4 +202,20 @@ func (e *MockScriptedExecutor) processTemplate(tmpl string, args map[string]any)
 		return "", err
 	}
 	return out.String(), nil
+}
+
+// getOrParseTemplate returns a cached compiled template or parses and caches it.
+func getOrParseTemplate(tmpl string) (*template.Template, error) {
+	if cached, ok := templateCache.Load(tmpl); ok {
+		return cached.(*template.Template), nil
+	}
+
+	t, err := template.New("mock").Option("missingkey=zero").Parse(tmpl)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store and return (race-safe: if another goroutine stored first, we use theirs).
+	actual, _ := templateCache.LoadOrStore(tmpl, t)
+	return actual.(*template.Template), nil
 }

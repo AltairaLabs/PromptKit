@@ -118,11 +118,14 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 		return nil, err
 	}
 
-	// Precompute root stages (stages with no incoming edges) for O(1) lookup.
+	// Precompute root stages (stages with no incoming edges) and
+	// reverse-edge adjacency map for O(1) upstream lookup.
+	reverseEdges := make(map[string]string)
 	hasIncoming := make(map[string]struct{})
-	for _, toStages := range b.edges {
+	for fromStage, toStages := range b.edges {
 		for _, toStage := range toStages {
 			hasIncoming[toStage] = struct{}{}
+			reverseEdges[toStage] = fromStage
 		}
 	}
 	rootStages := make(map[string]struct{})
@@ -136,6 +139,7 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 	return &StreamPipeline{
 		stages:       b.stages,
 		edges:        b.edges,
+		reverseEdges: reverseEdges,
 		rootStages:   rootStages,
 		config:       b.config,
 		eventEmitter: b.eventEmitter,

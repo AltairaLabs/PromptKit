@@ -270,7 +270,7 @@ func TestExecute_MockStatic(t *testing.T) {
 	_ = registry.Register(descriptor)
 
 	args := json.RawMessage(`{"input": "test"}`)
-	result, err := registry.Execute(context.Background(),"static_tool", args)
+	result, err := registry.Execute(context.Background(), "static_tool", args)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestExecute_MockScripted(t *testing.T) {
 	_ = registry.Register(descriptor)
 
 	args := json.RawMessage(`{"name": "World"}`)
-	result, err := registry.Execute(context.Background(),"scripted_tool", args)
+	result, err := registry.Execute(context.Background(), "scripted_tool", args)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestExecute_NonExistentTool(t *testing.T) {
 	registry := tools.NewRegistry()
 
 	args := json.RawMessage(`{}`)
-	_, err := registry.Execute(context.Background(),"nonexistent", args)
+	_, err := registry.Execute(context.Background(), "nonexistent", args)
 	if err == nil {
 		t.Error("Execute should fail for non-existent tool")
 	}
@@ -370,14 +370,14 @@ func TestExecute_InvalidArgs(t *testing.T) {
 
 	// Missing required field
 	invalidArgs := json.RawMessage(`{}`)
-	_, err := registry.Execute(context.Background(),"validate_tool", invalidArgs)
+	_, err := registry.Execute(context.Background(), "validate_tool", invalidArgs)
 	if err == nil {
 		t.Error("Execute should fail with invalid args")
 	}
 
 	// Empty required field
 	invalidArgs2 := json.RawMessage(`{"required_field": ""}`)
-	_, err = registry.Execute(context.Background(),"validate_tool", invalidArgs2)
+	_, err = registry.Execute(context.Background(), "validate_tool", invalidArgs2)
 	if err == nil {
 		t.Error("Execute should fail with empty required field")
 	}
@@ -406,7 +406,7 @@ func TestExecute_ResultValidation(t *testing.T) {
 	_ = registry.Register(descriptor)
 
 	args := json.RawMessage(`{}`)
-	result, err := registry.Execute(context.Background(),"output_validate", args)
+	result, err := registry.Execute(context.Background(), "output_validate", args)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -433,7 +433,7 @@ func TestExecute_LatencyTracking(t *testing.T) {
 	_ = registry.Register(descriptor)
 
 	args := json.RawMessage(`{}`)
-	result, err := registry.Execute(context.Background(),"latency_tool", args)
+	result, err := registry.Execute(context.Background(), "latency_tool", args)
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -540,7 +540,7 @@ func TestGetExecutorForTool_CustomExecutor(t *testing.T) {
 	}
 
 	// Execute should route to our custom executor
-	result, err := registry.Execute(context.Background(),"custom_tool", json.RawMessage(`{"input": "test"}`))
+	result, err := registry.Execute(context.Background(), "custom_tool", json.RawMessage(`{"input": "test"}`))
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -626,7 +626,7 @@ func TestGetExecutorForTool_BuiltInModes(t *testing.T) {
 				t.Fatalf("Register failed: %v", err)
 			}
 
-			_, err = registry.Execute(context.Background(),descriptor.Name, json.RawMessage(`{}`))
+			_, err = registry.Execute(context.Background(), descriptor.Name, json.RawMessage(`{}`))
 			if tt.expectError && err == nil {
 				t.Error("Expected error but got none")
 			}
@@ -658,7 +658,7 @@ func TestGetExecutorForTool_UnknownModeNoExecutor(t *testing.T) {
 	}
 
 	// Execution should fail because no executor matches the mode
-	_, err = registry.Execute(context.Background(),"unknown_mode_tool", json.RawMessage(`{}`))
+	_, err = registry.Execute(context.Background(), "unknown_mode_tool", json.RawMessage(`{}`))
 	if err == nil {
 		t.Fatal("Expected error when executing tool with unknown mode")
 	}
@@ -697,7 +697,7 @@ func TestExecuteAsync_CustomExecutor(t *testing.T) {
 	}
 
 	// ExecuteAsync should route to our custom executor
-	result, err := registry.ExecuteAsync(context.Background(),"async_custom_tool", json.RawMessage(`{}`))
+	result, err := registry.ExecuteAsync(context.Background(), "async_custom_tool", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("ExecuteAsync failed: %v", err)
 	}
@@ -828,9 +828,9 @@ func TestRegister_PopulatesNamespace(t *testing.T) {
 	registry := tools.NewRegistry()
 
 	tests := []struct {
-		name    string
-		toolNm  string
-		wantNS  string
+		name   string
+		toolNm string
+		wantNS string
 	}{
 		{"plain tool", "get_weather", ""},
 		{"a2a namespaced", "a2a__weather__forecast", "a2a"},
@@ -973,5 +973,36 @@ func TestGetExecutorForTool_ClientModeFallsBackToMock(t *testing.T) {
 	// Should come from mock since no client executor is registered
 	if data["source"] != "mock" {
 		t.Errorf("Expected mock, got %v", data["source"])
+	}
+}
+
+// TestIterateTools verifies IterateTools visits all registered tools without
+// producing a map copy.
+func TestIterateTools(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	descs := []tools.ToolDescriptor{
+		{Name: "tool_a", Description: "A", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "tool_b", Description: "B", InputSchema: json.RawMessage(`{"type":"object"}`), OutputSchema: json.RawMessage(`{"type":"object"}`)},
+	}
+	for i := range descs {
+		if err := registry.Register(&descs[i]); err != nil {
+			t.Fatalf("Register: %v", err)
+		}
+	}
+
+	visited := make(map[string]bool)
+	registry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
+		visited[name] = true
+		if tool == nil {
+			t.Errorf("nil tool for name %q", name)
+		}
+	})
+
+	if len(visited) != 2 {
+		t.Errorf("expected 2 tools visited, got %d", len(visited))
+	}
+	if !visited["tool_a"] || !visited["tool_b"] {
+		t.Errorf("expected both tools visited, got %v", visited)
 	}
 }
