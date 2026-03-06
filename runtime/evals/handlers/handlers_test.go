@@ -803,12 +803,18 @@ func TestRegisterInit(t *testing.T) {
 		"agent_response_contains",
 		"guardrail_triggered",
 
+		// Property invariant validators (Phase 3)
+		"invariant_fields_preserved",
+
 		// Workflow and skill handlers (Batch 3)
 		"workflow_complete",
 		"state_is",
 		"transitioned_to",
+		"workflow_transition_order",
+		"workflow_tool_access",
 		"skill_activated",
 		"skill_not_activated",
+		"skill_activation_order",
 
 		// Media handlers (Batch 4)
 		"image_format",
