@@ -47,12 +47,18 @@ func init() {
 	evals.RegisterDefault(&AgentResponseContainsHandler{})
 	evals.RegisterDefault(&GuardrailTriggeredHandler{})
 
+	// Property invariant validators (Phase 3)
+	evals.RegisterDefault(&InvariantFieldsPreservedHandler{})
+
 	// Workflow and skill handlers (Batch 3)
 	evals.RegisterDefault(&WorkflowCompleteHandler{})
 	evals.RegisterDefault(&WorkflowStateIsHandler{})
 	evals.RegisterDefault(&WorkflowTransitionedToHandler{})
+	evals.RegisterDefault(&WorkflowTransitionOrderHandler{})
+	evals.RegisterDefault(&WorkflowToolAccessHandler{})
 	evals.RegisterDefault(&SkillActivatedHandler{})
 	evals.RegisterDefault(&SkillNotActivatedHandler{})
+	evals.RegisterDefault(&SkillActivationOrderHandler{})
 
 	// Media handlers (Batch 4)
 	evals.RegisterDefault(&ImageFormatHandler{})
