@@ -317,6 +317,7 @@ func (p *SessionPlayer) getPlaybackEventInfo() *playbackEventInfo {
 // waitForEventTiming waits until the event should be delivered based on timing.
 // Returns false if context was canceled.
 func (p *SessionPlayer) waitForEventTiming(info *playbackEventInfo) bool {
+	// Allocate a fresh timer for callers that don't have a reusable one.
 	if info.skipTiming || info.eventOffset <= 0 {
 		return true
 	}
@@ -336,6 +337,36 @@ func (p *SessionPlayer) waitForEventTiming(info *playbackEventInfo) bool {
 	case <-ctx.Done():
 		return false
 	case <-time.After(waitDuration):
+		return true
+	}
+}
+
+// waitForEventTimingWithTimer is like waitForEventTiming but reuses the provided timer
+// to avoid allocating a new timer per event.
+func (p *SessionPlayer) waitForEventTimingWithTimer(info *playbackEventInfo, t *time.Timer) bool {
+	if info.skipTiming || info.eventOffset <= 0 {
+		return true
+	}
+
+	scaledOffset := time.Duration(float64(info.eventOffset) / info.speed)
+	p.mu.RLock()
+	targetTime := p.startTime.Add(scaledOffset)
+	ctx := p.ctx
+	p.mu.RUnlock()
+
+	waitDuration := time.Until(targetTime)
+	if waitDuration <= 0 {
+		return true
+	}
+
+	t.Reset(waitDuration)
+	select {
+	case <-ctx.Done():
+		if !t.Stop() {
+			<-t.C
+		}
+		return false
+	case <-t.C:
 		return true
 	}
 }
@@ -366,6 +397,13 @@ func (p *SessionPlayer) advancePosition(expectedPos int) {
 func (p *SessionPlayer) playbackLoop() {
 	defer close(p.done)
 
+	// Reuse a single timer across events to reduce allocations.
+	waitTimer := time.NewTimer(0)
+	if !waitTimer.Stop() {
+		<-waitTimer.C
+	}
+	defer waitTimer.Stop()
+
 	for {
 		info := p.getPlaybackEventInfo()
 		if info == nil {
@@ -373,7 +411,7 @@ func (p *SessionPlayer) playbackLoop() {
 			return
 		}
 
-		if !p.waitForEventTiming(info) {
+		if !p.waitForEventTimingWithTimer(info, waitTimer) {
 			return
 		}
 

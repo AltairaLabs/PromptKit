@@ -256,6 +256,10 @@ func (s *Session) tryReconnect(err error) bool {
 		s.cfg.Logger.Info("attempting reconnection", "attempt", attempt,
 			"maxAttempts", s.cfg.MaxReconnectAttempts)
 
+		// Close the old connection to ensure any in-flight Receive goroutine
+		// is unblocked before resetting and reconnecting.
+		_ = s.conn.Close()
+
 		// Reset the connection for a fresh dial.
 		s.conn.Reset()
 

@@ -376,6 +376,13 @@ func (pc *PriorityChannel) Send(ctx context.Context, elem StreamElement) error {
 		default:
 		}
 		pc.cond.Wait()
+		// Re-check context after waking from Wait — the wake-up may be spurious
+		// or from a Broadcast unrelated to capacity change.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 	}
 
 	if pc.closed {
@@ -407,6 +414,12 @@ func (pc *PriorityChannel) Receive(ctx context.Context) (StreamElement, bool, er
 		default:
 		}
 		pc.cond.Wait()
+		// Re-check context after waking from Wait.
+		select {
+		case <-ctx.Done():
+			return StreamElement{}, false, ctx.Err()
+		default:
+		}
 	}
 
 	// If closed and empty, return closed signal

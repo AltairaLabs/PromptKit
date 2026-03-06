@@ -326,6 +326,12 @@ func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageReque
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
+		// Close the response body on context cancellation to unblock the scanner
+		// goroutine inside ReadSSEWithIdleTimeout, preventing a goroutine leak.
+		go func() {
+			<-ctx.Done()
+			_ = resp.Body.Close()
+		}()
 		ReadSSEWithIdleTimeout(ctx, resp.Body, ch, c.sseIdleTimeout)
 	}()
 

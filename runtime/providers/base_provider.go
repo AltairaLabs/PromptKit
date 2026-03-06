@@ -210,7 +210,8 @@ func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error {
 func CheckHTTPError(resp *http.Response, url string) error {
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body) // NOSONAR: Read error results in empty body in error message
+		limitedBody := io.LimitReader(resp.Body, DefaultMaxPayloadSize)
+		body, _ := io.ReadAll(limitedBody)
 		return fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}
 	return nil
@@ -323,7 +324,7 @@ func (b *BaseProvider) MakeRawRequest(
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := io.ReadAll(resp.Body)
+	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, DefaultMaxPayloadSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

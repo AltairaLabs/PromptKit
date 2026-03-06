@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"container/heap"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -46,6 +47,34 @@ const (
 type clientEntry struct {
 	client   *Client
 	lastUsed time.Time
+	url      string // key in the clients map, needed for heap-based eviction
+	index    int    // position in the heap, managed by container/heap
+}
+
+// clientHeap implements heap.Interface for min-heap by lastUsed time.
+// This enables O(log N) LRU eviction instead of O(N) linear scan.
+type clientHeap []*clientEntry
+
+func (h clientHeap) Len() int           { return len(h) }
+func (h clientHeap) Less(i, j int) bool { return h[i].lastUsed.Before(h[j].lastUsed) }
+func (h clientHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i]; h[i].index = i; h[j].index = j }
+
+// Push adds an element to the heap (required by heap.Interface).
+func (h *clientHeap) Push(x interface{}) {
+	e := x.(*clientEntry)
+	e.index = len(*h)
+	*h = append(*h, e)
+}
+
+// Pop removes and returns the minimum element from the heap (required by heap.Interface).
+func (h *clientHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	e := old[n-1]
+	old[n-1] = nil // avoid memory leak
+	e.index = -1
+	*h = old[:n-1]
+	return e
 }
 
 // RetryPolicy configures retry behavior for the A2A executor.
@@ -102,6 +131,7 @@ var (
 type Executor struct {
 	mu          sync.RWMutex
 	clients     map[string]*clientEntry
+	clientHeap  clientHeap // min-heap for O(log N) LRU eviction
 	retryPolicy RetryPolicy
 	clientTTL   time.Duration
 	maxClients  int
@@ -414,6 +444,7 @@ func (e *Executor) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.clients = nil
+	e.clientHeap = nil
 	return nil
 }
 
@@ -441,27 +472,22 @@ func (e *Executor) evictStale() {
 	now := e.nowFunc()
 	for url, entry := range e.clients {
 		if now.Sub(entry.lastUsed) > e.clientTTL {
+			if entry.index >= 0 {
+				heap.Remove(&e.clientHeap, entry.index)
+			}
 			delete(e.clients, url)
 		}
 	}
 }
 
-// evictLRU removes the least recently used client from the cache.
-// Must be called with e.mu held for writing.
+// evictLRU removes the least recently used client from the cache using the min-heap.
+// Must be called with e.mu held for writing. O(log N) instead of O(N).
 func (e *Executor) evictLRU() {
-	var oldestURL string
-	var oldestTime time.Time
-
-	for url, entry := range e.clients {
-		if oldestURL == "" || entry.lastUsed.Before(oldestTime) {
-			oldestURL = url
-			oldestTime = entry.lastUsed
-		}
+	if e.clientHeap.Len() == 0 {
+		return
 	}
-
-	if oldestURL != "" {
-		delete(e.clients, oldestURL)
-	}
+	oldest := heap.Pop(&e.clientHeap).(*clientEntry)
+	delete(e.clients, oldest.url)
 }
 
 // getOrCreateClient returns a cached client or creates a new one.
@@ -473,9 +499,12 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 	e.mu.RLock()
 	if entry, ok := e.clients[agentURL]; ok {
 		e.mu.RUnlock()
-		// Update lastUsed under write lock.
+		// Update lastUsed under write lock and fix heap position.
 		e.mu.Lock()
 		entry.lastUsed = now
+		if entry.index >= 0 {
+			heap.Fix(&e.clientHeap, entry.index)
+		}
 		e.mu.Unlock()
 		return entry.client
 	}
@@ -486,6 +515,9 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 	// Double-check after acquiring write lock
 	if entry, ok := e.clients[agentURL]; ok {
 		entry.lastUsed = now
+		if entry.index >= 0 {
+			heap.Fix(&e.clientHeap, entry.index)
+		}
 		return entry.client
 	}
 	if e.clients == nil {
@@ -498,7 +530,9 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 	}
 
 	c := NewClient(agentURL)
-	e.clients[agentURL] = &clientEntry{client: c, lastUsed: now}
+	entry := &clientEntry{client: c, lastUsed: now, url: agentURL}
+	e.clients[agentURL] = entry
+	heap.Push(&e.clientHeap, entry)
 	return c
 }
 

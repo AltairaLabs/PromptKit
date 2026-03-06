@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -87,7 +88,8 @@ type StdioClient struct {
 	lastActivity atomic.Int64 // Unix timestamp of last successful RPC
 
 	// Reconnection state
-	reconnecting bool
+	reconnecting  bool
+	reconnectDone chan struct{} // closed when reconnection completes
 
 	// Background goroutine management
 	ctx    context.Context
@@ -303,8 +305,10 @@ func (c *StdioClient) startProcessWithRetry(ctx context.Context) error {
 func (c *StdioClient) startProcess() error {
 	c.cmd = exec.CommandContext(c.ctx, c.config.Command, c.config.Args...)
 
-	// Set environment variables
-	c.cmd.Env = append(c.cmd.Env, "PATH="+"/usr/local/bin:/usr/bin:/bin")
+	// Inherit the parent process environment and prepend common paths to PATH.
+	c.cmd.Env = os.Environ()
+	existingPath := os.Getenv("PATH")
+	c.cmd.Env = append(c.cmd.Env, "PATH=/usr/local/bin:/usr/bin:/bin:"+existingPath)
 	for k, v := range c.config.Env {
 		c.cmd.Env = append(c.cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
@@ -386,8 +390,9 @@ func (c *StdioClient) reconnect() error {
 
 	// If already reconnecting, wait and re-check
 	if c.reconnecting {
+		doneCh := c.reconnectDone
 		c.mu.Unlock()
-		return c.waitForReconnect()
+		return c.waitForReconnect(doneCh)
 	}
 
 	if c.closed {
@@ -396,12 +401,15 @@ func (c *StdioClient) reconnect() error {
 	}
 
 	c.reconnecting = true
+	c.reconnectDone = make(chan struct{})
+	reconnectDone := c.reconnectDone
 	c.mu.Unlock()
 
 	defer func() {
 		c.mu.Lock()
 		c.reconnecting = false
 		c.mu.Unlock()
+		close(reconnectDone)
 	}()
 
 	// Fail all pending requests so callers don't hang until context timeout
@@ -500,27 +508,29 @@ func (c *StdioClient) attemptReconnect(ctx context.Context, attemptNum int) erro
 }
 
 // waitForReconnect waits for an in-progress reconnection to complete, then re-checks health.
-func (c *StdioClient) waitForReconnect() error {
-	// Poll briefly for the reconnecting flag to clear
-	for i := 0; i < reconnectPollMaxIterations; i++ {
-		time.Sleep(reconnectPollInterval)
-		c.mu.RLock()
-		reconnecting := c.reconnecting
-		alive := c.cmd != nil && c.cmd.Process != nil
-		closed := c.closed
-		c.mu.RUnlock()
-
-		if closed {
-			return ErrClientClosed
-		}
-		if !reconnecting {
-			if alive {
-				return nil
-			}
-			return ErrProcessDied
-		}
+// It uses a channel signal instead of polling to avoid wasted CPU and latency.
+func (c *StdioClient) waitForReconnect(doneCh <-chan struct{}) error {
+	// Wait for the reconnection to complete or timeout.
+	timeout := time.Duration(reconnectPollMaxIterations) * reconnectPollInterval
+	select {
+	case <-doneCh:
+		// Reconnection completed; check final state.
+	case <-time.After(timeout):
+		return fmt.Errorf("timed out waiting for reconnection")
 	}
-	return fmt.Errorf("timed out waiting for reconnection")
+
+	c.mu.RLock()
+	closed := c.closed
+	alive := c.cmd != nil && c.cmd.Process != nil
+	c.mu.RUnlock()
+
+	if closed {
+		return ErrClientClosed
+	}
+	if alive {
+		return nil
+	}
+	return ErrProcessDied
 }
 
 // failPendingRequests sends an error response to all pending requests so they don't

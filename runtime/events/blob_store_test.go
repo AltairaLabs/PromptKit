@@ -2,11 +2,14 @@ package events
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
 )
 
 func TestNewFileBlobStore(t *testing.T) {
@@ -565,5 +568,220 @@ func TestExtensionFromMIME(t *testing.T) {
 				t.Errorf("extensionFromMIME(%q) = %q, want %q", tt.mimeType, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestFileBlobStore_LRUEviction(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFileBlobStore(dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	// Fill the known LRU cache up to the limit
+	for i := 0; i < DefaultMaxKnownHashes; i++ {
+		store.mu.Lock()
+		store.known.Put(fmt.Sprintf("hash-%d", i), struct{}{})
+		store.mu.Unlock()
+	}
+
+	store.mu.RLock()
+	sizeAtLimit := store.known.Len()
+	store.mu.RUnlock()
+
+	if sizeAtLimit != DefaultMaxKnownHashes {
+		t.Errorf("expected %d known hashes, got %d", DefaultMaxKnownHashes, sizeAtLimit)
+	}
+
+	// Adding one more should trigger LRU eviction of the oldest entry
+	store.mu.Lock()
+	store.known.Put("overflow-hash", struct{}{})
+	store.mu.Unlock()
+
+	store.mu.RLock()
+	sizeAfterEviction := store.known.Len()
+	store.mu.RUnlock()
+
+	// LRU cache maintains its max size by evicting the oldest entry
+	if sizeAfterEviction != DefaultMaxKnownHashes {
+		t.Errorf("expected %d known hashes after eviction, got %d", DefaultMaxKnownHashes, sizeAfterEviction)
+	}
+
+	// Verify the new hash was retained
+	store.mu.RLock()
+	_, exists := store.known.Get("overflow-hash")
+	store.mu.RUnlock()
+
+	if !exists {
+		t.Error("expected overflow-hash to be present after eviction")
+	}
+}
+
+func TestFileBlobStore_StoreReader_ContextCancelledMidStream(t *testing.T) {
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Store data first, then cancel and try StoreReader with same data to hit dedup paths
+	data := []byte("dedup-test-data")
+	_, err = store.Store(ctx, "session-1", data, "audio/wav")
+	if err != nil {
+		t.Fatalf("initial store: %v", err)
+	}
+
+	// StoreReader with same content should hit in-memory dedup (cleanup temp file)
+	payload, err := store.StoreReader(ctx, "session-1", strings.NewReader("dedup-test-data"), "audio/wav")
+	if err != nil {
+		t.Fatalf("StoreReader dedup: %v", err)
+	}
+	if payload == nil {
+		t.Fatal("expected non-nil payload from dedup StoreReader")
+	}
+
+	cancel()
+}
+
+func TestFileBlobStore_RefToPathAbsolute(t *testing.T) {
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	// Test with absolute path (no file:// prefix)
+	absPath := "/absolute/path/to/blob.bin"
+	got := store.refToPath(absPath)
+	if got != absPath {
+		t.Errorf("refToPath(%q) = %q, want %q", absPath, got, absPath)
+	}
+
+	// Test with file:// + absolute path
+	ref := fileScheme + absPath
+	got = store.refToPath(ref)
+	if got != absPath {
+		t.Errorf("refToPath(%q) = %q, want %q", ref, got, absPath)
+	}
+
+	// Test with file:// + relative path
+	relRef := fileScheme + "session/hash.bin"
+	got = store.refToPath(relRef)
+	expected := filepath.Join(store.baseDir, "session/hash.bin")
+	if got != expected {
+		t.Errorf("refToPath(%q) = %q, want %q", relRef, got, expected)
+	}
+}
+
+func TestNewFileBlobStore_InvalidDir(t *testing.T) {
+	// Attempt to create store at a path that can't be a directory
+	_, err := NewFileBlobStore("/dev/null/impossible")
+	if err == nil {
+		t.Error("expected error creating blob store at invalid path")
+	}
+}
+
+func TestEventStoreWithBlobs_CloseError(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewEventStoreWithBlobs(dir)
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	// Close should succeed with no errors
+	if err := store.Close(); err != nil {
+		t.Errorf("close: %v", err)
+	}
+}
+
+func TestNewEventStoreWithBlobs_InvalidDir(t *testing.T) {
+	_, err := NewEventStoreWithBlobs("/dev/null/impossible")
+	if err == nil {
+		t.Error("expected error creating event store with blobs at invalid path")
+	}
+}
+
+func TestFileBlobStore_StoreReader_FullWritePath(t *testing.T) {
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Store via reader — this goes through the full write path (no dedup)
+	data := "unique-stream-data-for-write-path"
+	payload, err := store.StoreReader(ctx, "s1", strings.NewReader(data), "audio/opus")
+	if err != nil {
+		t.Fatalf("StoreReader: %v", err)
+	}
+
+	if payload.Size != int64(len(data)) {
+		t.Errorf("size = %d, want %d", payload.Size, len(data))
+	}
+	if payload.MIMEType != "audio/opus" {
+		t.Errorf("mime = %q, want %q", payload.MIMEType, "audio/opus")
+	}
+
+	// Verify we can load the blob back
+	loaded, err := store.Load(ctx, payload.StorageRef)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if string(loaded) != data {
+		t.Errorf("loaded = %q, want %q", string(loaded), data)
+	}
+
+	// Store again — should hit filesystem dedup (in-memory cleared)
+	store.mu.Lock()
+	store.known = lru.New[string, struct{}](DefaultMaxKnownHashes, nil)
+	store.mu.Unlock()
+
+	payload2, err := store.StoreReader(ctx, "s1", strings.NewReader(data), "audio/opus")
+	if err != nil {
+		t.Fatalf("StoreReader dedup: %v", err)
+	}
+	if payload2.StorageRef != payload.StorageRef {
+		t.Errorf("expected same ref, got %q vs %q", payload2.StorageRef, payload.StorageRef)
+	}
+}
+
+func TestFileBlobStore_Store_MkdirError(t *testing.T) {
+	// Create a store with a base dir, then make session dir creation fail
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Create a file where the session dir would go, causing MkdirAll to fail
+	sessionPath := filepath.Join(store.baseDir, "blocked-session")
+	if err := os.WriteFile(sessionPath, []byte("block"), 0o600); err != nil {
+		t.Fatalf("create blocking file: %v", err)
+	}
+
+	_, err = store.Store(ctx, "blocked-session", []byte("data"), "text/plain")
+	if err == nil {
+		t.Error("expected error when session dir creation fails")
+	}
+}
+
+func TestFileBlobStore_StoreReader_MkdirError(t *testing.T) {
+	store, err := NewFileBlobStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Create a file where the session dir would go
+	sessionPath := filepath.Join(store.baseDir, "blocked-session")
+	if err := os.WriteFile(sessionPath, []byte("block"), 0o600); err != nil {
+		t.Fatalf("create blocking file: %v", err)
+	}
+
+	_, err = store.StoreReader(ctx, "blocked-session", strings.NewReader("data"), "text/plain")
+	if err == nil {
+		t.Error("expected error when session dir creation fails")
 	}
 }
