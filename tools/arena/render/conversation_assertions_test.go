@@ -166,7 +166,7 @@ func TestConversationAssertionsRendering(t *testing.T) {
 			}
 
 			// Generate HTML
-			html, err := generateHTML(data)
+			html, err := generateHTML(&data)
 			if err != nil {
 				t.Fatalf("generateHTML() error = %v", err)
 			}

@@ -10,7 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/template"
 )
 
@@ -332,20 +331,4 @@ func (p *UserPersonaPack) buildTemplatedPrompt(region string, contextVars map[st
 	}
 
 	return result, nil
-}
-
-// convertFragmentRefs converts config.FragmentRef to prompt.FragmentRef
-// (they're the same structure, but different types for package separation).
-// TODO: this function is currently unreachable because fragment loading returns an error
-// above. It will become reachable once fragment loading is implemented.
-func convertFragmentRefs(refs []FragmentRef) []prompt.FragmentRef {
-	result := make([]prompt.FragmentRef, len(refs))
-	for i, ref := range refs {
-		result[i] = prompt.FragmentRef{
-			Name:     ref.Name,
-			Path:     ref.Path,
-			Required: ref.Required,
-		}
-	}
-	return result
 }

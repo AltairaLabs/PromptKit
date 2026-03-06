@@ -582,24 +582,3 @@ func TestUserPersonaPack_BuildTemplatedPrompt_WithFragments(t *testing.T) {
 		t.Errorf("Expected fragment error message, got: %v", err)
 	}
 }
-
-func TestConvertFragmentRefs(t *testing.T) {
-	configRefs := []FragmentRef{
-		{Name: "frag1", Path: "path1", Required: true},
-		{Name: "frag2", Path: "path2", Required: false},
-	}
-
-	promptRefs := convertFragmentRefs(configRefs)
-
-	if len(promptRefs) != 2 {
-		t.Errorf("Expected 2 refs, got %d", len(promptRefs))
-	}
-
-	if promptRefs[0].Name != "frag1" || promptRefs[0].Path != "path1" || !promptRefs[0].Required {
-		t.Error("First ref conversion incorrect")
-	}
-
-	if promptRefs[1].Name != "frag2" || promptRefs[1].Path != "path2" || promptRefs[1].Required {
-		t.Error("Second ref conversion incorrect")
-	}
-}

@@ -36,7 +36,7 @@ func TestAssertionMessageRendering(t *testing.T) {
 	)
 
 	data := prepareReportData([]engine.RunResult{result})
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf("generateHTML() error = %v", err)
 	}
