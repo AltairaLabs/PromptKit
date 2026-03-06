@@ -221,6 +221,40 @@
         "description"
       ]
     },
+    "ChaosConfig": {
+      "properties": {
+        "tool_failures": {
+          "items": {
+            "$ref": "#/$defs/ChaosToolFailure"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChaosToolFailure": {
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "probability": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tool",
+        "mode"
+      ]
+    },
     "CompilationInfo": {
       "properties": {
         "compiled_with": {
@@ -2144,6 +2178,9 @@
             "type": "array"
           },
           "type": "object"
+        },
+        "chaos": {
+          "$ref": "#/$defs/ChaosConfig"
         },
         "assertions": {
           "items": {

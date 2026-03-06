@@ -984,8 +984,29 @@ type TurnDefinition struct {
 	// The engine expands each variant into a separate trial, substituting {key} in Content.
 	Perturbations map[string][]string `json:"perturbations,omitempty" yaml:"perturbations,omitempty"`
 
+	// Chaos configures fault injection for resilience testing.
+	Chaos *ChaosConfig `json:"chaos,omitempty" yaml:"chaos,omitempty"`
+
 	// Turn-level assertions (for testing only)
 	Assertions []AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
+}
+
+// ChaosConfig defines fault injection rules for a turn.
+type ChaosConfig struct {
+	// ToolFailures injects failures into specific tool calls.
+	ToolFailures []ChaosToolFailure `json:"tool_failures,omitempty" yaml:"tool_failures,omitempty"`
+}
+
+// ChaosToolFailure defines a failure injection rule for a specific tool.
+type ChaosToolFailure struct {
+	// Tool is the name of the tool to inject failures for.
+	Tool string `json:"tool" yaml:"tool"`
+	// Mode is the type of failure: "error", "timeout", or "slow".
+	Mode string `json:"mode" yaml:"mode"`
+	// Probability is the chance of failure (0.0 to 1.0, default 1.0).
+	Probability float64 `json:"probability,omitempty" yaml:"probability,omitempty"`
+	// Message is an optional custom error message.
+	Message string `json:"message,omitempty" yaml:"message,omitempty"`
 }
 
 // TurnContentPart represents a content part in a scenario turn (simplified for YAML configuration)

@@ -93,6 +93,9 @@ type TurnRequest struct {
 	// Keys are tool names, values are "grant", "deny", or "timeout".
 	ConsentOverrides map[string]string
 
+	// ChaosConfig configures fault injection for resilience testing.
+	ChaosConfig *config.ChaosConfig
+
 	// Assertions to validate after turn execution
 	Assertions     []assertions.AssertionConfig
 	TurnEvalRunner interface{} // Optional stages.TurnEvalRunner for dual-write (Phase 2)
