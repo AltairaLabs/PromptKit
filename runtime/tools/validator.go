@@ -117,21 +117,25 @@ func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result jso
 // in an LRU cache bounded by maxSize; when full the least-recently-used entry
 // is evicted.
 func (sv *SchemaValidator) getSchema(schemaJSON string) (*gojsonschema.Schema, error) {
-	// Fast path: read lock lookup + promote to front.
+	// Fast path: read lock lookup.
 	sv.mu.RLock()
-	if elem, exists := sv.cache[schemaJSON]; exists {
+	if _, exists := sv.cache[schemaJSON]; exists {
 		sv.mu.RUnlock()
-		// Promote requires write lock. Re-check that the element is still
-		// in the cache after acquiring the write lock — it may have been
-		// evicted between releasing the read lock and acquiring the write lock.
+		// Promote requires write lock. Re-lookup the element under the write
+		// lock because it may have been evicted between releasing the read lock
+		// and acquiring the write lock.
 		sv.mu.Lock()
-		if _, stillExists := sv.cache[schemaJSON]; stillExists {
+		if elem, stillExists := sv.cache[schemaJSON]; stillExists {
 			sv.order.MoveToFront(elem)
+			schema := elem.Value.(*schemaEntry).schema
+			sv.mu.Unlock()
+			return schema, nil
 		}
 		sv.mu.Unlock()
-		return elem.Value.(*schemaEntry).schema, nil
+		// Element was evicted; fall through to recompile below.
+	} else {
+		sv.mu.RUnlock()
 	}
-	sv.mu.RUnlock()
 
 	// Compile schema outside of lock.
 	schemaLoader := gojsonschema.NewStringLoader(schemaJSON)

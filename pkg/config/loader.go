@@ -252,12 +252,11 @@ func LoadConfig(filename string) (*Config, error) {
 		}
 	}
 
-	// Validate the loaded configuration (warnings only, doesn't fail).
-	// TODO: propagate validation warnings to the caller or log them. Currently the
-	// validator result and any warnings are discarded because the config package has
-	// no logger and LoadConfig's signature does not surface warnings.
+	// Validate the loaded configuration. Hard errors were already caught by schema
+	// validation above; this catches semantic warnings (e.g. unused providers).
 	validator := NewConfigValidatorWithPath(cfg, filename)
 	_ = validator.Validate()
+	cfg.ValidationWarnings = validator.GetWarnings()
 
 	return cfg, nil
 }

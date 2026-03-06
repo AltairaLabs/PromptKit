@@ -15,6 +15,7 @@ const (
 	DefaultWorkerPoolSize    = 10
 	DefaultEventBufferSize   = 1000
 	DefaultSubscriberTimeout = 5 * time.Second
+	DefaultStoreTimeout      = 3 * time.Second
 	dropLogRateLimit         = 100 // log every Nth drop to avoid spam
 )
 
@@ -28,6 +29,7 @@ type busConfig struct {
 	workerPoolSize    int
 	eventBufferSize   int
 	subscriberTimeout time.Duration
+	storeTimeout      time.Duration
 }
 
 // WithWorkerPoolSize sets the number of worker goroutines that process events.
@@ -60,6 +62,17 @@ func WithSubscriberTimeout(d time.Duration) BusOption {
 	}
 }
 
+// WithStoreTimeout sets the maximum duration for event store persistence operations.
+// A slow event store will not block the worker pool longer than this. Defaults to
+// DefaultStoreTimeout (3s).
+func WithStoreTimeout(d time.Duration) BusOption {
+	return func(c *busConfig) {
+		if d > 0 {
+			c.storeTimeout = d
+		}
+	}
+}
+
 // listenerEntry holds a listener with a unique ID for unsubscription.
 type listenerEntry struct {
 	id       uint64
@@ -85,6 +98,7 @@ type EventBus struct {
 	started           atomic.Bool // true once workers have been launched
 	droppedCount      atomic.Int64
 	subscriberTimeout time.Duration
+	storeTimeout      time.Duration
 
 	// leakCount tracks how many times each listener has timed out.
 	// Protected by mu.
@@ -110,10 +124,16 @@ func NewEventBus(opts ...BusOption) *EventBus {
 		opt(cfg)
 	}
 
+	storeTimeout := cfg.storeTimeout
+	if storeTimeout == 0 {
+		storeTimeout = DefaultStoreTimeout
+	}
+
 	eb := &EventBus{
 		listeners:         make(map[EventType][]listenerEntry),
 		eventCh:           make(chan *Event, cfg.eventBufferSize),
 		subscriberTimeout: cfg.subscriberTimeout,
+		storeTimeout:      storeTimeout,
 		workerPoolSize:    cfg.workerPoolSize,
 		leakCount:         make(map[uint64]int),
 	}
@@ -153,7 +173,7 @@ func (eb *EventBus) dispatch(event *Event) {
 	eb.mu.RUnlock()
 
 	if store != nil && event.SessionID != "" {
-		storeCtx, storeCancel := context.WithTimeout(context.Background(), eb.subscriberTimeout)
+		storeCtx, storeCancel := context.WithTimeout(context.Background(), eb.storeTimeout)
 		if err := store.Append(storeCtx, event); err != nil {
 			logger.Warn("event store append failed",
 				"event_type", string(event.Type),

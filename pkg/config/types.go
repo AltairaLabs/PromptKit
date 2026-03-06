@@ -93,6 +93,10 @@ type Config struct {
 	SkipPackEvals  bool     `yaml:"-" json:"-"` // Disable pack eval execution
 	EvalTypeFilter []string `yaml:"-" json:"-"` // Filter to specific eval types
 
+	// ValidationWarnings holds non-fatal warnings from config validation.
+	// Populated by LoadConfig; callers may inspect or log these.
+	ValidationWarnings []string `yaml:"-" json:"-"`
+
 	// Base directory for resolving relative paths (set during LoadConfig)
 	ConfigDir string `yaml:"-" json:"-"`
 }
