@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"math/rand"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -773,12 +773,14 @@ func (e *Engine) resolveRunTimeout() time.Duration {
 	return DefaultRunTimeout
 }
 
+// runIDCounter provides a monotonically increasing nonce for run ID uniqueness.
+var runIDCounter atomic.Uint64
+
 // generateRunID creates a unique run ID for a combination.
-// Includes seconds and a random nonce for uniqueness within the same minute.
+// Includes seconds and an atomic counter for guaranteed uniqueness within a process.
 func generateRunID(combo RunCombination) string {
 	timestamp := time.Now().Format("2006-01-02T15-04-05Z")
-	//nolint:gosec,mnd // G404: non-cryptographic random is fine for run ID nonce
-	nonce := rand.Intn(0xFFFF)
+	nonce := runIDCounter.Add(1)
 	if combo.EvalID != "" {
 		hash := sha256.Sum256([]byte(fmt.Sprintf("eval_%s", combo.EvalID)))
 		return fmt.Sprintf("%s_eval_%s_%x_%04x", timestamp, combo.EvalID, hash[:4], nonce)
