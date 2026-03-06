@@ -134,6 +134,59 @@ func TestEngine_ResolveScenarios(t *testing.T) {
 	}
 }
 
+// TestResolveScenarios_DeterministicOrder verifies L29 fix: sorted output from map iteration
+func TestResolveScenarios_DeterministicOrder(t *testing.T) {
+	e := &Engine{
+		scenarios: map[string]*config.Scenario{
+			"zebra":  {},
+			"alpha":  {},
+			"middle": {},
+			"beta":   {},
+		},
+	}
+	// Run multiple times to verify deterministic ordering
+	for i := 0; i < 10; i++ {
+		result, err := e.resolveScenarios(nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"alpha", "beta", "middle", "zebra"}, result,
+			"iteration %d: expected sorted order", i)
+	}
+}
+
+// TestResolveEvals_DeterministicOrder verifies L29 fix: sorted output from map iteration
+func TestResolveEvals_DeterministicOrder(t *testing.T) {
+	e := &Engine{
+		evals: map[string]*config.Eval{
+			"eval-c": {},
+			"eval-a": {},
+			"eval-b": {},
+		},
+	}
+	for i := 0; i < 10; i++ {
+		result := e.resolveEvals(nil)
+		assert.Equal(t, []string{"eval-a", "eval-b", "eval-c"}, result,
+			"iteration %d: expected sorted order", i)
+	}
+}
+
+// TestGenerateRunID_Uniqueness verifies L30 fix: run IDs include seconds and random nonce
+func TestGenerateRunID_Uniqueness(t *testing.T) {
+	combo := RunCombination{
+		Region:     "us-west-1",
+		ScenarioID: "test-scenario",
+		ProviderID: "openai",
+	}
+	// Generate many IDs and verify they're unique (nonce provides uniqueness)
+	seen := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		id := generateRunID(combo)
+		if seen[id] {
+			t.Errorf("Duplicate run ID generated: %s", id)
+		}
+		seen[id] = true
+	}
+}
+
 func TestEngine_GenerateCombinations_EmptyInputs(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -390,11 +443,11 @@ func TestEngine_FilterByCapabilities(t *testing.T) {
 	e := &Engine{
 		config: &config.Config{
 			ProviderCapabilities: map[string][]string{
-				"openai-gpt4o":       {"text", "streaming", "vision", "tools", "json"},
-				"openai-o1":          {"text", "streaming", "tools", "json"},
-				"gemini-25-pro":      {"text", "streaming", "vision", "tools", "json", "audio", "video"},
-				"anthropic-opus45":   {"text", "streaming", "vision", "tools", "json", "documents"},
-				"mock":               {"text", "streaming", "tools", "json"},
+				"openai-gpt4o":     {"text", "streaming", "vision", "tools", "json"},
+				"openai-o1":        {"text", "streaming", "tools", "json"},
+				"gemini-25-pro":    {"text", "streaming", "vision", "tools", "json", "audio", "video"},
+				"anthropic-opus45": {"text", "streaming", "vision", "tools", "json", "documents"},
+				"mock":             {"text", "streaming", "tools", "json"},
 			},
 		},
 	}

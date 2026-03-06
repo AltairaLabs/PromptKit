@@ -69,10 +69,10 @@ type Engine struct {
 	toolRegistry         *tools.Registry    // Registry for tool descriptors and executors (used by workflow driver)
 	adapterRegistry      *adapters.Registry // Registry for recording adapters (used for eval enumeration)
 	eventBus             *events.EventBus   // Optional event bus for runtime/TUI events
-	eventStore           events.EventStore // Optional event store for session recording
-	recordingDir         string            // Directory where session recordings are stored
-	a2aCleanup           func()            // Cleanup function for mock A2A servers
-	packEvalHook         *PackEvalHook     // Pack eval hook for running evals during execution
+	eventStore           events.EventStore  // Optional event store for session recording
+	recordingDir         string             // Directory where session recordings are stored
+	a2aCleanup           func()             // Cleanup function for mock A2A servers
+	packEvalHook         *PackEvalHook      // Pack eval hook for running evals during execution
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -408,6 +408,10 @@ func (e *Engine) closeEventStore() error {
 // Returns a slice of RunIDs in the same order as plan.Combinations, or an error
 // if execution setup fails. Individual run errors are stored in StateStore, not returned here.
 func (e *Engine) ExecuteRuns(ctx context.Context, plan *RunPlan, concurrency int) ([]string, error) {
+	// TODO(perf): Refactor to a worker pool pattern where only `concurrency` goroutines
+	// consume from a work channel, instead of launching len(plan.Combinations) goroutines
+	// upfront. The current approach uses a semaphore to limit concurrency, but all goroutines
+	// are created immediately, consuming memory proportional to the plan size.
 	runIDs := make([]string, len(plan.Combinations))
 	errors := make([]error, len(plan.Combinations))
 	semaphore := make(chan struct{}, concurrency)

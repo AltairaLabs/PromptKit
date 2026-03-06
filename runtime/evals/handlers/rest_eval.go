@@ -7,9 +7,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
+
+// maxResponseBodySize is the maximum allowed response body size (10 MB).
+const maxResponseBodySize = 10 * 1024 * 1024
+
+// sharedHTTPClientTimeout is the safety net timeout for the shared HTTP client.
+const sharedHTTPClientTimeout = 120 * time.Second
+
+// sharedHTTPClient is a package-level HTTP client with shared transport for connection reuse.
+// The per-request timeout is set via context.WithTimeout, not on the client itself, so
+// that the transport can be safely shared across requests with different timeout requirements.
+var sharedHTTPClient = &http.Client{
+	Transport: http.DefaultTransport,
+	Timeout:   sharedHTTPClientTimeout,
+}
 
 // RestEvalHandler evaluates a single assistant turn by POSTing
 // conversation context to an external HTTP endpoint and interpreting
@@ -109,8 +124,12 @@ func executeRestEval(
 		httpReq.Header.Set(k, expandEnvVars(v))
 	}
 
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(httpReq)
+	// Use per-request timeout via context instead of creating a new client each call
+	reqCtx, reqCancel := context.WithTimeout(httpReq.Context(), timeout)
+	defer reqCancel()
+	httpReq = httpReq.WithContext(reqCtx)
+
+	resp, err := sharedHTTPClient.Do(httpReq)
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,
@@ -120,7 +139,8 @@ func executeRestEval(
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	// Limit response body size to prevent unbounded memory allocation
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodySize))
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,

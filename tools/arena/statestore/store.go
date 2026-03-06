@@ -123,7 +123,10 @@ func NewArenaStateStore() *ArenaStateStore {
 }
 
 // Save stores conversation state (implements Store interface)
-// For Arena, this extracts trace data from metadata if present
+// For Arena, this extracts trace data from metadata if present.
+//
+// TODO(perf): Deep cloning on every Save is O(N) per call, leading to O(N^2) total for N saves.
+// An append-only design that only clones new messages would reduce this to O(1) amortized per save.
 func (s *ArenaStateStore) Save(ctx context.Context, state *runtimestore.ConversationState) error {
 	if state == nil {
 		return fmt.Errorf("state cannot be nil")
@@ -343,12 +346,82 @@ func (s *ArenaStateStore) deepCloneMessage(msg *types.Message) types.Message {
 	return cloned
 }
 
-// cloneMessageParts clones the Parts slice (multimodal content)
+// cloneMessageParts clones the Parts slice (multimodal content) with deep copy of pointer fields
 func (s *ArenaStateStore) cloneMessageParts(cloned *types.Message, msg *types.Message) {
 	if len(msg.Parts) > 0 {
 		cloned.Parts = make([]types.ContentPart, len(msg.Parts))
-		copy(cloned.Parts, msg.Parts)
+		for i, part := range msg.Parts {
+			cloned.Parts[i] = s.deepCloneContentPart(part)
+		}
 	}
+}
+
+// deepCloneContentPart creates a deep copy of a ContentPart including all pointer fields
+func (s *ArenaStateStore) deepCloneContentPart(part types.ContentPart) types.ContentPart {
+	cp := types.ContentPart{
+		Type: part.Type,
+	}
+	if part.Text != nil {
+		txt := *part.Text
+		cp.Text = &txt
+	}
+	if part.Media != nil {
+		cp.Media = s.deepCloneMediaContent(part.Media)
+	}
+	return cp
+}
+
+// deepCloneMediaContent creates a deep copy of MediaContent including all pointer fields
+func (s *ArenaStateStore) deepCloneMediaContent(m *types.MediaContent) *types.MediaContent {
+	if m == nil {
+		return nil
+	}
+	cloned := &types.MediaContent{
+		MIMEType: m.MIMEType,
+	}
+	cloned.Data = cloneStringPtr(m.Data)
+	cloned.FilePath = cloneStringPtr(m.FilePath)
+	cloned.URL = cloneStringPtr(m.URL)
+	cloned.StorageReference = cloneStringPtr(m.StorageReference)
+	cloned.Format = cloneStringPtr(m.Format)
+	cloned.Detail = cloneStringPtr(m.Detail)
+	cloned.Caption = cloneStringPtr(m.Caption)
+	cloned.PolicyName = cloneStringPtr(m.PolicyName)
+	cloned.SizeKB = cloneInt64Ptr(m.SizeKB)
+	cloned.Duration = cloneIntPtr(m.Duration)
+	cloned.BitRate = cloneIntPtr(m.BitRate)
+	cloned.Channels = cloneIntPtr(m.Channels)
+	cloned.Width = cloneIntPtr(m.Width)
+	cloned.Height = cloneIntPtr(m.Height)
+	cloned.FPS = cloneIntPtr(m.FPS)
+	return cloned
+}
+
+// cloneStringPtr creates a deep copy of a *string
+func cloneStringPtr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	v := *s
+	return &v
+}
+
+// cloneIntPtr creates a deep copy of a *int
+func cloneIntPtr(i *int) *int {
+	if i == nil {
+		return nil
+	}
+	v := *i
+	return &v
+}
+
+// cloneInt64Ptr creates a deep copy of a *int64
+func cloneInt64Ptr(i *int64) *int64 {
+	if i == nil {
+		return nil
+	}
+	v := *i
+	return &v
 }
 
 // cloneMessageToolCalls clones the ToolCalls slice
@@ -371,7 +444,9 @@ func (s *ArenaStateStore) cloneMessageToolCalls(cloned *types.Message, msg *type
 func (s *ArenaStateStore) cloneMessageToolResult(cloned *types.Message, msg *types.Message) {
 	if msg.ToolResult != nil {
 		partsCopy := make([]types.ContentPart, len(msg.ToolResult.Parts))
-		copy(partsCopy, msg.ToolResult.Parts)
+		for i, part := range msg.ToolResult.Parts {
+			partsCopy[i] = s.deepCloneContentPart(part)
+		}
 		cloned.ToolResult = &types.MessageToolResult{
 			ID:        msg.ToolResult.ID,
 			Name:      msg.ToolResult.Name,
@@ -476,15 +551,15 @@ func (s *ArenaStateStore) Load(ctx context.Context, conversationID string) (*run
 		return nil, ErrNotFound
 	}
 
-	// Return a copy of the embedded standard state
-	stateCopy := arenaState.ConversationState
+	// Deep clone the state to prevent callers from mutating internal store data
+	stateCopy := s.deepCloneConversationState(&arenaState.ConversationState)
 
 	// Ensure Metadata is never nil to prevent panics
 	if stateCopy.Metadata == nil {
 		stateCopy.Metadata = make(map[string]interface{})
 	}
 
-	return &stateCopy, nil
+	return stateCopy, nil
 }
 
 // Delete removes conversation state
@@ -496,7 +571,8 @@ func (s *ArenaStateStore) Delete(ctx context.Context, conversationID string) err
 	return nil
 }
 
-// GetArenaState retrieves the full Arena state including telemetry
+// GetArenaState retrieves the full Arena state including telemetry.
+// Returns a deep copy to prevent callers from mutating internal store data.
 func (s *ArenaStateStore) GetArenaState(ctx context.Context, conversationID string) (*ArenaConversationState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -506,7 +582,99 @@ func (s *ArenaStateStore) GetArenaState(ctx context.Context, conversationID stri
 		return nil, fmt.Errorf("conversation %s not found", conversationID)
 	}
 
-	return arenaState, nil
+	// Deep clone the state to prevent callers from mutating internal store data
+	clonedState := s.deepCloneConversationState(&arenaState.ConversationState)
+	result := &ArenaConversationState{
+		ConversationState: *clonedState,
+	}
+
+	// Deep clone RunMetadata if present
+	if arenaState.RunMetadata != nil {
+		result.RunMetadata = s.deepCloneRunMetadata(arenaState.RunMetadata)
+	}
+
+	return result, nil
+}
+
+// deepCloneRunMetadata creates a deep copy of RunMetadata
+func (s *ArenaStateStore) deepCloneRunMetadata(m *RunMetadata) *RunMetadata {
+	if m == nil {
+		return nil
+	}
+	cloned := &RunMetadata{
+		RunID:         m.RunID,
+		PromptPack:    m.PromptPack,
+		Region:        m.Region,
+		ScenarioID:    m.ScenarioID,
+		ProviderID:    m.ProviderID,
+		StartTime:     m.StartTime,
+		EndTime:       m.EndTime,
+		Duration:      m.Duration,
+		Error:         m.Error,
+		SelfPlay:      m.SelfPlay,
+		PersonaID:     m.PersonaID,
+		RecordingPath: m.RecordingPath,
+	}
+	cloned.Params = s.deepCloneMap(m.Params)
+	cloned.Commit = s.deepCloneMap(m.Commit)
+	s.cloneRunMetadataRoles(cloned, m)
+	s.cloneRunMetadataFeedback(cloned, m)
+	s.cloneRunMetadataSlices(cloned, m)
+	return cloned
+}
+
+// deepCloneMap clones a map[string]interface{} deeply
+func (s *ArenaStateStore) deepCloneMap(m map[string]interface{}) map[string]interface{} {
+	if m == nil {
+		return nil
+	}
+	cloned := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		cloned[k] = s.deepCloneValue(v)
+	}
+	return cloned
+}
+
+// cloneRunMetadataRoles clones SelfPlayRoleInfo pointers
+func (s *ArenaStateStore) cloneRunMetadataRoles(cloned, m *RunMetadata) {
+	if m.AssistantRole != nil {
+		ar := *m.AssistantRole
+		cloned.AssistantRole = &ar
+	}
+	if m.UserRole != nil {
+		ur := *m.UserRole
+		cloned.UserRole = &ur
+	}
+}
+
+// cloneRunMetadataFeedback clones the UserFeedback field
+func (s *ArenaStateStore) cloneRunMetadataFeedback(cloned, m *RunMetadata) {
+	if m.UserFeedback == nil {
+		return
+	}
+	fb := *m.UserFeedback
+	fb.Categories = s.deepCloneMap(m.UserFeedback.Categories)
+	if fb.Tags != nil {
+		fb.Tags = make([]string, len(m.UserFeedback.Tags))
+		copy(fb.Tags, m.UserFeedback.Tags)
+	}
+	cloned.UserFeedback = &fb
+}
+
+// cloneRunMetadataSlices clones the slice fields in RunMetadata
+func (s *ArenaStateStore) cloneRunMetadataSlices(cloned, m *RunMetadata) {
+	if m.SessionTags != nil {
+		cloned.SessionTags = make([]string, len(m.SessionTags))
+		copy(cloned.SessionTags, m.SessionTags)
+	}
+	if m.ConversationAssertionResults != nil {
+		cloned.ConversationAssertionResults = make([]ConversationValidationResult, len(m.ConversationAssertionResults))
+		copy(cloned.ConversationAssertionResults, m.ConversationAssertionResults)
+	}
+	if m.A2AAgents != nil {
+		cloned.A2AAgents = make([]A2AAgentInfo, len(m.A2AAgents))
+		copy(cloned.A2AAgents, m.A2AAgents)
+	}
 }
 
 // MediaOutput represents media content produced during a run

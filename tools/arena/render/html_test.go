@@ -2872,3 +2872,285 @@ func TestConsentStatus(t *testing.T) {
 		})
 	}
 }
+
+// --- Reflection helper tests ---
+
+// testValidationResult mimics a struct with Validations, Passed, Message fields.
+type testValidationResult struct {
+	ValidatorType string
+	Passed        bool
+	Message       string
+	Details       interface{}
+}
+
+// testStructWithValidations mimics a message-like struct with a Validations slice.
+type testStructWithValidations struct {
+	Validations []testValidationResult
+}
+
+func TestDerefToStruct(t *testing.T) {
+	s := testValidationResult{Passed: true, Message: "ok"}
+
+	tests := []struct {
+		name   string
+		input  interface{}
+		wantOK bool
+	}{
+		{"struct value", s, true},
+		{"pointer to struct", &s, true},
+		{"nil", nil, false},
+		{"string", "hello", false},
+		{"int", 42, false},
+		{"map", map[string]interface{}{}, false},
+		{"slice", []int{1, 2}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rv, ok := derefToStruct(tt.input)
+			if ok != tt.wantOK {
+				t.Errorf("derefToStruct() ok = %v, want %v", ok, tt.wantOK)
+			}
+			if ok && rv.Kind() != reflect.Struct {
+				t.Errorf("derefToStruct() returned non-struct kind %v", rv.Kind())
+			}
+		})
+	}
+}
+
+func TestExtractBoolFieldViaReflection(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		field    string
+		expected bool
+	}{
+		{"struct with Passed=true", testValidationResult{Passed: true}, "Passed", true},
+		{"struct with Passed=false", testValidationResult{Passed: false}, "Passed", false},
+		{"pointer to struct", &testValidationResult{Passed: true}, "Passed", true},
+		{"non-existent field", testValidationResult{Passed: true}, "NonExistent", false},
+		{"non-bool field", testValidationResult{Message: "hi"}, "Message", false},
+		{"nil input", nil, "Passed", false},
+		{"map input", map[string]interface{}{"Passed": true}, "Passed", false},
+		{"string input", "hello", "Passed", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractBoolFieldViaReflection(tt.input, tt.field)
+			if result != tt.expected {
+				t.Errorf("extractBoolFieldViaReflection() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractFieldViaReflection(t *testing.T) {
+	details := map[string]string{"key": "val"}
+	s := testValidationResult{Message: "hello", Details: details}
+
+	tests := []struct {
+		name    string
+		input   interface{}
+		field   string
+		wantNil bool
+		wantStr string // only checked if non-empty
+	}{
+		{"string field", s, "Message", false, "hello"},
+		{"interface field", s, "Details", false, ""},
+		{"pointer to struct", &s, "Message", false, "hello"},
+		{"non-existent field", s, "Foo", true, ""},
+		{"nil input", nil, "Message", true, ""},
+		{"map input", map[string]interface{}{}, "Message", true, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractFieldViaReflection(tt.input, tt.field)
+			if tt.wantNil && result != nil {
+				t.Errorf("extractFieldViaReflection() = %v, want nil", result)
+			}
+			if !tt.wantNil && result == nil {
+				t.Errorf("extractFieldViaReflection() = nil, want non-nil")
+			}
+			if tt.wantStr != "" {
+				if str, ok := result.(string); !ok || str != tt.wantStr {
+					t.Errorf("extractFieldViaReflection() = %v, want %q", result, tt.wantStr)
+				}
+			}
+		})
+	}
+}
+
+func TestHasValidationsViaReflection(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected bool
+	}{
+		{
+			"struct with non-empty validations",
+			testStructWithValidations{
+				Validations: []testValidationResult{{Passed: true, ValidatorType: "test"}},
+			},
+			true,
+		},
+		{
+			"struct with empty validations",
+			testStructWithValidations{Validations: []testValidationResult{}},
+			false,
+		},
+		{
+			"struct with nil validations",
+			testStructWithValidations{},
+			false,
+		},
+		{
+			"pointer to struct with validations",
+			&testStructWithValidations{
+				Validations: []testValidationResult{{Passed: true}},
+			},
+			true,
+		},
+		{"nil input", nil, false},
+		{"map input", map[string]interface{}{}, false},
+		{"string input", "hello", false},
+		{
+			"struct without Validations field",
+			testValidationResult{Passed: true},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasValidationsViaReflection(tt.input)
+			if result != tt.expected {
+				t.Errorf("hasValidationsViaReflection() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractValidationsViaReflection(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     interface{}
+		wantNil   bool
+		wantCount int
+	}{
+		{
+			"struct with validations",
+			testStructWithValidations{
+				Validations: []testValidationResult{
+					{ValidatorType: "content_match", Passed: true},
+					{ValidatorType: "length_check", Passed: false},
+				},
+			},
+			false, 2,
+		},
+		{
+			"pointer to struct with validations",
+			&testStructWithValidations{
+				Validations: []testValidationResult{
+					{ValidatorType: "tone", Passed: true},
+				},
+			},
+			false, 1,
+		},
+		{"struct with empty validations", testStructWithValidations{}, true, 0},
+		{"nil input", nil, true, 0},
+		{"map input", map[string]interface{}{}, true, 0},
+		{"struct without Validations field", testValidationResult{}, true, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractValidationsViaReflection(tt.input)
+			if tt.wantNil && result != nil {
+				t.Errorf("extractValidationsViaReflection() = %v, want nil", result)
+			}
+			if !tt.wantNil {
+				if result == nil {
+					t.Fatalf("extractValidationsViaReflection() = nil, want map with %d entries", tt.wantCount)
+				}
+				if len(result) != tt.wantCount {
+					t.Errorf("extractValidationsViaReflection() has %d entries, want %d", len(result), tt.wantCount)
+				}
+			}
+		})
+	}
+}
+
+func TestGetMessageFromStruct(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{"struct with message", testValidationResult{Message: "error occurred"}, "error occurred"},
+		{"struct with empty message", testValidationResult{Message: ""}, ""},
+		{"pointer to struct", &testValidationResult{Message: "via ptr"}, "via ptr"},
+		{"nil input", nil, ""},
+		{"map input", map[string]interface{}{"Message": "hello"}, ""},
+		{"string input", "hello", ""},
+		{"struct without Message field", testStructWithValidations{}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getMessageFromStruct(tt.input)
+			if result != tt.expected {
+				t.Errorf("getMessageFromStruct() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCheckSingleAssertion_Struct(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected bool
+	}{
+		{"struct passed=true", testValidationResult{Passed: true}, true},
+		{"struct passed=false", testValidationResult{Passed: false}, false},
+		{"pointer passed=true", &testValidationResult{Passed: true}, true},
+		{"pointer passed=false", &testValidationResult{Passed: false}, false},
+		{"nil returns true", nil, false},
+		{"string returns default", "hello", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := checkSingleAssertion(tt.input)
+			if result != tt.expected {
+				t.Errorf("checkSingleAssertion() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsValidatorPassed_Struct(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected bool
+	}{
+		{"struct passed=true", testValidationResult{Passed: true}, true},
+		{"struct passed=false", testValidationResult{Passed: false}, false},
+		{"pointer passed=true", &testValidationResult{Passed: true}, true},
+		{"pointer passed=false", &testValidationResult{Passed: false}, false},
+		{"nil returns true", nil, true},
+		{"string returns true (no Passed field)", "hello", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isValidatorPassed(tt.input)
+			if result != tt.expected {
+				t.Errorf("isValidatorPassed() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
