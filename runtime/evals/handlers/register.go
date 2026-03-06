@@ -78,4 +78,8 @@ func init() {
 	evals.RegisterDefault(&RestEvalSessionHandler{})
 	evals.RegisterDefault(&A2AEvalHandler{})
 	evals.RegisterDefault(&A2AEvalSessionHandler{})
+
+	// Behavioral testing handlers (Phase 6)
+	evals.RegisterDefault(&OutcomeEquivalentHandler{})
+	evals.RegisterDefault(&DirectionalHandler{})
 }

@@ -188,15 +188,26 @@ func (e *Engine) generateScenarioCombinations(region, scenarioID string, provide
 		trials = 1
 	}
 
+	// Compute perturbation variants (if any)
+	perturbationVariants := ExpandPerturbations(scenario)
+	perturbationCount := len(perturbationVariants)
+	if perturbationCount == 0 {
+		perturbationCount = 1 // No perturbations = single run
+	}
+
+	// Total trials = explicit trials × perturbation variants
+	totalTrials := trials * perturbationCount
+
 	var combinations []RunCombination
 	for _, providerID := range providers {
-		for t := range trials {
+		for t := range totalTrials {
 			combinations = append(combinations, RunCombination{
-				Region:      region,
-				ScenarioID:  scenarioID,
-				ProviderID:  providerID,
-				TrialIndex:  t,
-				TotalTrials: trials,
+				Region:            region,
+				ScenarioID:        scenarioID,
+				ProviderID:        providerID,
+				TrialIndex:        t,
+				TotalTrials:       totalTrials,
+				PerturbationIndex: perturbationIndexForTrial(t, perturbationCount),
 			})
 		}
 	}
@@ -385,10 +396,21 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		return saveError(fmt.Sprintf("provider not found: %s", combo.ProviderID))
 	}
 
+	// Apply perturbation substitutions if this run has a perturbation variant
+	execScenario := scenario
+	if combo.PerturbationIndex >= 0 {
+		variants := ExpandPerturbations(scenario)
+		if combo.PerturbationIndex < len(variants) {
+			perturbed := *scenario
+			perturbed.Turns = ApplyPerturbation(scenario.Turns, variants[combo.PerturbationIndex])
+			execScenario = &perturbed
+		}
+	}
+
 	// Execute conversation
 	req := ConversationRequest{
 		Provider: provider,
-		Scenario: scenario,
+		Scenario: execScenario,
 		Config:   e.config,
 		Region:   combo.Region,
 		RunID:    runID,

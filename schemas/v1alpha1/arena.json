@@ -2136,6 +2136,15 @@
           },
           "type": "object"
         },
+        "perturbations": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
         "assertions": {
           "items": {
             "$ref": "#/$defs/AssertionConfig"

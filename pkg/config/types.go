@@ -979,6 +979,11 @@ type TurnDefinition struct {
 	// Keys are tool names, values are "grant", "deny", or "timeout".
 	ConsentOverrides map[string]string `json:"consent_overrides,omitempty" yaml:"consent_overrides,omitempty"`
 
+	// Perturbations define variable substitutions for behavioral testing.
+	// Each key is a placeholder name (e.g., "city") and the value is a list of variants.
+	// The engine expands each variant into a separate trial, substituting {key} in Content.
+	Perturbations map[string][]string `json:"perturbations,omitempty" yaml:"perturbations,omitempty"`
+
 	// Turn-level assertions (for testing only)
 	Assertions []AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
 }

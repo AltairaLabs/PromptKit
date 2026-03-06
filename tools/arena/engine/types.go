@@ -22,6 +22,9 @@ type RunCombination struct {
 	RecordingRef string // For batch evals: specific recording reference ID (resolved by adapter)
 	TrialIndex   int    // Trial number (0-based) when scenario has Trials > 1
 	TotalTrials  int    // Total number of trials for this scenario (0 or 1 = single run)
+
+	// PerturbationIndex identifies which perturbation variant this run uses (-1 = no perturbation).
+	PerturbationIndex int
 }
 
 // TrialGroupKey identifies a unique scenario+provider+region combination for trial grouping.
