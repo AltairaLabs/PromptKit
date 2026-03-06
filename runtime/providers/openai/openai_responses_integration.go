@@ -224,6 +224,9 @@ func (p *Provider) convertMessagesToResponsesInput(messages []types.Message) []a
 // Returns a slice because assistant messages with tool calls become multiple items
 func (p *Provider) convertSingleMessageToResponsesInput(msg *types.Message) []map[string]any {
 	// Handle tool results - these are function_call_output items
+	// NOTE: The Responses API only supports text output for function_call_output.
+	// Multimodal tool results (images, audio) are reduced to text here.
+	// Use the Chat Completions API for full multimodal tool result support.
 	if msg.Role == roleToolResult && msg.ToolResult != nil {
 		// Transform call ID to Responses API format (must start with 'fc_')
 		callID := transformToResponsesCallID(msg.ToolResult.ID)

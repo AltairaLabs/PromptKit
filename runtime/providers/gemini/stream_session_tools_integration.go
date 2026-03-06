@@ -35,6 +35,10 @@ func (s *StreamSession) SendToolResponse(ctx context.Context, toolCallID, result
 // SendToolResponses sends multiple tool execution results back to Gemini.
 // This is used when the model makes parallel tool calls.
 // After receiving the tool responses, Gemini will continue generating.
+//
+// NOTE: The streaming BidiGenerateContent API only supports text-based tool results.
+// Multimodal tool results (images, audio) are not supported in this path.
+// Use the non-streaming PredictWithTools API for multimodal tool result support.
 func (s *StreamSession) SendToolResponses(ctx context.Context, responses []providers.ToolResponse) error {
 	s.mu.Lock()
 	if s.closed {
