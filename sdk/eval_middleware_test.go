@@ -209,7 +209,7 @@ func TestEvalMiddleware_BuildEvalContext_NoSession(t *testing.T) {
 		t.Fatal("expected non-nil middleware")
 	}
 
-	mw.turnIndex = 3
+	mw.turnIndex.Store(3)
 	ctx := mw.buildEvalContext(context.Background())
 
 	if ctx.TurnIndex != 3 {
@@ -508,11 +508,11 @@ func TestEvalMiddleware_SemaphoreSkipsWhenAtCapacity(t *testing.T) {
 	<-started
 
 	// Dispatch a 3rd — should be skipped because semaphore is full
-	turnBefore := mw.turnIndex
+	turnBefore := mw.turnIndex.Load()
 	mw.dispatchTurnEvals(context.Background())
 	// turnIndex still increments, but no goroutine was launched
-	if mw.turnIndex != turnBefore+1 {
-		t.Errorf("expected turnIndex to increment, got %d", mw.turnIndex)
+	if mw.turnIndex.Load() != turnBefore+1 {
+		t.Errorf("expected turnIndex to increment, got %d", mw.turnIndex.Load())
 	}
 
 	// Unblock all goroutines and wait
@@ -605,6 +605,75 @@ func TestEvalMiddleware_CustomMaxConcurrentEvals(t *testing.T) {
 	}
 	if cap(mw.sem) != 5 {
 		t.Errorf("expected semaphore capacity 5, got %d", cap(mw.sem))
+	}
+}
+
+func TestEvalMiddleware_BuildEvalContext_CachesMessages(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt:     &pack.Prompt{},
+		promptName: "test-prompt",
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	// First call at turn 0 — cache should be populated (no session so messages are nil)
+	ctx1 := mw.buildEvalContext(context.Background())
+	if ctx1.TurnIndex != 0 {
+		t.Errorf("expected TurnIndex 0, got %d", ctx1.TurnIndex)
+	}
+
+	// Same turn index — should return cached result
+	ctx2 := mw.buildEvalContext(context.Background())
+	if ctx2.TurnIndex != 0 {
+		t.Errorf("expected cached TurnIndex 0, got %d", ctx2.TurnIndex)
+	}
+
+	// Increment turn — cache should be invalidated
+	mw.turnIndex.Store(1)
+	ctx3 := mw.buildEvalContext(context.Background())
+	if ctx3.TurnIndex != 1 {
+		t.Errorf("expected TurnIndex 1, got %d", ctx3.TurnIndex)
+	}
+}
+
+func TestEvalMiddleware_TurnIndexAtomic(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	// Verify atomic operations on turnIndex
+	if mw.turnIndex.Load() != 0 {
+		t.Errorf("expected initial turnIndex 0, got %d", mw.turnIndex.Load())
+	}
+
+	mw.turnIndex.Add(1)
+	if mw.turnIndex.Load() != 1 {
+		t.Errorf("expected turnIndex 1 after Add, got %d", mw.turnIndex.Load())
+	}
+
+	mw.turnIndex.Store(5)
+	if mw.turnIndex.Load() != 5 {
+		t.Errorf("expected turnIndex 5 after Store, got %d", mw.turnIndex.Load())
 	}
 }
 

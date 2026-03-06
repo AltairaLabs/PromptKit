@@ -80,6 +80,8 @@ type ToolHandler = func(args map[string]any) (any, error)
 
 // mapToStruct converts a map[string]any to a struct using reflection.
 // It looks for "map" struct tags or uses lowercase field names.
+// TODO: Cache reflect.Type field metadata (tag lookup, field index) per type
+// to avoid repeated reflection on hot paths with many tool calls.
 func mapToStruct(m map[string]any, v any) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {

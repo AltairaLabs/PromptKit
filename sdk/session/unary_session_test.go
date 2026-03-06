@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -385,7 +386,7 @@ func TestProcessStreamElements_PropagatesPendingTools(t *testing.T) {
 	close(stageChan)
 
 	// Use convertStreamOutput which properly wraps processStreamElements with close
-	chunkChan := convertStreamOutput(stageChan)
+	chunkChan := convertStreamOutput(context.Background(), stageChan)
 
 	var chunks []providers.StreamChunk
 	for chunk := range chunkChan {
@@ -414,7 +415,7 @@ func TestProcessStreamElements_NoPendingTools(t *testing.T) {
 	stageChan <- stage.StreamElement{Text: &text}
 	close(stageChan)
 
-	chunkChan := convertStreamOutput(stageChan)
+	chunkChan := convertStreamOutput(context.Background(), stageChan)
 
 	var chunks []providers.StreamChunk
 	for chunk := range chunkChan {
@@ -492,4 +493,86 @@ func TestUnarySession_ForkSession(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, len(origMessages), len(forkedMessages))
+}
+
+func TestStreamProcessor_SendChunk_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Use an unbuffered channel so send would block, forcing the ctx.Done() path.
+	chunkChan := make(chan providers.StreamChunk)
+	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
+
+	ok := p.sendChunk(&providers.StreamChunk{Delta: "test"})
+	assert.False(t, ok, "sendChunk should return false when context is cancelled")
+}
+
+func TestStreamProcessor_ProcessElement_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	chunkChan := make(chan providers.StreamChunk) // unbuffered
+	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
+
+	text := "hello"
+	ok := p.processElement(&stage.StreamElement{Text: &text})
+	assert.False(t, ok, "processElement should return false when context is cancelled")
+}
+
+func TestStreamProcessor_ProcessElement_Error(t *testing.T) {
+	chunkChan := make(chan providers.StreamChunk, 10)
+	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
+
+	testErr := errors.New("stream error")
+	ok := p.processElement(&stage.StreamElement{Error: testErr})
+	assert.True(t, ok, "processElement should succeed sending error chunk")
+
+	chunk := <-chunkChan
+	assert.Equal(t, testErr, chunk.Error)
+	require.NotNil(t, chunk.FinishReason)
+	assert.Equal(t, "error", *chunk.FinishReason)
+}
+
+func TestStreamProcessor_CollectMetadata_FinalResult(t *testing.T) {
+	chunkChan := make(chan providers.StreamChunk, 10)
+	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
+
+	execResult := &stage.ExecutionResult{
+		Response: &stage.Response{Role: "assistant", Content: "test"},
+	}
+	meta := map[string]interface{}{
+		"__final_result__": execResult,
+	}
+	p.collectMetadata(meta)
+
+	assert.NotNil(t, p.finalResult, "finalResult should be set from metadata")
+}
+
+func TestStreamProcessor_CollectMetadata_InvalidPendingToolsType(t *testing.T) {
+	chunkChan := make(chan providers.StreamChunk, 10)
+	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
+
+	// pending_tools exists but is wrong type — should hit early return
+	meta := map[string]interface{}{
+		"pending_tools": "not-a-slice",
+	}
+	p.collectMetadata(meta)
+	assert.False(t, p.pendingToolsEmitted)
+}
+
+func TestProcessStreamElements_EarlyExit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	stageChan := make(chan stage.StreamElement, 5)
+	text := "hello"
+	stageChan <- stage.StreamElement{Text: &text}
+	stageChan <- stage.StreamElement{Text: &text}
+	close(stageChan)
+
+	// Unbuffered chunkChan + cancelled context forces processElement to return false,
+	// testing the early exit path in processStreamElements.
+	chunkChan := make(chan providers.StreamChunk)
+	processStreamElements(ctx, stageChan, chunkChan)
+	// If we reach here without hanging, the early exit worked.
 }

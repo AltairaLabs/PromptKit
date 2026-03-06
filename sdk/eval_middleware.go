@@ -3,10 +3,12 @@ package sdk
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // DefaultMaxConcurrentEvals is the default maximum number of concurrent eval goroutines.
@@ -18,7 +20,7 @@ type evalMiddleware struct {
 	defs      []evals.EvalDef
 	emitter   *events.Emitter // nil-safe (bus may not be configured)
 	conv      *Conversation
-	turnIndex int
+	turnIndex atomic.Int32 // atomic for thread safety across concurrent Send() calls
 
 	// Goroutine lifecycle management for async turn evals.
 	wg     sync.WaitGroup     // tracks in-flight turn eval goroutines
@@ -27,6 +29,12 @@ type evalMiddleware struct {
 
 	// Bounded concurrency: sem limits how many eval goroutines run simultaneously.
 	sem chan struct{}
+
+	// Cached messages to avoid reloading on every dispatch.
+	cachedMessages   []types.Message
+	cachedTurnIndex  int32
+	cachedSessionID  string
+	cachedLastOutput string
 }
 
 // newEvalMiddleware creates eval middleware for a conversation.
@@ -102,7 +110,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 		return
 	}
 
-	em.turnIndex++
+	turn := em.turnIndex.Add(1)
 
 	// Try to acquire the semaphore without blocking. If all slots are taken,
 	// skip this eval dispatch to prevent unbounded goroutine growth.
@@ -111,7 +119,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 		// Acquired — proceed
 	default:
 		logger.Warn("evals: semaphore full, skipping turn eval dispatch",
-			"turn", em.turnIndex, "capacity", cap(em.sem))
+			"turn", turn, "capacity", cap(em.sem))
 		return
 	}
 
@@ -194,24 +202,33 @@ func (em *evalMiddleware) emitResults(results []evals.EvalResult) {
 }
 
 // buildEvalContext creates an EvalContext from the conversation state.
+// It caches messages and only reloads when the turn count changes.
 func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
+	currentTurn := em.turnIndex.Load()
 	evalCtx := &evals.EvalContext{
-		TurnIndex: em.turnIndex,
+		TurnIndex: int(currentTurn),
 		PromptID:  em.conv.promptName,
 	}
 
 	// Safely get session info — sessions may not be initialized in tests
 	// or when middleware is used standalone.
 	if em.conv.unarySession != nil || em.conv.duplexSession != nil {
-		evalCtx.Messages = em.conv.Messages(ctx)
-		evalCtx.SessionID = em.conv.ID()
-
-		for i := len(evalCtx.Messages) - 1; i >= 0; i-- {
-			if evalCtx.Messages[i].Role == roleAssistant {
-				evalCtx.CurrentOutput = evalCtx.Messages[i].GetContent()
-				break
+		// Only reload messages if turn count changed since last cache
+		if currentTurn != em.cachedTurnIndex || em.cachedMessages == nil {
+			em.cachedMessages = em.conv.Messages(ctx)
+			em.cachedSessionID = em.conv.ID()
+			em.cachedTurnIndex = currentTurn
+			em.cachedLastOutput = ""
+			for i := len(em.cachedMessages) - 1; i >= 0; i-- {
+				if em.cachedMessages[i].Role == roleAssistant {
+					em.cachedLastOutput = em.cachedMessages[i].GetContent()
+					break
+				}
 			}
 		}
+		evalCtx.Messages = em.cachedMessages
+		evalCtx.SessionID = em.cachedSessionID
+		evalCtx.CurrentOutput = em.cachedLastOutput
 	}
 
 	return evalCtx

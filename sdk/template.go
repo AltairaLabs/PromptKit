@@ -214,6 +214,7 @@ func (t *PackTemplate) initConversation(conv *Conversation, packPrompt *pack.Pro
 
 	initEventBus(cfg)
 	conv.hookRegistry = cfg.buildHookRegistry()
+	conv.sessionHooks = newSessionHookDispatcher(conv.hookRegistry, conv.sessionInfo)
 	return nil
 }
 

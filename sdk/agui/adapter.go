@@ -8,6 +8,7 @@ import (
 	aguievents "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
@@ -422,7 +423,8 @@ func (a *EventAdapter) emit(event aguievents.Event) {
 	select {
 	case a.events <- event:
 	default:
-		// Drop event if buffer is full to prevent blocking
+		// Drop event if buffer is full to prevent blocking.
+		logger.Warn("AG-UI event dropped: channel buffer full", "event_type", event.Type())
 	}
 }
 

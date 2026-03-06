@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
+
+// defaultAgentSendTimeout is the default timeout applied to member agent Send
+// calls when the caller's context has no deadline.
+const defaultAgentSendTimeout = 5 * time.Minute
 
 // Execute routes a tool call to the corresponding member conversation.
 // It parses {"query":"..."} from args, calls member.Send(), and returns {"response":"..."}.
@@ -29,7 +34,15 @@ func (e *LocalAgentExecutor) Execute(
 		return nil, fmt.Errorf("unknown agent member: %s", descriptor.Name)
 	}
 
-	// Send the query to the member conversation using the caller's context.
+	// If the caller's context has no deadline, wrap with a default timeout
+	// to prevent member agent calls from hanging indefinitely.
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultAgentSendTimeout)
+		defer cancel()
+	}
+
+	// Send the query to the member conversation.
 	resp, err := conv.Send(ctx, input.Query)
 	if err != nil {
 		return nil, fmt.Errorf("agent %s failed: %w", descriptor.Name, err)

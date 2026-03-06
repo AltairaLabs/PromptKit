@@ -177,8 +177,8 @@ func TestE2E_EvalMiddleware_TurnIndexIncrements(t *testing.T) {
 		}
 	}
 
-	if mw.turnIndex != 3 {
-		t.Errorf("expected turnIndex 3, got %d", mw.turnIndex)
+	if mw.turnIndex.Load() != 3 {
+		t.Errorf("expected turnIndex 3, got %d", mw.turnIndex.Load())
 	}
 
 	mu.Lock()
