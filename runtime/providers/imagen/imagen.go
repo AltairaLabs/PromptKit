@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -187,7 +186,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
+	respBody, err := providers.ReadResponseBody(resp.Body)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to read response: %w", err)
 	}

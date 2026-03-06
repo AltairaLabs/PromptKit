@@ -158,7 +158,7 @@ func (p *Provider) makeBedrockStreamingRequest(
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, providers.MaxErrorResponseSize))
+		body := providers.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
 		return nil, nil, parseBedrockHTTPError(resp.StatusCode, body)
 	}
@@ -415,7 +415,7 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
+	respBody, err := providers.ReadResponseBody(resp.Body)
 	if err != nil {
 		predictResp.Latency = time.Since(start)
 		return nil, predictResp, fmt.Errorf("failed to read response: %w", err)

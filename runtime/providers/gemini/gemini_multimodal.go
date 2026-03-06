@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -264,7 +263,7 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
+	respBody, err := providers.ReadResponseBody(resp.Body)
 	if err != nil {
 		logger.APIResponse("Gemini", resp.StatusCode, "", err)
 		predictResp.Latency = time.Since(start)
@@ -394,7 +393,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, providers.MaxErrorResponseSize))
+		body := providers.ReadErrorBody(resp.Body)
 		if p.platform != "" {
 			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
 		}

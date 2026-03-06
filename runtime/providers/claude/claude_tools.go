@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -511,7 +510,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
+	respBody, err := providers.ReadResponseBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -584,7 +583,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, providers.MaxErrorResponseSize))
+		body := providers.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -284,6 +285,51 @@ func TestBaseProvider_SetHTTPTimeout_NilClient(t *testing.T) {
 
 	if base.GetHTTPClient() == nil {
 		t.Error("Expected HTTP client to be created")
+	}
+}
+
+func TestReadResponseBody(t *testing.T) {
+	data := []byte("hello world")
+	result, err := ReadResponseBody(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(result) != "hello world" {
+		t.Errorf("expected %q, got %q", "hello world", string(result))
+	}
+}
+
+func TestReadErrorBody(t *testing.T) {
+	data := []byte(`{"error":"bad request"}`)
+	result := ReadErrorBody(bytes.NewReader(data))
+	if string(result) != string(data) {
+		t.Errorf("expected %q, got %q", string(data), string(result))
+	}
+}
+
+func TestReadResponseBody_LimitsSize(t *testing.T) {
+	// Create data larger than DefaultMaxPayloadSize
+	big := make([]byte, DefaultMaxPayloadSize+1024)
+	for i := range big {
+		big[i] = 'x'
+	}
+	result, err := ReadResponseBody(bytes.NewReader(big))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if int64(len(result)) != DefaultMaxPayloadSize {
+		t.Errorf("expected length %d, got %d", DefaultMaxPayloadSize, len(result))
+	}
+}
+
+func TestReadErrorBody_LimitsSize(t *testing.T) {
+	big := make([]byte, MaxErrorResponseSize+1024)
+	for i := range big {
+		big[i] = 'e'
+	}
+	result := ReadErrorBody(bytes.NewReader(big))
+	if int64(len(result)) != MaxErrorResponseSize {
+		t.Errorf("expected length %d, got %d", MaxErrorResponseSize, len(result))
 	}
 }
 

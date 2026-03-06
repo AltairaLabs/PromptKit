@@ -231,12 +231,24 @@ func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error {
 	return b.rateLimiter.Wait(ctx)
 }
 
+// ReadResponseBody reads and returns the response body, limiting the size to
+// DefaultMaxPayloadSize to prevent unbounded memory consumption.
+func ReadResponseBody(body io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(body, DefaultMaxPayloadSize))
+}
+
+// ReadErrorBody reads and returns an error response body, limiting the size to
+// MaxErrorResponseSize. Error responses should be small; this is a safety net.
+func ReadErrorBody(body io.Reader) []byte {
+	b, _ := io.ReadAll(io.LimitReader(body, MaxErrorResponseSize))
+	return b
+}
+
 // CheckHTTPError checks if HTTP response is an error and returns formatted error with body
 func CheckHTTPError(resp *http.Response, url string) error {
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		limitedBody := io.LimitReader(resp.Body, DefaultMaxPayloadSize)
-		body, _ := io.ReadAll(limitedBody)
+		body := ReadErrorBody(resp.Body)
 		return fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}
 	return nil
@@ -349,7 +361,7 @@ func (b *BaseProvider) MakeRawRequest(
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, DefaultMaxPayloadSize))
+	respBytes, err := ReadResponseBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
