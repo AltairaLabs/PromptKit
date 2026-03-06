@@ -169,7 +169,7 @@ func (s *unarySession) ExecuteStream(ctx context.Context, role, content string) 
 	}
 
 	// Convert stage output to StreamChunk output
-	return convertStreamOutput(outputChan), nil
+	return convertStreamOutput(ctx, outputChan), nil
 }
 
 // ExecuteStreamWithMessage implements TextSession.
@@ -200,7 +200,7 @@ func (s *unarySession) ExecuteStreamWithMessage(
 	}
 
 	// Convert stage output to StreamChunk output
-	return convertStreamOutput(outputChan), nil
+	return convertStreamOutput(ctx, outputChan), nil
 }
 
 // ResumeStreamWithToolResults injects tool result messages and returns a streaming channel.
@@ -233,7 +233,7 @@ func (s *unarySession) ResumeStreamWithToolResults(
 		return nil, err
 	}
 
-	return convertStreamOutput(outputChan), nil
+	return convertStreamOutput(ctx, outputChan), nil
 }
 
 // SetVar sets a template variable that will be available for substitution.
@@ -343,70 +343,106 @@ func convertExecutionResult(result *stage.ExecutionResult) *pipeline.ExecutionRe
 
 const streamChunkBufferSize = 100
 
-// convertStreamOutput converts stage StreamElement channel to StreamChunk channel
-func convertStreamOutput(stageChan <-chan stage.StreamElement) <-chan providers.StreamChunk {
+// convertStreamOutput converts stage StreamElement channel to StreamChunk channel.
+// It accepts a context for cancellation propagation — if the context is canceled,
+// the goroutine exits promptly instead of blocking on chunkChan sends.
+func convertStreamOutput(ctx context.Context, stageChan <-chan stage.StreamElement) <-chan providers.StreamChunk {
 	chunkChan := make(chan providers.StreamChunk, streamChunkBufferSize)
 
 	go func() {
 		defer close(chunkChan)
-		processStreamElements(stageChan, chunkChan)
+		processStreamElements(ctx, stageChan, chunkChan)
 	}()
 
 	return chunkChan
 }
 
-// processStreamElements processes stream elements and sends chunks
-func processStreamElements(stageChan <-chan stage.StreamElement, chunkChan chan<- providers.StreamChunk) {
-	var sb strings.Builder
-	var finalResult *pipeline.ExecutionResult
-	var pendingToolsEmitted bool
+// streamProcessor holds state for processing stream elements into chunks.
+type streamProcessor struct {
+	ctx                 context.Context
+	chunkChan           chan<- providers.StreamChunk
+	sb                  strings.Builder
+	finalResult         *pipeline.ExecutionResult
+	pendingToolsEmitted bool
+}
 
-	for elem := range stageChan {
-		// Handle errors
-		if elem.Error != nil {
-			chunkChan <- providers.StreamChunk{
-				Error:        elem.Error,
-				FinishReason: strPtr("error"),
-			}
-			continue
-		}
+// sendChunk sends a chunk to the output channel, respecting context cancellation.
+// Returns false if the context was canceled.
+func (p *streamProcessor) sendChunk(chunk *providers.StreamChunk) bool {
+	select {
+	case p.chunkChan <- *chunk:
+		return true
+	case <-p.ctx.Done():
+		return false
+	}
+}
 
-		// Emit text chunks
-		if elem.Text != nil && *elem.Text != "" {
-			sb.WriteString(*elem.Text)
-			chunkChan <- providers.StreamChunk{
-				Delta:   *elem.Text,
-				Content: sb.String(),
-			}
-		}
+// processElement processes a single stream element. Returns false if processing should stop.
+func (p *streamProcessor) processElement(elem *stage.StreamElement) bool {
+	if elem.Error != nil {
+		return p.sendChunk(&providers.StreamChunk{
+			Error:        elem.Error,
+			FinishReason: strPtr("error"),
+		})
+	}
 
-		// Collect final result from metadata
-		if elem.Metadata != nil {
-			if stageResult, ok := elem.Metadata["__final_result__"].(*stage.ExecutionResult); ok {
-				finalResult = convertExecutionResult(stageResult)
-			}
-
-			// Check for pending client tools (pipeline suspended)
-			if pt, ok := elem.Metadata["pending_tools"]; ok {
-				if pending, ok := pt.([]tools.PendingToolExecution); ok && len(pending) > 0 {
-					chunkChan <- providers.StreamChunk{
-						FinishReason: strPtr("pending_tools"),
-						PendingTools: pending,
-						FinalResult:  finalResult,
-					}
-					pendingToolsEmitted = true
-				}
-			}
+	if elem.Text != nil && *elem.Text != "" {
+		p.sb.WriteString(*elem.Text)
+		if !p.sendChunk(&providers.StreamChunk{Delta: *elem.Text}) {
+			return false
 		}
 	}
 
-	// Send final chunk only if we didn't already emit a pending_tools chunk
-	if !pendingToolsEmitted {
-		finishReason := "stop"
-		chunkChan <- providers.StreamChunk{
-			FinishReason: &finishReason,
-			FinalResult:  finalResult,
+	if elem.Metadata != nil {
+		p.collectMetadata(elem.Metadata)
+	}
+	return true
+}
+
+// collectMetadata extracts final results and pending tools from element metadata.
+func (p *streamProcessor) collectMetadata(metadata map[string]interface{}) {
+	if stageResult, ok := metadata["__final_result__"].(*stage.ExecutionResult); ok {
+		p.finalResult = convertExecutionResult(stageResult)
+	}
+
+	pt, ok := metadata["pending_tools"]
+	if !ok {
+		return
+	}
+	pending, ok := pt.([]tools.PendingToolExecution)
+	if !ok || len(pending) == 0 {
+		return
+	}
+	p.sendChunk(&providers.StreamChunk{
+		FinishReason: strPtr("pending_tools"),
+		PendingTools: pending,
+		FinalResult:  p.finalResult,
+	})
+	p.pendingToolsEmitted = true
+}
+
+// processStreamElements processes stream elements and sends chunks.
+// It respects context cancellation to avoid goroutine leaks when the consumer abandons the channel.
+func processStreamElements(
+	ctx context.Context, stageChan <-chan stage.StreamElement, chunkChan chan<- providers.StreamChunk,
+) {
+	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
+
+	for elem := range stageChan {
+		if !p.processElement(&elem) {
+			return
 		}
+	}
+
+	// Send final chunk only if we didn't already emit a pending_tools chunk.
+	// Set Content to the fully accumulated text here (once) instead of on every
+	// intermediate chunk, avoiding O(N^2) string allocation.
+	if !p.pendingToolsEmitted {
+		p.sendChunk(&providers.StreamChunk{
+			Content:      p.sb.String(),
+			FinishReason: strPtr("stop"),
+			FinalResult:  p.finalResult,
+		})
 	}
 }
 

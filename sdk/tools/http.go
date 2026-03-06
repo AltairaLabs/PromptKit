@@ -361,6 +361,10 @@ func (c *HTTPToolConfig) Handler() func(args map[string]any) (any, error) {
 // HandlerCtx returns a context-aware tool handler function that makes the HTTP request.
 // The context is propagated to the underlying HTTP executor for tracing and cancellation.
 func (c *HTTPToolConfig) HandlerCtx() func(ctx context.Context, args map[string]any) (any, error) {
+	// TODO: Consider caching the HTTPExecutor at the HTTPToolConfig level or using
+	// a package-level pool. Currently each HandlerCtx() call creates a new executor
+	// with its own http.Client, which is fine for low-cardinality tool sets but
+	// wasteful if called repeatedly for the same tool config.
 	executor := NewHTTPExecutor()
 
 	return func(ctx context.Context, args map[string]any) (any, error) {

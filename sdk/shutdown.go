@@ -109,7 +109,14 @@ func (m *ShutdownManager) Shutdown(ctx context.Context) error {
 		go func(id string, conv io.Closer) {
 			sem <- struct{}{}        // acquire
 			defer func() { <-sem }() // release
-			results <- result{id: id, err: conv.Close()}
+			// Attempt to close. If the context is already done, skip the Close
+			// to avoid goroutines lingering past the deadline.
+			select {
+			case <-ctx.Done():
+				results <- result{id: id, err: ctx.Err()}
+			default:
+				results <- result{id: id, err: conv.Close()}
+			}
 		}(id, conv)
 	}
 

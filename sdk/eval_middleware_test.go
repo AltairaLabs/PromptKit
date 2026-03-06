@@ -209,7 +209,7 @@ func TestEvalMiddleware_BuildEvalContext_NoSession(t *testing.T) {
 		t.Fatal("expected non-nil middleware")
 	}
 
-	mw.turnIndex = 3
+	mw.turnIndex.Store(3)
 	ctx := mw.buildEvalContext(context.Background())
 
 	if ctx.TurnIndex != 3 {
@@ -508,11 +508,11 @@ func TestEvalMiddleware_SemaphoreSkipsWhenAtCapacity(t *testing.T) {
 	<-started
 
 	// Dispatch a 3rd — should be skipped because semaphore is full
-	turnBefore := mw.turnIndex
+	turnBefore := mw.turnIndex.Load()
 	mw.dispatchTurnEvals(context.Background())
 	// turnIndex still increments, but no goroutine was launched
-	if mw.turnIndex != turnBefore+1 {
-		t.Errorf("expected turnIndex to increment, got %d", mw.turnIndex)
+	if mw.turnIndex.Load() != turnBefore+1 {
+		t.Errorf("expected turnIndex to increment, got %d", mw.turnIndex.Load())
 	}
 
 	// Unblock all goroutines and wait

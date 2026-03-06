@@ -118,7 +118,10 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 		c.mu.RLock()
 		if err := c.requireUnary("Stream()"); err != nil {
 			c.mu.RUnlock()
-			ch <- StreamChunk{Error: err}
+			select {
+			case ch <- StreamChunk{Error: err}:
+			case <-ctx.Done():
+			}
 			return
 		}
 		c.mu.RUnlock()
@@ -126,13 +129,19 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 		// Build user message with options
 		userMsg, err := c.buildStreamMessage(message, opts)
 		if err != nil {
-			ch <- StreamChunk{Error: err}
+			select {
+			case ch <- StreamChunk{Error: err}:
+			case <-ctx.Done():
+			}
 			return
 		}
 
 		// Execute streaming pipeline
 		if err := c.executeStreamingPipeline(ctx, userMsg, ch, startTime); err != nil {
-			ch <- StreamChunk{Error: err}
+			select {
+			case ch <- StreamChunk{Error: err}:
+			case <-ctx.Done():
+			}
 		}
 	}()
 
@@ -319,7 +328,9 @@ func (c *Conversation) emitStreamChunk(
 		for i := len(state.lastToolCalls); i < len(chunk.ToolCalls); i++ {
 			outCh <- StreamChunk{Type: ChunkToolCall, ToolCall: &chunk.ToolCalls[i]}
 		}
-		state.lastToolCalls = chunk.ToolCalls
+		// Copy the slice to avoid holding a reference to the provider's internal slice
+		state.lastToolCalls = make([]types.MessageToolCall, len(chunk.ToolCalls))
+		copy(state.lastToolCalls, chunk.ToolCalls)
 	}
 
 	// Handle pending client tools

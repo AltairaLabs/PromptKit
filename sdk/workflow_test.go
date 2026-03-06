@@ -326,8 +326,8 @@ func TestWorkflowConversation_SendDelegatesToConversation(t *testing.T) {
 func TestWorkflowConversation_CloseWithActiveConv(t *testing.T) {
 	// Test that Close properly closes the active conversation
 	conv := &Conversation{
-		handlers:  make(map[string]ToolHandler),
-		config:    &config{},
+		handlers: make(map[string]ToolHandler),
+		config:   &config{},
 	}
 	wc := &WorkflowConversation{
 		activeConv: conv,
@@ -476,35 +476,6 @@ func TestWorkflowConversation_TransitionEmitsCompletedOnTerminal(t *testing.T) {
 	assert.Equal(t, 1, cData.TransitionCount)
 
 	_ = machine // used indirectly
-}
-
-func TestFilterRelevantMessages(t *testing.T) {
-	messages := []types.Message{
-		{Role: "system", Content: "You are helpful."},
-		{Role: "user", Content: "Hello there"},
-		{Role: "assistant", Content: "Hi! How can I help?"},
-		{Role: "user", Content: "I need billing help"},
-	}
-
-	relevant := filterRelevantMessages(messages)
-	assert.Len(t, relevant, 3) // system filtered out
-	assert.Equal(t, "user", relevant[0].Role)
-	assert.Equal(t, "assistant", relevant[1].Role)
-	assert.Equal(t, "user", relevant[2].Role)
-}
-
-func TestFilterRelevantMessages_AllSystem(t *testing.T) {
-	messages := []types.Message{
-		{Role: "system", Content: "System 1"},
-		{Role: "system", Content: "System 2"},
-	}
-	relevant := filterRelevantMessages(messages)
-	assert.Empty(t, relevant)
-}
-
-func TestFilterRelevantMessages_Empty(t *testing.T) {
-	relevant := filterRelevantMessages(nil)
-	assert.Empty(t, relevant)
 }
 
 func TestWithContextCarryForward(t *testing.T) {
@@ -1193,4 +1164,91 @@ func TestWorkflowConversation_ConcurrentSendAndTransition(t *testing.T) {
 
 	wg.Wait()
 	// No assertions needed — test validates absence of data races with -race flag
+}
+
+// errorStore is a statestore.Store that always returns errors on Save.
+type errorStore struct {
+	statestore.Store
+}
+
+func (s *errorStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
+	return &statestore.ConversationState{
+		ID:       "wf-1",
+		Metadata: make(map[string]any),
+	}, nil
+}
+
+func (s *errorStore) Save(_ context.Context, _ *statestore.ConversationState) error {
+	return errors.New("save failed")
+}
+
+func TestPersistWorkflowContext_SaveError(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		stateStore:   &errorStore{},
+		workflowID:   "wf-1",
+	}
+
+	// Should not panic — logs the error instead of discarding
+	wc.persistWorkflowContext()
+}
+
+func TestPersistWorkflowContext_TransientStateSkipped(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {
+				PromptTask:  "p1",
+				Persistence: workflow.PersistenceTransient,
+			},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		stateStore:   statestore.NewMemoryStore(),
+		workflowID:   "wf-1",
+	}
+
+	// Should be a no-op (transient state)
+	wc.persistWorkflowContext()
+}
+
+func TestPersistWorkflowContext_Success(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+	store := statestore.NewMemoryStore()
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		stateStore:   store,
+		workflowID:   "wf-1",
+	}
+
+	wc.persistWorkflowContext()
+
+	// Verify the workflow context was saved
+	state, err := store.Load(context.Background(), "wf-1")
+	require.NoError(t, err)
+	require.NotNil(t, state.Metadata["workflow"])
 }

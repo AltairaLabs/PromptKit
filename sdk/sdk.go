@@ -3,8 +3,10 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -26,6 +28,17 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/session"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
+
+// loggerOnce guards logger.SetLogger to avoid data races when multiple
+// goroutines call Open() concurrently with WithLogger.
+var loggerOnce sync.Once
+
+// setLoggerOnce sets the global logger exactly once.
+func setLoggerOnce(l *slog.Logger) {
+	loggerOnce.Do(func() {
+		logger.SetLogger(l)
+	})
+}
 
 // Open loads a pack file and creates a new conversation for the specified prompt.
 //
@@ -164,9 +177,10 @@ func initConversation(
 		return nil, nil, err
 	}
 
-	// Set custom logger before any logging occurs
+	// Set custom logger before any logging occurs — only once to avoid
+	// data races when multiple goroutines call Open() concurrently.
 	if cfg.logger != nil {
-		logger.SetLogger(cfg.logger)
+		setLoggerOnce(cfg.logger)
 	}
 
 	// Load and validate pack
@@ -630,7 +644,9 @@ func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 // Resume requires a state store to be configured. If no state store is provided,
 // it returns [ErrNoStateStore].
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error) {
-	// Ensure state store is provided
+	// Options are applied twice intentionally: first here to extract the state
+	// store for loading, then again inside Open() for full initialization.
+	// This is safe because options are idempotent config setters.
 	cfg := &config{}
 	for _, opt := range opts {
 		if err := opt(cfg); err != nil {

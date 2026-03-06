@@ -385,7 +385,7 @@ func TestProcessStreamElements_PropagatesPendingTools(t *testing.T) {
 	close(stageChan)
 
 	// Use convertStreamOutput which properly wraps processStreamElements with close
-	chunkChan := convertStreamOutput(stageChan)
+	chunkChan := convertStreamOutput(context.Background(), stageChan)
 
 	var chunks []providers.StreamChunk
 	for chunk := range chunkChan {
@@ -414,7 +414,7 @@ func TestProcessStreamElements_NoPendingTools(t *testing.T) {
 	stageChan <- stage.StreamElement{Text: &text}
 	close(stageChan)
 
-	chunkChan := convertStreamOutput(stageChan)
+	chunkChan := convertStreamOutput(context.Background(), stageChan)
 
 	var chunks []providers.StreamChunk
 	for chunk := range chunkChan {

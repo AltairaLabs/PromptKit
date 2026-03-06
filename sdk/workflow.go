@@ -82,9 +82,9 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 		}
 	}
 
-	// Set custom logger before any logging occurs
+	// Set custom logger before any logging occurs — only once
 	if cfg.logger != nil {
-		logger.SetLogger(cfg.logger)
+		setLoggerOnce(cfg.logger)
 	}
 
 	p, err := pack.Load(absPath, pack.LoadOptions{
@@ -305,58 +305,6 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 	return wc.transitionInternal(event, contextSummary)
 }
 
-// transitionInternal is the shared transition logic used by both explicit
-// Transition() and LLM-initiated transitions. Caller must hold wc.mu.
-func (wc *WorkflowConversation) transitionInternal(event, contextSummary string) (string, error) {
-	fromState := wc.machine.CurrentState()
-
-	if err := wc.machine.ProcessEvent(event); err != nil {
-		return "", err
-	}
-
-	toState := wc.machine.CurrentState()
-
-	// Close old conversation
-	if wc.activeConv != nil {
-		_ = wc.activeConv.Close()
-	}
-
-	// Build options, injecting context as a template variable if available
-	opts := wc.opts
-	if contextSummary != "" {
-		opts = append(append([]Option{}, wc.opts...), WithVariables(map[string]string{
-			"workflow_context": contextSummary,
-		}))
-	}
-
-	// Open new conversation for the new state
-	promptName := wc.machine.CurrentPromptTask()
-	conv, err := Open(wc.packPath, promptName, opts...)
-	if err != nil {
-		return "", fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
-			toState, promptName, err)
-	}
-	wc.activeConv = conv
-
-	// Register workflow tools for the new state
-	wc.registerWorkflowTools()
-
-	// Persist workflow context if state store is configured and state is not transient
-	if wc.stateStore != nil && wc.workflowID != "" {
-		wc.persistWorkflowContext()
-	}
-
-	// Emit transition event
-	if wc.emitter != nil {
-		wc.emitter.WorkflowTransitioned(fromState, toState, event, promptName)
-		if wc.machine.IsTerminal() {
-			wc.emitter.WorkflowCompleted(toState, wc.machine.Context().TransitionCount())
-		}
-	}
-
-	return toState, nil
-}
-
 // registerWorkflowTools registers the workflow__transition tool and handler
 // for the current state on the active conversation.
 func (wc *WorkflowConversation) registerWorkflowTools() {
@@ -477,16 +425,8 @@ func (wc *WorkflowConversation) Close() error {
 	return nil
 }
 
-// filterRelevantMessages removes system messages from the conversation history.
-func filterRelevantMessages(messages []types.Message) []types.Message {
-	result := make([]types.Message, 0, len(messages))
-	for i := range messages {
-		if messages[i].Role != "system" {
-			result = append(result, messages[i])
-		}
-	}
-	return result
-}
+// roleSystem is the role string for system messages (extracted as a constant to satisfy goconst).
+const roleSystem = "system"
 
 // extractMessageText returns the text content of a message, checking Content
 // first and falling back to the first text Part.
@@ -530,7 +470,9 @@ func (wc *WorkflowConversation) persistWorkflowContext() {
 
 	wfCtx := wc.machine.Context()
 	state.Metadata["workflow"] = wfCtx
-	_ = wc.stateStore.Save(ctx, state)
+	if err := wc.stateStore.Save(ctx, state); err != nil {
+		logger.Warn("failed to persist workflow context", "workflow_id", wc.workflowID, "error", err)
+	}
 }
 
 // extractWorkflowContext extracts and deserializes workflow.Context from state metadata.

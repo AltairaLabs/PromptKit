@@ -1,5 +1,7 @@
 package sdk
 
+import "errors"
+
 // MultiAgentSession manages a set of agent member conversations orchestrated
 // through an entry conversation. Tool calls from the entry agent to member
 // agents are routed in-process via LocalAgentExecutor.
@@ -23,10 +25,16 @@ func (s *MultiAgentSession) Members() map[string]*Conversation {
 }
 
 // Close closes all conversations (entry and members).
+// Errors from individual Close calls are collected and returned via errors.Join.
 func (s *MultiAgentSession) Close() error {
-	_ = s.entry.Close()
-	for _, c := range s.members {
-		_ = c.Close()
+	var errs []error
+	if err := s.entry.Close(); err != nil {
+		errs = append(errs, err)
 	}
-	return nil
+	for _, c := range s.members {
+		if err := c.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }

@@ -142,7 +142,8 @@ type Conversation struct {
 	mcpRegistry mcp.Registry
 
 	// Platform capabilities (workflow, a2a, memory, etc.)
-	capabilities []Capability
+	capabilities           []Capability
+	capabilitiesRegistered bool // guards against re-registering capability tools on every pipeline build
 
 	// Hook registry for policy enforcement (nil = no hooks)
 	hookRegistry *hooks.Registry
@@ -289,8 +290,8 @@ func (c *Conversation) buildPipelineConfig(
 		}
 	}
 
-	// Build tool registry
-	c.handlersMu.RLock()
+	// Build tool registry — uses write lock because RegisterExecutor/RegisterTools mutate state
+	c.handlersMu.Lock()
 	localExec := &localExecutor{handlers: c.handlers, ctxHandlers: c.ctxHandlers}
 	c.toolRegistry.RegisterExecutor(localExec)
 
@@ -304,12 +305,15 @@ func (c *Conversation) buildPipelineConfig(
 	c.toolRegistry.RegisterExecutor(clientExec)
 
 	c.registerMCPExecutors()
-	// Register capability tools (includes A2A)
-	for _, cap := range c.capabilities {
-		cap.RegisterTools(c.toolRegistry)
+	// Register capability tools (includes A2A) — only on first build
+	if !c.capabilitiesRegistered {
+		for _, cap := range c.capabilities {
+			cap.RegisterTools(c.toolRegistry)
+		}
+		c.capabilitiesRegistered = true
 	}
 	toolRegistry := c.toolRegistry
-	c.handlersMu.RUnlock()
+	c.handlersMu.Unlock()
 
 	// Create event emitter if event bus is configured
 	var eventEmitter *events.Emitter
@@ -655,6 +659,9 @@ func (c *Conversation) SetVars(vars map[string]any) {
 //	conv.SetVarsFromEnv("PROMPTKIT_")
 //	// Sets variable "customer_name" = "Alice"
 func (c *Conversation) SetVarsFromEnv(prefix string) {
+	// O(N) scan of all env vars is acceptable here — os.Environ() is called
+	// infrequently (typically once at startup) and the alternative (os.LookupEnv
+	// per variable) would require knowing variable names in advance.
 	const envKeyValueParts = 2 // key=value split parts
 	for _, env := range os.Environ() {
 		parts := strings.SplitN(env, "=", envKeyValueParts)
@@ -769,13 +776,26 @@ func (c *Conversation) Fork() *Conversation {
 		return nil
 	}
 
+	// Create a new tool registry for the fork, copying tool descriptors from the original.
+	// This prevents mutations in the fork from affecting the parent's registry.
+	forkRegistry := tools.NewRegistry()
+	for _, desc := range c.toolRegistry.GetTools() {
+		_ = forkRegistry.Register(&tools.ToolDescriptor{
+			Name:        desc.Name,
+			Description: desc.Description,
+			InputSchema: desc.InputSchema,
+			Mode:        desc.Mode,
+			Namespace:   desc.Namespace,
+		})
+	}
+
 	// Create the forked conversation
 	fork := &Conversation{
 		pack:           c.pack,
 		prompt:         c.prompt,
 		promptName:     c.promptName,
 		promptRegistry: c.promptRegistry,
-		toolRegistry:   c.toolRegistry,
+		toolRegistry:   forkRegistry,
 		config:         c.config,
 		mode:           c.mode,
 		handlers:       handlers,

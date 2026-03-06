@@ -45,6 +45,16 @@ type duplexSession struct {
 	executionStarted bool
 	executionMu      sync.Mutex
 
+	// sessionCtx is a session-level context created during NewDuplexSession.
+	// It is used for pipeline execution instead of the first SendChunk's context,
+	// ensuring the pipeline outlives any single RPC call.
+	sessionCtx    context.Context
+	sessionCancel context.CancelFunc
+
+	// pipelineDone is closed when executePipeline returns, signaling that the session has ended.
+	// This is a separate signal from streamOutput so that Done() does not drain the output channel.
+	pipelineDone chan struct{}
+
 	// Done channel (initialized once via sync.Once)
 	doneCh   chan struct{}
 	doneOnce sync.Once
@@ -135,14 +145,19 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	stageInput := make(chan stage.StreamElement, streamBufferSize)
 	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
+	sessionCtx, sessionCancel := context.WithCancel(context.Background())
+
 	sess := &duplexSession{
-		id:           conversationID,
-		store:        store,
-		pipeline:     builtPipeline,
-		provider:     cfg.Provider,
-		variables:    vars,
-		stageInput:   stageInput,
-		streamOutput: streamOutput,
+		id:            conversationID,
+		store:         store,
+		pipeline:      builtPipeline,
+		provider:      cfg.Provider,
+		variables:     vars,
+		stageInput:    stageInput,
+		streamOutput:  streamOutput,
+		sessionCtx:    sessionCtx,
+		sessionCancel: sessionCancel,
+		pipelineDone:  make(chan struct{}),
 	}
 
 	return sess, nil
@@ -167,14 +182,16 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 		return fmt.Errorf("chunk cannot be nil")
 	}
 
-	// Start Pipeline execution on first chunk
+	// Start Pipeline execution on first chunk using session-level context
 	s.executionMu.Lock()
 	if !s.executionStarted {
 		s.executionStarted = true
 		s.executionMu.Unlock()
 
-		// Start Pipeline execution in background
-		go s.executePipeline(ctx)
+		// Start Pipeline execution in background using the session-level context
+		// rather than the first SendChunk's context, so the pipeline outlives any
+		// single caller.
+		go s.executePipeline(s.sessionCtx)
 	} else {
 		s.executionMu.Unlock()
 	}
@@ -220,7 +237,9 @@ func (s *duplexSession) SendFrame(ctx context.Context, frame *ImageFrame) error 
 		return fmt.Errorf("frame data is required")
 	}
 
-	// Convert frame data to string for MediaContent
+	// TODO: This copies []byte to string on every frame, which is expensive for
+	// high-frequency video. Consider using unsafe.String or redesigning MediaContent
+	// to accept []byte directly. This is API-breaking so deferred for a future release.
 	dataStr := string(frame.Data)
 
 	chunk := &providers.StreamChunk{
@@ -275,6 +294,7 @@ func (s *duplexSession) SendVideoChunk(ctx context.Context, vchunk *VideoChunk) 
 // This is called once when the first chunk is received.
 // Converts stage.StreamElement output to providers.StreamChunk at the boundary.
 func (s *duplexSession) executePipeline(ctx context.Context) {
+	defer close(s.pipelineDone)
 	defer close(s.streamOutput)
 
 	// Start the stage pipeline with our input channel
@@ -332,6 +352,7 @@ func (s *duplexSession) Close() error {
 
 	s.closed = true
 	close(s.stageInput)
+	s.sessionCancel()
 	// Note: DuplexProviderStage manages the provider session and closes it when pipeline completes
 
 	return nil
@@ -339,13 +360,16 @@ func (s *duplexSession) Close() error {
 
 // Done returns a channel that's closed when the session ends.
 // The channel is initialized once on first call; subsequent calls return the same channel.
+// Done monitors the session's done signal rather than draining streamOutput, so it
+// does not compete with Response() for output chunks.
 func (s *duplexSession) Done() <-chan struct{} {
 	s.doneOnce.Do(func() {
 		s.doneCh = make(chan struct{})
 		go func() {
-			// Wait for all output to be consumed
-			for range s.streamOutput { //nolint:revive // intentionally draining channel
-			}
+			// Wait for the pipeline to finish by monitoring streamOutput closure
+			// without consuming any elements. This avoids stealing chunks from
+			// consumers reading via Response().
+			<-s.pipelineDone
 			close(s.doneCh)
 		}()
 	})
