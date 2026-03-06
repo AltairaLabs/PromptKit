@@ -104,7 +104,25 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 	result.ConversationAssertions = buildConversationAssertionsSummary(
 		arenaState.RunMetadata.ConversationAssertionResults)
 
+	result.TrialResults = arenaState.RunMetadata.TrialResults
+
 	return result, nil
+}
+
+// SetTrialResults stores trial aggregation results on a run's metadata.
+func (s *ArenaStateStore) SetTrialResults(ctx context.Context, runID string, trialResults interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	arenaState, exists := s.conversations[runID]
+	if !exists {
+		return fmt.Errorf("conversation %s not found", runID)
+	}
+	if arenaState.RunMetadata == nil {
+		return fmt.Errorf("run metadata not found for %s", runID)
+	}
+	arenaState.RunMetadata.TrialResults = trialResults
+	return nil
 }
 
 // buildConversationAssertionsSummary converts raw conversation assertion results into summary format

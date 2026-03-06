@@ -20,6 +20,15 @@ type RunCombination struct {
 	EvalID       string // For eval-based runs (mutually exclusive with ScenarioID)
 	ProviderID   string // Not used for eval runs (provider comes from recording)
 	RecordingRef string // For batch evals: specific recording reference ID (resolved by adapter)
+	TrialIndex   int    // Trial number (0-based) when scenario has Trials > 1
+	TotalTrials  int    // Total number of trials for this scenario (0 or 1 = single run)
+}
+
+// TrialGroupKey identifies a unique scenario+provider+region combination for trial grouping.
+type TrialGroupKey struct {
+	ScenarioID string
+	ProviderID string
+	Region     string
 }
 
 // RunResult contains the complete results of a single test execution
