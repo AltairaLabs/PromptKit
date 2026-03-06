@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // Platform type constants.
@@ -42,10 +40,10 @@ type ResolverConfig struct {
 	ProviderType string
 
 	// CredentialConfig is the explicit credential configuration from the provider.
-	CredentialConfig *config.CredentialConfig
+	CredentialConfig *CredentialConfig
 
 	// PlatformConfig is the platform configuration (bedrock, vertex, azure).
-	PlatformConfig *config.PlatformConfig
+	PlatformConfig *PlatformConfig
 
 	// ConfigDir is the base directory for resolving relative credential file paths.
 	ConfigDir string

@@ -3,7 +3,6 @@ module github.com/AltairaLabs/PromptKit/sdk
 go 1.25.1
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.3.5
 	github.com/AltairaLabs/PromptKit/runtime v1.2.0
 	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260225232044-f1d8282acd02
@@ -21,7 +20,6 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/AltairaLabs/PromptKit/tools/arena v1.2.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
@@ -98,8 +96,10 @@ require (
 	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/grpc v1.78.0 // indirect

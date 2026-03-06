@@ -2,35 +2,20 @@ package assertions
 
 import (
 	"fmt"
-	"regexp"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
-// AssertionConfig extends ValidatorConfig with arena-specific fields
-type AssertionConfig struct {
-	Type    string                 `json:"type" yaml:"type"`
-	Params  map[string]interface{} `json:"params" yaml:"params"`
-	Message string                 `json:"message,omitempty" yaml:"message,omitempty"`
-	When    *AssertionWhen         `json:"when,omitempty" yaml:"when,omitempty"`
-}
+// AssertionConfig is an alias for config.AssertionConfig. The canonical type
+// lives in pkg/config to keep the dependency direction correct (shared library
+// must not import application tools). The alias preserves backward compatibility
+// so existing arena code continues to compile unchanged.
+type AssertionConfig = config.AssertionConfig
 
-// AssertionWhen specifies preconditions that must be met for an assertion to run.
-// If any condition is not met, the assertion is skipped (not failed).
-type AssertionWhen struct {
-	// ToolCalled requires an exact tool name to have been called.
-	ToolCalled string `json:"tool_called,omitempty" yaml:"tool_called,omitempty"`
-	// ToolCalledPattern is a regex that must match at least one tool name.
-	ToolCalledPattern string `json:"tool_called_pattern,omitempty" yaml:"tool_called_pattern,omitempty"`
-	// AnyToolCalled requires at least one tool to have been called.
-	AnyToolCalled bool `json:"any_tool_called,omitempty" yaml:"any_tool_called,omitempty"`
-	// MinToolCalls is the minimum number of tool calls required.
-	MinToolCalls int `json:"min_tool_calls,omitempty" yaml:"min_tool_calls,omitempty"`
-
-	// compiledPattern caches the compiled ToolCalledPattern regex.
-	compiledPattern *regexp.Regexp `json:"-" yaml:"-"`
-}
+// AssertionWhen is an alias for config.AssertionWhen.
+type AssertionWhen = config.AssertionWhen
 
 // AssertionResult holds the result of an assertion evaluation.
 type AssertionResult struct {
@@ -41,7 +26,7 @@ type AssertionResult struct {
 
 // ToEvalDef converts an AssertionConfig to an evals.EvalDef.
 // This is the bridge for unifying arena assertions with runtime evals.
-func (a AssertionConfig) ToEvalDef(index int) evals.EvalDef {
+func ToEvalDef(a AssertionConfig, index int) evals.EvalDef {
 	def := evals.EvalDef{
 		ID:        fmt.Sprintf("assertion_%d_%s", index, a.Type),
 		Type:      a.Type,
@@ -63,8 +48,8 @@ func (a AssertionConfig) ToEvalDef(index int) evals.EvalDef {
 
 // ToConversationEvalDef converts an AssertionConfig to an evals.EvalDef
 // with TriggerOnConversationComplete. Used for conversation-level assertions.
-func (a AssertionConfig) ToConversationEvalDef(index int) evals.EvalDef {
-	def := a.ToEvalDef(index)
+func ToConversationEvalDef(a AssertionConfig, index int) evals.EvalDef {
+	def := ToEvalDef(a, index)
 	def.Trigger = evals.TriggerOnConversationComplete
 	return def
 }

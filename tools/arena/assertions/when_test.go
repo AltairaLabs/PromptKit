@@ -45,7 +45,7 @@ func buildWhenParams(toolCalls ...TurnToolCall) map[string]interface{} {
 func TestAssertionWhen_ToolCalled_Match(t *testing.T) {
 	w := &AssertionWhen{ToolCalled: "search"}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "search", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.True(t, shouldRun)
 	assert.Empty(t, reason)
 }
@@ -53,7 +53,7 @@ func TestAssertionWhen_ToolCalled_Match(t *testing.T) {
 func TestAssertionWhen_ToolCalled_NoMatch(t *testing.T) {
 	w := &AssertionWhen{ToolCalled: "search"}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "lookup", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.False(t, shouldRun)
 	assert.Contains(t, reason, `"search"`)
 }
@@ -61,7 +61,7 @@ func TestAssertionWhen_ToolCalled_NoMatch(t *testing.T) {
 func TestAssertionWhen_ToolCalledPattern_Match(t *testing.T) {
 	w := &AssertionWhen{ToolCalledPattern: "^(search|lookup)$"}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "lookup", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.True(t, shouldRun)
 	assert.Empty(t, reason)
 }
@@ -69,7 +69,7 @@ func TestAssertionWhen_ToolCalledPattern_Match(t *testing.T) {
 func TestAssertionWhen_ToolCalledPattern_NoMatch(t *testing.T) {
 	w := &AssertionWhen{ToolCalledPattern: "^(search|lookup)$"}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "delete", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.False(t, shouldRun)
 	assert.Contains(t, reason, "no tool matching pattern")
 }
@@ -77,7 +77,7 @@ func TestAssertionWhen_ToolCalledPattern_NoMatch(t *testing.T) {
 func TestAssertionWhen_ToolCalledPattern_InvalidRegex(t *testing.T) {
 	w := &AssertionWhen{ToolCalledPattern: "[invalid"}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "search", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.False(t, shouldRun)
 	assert.Contains(t, reason, "invalid tool_called_pattern")
 }
@@ -85,7 +85,7 @@ func TestAssertionWhen_ToolCalledPattern_InvalidRegex(t *testing.T) {
 func TestAssertionWhen_AnyToolCalled_WithTools(t *testing.T) {
 	w := &AssertionWhen{AnyToolCalled: true}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "search", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.True(t, shouldRun)
 	assert.Empty(t, reason)
 }
@@ -93,7 +93,7 @@ func TestAssertionWhen_AnyToolCalled_WithTools(t *testing.T) {
 func TestAssertionWhen_AnyToolCalled_NoTools(t *testing.T) {
 	w := &AssertionWhen{AnyToolCalled: true}
 	params := buildWhenParams() // no tool calls
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.False(t, shouldRun)
 	assert.Contains(t, reason, "no tool calls")
 }
@@ -104,7 +104,7 @@ func TestAssertionWhen_MinToolCalls_Met(t *testing.T) {
 		TurnToolCall{CallID: "1", Name: "search", Result: "ok"},
 		TurnToolCall{CallID: "2", Name: "lookup", Result: "ok"},
 	)
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.True(t, shouldRun)
 	assert.Empty(t, reason)
 }
@@ -112,7 +112,7 @@ func TestAssertionWhen_MinToolCalls_Met(t *testing.T) {
 func TestAssertionWhen_MinToolCalls_NotMet(t *testing.T) {
 	w := &AssertionWhen{MinToolCalls: 3}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "search", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.False(t, shouldRun)
 	assert.Contains(t, reason, "only 1 tool call(s), need 3")
 }
@@ -124,7 +124,7 @@ func TestAssertionWhen_MultipleCombined_AllMet(t *testing.T) {
 		MinToolCalls:  1,
 	}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "search", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.True(t, shouldRun)
 	assert.Empty(t, reason)
 }
@@ -135,7 +135,7 @@ func TestAssertionWhen_MultipleCombined_OneFails(t *testing.T) {
 		MinToolCalls: 3,
 	}
 	params := buildWhenParams(TurnToolCall{CallID: "1", Name: "search", Result: "ok"})
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.False(t, shouldRun)
 	assert.Contains(t, reason, "need 3")
 }
@@ -143,7 +143,7 @@ func TestAssertionWhen_MultipleCombined_OneFails(t *testing.T) {
 func TestAssertionWhen_NoTraceAvailable(t *testing.T) {
 	w := &AssertionWhen{ToolCalled: "search"}
 	params := map[string]interface{}{} // no _turn_messages
-	shouldRun, reason := w.ShouldRun(params)
+	shouldRun, reason := NewWhenEvaluator(w).ShouldRun(params)
 	assert.True(t, shouldRun, "should return true when trace not available")
 	assert.Empty(t, reason)
 }

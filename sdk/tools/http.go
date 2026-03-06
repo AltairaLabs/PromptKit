@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 

@@ -135,7 +135,7 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 
 	defs := make([]evals.EvalDef, len(assertionConfigs))
 	for i, cfg := range assertionConfigs {
-		defs[i] = cfg.ToEvalDef(i)
+		defs[i] = assertions.ToEvalDef(cfg, i)
 		defs[i].Trigger = trigger
 	}
 

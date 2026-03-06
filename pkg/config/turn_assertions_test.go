@@ -3,7 +3,6 @@ package config
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"gopkg.in/yaml.v3"
 )
 
@@ -111,7 +110,7 @@ func TestTurnDefinition_MarshalWithAssertions(t *testing.T) {
 	turn := TurnDefinition{
 		Role:    "user",
 		Content: "Check my account",
-		Assertions: []assertions.AssertionConfig{
+		Assertions: []AssertionConfig{
 			{
 				Type: "tools_called",
 				Params: map[string]interface{}{
