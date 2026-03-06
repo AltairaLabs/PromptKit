@@ -15,6 +15,9 @@
         },
         "when": {
           "$ref": "#/$defs/AssertionWhen"
+        },
+        "pass_threshold": {
+          "type": "number"
         }
       },
       "additionalProperties": false,
@@ -284,6 +287,10 @@
           },
           "type": "object",
           "description": "Template variables to inject into the pack"
+        },
+        "trials": {
+          "type": "integer",
+          "description": "Number of times to run this scenario for statistical evaluation"
         }
       },
       "additionalProperties": false,

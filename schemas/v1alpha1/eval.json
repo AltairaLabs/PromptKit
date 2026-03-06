@@ -15,6 +15,9 @@
         },
         "when": {
           "$ref": "#/$defs/AssertionWhen"
+        },
+        "pass_threshold": {
+          "type": "number"
         }
       },
       "additionalProperties": false,
