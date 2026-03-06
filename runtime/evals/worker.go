@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
@@ -33,15 +34,20 @@ type evalEventPayload struct {
 	EvalCtx *EvalContext `json:"eval_ctx"`
 }
 
+// Default timeout for eval handler operations.
+const defaultHandlerTimeout = 30 * time.Second
+
 // EvalWorker is a reusable worker loop for event-driven eval execution.
 // It subscribes to eval events via EventSubscriber, deserializes payloads,
 // calls EvalRunner, and writes results via ResultWriter. Platforms wire
 // this with their own EventSubscriber and ResultWriter implementations.
 type EvalWorker struct {
-	runner       *EvalRunner
-	subscriber   EventSubscriber
-	resultWriter ResultWriter
-	logger       Logger
+	runner         *EvalRunner
+	subscriber     EventSubscriber
+	resultWriter   ResultWriter
+	logger         Logger
+	handlerTimeout time.Duration
+	ctx            context.Context //nolint:containedctx // stored for handler context derivation
 }
 
 // Logger is a minimal logging interface for EvalWorker.
@@ -74,10 +80,11 @@ func NewEvalWorker(
 	opts ...WorkerOption,
 ) *EvalWorker {
 	w := &EvalWorker{
-		runner:       runner,
-		subscriber:   subscriber,
-		resultWriter: resultWriter,
-		logger:       defaultLogger{},
+		runner:         runner,
+		subscriber:     subscriber,
+		resultWriter:   resultWriter,
+		logger:         defaultLogger{},
+		handlerTimeout: defaultHandlerTimeout,
 	}
 	for _, opt := range opts {
 		opt(w)
@@ -94,6 +101,9 @@ func (w *EvalWorker) Start(ctx context.Context) error {
 	// Derive a child context so we can cancel both subscriptions if either fails.
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// Store context for handler methods to derive timeouts from.
+	w.ctx = subCtx
 
 	turnErr := make(chan error, 1)
 	sessErr := make(chan error, 1)
@@ -126,8 +136,10 @@ func (w *EvalWorker) handleTurnEvent(event []byte) error {
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(w.ctx, w.handlerTimeout)
+	defer cancel()
 	results := w.runner.RunTurnEvals(
-		context.Background(), payload.Defs, payload.EvalCtx,
+		ctx, payload.Defs, payload.EvalCtx,
 	)
 	logger.Debug("evals: worker turn event processed", "results", len(results))
 	return w.writeResults(results)
@@ -139,8 +151,10 @@ func (w *EvalWorker) handleSessionEvent(event []byte) error {
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(w.ctx, w.handlerTimeout)
+	defer cancel()
 	results := w.runner.RunSessionEvals(
-		context.Background(), payload.Defs, payload.EvalCtx,
+		ctx, payload.Defs, payload.EvalCtx,
 	)
 	logger.Debug("evals: worker session event processed", "results", len(results))
 	return w.writeResults(results)
@@ -159,8 +173,10 @@ func (w *EvalWorker) writeResults(results []EvalResult) error {
 	if w.resultWriter == nil || len(results) == 0 {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(w.ctx, w.handlerTimeout)
+	defer cancel()
 	if err := w.resultWriter.WriteResults(
-		context.Background(), results,
+		ctx, results,
 	); err != nil {
 		w.logger.Printf("failed to write eval results: %v", err)
 		return err

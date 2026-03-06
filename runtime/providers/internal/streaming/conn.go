@@ -256,6 +256,8 @@ func (c *Conn) SendRaw(data []byte) error {
 
 // Receive reads a single message from the WebSocket. The call blocks until a message
 // arrives or the context is canceled.
+// When the context is canceled, a read deadline is set on the connection to force
+// the blocking ReadMessage to return, preventing a goroutine leak.
 func (c *Conn) Receive(ctx context.Context) ([]byte, error) {
 	c.mu.Lock()
 	if c.closed || c.conn == nil {
@@ -279,6 +281,13 @@ func (c *Conn) Receive(ctx context.Context) ([]byte, error) {
 
 	select {
 	case <-ctx.Done():
+		// Set a read deadline in the past to unblock the ReadMessage goroutine,
+		// preventing a goroutine leak.
+		_ = conn.SetReadDeadline(time.Now())
+		// Wait for the goroutine to finish so we don't leak it.
+		<-ch
+		// Clear the deadline for future reads (e.g., after reconnect).
+		_ = conn.SetReadDeadline(time.Time{})
 		return nil, ctx.Err()
 	case r := <-ch:
 		if r.err != nil {
@@ -371,28 +380,34 @@ func (c *Conn) sendPing() bool {
 }
 
 // Close gracefully closes the WebSocket connection.
+// Lock ordering: c.mu is released before acquiring c.writeMu to prevent deadlock
+// with SendRaw which acquires c.mu then c.writeMu.
 func (c *Conn) Close() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if c.closed {
+		c.mu.Unlock()
 		return nil
 	}
 
 	c.closed = true
 	close(c.closeCh)
 
-	if c.conn == nil {
+	conn := c.conn
+	if conn == nil {
+		c.mu.Unlock()
 		return nil
 	}
+	c.mu.Unlock()
 
+	// Acquire writeMu after releasing mu to maintain consistent lock ordering.
 	c.writeMu.Lock()
 	closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
-	_ = c.conn.SetWriteDeadline(time.Now().Add(c.cfg.CloseGracePeriod))
-	_ = c.conn.WriteMessage(websocket.CloseMessage, closeMsg)
+	_ = conn.SetWriteDeadline(time.Now().Add(c.cfg.CloseGracePeriod))
+	_ = conn.WriteMessage(websocket.CloseMessage, closeMsg)
 	c.writeMu.Unlock()
 
-	return c.conn.Close()
+	return conn.Close()
 }
 
 // IsClosed returns whether the connection has been closed.
@@ -412,20 +427,24 @@ func (c *Conn) IsConnected() bool {
 // Reset closes the current connection and prepares for a new one.
 // This is useful for reconnection flows where the caller needs to re-establish
 // the connection with a fresh state.
+// Lock ordering: c.mu is released before acquiring c.writeMu to prevent deadlock.
 func (c *Conn) Reset() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	conn := c.conn
+	c.conn = nil
+	c.mu.Unlock()
 
-	if c.conn != nil {
+	if conn != nil {
 		c.writeMu.Lock()
-		_ = c.conn.Close()
+		_ = conn.Close()
 		c.writeMu.Unlock()
-		c.conn = nil
 	}
 
+	c.mu.Lock()
 	// Reset closed state and channel so the Conn can be reused.
 	c.closed = false
 	c.closeCh = make(chan struct{})
+	c.mu.Unlock()
 }
 
 // calculateBackoff computes a backoff duration with +-25% jitter, capped at maxDelay.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -12,10 +13,18 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
+// staleEntryTimeout is the maximum age of an inflight or pendingEnd entry
+// before it is considered stale and cleaned up to prevent unbounded map growth.
+const staleEntryTimeout = 5 * time.Minute
+
+// cleanupInterval is how often the listener checks for stale entries.
+const cleanupInterval = 1 * time.Minute
+
 // spanEntry tracks an in-flight span and its context.
 type spanEntry struct {
-	span trace.Span
-	ctx  context.Context //nolint:containedctx // needed to parent child spans
+	span      trace.Span
+	ctx       context.Context //nolint:containedctx // needed to parent child spans
+	createdAt time.Time
 }
 
 // sessionState tracks the root span for a session.
@@ -28,13 +37,15 @@ type sessionState struct {
 // The EventBus dispatches each Publish() in a separate goroutine, so completion
 // events can race ahead of start events.
 type pendingEnd struct {
-	errMsg string // empty means success
-	attrs  []attribute.KeyValue
+	errMsg    string // empty means success
+	attrs     []attribute.KeyValue
+	createdAt time.Time
 }
 
 // OTelEventListener converts runtime events into OTel spans in real time.
 // It implements the events.Listener function signature via its OnEvent method.
 // It is safe for concurrent use and tolerates out-of-order event delivery.
+// Call Close when the listener is no longer needed to stop the cleanup goroutine.
 type OTelEventListener struct {
 	tracer trace.Tracer
 
@@ -42,15 +53,67 @@ type OTelEventListener struct {
 	sessions    map[string]*sessionState // sessionID → root span + ctx
 	inflight    map[string]*spanEntry    // "pipeline:<runID>" → span + ctx
 	pendingEnds map[string]*pendingEnd   // buffered completions for out-of-order delivery
+
+	stopCleanup chan struct{}
 }
 
 // NewOTelEventListener creates a listener that creates OTel spans from runtime events.
+// A background goroutine periodically cleans up stale entries to prevent unbounded
+// map growth. Call Close when the listener is no longer needed.
 func NewOTelEventListener(tracer trace.Tracer) *OTelEventListener {
-	return &OTelEventListener{
+	l := &OTelEventListener{
 		tracer:      tracer,
 		sessions:    make(map[string]*sessionState),
 		inflight:    make(map[string]*spanEntry),
 		pendingEnds: make(map[string]*pendingEnd),
+		stopCleanup: make(chan struct{}),
+	}
+	go l.cleanupLoop()
+	return l
+}
+
+// Close stops the background cleanup goroutine.
+func (l *OTelEventListener) Close() {
+	select {
+	case <-l.stopCleanup:
+		// Already closed.
+	default:
+		close(l.stopCleanup)
+	}
+}
+
+// cleanupLoop periodically removes stale inflight and pendingEnd entries.
+func (l *OTelEventListener) cleanupLoop() {
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-l.stopCleanup:
+			return
+		case <-ticker.C:
+			l.evictStale()
+		}
+	}
+}
+
+// evictStale removes inflight and pendingEnd entries older than staleEntryTimeout.
+func (l *OTelEventListener) evictStale() {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for key, entry := range l.inflight {
+		if now.Sub(entry.createdAt) > staleEntryTimeout {
+			entry.span.SetStatus(codes.Error, "stale span evicted")
+			entry.span.End()
+			delete(l.inflight, key)
+		}
+	}
+	for key, pe := range l.pendingEnds {
+		if now.Sub(pe.createdAt) > staleEntryTimeout {
+			delete(l.pendingEnds, key)
+		}
 	}
 }
 
@@ -168,7 +231,7 @@ func (l *OTelEventListener) startSpan(
 	if havePending {
 		delete(l.pendingEnds, key)
 	} else {
-		l.inflight[key] = &spanEntry{span: span, ctx: ctx}
+		l.inflight[key] = &spanEntry{span: span, ctx: ctx, createdAt: time.Now()}
 	}
 	l.mu.Unlock()
 
@@ -192,7 +255,7 @@ func (l *OTelEventListener) endSpan(key string, attrs ...attribute.KeyValue) {
 	if ok {
 		delete(l.inflight, key)
 	} else {
-		l.pendingEnds[key] = &pendingEnd{attrs: attrs}
+		l.pendingEnds[key] = &pendingEnd{attrs: attrs, createdAt: time.Now()}
 	}
 	l.mu.Unlock()
 	if !ok {
@@ -212,7 +275,7 @@ func (l *OTelEventListener) failSpan(key, errMsg string, attrs ...attribute.KeyV
 	if ok {
 		delete(l.inflight, key)
 	} else {
-		l.pendingEnds[key] = &pendingEnd{errMsg: errMsg, attrs: attrs}
+		l.pendingEnds[key] = &pendingEnd{errMsg: errMsg, attrs: attrs, createdAt: time.Now()}
 	}
 	l.mu.Unlock()
 	if !ok {

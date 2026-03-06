@@ -174,6 +174,7 @@ func (eb *EventBus) dispatch(event *Event) {
 
 // invokeWithTimeout runs a listener with the configured subscriber timeout.
 // If the listener does not complete in time, a warning is logged and the call is skipped.
+// A second warning is logged at 2x timeout if the goroutine is still running.
 func (eb *EventBus) invokeWithTimeout(listener Listener, event *Event) {
 	done := make(chan struct{}, 1)
 	go func() {
@@ -181,15 +182,29 @@ func (eb *EventBus) invokeWithTimeout(listener Listener, event *Event) {
 		done <- struct{}{}
 	}()
 
+	timeout := eb.subscriberTimeout
 	select {
 	case <-done:
 		return
-	case <-time.After(eb.subscriberTimeout):
+	case <-time.After(timeout):
 		logger.Warn("event subscriber timed out",
 			"event_type", string(event.Type),
-			"timeout", eb.subscriberTimeout.String(),
+			"timeout", timeout.String(),
 		)
 	}
+
+	// Monitor for goroutine leak: if listener hasn't returned after 2x timeout, log a warning.
+	go func() {
+		select {
+		case <-done:
+			// Listener eventually completed.
+		case <-time.After(timeout):
+			logger.Warn("event subscriber goroutine still running after 2x timeout",
+				"event_type", string(event.Type),
+				"elapsed", (timeout + timeout).String(),
+			)
+		}
+	}()
 }
 
 // WithStore returns the event bus configured with the given store for persistence.

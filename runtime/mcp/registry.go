@@ -339,15 +339,18 @@ func (r *RegistryImpl) fetchServerTools(
 	r.updateToolsResult(serverName, tools, result, mu)
 }
 
-// updateToolsResult updates the result map and tool index
+// updateToolsResult updates the result map and tool index.
+// It acquires both the external result mutex and r.mu to protect the shared toolIndex.
 func (r *RegistryImpl) updateToolsResult(serverName string, tools []Tool, result map[string][]Tool, mu *sync.Mutex) {
 	mu.Lock()
-	defer mu.Unlock()
-
 	result[serverName] = tools
+	mu.Unlock()
+
+	r.mu.Lock()
 	for _, tool := range tools {
 		r.toolIndex[tool.Name] = serverName
 	}
+	r.mu.Unlock()
 }
 
 // Close shuts down all MCP servers and connections

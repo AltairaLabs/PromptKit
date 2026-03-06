@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -446,10 +447,15 @@ func (p *Provider) createFinalStreamChunk(accumulated string, accumulatedToolCal
 func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
 	defer close(outChan)
 
+	// Use sync.Once to prevent double-close race between the context cancellation
+	// goroutine and the deferred close in IdleTimeoutReader.
+	var closeOnce sync.Once
+	closeBody := func() { closeOnce.Do(func() { _ = body.Close() }) }
+
 	// Close the response body when context is canceled to unblock scanner.Scan()
 	go func() {
 		<-ctx.Done()
-		_ = body.Close()
+		closeBody()
 	}()
 
 	// Wrap body with idle timeout detection to guard against stalled streams
@@ -678,7 +684,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
 	if err != nil {
 		predictResp.Latency = time.Since(start)
 		return predictResp, fmt.Errorf("failed to read response body: %w", err)

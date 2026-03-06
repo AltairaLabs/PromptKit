@@ -1489,6 +1489,7 @@ func TestWaitForReconnect_Success(t *testing.T) {
 	client := NewStdioClient(config)
 	client.started = true
 	client.reconnecting = true
+	doneCh := make(chan struct{})
 
 	// Simulate reconnection completing
 	go func() {
@@ -1498,6 +1499,7 @@ func TestWaitForReconnect_Success(t *testing.T) {
 		client.cmd = exec.Command("sleep", "60")
 		_ = client.cmd.Start()
 		client.mu.Unlock()
+		close(doneCh)
 	}()
 	t.Cleanup(func() {
 		if client.cmd != nil && client.cmd.Process != nil {
@@ -1506,7 +1508,7 @@ func TestWaitForReconnect_Success(t *testing.T) {
 		}
 	})
 
-	err := client.waitForReconnect()
+	err := client.waitForReconnect(doneCh)
 	assert.NoError(t, err)
 }
 
@@ -1517,6 +1519,7 @@ func TestWaitForReconnect_ClosedDuringWait(t *testing.T) {
 	}
 	client := NewStdioClient(config)
 	client.reconnecting = true
+	doneCh := make(chan struct{})
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -1524,9 +1527,10 @@ func TestWaitForReconnect_ClosedDuringWait(t *testing.T) {
 		client.closed = true
 		client.reconnecting = false
 		client.mu.Unlock()
+		close(doneCh)
 	}()
 
-	err := client.waitForReconnect()
+	err := client.waitForReconnect(doneCh)
 	assert.ErrorIs(t, err, ErrClientClosed)
 }
 
@@ -1537,6 +1541,7 @@ func TestWaitForReconnect_ReconnectFailed(t *testing.T) {
 	}
 	client := NewStdioClient(config)
 	client.reconnecting = true
+	doneCh := make(chan struct{})
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -1544,9 +1549,10 @@ func TestWaitForReconnect_ReconnectFailed(t *testing.T) {
 		client.reconnecting = false
 		// cmd stays nil — reconnect failed
 		client.mu.Unlock()
+		close(doneCh)
 	}()
 
-	err := client.waitForReconnect()
+	err := client.waitForReconnect(doneCh)
 	assert.Equal(t, ErrProcessDied, err)
 }
 
