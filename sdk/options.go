@@ -586,6 +586,9 @@ func WithTracerProvider(tp trace.TracerProvider) Option {
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil))),
 //	)
+//
+// Note: only the first logger set via WithLogger takes effect process-wide.
+// Subsequent calls are silently ignored due to sync.Once in setLoggerOnce.
 func WithLogger(l *slog.Logger) Option {
 	return func(c *config) error {
 		c.logger = l

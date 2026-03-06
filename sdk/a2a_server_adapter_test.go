@@ -19,8 +19,8 @@ type mockSDKResponse struct {
 	clientTools       []PendingClientTool
 }
 
-func (r *mockSDKResponse) Text() string                    { return r.text }
-func (r *mockSDKResponse) Parts() []types.ContentPart      { return r.parts }
+func (r *mockSDKResponse) Text() string                     { return r.text }
+func (r *mockSDKResponse) Parts() []types.ContentPart       { return r.parts }
 func (r *mockSDKResponse) PendingTools() []PendingTool      { return r.pendingTools }
 func (r *mockSDKResponse) HasPendingClientTools() bool      { return r.pendingClientBool }
 func (r *mockSDKResponse) ClientTools() []PendingClientTool { return r.clientTools }
@@ -28,13 +28,13 @@ func (r *mockSDKResponse) ClientTools() []PendingClientTool { return r.clientToo
 // --- mock conversationBackend ---
 
 type mockConvBackend struct {
-	sendFunc            func(ctx context.Context, message any, opts ...SendOption) (*Response, error)
-	closeFunc           func() error
-	sendToolResultFunc  func(ctx context.Context, callID string, result any) error
-	rejectClientFunc    func(ctx context.Context, callID, reason string)
-	resumeFunc          func(ctx context.Context) (*Response, error)
-	resumeStreamFunc    func(ctx context.Context) <-chan StreamChunk
-	streamFunc          func(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
+	sendFunc           func(ctx context.Context, message any, opts ...SendOption) (*Response, error)
+	closeFunc          func() error
+	sendToolResultFunc func(ctx context.Context, callID string, result any) error
+	rejectClientFunc   func(ctx context.Context, callID, reason string)
+	resumeFunc         func(ctx context.Context) (*Response, error)
+	resumeStreamFunc   func(ctx context.Context) <-chan StreamChunk
+	streamFunc         func(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
 }
 
 func (m *mockConvBackend) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
@@ -167,6 +167,20 @@ func TestChunkToEvent_ClientTool(t *testing.T) {
 	}
 	if evt.ClientTool.ConsentMsg != "Allow location?" {
 		t.Errorf("consent = %q, want 'Allow location?'", evt.ClientTool.ConsentMsg)
+	}
+}
+
+func TestChunkToEvent_ClientTool_Nil(t *testing.T) {
+	chunk := StreamChunk{
+		Type:       ChunkClientTool,
+		ClientTool: nil,
+	}
+	evt := chunkToEvent(chunk)
+	if evt.Kind != a2aserver.EventClientTool {
+		t.Fatalf("kind = %d, want EventClientTool", evt.Kind)
+	}
+	if evt.ClientTool != nil {
+		t.Error("expected nil ClientTool for nil input")
 	}
 }
 

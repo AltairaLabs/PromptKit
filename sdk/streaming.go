@@ -242,7 +242,7 @@ func (c *Conversation) executeStreamingPipeline(
 
 	// Process stream and finalize
 	state := &streamState{}
-	if err := c.processAndFinalizeStreamWithState(streamCh, outCh, startTime, state); err != nil {
+	if err := c.processAndFinalizeStreamWithState(ctx, streamCh, outCh, startTime, state); err != nil {
 		return err
 	}
 
@@ -256,18 +256,11 @@ func (c *Conversation) executeStreamingPipeline(
 	return nil
 }
 
-// processAndFinalizeStream handles the streaming response and emits the final chunk.
-func (c *Conversation) processAndFinalizeStream(
-	streamCh <-chan providers.StreamChunk,
-	outCh chan<- StreamChunk,
-	startTime time.Time,
-) error {
-	return c.processAndFinalizeStreamWithState(streamCh, outCh, startTime, &streamState{})
-}
-
-// processAndFinalizeStreamWithState is like processAndFinalizeStream but uses a caller-provided state
+// processAndFinalizeStreamWithState processes the streaming response, emits chunks, and sends
+// the final ChunkDone. Uses a caller-provided state
 // so the caller can inspect pendingTools after the stream completes.
 func (c *Conversation) processAndFinalizeStreamWithState(
+	ctx context.Context,
 	streamCh <-chan providers.StreamChunk,
 	outCh chan<- StreamChunk,
 	startTime time.Time,
@@ -281,10 +274,12 @@ func (c *Conversation) processAndFinalizeStreamWithState(
 	// Build response from accumulated data
 	resp := c.buildStreamingResponse(state, startTime)
 
-	// Emit final ChunkDone with complete response
-	outCh <- StreamChunk{
-		Type:    ChunkDone,
-		Message: resp,
+	// Emit final ChunkDone with complete response, respecting context cancellation
+	// to avoid blocking indefinitely when the consumer has gone away.
+	select {
+	case outCh <- StreamChunk{Type: ChunkDone, Message: resp}:
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	return nil

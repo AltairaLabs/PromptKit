@@ -483,6 +483,43 @@ func TestResume_BuildsToolMessages(t *testing.T) {
 	assert.NotNil(t, resp)
 }
 
+func TestSendToolResult_WhenClosed(t *testing.T) {
+	conv := newTestConversation()
+	conv.ctxHandlers = make(map[string]ToolHandlerCtx)
+	conv.clientHandlers = make(map[string]ClientToolHandler)
+	conv.resolvedStore = sdktools.NewResolvedStore()
+	_ = conv.Close()
+
+	err := conv.SendToolResult(context.Background(), "call-1", map[string]any{"data": "x"})
+	assert.Equal(t, ErrConversationClosed, err)
+}
+
+func TestSendToolResultMultimodal_WhenClosed(t *testing.T) {
+	conv := newTestConversation()
+	conv.ctxHandlers = make(map[string]ToolHandlerCtx)
+	conv.clientHandlers = make(map[string]ClientToolHandler)
+	conv.resolvedStore = sdktools.NewResolvedStore()
+	_ = conv.Close()
+
+	err := conv.SendToolResultMultimodal(context.Background(), "call-1", []types.ContentPart{types.NewTextPart("hi")})
+	assert.Equal(t, ErrConversationClosed, err)
+}
+
+func TestRejectClientTool_WhenClosed(t *testing.T) {
+	conv := newTestConversation()
+	conv.ctxHandlers = make(map[string]ToolHandlerCtx)
+	conv.clientHandlers = make(map[string]ClientToolHandler)
+	conv.resolvedStore = sdktools.NewResolvedStore()
+	_ = conv.Close()
+
+	// Should not panic; silently returns
+	conv.RejectClientTool(context.Background(), "call-1", "denied")
+
+	// Verify nothing was added to the resolved store
+	resolutions := conv.resolvedStore.PopAll()
+	assert.Empty(t, resolutions)
+}
+
 func TestResumeStream_NoResolutions(t *testing.T) {
 	conv := newTestConversation()
 	conv.resolvedStore = sdktools.NewResolvedStore()

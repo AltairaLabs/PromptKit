@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestConcurrentConversations verifies that multiple conversations
@@ -111,7 +112,8 @@ func TestForkIsolation(t *testing.T) {
 		return "original", nil
 	})
 
-	forked := original.Fork()
+	forked, err := original.Fork()
+	require.NoError(t, err)
 
 	// Both should start with the same variable
 	origVal, _ := original.GetVar("branch")
@@ -154,7 +156,9 @@ func TestConcurrentFork(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			forks[idx] = original.Fork()
+			fork, forkErr := original.Fork()
+			require.NoError(t, forkErr)
+			forks[idx] = fork
 			forks[idx].SetVar("fork_id", string(rune('A'+idx)))
 		}(i)
 	}

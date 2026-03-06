@@ -430,7 +430,10 @@ func platformBaseURL(pc *platformConfig, provType string) string {
 	case platformTypeVertex:
 		return vertexBaseURL(pc, provType)
 	case platformTypeAzure:
-		return pc.endpoint // Azure requires an explicit endpoint
+		// Azure always requires an explicit endpoint via WithPlatformEndpoint.
+		// When none is set, pc.endpoint is empty and provider creation will fail
+		// with a clear error from the Azure credential/provider layer.
+		return pc.endpoint
 	default:
 		return ""
 	}

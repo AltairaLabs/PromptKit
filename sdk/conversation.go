@@ -139,7 +139,8 @@ type Conversation struct {
 	resolvedStore *sdktools.ResolvedStore
 
 	// MCP registry for managing MCP servers
-	mcpRegistry mcp.Registry
+	mcpRegistry            mcp.Registry
+	mcpExecutorsRegistered bool // guards against re-registering MCP executors on every pipeline build
 
 	// Platform capabilities (workflow, a2a, memory, etc.)
 	capabilities           []Capability
@@ -290,18 +291,35 @@ func (c *Conversation) buildPipelineConfig(
 		}
 	}
 
-	// Build tool registry — uses write lock because RegisterExecutor/RegisterTools mutate state
+	// Snapshot handler maps under lock to avoid races, then release before I/O.
 	c.handlersMu.Lock()
-	localExec := &localExecutor{handlers: c.handlers, ctxHandlers: c.ctxHandlers}
-	c.toolRegistry.RegisterExecutor(localExec)
+	handlersCopy := make(map[string]ToolHandler, len(c.handlers))
+	for k, v := range c.handlers {
+		handlersCopy[k] = v
+	}
+	ctxHandlersCopy := make(map[string]ToolHandlerCtx, len(c.ctxHandlers))
+	for k, v := range c.ctxHandlers {
+		ctxHandlersCopy[k] = v
+	}
+	c.handlersMu.Unlock()
 
-	// Register client executor for mode: "client" tools
 	c.clientHandlersMu.RLock()
-	clientExec := &clientExecutor{
-		handlers:   c.clientHandlers,
-		handlersMu: &clientHandlersMuAccessor{conv: c},
+	clientHandlersCopy := make(map[string]ClientToolHandler, len(c.clientHandlers))
+	for k, v := range c.clientHandlers {
+		clientHandlersCopy[k] = v
 	}
 	c.clientHandlersMu.RUnlock()
+
+	// Build tool registry — uses write lock because RegisterExecutor/RegisterTools mutate state.
+	// Handler map copies are used so the executor doesn't alias the Conversation's live maps.
+	c.handlersMu.Lock()
+	localExec := &localExecutor{handlers: handlersCopy, ctxHandlers: ctxHandlersCopy}
+	c.toolRegistry.RegisterExecutor(localExec)
+
+	clientExec := &clientExecutor{
+		handlers:   clientHandlersCopy,
+		handlersMu: &clientHandlersMuAccessor{conv: c},
+	}
 	c.toolRegistry.RegisterExecutor(clientExec)
 
 	c.registerMCPExecutors()
@@ -633,6 +651,12 @@ func (c *Conversation) SessionError() error {
 //	// Template: "You are helping {{customer_name}}"
 //	// Becomes: "You are helping Alice"
 func (c *Conversation) SetVar(name, value string) {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return
+	}
 	c.getBaseSession().SetVar(name, value)
 }
 
@@ -644,6 +668,12 @@ func (c *Conversation) SetVar(name, value string) {
 //	    "max_discount": 20,
 //	})
 func (c *Conversation) SetVars(vars map[string]any) {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return
+	}
 	sess := c.getBaseSession()
 	for k, v := range vars {
 		sess.SetVar(k, fmt.Sprintf("%v", v))
@@ -659,6 +689,12 @@ func (c *Conversation) SetVars(vars map[string]any) {
 //	conv.SetVarsFromEnv("PROMPTKIT_")
 //	// Sets variable "customer_name" = "Alice"
 func (c *Conversation) SetVarsFromEnv(prefix string) {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return
+	}
 	// O(N) scan of all env vars is acceptable here — os.Environ() is called
 	// infrequently (typically once at startup) and the alternative (os.LookupEnv
 	// per variable) would require knowing variable names in advance.
@@ -679,6 +715,12 @@ func (c *Conversation) SetVarsFromEnv(prefix string) {
 // GetVar returns the current value of a template variable.
 // Returns empty string and false if the variable is not set.
 func (c *Conversation) GetVar(name string) (string, bool) {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return "", false
+	}
 	return c.getBaseSession().GetVar(name)
 }
 
@@ -703,6 +745,15 @@ func (c *Conversation) Messages(ctx context.Context) []types.Message {
 // messages. Useful for starting fresh within the same conversation session.
 // In duplex mode, this will close the session first if actively streaming.
 func (c *Conversation) Clear() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return ErrConversationClosed
+	}
+
+	// TODO: Clear should accept a context parameter in a future API revision
+	// instead of using context.Background().
 	ctx := context.Background()
 
 	// For duplex mode, close the session first
@@ -721,14 +772,14 @@ func (c *Conversation) Clear() error {
 //	conv.Send(ctx, "What cities should I visit?")
 //
 //	// Fork to explore different paths
-//	branch := conv.Fork()
+//	branch, err := conv.Fork()
 //
 //	conv.Send(ctx, "Tell me about Tokyo")     // Original path
 //	branch.Send(ctx, "Tell me about Kyoto")   // Branch path
 //
 // The forked conversation is completely independent - changes to one
 // do not affect the other.
-func (c *Conversation) Fork() *Conversation {
+func (c *Conversation) Fork() (*Conversation, error) {
 	// Need write lock because buildPipelineWithParams mutates shared tool registry
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -773,7 +824,7 @@ func (c *Conversation) Fork() *Conversation {
 	ctx := context.Background()
 	pipeline, err := c.buildPipelineWithParams(store, forkID, nil, nil)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("fork: failed to build pipeline: %w", err)
 	}
 
 	// Create a new tool registry for the fork, copying tool descriptors from the original.
@@ -813,7 +864,7 @@ func (c *Conversation) Fork() *Conversation {
 	case UnaryMode:
 		forkSession, err := c.unarySession.ForkSession(ctx, forkID, pipeline)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("fork: failed to fork unary session: %w", err)
 		}
 		fork.unarySession = forkSession
 
@@ -833,12 +884,12 @@ func (c *Conversation) Fork() *Conversation {
 
 		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipelineBuilder)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("fork: failed to fork duplex session: %w", err)
 		}
 		fork.duplexSession = forkSession
 	}
 
-	return fork
+	return fork, nil
 }
 
 // startOTelSession registers (or re-registers) the caller's context with the
