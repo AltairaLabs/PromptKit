@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/tools/arena/chaos"
 	"github.com/AltairaLabs/PromptKit/tools/arena/consent"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
@@ -355,11 +356,25 @@ func (e *PipelineExecutor) handleExecutionError(provider providers.Provider, err
 	return fmt.Errorf("pipeline execution failed: %w", err)
 }
 
-// buildProviderStage creates a provider stage, attaching a consent simulation hook if overrides are present.
+// buildProviderStage creates a provider stage, attaching hooks
+// for consent simulation and/or chaos injection when configured.
 func (e *PipelineExecutor) buildProviderStage(req *TurnRequest, providerConfig *stage.ProviderConfig) stage.Stage {
 	toolPolicy := buildToolPolicy(req.Scenario)
+
+	var toolHooks []hooks.ToolHook
 	if len(req.ConsentOverrides) > 0 {
-		hookReg := hooks.NewRegistry(hooks.WithToolHook(consent.NewSimulationHook()))
+		toolHooks = append(toolHooks, consent.NewSimulationHook())
+	}
+	if req.ChaosConfig != nil {
+		toolHooks = append(toolHooks, chaos.NewHook())
+	}
+
+	if len(toolHooks) > 0 {
+		var opts []hooks.Option
+		for _, h := range toolHooks {
+			opts = append(opts, hooks.WithToolHook(h))
+		}
+		hookReg := hooks.NewRegistry(opts...)
 		return stage.NewProviderStageWithHooks(req.Provider, e.toolRegistry, toolPolicy, providerConfig, nil, hookReg)
 	}
 	return stage.NewProviderStage(req.Provider, e.toolRegistry, toolPolicy, providerConfig)
@@ -379,6 +394,11 @@ func (e *PipelineExecutor) Execute(
 	if len(req.ConsentOverrides) > 0 {
 		ctx = consent.WithConsentOverrides(ctx, req.ConsentOverrides)
 		ctx = consent.WithToolRegistry(ctx, e.toolRegistry)
+	}
+
+	// Inject chaos config into context if present
+	if req.ChaosConfig != nil {
+		ctx = chaos.WithConfig(ctx, req.ChaosConfig)
 	}
 
 	// Build base variables and stage pipeline
