@@ -85,6 +85,9 @@ type RunMetadata struct {
 
 	// A2A agent metadata (populated from config for report rendering)
 	A2AAgents []A2AAgentInfo `json:"a2a_agents,omitempty"`
+
+	// TrialResults holds aggregated statistics when a scenario is run with Trials > 1.
+	TrialResults interface{} `json:"trial_results,omitempty"`
 }
 
 // ValidationResult captures validation outcome for a turn
@@ -665,6 +668,7 @@ func (s *ArenaStateStore) deepCloneRunMetadata(m *RunMetadata) *RunMetadata {
 	}
 	cloned.Params = s.deepCloneMap(m.Params)
 	cloned.Commit = s.deepCloneMap(m.Commit)
+	cloned.TrialResults = m.TrialResults
 	s.cloneRunMetadataRoles(cloned, m)
 	s.cloneRunMetadataFeedback(cloned, m)
 	s.cloneRunMetadataSlices(cloned, m)
@@ -774,6 +778,9 @@ type RunResult struct {
 
 	// A2A agent metadata (populated from config for report rendering)
 	A2AAgents []A2AAgentInfo `json:"A2AAgents,omitempty"`
+
+	// TrialResults holds aggregated statistics when a scenario is run with Trials > 1.
+	TrialResults interface{} `json:"trial_results,omitempty"`
 }
 
 // AssertionsSummary mirrors the turn-level assertions structure

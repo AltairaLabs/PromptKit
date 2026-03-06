@@ -174,7 +174,8 @@ func (e *Engine) generateCombinations(regions, scenarioIDs []string, providerFil
 	return combinations, nil
 }
 
-// generateScenarioCombinations creates combinations for a specific scenario
+// generateScenarioCombinations creates combinations for a specific scenario.
+// When a scenario has Trials > 1, each provider combo is expanded into N trial entries.
 func (e *Engine) generateScenarioCombinations(region, scenarioID string, providerFilter []string) ([]RunCombination, error) {
 	scenario, exists := e.scenarios[scenarioID]
 	if !exists {
@@ -182,14 +183,22 @@ func (e *Engine) generateScenarioCombinations(region, scenarioID string, provide
 	}
 
 	providers := e.resolveProvidersForScenario(scenario, providerFilter)
+	trials := scenario.Trials
+	if trials < 1 {
+		trials = 1
+	}
 
 	var combinations []RunCombination
 	for _, providerID := range providers {
-		combinations = append(combinations, RunCombination{
-			Region:     region,
-			ScenarioID: scenarioID,
-			ProviderID: providerID,
-		})
+		for t := range trials {
+			combinations = append(combinations, RunCombination{
+				Region:      region,
+				ScenarioID:  scenarioID,
+				ProviderID:  providerID,
+				TrialIndex:  t,
+				TotalTrials: trials,
+			})
+		}
 	}
 
 	return combinations, nil
