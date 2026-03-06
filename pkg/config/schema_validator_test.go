@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,7 +82,8 @@ spec:
 func TestSchemaCaching(t *testing.T) {
 	// Clear cache before test
 	schemaCache.mu.Lock()
-	schemaCache.schemas = make(map[string]*gojsonschema.Schema)
+	schemaCache.schemas = make(map[string]*schemaCacheEntry)
+	schemaCache.order = nil
 	schemaCache.mu.Unlock()
 
 	validConfig := []byte(`
@@ -130,10 +132,8 @@ spec:
 	require.NoError(t, err)
 
 	// Check that schema was cached
-	schemaCache.mu.RLock()
 	schemaKey := "file://" + schemaDir + "/arena.json"
-	cachedSchema := schemaCache.schemas[schemaKey]
-	schemaCache.mu.RUnlock()
+	cachedSchema := schemaCache.get(schemaKey)
 	assert.NotNil(t, cachedSchema, "Schema should be cached after first validation")
 
 	// Second validation - should use cached schema
@@ -141,9 +141,7 @@ spec:
 	require.NoError(t, err)
 
 	// Verify same schema instance is used (pointer equality)
-	schemaCache.mu.RLock()
-	cachedSchema2 := schemaCache.schemas[schemaKey]
-	schemaCache.mu.RUnlock()
+	cachedSchema2 := schemaCache.get(schemaKey)
 	assert.Same(t, cachedSchema, cachedSchema2, "Should reuse cached schema instance")
 }
 
@@ -653,4 +651,74 @@ spec:
 	err := ValidatePersona(invalidPersona)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "persona configuration does not match schema")
+}
+
+// --- M32: Schema cache LRU eviction ---
+
+func TestSchemaCacheStore_LRUEviction(t *testing.T) {
+	cache := &schemaCacheStore{
+		schemas: make(map[string]*schemaCacheEntry),
+	}
+
+	// Create a dummy schema for testing.
+	loader := gojsonschema.NewStringLoader(`{"type": "object"}`)
+	dummySchema, err := gojsonschema.NewSchema(loader)
+	require.NoError(t, err)
+
+	// Fill cache to capacity.
+	for i := range maxSchemaCacheSize {
+		cache.set(fmt.Sprintf("key-%d", i), dummySchema)
+	}
+	assert.Equal(t, maxSchemaCacheSize, len(cache.schemas))
+
+	// Adding one more should evict the oldest (key-0).
+	cache.set("key-new", dummySchema)
+	assert.Equal(t, maxSchemaCacheSize, len(cache.schemas))
+	assert.Nil(t, cache.get("key-0"), "oldest entry should be evicted")
+	assert.NotNil(t, cache.get("key-new"), "new entry should be present")
+}
+
+func TestSchemaCacheStore_LRUTouchPromotes(t *testing.T) {
+	cache := &schemaCacheStore{
+		schemas: make(map[string]*schemaCacheEntry),
+	}
+
+	loader := gojsonschema.NewStringLoader(`{"type": "object"}`)
+	dummySchema, err := gojsonschema.NewSchema(loader)
+	require.NoError(t, err)
+
+	// Fill cache to capacity.
+	for i := range maxSchemaCacheSize {
+		cache.set(fmt.Sprintf("key-%d", i), dummySchema)
+	}
+
+	// Touch key-0 to promote it.
+	cache.get("key-0")
+
+	// Adding a new entry should evict key-1 (the new oldest) instead of key-0.
+	cache.set("key-new", dummySchema)
+	assert.NotNil(t, cache.get("key-0"), "touched entry should not be evicted")
+	assert.Nil(t, cache.get("key-1"), "second oldest should be evicted")
+}
+
+func TestSchemaCacheStore_SetExistingKey(t *testing.T) {
+	cache := &schemaCacheStore{
+		schemas: make(map[string]*schemaCacheEntry),
+	}
+
+	loader := gojsonschema.NewStringLoader(`{"type": "object"}`)
+	dummySchema, err := gojsonschema.NewSchema(loader)
+	require.NoError(t, err)
+
+	cache.set("key-1", dummySchema)
+	cache.set("key-1", dummySchema) // update existing
+	assert.Equal(t, 1, len(cache.schemas))
+	assert.NotNil(t, cache.get("key-1"))
+}
+
+func TestSchemaCacheStore_GetMiss(t *testing.T) {
+	cache := &schemaCacheStore{
+		schemas: make(map[string]*schemaCacheEntry),
+	}
+	assert.Nil(t, cache.get("nonexistent"))
 }

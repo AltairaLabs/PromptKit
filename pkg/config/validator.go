@@ -298,22 +298,21 @@ func (v *ConfigValidator) validateJudgeDefaults() {
 	}
 }
 
-// validateCrossReferences validates references between components
+// validateCrossReferences validates references between components.
+// It uses already-loaded scenarios from v.config.LoadedScenarios to avoid
+// redundant file I/O.
 func (v *ConfigValidator) validateCrossReferences() {
 	taskTypes := v.getPromptTaskTypes()
 
-	// Validate scenario task_type references
-	for _, scenarioConfig := range v.config.Scenarios {
-		scenario, err := LoadScenario(scenarioConfig.File)
-		if err != nil {
-			// Already reported in validateScenarios
+	// Validate scenario task_type references using already-loaded scenarios.
+	for id, scenario := range v.config.LoadedScenarios {
+		if scenario == nil {
 			continue
 		}
-
 		// Check task_type exists in loaded prompt configs
 		if scenario.TaskType != "" && !taskTypes[scenario.TaskType] {
 			err := fmt.Errorf("scenario %s references unknown task_type: %s",
-				scenarioConfig.File, scenario.TaskType)
+				id, scenario.TaskType)
 			v.errors = append(v.errors, err)
 		}
 	}

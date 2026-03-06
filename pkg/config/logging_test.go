@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -149,6 +150,52 @@ func TestIsValidLogLevel(t *testing.T) {
 		if isValidLogLevel(level) {
 			t.Errorf("expected %s to be invalid", level)
 		}
+	}
+}
+
+func TestLoggingConfigSpec_Validate_ModuleIndexFormat(t *testing.T) {
+	// Verify that the module index in the error field uses numeric format
+	// (e.g. "modules[0].name") not ASCII rune conversion.
+	cfg := LoggingConfigSpec{
+		Modules: []ModuleLoggingConfig{
+			{Name: "valid", Level: LogLevelDebug},
+			{Name: "", Level: LogLevelDebug}, // index 1 has empty name
+		},
+	}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for empty module name")
+	}
+
+	ve, ok := err.(*ValidationError)
+	if !ok {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
+	if ve.Field != "modules[1].name" {
+		t.Errorf("expected field 'modules[1].name', got %q", ve.Field)
+	}
+}
+
+func TestLoggingConfigSpec_Validate_HighModuleIndex(t *testing.T) {
+	// For indices >= 10, the old string(rune('0'+i)) would produce wrong characters.
+	modules := make([]ModuleLoggingConfig, 11)
+	for i := range 10 {
+		modules[i] = ModuleLoggingConfig{Name: fmt.Sprintf("mod%d", i), Level: LogLevelInfo}
+	}
+	modules[10] = ModuleLoggingConfig{Name: "", Level: LogLevelInfo} // empty at index 10
+
+	cfg := LoggingConfigSpec{Modules: modules}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for empty module name at index 10")
+	}
+	ve, ok := err.(*ValidationError)
+	if !ok {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
+	if ve.Field != "modules[10].name" {
+		t.Errorf("expected field 'modules[10].name', got %q", ve.Field)
 	}
 }
 
