@@ -60,13 +60,13 @@ func (e *ContextualError) Unwrap() error {
 	return e.Cause
 }
 
-// WithStatusCode returns a copy of the error with the given status code set.
+// WithStatusCode sets the status code on this error and returns it for chaining.
 func (e *ContextualError) WithStatusCode(code int) *ContextualError {
 	e.StatusCode = code
 	return e
 }
 
-// WithDetails returns a copy of the error with the given details map set.
+// WithDetails sets the details map on this error and returns it for chaining.
 func (e *ContextualError) WithDetails(details map[string]any) *ContextualError {
 	e.Details = details
 	return e

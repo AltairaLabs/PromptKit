@@ -360,6 +360,16 @@ func TestInMemoryTaskStore_Concurrent(t *testing.T) {
 	}
 }
 
+// setTaskTimestamp directly sets the timestamp on the live task in the store.
+// This is needed because Get() returns deep copies.
+func setTaskTimestamp(store *InMemoryTaskStore, taskID string, ts time.Time) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if task, ok := store.tasks[taskID]; ok {
+		task.Status.Timestamp = &ts
+	}
+}
+
 func TestInMemoryTaskStore_EvictTerminal(t *testing.T) {
 	store := NewInMemoryTaskStore()
 
@@ -368,9 +378,8 @@ func TestInMemoryTaskStore_EvictTerminal(t *testing.T) {
 	require.NoError(t, store.SetState("old-completed", a2a.TaskStateWorking, nil))
 	require.NoError(t, store.SetState("old-completed", a2a.TaskStateCompleted, nil))
 
-	task, _ := store.Get("old-completed")
 	old := time.Now().Add(-2 * time.Hour)
-	task.Status.Timestamp = &old
+	setTaskTimestamp(store, "old-completed", old)
 
 	_, err = store.Create("new-completed", "ctx")
 	require.NoError(t, err)
@@ -380,15 +389,13 @@ func TestInMemoryTaskStore_EvictTerminal(t *testing.T) {
 	_, err = store.Create("old-working", "ctx")
 	require.NoError(t, err)
 	require.NoError(t, store.SetState("old-working", a2a.TaskStateWorking, nil))
-	workingTask, _ := store.Get("old-working")
-	workingTask.Status.Timestamp = &old
+	setTaskTimestamp(store, "old-working", old)
 
 	_, err = store.Create("old-failed", "ctx")
 	require.NoError(t, err)
 	require.NoError(t, store.SetState("old-failed", a2a.TaskStateWorking, nil))
 	require.NoError(t, store.SetState("old-failed", a2a.TaskStateFailed, nil))
-	failedTask, _ := store.Get("old-failed")
-	failedTask.Status.Timestamp = &old
+	setTaskTimestamp(store, "old-failed", old)
 
 	cutoff := time.Now().Add(-1 * time.Hour)
 	evicted := store.EvictTerminal(cutoff)
@@ -406,6 +413,67 @@ func TestInMemoryTaskStore_EvictTerminal(t *testing.T) {
 	assert.NoError(t, err)
 	_, err = store.Get("old-working")
 	assert.NoError(t, err)
+}
+
+func TestInMemoryTaskStore_GetReturnsDeepCopy(t *testing.T) {
+	store := NewInMemoryTaskStore()
+	_, err := store.Create("t", "c")
+	require.NoError(t, err)
+
+	msg := &a2a.Message{
+		Role:  a2a.RoleAgent,
+		Parts: []a2a.Part{{Text: taskStoreTextPtr("hello")}},
+	}
+	require.NoError(t, store.SetState("t", a2a.TaskStateWorking, msg))
+
+	task1, err := store.Get("t")
+	require.NoError(t, err)
+	task2, err := store.Get("t")
+	require.NoError(t, err)
+
+	// Mutating the returned copy must not affect the stored task.
+	*task1.Status.Message.Parts[0].Text = "mutated"
+	assert.Equal(t, "hello", *task2.Status.Message.Parts[0].Text,
+		"Get must return independent deep copies")
+
+	// Verify the pointers are different.
+	assert.NotSame(t, task1, task2)
+	assert.NotSame(t, task1.Status.Timestamp, task2.Status.Timestamp)
+}
+
+func TestInMemoryTaskStore_ListReturnsDeepCopies(t *testing.T) {
+	store := NewInMemoryTaskStore()
+	_, err := store.Create("t1", "ctx")
+	require.NoError(t, err)
+
+	tasks, err := store.List("ctx", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+
+	// Mutating the returned task must not affect the store.
+	tasks[0].ContextID = "mutated"
+	task, err := store.Get("t1")
+	require.NoError(t, err)
+	assert.Equal(t, "ctx", task.ContextID)
+}
+
+func TestInMemoryTaskStore_ListDeterministicOrder(t *testing.T) {
+	store := NewInMemoryTaskStore()
+	ids := []string{"c", "a", "b", "e", "d"}
+	for _, id := range ids {
+		_, err := store.Create(id, "ctx")
+		require.NoError(t, err)
+	}
+
+	tasks, err := store.List("ctx", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, tasks, 5)
+
+	// Results must be sorted by ID.
+	for i := 1; i < len(tasks); i++ {
+		assert.True(t, tasks[i-1].ID < tasks[i].ID,
+			"expected %s < %s", tasks[i-1].ID, tasks[i].ID)
+	}
 }
 
 func TestInMemoryTaskStore_EvictTerminal_Empty(t *testing.T) {
@@ -430,9 +498,8 @@ func TestInMemoryTaskStore_EvictTerminal_AllTerminalStates(t *testing.T) {
 			require.NoError(t, store.SetState("t", a2a.TaskStateWorking, nil))
 			require.NoError(t, store.SetState("t", terminal, nil))
 
-			task, _ := store.Get("t")
 			old := time.Now().Add(-2 * time.Hour)
-			task.Status.Timestamp = &old
+			setTaskTimestamp(store, "t", old)
 
 			evicted := store.EvictTerminal(time.Now().Add(-1 * time.Hour))
 			assert.Equal(t, []string{"t"}, evicted)

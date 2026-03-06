@@ -1,5 +1,7 @@
 package config
 
+import "fmt"
+
 // LoggingConfig represents logging configuration in K8s-style manifest format.
 // This is used for schema generation and external configuration files.
 type LoggingConfig struct {
@@ -100,7 +102,7 @@ func (c *LoggingConfigSpec) Validate() error {
 	for i, mod := range c.Modules {
 		if mod.Name == "" {
 			return &ValidationError{
-				Field:   "modules[" + string(rune('0'+i)) + "].name",
+				Field:   fmt.Sprintf("modules[%d].name", i),
 				Message: "module name is required",
 			}
 		}

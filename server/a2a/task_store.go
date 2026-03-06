@@ -3,6 +3,7 @@ package a2aserver
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -99,7 +100,8 @@ func (s *InMemoryTaskStore) Create(taskID, contextID string) (*a2a.Task, error) 
 	return task, nil
 }
 
-// Get retrieves a task by ID.
+// Get retrieves a deep copy of a task by ID. The returned task is safe to
+// read/modify without holding the store lock.
 func (s *InMemoryTaskStore) Get(taskID string) (*a2a.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -108,7 +110,7 @@ func (s *InMemoryTaskStore) Get(taskID string) (*a2a.Task, error) {
 	if !ok {
 		return nil, ErrTaskNotFound
 	}
-	return task, nil
+	return cloneTask(task), nil
 }
 
 // SetState transitions the task to a new state with an optional status message.
@@ -195,8 +197,9 @@ func (s *InMemoryTaskStore) EvictTerminal(cutoff time.Time) []string {
 	return evicted
 }
 
-// List returns tasks matching the given contextID with pagination.
-// If contextID is empty, all tasks are returned. Offset and limit control pagination.
+// List returns deep copies of tasks matching the given contextID with pagination.
+// If contextID is empty, all tasks are returned. Results are sorted by ID for
+// deterministic pagination. Offset and limit control pagination.
 func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*a2a.Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -207,6 +210,11 @@ func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*a2a.Ta
 			matched = append(matched, task)
 		}
 	}
+
+	// Sort by ID for deterministic pagination.
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].ID < matched[j].ID
+	})
 
 	// Apply offset.
 	if offset >= len(matched) {
@@ -219,5 +227,106 @@ func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*a2a.Ta
 		matched = matched[:limit]
 	}
 
-	return matched, nil
+	// Return deep copies so callers cannot mutate the store.
+	result := make([]*a2a.Task, len(matched))
+	for i, t := range matched {
+		result[i] = cloneTask(t)
+	}
+	return result, nil
+}
+
+// cloneTask returns a deep copy of a Task.
+func cloneTask(t *a2a.Task) *a2a.Task {
+	cp := *t
+
+	// Clone Status.
+	if t.Status.Timestamp != nil {
+		ts := *t.Status.Timestamp
+		cp.Status.Timestamp = &ts
+	}
+	if t.Status.Message != nil {
+		cp.Status.Message = cloneMessage(t.Status.Message)
+	}
+
+	// Clone History.
+	if len(t.History) > 0 {
+		cp.History = make([]a2a.Message, len(t.History))
+		for i := range t.History {
+			cp.History[i] = *cloneMessage(&t.History[i])
+		}
+	}
+
+	// Clone Artifacts.
+	if len(t.Artifacts) > 0 {
+		cp.Artifacts = make([]a2a.Artifact, len(t.Artifacts))
+		for i := range t.Artifacts {
+			cp.Artifacts[i] = cloneArtifact(&t.Artifacts[i])
+		}
+	}
+
+	// Clone Metadata.
+	if len(t.Metadata) > 0 {
+		cp.Metadata = make(map[string]any, len(t.Metadata))
+		for k, v := range t.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+
+	return &cp
+}
+
+// cloneMessage returns a deep copy of a Message.
+func cloneMessage(m *a2a.Message) *a2a.Message {
+	cp := *m
+	if len(m.Parts) > 0 {
+		cp.Parts = make([]a2a.Part, len(m.Parts))
+		for i := range m.Parts {
+			cp.Parts[i] = clonePart(&m.Parts[i])
+		}
+	}
+	if len(m.Metadata) > 0 {
+		cp.Metadata = make(map[string]any, len(m.Metadata))
+		for k, v := range m.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+	return &cp
+}
+
+// cloneArtifact returns a deep copy of an Artifact.
+func cloneArtifact(art *a2a.Artifact) a2a.Artifact {
+	cp := *art
+	if len(art.Parts) > 0 {
+		cp.Parts = make([]a2a.Part, len(art.Parts))
+		for i := range art.Parts {
+			cp.Parts[i] = clonePart(&art.Parts[i])
+		}
+	}
+	if len(art.Metadata) > 0 {
+		cp.Metadata = make(map[string]any, len(art.Metadata))
+		for k, v := range art.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+	return cp
+}
+
+// clonePart returns a deep copy of a Part.
+func clonePart(p *a2a.Part) a2a.Part {
+	cp := *p
+	if p.Text != nil {
+		s := *p.Text
+		cp.Text = &s
+	}
+	if p.URL != nil {
+		s := *p.URL
+		cp.URL = &s
+	}
+	if len(p.Metadata) > 0 {
+		cp.Metadata = make(map[string]any, len(p.Metadata))
+		for k, v := range p.Metadata {
+			cp.Metadata[k] = v
+		}
+	}
+	return cp
 }

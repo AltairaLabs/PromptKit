@@ -45,28 +45,66 @@ func localSchemaDirIfRequested() string {
 	return SchemaLocalPath
 }
 
+// maxSchemaCacheSize is the maximum number of schemas that can be cached.
+// When this limit is reached, the least recently used entry is evicted.
+const maxSchemaCacheSize = 64
+
+type schemaCacheEntry struct {
+	key    string
+	schema *gojsonschema.Schema
+}
+
 type schemaCacheStore struct {
-	mu      sync.RWMutex
-	schemas map[string]*gojsonschema.Schema
+	mu      sync.Mutex
+	schemas map[string]*schemaCacheEntry
+	order   []string // LRU order: most recently used at the end
 }
 
 // schemaCache caches compiled JSON schemas to avoid repeated HTTP requests
 var schemaCache = &schemaCacheStore{
-	schemas: make(map[string]*gojsonschema.Schema),
+	schemas: make(map[string]*schemaCacheEntry),
 }
 
-// get retrieves a schema from the cache
+// get retrieves a schema from the cache and marks it as recently used.
 func (c *schemaCacheStore) get(key string) *gojsonschema.Schema {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.schemas[key]
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.schemas[key]
+	if !ok {
+		return nil
+	}
+	c.touchLocked(key)
+	return entry.schema
 }
 
-// set stores a schema in the cache
+// set stores a schema in the cache, evicting the LRU entry if at capacity.
 func (c *schemaCacheStore) set(key string, schema *gojsonschema.Schema) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.schemas[key] = schema
+	if _, ok := c.schemas[key]; ok {
+		c.schemas[key].schema = schema
+		c.touchLocked(key)
+		return
+	}
+	// Evict LRU if at capacity.
+	if len(c.order) >= maxSchemaCacheSize {
+		oldest := c.order[0]
+		c.order = c.order[1:]
+		delete(c.schemas, oldest)
+	}
+	c.schemas[key] = &schemaCacheEntry{key: key, schema: schema}
+	c.order = append(c.order, key)
+}
+
+// touchLocked moves key to the end of the LRU order. Must be called with mu held.
+func (c *schemaCacheStore) touchLocked(key string) {
+	for i, k := range c.order {
+		if k == key {
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			break
+		}
+	}
+	c.order = append(c.order, key)
 }
 
 // findLocalSchemaPath searches for a local schema file in common locations
@@ -182,6 +220,9 @@ func buildSchemaKey(configType ConfigType, schemaDir string) string {
 	return fmt.Sprintf("%s/%s.json", SchemaBaseURL, configType)
 }
 
+// TODO: Use golang.org/x/sync/singleflight to deduplicate concurrent schema loads
+// for the same key. Currently, multiple goroutines requesting the same uncached
+// schema will each perform an independent load (thundering herd).
 func loadOrGetCachedSchema(schemaKey string, configType ConfigType, schemaDir string) (*gojsonschema.Schema, error) {
 	// Check cache first
 	schema := schemaCache.get(schemaKey)

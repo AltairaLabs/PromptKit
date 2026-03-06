@@ -14,6 +14,12 @@ import (
 // subscriberBuffer is the channel buffer size for broadcast subscribers.
 const subscriberBuffer = 64
 
+// maxSubscribers is the maximum number of concurrent subscribers per broadcaster.
+const maxSubscribers = 1000
+
+// ErrTooManySubscribers is returned when a broadcaster has reached its subscriber limit.
+var ErrTooManySubscribers = fmt.Errorf("a2a: too many subscribers")
+
 // ssePayload is a single SSE payload ready to be broadcast.
 type ssePayload struct {
 	Data []byte // JSON-encoded JSON-RPC response
@@ -27,16 +33,20 @@ type taskBroadcaster struct {
 }
 
 // subscribe adds a new subscriber and returns its channel.
-func (b *taskBroadcaster) subscribe() <-chan ssePayload {
+// Returns nil if the broadcaster is at capacity.
+func (b *taskBroadcaster) subscribe() (<-chan ssePayload, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	ch := make(chan ssePayload, subscriberBuffer)
 	if b.closed {
 		close(ch)
-		return ch
+		return ch, nil
+	}
+	if len(b.subs) >= maxSubscribers {
+		return nil, ErrTooManySubscribers
 	}
 	b.subs = append(b.subs, ch)
-	return ch
+	return ch, nil
 }
 
 // unsubscribe removes a subscriber channel.
@@ -512,7 +522,11 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	ch := broadcaster.subscribe()
+	ch, subErr := broadcaster.subscribe()
+	if subErr != nil {
+		writeRPCError(w, req.ID, -32000, "Too many subscribers")
+		return
+	}
 	defer broadcaster.unsubscribe(ch)
 
 	ctx := r.Context()

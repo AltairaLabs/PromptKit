@@ -36,11 +36,11 @@ type mockSendResult struct {
 	pendingClientTools []PendingClientToolInfo
 }
 
-func (r *mockSendResult) HasPendingTools() bool                    { return r.hasPending }
-func (r *mockSendResult) HasPendingClientTools() bool              { return r.hasPendingClient }
+func (r *mockSendResult) HasPendingTools() bool                       { return r.hasPending }
+func (r *mockSendResult) HasPendingClientTools() bool                 { return r.hasPendingClient }
 func (r *mockSendResult) PendingClientTools() []PendingClientToolInfo { return r.pendingClientTools }
-func (r *mockSendResult) Parts() []types.ContentPart               { return r.parts }
-func (r *mockSendResult) Text() string                             { return r.text }
+func (r *mockSendResult) Parts() []types.ContentPart                  { return r.parts }
+func (r *mockSendResult) Text() string                                { return r.text }
 
 // --- mock conversation for server tests ---
 
@@ -2123,5 +2123,114 @@ func TestBuildPendingToolsMessage_HITLOnly(t *testing.T) {
 	msg := buildPendingToolsMessage(resp)
 	if msg != nil {
 		t.Fatalf("expected nil message for HITL-only pending, got %+v", msg)
+	}
+}
+
+// --- H8: Panic recovery middleware ---
+
+func TestServer_PanicRecovery(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /panic", func(_ http.ResponseWriter, _ *http.Request) {
+		panic("test panic")
+	})
+	handler := recoveryMiddleware(mux)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/panic")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should get a 200 with a JSON-RPC error body (not a 5xx crash).
+	var rpcResp a2a.JSONRPCResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if rpcResp.Error == nil {
+		t.Fatal("expected JSON-RPC error response")
+	}
+	if rpcResp.Error.Code != -32603 {
+		t.Errorf("expected code -32603, got %d", rpcResp.Error.Code)
+	}
+	if rpcResp.Error.Message != "Internal error" {
+		t.Errorf("expected 'Internal error', got %q", rpcResp.Error.Message)
+	}
+}
+
+func TestServer_PanicRecovery_NoPanic(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ok", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := recoveryMiddleware(mux)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/ok")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+// --- M31: Authentication error does not leak internals ---
+
+type mockAuthenticator struct {
+	err error
+}
+
+func (m *mockAuthenticator) Authenticate(_ *http.Request) error {
+	return m.err
+}
+
+func TestServer_AuthErrorNoLeak(t *testing.T) {
+	secretErr := fmt.Errorf("invalid token: abc123-secret-key")
+	_, ts := newTestServer(nopOpener, WithAuthenticator(&mockAuthenticator{err: secretErr}))
+	defer ts.Close()
+
+	resp := a2aRPCRequest(t, ts, a2a.MethodGetTask, a2a.GetTaskRequest{ID: "t1"})
+	if resp.Error == nil {
+		t.Fatal("expected error response")
+	}
+	if resp.Error.Message != "Authentication failed" {
+		t.Errorf("expected generic message, got %q", resp.Error.Message)
+	}
+	// The secret key must NOT appear in the response.
+	if bytes.Contains(resp.Result, []byte("abc123-secret-key")) {
+		t.Error("secret key leaked in response")
+	}
+}
+
+// --- L25: Agent card error does not leak internals ---
+
+type failingCardProvider struct{}
+
+func (f *failingCardProvider) AgentCard(_ *http.Request) (*a2a.AgentCard, error) {
+	return nil, fmt.Errorf("database connection failed: host=db.internal password=secret")
+}
+
+func TestServer_AgentCardErrorNoLeak(t *testing.T) {
+	_, ts := newTestServer(nopOpener, WithCardProvider(&failingCardProvider{}))
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/.well-known/agent.json")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+
+	var body bytes.Buffer
+	_, _ = body.ReadFrom(resp.Body)
+	if bytes.Contains(body.Bytes(), []byte("password=secret")) {
+		t.Error("internal error details leaked in agent card response")
 	}
 }

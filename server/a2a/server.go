@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -250,17 +252,37 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /a2a", s.handleRPC)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
-	return otelhttp.NewHandler(mux, "a2a-server")
+	return otelhttp.NewHandler(recoveryMiddleware(mux), "a2a-server")
+}
+
+// recoveryMiddleware wraps an http.Handler with panic recovery.
+// On panic it logs the stack trace and returns a 500 JSON-RPC error response.
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				stack := debug.Stack()
+				log.Printf("a2a: panic recovered: %v\n%s", rec, stack)
+				writeRPCError(w, nil, -32603, "Internal error")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ListenAndServe starts the HTTP server on the configured port.
+//
+// WriteTimeout is set to 0 (disabled) because SSE streaming endpoints
+// (message/stream, tasks/subscribe) hold the connection open indefinitely.
+// A non-zero WriteTimeout would kill long-lived SSE connections. Non-streaming
+// endpoints rely on the request context deadline for timeout enforcement.
 func (s *Server) ListenAndServe() error {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.port),
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		ReadTimeout:       s.readTimeout,
-		WriteTimeout:      s.writeTimeout,
+		WriteTimeout:      0, // disabled for SSE streaming compatibility
 		IdleTimeout:       s.idleTimeout,
 	}
 
@@ -315,12 +337,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // Serve starts the HTTP server on the given listener.
+// See ListenAndServe for the rationale behind WriteTimeout: 0.
 func (s *Server) Serve(ln net.Listener) error {
 	srv := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		ReadTimeout:       s.readTimeout,
-		WriteTimeout:      s.writeTimeout,
+		WriteTimeout:      0, // disabled for SSE streaming compatibility
 		IdleTimeout:       s.idleTimeout,
 	}
 
@@ -395,7 +418,8 @@ func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 	}
 	card, err := s.cardProvider.AgentCard(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("a2a: failed to get agent card: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -407,7 +431,8 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	// Authenticate if configured.
 	if s.authenticator != nil {
 		if err := s.authenticator.Authenticate(r); err != nil {
-			writeRPCError(w, nil, -32000, fmt.Sprintf("Authentication failed: %v", err))
+			log.Printf("a2a: authentication failed: %v", err)
+			writeRPCError(w, nil, -32000, "Authentication failed")
 			return
 		}
 	}
@@ -804,7 +829,12 @@ func generateID() string {
 
 // writeRPCResult writes a JSON-RPC 2.0 success response.
 func writeRPCResult(w http.ResponseWriter, id, result any) {
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		log.Printf("a2a: failed to marshal RPC result: %v", err)
+		writeRPCError(w, id, -32603, "Internal error: failed to encode result")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",

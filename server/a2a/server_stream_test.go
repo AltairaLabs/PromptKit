@@ -1143,3 +1143,58 @@ func TestServer_StreamMessage_ClientTool_ResumeStream(t *testing.T) {
 		t.Errorf("tool results = %+v, want [{call-1 ...}]", mock.toolResults)
 	}
 }
+
+// --- L23: Broadcaster subscriber limit ---
+
+func TestBroadcaster_SubscriberLimit(t *testing.T) {
+	b := &taskBroadcaster{}
+
+	// Fill up to maxSubscribers.
+	for i := 0; i < maxSubscribers; i++ {
+		ch, err := b.subscribe()
+		if err != nil {
+			t.Fatalf("subscribe %d failed: %v", i, err)
+		}
+		if ch == nil {
+			t.Fatalf("subscribe %d returned nil channel", i)
+		}
+	}
+
+	// Next subscribe should fail.
+	ch, err := b.subscribe()
+	if !errors.Is(err, ErrTooManySubscribers) {
+		t.Errorf("expected ErrTooManySubscribers, got %v", err)
+	}
+	if ch != nil {
+		t.Error("expected nil channel on error")
+	}
+
+	// After unsubscribing one, should be able to subscribe again.
+	b.mu.Lock()
+	firstCh := b.subs[0]
+	b.mu.Unlock()
+	b.unsubscribe(firstCh)
+
+	ch, err = b.subscribe()
+	if err != nil {
+		t.Errorf("subscribe after unsubscribe failed: %v", err)
+	}
+	if ch == nil {
+		t.Error("expected non-nil channel after unsubscribe")
+	}
+}
+
+func TestBroadcaster_SubscribeClosed(t *testing.T) {
+	b := &taskBroadcaster{}
+	b.close()
+
+	ch, err := b.subscribe()
+	if err != nil {
+		t.Errorf("unexpected error subscribing to closed broadcaster: %v", err)
+	}
+	// Channel should be closed immediately.
+	_, ok := <-ch
+	if ok {
+		t.Error("expected closed channel from closed broadcaster")
+	}
+}

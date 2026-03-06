@@ -24,9 +24,8 @@ func TestServer_EvictOnce_EvictsTerminalTasks(t *testing.T) {
 	require.NoError(t, store.SetState("old-task", a2a.TaskStateCompleted, nil))
 
 	// Backdate the task's timestamp to 2 hours ago.
-	task, _ := store.Get("old-task")
 	old := time.Now().Add(-2 * time.Hour)
-	task.Status.Timestamp = &old
+	setTaskTimestamp(store, "old-task", old)
 
 	// Create a recent completed task that should NOT be evicted.
 	_, err = store.Create("new-task", "ctx-1")
