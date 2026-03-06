@@ -385,6 +385,34 @@ func TestConversationSendWhenClosed(t *testing.T) {
 	assert.Equal(t, ErrConversationClosed, err)
 }
 
+func TestConversationVarsWhenClosed(t *testing.T) {
+	conv := newTestConversation()
+	conv.ctxHandlers = make(map[string]ToolHandlerCtx)
+	conv.clientHandlers = make(map[string]ClientToolHandler)
+	_ = conv.Close()
+
+	// SetVar should silently return on closed conversation
+	conv.SetVar("key", "value")
+	// SetVars should silently return on closed conversation
+	conv.SetVars(map[string]any{"key": "value"})
+	// SetVarsFromEnv should silently return on closed conversation
+	conv.SetVarsFromEnv("TEST_PREFIX_")
+	// GetVar should return empty on closed conversation
+	val, ok := conv.GetVar("key")
+	assert.False(t, ok)
+	assert.Empty(t, val)
+}
+
+func TestConversationClearWhenClosed(t *testing.T) {
+	conv := newTestConversation()
+	conv.ctxHandlers = make(map[string]ToolHandlerCtx)
+	conv.clientHandlers = make(map[string]ClientToolHandler)
+	_ = conv.Close()
+
+	err := conv.Clear()
+	assert.Error(t, err)
+}
+
 func TestConversationSendMessageTypes(t *testing.T) {
 	t.Skip("Skipping: Send now requires full Open() initialization with textSession")
 	conv := newTestConversation()
