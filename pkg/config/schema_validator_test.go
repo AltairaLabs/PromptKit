@@ -499,9 +499,9 @@ func TestTryLocalSchemaFallback(t *testing.T) {
 
 func TestLoadSchema_WithFallback(t *testing.T) {
 	// Enable fallback for this test
-	originalFallbackSetting := SchemaFallbackEnabled
-	SchemaFallbackEnabled = true
-	defer func() { SchemaFallbackEnabled = originalFallbackSetting }()
+	originalFallbackSetting := SchemaFallbackDisabled.Load()
+	SchemaFallbackDisabled.Store(false)
+	defer func() { SchemaFallbackDisabled.Store(originalFallbackSetting) }()
 
 	// Test with an invalid remote schema URL (should trigger fallback)
 	schema, err := loadSchema("http://invalid-url-that-does-not-exist.com/schema.json", ConfigTypeArena, "")
@@ -517,9 +517,9 @@ func TestLoadSchema_WithFallback(t *testing.T) {
 
 func TestLoadSchema_WithoutFallback(t *testing.T) {
 	// Disable fallback for this test
-	originalFallbackSetting := SchemaFallbackEnabled
-	SchemaFallbackEnabled = false
-	defer func() { SchemaFallbackEnabled = originalFallbackSetting }()
+	originalFallbackSetting := SchemaFallbackDisabled.Load()
+	SchemaFallbackDisabled.Store(true)
+	defer func() { SchemaFallbackDisabled.Store(originalFallbackSetting) }()
 
 	// Test with a malformed schema reference that will fail
 	_, err := loadSchema("file:///nonexistent/path/to/schema.json", ConfigTypeArena, "")

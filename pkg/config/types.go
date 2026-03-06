@@ -1007,7 +1007,8 @@ type Provider struct {
 // Resolution order: api_key → credential_file → credential_env → default env vars.
 type CredentialConfig struct {
 	// APIKey is an explicit API key value (not recommended for production).
-	APIKey string `json:"api_key,omitempty" yaml:"api_key,omitempty"`
+	// Excluded from JSON serialization to prevent accidental credential leakage.
+	APIKey string `json:"-" yaml:"api_key,omitempty"`
 	// CredentialFile is a path to a file containing the API key.
 	CredentialFile string `json:"credential_file,omitempty" yaml:"credential_file,omitempty"`
 	// CredentialEnv is the name of an environment variable containing the API key.

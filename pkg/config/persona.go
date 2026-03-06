@@ -313,6 +313,8 @@ func (p *UserPersonaPack) buildTemplatedPrompt(region string, contextVars map[st
 		// The actual fragment loading will be handled when needed
 		// This is a temporary approach - proper fragment loading through repository
 		// should be implemented when persona system is refactored further
+		// TODO: reject fragment configs at validation time (in ConfigValidator) so that
+		// callers get a clear error during config loading rather than at render time.
 		return "", fmt.Errorf("fragment loading for personas not yet fully implemented in config-first pattern for persona %s", p.ID)
 	}
 
@@ -333,7 +335,9 @@ func (p *UserPersonaPack) buildTemplatedPrompt(region string, contextVars map[st
 }
 
 // convertFragmentRefs converts config.FragmentRef to prompt.FragmentRef
-// (they're the same structure, but different types for package separation)
+// (they're the same structure, but different types for package separation).
+// TODO: this function is currently unreachable because fragment loading returns an error
+// above. It will become reachable once fragment loading is implemented.
 func convertFragmentRefs(refs []FragmentRef) []prompt.FragmentRef {
 	result := make([]prompt.FragmentRef, len(refs))
 	for i, ref := range refs {

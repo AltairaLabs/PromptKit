@@ -252,9 +252,12 @@ func LoadConfig(filename string) (*Config, error) {
 		}
 	}
 
-	// Validate the loaded configuration (warnings only, doesn't fail)
+	// Validate the loaded configuration (warnings only, doesn't fail).
+	// TODO: propagate validation warnings to the caller or log them. Currently the
+	// validator result and any warnings are discarded because the config package has
+	// no logger and LoadConfig's signature does not surface warnings.
 	validator := NewConfigValidatorWithPath(cfg, filename)
-	_ = validator.Validate() // Intentionally ignored - validation warnings accessible via validator.GetWarnings()
+	_ = validator.Validate()
 
 	return cfg, nil
 }
@@ -446,6 +449,9 @@ func (c *Config) loadTools(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to read tool file %s: %w", ref.File, err)
 		}
+		// TODO: validate tool files against a schema. Note that ValidateTool expects
+		// K8s-style manifests (apiVersion/kind/spec), but tool files referenced here
+		// may use raw OpenAI function format. A format-aware validator is needed.
 		c.LoadedTools = append(c.LoadedTools, ToolData{
 			FilePath: ref.File,
 			Data:     data,

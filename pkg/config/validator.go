@@ -319,6 +319,8 @@ func (v *ConfigValidator) validateCrossReferences() {
 }
 
 // Helper methods to build ID sets
+
+// getPromptConfigIDs is currently only used by tests (validator_test.go).
 func (v *ConfigValidator) getPromptConfigIDs() map[string]bool {
 	ids := make(map[string]bool)
 	for _, pc := range v.config.PromptConfigs {

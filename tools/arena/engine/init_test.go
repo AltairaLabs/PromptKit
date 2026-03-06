@@ -11,6 +11,6 @@ import (
 func init() {
 	// Disable schema validation when running tests
 	if testing.Testing() {
-		config.SchemaValidationEnabled = false
+		config.SchemaValidationDisabled.Store(true)
 	}
 }
