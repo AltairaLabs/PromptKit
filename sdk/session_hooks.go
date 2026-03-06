@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -20,7 +21,7 @@ type sessionInfoFunc func() (sessionID, conversationID string, messages []types.
 type sessionHookDispatcher struct {
 	registry *hooks.Registry
 	info     sessionInfoFunc
-	turns    int
+	turns    atomic.Int32
 }
 
 // newSessionHookDispatcher creates a dispatcher that will call info() to gather
@@ -63,20 +64,20 @@ func (d *sessionHookDispatcher) SessionEnd(ctx context.Context) {
 	})
 }
 
-// IncrementTurn advances the turn counter by one.
+// IncrementTurn advances the turn counter by one. Safe for concurrent use.
 func (d *sessionHookDispatcher) IncrementTurn() {
 	if d == nil {
 		return
 	}
-	d.turns++
+	d.turns.Add(1)
 }
 
-// TurnIndex returns the current turn count.
+// TurnIndex returns the current turn count. Safe for concurrent use.
 func (d *sessionHookDispatcher) TurnIndex() int {
 	if d == nil {
 		return 0
 	}
-	return d.turns
+	return int(d.turns.Load())
 }
 
 // dispatch builds a SessionEvent and calls fn. Errors from hooks are intentionally
@@ -96,7 +97,7 @@ func (d *sessionHookDispatcher) dispatch(
 // plus the dynamic info callback.
 func (d *sessionHookDispatcher) buildEvent() hooks.SessionEvent {
 	event := hooks.SessionEvent{
-		TurnIndex: d.turns,
+		TurnIndex: int(d.turns.Load()),
 	}
 	if d.info != nil {
 		event.SessionID, event.ConversationID, event.Messages = d.info()

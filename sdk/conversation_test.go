@@ -338,7 +338,8 @@ func TestConversationFork(t *testing.T) {
 	err = store.Save(ctx, state)
 	require.NoError(t, err)
 
-	fork := conv.Fork()
+	fork, err := conv.Fork()
+	require.NoError(t, err)
 
 	// Verify fork has same data
 	forkVal, ok := fork.GetVar("name")
@@ -2000,8 +2001,8 @@ func TestForkRegistryIsolation(t *testing.T) {
 		InputSchema: schema,
 	})
 
-	fork := conv.Fork()
-	require.NotNil(t, fork)
+	fork, err := conv.Fork()
+	require.NoError(t, err)
 
 	// Fork should have the original tool
 	forkTools := fork.toolRegistry.GetTools()
@@ -2036,7 +2037,8 @@ func TestForkErrorHandling(t *testing.T) {
 			return "result", nil
 		})
 
-		forked := conv.Fork()
+		forked, err := conv.Fork()
+		require.NoError(t, err)
 
 		conv.handlersMu.RLock()
 		_, origHas := conv.handlers["test_tool"]
@@ -2114,7 +2116,7 @@ func TestSessionHookDispatcher_SessionUpdate(t *testing.T) {
 		conv := newTestConversation()
 		conv.hookRegistry = reg
 		conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
-		conv.sessionHooks.turns = 3
+		conv.sessionHooks.turns.Store(3)
 
 		conv.sessionHooks.SessionUpdate(context.Background())
 
@@ -2137,7 +2139,7 @@ func TestSessionHookDispatcher_SessionEnd(t *testing.T) {
 		conv := newTestConversation()
 		conv.hookRegistry = reg
 		conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
-		conv.sessionHooks.turns = 5
+		conv.sessionHooks.turns.Store(5)
 
 		conv.sessionHooks.SessionEnd(context.Background())
 
@@ -2157,7 +2159,7 @@ func TestSessionHookDispatcher_BuildEvent(t *testing.T) {
 		conv := newTestConversation()
 		conv.config.conversationID = "conv-456"
 		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
-		conv.sessionHooks.turns = 7
+		conv.sessionHooks.turns.Store(7)
 
 		event := conv.sessionHooks.buildEvent()
 
@@ -2172,7 +2174,7 @@ func TestSessionHookDispatcher_BuildEvent(t *testing.T) {
 			config: &config{conversationID: "conv-789"},
 		}
 		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
-		conv.sessionHooks.turns = 2
+		conv.sessionHooks.turns.Store(2)
 
 		event := conv.sessionHooks.buildEvent()
 
@@ -2201,7 +2203,7 @@ func TestCloseRunsSessionEndHook(t *testing.T) {
 	conv := newTestConversation()
 	conv.hookRegistry = reg
 	conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
-	conv.sessionHooks.turns = 2
+	conv.sessionHooks.turns.Store(2)
 
 	err := conv.Close()
 	require.NoError(t, err)
@@ -2219,8 +2221,8 @@ func TestForkPreservesHookRegistry(t *testing.T) {
 	conv.sessionHooks = newSessionHookDispatcher(reg, conv.sessionInfo)
 	conv.asyncHandlers = make(map[string]sdktools.AsyncToolHandler)
 
-	forked := conv.Fork()
-	require.NotNil(t, forked)
+	forked, err := conv.Fork()
+	require.NoError(t, err)
 	assert.Equal(t, reg, forked.hookRegistry)
 	assert.NotNil(t, forked.sessionHooks)
 }

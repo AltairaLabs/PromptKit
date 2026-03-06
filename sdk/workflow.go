@@ -265,6 +265,10 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 	// Process pending transition from tool call
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
+	// Re-check closed after re-acquiring lock; Close() may have run while Send was in progress.
+	if wc.closed {
+		return nil, ErrWorkflowClosed
+	}
 	if wc.pendingTransition != nil {
 		pt := wc.pendingTransition
 		wc.pendingTransition = nil
@@ -457,8 +461,12 @@ func (wc *WorkflowConversation) persistWorkflowContext() {
 
 	ctx := context.Background()
 	state, err := wc.stateStore.Load(ctx, wc.workflowID)
+	if err != nil {
+		logger.Warn("failed to load workflow state, creating fresh state",
+			"workflow_id", wc.workflowID, "error", err)
+	}
 	if err != nil || state == nil {
-		// Create new state if not found
+		// Create new state if not found or on load error
 		state = &statestore.ConversationState{
 			ID:       wc.workflowID,
 			Metadata: make(map[string]any),

@@ -134,6 +134,9 @@ func chunkToEvent(c StreamChunk) a2aserver.StreamEvent {
 	case ChunkToolCall:
 		return a2aserver.StreamEvent{Kind: a2aserver.EventToolCall}
 	case ChunkClientTool:
+		if c.ClientTool == nil {
+			return a2aserver.StreamEvent{Kind: a2aserver.EventClientTool}
+		}
 		return a2aserver.StreamEvent{
 			Kind: a2aserver.EventClientTool,
 			ClientTool: &a2aserver.PendingClientToolInfo{

@@ -185,6 +185,12 @@ func (e *clientExecutor) ExecuteAsync(
 // After all pending tools have been resolved (via SendToolResult or
 // RejectClientTool), call [Conversation.Resume] to continue the pipeline.
 func (c *Conversation) SendToolResult(_ context.Context, callID string, result any) error {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return ErrConversationClosed
+	}
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("failed to serialize client tool result: %w", err)
@@ -206,6 +212,12 @@ func (c *Conversation) SendToolResult(_ context.Context, callID string, result a
 // SendToolResultMultimodal, or RejectClientTool), call [Conversation.Resume]
 // to continue the pipeline.
 func (c *Conversation) SendToolResultMultimodal(_ context.Context, callID string, parts []types.ContentPart) error {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return ErrConversationClosed
+	}
 	if len(parts) == 0 {
 		return fmt.Errorf("parts must not be empty")
 	}
@@ -221,6 +233,12 @@ func (c *Conversation) SendToolResultMultimodal(_ context.Context, callID string
 // callID must match one of the [PendingClientTool.CallID] values returned in
 // the [Response]. The rejection reason is sent to the LLM as the tool result.
 func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string) {
+	c.mu.RLock()
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return
+	}
 	c.resolvedStore.Add(&sdktools.ToolResolution{
 		ID:              callID,
 		Rejected:        true,
@@ -297,7 +315,7 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 		}
 
 		state := &streamState{}
-		if err := c.processAndFinalizeStreamWithState(streamCh, ch, startTime, state); err != nil {
+		if err := c.processAndFinalizeStreamWithState(ctx, streamCh, ch, startTime, state); err != nil {
 			ch <- StreamChunk{Error: err}
 			return
 		}

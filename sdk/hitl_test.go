@@ -345,7 +345,8 @@ func TestForkWithAsyncHandlers(t *testing.T) {
 	conv.CheckPending("async_tool", map[string]any{})
 
 	// Fork
-	forked := conv.Fork()
+	forked, err := conv.Fork()
+	require.NoError(t, err)
 
 	// Verify async handlers are copied
 	forked.asyncHandlersMu.RLock()

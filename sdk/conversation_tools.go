@@ -161,6 +161,9 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 //	})
 //
 // The first function checks if approval is needed, the second executes the action.
+//
+// Lock ordering contract: asyncHandlersMu is acquired first, then handlersMu.
+// All code paths that acquire both locks must follow this order to avoid deadlock.
 func (c *Conversation) OnToolAsync(
 	name string,
 	checkFunc func(args map[string]any) sdktools.PendingResult,
@@ -182,7 +185,7 @@ func (c *Conversation) OnToolAsync(
 
 	c.asyncHandlers[name] = checkFunc
 
-	// Register the execution handler
+	// Register the execution handler (handlersMu acquired after asyncHandlersMu per lock ordering)
 	c.handlersMu.Lock()
 	c.handlers[name] = execFunc
 	c.handlersMu.Unlock()
@@ -378,10 +381,12 @@ func (c *Conversation) ToolRegistry() *tools.Registry {
 }
 
 // registerMCPExecutors registers executors for MCP tools.
+// Guarded by mcpExecutorsRegistered to avoid redundant ListAllTools I/O on every pipeline build (e.g. Fork).
 func (c *Conversation) registerMCPExecutors() {
-	if c.mcpRegistry == nil {
+	if c.mcpRegistry == nil || c.mcpExecutorsRegistered {
 		return
 	}
+	c.mcpExecutorsRegistered = true
 
 	ctx := context.Background()
 	mcpTools, err := c.mcpRegistry.ListAllTools(ctx)

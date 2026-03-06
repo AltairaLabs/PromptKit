@@ -58,7 +58,7 @@ func TestSessionHookDispatcher_DispatchesAllLifecycleEvents(t *testing.T) {
 
 func TestSessionHookDispatcher_BuildEventNilInfo(t *testing.T) {
 	d := newSessionHookDispatcher(nil, nil)
-	d.turns = 5
+	d.turns.Store(5)
 
 	event := d.buildEvent()
 

@@ -30,7 +30,9 @@ type evalMiddleware struct {
 	// Bounded concurrency: sem limits how many eval goroutines run simultaneously.
 	sem chan struct{}
 
-	// Cached messages to avoid reloading on every dispatch.
+	// cacheMu protects the cached fields below from concurrent access
+	// across multiple dispatchTurnEvals goroutines.
+	cacheMu          sync.Mutex
 	cachedMessages   []types.Message
 	cachedTurnIndex  int32
 	cachedSessionID  string
@@ -204,6 +206,9 @@ func (em *evalMiddleware) emitResults(results []evals.EvalResult) {
 // buildEvalContext creates an EvalContext from the conversation state.
 // It caches messages and only reloads when the turn count changes.
 func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
+	em.cacheMu.Lock()
+	defer em.cacheMu.Unlock()
+
 	currentTurn := em.turnIndex.Load()
 	evalCtx := &evals.EvalContext{
 		TurnIndex: int(currentTurn),
