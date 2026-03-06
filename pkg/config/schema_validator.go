@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/xeipuuv/gojsonschema"
 	"gopkg.in/yaml.v3"
@@ -19,12 +20,15 @@ const SchemaBaseURL = "https://promptkit.altairalabs.ai/schemas/v1alpha1"
 
 const errorFormat = "  - %s"
 
-// SchemaFallbackEnabled controls whether to fall back to local schemas when remote fetch fails
-var SchemaFallbackEnabled = true
+// SchemaFallbackDisabled controls whether local schema fallback is suppressed.
+// When true (non-default), the loader will not fall back to local schemas on remote fetch failure.
+// Uses atomic.Bool for safe concurrent access across goroutines and test init functions.
+var SchemaFallbackDisabled atomic.Bool
 
-// SchemaValidationEnabled controls whether schema validation is performed
-// Can be disabled for testing or when schemas are not yet published
-var SchemaValidationEnabled = true
+// SchemaValidationDisabled controls whether schema validation is skipped.
+// When true (non-default), schema validation is bypassed (useful for testing or unpublished schemas).
+// Uses atomic.Bool for safe concurrent access across goroutines and test init functions.
+var SchemaValidationDisabled atomic.Bool
 
 // SchemaLocalPath is the path to local schema files (relative to repo root)
 const SchemaLocalPath = "schemas/v1alpha1"
@@ -176,7 +180,7 @@ func ValidateWithLocalSchema(yamlData []byte, configType ConfigType, schemaDir s
 
 func validateWithSchemaSource(yamlData []byte, configType ConfigType, schemaDir string) (*SchemaValidationResult, error) {
 	// Skip validation if disabled (for testing or when schemas not yet published)
-	if !SchemaValidationEnabled {
+	if SchemaValidationDisabled.Load() {
 		return &SchemaValidationResult{Valid: true, Errors: []SchemaValidationError{}}, nil
 	}
 
@@ -256,7 +260,7 @@ func loadSchema(schemaKey string, configType ConfigType, schemaDir string) (*goj
 	}
 
 	// Try fallback to local schema if remote fetch failed
-	if SchemaFallbackEnabled && schemaDir == "" {
+	if !SchemaFallbackDisabled.Load() && schemaDir == "" {
 		localSchema, fallbackErr := tryLocalSchemaFallback(configType)
 		if fallbackErr == nil {
 			return localSchema, nil

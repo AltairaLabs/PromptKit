@@ -11,7 +11,7 @@ import (
 
 func init() {
 	if testing.Testing() {
-		config.SchemaValidationEnabled = false
+		config.SchemaValidationDisabled.Store(true)
 	}
 }
 
