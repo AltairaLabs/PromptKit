@@ -103,6 +103,8 @@ var conversationTriggers = map[EvalTrigger]bool{
 }
 
 // runEvals is the shared implementation for both turn and session evals.
+// TODO(perf): Consider running independent evals concurrently with a worker pool
+// to reduce total eval latency, especially for external (REST/LLM) eval types.
 func (r *EvalRunner) runEvals(
 	ctx context.Context,
 	defs []EvalDef,

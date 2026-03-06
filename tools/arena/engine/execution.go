@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -68,7 +70,8 @@ func (e *Engine) resolveRegions(regionFilter []string) []string {
 	return regionFilter
 }
 
-// resolveScenarios returns the scenario IDs to use, applying all scenarios if empty
+// resolveScenarios returns the scenario IDs to use, applying all scenarios if empty.
+// Results are sorted for deterministic ordering when iterating over maps.
 func (e *Engine) resolveScenarios(scenarioFilter []string) ([]string, error) {
 	if len(scenarioFilter) > 0 {
 		return scenarioFilter, nil
@@ -78,6 +81,7 @@ func (e *Engine) resolveScenarios(scenarioFilter []string) ([]string, error) {
 	for id := range e.scenarios {
 		scenarioIDs = append(scenarioIDs, id)
 	}
+	sort.Strings(scenarioIDs)
 	return scenarioIDs, nil
 }
 
@@ -138,7 +142,8 @@ func (e *Engine) enumerateRecordings(source, typeHint string) ([]adapters.Record
 	return refs, nil
 }
 
-// resolveEvals returns the eval IDs to use, applying all evals if empty
+// resolveEvals returns the eval IDs to use, applying all evals if empty.
+// Results are sorted for deterministic ordering when iterating over maps.
 func (e *Engine) resolveEvals(evalFilter []string) []string {
 	if len(evalFilter) > 0 {
 		return evalFilter
@@ -148,6 +153,7 @@ func (e *Engine) resolveEvals(evalFilter []string) []string {
 	for id := range e.evals {
 		evalIDs = append(evalIDs, id)
 	}
+	sort.Strings(evalIDs)
 	return evalIDs
 }
 
@@ -763,13 +769,16 @@ func (e *Engine) resolveRunTimeout() time.Duration {
 	return DefaultRunTimeout
 }
 
-// generateRunID creates a unique run ID for a combination
+// generateRunID creates a unique run ID for a combination.
+// Includes seconds and a random nonce for uniqueness within the same minute.
 func generateRunID(combo RunCombination) string {
-	timestamp := time.Now().Format("2006-01-02T15-04Z")
+	timestamp := time.Now().Format("2006-01-02T15-04-05Z")
+	//nolint:gosec,mnd // G404: non-cryptographic random is fine for run ID nonce
+	nonce := rand.Intn(0xFFFF)
 	if combo.EvalID != "" {
 		hash := sha256.Sum256([]byte(fmt.Sprintf("eval_%s", combo.EvalID)))
-		return fmt.Sprintf("%s_eval_%s_%x", timestamp, combo.EvalID, hash[:4])
+		return fmt.Sprintf("%s_eval_%s_%x_%04x", timestamp, combo.EvalID, hash[:4], nonce)
 	}
 	hash := sha256.Sum256([]byte(fmt.Sprintf("%s_%s_%s", combo.Region, combo.ScenarioID, combo.ProviderID)))
-	return fmt.Sprintf("%s_%s_%s_%s_%x", timestamp, combo.ProviderID, combo.Region, combo.ScenarioID, hash[:4])
+	return fmt.Sprintf("%s_%s_%s_%s_%x_%04x", timestamp, combo.ProviderID, combo.Region, combo.ScenarioID, hash[:4], nonce)
 }

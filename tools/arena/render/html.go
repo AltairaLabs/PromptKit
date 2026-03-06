@@ -387,21 +387,51 @@ func generateHTML(data HTMLReportData) (string, error) {
 
 // getValidatorsFromMessage extracts validators from a message's validations array
 func getValidatorsFromMessage(msgOrMeta interface{}) map[string]interface{} {
-	// First try to extract from message.Validations
-	if jsonBytes, _ := json.Marshal(msgOrMeta); jsonBytes != nil {
-		var msgMap map[string]interface{}
-		if json.Unmarshal(jsonBytes, &msgMap) == nil {
-			// Check for validations array in the message
-			if validationsRaw, exists := msgMap["validations"]; exists {
-				if validations, ok := validationsRaw.([]interface{}); ok && len(validations) > 0 {
-					return convertValidationsToMap(validations)
-				}
+	// Try direct struct field access via reflection first (avoids JSON round-trip)
+	if validations := extractValidationsViaReflection(msgOrMeta); validations != nil {
+		return validations
+	}
+
+	// Try map access (handles map[string]interface{} representations)
+	if msgMap, ok := msgOrMeta.(map[string]interface{}); ok {
+		if validationsRaw, exists := msgMap["validations"]; exists {
+			if validations, ok := validationsRaw.([]interface{}); ok && len(validations) > 0 {
+				return convertValidationsToMap(validations)
 			}
 		}
 	}
 
 	// Fallback: try meta.validators (legacy)
 	return getLegacyValidators(msgOrMeta)
+}
+
+// extractValidationsViaReflection uses reflection to access the Validations field directly.
+func extractValidationsViaReflection(msgOrMeta interface{}) map[string]interface{} {
+	v := reflect.ValueOf(msgOrMeta)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil
+	}
+	field := v.FieldByName("Validations")
+	if !field.IsValid() || field.Kind() != reflect.Slice || field.Len() == 0 {
+		return nil
+	}
+	result := make(map[string]interface{})
+	for i := 0; i < field.Len(); i++ {
+		elem := field.Index(i)
+		if elem.Kind() == reflect.Struct {
+			vtField := elem.FieldByName("ValidatorType")
+			if vtField.IsValid() && vtField.Kind() == reflect.String {
+				result[vtField.String()] = elem.Interface()
+			}
+		}
+	}
+	if len(result) > 0 {
+		return result
+	}
+	return nil
 }
 
 // convertValidationsToMap converts validations array to map by validator type
@@ -435,20 +465,35 @@ func getLegacyValidators(msgOrMeta interface{}) map[string]interface{} {
 
 // hasValidatorsInMessage checks if a message has validations
 func hasValidatorsInMessage(msgOrMeta interface{}) bool {
-	// First try to check message.Validations
-	if jsonBytes, _ := json.Marshal(msgOrMeta); jsonBytes != nil {
-		var msgMap map[string]interface{}
-		if json.Unmarshal(jsonBytes, &msgMap) == nil {
-			if validationsRaw, exists := msgMap["validations"]; exists {
-				if validations, ok := validationsRaw.([]interface{}); ok && len(validations) > 0 {
-					return true
-				}
+	// Try direct struct field access via reflection first (avoids JSON round-trip)
+	if hasValidationsViaReflection(msgOrMeta) {
+		return true
+	}
+
+	// Try map access
+	if msgMap, ok := msgOrMeta.(map[string]interface{}); ok {
+		if validationsRaw, exists := msgMap["validations"]; exists {
+			if validations, ok := validationsRaw.([]interface{}); ok && len(validations) > 0 {
+				return true
 			}
 		}
 	}
 
 	// Fallback: try meta.validators (legacy)
 	return hasLegacyValidators(msgOrMeta)
+}
+
+// hasValidationsViaReflection checks for non-empty Validations field via reflection.
+func hasValidationsViaReflection(msgOrMeta interface{}) bool {
+	v := reflect.ValueOf(msgOrMeta)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return false
+	}
+	field := v.FieldByName("Validations")
+	return field.IsValid() && field.Kind() == reflect.Slice && field.Len() > 0
 }
 
 // hasLegacyValidators checks for legacy meta.validators format
@@ -527,12 +572,16 @@ func checkSingleAssertion(assertion interface{}) bool {
 			return passed
 		}
 	}
-	// Try to access Passed field directly (for struct types)
-	if assertionStruct, ok := assertion.(struct {
-		Passed  bool
-		Details interface{}
-	}); ok {
-		return assertionStruct.Passed
+	// Try struct field via reflection
+	rv := reflect.ValueOf(assertion)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	if rv.Kind() == reflect.Struct {
+		field := rv.FieldByName("Passed")
+		if field.IsValid() && field.Kind() == reflect.Bool {
+			return field.Bool()
+		}
 	}
 	return true
 }
@@ -541,18 +590,22 @@ func checkSingleAssertion(assertion interface{}) bool {
 func isValidatorPassed(validator interface{}) bool {
 	// Try to access as map first (handles both legacy and new format)
 	if validatorMap, ok := validator.(map[string]interface{}); ok {
-		// Check "passed" field (unified format)
 		if passed, exists := validatorMap["passed"].(bool); exists && !passed {
 			return false
 		}
 	}
-	// Try to access Passed field directly (for struct types)
-	if validatorStruct, ok := validator.(struct {
-		Passed  bool
-		Details interface{}
-	}); ok {
-		if !validatorStruct.Passed {
-			return false
+	// Try struct field via reflection (handles types.ValidationResult and similar structs)
+	if !extractBoolFieldViaReflection(validator, "Passed") {
+		// Only consider it failed if we actually found the field
+		rv := reflect.ValueOf(validator)
+		if rv.Kind() == reflect.Ptr {
+			rv = rv.Elem()
+		}
+		if rv.Kind() == reflect.Struct {
+			field := rv.FieldByName("Passed")
+			if field.IsValid() && field.Kind() == reflect.Bool {
+				return false
+			}
 		}
 	}
 	return true
@@ -573,22 +626,22 @@ func getOKFromResult(result interface{}) bool {
 			}
 		}
 	}
-	// Try struct field via reflection through JSON round-trip
-	return tryJSONRoundtripForOK(result)
+	// Try struct field via reflection
+	return extractBoolFieldViaReflection(result, "Passed")
 }
 
-// tryJSONRoundtripForOK tries to extract passed via JSON marshal/unmarshal
-func tryJSONRoundtripForOK(result interface{}) bool {
-	jsonBytes, err := json.Marshal(result)
-	if err == nil {
-		var m map[string]interface{}
-		if err := json.Unmarshal(jsonBytes, &m); err == nil {
-			if passedVal, exists := m["passed"]; exists {
-				if b, isBool := passedVal.(bool); isBool {
-					return b
-				}
-			}
-		}
+// extractBoolFieldViaReflection extracts a bool field from a struct using reflection.
+func extractBoolFieldViaReflection(v interface{}, fieldName string) bool {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return false
+	}
+	field := rv.FieldByName(fieldName)
+	if field.IsValid() && field.Kind() == reflect.Bool {
+		return field.Bool()
 	}
 	return false
 }
@@ -604,20 +657,22 @@ func getDetailsFromResult(result interface{}) interface{} {
 			return details
 		}
 	}
-	// Try struct field via reflection through JSON round-trip
-	return tryJSONRoundtripForDetails(result)
+	// Try struct field via reflection
+	return extractFieldViaReflection(result, "Details")
 }
 
-// tryJSONRoundtripForDetails tries to extract details via JSON marshal/unmarshal
-func tryJSONRoundtripForDetails(result interface{}) interface{} {
-	jsonBytes, err := json.Marshal(result)
-	if err == nil {
-		var m map[string]interface{}
-		if err := json.Unmarshal(jsonBytes, &m); err == nil {
-			if details, exists := m["details"]; exists {
-				return details
-			}
-		}
+// extractFieldViaReflection extracts a field value from a struct using reflection.
+func extractFieldViaReflection(v interface{}, fieldName string) interface{} {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return nil
+	}
+	field := rv.FieldByName(fieldName)
+	if field.IsValid() {
+		return field.Interface()
 	}
 	return nil
 }
@@ -782,8 +837,8 @@ func getMessage(result interface{}) string {
 		return msg
 	}
 
-	// Try via JSON round-trip as last resort
-	return getMessageViaJSON(result)
+	// No JSON round-trip fallback needed — struct and map access above cover all cases
+	return ""
 }
 
 // getMessageFromMap extracts message from a map
@@ -801,30 +856,13 @@ func getMessageFromMap(result interface{}) string {
 // getMessageFromStruct extracts message from a struct via reflection
 func getMessageFromStruct(result interface{}) string {
 	v := reflect.ValueOf(result)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
 	if v.Kind() == reflect.Struct {
 		messageField := v.FieldByName("Message")
 		if messageField.IsValid() && messageField.Kind() == reflect.String {
 			return messageField.String()
-		}
-	}
-	return ""
-}
-
-// getMessageViaJSON extracts message via JSON marshaling round-trip
-func getMessageViaJSON(result interface{}) string {
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return ""
-	}
-
-	var m map[string]interface{}
-	if err := json.Unmarshal(jsonBytes, &m); err != nil {
-		return ""
-	}
-
-	if msg, exists := m["message"]; exists {
-		if str, ok := msg.(string); ok {
-			return str
 		}
 	}
 	return ""

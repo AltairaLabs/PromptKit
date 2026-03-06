@@ -598,6 +598,8 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 	convAssertionResults := ce.evaluateConversationAssertions(&req, messages)
 
 	// Run pack eval session-level evals if configured
+	// TODO(ctx): Pass parent context instead of context.Background() to respect cancellation.
+	// Requires threading ctx through buildResultFromStateStore and all callers.
 	if ce.packEvalHook != nil && ce.packEvalHook.HasEvals() {
 		packResults := ce.packEvalHook.RunSessionEvals(
 			context.Background(), messages, req.ConversationID)
@@ -676,6 +678,8 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	}
 
 	// Run assertions through the eval pipeline and convert to ConversationValidationResult
+	// TODO(ctx): Pass parent context instead of context.Background() to respect cancellation.
+	// Requires threading ctx through buildResultFromStateStore and all callers.
 	results := ce.packEvalHook.RunAssertionsAsConversationResults(
 		context.Background(), assertionConfigs, messages,
 		len(messages)-1, req.ConversationID,
