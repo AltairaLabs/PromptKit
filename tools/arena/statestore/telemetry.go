@@ -13,6 +13,8 @@ func (s *ArenaStateStore) extractValidations(state *ArenaConversationState) []Va
 	for i, msg := range state.Messages {
 		if len(msg.Validations) > 0 {
 			// Calculate turn index (user=0, assistant=0; user=1, assistant=1, etc.)
+			// TODO(accuracy): This assumes strictly alternating user/assistant messages.
+			// Consider counting user messages instead for robustness with tool-call messages.
 			turnIndex := (i + 1) / 2
 
 			for _, v := range msg.Validations {

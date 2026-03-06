@@ -480,7 +480,11 @@ func (e *Engine) enrichMessagesWithToolDescriptors(
 	}
 
 	if enriched {
-		_ = store.Save(ctx, convState)
+		if err := store.Save(ctx, convState); err != nil {
+			logger.Warn("Failed to save enriched tool descriptors to state store",
+				"conversation_id", convState.ID,
+				"error", err)
+		}
 	}
 }
 

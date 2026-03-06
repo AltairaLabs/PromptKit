@@ -115,7 +115,8 @@ spec:
 	require.Len(t, cfg.LoadedTools, 1, "Expected 1 tool to be loaded")
 
 	// Build memory repo and compile
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	require.NotNil(t, registry, "Registry should not be nil")
 
@@ -407,7 +408,8 @@ spec:
 	cfg, err := config.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	compiler := prompt.NewPackCompiler(registry)
 
@@ -502,7 +504,8 @@ spec:
 	cfg, err := config.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	compiler := prompt.NewPackCompiler(registry)
 
@@ -613,7 +616,8 @@ spec:
 	assert.Equal(t, "global-cost", cfg.PackEvals[0].ID)
 
 	// Build and compile
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	compiler := prompt.NewPackCompiler(registry)
 
@@ -701,7 +705,8 @@ spec:
 	cfg, err := config.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	compiler := prompt.NewPackCompiler(registry)
 
@@ -777,7 +782,8 @@ spec:
 	cfg, err := config.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	compiler := prompt.NewPackCompiler(registry)
 
@@ -904,7 +910,8 @@ spec:
 	require.NotEmpty(t, cfg.Workflow, "Workflow should be loaded from config")
 
 	// Build and compile
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	compiler := prompt.NewPackCompiler(registry)
 
@@ -1006,7 +1013,8 @@ spec:
 
 	require.NotEmpty(t, cfg.Agents, "Agents should be loaded from config")
 
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	compiler := prompt.NewPackCompiler(registry)
 
@@ -1100,7 +1108,8 @@ spec:
 	cfg, err := config.LoadConfig(arenaPath)
 	require.NoError(t, err)
 
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, repoErr := buildMemoryRepo(cfg)
+	require.NoError(t, repoErr)
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	compiler := prompt.NewPackCompiler(registry)
 

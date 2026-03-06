@@ -408,43 +408,46 @@ func (e *Engine) closeEventStore() error {
 // Returns a slice of RunIDs in the same order as plan.Combinations, or an error
 // if execution setup fails. Individual run errors are stored in StateStore, not returned here.
 func (e *Engine) ExecuteRuns(ctx context.Context, plan *RunPlan, concurrency int) ([]string, error) {
-	// TODO(perf): Refactor to a worker pool pattern where only `concurrency` goroutines
-	// consume from a work channel, instead of launching len(plan.Combinations) goroutines
-	// upfront. The current approach uses a semaphore to limit concurrency, but all goroutines
-	// are created immediately, consuming memory proportional to the plan size.
 	runIDs := make([]string, len(plan.Combinations))
 	errors := make([]error, len(plan.Combinations))
-	semaphore := make(chan struct{}, concurrency)
+
+	// workItem pairs a combination with its index in the results slice.
+	type workItem struct {
+		idx   int
+		combo RunCombination
+	}
+
+	work := make(chan workItem, len(plan.Combinations))
+	for i, combo := range plan.Combinations {
+		work <- workItem{idx: i, combo: combo}
+	}
+	close(work)
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for i, combination := range plan.Combinations {
+	for range concurrency {
 		wg.Add(1)
-		go func(idx int, combo RunCombination) {
+		go func() {
 			defer wg.Done()
+			for item := range work {
+				// Check cancellation before starting work.
+				if ctx.Err() != nil {
+					mu.Lock()
+					runIDs[item.idx] = ""
+					errors[item.idx] = ctx.Err()
+					mu.Unlock()
+					continue
+				}
 
-			// Check if context is already canceled before blocking on semaphore.
-			// This prevents canceled runs from wastefully occupying goroutines
-			// waiting on an already-exhausted semaphore.
-			select {
-			case <-ctx.Done():
+				runID, err := e.executeRun(ctx, item.combo)
+
 				mu.Lock()
-				runIDs[idx] = ""
-				errors[idx] = ctx.Err()
+				runIDs[item.idx] = runID
+				errors[item.idx] = err
 				mu.Unlock()
-				return
-			case semaphore <- struct{}{}:
-				// acquired
 			}
-			defer func() { <-semaphore }()
-
-			runID, err := e.executeRun(ctx, combo)
-
-			mu.Lock()
-			runIDs[idx] = runID
-			errors[idx] = err
-			mu.Unlock()
-		}(i, combination)
+		}()
 	}
 
 	wg.Wait()

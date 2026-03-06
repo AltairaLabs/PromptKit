@@ -380,12 +380,12 @@ func TestPrintPromptValidators(t *testing.T) {
 		p := &prompt.PackPrompt{
 			Validators: []prompt.ValidatorConfig{
 				{
-					Type: "length",
-					Enabled:         &enabled,
+					Type:    "length",
+					Enabled: &enabled,
 				},
 				{
-					Type: "sentiment",
-					Enabled:         &disabled,
+					Type:    "sentiment",
+					Enabled: &disabled,
 				},
 			},
 		}
@@ -446,7 +446,8 @@ func TestBuildMemoryRepo(t *testing.T) {
 		},
 	}
 
-	repo := buildMemoryRepo(cfg)
+	repo, err := buildMemoryRepo(cfg)
+	require.NoError(t, err)
 	assert.NotNil(t, repo)
 
 	// Verify prompt was registered
@@ -456,7 +457,7 @@ func TestBuildMemoryRepo(t *testing.T) {
 }
 
 func TestBuildMemoryRepo_InvalidConfig(t *testing.T) {
-	// This would cause os.Exit in real code, but we test the logic
+	// nil config should be skipped without error
 	cfg := &config.Config{
 		LoadedPromptConfigs: map[string]*config.PromptConfigData{
 			"test": {
@@ -466,7 +467,8 @@ func TestBuildMemoryRepo_InvalidConfig(t *testing.T) {
 		},
 	}
 
-	repo := buildMemoryRepo(cfg)
+	repo, err := buildMemoryRepo(cfg)
+	require.NoError(t, err)
 	assert.NotNil(t, repo)
 }
 
@@ -545,8 +547,8 @@ func TestPrintPromptDetails(t *testing.T) {
 		Tools: []string{"tool1"},
 		Validators: []prompt.ValidatorConfig{
 			{
-				Type: "length",
-				Enabled:         &enabled,
+				Type:    "length",
+				Enabled: &enabled,
 			},
 		},
 		TestedModels: []prompt.ModelTestResultRef{

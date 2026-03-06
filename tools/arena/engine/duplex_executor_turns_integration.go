@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -411,6 +412,9 @@ func (de *DuplexConversationExecutor) streamFromFileSource(
 	for {
 		chunk, err := source.ReadChunk(defaultAudioChunkSize)
 		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				logger.Warn("Non-EOF error while streaming audio from file source", "error", err)
+			}
 			return nil // EOF or error - stop streaming
 		}
 
@@ -512,7 +516,7 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	}
 
 	// Collect conversation history from state store
-	history := de.getConversationHistory(req)
+	history := de.getConversationHistory(ctx, req)
 
 	// Generate text and convert to audio
 	// Pass the selfplay turn number so the mock provider gets the correct turn response

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -46,6 +47,7 @@ func TestScriptedExecutor_BuildUserMessage_MultimodalParts(t *testing.T) {
 	defer server.Close()
 
 	executor := NewScriptedExecutor(nil)
+	executor.httpLoader = newTestHTTPMediaLoader(5*time.Second, 10*1024*1024)
 
 	turnParts := []config.TurnContentPart{
 		{Type: "text", Text: "What's in this image?"},

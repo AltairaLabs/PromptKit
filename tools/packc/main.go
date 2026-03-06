@@ -16,7 +16,7 @@ const version = "v0.1.0"
 
 const warningFormat = "  - %s\n"
 
-func buildMemoryRepo(cfg *config.Config) *memory.PromptRepository {
+func buildMemoryRepo(cfg *config.Config) (*memory.PromptRepository, error) {
 	memRepo := memory.NewPromptRepository()
 
 	for _, promptData := range cfg.LoadedPromptConfigs {
@@ -26,17 +26,15 @@ func buildMemoryRepo(cfg *config.Config) *memory.PromptRepository {
 
 		promptConfig, ok := promptData.Config.(*prompt.Config)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Error: prompt config %s has invalid type\n", promptData.FilePath)
-			os.Exit(1)
+			return nil, fmt.Errorf("prompt config %s has invalid type", promptData.FilePath)
 		}
 
 		if err := memRepo.SavePrompt(promptConfig); err != nil {
-			fmt.Fprintf(os.Stderr, "Error registering prompt %s: %v\n", promptData.FilePath, err)
-			os.Exit(1)
+			return nil, fmt.Errorf("registering prompt %s: %w", promptData.FilePath, err)
 		}
 	}
 
-	return memRepo
+	return memRepo, nil
 }
 
 func validateLoadedMedia(cfg *config.Config, configDir string) {

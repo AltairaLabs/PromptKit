@@ -184,7 +184,7 @@ func (de *DuplexConversationExecutor) executeDuplexPipeline(
 	}
 
 	// Build result from state store
-	return de.buildResultFromStateStore(req)
+	return de.buildResultFromStateStore(ctx, req)
 }
 
 // isExpectedDuplexError checks if an error is expected (not a failure).

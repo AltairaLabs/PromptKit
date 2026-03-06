@@ -21,11 +21,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/microcosm-cc/bluemonday"
+	"github.com/russross/blackfriday/v2"
+
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
-	"github.com/russross/blackfriday/v2"
 )
+
+// markdownSanitizer is a package-level bluemonday UGC policy used
+// to sanitize markdown-rendered HTML and prevent XSS.
+var markdownSanitizer = bluemonday.UGCPolicy()
 
 // HTML template is embedded from external file using go:embed directive.
 // This allows for easier editing and maintenance of the template while
@@ -722,14 +728,16 @@ func prettyJSON(v interface{}) string {
 	}
 }
 
-// renderMarkdown converts markdown to HTML
+// renderMarkdown converts markdown to sanitized HTML.
+// The output is sanitized via bluemonday's UGC policy to prevent XSS.
 func renderMarkdown(content string) template.HTML {
 	// Convert markdown to HTML with extensions for better list handling
 	extensions := blackfriday.CommonExtensions |
 		blackfriday.HardLineBreak |
 		blackfriday.NoEmptyLineBeforeBlock
-	html := blackfriday.Run([]byte(content), blackfriday.WithExtensions(extensions))
-	return template.HTML(html)
+	raw := blackfriday.Run([]byte(content), blackfriday.WithExtensions(extensions))
+	sanitized := markdownSanitizer.SanitizeBytes(raw)
+	return template.HTML(sanitized) //nolint:gosec // Output is sanitized by bluemonday UGC policy
 }
 
 // convertToJS converts a Go value to JSON for use in JavaScript

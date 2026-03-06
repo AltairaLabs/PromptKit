@@ -630,7 +630,7 @@ func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
 				},
 			}
 
-			executor.applyTurnAssertions(tt.assertionCfgs, tt.msg, convCtx)
+			executor.applyTurnAssertions(context.Background(), tt.assertionCfgs, tt.msg, convCtx)
 
 			// Without packEvalHook, no assertions should be stored in metadata
 			if tt.msg.Meta != nil {
@@ -758,7 +758,7 @@ func TestEvalConversationExecutor_TurnAssertionsWithEvalOnlyHook(t *testing.T) {
 		},
 	}
 
-	executor.applyTurnAssertions(assertionCfgs, msg, convCtx)
+	executor.applyTurnAssertions(context.Background(), assertionCfgs, msg, convCtx)
 
 	if msg.Meta == nil {
 		t.Fatal("Expected message metadata to be set")
@@ -841,4 +841,3 @@ func TestEvalConversationExecutor_ApplyConversationAssertions(t *testing.T) {
 		})
 	}
 }
-

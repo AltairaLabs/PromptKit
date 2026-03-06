@@ -109,6 +109,12 @@ type compileFlags struct {
 	packID     string
 }
 
+// Pre-compiled regexes for sanitizePackID to avoid recompilation on every call.
+var (
+	reNonAlphanumDash = regexp.MustCompile(`[^a-z0-9-]`)
+	reMultipleDashes  = regexp.MustCompile(`-+`)
+)
+
 // sanitizePackID converts a folder name to a valid pack ID.
 // It converts to lowercase, replaces spaces with dashes, and removes special characters.
 func sanitizePackID(name string) string {
@@ -117,11 +123,9 @@ func sanitizePackID(name string) string {
 	// Replace spaces with dashes
 	result = strings.ReplaceAll(result, " ", "-")
 	// Remove all characters except alphanumeric and dashes
-	reg := regexp.MustCompile(`[^a-z0-9-]`)
-	result = reg.ReplaceAllString(result, "")
+	result = reNonAlphanumDash.ReplaceAllString(result, "")
 	// Clean up multiple consecutive dashes
-	reg = regexp.MustCompile(`-+`)
-	result = reg.ReplaceAllString(result, "-")
+	result = reMultipleDashes.ReplaceAllString(result, "-")
 	// Trim leading/trailing dashes
 	result = strings.Trim(result, "-")
 	return result
@@ -215,7 +219,11 @@ func compileCommand() {
 	flags := parseCompileFlags()
 
 	cfg := mustLoadConfig(flags.configFile)
-	memRepo := buildMemoryRepo(cfg)
+	memRepo, err := buildMemoryRepo(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 	registry := prompt.NewRegistryWithRepository(memRepo)
 	if registry == nil {
 		fmt.Fprintln(os.Stderr, "No prompt configs found in arena.yaml")
@@ -348,7 +356,7 @@ func compilePromptCommand() {
 	}
 
 	// Create memory repository and register the prompt
-	memRepo := buildMemoryRepo(&config.Config{
+	memRepo, err := buildMemoryRepo(&config.Config{
 		LoadedPromptConfigs: map[string]*config.PromptConfigData{
 			taskType: {
 				FilePath: *promptFile,
@@ -356,6 +364,10 @@ func compilePromptCommand() {
 			},
 		},
 	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Create registry with memory repository
 	registry := prompt.NewRegistryWithRepository(memRepo)

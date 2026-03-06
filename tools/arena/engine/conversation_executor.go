@@ -98,7 +98,7 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 			ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, err)
 
 			// Load messages from StateStore (they were saved before validation failed)
-			result := ce.buildResultFromStateStore(*req)
+			result := ce.buildResultFromStateStore(ctx, req)
 			result.Failed = true
 			result.Error = err.Error()
 			return result
@@ -111,7 +111,7 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 	}
 
 	// Load final conversation state from StateStore
-	return ce.buildResultFromStateStore(*req)
+	return ce.buildResultFromStateStore(ctx, req)
 }
 
 // executeNonStreamingTurn executes a single turn without streaming
@@ -184,14 +184,14 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(
 
 		if err != nil {
 			ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, err)
-			return ce.handleTurnExecutionError(*req, err, turnIdx, scenarioTurn)
+			return ce.handleTurnExecutionError(ctx, req, err, turnIdx, scenarioTurn)
 		}
 
 		ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, nil)
 		ce.logTurnCompletion(turnIdx, scenarioTurn, req.Scenario.ShouldStreamTurn(turnIdx))
 	}
 
-	return ce.buildResultFromStateStore(*req)
+	return ce.buildResultFromStateStore(ctx, req)
 }
 
 // executeStreamingTurn executes a single turn with streaming support
@@ -356,14 +356,18 @@ func (ce *DefaultConversationExecutor) executeScriptedTurn(ctx context.Context, 
 }
 
 // handleTurnExecutionError handles errors that occur during turn execution
-func (ce *DefaultConversationExecutor) handleTurnExecutionError(req ConversationRequest, err error, turnIdx int, scenarioTurn config.TurnDefinition) *ConversationResult {
+//
+//nolint:gocritic // scenarioTurn value receiver matches range variable from caller
+func (ce *DefaultConversationExecutor) handleTurnExecutionError(
+	ctx context.Context, req *ConversationRequest, err error, turnIdx int, scenarioTurn config.TurnDefinition,
+) *ConversationResult {
 	logger.Error("Turn execution failed",
 		"turn", turnIdx,
 		"role", scenarioTurn.Role,
 		"streaming", req.Scenario.ShouldStreamTurn(turnIdx),
 		"error", err)
 
-	result := ce.buildResultFromStateStore(req)
+	result := ce.buildResultFromStateStore(ctx, req)
 	result.Failed = true
 	result.Error = err.Error()
 	return result
@@ -425,7 +429,7 @@ func (ce *DefaultConversationExecutor) executeStreamingConversation(ctx context.
 		}
 	}
 
-	ce.sendFinalStreamResult(req, outChan)
+	ce.sendFinalStreamResult(ctx, &req, outChan)
 }
 
 // initializeStreamResult creates the initial conversation result for streaming
@@ -524,8 +528,10 @@ func (ce *DefaultConversationExecutor) sendTurnChunk(outChan chan<- Conversation
 }
 
 // sendFinalStreamResult sends the final result with complete conversation state
-func (ce *DefaultConversationExecutor) sendFinalStreamResult(req ConversationRequest, outChan chan<- ConversationStreamChunk) {
-	finalResult := ce.buildResultFromStateStore(req)
+func (ce *DefaultConversationExecutor) sendFinalStreamResult(
+	ctx context.Context, req *ConversationRequest, outChan chan<- ConversationStreamChunk,
+) {
+	finalResult := ce.buildResultFromStateStore(ctx, req)
 	outChan <- ConversationStreamChunk{
 		Result: finalResult,
 	}
@@ -582,8 +588,10 @@ func providerSpecFromConfig(p *config.Provider, overrideModel string) providers.
 }
 
 // buildResultFromStateStore loads the final conversation state from StateStore and builds the result
-func (ce *DefaultConversationExecutor) buildResultFromStateStore(req ConversationRequest) *ConversationResult {
-	_, messages, err := ce.loadMessagesFromStateStore(req)
+func (ce *DefaultConversationExecutor) buildResultFromStateStore(
+	ctx context.Context, req *ConversationRequest,
+) *ConversationResult {
+	_, messages, err := ce.loadMessagesFromStateStore(ctx, req)
 	if err != nil {
 		return ce.createErrorResult(err.Error())
 	}
@@ -595,14 +603,12 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(req Conversatio
 	mediaOutputs := CollectMediaOutputs(messages)
 
 	// Evaluate conversation-level assertions, if any
-	convAssertionResults := ce.evaluateConversationAssertions(&req, messages)
+	convAssertionResults := ce.evaluateConversationAssertions(ctx, req, messages)
 
 	// Run pack eval session-level evals if configured
-	// TODO(ctx): Pass parent context instead of context.Background() to respect cancellation.
-	// Requires threading ctx through buildResultFromStateStore and all callers.
 	if ce.packEvalHook != nil && ce.packEvalHook.HasEvals() {
 		packResults := ce.packEvalHook.RunSessionEvals(
-			context.Background(), messages, req.ConversationID)
+			ctx, messages, req.ConversationID)
 		convAssertionResults = append(convAssertionResults, packResults...)
 	}
 
@@ -649,6 +655,7 @@ func collectConversationAssertions(
 // evaluateConversationAssertions evaluates scenario-level conversation assertions after all turns complete.
 // Uses the eval-only path via PackEvalHook.
 func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
+	ctx context.Context,
 	req *ConversationRequest,
 	messages []types.Message,
 ) []asrt.ConversationValidationResult {
@@ -678,10 +685,8 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	}
 
 	// Run assertions through the eval pipeline and convert to ConversationValidationResult
-	// TODO(ctx): Pass parent context instead of context.Background() to respect cancellation.
-	// Requires threading ctx through buildResultFromStateStore and all callers.
 	results := ce.packEvalHook.RunAssertionsAsConversationResults(
-		context.Background(), assertionConfigs, messages,
+		ctx, assertionConfigs, messages,
 		len(messages)-1, req.ConversationID,
 		evals.TriggerOnConversationComplete,
 	)
@@ -722,7 +727,9 @@ func buildMetadataExtras(req *ConversationRequest, promptRegistry *prompt.Regist
 }
 
 // loadMessagesFromStateStore loads messages from the state store
-func (ce *DefaultConversationExecutor) loadMessagesFromStateStore(req ConversationRequest) (statestore.Store, []types.Message, error) {
+func (ce *DefaultConversationExecutor) loadMessagesFromStateStore(
+	ctx context.Context, req *ConversationRequest,
+) (statestore.Store, []types.Message, error) {
 	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil {
 		return nil, nil, errors.New("StateStore is required but not configured")
 	}
@@ -732,7 +739,7 @@ func (ce *DefaultConversationExecutor) loadMessagesFromStateStore(req Conversati
 		return nil, nil, errors.New("invalid StateStore implementation")
 	}
 
-	state, err := store.Load(context.Background(), req.ConversationID)
+	state, err := store.Load(ctx, req.ConversationID)
 	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
 		return nil, nil, fmt.Errorf("failed to load conversation from StateStore: %v", err)
 	}

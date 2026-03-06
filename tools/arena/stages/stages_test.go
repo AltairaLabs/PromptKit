@@ -719,7 +719,7 @@ func TestDeepCopyMap(t *testing.T) {
 		"key2": 42,
 	}
 
-	copied := deepCopyMap(original)
+	copied := shallowCopyMap(original)
 
 	assert.Equal(t, "value1", copied["key1"])
 	assert.Equal(t, 42, copied["key2"])
@@ -730,7 +730,7 @@ func TestDeepCopyMap(t *testing.T) {
 }
 
 func TestDeepCopyMap_Nil(t *testing.T) {
-	result := deepCopyMap(nil)
+	result := shallowCopyMap(nil)
 	assert.Nil(t, result)
 }
 

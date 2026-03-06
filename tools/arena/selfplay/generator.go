@@ -208,6 +208,8 @@ func convertStageResult(stageResult *stage.ExecutionResult) *pipeline.ExecutionR
 // validateUserResponse validates that the user response meets requirements
 func (cg *ContentGenerator) validateUserResponse(content string) error {
 	// Check length (≤2 sentences)
+	// TODO(accuracy): Splitting on "." is unreliable with abbreviations (e.g. "Dr.", "U.S."),
+	// decimals (e.g. "3.14"), and URLs. Consider a more robust sentence segmentation approach.
 	sentences := strings.Split(strings.TrimSpace(content), ".")
 	// Filter out empty strings
 	var nonEmptySentences []string
