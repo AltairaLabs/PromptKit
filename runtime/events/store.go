@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
 )
 
 // File system constants.
@@ -20,6 +22,10 @@ const (
 	scannerBufSize     = 1024 * 1024 // 1MB buffer for large events
 	streamChanSize     = 100
 	errOpenSessionFile = "open session file: %w"
+
+	// DefaultMaxOpenFiles is the default maximum number of open file handles
+	// in FileEventStore before LRU eviction closes the least recently used ones.
+	DefaultMaxOpenFiles = 256
 )
 
 // EventStore persists events for later replay and analysis.
@@ -209,23 +215,45 @@ func (se *SerializableEvent) RawData() json.RawMessage {
 
 // FileEventStore implements EventStore using JSON Lines files.
 // Each session is stored in a separate file for efficient streaming.
+// Open file handles are managed with LRU eviction to bound resource usage.
 type FileEventStore struct {
-	dir      string
-	mu       sync.RWMutex
-	files    map[string]*os.File
-	sequence atomic.Int64
+	dir          string
+	mu           sync.RWMutex
+	files        *lru.Cache[string, *os.File]
+	maxOpenFiles int
+	sequence     atomic.Int64
+}
+
+// FileEventStoreOption configures a FileEventStore.
+type FileEventStoreOption func(*FileEventStore)
+
+// WithMaxOpenFiles sets the maximum number of open file handles.
+// Default is DefaultMaxOpenFiles (256).
+func WithMaxOpenFiles(maxFiles int) FileEventStoreOption {
+	return func(s *FileEventStore) {
+		s.maxOpenFiles = maxFiles
+	}
 }
 
 // NewFileEventStore creates a file-based event store.
 // Events are stored as JSON Lines in the specified directory.
-func NewFileEventStore(dir string) (*FileEventStore, error) {
+func NewFileEventStore(dir string, opts ...FileEventStoreOption) (*FileEventStore, error) {
 	if err := os.MkdirAll(dir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("create event store directory: %w", err)
 	}
-	return &FileEventStore{
-		dir:   dir,
-		files: make(map[string]*os.File),
-	}, nil
+	s := &FileEventStore{
+		dir:          dir,
+		maxOpenFiles: DefaultMaxOpenFiles,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	s.files = lru.New[string, *os.File](s.maxOpenFiles, func(_ string, f *os.File) {
+		// Sync and close evicted file handles
+		_ = f.Sync()
+		_ = f.Close()
+	})
+	return s, nil
 }
 
 // Append adds an event to the store.
@@ -280,6 +308,7 @@ func (s *FileEventStore) Query(ctx context.Context, filter *EventFilter) ([]*Eve
 	}
 	defer f.Close()
 
+	typeSet := buildTypeSet(filter.Types)
 	var events []*Event
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
@@ -297,7 +326,7 @@ func (s *FileEventStore) Query(ctx context.Context, filter *EventFilter) ([]*Eve
 		}
 
 		event := stored.Event.toEvent()
-		if s.matchesFilter(event, filter) {
+		if s.matchesFilterWithSet(event, filter, typeSet) {
 			events = append(events, event)
 			if filter.Limit > 0 && len(events) >= filter.Limit {
 				break
@@ -324,6 +353,7 @@ func (s *FileEventStore) QueryRaw(ctx context.Context, filter *EventFilter) ([]*
 	}
 	defer f.Close()
 
+	typeSet := buildTypeSet(filter.Types)
 	var stored []*StoredEvent
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, scannerBufSize), scannerBufSize)
@@ -341,7 +371,7 @@ func (s *FileEventStore) QueryRaw(ctx context.Context, filter *EventFilter) ([]*
 		}
 
 		event := se.Event.toEvent()
-		if s.matchesFilter(event, filter) {
+		if s.matchesFilterWithSet(event, filter, typeSet) {
 			stored = append(stored, &se)
 			if filter.Limit > 0 && len(stored) >= filter.Limit {
 				break
@@ -396,9 +426,11 @@ func (s *FileEventStore) Sync() error {
 	defer s.mu.Unlock()
 
 	var errs []error
-	for _, f := range s.files {
-		if err := f.Sync(); err != nil {
-			errs = append(errs, err)
+	for _, key := range s.files.Keys() {
+		if f, ok := s.files.Get(key); ok {
+			if err := f.Sync(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 	if len(errs) > 0 {
@@ -413,15 +445,21 @@ func (s *FileEventStore) Close() error {
 	defer s.mu.Unlock()
 
 	var errs []error
-	for _, f := range s.files {
-		if err := f.Sync(); err != nil {
-			errs = append(errs, err)
-		}
-		if err := f.Close(); err != nil {
-			errs = append(errs, err)
+	for _, key := range s.files.Keys() {
+		if f, ok := s.files.Get(key); ok {
+			if err := f.Sync(); err != nil {
+				errs = append(errs, err)
+			}
+			if err := f.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
-	s.files = make(map[string]*os.File)
+	// Replace with empty cache (eviction callbacks already closed files above)
+	s.files = lru.New[string, *os.File](s.maxOpenFiles, func(_ string, f *os.File) {
+		_ = f.Sync()
+		_ = f.Close()
+	})
 
 	if len(errs) > 0 {
 		return fmt.Errorf("close files: %v", errs)
@@ -435,9 +473,10 @@ func (s *FileEventStore) sessionPath(sessionID string) string {
 }
 
 // getOrCreateFile returns the file for a session, creating it if needed.
+// Uses LRU eviction to bound the number of open file handles.
 // Caller must hold s.mu.
 func (s *FileEventStore) getOrCreateFile(sessionID string) (*os.File, error) {
-	if f, ok := s.files[sessionID]; ok {
+	if f, ok := s.files.Get(sessionID); ok {
 		return f, nil
 	}
 
@@ -448,8 +487,20 @@ func (s *FileEventStore) getOrCreateFile(sessionID string) (*os.File, error) {
 		return nil, fmt.Errorf("create session file: %w", err)
 	}
 
-	s.files[sessionID] = f
+	s.files.Put(sessionID, f)
 	return f, nil
+}
+
+// buildTypeSet pre-builds a set from the filter's Types slice for O(1) lookups.
+func buildTypeSet(types []EventType) map[EventType]struct{} {
+	if len(types) == 0 {
+		return nil
+	}
+	m := make(map[EventType]struct{}, len(types))
+	for _, t := range types {
+		m[t] = struct{}{}
+	}
+	return m
 }
 
 // matchesFilter checks if an event matches the filter criteria.
@@ -478,6 +529,7 @@ func (s *FileEventStore) matchesBasicCriteria(event *Event, filter *EventFilter)
 }
 
 // matchesEventTypes checks if the event type is in the allowed list.
+// For filters with many types, callers should use matchesEventTypeSet for O(1) lookup.
 func (s *FileEventStore) matchesEventTypes(eventType EventType, types []EventType) bool {
 	if len(types) == 0 {
 		return true
@@ -488,6 +540,25 @@ func (s *FileEventStore) matchesEventTypes(eventType EventType, types []EventTyp
 		}
 	}
 	return false
+}
+
+// matchesEventTypeSet checks event type membership using a pre-built set for O(1) lookup.
+func matchesEventTypeSet(eventType EventType, typeSet map[EventType]struct{}) bool {
+	if len(typeSet) == 0 {
+		return true
+	}
+	_, ok := typeSet[eventType]
+	return ok
+}
+
+// matchesFilterWithSet checks if an event matches the filter using a pre-built type set.
+func (s *FileEventStore) matchesFilterWithSet(
+	event *Event, filter *EventFilter, typeSet map[EventType]struct{},
+) bool {
+	if !s.matchesBasicCriteria(event, filter) {
+		return false
+	}
+	return matchesEventTypeSet(event.Type, typeSet)
 }
 
 // Ensure FileEventStore implements EventStore.

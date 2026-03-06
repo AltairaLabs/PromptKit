@@ -77,12 +77,15 @@ func WithMaxFileSize(size int64) FileStoreOption {
 type FileStore struct {
 	config FileStoreConfig
 
-	// dedupIndex maps content hashes to file paths for deduplication
+	// dedupIndex maps content hashes to file paths for deduplication.
+	// TODO: For very large stores (>100K entries), consider replacing with a disk-backed
+	// index (e.g., BoltDB) to avoid unbounded memory growth. Acceptable for current usage.
 	dedupIndex map[string]string
 	dedupDirty bool // tracks whether the in-memory index has unsaved changes
 	dedupMu    sync.RWMutex
 
-	// refCounts tracks how many references exist for each deduplicated file
+	// refCounts tracks how many references exist for each deduplicated file.
+	// TODO: For very large stores, consider a disk-backed refcount index.
 	refCounts map[string]int
 	refMu     sync.RWMutex
 }
@@ -205,12 +208,12 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 	if fs.config.EnableDeduplication {
 		hash = fs.computeHash(data)
 
-		// Check if we already have this content
-		fs.dedupMu.RLock()
+		// Hold write lock from check through index update to prevent race where
+		// two goroutines both pass the existence check and write the same file.
+		fs.dedupMu.Lock()
 		existingPath, exists := fs.dedupIndex[hash]
-		fs.dedupMu.RUnlock()
-
 		if exists {
+			fs.dedupMu.Unlock()
 			// Increment reference count
 			fs.refMu.Lock()
 			fs.refCounts[existingPath]++
@@ -218,28 +221,37 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 
 			return storage.Reference(existingPath), nil
 		}
+		// Keep dedupMu locked — will update index after write below
 	}
 
 	// Generate file path based on organization mode
 	filePath, err := fs.generateFilePath(metadata, hash, content.MIMEType)
 	if err != nil {
+		if fs.config.EnableDeduplication {
+			fs.dedupMu.Unlock()
+		}
 		return "", fmt.Errorf("failed to generate file path: %w", err)
 	}
 
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
 	if err := os.MkdirAll(dir, 0750); err != nil {
+		if fs.config.EnableDeduplication {
+			fs.dedupMu.Unlock()
+		}
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	// Write file atomically (write to temp, then rename)
 	if err := fs.writeFileAtomic(filePath, data); err != nil {
+		if fs.config.EnableDeduplication {
+			fs.dedupMu.Unlock()
+		}
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	// Update deduplication index
+	// Update deduplication index (lock already held from check above)
 	if fs.config.EnableDeduplication && hash != "" {
-		fs.dedupMu.Lock()
 		fs.dedupIndex[hash] = filePath
 		fs.dedupDirty = true
 		fs.dedupMu.Unlock()

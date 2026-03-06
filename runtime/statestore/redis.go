@@ -207,9 +207,10 @@ func (s *RedisStore) loadMonolithic(ctx context.Context, id string) (*Conversati
 
 // Save persists a conversation state to Redis using decomposed keys.
 // Metadata is stored in a meta key, messages in a Redis list, and summaries in a separate list.
-// This avoids serializing the entire state as one monolithic JSON blob, significantly reducing
-// serialization cost for conversations with many messages since only the meta (small) is
-// fully rewritten, while messages and summaries are replaced in their list keys.
+// Messages use append-only delta writes: only new messages (beyond what is already stored)
+// are RPUSHed, avoiding the cost of DEL+RPUSH for the entire list on every save.
+// If the message count in Redis exceeds the local count (e.g., external truncation),
+// a full rewrite is performed.
 func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	if state == nil {
 		return ErrInvalidState
@@ -227,13 +228,38 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 		return fmt.Errorf("failed to marshal meta: %w", err)
 	}
 
-	// Build pipeline: write meta, replace messages/summaries lists, cleanup legacy key, update index
+	// Check how many messages are already stored so we can do a delta RPUSH
+	msgKey := s.messagesKey(state.ID)
+	existingCount, err := s.client.LLen(ctx, msgKey).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return fmt.Errorf("redis llen failed: %w", err)
+	}
+
+	// Build pipeline: write meta, delta-append messages, replace summaries, cleanup legacy, update index
 	pipe := s.client.Pipeline()
 	pipe.Set(ctx, s.metaKey(state.ID), metaData, s.ttl)
 
-	if err := s.pipeReplaceList(ctx, pipe, s.messagesKey(state.ID), marshalMessages(state.Messages)); err != nil {
-		return err
+	newCount := int64(len(state.Messages))
+	if existingCount > 0 && existingCount <= newCount {
+		// Append-only delta: only RPUSH messages beyond what is already stored
+		delta := state.Messages[existingCount:]
+		if len(delta) > 0 {
+			vals, marshalErr := marshalMessageSlice(delta)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			pipe.RPush(ctx, msgKey, vals...)
+		}
+		if s.ttl > 0 {
+			pipe.Expire(ctx, msgKey, s.ttl)
+		}
+	} else {
+		// Full rewrite: count mismatch (truncation, first save, or empty list)
+		if replaceErr := s.pipeReplaceList(ctx, pipe, msgKey, marshalMessages(state.Messages)); replaceErr != nil {
+			return replaceErr
+		}
 	}
+
 	if err := s.pipeReplaceList(ctx, pipe, s.summariesKey(state.ID), marshalSummaries(state.Summaries)); err != nil {
 		return err
 	}
@@ -242,12 +268,26 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	pipe.Del(ctx, s.conversationKey(state.ID))
 
 	s.pipeUpdateUserIndex(ctx, pipe, state.UserID, state.ID)
+	s.pipeUpdateGlobalIndex(ctx, pipe, state.ID)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("redis pipeline failed: %w", err)
 	}
 
 	return nil
+}
+
+// marshalMessageSlice serializes a message slice to a list of interface{} values.
+func marshalMessageSlice(msgs []types.Message) ([]interface{}, error) {
+	vals := make([]interface{}, 0, len(msgs))
+	for i := range msgs {
+		data, err := json.Marshal(&msgs[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal message: %w", err)
+		}
+		vals = append(vals, data)
+	}
+	return vals, nil
 }
 
 // stateToMeta extracts the metadata fields from a ConversationState.
@@ -322,6 +362,19 @@ func (s *RedisStore) pipeUpdateUserIndex(ctx context.Context, pipe redis.Pipelin
 	}
 }
 
+// pipeUpdateGlobalIndex adds commands to the pipeline to maintain a global conversation ID set.
+// This avoids expensive SCAN operations when listing all conversations.
+func (s *RedisStore) pipeUpdateGlobalIndex(ctx context.Context, pipe redis.Pipeliner, convID string) {
+	indexKey := s.globalIndexKey()
+	pipe.SAdd(ctx, indexKey, convID)
+	// No TTL on global index — entries are removed explicitly on Delete.
+}
+
+// globalIndexKey returns the Redis key for the global conversation index set.
+func (s *RedisStore) globalIndexKey() string {
+	return fmt.Sprintf("%s:conversations:index", s.prefix)
+}
+
 // Fork creates a copy of an existing conversation state with a new ID.
 func (s *RedisStore) Fork(ctx context.Context, sourceID, newID string) error {
 	if sourceID == "" || newID == "" {
@@ -370,6 +423,9 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error {
 		pipe.SRem(ctx, indexKey, id)
 	}
 
+	// Remove from global conversation index
+	pipe.SRem(ctx, s.globalIndexKey(), id)
+
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("redis pipeline failed: %w", err)
 	}
@@ -416,9 +472,26 @@ func (s *RedisStore) fetchUserConversations(ctx context.Context, userID string) 
 	return members, nil
 }
 
-// scanAllConversations scans all conversation keys in Redis.
-// Scans both legacy monolithic keys and decomposed meta keys to find all conversations.
+// scanAllConversations returns all conversation IDs using the global index set.
+// Falls back to SCAN if the global index is empty (e.g., legacy data).
 func (s *RedisStore) scanAllConversations(ctx context.Context) ([]string, error) {
+	// Try global index set first (O(N) SMEMBERS vs O(N) SCAN with cursor overhead)
+	indexKey := s.globalIndexKey()
+	members, err := s.client.SMembers(ctx, indexKey).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis smembers global index failed: %w", err)
+	}
+	if len(members) > 0 {
+		return members, nil
+	}
+
+	// Fallback: SCAN for legacy data not yet indexed
+	return s.scanAllConversationsLegacy(ctx)
+}
+
+// scanAllConversationsLegacy scans all conversation keys in Redis.
+// Scans both legacy monolithic keys and decomposed meta keys to find all conversations.
+func (s *RedisStore) scanAllConversationsLegacy(ctx context.Context) ([]string, error) {
 	seen := make(map[string]struct{})
 
 	// Scan legacy monolithic keys: prefix:conversation:ID

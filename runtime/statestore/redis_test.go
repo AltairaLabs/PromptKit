@@ -2051,3 +2051,124 @@ func TestRedisStore_ExtractIDFromMetaKey(t *testing.T) {
 	assert.Equal(t, "", store.extractIDFromMetaKey("other:conversation:conv-123:meta"))
 	assert.Equal(t, "", store.extractIDFromMetaKey(""))
 }
+
+func TestRedisStore_SaveDeltaAppend(t *testing.T) {
+	store, mr := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Save initial state with 2 messages
+	state := &ConversationState{
+		ID:     "conv-delta",
+		UserID: "user-1",
+		Messages: []types.Message{
+			{Role: "user", Content: "msg1", Timestamp: time.Now()},
+			{Role: "assistant", Content: "msg2", Timestamp: time.Now()},
+		},
+	}
+	require.NoError(t, store.Save(ctx, state))
+
+	// Verify 2 messages stored
+	msgKey := store.messagesKey("conv-delta")
+	assert.True(t, mr.Exists(msgKey))
+	count, err := mr.List(msgKey)
+	require.NoError(t, err)
+	assert.Len(t, count, 2)
+
+	// Append a third message and save again
+	state.Messages = append(state.Messages, types.Message{
+		Role: "user", Content: "msg3", Timestamp: time.Now(),
+	})
+	require.NoError(t, store.Save(ctx, state))
+
+	// Verify 3 messages stored (delta append, not full rewrite)
+	count, err = mr.List(msgKey)
+	require.NoError(t, err)
+	assert.Len(t, count, 3)
+
+	// Verify the data loads correctly
+	loaded, err := store.Load(ctx, "conv-delta")
+	require.NoError(t, err)
+	assert.Len(t, loaded.Messages, 3)
+	assert.Equal(t, "msg1", loaded.Messages[0].Content)
+	assert.Equal(t, "msg3", loaded.Messages[2].Content)
+}
+
+func TestRedisStore_SaveDeltaAppend_Truncation(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Save initial state with 3 messages
+	state := &ConversationState{
+		ID:     "conv-trunc",
+		UserID: "user-1",
+		Messages: []types.Message{
+			{Role: "user", Content: "msg1", Timestamp: time.Now()},
+			{Role: "assistant", Content: "msg2", Timestamp: time.Now()},
+			{Role: "user", Content: "msg3", Timestamp: time.Now()},
+		},
+	}
+	require.NoError(t, store.Save(ctx, state))
+
+	// Truncate to 1 message and save — should do full rewrite
+	state.Messages = state.Messages[:1]
+	require.NoError(t, store.Save(ctx, state))
+
+	// Verify only 1 message after truncation
+	loaded, err := store.Load(ctx, "conv-trunc")
+	require.NoError(t, err)
+	assert.Len(t, loaded.Messages, 1)
+	assert.Equal(t, "msg1", loaded.Messages[0].Content)
+}
+
+func TestRedisStore_GlobalIndex(t *testing.T) {
+	store, mr := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Save two conversations
+	require.NoError(t, store.Save(ctx, &ConversationState{ID: "conv-1"}))
+	require.NoError(t, store.Save(ctx, &ConversationState{ID: "conv-2"}))
+
+	// Verify global index set contains both IDs
+	indexKey := store.globalIndexKey()
+	members, err := mr.Members(indexKey)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"conv-1", "conv-2"}, members)
+
+	// List should use the global index
+	ids, err := store.List(ctx, ListOptions{})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"conv-1", "conv-2"}, ids)
+
+	// Delete one conversation
+	require.NoError(t, store.Delete(ctx, "conv-1"))
+
+	// Verify global index no longer contains deleted ID
+	members, err = mr.Members(indexKey)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"conv-2"}, members)
+}
+
+func TestRedisStore_MarshalMessageSlice(t *testing.T) {
+	msgs := []types.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi"},
+	}
+
+	vals, err := marshalMessageSlice(msgs)
+	require.NoError(t, err)
+	assert.Len(t, vals, 2)
+
+	// Verify each value is valid JSON
+	for _, v := range vals {
+		data, ok := v.([]byte)
+		require.True(t, ok)
+		var msg types.Message
+		require.NoError(t, json.Unmarshal(data, &msg))
+	}
+}
+
+func TestRedisStore_MarshalMessageSlice_Empty(t *testing.T) {
+	vals, err := marshalMessageSlice(nil)
+	require.NoError(t, err)
+	assert.Empty(t, vals)
+}

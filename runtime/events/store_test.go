@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -799,4 +800,229 @@ func TestFileEventStore_toSerializable_NilData(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, se.DataType)
 	assert.Empty(t, se.Data)
+}
+
+func TestFileEventStore_LRUEviction(t *testing.T) {
+	dir := t.TempDir()
+	maxFiles := 3
+
+	store, err := NewFileEventStore(dir, WithMaxOpenFiles(maxFiles))
+	require.NoError(t, err)
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Write to more sessions than maxFiles
+	for i := 0; i < 5; i++ {
+		sessionID := fmt.Sprintf("session-%d", i)
+		event := &Event{
+			Type:      EventMessageCreated,
+			Timestamp: time.Now(),
+			SessionID: sessionID,
+			Data:      &MessageCreatedData{Role: "user", Content: "hello"},
+		}
+		require.NoError(t, store.Append(ctx, event))
+	}
+
+	// Verify the file handle count doesn't exceed maxFiles
+	store.mu.RLock()
+	fileCount := store.files.Len()
+	store.mu.RUnlock()
+	assert.LessOrEqual(t, fileCount, maxFiles)
+
+	// All sessions should still be queryable (files reopened on demand)
+	for i := 0; i < 5; i++ {
+		sessionID := fmt.Sprintf("session-%d", i)
+		events, queryErr := store.Query(ctx, &EventFilter{SessionID: sessionID})
+		require.NoError(t, queryErr)
+		assert.Len(t, events, 1)
+	}
+}
+
+func TestFileEventStore_WithMaxOpenFiles(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir(), WithMaxOpenFiles(32))
+	require.NoError(t, err)
+	defer store.Close()
+
+	store.mu.RLock()
+	assert.Equal(t, 32, store.files.MaxSize())
+	store.mu.RUnlock()
+}
+
+func TestBuildTypeSet(t *testing.T) {
+	t.Run("nil types", func(t *testing.T) {
+		result := buildTypeSet(nil)
+		assert.Nil(t, result)
+	})
+
+	t.Run("empty types", func(t *testing.T) {
+		result := buildTypeSet([]EventType{})
+		assert.Nil(t, result)
+	})
+
+	t.Run("multiple types", func(t *testing.T) {
+		types := []EventType{EventMessageCreated, EventToolCallStarted, EventPipelineStarted}
+		result := buildTypeSet(types)
+		assert.Len(t, result, 3)
+		_, ok := result[EventMessageCreated]
+		assert.True(t, ok)
+		_, ok = result[EventToolCallStarted]
+		assert.True(t, ok)
+	})
+}
+
+func TestMatchesEventTypeSet(t *testing.T) {
+	t.Run("nil set matches everything", func(t *testing.T) {
+		assert.True(t, matchesEventTypeSet(EventMessageCreated, nil))
+	})
+
+	t.Run("type in set", func(t *testing.T) {
+		set := map[EventType]struct{}{
+			EventMessageCreated: {},
+		}
+		assert.True(t, matchesEventTypeSet(EventMessageCreated, set))
+	})
+
+	t.Run("type not in set", func(t *testing.T) {
+		set := map[EventType]struct{}{
+			EventMessageCreated: {},
+		}
+		assert.False(t, matchesEventTypeSet(EventToolCallStarted, set))
+	})
+}
+
+func TestFileEventStore_MatchesFilter(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	event := &Event{
+		Type:           EventMessageCreated,
+		Timestamp:      time.Now(),
+		SessionID:      "s1",
+		ConversationID: "conv-1",
+	}
+
+	t.Run("matches with no type filter", func(t *testing.T) {
+		assert.True(t, store.matchesFilter(event, &EventFilter{SessionID: "s1"}))
+	})
+
+	t.Run("matches with matching type", func(t *testing.T) {
+		assert.True(t, store.matchesFilter(event, &EventFilter{
+			SessionID: "s1",
+			Types:     []EventType{EventMessageCreated},
+		}))
+	})
+
+	t.Run("does not match non-matching type", func(t *testing.T) {
+		assert.False(t, store.matchesFilter(event, &EventFilter{
+			SessionID: "s1",
+			Types:     []EventType{EventToolCallStarted},
+		}))
+	})
+
+	t.Run("does not match wrong conversation", func(t *testing.T) {
+		assert.False(t, store.matchesFilter(event, &EventFilter{
+			SessionID:      "s1",
+			ConversationID: "conv-999",
+		}))
+	})
+}
+
+func TestFileEventStore_MatchesEventTypes(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	t.Run("empty types matches all", func(t *testing.T) {
+		assert.True(t, store.matchesEventTypes(EventMessageCreated, nil))
+	})
+
+	t.Run("type in list", func(t *testing.T) {
+		assert.True(t, store.matchesEventTypes(EventMessageCreated, []EventType{EventMessageCreated, EventToolCallStarted}))
+	})
+
+	t.Run("type not in list", func(t *testing.T) {
+		assert.False(t, store.matchesEventTypes(EventPipelineStarted, []EventType{EventMessageCreated}))
+	})
+}
+
+func TestFileEventStore_CloseAndReopen(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create store and write some events
+	store, err := NewFileEventStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	event := &Event{
+		Type:      EventMessageCreated,
+		Timestamp: time.Now(),
+		SessionID: "session-close-test",
+		Data:      &MessageCreatedData{Role: "user", Content: "hello"},
+	}
+	require.NoError(t, store.Append(ctx, event))
+	require.NoError(t, store.Close())
+
+	// Reopen and verify events are still there
+	store2, err := NewFileEventStore(dir)
+	require.NoError(t, err)
+	defer store2.Close()
+
+	events, err := store2.Query(ctx, &EventFilter{SessionID: "session-close-test"})
+	require.NoError(t, err)
+	assert.Len(t, events, 1)
+}
+
+func TestFileEventStore_SyncFlushes(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	ctx := context.Background()
+	event := &Event{
+		Type:      EventMessageCreated,
+		Timestamp: time.Now(),
+		SessionID: "session-sync",
+		Data:      &MessageCreatedData{Role: "user", Content: "hello"},
+	}
+	require.NoError(t, store.Append(ctx, event))
+
+	// Sync should succeed
+	require.NoError(t, store.Sync())
+}
+
+func TestFileEventStore_CloseMultipleFiles(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewFileEventStore(dir)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Write to multiple sessions to create multiple open file handles
+	for i := 0; i < 5; i++ {
+		event := &Event{
+			Type:      EventMessageCreated,
+			Timestamp: time.Now(),
+			SessionID: fmt.Sprintf("session-%d", i),
+			Data:      &MessageCreatedData{Role: "user", Content: "hello"},
+		}
+		require.NoError(t, store.Append(ctx, event))
+	}
+
+	// Close should close all file handles
+	require.NoError(t, store.Close())
+
+	// Verify file handles are cleared
+	store.mu.RLock()
+	assert.Equal(t, 0, store.files.Len())
+	store.mu.RUnlock()
+}
+
+func TestFileEventStore_DefaultMaxOpenFiles(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+
+	assert.Equal(t, DefaultMaxOpenFiles, store.maxOpenFiles)
 }

@@ -10,7 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
 )
+
+// DefaultMaxKnownHashes is the default maximum number of blob hashes
+// kept in the in-memory deduplication cache before LRU eviction.
+const DefaultMaxKnownHashes = 10000
 
 // BlobStore provides storage for binary payloads referenced by events.
 // This separates large binary data (audio, video, images) from the event stream.
@@ -42,10 +48,11 @@ type BlobStore interface {
 //
 // The store uses atomic write-to-temp-then-rename for crash safety and
 // holds locks only for the in-memory deduplication map, not during file I/O.
+// The known-hash cache uses LRU eviction to bound memory (default 10000 entries).
 type FileBlobStore struct {
 	baseDir string
 	mu      sync.RWMutex
-	known   map[string]struct{} // tracks hashes already stored on disk
+	known   *lru.Cache[string, struct{}] // tracks hashes already stored on disk
 }
 
 // Blob storage constants.
@@ -63,7 +70,7 @@ func NewFileBlobStore(dir string) (*FileBlobStore, error) {
 	}
 	return &FileBlobStore{
 		baseDir: dir,
-		known:   make(map[string]struct{}),
+		known:   lru.New[string, struct{}](DefaultMaxKnownHashes, nil),
 	}, nil
 }
 
@@ -105,7 +112,7 @@ func (s *FileBlobStore) Store(
 
 	// Fast-path: check in-memory dedup map (read lock only)
 	s.mu.RLock()
-	_, alreadyKnown := s.known[hashStr]
+	_, alreadyKnown := s.known.Get(hashStr)
 	s.mu.RUnlock()
 	if alreadyKnown {
 		return payload, nil
@@ -115,7 +122,7 @@ func (s *FileBlobStore) Store(
 	if _, err := os.Stat(path); err == nil {
 		// File exists on disk; record in map for future fast-path
 		s.mu.Lock()
-		s.known[hashStr] = struct{}{}
+		s.known.Put(hashStr, struct{}{})
 		s.mu.Unlock()
 		return payload, nil
 	}
@@ -127,7 +134,7 @@ func (s *FileBlobStore) Store(
 
 	// Record in dedup map
 	s.mu.Lock()
-	s.known[hashStr] = struct{}{}
+	s.known.Put(hashStr, struct{}{})
 	s.mu.Unlock()
 
 	return payload, nil
@@ -210,7 +217,7 @@ func (s *FileBlobStore) StoreReader(
 
 	// Check dedup
 	s.mu.RLock()
-	_, alreadyKnown := s.known[hashStr]
+	_, alreadyKnown := s.known.Get(hashStr)
 	s.mu.RUnlock()
 	if alreadyKnown {
 		_ = os.Remove(tmpPath)
@@ -221,7 +228,7 @@ func (s *FileBlobStore) StoreReader(
 	if _, statErr := os.Stat(path); statErr == nil {
 		_ = os.Remove(tmpPath)
 		s.mu.Lock()
-		s.known[hashStr] = struct{}{}
+		s.known.Put(hashStr, struct{}{})
 		s.mu.Unlock()
 		return payload, nil
 	}
@@ -237,7 +244,7 @@ func (s *FileBlobStore) StoreReader(
 	}
 
 	s.mu.Lock()
-	s.known[hashStr] = struct{}{}
+	s.known.Put(hashStr, struct{}{})
 	s.mu.Unlock()
 
 	return payload, nil
