@@ -39,9 +39,11 @@ func (s *SSEScanner) Scan() bool {
 			continue
 		}
 
-		// Look for "data:" prefix
-		if bytes.HasPrefix(line, []byte("data: ")) {
-			s.data = string(bytes.TrimPrefix(line, []byte("data: ")))
+		// Look for "data:" prefix — per SSE spec, strip one leading space if present.
+		if bytes.HasPrefix(line, []byte("data:")) {
+			payload := bytes.TrimPrefix(line, []byte("data:"))
+			payload = bytes.TrimPrefix(payload, []byte(" "))
+			s.data = string(payload)
 			return true
 		}
 	}

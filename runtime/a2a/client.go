@@ -328,9 +328,15 @@ func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageReque
 		defer resp.Body.Close()
 		// Close the response body on context cancellation to unblock the scanner
 		// goroutine inside ReadSSEWithIdleTimeout, preventing a goroutine leak.
+		// Use streamDone to ensure the inner goroutine exits on normal completion.
+		streamDone := make(chan struct{})
+		defer close(streamDone)
 		go func() {
-			<-ctx.Done()
-			_ = resp.Body.Close()
+			select {
+			case <-ctx.Done():
+				_ = resp.Body.Close()
+			case <-streamDone:
+			}
 		}()
 		ReadSSEWithIdleTimeout(ctx, resp.Body, ch, c.sseIdleTimeout)
 	}()

@@ -3,6 +3,7 @@ package events
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -80,6 +81,9 @@ type SyncPlayer struct {
 	ctx    context.Context    //nolint:containedctx // NOSONAR(godre:S8242) context stored for lifecycle management
 	cancel context.CancelFunc //nolint:containedctx // context stored for lifecycle management
 	done   chan struct{}
+
+	// audioBuf is a reusable buffer for audio delivery to avoid per-tick allocation.
+	audioBuf []byte
 }
 
 // NewSyncPlayer creates a new synchronized player.
@@ -127,13 +131,9 @@ func sortAnnotationsByTime(annots []*annotations.Annotation, sessionStart time.T
 	}
 
 	// Sort by effective time
-	for i := 0; i < len(sorted)-1; i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if getTime(sorted[i]) > getTime(sorted[j]) {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return getTime(sorted[i]) < getTime(sorted[j])
+	})
 
 	return sorted
 }
@@ -489,7 +489,11 @@ func (p *SyncPlayer) deliverAudio() {
 		return
 	}
 
-	buf := make([]byte, p.config.AudioBufferSize)
+	// Reuse pre-allocated buffer to avoid per-tick allocation.
+	if p.audioBuf == nil || len(p.audioBuf) != p.config.AudioBufferSize {
+		p.audioBuf = make([]byte, p.config.AudioBufferSize)
+	}
+	buf := p.audioBuf
 
 	for trackType, reader := range p.audioReaders {
 		n, err := reader.Read(buf)

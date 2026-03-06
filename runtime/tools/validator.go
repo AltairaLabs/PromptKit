@@ -121,9 +121,13 @@ func (sv *SchemaValidator) getSchema(schemaJSON string) (*gojsonschema.Schema, e
 	sv.mu.RLock()
 	if elem, exists := sv.cache[schemaJSON]; exists {
 		sv.mu.RUnlock()
-		// Promote requires write lock.
+		// Promote requires write lock. Re-check that the element is still
+		// in the cache after acquiring the write lock — it may have been
+		// evicted between releasing the read lock and acquiring the write lock.
 		sv.mu.Lock()
-		sv.order.MoveToFront(elem)
+		if _, stillExists := sv.cache[schemaJSON]; stillExists {
+			sv.order.MoveToFront(elem)
+		}
 		sv.mu.Unlock()
 		return elem.Value.(*schemaEntry).schema, nil
 	}

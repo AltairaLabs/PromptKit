@@ -28,7 +28,9 @@ func (ctx *Context) RecordTransition(from, to, event string, ts time.Time) {
 		Timestamp: ts,
 	})
 	if len(ctx.History) > MaxHistoryLength {
-		ctx.History = ctx.History[len(ctx.History)-MaxHistoryLength:]
+		trimmed := make([]StateTransition, MaxHistoryLength)
+		copy(trimmed, ctx.History[len(ctx.History)-MaxHistoryLength:])
+		ctx.History = trimmed
 	}
 	ctx.CurrentState = to
 	ctx.UpdatedAt = ts

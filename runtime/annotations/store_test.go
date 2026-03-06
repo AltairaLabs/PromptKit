@@ -563,3 +563,46 @@ func TestFileStore_LRUEviction(t *testing.T) {
 		t.Errorf("expected at most %d files, got %d", DefaultMaxAnnotationFiles, fileCount)
 	}
 }
+
+func TestFileStore_PathTraversal(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create store: %v", err)
+	}
+	defer store.Close()
+
+	malicious := []string{"../etc/passwd", "foo/bar", "foo\\bar", ".."}
+
+	t.Run("Add rejects path traversal", func(t *testing.T) {
+		for _, id := range malicious {
+			ann := &Annotation{
+				Type:      TypeLabel,
+				SessionID: id,
+				Target:    ForSession(),
+				Key:       "test",
+				Value:     NewLabelValue("bad"),
+			}
+			if err := store.Add(ctx, ann); err == nil {
+				t.Errorf("expected error for session ID %q", id)
+			}
+		}
+	})
+
+	t.Run("Query rejects path traversal", func(t *testing.T) {
+		for _, id := range malicious {
+			_, err := store.Query(ctx, &Filter{SessionID: id})
+			if err == nil {
+				t.Errorf("expected error for session ID %q", id)
+			}
+		}
+	})
+
+	t.Run("sessionPath returns empty for traversal", func(t *testing.T) {
+		for _, id := range malicious {
+			if p := store.sessionPath(id); p != "" {
+				t.Errorf("expected empty path for session ID %q, got %q", id, p)
+			}
+		}
+	})
+}

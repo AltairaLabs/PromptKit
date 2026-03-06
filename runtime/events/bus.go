@@ -66,6 +66,9 @@ type listenerEntry struct {
 	listener Listener
 }
 
+// maxLeakCount is the number of timeout strikes before a listener is skipped.
+const maxLeakCount = 3
+
 // EventBus manages event distribution to listeners via a fixed-size worker pool.
 // Workers are started lazily on the first Subscribe/SubscribeAll call to avoid
 // spawning goroutines when no one is listening.
@@ -82,6 +85,10 @@ type EventBus struct {
 	started           atomic.Bool // true once workers have been launched
 	droppedCount      atomic.Int64
 	subscriberTimeout time.Duration
+
+	// leakCount tracks how many times each listener has timed out.
+	// Protected by mu.
+	leakCount map[uint64]int
 
 	// Saved config for lazy worker startup.
 	workerPoolSize int
@@ -108,6 +115,7 @@ func NewEventBus(opts ...BusOption) *EventBus {
 		eventCh:           make(chan *Event, cfg.eventBufferSize),
 		subscriberTimeout: cfg.subscriberTimeout,
 		workerPoolSize:    cfg.workerPoolSize,
+		leakCount:         make(map[uint64]int),
 	}
 
 	return eb
@@ -145,13 +153,15 @@ func (eb *EventBus) dispatch(event *Event) {
 	eb.mu.RUnlock()
 
 	if store != nil && event.SessionID != "" {
-		if err := store.Append(context.Background(), event); err != nil {
+		storeCtx, storeCancel := context.WithTimeout(context.Background(), eb.subscriberTimeout)
+		if err := store.Append(storeCtx, event); err != nil {
 			logger.Warn("event store append failed",
 				"event_type", string(event.Type),
 				"session_id", event.SessionID,
 				"error", err,
 			)
 		}
+		storeCancel()
 	}
 
 	eb.mu.RLock()
@@ -165,43 +175,75 @@ func (eb *EventBus) dispatch(event *Event) {
 	eb.mu.RUnlock()
 
 	for _, entry := range specificEntries {
-		eb.invokeWithTimeout(entry.listener, event)
+		eb.invokeWithTimeout(entry.id, entry.listener, event)
 	}
 	for _, entry := range globalEntries {
-		eb.invokeWithTimeout(entry.listener, event)
+		eb.invokeWithTimeout(entry.id, entry.listener, event)
 	}
 }
 
 // invokeWithTimeout runs a listener with the configured subscriber timeout.
 // If the listener does not complete in time, a warning is logged and the call is skipped.
 // A second warning is logged at 2x timeout if the goroutine is still running.
-func (eb *EventBus) invokeWithTimeout(listener Listener, event *Event) {
+// Listeners that have timed out more than maxLeakCount times are skipped entirely.
+func (eb *EventBus) invokeWithTimeout(id uint64, listener Listener, event *Event) {
+	// Check leak count and skip chronically leaking listeners.
+	eb.mu.RLock()
+	count := eb.leakCount[id]
+	eb.mu.RUnlock()
+	if count >= maxLeakCount {
+		logger.Warn("skipping chronically leaking listener",
+			"listener_id", id,
+			"event_type", string(event.Type),
+			"leak_count", count,
+		)
+		return
+	}
+
 	done := make(chan struct{}, 1)
 	go func() {
 		safeInvoke(listener, event)
 		done <- struct{}{}
 	}()
 
-	timeout := eb.subscriberTimeout
+	// Fast path: try non-blocking receive before starting timeout machinery.
 	select {
 	case <-done:
 		return
-	case <-time.After(timeout):
+	default:
+	}
+
+	timeout := eb.subscriberTimeout
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		return
+	case <-timer.C:
+		eb.mu.Lock()
+		eb.leakCount[id]++
+		eb.mu.Unlock()
+
 		logger.Warn("event subscriber timed out",
 			"event_type", string(event.Type),
 			"timeout", timeout.String(),
+			"listener_id", id,
 		)
 	}
 
-	// Monitor for goroutine leak: if listener hasn't returned after 2x timeout, log a warning.
+	// Monitor for goroutine leak: exit after 2x timeout to avoid leaking this goroutine too.
 	go func() {
+		leakTimer := time.NewTimer(timeout)
+		defer leakTimer.Stop()
 		select {
 		case <-done:
 			// Listener eventually completed.
-		case <-time.After(timeout):
+		case <-leakTimer.C:
 			logger.Warn("event subscriber goroutine still running after 2x timeout",
 				"event_type", string(event.Type),
 				"elapsed", (timeout + timeout).String(),
+				"listener_id", id,
 			)
 		}
 	}()

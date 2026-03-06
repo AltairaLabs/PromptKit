@@ -452,10 +452,16 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	var closeOnce sync.Once
 	closeBody := func() { closeOnce.Do(func() { _ = body.Close() }) }
 
-	// Close the response body when context is canceled to unblock scanner.Scan()
+	// Close the response body when context is canceled to unblock scanner.Scan().
+	// The done channel ensures this goroutine exits on normal stream completion.
+	done := make(chan struct{})
+	defer close(done)
 	go func() {
-		<-ctx.Done()
-		closeBody()
+		select {
+		case <-ctx.Done():
+			closeBody()
+		case <-done:
+		}
 	}()
 
 	// Wrap body with idle timeout detection to guard against stalled streams

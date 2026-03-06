@@ -38,6 +38,7 @@ const (
 
 // MediaLoader handles loading media content from various sources (inline data, files, URLs, storage).
 // It provides a unified interface for providers to access media regardless of the source.
+// MediaLoader is not safe for concurrent use.
 type MediaLoader struct {
 	storageService storage.MediaStorageService
 	httpClient     *http.Client
