@@ -46,7 +46,7 @@ func TestBadgeSemantics_GuardrailTriggeredExpected(t *testing.T) {
 	}
 
 	data := prepareReportData([]engine.RunResult{result})
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf("generateHTML() error = %v", err)
 	}
@@ -106,7 +106,7 @@ func TestBadgeSemantics_GuardrailNotTriggeredGood(t *testing.T) {
 	}
 
 	data := prepareReportData([]engine.RunResult{result})
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf("generateHTML() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestBadgeSemantics_GuardrailTriggeredNotExpected(t *testing.T) {
 	}
 
 	data := prepareReportData([]engine.RunResult{result})
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf("generateHTML() error = %v", err)
 	}

@@ -114,20 +114,22 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error {
 	// Test validation setup (errors here indicate schema compilation issues, which are acceptable during registration)
 	_ = r.validator.ValidateArgs(descriptor, []byte("{}"))
 
-	// Persist to repository if available
+	// Auto-populate namespace from name before persisting
+	descriptor.Namespace, _ = ParseToolName(descriptor.Name)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Persist to repository if available (under lock to prevent concurrent
+	// Register calls for the same tool from both persisting)
 	if r.repository != nil {
 		if err := r.repository.SaveTool(descriptor); err != nil {
 			return fmt.Errorf("failed to save tool to repository: %w", err)
 		}
 	}
 
-	// Auto-populate namespace from name
-	descriptor.Namespace, _ = ParseToolName(descriptor.Name)
-
 	// Cache the descriptor
-	r.mu.Lock()
 	r.tools[descriptor.Name] = descriptor
-	r.mu.Unlock()
 	return nil
 }
 

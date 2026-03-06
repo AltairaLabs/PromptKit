@@ -380,7 +380,7 @@ func TestGenerateHTML_ValidData(t *testing.T) {
 		Matrix:    [][]MatrixCell{},
 	}
 
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf(testFailedGenerateHTML, err)
 	}
@@ -423,7 +423,7 @@ func TestGenerateHTML_TemplateFunctions(t *testing.T) {
 		},
 	}
 
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf(testFailedGenerateHTML, err)
 	}
@@ -784,7 +784,7 @@ func TestGetValidationsForTurn(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Get the actual function from the template generation
 			data := HTMLReportData{}
-			html, _ := generateHTML(data)
+			html, _ := generateHTML(&data)
 			_ = html // Ensure the function is created
 
 			// Call our test implementation
@@ -1155,7 +1155,7 @@ func TestGenerateHTML_WithMessageCostInfo(t *testing.T) {
 
 	// This should not panic or error - specifically tests that the template
 	// can access $msg.CostInfo.TotalCost (not TotalCostUSD)
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf("Failed to generate HTML with message CostInfo: %v", err)
 	}
@@ -1258,7 +1258,7 @@ func TestGenerateHTML_UserMessageWithCostInfo(t *testing.T) {
 	// Use prepareReportData to properly populate ScenarioGroups
 	data := prepareReportData([]engine.RunResult{result})
 
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf(testFailedGenerateHTML, err)
 	}
@@ -1398,7 +1398,7 @@ func TestGenerateHTML_MessageCostInfoEdgeCases(t *testing.T) {
 				Matrix:    [][]MatrixCell{},
 			}
 
-			html, err := generateHTML(data)
+			html, err := generateHTML(&data)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generateHTML() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -1450,7 +1450,7 @@ func TestHasValidators_WithMessageValidations(t *testing.T) {
 			result.Messages = []types.Message{tt.message}
 
 			data := prepareReportData([]engine.RunResult{result})
-			html, err := generateHTML(data)
+			html, err := generateHTML(&data)
 			if err != nil {
 				t.Fatalf("generateHTML() error = %v", err)
 			}

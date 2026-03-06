@@ -58,7 +58,7 @@ func TestValidatorBadgeDisplay(t *testing.T) {
 			}
 
 			data := prepareReportData([]engine.RunResult{result})
-			html, err := generateHTML(data)
+			html, err := generateHTML(&data)
 			if err != nil {
 				t.Fatalf("generateHTML() error = %v", err)
 			}
@@ -148,7 +148,7 @@ func TestAssertionBadgeDisplay(t *testing.T) {
 			}
 
 			data := prepareReportData([]engine.RunResult{result})
-			html, err := generateHTML(data)
+			html, err := generateHTML(&data)
 			if err != nil {
 				t.Fatalf("generateHTML() error = %v", err)
 			}
@@ -241,7 +241,7 @@ func TestMultipleValidatorsBadgeDisplay(t *testing.T) {
 			}
 
 			data := prepareReportData([]engine.RunResult{result})
-			html, err := generateHTML(data)
+			html, err := generateHTML(&data)
 			if err != nil {
 				t.Fatalf("generateHTML() error = %v", err)
 			}
@@ -314,7 +314,7 @@ func TestValidatorAndAssertionBadgesTogether(t *testing.T) {
 	}
 
 	data := prepareReportData([]engine.RunResult{result})
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		t.Fatalf("generateHTML() error = %v", err)
 	}

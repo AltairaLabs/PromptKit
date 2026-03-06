@@ -71,7 +71,9 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 	}
 	c.executor = skills.NewExecutor(cfg)
 
-	// Preload skills marked with preload: true
+	// Preload skills marked with preload: true.
+	// Errors are intentionally ignored: preloading is best-effort and the skill
+	// will be activated on first use if preloading fails.
 	for _, sk := range reg.PreloadedSkills() {
 		_, _, _ = c.executor.Activate(sk.Name)
 	}
