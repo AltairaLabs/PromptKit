@@ -33,7 +33,10 @@ import (
 // goroutines call Open() concurrently with WithLogger.
 var loggerOnce sync.Once
 
-// setLoggerOnce sets the global logger exactly once.
+// setLoggerOnce sets the global logger exactly once. Subsequent calls with
+// different loggers are silently ignored because the runtime logger is global
+// and not safe to swap after initialization. If multiple conversations need
+// independent loggers, configure logging at the application level instead.
 func setLoggerOnce(l *slog.Logger) {
 	loggerOnce.Do(func() {
 		logger.SetLogger(l)

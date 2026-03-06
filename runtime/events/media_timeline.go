@@ -511,13 +511,13 @@ const (
 
 // ExportToWAV exports the audio track to a WAV file.
 // The blobStore is used to load segment data that references external storage.
-func (t *MediaTrack) ExportToWAV(path string, blobStore BlobStore) error {
+func (t *MediaTrack) ExportToWAV(ctx context.Context, path string, blobStore BlobStore) error {
 	if err := t.validateAudioTrack(); err != nil {
 		return err
 	}
 
 	sampleRate, channels := t.getAudioParams()
-	audioData, err := t.collectAudioData(blobStore)
+	audioData, err := t.collectAudioData(ctx, blobStore)
 	if err != nil {
 		return err
 	}
@@ -560,10 +560,10 @@ func (t *MediaTrack) getAudioParams() (sampleRate, channels int) {
 }
 
 // collectAudioData gathers all audio data from track segments.
-func (t *MediaTrack) collectAudioData(blobStore BlobStore) ([]byte, error) {
+func (t *MediaTrack) collectAudioData(ctx context.Context, blobStore BlobStore) ([]byte, error) {
 	var audioData []byte
 	for _, seg := range t.Segments {
-		data, err := t.loadSegmentData(*seg, blobStore)
+		data, err := t.loadSegmentData(ctx, *seg, blobStore)
 		if err != nil {
 			return nil, err
 		}
@@ -577,12 +577,12 @@ func (t *MediaTrack) collectAudioData(blobStore BlobStore) ([]byte, error) {
 }
 
 // loadSegmentData loads data from a single segment.
-func (t *MediaTrack) loadSegmentData(seg MediaSegment, blobStore BlobStore) ([]byte, error) {
+func (t *MediaTrack) loadSegmentData(ctx context.Context, seg MediaSegment, blobStore BlobStore) ([]byte, error) {
 	if seg.Payload.InlineData != nil {
 		return seg.Payload.InlineData, nil
 	}
 	if blobStore != nil && seg.Payload.StorageRef != "" {
-		data, err := blobStore.Load(context.Background(), seg.Payload.StorageRef)
+		data, err := blobStore.Load(ctx, seg.Payload.StorageRef)
 		if err != nil {
 			return nil, fmt.Errorf("load segment %d: %w", seg.ChunkIndex, err)
 		}
@@ -631,5 +631,5 @@ func (mt *MediaTimeline) ExportAudioToWAV(trackType TrackType, path string) erro
 	if track == nil {
 		return fmt.Errorf("track %s not found", trackType)
 	}
-	return track.ExportToWAV(path, mt.blobStore)
+	return track.ExportToWAV(context.TODO(), path, mt.blobStore)
 }

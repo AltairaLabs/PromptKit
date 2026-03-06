@@ -42,11 +42,13 @@ Comprehensive review of limits, bottlenecks, and scalability concerns across the
 - ~~No provider validates total request payload size before sending.~~
 - **Fixed in `feat/scalability-high-priority-fixes`**: `BaseProvider` now has `maxRequestPayloadSize` (default 100MB). `MakeRawRequest` checks `len(body)` and returns `ErrPayloadTooLarge` when exceeded. Logs warning for payloads > 10MB. Configurable via `SetMaxPayloadSize()`.
 
-### 2.4 Hardcoded HTTP client timeout (MEDIUM)
-- **runtime/providers/openai/openai.go:25** and **claude/claude.go:28** — Both use `60 * time.Second` as HTTP client timeout, which covers the entire request lifecycle including streaming. Long streaming responses may be aborted.
+### 2.4 ~~Hardcoded HTTP client timeout~~ RESOLVED
+- ~~**runtime/providers/openai/openai.go:25** and **claude/claude.go:28** — Both use `60 * time.Second` as HTTP client timeout, which covers the entire request lifecycle including streaming. Long streaming responses may be aborted.~~
+- **Fixed in `feat/scalability-remaining-code-items`**: Added `BaseProvider.SetHTTPTimeout()` that creates a new HTTP client preserving existing transport. Added `DefaultStreamingTimeout = 5min` in `pkg/httputil`. Providers can now configure appropriate timeouts for streaming vs non-streaming requests.
 
-### 2.5 Full response body read into memory (MEDIUM)
-- Non-streaming responses use `io.ReadAll(resp.Body)` with no size limit. A malformed or unexpectedly large response could consume significant memory.
+### 2.5 ~~Full response body read into memory~~ RESOLVED
+- ~~Non-streaming responses use `io.ReadAll(resp.Body)` with no size limit. A malformed or unexpectedly large response could consume significant memory.~~
+- **Fixed in `feat/scalability-remaining-code-items`**: All `io.ReadAll(resp.Body)` calls wrapped with `io.LimitReader` via `ReadResponseBody()` (capped at `DefaultMaxPayloadSize = 100MB`) and `ReadErrorBody()` (capped at `MaxErrorResponseSize = 1MB`). `DoAndReadResponse()` helper combines HTTP Do + limited read + response logging.
 
 ---
 
@@ -285,13 +287,11 @@ Comprehensive review of limits, bottlenecks, and scalability concerns across the
 
 ## Recommended Next Steps
 
-Nearly all code-level scalability issues have been addressed across 4 PRs (#630, #631, #632, #634). Remaining work is primarily architectural/infrastructure:
+All code-level scalability issues have been addressed across 5 PRs (#630, #631, #632, #634, #664). Remaining work is primarily architectural/infrastructure:
 
 ### Remaining Code Items
 1. **Integrate tiktoken-go** — replace heuristic token counter for accurate context window management (currently improved but still heuristic).
-2. **StreamChunk carries accumulated content** (3.3) — O(N²) memory for all chunks in the channel.
-3. **Hardcoded HTTP client timeout** (2.4) — 60s covers entire request lifecycle including streaming.
-4. **Full response body read into memory** (2.5) — non-streaming responses use `io.ReadAll` with no size limit.
+2. **StreamChunk carries accumulated content** (3.3) — O(N²) memory for all chunks in the channel. Deferred — requires broad refactor (60+ references across guardrails, hooks, tests, examples).
 
 ### K8s / Production Deployment (infrastructure gaps)
 5. **Share MCP registry across conversations** — prevent O(N) child processes.
@@ -421,9 +421,10 @@ Each `OpenDuplex` session creates:
 - OpenAI and Gemini both have per-account concurrent connection limits (typically 100-1000).
 - 10K connections would require multiple API keys or enterprise tier agreements.
 
-### 14.9 No connection draining for audio (MEDIUM)
-- When a pod receives SIGTERM, active audio streams need graceful completion (at minimum, flush current utterance and send final response).
-- No mechanism exists to drain duplex sessions before shutdown.
+### 14.9 ~~No connection draining for audio~~ RESOLVED
+- ~~When a pod receives SIGTERM, active audio streams need graceful completion (at minimum, flush current utterance and send final response).~~
+- ~~No mechanism exists to drain duplex sessions before shutdown.~~
+- **Fixed in `feat/scalability-remaining-code-items`**: Added `DuplexSession.Drain(ctx)` that sends `EndOfStream` to the pipeline, waits for completion (up to context timeout), then closes. `Conversation.Close()` now drains duplex sessions with `DefaultDrainTimeout = 30s` before hard-closing. Integrates with `ShutdownManager` for graceful SIGTERM handling.
 
 ### Audio at Scale — Key Numbers
 
@@ -447,7 +448,7 @@ Each `OpenDuplex` session creates:
 2. ~~**Pool audio buffers**~~ — **RESOLVED**: `sync.Pool` for resample `[]int16` slices.
 3. ~~**Increase inter-stage channel buffers for audio**~~ — **RESOLVED**: `DefaultAudioChannelBufferSize = 64`.
 4. **Share provider connections** — multiplex audio streams over fewer WebSocket connections where provider APIs allow.
-5. **Add connection draining** — on SIGTERM, stop accepting new audio, flush current utterances, send final responses.
+5. ~~**Add connection draining**~~ — **RESOLVED**: `DuplexSession.Drain()` sends EndOfStream, waits for pipeline completion, then closes. Wired into `Conversation.Close()` and `ShutdownManager`.
 6. **OS tuning for K8s nodes** — `ulimit -n 65536`, `net.core.somaxconn=32768`, `net.ipv4.tcp_tw_reuse=1`.
 7. **Monitor goroutine count** — expose `runtime.NumGoroutine()` as a Prometheus metric; alert at 200K+.
 8. **Consider audio codec compression** — Opus at 32kbps would reduce bandwidth from 32KB/s to 4KB/s per direction (8x reduction).

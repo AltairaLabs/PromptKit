@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/httputil"
 )
 
 func TestNewBaseProvider(t *testing.T) {

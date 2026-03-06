@@ -6,10 +6,33 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
+
+// AssertionConfig represents an assertion configuration used in arena scenarios.
+// This type is defined here (rather than in tools/arena/assertions) to avoid
+// an inverted dependency from the shared pkg/config package to the arena tool.
+type AssertionConfig struct {
+	Type    string                 `json:"type" yaml:"type"`
+	Params  map[string]interface{} `json:"params" yaml:"params"`
+	Message string                 `json:"message,omitempty" yaml:"message,omitempty"`
+	When    *AssertionWhen         `json:"when,omitempty" yaml:"when,omitempty"`
+}
+
+// AssertionWhen specifies preconditions that must be met for an assertion to run.
+// If any condition is not met, the assertion is skipped (not failed).
+type AssertionWhen struct {
+	// ToolCalled requires an exact tool name to have been called.
+	ToolCalled string `json:"tool_called,omitempty" yaml:"tool_called,omitempty"`
+	// ToolCalledPattern is a regex that must match at least one tool name.
+	ToolCalledPattern string `json:"tool_called_pattern,omitempty" yaml:"tool_called_pattern,omitempty"`
+	// AnyToolCalled requires at least one tool to have been called.
+	AnyToolCalled bool `json:"any_tool_called,omitempty" yaml:"any_tool_called,omitempty"`
+	// MinToolCalls is the minimum number of tool calls required.
+	MinToolCalls int `json:"min_tool_calls,omitempty" yaml:"min_tool_calls,omitempty"`
+}
 
 // ObjectMeta is a simplified metadata structure for PromptKit configs
 // Based on K8s ObjectMeta but with YAML-friendly tags and optional fields
@@ -47,24 +70,24 @@ type ArenaConfigK8s struct {
 // Config represents the main configuration structure
 type Config struct {
 	// File references for YAML serialization
-	PromptConfigs  []PromptConfigRef      `yaml:"prompt_configs,omitempty" json:"prompt_configs,omitempty"`
-	Providers      []ProviderRef          `yaml:"providers" json:"providers"`
-	Judges         []JudgeRef             `yaml:"judges,omitempty" json:"judges,omitempty"`
-	JudgeDefaults  *JudgeDefaults         `yaml:"judge_defaults,omitempty" json:"judge_defaults,omitempty"`
-	Scenarios      []ScenarioRef          `yaml:"scenarios,omitempty" json:"scenarios,omitempty"`
-	Evals          []EvalRef              `yaml:"evals,omitempty" json:"evals,omitempty"`
-	Tools          []ToolRef              `yaml:"tools,omitempty" json:"tools,omitempty"`
-	PackEvals      []evals.EvalDef        `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
-	PackAssertions []asrt.AssertionConfig `yaml:"pack_assertions,omitempty" json:"pack_assertions,omitempty"`
-	Workflow       interface{}            `yaml:"workflow,omitempty" json:"workflow,omitempty"`
-	Agents         interface{}            `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Deploy         *DeployConfig          `yaml:"deploy,omitempty" json:"deploy,omitempty"`
-	MCPServers     []MCPServerConfig      `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
-	A2AAgents      []A2AAgentConfig       `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
-	StateStore     *StateStoreConfig      `yaml:"state_store,omitempty" json:"state_store,omitempty"`
-	Defaults       Defaults               `yaml:"defaults" json:"defaults"`
-	SelfPlay       *SelfPlayConfig        `yaml:"self_play,omitempty" json:"self_play,omitempty"`
-	PackFile       string                 `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
+	PromptConfigs  []PromptConfigRef `yaml:"prompt_configs,omitempty" json:"prompt_configs,omitempty"`
+	Providers      []ProviderRef     `yaml:"providers" json:"providers"`
+	Judges         []JudgeRef        `yaml:"judges,omitempty" json:"judges,omitempty"`
+	JudgeDefaults  *JudgeDefaults    `yaml:"judge_defaults,omitempty" json:"judge_defaults,omitempty"`
+	Scenarios      []ScenarioRef     `yaml:"scenarios,omitempty" json:"scenarios,omitempty"`
+	Evals          []EvalRef         `yaml:"evals,omitempty" json:"evals,omitempty"`
+	Tools          []ToolRef         `yaml:"tools,omitempty" json:"tools,omitempty"`
+	PackEvals      []evals.EvalDef   `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
+	PackAssertions []AssertionConfig `yaml:"pack_assertions,omitempty" json:"pack_assertions,omitempty"`
+	Workflow       interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+	Agents         interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Deploy         *DeployConfig     `yaml:"deploy,omitempty" json:"deploy,omitempty"`
+	MCPServers     []MCPServerConfig `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
+	A2AAgents      []A2AAgentConfig  `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
+	StateStore     *StateStoreConfig `yaml:"state_store,omitempty" json:"state_store,omitempty"`
+	Defaults       Defaults          `yaml:"defaults" json:"defaults"`
+	SelfPlay       *SelfPlayConfig   `yaml:"self_play,omitempty" json:"self_play,omitempty"`
+	PackFile       string            `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
 
 	// Inline resource specs (alternative to file refs, merged into LoadedX during load)
 	ProviderSpecs map[string]*Provider    `yaml:"provider_specs,omitempty" json:"provider_specs,omitempty"`
@@ -92,6 +115,10 @@ type Config struct {
 	// Pack eval settings (set by CLI flags, not serialized)
 	SkipPackEvals  bool     `yaml:"-" json:"-"` // Disable pack eval execution
 	EvalTypeFilter []string `yaml:"-" json:"-"` // Filter to specific eval types
+
+	// ValidationWarnings holds non-fatal warnings from config validation.
+	// Populated by LoadConfig; callers may inspect or log these.
+	ValidationWarnings []string `yaml:"-" json:"-"`
 
 	// Base directory for resolving relative paths (set during LoadConfig)
 	ConfigDir string `yaml:"-" json:"-"`
@@ -512,7 +539,7 @@ type Scenario struct {
 	// Context management policy for long conversations.
 	ContextPolicy *ContextPolicy `json:"context_policy,omitempty" yaml:"context_policy,omitempty"`
 	// Assertions evaluated after the entire conversation completes.
-	ConversationAssertions []asrt.AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty"` //nolint:lll
+	ConversationAssertions []AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty"` //nolint:lll
 	// Duplex enables bidirectional streaming mode for voice/audio scenarios.
 	Duplex *DuplexConfig `json:"duplex,omitempty" yaml:"duplex,omitempty"`
 
@@ -541,7 +568,7 @@ type WorkflowStep struct {
 	// Content is the user message text.
 	Content string `json:"content,omitempty" yaml:"content,omitempty" jsonschema:"description=User message text"`
 	// Assertions are evaluated against the assistant response.
-	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty" jsonschema:"description=Assertions evaluated against the assistant response"` //nolint:lll
+	Assertions []AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty" jsonschema:"description=Assertions evaluated against the assistant response"` //nolint:lll
 }
 
 // ShouldStreamTurn returns whether streaming should be used for a specific turn.
@@ -946,7 +973,7 @@ type TurnDefinition struct {
 	ConsentOverrides map[string]string `json:"consent_overrides,omitempty" yaml:"consent_overrides,omitempty"`
 
 	// Turn-level assertions (for testing only)
-	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
+	Assertions []AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty"`
 }
 
 // TurnContentPart represents a content part in a scenario turn (simplified for YAML configuration)
@@ -1003,33 +1030,13 @@ type Provider struct {
 	Capabilities []string `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 }
 
-// CredentialConfig defines how to obtain credentials for a provider.
-// Resolution order: api_key → credential_file → credential_env → default env vars.
-type CredentialConfig struct {
-	// APIKey is an explicit API key value (not recommended for production).
-	// Excluded from JSON serialization to prevent accidental credential leakage.
-	APIKey string `json:"-" yaml:"api_key,omitempty"`
-	// CredentialFile is a path to a file containing the API key.
-	CredentialFile string `json:"credential_file,omitempty" yaml:"credential_file,omitempty"`
-	// CredentialEnv is the name of an environment variable containing the API key.
-	CredentialEnv string `json:"credential_env,omitempty" yaml:"credential_env,omitempty"`
-}
+// CredentialConfig is an alias for credentials.CredentialConfig.
+// The canonical type lives in runtime/credentials to break the circular
+// module dependency between pkg and runtime.
+type CredentialConfig = credentials.CredentialConfig
 
-// PlatformConfig defines platform-specific settings for hyperscaler hosting.
-// Platforms are hosting layers (bedrock, vertex, azure) that determine auth and endpoints,
-// while provider type determines message/response handling.
-type PlatformConfig struct {
-	// Type is the platform type: "bedrock", "vertex", or "azure".
-	Type string `json:"type,omitempty" yaml:"type,omitempty"`
-	// Region is the cloud region (e.g., "us-west-2", "us-central1").
-	Region string `json:"region,omitempty" yaml:"region,omitempty"`
-	// Project is the cloud project ID (required for Vertex).
-	Project string `json:"project,omitempty" yaml:"project,omitempty"`
-	// Endpoint is an optional custom endpoint URL.
-	Endpoint string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
-	// AdditionalConfig holds platform-specific settings.
-	AdditionalConfig map[string]interface{} `json:"additional_config,omitempty" yaml:"additional_config,omitempty"`
-}
+// PlatformConfig is an alias for credentials.PlatformConfig.
+type PlatformConfig = credentials.PlatformConfig
 
 // Pricing defines cost per 1K tokens for input and output
 type Pricing struct {
@@ -1160,7 +1167,7 @@ type Eval struct {
 	// Turns configures turn-level assertion evaluation (array format matching Scenario structure)
 	Turns []EvalTurnConfig `json:"turns,omitempty" yaml:"turns,omitempty" jsonschema:"description=Turn-level assertions"`
 	// ConversationAssertions are evaluated on the entire conversation after replay
-	ConversationAssertions []asrt.AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty" jsonschema:"description=Conversation-level assertions"` //nolint:lll
+	ConversationAssertions []AssertionConfig `json:"conversation_assertions,omitempty" yaml:"conversation_assertions,omitempty" jsonschema:"description=Conversation-level assertions"` //nolint:lll
 	// Tags for categorizing and filtering evaluations
 	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty" jsonschema:"description=Tags for categorization"`
 	// Mode controls replay behavior: "instant", "realtime", or "accelerated"
@@ -1178,7 +1185,7 @@ type EvalTurnConfig struct {
 
 // EvalAllTurnsConfig contains the assertions for all turns
 type EvalAllTurnsConfig struct {
-	Assertions []asrt.AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty" jsonschema:"description=Assertions to apply to each assistant message"` //nolint:lll
+	Assertions []AssertionConfig `json:"assertions,omitempty" yaml:"assertions,omitempty" jsonschema:"description=Assertions to apply to each assistant message"` //nolint:lll
 }
 
 // RecordingSource specifies where to load the saved conversation from

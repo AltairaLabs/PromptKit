@@ -539,7 +539,7 @@ func TestMediaTrack_ExportToWAV_NoSegments(t *testing.T) {
 	}
 
 	tmpPath := t.TempDir() + "/empty.wav"
-	err := track.ExportToWAV(tmpPath, nil)
+	err := track.ExportToWAV(context.Background(), tmpPath, nil)
 	if err == nil {
 		t.Error("Expected error for empty track")
 	}
@@ -559,7 +559,7 @@ func TestMediaTrack_ExportToWAV_NoFormat(t *testing.T) {
 	}
 
 	tmpPath := t.TempDir() + "/noformat.wav"
-	err := track.ExportToWAV(tmpPath, nil)
+	err := track.ExportToWAV(context.Background(), tmpPath, nil)
 	if err != nil {
 		t.Errorf("Should handle missing format: %v", err)
 	}

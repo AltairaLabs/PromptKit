@@ -1,7 +1,8 @@
-// Package testutil provides shared test helper utilities.
+// Package testutil re-exports the runtime/testutil package for backward
+// compatibility. New code should import runtime/testutil directly.
 package testutil
 
-// Ptr returns a pointer to v. It is a generic replacement for the various
-// typed pointer helpers (ptrString, ptrFloat32, boolPtr, etc.) that are
-// duplicated across test files.
-func Ptr[T any](v T) *T { return &v }
+import rttestutil "github.com/AltairaLabs/PromptKit/runtime/testutil"
+
+// Ptr returns a pointer to v.
+func Ptr[T any](v T) *T { return rttestutil.Ptr(v) }

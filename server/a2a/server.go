@@ -525,7 +525,12 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 		}
 	}
 
-	task, _ := s.taskStore.Get(taskID)
+	task, err := s.taskStore.Get(taskID)
+	if err != nil {
+		log.Printf("a2a: failed to retrieve task %s after processing: %v", taskID, err)
+		writeRPCError(w, req.ID, -32000, "internal server error")
+		return
+	}
 	writeRPCResult(w, req.ID, task)
 }
 
@@ -605,7 +610,12 @@ func (s *Server) handleToolResultMessage(
 		}
 	}
 
-	task, _ := s.taskStore.Get(taskID)
+	task, err := s.taskStore.Get(taskID)
+	if err != nil {
+		log.Printf("a2a: failed to retrieve task %s after processing: %v", taskID, err)
+		writeRPCError(w, req.ID, -32000, "internal server error")
+		return
+	}
 	writeRPCResult(w, req.ID, task)
 }
 
@@ -765,7 +775,8 @@ func (s *Server) handleGetTask(w http.ResponseWriter, req *a2a.JSONRPCRequest) {
 
 	task, err := s.taskStore.Get(params.ID)
 	if err != nil {
-		writeRPCError(w, req.ID, -32001, fmt.Sprintf("Task not found: %v", err))
+		log.Printf("a2a: task get failed for %s: %v", params.ID, err)
+		writeRPCError(w, req.ID, -32001, "Task not found")
 		return
 	}
 
@@ -789,11 +800,17 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, req *a2a.JSONRPCRequest
 	s.cancelsMu.Unlock()
 
 	if err := s.taskStore.Cancel(params.ID); err != nil {
-		writeRPCError(w, req.ID, -32001, fmt.Sprintf("Cancel failed: %v", err))
+		log.Printf("a2a: task cancel failed for %s: %v", params.ID, err)
+		writeRPCError(w, req.ID, -32001, "Cancel failed")
 		return
 	}
 
-	task, _ := s.taskStore.Get(params.ID)
+	task, err := s.taskStore.Get(params.ID)
+	if err != nil {
+		log.Printf("a2a: failed to retrieve task %s after cancel: %v", params.ID, err)
+		writeRPCError(w, req.ID, -32000, "internal server error")
+		return
+	}
 	writeRPCResult(w, req.ID, task)
 }
 
@@ -812,7 +829,8 @@ func (s *Server) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCRequest)
 
 	tasks, err := s.taskStore.List(params.ContextID, limit, 0)
 	if err != nil {
-		writeRPCError(w, req.ID, -32000, fmt.Sprintf("List failed: %v", err))
+		log.Printf("a2a: task list failed for context %s: %v", params.ContextID, err)
+		writeRPCError(w, req.ID, -32000, "List failed")
 		return
 	}
 

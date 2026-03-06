@@ -3,6 +3,8 @@ package providers
 import (
 	"context"
 	"net/http"
+
+	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 )
 
 const (
@@ -96,14 +98,8 @@ type Credential interface {
 	Type() string
 }
 
-// PlatformConfig holds platform-specific settings from config.
-type PlatformConfig struct {
-	Type             string
-	Region           string
-	Project          string
-	Endpoint         string
-	AdditionalConfig map[string]interface{}
-}
+// PlatformConfig is an alias for credentials.PlatformConfig.
+type PlatformConfig = credentials.PlatformConfig
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
 // Returns an error if the provider type is unsupported.
