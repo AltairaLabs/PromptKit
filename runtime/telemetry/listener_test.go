@@ -222,7 +222,7 @@ func TestOTelEventListener_ProviderSpan(t *testing.T) {
 		SessionID: "sess-1", RunID: "run-1",
 		Data: &events.ProviderCallCompletedData{
 			Provider: "openai", Model: "gpt-4",
-			Duration: 500 * time.Millisecond,
+			Duration:    500 * time.Millisecond,
 			InputTokens: 100, OutputTokens: 50,
 			Cost: 0.01, FinishReason: "stop",
 		},
@@ -810,5 +810,79 @@ func TestOTelEventListener_OutOfOrderFailed(t *testing.T) {
 	}
 	if provSpan.Status.Description != "timeout" {
 		t.Errorf("expected error message 'timeout', got %q", provSpan.Status.Description)
+	}
+}
+
+func TestOTelEventListener_Close(t *testing.T) {
+	listener, _, _ := newTestListener(t)
+
+	// Close should stop the cleanup goroutine.
+	listener.Close()
+
+	// Double close should be a no-op (not panic).
+	listener.Close()
+}
+
+func TestOTelEventListener_EvictStale(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	defer listener.Close()
+
+	// Manually inject a stale inflight entry.
+	staleTime := time.Now().Add(-staleEntryTimeout - time.Second)
+	_, staleSpan := tp.Tracer(InstrumentationName).Start(context.Background(), "stale-span")
+
+	listener.mu.Lock()
+	listener.inflight["stale-key"] = &spanEntry{
+		span:      staleSpan,
+		ctx:       context.Background(),
+		createdAt: staleTime,
+	}
+	listener.pendingEnds["stale-pending"] = &pendingEnd{
+		createdAt: staleTime,
+	}
+	// Also add a fresh entry that should survive eviction.
+	_, freshSpan := tp.Tracer(InstrumentationName).Start(context.Background(), "fresh-span")
+	listener.inflight["fresh-key"] = &spanEntry{
+		span:      freshSpan,
+		ctx:       context.Background(),
+		createdAt: time.Now(),
+	}
+	listener.mu.Unlock()
+
+	// Run eviction.
+	listener.evictStale()
+
+	listener.mu.Lock()
+	_, staleExists := listener.inflight["stale-key"]
+	_, freshExists := listener.inflight["fresh-key"]
+	_, pendingExists := listener.pendingEnds["stale-pending"]
+	listener.mu.Unlock()
+
+	if staleExists {
+		t.Error("expected stale inflight entry to be evicted")
+	}
+	if !freshExists {
+		t.Error("expected fresh inflight entry to survive eviction")
+	}
+	if pendingExists {
+		t.Error("expected stale pendingEnd entry to be evicted")
+	}
+
+	// Verify the stale span was ended with error status.
+	if err := tp.ForceFlush(context.Background()); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	spans := exp.GetSpans()
+	found := false
+	for _, s := range spans {
+		if s.Name == "stale-span" {
+			found = true
+			if s.Status.Code != codes.Error {
+				t.Errorf("expected stale span to have Error status, got %v", s.Status.Code)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected stale span to be exported after eviction")
 	}
 }
