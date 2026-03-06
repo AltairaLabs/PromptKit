@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -492,4 +493,42 @@ func TestUnarySession_ForkSession(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, len(origMessages), len(forkedMessages))
+}
+
+func TestStreamProcessor_SendChunk_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Use an unbuffered channel so send would block, forcing the ctx.Done() path.
+	chunkChan := make(chan providers.StreamChunk)
+	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
+
+	ok := p.sendChunk(&providers.StreamChunk{Delta: "test"})
+	assert.False(t, ok, "sendChunk should return false when context is cancelled")
+}
+
+func TestStreamProcessor_ProcessElement_ContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	chunkChan := make(chan providers.StreamChunk) // unbuffered
+	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
+
+	text := "hello"
+	ok := p.processElement(&stage.StreamElement{Text: &text})
+	assert.False(t, ok, "processElement should return false when context is cancelled")
+}
+
+func TestStreamProcessor_ProcessElement_Error(t *testing.T) {
+	chunkChan := make(chan providers.StreamChunk, 10)
+	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
+
+	testErr := errors.New("stream error")
+	ok := p.processElement(&stage.StreamElement{Error: testErr})
+	assert.True(t, ok, "processElement should succeed sending error chunk")
+
+	chunk := <-chunkChan
+	assert.Equal(t, testErr, chunk.Error)
+	require.NotNil(t, chunk.FinishReason)
+	assert.Equal(t, "error", *chunk.FinishReason)
 }
