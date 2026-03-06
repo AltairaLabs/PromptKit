@@ -3,7 +3,7 @@ package types
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 )
 
 func TestMigrateToMultimodal(t *testing.T) {

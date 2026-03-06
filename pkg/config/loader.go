@@ -4,13 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
-const defaultProviderGroup = "default"
+const (
+	defaultProviderGroup = "default"
+	extYAML              = ".yaml"
+	extYML               = ".yml"
+)
 
 // mergeSpecs is a generic helper that merges inline specs into a loaded resource map.
 // It checks for duplicate IDs and calls setID on each spec before storing it.
@@ -252,12 +257,11 @@ func LoadConfig(filename string) (*Config, error) {
 		}
 	}
 
-	// Validate the loaded configuration (warnings only, doesn't fail).
-	// TODO: propagate validation warnings to the caller or log them. Currently the
-	// validator result and any warnings are discarded because the config package has
-	// no logger and LoadConfig's signature does not surface warnings.
+	// Validate the loaded configuration. Hard errors were already caught by schema
+	// validation above; this catches semantic warnings (e.g. unused providers).
 	validator := NewConfigValidatorWithPath(cfg, filename)
 	_ = validator.Validate()
+	cfg.ValidationWarnings = validator.GetWarnings()
 
 	return cfg, nil
 }
@@ -449,9 +453,15 @@ func (c *Config) loadTools(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to read tool file %s: %w", ref.File, err)
 		}
-		// TODO: validate tool files against a schema. Note that ValidateTool expects
-		// K8s-style manifests (apiVersion/kind/spec), but tool files referenced here
-		// may use raw OpenAI function format. A format-aware validator is needed.
+		// Validate K8s-style YAML tool files against the schema.
+		// JSON tool files (raw OpenAI format) are validated structurally
+		// by the tool registry at load time, not by schema.
+		ext := strings.ToLower(filepath.Ext(ref.File))
+		if ext == extYAML || ext == extYML {
+			if err := ValidateTool(data); err != nil {
+				return fmt.Errorf("schema validation failed for %s: %w", ref.File, err)
+			}
+		}
 		c.LoadedTools = append(c.LoadedTools, ToolData{
 			FilePath: ref.File,
 			Data:     data,

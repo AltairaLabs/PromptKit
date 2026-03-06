@@ -194,7 +194,7 @@ func (s *ArenaAssertionStage) executeAssertions(
 	for _, ac := range s.assertionConfigs {
 		if ac.When != nil {
 			params := s.buildWhenParams(ac.Params, turnMessages, allMessages, metadata)
-			if shouldRun, reason := ac.When.ShouldRun(params); !shouldRun {
+			if shouldRun, reason := assertions.NewWhenEvaluator(ac.When).ShouldRun(params); !shouldRun {
 				skippedResults = append(skippedResults, map[string]interface{}{
 					"type":    ac.Type,
 					"passed":  true,

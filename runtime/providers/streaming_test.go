@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"

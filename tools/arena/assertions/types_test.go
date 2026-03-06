@@ -25,7 +25,7 @@ func TestAssertionConfig_ToEvalDef_Basic(t *testing.T) {
 		Message: "should include hello",
 	}
 
-	def := cfg.ToEvalDef(0)
+	def := ToEvalDef(cfg, 0)
 
 	assert.Equal(t, "assertion_0_content_includes", def.ID)
 	assert.Equal(t, "content_includes", def.Type)
@@ -51,7 +51,7 @@ func TestAssertionConfig_ToEvalDef_WithWhen(t *testing.T) {
 		},
 	}
 
-	def := cfg.ToEvalDef(3)
+	def := ToEvalDef(cfg, 3)
 
 	assert.Equal(t, "assertion_3_tools_called", def.ID)
 	assert.NotNil(t, def.When)
@@ -67,8 +67,8 @@ func TestAssertionConfig_ToEvalDef_IndexInID(t *testing.T) {
 		Params: map[string]interface{}{},
 	}
 
-	def5 := cfg.ToEvalDef(5)
-	def10 := cfg.ToEvalDef(10)
+	def5 := ToEvalDef(cfg, 5)
+	def10 := ToEvalDef(cfg, 10)
 
 	assert.Equal(t, "assertion_5_content_matches", def5.ID)
 	assert.Equal(t, "assertion_10_content_matches", def10.ID)
@@ -81,7 +81,7 @@ func TestAssertionConfig_ToConversationEvalDef(t *testing.T) {
 		Message: "should have at least 3 turns",
 	}
 
-	def := cfg.ToConversationEvalDef(2)
+	def := ToConversationEvalDef(cfg, 2)
 
 	assert.Equal(t, "assertion_2_turn_count", def.ID)
 	assert.Equal(t, "turn_count", def.Type)
@@ -97,7 +97,7 @@ func TestAssertionConfig_ToConversationEvalDef_WithWhen(t *testing.T) {
 		},
 	}
 
-	def := cfg.ToConversationEvalDef(0)
+	def := ToConversationEvalDef(cfg, 0)
 
 	assert.Equal(t, evals.TriggerOnConversationComplete, def.Trigger)
 	assert.NotNil(t, def.When)

@@ -122,11 +122,10 @@ func NewArenaStateStore() *ArenaStateStore {
 	}
 }
 
-// Save stores conversation state (implements Store interface)
-// For Arena, this extracts trace data from metadata if present.
-//
-// TODO(perf): Deep cloning on every Save is O(N) per call, leading to O(N^2) total for N saves.
-// An append-only design that only clones new messages would reduce this to O(1) amortized per save.
+// Save stores conversation state (implements Store interface).
+// Uses incremental cloning: only new messages (appended since the last Save)
+// are deep-cloned. Previously stored messages are already immutable snapshots
+// and are reused, reducing per-Save cost from O(N) to O(delta).
 func (s *ArenaStateStore) Save(ctx context.Context, state *runtimestore.ConversationState) error {
 	if state == nil {
 		return fmt.Errorf("state cannot be nil")
@@ -135,27 +134,11 @@ func (s *ArenaStateStore) Save(ctx context.Context, state *runtimestore.Conversa
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	conversationID := state.ID
-
-	// Deep clone the state to capture current state immutably
-	clonedState := s.deepCloneConversationState(state)
-
-	// Get or create arena state
-	arenaState, exists := s.conversations[conversationID]
-	if !exists {
-		arenaState = &ArenaConversationState{
-			ConversationState: *clonedState,
-		}
-		s.conversations[conversationID] = arenaState
-	} else {
-		// Update the embedded state with cloned version
-		arenaState.ConversationState = *clonedState
-	}
-
+	s.saveStateLocked(state, nil)
 	return nil
 }
 
-// SaveWithTrace stores conversation state with execution trace (Arena-specific method)
+// SaveWithTrace stores conversation state with execution trace (Arena-specific method).
 // This is called by ArenaStateStoreSaveMiddleware to directly pass the trace.
 // LLM call traces (_llm_trace) are always attached to messages when trace data is available.
 func (s *ArenaStateStore) SaveWithTrace(
@@ -170,29 +153,91 @@ func (s *ArenaStateStore) SaveWithTrace(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.saveStateLocked(state, trace)
+	return nil
+}
+
+// saveStateLocked is the shared implementation for Save and SaveWithTrace.
+// It performs incremental message cloning: messages already stored are reused,
+// and only new messages (from storedCount onward) are deep-cloned.
+func (s *ArenaStateStore) saveStateLocked(
+	state *runtimestore.ConversationState,
+	trace *pipeline.ExecutionTrace,
+) {
 	conversationID := state.ID
 
-	// Deep clone the state to capture current state immutably
-	clonedState := s.deepCloneConversationState(state)
-
-	// Attach trace to messages if trace is provided
-	if trace != nil && len(trace.LLMCalls) > 0 {
-		s.attachTraceToMessages(clonedState, trace)
-	}
-
-	// Get or create arena state
 	arenaState, exists := s.conversations[conversationID]
 	if !exists {
-		arenaState = &ArenaConversationState{
+		// First save — full clone required.
+		clonedState := s.deepCloneConversationState(state)
+		if trace != nil && len(trace.LLMCalls) > 0 {
+			s.attachTraceToMessages(clonedState, trace)
+		}
+		s.conversations[conversationID] = &ArenaConversationState{
 			ConversationState: *clonedState,
 		}
-		s.conversations[conversationID] = arenaState
-	} else {
-		// Update the embedded state with cloned version
-		arenaState.ConversationState = *clonedState
+		return
 	}
 
-	return nil
+	// Incremental save: reuse stored messages, clone only new/mutated ones.
+	arenaState.Messages = s.incrementalCloneMessages(arenaState.Messages, state.Messages)
+	s.updateNonMessageFields(arenaState, state)
+
+	if trace != nil && len(trace.LLMCalls) > 0 {
+		s.attachTraceToMessages(&arenaState.ConversationState, trace)
+	}
+}
+
+// incrementalCloneMessages builds a message slice reusing unchanged stored messages
+// and deep-cloning only new or mutated ones. This reduces per-Save cost from O(N)
+// to O(delta) for the common append-only case.
+func (s *ArenaStateStore) incrementalCloneMessages(stored, incoming []types.Message) []types.Message {
+	if len(incoming) == 0 {
+		return nil
+	}
+	messages := make([]types.Message, len(incoming))
+	reuseLimit := min(len(stored), len(incoming))
+	for i := 0; i < reuseLimit; i++ {
+		if stored[i].Content == incoming[i].Content &&
+			len(stored[i].Meta) == len(incoming[i].Meta) {
+			messages[i] = stored[i]
+		} else {
+			messages[i] = s.deepCloneMessage(&incoming[i])
+		}
+	}
+	for i := reuseLimit; i < len(incoming); i++ {
+		messages[i] = s.deepCloneMessage(&incoming[i])
+	}
+	return messages
+}
+
+// updateNonMessageFields copies non-message scalar and small collection fields
+// from the incoming state to the stored arena state.
+func (s *ArenaStateStore) updateNonMessageFields(
+	arenaState *ArenaConversationState,
+	state *runtimestore.ConversationState,
+) {
+	arenaState.ID = state.ID
+	arenaState.UserID = state.UserID
+	arenaState.SystemPrompt = state.SystemPrompt
+	arenaState.TokenCount = state.TokenCount
+	arenaState.LastAccessedAt = state.LastAccessedAt
+
+	if len(state.Summaries) > 0 {
+		arenaState.Summaries = make([]runtimestore.Summary, len(state.Summaries))
+		copy(arenaState.Summaries, state.Summaries)
+	} else {
+		arenaState.Summaries = nil
+	}
+
+	if len(state.Metadata) > 0 {
+		arenaState.Metadata = make(map[string]interface{}, len(state.Metadata))
+		for k, v := range state.Metadata {
+			arenaState.Metadata[k] = s.deepCloneValue(v)
+		}
+	} else {
+		arenaState.Metadata = nil
+	}
 }
 
 // attachTraceToMessages attaches LLMCall data to message Meta fields using MessageIndex

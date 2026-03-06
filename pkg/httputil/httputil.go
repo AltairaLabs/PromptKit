@@ -1,33 +1,22 @@
-// Package httputil provides shared HTTP client construction utilities
-// for the PromptKit project. It centralizes timeout defaults and client
-// creation so that every module uses consistent configuration.
+// Package httputil re-exports the runtime/httputil package for backward
+// compatibility. New code should import runtime/httputil directly.
 package httputil
 
 import (
 	"net/http"
 	"time"
+
+	runtimehttp "github.com/AltairaLabs/PromptKit/runtime/httputil"
 )
 
-// Standard timeout defaults used across the project.
+// Re-exported constants.
 const (
-	// DefaultProviderTimeout is the HTTP timeout for LLM provider calls
-	// (e.g. OpenAI, Claude, Gemini). Provider requests can involve large
-	// payloads and long inference times, so they use a longer timeout.
-	DefaultProviderTimeout = 60 * time.Second
-
-	// DefaultToolTimeout is the HTTP timeout for tool / webhook calls
-	// made by the SDK HTTP executor. These are typically shorter-lived
-	// API requests.
-	DefaultToolTimeout = 30 * time.Second
-
-	// DefaultStreamingTimeout is the HTTP timeout for streaming provider
-	// responses (e.g. SSE streams). Streaming connections stay open much
-	// longer than regular request/response cycles.
-	DefaultStreamingTimeout = 300 * time.Second
+	DefaultProviderTimeout  = runtimehttp.DefaultProviderTimeout
+	DefaultToolTimeout      = runtimehttp.DefaultToolTimeout
+	DefaultStreamingTimeout = runtimehttp.DefaultStreamingTimeout
 )
 
 // NewHTTPClient returns an *http.Client configured with the given timeout.
-// Pass one of the Default*Timeout constants, or a custom duration.
 func NewHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout}
+	return runtimehttp.NewHTTPClient(timeout)
 }

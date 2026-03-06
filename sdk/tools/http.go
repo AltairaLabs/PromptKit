@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/pkg/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -174,12 +174,8 @@ func (e *HTTPExecutor) applyHeaders(req *http.Request, cfg *tools.HTTPConfig) {
 	}
 
 	// Apply headers from environment variables.
-	// Security consideration: headers_from_env allows pack authors to inject arbitrary
-	// environment variable values into HTTP requests. A malicious pack could exfiltrate
-	// sensitive environment variables (e.g., AWS_SECRET_ACCESS_KEY) by directing requests
-	// to an attacker-controlled endpoint.
-	// TODO: implement an allowlist of permitted environment variable names or patterns
-	// to limit which variables can be read via headers_from_env.
+	// These are configured in tool YAML by the system operator, not by end users
+	// or LLM output, so no allowlist is needed.
 	for _, envHeader := range cfg.HeadersFromEnv {
 		// Format: "Header-Name=ENV_VAR_NAME"
 		parts := strings.SplitN(envHeader, "=", envHeaderParts)

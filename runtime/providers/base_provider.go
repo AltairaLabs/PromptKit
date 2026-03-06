@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/AltairaLabs/PromptKit/pkg/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 )

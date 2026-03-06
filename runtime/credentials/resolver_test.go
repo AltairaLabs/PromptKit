@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +14,7 @@ import (
 func TestResolve_ExplicitAPIKey(t *testing.T) {
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			APIKey: "sk-test-key",
 		},
 	}
@@ -41,7 +40,7 @@ func TestResolve_CredentialFile(t *testing.T) {
 
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			CredentialFile: credFile,
 		},
 	}
@@ -62,7 +61,7 @@ func TestResolve_CredentialEnv(t *testing.T) {
 
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			CredentialEnv: envVar,
 		},
 	}
@@ -79,7 +78,7 @@ func TestResolve_CredentialEnv(t *testing.T) {
 func TestResolve_CredentialEnv_NotSet(t *testing.T) {
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			CredentialEnv: "NONEXISTENT_ENV_VAR_12345",
 		},
 	}
@@ -170,7 +169,7 @@ func TestResolve_PriorityOrder(t *testing.T) {
 	// Test 1: api_key takes precedence
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			APIKey:         "sk-explicit-key",
 			CredentialFile: credFile,
 			CredentialEnv:  "TEST_CRED_ENV",
@@ -186,7 +185,7 @@ func TestResolve_PriorityOrder(t *testing.T) {
 	// Test 2: credential_file takes precedence over credential_env
 	cfg = ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			CredentialFile: credFile,
 			CredentialEnv:  "TEST_CRED_ENV",
 		},
@@ -201,7 +200,7 @@ func TestResolve_PriorityOrder(t *testing.T) {
 	// Test 3: credential_env takes precedence over default
 	cfg = ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			CredentialEnv: "TEST_CRED_ENV",
 		},
 	}
@@ -257,7 +256,7 @@ func TestResolve_UnknownProviderType(t *testing.T) {
 	// Unknown provider should get default Bearer auth
 	cfg := ResolverConfig{
 		ProviderType: "unknown-provider",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			APIKey: "sk-test-key",
 		},
 	}
@@ -286,7 +285,7 @@ func TestResolve_CredentialFile_RelativePath(t *testing.T) {
 
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			CredentialFile: credFile,
 		},
 		ConfigDir: tmpDir,
@@ -304,7 +303,7 @@ func TestResolve_CredentialFile_RelativePath(t *testing.T) {
 func TestResolve_CredentialFile_NotFound(t *testing.T) {
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			CredentialFile: "/nonexistent/path/to/file.txt",
 		},
 	}
@@ -335,7 +334,7 @@ func TestResolve_FallbackDefaultEnvVar(t *testing.T) {
 func TestResolve_ClaudeHeaderConfig(t *testing.T) {
 	cfg := ResolverConfig{
 		ProviderType: "claude",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			APIKey: "sk-claude-key",
 		},
 	}
@@ -386,7 +385,7 @@ func TestWithBearerPrefix(t *testing.T) {
 func TestMustResolve_Success(t *testing.T) {
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			APIKey: "sk-test-key",
 		},
 	}
@@ -400,7 +399,7 @@ func TestMustResolve_Success(t *testing.T) {
 func TestMustResolve_Panics(t *testing.T) {
 	cfg := ResolverConfig{
 		ProviderType: "openai",
-		CredentialConfig: &config.CredentialConfig{
+		CredentialConfig: &CredentialConfig{
 			CredentialEnv: "NONEXISTENT_VAR_FOR_PANIC_TEST",
 		},
 	}

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -895,6 +896,44 @@ spec:
 	_, err = LoadConfig(configPath)
 	if err == nil {
 		t.Error("Expected error when tool file doesn't exist")
+	}
+}
+
+func TestLoadConfig_WithToolsYAMLValidation(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	// Create an invalid YAML tool file (missing required fields)
+	invalidTool := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: bad-tool
+spec: {}
+`
+	toolPath := filepath.Join(tmpDir, "bad-tool.yaml")
+	if err := os.WriteFile(toolPath, []byte(invalidTool), 0600); err != nil {
+		t.Fatalf("Failed to write test tool: %v", err)
+	}
+
+	configContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  tools:
+    - file: bad-tool.yaml
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	_, err := LoadConfig(configPath)
+	if err == nil {
+		t.Error("Expected schema validation error for invalid YAML tool file")
+	}
+	if err != nil && !strings.Contains(err.Error(), "schema validation failed") {
+		t.Errorf("Expected schema validation error, got: %v", err)
 	}
 }
 
