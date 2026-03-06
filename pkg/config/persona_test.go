@@ -564,21 +564,32 @@ func TestUserPersonaPack_BuildTemplatedPrompt_MissingRequiredVar(t *testing.T) {
 	}
 }
 
-func TestUserPersonaPack_BuildTemplatedPrompt_WithFragments(t *testing.T) {
-	persona := &UserPersonaPack{
-		ID:             "test-persona",
-		SystemTemplate: "Template text",
-		Fragments: []FragmentRef{
-			{Name: "frag1", Path: "path1", Required: true},
-		},
+func TestLoadPersona_FragmentsRejectedAtValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	personaFile := filepath.Join(tmpDir, "persona.yaml")
+
+	personaContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Persona
+metadata:
+  name: test-persona
+spec:
+  system_template: "Template text"
+  fragments:
+    - name: frag1
+      path: path1
+      required: true
+`
+
+	if err := os.WriteFile(personaFile, []byte(personaContent), 0644); err != nil {
+		t.Fatal(err)
 	}
 
-	_, err := persona.buildTemplatedPrompt("us", nil)
+	_, err := LoadPersona(personaFile)
 	if err == nil {
-		t.Error("Expected error for fragments (not implemented)")
+		t.Error("Expected error for fragments (not yet supported)")
 	}
 
-	if !strings.Contains(err.Error(), "fragment loading for personas not yet fully implemented") {
-		t.Errorf("Expected fragment error message, got: %v", err)
+	if !strings.Contains(err.Error(), "fragment composition is not yet supported") {
+		t.Errorf("Expected fragment rejection error, got: %v", err)
 	}
 }

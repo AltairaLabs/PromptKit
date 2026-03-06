@@ -181,6 +181,14 @@ func validateAndReturnPersona(persona *UserPersonaPack, filename string) (*UserP
 		return nil, fmt.Errorf("persona %s must specify system_template, system_prompt, or prompt_activity", persona.ID)
 	}
 
+	// Reject fragment configs at validation time so callers get a clear error
+	// during config loading rather than a runtime error during prompt rendering.
+	if len(persona.Fragments) > 0 {
+		return nil, fmt.Errorf(
+			"persona %s: fragment composition is not yet supported; "+
+				"use system_template or system_prompt instead", persona.ID)
+	}
+
 	// Validate style properties
 	if err := validatePersonaStyle(persona.Style); err != nil {
 		return nil, fmt.Errorf("persona %s style validation failed: %w", persona.ID, err)
