@@ -407,14 +407,11 @@ func getValidatorsFromMessage(msgOrMeta interface{}) map[string]interface{} {
 
 // extractValidationsViaReflection uses reflection to access the Validations field directly.
 func extractValidationsViaReflection(msgOrMeta interface{}) map[string]interface{} {
-	v := reflect.ValueOf(msgOrMeta)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
+	rv, ok := derefToStruct(msgOrMeta)
+	if !ok {
 		return nil
 	}
-	field := v.FieldByName("Validations")
+	field := rv.FieldByName("Validations")
 	if !field.IsValid() || field.Kind() != reflect.Slice || field.Len() == 0 {
 		return nil
 	}
@@ -485,14 +482,11 @@ func hasValidatorsInMessage(msgOrMeta interface{}) bool {
 
 // hasValidationsViaReflection checks for non-empty Validations field via reflection.
 func hasValidationsViaReflection(msgOrMeta interface{}) bool {
-	v := reflect.ValueOf(msgOrMeta)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
+	rv, ok := derefToStruct(msgOrMeta)
+	if !ok {
 		return false
 	}
-	field := v.FieldByName("Validations")
+	field := rv.FieldByName("Validations")
 	return field.IsValid() && field.Kind() == reflect.Slice && field.Len() > 0
 }
 
@@ -571,19 +565,10 @@ func checkSingleAssertion(assertion interface{}) bool {
 		if passed, exists := assertionMap["passed"].(bool); exists {
 			return passed
 		}
+		return true
 	}
 	// Try struct field via reflection
-	rv := reflect.ValueOf(assertion)
-	if rv.Kind() == reflect.Ptr {
-		rv = rv.Elem()
-	}
-	if rv.Kind() == reflect.Struct {
-		field := rv.FieldByName("Passed")
-		if field.IsValid() && field.Kind() == reflect.Bool {
-			return field.Bool()
-		}
-	}
-	return true
+	return extractBoolFieldViaReflection(assertion, "Passed")
 }
 
 // isValidatorPassed checks if a single validator passed
@@ -593,19 +578,14 @@ func isValidatorPassed(validator interface{}) bool {
 		if passed, exists := validatorMap["passed"].(bool); exists && !passed {
 			return false
 		}
+		return true
 	}
 	// Try struct field via reflection (handles types.ValidationResult and similar structs)
-	if !extractBoolFieldViaReflection(validator, "Passed") {
-		// Only consider it failed if we actually found the field
-		rv := reflect.ValueOf(validator)
-		if rv.Kind() == reflect.Ptr {
-			rv = rv.Elem()
-		}
-		if rv.Kind() == reflect.Struct {
-			field := rv.FieldByName("Passed")
-			if field.IsValid() && field.Kind() == reflect.Bool {
-				return false
-			}
+	rv, ok := derefToStruct(validator)
+	if ok {
+		field := rv.FieldByName("Passed")
+		if field.IsValid() && field.Kind() == reflect.Bool {
+			return field.Bool()
 		}
 	}
 	return true
@@ -630,13 +610,23 @@ func getOKFromResult(result interface{}) bool {
 	return extractBoolFieldViaReflection(result, "Passed")
 }
 
-// extractBoolFieldViaReflection extracts a bool field from a struct using reflection.
-func extractBoolFieldViaReflection(v interface{}, fieldName string) bool {
+// derefToStruct dereferences a pointer (if needed) and returns the underlying reflect.Value
+// and true if it is a struct, or the zero Value and false otherwise.
+func derefToStruct(v interface{}) (reflect.Value, bool) {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Ptr {
 		rv = rv.Elem()
 	}
 	if rv.Kind() != reflect.Struct {
+		return reflect.Value{}, false
+	}
+	return rv, true
+}
+
+// extractBoolFieldViaReflection extracts a bool field from a struct using reflection.
+func extractBoolFieldViaReflection(v interface{}, fieldName string) bool {
+	rv, ok := derefToStruct(v)
+	if !ok {
 		return false
 	}
 	field := rv.FieldByName(fieldName)
@@ -663,11 +653,8 @@ func getDetailsFromResult(result interface{}) interface{} {
 
 // extractFieldViaReflection extracts a field value from a struct using reflection.
 func extractFieldViaReflection(v interface{}, fieldName string) interface{} {
-	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
+	rv, ok := derefToStruct(v)
+	if !ok {
 		return nil
 	}
 	field := rv.FieldByName(fieldName)
@@ -855,15 +842,13 @@ func getMessageFromMap(result interface{}) string {
 
 // getMessageFromStruct extracts message from a struct via reflection
 func getMessageFromStruct(result interface{}) string {
-	v := reflect.ValueOf(result)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
+	rv, ok := derefToStruct(result)
+	if !ok {
+		return ""
 	}
-	if v.Kind() == reflect.Struct {
-		messageField := v.FieldByName("Message")
-		if messageField.IsValid() && messageField.Kind() == reflect.String {
-			return messageField.String()
-		}
+	messageField := rv.FieldByName("Message")
+	if messageField.IsValid() && messageField.Kind() == reflect.String {
+		return messageField.String()
 	}
 	return ""
 }
