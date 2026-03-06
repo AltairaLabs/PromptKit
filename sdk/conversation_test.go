@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -2222,4 +2223,11 @@ func TestForkPreservesHookRegistry(t *testing.T) {
 	require.NotNil(t, forked)
 	assert.Equal(t, reg, forked.hookRegistry)
 	assert.NotNil(t, forked.sessionHooks)
+}
+
+func TestSetLoggerOnce(t *testing.T) {
+	l := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// Should not panic even if called multiple times.
+	setLoggerOnce(l)
+	setLoggerOnce(l)
 }

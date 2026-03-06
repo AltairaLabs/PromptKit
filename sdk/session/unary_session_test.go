@@ -532,3 +532,47 @@ func TestStreamProcessor_ProcessElement_Error(t *testing.T) {
 	require.NotNil(t, chunk.FinishReason)
 	assert.Equal(t, "error", *chunk.FinishReason)
 }
+
+func TestStreamProcessor_CollectMetadata_FinalResult(t *testing.T) {
+	chunkChan := make(chan providers.StreamChunk, 10)
+	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
+
+	execResult := &stage.ExecutionResult{
+		Response: &stage.Response{Role: "assistant", Content: "test"},
+	}
+	meta := map[string]interface{}{
+		"__final_result__": execResult,
+	}
+	p.collectMetadata(meta)
+
+	assert.NotNil(t, p.finalResult, "finalResult should be set from metadata")
+}
+
+func TestStreamProcessor_CollectMetadata_InvalidPendingToolsType(t *testing.T) {
+	chunkChan := make(chan providers.StreamChunk, 10)
+	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
+
+	// pending_tools exists but is wrong type — should hit early return
+	meta := map[string]interface{}{
+		"pending_tools": "not-a-slice",
+	}
+	p.collectMetadata(meta)
+	assert.False(t, p.pendingToolsEmitted)
+}
+
+func TestProcessStreamElements_EarlyExit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	stageChan := make(chan stage.StreamElement, 5)
+	text := "hello"
+	stageChan <- stage.StreamElement{Text: &text}
+	stageChan <- stage.StreamElement{Text: &text}
+	close(stageChan)
+
+	// Unbuffered chunkChan + cancelled context forces processElement to return false,
+	// testing the early exit path in processStreamElements.
+	chunkChan := make(chan providers.StreamChunk)
+	processStreamElements(ctx, stageChan, chunkChan)
+	// If we reach here without hanging, the early exit worked.
+}
