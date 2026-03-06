@@ -90,6 +90,10 @@ func (e *arenaToolExecutor) Execute(
 		})
 		successResult := types.NewTextToolResult(tc.ID, tc.Name, resultStr)
 		successResult.LatencyMs = toolResult.LatencyMs
+		// Propagate multimodal parts (e.g. from mock_parts) if present
+		if len(toolResult.Parts) > 0 {
+			successResult.Parts = toolResult.Parts
+		}
 		result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(successResult))
 	}
 

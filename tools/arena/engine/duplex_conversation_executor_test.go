@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -10,7 +11,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/streaming"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDuplexConversationExecutor_RequiresDuplexConfig(t *testing.T) {
@@ -589,6 +593,46 @@ func TestArenaToolExecutor_NilRegistry(t *testing.T) {
 	if executor != nil {
 		t.Errorf("newArenaToolExecutor(nil) should return nil, got %v", executor)
 	}
+}
+
+func TestArenaToolExecutor_PropagatesMultimodalParts(t *testing.T) {
+	// Register a mock tool that returns multimodal parts via ExecuteMultimodal
+	registry := tools.NewRegistry()
+	text := "chart generated"
+	imgData := "iVBORw0KGgo="
+	imgMime := "image/png"
+
+	mockParts := []types.ContentPart{
+		{Type: types.ContentTypeText, Text: &text},
+		{Type: types.ContentTypeImage, Media: &types.MediaContent{Data: &imgData, MIMEType: imgMime}},
+	}
+
+	desc := &tools.ToolDescriptor{
+		Name:        "chart_tool",
+		Description: "generates charts",
+		Mode:        "mock",
+		MockResult:  json.RawMessage(`{"ok":true}`),
+		MockParts:   mockParts,
+	}
+	require.NoError(t, registry.Register(desc))
+
+	executor := newArenaToolExecutor(registry)
+	require.NotNil(t, executor)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "chart_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	result, err := executor.Execute(context.Background(), toolCalls)
+	require.NoError(t, err)
+	require.Len(t, result.ResultMessages, 1)
+
+	msg := result.ResultMessages[0]
+	require.NotNil(t, msg.ToolResult)
+	require.True(t, msg.ToolResult.HasMedia(), "tool result should contain media parts")
+	assert.Len(t, msg.ToolResult.Parts, 2)
+	assert.Equal(t, types.ContentTypeText, msg.ToolResult.Parts[0].Type)
+	assert.Equal(t, types.ContentTypeImage, msg.ToolResult.Parts[1].Type)
 }
 
 func TestProcessResponseElement(t *testing.T) {

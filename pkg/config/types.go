@@ -1068,17 +1068,35 @@ type ToolConfigSchema struct {
 
 // ToolSpec represents a tool descriptor (re-exported from runtime/tools for schema generation)
 type ToolSpec struct {
-	Name         string      `json:"name,omitempty" yaml:"name,omitempty"`
-	Description  string      `json:"description" yaml:"description"`
-	InputSchema  interface{} `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
-	OutputSchema interface{} `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
-	Mode         string      `json:"mode" yaml:"mode"`                   // "mock" | "live" | "client"
-	TimeoutMs    int         `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
-	MockResult   interface{} `json:"mock_result,omitempty" yaml:"mock_result,omitempty"`     // Static mock data
-	MockTemplate string      `json:"mock_template,omitempty" yaml:"mock_template,omitempty"` // Template for dynamic mocks
-	HTTPConfig   *HTTPConfig `json:"http,omitempty" yaml:"http,omitempty"`                   // Live HTTP configuration
+	Name         string         `json:"name,omitempty" yaml:"name,omitempty"`
+	Description  string         `json:"description" yaml:"description"`
+	InputSchema  interface{}    `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
+	OutputSchema interface{}    `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
+	Mode         string         `json:"mode" yaml:"mode"`                   // "mock" | "live" | "client"
+	TimeoutMs    int            `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	MockResult   interface{}    `json:"mock_result,omitempty" yaml:"mock_result,omitempty"`
+	MockTemplate string         `json:"mock_template,omitempty" yaml:"mock_template,omitempty"`
+	MockParts    []MockPartSpec `json:"mock_parts,omitempty" yaml:"mock_parts,omitempty"`
+	HTTPConfig   *HTTPConfig    `json:"http,omitempty" yaml:"http,omitempty"`
 	// Client-side execution configuration
 	ClientConfig *ToolClientConfig `json:"client,omitempty" yaml:"client,omitempty"`
+}
+
+// MockPartSpec describes a single multimodal content part in mock_parts (schema generation).
+type MockPartSpec struct {
+	Type  string         `json:"type" yaml:"type"`                     // "text", "image", "audio", "video", "document"
+	Text  string         `json:"text,omitempty" yaml:"text,omitempty"` // For type=text
+	Media *MockMediaSpec `json:"media,omitempty" yaml:"media,omitempty"`
+}
+
+// MockMediaSpec describes media content in a mock part (schema generation).
+type MockMediaSpec struct {
+	FilePath string `json:"file_path,omitempty" yaml:"file_path,omitempty"` // Local file path (resolved at execution)
+	URL      string `json:"url,omitempty" yaml:"url,omitempty"`             // External URL
+	MIMEType string `json:"mime_type" yaml:"mime_type"`
+	Width    *int   `json:"width,omitempty" yaml:"width,omitempty"`
+	Height   *int   `json:"height,omitempty" yaml:"height,omitempty"`
+	Caption  string `json:"caption,omitempty" yaml:"caption,omitempty"`
 }
 
 // ToolClientConfig defines configuration for client-side tool execution (schema generation)

@@ -40,6 +40,51 @@
         "timeout_ms"
       ]
     },
+    "MockMediaSpec": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "MockPartSpec": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/MockMediaSpec"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
     "ObjectMeta": {
       "properties": {
         "name": {
@@ -130,6 +175,12 @@
         "mock_result": true,
         "mock_template": {
           "type": "string"
+        },
+        "mock_parts": {
+          "items": {
+            "$ref": "#/$defs/MockPartSpec"
+          },
+          "type": "array"
         },
         "http": {
           "$ref": "#/$defs/HTTPConfig"
