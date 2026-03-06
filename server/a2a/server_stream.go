@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 
@@ -26,39 +27,40 @@ type ssePayload struct {
 }
 
 // taskBroadcaster fans out SSE events to multiple subscribers for a single task.
+// Subscribers are stored in a map keyed by auto-incrementing ID for O(1) removal.
 type taskBroadcaster struct {
 	mu     sync.Mutex
-	subs   []chan ssePayload
+	subs   map[uint64]chan ssePayload
+	nextID uint64
 	closed bool
 }
 
-// subscribe adds a new subscriber and returns its channel.
-// Returns nil if the broadcaster is at capacity.
-func (b *taskBroadcaster) subscribe() (<-chan ssePayload, error) {
+// subscribe adds a new subscriber and returns its receive channel and an ID for unsubscription.
+func (b *taskBroadcaster) subscribe() (_ <-chan ssePayload, subID uint64, _ error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	ch := make(chan ssePayload, subscriberBuffer)
 	if b.closed {
 		close(ch)
-		return ch, nil
+		return ch, 0, nil
+	}
+	if b.subs == nil {
+		b.subs = make(map[uint64]chan ssePayload)
 	}
 	if len(b.subs) >= maxSubscribers {
-		return nil, ErrTooManySubscribers
+		return nil, 0, ErrTooManySubscribers
 	}
-	b.subs = append(b.subs, ch)
-	return ch, nil
+	id := b.nextID
+	b.nextID++
+	b.subs[id] = ch
+	return ch, id, nil
 }
 
-// unsubscribe removes a subscriber channel.
-func (b *taskBroadcaster) unsubscribe(ch <-chan ssePayload) {
+// unsubscribe removes a subscriber by ID.
+func (b *taskBroadcaster) unsubscribe(id uint64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for i, s := range b.subs {
-		if s == ch {
-			b.subs = append(b.subs[:i], b.subs[i+1:]...)
-			return
-		}
-	}
+	delete(b.subs, id)
 }
 
 // send broadcasts an event to all subscribers.
@@ -72,7 +74,7 @@ func (b *taskBroadcaster) send(evt ssePayload) {
 		select {
 		case ch <- evt:
 		default:
-			// slow subscriber — drop event to avoid blocking
+			log.Printf("a2a: broadcaster: dropped event for slow subscriber (buffer full)")
 		}
 	}
 }
@@ -120,30 +122,51 @@ func (s *Server) closeAllBroadcasters() {
 	}
 }
 
-// marshalRaw marshals v to json.RawMessage.
-func marshalRaw(v any) json.RawMessage {
-	data, _ := json.Marshal(v)
-	return data
+// marshalRaw marshals v to json.RawMessage, returning an error if serialization fails.
+func marshalRaw(v any) (json.RawMessage, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("marshalRaw: %w", err)
+	}
+	return data, nil
 }
 
 // writeSSE writes a single SSE event to the response.
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, id, event any) {
-	data, _ := json.Marshal(a2a.JSONRPCResponse{
+	raw, err := marshalRaw(event)
+	if err != nil {
+		log.Printf("a2a: writeSSE: failed to marshal event: %v", err)
+		return
+	}
+	data, err := json.Marshal(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
-		Result:  marshalRaw(event),
+		Result:  raw,
 	})
+	if err != nil {
+		log.Printf("a2a: writeSSE: failed to marshal response: %v", err)
+		return
+	}
 	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 	flusher.Flush()
 }
 
 // broadcastEvent builds an ssePayload and sends it to the broadcaster.
 func broadcastEvent(b *taskBroadcaster, rpcID, event any) {
-	data, _ := json.Marshal(a2a.JSONRPCResponse{
+	raw, err := marshalRaw(event)
+	if err != nil {
+		log.Printf("a2a: broadcastEvent: failed to marshal event: %v", err)
+		return
+	}
+	data, err := json.Marshal(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      rpcID,
-		Result:  marshalRaw(event),
+		Result:  raw,
 	})
+	if err != nil {
+		log.Printf("a2a: broadcastEvent: failed to marshal response: %v", err)
+		return
+	}
 	b.send(ssePayload{Data: data})
 }
 
@@ -166,10 +189,12 @@ func (sc *streamCtx) emit(event any) {
 
 // fail records a task failure in the store and emits the failed status event.
 func (sc *streamCtx) fail(errText string) {
-	_ = sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateFailed, &a2a.Message{
+	if err := sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateFailed, &a2a.Message{
 		Role:  a2a.RoleAgent,
 		Parts: []a2a.Part{{Text: &errText}},
-	})
+	}); err != nil {
+		log.Printf("a2a: task %s: failed to set failed state: %v", sc.taskID, err)
+	}
 	sc.emit(a2a.TaskStatusUpdateEvent{
 		TaskID:    sc.taskID,
 		ContextID: sc.contextID,
@@ -184,7 +209,9 @@ func (sc *streamCtx) fail(errText string) {
 
 // complete records a task completion and emits the completed status event.
 func (sc *streamCtx) complete() {
-	_ = sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateCompleted, nil)
+	if err := sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateCompleted, nil); err != nil {
+		log.Printf("a2a: task %s: failed to set completed state: %v", sc.taskID, err)
+	}
 	sc.emit(a2a.TaskStatusUpdateEvent{
 		TaskID:    sc.taskID,
 		ContextID: sc.contextID,
@@ -265,7 +292,9 @@ func (s *Server) handleStreamMessage(
 	}
 
 	// Set task to working.
-	_ = s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil)
+	if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
+		log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
+	}
 	sc.emit(a2a.TaskStatusUpdateEvent{
 		TaskID:    taskID,
 		ContextID: contextID,
@@ -334,7 +363,9 @@ func (s *Server) handleStreamToolResultMessage(
 		contextID: contextID,
 	}
 
-	_ = s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil)
+	if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
+		log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
+	}
 	sc.emit(a2a.TaskStatusUpdateEvent{
 		TaskID:    taskID,
 		ContextID: contextID,
@@ -446,7 +477,9 @@ func (sc *streamCtx) emitInputRequired(evt StreamEvent) {
 			}},
 		}
 	}
-	_ = sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateInputRequired, msg)
+	if err := sc.srv.taskStore.SetState(sc.taskID, a2a.TaskStateInputRequired, msg); err != nil {
+		log.Printf("a2a: task %s: failed to set input_required state: %v", sc.taskID, err)
+	}
 	sc.emit(a2a.TaskStatusUpdateEvent{
 		TaskID:    sc.taskID,
 		ContextID: sc.contextID,
@@ -522,12 +555,12 @@ func (s *Server) handleTaskSubscribe(w http.ResponseWriter, r *http.Request, req
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	ch, subErr := broadcaster.subscribe()
+	ch, subID, subErr := broadcaster.subscribe()
 	if subErr != nil {
 		writeRPCError(w, req.ID, -32000, "Too many subscribers")
 		return
 	}
-	defer broadcaster.unsubscribe(ch)
+	defer broadcaster.unsubscribe(subID)
 
 	ctx := r.Context()
 	for {

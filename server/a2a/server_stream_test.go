@@ -1149,19 +1149,23 @@ func TestServer_StreamMessage_ClientTool_ResumeStream(t *testing.T) {
 func TestBroadcaster_SubscriberLimit(t *testing.T) {
 	b := &taskBroadcaster{}
 
-	// Fill up to maxSubscribers.
+	// Fill up to maxSubscribers and track the first subscriber ID.
+	var firstSubID uint64
 	for i := 0; i < maxSubscribers; i++ {
-		ch, err := b.subscribe()
+		ch, subID, err := b.subscribe()
 		if err != nil {
 			t.Fatalf("subscribe %d failed: %v", i, err)
 		}
 		if ch == nil {
 			t.Fatalf("subscribe %d returned nil channel", i)
 		}
+		if i == 0 {
+			firstSubID = subID
+		}
 	}
 
 	// Next subscribe should fail.
-	ch, err := b.subscribe()
+	ch, _, err := b.subscribe()
 	if !errors.Is(err, ErrTooManySubscribers) {
 		t.Errorf("expected ErrTooManySubscribers, got %v", err)
 	}
@@ -1170,12 +1174,9 @@ func TestBroadcaster_SubscriberLimit(t *testing.T) {
 	}
 
 	// After unsubscribing one, should be able to subscribe again.
-	b.mu.Lock()
-	firstCh := b.subs[0]
-	b.mu.Unlock()
-	b.unsubscribe(firstCh)
+	b.unsubscribe(firstSubID)
 
-	ch, err = b.subscribe()
+	ch, _, err = b.subscribe()
 	if err != nil {
 		t.Errorf("subscribe after unsubscribe failed: %v", err)
 	}
@@ -1188,7 +1189,7 @@ func TestBroadcaster_SubscribeClosed(t *testing.T) {
 	b := &taskBroadcaster{}
 	b.close()
 
-	ch, err := b.subscribe()
+	ch, _, err := b.subscribe()
 	if err != nil {
 		t.Errorf("unexpected error subscribing to closed broadcaster: %v", err)
 	}

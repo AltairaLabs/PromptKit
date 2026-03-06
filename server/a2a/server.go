@@ -282,8 +282,11 @@ func (s *Server) ListenAndServe() error {
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		ReadTimeout:       s.readTimeout,
-		WriteTimeout:      0, // disabled for SSE streaming compatibility
-		IdleTimeout:       s.idleTimeout,
+		// TODO: WriteTimeout: 0 disables write timeouts on all endpoints, not
+		// just SSE. Consider per-handler timeouts via http.TimeoutHandler for
+		// non-streaming endpoints.
+		WriteTimeout: 0,
+		IdleTimeout:  s.idleTimeout,
 	}
 
 	s.httpSrvMu.Lock()
@@ -343,8 +346,11 @@ func (s *Server) Serve(ln net.Listener) error {
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		ReadTimeout:       s.readTimeout,
-		WriteTimeout:      0, // disabled for SSE streaming compatibility
-		IdleTimeout:       s.idleTimeout,
+		// TODO: WriteTimeout: 0 disables write timeouts on all endpoints, not
+		// just SSE. Consider per-handler timeouts via http.TimeoutHandler for
+		// non-streaming endpoints.
+		WriteTimeout: 0,
+		IdleTimeout:  s.idleTimeout,
 	}
 
 	s.httpSrvMu.Lock()
@@ -432,7 +438,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if s.authenticator != nil {
 		if err := s.authenticator.Authenticate(r); err != nil {
 			log.Printf("a2a: authentication failed: %v", err)
-			writeRPCError(w, nil, -32000, "Authentication failed")
+			writeRPCErrorWithStatus(w, http.StatusUnauthorized, nil, -32000, "Authentication failed")
 			return
 		}
 	}
@@ -478,25 +484,28 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 
 	conv, err := s.getOrCreateConversation(contextID)
 	if err != nil {
-		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to open conversation: %v", err))
+		log.Printf("a2a: failed to open conversation for context %s: %v", contextID, err)
+		writeRPCError(w, req.ID, -32000, "internal server error")
 		return
 	}
 
 	// Check if this is a tool-result message for a resumable conversation.
 	if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
-		s.handleToolResultMessage(w, req, conv, contextID, toolResults, params.Configuration)
+		s.handleToolResultMessage(w, r, req, conv, contextID, toolResults, params.Configuration)
 		return
 	}
 
 	pkMsg, err := a2a.MessageToMessage(&params.Message)
 	if err != nil {
-		writeRPCError(w, req.ID, -32602, fmt.Sprintf("Invalid message: %v", err))
+		log.Printf("a2a: invalid message in context %s: %v", contextID, err)
+		writeRPCError(w, req.ID, -32602, "Invalid message")
 		return
 	}
 
 	taskID := generateID()
 	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
-		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to create task: %v", err))
+		log.Printf("a2a: failed to create task for context %s: %v", contextID, err)
+		writeRPCError(w, req.ID, -32000, "internal server error")
 		return
 	}
 
@@ -552,7 +561,7 @@ func extractToolResults(parts []a2a.Part) []toolResultEntry {
 // handleToolResultMessage processes a message/send that carries client tool results.
 // It submits each result to the ResumableConversation and resumes execution.
 func (s *Server) handleToolResultMessage(
-	w http.ResponseWriter, req *a2a.JSONRPCRequest,
+	w http.ResponseWriter, r *http.Request, req *a2a.JSONRPCRequest,
 	conv Conversation, contextID string,
 	results []toolResultEntry, cfg *a2a.SendMessageConfiguration,
 ) {
@@ -562,12 +571,13 @@ func (s *Server) handleToolResultMessage(
 		return
 	}
 
-	for _, r := range results {
-		if r.Rejected {
-			resumable.RejectClientTool(r.CallID, r.Reason)
+	for _, tr := range results {
+		if tr.Rejected {
+			resumable.RejectClientTool(tr.CallID, tr.Reason)
 		} else {
-			if err := resumable.SendToolResult(r.CallID, r.Result); err != nil {
-				writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to submit tool result: %v", err))
+			if err := resumable.SendToolResult(tr.CallID, tr.Result); err != nil {
+				log.Printf("a2a: failed to submit tool result %s: %v", tr.CallID, err)
+				writeRPCError(w, req.ID, -32000, "internal server error")
 				return
 			}
 		}
@@ -575,11 +585,16 @@ func (s *Server) handleToolResultMessage(
 
 	taskID := generateID()
 	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
-		writeRPCError(w, req.ID, -32000, fmt.Sprintf("Failed to create task: %v", err))
+		log.Printf("a2a: failed to create task for context %s: %v", contextID, err)
+		writeRPCError(w, req.ID, -32000, "internal server error")
 		return
 	}
 
-	done := s.runResume(context.Background(), taskID, resumable)
+	// Propagate trace context to the background goroutine so downstream
+	// spans nest under the inbound trace.
+	bgCtx := trace.ContextWithSpanContext(context.Background(),
+		trace.SpanContextFromContext(r.Context()))
+	done := s.runResume(bgCtx, taskID, resumable)
 
 	if cfg != nil && cfg.Blocking {
 		<-done
@@ -605,17 +620,26 @@ func (s *Server) runResume(parent context.Context, taskID string, conv Resumable
 	go func() {
 		defer close(done)
 		defer cancel()
+		defer func() {
+			s.cancelsMu.Lock()
+			delete(s.cancels, taskID)
+			s.cancelsMu.Unlock()
+		}()
 
-		_ = s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil)
+		if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
+			log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
+		}
 
 		resp, err := conv.Resume(ctx)
 		if err != nil {
 			if ctx.Err() == nil {
 				errText := err.Error()
-				_ = s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
+				if storeErr := s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
 					Role:  a2a.RoleAgent,
 					Parts: []a2a.Part{{Text: &errText}},
-				})
+				}); storeErr != nil {
+					log.Printf("a2a: task %s: failed to set failed state: %v", taskID, storeErr)
+				}
 			}
 			return
 		}
@@ -638,8 +662,15 @@ func (s *Server) runConversation(parent context.Context, taskID string, conv Con
 	go func() {
 		defer close(done)
 		defer cancel()
+		defer func() {
+			s.cancelsMu.Lock()
+			delete(s.cancels, taskID)
+			s.cancelsMu.Unlock()
+		}()
 
-		_ = s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil)
+		if err := s.taskStore.SetState(taskID, a2a.TaskStateWorking, nil); err != nil {
+			log.Printf("a2a: task %s: failed to set working state: %v", taskID, err)
+		}
 
 		resp, sendErr := conv.Send(ctx, pkMsg)
 		if sendErr != nil {
@@ -648,10 +679,12 @@ func (s *Server) runConversation(parent context.Context, taskID string, conv Con
 			// "canceled". Only mark as failed for genuine errors.
 			if ctx.Err() == nil {
 				errText := sendErr.Error()
-				_ = s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
+				if storeErr := s.taskStore.SetState(taskID, a2a.TaskStateFailed, &a2a.Message{
 					Role:  a2a.RoleAgent,
 					Parts: []a2a.Part{{Text: &errText}},
-				})
+				}); storeErr != nil {
+					log.Printf("a2a: task %s: failed to set failed state: %v", taskID, storeErr)
+				}
 			}
 			return
 		}
@@ -668,21 +701,29 @@ func (s *Server) runConversation(parent context.Context, taskID string, conv Con
 func (s *Server) finalizeTask(taskID string, resp SendResult) {
 	if resp.HasPendingTools() {
 		msg := buildPendingToolsMessage(resp)
-		_ = s.taskStore.SetState(taskID, a2a.TaskStateInputRequired, msg)
+		if err := s.taskStore.SetState(taskID, a2a.TaskStateInputRequired, msg); err != nil {
+			log.Printf("a2a: task %s: failed to set input_required state: %v", taskID, err)
+		}
 		return
 	}
 
 	artifacts, convErr := a2a.ContentPartsToArtifacts(resp.Parts())
 	if convErr == nil && len(artifacts) > 0 {
-		_ = s.taskStore.AddArtifacts(taskID, artifacts)
+		if err := s.taskStore.AddArtifacts(taskID, artifacts); err != nil {
+			log.Printf("a2a: task %s: failed to add artifacts: %v", taskID, err)
+		}
 	} else if text := resp.Text(); text != "" {
 		// Fallback: if Parts() is empty (see GH-428), use Text() content.
-		_ = s.taskStore.AddArtifacts(taskID, []a2a.Artifact{{
+		if err := s.taskStore.AddArtifacts(taskID, []a2a.Artifact{{
 			ArtifactID: "artifact-1",
 			Parts:      []a2a.Part{{Text: &text}},
-		}})
+		}}); err != nil {
+			log.Printf("a2a: task %s: failed to add text artifact: %v", taskID, err)
+		}
 	}
-	_ = s.taskStore.SetState(taskID, a2a.TaskStateCompleted, nil)
+	if err := s.taskStore.SetState(taskID, a2a.TaskStateCompleted, nil); err != nil {
+		log.Printf("a2a: task %s: failed to set completed state: %v", taskID, err)
+	}
 }
 
 // buildPendingToolsMessage creates an A2A message describing pending tools.
@@ -791,21 +832,11 @@ func (s *Server) handleListTasks(w http.ResponseWriter, req *a2a.JSONRPCRequest)
 // or creates a new one via the opener (double-check lock pattern).
 // It also updates the last-use timestamp for conversation TTL tracking.
 func (s *Server) getOrCreateConversation(contextID string) (Conversation, error) {
-	s.convsMu.RLock()
-	if conv, ok := s.convs[contextID]; ok {
-		s.convsMu.RUnlock()
-		// Upgrade to write lock to update last-use timestamp.
-		s.convsMu.Lock()
-		s.convLastUse[contextID] = time.Now()
-		s.convsMu.Unlock()
-		return conv, nil
-	}
-	s.convsMu.RUnlock()
-
+	// Acquire write lock directly to avoid a TOCTOU gap between RUnlock and
+	// Lock that could allow duplicate conversation creation.
 	s.convsMu.Lock()
 	defer s.convsMu.Unlock()
 
-	// Double-check after acquiring write lock.
 	if conv, ok := s.convs[contextID]; ok {
 		s.convLastUse[contextID] = time.Now()
 		return conv, nil
@@ -846,6 +877,17 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 // writeRPCError writes a JSON-RPC 2.0 error response.
 func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Error:   &a2a.JSONRPCError{Code: code, Message: msg},
+	})
+}
+
+// writeRPCErrorWithStatus writes a JSON-RPC 2.0 error response with a specific HTTP status code.
+func writeRPCErrorWithStatus(w http.ResponseWriter, status int, id any, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
