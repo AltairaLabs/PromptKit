@@ -538,26 +538,16 @@ func (p *Provider) predictWithMessages(
 		contentTypeHeader: applicationJSON,
 	}, ollamaReq)
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	respBody, statusCode, err := p.DoAndReadResponse(httpReq, &predictResp, start, "Ollama")
 	if err != nil {
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := providers.ReadResponseBody(resp.Body)
-	if err != nil {
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to read response body: %w", err)
+		return predictResp, err
 	}
 
-	logger.APIResponse("Ollama", resp.StatusCode, string(respBody), nil)
-
-	if resp.StatusCode != http.StatusOK {
+	if statusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
 		return predictResp, fmt.Errorf(
-			"ollama API request to %s failed with status %d: %s", url, resp.StatusCode, string(respBody),
+			"ollama API request to %s failed with status %d: %s", url, statusCode, string(respBody),
 		)
 	}
 

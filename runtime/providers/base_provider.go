@@ -244,6 +244,29 @@ func ReadErrorBody(body io.Reader) []byte {
 	return b
 }
 
+// DoAndReadResponse executes an HTTP request using the provider's client, reads
+// the response body (with size limiting), and logs the response. On read error
+// it sets predictResp.Latency. Returns the body bytes and HTTP status code.
+func (b *BaseProvider) DoAndReadResponse(
+	req *http.Request, predictResp *PredictionResponse, start time.Time, providerName string,
+) (body []byte, statusCode int, err error) {
+	resp, err := b.client.Do(req)
+	if err != nil {
+		predictResp.Latency = time.Since(start)
+		return nil, 0, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err = ReadResponseBody(resp.Body)
+	if err != nil {
+		predictResp.Latency = time.Since(start)
+		return nil, resp.StatusCode, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	logger.APIResponse(providerName, resp.StatusCode, string(body), nil)
+	return body, resp.StatusCode, nil
+}
+
 // CheckHTTPError checks if HTTP response is an error and returns formatted error with body
 func CheckHTTPError(resp *http.Response, url string) error {
 	if resp.StatusCode != http.StatusOK {

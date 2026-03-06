@@ -341,31 +341,18 @@ func (p *Provider) predictWithContentsMultimodal(ctx context.Context, messages [
 		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	respBody, statusCode, err := p.DoAndReadResponse(httpReq, &predictResp, start, "Claude")
 	if err != nil {
-		logger.APIResponse("Claude", 0, "", err)
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := providers.ReadResponseBody(resp.Body)
-	if err != nil {
-		logger.APIResponse("Claude", resp.StatusCode, "", err)
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to read response: %w", err)
+		return predictResp, err
 	}
 
-	// Debug log the response
-	logger.APIResponse("Claude", resp.StatusCode, string(respBody), nil)
-
-	if resp.StatusCode != http.StatusOK {
+	if statusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
 		if p.isBedrock() {
-			return predictResp, parseBedrockHTTPError(resp.StatusCode, respBody)
+			return predictResp, parseBedrockHTTPError(statusCode, respBody)
 		}
-		return predictResp, fmt.Errorf("claude api error (status %d): %s", resp.StatusCode, string(respBody))
+		return predictResp, fmt.Errorf("claude api error (status %d): %s", statusCode, string(respBody))
 	}
 
 	// Parse response

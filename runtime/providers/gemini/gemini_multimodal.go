@@ -255,32 +255,19 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	respBody, statusCode, err := p.DoAndReadResponse(httpReq, &predictResp, start, "Gemini")
 	if err != nil {
-		logger.APIResponse("Gemini", 0, "", err)
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := providers.ReadResponseBody(resp.Body)
-	if err != nil {
-		logger.APIResponse("Gemini", resp.StatusCode, "", err)
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to read response: %w", err)
+		return predictResp, err
 	}
 
-	// Debug log the response
-	logger.APIResponse("Gemini", resp.StatusCode, string(respBody), nil)
-
-	if resp.StatusCode != http.StatusOK {
+	if statusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
 		if p.platform != "" {
-			return predictResp, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
+			return predictResp, providers.ParsePlatformHTTPError(p.platform, statusCode, respBody)
 		}
 		return predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
-			logger.RedactSensitiveData(url), resp.StatusCode, string(respBody))
+			logger.RedactSensitiveData(url), statusCode, string(respBody))
 	}
 
 	// Parse and validate response

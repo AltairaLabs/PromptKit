@@ -333,6 +333,47 @@ func TestReadErrorBody_LimitsSize(t *testing.T) {
 	}
 }
 
+func TestBaseProvider_DoAndReadResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test", false, client)
+	predictResp := PredictionResponse{}
+	start := time.Now()
+
+	req, _ := http.NewRequest("GET", server.URL, nil)
+	body, statusCode, err := base.DoAndReadResponse(req, &predictResp, start, "Test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if statusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", statusCode)
+	}
+	if string(body) != `{"ok":true}` {
+		t.Errorf("expected body, got %q", string(body))
+	}
+}
+
+func TestBaseProvider_DoAndReadResponse_Error(t *testing.T) {
+	client := &http.Client{Timeout: 1 * time.Millisecond}
+	base := NewBaseProvider("test", false, client)
+	predictResp := PredictionResponse{}
+	start := time.Now()
+
+	req, _ := http.NewRequest("GET", "http://192.0.2.1:12345", nil)
+	_, _, err := base.DoAndReadResponse(req, &predictResp, start, "Test")
+	if err == nil {
+		t.Fatal("expected error for unreachable host")
+	}
+	if predictResp.Latency == 0 {
+		t.Error("expected latency to be set on error")
+	}
+}
+
 func TestBaseProvider_Close(t *testing.T) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	base := NewBaseProvider("test-provider", false, client)
