@@ -608,6 +608,75 @@ func TestEvalMiddleware_CustomMaxConcurrentEvals(t *testing.T) {
 	}
 }
 
+func TestEvalMiddleware_BuildEvalContext_CachesMessages(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt:     &pack.Prompt{},
+		promptName: "test-prompt",
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	// First call at turn 0 — cache should be populated (no session so messages are nil)
+	ctx1 := mw.buildEvalContext(context.Background())
+	if ctx1.TurnIndex != 0 {
+		t.Errorf("expected TurnIndex 0, got %d", ctx1.TurnIndex)
+	}
+
+	// Same turn index — should return cached result
+	ctx2 := mw.buildEvalContext(context.Background())
+	if ctx2.TurnIndex != 0 {
+		t.Errorf("expected cached TurnIndex 0, got %d", ctx2.TurnIndex)
+	}
+
+	// Increment turn — cache should be invalidated
+	mw.turnIndex.Store(1)
+	ctx3 := mw.buildEvalContext(context.Background())
+	if ctx3.TurnIndex != 1 {
+		t.Errorf("expected TurnIndex 1, got %d", ctx3.TurnIndex)
+	}
+}
+
+func TestEvalMiddleware_TurnIndexAtomic(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	// Verify atomic operations on turnIndex
+	if mw.turnIndex.Load() != 0 {
+		t.Errorf("expected initial turnIndex 0, got %d", mw.turnIndex.Load())
+	}
+
+	mw.turnIndex.Add(1)
+	if mw.turnIndex.Load() != 1 {
+		t.Errorf("expected turnIndex 1 after Add, got %d", mw.turnIndex.Load())
+	}
+
+	mw.turnIndex.Store(5)
+	if mw.turnIndex.Load() != 5 {
+		t.Errorf("expected turnIndex 5 after Store, got %d", mw.turnIndex.Load())
+	}
+}
+
 // gatedEvalHandler signals when started and blocks until unblock is closed.
 type gatedEvalHandler struct {
 	typeName string

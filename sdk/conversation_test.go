@@ -1850,9 +1850,8 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 				retrievalProvider: &mockEmbeddingProvider{},
 				retrievalTopK:     3,
 			},
-			mode:          UnaryMode,
-			handlers:      make(map[string]ToolHandler),
-
+			mode:     UnaryMode,
+			handlers: make(map[string]ToolHandler),
 		}
 
 		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -1875,9 +1874,8 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 				summarizeThreshold: 50,
 				summarizeBatchSize: 10,
 			},
-			mode:          UnaryMode,
-			handlers:      make(map[string]ToolHandler),
-
+			mode:     UnaryMode,
+			handlers: make(map[string]ToolHandler),
 		}
 
 		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -1897,14 +1895,13 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 				stateStore:         store,
 				contextWindow:      10,
 				retrievalProvider:  &mockEmbeddingProvider{},
-				retrievalTopK:     3,
+				retrievalTopK:      3,
 				summarizeProvider:  &mockSummarizeProvider{},
 				summarizeThreshold: 50,
 				summarizeBatchSize: 10,
 			},
-			mode:          UnaryMode,
-			handlers:      make(map[string]ToolHandler),
-
+			mode:     UnaryMode,
+			handlers: make(map[string]ToolHandler),
 		}
 
 		pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
@@ -1986,10 +1983,50 @@ type closeErrorCapability struct {
 	closeErr error
 }
 
-func (c *closeErrorCapability) Name() string                        { return c.name }
-func (c *closeErrorCapability) Init(_ CapabilityContext) error      { return nil }
-func (c *closeErrorCapability) RegisterTools(_ *tools.Registry)     {}
-func (c *closeErrorCapability) Close() error                        { return c.closeErr }
+func (c *closeErrorCapability) Name() string                    { return c.name }
+func (c *closeErrorCapability) Init(_ CapabilityContext) error  { return nil }
+func (c *closeErrorCapability) RegisterTools(_ *tools.Registry) {}
+func (c *closeErrorCapability) Close() error                    { return c.closeErr }
+
+func TestForkRegistryIsolation(t *testing.T) {
+	conv := newTestConversation()
+
+	// Register a tool in the original
+	schema := json.RawMessage(`{"type":"object","properties":{}}`)
+	_ = conv.toolRegistry.Register(&tools.ToolDescriptor{
+		Name:        "original_tool",
+		Description: "A tool in the original conversation",
+		InputSchema: schema,
+	})
+
+	fork := conv.Fork()
+	require.NotNil(t, fork)
+
+	// Fork should have the original tool
+	forkTools := fork.toolRegistry.GetTools()
+	foundOriginal := false
+	for _, td := range forkTools {
+		if td.Name == "original_tool" {
+			foundOriginal = true
+			break
+		}
+	}
+	assert.True(t, foundOriginal, "fork should have copied original_tool")
+
+	// Register a new tool in the fork — should NOT appear in original
+	_ = fork.toolRegistry.Register(&tools.ToolDescriptor{
+		Name:        "fork_only_tool",
+		Description: "A tool only in the fork",
+		InputSchema: schema,
+	})
+
+	origTools := conv.toolRegistry.GetTools()
+	for _, td := range origTools {
+		if td.Name == "fork_only_tool" {
+			t.Error("fork_only_tool should NOT appear in original registry")
+		}
+	}
+}
 
 func TestForkErrorHandling(t *testing.T) {
 	t.Run("fork preserves handlers", func(t *testing.T) {

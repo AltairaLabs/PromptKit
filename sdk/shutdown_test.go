@@ -289,6 +289,32 @@ func TestShutdownManager_BoundedConcurrency(t *testing.T) {
 	}
 }
 
+func TestShutdownManager_ContextCancelledSkipsClose(t *testing.T) {
+	mgr := NewShutdownManager()
+
+	slowCloser := &mockCloser{
+		closeFunc: func() error {
+			time.Sleep(5 * time.Second)
+			return nil
+		},
+	}
+	_ = mgr.Register("slow", slowCloser)
+	_ = mgr.Register("fast", &mockCloser{})
+
+	// Cancel context before shutdown — goroutines should detect cancelled context
+	// and return ctx.Err() instead of blocking on Close.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := mgr.Shutdown(ctx)
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled in error, got: %v", err)
+	}
+}
+
 // idFromIndex is a helper that converts an integer index to a string ID.
 func idFromIndex(i int) string {
 	return "conv-" + string(rune('A'+i%26)) + string(rune('0'+i/26))
