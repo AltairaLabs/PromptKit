@@ -75,6 +75,11 @@ type DuplexSession interface {
 	// Close ends the streaming session and releases resources.
 	Close() error
 
+	// Drain gracefully stops the session: sends EndOfStream to the pipeline,
+	// waits for the provider to finish processing (up to the given timeout),
+	// then closes. Returns nil if the pipeline completes within the timeout.
+	Drain(ctx context.Context) error
+
 	// Done returns a channel that's closed when the session ends.
 	Done() <-chan struct{}
 

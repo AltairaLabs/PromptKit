@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -241,6 +242,135 @@ func TestNewBaseProviderWithCredential_UsesPooledTransport(t *testing.T) {
 	}
 	if transport.MaxIdleConns != DefaultMaxIdleConns {
 		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, DefaultMaxIdleConns)
+	}
+}
+
+func TestBaseProvider_SetHTTPTimeout(t *testing.T) {
+	base, _ := NewBaseProviderWithAPIKey("test-id", false, "NONEXISTENT_KEY1", "NONEXISTENT_KEY2")
+
+	// Verify the default timeout
+	if base.HTTPTimeout() != httputil.DefaultProviderTimeout {
+		t.Errorf("Expected default timeout %v, got %v", httputil.DefaultProviderTimeout, base.HTTPTimeout())
+	}
+
+	// Get the original transport
+	origTransport := base.GetHTTPClient().Transport
+
+	// Change the timeout
+	base.SetHTTPTimeout(120 * time.Second)
+
+	if base.HTTPTimeout() != 120*time.Second {
+		t.Errorf("Expected timeout 120s, got %v", base.HTTPTimeout())
+	}
+
+	// Verify the transport was preserved
+	if base.GetHTTPClient().Transport != origTransport {
+		t.Error("Expected transport to be preserved after SetHTTPTimeout")
+	}
+}
+
+func TestBaseProvider_SetHTTPTimeout_NilClient(t *testing.T) {
+	base := BaseProvider{id: "test", client: nil}
+
+	if base.HTTPTimeout() != 0 {
+		t.Errorf("Expected 0 timeout for nil client, got %v", base.HTTPTimeout())
+	}
+
+	// SetHTTPTimeout with nil client should create a new client
+	base.SetHTTPTimeout(30 * time.Second)
+
+	if base.HTTPTimeout() != 30*time.Second {
+		t.Errorf("Expected timeout 30s, got %v", base.HTTPTimeout())
+	}
+
+	if base.GetHTTPClient() == nil {
+		t.Error("Expected HTTP client to be created")
+	}
+}
+
+func TestReadResponseBody(t *testing.T) {
+	data := []byte("hello world")
+	result, err := ReadResponseBody(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(result) != "hello world" {
+		t.Errorf("expected %q, got %q", "hello world", string(result))
+	}
+}
+
+func TestReadErrorBody(t *testing.T) {
+	data := []byte(`{"error":"bad request"}`)
+	result := ReadErrorBody(bytes.NewReader(data))
+	if string(result) != string(data) {
+		t.Errorf("expected %q, got %q", string(data), string(result))
+	}
+}
+
+func TestReadResponseBody_LimitsSize(t *testing.T) {
+	// Create data larger than DefaultMaxPayloadSize
+	big := make([]byte, DefaultMaxPayloadSize+1024)
+	for i := range big {
+		big[i] = 'x'
+	}
+	result, err := ReadResponseBody(bytes.NewReader(big))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if int64(len(result)) != DefaultMaxPayloadSize {
+		t.Errorf("expected length %d, got %d", DefaultMaxPayloadSize, len(result))
+	}
+}
+
+func TestReadErrorBody_LimitsSize(t *testing.T) {
+	big := make([]byte, MaxErrorResponseSize+1024)
+	for i := range big {
+		big[i] = 'e'
+	}
+	result := ReadErrorBody(bytes.NewReader(big))
+	if int64(len(result)) != MaxErrorResponseSize {
+		t.Errorf("expected length %d, got %d", MaxErrorResponseSize, len(result))
+	}
+}
+
+func TestBaseProvider_DoAndReadResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := NewBaseProvider("test", false, client)
+	predictResp := PredictionResponse{}
+	start := time.Now()
+
+	req, _ := http.NewRequest("GET", server.URL, nil)
+	body, statusCode, err := base.DoAndReadResponse(req, &predictResp, start, "Test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if statusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", statusCode)
+	}
+	if string(body) != `{"ok":true}` {
+		t.Errorf("expected body, got %q", string(body))
+	}
+}
+
+func TestBaseProvider_DoAndReadResponse_Error(t *testing.T) {
+	client := &http.Client{Timeout: 1 * time.Millisecond}
+	base := NewBaseProvider("test", false, client)
+	predictResp := PredictionResponse{}
+	start := time.Now()
+
+	req, _ := http.NewRequest("GET", "http://192.0.2.1:12345", nil)
+	_, _, err := base.DoAndReadResponse(req, &predictResp, start, "Test")
+	if err == nil {
+		t.Fatal("expected error for unreachable host")
+	}
+	if predictResp.Latency == 0 {
+		t.Error("expected latency to be set on error")
 	}
 }
 
@@ -501,14 +631,14 @@ func TestSetErrorResponse(t *testing.T) {
 
 func TestBaseProvider_MakeJSONRequest(t *testing.T) {
 	tests := []struct {
-		name           string
-		statusCode     int
-		responseBody   string
-		requestBody    interface{}
-		headers        RequestHeaders
-		expectError    bool
-		errorContains  string
-		validateReq    func(*testing.T, *http.Request)
+		name          string
+		statusCode    int
+		responseBody  string
+		requestBody   interface{}
+		headers       RequestHeaders
+		expectError   bool
+		errorContains string
+		validateReq   func(*testing.T, *http.Request)
 	}{
 		{
 			name:         "Successful request",

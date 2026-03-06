@@ -30,6 +30,10 @@ const (
 	DefaultDialKeepAlive       = 30 * time.Second
 )
 
+// MaxErrorResponseSize is the maximum size for error response bodies (1 MB).
+// Error responses should be small; this prevents reading huge bodies on failures.
+const MaxErrorResponseSize int64 = 1 << 20
+
 // Payload size limits.
 const (
 	// DefaultMaxPayloadSize is the default maximum request payload size (100 MB).
@@ -166,6 +170,27 @@ func (b *BaseProvider) GetHTTPClient() *http.Client {
 	return b.client
 }
 
+// SetHTTPTimeout replaces the HTTP client with a new one that uses the given
+// timeout while preserving the existing transport configuration.
+func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
+	var transport http.RoundTripper
+	if b.client != nil {
+		transport = b.client.Transport
+	}
+	b.client = &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+}
+
+// HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.
+func (b *BaseProvider) HTTPTimeout() time.Duration {
+	if b.client == nil {
+		return 0
+	}
+	return b.client.Timeout
+}
+
 // SetRateLimit configures per-provider rate limiting. requestsPerSecond controls
 // the sustained rate, and burst controls how many requests can be made
 // simultaneously before throttling kicks in. A zero or negative
@@ -206,12 +231,47 @@ func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error {
 	return b.rateLimiter.Wait(ctx)
 }
 
+// ReadResponseBody reads and returns the response body, limiting the size to
+// DefaultMaxPayloadSize to prevent unbounded memory consumption.
+func ReadResponseBody(body io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(body, DefaultMaxPayloadSize))
+}
+
+// ReadErrorBody reads and returns an error response body, limiting the size to
+// MaxErrorResponseSize. Error responses should be small; this is a safety net.
+func ReadErrorBody(body io.Reader) []byte {
+	b, _ := io.ReadAll(io.LimitReader(body, MaxErrorResponseSize))
+	return b
+}
+
+// DoAndReadResponse executes an HTTP request using the provider's client, reads
+// the response body (with size limiting), and logs the response. On read error
+// it sets predictResp.Latency. Returns the body bytes and HTTP status code.
+func (b *BaseProvider) DoAndReadResponse(
+	req *http.Request, predictResp *PredictionResponse, start time.Time, providerName string,
+) (body []byte, statusCode int, err error) {
+	resp, err := b.client.Do(req)
+	if err != nil {
+		predictResp.Latency = time.Since(start)
+		return nil, 0, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err = ReadResponseBody(resp.Body)
+	if err != nil {
+		predictResp.Latency = time.Since(start)
+		return nil, resp.StatusCode, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	logger.APIResponse(providerName, resp.StatusCode, string(body), nil)
+	return body, resp.StatusCode, nil
+}
+
 // CheckHTTPError checks if HTTP response is an error and returns formatted error with body
 func CheckHTTPError(resp *http.Response, url string) error {
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		limitedBody := io.LimitReader(resp.Body, DefaultMaxPayloadSize)
-		body, _ := io.ReadAll(limitedBody)
+		body := ReadErrorBody(resp.Body)
 		return fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
 	}
 	return nil
@@ -324,7 +384,7 @@ func (b *BaseProvider) MakeRawRequest(
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, DefaultMaxPayloadSize))
+	respBytes, err := ReadResponseBody(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

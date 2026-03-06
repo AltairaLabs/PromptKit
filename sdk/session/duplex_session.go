@@ -341,6 +341,40 @@ func (s *duplexSession) Response() <-chan providers.StreamChunk {
 	return s.streamOutput
 }
 
+// DefaultDrainTimeout is the maximum time to wait for pipeline completion during Drain.
+const DefaultDrainTimeout = 30 * time.Second
+
+// Drain gracefully stops the session by sending an EndOfStream signal to the
+// pipeline and waiting for it to finish processing. If the context expires
+// before the pipeline completes, Drain falls back to a hard Close.
+func (s *duplexSession) Drain(ctx context.Context) error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return nil
+	}
+	s.closeMu.Unlock()
+
+	// Send EndOfStream signal so the pipeline knows input is done.
+	select {
+	case s.stageInput <- stage.StreamElement{EndOfStream: true}:
+	case <-ctx.Done():
+		// Context expired before we could send — fall back to hard close.
+		return s.Close()
+	}
+
+	// Wait for pipeline to complete or context to expire.
+	select {
+	case <-s.pipelineDone:
+		// Pipeline finished gracefully — now close.
+		return s.Close()
+	case <-ctx.Done():
+		// Timeout — force close.
+		_ = s.Close()
+		return fmt.Errorf("drain timed out: %w", ctx.Err())
+	}
+}
+
 // Close ends the session.
 func (s *duplexSession) Close() error {
 	s.closeMu.Lock()

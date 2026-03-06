@@ -359,26 +359,16 @@ func (p *Provider) predictWithMessages(
 		contentTypeHeader: applicationJSON,
 	}, vllmReq)
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	respBody, statusCode, err := p.DoAndReadResponse(httpReq, &predictResp, start, "vLLM")
 	if err != nil {
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to read response body: %w", err)
+		return predictResp, err
 	}
 
-	logger.APIResponse("vLLM", resp.StatusCode, string(respBody), nil)
-
-	if resp.StatusCode != http.StatusOK {
+	if statusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
 		return predictResp, fmt.Errorf(
-			"vLLM API request to %s failed with status %d: %s", url, resp.StatusCode, string(respBody),
+			"vLLM API request to %s failed with status %d: %s", url, statusCode, string(respBody),
 		)
 	}
 

@@ -683,29 +683,19 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		authorizationHeader: "***",
 	}, openAIReq)
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	respBody, statusCode, err := p.DoAndReadResponse(httpReq, &predictResp, start, "OpenAI")
 	if err != nil {
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, providers.DefaultMaxPayloadSize))
-	if err != nil {
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to read response body: %w", err)
+		return predictResp, err
 	}
 
-	logger.APIResponse("OpenAI", resp.StatusCode, string(respBody), nil)
-
-	if resp.StatusCode != http.StatusOK {
+	if statusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
 		if p.platform != "" {
-			return predictResp, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
+			return predictResp, providers.ParsePlatformHTTPError(p.platform, statusCode, respBody)
 		}
 		return predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
-			p.baseURL+openAIPredictCompletionsPath, resp.StatusCode, string(respBody))
+			p.baseURL+openAIPredictCompletionsPath, statusCode, string(respBody))
 	}
 
 	var openAIResp openAIResponse

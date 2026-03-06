@@ -936,11 +936,13 @@ func (c *Conversation) Close() error {
 	// Collect all errors and always execute all cleanup steps.
 	var errs []error
 
-	// Close duplex session if in duplex mode
+	// Drain duplex session if in duplex mode (graceful shutdown with timeout)
 	if c.mode == DuplexMode && c.duplexSession != nil {
-		if err := c.duplexSession.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close duplex session: %w", err))
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), session.DefaultDrainTimeout)
+		if err := c.duplexSession.Drain(drainCtx); err != nil {
+			errs = append(errs, fmt.Errorf("failed to drain duplex session: %w", err))
 		}
+		drainCancel()
 	}
 
 	// Close capabilities

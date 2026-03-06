@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -381,7 +380,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := providers.ReadResponseBody(resp.Body)
 	if err != nil {
 		logger.APIResponse("Gemini", resp.StatusCode, "", err)
 		predictResp.Latency = time.Since(start)
