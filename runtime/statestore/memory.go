@@ -142,7 +142,8 @@ type MemoryStore struct {
 	maxEntriesSet    bool          // true if max entries was explicitly configured via options
 
 	// Background cleanup
-	stopCh chan struct{} // closed to signal the cleanup goroutine to stop
+	stopCh    chan struct{} // closed to signal the cleanup goroutine to stop
+	closeOnce sync.Once
 }
 
 // NewMemoryStore creates a new in-memory state store.
@@ -175,14 +176,11 @@ func NewMemoryStore(opts ...MemoryStoreOption) *MemoryStore {
 // Close stops the background eviction goroutine, if running.
 // It is safe to call Close multiple times.
 func (s *MemoryStore) Close() {
-	if s.stopCh != nil {
-		select {
-		case <-s.stopCh:
-			// already closed
-		default:
+	s.closeOnce.Do(func() {
+		if s.stopCh != nil {
 			close(s.stopCh)
 		}
-	}
+	})
 }
 
 // Load retrieves a conversation state by ID.
@@ -955,8 +953,7 @@ func cloneMessage(msg *types.Message) types.Message {
 		cp.CostInfo = &v
 	}
 	if msg.ToolResult != nil {
-		v := *msg.ToolResult
-		cp.ToolResult = &v
+		cp.ToolResult = cloneToolResult(msg.ToolResult)
 	}
 	if len(msg.Meta) > 0 {
 		cp.Meta = cloneMapStringInterface(msg.Meta)
@@ -980,6 +977,18 @@ func cloneMessage(msg *types.Message) types.Message {
 		}
 	}
 	return cp
+}
+
+// cloneToolResult returns a deep copy of a MessageToolResult, including its Parts slice.
+func cloneToolResult(tr *types.MessageToolResult) *types.MessageToolResult {
+	v := *tr
+	if len(v.Parts) > 0 {
+		v.Parts = make([]types.ContentPart, len(tr.Parts))
+		for i := range tr.Parts {
+			v.Parts[i] = cloneContentPart(&tr.Parts[i])
+		}
+	}
+	return &v
 }
 
 // cloneMessages returns a deep copy of a slice of types.Message.

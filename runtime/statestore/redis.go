@@ -219,11 +219,13 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 		return ErrInvalidID
 	}
 
-	// Update timestamp
-	state.LastAccessedAt = time.Now()
+	// Use a local timestamp to avoid mutating the caller's state.
+	now := time.Now()
 
 	// Serialize metadata (small — excludes messages and summaries)
-	metaData, err := json.Marshal(stateToMeta(state))
+	meta := stateToMeta(state)
+	meta.LastAccessedAt = now
+	metaData, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("failed to marshal meta: %w", err)
 	}

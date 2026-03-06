@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -126,6 +127,9 @@ type storedAnnotation struct {
 func (s *FileStore) Add(ctx context.Context, ann *Annotation) error {
 	if ann.SessionID == "" {
 		return fmt.Errorf("annotation has no session ID")
+	}
+	if strings.ContainsAny(ann.SessionID, "/\\") || strings.Contains(ann.SessionID, "..") {
+		return errInvalidSessionID
 	}
 
 	// Generate ID if not set
@@ -251,6 +255,9 @@ func (s *FileStore) findByID(ctx context.Context, path, id string) (*Annotation,
 func (s *FileStore) Query(ctx context.Context, filter *Filter) ([]*Annotation, error) {
 	if filter.SessionID == "" {
 		return nil, fmt.Errorf("session ID required for query")
+	}
+	if strings.ContainsAny(filter.SessionID, "/\\") || strings.Contains(filter.SessionID, "..") {
+		return nil, errInvalidSessionID
 	}
 
 	deletedIDs, annotationsByID, err := s.loadAnnotations(ctx, filter.SessionID)
@@ -437,8 +444,15 @@ func (s *FileStore) write(ctx context.Context, sessionID string, stored *storedA
 	return nil
 }
 
+// errInvalidSessionID is returned when a session ID contains path traversal sequences.
+var errInvalidSessionID = fmt.Errorf("invalid session ID: contains path separator or traversal sequence")
+
 // sessionPath returns the file path for a session's annotations.
+// Returns an empty string if the session ID contains path traversal sequences.
 func (s *FileStore) sessionPath(sessionID string) string {
+	if strings.ContainsAny(sessionID, "/\\") || strings.Contains(sessionID, "..") {
+		return ""
+	}
 	return filepath.Join(s.dir, sessionID+".annotations.jsonl")
 }
 

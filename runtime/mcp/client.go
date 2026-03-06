@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -231,27 +232,36 @@ func (c *StdioClient) Close() error {
 	// Cancel context to stop background goroutines
 	c.cancel()
 
-	// Close pipes
-	if c.stdin != nil {
-		c.stdin.Close()
-	}
-	if c.stdout != nil {
-		c.stdout.Close()
-	}
-	if c.stderr != nil {
-		c.stderr.Close()
-	}
-
-	// Kill the process
-	if c.cmd != nil && c.cmd.Process != nil {
-		_ = c.cmd.Process.Kill()
-		_ = c.cmd.Wait() // Clean up zombie process
-	}
+	// Close pipes and kill process
+	c.closePipesAndProcess()
 
 	// Wait for background goroutines
 	c.wg.Wait()
 
 	return nil
+}
+
+// closePipesAndProcess closes stdio pipes and kills the subprocess.
+func (c *StdioClient) closePipesAndProcess() {
+	warnClose := func(name string, closer io.Closer) {
+		if closer != nil {
+			if err := closer.Close(); err != nil {
+				logger.Warn("MCP failed to close "+name, "server", c.config.Name, "error", err)
+			}
+		}
+	}
+	warnClose("stdin", c.stdin)
+	warnClose("stdout", c.stdout)
+	warnClose("stderr", c.stderr)
+
+	if c.cmd != nil && c.cmd.Process != nil {
+		if err := c.cmd.Process.Kill(); err != nil {
+			logger.Warn("MCP failed to kill process", "server", c.config.Name, "error", err)
+		}
+		if err := c.cmd.Wait(); err != nil {
+			logger.Warn("MCP process wait failed", "server", c.config.Name, "error", err)
+		}
+	}
 }
 
 // IsAlive checks if the connection is still active
@@ -306,9 +316,15 @@ func (c *StdioClient) startProcess() error {
 	c.cmd = exec.CommandContext(c.ctx, c.config.Command, c.config.Args...)
 
 	// Inherit the parent process environment and prepend common paths to PATH.
-	c.cmd.Env = os.Environ()
-	existingPath := os.Getenv("PATH")
-	c.cmd.Env = append(c.cmd.Env, "PATH=/usr/local/bin:/usr/bin:/bin:"+existingPath)
+	// Replace the existing PATH entry in-place to avoid duplicate PATH variables.
+	env := os.Environ()
+	for i, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			env[i] = "PATH=/usr/local/bin:/usr/bin:/bin:" + os.Getenv("PATH")
+			break
+		}
+	}
+	c.cmd.Env = env
 	for k, v := range c.config.Env {
 		c.cmd.Env = append(c.cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}

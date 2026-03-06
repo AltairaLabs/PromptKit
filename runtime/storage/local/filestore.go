@@ -261,7 +261,9 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 		fs.refMu.Unlock()
 
 		// Persist index (skips write if not dirty)
-		_ = fs.saveDedupIndex()
+		if err := fs.saveDedupIndex(); err != nil {
+			logger.Warn("failed to persist dedup index", "error", err)
+		}
 	}
 
 	// Store metadata alongside the file
@@ -362,7 +364,9 @@ func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Referenc
 		fs.dedupMu.Unlock()
 
 		// Persist index (skips write if not dirty)
-		_ = fs.saveDedupIndex()
+		if err := fs.saveDedupIndex(); err != nil {
+			logger.Warn("failed to persist dedup index", "error", err)
+		}
 	}
 
 	// Try to remove empty parent directories

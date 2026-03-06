@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -261,6 +262,9 @@ func (s *FileEventStore) Append(ctx context.Context, event *Event) error {
 	if event.SessionID == "" {
 		return fmt.Errorf("event has no session ID")
 	}
+	if err := validateSessionID(event.SessionID); err != nil {
+		return err
+	}
 
 	se, err := toSerializable(event)
 	if err != nil {
@@ -294,17 +298,12 @@ func (s *FileEventStore) Append(ctx context.Context, event *Event) error {
 
 // Query returns events matching the filter.
 func (s *FileEventStore) Query(ctx context.Context, filter *EventFilter) ([]*Event, error) {
-	if filter.SessionID == "" {
-		return nil, fmt.Errorf("session ID required for query")
-	}
-
-	path := s.sessionPath(filter.SessionID)
-	f, err := os.Open(path) //nolint:gosec // path is constructed from trusted sessionID
+	f, err := s.openSessionFile(filter.SessionID)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf(errOpenSessionFile, err)
+		return nil, err
+	}
+	if f == nil {
+		return nil, nil
 	}
 	defer f.Close()
 
@@ -339,17 +338,12 @@ func (s *FileEventStore) Query(ctx context.Context, filter *EventFilter) ([]*Eve
 
 // QueryRaw returns stored events with raw data preserved.
 func (s *FileEventStore) QueryRaw(ctx context.Context, filter *EventFilter) ([]*StoredEvent, error) {
-	if filter.SessionID == "" {
-		return nil, fmt.Errorf("session ID required for query")
-	}
-
-	path := s.sessionPath(filter.SessionID)
-	f, err := os.Open(path) //nolint:gosec // path is constructed from trusted sessionID
+	f, err := s.openSessionFile(filter.SessionID)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf(errOpenSessionFile, err)
+		return nil, err
+	}
+	if f == nil {
+		return nil, nil
 	}
 	defer f.Close()
 
@@ -384,6 +378,9 @@ func (s *FileEventStore) QueryRaw(ctx context.Context, filter *EventFilter) ([]*
 
 // Stream returns a channel of events for a session.
 func (s *FileEventStore) Stream(ctx context.Context, sessionID string) (<-chan *Event, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, err
+	}
 	path := s.sessionPath(sessionID)
 	f, err := os.Open(path) //nolint:gosec // path is constructed from trusted sessionID
 	if err != nil {
@@ -465,6 +462,37 @@ func (s *FileEventStore) Close() error {
 		return fmt.Errorf("close files: %v", errs)
 	}
 	return nil
+}
+
+// errInvalidSessionID is returned when a session ID contains path traversal sequences.
+var errInvalidSessionID = fmt.Errorf("invalid session ID: contains path separator or traversal sequence")
+
+// validateSessionID checks that a session ID does not contain path traversal sequences.
+func validateSessionID(sessionID string) error {
+	if strings.ContainsAny(sessionID, "/\\") || strings.Contains(sessionID, "..") {
+		return errInvalidSessionID
+	}
+	return nil
+}
+
+// openSessionFile validates the session ID and opens the corresponding file.
+// Returns (nil, nil) if the file does not exist.
+func (s *FileEventStore) openSessionFile(sessionID string) (*os.File, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session ID required for query")
+	}
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, err
+	}
+	path := s.sessionPath(sessionID)
+	f, err := os.Open(path) //nolint:gosec // path is constructed from validated sessionID
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf(errOpenSessionFile, err)
+	}
+	return f, nil
 }
 
 // sessionPath returns the file path for a session.

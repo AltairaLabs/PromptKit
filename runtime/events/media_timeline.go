@@ -250,6 +250,7 @@ func (mt *MediaTimeline) GetTrack(trackType TrackType) *MediaTrack {
 type TrackReader struct {
 	track     *MediaTrack
 	blobStore BlobStore
+	ctx       context.Context //nolint:containedctx // context stored for io.Reader compatibility
 	position  time.Duration
 	segIndex  int
 	segOffset int64 // byte offset within current segment
@@ -257,7 +258,14 @@ type TrackReader struct {
 }
 
 // NewTrackReader creates a reader for the specified track.
+// The returned reader uses context.Background(); use NewTrackReaderWithContext
+// to supply a custom context for cancellation and timeout control.
 func (mt *MediaTimeline) NewTrackReader(trackType TrackType) (*TrackReader, error) {
+	return mt.NewTrackReaderWithContext(context.Background(), trackType)
+}
+
+// NewTrackReaderWithContext creates a reader for the specified track using the given context.
+func (mt *MediaTimeline) NewTrackReaderWithContext(ctx context.Context, trackType TrackType) (*TrackReader, error) {
 	track := mt.Tracks[trackType]
 	if track == nil {
 		return nil, fmt.Errorf("track %s not found", trackType)
@@ -266,6 +274,7 @@ func (mt *MediaTimeline) NewTrackReader(trackType TrackType) (*TrackReader, erro
 	return &TrackReader{
 		track:     track,
 		blobStore: mt.blobStore,
+		ctx:       ctx,
 	}, nil
 }
 
@@ -281,7 +290,7 @@ func (r *TrackReader) Read(p []byte) (n int, err error) {
 		if seg.Payload.InlineData != nil {
 			r.segData = seg.Payload.InlineData
 		} else if r.blobStore != nil {
-			r.segData, err = r.blobStore.Load(context.Background(), seg.Payload.StorageRef)
+			r.segData, err = r.blobStore.Load(r.ctx, seg.Payload.StorageRef)
 			if err != nil {
 				return 0, fmt.Errorf("load segment data: %w", err)
 			}

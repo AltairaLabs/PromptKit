@@ -120,6 +120,8 @@ func (h *TimeBasedPolicyHandler) RegisterPolicy(policy Config) error {
 		return fmt.Errorf("invalid policy: %w", err)
 	}
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.policies[policy.Name] = policy
 	return nil
 }

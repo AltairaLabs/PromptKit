@@ -183,6 +183,7 @@ func (c *AdapterClient) callCtx(ctx context.Context, method string, params, resu
 		err  error
 	}
 	ch := make(chan scanResult, 1)
+	done := make(chan struct{})
 	go func() {
 		ok := c.stdout.Scan()
 		ch <- scanResult{
@@ -195,8 +196,12 @@ func (c *AdapterClient) callCtx(ctx context.Context, method string, params, resu
 	var sr scanResult
 	select {
 	case <-ctx.Done():
+		// Close stdin to unblock the scanner goroutine.
+		_ = c.stdin.Close()
+		close(done)
 		return fmt.Errorf("read response: %w", ctx.Err())
 	case sr = <-ch:
+		close(done)
 	}
 
 	if !sr.ok {
