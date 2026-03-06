@@ -834,6 +834,10 @@ func TestRegisterInit(t *testing.T) {
 		"rest_eval_session",
 		"a2a_eval",
 		"a2a_eval_session",
+
+		// Behavioral testing handlers (Phase 6)
+		"outcome_equivalent",
+		"directional",
 	}
 
 	r := evals.NewEvalTypeRegistry()
