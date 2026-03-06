@@ -10,12 +10,16 @@ import (
 func (s *ArenaStateStore) extractValidations(state *ArenaConversationState) []ValidationResult {
 	var validations []ValidationResult
 
-	for i, msg := range state.Messages {
+	userTurns := 0
+	for i := range state.Messages {
+		if state.Messages[i].Role == "user" {
+			userTurns++
+		}
+		msg := &state.Messages[i]
 		if len(msg.Validations) > 0 {
-			// Calculate turn index (user=0, assistant=0; user=1, assistant=1, etc.)
-			// TODO(accuracy): This assumes strictly alternating user/assistant messages.
-			// Consider counting user messages instead for robustness with tool-call messages.
-			turnIndex := (i + 1) / 2
+			// Turn index is based on the number of user messages seen so far,
+			// which is robust against tool-call or system messages mid-conversation.
+			turnIndex := userTurns
 
 			for _, v := range msg.Validations {
 				validations = append(validations, ValidationResult{

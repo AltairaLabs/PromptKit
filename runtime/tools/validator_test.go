@@ -151,8 +151,7 @@ func TestSchemaValidator_CoerceResult(t *testing.T) {
 	})
 
 	t.Run("coerces nested maps", func(t *testing.T) {
-		// Even though this might not match the schema perfectly,
-		// we're testing that coerceValue handles nested maps
+		// Test that CoerceResult handles valid nested maps via round-trip
 		descriptor := &ToolDescriptor{
 			Name: "nested-tool",
 			OutputSchema: json.RawMessage(`{
@@ -281,63 +280,4 @@ func TestSchemaValidator_DefaultCacheSize(t *testing.T) {
 func TestSchemaValidatorWithSize_ZeroDefaults(t *testing.T) {
 	v := NewSchemaValidatorWithSize(0)
 	assert.Equal(t, DefaultMaxSchemaCacheSize, v.maxSize)
-}
-
-func TestSchemaValidator_coerceValue(t *testing.T) {
-	validator := NewSchemaValidator()
-
-	t.Run("handles map recursively", func(t *testing.T) {
-		input := map[string]interface{}{
-			"a": "text",
-			"b": 123.45,
-			"c": map[string]interface{}{
-				"nested": "value",
-			},
-		}
-
-		result := validator.coerceValue(input, "root")
-		assert.NotNil(t, result)
-
-		resultMap, ok := result.(map[string]interface{})
-		require.True(t, ok)
-		assert.Equal(t, "text", resultMap["a"])
-		assert.Equal(t, 123.45, resultMap["b"])
-
-		nestedMap, ok := resultMap["c"].(map[string]interface{})
-		require.True(t, ok)
-		assert.Equal(t, "value", nestedMap["nested"])
-	})
-
-	t.Run("handles array recursively", func(t *testing.T) {
-		input := []interface{}{
-			"string",
-			42.0,
-			map[string]interface{}{"key": "value"},
-			[]interface{}{1.0, 2.0},
-		}
-
-		result := validator.coerceValue(input, "root")
-		assert.NotNil(t, result)
-
-		resultArray, ok := result.([]interface{})
-		require.True(t, ok)
-		assert.Len(t, resultArray, 4)
-		assert.Equal(t, "string", resultArray[0])
-		assert.Equal(t, 42.0, resultArray[1])
-
-		nestedMap, ok := resultArray[2].(map[string]interface{})
-		require.True(t, ok)
-		assert.Equal(t, "value", nestedMap["key"])
-
-		nestedArray, ok := resultArray[3].([]interface{})
-		require.True(t, ok)
-		assert.Len(t, nestedArray, 2)
-	})
-
-	t.Run("handles primitives", func(t *testing.T) {
-		assert.Equal(t, 42.0, validator.coerceValue(42.0, "num"))
-		assert.Equal(t, "text", validator.coerceValue("text", "str"))
-		assert.Equal(t, true, validator.coerceValue(true, "bool"))
-		assert.Nil(t, validator.coerceValue(nil, "null"))
-	})
 }

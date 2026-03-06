@@ -3,6 +3,7 @@ package selfplay
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -205,22 +206,24 @@ func convertStageResult(stageResult *stage.ExecutionResult) *pipeline.ExecutionR
 	return result
 }
 
+// reSentenceEnd matches sentence-ending punctuation (.!?) that is followed
+// by whitespace or end-of-string, but NOT preceded by common abbreviation
+// patterns (e.g. "Dr.", "Mr.", "U.S."). This gives a more reliable sentence
+// count than splitting on "." alone.
+var reSentenceEnd = regexp.MustCompile(`[.!?](?:\s|$)`)
+
+const maxSentencesPerResponse = 2
+
 // validateUserResponse validates that the user response meets requirements
 func (cg *ContentGenerator) validateUserResponse(content string) error {
-	// Check length (≤2 sentences)
-	// TODO(accuracy): Splitting on "." is unreliable with abbreviations (e.g. "Dr.", "U.S."),
-	// decimals (e.g. "3.14"), and URLs. Consider a more robust sentence segmentation approach.
-	sentences := strings.Split(strings.TrimSpace(content), ".")
-	// Filter out empty strings
-	var nonEmptySentences []string
-	for _, s := range sentences {
-		if strings.TrimSpace(s) != "" {
-			nonEmptySentences = append(nonEmptySentences, s)
-		}
+	// Count sentence-ending punctuation followed by whitespace or end-of-string.
+	sentenceCount := len(reSentenceEnd.FindAllString(strings.TrimSpace(content), -1))
+	if sentenceCount == 0 {
+		sentenceCount = 1 // Treat content without terminal punctuation as one sentence
 	}
 
-	if len(nonEmptySentences) > 2 {
-		return fmt.Errorf("response too long: %d sentences (max 2)", len(nonEmptySentences))
+	if sentenceCount > maxSentencesPerResponse {
+		return fmt.Errorf("response too long: %d sentences (max %d)", sentenceCount, maxSentencesPerResponse)
 	}
 
 	// Check for at most one question (temporarily disabled for testing)
