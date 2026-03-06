@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/microcosm-cc/bluemonday"
@@ -95,7 +96,7 @@ func GenerateHTMLReport(results []engine.RunResult, outputPath string) error {
 	data := prepareReportData(results)
 
 	// Generate HTML
-	html, err := generateHTML(data)
+	html, err := generateHTML(&data)
 	if err != nil {
 		return fmt.Errorf("failed to generate HTML: %w", err)
 	}
@@ -343,48 +344,58 @@ func generateScenarioGroups(results []engine.RunResult, scenarios []string) []Sc
 	return groups
 }
 
-func generateHTML(data HTMLReportData) (string, error) {
-	tmpl := template.Must(template.New("report").Funcs(template.FuncMap{
-		"formatCost":                   formatCost,
-		"formatDuration":               formatDuration,
-		"formatPercent":                formatPercent,
-		"statusClass":                  getStatusClass,
-		"prettyJSON":                   prettyJSON,
-		"renderMarkdown":               renderMarkdown,
-		"renderMessageContent":         renderMessageContent,
-		"formatBytes":                  formatBytesHTML,
-		"json":                         convertToJS,
-		"add":                          func(a, b int) int { return a + b },
-		"getAssertions":                getAssertions,
-		"getValidators":                getValidatorsFromMessage,
-		"assertionsPassed":             checkAssertionsPassed,
-		"validatorsPassed":             checkValidatorsPassed,
-		"hasAssertions":                hasAssertions,
-		"hasValidators":                hasValidatorsInMessage,
-		"getOK":                        getOKFromResult,
-		"getDetails":                   getDetailsFromResult,
-		"getMessage":                   getMessage,
-		"hasMediaOutputs":              hasMediaOutputs,
-		"renderMediaOutputs":           renderMediaOutputs,
-		"hasAssertionResults":          hasAssertionResults,
-		"getAssertionResults":          getAssertionResults,
-		"getAssertionType":             getAssertionType,
-		"hasConversationAssertions":    hasConversationAssertions,
-		"conversationAssertionsPassed": conversationAssertionsPassed,
-		"renderConversationAssertions": renderConversationAssertions,
-		"getConversationAssertionResults": func(r engine.RunResult) []assertions.ConversationValidationResult {
-			return r.ConversationAssertions.Results
-		},
-		"renderToolResultMediaBadges": renderToolResultMediaBadges,
-		"isAgentTool":                 isAgentTool,
-		"isWorkflowTool":              isWorkflowTool,
-		"hasA2AAgents":                hasA2AAgents,
-		"renderA2AAgentCards":         renderA2AAgentCards,
-		"consentStatus":               consentStatus,
-	}).Parse(reportTemplate))
+var (
+	reportTmplOnce sync.Once
+	reportTmpl     *template.Template
+)
 
+func getReportTemplate() *template.Template {
+	reportTmplOnce.Do(func() {
+		reportTmpl = template.Must(template.New("report").Funcs(template.FuncMap{
+			"formatCost":                   formatCost,
+			"formatDuration":               formatDuration,
+			"formatPercent":                formatPercent,
+			"statusClass":                  getStatusClass,
+			"prettyJSON":                   prettyJSON,
+			"renderMarkdown":               renderMarkdown,
+			"renderMessageContent":         renderMessageContent,
+			"formatBytes":                  formatBytesHTML,
+			"json":                         convertToJS,
+			"add":                          func(a, b int) int { return a + b },
+			"getAssertions":                getAssertions,
+			"getValidators":                getValidatorsFromMessage,
+			"assertionsPassed":             checkAssertionsPassed,
+			"validatorsPassed":             checkValidatorsPassed,
+			"hasAssertions":                hasAssertions,
+			"hasValidators":                hasValidatorsInMessage,
+			"getOK":                        getOKFromResult,
+			"getDetails":                   getDetailsFromResult,
+			"getMessage":                   getMessage,
+			"hasMediaOutputs":              hasMediaOutputs,
+			"renderMediaOutputs":           renderMediaOutputs,
+			"hasAssertionResults":          hasAssertionResults,
+			"getAssertionResults":          getAssertionResults,
+			"getAssertionType":             getAssertionType,
+			"hasConversationAssertions":    hasConversationAssertions,
+			"conversationAssertionsPassed": conversationAssertionsPassed,
+			"renderConversationAssertions": renderConversationAssertions,
+			"getConversationAssertionResults": func(r engine.RunResult) []assertions.ConversationValidationResult {
+				return r.ConversationAssertions.Results
+			},
+			"renderToolResultMediaBadges": renderToolResultMediaBadges,
+			"isAgentTool":                 isAgentTool,
+			"isWorkflowTool":              isWorkflowTool,
+			"hasA2AAgents":                hasA2AAgents,
+			"renderA2AAgentCards":         renderA2AAgentCards,
+			"consentStatus":               consentStatus,
+		}).Parse(reportTemplate))
+	})
+	return reportTmpl
+}
+
+func generateHTML(data *HTMLReportData) (string, error) {
 	var buf strings.Builder
-	if err := tmpl.Execute(&buf, data); err != nil {
+	if err := getReportTemplate().Execute(&buf, data); err != nil {
 		return "", err
 	}
 
