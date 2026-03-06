@@ -291,8 +291,9 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}
 
-	// Execute the pipeline with the tool result messages
-	// The pipeline will process these and get the LLM's response
+	// Execute the pipeline with each tool result message sequentially.
+	// Each call appends the tool result to conversation state; the final call
+	// returns the LLM's response incorporating all accumulated tool results.
 	var result *rtpipeline.ExecutionResult
 	var err error
 

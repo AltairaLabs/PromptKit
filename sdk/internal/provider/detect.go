@@ -3,6 +3,7 @@ package provider
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -66,8 +67,11 @@ func Detect(apiKey, model string) (providers.Provider, error) {
 		return nil, fmt.Errorf("no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY")
 	}
 
-	// If apiKey provided but no info, default to OpenAI
+	// If apiKey provided but no provider-specific env var detected, default to OpenAI.
+	// Log a warning so the caller knows this is an implicit assumption.
 	if info == nil {
+		slog.Warn("no provider detected from environment; defaulting to OpenAI gpt-4o",
+			"hint", "set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY to be explicit")
 		info = &Info{Name: "openai", APIKey: apiKey, Model: "gpt-4o"}
 	}
 

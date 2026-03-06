@@ -177,73 +177,41 @@ func (sv *SchemaValidator) CacheLen() int {
 	return sv.order.Len()
 }
 
-// CoerceResult attempts to coerce simple type mismatches in tool results
+// CoerceResult attempts to coerce simple type mismatches in tool results.
+//
+// Currently this is a pass-through: if the result validates, it is returned as-is;
+// otherwise validation is re-attempted after a round-trip through JSON (which
+// normalises whitespace/encoding). Actual type coercion (e.g., string↔number)
+// is not yet implemented — the Coercion slice is always empty.
 func (sv *SchemaValidator) CoerceResult(
 	descriptor *ToolDescriptor, result json.RawMessage,
 ) (json.RawMessage, []Coercion, error) {
-	// First try validation without coercion
+	// Fast path: result already validates.
 	if err := sv.ValidateResult(descriptor, result); err == nil {
 		return result, nil, nil
 	}
 
-	// Parse the result to perform coercion
+	// Round-trip through JSON to normalise encoding, then re-validate.
 	var data any
 	if err := json.Unmarshal(result, &data); err != nil {
 		return nil, nil, fmt.Errorf("cannot parse result for coercion: %w", err)
 	}
 
-	coercions := []Coercion{}
-	coerced := sv.coerceValue(data, "")
-
-	// Re-marshal the coerced data
-	coercedBytes, err := json.Marshal(coerced)
+	normalised, err := json.Marshal(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cannot marshal coerced result: %w", err)
+		return nil, nil, fmt.Errorf("cannot marshal normalised result: %w", err)
 	}
 
-	// Validate the coerced result
-	if err := sv.ValidateResult(descriptor, coercedBytes); err != nil {
+	if err := sv.ValidateResult(descriptor, normalised); err != nil {
 		return nil, nil, fmt.Errorf("coercion failed: %w", err)
 	}
 
-	return coercedBytes, coercions, nil
+	return normalised, nil, nil
 }
 
-// Coercion represents a type coercion that was performed
+// Coercion represents a type coercion that was performed.
 type Coercion struct {
 	Path string `json:"path"`
 	From any    `json:"from"`
 	To   any    `json:"to"`
-}
-
-// coerceValue performs simple type coercions (e.g., number to string, string to number)
-func (sv *SchemaValidator) coerceValue(value any, path string) any {
-	switch v := value.(type) {
-	case map[string]any:
-		result := make(map[string]any)
-		for k, val := range v {
-			childPath := path
-			if childPath != "" {
-				childPath += "."
-			}
-			childPath += k
-			result[k] = sv.coerceValue(val, childPath)
-		}
-		return result
-	case []any:
-		result := make([]any, len(v))
-		for i, val := range v {
-			childPath := fmt.Sprintf("%s[%d]", path, i)
-			result[i] = sv.coerceValue(val, childPath)
-		}
-		return result
-	case float64:
-		// Could potentially coerce to string if needed
-		return v
-	case string:
-		// Could potentially coerce to number if needed
-		return v
-	default:
-		return v
-	}
 }

@@ -53,6 +53,13 @@ func NewDefaultConversationExecutor(
 
 // ExecuteConversation runs a complete conversation based on scenario using the new Turn model
 func (ce *DefaultConversationExecutor) ExecuteConversation(ctx context.Context, req ConversationRequest) *ConversationResult {
+	if req.Scenario == nil {
+		return &ConversationResult{
+			Error:  fmt.Sprintf("scenario is nil for conversation %s", req.ConversationID),
+			Failed: true,
+		}
+	}
+
 	// Enrich context with scenario and session information for structured logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Scenario:  req.Scenario.ID,

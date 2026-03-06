@@ -135,7 +135,7 @@ func runSimulations(cmd *cobra.Command) error {
 	displayRunInfo(runParams, configFile)
 
 	// Execute the simulation runs
-	results, err := executeRuns(configFile, runParams)
+	results, err := executeRuns(cfg, runParams)
 	if err != nil {
 		return err
 	}
@@ -147,9 +147,9 @@ func runSimulations(cmd *cobra.Command) error {
 // executeRuns creates the engine and executes all simulation runs.
 // This function handles the decision between TUI and simple mode and manages the full execution lifecycle.
 // It is excluded from coverage testing as it requires real engine initialization and user interaction.
-func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, error) {
+func executeRuns(cfg *config.Config, params *RunParameters) ([]engine.RunResult, error) {
 	// Create and configure engine
-	eng, plan, err := setupEngine(configFile, params)
+	eng, plan, err := setupEngine(cfg, params)
 	if err != nil {
 		return nil, err
 	}
@@ -168,13 +168,9 @@ func executeRuns(configFile string, params *RunParameters) ([]engine.RunResult, 
 }
 
 // setupEngine creates and configures the engine with mock provider if needed.
-func setupEngine(configFile string, params *RunParameters) (*engine.Engine, *engine.RunPlan, error) {
-	// Load config, apply CLI overrides, then build engine
-	cfg, err := config.LoadConfig(configFile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load configuration: %w", err)
-	}
-
+// It accepts an already-loaded config to avoid re-reading and re-parsing the
+// configuration file (the caller — executeRuns — receives cfg from loadConfiguration).
+func setupEngine(cfg *config.Config, params *RunParameters) (*engine.Engine, *engine.RunPlan, error) {
 	// Apply pack eval CLI overrides before building engine components
 	cfg.SkipPackEvals = params.SkipPackEvals
 	cfg.EvalTypeFilter = params.EvalTypes
