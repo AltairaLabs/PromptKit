@@ -40,7 +40,8 @@ func (h *ToolsNotCalledHandler) Eval(
 		forbidden[name] = true
 	}
 
-	called := findForbiddenCalls(evalCtx.ToolCalls, forbidden)
+	turnCalls := filterByTurn(evalCtx.ToolCalls, evalCtx.TurnIndex)
+	called := findForbiddenCalls(turnCalls, forbidden)
 
 	passed := len(called) == 0
 	explanation := "none of the forbidden tools were called"
