@@ -33,5 +33,5 @@ spec:
       assertions:
         - type: content_includes
           params:
-            patterns: ["apologize", "sorry", "unable", "issue", "try"]
+            patterns: ["apologize", "inconvenience"]
           message: "Should handle the tool failure gracefully"

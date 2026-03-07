@@ -45,7 +45,19 @@ func NewEvalTypeRegistry() *EvalTypeRegistry {
 	for _, h := range defaultHandlers {
 		r.Register(h)
 	}
+	// Register legacy Arena assertion type aliases so that scenario YAML files
+	// using names like content_includes resolve to the correct eval handler.
+	for alias, target := range legacyAliases {
+		r.RegisterAlias(alias, target)
+	}
 	return r
+}
+
+// legacyAliases maps legacy Arena assertion type names to eval handler types.
+var legacyAliases = map[string]string{
+	"content_includes": "contains",
+	"content_matches":  "regex",
+	"is_valid_json":    "json_valid",
 }
 
 // defaultHandlers holds handlers registered via RegisterDefault.
@@ -65,6 +77,16 @@ func (r *EvalTypeRegistry) Register(handler EvalTypeHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.handlers[handler.Type()] = handler
+}
+
+// RegisterAlias maps an alias name to an existing handler type.
+// Lookups for the alias will resolve to the target handler.
+func (r *EvalTypeRegistry) RegisterAlias(alias, target string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if h, ok := r.handlers[target]; ok {
+		r.handlers[alias] = h
+	}
 }
 
 // Get returns the handler for the given type, or an error if not found.

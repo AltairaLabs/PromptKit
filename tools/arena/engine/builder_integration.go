@@ -102,14 +102,17 @@ func BuildEngineComponents(cfg *config.Config) (
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)
 	}
 
-	// Build pack eval hook if pack is loaded (before A2A/skill setup to fail fast on config errors)
+	// Build pack eval hook — always needed so scenario assertions can be evaluated.
+	// When a pack is loaded, we build from its eval defs; otherwise we create
+	// an eval-only hook with the default handler registry.
 	var packEvalHook *PackEvalHook
 	if cfg.LoadedPack != nil {
 		packEvalHook, err = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
 		}
-	} else if hasEvalConfigs(cfg) {
+	}
+	if packEvalHook == nil {
 		packEvalHook = buildEvalOnlyHook()
 	}
 

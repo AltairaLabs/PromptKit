@@ -838,6 +838,11 @@ func TestRegisterInit(t *testing.T) {
 		// Behavioral testing handlers (Phase 6)
 		"outcome_equivalent",
 		"directional",
+
+		// Legacy aliases (backward compatibility with Arena scenario YAML)
+		"content_includes",
+		"content_matches",
+		"is_valid_json",
 	}
 
 	r := evals.NewEvalTypeRegistry()

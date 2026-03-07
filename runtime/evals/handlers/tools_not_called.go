@@ -25,6 +25,10 @@ func (h *ToolsNotCalledHandler) Eval(
 ) (result *evals.EvalResult, err error) {
 	toolNames := extractStringSlice(params, "tool_names")
 	if len(toolNames) == 0 {
+		// Fall back to legacy "tools" param name used in Arena scenario YAML
+		toolNames = extractStringSlice(params, "tools")
+	}
+	if len(toolNames) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
