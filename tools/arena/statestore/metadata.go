@@ -134,7 +134,9 @@ func buildConversationAssertionsSummary(results []ConversationValidationResult) 
 			failed++
 		}
 	}
-	passed := failed == 0 && total > 0
+	// Vacuous truth: no assertions means nothing failed, so passed is true.
+	// Passed:false with Total:0 uniquely indicates assertions were defined but never executed.
+	passed := failed == 0
 	return AssertionsSummary{
 		Failed:  failed,
 		Passed:  passed,

@@ -528,3 +528,51 @@ func TestExtractValidations_TurnIndexCountsUserMessages(t *testing.T) {
 		t.Errorf("expected turnIndex 2 for third validation, got %d", validations[2].TurnIndex)
 	}
 }
+
+func TestBuildConversationAssertionsSummary(t *testing.T) {
+	t.Run("nil results is vacuous pass", func(t *testing.T) {
+		summary := buildConversationAssertionsSummary(nil)
+		if !summary.Passed {
+			t.Error("Expected passed=true for nil results (vacuous truth)")
+		}
+		if summary.Total != 0 {
+			t.Errorf("Expected total=0, got %d", summary.Total)
+		}
+	})
+
+	t.Run("empty results is vacuous pass", func(t *testing.T) {
+		summary := buildConversationAssertionsSummary([]ConversationValidationResult{})
+		if !summary.Passed {
+			t.Error("Expected passed=true for empty results (vacuous truth)")
+		}
+	})
+
+	t.Run("all passed", func(t *testing.T) {
+		summary := buildConversationAssertionsSummary([]ConversationValidationResult{
+			{Passed: true, Type: "a"},
+			{Passed: true, Type: "b"},
+		})
+		if !summary.Passed {
+			t.Error("Expected passed=true when all assertions pass")
+		}
+		if summary.Failed != 0 {
+			t.Errorf("Expected failed=0, got %d", summary.Failed)
+		}
+		if summary.Total != 2 {
+			t.Errorf("Expected total=2, got %d", summary.Total)
+		}
+	})
+
+	t.Run("some failed", func(t *testing.T) {
+		summary := buildConversationAssertionsSummary([]ConversationValidationResult{
+			{Passed: true, Type: "a"},
+			{Passed: false, Type: "b"},
+		})
+		if summary.Passed {
+			t.Error("Expected passed=false when some assertions fail")
+		}
+		if summary.Failed != 1 {
+			t.Errorf("Expected failed=1, got %d", summary.Failed)
+		}
+	})
+}

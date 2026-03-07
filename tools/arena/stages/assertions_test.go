@@ -29,7 +29,6 @@ func (m *mockTurnEvalRunner) RunAssertionsAsEvals(
 	return m.results
 }
 
-
 func TestArenaAssertionStage_NoAssertions(t *testing.T) {
 	s := NewArenaAssertionStage(nil)
 
@@ -166,11 +165,12 @@ func TestArenaAssertionStage_NoAssistantMessage(t *testing.T) {
 }
 
 func TestArenaAssertionStage_NoTurnEvalRunner(t *testing.T) {
-	// When no TurnEvalRunner is set, assertions should be skipped
+	// When no TurnEvalRunner is set but assertions are defined,
+	// they should be marked as failed (not silently skipped).
 	assertionConfigs := []assertions.AssertionConfig{
 		{
 			Type:    "some_validator",
-			Message: "Should be skipped",
+			Message: "Should fail",
 		},
 	}
 
@@ -180,10 +180,35 @@ func TestArenaAssertionStage_NoTurnEvalRunner(t *testing.T) {
 		newTestMessageElement("assistant", "Response"),
 	}
 
-	// Should not error, assertions are skipped when no runner is set
-	results := runStage(t, s, inputs)
+	input := make(chan stage.StreamElement, len(inputs))
+	for _, elem := range inputs {
+		input <- elem
+	}
+	close(input)
 
-	require.Len(t, results, 1)
+	output := make(chan stage.StreamElement, 100)
+	err := s.Process(context.Background(), input, output)
+
+	// Should return an error since assertions can't execute
+	require.Error(t, err)
+
+	var results []stage.StreamElement
+	for elem := range output {
+		results = append(results, elem)
+	}
+
+	// Should have the original element + an error element
+	require.GreaterOrEqual(t, len(results), 1)
+
+	// The assistant message should have failed assertions attached
+	assistantMsg := results[0].Message
+	require.NotNil(t, assistantMsg)
+	require.NotNil(t, assistantMsg.Meta)
+	assertionResults, ok := assistantMsg.Meta["assertions"]
+	require.True(t, ok, "Expected assertions in message metadata")
+	assertionMap, ok := assertionResults.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, false, assertionMap["passed"])
 }
 
 func TestArenaAssertionStage_ExtractsMessagesFromElements(t *testing.T) {
