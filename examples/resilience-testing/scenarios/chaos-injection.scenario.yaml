@@ -1,0 +1,37 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: chaos-injection
+spec:
+  id: "chaos-injection"
+  task_type: support-agent
+  description: "Resilience testing with chaos injection — verify graceful degradation when tools fail"
+
+  turns:
+    # Turn 1: Normal tool call (no chaos) — establishes baseline
+    - role: user
+      content: "Look up order ORD-99999 for me"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["lookup_order"]
+          message: "Should call lookup_order when tools work normally"
+        - type: content_includes
+          params:
+            patterns: ["ORD-99999"]
+          message: "Should reference the order"
+
+    # Turn 2: Chaos injects an error on lookup_order
+    - role: user
+      content: "Can you also check order ORD-88888?"
+      chaos:
+        tool_failures:
+          - tool: lookup_order
+            mode: error
+            probability: 1.0
+            message: "Service temporarily unavailable"
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["apologize", "sorry", "unable", "issue", "try"]
+          message: "Should handle the tool failure gracefully"

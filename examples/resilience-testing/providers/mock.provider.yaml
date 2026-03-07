@@ -1,0 +1,10 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock
+spec:
+  id: mock
+  type: mock
+  model: mock-model
+  mock_config:
+    file: ../mock-responses.yaml

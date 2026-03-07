@@ -1,0 +1,12 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: support-agent
+spec:
+  version: "1.0.0"
+  description: "Support agent prompt configuration for customer service interactions"
+  task_type: "support-agent"
+  system_template: "You are a helpful customer support agent. Assist customers with order inquiries, FAQ lookups, and general questions. Be empathetic and professional. When tools fail, apologize and offer alternative help."
+  allowed_tools:
+    - lookup_order
+    - search_faq

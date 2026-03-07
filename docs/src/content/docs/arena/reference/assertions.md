@@ -1878,6 +1878,615 @@ conversation_assertions:
 
 ---
 
+### Tool Pattern & Efficiency Assertions
+
+#### `tool_anti_pattern`
+
+Checks that tool calls do NOT contain forbidden subsequences. Useful for verifying the model avoids known-bad tool call patterns (e.g., calling delete before confirming with the user).
+
+**Use Cases**:
+- Prevent dangerous tool call sequences (e.g., `delete` before `confirm`)
+- Enforce business rules about tool ordering
+- Catch regressions where the model falls back to anti-patterns
+
+**Parameters**:
+- `patterns` (array of objects): Each object has:
+  - `sequence` (array of strings, required): Forbidden tool call subsequence
+  - `message` (string, optional): Human-readable description of why this pattern is forbidden
+
+**Example**:
+```yaml
+assertions:
+  - type: tool_anti_pattern
+    params:
+      patterns:
+        - sequence: ["delete_record", "lookup_record"]
+          message: "Should not delete before looking up"
+        - sequence: ["charge_card", "verify_identity"]
+          message: "Must verify identity before charging"
+    message: "No forbidden tool sequences"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "found 1 anti-pattern(s): [delete_record → lookup_record]: Should not delete before looking up",
+  "details": {
+    "violations": [
+      {
+        "sequence": ["delete_record", "lookup_record"],
+        "message": "Should not delete before looking up"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### `tool_no_repeat`
+
+Detects consecutive repeated calls to the same tool. Catches cases where the model unnecessarily calls the same tool multiple times in a row.
+
+**Use Cases**:
+- Prevent redundant API calls
+- Catch infinite-loop-like behavior
+- Enforce efficient tool usage
+
+**Parameters**:
+- `tools` (array of strings, optional): Tool names to check. If empty, all tools are checked.
+- `max_repeats` (integer, optional, default: 1): Maximum allowed consecutive calls to the same tool
+
+**Example**:
+```yaml
+assertions:
+  - type: tool_no_repeat
+    params:
+      tools: ["search_database"]
+      max_repeats: 2
+    message: "Should not call search more than twice in a row"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "repeated tool calls detected (max 2): search_database(3x)",
+  "details": {
+    "violations": [
+      {
+        "tool": "search_database",
+        "consecutive": 3,
+        "at_index": 4
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### `tool_efficiency`
+
+Checks tool usage efficiency metrics including total call count, error count, and error rate.
+
+**Use Cases**:
+- Enforce a maximum tool call budget per scenario
+- Limit tool errors to an acceptable threshold
+- Monitor tool error rates
+
+**Parameters** (at least one required):
+- `max_calls` (integer, optional): Maximum total tool calls allowed
+- `max_errors` (integer, optional): Maximum tool errors allowed
+- `max_error_rate` (float, optional): Maximum error rate as a fraction (0.0-1.0)
+
+**Example**:
+```yaml
+assertions:
+  - type: tool_efficiency
+    params:
+      max_calls: 10
+      max_errors: 1
+      max_error_rate: 0.2
+    message: "Tool usage should be efficient"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "efficiency check failed: [too many calls: 15 (max 10)]",
+  "details": {
+    "total_calls": 15,
+    "errors": 2,
+    "error_rate": 0.133
+  }
+}
+```
+
+**Score**: When passing, returns a score of `1.0 - (total_calls / max_calls)` indicating how much of the budget was used (higher is better).
+
+---
+
+#### `cost_budget`
+
+Validates that total cost and token usage remain within specified budgets. Reads cost metadata from the eval context.
+
+**Use Cases**:
+- Enforce per-scenario cost limits
+- Cap token usage for budget control
+- Monitor input/output token distribution
+
+**Parameters** (at least one required):
+- `max_cost_usd` (float, optional): Maximum total cost in USD
+- `max_input_tokens` (integer, optional): Maximum input tokens
+- `max_output_tokens` (integer, optional): Maximum output tokens
+- `max_total_tokens` (integer, optional): Maximum total tokens (input + output)
+
+**Example**:
+```yaml
+assertions:
+  - type: cost_budget
+    params:
+      max_cost_usd: 0.05
+      max_total_tokens: 5000
+    message: "Scenario should stay within budget"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "budget exceeded: cost $0.0620 exceeds budget $0.0500; total tokens 6200 exceeds max 5000",
+  "details": {
+    "total_cost_usd": 0.062,
+    "input_tokens": 4100,
+    "output_tokens": 2100,
+    "total_tokens": 6200
+  }
+}
+```
+
+**Score**: When passing, returns a score of `1.0 - (total_cost / max_cost_usd)` indicating how much of the cost budget remains.
+
+---
+
+### Workflow Assertions
+
+#### `workflow_transition_order`
+
+Verifies that workflow state transitions occurred in the expected order. The expected sequence must appear as a subsequence of the actual transitions (other transitions may appear in between).
+
+**Use Cases**:
+- Ensure multi-step workflows follow the correct state progression
+- Verify that required workflow stages are visited
+- Catch skipped or out-of-order transitions
+
+**Parameters**:
+- `sequence` (array of strings, required): Expected ordered list of workflow states that must appear as a subsequence
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: workflow_transition_order
+    params:
+      sequence:
+        - "intake"
+        - "triage"
+        - "resolution"
+        - "closed"
+    message: "Support ticket should follow standard workflow"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "sequence incomplete: matched 2/4, missing \"resolution\"",
+  "details": {
+    "matched_steps": 2,
+    "total_steps": 4,
+    "expected_sequence": ["intake", "triage", "resolution", "closed"],
+    "actual_transitions": ["intake", "triage", "closed"]
+  }
+}
+```
+
+---
+
+#### `workflow_tool_access`
+
+Validates that tools are only called when the workflow is in a state that permits them. Enforces per-state tool access control.
+
+**Use Cases**:
+- Ensure sensitive tools are only available in appropriate workflow states
+- Prevent tool calls during states where they should be restricted
+- Enforce separation of concerns across workflow stages
+
+**Parameters**:
+- `rules` (array of objects, required): Each object has:
+  - `state` (string, required): The workflow state name
+  - `allowed` (array of strings, required): Tool names permitted in this state
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: workflow_tool_access
+    params:
+      rules:
+        - state: "intake"
+          allowed: ["lookup_customer", "search_faq"]
+        - state: "resolution"
+          allowed: ["lookup_customer", "create_ticket", "apply_refund"]
+    message: "Tools should only be called in their permitted workflow states"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "1 violation(s): apply_refund called in state \"intake\" (turn 2)",
+  "details": {
+    "violations": [
+      {
+        "tool": "apply_refund",
+        "state": "intake",
+        "turn_index": 2
+      }
+    ]
+  }
+}
+```
+
+---
+
+### Skill Assertions
+
+#### `skill_activated`
+
+Checks that specific skills were activated during the conversation. Looks for `skill__activate` tool calls with matching `name` arguments.
+
+**Use Cases**:
+- Verify the model activated required skills for the task
+- Ensure skill-based routing worked correctly
+- Validate that specialized capabilities were engaged
+
+**Parameters**:
+- `skill_names` (array of strings, required): Skill names that must be activated
+- `min_calls` (integer, optional, default: 1): Minimum number of times each skill must be activated
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: skill_activated
+    params:
+      skill_names:
+        - "order_management"
+        - "payment_processing"
+      min_calls: 1
+    message: "Both order and payment skills should be activated"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "missing skill activations: payment_processing",
+  "details": {
+    "counts": { "order_management": 1 },
+    "min_calls": 1
+  }
+}
+```
+
+---
+
+#### `skill_not_activated`
+
+Checks that specific skills were NOT activated during the conversation. The inverse of `skill_activated`.
+
+**Use Cases**:
+- Ensure forbidden skills are not triggered
+- Verify skill boundaries are respected
+- Catch inappropriate skill routing
+
+**Parameters**:
+- `skill_names` (array of strings, required): Skill names that must NOT be activated
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: skill_not_activated
+    params:
+      skill_names:
+        - "admin_tools"
+        - "internal_debug"
+    message: "Admin and debug skills should never be activated for regular users"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "forbidden skills activated: admin_tools",
+  "violations": [
+    {
+      "turn_index": 3,
+      "description": "forbidden skill \"admin_tools\" was activated",
+      "evidence": { "skill": "admin_tools" }
+    }
+  ]
+}
+```
+
+---
+
+#### `skill_activation_order`
+
+Checks that skills were activated in a specified subsequence order. The expected sequence must appear as a subsequence of the actual activations.
+
+**Use Cases**:
+- Verify multi-skill workflows follow the correct order
+- Ensure prerequisite skills are activated before dependent ones
+- Validate skill orchestration logic
+
+**Parameters**:
+- `sequence` (array of strings, required): Expected ordered list of skill names
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: skill_activation_order
+    params:
+      sequence:
+        - "authenticate_user"
+        - "lookup_account"
+        - "process_transaction"
+    message: "Skills should activate in the correct order"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "sequence incomplete: matched 1/3, missing \"lookup_account\"",
+  "details": {
+    "matched_steps": 1,
+    "total_steps": 3,
+    "activated_skills": ["authenticate_user", "process_transaction"]
+  }
+}
+```
+
+---
+
+### Property Invariant Assertions
+
+#### `invariant_fields_preserved`
+
+Checks that specified fields in tool call arguments are not lost between calls to the same tool. If a field was present in an earlier call but disappears in a later call, that is a violation. Useful for detecting context loss in multi-turn tool use.
+
+**Use Cases**:
+- Ensure the model preserves important fields (e.g., `customer_id`) across repeated tool calls
+- Detect context drift where the model drops required parameters
+- Validate that accumulated state is maintained
+
+**Parameters**:
+- `tool` (string, required): The tool name to track across calls
+- `fields` (array of strings, required): JSON field names to track in tool call arguments
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: invariant_fields_preserved
+    params:
+      tool: "update_order"
+      fields:
+        - "order_id"
+        - "customer_id"
+    message: "Order and customer IDs must be preserved across updates"
+```
+
+**Failure Details**:
+```json
+{
+  "passed": false,
+  "explanation": "1 field(s) lost: field \"customer_id\" lost at call 2",
+  "details": {
+    "violations": [
+      {
+        "field": "customer_id",
+        "lost_at": 2,
+        "call_index": 2
+      }
+    ],
+    "tool": "update_order"
+  }
+}
+```
+
+---
+
+### Behavioral Testing Assertions
+
+#### `outcome_equivalent`
+
+Compares a run's outcome against an expected value. Used in behavioral testing to verify that perturbation-invariant outcomes remain stable across variants.
+
+**Use Cases**:
+- Verify that different phrasings produce the same tool calls
+- Check that the final workflow state is consistent across variants
+- Validate content consistency under perturbation
+
+**Parameters**:
+- `metric` (string, required): One of `"tool_calls"`, `"final_state"`, or `"content_hash"`
+- `expected_tools` (array of strings, optional): For `tool_calls` metric — expected tool names
+- `expected_state` (string, optional): For `final_state` metric — expected workflow state
+- `expected_content` (string, optional): For `content_hash` metric — expected content to match
+
+**Example**:
+```yaml
+assertions:
+  - type: outcome_equivalent
+    params:
+      metric: tool_calls
+      expected_tools:
+        - "get_weather"
+        - "format_response"
+    message: "Should call the same tools regardless of phrasing"
+
+  - type: outcome_equivalent
+    params:
+      metric: final_state
+      expected_state: "resolved"
+    message: "Should reach resolved state"
+```
+
+**Failure Details** (tool_calls metric):
+```json
+{
+  "passed": false,
+  "explanation": "tool set mismatch vs expected: missing [format_response], extra [log_request]"
+}
+```
+
+---
+
+#### `directional`
+
+Verifies that a perturbation causes (or does not cause) an expected directional change. Compares the current run's output against a baseline expectation.
+
+**Use Cases**:
+- Verify that different inputs produce the same tool calls (behavioral consistency)
+- Check that workflow outcomes are stable across perturbations
+- Validate content similarity above a threshold
+
+**Parameters**:
+- `check` (string, required): One of `"same_tool_calls"`, `"same_outcome"`, or `"similar_content"`
+- `baseline_tools` (array of strings, optional): For `same_tool_calls` — expected tool names
+- `baseline_state` (string, optional): For `same_outcome` — expected workflow state
+- `baseline_content` (string, optional): For `similar_content` — expected content to compare against
+- `threshold` (float, optional, default: 0.5): For `similar_content` — minimum word overlap ratio (Jaccard similarity)
+
+**Example**:
+```yaml
+assertions:
+  - type: directional
+    params:
+      check: same_tool_calls
+      baseline_tools:
+        - "get_weather"
+    message: "All city variants should call get_weather"
+
+  - type: directional
+    params:
+      check: similar_content
+      baseline_content: "The current weather is sunny with a high of 75F"
+      threshold: 0.3
+    message: "Responses should be structurally similar"
+```
+
+**Failure Details** (similar_content check):
+```json
+{
+  "passed": false,
+  "explanation": "content similarity 0.15 < threshold 0.30",
+  "details": {
+    "overlap_score": 0.15,
+    "threshold": 0.3
+  }
+}
+```
+
+**Score**: For `similar_content`, returns the Jaccard word overlap score.
+
+---
+
+## Statistical & Resilience Testing
+
+These are not assertion types but scenario-level and turn-level configuration options that control how scenarios are executed. They enable statistical testing, behavioral consistency testing, and fault injection.
+
+### `trials` (Scenario-Level)
+
+Runs the scenario multiple times to gather statistical data on assertion pass rates. When `trials` is greater than 1, assertion results are aggregated across all runs.
+
+```yaml
+spec:
+  trials: 5
+```
+
+Individual assertions can specify a `pass_threshold` (float, 0.0-1.0, default: 1.0) to indicate what fraction of trials must pass for the assertion to be considered successful overall:
+
+```yaml
+assertions:
+  - type: content_includes
+    params:
+      patterns: ["weather"]
+    pass_threshold: 0.8
+    message: "Should mention weather in at least 80% of runs"
+```
+
+**Use Cases**:
+- Measure flakiness of non-deterministic LLM responses
+- Establish statistical confidence in assertion results
+- Set relaxed thresholds for inherently variable outputs
+
+### `perturbations` (Turn-Level)
+
+Expands a single turn into multiple trial variants by substituting placeholders in the content. Each combination of perturbation values produces a separate trial run.
+
+```yaml
+turns:
+  - role: user
+    content: "What's the weather in {city}?"
+    perturbations:
+      city: ["New York", "London", "Tokyo"]
+```
+
+The `{city}` placeholder in content is replaced with each value, producing three separate trial runs. Perturbations are useful for behavioral consistency testing — verifying that the model behaves the same way regardless of input variation.
+
+**Use Cases**:
+- Test behavioral consistency across different inputs
+- Verify the model handles diverse values correctly
+- Combine with `directional` or `outcome_equivalent` assertions to check invariance
+
+### `chaos` (Turn-Level)
+
+Injects faults into tool execution to test graceful degradation and error handling. Configured per-turn to simulate real-world failure conditions.
+
+```yaml
+turns:
+  - role: user
+    content: "Look up my order"
+    chaos:
+      tool_failures:
+        - tool: lookup_order
+          mode: error
+          probability: 1.0
+          message: "Service unavailable"
+```
+
+**Parameters**:
+- `tool_failures` (array of objects): Each object has:
+  - `tool` (string, required): Tool name to target
+  - `mode` (string, required): One of `"error"`, `"timeout"`, or `"slow"`
+  - `probability` (float, optional, default: 1.0): Probability (0.0-1.0) that the fault is injected
+  - `message` (string, optional): Error message returned to the model (for `error` and `timeout` modes)
+
+**Modes**:
+- `error`: Blocks the tool call and returns an error message
+- `timeout`: Blocks the tool call and simulates a timeout
+- `slow`: Adds a 2-second delay but allows the tool call to proceed
+
+**Use Cases**:
+- Test graceful degradation when tools fail
+- Verify the model provides helpful fallback responses
+- Ensure the model does not crash or loop on tool errors
+- Validate retry and error-handling behavior
+
+---
+
 ## Conditional Filtering (`when`)
 
 The optional `when` field on any assertion specifies preconditions that must be met for the assertion to **run**. If any condition is not met, the assertion is **skipped** (recorded as passed with `skipped: true`) — not failed. This is critical for cost control with expensive assertions like LLM judges.

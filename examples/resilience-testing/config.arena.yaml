@@ -1,0 +1,32 @@
+$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: resilience-testing
+spec:
+  prompt_configs:
+    - id: support-agent
+      file: prompts/support-agent.yaml
+
+  providers:
+    - file: providers/mock.provider.yaml
+
+  scenarios:
+    - file: scenarios/statistical-trials.scenario.yaml
+    - file: scenarios/perturbation-testing.scenario.yaml
+    - file: scenarios/chaos-injection.scenario.yaml
+
+  tools:
+    - file: tools/lookup-order.tool.yaml
+    - file: tools/search-faq.tool.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    seed: 42
+    concurrency: 3
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

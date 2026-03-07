@@ -1,0 +1,33 @@
+# Mock responses for resilience testing scenarios
+#
+# Provides deterministic responses for statistical trials,
+# perturbation testing, and chaos injection scenarios.
+
+defaultResponse: "I'm here to help with your request."
+
+scenarios:
+  statistical-trials:
+    defaultResponse: "I'm ready to help with your order inquiry."
+    turns:
+      1:
+        tool_calls:
+          - name: "lookup_order"
+            arguments:
+              order_id: "ORD-12345"
+      2: "Your order ORD-12345 is currently being processed and will ship within 2 business days. You can track it using the link in your confirmation email."
+
+  perturbation-testing:
+    defaultResponse: "I'm happy to help with weather and other inquiries."
+    turns:
+      1: "The current weather in your area is partly cloudy with temperatures around 72°F. It's a pleasant day with light winds from the southwest."
+
+  chaos-injection:
+    defaultResponse: "I'm here to assist with your order inquiries."
+    turns:
+      1:
+        tool_calls:
+          - name: "lookup_order"
+            arguments:
+              order_id: "ORD-99999"
+      2: "I found your order ORD-99999. It's currently in transit and expected to arrive by Friday."
+      3: "I apologize for the inconvenience with the tool issue. Let me try to help you directly. Based on common order inquiries, your order should be trackable through your account dashboard."

@@ -1,0 +1,23 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: statistical-trials
+spec:
+  id: "statistical-trials"
+  task_type: support-agent
+  description: "Statistical evaluation with multiple trials — run the same conversation multiple times to measure consistency"
+  trials: 3
+
+  turns:
+    - role: user
+      content: "What's the status of my order ORD-12345?"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["lookup_order"]
+          message: "Should look up the order"
+        - type: content_includes
+          params:
+            patterns: ["ORD-12345"]
+          message: "Should reference the order number"
+          pass_threshold: 0.8

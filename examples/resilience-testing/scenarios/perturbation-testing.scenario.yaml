@@ -1,0 +1,19 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: perturbation-testing
+spec:
+  id: "perturbation-testing"
+  task_type: support-agent
+  description: "Behavioral testing with perturbations — verify consistent behavior across input variations"
+
+  turns:
+    - role: user
+      content: "What's the weather like in {city} today?"
+      perturbations:
+        city: ["New York", "London", "Tokyo"]
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["weather"]
+          message: "Should mention weather regardless of city"
