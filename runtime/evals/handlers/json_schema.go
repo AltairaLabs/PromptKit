@@ -33,10 +33,20 @@ func (h *JSONSchemaHandler) Eval(
 		}, nil
 	}
 
+	allowWrapped := extractBool(params, "allow_wrapped")
+	extractJSON := extractBool(params, "extract_json")
+
+	content := evalCtx.CurrentOutput
+	if allowWrapped || extractJSON {
+		if extracted := extractJSONFromContent(content, allowWrapped, extractJSON); extracted != "" {
+			content = extracted
+		}
+	}
+
 	// Validate the output is valid JSON first
 	var target any
 	if parseErr := json.Unmarshal(
-		[]byte(evalCtx.CurrentOutput), &target,
+		[]byte(content), &target,
 	); parseErr != nil {
 		return &evals.EvalResult{
 			Type:   h.Type(),
@@ -47,7 +57,7 @@ func (h *JSONSchemaHandler) Eval(
 		}, nil
 	}
 
-	return h.validateSchema(evalCtx.CurrentOutput, schema)
+	return h.validateSchema(content, schema)
 }
 
 // validateSchema performs the JSON schema validation.

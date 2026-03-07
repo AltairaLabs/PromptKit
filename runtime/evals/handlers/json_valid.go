@@ -9,7 +9,7 @@ import (
 )
 
 // JSONValidHandler checks if CurrentOutput is valid JSON.
-// No required params.
+// Params: allow_wrapped bool, extract_json bool (both optional).
 type JSONValidHandler struct{}
 
 // Type returns the eval type identifier.
@@ -19,12 +19,20 @@ func (h *JSONValidHandler) Type() string { return "json_valid" }
 func (h *JSONValidHandler) Eval(
 	_ context.Context,
 	evalCtx *evals.EvalContext,
-	_ map[string]any,
+	params map[string]any,
 ) (result *evals.EvalResult, err error) {
+	allowWrapped := extractBool(params, "allow_wrapped")
+	extractJSON := extractBool(params, "extract_json")
+
+	content := evalCtx.CurrentOutput
+	if allowWrapped || extractJSON {
+		if extracted := extractJSONFromContent(content, allowWrapped, extractJSON); extracted != "" {
+			content = extracted
+		}
+	}
+
 	var target any
-	parseErr := json.Unmarshal(
-		[]byte(evalCtx.CurrentOutput), &target,
-	)
+	parseErr := json.Unmarshal([]byte(content), &target)
 
 	if parseErr != nil {
 		return &evals.EvalResult{

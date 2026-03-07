@@ -3,7 +3,20 @@ package handlers
 import (
 	"fmt"
 	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
+
+// filterByTurn returns only tool calls matching the given turn index.
+func filterByTurn(calls []evals.ToolCallRecord, turnIndex int) []evals.ToolCallRecord {
+	var filtered []evals.ToolCallRecord
+	for i := range calls {
+		if calls[i].TurnIndex == turnIndex {
+			filtered = append(filtered, calls[i])
+		}
+	}
+	return filtered
+}
 
 const roleAssistant = "assistant"
 

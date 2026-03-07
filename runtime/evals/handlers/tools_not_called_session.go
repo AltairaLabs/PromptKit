@@ -25,6 +25,9 @@ func (h *ToolsNotCalledSessionHandler) Eval(
 	params map[string]any,
 ) (_ *evals.EvalResult, _ error) {
 	forbidden := extractStringSlice(params, "tool_names")
+	if len(forbidden) == 0 {
+		forbidden = extractStringSlice(params, "tools")
+	}
 	forbiddenSet := make(map[string]struct{}, len(forbidden))
 	for _, n := range forbidden {
 		forbiddenSet[n] = struct{}{}

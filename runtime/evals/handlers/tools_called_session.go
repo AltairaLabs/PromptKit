@@ -26,6 +26,9 @@ func (h *ToolsCalledSessionHandler) Eval(
 	params map[string]any,
 ) (_ *evals.EvalResult, _ error) {
 	required := extractStringSlice(params, "tool_names")
+	if len(required) == 0 {
+		required = extractStringSlice(params, "tools")
+	}
 	minCalls := 1
 	if m, ok := params["min_calls"].(int); ok && m > 0 {
 		minCalls = m

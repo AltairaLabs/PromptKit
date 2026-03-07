@@ -39,7 +39,8 @@ func (h *ToolArgsHandler) Eval(
 		}, nil
 	}
 
-	matching := findMatchingCalls(evalCtx.ToolCalls, toolName)
+	turnCalls := filterByTurn(evalCtx.ToolCalls, evalCtx.TurnIndex)
+	matching := findMatchingCalls(turnCalls, toolName)
 	if len(matching) == 0 {
 		return &evals.EvalResult{
 			Type:   h.Type(),

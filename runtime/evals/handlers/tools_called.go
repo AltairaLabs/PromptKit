@@ -23,6 +23,9 @@ func (h *ToolsCalledHandler) Eval(
 ) (result *evals.EvalResult, err error) {
 	toolNames := extractStringSlice(params, "tool_names")
 	if len(toolNames) == 0 {
+		toolNames = extractStringSlice(params, "tools")
+	}
+	if len(toolNames) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
@@ -31,7 +34,8 @@ func (h *ToolsCalledHandler) Eval(
 	}
 
 	minCalls := extractInt(params, "min_calls", 1)
-	callCounts := buildCallCounts(evalCtx.ToolCalls)
+	turnCalls := filterByTurn(evalCtx.ToolCalls, evalCtx.TurnIndex)
+	callCounts := buildCallCounts(turnCalls)
 
 	return h.checkToolCalls(toolNames, callCounts, minCalls)
 }

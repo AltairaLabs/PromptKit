@@ -91,7 +91,10 @@ func init() {
 	evals.RegisterDefaultAlias("content_includes", "contains")
 	evals.RegisterDefaultAlias("content_includes_any", "contains_any")
 	evals.RegisterDefaultAlias("content_matches", "regex")
+	evals.RegisterDefaultAlias("content_not_includes", "content_excludes")
 	evals.RegisterDefaultAlias("is_valid_json", "json_valid")
 	evals.RegisterDefaultAlias("valid_json", "json_valid")
 	evals.RegisterDefaultAlias("tool_called", "tools_called")
+	evals.RegisterDefaultAlias("tools_not_called_with_args", "tool_args_excluded_session")
+	evals.RegisterDefaultAlias("llm_judge_conversation", "llm_judge_session")
 }
