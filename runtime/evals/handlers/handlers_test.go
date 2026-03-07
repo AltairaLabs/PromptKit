@@ -379,6 +379,27 @@ func TestToolsCalledHandler_NoToolNames(t *testing.T) {
 	}
 }
 
+func TestToolsCalledHandler_LegacyToolsParam(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "search"},
+			{ToolName: "calculate"},
+		},
+	}
+	params := map[string]any{
+		"tools": []any{"search", "calculate"},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with legacy 'tools' param: %s", result.Explanation)
+	}
+}
+
 // --- ToolsNotCalled ---
 
 func TestToolsNotCalledHandler_Type(t *testing.T) {
@@ -427,6 +448,210 @@ func TestToolsNotCalledHandler_Fail(t *testing.T) {
 	}
 	if result.Passed {
 		t.Fatal("expected fail: delete was called")
+	}
+}
+
+func TestToolsNotCalledHandler_LegacyToolsParam(t *testing.T) {
+	h := &ToolsNotCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "search"},
+		},
+	}
+	params := map[string]any{
+		"tools": []any{"delete", "drop"},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with legacy 'tools' param: %s", result.Explanation)
+	}
+}
+
+func TestToolArgsExcludedSession_ForbiddenArgs(t *testing.T) {
+	h := &ToolArgsExcludedSessionHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "mock_tool", Arguments: map[string]any{"mode": "debug"}},
+		},
+	}
+	// Legacy forbidden_args format: map of arg name → list of forbidden values
+	params := map[string]any{
+		"tool_name": "mock_tool",
+		"forbidden_args": map[string]any{
+			"mode": []any{"debug", "unsafe"},
+		},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: mode=debug is forbidden")
+	}
+}
+
+func TestToolArgsExcludedSession_ForbiddenArgsPass(t *testing.T) {
+	h := &ToolArgsExcludedSessionHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "mock_tool", Arguments: map[string]any{"mode": "normal"}},
+		},
+	}
+	params := map[string]any{
+		"tool_name": "mock_tool",
+		"forbidden_args": map[string]any{
+			"mode": []any{"debug", "unsafe"},
+		},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass: mode=normal is not forbidden: %s", result.Explanation)
+	}
+}
+
+func TestToolArgsExcludedSession_ExcludedArgs(t *testing.T) {
+	h := &ToolArgsExcludedSessionHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "api", Arguments: map[string]any{"key": "secret"}},
+		},
+	}
+	params := map[string]any{
+		"tool_name":     "api",
+		"excluded_args": map[string]any{"key": "secret"},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: key=secret is excluded")
+	}
+}
+
+func TestToolArgsExcludedSession_ForbiddenArgsStringSlice(t *testing.T) {
+	h := &ToolArgsExcludedSessionHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "cmd", Arguments: map[string]any{"flag": "verbose"}},
+		},
+	}
+	// Legacy format with []string values (from Go-typed callers)
+	params := map[string]any{
+		"tool_name": "cmd",
+		"forbidden_args": map[string]any{
+			"flag": []string{"verbose", "debug"},
+		},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: flag=verbose is forbidden")
+	}
+}
+
+func TestToolArgsExcludedSession_ForbiddenArgsSingleValue(t *testing.T) {
+	h := &ToolArgsExcludedSessionHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "cmd", Arguments: map[string]any{"flag": "safe"}},
+		},
+	}
+	// Legacy format with single (non-slice) value
+	params := map[string]any{
+		"tool_name": "cmd",
+		"forbidden_args": map[string]any{
+			"flag": "safe",
+		},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: flag=safe is forbidden")
+	}
+}
+
+func TestToolArgsExcludedSession_ForbiddenArgsMapSliceAny(t *testing.T) {
+	h := &ToolArgsExcludedSessionHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "cmd", Arguments: map[string]any{"mode": "debug"}},
+		},
+	}
+	// map[string][]any typed path (from Go callers, not YAML)
+	params := map[string]any{
+		"tool_name":      "cmd",
+		"forbidden_args": map[string][]any{"mode": {"debug", "unsafe"}},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: mode=debug is forbidden")
+	}
+}
+
+func TestToolArgsExcludedSession_NoToolName(t *testing.T) {
+	h := &ToolArgsExcludedSessionHandler{}
+	result, err := h.Eval(context.Background(), &evals.EvalContext{}, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: no tool_name")
+	}
+}
+
+func TestToolArgsExcludedSession_NoForbiddenArgs(t *testing.T) {
+	h := &ToolArgsExcludedSessionHandler{}
+	result, err := h.Eval(context.Background(), &evals.EvalContext{}, map[string]any{
+		"tool_name": "cmd",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatal("expected pass: no excluded or forbidden args")
+	}
+}
+
+func TestToolsNotCalledWithArgs_AliasResolution(t *testing.T) {
+	r := evals.NewEvalTypeRegistry()
+	h, err := r.Get("tools_not_called_with_args")
+	if err != nil {
+		t.Fatalf("alias not registered: %v", err)
+	}
+	if h.Type() != "tool_args_excluded_session" {
+		t.Fatalf("expected alias to resolve to tool_args_excluded_session, got %s", h.Type())
+	}
+}
+
+func TestLLMJudgeConversation_AliasResolution(t *testing.T) {
+	r := evals.NewEvalTypeRegistry()
+	h, err := r.Get("llm_judge_conversation")
+	if err != nil {
+		t.Fatalf("alias not registered: %v", err)
+	}
+	if h.Type() != "llm_judge_session" {
+		t.Fatalf("expected alias to resolve to llm_judge_session, got %s", h.Type())
 	}
 }
 
@@ -1021,9 +1246,12 @@ func TestRegisterInit(t *testing.T) {
 		"content_includes",
 		"content_includes_any",
 		"content_matches",
+		"content_not_includes",
 		"is_valid_json",
 		"valid_json",
 		"tool_called",
+		"tools_not_called_with_args",
+		"llm_judge_conversation",
 	}
 
 	r := evals.NewEvalTypeRegistry()
