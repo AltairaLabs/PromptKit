@@ -8,7 +8,7 @@ import (
 )
 
 // MinLengthHandler checks that CurrentOutput has at least the specified character count.
-// Params: min (int) — minimum number of characters.
+// Accepts params: min or min_characters (int).
 type MinLengthHandler struct{}
 
 // Type returns the eval type identifier.
@@ -21,6 +21,12 @@ func (h *MinLengthHandler) Eval(
 	params map[string]any,
 ) (*evals.EvalResult, error) {
 	minLen := extractInt(params, "min", 0)
+	if minLen == 0 {
+		minLen = extractInt(params, "min_characters", 0)
+	}
+	if minLen == 0 {
+		minLen = extractInt(params, "min_chars", 0)
+	}
 	actual := len(evalCtx.CurrentOutput)
 	passed := actual >= minLen
 
@@ -32,7 +38,7 @@ func (h *MinLengthHandler) Eval(
 }
 
 // MaxLengthHandler checks that CurrentOutput does not exceed the specified character count.
-// Params: max (int) — maximum number of characters.
+// Accepts params: max or max_characters (int).
 type MaxLengthHandler struct{}
 
 // Type returns the eval type identifier.
@@ -46,7 +52,17 @@ func (h *MaxLengthHandler) Eval(
 ) (*evals.EvalResult, error) {
 	maxLen := extractInt(params, "max", 0)
 	if maxLen == 0 {
-		return &evals.EvalResult{Type: h.Type(), Passed: false, Explanation: "missing or zero 'max' param"}, nil
+		maxLen = extractInt(params, "max_characters", 0)
+	}
+	if maxLen == 0 {
+		maxLen = extractInt(params, "max_chars", 0)
+	}
+	if maxLen == 0 {
+		return &evals.EvalResult{
+			Type:        h.Type(),
+			Passed:      false,
+			Explanation: "missing or zero 'max'/'max_characters' param",
+		}, nil
 	}
 
 	actual := len(evalCtx.CurrentOutput)

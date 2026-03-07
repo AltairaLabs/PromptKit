@@ -827,6 +827,21 @@ func TestMinLengthHandler_ExactLength(t *testing.T) {
 	}
 }
 
+func TestMinLengthHandler_MinCharacters(t *testing.T) {
+	h := &MinLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{CurrentOutput: "Hello, world!"}
+	params := map[string]any{"min_characters": float64(5)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with min_characters: %s", result.Explanation)
+	}
+}
+
 // --- MaxLength ---
 
 func TestMaxLengthHandler_Type(t *testing.T) {
@@ -896,6 +911,21 @@ func TestMaxLengthHandler_ExactLength(t *testing.T) {
 	}
 	if !result.Passed {
 		t.Fatal("expected pass: exact length matches max")
+	}
+}
+
+func TestMaxLengthHandler_MaxCharacters(t *testing.T) {
+	h := &MaxLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{CurrentOutput: "short"}
+	params := map[string]any{"max_characters": float64(100)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with max_characters: %s", result.Explanation)
 	}
 }
 
