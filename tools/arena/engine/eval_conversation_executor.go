@@ -156,8 +156,18 @@ func (e *EvalConversationExecutor) evaluateConversationAssertions(
 	}
 
 	if e.packEvalHook == nil {
-		logger.Debug("No packEvalHook configured, skipping eval conversation assertions")
-		return nil
+		logger.Warn("Assertions defined but eval runner not configured — marking all as failed",
+			"assertion_count", len(assertionConfigs))
+		results := make([]assertions.ConversationValidationResult, len(assertionConfigs))
+		for i, ac := range assertionConfigs {
+			results[i] = assertions.ConversationValidationResult{
+				Type:    ac.Type,
+				Passed:  false,
+				Message: ac.Message,
+				Details: map[string]interface{}{"error": "eval runner not configured"},
+			}
+		}
+		return results
 	}
 
 	results := e.packEvalHook.RunAssertionsAsConversationResults(
@@ -252,7 +262,25 @@ func (e *EvalConversationExecutor) applyTurnAssertions(
 	msg *types.Message,
 	convCtx *assertions.ConversationContext,
 ) {
-	if e.packEvalHook == nil || len(assertionConfigs) == 0 {
+	if len(assertionConfigs) == 0 {
+		return
+	}
+
+	if e.packEvalHook == nil {
+		logger.Warn("Turn assertions defined but eval runner not configured — marking all as failed",
+			"assertion_count", len(assertionConfigs))
+		results := make([]assertions.AssertionResult, len(assertionConfigs))
+		for i, ac := range assertionConfigs {
+			results[i] = assertions.AssertionResult{
+				Passed:  false,
+				Message: ac.Message,
+				Details: map[string]interface{}{"error": "eval runner not configured"},
+			}
+		}
+		if msg.Meta == nil {
+			msg.Meta = make(map[string]interface{})
+		}
+		msg.Meta["assertions"] = results
 		return
 	}
 

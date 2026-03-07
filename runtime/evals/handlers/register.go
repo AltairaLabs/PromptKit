@@ -51,6 +51,7 @@ func init() {
 	evals.RegisterDefault(&WorkflowCompleteHandler{})
 	evals.RegisterDefault(&WorkflowStateIsHandler{})
 	evals.RegisterDefault(&WorkflowTransitionedToHandler{})
+	evals.RegisterDefault(&WorkflowToolAccessHandler{})
 	evals.RegisterDefault(&SkillActivatedHandler{})
 	evals.RegisterDefault(&SkillNotActivatedHandler{})
 

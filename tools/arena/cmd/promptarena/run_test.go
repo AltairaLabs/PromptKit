@@ -685,6 +685,20 @@ func TestCountFailedAssertions(t *testing.T) {
 			},
 			expected: 5,
 		},
+		{
+			name: "passed false with zero failed counts as failure",
+			results: []engine.RunResult{
+				{RunID: "run-001", ConversationAssertions: engine.AssertionsSummary{Failed: 0, Passed: false, Total: 0}},
+			},
+			expected: 1,
+		},
+		{
+			name: "no assertions is vacuous pass",
+			results: []engine.RunResult{
+				{RunID: "run-001", ConversationAssertions: engine.AssertionsSummary{Failed: 0, Passed: true, Total: 0}},
+			},
+			expected: 0,
+		},
 	}
 
 	for _, tt := range tests {

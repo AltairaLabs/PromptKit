@@ -514,11 +514,17 @@ func countResultsByStatus(results []engine.RunResult) (successCount, errorCount 
 	return successCount, errorCount
 }
 
-// countFailedAssertions counts the total number of failed assertions across all results
+// countFailedAssertions counts the total number of failed assertions across all results.
+// Also counts runs where Passed is false even if Failed is 0, which indicates assertions
+// were defined but never executed (a configuration or wiring error).
 func countFailedAssertions(results []engine.RunResult) int {
 	failedCount := 0
 	for i := range results {
 		failedCount += results[i].ConversationAssertions.Failed
+		if !results[i].ConversationAssertions.Passed && results[i].ConversationAssertions.Failed == 0 {
+			// Assertions were defined but never executed — count as 1 failure
+			failedCount++
+		}
 	}
 	return failedCount
 }

@@ -162,12 +162,14 @@ func TestEvalConversationExecutor_EvaluateConversationAssertions(t *testing.T) {
 
 	executor := &EvalConversationExecutor{}
 
-	t.Run("returns nil when no packEvalHook", func(t *testing.T) {
+	t.Run("returns failed results when no packEvalHook", func(t *testing.T) {
 		results := executor.evaluateConversationAssertions(ctx, []assertions.AssertionConfig{
 			{Type: "test"},
 		}, &assertions.ConversationContext{})
 
-		assert.Nil(t, results)
+		assert.Len(t, results, 1)
+		assert.False(t, results[0].Passed)
+		assert.Equal(t, "test", results[0].Type)
 	})
 
 	t.Run("returns nil when no assertions", func(t *testing.T) {

@@ -179,13 +179,39 @@ func (s *ArenaAssertionStage) executeAssertions(
 	metadata map[string]interface{},
 ) (map[string]interface{}, []error) {
 	if s.turnEvalRunner == nil {
-		logger.Debug("No TurnEvalRunner configured, skipping turn assertions")
+		if len(s.assertionConfigs) == 0 {
+			return map[string]interface{}{
+				"results": []interface{}{},
+				"passed":  true,
+				"total":   0,
+				"failed":  0,
+			}, nil
+		}
+		logger.Warn("Assertions defined but eval runner not configured — marking all as failed",
+			"assertion_count", len(s.assertionConfigs))
+		failedResults := make([]interface{}, len(s.assertionConfigs))
+		var errs []error
+		for i, ac := range s.assertionConfigs {
+			failedResults[i] = map[string]interface{}{
+				"type":    ac.Type,
+				"passed":  false,
+				"message": ac.Message,
+				"details": map[string]interface{}{"error": "eval runner not configured"},
+			}
+		}
+		s.attachResultsToMessage(lastAssistantMsg, map[string]interface{}{
+			"results": failedResults,
+			"passed":  false,
+			"total":   len(s.assertionConfigs),
+			"failed":  len(s.assertionConfigs),
+		})
+		errs = append(errs, fmt.Errorf("assertions defined but eval runner not configured"))
 		return map[string]interface{}{
-			"results": []interface{}{},
-			"passed":  true,
-			"total":   0,
-			"failed":  0,
-		}, nil
+			"results": failedResults,
+			"passed":  false,
+			"total":   len(s.assertionConfigs),
+			"failed":  len(s.assertionConfigs),
+		}, errs
 	}
 
 	// Pre-filter assertions by when-condition

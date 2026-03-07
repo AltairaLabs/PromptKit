@@ -807,6 +807,7 @@ func TestRegisterInit(t *testing.T) {
 		"workflow_complete",
 		"state_is",
 		"transitioned_to",
+		"workflow_tool_access",
 		"skill_activated",
 		"skill_not_activated",
 
