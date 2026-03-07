@@ -6,5 +6,5 @@ spec:
   id: mock
   type: mock
   model: mock-model
-  mock_config:
-    file: ../mock-responses.yaml
+  additional_config:
+    mock_config: "mock-responses.yaml"
