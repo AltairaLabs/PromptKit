@@ -291,6 +291,116 @@ func TestJSONSchemaHandler_NoSchema(t *testing.T) {
 	}
 }
 
+// --- JSONValid allow_wrapped / extract_json ---
+
+func TestJSONValidHandler_AllowWrapped(t *testing.T) {
+	h := &JSONValidHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "Here is the result:\n```json\n{\"name\": \"Alice\"}\n```\nDone.",
+	}
+
+	// Without allow_wrapped, should fail (raw text is not JSON).
+	result, err := h.Eval(ctx, evalCtx, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail without allow_wrapped")
+	}
+
+	// With allow_wrapped, should pass.
+	result, err = h.Eval(ctx, evalCtx, map[string]any{"allow_wrapped": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with allow_wrapped, got: %s", result.Explanation)
+	}
+}
+
+func TestJSONValidHandler_ExtractJSON(t *testing.T) {
+	h := &JSONValidHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: `Some text before {"key": "value"} and after`,
+	}
+
+	result, err := h.Eval(ctx, evalCtx, map[string]any{"extract_json": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with extract_json, got: %s", result.Explanation)
+	}
+}
+
+// --- JSONSchema allow_wrapped / extract_json ---
+
+func TestJSONSchemaHandler_AllowWrapped(t *testing.T) {
+	h := &JSONSchemaHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "Here is the data:\n```json\n{\"name\": \"Bob\", \"age\": 30}\n```\nEnd.",
+	}
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name": map[string]any{"type": "string"},
+			"age":  map[string]any{"type": "integer"},
+		},
+		"required": []any{"name", "age"},
+	}
+
+	// Without allow_wrapped, should fail.
+	result, err := h.Eval(ctx, evalCtx, map[string]any{"schema": schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail without allow_wrapped")
+	}
+
+	// With allow_wrapped, should pass.
+	result, err = h.Eval(ctx, evalCtx, map[string]any{
+		"schema":        schema,
+		"allow_wrapped": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with allow_wrapped, got: %s", result.Explanation)
+	}
+}
+
+func TestJSONSchemaHandler_ExtractJSON(t *testing.T) {
+	h := &JSONSchemaHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: `The result is {"name": "Eve", "age": 25} as expected.`,
+	}
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name": map[string]any{"type": "string"},
+			"age":  map[string]any{"type": "integer"},
+		},
+		"required": []any{"name", "age"},
+	}
+
+	result, err := h.Eval(ctx, evalCtx, map[string]any{
+		"schema":       schema,
+		"extract_json": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with extract_json, got: %s", result.Explanation)
+	}
+}
+
 // --- ToolsCalled ---
 
 func TestToolsCalledHandler_Type(t *testing.T) {
