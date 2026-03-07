@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: lookup_order
+spec:
+  description: Look up order details by order ID
+  input_schema:
+    type: object
+    properties:
+      order_id:
+        type: string
+        description: The order ID to look up (e.g., ORD-12345)
+    required:
+    - order_id
+  output_schema:
+    type: string
+  mode: mock
+  mock_result: '{"order_id": "ORD-12345", "status": "processing", "estimated_delivery": "2026-03-12"}'
+  name: lookup_order
+  timeout_ms: 5000

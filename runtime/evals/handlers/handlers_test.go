@@ -755,6 +755,180 @@ func TestCosineSimilarityHandler_AnySlice(t *testing.T) {
 	}
 }
 
+// --- MinLength ---
+
+func TestMinLengthHandler_Type(t *testing.T) {
+	h := &MinLengthHandler{}
+	if h.Type() != "min_length" {
+		t.Fatalf("unexpected type: %s", h.Type())
+	}
+}
+
+func TestMinLengthHandler_Pass(t *testing.T) {
+	h := &MinLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "Hello, this is a reasonably long response.",
+	}
+	params := map[string]any{"min": float64(10)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass: %s", result.Explanation)
+	}
+}
+
+func TestMinLengthHandler_Fail(t *testing.T) {
+	h := &MinLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "short",
+	}
+	params := map[string]any{"min": float64(100)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: output too short")
+	}
+}
+
+func TestMinLengthHandler_ZeroMin(t *testing.T) {
+	h := &MinLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{CurrentOutput: ""}
+
+	result, err := h.Eval(ctx, evalCtx, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatal("expected pass: zero min allows empty output")
+	}
+}
+
+func TestMinLengthHandler_ExactLength(t *testing.T) {
+	h := &MinLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{CurrentOutput: "12345"}
+	params := map[string]any{"min": float64(5)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatal("expected pass: exact length matches min")
+	}
+}
+
+func TestMinLengthHandler_MinCharacters(t *testing.T) {
+	h := &MinLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{CurrentOutput: "Hello, world!"}
+	params := map[string]any{"min_characters": float64(5)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with min_characters: %s", result.Explanation)
+	}
+}
+
+// --- MaxLength ---
+
+func TestMaxLengthHandler_Type(t *testing.T) {
+	h := &MaxLengthHandler{}
+	if h.Type() != "max_length" {
+		t.Fatalf("unexpected type: %s", h.Type())
+	}
+}
+
+func TestMaxLengthHandler_Pass(t *testing.T) {
+	h := &MaxLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "short",
+	}
+	params := map[string]any{"max": float64(100)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass: %s", result.Explanation)
+	}
+}
+
+func TestMaxLengthHandler_Fail(t *testing.T) {
+	h := &MaxLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "This is a very long response that exceeds the maximum length.",
+	}
+	params := map[string]any{"max": float64(10)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: output too long")
+	}
+}
+
+func TestMaxLengthHandler_ZeroMax(t *testing.T) {
+	h := &MaxLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{CurrentOutput: "test"}
+
+	result, err := h.Eval(ctx, evalCtx, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed {
+		t.Fatal("expected fail: missing max param")
+	}
+}
+
+func TestMaxLengthHandler_ExactLength(t *testing.T) {
+	h := &MaxLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{CurrentOutput: "12345"}
+	params := map[string]any{"max": float64(5)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatal("expected pass: exact length matches max")
+	}
+}
+
+func TestMaxLengthHandler_MaxCharacters(t *testing.T) {
+	h := &MaxLengthHandler{}
+	ctx := context.Background()
+	evalCtx := &evals.EvalContext{CurrentOutput: "short"}
+	params := map[string]any{"max_characters": float64(100)}
+
+	result, err := h.Eval(ctx, evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Passed {
+		t.Fatalf("expected pass with max_characters: %s", result.Explanation)
+	}
+}
+
 // --- Registration ---
 
 func TestRegisterInit(t *testing.T) {
@@ -835,9 +1009,21 @@ func TestRegisterInit(t *testing.T) {
 		"a2a_eval",
 		"a2a_eval_session",
 
+		// Length validation handlers
+		"min_length",
+		"max_length",
+
 		// Behavioral testing handlers (Phase 6)
 		"outcome_equivalent",
 		"directional",
+
+		// Arena assertion type aliases
+		"content_includes",
+		"content_includes_any",
+		"content_matches",
+		"is_valid_json",
+		"valid_json",
+		"tool_called",
 	}
 
 	r := evals.NewEvalTypeRegistry()

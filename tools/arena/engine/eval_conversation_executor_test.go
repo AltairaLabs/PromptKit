@@ -568,8 +568,8 @@ func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 }
 
 func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
-	// Without a packEvalHook, applyTurnAssertions is a no-op because
-	// assertions now run exclusively through the eval pipeline.
+	// Without a packEvalHook, applyTurnAssertions marks assertions as failed
+	// (assertions defined but eval runner not configured).
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
@@ -577,69 +577,52 @@ func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
 		nil,
 	)
 
-	tests := []struct {
-		name          string
-		assertionCfgs []assertions.AssertionConfig
-		msg           *types.Message
-	}{
-		{
-			name:          "no assertions",
-			assertionCfgs: []assertions.AssertionConfig{},
-			msg:           &types.Message{Role: "assistant", Content: "hello"},
-		},
-		{
-			name: "single passing assertion skipped without packEvalHook",
-			assertionCfgs: []assertions.AssertionConfig{
-				{Type: "always_pass", Params: map[string]interface{}{}},
+	t.Run("no assertions is a no-op", func(t *testing.T) {
+		msg := &types.Message{Role: "assistant", Content: "hello"}
+		convCtx := &assertions.ConversationContext{
+			AllTurns: []types.Message{*msg},
+			Metadata: assertions.ConversationMetadata{
+				Extras: map[string]interface{}{"judge_targets": map[string]interface{}{}},
 			},
-			msg: &types.Message{Role: "assistant", Content: "hello"},
-		},
-		{
-			name: "single failing assertion skipped without packEvalHook",
-			assertionCfgs: []assertions.AssertionConfig{
-				{Type: "always_fail", Params: map[string]interface{}{}},
-			},
-			msg: &types.Message{Role: "assistant", Content: "hello"},
-		},
-		{
-			name: "mixed assertions skipped without packEvalHook",
-			assertionCfgs: []assertions.AssertionConfig{
-				{Type: "always_pass", Params: map[string]interface{}{}},
-				{Type: "always_fail", Params: map[string]interface{}{}},
-				{Type: "always_pass", Params: map[string]interface{}{}},
-			},
-			msg: &types.Message{Role: "assistant", Content: "hello"},
-		},
-		{
-			name: "unknown assertion type skipped without packEvalHook",
-			assertionCfgs: []assertions.AssertionConfig{
-				{Type: "unknown", Params: map[string]interface{}{}},
-			},
-			msg: &types.Message{Role: "assistant", Content: "hello"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			convCtx := &assertions.ConversationContext{
-				AllTurns: []types.Message{*tt.msg},
-				Metadata: assertions.ConversationMetadata{
-					Extras: map[string]interface{}{
-						"judge_targets": map[string]interface{}{},
-					},
-				},
+		}
+		executor.applyTurnAssertions(context.Background(), []assertions.AssertionConfig{}, msg, convCtx)
+		if msg.Meta != nil {
+			if _, ok := msg.Meta["assertions"]; ok {
+				t.Fatal("Expected no assertions in message metadata when none defined")
 			}
+		}
+	})
 
-			executor.applyTurnAssertions(context.Background(), tt.assertionCfgs, tt.msg, convCtx)
+	t.Run("assertions without packEvalHook are marked failed", func(t *testing.T) {
+		msg := &types.Message{Role: "assistant", Content: "hello"}
+		convCtx := &assertions.ConversationContext{
+			AllTurns: []types.Message{*msg},
+			Metadata: assertions.ConversationMetadata{
+				Extras: map[string]interface{}{"judge_targets": map[string]interface{}{}},
+			},
+		}
+		cfgs := []assertions.AssertionConfig{
+			{Type: "always_pass", Params: map[string]interface{}{}, Message: "should pass"},
+			{Type: "always_fail", Params: map[string]interface{}{}, Message: "should fail"},
+		}
+		executor.applyTurnAssertions(context.Background(), cfgs, msg, convCtx)
 
-			// Without packEvalHook, no assertions should be stored in metadata
-			if tt.msg.Meta != nil {
-				if _, ok := tt.msg.Meta["assertions"]; ok {
-					t.Fatal("Expected no assertions in message metadata without packEvalHook")
-				}
+		if msg.Meta == nil {
+			t.Fatal("Expected message metadata to be set")
+		}
+		results, ok := msg.Meta["assertions"].([]assertions.AssertionResult)
+		if !ok {
+			t.Fatal("Expected assertions in message metadata")
+		}
+		if len(results) != 2 {
+			t.Fatalf("Expected 2 assertion results, got %d", len(results))
+		}
+		for i, r := range results {
+			if r.Passed {
+				t.Errorf("Expected assertion %d to be marked as failed", i)
 			}
-		})
-	}
+		}
+	})
 }
 
 func TestEvalConversationExecutor_ExecuteConversationStream(t *testing.T) {
@@ -776,8 +759,7 @@ func TestEvalConversationExecutor_TurnAssertionsWithEvalOnlyHook(t *testing.T) {
 }
 
 func TestEvalConversationExecutor_ApplyConversationAssertions(t *testing.T) {
-	// Without a packEvalHook, evaluateConversationAssertions returns nil
-	// because assertions now run exclusively through the eval pipeline.
+	// Without a packEvalHook, evaluateConversationAssertions marks assertions as failed.
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
@@ -785,59 +767,38 @@ func TestEvalConversationExecutor_ApplyConversationAssertions(t *testing.T) {
 		nil,
 	)
 
-	tests := []struct {
-		name          string
-		assertionCfgs []assertions.AssertionConfig
-	}{
-		{
-			name:          "no assertions",
-			assertionCfgs: []assertions.AssertionConfig{},
-		},
-		{
-			name: "single passing assertion skipped without packEvalHook",
-			assertionCfgs: []assertions.AssertionConfig{
-				{Type: "always_pass", Params: map[string]interface{}{}},
-			},
-		},
-		{
-			name: "single failing assertion skipped without packEvalHook",
-			assertionCfgs: []assertions.AssertionConfig{
-				{Type: "always_fail", Params: map[string]interface{}{}},
-			},
-		},
-		{
-			name: "mixed assertions skipped without packEvalHook",
-			assertionCfgs: []assertions.AssertionConfig{
-				{Type: "always_pass", Params: map[string]interface{}{}},
-				{Type: "always_fail", Params: map[string]interface{}{}},
-				{Type: "always_pass", Params: map[string]interface{}{}},
-			},
-		},
-		{
-			name: "unknown assertion type skipped without packEvalHook",
-			assertionCfgs: []assertions.AssertionConfig{
-				{Type: "unknown", Params: map[string]interface{}{}},
-			},
-		},
-	}
+	t.Run("no assertions returns nil", func(t *testing.T) {
+		convCtx := &assertions.ConversationContext{
+			AllTurns: []types.Message{{Role: "user", Content: "hello"}},
+			Metadata: assertions.ConversationMetadata{Extras: map[string]interface{}{}},
+		}
+		results := executor.evaluateConversationAssertions(context.Background(), []assertions.AssertionConfig{}, convCtx)
+		if len(results) != 0 {
+			t.Errorf("Expected 0 results for no assertions, got %d", len(results))
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			convCtx := &assertions.ConversationContext{
-				AllTurns: []types.Message{
-					{Role: "user", Content: "hello"},
-				},
-				Metadata: assertions.ConversationMetadata{
-					Extras: map[string]interface{}{},
-				},
+	t.Run("assertions without packEvalHook are marked failed", func(t *testing.T) {
+		convCtx := &assertions.ConversationContext{
+			AllTurns: []types.Message{{Role: "user", Content: "hello"}},
+			Metadata: assertions.ConversationMetadata{Extras: map[string]interface{}{}},
+		}
+		cfgs := []assertions.AssertionConfig{
+			{Type: "always_pass", Params: map[string]interface{}{}, Message: "should pass"},
+			{Type: "always_fail", Params: map[string]interface{}{}, Message: "should fail"},
+		}
+		results := executor.evaluateConversationAssertions(context.Background(), cfgs, convCtx)
+
+		if len(results) != 2 {
+			t.Fatalf("Expected 2 results, got %d", len(results))
+		}
+		for i, r := range results {
+			if r.Passed {
+				t.Errorf("Expected assertion %d to be marked as failed", i)
 			}
-
-			results := executor.evaluateConversationAssertions(context.Background(), tt.assertionCfgs, convCtx)
-
-			// Without packEvalHook, all assertions should be skipped (nil result)
-			if len(results) != 0 {
-				t.Errorf("Expected 0 results without packEvalHook, got %d", len(results))
+			if r.Details == nil {
+				t.Errorf("Expected details on assertion %d", i)
 			}
-		})
-	}
+		}
+	})
 }

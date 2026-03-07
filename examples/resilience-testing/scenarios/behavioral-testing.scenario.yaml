@@ -1,0 +1,92 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: behavioral-testing
+spec:
+  id: "behavioral-testing"
+  task_type: support-agent
+  description: >
+    Tests behavioral assertions from the proposal: outcome_equivalent
+    (verifying the agent calls the expected tools regardless of phrasing),
+    directional (checking content similarity against a baseline), and
+    invariant_fields_preserved (field consistency across tool calls).
+    These are the building blocks for perturbation-invariant testing.
+
+  turns:
+    # Turn 1: Order inquiry — phrased differently from other scenarios
+    # but should produce the same outcome (call lookup_order)
+    - role: user
+      content: "Can you check what's happening with order ORD-77777?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["lookup_order"]
+          message: "Should call lookup_order regardless of phrasing"
+
+        # Outcome equivalence: same tools should be called
+        - type: outcome_equivalent
+          params:
+            metric: tool_calls
+            expected_tools: ["lookup_order"]
+          message: "Outcome should be equivalent: same tools called"
+
+        # Directional: response should use similar words to baseline
+        - type: directional
+          params:
+            check: similar_content
+            baseline_content: "Your order is being processed and will ship soon"
+            threshold: 0.15
+          message: "Response should be directionally similar to baseline"
+
+        # Directional: same tool calls as baseline
+        - type: directional
+          params:
+            check: same_tool_calls
+            baseline_tools: ["lookup_order"]
+          message: "Should call the same tools as the baseline"
+
+    # Turn 2: Follow-up with FAQ — again, phrased differently
+    - role: user
+      content: "What's your policy on sending things back?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["search_faq"]
+          message: "Should call search_faq for return policy"
+
+        # Outcome equivalence: both tools should have been called by now
+        - type: outcome_equivalent
+          params:
+            metric: tool_calls
+            expected_tools: ["lookup_order", "search_faq"]
+          message: "Outcome equivalent: both tools should be called"
+
+        # Content similarity to expected response
+        - type: directional
+          params:
+            check: similar_content
+            baseline_content: "Our return policy allows returns within 30 days for a full refund"
+            threshold: 0.15
+          message: "Should give directionally similar return policy info"
+
+  # --- Conversation-level assertions ---
+  conversation_assertions:
+    # Invariant fields: order_id should be preserved in lookup_order calls
+    # (only 1 call here, so this passes trivially — demonstrates the assertion)
+    - type: invariant_fields_preserved
+      params:
+        tool: lookup_order
+        fields: ["order_id"]
+      message: "order_id field should be preserved across lookup_order calls"
+
+    # Tool call sequence
+    - type: tool_call_sequence
+      params:
+        sequence: ["lookup_order", "search_faq"]
+      message: "Order lookup should precede FAQ search"
+
+    # Budget
+    - type: cost_budget
+      params:
+        max_cost_usd: 1.00
+      message: "Should stay within budget"

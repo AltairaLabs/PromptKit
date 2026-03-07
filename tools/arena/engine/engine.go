@@ -39,6 +39,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
 // Default directory names for output.
@@ -135,6 +136,8 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	// cannot fail — unknown types were already rejected.
 	if cfg.LoadedPack != nil {
 		eng.packEvalHook, _ = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+	} else {
+		eng.packEvalHook = buildEvalOnlyHook()
 	}
 	return eng, nil
 }
@@ -458,6 +461,11 @@ func (e *Engine) ExecuteRuns(ctx context.Context, plan *RunPlan, concurrency int
 		if err != nil {
 			executionErrors = append(executionErrors, err)
 		}
+	}
+
+	// Aggregate trial results for scenarios with Trials > 1
+	if arenaStore, ok := e.stateStore.(*arenastore.ArenaStateStore); ok {
+		runIDs = AggregateTrialResults(arenaStore, runIDs, plan.Combinations)
 	}
 
 	if len(executionErrors) > 0 {

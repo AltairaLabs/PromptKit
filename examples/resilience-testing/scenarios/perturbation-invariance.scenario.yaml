@@ -1,0 +1,57 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: perturbation-invariance
+spec:
+  id: "perturbation-invariance"
+  task_type: support-agent
+  description: >
+    Tests perturbation-based behavioral testing (CheckList INV pattern).
+    The same order lookup is run with different order IDs via perturbation
+    variables. All variants should produce the same outcome: call
+    lookup_order and return a meaningful response. This tests that the
+    agent's behavior is invariant to the specific order ID.
+
+  turns:
+    - role: user
+      content: "Check order {order_id} for me"
+      # Perturbation variables: each value generates a separate trial
+      perturbations:
+        order_id:
+          - "ORD-11111"
+          - "ORD-22222"
+          - "ORD-33333"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["lookup_order"]
+          message: "Should call lookup_order regardless of order ID"
+
+        # Outcome equivalent: all perturbations should call the same tools
+        - type: outcome_equivalent
+          params:
+            metric: tool_calls
+            expected_tools: ["lookup_order"]
+          message: "Same tools should be called for any order ID"
+
+        - type: min_length
+          params:
+            min: 10
+          message: "Response should be meaningful regardless of order ID"
+
+        - type: content_excludes
+          params:
+            patterns: ["error", "not found", "invalid"]
+          message: "No error messages regardless of order ID"
+
+  conversation_assertions:
+    - type: tool_call_count
+      params:
+        tool: lookup_order
+        min: 1
+        max: 1
+      message: "Should call lookup_order exactly once per variant"
+
+    - type: no_tool_errors
+      params: {}
+      message: "No tool errors across any perturbation"

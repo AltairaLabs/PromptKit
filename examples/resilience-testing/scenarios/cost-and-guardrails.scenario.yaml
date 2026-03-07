@@ -1,0 +1,70 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: cost-and-guardrails
+spec:
+  id: "cost-and-guardrails"
+  task_type: support-agent
+  description: >
+    Tests cost/budget assertions and guardrail validation:
+    cost_budget for token and cost limits, guardrail_triggered
+    for validator verification, and tool_efficiency for
+    success rate tracking.
+
+  turns:
+    # Turn 1: Order status check — triggers tool use + guardrails
+    - role: user
+      content: "What's the status of my order ORD-99999?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["lookup_order"]
+          message: "Should call lookup_order"
+        - type: tool_calls_with_args
+          params:
+            tool_name: lookup_order
+            expected_args:
+              order_id: "ORD-99999"
+          message: "Should pass correct order_id"
+        - type: content_includes
+          params:
+            patterns: ["ORD-99999"]
+          message: "Should reference the order number"
+        - type: min_length
+          params:
+            min: 10
+          message: "Response should have meaningful content"
+
+        # Guardrail checks on this turn
+        - type: guardrail_triggered
+          params:
+            validator_type: banned_words
+            should_trigger: false
+          message: "Response should not contain banned words"
+        - type: guardrail_triggered
+          params:
+            validator_type: length
+            should_trigger: false
+          message: "Response should be within length limits"
+
+  # --- Conversation-level assertions ---
+  conversation_assertions:
+    # Cost budget: mock provider reports minimal cost
+    - type: cost_budget
+      params:
+        max_cost_usd: 1.00
+        max_total_tokens: 10000
+      message: "Conversation should stay within budget"
+
+    # No tool errors across the conversation
+    - type: no_tool_errors
+      params: {}
+      message: "All tool calls should succeed without errors"
+
+    # Tool call count — should make exactly 1 tool call
+    - type: tool_call_count
+      params:
+        tool: lookup_order
+        min: 1
+        max: 1
+      message: "Should call lookup_order exactly once"

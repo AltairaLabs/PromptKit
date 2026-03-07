@@ -25,6 +25,7 @@ func TestGuardrailEvalStage_BannedWordsTriggers(t *testing.T) {
 	assert.Equal(t, "banned_words", msg.Validations[0].ValidatorType)
 	assert.False(t, msg.Validations[0].Passed)
 	assert.Contains(t, msg.Validations[0].Details["reason"], "forbidden")
+	assert.NotNil(t, msg.Validations[0].Details["config"], "failed validators should also include config")
 }
 
 func TestGuardrailEvalStage_CleanResponse(t *testing.T) {
@@ -128,7 +129,7 @@ func TestGuardrailEvalStage_NoAssistantMessage(t *testing.T) {
 	assert.Empty(t, results[0].Message.Validations)
 }
 
-func TestGuardrailEvalStage_PassedValidationNoDetails(t *testing.T) {
+func TestGuardrailEvalStage_PassedValidationIncludesConfig(t *testing.T) {
 	s := NewGuardrailEvalStage()
 
 	elem := newTestMessageElement("assistant", "Clean content")
@@ -143,6 +144,7 @@ func TestGuardrailEvalStage_PassedValidationNoDetails(t *testing.T) {
 
 	vr := results[0].Message.Validations[0]
 	assert.True(t, vr.Passed)
-	assert.Nil(t, vr.Details)
+	assert.NotNil(t, vr.Details)
+	assert.NotNil(t, vr.Details["config"], "passing validators should include config")
 	assert.False(t, vr.Timestamp.IsZero())
 }

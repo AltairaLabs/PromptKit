@@ -1,0 +1,46 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: statistical-trials
+spec:
+  id: "statistical-trials"
+  task_type: support-agent
+  description: >
+    Tests statistical multi-trial execution: runs the same scenario 3 times
+    and aggregates pass/fail rates across trials. Demonstrates trials,
+    pass_threshold on assertions, and flakiness detection. With mock
+    providers, all 3 trials should produce identical results.
+
+  # Run this scenario 3 times for statistical evaluation
+  trials: 3
+
+  turns:
+    - role: user
+      content: "What's your return policy?"
+      assertions:
+        - type: min_length
+          params:
+            min: 20
+          message: "Response should be substantial"
+          # pass_threshold: require this assertion to pass in at least 2/3 trials
+          pass_threshold: 0.66
+        - type: content_includes
+          params:
+            patterns: ["return", "30 days"]
+          message: "Must mention return window"
+          pass_threshold: 1.0
+        - type: content_excludes
+          params:
+            patterns: ["error", "undefined"]
+          message: "No error content"
+        - type: guardrail_triggered
+          params:
+            validator_type: banned_words
+            should_trigger: false
+          message: "Should not trigger banned words"
+
+  conversation_assertions:
+    - type: cost_budget
+      params:
+        max_cost_usd: 1.00
+      message: "Each trial should stay within budget"

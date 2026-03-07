@@ -73,6 +73,10 @@ func init() {
 	evals.RegisterDefault(&LLMJudgeSessionHandler{})
 	evals.RegisterDefault(&LLMJudgeToolCallsHandler{})
 
+	// Length validation handlers
+	evals.RegisterDefault(&MinLengthHandler{})
+	evals.RegisterDefault(&MaxLengthHandler{})
+
 	// External eval handlers
 	evals.RegisterDefault(&RestEvalHandler{})
 	evals.RegisterDefault(&RestEvalSessionHandler{})
@@ -82,4 +86,12 @@ func init() {
 	// Behavioral testing handlers (Phase 6)
 	evals.RegisterDefault(&OutcomeEquivalentHandler{})
 	evals.RegisterDefault(&DirectionalHandler{})
+
+	// Arena assertion type aliases — map legacy/alternative names to canonical handlers
+	evals.RegisterDefaultAlias("content_includes", "contains")
+	evals.RegisterDefaultAlias("content_includes_any", "contains_any")
+	evals.RegisterDefaultAlias("content_matches", "regex")
+	evals.RegisterDefaultAlias("is_valid_json", "json_valid")
+	evals.RegisterDefaultAlias("valid_json", "json_valid")
+	evals.RegisterDefaultAlias("tool_called", "tools_called")
 }

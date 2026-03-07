@@ -688,8 +688,18 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	}
 
 	if ce.packEvalHook == nil {
-		logger.Debug("No packEvalHook configured, skipping conversation assertions")
-		return nil
+		logger.Warn("Assertions defined but eval runner not configured — marking all as failed",
+			"assertion_count", len(assertionConfigs))
+		results := make([]asrt.ConversationValidationResult, len(assertionConfigs))
+		for i, ac := range assertionConfigs {
+			results[i] = asrt.ConversationValidationResult{
+				Type:    ac.Type,
+				Passed:  false,
+				Message: ac.Message,
+				Details: map[string]interface{}{"error": "eval runner not configured"},
+			}
+		}
+		return results
 	}
 
 	// Run assertions through the eval pipeline and convert to ConversationValidationResult

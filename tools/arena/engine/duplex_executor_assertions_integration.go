@@ -174,8 +174,18 @@ func (de *DuplexConversationExecutor) evaluateConversationAssertions(
 	}
 
 	if de.packEvalHook == nil {
-		logger.Debug("No packEvalHook configured, skipping duplex conversation assertions")
-		return nil
+		logger.Warn("Assertions defined but eval runner not configured — marking all as failed",
+			"assertion_count", len(assertionConfigs))
+		results := make([]arenaassertions.ConversationValidationResult, len(assertionConfigs))
+		for i, ac := range assertionConfigs {
+			results[i] = arenaassertions.ConversationValidationResult{
+				Type:    ac.Type,
+				Passed:  false,
+				Message: ac.Message,
+				Details: map[string]interface{}{"error": "eval runner not configured"},
+			}
+		}
+		return results
 	}
 
 	logger.Debug("Evaluating duplex conversation assertions",

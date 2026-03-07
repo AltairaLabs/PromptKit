@@ -12,6 +12,9 @@ import (
 func AggregateTrialResults(store *statestore.ArenaStateStore, runIDs []string, combos []RunCombination) []string {
 	// Group run IDs by trial group key
 	groups := groupTrialRuns(runIDs, combos)
+	if len(groups) == 0 {
+		return runIDs
+	}
 
 	var summaryIDs []string
 	for _, group := range groups {

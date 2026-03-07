@@ -153,6 +153,7 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 
 // RunAssertionsAsConversationResults converts assertion configs to EvalDefs,
 // runs them through the runner, and wraps results in ConversationValidationResult.
+// The results use the original assertion type names (not pack_eval: prefixed).
 func (h *PackEvalHook) RunAssertionsAsConversationResults(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
@@ -165,7 +166,15 @@ func (h *PackEvalHook) RunAssertionsAsConversationResults(
 		return nil
 	}
 	results := h.RunAssertionsAsEvals(ctx, assertionConfigs, messages, turnIndex, sessionID, trigger)
-	return assertions.ConvertEvalResults(results)
+	converted := assertions.ConvertEvalResults(results)
+	// Restore original assertion type names — ConvertEvalResults adds pack_eval:
+	// prefix which is only appropriate for pack-defined evals, not scenario assertions.
+	for i := range converted {
+		if i < len(assertionConfigs) {
+			converted[i].Type = assertionConfigs[i].Type
+		}
+	}
+	return converted
 }
 
 // buildEvalContext constructs an EvalContext from Arena messages.

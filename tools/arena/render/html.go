@@ -352,7 +352,13 @@ var (
 func getReportTemplate() *template.Template {
 	reportTmplOnce.Do(func() {
 		reportTmpl = template.Must(template.New("report").Funcs(template.FuncMap{
-			"formatCost":                   formatCost,
+			"formatCost": formatCost,
+			"isoTime": func(t time.Time) string {
+				if t.IsZero() {
+					return ""
+				}
+				return t.Format(time.RFC3339Nano)
+			},
 			"formatDuration":               formatDuration,
 			"formatPercent":                formatPercent,
 			"statusClass":                  getStatusClass,

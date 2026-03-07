@@ -87,11 +87,14 @@ func (s *GuardrailEvalStage) Process(
 			ValidatorType: cfg.Type,
 			Passed:        decision.Allow,
 			Timestamp:     time.Now(),
+			Details:       map[string]interface{}{},
+		}
+		// Always include the validator config so reports can show what was tested
+		if len(cfg.Params) > 0 {
+			vr.Details["config"] = cfg.Params
 		}
 		if !decision.Allow {
-			vr.Details = map[string]interface{}{
-				"reason": decision.Reason,
-			}
+			vr.Details["reason"] = decision.Reason
 			if decision.Metadata != nil {
 				for k, v := range decision.Metadata {
 					vr.Details[k] = v

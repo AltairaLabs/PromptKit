@@ -179,13 +179,39 @@ func (s *ArenaAssertionStage) executeAssertions(
 	metadata map[string]interface{},
 ) (map[string]interface{}, []error) {
 	if s.turnEvalRunner == nil {
-		logger.Debug("No TurnEvalRunner configured, skipping turn assertions")
+		if len(s.assertionConfigs) == 0 {
+			return map[string]interface{}{
+				"results": []interface{}{},
+				"passed":  true,
+				"total":   0,
+				"failed":  0,
+			}, nil
+		}
+		logger.Warn("Assertions defined but eval runner not configured — marking all as failed",
+			"assertion_count", len(s.assertionConfigs))
+		failedResults := make([]interface{}, len(s.assertionConfigs))
+		var errs []error
+		for i, ac := range s.assertionConfigs {
+			failedResults[i] = map[string]interface{}{
+				"type":    ac.Type,
+				"passed":  false,
+				"message": ac.Message,
+				"details": map[string]interface{}{"error": "eval runner not configured"},
+			}
+		}
+		s.attachResultsToMessage(lastAssistantMsg, map[string]interface{}{
+			"results": failedResults,
+			"passed":  false,
+			"total":   len(s.assertionConfigs),
+			"failed":  len(s.assertionConfigs),
+		})
+		errs = append(errs, fmt.Errorf("assertions defined but eval runner not configured"))
 		return map[string]interface{}{
-			"results": []interface{}{},
-			"passed":  true,
-			"total":   0,
-			"failed":  0,
-		}, nil
+			"results": failedResults,
+			"passed":  false,
+			"total":   len(s.assertionConfigs),
+			"failed":  len(s.assertionConfigs),
+		}, errs
 	}
 
 	// Pre-filter assertions by when-condition
@@ -201,6 +227,7 @@ func (s *ArenaAssertionStage) executeAssertions(
 					"skipped": true,
 					"message": ac.Message,
 					"details": map[string]interface{}{"skip_reason": reason},
+					"config":  map[string]interface{}{"type": ac.Type, "params": ac.Params},
 				})
 				continue
 			}
@@ -222,17 +249,29 @@ func (s *ArenaAssertionStage) executeAssertions(
 
 	var validationErrors []error
 	for i, cr := range convResults {
+		// Use the original assertion type (not the pack_eval: prefixed eval type)
+		displayType := cr.Type
+		if i < len(filteredConfigs) {
+			displayType = filteredConfigs[i].Type
+		}
 		resultMap := map[string]interface{}{
-			"type":    cr.Type,
+			"type":    displayType,
 			"passed":  cr.Passed,
 			"details": cr.Details,
 			"message": cr.Message,
+		}
+		// Attach the original assertion config so reports can show what was tested
+		if i < len(filteredConfigs) {
+			resultMap["config"] = map[string]interface{}{
+				"type":   filteredConfigs[i].Type,
+				"params": filteredConfigs[i].Params,
+			}
 		}
 		results = append(results, resultMap)
 
 		if !cr.Passed {
 			validationErrors = append(validationErrors,
-				fmt.Errorf("assertion %d (%s) failed: %s", i, cr.Type, cr.Message))
+				fmt.Errorf("assertion %d (%s) failed: %s", i, displayType, cr.Message))
 		}
 	}
 
