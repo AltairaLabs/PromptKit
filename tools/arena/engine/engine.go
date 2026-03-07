@@ -136,6 +136,8 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	// cannot fail — unknown types were already rejected.
 	if cfg.LoadedPack != nil {
 		eng.packEvalHook, _ = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+	} else {
+		eng.packEvalHook = buildEvalOnlyHook()
 	}
 	return eng, nil
 }

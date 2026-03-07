@@ -45,12 +45,18 @@ func NewEvalTypeRegistry() *EvalTypeRegistry {
 	for _, h := range defaultHandlers {
 		r.Register(h)
 	}
+	for _, pair := range defaultAliases {
+		_ = r.RegisterAlias(pair[0], pair[1])
+	}
 	return r
 }
 
 // defaultHandlers holds handlers registered via RegisterDefault.
 // This avoids a circular import between evals and handlers.
 var defaultHandlers []EvalTypeHandler
+
+// defaultAliases holds alias→target pairs registered via RegisterDefaultAlias.
+var defaultAliases [][2]string
 
 // RegisterDefault adds a handler to the default set used by
 // NewEvalTypeRegistry. Call this from handler init() functions
@@ -59,12 +65,32 @@ func RegisterDefault(h EvalTypeHandler) {
 	defaultHandlers = append(defaultHandlers, h)
 }
 
+// RegisterDefaultAlias registers an alias mapping applied by NewEvalTypeRegistry.
+// The target handler must be registered (via RegisterDefault) before the registry is created.
+func RegisterDefaultAlias(aliasType, targetType string) {
+	defaultAliases = append(defaultAliases, [2]string{aliasType, targetType})
+}
+
 // Register adds a handler to the registry. If a handler with the same
 // type is already registered, it is replaced.
 func (r *EvalTypeRegistry) Register(handler EvalTypeHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.handlers[handler.Type()] = handler
+}
+
+// RegisterAlias maps an alias name to an existing handler type.
+// Lookups for aliasType will resolve to the handler registered for targetType.
+// Returns an error if targetType has no registered handler.
+func (r *EvalTypeRegistry) RegisterAlias(aliasType, targetType string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	h, ok := r.handlers[targetType]
+	if !ok {
+		return fmt.Errorf("cannot alias %q to %q: target type not registered", aliasType, targetType)
+	}
+	r.handlers[aliasType] = h
+	return nil
 }
 
 // Get returns the handler for the given type, or an error if not found.

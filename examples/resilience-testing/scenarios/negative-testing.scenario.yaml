@@ -1,0 +1,78 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: negative-testing
+spec:
+  id: "negative-testing"
+  task_type: support-agent
+  description: >
+    Tests negative assertions and boundary conditions: tools_not_called
+    to verify the agent doesn't use tools unnecessarily, content_excludes
+    for safety checks, max_length for verbosity limits, and
+    guardrail_triggered to verify validators run correctly.
+    This scenario tests what the agent should NOT do.
+
+  turns:
+    # Turn 1: Simple greeting — should NOT trigger any tool calls
+    - role: user
+      content: "Hi there!"
+      assertions:
+        - type: tools_not_called
+          params:
+            tool_names: ["lookup_order", "search_faq"]
+          message: "Greeting should not trigger tool calls"
+        - type: min_length
+          params:
+            min: 5
+          message: "Should respond with at least a short greeting"
+        - type: max_length
+          params:
+            max: 300
+          message: "Greeting response should be brief"
+        - type: content_excludes
+          params:
+            patterns: ["order", "ORD-", "FAQ", "error"]
+          message: "Greeting should not reference orders or FAQs"
+
+    # Turn 2: Ambiguous request — should search FAQ, not lookup order
+    - role: user
+      content: "How do I track a shipment?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["search_faq"]
+          message: "Should search FAQ for tracking info"
+        - type: tools_not_called
+          params:
+            tool_names: ["lookup_order"]
+          message: "Should NOT lookup a specific order (none provided)"
+        - type: content_excludes
+          params:
+            patterns: ["ORD-", "order_id"]
+          message: "Should not reference a specific order"
+        - type: content_includes_any
+          params:
+            patterns: ["track", "shipment", "shipping", "delivery"]
+          message: "Should address the tracking question"
+
+  # --- Conversation-level assertions ---
+  conversation_assertions:
+    # Only 1 tool call total (just the FAQ search)
+    - type: tool_call_count
+      params:
+        tool: search_faq
+        min: 1
+        max: 1
+      message: "Should call search_faq exactly once"
+
+    # No tool errors
+    - type: no_tool_errors
+      params: {}
+      message: "All tool calls should succeed"
+
+    # Budget
+    - type: cost_budget
+      params:
+        max_cost_usd: 0.50
+        max_total_tokens: 5000
+      message: "Simple conversation should be cheap"

@@ -1,0 +1,100 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tool-chain-and-efficiency
+spec:
+  id: "tool-chain-and-efficiency"
+  task_type: support-agent
+  description: >
+    Tests advanced tool assertions from the proposal: tool_call_chain
+    (dependency chains with per-step constraints), tool_efficiency
+    (call count and error rate limits), tool_result_includes (verifying
+    tool output content), and invariant_fields_preserved (field
+    consistency across multiple calls to the same tool).
+
+  turns:
+    # Turn 1: First order lookup
+    - role: user
+      content: "Look up order ORD-11111 for me"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["lookup_order"]
+          message: "Should call lookup_order"
+        - type: tool_calls_with_args
+          params:
+            tool_name: lookup_order
+            expected_args:
+              order_id: "ORD-11111"
+          message: "Should pass correct order_id"
+
+    # Turn 2: Second order lookup (same tool, different args)
+    - role: user
+      content: "Also check order ORD-22222"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["lookup_order"]
+          message: "Should call lookup_order again"
+        - type: tool_calls_with_args
+          params:
+            tool_name: lookup_order
+            args_match:
+              order_id: "ORD-\\d{5}"
+          message: "Order ID should match ORD-NNNNN pattern"
+
+    # Turn 3: FAQ search after both lookups
+    - role: user
+      content: "And search your FAQ for bulk order discounts"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["search_faq"]
+          message: "Should call search_faq"
+        - type: content_includes_any
+          params:
+            patterns: ["discount", "bulk", "order"]
+          message: "Should address the bulk order question"
+
+  # --- Conversation-level assertions ---
+  conversation_assertions:
+    # Tool call chain: lookup_order → lookup_order → search_faq
+    - type: tool_call_chain
+      params:
+        steps:
+          - tool: lookup_order
+          - tool: lookup_order
+          - tool: search_faq
+      message: "Should follow lookup → lookup → FAQ chain"
+
+    # Tool efficiency: bounded calls, no errors
+    - type: tool_efficiency
+      params:
+        max_calls: 5
+        max_errors: 0
+      message: "Should make ≤5 calls with zero errors"
+
+    # Tool call sequence (subsequence check)
+    - type: tool_call_sequence
+      params:
+        sequence: ["lookup_order", "search_faq"]
+      message: "At least one lookup_order must precede search_faq"
+
+    # Tool call count
+    - type: tool_call_count
+      params:
+        min: 3
+        max: 4
+      message: "Should make exactly 3-4 tool calls"
+
+    # No tool errors
+    - type: no_tool_errors
+      params: {}
+      message: "All tool calls should succeed"
+
+    # Cost budget
+    - type: cost_budget
+      params:
+        max_cost_usd: 1.00
+        max_total_tokens: 10000
+      message: "Should stay within budget"

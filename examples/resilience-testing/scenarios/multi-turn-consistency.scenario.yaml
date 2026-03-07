@@ -1,0 +1,92 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multi-turn-consistency
+spec:
+  id: "multi-turn-consistency"
+  task_type: support-agent
+  description: >
+    Tests cross-turn invariants and consistency: content_excludes across
+    multiple turns, tool_call_sequence ordering, tool_no_repeat,
+    and tool_call_count bounds. Demonstrates a realistic multi-turn
+    support conversation where the agent must maintain consistent
+    behavior without redundant actions.
+
+  turns:
+    # Turn 1: Initial order inquiry
+    - role: user
+      content: "I need help with my order ORD-55555"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["lookup_order"]
+          message: "Should look up the order"
+        - type: content_includes
+          params:
+            patterns: ["ORD-55555"]
+          message: "Should reference the order"
+        - type: content_excludes
+          params:
+            patterns: ["sorry", "cannot", "unable"]
+          message: "Should not apologize when order is found"
+
+    # Turn 2: Follow-up — ask for FAQ info (new tool, not re-lookup)
+    - role: user
+      content: "Is there a warranty on this item?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["search_faq"]
+          message: "Should search FAQ for warranty info"
+        - type: content_excludes
+          params:
+            patterns: ["error", "undefined", "null"]
+          message: "No error indicators in response"
+
+    # Turn 3: Final question — text-only, no tool needed
+    - role: user
+      content: "Thanks, that's all I need!"
+      assertions:
+        - type: min_length
+          params:
+            min: 5
+          message: "Should give a closing response"
+        - type: content_excludes
+          params:
+            patterns: ["internal_error", "stack trace", "panic"]
+          message: "No internal errors in closing message"
+
+  # --- Conversation-level assertions ---
+  conversation_assertions:
+    # Verify tool ordering across turns
+    - type: tool_call_sequence
+      params:
+        sequence: ["lookup_order", "search_faq"]
+      message: "Order lookup should precede FAQ search"
+
+    # No consecutive repeats
+    - type: tool_no_repeat
+      params:
+        max_repeats: 1
+      message: "No tool should be called consecutively"
+
+    # Total tool call count
+    - type: tool_call_count
+      params:
+        min: 2
+        max: 3
+      message: "Should make exactly 2-3 tool calls"
+
+    # Anti-pattern: no repeated order lookups
+    - type: tool_anti_pattern
+      params:
+        patterns:
+          - sequence: ["lookup_order", "lookup_order"]
+            message: "Redundant order re-lookup"
+      message: "Should not redundantly re-lookup orders"
+
+    # Budget check
+    - type: cost_budget
+      params:
+        max_total_tokens: 5000
+      message: "Conversation should use <5000 tokens"

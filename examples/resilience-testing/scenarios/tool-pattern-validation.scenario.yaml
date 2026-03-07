@@ -1,0 +1,79 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tool-pattern-validation
+spec:
+  id: "tool-pattern-validation"
+  task_type: support-agent
+  description: >
+    Tests tool pattern assertions: tools_called, tools_not_called,
+    tool_calls_with_args, tool_call_sequence, tool_no_repeat,
+    tool_anti_pattern, tool_call_count, and no_tool_errors.
+    Demonstrates multi-turn tool use with sequencing constraints.
+
+  turns:
+    # Turn 1: Order lookup — should call lookup_order with correct args
+    - role: user
+      content: "Look up order ORD-12345 for me"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["lookup_order"]
+          message: "Should call lookup_order"
+        - type: tools_not_called
+          params:
+            tool_names: ["search_faq"]
+          message: "Should NOT call search_faq for an order query"
+        - type: tool_calls_with_args
+          params:
+            tool_name: lookup_order
+            expected_args:
+              order_id: "ORD-12345"
+          message: "Should pass correct order_id argument"
+
+    # Turn 2: FAQ search — different tool, validates sequence
+    - role: user
+      content: "Can you also search your FAQ for return policies?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["search_faq"]
+          message: "Should call search_faq for FAQ queries"
+        - type: content_includes
+          params:
+            patterns: ["return"]
+          message: "Response should mention return policy"
+
+  # --- Conversation-level assertions (across all turns) ---
+  conversation_assertions:
+    # Tool call sequence: lookup_order must come before search_faq
+    - type: tool_call_sequence
+      params:
+        sequence: ["lookup_order", "search_faq"]
+      message: "Order lookup should precede FAQ search"
+
+    # No repeated consecutive calls
+    - type: tool_no_repeat
+      params:
+        max_repeats: 1
+      message: "No tool should be called consecutively"
+
+    # Anti-pattern: forbid lookup_order followed immediately by lookup_order
+    - type: tool_anti_pattern
+      params:
+        patterns:
+          - sequence: ["lookup_order", "lookup_order"]
+            message: "Should not re-lookup the same order"
+      message: "No redundant order lookups"
+
+    # Tool call count bounds
+    - type: tool_call_count
+      params:
+        min: 2
+        max: 4
+      message: "Should make 2-4 tool calls total"
+
+    # No tool errors across the conversation
+    - type: no_tool_errors
+      params: {}
+      message: "All tool calls should succeed without errors"

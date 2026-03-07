@@ -1,0 +1,62 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: content-validation
+spec:
+  id: "content-validation"
+  task_type: support-agent
+  description: >
+    Tests content assertions: min_length, max_length, content_excludes,
+    content_includes, content_includes_any, content_matches (regex),
+    and guardrail_triggered for validator verification.
+
+  turns:
+    # Turn 1: Ask about return policy — gets a detailed answer
+    - role: user
+      content: "Tell me about your return policy."
+      assertions:
+        # --- Length bounds ---
+        - type: min_length
+          params:
+            min: 20
+          message: "Response should be substantial (>20 chars)"
+        - type: max_length
+          params:
+            max: 500
+          message: "Response should be concise (<500 chars)"
+
+        # --- Content inclusion ---
+        - type: content_includes
+          params:
+            patterns: ["return", "30 days"]
+          message: "Must mention return window"
+
+        # --- Any-of content ---
+        - type: content_includes_any
+          params:
+            patterns: ["refund", "exchange", "credit"]
+          message: "Must mention at least one resolution option"
+
+        # --- Forbidden content ---
+        - type: content_excludes
+          params:
+            patterns: ["error", "undefined", "null", "internal"]
+          message: "Must not contain error indicators or internal terms"
+
+        # --- Regex pattern ---
+        - type: content_matches
+          params:
+            pattern: "\\d+.*days?"
+          message: "Must include a numeric time reference"
+
+        # --- Guardrail verification ---
+        - type: guardrail_triggered
+          params:
+            validator_type: banned_words
+            should_trigger: false
+          message: "Clean response should not trigger banned_words guardrail"
+        - type: guardrail_triggered
+          params:
+            validator_type: length
+            should_trigger: false
+          message: "Response should be within length limits"

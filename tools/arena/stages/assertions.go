@@ -227,6 +227,7 @@ func (s *ArenaAssertionStage) executeAssertions(
 					"skipped": true,
 					"message": ac.Message,
 					"details": map[string]interface{}{"skip_reason": reason},
+					"config":  map[string]interface{}{"type": ac.Type, "params": ac.Params},
 				})
 				continue
 			}
@@ -248,17 +249,29 @@ func (s *ArenaAssertionStage) executeAssertions(
 
 	var validationErrors []error
 	for i, cr := range convResults {
+		// Use the original assertion type (not the pack_eval: prefixed eval type)
+		displayType := cr.Type
+		if i < len(filteredConfigs) {
+			displayType = filteredConfigs[i].Type
+		}
 		resultMap := map[string]interface{}{
-			"type":    cr.Type,
+			"type":    displayType,
 			"passed":  cr.Passed,
 			"details": cr.Details,
 			"message": cr.Message,
+		}
+		// Attach the original assertion config so reports can show what was tested
+		if i < len(filteredConfigs) {
+			resultMap["config"] = map[string]interface{}{
+				"type":   filteredConfigs[i].Type,
+				"params": filteredConfigs[i].Params,
+			}
 		}
 		results = append(results, resultMap)
 
 		if !cr.Passed {
 			validationErrors = append(validationErrors,
-				fmt.Errorf("assertion %d (%s) failed: %s", i, cr.Type, cr.Message))
+				fmt.Errorf("assertion %d (%s) failed: %s", i, displayType, cr.Message))
 		}
 	}
 

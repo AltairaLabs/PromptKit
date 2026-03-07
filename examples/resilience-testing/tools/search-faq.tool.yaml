@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: search_faq
+spec:
+  description: Search the FAQ knowledge base for answers to common questions
+  input_schema:
+    type: object
+    properties:
+      query:
+        type: string
+        description: The search query to find relevant FAQ entries
+    required:
+    - query
+  output_schema:
+    type: string
+  mode: mock
+  mock_result: 'FAQ Result: Orders typically ship within 2 business days. Track your order at account.example.com/orders.'
+  name: search_faq
+  timeout_ms: 5000

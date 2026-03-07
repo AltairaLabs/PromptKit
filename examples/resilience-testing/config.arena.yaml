@@ -1,0 +1,36 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: resilience-testing
+spec:
+  prompt_configs:
+    - id: support-agent
+      file: prompts/support-agent.yaml
+
+  providers:
+    - file: providers/mock.provider.yaml
+
+  scenarios:
+    - file: scenarios/content-validation.scenario.yaml
+    - file: scenarios/tool-pattern-validation.scenario.yaml
+    - file: scenarios/cost-and-guardrails.scenario.yaml
+    - file: scenarios/multi-turn-consistency.scenario.yaml
+    - file: scenarios/negative-testing.scenario.yaml
+    - file: scenarios/tool-chain-and-efficiency.scenario.yaml
+    - file: scenarios/behavioral-testing.scenario.yaml
+    - file: scenarios/statistical-trials.scenario.yaml
+    - file: scenarios/perturbation-invariance.scenario.yaml
+
+  tools:
+    - file: tools/lookup-order.tool.yaml
+    - file: tools/search-faq.tool.yaml
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    seed: 42
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

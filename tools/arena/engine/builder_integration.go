@@ -109,7 +109,10 @@ func BuildEngineComponents(cfg *config.Config) (
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
 		}
-	} else if hasEvalConfigs(cfg) {
+	} else {
+		// Always create an eval-only hook when no pack is loaded.
+		// This ensures turn-level and conversation-level assertions can execute
+		// through the eval pipeline even without pack-defined evals.
 		packEvalHook = buildEvalOnlyHook()
 	}
 
@@ -501,11 +504,6 @@ func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []stri
 	}
 
 	return NewPackEvalHook(registry, allDefs, skipEvals, evalTypeFilter, pack.ID), nil
-}
-
-// hasEvalConfigs returns true if the config has eval scenarios that need assertion execution.
-func hasEvalConfigs(cfg *config.Config) bool {
-	return len(cfg.LoadedEvals) > 0 || len(cfg.Evals) > 0 || len(cfg.EvalSpecs) > 0
 }
 
 // buildEvalOnlyHook creates a PackEvalHook with an empty defs list and a fresh registry.

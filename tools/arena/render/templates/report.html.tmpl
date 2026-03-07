@@ -345,7 +345,7 @@
         }
         
         .turn.has-failures {
-            border: 2px solid #ef4444 !important;
+            /* Failure indicated by badges, not border */
         }
         
         .turn.user {
@@ -767,6 +767,16 @@
             background: #181825;
             border-bottom: 1px solid #313244;
             flex-shrink: 0;
+            overflow-x: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #45475a transparent;
+        }
+        .devtools-tabs::-webkit-scrollbar {
+            height: 3px;
+        }
+        .devtools-tabs::-webkit-scrollbar-thumb {
+            background: #45475a;
+            border-radius: 3px;
         }
 
         .devtools-tab {
@@ -1954,7 +1964,7 @@
                                         {{end}}
                                     {{end}}
                                 {{end}}
-                                {{$hasDiagnostics := or $hasAvailableTools $hasRawRequest $hasRawResponse $hasLLMTrace $hasPackEvals $hasWorkflowState $msg.CostInfo (not (not $msg.ToolCalls)) (eq $msg.Role "system")}}
+                                {{$hasDiagnostics := or $hasAssertions $hasValidators $hasAvailableTools $hasRawRequest $hasRawResponse $hasLLMTrace $hasPackEvals $hasWorkflowState $msg.CostInfo (not (not $msg.ToolCalls)) (eq $msg.Role "system") (eq $msg.Role "user")}}
                                 {{$assertionsFailed := not (assertionsPassed $assertions)}}
                                 {{$validatorsFailed := not (validatorsPassed $validators)}}
                                 {{$hasFailed := or $assertionsFailed $validatorsFailed}}
@@ -1981,17 +1991,17 @@
                                             <span class="inspect-btn" onclick="openDevTools('{{$result.RunID}}-{{$msgIdx}}')" title="Inspect turn diagnostics">⚙</span>
                                             {{end}}
                                             {{if $hasAssertions}}
-                                            <span class="validation-badge {{if assertionsPassed $assertions}}passed{{else}}failed{{end}}" 
-                                                  onclick="toggleValidations('assertions-{{$result.RunID}}-{{$msgIdx}}')" 
-                                                  title="Click to {{if assertionsPassed $assertions}}view{{else}}review{{end}} assertions">
+                                            <span class="validation-badge {{if assertionsPassed $assertions}}passed{{else}}failed{{end}}"
+                                                  onclick="openDevTools('{{$result.RunID}}-{{$msgIdx}}', 'assertions')"
+                                                  title="{{if assertionsPassed $assertions}}Assertions passed{{else}}Assertions failed — click to inspect{{end}}">
                                                 <span class="badge-icon">{{if assertionsPassed $assertions}}✓{{else}}✗{{end}}</span>
                                                 <span class="badge-label">A</span>
                                             </span>
                                             {{end}}
                                             {{if $hasValidators}}
-                                            <span class="validation-badge {{if validatorsPassed $validators}}passed{{else}}failed{{end}}" 
-                                                  onclick="toggleValidations('validators-{{$result.RunID}}-{{$msgIdx}}')" 
-                                                  title="Click to {{if validatorsPassed $validators}}view{{else}}review{{end}} validators">
+                                            <span class="validation-badge {{if validatorsPassed $validators}}passed{{else}}failed{{end}}"
+                                                  onclick="openDevTools('{{$result.RunID}}-{{$msgIdx}}', 'validators')"
+                                                  title="{{if validatorsPassed $validators}}Validators passed{{else}}Validators failed — click to inspect{{end}}">
                                                 <span class="badge-icon">{{if validatorsPassed $validators}}✓{{else}}✗{{end}}</span>
                                                 <span class="badge-label">V</span>
                                             </span>
@@ -1999,90 +2009,9 @@
                                         </div>
                                     </div>
                                     
-                                    {{if $hasAssertions}}
-                                    <div class="validations-section" id="assertions-{{$result.RunID}}-{{$msgIdx}}">
-                                        <div class="validations-header">Assertions</div>
-                                        {{if hasAssertionResults $assertions}}
-                                        {{/* New format: iterate over results array */}}
-                                        {{range $assertion := getAssertionResults $assertions}}
-                                        <div class="validation-item {{if getOK $assertion}}passed{{else}}failed{{end}}">
-                                            <div class="validation-header">
-                                                <div class="validation-type">{{getAssertionType $assertion}}</div>
-                                                <div class="validation-status {{if getOK $assertion}}passed{{else}}failed{{end}}">
-                                                    <span class="validation-icon">{{if getOK $assertion}}✓{{else}}✗{{end}}</span>
-                                                    {{if getOK $assertion}}Passed{{else}}Failed{{end}}
-                                                </div>
-                                            </div>
-                                            {{$message := getMessage $assertion}}
-                                            {{if $message}}
-                                            <div class="validation-message">
-                                                <div class="validation-message-icon">ℹ️</div>
-                                                <div class="validation-message-text">{{$message}}</div>
-                                            </div>
-                                            {{end}}
-                                            {{$details := getDetails $assertion}}
-                                            {{if $details}}
-                                            <div class="validation-details">
-                                                <div class="validation-details-label">Details</div>
-                                                <div class="validation-details-content">{{prettyJSON $details}}</div>
-                                            </div>
-                                            {{end}}
-                                        </div>
-                                        {{end}}
-                                        {{else}}
-                                        {{/* Legacy format: iterate over map */}}
-                                        {{range $name, $assertion := $assertions}}
-                                        <div class="validation-item {{if getOK $assertion}}passed{{else}}failed{{end}}">
-                                            <div class="validation-header">
-                                                <div class="validation-type">{{$name}}</div>
-                                                <div class="validation-status {{if getOK $assertion}}passed{{else}}failed{{end}}">
-                                                    <span class="validation-icon">{{if getOK $assertion}}✓{{else}}✗{{end}}</span>
-                                                    {{if getOK $assertion}}Passed{{else}}Failed{{end}}
-                                                </div>
-                                            </div>
-                                            {{$message := getMessage $assertion}}
-                                            {{if $message}}
-                                            <div class="validation-message">
-                                                <div class="validation-message-icon">ℹ️</div>
-                                                <div class="validation-message-text">{{$message}}</div>
-                                            </div>
-                                            {{end}}
-                                            {{$details := getDetails $assertion}}
-                                            {{if $details}}
-                                            <div class="validation-details">
-                                                <div class="validation-details-label">Details</div>
-                                                <div class="validation-details-content">{{prettyJSON $details}}</div>
-                                            </div>
-                                            {{end}}
-                                        </div>
-                                        {{end}}
-                                        {{end}}
-                                    </div>
-                                    {{end}}
+                                    {{/* Turn assertions are shown in the DevTools panel — badge above opens them */}}
                                     
-                                    {{if $hasValidators}}
-                                    <div class="validations-section" id="validators-{{$result.RunID}}-{{$msgIdx}}">
-                                        <div class="validations-header">Validators</div>
-                                        {{range $name, $validator := $validators}}
-                                        <div class="validation-item {{if getOK $validator}}passed{{else}}failed{{end}}">
-                                            <div class="validation-header">
-                                                <div class="validation-type">{{$name}}</div>
-                                                <div class="validation-status {{if getOK $validator}}passed{{else}}failed{{end}}">
-                                                    <span class="validation-icon">{{if getOK $validator}}✓{{else}}✗{{end}}</span>
-                                                    {{if getOK $validator}}Passed{{else}}Failed{{end}}
-                                                </div>
-                                            </div>
-                                            {{$details := getDetails $validator}}
-                                            {{if $details}}
-                                            <div class="validation-details">
-                                                <div class="validation-details-label">Details</div>
-                                                <div class="validation-details-content">{{prettyJSON $details}}</div>
-                                            </div>
-                                            {{end}}
-                                        </div>
-                                        {{end}}
-                                    </div>
-                                    {{end}}
+                                    {{/* Turn validators are shown in the DevTools panel — badge above opens them */}}
                                     
                                     {{if ne $msg.Role "tool"}}
                                     <div class="turn-content">{{renderMessageContent $msg}}</div>
@@ -2113,7 +2042,7 @@
                                          data-turn="{{add $msgIdx 1}}"
                                          data-provider="{{$result.ProviderID}}"
                                          data-scenario="{{$result.ScenarioID}}"
-                                         {{if $msg.Timestamp}}data-timestamp="{{$msg.Timestamp}}"{{end}}
+                                         {{if $msg.Timestamp}}data-timestamp="{{isoTime $msg.Timestamp}}"{{end}}
                                          {{if $hasFinishReason}}data-finish-reason="{{index $msg.Meta "finish_reason"}}"{{end}}>
                                         {{if $msg.CostInfo}}
                                         <div data-devtools="metrics">
@@ -2160,6 +2089,9 @@
                                         {{end}}
                                         {{if $msg.Validations}}
                                         <div data-devtools="validations">{{prettyJSON $msg.Validations}}</div>
+                                        {{end}}
+                                        {{if $hasAssertions}}
+                                        <div data-devtools="assertions">{{prettyJSON $assertions}}</div>
                                         {{end}}
                                     </div>
                                     {{end}}
@@ -2320,7 +2252,7 @@
     <script>
         let currentDevToolsTurnId = null;
 
-        function openDevTools(turnId) {
+        function openDevTools(turnId, activeTab) {
             var panel = document.getElementById('devtools-panel');
             var data = document.getElementById('devtools-data-' + turnId);
             if (!data) return;
@@ -2361,6 +2293,7 @@
             var traceEl = data.querySelector('[data-devtools="trace"]');
             var evalsEl = data.querySelector('[data-devtools="evals"]');
             var validationsEl = data.querySelector('[data-devtools="validations"]');
+            var assertionsEl = data.querySelector('[data-devtools="assertions"]');
 
             // Build tabs dynamically based on available data
             var tabs = [];
@@ -2383,13 +2316,27 @@
             if (requestEl) tabs.push({ id: 'request', label: 'Request', icon: '📡' });
             if (responseEl) tabs.push({ id: 'response', label: 'Response', icon: '📥' });
             if (traceEl) tabs.push({ id: 'trace', label: 'Trace', icon: '🔍' });
+            if (assertionsEl) {
+                var assertionCount = 0;
+                try { var ad = JSON.parse(assertionsEl.textContent); if (ad && ad.results) assertionCount = ad.results.length; } catch(e) {}
+                tabs.push({ id: 'assertions', label: 'Assertions', icon: '🛡️', count: assertionCount });
+            }
             if (evalsEl) tabs.push({ id: 'evals', label: 'Evals', icon: '🧪' });
-            if (validationsEl) tabs.push({ id: 'validations', label: 'Validators', icon: '✓' });
+            if (validationsEl) {
+                var valCount = 0;
+                try { var vd = JSON.parse(validationsEl.textContent); if (Array.isArray(vd)) valCount = vd.length; } catch(e) {}
+                tabs.push({ id: 'validators', label: 'Validators', icon: '✓', count: valCount });
+            }
+
+            // Determine which tab to activate
+            var selectedTab = activeTab || tabs[0].id;
+            // Verify selectedTab exists in tabs
+            if (!tabs.some(function(t) { return t.id === selectedTab; })) selectedTab = tabs[0].id;
 
             // Build tab bar
             var tabsContainer = document.getElementById('devtools-tabs');
-            tabsContainer.innerHTML = tabs.map(function(t, i) {
-                return '<button class="devtools-tab' + (i === 0 ? ' active' : '') + '" data-tab="' + t.id + '" onclick="switchDevToolsTab(\'' + t.id + '\')">' +
+            tabsContainer.innerHTML = tabs.map(function(t) {
+                return '<button class="devtools-tab' + (t.id === selectedTab ? ' active' : '') + '" data-tab="' + t.id + '" onclick="switchDevToolsTab(\'' + t.id + '\')">' +
                     t.icon + ' ' + t.label +
                     (t.count ? '<span class="devtools-tab-count">' + t.count + '</span>' : '') +
                     '</button>';
@@ -2398,7 +2345,7 @@
             // Build tab content
             var body = document.getElementById('devtools-body');
             var html = '';
-            var firstTab = tabs[0].id;
+            var firstTab = selectedTab;
 
             // --- Info tab ---
             html += '<div class="devtools-tab-content' + (firstTab === 'info' ? ' active' : '') + '" data-tab-content="info">';
@@ -2407,29 +2354,16 @@
             html += '<div class="devtools-metric"><span class="devtools-metric-label">Turn #</span><span class="devtools-metric-value">' + turnNum + '</span></div>';
             if (provider) html += '<div class="devtools-metric"><span class="devtools-metric-label">Provider</span><span class="devtools-metric-value">' + provider + '</span></div>';
             if (scenario) html += '<div class="devtools-metric"><span class="devtools-metric-label">Scenario</span><span class="devtools-metric-value">' + scenario + '</span></div>';
-            if (timestamp) html += '<div class="devtools-metric"><span class="devtools-metric-label">Timestamp</span><span class="devtools-metric-value">' + timestamp + '</span></div>';
-            if (finishReason) html += '<div class="devtools-metric"><span class="devtools-metric-label">Finish Reason</span><span class="devtools-metric-value">' + finishReason + '</span></div>';
-            // Quick summary of what's in this turn
-            var summary = [];
-            if (workflowEl) summary.push('workflow');
-            if (metricsEl) summary.push('metrics');
-            if (toolsEl) summary.push('tool descriptors');
-            if (toolcallsEl) summary.push('tool calls');
-            if (requestEl) summary.push('raw request');
-            if (responseEl) summary.push('raw response');
-            if (traceEl) summary.push('LLM trace');
-            if (evalsEl) summary.push('evals');
-            if (validationsEl) summary.push('validations');
-            if (promptEl) summary.push('system prompt');
-            html += '</div>';
-            if (summary.length > 0) {
-                html += '<div class="devtools-section"><div class="devtools-section-title">Available Data</div>';
-                html += '<div style="display:flex;flex-wrap:wrap;gap:0.3rem;">';
-                summary.forEach(function(s) {
-                    html += '<span style="background:#313244;color:#cdd6f4;padding:0.15rem 0.5rem;border-radius:10px;font-size:0.72rem;">' + s + '</span>';
-                });
-                html += '</div></div>';
+            if (timestamp) {
+                var localTime = timestamp;
+                try {
+                    var d = new Date(timestamp);
+                    if (!isNaN(d.getTime())) localTime = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+                } catch(e) {}
+                html += '<div class="devtools-metric"><span class="devtools-metric-label">Timestamp</span><span class="devtools-metric-value" title="' + escapeHtml(timestamp) + '" style="text-align:right;">' + escapeHtml(localTime) + '</span></div>';
             }
+            if (finishReason) html += '<div class="devtools-metric"><span class="devtools-metric-label">Finish Reason</span><span class="devtools-metric-value">' + finishReason + '</span></div>';
+            html += '</div>';
             html += '</div>';
 
             // --- Workflow tab ---
@@ -2672,17 +2606,200 @@
             // --- Evals tab ---
             if (evalsEl) {
                 html += '<div class="devtools-tab-content' + (firstTab === 'evals' ? ' active' : '') + '" data-tab-content="evals">';
-                html += '<div class="devtools-section"><div class="devtools-section-title">Pack Evaluations</div>';
-                html += '<div class="devtools-json">' + escapeHtml(evalsEl.textContent) + '</div>';
-                html += '</div></div>';
+                try {
+                    var eData = JSON.parse(evalsEl.textContent);
+                    if (Array.isArray(eData) && eData.length > 0) {
+                        var eFailed = eData.filter(function(e) { return !e.passed; }).length;
+                        var eAllPassed = eFailed === 0;
+                        html += '<div class="devtools-section">';
+                        html += '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">';
+                        html += '<span style="font-size:1.1rem;">' + (eAllPassed ? '✅' : '❌') + '</span>';
+                        html += '<span style="color:' + (eAllPassed ? '#a6e3a1' : '#f38ba8') + ';font-weight:600;">' + (eAllPassed ? 'All Passed' : eFailed + ' of ' + eData.length + ' Failed') + '</span>';
+                        html += '</div>';
+                        for (var ei = 0; ei < eData.length; ei++) {
+                            var ev = eData[ei];
+                            var evPassed = ev.passed === true;
+                            var evColor = evPassed ? '#a6e3a1' : '#f38ba8';
+                            var evIcon = evPassed ? '✓' : '✗';
+                            html += '<div style="border:1px solid ' + (evPassed ? '#2d4a3e' : '#4a2d2d') + ';border-radius:6px;padding:0.6rem;margin-bottom:0.5rem;background:' + (evPassed ? '#1a2e1a' : '#2e1a1a') + ';">';
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">';
+                            html += '<span style="color:#89b4fa;font-family:monospace;font-weight:600;font-size:0.85rem;">' + escapeHtml(ev.type || ev.eval_type || '') + '</span>';
+                            html += '<span style="color:' + evColor + ';font-size:0.8rem;font-weight:600;">' + evIcon + ' ' + (evPassed ? 'Passed' : 'Failed') + '</span>';
+                            html += '</div>';
+                            if (ev.message) html += '<div style="color:#cdd6f4;font-size:0.8rem;margin-bottom:0.3rem;">' + escapeHtml(ev.message) + '</div>';
+                            // Config — click to expand
+                            var evConfig = ev.config || ev.params;
+                            if (evConfig && Object.keys(evConfig).length > 0) {
+                                html += '<div style="margin-bottom:0.3rem;">';
+                                html += '<div style="color:#6c7086;font-size:0.7rem;cursor:pointer;user-select:none;" onclick="var el=this.nextElementSibling;el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'Config ▸\':\'Config ▾\'">Config ▸</div>';
+                                html += '<div class="devtools-json" style="font-size:0.72rem;max-height:150px;display:none;">' + escapeHtml(JSON.stringify(evConfig, null, 2)) + '</div>';
+                                html += '</div>';
+                            }
+                            if (!evPassed && ev.explanation) html += '<div style="color:#fab387;font-size:0.75rem;">' + escapeHtml(ev.explanation) + '</div>';
+                            html += '</div>';
+                        }
+                        html += '</div>';
+                    } else {
+                        html += '<div class="devtools-section"><div class="devtools-empty">No evals</div></div>';
+                    }
+                } catch(e) {
+                    html += '<div class="devtools-section"><div class="devtools-json">' + escapeHtml(evalsEl.textContent) + '</div></div>';
+                }
+                html += '</div>';
             }
 
-            // --- Validations tab ---
+            // --- Assertions tab ---
+            if (assertionsEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'assertions' ? ' active' : '') + '" data-tab-content="assertions">';
+                try {
+                    var aData = JSON.parse(assertionsEl.textContent);
+                    var aResults = (aData && aData.results) ? aData.results : [];
+                    var aPassed = aData ? aData.passed : true;
+                    var aTotal = aData ? (aData.total || 0) : 0;
+                    var aFailed = aData ? (aData.failed || 0) : 0;
+
+                    // Summary bar
+                    html += '<div class="devtools-section">';
+                    html += '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">';
+                    html += '<span style="font-size:1.1rem;">' + (aPassed ? '✅' : '❌') + '</span>';
+                    html += '<span style="color:' + (aPassed ? '#a6e3a1' : '#f38ba8') + ';font-weight:600;">' + (aPassed ? 'All Passed' : aFailed + ' of ' + aTotal + ' Failed') + '</span>';
+                    html += '</div>';
+
+                    // Individual assertions
+                    for (var ai = 0; ai < aResults.length; ai++) {
+                        var ar = aResults[ai];
+                        var arPassed = ar.passed === true;
+                        var arSkipped = ar.skipped === true;
+                        var statusColor = arSkipped ? '#6c7086' : (arPassed ? '#a6e3a1' : '#f38ba8');
+                        var statusIcon = arSkipped ? '⏭' : (arPassed ? '✓' : '✗');
+                        var statusLabel = arSkipped ? 'Skipped' : (arPassed ? 'Passed' : 'Failed');
+
+                        html += '<div style="border:1px solid ' + (arSkipped ? '#45475a' : (arPassed ? '#2d4a3e' : '#4a2d2d')) + ';border-radius:6px;padding:0.6rem;margin-bottom:0.5rem;background:' + (arSkipped ? '#1e1e2e' : (arPassed ? '#1a2e1a' : '#2e1a1a')) + ';">';
+
+                        // Header: type + status
+                        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">';
+                        html += '<span style="color:#89b4fa;font-family:monospace;font-weight:600;font-size:0.85rem;">' + escapeHtml(ar.type || '') + '</span>';
+                        html += '<span style="color:' + statusColor + ';font-size:0.8rem;font-weight:600;">' + statusIcon + ' ' + statusLabel + '</span>';
+                        html += '</div>';
+
+                        // Message (assertion description from config)
+                        if (ar.message) {
+                            html += '<div style="color:#cdd6f4;font-size:0.8rem;margin-bottom:0.3rem;">' + escapeHtml(ar.message) + '</div>';
+                        }
+
+                        // Config params — click to expand
+                        if (ar.config && ar.config.params && Object.keys(ar.config.params).length > 0) {
+                            html += '<div style="margin-bottom:0.3rem;">';
+                            html += '<div style="color:#6c7086;font-size:0.7rem;cursor:pointer;user-select:none;" onclick="var el=this.nextElementSibling;el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'Config ▸\':\'Config ▾\'">Config ▸</div>';
+                            html += '<div class="devtools-json" style="font-size:0.72rem;max-height:150px;display:none;">' + escapeHtml(JSON.stringify(ar.config.params, null, 2)) + '</div>';
+                            html += '</div>';
+                        }
+
+                        // Inline status messages
+                        var arDetails = ar.details;
+                        if (arDetails) {
+                            if (arDetails.error) {
+                                html += '<div style="color:#f38ba8;font-size:0.75rem;">' + escapeHtml(arDetails.error) + '</div>';
+                            } else if (arDetails.skip_reason) {
+                                html += '<div style="color:#6c7086;font-size:0.75rem;font-style:italic;">Skipped: ' + escapeHtml(arDetails.skip_reason) + '</div>';
+                            } else if (arDetails.explanation && !ar.passed) {
+                                html += '<div style="color:#fab387;font-size:0.75rem;">' + escapeHtml(arDetails.explanation) + '</div>';
+                            }
+                            // Results — remaining details excluding skip_reason/error/explanation, click to expand
+                            var arResults = {};
+                            var arHasResults = false;
+                            for (var ark in arDetails) {
+                                if (arDetails.hasOwnProperty(ark) && ark !== 'error' && ark !== 'skip_reason' && ark !== 'explanation') {
+                                    arResults[ark] = arDetails[ark];
+                                    arHasResults = true;
+                                }
+                            }
+                            if (arHasResults) {
+                                html += '<div style="margin-top:0.3rem;">';
+                                html += '<div style="color:#6c7086;font-size:0.7rem;cursor:pointer;user-select:none;" onclick="var el=this.nextElementSibling;el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'Results ▸\':\'Results ▾\'">Results ▸</div>';
+                                html += '<div class="devtools-json" style="font-size:0.72rem;max-height:150px;display:none;">' + escapeHtml(JSON.stringify(arResults, null, 2)) + '</div>';
+                                html += '</div>';
+                            }
+                        }
+
+                        html += '</div>';
+                    }
+
+                    html += '</div>';
+                } catch(e) {
+                    html += '<div class="devtools-section"><div class="devtools-json">' + escapeHtml(assertionsEl.textContent) + '</div></div>';
+                }
+                html += '</div>';
+            }
+
+            // --- Validators tab ---
             if (validationsEl) {
-                html += '<div class="devtools-tab-content' + (firstTab === 'validations' ? ' active' : '') + '" data-tab-content="validations">';
-                html += '<div class="devtools-section"><div class="devtools-section-title">Validation Results</div>';
-                html += '<div class="devtools-json">' + escapeHtml(validationsEl.textContent) + '</div>';
-                html += '</div></div>';
+                html += '<div class="devtools-tab-content' + (firstTab === 'validators' ? ' active' : '') + '" data-tab-content="validators">';
+                try {
+                    var vData = JSON.parse(validationsEl.textContent);
+                    if (Array.isArray(vData) && vData.length > 0) {
+                        // Summary
+                        var vFailed = vData.filter(function(v) { return !v.passed; }).length;
+                        var vAllPassed = vFailed === 0;
+                        html += '<div class="devtools-section">';
+                        html += '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;">';
+                        html += '<span style="font-size:1.1rem;">' + (vAllPassed ? '✅' : '❌') + '</span>';
+                        html += '<span style="color:' + (vAllPassed ? '#a6e3a1' : '#f38ba8') + ';font-weight:600;">' + (vAllPassed ? 'All Passed' : vFailed + ' of ' + vData.length + ' Failed') + '</span>';
+                        html += '</div>';
+
+                        for (var vi = 0; vi < vData.length; vi++) {
+                            var vr = vData[vi];
+                            var vrPassed = vr.passed === true;
+                            var vrStatusColor = vrPassed ? '#a6e3a1' : '#f38ba8';
+                            var vrStatusIcon = vrPassed ? '✓' : '✗';
+
+                            html += '<div style="border:1px solid ' + (vrPassed ? '#2d4a3e' : '#4a2d2d') + ';border-radius:6px;padding:0.6rem;margin-bottom:0.5rem;background:' + (vrPassed ? '#1a2e1a' : '#2e1a1a') + ';">';
+
+                            // Header: type + status
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">';
+                            html += '<span style="color:#89b4fa;font-family:monospace;font-weight:600;font-size:0.85rem;">' + escapeHtml(vr.validator_type || '') + '</span>';
+                            html += '<span style="color:' + vrStatusColor + ';font-size:0.8rem;font-weight:600;">' + vrStatusIcon + ' ' + (vrPassed ? 'Passed' : 'Failed') + '</span>';
+                            html += '</div>';
+
+                            // Failure reason (show inline, not hidden)
+                            if (!vrPassed && vr.details && vr.details.reason) {
+                                html += '<div style="margin-top:0.3rem;color:#f38ba8;font-size:0.75rem;">Reason: ' + escapeHtml(String(vr.details.reason)) + '</div>';
+                            }
+                            // Config — click to expand
+                            if (vr.details && vr.details.config) {
+                                html += '<div style="margin-top:0.3rem;">';
+                                html += '<span style="color:#6c7086;font-size:0.72rem;cursor:pointer;user-select:none;" onclick="var el=this.nextElementSibling;el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'Config ▸\':\'Config ▾\'">Config ▸</span>';
+                                html += '<div class="devtools-json" style="font-size:0.72rem;max-height:150px;display:none;">' + escapeHtml(JSON.stringify(vr.details.config, null, 2)) + '</div>';
+                                html += '</div>';
+                            }
+                            // Results — remaining details excluding config/reason, click to expand
+                            if (vr.details) {
+                                var vrResults = {};
+                                var vrHasResults = false;
+                                for (var vrk in vr.details) {
+                                    if (vr.details.hasOwnProperty(vrk) && vrk !== 'config' && vrk !== 'reason') {
+                                        vrResults[vrk] = vr.details[vrk];
+                                        vrHasResults = true;
+                                    }
+                                }
+                                if (vrHasResults) {
+                                    html += '<div style="margin-top:0.3rem;">';
+                                    html += '<span style="color:#6c7086;font-size:0.72rem;cursor:pointer;user-select:none;" onclick="var el=this.nextElementSibling;el.style.display=el.style.display===\'none\'?\'block\':\'none\';this.textContent=el.style.display===\'none\'?\'Results ▸\':\'Results ▾\'">Results ▸</span>';
+                                    html += '<div class="devtools-json" style="font-size:0.72rem;max-height:150px;display:none;">' + escapeHtml(JSON.stringify(vrResults, null, 2)) + '</div>';
+                                    html += '</div>';
+                                }
+                            }
+
+                            html += '</div>';
+                        }
+                        html += '</div>';
+                    } else {
+                        html += '<div class="devtools-section"><div class="devtools-empty">No validators</div></div>';
+                    }
+                } catch(e) {
+                    html += '<div class="devtools-section"><div class="devtools-json">' + escapeHtml(validationsEl.textContent) + '</div></div>';
+                }
+                html += '</div>';
             }
 
             body.innerHTML = html;
