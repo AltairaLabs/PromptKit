@@ -72,10 +72,10 @@ func TestOTelEventListener_SessionLifecycle(t *testing.T) {
 		t.Fatalf("expected 1 span, got %d", len(spans))
 	}
 	s := spans[0]
-	if s.Name != "promptkit.session" {
+	if s.Name != "promptkit invoke_agent" {
 		t.Errorf("expected span name 'promptkit.session', got %q", s.Name)
 	}
-	if !hasAttr(s, "session.id", "sess-1") {
+	if !hasAttr(s, "gen_ai.conversation.id", "sess-1") {
 		t.Error("expected session.id attribute")
 	}
 }
@@ -148,7 +148,7 @@ func TestOTelEventListener_PipelineSpan(t *testing.T) {
 	}
 
 	// Pipeline should be child of session.
-	sessionSpan := findSpan(t, spans, "promptkit.session")
+	sessionSpan := findSpan(t, spans, "promptkit invoke_agent")
 	if pipelineSpan.Parent.SpanID() != sessionSpan.SpanContext.SpanID() {
 		t.Error("pipeline span should be child of session span")
 	}
@@ -156,12 +156,12 @@ func TestOTelEventListener_PipelineSpan(t *testing.T) {
 	// Provider, tool, and middleware should be children of pipeline (not session).
 	pipelineSpanID := pipelineSpan.SpanContext.SpanID()
 
-	providerSpan := findSpan(t, spans, "promptkit.provider.openai")
+	providerSpan := findSpan(t, spans, "openai chat")
 	if providerSpan.Parent.SpanID() != pipelineSpanID {
 		t.Error("provider span should be child of pipeline span")
 	}
 
-	toolSpan := findSpan(t, spans, "promptkit.tool.search")
+	toolSpan := findSpan(t, spans, "execute_tool")
 	if toolSpan.Parent.SpanID() != pipelineSpanID {
 		t.Error("tool span should be child of pipeline span")
 	}
@@ -231,7 +231,7 @@ func TestOTelEventListener_ProviderSpan(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	providerSpan := findSpan(t, spans, "promptkit.provider.openai")
+	providerSpan := findSpan(t, spans, "openai chat")
 	if !hasAttr(providerSpan, "gen_ai.system", "openai") {
 		t.Error("expected gen_ai.system attribute")
 	}
@@ -266,7 +266,7 @@ func TestOTelEventListener_ProviderFailed(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	providerSpan := findSpan(t, spans, "promptkit.provider.openai")
+	providerSpan := findSpan(t, spans, "openai chat")
 	if providerSpan.Status.Code != codes.Error {
 		t.Error("expected Error status")
 	}
@@ -301,12 +301,12 @@ func TestOTelEventListener_ToolSpan(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	toolSpan := findSpan(t, spans, "promptkit.tool.search")
-	if !hasAttr(toolSpan, "tool.call_id", "call-123") {
-		t.Error("expected tool.call_id attribute")
+	toolSpan := findSpan(t, spans, "execute_tool")
+	if !hasAttr(toolSpan, "gen_ai.tool.call.id", "call-123") {
+		t.Error("expected gen_ai.tool.call.id attribute")
 	}
-	if !hasAttr(toolSpan, "tool.status", "success") {
-		t.Error("expected tool.status attribute")
+	if toolSpan.Status.Code != codes.Ok {
+		t.Errorf("expected Ok status, got %v", toolSpan.Status.Code)
 	}
 }
 
@@ -333,7 +333,7 @@ func TestOTelEventListener_ToolFailed(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	toolSpan := findSpan(t, spans, "promptkit.tool.search")
+	toolSpan := findSpan(t, spans, "execute_tool")
 	if toolSpan.Status.Code != codes.Error {
 		t.Error("expected Error status")
 	}
@@ -424,7 +424,7 @@ func TestOTelEventListener_MessageCreated_OnProvider(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	providerSpan := findSpan(t, spans, "promptkit.provider.openai")
+	providerSpan := findSpan(t, spans, "openai chat")
 	if len(providerSpan.Events) != 1 {
 		t.Fatalf("expected 1 span event, got %d", len(providerSpan.Events))
 	}
@@ -449,7 +449,7 @@ func TestOTelEventListener_MessageCreated_FallsBackToSession(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	sessionSpan := findSpan(t, spans, "promptkit.session")
+	sessionSpan := findSpan(t, spans, "promptkit invoke_agent")
 	if len(sessionSpan.Events) != 1 {
 		t.Fatalf("expected 1 event on session span, got %d", len(sessionSpan.Events))
 	}
@@ -491,7 +491,7 @@ func TestOTelEventListener_MessageCreated_WithToolCalls(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	providerSpan := findSpan(t, spans, "promptkit.provider.openai")
+	providerSpan := findSpan(t, spans, "openai chat")
 	if len(providerSpan.Events) != 1 {
 		t.Fatalf("expected 1 span event, got %d", len(providerSpan.Events))
 	}
@@ -528,10 +528,10 @@ func TestOTelEventListener_WorkflowTransition(t *testing.T) {
 	spans := flushAndGetSpans(t, tp, exp)
 
 	wfSpan := findSpan(t, spans, "promptkit.workflow.transition")
-	if !hasAttr(wfSpan, "workflow.from_state", "greeting") {
+	if !hasAttr(wfSpan, "promptkit.workflow.from_state", "greeting") {
 		t.Error("expected workflow.from_state attribute")
 	}
-	if !hasAttr(wfSpan, "workflow.to_state", "issue_triage") {
+	if !hasAttr(wfSpan, "promptkit.workflow.to_state", "issue_triage") {
 		t.Error("expected workflow.to_state attribute")
 	}
 }
@@ -555,14 +555,14 @@ func TestOTelEventListener_WorkflowCompleted(t *testing.T) {
 	if wfSpan.Status.Code != codes.Ok {
 		t.Errorf("expected Ok status, got %v", wfSpan.Status.Code)
 	}
-	if !hasAttr(wfSpan, "workflow.final_state", "resolved") {
+	if !hasAttr(wfSpan, "promptkit.workflow.final_state", "resolved") {
 		t.Error("expected workflow.final_state attribute")
 	}
 
 	// Check transition_count int attribute.
 	found := false
 	for _, a := range wfSpan.Attributes {
-		if string(a.Key) == "workflow.transition_count" && a.Value.AsInt64() == 5 {
+		if string(a.Key) == "promptkit.workflow.transition_count" && a.Value.AsInt64() == 5 {
 			found = true
 			break
 		}
@@ -595,9 +595,9 @@ func TestOTelEventListener_ToolNilArgs(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	toolSpan := findSpan(t, spans, "promptkit.tool.noop")
+	toolSpan := findSpan(t, spans, "execute_tool")
 	for _, a := range toolSpan.Attributes {
-		if string(a.Key) == "tool.args" {
+		if string(a.Key) == "gen_ai.tool.call.arguments" {
 			t.Error("expected no tool.args attribute when Args is nil")
 		}
 	}
@@ -615,7 +615,7 @@ func TestOTelEventListener_ParentTraceContext(t *testing.T) {
 	parentSpan.End()
 
 	spans := flushAndGetSpans(t, tp, exp)
-	sessionSpan := findSpan(t, spans, "promptkit.session")
+	sessionSpan := findSpan(t, spans, "promptkit invoke_agent")
 	parent := findSpan(t, spans, "parent-operation")
 
 	if sessionSpan.Parent.SpanID() != parent.SpanContext.SpanID() {
@@ -682,7 +682,7 @@ func TestOTelEventListener_SpanAttributes(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	provSpan := findSpan(t, spans, "promptkit.provider.anthropic")
+	provSpan := findSpan(t, spans, "anthropic chat")
 
 	// Check numeric attributes.
 	attrMap := make(map[string]attribute.Value)
@@ -699,8 +699,8 @@ func TestOTelEventListener_SpanAttributes(t *testing.T) {
 	if v, ok := attrMap["gen_ai.response.finish_reason"]; !ok || v.AsString() != "end_turn" {
 		t.Errorf("expected gen_ai.response.finish_reason=end_turn, got %v", attrMap["gen_ai.response.finish_reason"])
 	}
-	if v, ok := attrMap["provider.cost"]; !ok || v.AsFloat64() != 0.005 {
-		t.Errorf("expected provider.cost=0.005, got %v", attrMap["provider.cost"])
+	if v, ok := attrMap["promptkit.provider.cost"]; !ok || v.AsFloat64() != 0.005 {
+		t.Errorf("expected provider.cost=0.005, got %v", attrMap["promptkit.provider.cost"])
 	}
 }
 
@@ -739,8 +739,8 @@ func TestOTelEventListener_OutOfOrderDelivery(t *testing.T) {
 	for _, a := range pipeSpan.Attributes {
 		attrMap[string(a.Key)] = a.Value
 	}
-	if v, ok := attrMap["pipeline.total_cost"]; !ok || v.AsFloat64() != 0.01 {
-		t.Errorf("expected pipeline.total_cost=0.01, got %v", attrMap["pipeline.total_cost"])
+	if v, ok := attrMap["promptkit.pipeline.cost"]; !ok || v.AsFloat64() != 0.01 {
+		t.Errorf("expected pipeline.total_cost=0.01, got %v", attrMap["promptkit.pipeline.cost"])
 	}
 }
 
@@ -768,8 +768,8 @@ func TestOTelEventListener_SpanHierarchy_NoPipeline_FallsBackToSession(t *testin
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	sessionSpan := findSpan(t, spans, "promptkit.session")
-	providerSpan := findSpan(t, spans, "promptkit.provider.openai")
+	sessionSpan := findSpan(t, spans, "promptkit invoke_agent")
+	providerSpan := findSpan(t, spans, "openai chat")
 
 	// Without a pipeline, provider should fall back to being a child of the session.
 	if providerSpan.Parent.SpanID() != sessionSpan.SpanContext.SpanID() {
@@ -804,7 +804,7 @@ func TestOTelEventListener_OutOfOrderFailed(t *testing.T) {
 	listener.EndSession("sess-1")
 	spans := flushAndGetSpans(t, tp, exp)
 
-	provSpan := findSpan(t, spans, "promptkit.provider.test")
+	provSpan := findSpan(t, spans, "test chat")
 	if provSpan.Status.Code != codes.Error {
 		t.Errorf("expected Error status, got %v", provSpan.Status.Code)
 	}

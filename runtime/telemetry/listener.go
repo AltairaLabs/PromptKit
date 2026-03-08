@@ -123,9 +123,13 @@ func (l *OTelEventListener) evictStale() {
 // session span is ended before creating a new one. This allows callers to call
 // StartSession on every Send/Stream with a fresh parent context.
 func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID string) {
-	ctx, span := l.tracer.Start(parentCtx, "promptkit.session",
+	ctx, span := l.tracer.Start(parentCtx, "promptkit invoke_agent",
 		trace.WithSpanKind(trace.SpanKindServer),
-		trace.WithAttributes(attribute.String("session.id", sessionID)),
+		trace.WithAttributes(
+			attribute.String("gen_ai.operation.name", "invoke_agent"),
+			attribute.String("gen_ai.system", "promptkit"),
+			attribute.String("gen_ai.conversation.id", sessionID),
+		),
 	)
 	l.mu.Lock()
 	prev, hadPrev := l.sessions[sessionID]
@@ -269,19 +273,18 @@ func (l *OTelEventListener) endSpan(key string, attrs ...attribute.KeyValue) {
 // failSpan ends an inflight span with an error status.
 // If the span hasn't started yet (out-of-order delivery), the failure is
 // buffered and will be applied when startSpan creates the span.
-func (l *OTelEventListener) failSpan(key, errMsg string, attrs ...attribute.KeyValue) {
+func (l *OTelEventListener) failSpan(key, errMsg string) {
 	l.mu.Lock()
 	entry, ok := l.inflight[key]
 	if ok {
 		delete(l.inflight, key)
 	} else {
-		l.pendingEnds[key] = &pendingEnd{errMsg: errMsg, attrs: attrs, createdAt: time.Now()}
+		l.pendingEnds[key] = &pendingEnd{errMsg: errMsg, createdAt: time.Now()}
 	}
 	l.mu.Unlock()
 	if !ok {
 		return
 	}
-	entry.span.SetAttributes(attrs...)
 	entry.span.SetStatus(codes.Error, errMsg)
 	entry.span.End()
 }
@@ -303,7 +306,7 @@ func asPtr[T any](data any) (*T, bool) {
 func (l *OTelEventListener) startPipeline(evt *events.Event) {
 	l.startSpan(l.sessionCtx(evt.SessionID), "pipeline:"+evt.RunID, "promptkit.pipeline",
 		trace.SpanKindInternal,
-		attribute.String("run.id", evt.RunID),
+		attribute.String("promptkit.run.id", evt.RunID),
 	)
 }
 
@@ -313,8 +316,7 @@ func (l *OTelEventListener) completePipeline(evt *events.Event) {
 		return
 	}
 	l.endSpan("pipeline:"+evt.RunID,
-		attribute.Int64("pipeline.duration_ms", data.Duration.Milliseconds()),
-		attribute.Float64("pipeline.total_cost", data.TotalCost),
+		attribute.Float64("promptkit.pipeline.cost", data.TotalCost),
 		attribute.Int("gen_ai.usage.input_tokens", data.InputTokens),
 		attribute.Int("gen_ai.usage.output_tokens", data.OutputTokens),
 	)
@@ -325,9 +327,7 @@ func (l *OTelEventListener) failPipeline(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.failSpan("pipeline:"+evt.RunID, data.Error.Error(),
-		attribute.Int64("pipeline.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.failSpan("pipeline:"+evt.RunID, data.Error.Error())
 }
 
 // --- Provider ---
@@ -337,12 +337,14 @@ func (l *OTelEventListener) startProvider(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "provider:"+evt.RunID, "promptkit.provider."+data.Provider,
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "provider:"+evt.RunID,
+		data.Provider+" chat",
 		trace.SpanKindClient,
+		attribute.String("gen_ai.operation.name", "chat"),
 		attribute.String("gen_ai.system", data.Provider),
 		attribute.String("gen_ai.request.model", data.Model),
-		attribute.Int("message.count", data.MessageCount),
-		attribute.Int("tool.count", data.ToolCount),
+		attribute.Int("promptkit.message.count", data.MessageCount),
+		attribute.Int("promptkit.tool.count", data.ToolCount),
 	)
 }
 
@@ -352,11 +354,10 @@ func (l *OTelEventListener) completeProvider(evt *events.Event) {
 		return
 	}
 	l.endSpan("provider:"+evt.RunID,
-		attribute.Int64("provider.duration_ms", data.Duration.Milliseconds()),
 		attribute.Int("gen_ai.usage.input_tokens", data.InputTokens),
 		attribute.Int("gen_ai.usage.output_tokens", data.OutputTokens),
 		attribute.String("gen_ai.response.finish_reason", data.FinishReason),
-		attribute.Float64("provider.cost", data.Cost),
+		attribute.Float64("promptkit.provider.cost", data.Cost),
 	)
 }
 
@@ -365,9 +366,7 @@ func (l *OTelEventListener) failProvider(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.failSpan("provider:"+evt.RunID, data.Error.Error(),
-		attribute.Int64("provider.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.failSpan("provider:"+evt.RunID, data.Error.Error())
 }
 
 // --- Tool ---
@@ -378,15 +377,16 @@ func (l *OTelEventListener) startTool(evt *events.Event) {
 		return
 	}
 	attrs := []attribute.KeyValue{
-		attribute.String("tool.name", data.ToolName),
-		attribute.String("tool.call_id", data.CallID),
+		attribute.String("gen_ai.operation.name", "execute_tool"),
+		attribute.String("gen_ai.tool.name", data.ToolName),
+		attribute.String("gen_ai.tool.call.id", data.CallID),
 	}
 	if data.Args != nil {
 		if argsJSON, err := json.Marshal(data.Args); err == nil {
-			attrs = append(attrs, attribute.String("tool.args", string(argsJSON)))
+			attrs = append(attrs, attribute.String("gen_ai.tool.call.arguments", string(argsJSON)))
 		}
 	}
-	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "tool:"+data.CallID, "promptkit.tool."+data.ToolName,
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "tool:"+data.CallID, "execute_tool",
 		trace.SpanKindInternal,
 		attrs...,
 	)
@@ -397,10 +397,7 @@ func (l *OTelEventListener) completeTool(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.endSpan("tool:"+data.CallID,
-		attribute.Int64("tool.duration_ms", data.Duration.Milliseconds()),
-		attribute.String("tool.status", data.Status),
-	)
+	l.endSpan("tool:" + data.CallID)
 }
 
 func (l *OTelEventListener) failTool(evt *events.Event) {
@@ -408,9 +405,7 @@ func (l *OTelEventListener) failTool(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.failSpan("tool:"+data.CallID, data.Error.Error(),
-		attribute.Int64("tool.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.failSpan("tool:"+data.CallID, data.Error.Error())
 }
 
 // --- Middleware ---
@@ -422,8 +417,8 @@ func (l *OTelEventListener) startMiddleware(evt *events.Event) {
 	}
 	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "middleware:"+data.Name, "promptkit.middleware."+data.Name,
 		trace.SpanKindInternal,
-		attribute.String("middleware.name", data.Name),
-		attribute.Int("middleware.index", data.Index),
+		attribute.String("promptkit.middleware.name", data.Name),
+		attribute.Int("promptkit.middleware.index", data.Index),
 	)
 }
 
@@ -432,9 +427,7 @@ func (l *OTelEventListener) completeMiddleware(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.endSpan("middleware:"+data.Name,
-		attribute.Int64("middleware.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.endSpan("middleware:" + data.Name)
 }
 
 func (l *OTelEventListener) failMiddleware(evt *events.Event) {
@@ -442,9 +435,7 @@ func (l *OTelEventListener) failMiddleware(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.failSpan("middleware:"+data.Name, data.Error.Error(),
-		attribute.Int64("middleware.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.failSpan("middleware:"+data.Name, data.Error.Error())
 }
 
 // --- Message ---
@@ -493,10 +484,10 @@ func (l *OTelEventListener) handleWorkflowTransition(evt *events.Event) {
 	_, span := l.tracer.Start(parentCtx, "promptkit.workflow.transition",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
-			attribute.String("workflow.from_state", data.FromState),
-			attribute.String("workflow.to_state", data.ToState),
-			attribute.String("workflow.event", data.Event),
-			attribute.String("workflow.prompt_task", data.PromptTask),
+			attribute.String("promptkit.workflow.from_state", data.FromState),
+			attribute.String("promptkit.workflow.to_state", data.ToState),
+			attribute.String("promptkit.workflow.event", data.Event),
+			attribute.String("promptkit.workflow.prompt_task", data.PromptTask),
 		),
 	)
 	span.End()
@@ -511,8 +502,8 @@ func (l *OTelEventListener) handleWorkflowCompleted(evt *events.Event) {
 	_, span := l.tracer.Start(parentCtx, "promptkit.workflow.completed",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
-			attribute.String("workflow.final_state", data.FinalState),
-			attribute.Int("workflow.transition_count", data.TransitionCount),
+			attribute.String("promptkit.workflow.final_state", data.FinalState),
+			attribute.Int("promptkit.workflow.transition_count", data.TransitionCount),
 		),
 	)
 	span.SetStatus(codes.Ok, "")

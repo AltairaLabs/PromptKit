@@ -170,25 +170,28 @@ exporter, _ := otlptracehttp.New(ctx,
 
 ## What Gets Exported
 
-The listener converts these event types into OTel spans:
+The listener converts runtime events into typed OTel spans following the [GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/). Each span carries a `gen_ai.operation.name` attribute that identifies its semantic type.
 
-| Runtime Event | OTel Span | Key Attributes |
-|---------------|-----------|----------------|
-| `provider.call.started/completed/failed` | `promptkit.provider.<name>` (Client) | `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `provider.cost` |
-| `pipeline.started/completed/failed` | `promptkit.pipeline` (Internal) | `pipeline.duration_ms`, `pipeline.total_cost`, token counts |
-| `message.created` | Span event on provider span | `gen_ai.message.content`, `gen_ai.tool_calls` |
-| `tool.call.started/completed/failed` | `promptkit.tool.<name>` (Internal) | `tool.args` (JSON), `tool.duration_ms`, `tool.status` |
-| `middleware.started/completed/failed` | `promptkit.middleware.<name>` (Internal) | `middleware.duration_ms` |
-| `workflow.transitioned` | `promptkit.workflow.transition` (instant) | `workflow.from_state`, `workflow.to_state`, `workflow.event` |
-| `workflow.completed` | `promptkit.workflow.completed` (instant) | `workflow.final_state`, `workflow.transition_count` |
+| Runtime Event | OTel Span | `gen_ai.operation.name` | Key Attributes |
+|---------------|-----------|------------------------|----------------|
+| Session start/end | `promptkit invoke_agent` (Server) | `invoke_agent` | `gen_ai.conversation.id` |
+| `provider.call.*` | `{system} chat` (Client) | `chat` | `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `promptkit.provider.cost` |
+| `pipeline.*` | `promptkit.pipeline` (Internal) | — | `promptkit.pipeline.cost`, token counts |
+| `message.created` | Span event on provider span | — | `gen_ai.message.content`, `gen_ai.tool_calls` |
+| `tool.call.*` | `execute_tool` (Internal) | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.call.arguments` |
+| `middleware.*` | `promptkit.middleware.{name}` (Internal) | — | `promptkit.middleware.name`, `promptkit.middleware.index` |
+| `workflow.transitioned` | `promptkit.workflow.transition` (instant) | — | `promptkit.workflow.from_state`, `promptkit.workflow.to_state` |
+| `workflow.completed` | `promptkit.workflow.completed` (instant) | — | `promptkit.workflow.final_state`, `promptkit.workflow.transition_count` |
 
 ### Semantic conventions
 
-Provider spans and message events follow the [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/):
+Spans follow the [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/):
 
-- **Provider spans** use `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, and `gen_ai.response.finish_reason`
-- **Message events** are named `gen_ai.<role>.message` (e.g., `gen_ai.user.message`, `gen_ai.assistant.message`) following the [GenAI span events spec](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)
-- **Tool call arguments** are serialised as JSON in the `tool.args` attribute
+- **Session spans** use `invoke_agent` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec
+- **Provider spans** use `chat` from the [GenAI Client Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) spec with `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, and `gen_ai.response.finish_reason`
+- **Tool spans** use `execute_tool` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec with `gen_ai.tool.name`, `gen_ai.tool.call.id`, and `gen_ai.tool.call.arguments`
+- **Message events** are named `gen_ai.<role>.message` following the [GenAI span events spec](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)
+- **PromptKit-specific attributes** are namespaced under `promptkit.*` (e.g., `promptkit.provider.cost`, `promptkit.workflow.from_state`)
 
 ## Export to the OpenTelemetry Collector
 
