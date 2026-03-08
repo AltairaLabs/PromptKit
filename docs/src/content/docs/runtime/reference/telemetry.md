@@ -33,6 +33,8 @@ promptkit invoke_agent (root, SpanKindServer)
 ├── openai chat (SpanKindClient)
 │   └── [event] gen_ai.assistant.message
 ├── promptkit.middleware.auth (SpanKindInternal)
+├── promptkit.eval.banned_words (SpanKindInternal)
+├── promptkit.eval.response-quality (SpanKindInternal, instant)
 ├── promptkit.workflow.transition (SpanKindInternal, instant)
 ├── promptkit.workflow.transition (SpanKindInternal, instant)
 └── promptkit.workflow.completed (SpanKindInternal, instant)
@@ -49,6 +51,7 @@ Every span carries a `gen_ai.operation.name` attribute (where applicable) that i
 | `execute_tool` | `execute_tool` | Internal | Tool execution |
 | `promptkit.pipeline` | — | Internal | Pipeline execution |
 | `promptkit.middleware.{name}` | — | Internal | Middleware execution |
+| `promptkit.eval.{name}` | — | Internal | Guardrail or eval execution |
 | `promptkit.workflow.transition` | — | Internal | Workflow state transition (instant) |
 | `promptkit.workflow.completed` | — | Internal | Workflow terminal state (instant) |
 
@@ -199,6 +202,44 @@ Tool execution duration is captured by the span's start/end timestamps. Success 
 | `middleware.started` / `middleware.completed` / `middleware.failed` | `promptkit.middleware.{name}` span (SpanKindInternal) |
 
 **Attributes:** `promptkit.middleware.name`, `promptkit.middleware.index`
+
+### Validation events (guardrails)
+
+| Event | Span |
+|-------|------|
+| `validation.started` / `validation.passed` / `validation.failed` | `promptkit.eval.{name}` span (SpanKindInternal) |
+
+Guardrail validations are traced as evaluation spans using the [GenAI Evaluation Attributes](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/). The `promptkit.guardrail` attribute distinguishes guardrails from other evals.
+
+**Attributes:**
+
+| Attribute | Type | Description | Spec reference |
+|-----------|------|-------------|----------------|
+| `gen_ai.evaluation.name` | string | Validator name (e.g., `banned_words`) | [gen_ai.evaluation.name](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) |
+| `gen_ai.evaluation.score` | float64 | `1.0` if passed, `0.0` if failed | [gen_ai.evaluation.score](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) |
+| `gen_ai.evaluation.explanation` | string | Error message or joined violations (on failure only) | [gen_ai.evaluation.explanation](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) |
+| `promptkit.eval.type` | string | Validator type (e.g., `output`) | PromptKit-specific |
+| `promptkit.guardrail` | bool | `true` — distinguishes guardrails from evals | PromptKit-specific |
+
+### Eval events
+
+| Event | Span |
+|-------|------|
+| `eval.completed` / `eval.failed` | `promptkit.eval.{evalID}` instant span (SpanKindInternal) |
+
+Evals (assertions, LLM judges, content checks) are traced as instant evaluation spans. They share the same [GenAI Evaluation Attributes](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) as guardrails but with `promptkit.guardrail = false`.
+
+**Attributes:**
+
+| Attribute | Type | Description | Spec reference |
+|-----------|------|-------------|----------------|
+| `gen_ai.evaluation.name` | string | Eval ID | [gen_ai.evaluation.name](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) |
+| `gen_ai.evaluation.score` | float64 | Numeric score (omitted when nil) | [gen_ai.evaluation.score](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) |
+| `gen_ai.evaluation.explanation` | string | Human-readable explanation (omitted when empty) | [gen_ai.evaluation.explanation](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) |
+| `promptkit.eval.type` | string | Handler type (e.g., `llm_judge`, `contains`) | PromptKit-specific |
+| `promptkit.guardrail` | bool | `false` — distinguishes evals from guardrails | PromptKit-specific |
+
+Passed evals have span status `Ok`. Failed evals have span status `Error` with the explanation or error message.
 
 ### Workflow events
 

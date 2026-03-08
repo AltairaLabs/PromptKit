@@ -180,6 +180,8 @@ The listener converts runtime events into typed OTel spans following the [GenAI 
 | `message.created` | Span event on provider span | — | `gen_ai.message.content`, `gen_ai.tool_calls` |
 | `tool.call.*` | `execute_tool` (Internal) | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.call.arguments` |
 | `middleware.*` | `promptkit.middleware.{name}` (Internal) | — | `promptkit.middleware.name`, `promptkit.middleware.index` |
+| `validation.*` | `promptkit.eval.{name}` (Internal) | — | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `promptkit.guardrail` |
+| `eval.*` | `promptkit.eval.{evalID}` (Internal, instant) | — | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `gen_ai.evaluation.explanation` |
 | `workflow.transitioned` | `promptkit.workflow.transition` (instant) | — | `promptkit.workflow.from_state`, `promptkit.workflow.to_state` |
 | `workflow.completed` | `promptkit.workflow.completed` (instant) | — | `promptkit.workflow.final_state`, `promptkit.workflow.transition_count` |
 
@@ -190,6 +192,7 @@ Spans follow the [OpenTelemetry GenAI Semantic Conventions](https://opentelemetr
 - **Session spans** use `invoke_agent` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec
 - **Provider spans** use `chat` from the [GenAI Client Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) spec with `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, and `gen_ai.response.finish_reason`
 - **Tool spans** use `execute_tool` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec with `gen_ai.tool.name`, `gen_ai.tool.call.id`, and `gen_ai.tool.call.arguments`
+- **Eval and guardrail spans** use [GenAI Evaluation Attributes](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) (`gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `gen_ai.evaluation.explanation`). Guardrails are distinguished by `promptkit.guardrail = true`
 - **Message events** are named `gen_ai.<role>.message` following the [GenAI span events spec](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)
 - **PromptKit-specific attributes** are namespaced under `promptkit.*` (e.g., `promptkit.provider.cost`, `promptkit.workflow.from_state`)
 

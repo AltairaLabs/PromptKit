@@ -813,6 +813,281 @@ func TestOTelEventListener_OutOfOrderFailed(t *testing.T) {
 	}
 }
 
+func TestOTelEventListener_ValidationSpan_Passed(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventPipelineStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.PipelineStartedData{},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventValidationStarted, Timestamp: now.Add(10 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ValidationStartedData{
+			ValidatorName: "banned_words",
+			ValidatorType: "output",
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventValidationPassed, Timestamp: now.Add(20 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ValidationPassedData{
+			ValidatorName: "banned_words",
+			ValidatorType: "output",
+			Duration:      10 * time.Millisecond,
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventPipelineCompleted, Timestamp: now.Add(time.Second),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.PipelineCompletedData{Duration: time.Second},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	valSpan := findSpan(t, spans, "promptkit.eval.banned_words")
+	if valSpan.Status.Code != codes.Ok {
+		t.Errorf("expected Ok status, got %v", valSpan.Status.Code)
+	}
+	if !hasAttr(valSpan, "gen_ai.evaluation.name", "banned_words") {
+		t.Error("expected gen_ai.evaluation.name attribute")
+	}
+	if !hasAttr(valSpan, "promptkit.eval.type", "output") {
+		t.Error("expected promptkit.eval.type attribute")
+	}
+
+	// Check promptkit.guardrail bool attribute.
+	attrMap := make(map[string]attribute.Value)
+	for _, a := range valSpan.Attributes {
+		attrMap[string(a.Key)] = a.Value
+	}
+	if v, ok := attrMap["promptkit.guardrail"]; !ok || !v.AsBool() {
+		t.Error("expected promptkit.guardrail=true")
+	}
+	if v, ok := attrMap["gen_ai.evaluation.score"]; !ok || v.AsFloat64() != 1.0 {
+		t.Errorf("expected gen_ai.evaluation.score=1.0, got %v", attrMap["gen_ai.evaluation.score"])
+	}
+
+	// Should be child of pipeline span.
+	pipelineSpan := findSpan(t, spans, "promptkit.pipeline")
+	if valSpan.Parent.SpanID() != pipelineSpan.SpanContext.SpanID() {
+		t.Error("validation span should be child of pipeline span")
+	}
+}
+
+func TestOTelEventListener_ValidationSpan_Failed(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventValidationStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ValidationStartedData{
+			ValidatorName: "length",
+			ValidatorType: "output",
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventValidationFailed, Timestamp: now.Add(15 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ValidationFailedData{
+			ValidatorName: "length",
+			ValidatorType: "output",
+			Duration:      15 * time.Millisecond,
+			Error:         errors.New("response too long"),
+			Violations:    []string{"exceeded 500 chars"},
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	valSpan := findSpan(t, spans, "promptkit.eval.length")
+	// Failed validation still ends as Ok (it completed, the eval just reported failure).
+	if valSpan.Status.Code != codes.Ok {
+		t.Errorf("expected Ok status, got %v", valSpan.Status.Code)
+	}
+
+	attrMap := make(map[string]attribute.Value)
+	for _, a := range valSpan.Attributes {
+		attrMap[string(a.Key)] = a.Value
+	}
+	if v, ok := attrMap["gen_ai.evaluation.score"]; !ok || v.AsFloat64() != 0.0 {
+		t.Errorf("expected gen_ai.evaluation.score=0.0, got %v", attrMap["gen_ai.evaluation.score"])
+	}
+	if v, ok := attrMap["gen_ai.evaluation.explanation"]; !ok || v.AsString() != "response too long" {
+		t.Errorf("expected explanation 'response too long', got %v", attrMap["gen_ai.evaluation.explanation"])
+	}
+}
+
+func TestOTelEventListener_ValidationSpan_FailedWithViolations(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventValidationStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ValidationStartedData{
+			ValidatorName: "banned_words",
+			ValidatorType: "output",
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventValidationFailed, Timestamp: now.Add(10 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ValidationFailedData{
+			ValidatorName: "banned_words",
+			ValidatorType: "output",
+			Duration:      10 * time.Millisecond,
+			Violations:    []string{"contains 'badword1'", "contains 'badword2'"},
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	valSpan := findSpan(t, spans, "promptkit.eval.banned_words")
+	if !hasAttr(valSpan, "gen_ai.evaluation.explanation", "contains 'badword1'; contains 'badword2'") {
+		t.Error("expected violations joined as explanation")
+	}
+}
+
+func TestOTelEventListener_EvalCompleted(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+	score := 0.85
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventPipelineStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.PipelineStartedData{},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventEvalCompleted, Timestamp: now.Add(100 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.EvalCompletedData{
+			EvalID:      "response-quality",
+			EvalType:    "llm_judge",
+			Trigger:     "every_turn",
+			Passed:      true,
+			Score:       &score,
+			Explanation: "Response is relevant and well-structured",
+			DurationMs:  95,
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventPipelineCompleted, Timestamp: now.Add(time.Second),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.PipelineCompletedData{Duration: time.Second},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	evalSpan := findSpan(t, spans, "promptkit.eval.response-quality")
+	if evalSpan.Status.Code != codes.Ok {
+		t.Errorf("expected Ok status, got %v", evalSpan.Status.Code)
+	}
+	if !hasAttr(evalSpan, "gen_ai.evaluation.name", "response-quality") {
+		t.Error("expected gen_ai.evaluation.name attribute")
+	}
+	if !hasAttr(evalSpan, "promptkit.eval.type", "llm_judge") {
+		t.Error("expected promptkit.eval.type attribute")
+	}
+
+	attrMap := make(map[string]attribute.Value)
+	for _, a := range evalSpan.Attributes {
+		attrMap[string(a.Key)] = a.Value
+	}
+	if v, ok := attrMap["promptkit.guardrail"]; !ok || v.AsBool() {
+		t.Error("expected promptkit.guardrail=false")
+	}
+	if v, ok := attrMap["gen_ai.evaluation.score"]; !ok || v.AsFloat64() != 0.85 {
+		t.Errorf("expected gen_ai.evaluation.score=0.85, got %v", attrMap["gen_ai.evaluation.score"])
+	}
+	if v, ok := attrMap["gen_ai.evaluation.explanation"]; !ok || v.AsString() != "Response is relevant and well-structured" {
+		t.Error("expected gen_ai.evaluation.explanation attribute")
+	}
+
+	// Should be child of pipeline span.
+	pipelineSpan := findSpan(t, spans, "promptkit.pipeline")
+	if evalSpan.Parent.SpanID() != pipelineSpan.SpanContext.SpanID() {
+		t.Error("eval span should be child of pipeline span")
+	}
+}
+
+func TestOTelEventListener_EvalFailed(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+	score := 0.2
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventEvalFailed, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.EvalFailedData{
+			EvalID:      "contains-greeting",
+			EvalType:    "contains",
+			Trigger:     "every_turn",
+			Passed:      false,
+			Score:       &score,
+			Explanation: "Response does not contain expected greeting",
+			DurationMs:  5,
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	evalSpan := findSpan(t, spans, "promptkit.eval.contains-greeting")
+	if evalSpan.Status.Code != codes.Error {
+		t.Errorf("expected Error status, got %v", evalSpan.Status.Code)
+	}
+	if evalSpan.Status.Description != "Response does not contain expected greeting" {
+		t.Errorf("expected explanation in status, got %q", evalSpan.Status.Description)
+	}
+}
+
+func TestOTelEventListener_EvalNoScore(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventEvalCompleted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.EvalCompletedData{
+			EvalID:   "json-valid",
+			EvalType: "json_valid",
+			Passed:   true,
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	evalSpan := findSpan(t, spans, "promptkit.eval.json-valid")
+	// Score attribute should be absent when Score is nil.
+	for _, a := range evalSpan.Attributes {
+		if string(a.Key) == "gen_ai.evaluation.score" {
+			t.Error("expected no gen_ai.evaluation.score attribute when Score is nil")
+		}
+	}
+}
+
 func TestOTelEventListener_Close(t *testing.T) {
 	listener, _, _ := newTestListener(t)
 
