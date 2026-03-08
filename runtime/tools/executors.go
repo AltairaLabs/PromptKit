@@ -72,21 +72,7 @@ func (e *MockStaticExecutor) Execute(
 func (e *MockStaticExecutor) ExecuteMultimodal(
 	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, []types.ContentPart, error) {
-	result, err := e.Execute(ctx, descriptor, args)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if len(descriptor.MockParts) == 0 {
-		return result, nil, nil
-	}
-
-	resolvedParts, err := ResolveMockParts(descriptor.MockParts)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to resolve mock_parts for tool %s: %w", descriptor.Name, err)
-	}
-
-	return result, resolvedParts, nil
+	return executeWithMockParts(ctx, e, descriptor, args)
 }
 
 // ResolveMockParts processes a slice of ContentPart, resolving any file_path
@@ -195,7 +181,16 @@ func (e *MockScriptedExecutor) Execute(
 func (e *MockScriptedExecutor) ExecuteMultimodal(
 	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, []types.ContentPart, error) {
-	result, err := e.Execute(ctx, descriptor, args)
+	return executeWithMockParts(ctx, e, descriptor, args)
+}
+
+// executeWithMockParts is the shared implementation for ExecuteMultimodal on
+// both MockStaticExecutor and MockScriptedExecutor. It delegates the JSON
+// result to the executor's Execute method and resolves any MockParts.
+func executeWithMockParts(
+	ctx context.Context, exec Executor, descriptor *ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, []types.ContentPart, error) {
+	result, err := exec.Execute(ctx, descriptor, args)
 	if err != nil {
 		return nil, nil, err
 	}
