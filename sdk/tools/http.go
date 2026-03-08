@@ -17,7 +17,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+
 	"github.com/AltairaLabs/PromptKit/runtime/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -109,8 +113,13 @@ func (e *HTTPExecutor) ExecuteWithContext(
 	// Create the request
 	req, err := e.buildRequest(ctx, cfg, args)
 	if err != nil {
+		logger.Error("HTTP tool request build failed",
+			"tool", descriptor.Name, "url", cfg.URL, "error", err)
 		return nil, err
 	}
+
+	// Inject OTel trace context into outbound request headers.
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 	// Apply timeout if configured
 	if cfg.TimeoutMs > 0 {
@@ -120,15 +129,32 @@ func (e *HTTPExecutor) ExecuteWithContext(
 		req = req.WithContext(ctx)
 	}
 
+	method := req.Method
+	logger.Info("HTTP tool call",
+		"tool", descriptor.Name, "method", method, "url", cfg.URL)
+
 	// Execute the request
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
+		logger.Error("HTTP tool call failed",
+			"tool", descriptor.Name, "method", method, "url", cfg.URL, "error", err)
+		return nil, fmt.Errorf("HTTP request to %s %s failed: %w", method, cfg.URL, err)
 	}
 	defer resp.Body.Close()
 
 	// Process the response
-	return e.processResponse(resp, cfg)
+	result, err := e.processResponse(resp, cfg)
+	if err != nil {
+		logger.Error("HTTP tool response error",
+			"tool", descriptor.Name, "method", method, "url", cfg.URL,
+			"status", resp.StatusCode, "error", err)
+		return nil, err
+	}
+
+	logger.Info("HTTP tool call completed",
+		"tool", descriptor.Name, "method", method, "url", cfg.URL,
+		"status", resp.StatusCode, "response_bytes", len(result))
+	return result, nil
 }
 
 // buildRequest creates an HTTP request from the config and args.
