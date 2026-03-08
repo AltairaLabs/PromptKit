@@ -19,10 +19,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pipeline"
 	"github.com/AltairaLabs/PromptKit/sdk/session"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
 )
 
 // TestOTelIntegration_SpansFromConversation verifies the full integration path:
@@ -94,16 +94,16 @@ func TestOTelIntegration_SpansFromConversation(t *testing.T) {
 		spanNames[s.Name] = true
 	}
 
-	// Check that at least one span starts with "promptkit.provider." (provider name varies).
+	// Check that at least one span ends with " chat" (SIG convention: "{system} chat").
 	hasProvider := false
 	for name := range spanNames {
-		if len(name) > len("promptkit.provider.") && name[:len("promptkit.provider.")] == "promptkit.provider." {
+		if len(name) > len(" chat") && name[len(name)-len(" chat"):] == " chat" {
 			hasProvider = true
 			break
 		}
 	}
 	if !hasProvider {
-		t.Errorf("missing provider span; got spans: %v", spanNameList(spans))
+		t.Errorf("missing provider span (expected '{system} chat'); got spans: %v", spanNameList(spans))
 	}
 
 	// Pipeline span should also be present.
@@ -152,7 +152,7 @@ func TestOTelIntegration_SpansParentedUnderSession(t *testing.T) {
 	// Find the session root span.
 	var sessionSpanID [8]byte
 	for _, s := range spans {
-		if s.Name == "promptkit.session" {
+		if s.Name == "promptkit invoke_agent" {
 			sessionSpanID = s.SpanContext.SpanID()
 			break
 		}
@@ -165,14 +165,14 @@ func TestOTelIntegration_SpansParentedUnderSession(t *testing.T) {
 	// the same trace. Check that provider span has the session's trace ID.
 	sessionTraceID := [16]byte{}
 	for _, s := range spans {
-		if s.Name == "promptkit.session" {
+		if s.Name == "promptkit invoke_agent" {
 			sessionTraceID = s.SpanContext.TraceID()
 			break
 		}
 	}
 
 	for _, s := range spans {
-		if s.Name == "promptkit.session" {
+		if s.Name == "promptkit invoke_agent" {
 			continue
 		}
 		if s.SpanContext.TraceID() != sessionTraceID {
@@ -240,7 +240,7 @@ func TestOTelIntegration_SpansParentedUnderCallerContext(t *testing.T) {
 	for _, s := range spans {
 		spanNames[s.Name] = true
 	}
-	if !spanNames["promptkit.session"] {
+	if !spanNames["promptkit invoke_agent"] {
 		t.Errorf("missing promptkit.session span; got: %v", spanNameList(spans))
 	}
 	if !spanNames["promptkit.pipeline"] {
@@ -422,7 +422,9 @@ type otelMockResult struct{}
 func (r *otelMockResult) HasPendingTools() bool                                 { return false }
 func (r *otelMockResult) HasPendingClientTools() bool                           { return false }
 func (r *otelMockResult) PendingClientTools() []a2aserver.PendingClientToolInfo { return nil }
-func (r *otelMockResult) Parts() []types.ContentPart                            { return []types.ContentPart{types.NewTextPart("ok")} }
-func (r *otelMockResult) Text() string                                          { return "ok" }
+func (r *otelMockResult) Parts() []types.ContentPart {
+	return []types.ContentPart{types.NewTextPart("ok")}
+}
+func (r *otelMockResult) Text() string { return "ok" }
 
 func ptrStr(s string) *string { return &s }

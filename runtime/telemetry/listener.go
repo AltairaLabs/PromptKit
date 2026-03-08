@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,15 +118,35 @@ func (l *OTelEventListener) evictStale() {
 	}
 }
 
+// AgentInfo holds optional agent identity metadata for session spans.
+type AgentInfo struct {
+	Name string // Agent/pack name (maps to gen_ai.agent.name)
+	ID   string // Agent/pack ID (maps to gen_ai.agent.id)
+}
+
 // StartSession creates a root span for the given session, optionally parented
 // under the span context in parentCtx.
 // It is idempotent: if a session already exists for the given ID, the previous
 // session span is ended before creating a new one. This allows callers to call
 // StartSession on every Send/Stream with a fresh parent context.
-func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID string) {
-	ctx, span := l.tracer.Start(parentCtx, "promptkit.session",
+// The optional agent parameter provides agent identity attributes for the span.
+func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID string, agent ...AgentInfo) {
+	attrs := []attribute.KeyValue{
+		attribute.String("gen_ai.operation.name", "invoke_agent"),
+		attribute.String("gen_ai.system", "promptkit"),
+		attribute.String("gen_ai.conversation.id", sessionID),
+	}
+	if len(agent) > 0 {
+		if agent[0].Name != "" {
+			attrs = append(attrs, attribute.String("gen_ai.agent.name", agent[0].Name))
+		}
+		if agent[0].ID != "" {
+			attrs = append(attrs, attribute.String("gen_ai.agent.id", agent[0].ID))
+		}
+	}
+	ctx, span := l.tracer.Start(parentCtx, "promptkit invoke_agent",
 		trace.WithSpanKind(trace.SpanKindServer),
-		trace.WithAttributes(attribute.String("session.id", sessionID)),
+		trace.WithAttributes(attrs...),
 	)
 	l.mu.Lock()
 	prev, hadPrev := l.sessions[sessionID]
@@ -186,6 +207,16 @@ func (l *OTelEventListener) OnEvent(evt *events.Event) {
 		l.handleWorkflowTransition(evt)
 	case events.EventWorkflowCompleted:
 		l.handleWorkflowCompleted(evt)
+	case events.EventValidationStarted:
+		l.startValidation(evt)
+	case events.EventValidationPassed:
+		l.completeValidation(evt)
+	case events.EventValidationFailed:
+		l.failValidation(evt)
+	case events.EventEvalCompleted:
+		l.handleEvalCompleted(evt)
+	case events.EventEvalFailed:
+		l.handleEvalFailed(evt)
 	}
 }
 
@@ -269,19 +300,18 @@ func (l *OTelEventListener) endSpan(key string, attrs ...attribute.KeyValue) {
 // failSpan ends an inflight span with an error status.
 // If the span hasn't started yet (out-of-order delivery), the failure is
 // buffered and will be applied when startSpan creates the span.
-func (l *OTelEventListener) failSpan(key, errMsg string, attrs ...attribute.KeyValue) {
+func (l *OTelEventListener) failSpan(key, errMsg string) {
 	l.mu.Lock()
 	entry, ok := l.inflight[key]
 	if ok {
 		delete(l.inflight, key)
 	} else {
-		l.pendingEnds[key] = &pendingEnd{errMsg: errMsg, attrs: attrs, createdAt: time.Now()}
+		l.pendingEnds[key] = &pendingEnd{errMsg: errMsg, createdAt: time.Now()}
 	}
 	l.mu.Unlock()
 	if !ok {
 		return
 	}
-	entry.span.SetAttributes(attrs...)
 	entry.span.SetStatus(codes.Error, errMsg)
 	entry.span.End()
 }
@@ -303,7 +333,7 @@ func asPtr[T any](data any) (*T, bool) {
 func (l *OTelEventListener) startPipeline(evt *events.Event) {
 	l.startSpan(l.sessionCtx(evt.SessionID), "pipeline:"+evt.RunID, "promptkit.pipeline",
 		trace.SpanKindInternal,
-		attribute.String("run.id", evt.RunID),
+		attribute.String("promptkit.run.id", evt.RunID),
 	)
 }
 
@@ -313,8 +343,7 @@ func (l *OTelEventListener) completePipeline(evt *events.Event) {
 		return
 	}
 	l.endSpan("pipeline:"+evt.RunID,
-		attribute.Int64("pipeline.duration_ms", data.Duration.Milliseconds()),
-		attribute.Float64("pipeline.total_cost", data.TotalCost),
+		attribute.Float64("promptkit.pipeline.cost", data.TotalCost),
 		attribute.Int("gen_ai.usage.input_tokens", data.InputTokens),
 		attribute.Int("gen_ai.usage.output_tokens", data.OutputTokens),
 	)
@@ -325,9 +354,7 @@ func (l *OTelEventListener) failPipeline(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.failSpan("pipeline:"+evt.RunID, data.Error.Error(),
-		attribute.Int64("pipeline.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.failSpan("pipeline:"+evt.RunID, data.Error.Error())
 }
 
 // --- Provider ---
@@ -337,12 +364,14 @@ func (l *OTelEventListener) startProvider(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "provider:"+evt.RunID, "promptkit.provider."+data.Provider,
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "provider:"+evt.RunID,
+		data.Provider+" chat",
 		trace.SpanKindClient,
+		attribute.String("gen_ai.operation.name", "chat"),
 		attribute.String("gen_ai.system", data.Provider),
 		attribute.String("gen_ai.request.model", data.Model),
-		attribute.Int("message.count", data.MessageCount),
-		attribute.Int("tool.count", data.ToolCount),
+		attribute.Int("promptkit.message.count", data.MessageCount),
+		attribute.Int("promptkit.tool.count", data.ToolCount),
 	)
 }
 
@@ -352,11 +381,10 @@ func (l *OTelEventListener) completeProvider(evt *events.Event) {
 		return
 	}
 	l.endSpan("provider:"+evt.RunID,
-		attribute.Int64("provider.duration_ms", data.Duration.Milliseconds()),
 		attribute.Int("gen_ai.usage.input_tokens", data.InputTokens),
 		attribute.Int("gen_ai.usage.output_tokens", data.OutputTokens),
 		attribute.String("gen_ai.response.finish_reason", data.FinishReason),
-		attribute.Float64("provider.cost", data.Cost),
+		attribute.Float64("promptkit.provider.cost", data.Cost),
 	)
 }
 
@@ -365,9 +393,7 @@ func (l *OTelEventListener) failProvider(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.failSpan("provider:"+evt.RunID, data.Error.Error(),
-		attribute.Int64("provider.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.failSpan("provider:"+evt.RunID, data.Error.Error())
 }
 
 // --- Tool ---
@@ -377,16 +403,22 @@ func (l *OTelEventListener) startTool(evt *events.Event) {
 	if !ok {
 		return
 	}
+	toolType := "function"
+	if strings.HasPrefix(data.ToolName, "mcp__") {
+		toolType = "extension"
+	}
 	attrs := []attribute.KeyValue{
-		attribute.String("tool.name", data.ToolName),
-		attribute.String("tool.call_id", data.CallID),
+		attribute.String("gen_ai.operation.name", "execute_tool"),
+		attribute.String("gen_ai.tool.name", data.ToolName),
+		attribute.String("gen_ai.tool.call.id", data.CallID),
+		attribute.String("gen_ai.tool.type", toolType),
 	}
 	if data.Args != nil {
 		if argsJSON, err := json.Marshal(data.Args); err == nil {
-			attrs = append(attrs, attribute.String("tool.args", string(argsJSON)))
+			attrs = append(attrs, attribute.String("gen_ai.tool.call.arguments", string(argsJSON)))
 		}
 	}
-	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "tool:"+data.CallID, "promptkit.tool."+data.ToolName,
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "tool:"+data.CallID, "execute_tool",
 		trace.SpanKindInternal,
 		attrs...,
 	)
@@ -397,10 +429,7 @@ func (l *OTelEventListener) completeTool(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.endSpan("tool:"+data.CallID,
-		attribute.Int64("tool.duration_ms", data.Duration.Milliseconds()),
-		attribute.String("tool.status", data.Status),
-	)
+	l.endSpan("tool:" + data.CallID)
 }
 
 func (l *OTelEventListener) failTool(evt *events.Event) {
@@ -408,9 +437,7 @@ func (l *OTelEventListener) failTool(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.failSpan("tool:"+data.CallID, data.Error.Error(),
-		attribute.Int64("tool.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.failSpan("tool:"+data.CallID, data.Error.Error())
 }
 
 // --- Middleware ---
@@ -422,8 +449,8 @@ func (l *OTelEventListener) startMiddleware(evt *events.Event) {
 	}
 	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "middleware:"+data.Name, "promptkit.middleware."+data.Name,
 		trace.SpanKindInternal,
-		attribute.String("middleware.name", data.Name),
-		attribute.Int("middleware.index", data.Index),
+		attribute.String("promptkit.middleware.name", data.Name),
+		attribute.Int("promptkit.middleware.index", data.Index),
 	)
 }
 
@@ -432,9 +459,7 @@ func (l *OTelEventListener) completeMiddleware(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.endSpan("middleware:"+data.Name,
-		attribute.Int64("middleware.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.endSpan("middleware:" + data.Name)
 }
 
 func (l *OTelEventListener) failMiddleware(evt *events.Event) {
@@ -442,9 +467,7 @@ func (l *OTelEventListener) failMiddleware(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.failSpan("middleware:"+data.Name, data.Error.Error(),
-		attribute.Int64("middleware.duration_ms", data.Duration.Milliseconds()),
-	)
+	l.failSpan("middleware:"+data.Name, data.Error.Error())
 }
 
 // --- Message ---
@@ -493,10 +516,10 @@ func (l *OTelEventListener) handleWorkflowTransition(evt *events.Event) {
 	_, span := l.tracer.Start(parentCtx, "promptkit.workflow.transition",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
-			attribute.String("workflow.from_state", data.FromState),
-			attribute.String("workflow.to_state", data.ToState),
-			attribute.String("workflow.event", data.Event),
-			attribute.String("workflow.prompt_task", data.PromptTask),
+			attribute.String("promptkit.workflow.from_state", data.FromState),
+			attribute.String("promptkit.workflow.to_state", data.ToState),
+			attribute.String("promptkit.workflow.event", data.Event),
+			attribute.String("promptkit.workflow.prompt_task", data.PromptTask),
 		),
 	)
 	span.End()
@@ -511,10 +534,106 @@ func (l *OTelEventListener) handleWorkflowCompleted(evt *events.Event) {
 	_, span := l.tracer.Start(parentCtx, "promptkit.workflow.completed",
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
-			attribute.String("workflow.final_state", data.FinalState),
-			attribute.Int("workflow.transition_count", data.TransitionCount),
+			attribute.String("promptkit.workflow.final_state", data.FinalState),
+			attribute.Int("promptkit.workflow.transition_count", data.TransitionCount),
 		),
 	)
 	span.SetStatus(codes.Ok, "")
+	span.End()
+}
+
+// --- Validation (guardrails) ---
+
+func (l *OTelEventListener) startValidation(evt *events.Event) {
+	data, ok := asPtr[events.ValidationStartedData](evt.Data)
+	if !ok {
+		return
+	}
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "validation:"+data.ValidatorName,
+		"promptkit.eval."+data.ValidatorName,
+		trace.SpanKindInternal,
+		attribute.String("gen_ai.evaluation.name", data.ValidatorName),
+		attribute.String("promptkit.eval.type", data.ValidatorType),
+		attribute.Bool("promptkit.guardrail", true),
+	)
+}
+
+func (l *OTelEventListener) completeValidation(evt *events.Event) {
+	data, ok := asPtr[events.ValidationPassedData](evt.Data)
+	if !ok {
+		return
+	}
+	l.endSpan("validation:"+data.ValidatorName,
+		attribute.Float64("gen_ai.evaluation.score", 1.0),
+	)
+}
+
+func (l *OTelEventListener) failValidation(evt *events.Event) {
+	data, ok := asPtr[events.ValidationFailedData](evt.Data)
+	if !ok {
+		return
+	}
+	explanation := ""
+	if data.Error != nil {
+		explanation = data.Error.Error()
+	}
+	if len(data.Violations) > 0 && explanation == "" {
+		explanation = strings.Join(data.Violations, "; ")
+	}
+	l.endSpan("validation:"+data.ValidatorName,
+		attribute.Float64("gen_ai.evaluation.score", 0.0),
+		attribute.String("gen_ai.evaluation.explanation", explanation),
+	)
+}
+
+// --- Evals ---
+
+func (l *OTelEventListener) handleEvalCompleted(evt *events.Event) {
+	data, ok := asPtr[events.EvalCompletedData](evt.Data)
+	if !ok {
+		return
+	}
+	l.emitEvalSpan(evt, data)
+}
+
+func (l *OTelEventListener) handleEvalFailed(evt *events.Event) {
+	data, ok := asPtr[events.EvalFailedData](evt.Data)
+	if !ok {
+		return
+	}
+	l.emitEvalSpan(evt, data)
+}
+
+func (l *OTelEventListener) emitEvalSpan(evt *events.Event, data *events.EvalEventData) {
+	attrs := []attribute.KeyValue{
+		attribute.String("gen_ai.evaluation.name", data.EvalID),
+		attribute.String("promptkit.eval.type", data.EvalType),
+		attribute.Bool("promptkit.guardrail", false),
+	}
+	if data.Score != nil {
+		attrs = append(attrs, attribute.Float64("gen_ai.evaluation.score", *data.Score))
+	}
+	if data.Explanation != "" {
+		attrs = append(attrs, attribute.String("gen_ai.evaluation.explanation", data.Explanation))
+	}
+
+	parentCtx := l.parentCtxForRun(evt.SessionID, evt.RunID)
+	_, span := l.tracer.Start(parentCtx, "promptkit.eval."+data.EvalID,
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attrs...),
+	)
+
+	if data.Passed {
+		span.SetStatus(codes.Ok, "")
+	} else {
+		errMsg := data.Error
+		if errMsg == "" && data.Explanation != "" {
+			errMsg = data.Explanation
+		}
+		if errMsg == "" {
+			errMsg = "eval failed"
+		}
+		span.SetStatus(codes.Error, errMsg)
+	}
 	span.End()
 }
