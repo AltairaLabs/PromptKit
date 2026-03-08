@@ -118,19 +118,35 @@ func (l *OTelEventListener) evictStale() {
 	}
 }
 
+// AgentInfo holds optional agent identity metadata for session spans.
+type AgentInfo struct {
+	Name string // Agent/pack name (maps to gen_ai.agent.name)
+	ID   string // Agent/pack ID (maps to gen_ai.agent.id)
+}
+
 // StartSession creates a root span for the given session, optionally parented
 // under the span context in parentCtx.
 // It is idempotent: if a session already exists for the given ID, the previous
 // session span is ended before creating a new one. This allows callers to call
 // StartSession on every Send/Stream with a fresh parent context.
-func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID string) {
+// The optional agent parameter provides agent identity attributes for the span.
+func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID string, agent ...AgentInfo) {
+	attrs := []attribute.KeyValue{
+		attribute.String("gen_ai.operation.name", "invoke_agent"),
+		attribute.String("gen_ai.system", "promptkit"),
+		attribute.String("gen_ai.conversation.id", sessionID),
+	}
+	if len(agent) > 0 {
+		if agent[0].Name != "" {
+			attrs = append(attrs, attribute.String("gen_ai.agent.name", agent[0].Name))
+		}
+		if agent[0].ID != "" {
+			attrs = append(attrs, attribute.String("gen_ai.agent.id", agent[0].ID))
+		}
+	}
 	ctx, span := l.tracer.Start(parentCtx, "promptkit invoke_agent",
 		trace.WithSpanKind(trace.SpanKindServer),
-		trace.WithAttributes(
-			attribute.String("gen_ai.operation.name", "invoke_agent"),
-			attribute.String("gen_ai.system", "promptkit"),
-			attribute.String("gen_ai.conversation.id", sessionID),
-		),
+		trace.WithAttributes(attrs...),
 	)
 	l.mu.Lock()
 	prev, hadPrev := l.sessions[sessionID]
@@ -387,10 +403,15 @@ func (l *OTelEventListener) startTool(evt *events.Event) {
 	if !ok {
 		return
 	}
+	toolType := "function"
+	if strings.HasPrefix(data.ToolName, "mcp__") {
+		toolType = "extension"
+	}
 	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.operation.name", "execute_tool"),
 		attribute.String("gen_ai.tool.name", data.ToolName),
 		attribute.String("gen_ai.tool.call.id", data.CallID),
+		attribute.String("gen_ai.tool.type", toolType),
 	}
 	if data.Args != nil {
 		if argsJSON, err := json.Marshal(data.Args); err == nil {

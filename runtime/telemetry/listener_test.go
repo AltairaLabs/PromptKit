@@ -1088,6 +1088,103 @@ func TestOTelEventListener_EvalNoScore(t *testing.T) {
 	}
 }
 
+func TestOTelEventListener_ToolSpan_MCPToolType(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventToolCallStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ToolCallStartedData{
+			ToolName: "mcp__weather__get_forecast", CallID: "call-mcp",
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventToolCallCompleted, Timestamp: now.Add(100 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ToolCallCompletedData{
+			ToolName: "mcp__weather__get_forecast", CallID: "call-mcp",
+			Duration: 100 * time.Millisecond, Status: "success",
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	toolSpan := findSpan(t, spans, "execute_tool")
+	if !hasAttr(toolSpan, "gen_ai.tool.type", "extension") {
+		t.Error("expected gen_ai.tool.type=extension for MCP tool")
+	}
+}
+
+func TestOTelEventListener_ToolSpan_RegularToolType(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventToolCallStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ToolCallStartedData{ToolName: "search", CallID: "call-reg"},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventToolCallCompleted, Timestamp: now.Add(50 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ToolCallCompletedData{
+			ToolName: "search", CallID: "call-reg",
+			Duration: 50 * time.Millisecond, Status: "success",
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	toolSpan := findSpan(t, spans, "execute_tool")
+	if !hasAttr(toolSpan, "gen_ai.tool.type", "function") {
+		t.Error("expected gen_ai.tool.type=function for regular tool")
+	}
+}
+
+func TestOTelEventListener_SessionAgentIdentity(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+
+	listener.StartSession(context.Background(), "sess-1", AgentInfo{
+		Name: "customer-support",
+		ID:   "cs-agent-v2",
+	})
+	listener.EndSession("sess-1")
+
+	spans := flushAndGetSpans(t, tp, exp)
+
+	sessionSpan := findSpan(t, spans, "promptkit invoke_agent")
+	if !hasAttr(sessionSpan, "gen_ai.agent.name", "customer-support") {
+		t.Error("expected gen_ai.agent.name attribute")
+	}
+	if !hasAttr(sessionSpan, "gen_ai.agent.id", "cs-agent-v2") {
+		t.Error("expected gen_ai.agent.id attribute")
+	}
+}
+
+func TestOTelEventListener_SessionNoAgentInfo(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+
+	// No agent info passed — should still work, no agent attrs.
+	listener.StartSession(context.Background(), "sess-1")
+	listener.EndSession("sess-1")
+
+	spans := flushAndGetSpans(t, tp, exp)
+
+	sessionSpan := findSpan(t, spans, "promptkit invoke_agent")
+	for _, a := range sessionSpan.Attributes {
+		if string(a.Key) == "gen_ai.agent.name" || string(a.Key) == "gen_ai.agent.id" {
+			t.Errorf("unexpected agent attribute %q when no AgentInfo provided", a.Key)
+		}
+	}
+}
+
 func TestOTelEventListener_Close(t *testing.T) {
 	listener, _, _ := newTestListener(t)
 

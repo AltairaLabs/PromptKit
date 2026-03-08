@@ -174,11 +174,11 @@ The listener converts runtime events into typed OTel spans following the [GenAI 
 
 | Runtime Event | OTel Span | `gen_ai.operation.name` | Key Attributes |
 |---------------|-----------|------------------------|----------------|
-| Session start/end | `promptkit invoke_agent` (Server) | `invoke_agent` | `gen_ai.conversation.id` |
+| Session start/end | `promptkit invoke_agent` (Server) | `invoke_agent` | `gen_ai.conversation.id`, `gen_ai.agent.name`, `gen_ai.agent.id` |
 | `provider.call.*` | `{system} chat` (Client) | `chat` | `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `promptkit.provider.cost` |
 | `pipeline.*` | `promptkit.pipeline` (Internal) | — | `promptkit.pipeline.cost`, token counts |
 | `message.created` | Span event on provider span | — | `gen_ai.message.content`, `gen_ai.tool_calls` |
-| `tool.call.*` | `execute_tool` (Internal) | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.call.arguments` |
+| `tool.call.*` | `execute_tool` (Internal) | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.call.arguments`, `gen_ai.tool.type` |
 | `middleware.*` | `promptkit.middleware.{name}` (Internal) | — | `promptkit.middleware.name`, `promptkit.middleware.index` |
 | `validation.*` | `promptkit.eval.{name}` (Internal) | — | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `promptkit.guardrail` |
 | `eval.*` | `promptkit.eval.{evalID}` (Internal, instant) | — | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `gen_ai.evaluation.explanation` |

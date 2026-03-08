@@ -129,6 +129,8 @@ The root span for each conversation session.
 | `gen_ai.operation.name` | `"invoke_agent"` | [gen_ai.operation.name](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) |
 | `gen_ai.system` | `"promptkit"` | [gen_ai.system](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) |
 | `gen_ai.conversation.id` | Session ID | [gen_ai.conversation.id](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) |
+| `gen_ai.agent.name` | Pack name (when available) | [gen_ai.agent.name](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) |
+| `gen_ai.agent.id` | Pack ID (when available) | [gen_ai.agent.id](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) |
 
 ### Provider events (`chat`)
 
@@ -192,8 +194,9 @@ Messages are not separate spans. They are attached as **span events** on the cur
 | `gen_ai.tool.name` | string | [gen_ai.tool.name](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) |
 | `gen_ai.tool.call.id` | string | [gen_ai.tool.call.id](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) |
 | `gen_ai.tool.call.arguments` | string (JSON) | [gen_ai.tool.call.arguments](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) (omitted when nil) |
+| `gen_ai.tool.type` | string | [gen_ai.tool.type](https://opentelemetry.io/docs/specs/semconv/attributes-registry/gen-ai/) — `"function"` for regular tools, `"extension"` for MCP tools |
 
-Tool execution duration is captured by the span's start/end timestamps. Success or failure is captured by the span status code.
+Tool execution duration is captured by the span's start/end timestamps. Success or failure is captured by the span status code. MCP tools (prefixed `mcp__`) are automatically detected and tagged with `gen_ai.tool.type = "extension"` per the [MCP conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/mcp/).
 
 ### Middleware events
 

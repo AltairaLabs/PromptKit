@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -896,7 +897,12 @@ func (c *Conversation) Fork() (*Conversation, error) {
 // OTel event listener so that pipeline spans are parented under the caller's span.
 func (c *Conversation) startOTelSession(ctx context.Context) {
 	if c.config != nil && c.config.otelListener != nil {
-		c.config.otelListener.StartSession(ctx, c.ID())
+		var agent telemetry.AgentInfo
+		if c.pack != nil {
+			agent.Name = c.pack.Name
+			agent.ID = c.pack.ID
+		}
+		c.config.otelListener.StartSession(ctx, c.ID(), agent)
 	}
 }
 
