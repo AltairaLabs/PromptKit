@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // Platform type constants.
@@ -86,6 +88,8 @@ func resolveAPIKeyCredential(cfg ResolverConfig) (Credential, error) {
 func findAPIKey(cfg ResolverConfig) (string, error) {
 	// 1. Try explicit api_key
 	if cfg.CredentialConfig != nil && cfg.CredentialConfig.APIKey != "" {
+		logger.Debug("credential resolved via explicit api_key",
+			"provider", cfg.ProviderType)
 		return cfg.CredentialConfig.APIKey, nil
 	}
 
@@ -95,6 +99,8 @@ func findAPIKey(cfg ResolverConfig) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to read credential file: %w", err)
 		}
+		logger.Debug("credential resolved via credential_file",
+			"provider", cfg.ProviderType)
 		return key, nil
 	}
 
@@ -104,11 +110,21 @@ func findAPIKey(cfg ResolverConfig) (string, error) {
 		if key == "" {
 			return "", fmt.Errorf("environment variable %s is not set", cfg.CredentialConfig.CredentialEnv)
 		}
+		logger.Debug("credential resolved via credential_env",
+			"provider", cfg.ProviderType, "env_var", cfg.CredentialConfig.CredentialEnv)
 		return key, nil
 	}
 
 	// 4. Try default env vars for provider type
-	return findDefaultEnvKey(cfg.ProviderType), nil
+	key := findDefaultEnvKey(cfg.ProviderType)
+	if key != "" {
+		logger.Debug("credential resolved via default env var",
+			"provider", cfg.ProviderType)
+	} else {
+		logger.Debug("no credential found, using NoOp",
+			"provider", cfg.ProviderType)
+	}
+	return key, nil
 }
 
 // findDefaultEnvKey looks for API keys in default environment variables.

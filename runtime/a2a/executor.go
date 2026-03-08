@@ -222,7 +222,7 @@ func buildRequest(
 
 // executeRequest sends an A2A request with timeout and retry, returning the completed task.
 func (e *Executor) executeRequest(
-	ctx context.Context, cfg *tools.A2AConfig, req *SendMessageRequest,
+	ctx context.Context, toolName string, cfg *tools.A2AConfig, req *SendMessageRequest,
 ) (*Task, error) {
 	client := e.getOrCreateClient(cfg.AgentURL)
 
@@ -232,10 +232,20 @@ func (e *Executor) executeRequest(
 		defer cancel()
 	}
 
+	logger.Info("A2A tool call",
+		"tool", toolName, "agent_url", cfg.AgentURL, "skill_id", cfg.SkillID)
+
 	task, err := e.sendWithRetry(ctx, client, req, cfg.AgentURL)
 	if err != nil {
+		logger.Error("A2A tool call failed",
+			"tool", toolName, "agent_url", cfg.AgentURL, "error", err)
 		return nil, fmt.Errorf("a2a executor: send message: %w", err)
 	}
+
+	logger.Info("A2A tool call completed",
+		"tool", toolName, "agent_url", cfg.AgentURL,
+		"task_state", string(task.Status.State))
+
 	return task, nil
 }
 
@@ -245,10 +255,12 @@ func (e *Executor) Execute(
 ) (json.RawMessage, error) {
 	cfg, req, err := buildRequest(descriptor, args)
 	if err != nil {
+		logger.Error("A2A tool request build failed",
+			"tool", descriptor.Name, "error", err)
 		return nil, err
 	}
 
-	task, err := e.executeRequest(ctx, cfg, req)
+	task, err := e.executeRequest(ctx, descriptor.Name, cfg, req)
 	if err != nil {
 		return nil, err
 	}
@@ -265,10 +277,12 @@ func (e *Executor) ExecuteMultimodal(
 ) (json.RawMessage, []types.ContentPart, error) {
 	cfg, req, err := buildRequest(descriptor, args)
 	if err != nil {
+		logger.Error("A2A multimodal tool request build failed",
+			"tool", descriptor.Name, "error", err)
 		return nil, nil, err
 	}
 
-	task, err := e.executeRequest(ctx, cfg, req)
+	task, err := e.executeRequest(ctx, descriptor.Name, cfg, req)
 	if err != nil {
 		return nil, nil, err
 	}

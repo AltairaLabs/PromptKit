@@ -79,6 +79,8 @@ func setLoggerOnce(l *slog.Logger) {
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	conv, _, err := initConversation(packPath, promptName, opts)
 	if err != nil {
+		logger.Error("conversation open failed",
+			"pack", packPath, "prompt", promptName, "error", err)
 		return nil, err
 	}
 
@@ -101,6 +103,8 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		}
 	}
 
+	logger.Info("conversation opened",
+		"id", conv.ID(), "pack", packPath, "prompt", promptName)
 	return conv, nil
 }
 

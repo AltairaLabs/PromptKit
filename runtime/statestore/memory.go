@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -620,6 +621,9 @@ func (s *MemoryStore) evictLRULocked() {
 				s.removeFromUserIndex(state.UserID, entry.key)
 			}
 			delete(s.states, entry.key)
+			logger.Debug("state store LRU eviction",
+				"conversation_id", entry.key,
+				"store_size", len(s.states))
 			return
 		}
 		// Entry was already deleted from states (e.g., by TTL expiry); pop next.
@@ -650,11 +654,17 @@ func (s *MemoryStore) deleteExpiredKeys(keys []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	evicted := 0
 	for _, id := range keys {
 		state, ok := s.states[id]
 		if ok && s.isExpired(state) {
 			s.deleteStateLocked(id, state)
+			evicted++
 		}
+	}
+	if evicted > 0 {
+		logger.Debug("state store TTL eviction",
+			"evicted", evicted, "store_size", len(s.states))
 	}
 }
 

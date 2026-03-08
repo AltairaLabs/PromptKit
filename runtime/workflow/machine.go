@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 var (
@@ -91,7 +93,10 @@ func (sm *StateMachine) ProcessEvent(event string) error {
 			ErrInvalidEvent, event, sm.context.CurrentState, sm.availableEventsLocked())
 	}
 
-	sm.context.RecordTransition(sm.context.CurrentState, target, event, sm.now())
+	fromState := sm.context.CurrentState
+	sm.context.RecordTransition(fromState, target, event, sm.now())
+	logger.Info("workflow state transition",
+		"from", fromState, "to", target, "event", event)
 	return nil
 }
 

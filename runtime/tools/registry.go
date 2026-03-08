@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -373,6 +374,8 @@ func (r *Registry) Execute(
 
 	// Validate arguments
 	if valErr := r.validator.ValidateArgs(tool, args); valErr != nil {
+		logger.Debug("tool argument validation failed",
+			"tool", toolName, "error", valErr)
 		return nil, valErr
 	}
 
@@ -381,6 +384,10 @@ func (r *Registry) Execute(
 	if err != nil {
 		return nil, err
 	}
+
+	logger.Debug("tool execution started",
+		"tool", toolName, "mode", tool.Mode, "executor", executor.Name(),
+		"timeout_ms", tool.TimeoutMs)
 
 	// Apply timeout from tool descriptor
 	execCtx, cancel := r.withTimeout(ctx, tool)
@@ -409,6 +416,12 @@ func (r *Registry) Execute(
 				"%s: %s exceeded %dms timeout",
 				ErrToolTimeout, toolName, tool.TimeoutMs,
 			)
+			logger.Warn("tool execution timed out",
+				"tool", toolName, "timeout_ms", tool.TimeoutMs,
+				"latency_ms", latency)
+		} else {
+			logger.Debug("tool execution failed",
+				"tool", toolName, "latency_ms", latency, "error", err)
 		}
 		return &ToolResult{
 			Name:      toolName,
