@@ -351,6 +351,28 @@ test-ci-examples: build-arena ## Test all CI pipeline examples with mock data
 		exit 1; \
 	fi
 
+validate-examples: build-arena ## Validate all example arena configs against JSON schemas
+	@echo "🔍 Validating All Example Configs"
+	@echo ""
+	@FAILED=0; \
+	TOTAL=0; \
+	for config in examples/*/config.arena.yaml; do \
+		example=$$(basename $$(dirname "$$config")); \
+		TOTAL=$$((TOTAL + 1)); \
+		if ! PROMPTKIT_SCHEMA_SOURCE=local ./bin/promptarena validate "$$config" > /dev/null 2>&1; then \
+			echo "  ✗ $$example"; \
+			PROMPTKIT_SCHEMA_SOURCE=local ./bin/promptarena validate "$$config" 2>&1 | grep -E "❌|error|failed" | head -3 | sed 's/^/    /'; \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	if [ $$FAILED -eq 0 ]; then \
+		echo "✅ All $$TOTAL example configs are valid"; \
+	else \
+		echo "❌ $$FAILED/$$TOTAL example config(s) failed validation"; \
+		exit 1; \
+	fi
+
 # =============================================================================
 # SDK E2E Tests
 # =============================================================================

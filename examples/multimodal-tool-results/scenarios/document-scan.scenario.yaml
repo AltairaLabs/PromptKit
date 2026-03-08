@@ -4,7 +4,7 @@ metadata:
   name: document-scan
 spec:
   id: document-scan
-  task_type: analysis
+  task_type: analyst
   description: "Demonstrates document scanning with multimodal tool results"
 
   turns:
@@ -20,11 +20,12 @@ spec:
         - type: tool_result_has_media
           params:
             tool: scan_document
+            media_type: image
             message: "Tool result should contain media (scanned image)"
         - type: tool_result_media_type
           params:
             tool: scan_document
-            media_type: image
+            mime_type: image/png
             message: "Scanned document should be returned as an image"
 
     # Turn 2: Follow-up about the scanned document

@@ -376,6 +376,8 @@ func buildToolRegistry(cfg *config.Config) (*tools.Registry, error) {
 		// Get the parsed tool descriptor(s) from temp registry
 		loadedTools := tempRegistry.GetTools()
 		for _, tool := range loadedTools {
+			// Resolve relative file_path references in mock_parts against the config directory
+			resolveMockPartsPaths(tool, cfg.ConfigDir)
 			if err := memRepo.SaveTool(tool); err != nil {
 				return nil, fmt.Errorf("failed to save tool %s to repository: %w", tool.Name, err)
 			}
@@ -390,6 +392,23 @@ func buildToolRegistry(cfg *config.Config) (*tools.Registry, error) {
 	}
 
 	return toolRegistry, nil
+}
+
+// resolveMockPartsPaths resolves relative file_path references in mock_parts
+// against the config directory so that tool execution can find the files.
+func resolveMockPartsPaths(tool *tools.ToolDescriptor, configDir string) {
+	if configDir == "" || len(tool.MockParts) == 0 {
+		return
+	}
+	for i := range tool.MockParts {
+		if tool.MockParts[i].Media != nil && tool.MockParts[i].Media.FilePath != nil {
+			fp := *tool.MockParts[i].Media.FilePath
+			if fp != "" && !filepath.IsAbs(fp) {
+				resolved := filepath.Join(configDir, fp)
+				tool.MockParts[i].Media.FilePath = &resolved
+			}
+		}
+	}
 }
 
 // buildMCPRegistry creates an MCP registry from config and registers all MCP servers.

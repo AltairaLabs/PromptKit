@@ -4,7 +4,7 @@ metadata:
   name: chart-generation
 spec:
   id: chart-generation
-  task_type: analysis
+  task_type: analyst
   description: "Demonstrates multimodal tool results — LLM requests a chart and receives an image back"
 
   turns:
@@ -20,11 +20,12 @@ spec:
         - type: tool_result_has_media
           params:
             tool: generate_chart
+            media_type: image
             message: "Tool result should contain media (chart image)"
         - type: tool_result_media_type
           params:
             tool: generate_chart
-            media_type: image
+            mime_type: image/png
             message: "Tool result media should be an image"
 
     # Turn 2: Follow-up — LLM describes the chart
