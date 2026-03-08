@@ -354,6 +354,71 @@ func TestToolDescriptor_MockParts_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, "testdata/sample-chart.png", *decoded.MockParts[1].Media.FilePath)
 }
 
+func TestMockScriptedExecutor_ImplementsMultimodalExecutor(t *testing.T) {
+	var _ tools.MultimodalExecutor = tools.NewMockScriptedExecutor()
+}
+
+func TestMockScriptedExecutor_ExecuteMultimodal_NoParts(t *testing.T) {
+	exec := tools.NewMockScriptedExecutor()
+	desc := &tools.ToolDescriptor{
+		Name:         "templated_tool",
+		Mode:         "mock",
+		MockTemplate: `{"greeting": "hello {{.name}}"}`,
+	}
+
+	result, parts, err := exec.ExecuteMultimodal(
+		context.Background(), desc, json.RawMessage(`{"name":"world"}`),
+	)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"greeting": "hello world"}`, string(result))
+	assert.Nil(t, parts, "parts should be nil when MockParts is empty")
+}
+
+func TestMockScriptedExecutor_ExecuteMultimodal_WithParts(t *testing.T) {
+	exec := tools.NewMockScriptedExecutor()
+	imgPath := filepath.Join("testdata", "sample-chart.png")
+	desc := &tools.ToolDescriptor{
+		Name:         "chart_tool",
+		Mode:         "mock",
+		MockTemplate: `{"metric": "{{.metric}}"}`,
+		MockParts: []types.ContentPart{
+			{Type: types.ContentTypeText, Text: strPtr("Chart generated")},
+			{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					FilePath: strPtr(imgPath),
+					MIMEType: types.MIMETypeImagePNG,
+				},
+			},
+		},
+	}
+
+	result, parts, err := exec.ExecuteMultimodal(
+		context.Background(), desc, json.RawMessage(`{"metric":"revenue"}`),
+	)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"metric": "revenue"}`, string(result))
+	require.Len(t, parts, 2)
+	assert.Equal(t, types.ContentTypeText, parts[0].Type)
+	assert.Equal(t, types.ContentTypeImage, parts[1].Type)
+	assert.NotNil(t, parts[1].Media.Data, "file_path should be resolved to base64 data")
+	assert.Nil(t, parts[1].Media.FilePath, "file_path should be cleared after resolution")
+}
+
+func TestMockScriptedExecutor_ExecuteMultimodal_NonMockMode(t *testing.T) {
+	exec := tools.NewMockScriptedExecutor()
+	desc := &tools.ToolDescriptor{
+		Name:         "live_tool",
+		Mode:         "live",
+		MockTemplate: `{"result": "nope"}`,
+	}
+
+	_, _, err := exec.ExecuteMultimodal(
+		context.Background(), desc, json.RawMessage(`{}`),
+	)
+	assert.Error(t, err)
+}
+
 func TestToolDescriptor_MockParts_Empty(t *testing.T) {
 	desc := tools.ToolDescriptor{
 		Name:         "no_parts",

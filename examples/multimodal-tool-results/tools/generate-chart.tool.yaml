@@ -1,7 +1,7 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Tool
 metadata:
-  name: generate-chart
+  name: generate_chart
 spec:
   name: generate_chart
   description: Generates a chart image from the specified metric and time period

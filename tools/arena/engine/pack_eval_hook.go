@@ -249,7 +249,12 @@ func buildToolCallRecord(
 		record.Arguments = parseJSONArgs(tc.Args)
 	}
 	if resultMsg, ok := toolResults[tc.ID]; ok {
-		record.Result = resultMsg.Content
+		// Prefer multimodal Parts over text-only Content for eval assertions
+		if resultMsg.ToolResult != nil && len(resultMsg.ToolResult.Parts) > 0 {
+			record.Result = resultMsg.ToolResult.Parts
+		} else {
+			record.Result = resultMsg.Content
+		}
 		if resultMsg.ToolResult != nil && resultMsg.ToolResult.Error != "" {
 			record.Error = resultMsg.ToolResult.Error
 		}

@@ -189,6 +189,29 @@ func (e *MockScriptedExecutor) Execute(
 	return json.Marshal(jsonResult)
 }
 
+// ExecuteMultimodal executes a scripted mock tool and returns both JSON result and content parts.
+// The JSON result is rendered via Go templates; MockParts (if present) are resolved identically
+// to MockStaticExecutor (file_path → base64, URLs passed through).
+func (e *MockScriptedExecutor) ExecuteMultimodal(
+	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, []types.ContentPart, error) {
+	result, err := e.Execute(ctx, descriptor, args)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(descriptor.MockParts) == 0 {
+		return result, nil, nil
+	}
+
+	resolvedParts, err := ResolveMockParts(descriptor.MockParts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve mock_parts for tool %s: %w", descriptor.Name, err)
+	}
+
+	return result, resolvedParts, nil
+}
+
 // processTemplate renders a Go text/template with provided arguments.
 // Compiled templates are cached by template string via templateCache (sync.Map)
 // so that repeated calls with the same template skip the parse step.
