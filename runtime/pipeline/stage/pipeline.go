@@ -271,7 +271,14 @@ func (p *StreamPipeline) runStage(
 
 	// Report error
 	if err != nil {
+		logger.Debug("pipeline stage failed",
+			"stage", stage.Name(), "type", stage.Type(),
+			"duration", duration, "error", err)
 		errors <- NewStageError(stage.Name(), stage.Type(), err)
+	} else {
+		logger.Debug("pipeline stage completed",
+			"stage", stage.Name(), "type", stage.Type(),
+			"duration", duration)
 	}
 }
 

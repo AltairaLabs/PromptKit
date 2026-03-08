@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -918,6 +919,10 @@ func (c *Conversation) Close() error {
 		return nil
 	}
 	c.closed = true
+	var convID string
+	if (c.mode == UnaryMode && c.unarySession != nil) || (c.mode == DuplexMode && c.duplexSession != nil) {
+		convID = c.ID()
+	}
 
 	// Deregister from shutdown manager if configured
 	c.deregisterFromShutdownManager()
@@ -925,7 +930,7 @@ func (c *Conversation) Close() error {
 	// End the OTel session span (deferred to Close so late-arriving async events
 	// from the EventBus still have a parent context).
 	if c.config != nil && c.config.otelListener != nil {
-		c.config.otelListener.EndSession(c.ID())
+		c.config.otelListener.EndSession(convID)
 	}
 
 	// Run session end hooks before cleanup
@@ -973,13 +978,17 @@ func (c *Conversation) Close() error {
 	// State is automatically persisted by the StateStore middleware in the pipeline
 	// No explicit save needed here
 
+	logger.Info("conversation closed", "id", convID)
 	return errors.Join(errs...)
 }
 
 // deregisterFromShutdownManager removes the conversation from its shutdown
 // manager, if one is configured. Must be called while c.mu is held.
 func (c *Conversation) deregisterFromShutdownManager() {
-	if c.config != nil && c.config.shutdownManager != nil {
+	if c.config == nil || c.config.shutdownManager == nil {
+		return
+	}
+	if (c.mode == UnaryMode && c.unarySession != nil) || (c.mode == DuplexMode && c.duplexSession != nil) {
 		c.config.shutdownManager.Deregister(c.ID())
 	}
 }

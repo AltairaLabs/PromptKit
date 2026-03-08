@@ -209,19 +209,33 @@ func DoWithRetry(
 
 		retryAfter, shouldRetry := state.classify(resp, err)
 		if !shouldRetry {
+			if err != nil {
+				logger.Debug("provider request failed (non-retryable)",
+					"provider", providerName,
+					"error", err)
+			}
 			return resp, err
 		}
 
 		if attempt >= maxAttempts-1 {
+			logger.Warn("provider request failed after all retries",
+				"provider", providerName,
+				"attempts", maxAttempts,
+				"error", state.lastErr)
 			break
 		}
 
 		delay := calculateBackoff(policy, attempt, retryAfter)
+		statusInfo := ""
+		if resp != nil {
+			statusInfo = resp.Status
+		}
 		logger.Warn("retrying provider request",
 			"provider", providerName,
 			"attempt", attempt+1,
 			"max_retries", policy.MaxRetries,
 			"delay", delay.String(),
+			"status", statusInfo,
 			"error", state.lastErr,
 		)
 

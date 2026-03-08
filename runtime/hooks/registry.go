@@ -2,7 +2,9 @@ package hooks
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -69,6 +71,8 @@ func (r *Registry) RunBeforeProviderCall(ctx context.Context, req *ProviderReque
 	}
 	for _, h := range r.providerHooks {
 		if d := h.BeforeCall(ctx, req); !d.Allow {
+			logger.Warn("provider hook denied before-call",
+				"hook", fmt.Sprintf("%T", h), "reason", d.Reason)
 			return d
 		}
 	}
@@ -83,6 +87,8 @@ func (r *Registry) RunAfterProviderCall(ctx context.Context, req *ProviderReques
 	}
 	for _, h := range r.providerHooks {
 		if d := h.AfterCall(ctx, req, resp); !d.Allow {
+			logger.Warn("provider hook denied after-call",
+				"hook", fmt.Sprintf("%T", h), "reason", d.Reason)
 			return d
 		}
 	}
@@ -105,6 +111,8 @@ func (r *Registry) RunOnChunk(ctx context.Context, chunk *providers.StreamChunk)
 	}
 	for _, ci := range r.chunkInterceptors {
 		if d := ci.OnChunk(ctx, chunk); !d.Allow {
+			logger.Warn("chunk interceptor denied",
+				"interceptor", fmt.Sprintf("%T", ci), "reason", d.Reason)
 			return d
 		}
 	}
@@ -124,6 +132,8 @@ func (r *Registry) RunBeforeToolExecution(ctx context.Context, req ToolRequest) 
 	for _, h := range r.toolHooks {
 		d := h.BeforeExecution(ctx, req)
 		if !d.Allow {
+			logger.Warn("tool hook denied before-execution",
+				"hook", fmt.Sprintf("%T", h), "tool", req.Name, "reason", d.Reason)
 			return d
 		}
 		if d.Metadata != nil {
@@ -141,6 +151,8 @@ func (r *Registry) RunAfterToolExecution(ctx context.Context, req ToolRequest, r
 	}
 	for _, h := range r.toolHooks {
 		if d := h.AfterExecution(ctx, req, resp); !d.Allow {
+			logger.Warn("tool hook denied after-execution",
+				"hook", fmt.Sprintf("%T", h), "tool", req.Name, "reason", d.Reason)
 			return d
 		}
 	}
