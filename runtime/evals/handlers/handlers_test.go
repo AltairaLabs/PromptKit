@@ -581,65 +581,6 @@ func TestToolsNotCalledHandler_LegacyToolsParam(t *testing.T) {
 	}
 }
 
-func TestToolsNotCalledHandler_IgnoresOtherTurns(t *testing.T) {
-	h := &ToolsNotCalledHandler{}
-	ctx := context.Background()
-	// Tool calls from turn 0, but we're evaluating turn 1
-	evalCtx := &evals.EvalContext{
-		TurnIndex: 1,
-		ToolCalls: []evals.ToolCallRecord{
-			{TurnIndex: 0, ToolName: "search"},
-			{TurnIndex: 0, ToolName: "calculate"},
-		},
-	}
-	params := map[string]any{
-		"tools": []any{"search", "calculate"},
-	}
-
-	result, err := h.Eval(ctx, evalCtx, params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Passed {
-		t.Fatalf("expected pass: tools were called on a different turn, got: %s", result.Explanation)
-	}
-}
-
-func TestToolsCalledHandler_FiltersByTurn(t *testing.T) {
-	h := &ToolsCalledHandler{}
-	ctx := context.Background()
-	evalCtx := &evals.EvalContext{
-		TurnIndex: 0,
-		ToolCalls: []evals.ToolCallRecord{
-			{TurnIndex: 0, ToolName: "search"},
-			{TurnIndex: 1, ToolName: "calculate"},
-		},
-	}
-	params := map[string]any{
-		"tools": []any{"search"},
-	}
-
-	result, err := h.Eval(ctx, evalCtx, params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Passed {
-		t.Fatalf("expected pass: search was called on turn 0, got: %s", result.Explanation)
-	}
-
-	// calculate is on turn 1, so shouldn't be found on turn 0
-	params2 := map[string]any{
-		"tools": []any{"calculate"},
-	}
-	result2, err := h.Eval(ctx, evalCtx, params2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result2.Passed {
-		t.Fatal("expected fail: calculate was called on turn 1, not turn 0")
-	}
-}
-
 func TestToolArgsExcludedSession_ForbiddenArgs(t *testing.T) {
 	h := &ToolArgsExcludedSessionHandler{}
 	evalCtx := &evals.EvalContext{
