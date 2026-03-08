@@ -34,8 +34,7 @@ func (h *ToolsCalledHandler) Eval(
 	}
 
 	minCalls := extractInt(params, "min_calls", 1)
-	turnCalls := filterByTurn(evalCtx.ToolCalls, evalCtx.TurnIndex)
-	callCounts := buildCallCounts(turnCalls)
+	callCounts := buildCallCounts(evalCtx.ToolCalls)
 
 	return h.checkToolCalls(toolNames, callCounts, minCalls)
 }

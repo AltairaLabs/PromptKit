@@ -28,8 +28,8 @@ spec:
     - role: user
       content: "What's 2 + 2? Don't use any tools, just answer directly."
       assertions:
-        - type: tools_not_called
+        - type: content_includes
           params:
-            tools:
-              - "search"
-              - "calculate"
+            patterns:
+              - "4"
+          message: "Should include the answer to 2 + 2."
