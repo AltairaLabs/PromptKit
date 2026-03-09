@@ -1,0 +1,50 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: search_places
+spec:
+  description: "Search for a place by name to get its coordinates. Returns latitude, longitude, country, and timezone."
+  mode: live
+  timeout_ms: 10000
+
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: "City or place name to search for"
+    required:
+      - name
+
+  output_schema:
+    type: array
+    items:
+      type: object
+      properties:
+        name:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        country:
+          type: string
+
+  http:
+    url: "https://geocoding-api.open-meteo.com/v1/search"
+    method: GET
+    timeout_ms: 10000
+
+    request:
+      # Route the LLM's "name" argument to a query parameter.
+      query_params:
+        - name
+      # Inject API parameters the LLM doesn't need to know about.
+      static_query:
+        count: "1"        # Only return the top result
+        language: "en"    # English place names
+
+    # Extract only the fields the LLM needs from the large API response.
+    # The raw response includes elevation, admin codes, timezone, population, etc.
+    response:
+      body_mapping: "results[*].{name: name, latitude: latitude, longitude: longitude, country: country}"

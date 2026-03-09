@@ -1,0 +1,35 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: image-generation
+spec:
+  id: image-generation
+  task_type: assistant
+  description: "Test multimodal HTTP tool that returns a binary PNG image"
+
+  turns:
+    - role: user
+      content: "Generate a 300x200 placeholder image with the text 'Hello World'."
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["generate_image"]
+            message: "Should call generate_image tool"
+        - type: tool_result_matches
+          params:
+            tool: generate_image
+            pattern: "image"
+            message: "Tool result should indicate an image was returned"
+
+    - role: user
+      content: "Great, now describe what you received."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(image|placeholder|picture|generated)"
+            message: "Should describe the generated image"
+
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 2
+    max_total_tool_calls: 5

@@ -1,0 +1,55 @@
+{
+  "name": "http-auth-demo",
+  "version": "1.0.0",
+  "description": "Demonstrates HTTP tool authentication patterns",
+  "tools": {
+    "get_customer": {
+      "name": "get_customer",
+      "description": "Look up a customer by name",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Customer name to search for"
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "search_products": {
+      "name": "search_products",
+      "description": "Search the product catalog",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    "get_analytics": {
+      "name": "get_analytics",
+      "description": "Get usage analytics",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string",
+            "description": "Metric name"
+          }
+        },
+        "required": ["metric"]
+      }
+    }
+  },
+  "prompts": {
+    "assistant": {
+      "system": "You are a helpful assistant with access to customer, product, and analytics tools.",
+      "tools": ["get_customer", "search_products", "get_analytics"]
+    }
+  }
+}

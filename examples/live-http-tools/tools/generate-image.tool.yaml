@@ -1,0 +1,41 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: generate_image
+spec:
+  description: "Generate a placeholder image with specified dimensions and optional text overlay"
+  mode: live
+  timeout_ms: 10000
+
+  input_schema:
+    type: object
+    properties:
+      width:
+        type: integer
+        description: "Image width in pixels"
+      height:
+        type: integer
+        description: "Image height in pixels"
+      text:
+        type: string
+        description: "Optional text to display on the image"
+    required:
+      - width
+      - height
+
+  output_schema: {}
+
+  http:
+    url: "https://placehold.co/{{.width}}x{{.height}}.png"
+    method: GET
+    timeout_ms: 10000
+
+    # URL template consumes width/height; text goes to query params.
+    request:
+      query_params:
+        - text
+
+    multimodal:
+      enabled: true
+      accept_types:
+        - image/png

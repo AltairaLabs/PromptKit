@@ -1,0 +1,78 @@
+# Mock provider responses for live HTTP tools example.
+#
+# The mock provider simulates the LLM deciding to call tools.
+# The tools themselves execute for REAL against public APIs:
+#   - Open-Meteo Geocoding API (search_places)
+#   - Open-Meteo Forecast API (get_weather)
+#   - MathJS API (calculate)
+#
+# This tests that the HTTP executor correctly:
+#   1. Converts tool args to query parameters for GET requests
+#   2. Makes real HTTP calls to external APIs
+#   3. Returns valid JSON responses back to the pipeline
+
+defaultResponse: "I can help you with weather lookups and calculations."
+
+scenarios:
+  # Scenario 1: Weather lookup (chained tool calls: search_places -> get_weather)
+  weather-lookup:
+    turns:
+      1:
+        tool_calls:
+          - name: search_places
+            arguments:
+              name: "London"
+      2:
+        tool_calls:
+          - name: get_weather
+            arguments:
+              latitude: 51.5085
+              longitude: -0.1257
+              current: "temperature_2m,wind_speed_10m,weather_code"
+      3: "Based on the weather data, London currently has a temperature and wind conditions as reported by the Open-Meteo API. The weather data was retrieved successfully from the live API."
+
+  # Scenario 2: Math calculation (single tool call)
+  math-calculation:
+    turns:
+      1:
+        tool_calls:
+          - name: calculate
+            arguments:
+              expr: "sqrt(144) + 3^2"
+      2: "The result of sqrt(144) + 3^2 is 21. The square root of 144 is 12, and 3 squared is 9, giving us 12 + 9 = 21."
+      3: "You're welcome! The result was 21, calculated using the square root of 144 plus 3 squared."
+
+  # Scenario 3: Image generation (multimodal tool returning binary PNG)
+  image-generation:
+    turns:
+      1:
+        tool_calls:
+          - name: generate_image
+            arguments:
+              width: 300
+              height: 200
+              text: "Hello World"
+      2: "I generated a 300x200 placeholder image with the text 'Hello World'. The image was successfully created and returned as a PNG picture."
+      3: "The generated image is a 300x200 pixel placeholder picture with 'Hello World' text overlaid on it."
+
+  # Scenario 4: Multi-tool chain (search_places -> get_weather -> calculate)
+  multi-tool-chain:
+    turns:
+      1:
+        tool_calls:
+          - name: search_places
+            arguments:
+              name: "Tokyo"
+      2:
+        tool_calls:
+          - name: get_weather
+            arguments:
+              latitude: 35.6895
+              longitude: 139.6917
+              current: "temperature_2m,wind_speed_10m,weather_code"
+      3:
+        tool_calls:
+          - name: calculate
+            arguments:
+              expr: "35.6895 * 2"
+      4: "I looked up Tokyo's coordinates (35.69N, 139.69E), retrieved the current weather, and calculated that double Tokyo's latitude is approximately 71.38 degrees."

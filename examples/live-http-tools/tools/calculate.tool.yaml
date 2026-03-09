@@ -1,0 +1,24 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: calculate
+spec:
+  description: "Evaluate a mathematical expression (e.g. \"2 * (3 + 4)\", \"sqrt(16)\", \"sin(pi/2)\")"
+  mode: live
+  timeout_ms: 5000
+
+  input_schema:
+    type: object
+    properties:
+      expr:
+        type: string
+        description: "Mathematical expression to evaluate"
+    required:
+      - expr
+
+  output_schema: {}
+
+  http:
+    url: "https://api.mathjs.org/v4/"
+    method: GET
+    timeout_ms: 5000

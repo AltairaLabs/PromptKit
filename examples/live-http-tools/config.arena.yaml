@@ -1,0 +1,38 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: live-http-tools
+  annotations:
+    description: Test live HTTP tool execution with real public APIs (Open-Meteo, MathJS)
+
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+
+  providers:
+    - file: providers/mock-provider.yaml
+
+  scenarios:
+    - file: scenarios/weather-lookup.scenario.yaml
+    - file: scenarios/math-calculation.scenario.yaml
+    - file: scenarios/image-generation.scenario.yaml
+    - file: scenarios/multi-tool-chain.scenario.yaml
+
+  tools:
+    - file: tools/search-places.tool.yaml
+    - file: tools/get-weather.tool.yaml
+    - file: tools/calculate.tool.yaml
+    - file: tools/generate-image.tool.yaml
+
+  defaults:
+    temperature: 0
+    max_tokens: 1500
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

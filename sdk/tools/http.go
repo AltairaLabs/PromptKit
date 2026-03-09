@@ -2,280 +2,42 @@
 //
 // This file provides HTTP tool execution capabilities, allowing tools defined
 // in pack files to make HTTP calls to external APIs.
+//
+// The core HTTPExecutor lives in runtime/tools and is re-exported here for
+// backwards compatibility. The SDK adds the HTTPToolConfig builder pattern
+// on top for programmatic use via OnToolHTTP.
 
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
-	"strings"
-	"sync/atomic"
-	"time"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
-
-	"github.com/AltairaLabs/PromptKit/runtime/httputil"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
-// Default configuration values
-const (
-	defaultHTTPMethod       = "POST"
-	maxResponseSize         = 10 * 1024 * 1024 // 10MB per response
-	DefaultMaxAggregateSize = 50 * 1024 * 1024 // 50MB cumulative across all responses
-	envHeaderParts          = 2                // key=value split parts
+// HTTPExecutor is re-exported from runtime/tools for backward compatibility.
+type HTTPExecutor = tools.HTTPExecutor
+
+// NewHTTPExecutor creates a new HTTP executor with default settings.
+// NewHTTPExecutorWithClient creates one with a custom http.Client.
+// NewHTTPExecutorWithMaxAggregate creates one with a custom aggregate size limit.
+var (
+	NewHTTPExecutor                 = tools.NewHTTPExecutor
+	NewHTTPExecutorWithClient       = tools.NewHTTPExecutorWithClient
+	NewHTTPExecutorWithMaxAggregate = tools.NewHTTPExecutorWithMaxAggregate
 )
 
-// ErrAggregateResponseSizeExceeded is returned when the cumulative response
-// size across all HTTP tool calls exceeds the configured maximum.
-var ErrAggregateResponseSizeExceeded = fmt.Errorf("aggregate HTTP response size limit exceeded")
+// DefaultMaxAggregateSize is the default cumulative response size limit (50 MB).
+const DefaultMaxAggregateSize = tools.DefaultMaxAggregateSize
 
-// HTTPExecutor executes tools that make HTTP calls based on pack configuration.
-// It reads the HTTPConfig from the tool descriptor and makes the appropriate HTTP request.
-// It tracks cumulative response sizes and rejects calls once the aggregate limit is reached.
-type HTTPExecutor struct {
-	client           *http.Client
-	aggregateSize    atomic.Int64
-	maxAggregateSize int64
-}
+// ErrAggregateResponseSizeExceeded is returned when cumulative response size is exceeded.
+var ErrAggregateResponseSizeExceeded = tools.ErrAggregateResponseSizeExceeded
 
-// NewHTTPExecutor creates a new HTTP executor with the default HTTP client
-// and default aggregate response size limit.
-func NewHTTPExecutor() *HTTPExecutor {
-	return &HTTPExecutor{
-		client:           httputil.NewHTTPClient(httputil.DefaultToolTimeout),
-		maxAggregateSize: DefaultMaxAggregateSize,
-	}
-}
-
-// NewHTTPExecutorWithClient creates a new HTTP executor with a custom HTTP client.
-// This is useful for testing or when custom transport configuration is needed.
-func NewHTTPExecutorWithClient(client *http.Client) *HTTPExecutor {
-	return &HTTPExecutor{
-		client:           client,
-		maxAggregateSize: DefaultMaxAggregateSize,
-	}
-}
-
-// NewHTTPExecutorWithMaxAggregate creates a new HTTP executor with a custom
-// aggregate response size limit. Use 0 or a negative value to disable.
-func NewHTTPExecutorWithMaxAggregate(maxAggregate int64) *HTTPExecutor {
-	return &HTTPExecutor{
-		client:           httputil.NewHTTPClient(httputil.DefaultToolTimeout),
-		maxAggregateSize: maxAggregate,
-	}
-}
-
-// AggregateResponseSize returns the cumulative response size consumed so far.
-func (e *HTTPExecutor) AggregateResponseSize() int64 {
-	return e.aggregateSize.Load()
-}
-
-// ResetAggregateSize resets the cumulative response size counter to zero.
-func (e *HTTPExecutor) ResetAggregateSize() {
-	e.aggregateSize.Store(0)
-}
-
-// Name returns the executor name used for registration.
-func (e *HTTPExecutor) Name() string {
-	return "http"
-}
-
-// Execute performs an HTTP request based on the tool descriptor's HTTPConfig.
-// The args are serialized to JSON and sent as the request body.
-func (e *HTTPExecutor) Execute(
-	ctx context.Context,
-	descriptor *tools.ToolDescriptor,
-	args json.RawMessage,
-) (json.RawMessage, error) {
-	return e.ExecuteWithContext(ctx, descriptor, args)
-}
-
-// ExecuteWithContext performs an HTTP request with context support for cancellation.
-func (e *HTTPExecutor) ExecuteWithContext(
-	ctx context.Context,
-	descriptor *tools.ToolDescriptor,
-	args json.RawMessage,
-) (json.RawMessage, error) {
-	if descriptor.HTTPConfig == nil {
-		return nil, fmt.Errorf("tool %q has no HTTP configuration", descriptor.Name)
-	}
-
-	cfg := descriptor.HTTPConfig
-
-	// Create the request
-	req, err := e.buildRequest(ctx, cfg, args)
-	if err != nil {
-		logger.Error("HTTP tool request build failed",
-			"tool", descriptor.Name, "url", cfg.URL, "error", err)
-		return nil, err
-	}
-
-	// Inject OTel trace context into outbound request headers.
-	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
-
-	// Apply timeout if configured
-	if cfg.TimeoutMs > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(cfg.TimeoutMs)*time.Millisecond)
-		defer cancel()
-		req = req.WithContext(ctx)
-	}
-
-	method := req.Method
-	logger.Info("HTTP tool call",
-		"tool", descriptor.Name, "method", method, "url", cfg.URL)
-
-	// Execute the request
-	resp, err := e.client.Do(req)
-	if err != nil {
-		logger.Error("HTTP tool call failed",
-			"tool", descriptor.Name, "method", method, "url", cfg.URL, "error", err)
-		return nil, fmt.Errorf("HTTP request to %s %s failed: %w", method, cfg.URL, err)
-	}
-	defer resp.Body.Close()
-
-	// Process the response
-	result, err := e.processResponse(resp, cfg)
-	if err != nil {
-		logger.Error("HTTP tool response error",
-			"tool", descriptor.Name, "method", method, "url", cfg.URL,
-			"status", resp.StatusCode, "error", err)
-		return nil, err
-	}
-
-	logger.Info("HTTP tool call completed",
-		"tool", descriptor.Name, "method", method, "url", cfg.URL,
-		"status", resp.StatusCode, "response_bytes", len(result))
-	return result, nil
-}
-
-// buildRequest creates an HTTP request from the config and args.
-func (e *HTTPExecutor) buildRequest(
-	ctx context.Context,
-	cfg *tools.HTTPConfig,
-	args json.RawMessage,
-) (*http.Request, error) {
-	// Determine HTTP method
-	method := cfg.Method
-	if method == "" {
-		method = defaultHTTPMethod
-	}
-
-	// Create request body from args
-	var body io.Reader
-	if len(args) > 0 && string(args) != "null" && string(args) != "{}" {
-		body = bytes.NewReader(args)
-	}
-
-	// Create the HTTP request
-	req, err := http.NewRequestWithContext(ctx, method, cfg.URL, body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-
-	// Set default content type for requests with body
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	// Apply headers
-	e.applyHeaders(req, cfg)
-
-	return req, nil
-}
-
-// applyHeaders applies static and environment-based headers to the request.
-func (e *HTTPExecutor) applyHeaders(req *http.Request, cfg *tools.HTTPConfig) {
-	// Apply static headers from config
-	for key, value := range cfg.Headers {
-		req.Header.Set(key, value)
-	}
-
-	// Apply headers from environment variables.
-	// These are configured in tool YAML by the system operator, not by end users
-	// or LLM output, so no allowlist is needed.
-	for _, envHeader := range cfg.HeadersFromEnv {
-		// Format: "Header-Name=ENV_VAR_NAME"
-		parts := strings.SplitN(envHeader, "=", envHeaderParts)
-		if len(parts) == envHeaderParts {
-			headerName := parts[0]
-			envVar := parts[1]
-			if value := os.Getenv(envVar); value != "" {
-				req.Header.Set(headerName, value)
-			}
-		}
-	}
-}
-
-// processResponse reads and processes the HTTP response.
-func (e *HTTPExecutor) processResponse(resp *http.Response, cfg *tools.HTTPConfig) (json.RawMessage, error) {
-	// Check aggregate limit before reading (fast fail).
-	if e.maxAggregateSize > 0 && e.aggregateSize.Load() >= e.maxAggregateSize {
-		return nil, fmt.Errorf("%w: %d bytes consumed, limit is %d",
-			ErrAggregateResponseSizeExceeded, e.aggregateSize.Load(), e.maxAggregateSize)
-	}
-
-	// Read response body with per-response size limit.
-	limitedReader := io.LimitReader(resp.Body, maxResponseSize)
-	respBody, err := io.ReadAll(limitedReader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// Track cumulative size and enforce aggregate limit.
-	newTotal := e.aggregateSize.Add(int64(len(respBody)))
-	if e.maxAggregateSize > 0 && newTotal > e.maxAggregateSize {
-		return nil, fmt.Errorf("%w: %d bytes consumed, limit is %d",
-			ErrAggregateResponseSizeExceeded, newTotal, e.maxAggregateSize)
-	}
-
-	// Check for HTTP errors
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP request returned status %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	// Redact sensitive fields if configured
-	if len(cfg.Redact) > 0 {
-		respBody = redactFields(respBody, cfg.Redact)
-	}
-
-	// Validate response is valid JSON
-	if !json.Valid(respBody) {
-		// Wrap non-JSON response in a result object
-		result := map[string]string{"result": string(respBody)}
-		return json.Marshal(result)
-	}
-
-	return respBody, nil
-}
-
-// redactFields removes or masks sensitive fields from a JSON response.
-func redactFields(data []byte, fields []string) []byte {
-	var obj map[string]any
-	if err := json.Unmarshal(data, &obj); err != nil {
-		return data // Return original if not a JSON object
-	}
-
-	for _, field := range fields {
-		if _, exists := obj[field]; exists {
-			obj[field] = "[REDACTED]"
-		}
-	}
-
-	result, err := json.Marshal(obj)
-	if err != nil {
-		return data
-	}
-	return result
-}
+// defaultHTTPMethod is used by HTTPToolConfig when no method is specified.
+const defaultHTTPMethod = "POST"
 
 // HTTPToolConfig provides a builder pattern for configuring HTTP tool handlers.
 // This is used with OnToolHTTP to register HTTP-based tools programmatically.
@@ -389,11 +151,7 @@ func (c *HTTPToolConfig) Handler() func(args map[string]any) (any, error) {
 // HandlerCtx returns a context-aware tool handler function that makes the HTTP request.
 // The context is propagated to the underlying HTTP executor for tracing and cancellation.
 func (c *HTTPToolConfig) HandlerCtx() func(ctx context.Context, args map[string]any) (any, error) {
-	// TODO: Consider caching the HTTPExecutor at the HTTPToolConfig level or using
-	// a package-level pool. Currently each HandlerCtx() call creates a new executor
-	// with its own http.Client, which is fine for low-cardinality tool sets but
-	// wasteful if called repeatedly for the same tool config.
-	executor := NewHTTPExecutor()
+	executor := tools.NewHTTPExecutor()
 
 	return func(ctx context.Context, args map[string]any) (any, error) {
 		return c.executeHandler(ctx, executor, args)
@@ -402,7 +160,7 @@ func (c *HTTPToolConfig) HandlerCtx() func(ctx context.Context, args map[string]
 
 // executeHandler performs the HTTP request with transforms and post-processing.
 func (c *HTTPToolConfig) executeHandler(
-	ctx context.Context, executor *HTTPExecutor, args map[string]any,
+	ctx context.Context, executor *tools.HTTPExecutor, args map[string]any,
 ) (any, error) {
 	// Apply transform if configured
 	if c.transform != nil {

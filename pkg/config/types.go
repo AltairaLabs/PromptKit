@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
 // AssertionConfig represents an assertion configuration used in arena scenarios.
@@ -1154,15 +1155,17 @@ type ToolConsentConfig struct {
 	DeclineStrategy string `json:"decline_strategy,omitempty" yaml:"decline_strategy,omitempty"`
 }
 
-// HTTPConfig defines configuration for live HTTP tool execution
-type HTTPConfig struct {
-	URL            string            `json:"url" yaml:"url"`
-	Method         string            `json:"method" yaml:"method"`
-	HeadersFromEnv []string          `json:"headers_from_env,omitempty" yaml:"headers_from_env,omitempty"`
-	TimeoutMs      int               `json:"timeout_ms" yaml:"timeout_ms"`
-	Redact         []string          `json:"redact,omitempty" yaml:"redact,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
-}
+// HTTPConfig is an alias for the canonical type in runtime/tools.
+type HTTPConfig = tools.HTTPConfig
+
+// RequestMapping is an alias for the canonical type in runtime/tools.
+type RequestMapping = tools.RequestMapping
+
+// ResponseMapping is an alias for the canonical type in runtime/tools.
+type ResponseMapping = tools.ResponseMapping
+
+// MultimodalConfig is an alias for the canonical type in runtime/tools.
+type MultimodalConfig = tools.MultimodalConfig
 
 // PersonaConfigSchema represents a Persona configuration for schema generation with simplified ObjectMeta
 type PersonaConfigSchema struct {
