@@ -69,21 +69,22 @@ func main() {
 	// Example 3: Inline eval definitions — no pack file needed.
 	// Useful for programmatic or dynamic eval scenarios.
 	fmt.Println("\n=== Example 3: Inline eval definitions ===")
-	results, err = sdk.Evaluate(ctx, sdk.EvaluateOpts{
-		EvalDefs: []evals.EvalDef{
-			{
-				ID:      "has_code_block",
-				Type:    "contains",
-				Trigger: evals.TriggerEveryTurn,
-				Params:  map[string]any{"patterns": []any{"```"}},
-			},
-			{
-				ID:      "mentions_error",
-				Type:    "contains",
-				Trigger: evals.TriggerEveryTurn,
-				Params:  map[string]any{"patterns": []any{"error"}},
-			},
+	inlineDefs := []evals.EvalDef{
+		{
+			ID:      "has_code_block",
+			Type:    "contains",
+			Trigger: evals.TriggerEveryTurn,
+			Params:  map[string]any{"patterns": []any{"```"}},
 		},
+		{
+			ID:      "mentions_error",
+			Type:    "contains",
+			Trigger: evals.TriggerEveryTurn,
+			Params:  map[string]any{"patterns": []any{"error"}},
+		},
+	}
+	results, err = sdk.Evaluate(ctx, sdk.EvaluateOpts{
+		EvalDefs: inlineDefs,
 		Messages: []types.Message{
 			types.NewUserMessage("How do I read a file in Go?"),
 			types.NewAssistantMessage("Here's how to read a file:\n\n```go\ndata, err := os.ReadFile(\"file.txt\")\n```"),
@@ -100,49 +101,38 @@ func main() {
 	fmt.Println("\n=== Example 4: EventBus-driven eval results ===")
 
 	bus := events.NewEventBus()
-
 	var mu sync.Mutex
-	var passed, failed int
+	counters := map[string]int{"passed": 0, "failed": 0}
 
-	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
-		data, ok := e.Data.(*events.EvalEventData)
-		if !ok {
-			return
-		}
-		mu.Lock()
-		passed++
-		mu.Unlock()
-		fmt.Printf("  [EVENT] eval.completed: %s — %s\n", data.EvalID, data.Explanation)
+	for _, et := range []events.EventType{events.EventEvalCompleted, events.EventEvalFailed} {
+		eventType := et
+		bus.Subscribe(eventType, func(e *events.Event) {
+			data, ok := e.Data.(*events.EvalEventData)
+			if !ok {
+				return
+			}
+			mu.Lock()
+			if eventType == events.EventEvalCompleted {
+				counters["passed"]++
+			} else {
+				counters["failed"]++
+			}
+			mu.Unlock()
+			fmt.Printf("  [EVENT] %s: %s — %s\n", eventType, data.EvalID, data.Explanation)
+		})
+	}
+
+	// Reuse the inline defs from Example 3, adding a check that will fail.
+	eventDefs := append(inlineDefs, evals.EvalDef{
+		ID:      "apology",
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": []any{"sorry"}},
 	})
-
-	bus.Subscribe(events.EventEvalFailed, func(e *events.Event) {
-		data, ok := e.Data.(*events.EvalEventData)
-		if !ok {
-			return
-		}
-		mu.Lock()
-		failed++
-		mu.Unlock()
-		fmt.Printf("  [EVENT] eval.failed:    %s — %s\n", data.EvalID, data.Explanation)
-	})
-
 	_, err = sdk.Evaluate(ctx, sdk.EvaluateOpts{
-		EvalDefs: []evals.EvalDef{
-			{
-				ID:      "greeting",
-				Type:    "contains",
-				Trigger: evals.TriggerEveryTurn,
-				Params:  map[string]any{"patterns": []any{"hello"}},
-			},
-			{
-				ID:      "apology",
-				Type:    "contains",
-				Trigger: evals.TriggerEveryTurn,
-				Params:  map[string]any{"patterns": []any{"sorry"}},
-			},
-		},
+		EvalDefs: eventDefs,
 		Messages: []types.Message{
-			types.NewAssistantMessage("Hello! How can I help?"),
+			types.NewAssistantMessage("Here's how:\n\n```go\ndata, err := os.ReadFile(\"file.txt\")\n```"),
 		},
 		EventBus: bus,
 	})
@@ -154,7 +144,7 @@ func main() {
 	bus.Close()
 
 	mu.Lock()
-	fmt.Printf("\n  Summary: %d passed, %d failed\n", passed, failed)
+	fmt.Printf("\n  Summary: %d passed, %d failed\n", counters["passed"], counters["failed"])
 	mu.Unlock()
 }
 

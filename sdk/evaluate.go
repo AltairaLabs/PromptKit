@@ -6,8 +6,11 @@ import (
 	"log/slog"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 
@@ -61,8 +64,14 @@ type EvaluateOpts struct {
 
 	// --- Observability ---
 
+	// TracerProvider enables OpenTelemetry trace emission for eval results.
+	// When set, an OTelEventListener is automatically wired to the EventBus,
+	// producing spans named "promptkit.eval.{evalID}" with GenAI SIG attributes.
+	// An EventBus is created automatically if not provided.
+	TracerProvider trace.TracerProvider
+
 	// EventBus enables eval event emission (eval.completed / eval.failed).
-	// If nil, events are not emitted.
+	// If nil and TracerProvider is set, a bus is created automatically.
 	EventBus *events.EventBus
 
 	// Logger is used for structured logging. If nil, the default logger is used.
@@ -96,6 +105,9 @@ type EvaluateOpts struct {
 //
 //nolint:gocritic // hugeParam: value receiver is intentional for public API ergonomics
 func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error) {
+	// 0. Wire OTel listener if TracerProvider is set
+	ownsBus := initEvalTracing(&opts)
+
 	// 1. Resolve eval defs
 	defs, err := resolveEvalDefs(&opts)
 	if err != nil {
@@ -132,6 +144,11 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	// 5. Emit events (optional)
 	if opts.EventBus != nil {
 		emitEvalEvents(opts.EventBus, results)
+	}
+
+	// 6. Close auto-created bus to flush events to OTel listener
+	if ownsBus && opts.EventBus != nil {
+		opts.EventBus.Close()
 	}
 
 	return results, nil
@@ -206,6 +223,23 @@ func dispatchEvals(
 	default:
 		return runner.RunTurnEvals(ctx, defs, evalCtx)
 	}
+}
+
+// initEvalTracing wires an OTelEventListener to the EventBus when TracerProvider is set.
+// Creates an EventBus if one wasn't provided. Returns true if the bus was auto-created
+// (caller should close it after emitting events to flush the listener).
+func initEvalTracing(opts *EvaluateOpts) bool {
+	if opts.TracerProvider == nil {
+		return false
+	}
+	createdBus := opts.EventBus == nil
+	if createdBus {
+		opts.EventBus = events.NewEventBus()
+	}
+	tracer := telemetry.Tracer(opts.TracerProvider)
+	listener := telemetry.NewOTelEventListener(tracer)
+	opts.EventBus.SubscribeAll(listener.OnEvent)
+	return createdBus
 }
 
 // emitEvalEvents emits eval results as events on the event bus.
