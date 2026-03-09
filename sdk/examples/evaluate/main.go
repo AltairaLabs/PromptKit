@@ -5,6 +5,7 @@
 //   - No live provider or agent connection needed — just messages in, results out
 //   - Filtering evals by trigger (every_turn vs on_session_complete)
 //   - Running evals from inline definitions (no pack file needed)
+//   - Receiving eval results via the EventBus for reactive workflows
 //
 // Run with:
 //
@@ -15,8 +16,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
@@ -90,6 +93,69 @@ func main() {
 		log.Fatalf("Evaluate failed: %v", err)
 	}
 	printResults(results)
+
+	// Example 4: Receive eval results via the EventBus.
+	// The EventBus lets you react to eval outcomes asynchronously —
+	// useful for logging, alerting, or triggering downstream actions.
+	fmt.Println("\n=== Example 4: EventBus-driven eval results ===")
+
+	bus := events.NewEventBus()
+
+	var mu sync.Mutex
+	var passed, failed int
+
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
+		data, ok := e.Data.(*events.EvalEventData)
+		if !ok {
+			return
+		}
+		mu.Lock()
+		passed++
+		mu.Unlock()
+		fmt.Printf("  [EVENT] eval.completed: %s — %s\n", data.EvalID, data.Explanation)
+	})
+
+	bus.Subscribe(events.EventEvalFailed, func(e *events.Event) {
+		data, ok := e.Data.(*events.EvalEventData)
+		if !ok {
+			return
+		}
+		mu.Lock()
+		failed++
+		mu.Unlock()
+		fmt.Printf("  [EVENT] eval.failed:    %s — %s\n", data.EvalID, data.Explanation)
+	})
+
+	_, err = sdk.Evaluate(ctx, sdk.EvaluateOpts{
+		EvalDefs: []evals.EvalDef{
+			{
+				ID:      "greeting",
+				Type:    "contains",
+				Trigger: evals.TriggerEveryTurn,
+				Params:  map[string]any{"patterns": []any{"hello"}},
+			},
+			{
+				ID:      "apology",
+				Type:    "contains",
+				Trigger: evals.TriggerEveryTurn,
+				Params:  map[string]any{"patterns": []any{"sorry"}},
+			},
+		},
+		Messages: []types.Message{
+			types.NewAssistantMessage("Hello! How can I help?"),
+		},
+		EventBus: bus,
+	})
+	if err != nil {
+		log.Fatalf("Evaluate failed: %v", err)
+	}
+
+	// Close the bus to flush pending events before reading counters.
+	bus.Close()
+
+	mu.Lock()
+	fmt.Printf("\n  Summary: %d passed, %d failed\n", passed, failed)
+	mu.Unlock()
 }
 
 func printResults(results []evals.EvalResult) {
