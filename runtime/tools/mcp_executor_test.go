@@ -68,6 +68,10 @@ func (m *mockMCPRegistry) ListAllTools(ctx context.Context) (map[string][]mcp.To
 	return make(map[string][]mcp.Tool), nil
 }
 
+func (m *mockMCPRegistry) GetServerConfig(serverName string) (mcp.ServerConfig, bool) {
+	return mcp.ServerConfig{}, false
+}
+
 func (m *mockMCPRegistry) Close() error {
 	return nil
 }

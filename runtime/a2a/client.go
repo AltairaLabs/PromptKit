@@ -88,6 +88,11 @@ func WithAuth(scheme, token string) ClientOption {
 	}
 }
 
+// WithHeaders sets custom headers that are sent on all requests.
+func WithHeaders(headers map[string]string) ClientOption {
+	return func(c *Client) { c.customHeaders = headers }
+}
+
 // WithSSEIdleTimeout sets the idle timeout for SSE streams. If no event
 // is received within this duration, the stream is considered stale and
 // ReadSSE returns [ErrSSEIdleTimeout] so callers can reconnect.
@@ -108,6 +113,7 @@ type Client struct {
 	sseIdleTimeout time.Duration
 	authScheme     string
 	authToken      string
+	customHeaders  map[string]string
 	reqID          int64
 
 	mu        sync.RWMutex
@@ -168,6 +174,9 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 func (c *Client) setAuth(req *http.Request) {
 	if c.authToken != "" {
 		req.Header.Set("Authorization", c.authScheme+" "+c.authToken)
+	}
+	for k, v := range c.customHeaders {
+		req.Header.Set(k, v)
 	}
 }
 

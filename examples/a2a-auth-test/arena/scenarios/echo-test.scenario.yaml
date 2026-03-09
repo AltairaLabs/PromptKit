@@ -1,0 +1,36 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: echo-test
+
+spec:
+  id: "echo-test"
+  task_type: echo-assistant
+  description: >
+    Tests delegating to a real A2A echo agent via Bearer-authenticated connection.
+    Verifies skill_filter works (only echo is exposed, not reverse).
+
+  turns:
+    # Turn 1: Delegate to echo agent via A2A with Bearer auth
+    - role: user
+      content: "Please echo the message: Hello from PromptKit!"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["a2a__echo_agent__echo"]
+            message: "Should delegate to the echo agent via authenticated A2A connection"
+        - type: no_tool_errors
+          params:
+            tools: ["a2a__echo_agent__echo"]
+            message: "A2A tool call should succeed without errors"
+        - type: tool_result_includes
+          params:
+            tool: "a2a__echo_agent__echo"
+            patterns: ["Hello from PromptKit!"]
+            message: "Echo agent should return the original message"
+
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 5

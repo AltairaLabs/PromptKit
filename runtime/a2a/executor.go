@@ -11,6 +11,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -224,7 +225,7 @@ func buildRequest(
 func (e *Executor) executeRequest(
 	ctx context.Context, toolName string, cfg *tools.A2AConfig, req *SendMessageRequest,
 ) (*Task, error) {
-	client := e.getOrCreateClient(cfg.AgentURL)
+	client := e.getOrCreateClientWithConfig(cfg)
 
 	if cfg.TimeoutMs > 0 {
 		var cancel context.CancelFunc
@@ -548,6 +549,83 @@ func (e *Executor) getOrCreateClient(agentURL string) *Client {
 	e.clients[agentURL] = entry
 	heap.Push(&e.clientHeap, entry)
 	return c
+}
+
+// getOrCreateClientWithConfig returns a cached client or creates a new one with
+// A2AConfig-derived options (headers, auth). Clients created with different config
+// for the same URL reuse the cached entry (first-config-wins).
+func (e *Executor) getOrCreateClientWithConfig(cfg *tools.A2AConfig) *Client {
+	now := e.nowFunc()
+
+	e.mu.RLock()
+	if entry, ok := e.clients[cfg.AgentURL]; ok {
+		e.mu.RUnlock()
+		e.mu.Lock()
+		entry.lastUsed = now
+		if entry.index >= 0 {
+			heap.Fix(&e.clientHeap, entry.index)
+		}
+		e.mu.Unlock()
+		return entry.client
+	}
+	e.mu.RUnlock()
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if entry, ok := e.clients[cfg.AgentURL]; ok {
+		entry.lastUsed = now
+		if entry.index >= 0 {
+			heap.Fix(&e.clientHeap, entry.index)
+		}
+		return entry.client
+	}
+	if e.clients == nil {
+		e.clients = make(map[string]*clientEntry)
+	}
+	if len(e.clients) >= e.maxClients {
+		e.evictLRU()
+	}
+
+	var opts []ClientOption
+	if cfg.Auth != nil {
+		token := cfg.Auth.Token
+		if token == "" && cfg.Auth.TokenEnv != "" {
+			token = os.Getenv(cfg.Auth.TokenEnv)
+		}
+		if token != "" {
+			opts = append(opts, WithAuth(cfg.Auth.Scheme, token))
+		}
+	}
+	headers := resolveHeaders(cfg.Headers, cfg.HeadersFromEnv)
+	if len(headers) > 0 {
+		opts = append(opts, WithHeaders(headers))
+	}
+
+	c := NewClient(cfg.AgentURL, opts...)
+	entry := &clientEntry{client: c, lastUsed: now, url: cfg.AgentURL}
+	e.clients[cfg.AgentURL] = entry
+	heap.Push(&e.clientHeap, entry)
+	return c
+}
+
+// resolveHeaders merges static headers with headers resolved from environment variables.
+// HeadersFromEnv entries use "Header-Name=ENV_VAR_NAME" format.
+func resolveHeaders(static map[string]string, fromEnv []string) map[string]string {
+	result := make(map[string]string, len(static)+len(fromEnv))
+	for k, v := range static {
+		result[k] = v
+	}
+	for _, spec := range fromEnv {
+		if key, envVar, ok := strings.Cut(spec, "="); ok {
+			if val := os.Getenv(envVar); val != "" {
+				result[key] = val
+			}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // ExtractResponseParts converts all A2A Parts from a completed task into PromptKit ContentParts.

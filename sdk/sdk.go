@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
@@ -691,10 +693,10 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 	return conv, nil
 }
 
-// ensureA2ACapability adds an A2ACapability if the config has a bridge
-// but no A2ACapability was already inferred or explicit.
+// ensureA2ACapability adds an A2ACapability if the config has a bridge or
+// builder-based agents but no A2ACapability was already inferred or explicit.
 func ensureA2ACapability(caps []Capability, cfg *config) []Capability {
-	if cfg.a2aBridge == nil {
+	if cfg.a2aBridge == nil && len(cfg.a2aAgents) == 0 {
 		return caps
 	}
 	for _, cap := range caps {
@@ -755,7 +757,48 @@ func wireA2AConfig(caps []Capability, cfg *config) {
 		if cfg.a2aBridge != nil && a2aCap.bridge == nil {
 			a2aCap.bridge = cfg.a2aBridge
 		}
+		// Wire builder-based A2A agents as bridges.
+		if len(cfg.a2aAgents) > 0 && len(a2aCap.agentBridges) == 0 {
+			for _, agentCfg := range cfg.a2aAgents {
+				var opts []a2a.ClientOption
+				if agentCfg.config.Auth != nil {
+					token := agentCfg.config.Auth.Token
+					if token == "" && agentCfg.config.Auth.TokenEnv != "" {
+						token = os.Getenv(agentCfg.config.Auth.TokenEnv)
+					}
+					if token != "" {
+						opts = append(opts, a2a.WithAuth(agentCfg.config.Auth.Scheme, token))
+					}
+				}
+				headers := resolveA2AHeaders(agentCfg.config)
+				if len(headers) > 0 {
+					opts = append(opts, a2a.WithHeaders(headers))
+				}
+				client := a2a.NewClient(agentCfg.url, opts...)
+				bridge := a2a.NewToolBridgeWithConfig(client, agentCfg.config)
+				a2aCap.agentBridges = append(a2aCap.agentBridges, bridge)
+			}
+		}
 	}
+}
+
+// resolveA2AHeaders merges static headers with env-based headers for A2A config.
+func resolveA2AHeaders(cfg *tools.A2AConfig) map[string]string {
+	result := make(map[string]string, len(cfg.Headers)+len(cfg.HeadersFromEnv))
+	for k, v := range cfg.Headers {
+		result[k] = v
+	}
+	for _, spec := range cfg.HeadersFromEnv {
+		if key, envVar, ok := strings.Cut(spec, "="); ok {
+			if val := os.Getenv(envVar); val != "" {
+				result[key] = val
+			}
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // packToRuntimePack converts the SDK internal pack types to a runtime

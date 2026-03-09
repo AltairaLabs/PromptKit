@@ -1,0 +1,48 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: a2a-auth-test
+  annotations:
+    description: >
+      Test A2A integration with a real A2A server using Bearer token authentication.
+      The echo server must be running: go run ./examples/a2a-auth-test/server
+
+spec:
+  # Remote A2A agent — connects to the real echo server
+  a2a_agents:
+    - name: echo_agent
+      url: "http://localhost:9877"
+      auth:
+        scheme: Bearer
+        token: "test-token-123"
+      timeout_ms: 5000
+      skill_filter:
+        # Only expose the echo skill, block reverse
+        allowlist:
+          - echo
+
+  # Prompt configuration
+  prompt_configs:
+    - id: echo-assistant
+      file: prompts/echo-assistant.yaml
+
+  # Test scenarios
+  scenarios:
+    - file: scenarios/echo-test.scenario.yaml
+
+  # Provider — uses mock so no API key needed
+  providers:
+    - file: providers/mock-provider.yaml
+
+  # Defaults
+  defaults:
+    temperature: 0.7
+    max_tokens: 500
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

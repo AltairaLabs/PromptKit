@@ -314,6 +314,9 @@ func (c *StdioClient) startProcessWithRetry(ctx context.Context) error {
 // startProcess launches the MCP server process
 func (c *StdioClient) startProcess() error {
 	c.cmd = exec.CommandContext(c.ctx, c.config.Command, c.config.Args...)
+	if c.config.WorkingDir != "" {
+		c.cmd.Dir = c.config.WorkingDir
+	}
 
 	// Inherit the parent process environment and prepend common paths to PATH.
 	// Replace the existing PATH entry in-place to avoid duplicate PATH variables.

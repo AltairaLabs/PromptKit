@@ -1,0 +1,78 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "http-transforms-example",
+  "name": "HTTP Transforms Example",
+  "version": "1.0.0",
+  "description": "Demonstrates HTTP tool transforms and response processing",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "compilation": {
+    "compiled_with": "hand-authored",
+    "created_at": "2026-03-09T00:00:00Z",
+    "schema": "v1"
+  },
+  "tools": {
+    "lookup_user": {
+      "name": "lookup_user",
+      "description": "Look up a user by full name",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Full name of the user (e.g. 'John Smith')"
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "get_orders": {
+      "name": "get_orders",
+      "description": "Get recent orders for a user",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID"
+          }
+        },
+        "required": ["user_id"]
+      }
+    },
+    "get_customer": {
+      "name": "get_customer",
+      "description": "Get customer details including account info",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          }
+        },
+        "required": ["customer_id"]
+      }
+    }
+  },
+  "prompts": {
+    "assistant": {
+      "id": "assistant",
+      "name": "HTTP Transforms Assistant",
+      "version": "1.0.0",
+      "system_template": "You are {{assistant_role}} with access to user lookup, order, and customer tools.",
+      "tools": ["lookup_user", "get_orders", "get_customer"],
+      "variables": [
+        {
+          "name": "assistant_role",
+          "type": "string",
+          "required": false,
+          "default": "a helpful assistant",
+          "description": "Role description for the assistant"
+        }
+      ]
+    }
+  }
+}

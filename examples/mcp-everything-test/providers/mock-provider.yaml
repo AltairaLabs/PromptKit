@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+
+metadata:
+  name: mock-everything
+  annotations:
+    description: Mock provider for MCP everything test
+
+spec:
+  id: mock-everything
+  type: mock
+  model: mock-model
+  additional_config:
+    mock_config: mock-responses.yaml

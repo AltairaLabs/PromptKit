@@ -14,8 +14,10 @@ import (
 // each of the agent's skills so they can be invoked through the standard
 // tool registry.
 type ToolBridge struct {
-	client *Client
-	tools  []*tools.ToolDescriptor
+	client      *Client
+	tools       []*tools.ToolDescriptor
+	skillFilter *tools.A2ASkillFilter
+	a2aConfig   *tools.A2AConfig // optional config template for headers/auth/retry
 }
 
 // NewToolBridge creates a ToolBridge backed by the given A2A client.
@@ -23,9 +25,21 @@ func NewToolBridge(client *Client) *ToolBridge {
 	return &ToolBridge{client: client}
 }
 
+// NewToolBridgeWithConfig creates a ToolBridge that applies the given A2AConfig
+// (headers, auth, retry, skill filter) to all generated tool descriptors.
+func NewToolBridgeWithConfig(client *Client, cfg *tools.A2AConfig) *ToolBridge {
+	b := &ToolBridge{client: client}
+	if cfg != nil {
+		b.a2aConfig = cfg
+		b.skillFilter = cfg.SkillFilter
+	}
+	return b
+}
+
 // RegisterAgent discovers the agent card and creates a ToolDescriptor for
 // each skill. The descriptors are appended to the bridge's internal list
 // (supporting multi-agent composition via GetToolDescriptors).
+// Skills excluded by the skill filter are skipped.
 func (b *ToolBridge) RegisterAgent(ctx context.Context) ([]*tools.ToolDescriptor, error) {
 	card, err := b.client.Discover(ctx)
 	if err != nil {
@@ -34,7 +48,20 @@ func (b *ToolBridge) RegisterAgent(ctx context.Context) ([]*tools.ToolDescriptor
 
 	var registered []*tools.ToolDescriptor
 	for i := range card.Skills {
+		if !b.skillFilter.IncludesSkill(card.Skills[i].ID) {
+			continue
+		}
 		td := skillToToolDescriptor(b.client.baseURL, card, &card.Skills[i])
+		// Apply config template (headers, auth, retry) to each descriptor's A2AConfig.
+		if b.a2aConfig != nil && td.A2AConfig != nil {
+			td.A2AConfig.Headers = b.a2aConfig.Headers
+			td.A2AConfig.HeadersFromEnv = b.a2aConfig.HeadersFromEnv
+			td.A2AConfig.Auth = b.a2aConfig.Auth
+			td.A2AConfig.RetryPolicy = b.a2aConfig.RetryPolicy
+			if b.a2aConfig.TimeoutMs > 0 {
+				td.A2AConfig.TimeoutMs = b.a2aConfig.TimeoutMs
+			}
+		}
 		registered = append(registered, td)
 	}
 

@@ -163,9 +163,55 @@ type MultimodalConfig struct {
 
 // A2AConfig defines configuration for A2A agent tool execution
 type A2AConfig struct {
-	AgentURL  string `json:"agent_url" yaml:"agent_url"`
-	SkillID   string `json:"skill_id" yaml:"skill_id"`
-	TimeoutMs int    `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	AgentURL       string            `json:"agent_url" yaml:"agent_url"`
+	SkillID        string            `json:"skill_id" yaml:"skill_id"`
+	TimeoutMs      int               `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	HeadersFromEnv []string          `json:"headers_from_env,omitempty" yaml:"headers_from_env,omitempty"`
+	Auth           *A2AAuthConfig    `json:"auth,omitempty" yaml:"auth,omitempty"`
+	RetryPolicy    *A2ARetryConfig   `json:"retry,omitempty" yaml:"retry,omitempty"`
+	SkillFilter    *A2ASkillFilter   `json:"skill_filter,omitempty" yaml:"skill_filter,omitempty"`
+}
+
+// A2AAuthConfig defines authentication for an A2A agent connection.
+type A2AAuthConfig struct {
+	Scheme   string `json:"scheme" yaml:"scheme"`                           // e.g. "Bearer", "Basic"
+	Token    string `json:"token,omitempty" yaml:"token,omitempty"`         // Static token value
+	TokenEnv string `json:"token_env,omitempty" yaml:"token_env,omitempty"` // Env var containing the token
+}
+
+// A2ARetryConfig defines per-agent retry policy overrides.
+type A2ARetryConfig struct {
+	MaxRetries     int `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
+	InitialDelayMs int `json:"initial_delay_ms,omitempty" yaml:"initial_delay_ms,omitempty"`
+	MaxDelayMs     int `json:"max_delay_ms,omitempty" yaml:"max_delay_ms,omitempty"`
+}
+
+// A2ASkillFilter controls which skills from an A2A agent are exposed to the LLM.
+type A2ASkillFilter struct {
+	Allowlist []string `json:"allowlist,omitempty" yaml:"allowlist,omitempty"`
+	Blocklist []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
+}
+
+// IncludesSkill returns true if the given skill ID passes the filter.
+func (f *A2ASkillFilter) IncludesSkill(skillID string) bool {
+	if f == nil {
+		return true
+	}
+	if len(f.Allowlist) > 0 {
+		for _, a := range f.Allowlist {
+			if a == skillID {
+				return true
+			}
+		}
+		return false
+	}
+	for _, b := range f.Blocklist {
+		if b == skillID {
+			return false
+		}
+	}
+	return true
 }
 
 // ClientConfig defines configuration for client-side tool execution.
