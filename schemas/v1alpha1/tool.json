@@ -30,6 +30,15 @@
             "type": "string"
           },
           "type": "object"
+        },
+        "request": {
+          "$ref": "#/$defs/RequestMapping"
+        },
+        "response": {
+          "$ref": "#/$defs/ResponseMapping"
+        },
+        "multimodal": {
+          "$ref": "#/$defs/MultimodalConfig"
         }
       },
       "additionalProperties": false,
@@ -85,6 +94,24 @@
         "type"
       ]
     },
+    "MultimodalConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "accept_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
     "ObjectMeta": {
       "properties": {
         "name": {
@@ -112,6 +139,57 @@
           "type": "object",
           "title": "Annotations",
           "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RequestMapping": {
+      "properties": {
+        "query_params": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "header_params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "body_mapping": {
+          "type": "string"
+        },
+        "exclude": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "static_query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "static_headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "static_body": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ResponseMapping": {
+      "properties": {
+        "body_mapping": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

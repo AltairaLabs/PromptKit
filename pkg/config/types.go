@@ -1162,6 +1162,53 @@ type HTTPConfig struct {
 	TimeoutMs      int               `json:"timeout_ms" yaml:"timeout_ms"`
 	Redact         []string          `json:"redact,omitempty" yaml:"redact,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+
+	// Request/response mapping configuration
+	Request  *RequestMapping  `json:"request,omitempty" yaml:"request,omitempty"`
+	Response *ResponseMapping `json:"response,omitempty" yaml:"response,omitempty"`
+
+	// Multimodal response handling
+	Multimodal *MultimodalConfig `json:"multimodal,omitempty" yaml:"multimodal,omitempty"`
+}
+
+// RequestMapping configures how LLM tool arguments are mapped to HTTP request components.
+type RequestMapping struct {
+	// QueryParams lists argument keys to route as URL query parameters.
+	QueryParams []string `json:"query_params,omitempty" yaml:"query_params,omitempty"`
+
+	// HeaderParams maps HTTP header names to Go text/template strings
+	// that interpolate tool arguments.
+	HeaderParams map[string]string `json:"header_params,omitempty" yaml:"header_params,omitempty"`
+
+	// BodyMapping is a JMESPath expression to reshape the body arguments before sending.
+	BodyMapping string `json:"body_mapping,omitempty" yaml:"body_mapping,omitempty"`
+
+	// Exclude lists argument keys to omit from the request entirely.
+	Exclude []string `json:"exclude,omitempty" yaml:"exclude,omitempty"`
+
+	// StaticQuery injects fixed query parameters into every request.
+	StaticQuery map[string]string `json:"static_query,omitempty" yaml:"static_query,omitempty"`
+
+	// StaticHeaders injects fixed headers into every request.
+	StaticHeaders map[string]string `json:"static_headers,omitempty" yaml:"static_headers,omitempty"`
+
+	// StaticBody injects fixed fields into the JSON request body (POST/PUT/PATCH only).
+	StaticBody map[string]any `json:"static_body,omitempty" yaml:"static_body,omitempty"`
+}
+
+// ResponseMapping configures how HTTP response bodies are mapped to tool results.
+type ResponseMapping struct {
+	// BodyMapping is a JMESPath expression to extract or reshape the response JSON.
+	BodyMapping string `json:"body_mapping,omitempty" yaml:"body_mapping,omitempty"`
+}
+
+// MultimodalConfig configures multimodal response handling for HTTP tools.
+type MultimodalConfig struct {
+	// Enabled activates Content-Type-based detection of binary responses.
+	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// AcceptTypes lists the MIME types the tool may return.
+	AcceptTypes []string `json:"accept_types,omitempty" yaml:"accept_types,omitempty"`
 }
 
 // PersonaConfigSchema represents a Persona configuration for schema generation with simplified ObjectMeta

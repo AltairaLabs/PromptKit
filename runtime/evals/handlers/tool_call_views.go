@@ -1,15 +1,44 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // countNotSet is the sentinel value indicating a min/max count was not specified.
 const countNotSet = -1
+
+// stringifyResult converts a tool call result (which may be a string, []types.ContentPart,
+// or other value) into a string suitable for pattern matching in assertions.
+func stringifyResult(result any) string {
+	switch v := result.(type) {
+	case string:
+		return v
+	case []types.ContentPart:
+		var sb strings.Builder
+		for _, part := range v {
+			if part.Text != nil {
+				sb.WriteString(*part.Text)
+			} else if part.Media != nil {
+				// Include media metadata so assertions can match type/mime info.
+				// Omit the actual data to keep the string concise.
+				fmt.Fprintf(&sb, "[%s:%s]", part.Type, part.Media.MIMEType)
+			}
+		}
+		return sb.String()
+	default:
+		// Try JSON marshaling for structured data; fall back to fmt.Sprintf
+		if data, err := json.Marshal(v); err == nil {
+			return string(data)
+		}
+		return fmt.Sprintf("%v", v)
+	}
+}
 
 // toolCallView is a normalized view of a tool call for shared validation logic.
 type toolCallView struct {
@@ -31,7 +60,7 @@ func viewsFromRecords(records []evals.ToolCallRecord) []toolCallView {
 			Index: r.TurnIndex,
 		}
 		if r.Result != nil {
-			views[i].Result = fmt.Sprintf("%v", r.Result)
+			views[i].Result = stringifyResult(r.Result)
 		}
 	}
 	return views

@@ -1,0 +1,46 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: get_weather
+spec:
+  description: "Get current weather for given coordinates. Requires latitude and longitude (use search_places first to get coordinates)."
+  mode: live
+  timeout_ms: 10000
+
+  input_schema:
+    type: object
+    properties:
+      latitude:
+        type: number
+        description: "Latitude of the location"
+      longitude:
+        type: number
+        description: "Longitude of the location"
+      current:
+        type: string
+        description: "Comma-separated weather variables: temperature_2m,wind_speed_10m,relative_humidity_2m,weather_code"
+    required:
+      - latitude
+      - longitude
+
+  output_schema:
+    type: object
+    properties:
+      temperature_2m:
+        type: number
+      wind_speed_10m:
+        type: number
+      weather_code:
+        type: integer
+      units:
+        type: object
+
+  http:
+    url: "https://api.open-meteo.com/v1/forecast"
+    method: GET
+    timeout_ms: 10000
+
+    # Extract just the current weather readings and their units.
+    # Drops latitude, longitude, elevation, timezone, generationtime_ms, etc.
+    response:
+      body_mapping: "{temperature_2m: current.temperature_2m, wind_speed_10m: current.wind_speed_10m, weather_code: current.weather_code, units: current_units}"

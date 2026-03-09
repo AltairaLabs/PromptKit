@@ -1,0 +1,56 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multi-tool-chain
+spec:
+  id: multi-tool-chain
+  task_type: assistant
+  description: "Test chaining all three tools: search_places -> get_weather -> calculate"
+
+  turns:
+    - role: user
+      content: "Look up Tokyo for me."
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["search_places"]
+            message: "Should call search_places to find Tokyo"
+        - type: tool_result_matches
+          params:
+            tool: search_places
+            pattern: "Japan"
+            message: "search_places should return results mentioning Japan"
+
+    - role: user
+      content: "What's the weather there?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["get_weather"]
+            message: "Should call get_weather for Tokyo"
+
+    - role: user
+      content: "What is double Tokyo's latitude?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["calculate"]
+            message: "Should use calculate tool for the math"
+        - type: tool_result_matches
+          params:
+            tool: calculate
+            pattern: "71"
+            message: "calculate should return approximately 71.379"
+
+    - role: user
+      content: "Great, summarize everything."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(tokyo|weather|latitude|71)"
+            message: "Should summarize Tokyo weather and calculation"
+
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 10

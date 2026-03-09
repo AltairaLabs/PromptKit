@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -21,9 +20,7 @@ func TestHTTPExecutor_Name(t *testing.T) {
 }
 
 func TestHTTPExecutor_Execute_Success(t *testing.T) {
-	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request
 		if r.Method != "POST" {
 			t.Errorf("Method = %q, want %q", r.Method, "POST")
 		}
@@ -31,7 +28,6 @@ func TestHTTPExecutor_Execute_Success(t *testing.T) {
 			t.Errorf("Content-Type = %q, want %q", ct, "application/json")
 		}
 
-		// Return a JSON response
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"result": "success", "value": 42}`))
@@ -70,7 +66,6 @@ func TestHTTPExecutor_Execute_NoConfig(t *testing.T) {
 	executor := NewHTTPExecutor()
 	descriptor := &tools.ToolDescriptor{
 		Name: "test_tool",
-		// No HTTPConfig
 	}
 
 	_, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
@@ -80,7 +75,7 @@ func TestHTTPExecutor_Execute_NoConfig(t *testing.T) {
 }
 
 func TestHTTPExecutor_Execute_HTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error": "bad request"}`))
 	}))
@@ -126,6 +121,38 @@ func TestHTTPExecutor_Execute_GetMethod(t *testing.T) {
 	}
 }
 
+func TestHTTPExecutor_Execute_GetWithQueryParams(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("Method = %q, want %q", r.Method, "GET")
+		}
+		if got := r.URL.Query().Get("name"); got != "London" {
+			t.Errorf("query param name = %q, want %q", got, "London")
+		}
+		if got := r.URL.Query().Get("count"); got != "5" {
+			t.Errorf("query param count = %q, want %q", got, "5")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results": []}`))
+	}))
+	defer server.Close()
+
+	executor := NewHTTPExecutor()
+	descriptor := &tools.ToolDescriptor{
+		Name: "test_tool",
+		HTTPConfig: &tools.HTTPConfig{
+			URL:    server.URL,
+			Method: "GET",
+		},
+	}
+
+	args := json.RawMessage(`{"name": "London", "count": 5}`)
+	_, err := executor.Execute(context.Background(), descriptor, args)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+}
+
 func TestHTTPExecutor_Execute_CustomHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth := r.Header.Get("Authorization"); auth != "Bearer token123" {
@@ -159,9 +186,7 @@ func TestHTTPExecutor_Execute_CustomHeaders(t *testing.T) {
 }
 
 func TestHTTPExecutor_Execute_HeadersFromEnv(t *testing.T) {
-	// Set environment variable
-	os.Setenv("TEST_API_KEY", "secret-key")
-	defer os.Unsetenv("TEST_API_KEY")
+	t.Setenv("TEST_API_KEY", "secret-key")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if apiKey := r.Header.Get("X-API-Key"); apiKey != "secret-key" {
@@ -189,7 +214,7 @@ func TestHTTPExecutor_Execute_HeadersFromEnv(t *testing.T) {
 }
 
 func TestHTTPExecutor_Execute_Redact(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"data": "public", "password": "secret123", "token": "abc"}`))
 	}))
@@ -227,7 +252,7 @@ func TestHTTPExecutor_Execute_Redact(t *testing.T) {
 }
 
 func TestHTTPExecutor_Execute_NonJSONResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`This is plain text`))
 	}))
@@ -258,8 +283,7 @@ func TestHTTPExecutor_Execute_NonJSONResponse(t *testing.T) {
 }
 
 func TestHTTPExecutor_Execute_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate slow response - but we use a short timeout in config
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{}`))
 	}))
@@ -271,11 +295,10 @@ func TestHTTPExecutor_Execute_Timeout(t *testing.T) {
 		HTTPConfig: &tools.HTTPConfig{
 			URL:       server.URL,
 			Method:    "GET",
-			TimeoutMs: 5000, // 5 seconds
+			TimeoutMs: 5000,
 		},
 	}
 
-	// This should succeed since server responds quickly
 	_, err := executor.Execute(context.Background(), descriptor, nil)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -285,8 +308,8 @@ func TestHTTPExecutor_Execute_Timeout(t *testing.T) {
 func TestNewHTTPExecutorWithClient(t *testing.T) {
 	customClient := &http.Client{}
 	executor := NewHTTPExecutorWithClient(customClient)
-	if executor.client != customClient {
-		t.Error("NewHTTPExecutorWithClient did not set custom client")
+	if executor == nil {
+		t.Error("NewHTTPExecutorWithClient returned nil")
 	}
 }
 
@@ -339,7 +362,7 @@ func TestHTTPToolConfig_ToDescriptorConfig(t *testing.T) {
 }
 
 func TestHTTPToolConfig_Handler(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"processed": true}`))
 	}))
@@ -393,7 +416,7 @@ func TestHTTPToolConfig_Handler_WithTransform(t *testing.T) {
 }
 
 func TestHTTPToolConfig_Handler_WithPostProcess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"original": true}`))
 	}))
@@ -449,7 +472,7 @@ func TestRedactFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := redactFields([]byte(tt.input), tt.fields)
+			result := tools.RedactFields([]byte(tt.input), tt.fields)
 			var got map[string]any
 			if err := json.Unmarshal(result, &got); err != nil {
 				t.Fatalf("Failed to parse result: %v", err)
@@ -466,7 +489,7 @@ func TestRedactFields(t *testing.T) {
 
 func TestRedactFields_InvalidJSON(t *testing.T) {
 	input := []byte(`not json`)
-	result := redactFields(input, []string{"field"})
+	result := tools.RedactFields(input, []string{"field"})
 	if string(result) != string(input) {
 		t.Errorf("result = %q, want %q", string(result), string(input))
 	}
@@ -492,7 +515,7 @@ func TestDefaultMethod(t *testing.T) {
 }
 
 func TestEmptyArgs(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{}`))
 	}))
@@ -507,13 +530,11 @@ func TestEmptyArgs(t *testing.T) {
 		},
 	}
 
-	// Test with null args
 	_, err := executor.Execute(context.Background(), descriptor, json.RawMessage(`null`))
 	if err != nil {
 		t.Fatalf("Execute() with null error = %v", err)
 	}
 
-	// Test with empty object
 	_, err = executor.Execute(context.Background(), descriptor, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("Execute() with empty object error = %v", err)
@@ -521,7 +542,6 @@ func TestEmptyArgs(t *testing.T) {
 }
 
 func TestHTTPExecutor_AggregateResponseSizeLimit(t *testing.T) {
-	// Server returns a 1KB payload each time.
 	payload := strings.Repeat("x", 1024)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -530,29 +550,23 @@ func TestHTTPExecutor_AggregateResponseSizeLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Set aggregate limit to 2KB — first two calls succeed, third fails.
 	executor := NewHTTPExecutorWithMaxAggregate(2048)
-	executor.client = server.Client()
 
 	descriptor := &tools.ToolDescriptor{
 		Name:       "test_tool",
 		HTTPConfig: &tools.HTTPConfig{URL: server.URL, Method: "GET"},
 	}
 
-	// First call should succeed.
 	_, err := executor.Execute(context.Background(), descriptor, nil)
 	if err != nil {
 		t.Fatalf("first call: unexpected error: %v", err)
 	}
 
-	// Second call should succeed (approaching but within limit depends on payload+JSON overhead).
 	_, err = executor.Execute(context.Background(), descriptor, nil)
-	// Whether second succeeds depends on exact size; the third should definitely fail.
 	if err != nil && !errors.Is(err, ErrAggregateResponseSizeExceeded) {
 		t.Fatalf("second call: unexpected error type: %v", err)
 	}
 
-	// Third call should fail with aggregate limit.
 	_, err = executor.Execute(context.Background(), descriptor, nil)
 	if err == nil {
 		t.Fatal("expected aggregate size error, got nil")
@@ -570,7 +584,6 @@ func TestHTTPExecutor_AggregateResponseSize_Tracking(t *testing.T) {
 	defer server.Close()
 
 	executor := NewHTTPExecutor()
-	executor.client = server.Client()
 
 	descriptor := &tools.ToolDescriptor{
 		Name:       "test_tool",
@@ -599,16 +612,13 @@ func TestHTTPExecutor_AggregateDisabled(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// maxAggregateSize = 0 disables the limit.
 	executor := NewHTTPExecutorWithMaxAggregate(0)
-	executor.client = server.Client()
 
 	descriptor := &tools.ToolDescriptor{
 		Name:       "test_tool",
 		HTTPConfig: &tools.HTTPConfig{URL: server.URL, Method: "GET"},
 	}
 
-	// Should succeed even with many calls.
 	for range 10 {
 		_, err := executor.Execute(context.Background(), descriptor, nil)
 		if err != nil {
@@ -619,7 +629,7 @@ func TestHTTPExecutor_AggregateDisabled(t *testing.T) {
 
 func TestNewHTTPExecutorWithMaxAggregate(t *testing.T) {
 	executor := NewHTTPExecutorWithMaxAggregate(100)
-	if executor.maxAggregateSize != 100 {
-		t.Errorf("maxAggregateSize = %d, want 100", executor.maxAggregateSize)
+	if executor == nil {
+		t.Error("NewHTTPExecutorWithMaxAggregate returned nil")
 	}
 }

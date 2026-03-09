@@ -97,6 +97,9 @@ func BuildEngineComponents(cfg *config.Config) (
 		providerRegistry.Register(providerImpl)
 	}
 
+	// Register HTTP executor for live HTTP tool calls (mode: "live")
+	toolRegistry.RegisterExecutor(tools.NewHTTPExecutor())
+
 	// Discover and register MCP tools (if any MCP servers configured)
 	if mcpErr := discoverAndRegisterMCPTools(mcpRegistry, toolRegistry); mcpErr != nil {
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)

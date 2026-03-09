@@ -1,0 +1,48 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: weather-lookup
+spec:
+  id: weather-lookup
+  task_type: assistant
+  description: "Test chained tool calls: search_places -> get_weather with live HTTP APIs"
+
+  turns:
+    - role: user
+      content: "What's the weather like in London right now?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["search_places"]
+            message: "Should call search_places to find London's coordinates"
+        - type: tool_result_matches
+          params:
+            tool: search_places
+            pattern: "latitude"
+            message: "search_places should return results with latitude"
+
+    - role: user
+      content: "Now get the current weather for those coordinates."
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["get_weather"]
+            message: "Should call get_weather with London's coordinates"
+        - type: tool_result_matches
+          params:
+            tool: get_weather
+            pattern: "temperature_2m"
+            message: "get_weather should return temperature data"
+
+    - role: user
+      content: "Thanks, summarize the weather."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(weather|temperature|london)"
+            message: "Should mention weather data in the summary"
+
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 10
