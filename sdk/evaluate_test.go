@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -232,6 +234,52 @@ func TestEvaluate_ContextCancellation(t *testing.T) {
 	require.NoError(t, err)
 	// Runner may skip evals when context is canceled
 	assert.Empty(t, results)
+}
+
+func TestEvaluate_TracerProvider(t *testing.T) {
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:       containsDef("greeting", "hello"),
+		Messages:       []types.Message{types.NewAssistantMessage("hello world")},
+		TracerProvider: tp,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+
+	// Force flush to ensure spans are exported
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exp.GetSpans()
+	var evalSpans []tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name == "promptkit.eval.greeting" {
+			evalSpans = append(evalSpans, s)
+		}
+	}
+	require.Len(t, evalSpans, 1, "expected one OTel span for eval 'greeting'")
+}
+
+func TestEvaluate_TracerProvider_CreatesEventBus(t *testing.T) {
+	// When TracerProvider is set but EventBus is nil, Evaluate should create one automatically
+	exp := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	// No EventBus provided — should still work
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:       containsDef("check", "hello"),
+		Messages:       []types.Message{types.NewAssistantMessage("hello")},
+		TracerProvider: tp,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
 }
 
 func TestEvaluate_JudgeMetadata(t *testing.T) {
