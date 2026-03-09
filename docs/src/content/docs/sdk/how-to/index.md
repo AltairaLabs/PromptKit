@@ -16,6 +16,11 @@ Practical, task-focused guides for common SDK operations.
 - **[HTTP Tools](http-tools)** - External API calls with `OnToolHTTP()`
 - **[HITL Workflows](hitl-workflows)** - Approval with `OnToolAsync()`
 
+## Integrations
+
+- **[Configure MCP Servers](configure-mcp)** - Connect MCP tool servers with `NewMCPServer()` and `WithMCPServer()`
+- **[Connect A2A Agents](connect-a2a-agents)** - Register remote A2A agents with `NewA2AAgent()` and `WithA2AAgent()`
+
 ## Variables & Templates
 
 - **[Manage Variables](manage-state)** - Use `SetVar()` and `GetVar()`
@@ -100,6 +105,12 @@ hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
 
 1. [Register Tools](register-tools)
 2. [HTTP Tools](http-tools) (for external APIs)
+3. [Configure MCP Servers](configure-mcp) (for MCP tools)
+
+### Connecting External Agents
+
+1. [Connect A2A Agents](connect-a2a-agents)
+2. [Configure MCP Servers](configure-mcp)
 
 ### Building Safe AI Agents
 
