@@ -20,6 +20,12 @@
         "**/bin/**"
     ],
     "sonarlint.testFilePattern": "**/*_test.go",
+    "json.schemas": [
+        {
+            "fileMatch": ["*.pack.json"],
+            "url": "https://promptpack.org/schema/latest/promptpack.schema.json"
+        }
+    ],
     "yaml.schemas": {
         "https://promptkit.altairalabs.ai/schemas/latest/arena.json": [
             "examples/**/config.arena.yaml",
