@@ -311,7 +311,7 @@ func TestExtractToolCalls_WithResults(t *testing.T) {
 		},
 	}
 
-	toolCalls := extractToolCalls(messages)
+	toolCalls := evals.ExtractToolCalls(messages)
 	require.Len(t, toolCalls, 1)
 	assert.Equal(t, "search", toolCalls[0].ToolName)
 	assert.Equal(t, 1, toolCalls[0].TurnIndex)
@@ -338,7 +338,7 @@ func TestExtractToolCalls_WithError(t *testing.T) {
 		},
 	}
 
-	toolCalls := extractToolCalls(messages)
+	toolCalls := evals.ExtractToolCalls(messages)
 	require.Len(t, toolCalls, 1)
 	assert.Equal(t, "tool failed", toolCalls[0].Error)
 }
@@ -354,21 +354,12 @@ func TestExtractToolCalls_NoMatchingResult(t *testing.T) {
 		},
 	}
 
-	toolCalls := extractToolCalls(messages)
+	toolCalls := evals.ExtractToolCalls(messages)
 	require.Len(t, toolCalls, 1)
 	assert.Empty(t, toolCalls[0].Result)
 }
 
-func TestParseJSONArgs_Valid(t *testing.T) {
-	result := parseJSONArgs([]byte(`{"key":"value","num":42}`))
-	assert.Equal(t, "value", result["key"])
-	assert.Equal(t, float64(42), result["num"])
-}
-
-func TestParseJSONArgs_Invalid(t *testing.T) {
-	result := parseJSONArgs([]byte(`not json`))
-	assert.Nil(t, result)
-}
+// parseJSONArgs tests moved to runtime/evals/context_test.go
 
 func TestExtractWorkflowExtras_AllFields(t *testing.T) {
 	messages := []types.Message{
@@ -382,7 +373,7 @@ func TestExtractWorkflowExtras_AllFields(t *testing.T) {
 		},
 	}
 
-	extras := extractWorkflowExtras(messages)
+	extras := evals.ExtractWorkflowExtras(messages)
 	require.NotNil(t, extras)
 	assert.Equal(t, "greeting", extras["workflow_state"])
 	assert.Equal(t, []string{"init", "greeting"}, extras["workflow_transitions"])
@@ -395,7 +386,7 @@ func TestExtractWorkflowExtras_NoWorkflowMeta(t *testing.T) {
 		{Role: "user"},
 	}
 
-	extras := extractWorkflowExtras(messages)
+	extras := evals.ExtractWorkflowExtras(messages)
 	assert.Nil(t, extras)
 }
 
@@ -404,7 +395,7 @@ func TestExtractWorkflowExtras_NilMeta(t *testing.T) {
 		{Role: "assistant"},
 	}
 
-	extras := extractWorkflowExtras(messages)
+	extras := evals.ExtractWorkflowExtras(messages)
 	assert.Nil(t, extras)
 }
 

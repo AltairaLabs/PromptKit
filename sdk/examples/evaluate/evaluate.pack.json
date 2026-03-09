@@ -1,0 +1,45 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "evaluate-example",
+  "name": "Evaluate Example",
+  "version": "1.0.0",
+  "description": "Pack with evals for demonstrating sdk.Evaluate()",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "evals": [
+    {
+      "id": "greeting_check",
+      "type": "contains",
+      "trigger": "every_turn",
+      "params": {
+        "patterns": ["hello"]
+      }
+    },
+    {
+      "id": "polite_check",
+      "type": "contains",
+      "trigger": "every_turn",
+      "params": {
+        "patterns": ["please", "thank"]
+      }
+    },
+    {
+      "id": "farewell_check",
+      "type": "contains",
+      "trigger": "on_session_complete",
+      "params": {
+        "patterns": ["goodbye"]
+      }
+    }
+  ],
+  "prompts": {
+    "assistant": {
+      "id": "assistant",
+      "name": "Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant."
+    }
+  }
+}

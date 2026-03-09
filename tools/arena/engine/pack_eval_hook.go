@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -178,126 +177,13 @@ func (h *PackEvalHook) RunAssertionsAsConversationResults(
 }
 
 // buildEvalContext constructs an EvalContext from Arena messages.
+// Delegates to the shared evals.BuildEvalContext helper.
 func (h *PackEvalHook) buildEvalContext(
 	messages []types.Message,
 	turnIndex int,
 	sessionID string,
 ) *evals.EvalContext {
-	// Extract current output from the last assistant message
-	var currentOutput string
-	toolCalls := extractToolCalls(messages)
-
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "assistant" {
-			currentOutput = messages[i].Content
-			break
-		}
-	}
-
-	extras := extractWorkflowExtras(messages)
-
-	return &evals.EvalContext{
-		Messages:      convertToEvalMessages(messages),
-		TurnIndex:     turnIndex,
-		CurrentOutput: currentOutput,
-		ToolCalls:     toolCalls,
-		SessionID:     sessionID,
-		PromptID:      h.taskType,
-		Extras:        extras,
-		Metadata:      h.metadata,
-	}
-}
-
-// extractToolCalls builds a full ToolCallRecord list from assistant tool calls,
-// matching with tool-role result messages for Arguments, Result, and Error fields.
-func extractToolCalls(messages []types.Message) []evals.ToolCallRecord {
-	toolResults := buildToolResultMap(messages)
-
-	var toolCalls []evals.ToolCallRecord
-	for i := range messages {
-		if messages[i].Role != "assistant" {
-			continue
-		}
-		for _, tc := range messages[i].ToolCalls {
-			toolCalls = append(toolCalls, buildToolCallRecord(tc, i, toolResults))
-		}
-	}
-
-	return toolCalls
-}
-
-// buildToolResultMap creates a map of tool call ID → result message from tool-role messages.
-func buildToolResultMap(messages []types.Message) map[string]types.Message {
-	toolResults := make(map[string]types.Message)
-	for i := range messages {
-		if messages[i].Role == "tool" && messages[i].ToolResult != nil {
-			toolResults[messages[i].ToolResult.ID] = messages[i]
-		}
-	}
-	return toolResults
-}
-
-// buildToolCallRecord creates a ToolCallRecord from a tool call and its result.
-func buildToolCallRecord(
-	tc types.MessageToolCall, turnIndex int, toolResults map[string]types.Message,
-) evals.ToolCallRecord {
-	record := evals.ToolCallRecord{
-		TurnIndex: turnIndex,
-		ToolName:  tc.Name,
-	}
-	if len(tc.Args) > 0 {
-		record.Arguments = parseJSONArgs(tc.Args)
-	}
-	if resultMsg, ok := toolResults[tc.ID]; ok {
-		// Prefer multimodal Parts over text-only Content for eval assertions
-		if resultMsg.ToolResult != nil && len(resultMsg.ToolResult.Parts) > 0 {
-			record.Result = resultMsg.ToolResult.Parts
-		} else {
-			record.Result = resultMsg.Content
-		}
-		if resultMsg.ToolResult != nil && resultMsg.ToolResult.Error != "" {
-			record.Error = resultMsg.ToolResult.Error
-		}
-	}
-	return record
-}
-
-// parseJSONArgs parses JSON bytes into a map, returning nil on failure.
-func parseJSONArgs(data []byte) map[string]any {
-	var args map[string]any
-	if err := json.Unmarshal(data, &args); err != nil {
-		return nil
-	}
-	return args
-}
-
-// extractWorkflowExtras pulls workflow metadata from message Meta fields.
-func extractWorkflowExtras(messages []types.Message) map[string]any {
-	extras := make(map[string]any)
-	for i := range messages {
-		if messages[i].Meta == nil {
-			continue
-		}
-		if state, ok := messages[i].Meta["_workflow_state"]; ok {
-			extras["workflow_state"] = state
-		}
-		if transitions, ok := messages[i].Meta["_workflow_transitions"]; ok {
-			extras["workflow_transitions"] = transitions
-		}
-		if complete, ok := messages[i].Meta["_workflow_complete"]; ok {
-			extras["workflow_complete"] = complete
-		}
-	}
-	if len(extras) == 0 {
-		return nil
-	}
-	return extras
-}
-
-// convertToEvalMessages converts Arena types.Message to evals types.Message.
-// Since both use runtime/types.Message, this is an identity conversion.
-func convertToEvalMessages(messages []types.Message) []types.Message {
-	return messages
+	return evals.BuildEvalContext(messages, turnIndex, sessionID, h.taskType, h.metadata)
 }
 
 // filterEvalDefs filters eval defs to only include types in the filter list.
