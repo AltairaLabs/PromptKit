@@ -14,23 +14,24 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-func TestEvaluate_WithEvalDefs(t *testing.T) {
-	defs := []evals.EvalDef{
-		{
-			ID:      "greeting",
-			Type:    "contains",
-			Trigger: evals.TriggerEveryTurn,
-			Params:  map[string]any{"patterns": []any{"hello"}},
-		},
+// containsDef returns a single "contains" eval def for use in tests.
+func containsDef(id string, patterns ...string) []evals.EvalDef {
+	anyPatterns := make([]any, len(patterns))
+	for i, p := range patterns {
+		anyPatterns[i] = p
 	}
-	messages := []types.Message{
-		types.NewUserMessage("hi"),
-		types.NewAssistantMessage("hello there!"),
-	}
+	return []evals.EvalDef{{
+		ID:      id,
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": anyPatterns},
+	}}
+}
 
+func TestEvaluate_WithEvalDefs(t *testing.T) {
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		EvalDefs:  defs,
-		Messages:  messages,
+		EvalDefs:  containsDef("greeting", "hello"),
+		Messages:  []types.Message{types.NewUserMessage("hi"), types.NewAssistantMessage("hello there!")},
 		SessionID: "test-session",
 		TurnIndex: 1,
 	})
@@ -42,21 +43,9 @@ func TestEvaluate_WithEvalDefs(t *testing.T) {
 }
 
 func TestEvaluate_WithEvalDefs_Failing(t *testing.T) {
-	defs := []evals.EvalDef{
-		{
-			ID:      "missing",
-			Type:    "contains",
-			Trigger: evals.TriggerEveryTurn,
-			Params:  map[string]any{"patterns": []any{"nonexistent"}},
-		},
-	}
-	messages := []types.Message{
-		types.NewAssistantMessage("hello there!"),
-	}
-
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		EvalDefs:  defs,
-		Messages:  messages,
+		EvalDefs:  containsDef("missing", "nonexistent"),
+		Messages:  []types.Message{types.NewAssistantMessage("hello there!")},
 		SessionID: "s1",
 	})
 
@@ -65,15 +54,12 @@ func TestEvaluate_WithEvalDefs_Failing(t *testing.T) {
 	assert.False(t, results[0].Passed)
 }
 
-func TestEvaluate_WithPackPath(t *testing.T) {
-	messages := []types.Message{
-		types.NewUserMessage("hi"),
-		types.NewAssistantMessage("hello! how can I help?"),
-	}
+const evalTestPack = "testdata/packs/eval-test.pack.json"
 
+func TestEvaluate_WithPackPath(t *testing.T) {
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		PackPath:             "testdata/packs/eval-test.pack.json",
-		Messages:             messages,
+		PackPath:             evalTestPack,
+		Messages:             []types.Message{types.NewUserMessage("hi"), types.NewAssistantMessage("hello! how can I help?")},
 		SessionID:            "test-session",
 		TurnIndex:            1,
 		SkipSchemaValidation: true,
@@ -88,14 +74,10 @@ func TestEvaluate_WithPackPath(t *testing.T) {
 }
 
 func TestEvaluate_WithPackPath_PromptEvals(t *testing.T) {
-	messages := []types.Message{
-		types.NewAssistantMessage("thank you for your patience"),
-	}
-
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		PackPath:             "testdata/packs/eval-test.pack.json",
+		PackPath:             evalTestPack,
 		PromptName:           "assistant",
-		Messages:             messages,
+		Messages:             []types.Message{types.NewAssistantMessage("thank you for your patience")},
 		SessionID:            "s1",
 		SkipSchemaValidation: true,
 	})
@@ -114,16 +96,12 @@ func TestEvaluate_WithPackPath_PromptEvals(t *testing.T) {
 }
 
 func TestEvaluate_WithPackData(t *testing.T) {
-	data, err := os.ReadFile("testdata/packs/eval-test.pack.json")
+	data, err := os.ReadFile(evalTestPack)
 	require.NoError(t, err)
-
-	messages := []types.Message{
-		types.NewAssistantMessage("hello!"),
-	}
 
 	results, err := Evaluate(context.Background(), EvaluateOpts{
 		PackData:  data,
-		Messages:  messages,
+		Messages:  []types.Message{types.NewAssistantMessage("hello!")},
 		SessionID: "s1",
 	})
 
@@ -134,13 +112,9 @@ func TestEvaluate_WithPackData(t *testing.T) {
 }
 
 func TestEvaluate_SessionTrigger(t *testing.T) {
-	messages := []types.Message{
-		types.NewAssistantMessage("goodbye and take care"),
-	}
-
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		PackPath:             "testdata/packs/eval-test.pack.json",
-		Messages:             messages,
+		PackPath:             evalTestPack,
+		Messages:             []types.Message{types.NewAssistantMessage("goodbye and take care")},
 		SessionID:            "s1",
 		Trigger:              evals.TriggerOnSessionComplete,
 		SkipSchemaValidation: true,
@@ -152,34 +126,38 @@ func TestEvaluate_SessionTrigger(t *testing.T) {
 	assert.True(t, results[0].Passed)
 }
 
-func TestEvaluate_NoSource_ReturnsError(t *testing.T) {
-	_, err := Evaluate(context.Background(), EvaluateOpts{
-		Messages: []types.Message{types.NewAssistantMessage("hi")},
-	})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "one of EvalDefs, PackData, or PackPath must be provided")
-}
-
-func TestEvaluate_InvalidPackPath_ReturnsError(t *testing.T) {
-	_, err := Evaluate(context.Background(), EvaluateOpts{
-		PackPath: "nonexistent.pack.json",
-	})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "load pack")
-}
-
-func TestEvaluate_InvalidPackData_ReturnsError(t *testing.T) {
-	_, err := Evaluate(context.Background(), EvaluateOpts{
-		PackData: []byte(`not json`),
-	})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "parse pack data")
+func TestEvaluate_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    EvaluateOpts
+		wantErr string
+	}{
+		{
+			name:    "no source",
+			opts:    EvaluateOpts{Messages: []types.Message{types.NewAssistantMessage("hi")}},
+			wantErr: "one of EvalDefs, PackData, or PackPath must be provided",
+		},
+		{
+			name:    "invalid pack path",
+			opts:    EvaluateOpts{PackPath: "nonexistent.pack.json"},
+			wantErr: "load pack",
+		},
+		{
+			name:    "invalid pack data",
+			opts:    EvaluateOpts{PackData: []byte(`not json`)},
+			wantErr: "parse pack data",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Evaluate(context.Background(), tt.opts)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
 }
 
 func TestEvaluate_EmptyDefs_ReturnsNil(t *testing.T) {
-	// Empty slice of defs: Evaluate treats it as "no defs" since len == 0
-	// but resolveEvalDefs returns them as-is (not nil).
-	// The nil-or-empty check in Evaluate returns nil results.
 	results, err := Evaluate(context.Background(), EvaluateOpts{
 		EvalDefs: []evals.EvalDef{},
 	})
@@ -188,17 +166,8 @@ func TestEvaluate_EmptyDefs_ReturnsNil(t *testing.T) {
 }
 
 func TestEvaluate_EmptyMessages(t *testing.T) {
-	defs := []evals.EvalDef{
-		{
-			ID:      "check",
-			Type:    "contains",
-			Trigger: evals.TriggerEveryTurn,
-			Params:  map[string]any{"patterns": []any{"hello"}},
-		},
-	}
-
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		EvalDefs: defs,
+		EvalDefs: containsDef("check", "hello"),
 		Messages: nil,
 	})
 
@@ -218,21 +187,9 @@ func TestEvaluate_EventBusEmission(t *testing.T) {
 		mu.Unlock()
 	})
 
-	defs := []evals.EvalDef{
-		{
-			ID:      "pass",
-			Type:    "contains",
-			Trigger: evals.TriggerEveryTurn,
-			Params:  map[string]any{"patterns": []any{"hello"}},
-		},
-	}
-	messages := []types.Message{
-		types.NewAssistantMessage("hello world"),
-	}
-
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		EvalDefs: defs,
-		Messages: messages,
+		EvalDefs: containsDef("pass", "hello"),
+		Messages: []types.Message{types.NewAssistantMessage("hello world")},
 		EventBus: bus,
 	})
 
@@ -251,19 +208,9 @@ func TestEvaluate_EventBusEmission(t *testing.T) {
 
 func TestEvaluate_CustomRegistry(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
-	// Empty registry — handler lookup will fail
-
-	defs := []evals.EvalDef{
-		{
-			ID:      "check",
-			Type:    "contains",
-			Trigger: evals.TriggerEveryTurn,
-			Params:  map[string]any{"patterns": []any{"hello"}},
-		},
-	}
 
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		EvalDefs: defs,
+		EvalDefs: containsDef("check", "hello"),
 		Messages: []types.Message{types.NewAssistantMessage("hello")},
 		Registry: registry,
 	})
@@ -277,17 +224,8 @@ func TestEvaluate_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	defs := []evals.EvalDef{
-		{
-			ID:      "check",
-			Type:    "contains",
-			Trigger: evals.TriggerEveryTurn,
-			Params:  map[string]any{"patterns": []any{"hello"}},
-		},
-	}
-
 	results, err := Evaluate(ctx, EvaluateOpts{
-		EvalDefs: defs,
+		EvalDefs: containsDef("check", "hello"),
 		Messages: []types.Message{types.NewAssistantMessage("hello")},
 	})
 
@@ -297,18 +235,8 @@ func TestEvaluate_ContextCancellation(t *testing.T) {
 }
 
 func TestEvaluate_JudgeMetadata(t *testing.T) {
-	// Verify judge metadata is wired into EvalContext
-	defs := []evals.EvalDef{
-		{
-			ID:      "check",
-			Type:    "contains",
-			Trigger: evals.TriggerEveryTurn,
-			Params:  map[string]any{"patterns": []any{"hello"}},
-		},
-	}
-
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		EvalDefs:      defs,
+		EvalDefs:      containsDef("check", "hello"),
 		Messages:      []types.Message{types.NewAssistantMessage("hello")},
 		JudgeProvider: "mock-judge",
 	})
