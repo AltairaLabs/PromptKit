@@ -236,9 +236,16 @@ func TestEvaluate_ContextCancellation(t *testing.T) {
 	assert.Empty(t, results)
 }
 
-func TestEvaluate_TracerProvider(t *testing.T) {
+// newTestTracerProvider creates an in-memory OTel tracer provider for testing.
+// Caller must defer tp.Shutdown(ctx).
+func newTestTracerProvider() (*tracetest.InMemoryExporter, *sdktrace.TracerProvider) {
 	exp := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	return exp, tp
+}
+
+func TestEvaluate_TracerProvider(t *testing.T) {
+	exp, tp := newTestTracerProvider()
 	defer func() { _ = tp.Shutdown(context.Background()) }()
 
 	results, err := Evaluate(context.Background(), EvaluateOpts{
@@ -266,8 +273,7 @@ func TestEvaluate_TracerProvider(t *testing.T) {
 
 func TestEvaluate_TracerProvider_CreatesEventBus(t *testing.T) {
 	// When TracerProvider is set but EventBus is nil, Evaluate should create one automatically
-	exp := tracetest.NewInMemoryExporter()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+	_, tp := newTestTracerProvider()
 	defer func() { _ = tp.Shutdown(context.Background()) }()
 
 	// No EventBus provided — should still work
