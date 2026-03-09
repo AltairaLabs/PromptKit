@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -99,6 +100,111 @@ func TestEnsureA2ACapability(t *testing.T) {
 		result := ensureA2ACapability(caps, cfg)
 		require.Len(t, result, 1)
 		assert.Same(t, existing, result[0])
+	})
+}
+
+func TestWireA2AConfig_AgentBridges(t *testing.T) {
+	t.Run("wires agent bridges from a2aAgents config", func(t *testing.T) {
+		a2aCap := NewA2ACapability()
+		caps := []Capability{a2aCap}
+		cfg := &config{
+			a2aAgents: []a2aAgentConfig{
+				{
+					url: "https://agent.example.com/a2a",
+					config: &tools.A2AConfig{
+						AgentURL: "https://agent.example.com/a2a",
+						Auth: &tools.A2AAuthConfig{
+							Scheme: "Bearer",
+							Token:  "test-token",
+						},
+						Headers: map[string]string{"X-Tenant": "acme"},
+					},
+				},
+			},
+		}
+		wireA2AConfig(caps, cfg)
+		assert.Len(t, a2aCap.agentBridges, 1)
+	})
+
+	t.Run("wires agent with auth from env", func(t *testing.T) {
+		t.Setenv("TEST_WIRE_TOKEN", "env-token")
+		a2aCap := NewA2ACapability()
+		caps := []Capability{a2aCap}
+		cfg := &config{
+			a2aAgents: []a2aAgentConfig{
+				{
+					url: "https://agent2.example.com/a2a",
+					config: &tools.A2AConfig{
+						AgentURL: "https://agent2.example.com/a2a",
+						Auth: &tools.A2AAuthConfig{
+							Scheme:   "Bearer",
+							TokenEnv: "TEST_WIRE_TOKEN",
+						},
+						HeadersFromEnv: []string{"X-Key=TEST_WIRE_TOKEN"},
+					},
+				},
+			},
+		}
+		wireA2AConfig(caps, cfg)
+		assert.Len(t, a2aCap.agentBridges, 1)
+	})
+
+	t.Run("wires agent with no auth", func(t *testing.T) {
+		a2aCap := NewA2ACapability()
+		caps := []Capability{a2aCap}
+		cfg := &config{
+			a2aAgents: []a2aAgentConfig{
+				{
+					url:    "https://agent3.example.com/a2a",
+					config: &tools.A2AConfig{AgentURL: "https://agent3.example.com/a2a"},
+				},
+			},
+		}
+		wireA2AConfig(caps, cfg)
+		assert.Len(t, a2aCap.agentBridges, 1)
+	})
+
+	t.Run("skips when agentBridges already set", func(t *testing.T) {
+		a2aCap := NewA2ACapability()
+		a2aCap.agentBridges = make([]*a2a.ToolBridge, 1) // pre-existing bridge
+		caps := []Capability{a2aCap}
+		cfg := &config{
+			a2aAgents: []a2aAgentConfig{
+				{url: "https://agent.example.com", config: &tools.A2AConfig{}},
+			},
+		}
+		wireA2AConfig(caps, cfg)
+		assert.Len(t, a2aCap.agentBridges, 1) // not doubled
+	})
+
+	t.Run("wires legacy bridge", func(t *testing.T) {
+		a2aCap := NewA2ACapability()
+		bridge := &a2a.ToolBridge{}
+		caps := []Capability{a2aCap}
+		cfg := &config{a2aBridge: bridge}
+		wireA2AConfig(caps, cfg)
+		assert.Same(t, bridge, a2aCap.bridge)
+	})
+
+	t.Run("wires empty auth token skipped", func(t *testing.T) {
+		a2aCap := NewA2ACapability()
+		caps := []Capability{a2aCap}
+		cfg := &config{
+			a2aAgents: []a2aAgentConfig{
+				{
+					url: "https://agent.example.com/a2a",
+					config: &tools.A2AConfig{
+						AgentURL: "https://agent.example.com/a2a",
+						Auth: &tools.A2AAuthConfig{
+							Scheme:   "Bearer",
+							TokenEnv: "UNSET_TOKEN_XXXXX",
+						},
+					},
+				},
+			},
+		}
+		wireA2AConfig(caps, cfg)
+		assert.Len(t, a2aCap.agentBridges, 1)
 	})
 }
 
