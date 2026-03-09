@@ -70,6 +70,18 @@ Capture detailed session recordings for debugging, replay, and analysis. Export 
 Configure context management and truncation strategies for long conversations, including embedding-based relevance truncation.
 </div>
 
+## Tool Integrations
+
+<div class="code-example" markdown="1">
+### [Test MCP Tools](test-mcp-tools)
+Configure MCP servers in Arena for integration testing with tool filtering, timeouts, and environment variables.
+</div>
+
+<div class="code-example" markdown="1">
+### [Test A2A Agents](test-a2a-agents)
+Test agent-to-agent delegation with mock or remote A2A agents, including authentication, headers, and skill filtering.
+</div>
+
 ## Automation
 
 <div class="code-example" markdown="1">

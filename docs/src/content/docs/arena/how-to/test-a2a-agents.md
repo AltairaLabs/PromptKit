@@ -295,6 +295,115 @@ conversation_assertions:
 
 ---
 
+## Remote A2A Agents
+
+Instead of mock agents, you can test against real remote A2A servers. Set `url` on the agent config — Arena discovers the agent's skills from its `/.well-known/agent.json` endpoint.
+
+### Basic Remote Agent
+
+```yaml
+a2a_agents:
+  - name: echo_agent
+    url: "http://localhost:9877"
+```
+
+When `url` is set, `card` and `responses` are ignored — the agent card is fetched from the remote server.
+
+### Authentication
+
+Use `auth` to send credentials with every request:
+
+```yaml
+a2a_agents:
+  - name: echo_agent
+    url: "http://localhost:9877"
+    auth:
+      scheme: Bearer
+      token: "test-token-123"
+```
+
+To keep tokens out of config files, use `token_env` to read from an environment variable:
+
+```yaml
+a2a_agents:
+  - name: echo_agent
+    url: "https://agent.example.com"
+    auth:
+      scheme: Bearer
+      token_env: AGENT_TOKEN
+```
+
+### Headers
+
+Add static headers or headers resolved from environment variables:
+
+```yaml
+a2a_agents:
+  - name: echo_agent
+    url: "https://agent.example.com"
+    headers:
+      X-Tenant-ID: acme
+      X-Request-Source: arena
+    headers_from_env:
+      - "X-API-Key=API_KEY_ENV"
+```
+
+`headers_from_env` entries use the format `Header-Name=ENV_VAR_NAME`. If the env var is unset, the header is silently skipped.
+
+### Skill Filtering
+
+Limit which skills from the remote agent are exposed as tools:
+
+```yaml
+a2a_agents:
+  - name: echo_agent
+    url: "http://localhost:9877"
+    skill_filter:
+      allowlist:
+        - echo
+```
+
+Use `blocklist` to exclude specific skills instead:
+
+```yaml
+    skill_filter:
+      blocklist:
+        - debug
+        - admin
+```
+
+### Timeout
+
+Set a per-request timeout in milliseconds:
+
+```yaml
+a2a_agents:
+  - name: echo_agent
+    url: "http://localhost:9877"
+    timeout_ms: 5000
+```
+
+### Complete Remote Agent Config
+
+```yaml
+a2a_agents:
+  - name: echo_agent
+    url: "http://localhost:9877"
+    auth:
+      scheme: Bearer
+      token: "test-token-123"
+    headers:
+      X-Tenant-ID: acme
+    headers_from_env:
+      - "X-API-Key=API_KEY_ENV"
+    timeout_ms: 5000
+    skill_filter:
+      allowlist:
+        - echo
+```
+
+---
+
 ## Response Rules Reference
 
 ### Match Config
