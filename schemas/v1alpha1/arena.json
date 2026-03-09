@@ -15,14 +15,54 @@
             "$ref": "#/$defs/A2AResponseRule"
           },
           "type": "array"
+        },
+        "url": {
+          "type": "string"
+        },
+        "auth": {
+          "$ref": "#/$defs/A2AAuthConfig"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "headers_from_env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "skill_filter": {
+          "$ref": "#/$defs/A2ASkillFilter"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "name",
-        "card",
-        "responses"
+        "name"
+      ]
+    },
+    "A2AAuthConfig": {
+      "properties": {
+        "scheme": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "token_env": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "scheme"
       ]
     },
     "A2ACardConfig": {
@@ -133,6 +173,24 @@
         "name",
         "description"
       ]
+    },
+    "A2ASkillFilter": {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "AssertionConfig": {
       "properties": {
@@ -965,6 +1023,15 @@
             "type": "string"
           },
           "type": "object"
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "tool_filter": {
+          "$ref": "#/$defs/MCPToolFilter"
         }
       },
       "additionalProperties": false,
@@ -973,6 +1040,24 @@
         "name",
         "command"
       ]
+    },
+    "MCPToolFilter": {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "MarkdownConfig": {
       "properties": {

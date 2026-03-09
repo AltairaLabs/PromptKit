@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -254,7 +255,14 @@ func discoverAndRegisterMCPTools(mcpRegistry *mcp.RegistryImpl, toolRegistry *to
 	// Register each discovered tool in the tool registry
 	totalTools := 0
 	for serverName, mcpTools := range serverTools {
+		// Look up the server config to check for a tool filter
+		serverCfg, _ := mcpRegistry.GetServerConfig(serverName)
 		for _, mcpTool := range mcpTools {
+			// Apply tool filter if configured
+			if serverCfg.ToolFilter != nil && !serverCfg.ToolFilter.Includes(mcpTool.Name) {
+				continue
+			}
+
 			// MCP tools return a ToolCallResponse with Content array
 			// Define a generic output schema that matches this structure
 			mcpOutputSchema := json.RawMessage(`{
@@ -425,10 +433,18 @@ func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
 
 	for _, serverCfg := range cfg.MCPServers {
 		mcpServerConfig := mcp.ServerConfig{
-			Name:    serverCfg.Name,
-			Command: serverCfg.Command,
-			Args:    serverCfg.Args,
-			Env:     serverCfg.Env,
+			Name:       serverCfg.Name,
+			Command:    serverCfg.Command,
+			Args:       serverCfg.Args,
+			Env:        serverCfg.Env,
+			WorkingDir: serverCfg.WorkingDir,
+			TimeoutMs:  serverCfg.TimeoutMs,
+		}
+		if serverCfg.ToolFilter != nil {
+			mcpServerConfig.ToolFilter = &mcp.ToolFilter{
+				Allowlist: serverCfg.ToolFilter.Allowlist,
+				Blocklist: serverCfg.ToolFilter.Blocklist,
+			}
 		}
 		if err := registry.RegisterServer(mcpServerConfig); err != nil {
 			return nil, fmt.Errorf("failed to register MCP server %s: %w", serverCfg.Name, err)
@@ -692,15 +708,29 @@ func discoverAndRegisterSkillTools(cfg *config.Config, toolRegistry *tools.Regis
 // a2aInitTimeout is the timeout for discovering and registering A2A agent tools.
 const a2aInitTimeout = 30 * time.Second
 
-// a2aRunningServer tracks a started mock A2A server and its URL.
+// a2aRunningServer tracks a started A2A server (mock or remote) and its URL.
 type a2aRunningServer struct {
-	server *a2amock.A2AServer
+	server *a2amock.A2AServer // nil for remote servers
 	url    string
+	// clientOpts holds extra client options for remote servers (auth, headers).
+	clientOpts []a2a.ClientOption
+	// skillFilter controls which skills from this agent are exposed.
+	skillFilter *tools.A2ASkillFilter
+	// auth, headers, headersFromEnv are stored so they can be threaded into
+	// each tool descriptor's A2AConfig (used by the executor at call time).
+	auth           *tools.A2AAuthConfig
+	headers        map[string]string
+	headersFromEnv []string
+	timeoutMs      int
+	// configIndex is the index into the config.A2AAgents slice so the
+	// discovered card can be written back for report rendering.
+	configIndex int
+	isRemote    bool
 }
 
-// startAndRegisterA2AAgents starts mock A2A servers from config, discovers their
-// tools, and registers them in the tool registry. Returns a cleanup function that
-// shuts down all mock servers.
+// startAndRegisterA2AAgents starts mock A2A servers (or connects to remote ones)
+// from config, discovers their tools, and registers them in the tool registry.
+// Returns a cleanup function that shuts down all mock servers.
 func startAndRegisterA2AAgents(cfg *config.Config, toolRegistry *tools.Registry) (func(), error) {
 	if len(cfg.A2AAgents) == 0 {
 		return nil, nil
@@ -713,7 +743,7 @@ func startAndRegisterA2AAgents(cfg *config.Config, toolRegistry *tools.Registry)
 
 	toolRegistry.RegisterExecutor(a2a.NewExecutor())
 
-	totalTools, err := discoverAndRegisterA2ATools(servers, toolRegistry)
+	totalTools, err := discoverAndRegisterA2ATools(servers, toolRegistry, cfg.A2AAgents)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -726,28 +756,132 @@ func startAndRegisterA2AAgents(cfg *config.Config, toolRegistry *tools.Registry)
 	return cleanup, nil
 }
 
-// startA2AServers starts mock A2A servers for each agent config.
+// startA2AServers starts mock A2A servers for local agents or resolves remote agents.
 func startA2AServers(agents []config.A2AAgentConfig) ([]a2aRunningServer, func(), error) {
 	var servers []a2aRunningServer
 	cleanup := func() {
 		for _, s := range servers {
-			s.server.Close()
+			if s.server != nil {
+				s.server.Close()
+			}
 		}
 	}
 
-	for _, agentCfg := range agents {
-		mockCfg := buildA2AMockConfig(&agentCfg)
-		opts := a2amock.OptionsFromConfig(mockCfg)
-		server := a2amock.NewA2AServer(&mockCfg.Card, opts...)
-		url, err := server.Start()
-		if err != nil {
-			cleanup()
-			return nil, nil, fmt.Errorf("failed to start A2A mock server %q: %w", agentCfg.Name, err)
+	for i := range agents {
+		agentCfg := &agents[i]
+		if agentCfg.URL != "" {
+			// Remote A2A server
+			rs, err := buildRemoteA2AServer(agentCfg)
+			if err != nil {
+				cleanup()
+				return nil, nil, fmt.Errorf("failed to configure remote A2A agent %q: %w", agentCfg.Name, err)
+			}
+			rs.configIndex = i
+			rs.isRemote = true
+			servers = append(servers, rs)
+		} else {
+			// Local mock A2A server
+			mockCfg := buildA2AMockConfig(agentCfg)
+			opts := a2amock.OptionsFromConfig(mockCfg)
+			server := a2amock.NewA2AServer(&mockCfg.Card, opts...)
+			url, err := server.Start()
+			if err != nil {
+				cleanup()
+				return nil, nil, fmt.Errorf("failed to start A2A mock server %q: %w", agentCfg.Name, err)
+			}
+			servers = append(servers, a2aRunningServer{server: server, url: url})
 		}
-		servers = append(servers, a2aRunningServer{server: server, url: url})
 	}
 
 	return servers, cleanup, nil
+}
+
+// buildRemoteA2AServer creates an a2aRunningServer for a remote A2A agent.
+func buildRemoteA2AServer(agentCfg *config.A2AAgentConfig) (a2aRunningServer, error) {
+	rs := a2aRunningServer{url: agentCfg.URL}
+
+	if opt := resolveA2AAuth(agentCfg.Auth); opt != nil {
+		rs.clientOpts = append(rs.clientOpts, opt)
+	}
+
+	headerOpt, err := resolveA2AHeaders(agentCfg.Headers, agentCfg.HeadersFromEnv)
+	if err != nil {
+		return rs, err
+	}
+	if headerOpt != nil {
+		rs.clientOpts = append(rs.clientOpts, headerOpt)
+	}
+
+	if agentCfg.SkillFilter != nil {
+		rs.skillFilter = &tools.A2ASkillFilter{
+			Allowlist: agentCfg.SkillFilter.Allowlist,
+			Blocklist: agentCfg.SkillFilter.Blocklist,
+		}
+	}
+
+	// Store auth/header config so discoverAndRegisterA2ATools can thread
+	// them into each tool descriptor's A2AConfig for the executor.
+	if agentCfg.Auth != nil {
+		token := agentCfg.Auth.Token
+		if token == "" && agentCfg.Auth.TokenEnv != "" {
+			token = os.Getenv(agentCfg.Auth.TokenEnv)
+		}
+		rs.auth = &tools.A2AAuthConfig{
+			Scheme:   agentCfg.Auth.Scheme,
+			Token:    token,
+			TokenEnv: agentCfg.Auth.TokenEnv,
+		}
+	}
+	rs.headers = agentCfg.Headers
+	rs.headersFromEnv = agentCfg.HeadersFromEnv
+	rs.timeoutMs = agentCfg.TimeoutMs
+
+	return rs, nil
+}
+
+// resolveA2AAuth builds a WithAuth client option from the auth config.
+// Returns nil if no auth is configured or the token is empty.
+func resolveA2AAuth(auth *config.A2AAuthConfig) a2a.ClientOption {
+	if auth == nil {
+		return nil
+	}
+	token := auth.Token
+	if auth.TokenEnv != "" {
+		token = os.Getenv(auth.TokenEnv)
+	}
+	if token == "" {
+		return nil
+	}
+	scheme := auth.Scheme
+	if scheme == "" {
+		scheme = "Bearer"
+	}
+	return a2a.WithAuth(scheme, token)
+}
+
+// resolveA2AHeaders merges static headers and env-derived headers into a
+// WithHeaders client option. Returns nil if no headers are configured.
+func resolveA2AHeaders(
+	static map[string]string,
+	fromEnv []string,
+) (a2a.ClientOption, error) {
+	headers := make(map[string]string, len(static))
+	for k, v := range static {
+		headers[k] = v
+	}
+	for _, spec := range fromEnv {
+		name, envVar, ok := strings.Cut(spec, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid headers_from_env format %q (expected Header-Name=ENV_VAR)", spec)
+		}
+		if val := os.Getenv(envVar); val != "" {
+			headers[name] = val
+		}
+	}
+	if len(headers) == 0 {
+		return nil, nil
+	}
+	return a2a.WithHeaders(headers), nil
 }
 
 // buildA2AMockConfig converts an A2AAgentConfig to a mock.AgentConfig.
@@ -790,14 +924,38 @@ func buildA2AMockConfig(agentCfg *config.A2AAgentConfig) *a2amock.AgentConfig {
 }
 
 // discoverAndRegisterA2ATools discovers tools from running A2A servers and registers them.
-func discoverAndRegisterA2ATools(servers []a2aRunningServer, toolRegistry *tools.Registry) (int, error) {
+// For remote agents, it also populates the corresponding config.A2AAgentConfig.Card fields
+// so that the report renderer can display agent card metadata.
+func discoverAndRegisterA2ATools(
+	servers []a2aRunningServer, toolRegistry *tools.Registry, agents []config.A2AAgentConfig,
+) (int, error) {
 	initCtx, cancel := context.WithTimeout(context.Background(), a2aInitTimeout)
 	defer cancel()
 
 	totalTools := 0
 	for _, s := range servers {
-		client := a2a.NewClient(s.url)
-		bridge := a2a.NewToolBridge(client)
+		client := a2a.NewClient(s.url, s.clientOpts...)
+
+		// For remote agents, discover the card and populate the config so
+		// the report renderer can display agent metadata.
+		if s.isRemote {
+			card, err := client.Discover(initCtx)
+			if err != nil {
+				return 0, fmt.Errorf("failed to discover A2A agent at %s: %w", s.url, err)
+			}
+			populateConfigCard(&agents[s.configIndex], card)
+		}
+
+		cfg := &tools.A2AConfig{
+			AgentURL:       s.url,
+			SkillFilter:    s.skillFilter,
+			Auth:           s.auth,
+			Headers:        s.headers,
+			HeadersFromEnv: s.headersFromEnv,
+			TimeoutMs:      s.timeoutMs,
+		}
+		bridge := a2a.NewToolBridgeWithConfig(client, cfg)
+
 		descriptors, err := bridge.RegisterAgent(initCtx)
 		if err != nil {
 			return 0, fmt.Errorf("failed to register A2A agent tools from %s: %w", s.url, err)
@@ -810,4 +968,27 @@ func discoverAndRegisterA2ATools(servers []a2aRunningServer, toolRegistry *tools
 		}
 	}
 	return totalTools, nil
+}
+
+// populateConfigCard writes discovered agent card data back into the config
+// so the report renderer can display agent metadata for remote agents.
+func populateConfigCard(agentCfg *config.A2AAgentConfig, card *a2a.AgentCard) {
+	if agentCfg.Card.Name == "" {
+		agentCfg.Card.Name = card.Name
+	}
+	if agentCfg.Card.Description == "" {
+		agentCfg.Card.Description = card.Description
+	}
+	if len(agentCfg.Card.Skills) == 0 && len(card.Skills) > 0 {
+		agentCfg.Card.Skills = make([]config.A2ASkillConfig, len(card.Skills))
+		for i := range card.Skills {
+			skill := &card.Skills[i]
+			agentCfg.Card.Skills[i] = config.A2ASkillConfig{
+				ID:          skill.ID,
+				Name:        skill.Name,
+				Description: skill.Description,
+				Tags:        skill.Tags,
+			}
+		}
+	}
 }

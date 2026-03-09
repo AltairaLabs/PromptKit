@@ -1,0 +1,49 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: mcp-everything-test
+  annotations:
+    description: >
+      Test MCP integration with the official server-everything reference server.
+      Exercises tool_filter (allowlist), timeout_ms, and working_dir config options.
+
+spec:
+  # MCP Server — the official reference server with echo, add, etc.
+  mcp_servers:
+    - name: everything
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-everything"
+      timeout_ms: 10000
+      tool_filter:
+        # Only expose echo and get-sum — block the rest (14 tools total)
+        allowlist:
+          - echo
+          - get-sum
+
+  # Prompt configuration
+  prompt_configs:
+    - id: mcp-assistant
+      file: prompts/mcp-assistant.yaml
+
+  # Test scenarios
+  scenarios:
+    - file: scenarios/echo-and-add.scenario.yaml
+
+  # Provider — uses mock so no API key needed
+  providers:
+    - file: providers/mock-provider.yaml
+
+  # Defaults
+  defaults:
+    temperature: 0.7
+    max_tokens: 500
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]
+      html:
+        file: report.html

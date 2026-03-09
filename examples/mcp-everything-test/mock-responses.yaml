@@ -1,0 +1,18 @@
+defaultResponse: "I can help you with echo and addition using the available tools."
+
+scenarios:
+  echo-and-add:
+    turns:
+      1:
+        response: "I'll echo your message using the echo tool."
+        tool_calls:
+          - name: mcp__everything__echo
+            arguments:
+              message: "Hello from PromptKit!"
+      2:
+        response: "I'll add those numbers for you using the get-sum tool."
+        tool_calls:
+          - name: mcp__everything__get-sum
+            arguments:
+              a: 17
+              b: 25

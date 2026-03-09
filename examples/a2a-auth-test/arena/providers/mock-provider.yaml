@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+
+metadata:
+  name: mock-echo
+  annotations:
+    description: Mock provider for A2A echo test
+
+spec:
+  id: mock-echo
+  type: mock
+  model: mock-model
+  additional_config:
+    mock_config: mock-responses.yaml

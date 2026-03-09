@@ -1,0 +1,17 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+
+metadata:
+  name: echo-assistant
+
+spec:
+  task_type: echo-assistant
+  version: "v1.0.0"
+  description: "Assistant that delegates to the A2A echo agent"
+  system_template: |
+    You are an assistant that delegates work to the echo agent.
+    When the user asks you to echo something, use the a2a__echo_agent__echo tool.
+    Always use the tools — do not simulate the result.
+
+  allowed_tools:
+    - a2a__echo_agent__echo

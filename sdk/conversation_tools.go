@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -396,7 +397,23 @@ func (c *Conversation) registerMCPExecutors() {
 	}
 
 	for serverName, serverTools := range mcpTools {
+		// Look up the server config to check for tool filters.
+		var toolFilter *mcp.ToolFilter
+		for _, srv := range c.mcpRegistry.ListServers() {
+			if srv == serverName {
+				if cfg, ok := c.mcpRegistry.GetServerConfig(serverName); ok && cfg.ToolFilter != nil {
+					toolFilter = cfg.ToolFilter
+				}
+				break
+			}
+		}
+
 		for _, tool := range serverTools {
+			// Apply tool filter if configured.
+			if toolFilter != nil && !toolFilter.Includes(tool.Name) {
+				continue
+			}
+
 			qualifiedName := fmt.Sprintf("mcp__%s__%s", serverName, tool.Name)
 
 			// Register the MCP tool in the registry with qualified name

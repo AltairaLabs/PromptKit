@@ -661,6 +661,31 @@ func TestRegistryOptions_Defaults(t *testing.T) {
 	assert.Equal(t, 0, DefaultMaxProcesses, "default should be unlimited (0)")
 }
 
+func TestRegistry_GetServerConfig_Exists(t *testing.T) {
+	registry := NewRegistry()
+
+	expected := ServerConfig{
+		Name:    "test-server",
+		Command: "echo",
+		Args:    []string{"hello"},
+		Env:     map[string]string{"KEY": "val"},
+	}
+	err := registry.RegisterServer(expected)
+	require.NoError(t, err)
+
+	cfg, ok := registry.GetServerConfig("test-server")
+	assert.True(t, ok)
+	assert.Equal(t, expected, cfg)
+}
+
+func TestRegistry_GetServerConfig_NotExists(t *testing.T) {
+	registry := NewRegistry()
+
+	cfg, ok := registry.GetServerConfig("non-existent")
+	assert.False(t, ok)
+	assert.Equal(t, ServerConfig{}, cfg)
+}
+
 // mockClient implements the Client interface for testing
 type mockClient struct {
 	alive    bool

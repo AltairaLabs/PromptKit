@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
@@ -59,7 +60,13 @@ func NewRegistry() *RegistryImpl {
 }
 
 // newStdioClientAdapter wraps NewStdioClient to return the Client interface.
+// If config.TimeoutMs is set, it overrides the default request timeout.
 func newStdioClientAdapter(config ServerConfig) Client {
+	if config.TimeoutMs > 0 {
+		opts := DefaultClientOptions()
+		opts.RequestTimeout = time.Duration(config.TimeoutMs) * time.Millisecond
+		return NewStdioClientWithOptions(config, opts)
+	}
 	return NewStdioClient(config)
 }
 
@@ -268,6 +275,14 @@ func (r *RegistryImpl) ListServers() []string {
 	return servers
 }
 
+// GetServerConfig returns the configuration for a registered server.
+func (r *RegistryImpl) GetServerConfig(serverName string) (ServerConfig, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	cfg, ok := r.servers[serverName]
+	return cfg, ok
+}
+
 // ListAllTools returns all tools from all connected servers
 func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, error) {
 	serverNames := r.getServerNames()
@@ -434,10 +449,13 @@ func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Too
 
 // ServerConfigData holds MCP server configuration matching config.MCPServerConfig
 type ServerConfigData struct {
-	Name    string
-	Command string
-	Args    []string
-	Env     map[string]string
+	Name       string
+	Command    string
+	Args       []string
+	Env        map[string]string
+	WorkingDir string
+	TimeoutMs  int
+	ToolFilter *ToolFilter
 }
 
 // NewRegistryWithServers creates a registry and registers multiple servers.

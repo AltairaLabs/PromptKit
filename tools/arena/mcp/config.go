@@ -31,12 +31,21 @@ func NewRegistryFromConfig(cfg *config.Config) (*mcp.RegistryImpl, error) {
 	registry := mcp.NewRegistry()
 
 	for _, serverCfg := range cfg.MCPServers {
-		if err := registry.RegisterServer(mcp.ServerConfig{
-			Name:    serverCfg.Name,
-			Command: serverCfg.Command,
-			Args:    serverCfg.Args,
-			Env:     serverCfg.Env,
-		}); err != nil {
+		sc := mcp.ServerConfig{
+			Name:       serverCfg.Name,
+			Command:    serverCfg.Command,
+			Args:       serverCfg.Args,
+			Env:        serverCfg.Env,
+			WorkingDir: serverCfg.WorkingDir,
+			TimeoutMs:  serverCfg.TimeoutMs,
+		}
+		if serverCfg.ToolFilter != nil {
+			sc.ToolFilter = &mcp.ToolFilter{
+				Allowlist: serverCfg.ToolFilter.Allowlist,
+				Blocklist: serverCfg.ToolFilter.Blocklist,
+			}
+		}
+		if err := registry.RegisterServer(sc); err != nil {
 			return nil, fmt.Errorf("failed to register MCP server %s: %w", serverCfg.Name, err)
 		}
 	}

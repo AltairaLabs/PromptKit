@@ -14,6 +14,9 @@ type A2ACapability struct {
 	// bridge path (explicit WithA2ATools)
 	bridge *a2a.ToolBridge
 
+	// builder-based agent bridges (from WithA2AAgent)
+	agentBridges []*a2a.ToolBridge
+
 	// pack path config
 	endpointResolver EndpointResolver
 	localExecutor    *LocalAgentExecutor
@@ -59,15 +62,24 @@ func (c *A2ACapability) RegisterTools(registry *tools.Registry) {
 	c.registerAgentTools(registry)
 }
 
-// registerBridgeTools handles the bridge path (explicit WithA2ATools).
+// registerBridgeTools handles the bridge path (explicit WithA2ATools and WithA2AAgent).
 func (c *A2ACapability) registerBridgeTools(registry *tools.Registry) {
-	if c.bridge == nil {
-		return
+	hasTools := false
+	if c.bridge != nil {
+		for _, td := range c.bridge.GetToolDescriptors() {
+			_ = registry.Register(td)
+			hasTools = true
+		}
 	}
-	for _, td := range c.bridge.GetToolDescriptors() {
-		_ = registry.Register(td)
+	for _, bridge := range c.agentBridges {
+		for _, td := range bridge.GetToolDescriptors() {
+			_ = registry.Register(td)
+			hasTools = true
+		}
 	}
-	registry.RegisterExecutor(sdka2a.NewExecutor())
+	if hasTools {
+		registry.RegisterExecutor(sdka2a.NewExecutor())
+	}
 }
 
 // registerAgentTools handles the pack path (agents section).

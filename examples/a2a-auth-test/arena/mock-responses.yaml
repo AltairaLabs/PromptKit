@@ -1,0 +1,11 @@
+defaultResponse: "I can help you by delegating to the echo agent."
+
+scenarios:
+  echo-test:
+    turns:
+      1:
+        response: "I'll echo your message using the echo agent."
+        tool_calls:
+          - name: "a2a__echo_agent__echo"
+            arguments:
+              query: "Hello from PromptKit!"

@@ -158,19 +158,66 @@ func (c *Config) GetStateStoreConfig() *StateStoreConfig {
 	return c.StateStore
 }
 
-// MCPServerConfig represents configuration for an MCP server
-type MCPServerConfig struct {
-	Name    string            `yaml:"name" json:"name"`
-	Command string            `yaml:"command" json:"command"`
-	Args    []string          `yaml:"args,omitempty" json:"args,omitempty"`
-	Env     map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+// MCPToolFilter controls which tools from an MCP server are exposed to the LLM.
+type MCPToolFilter struct {
+	Allowlist []string `yaml:"allowlist,omitempty" json:"allowlist,omitempty"`
+	Blocklist []string `yaml:"blocklist,omitempty" json:"blocklist,omitempty"`
 }
 
-// A2AAgentConfig defines a mock A2A agent for Arena testing.
+// MCPServerConfig represents configuration for an MCP server
+type MCPServerConfig struct {
+	Name       string            `yaml:"name" json:"name"`
+	Command    string            `yaml:"command" json:"command"`
+	Args       []string          `yaml:"args,omitempty" json:"args,omitempty"`
+	Env        map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+	WorkingDir string            `yaml:"working_dir,omitempty" json:"working_dir,omitempty"`
+	TimeoutMs  int               `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
+	ToolFilter *MCPToolFilter    `yaml:"tool_filter,omitempty" json:"tool_filter,omitempty"`
+}
+
+// A2AAgentConfig defines an A2A agent for Arena testing.
+// When URL is set the agent is treated as a remote A2A server;
+// otherwise a mock server is started from Card + Responses.
 type A2AAgentConfig struct {
 	Name      string            `yaml:"name" json:"name"`
-	Card      A2ACardConfig     `yaml:"card" json:"card"`
-	Responses []A2AResponseRule `yaml:"responses" json:"responses"`
+	Card      A2ACardConfig     `yaml:"card,omitempty" json:"card,omitempty"`
+	Responses []A2AResponseRule `yaml:"responses,omitempty" json:"responses,omitempty"`
+
+	// URL of a remote A2A server. When set, Card and Responses are ignored
+	// and the agent is discovered from the remote /.well-known/agent.json.
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+
+	// Auth configures authentication for remote A2A servers.
+	Auth *A2AAuthConfig `yaml:"auth,omitempty" json:"auth,omitempty"`
+
+	// Headers are static headers sent on every request to the remote server.
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+
+	// HeadersFromEnv injects headers from environment variables.
+	// Format: "Header-Name=ENV_VAR_NAME".
+	HeadersFromEnv []string `yaml:"headers_from_env,omitempty" json:"headers_from_env,omitempty"`
+
+	// TimeoutMs sets the per-request timeout in milliseconds.
+	TimeoutMs int `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
+
+	// SkillFilter controls which skills from this agent are exposed.
+	SkillFilter *A2ASkillFilter `yaml:"skill_filter,omitempty" json:"skill_filter,omitempty"`
+}
+
+// A2AAuthConfig configures authentication for a remote A2A agent.
+type A2AAuthConfig struct {
+	// Scheme is the auth scheme (e.g. "Bearer").
+	Scheme string `yaml:"scheme" json:"scheme"`
+	// Token is the literal token value.
+	Token string `yaml:"token,omitempty" json:"token,omitempty"`
+	// TokenEnv is the name of an environment variable containing the token.
+	TokenEnv string `yaml:"token_env,omitempty" json:"token_env,omitempty"`
+}
+
+// A2ASkillFilter controls which skills from an A2A agent are exposed.
+type A2ASkillFilter struct {
+	Allowlist []string `yaml:"allowlist,omitempty" json:"allowlist,omitempty"`
+	Blocklist []string `yaml:"blocklist,omitempty" json:"blocklist,omitempty"`
 }
 
 // A2ACardConfig defines the agent card for a mock A2A agent.

@@ -93,6 +93,7 @@ type config struct {
 
 	// A2A tool bridge for remote agent tools
 	a2aBridge *a2a.ToolBridge
+	a2aAgents []a2aAgentConfig // builder-based A2A agent registrations
 
 	// Variable providers for dynamic variable resolution
 	variableProviders []variables.Provider
@@ -960,6 +961,25 @@ func (b *MCPServerBuilder) WithArgs(args ...string) *MCPServerBuilder {
 	return b
 }
 
+// WithWorkingDir sets the working directory for the MCP server process.
+func (b *MCPServerBuilder) WithWorkingDir(dir string) *MCPServerBuilder {
+	b.config.WorkingDir = dir
+	return b
+}
+
+// WithTimeout sets the per-request timeout in milliseconds for the MCP server.
+func (b *MCPServerBuilder) WithTimeout(ms int) *MCPServerBuilder {
+	b.config.TimeoutMs = ms
+	return b
+}
+
+// WithToolFilter sets a tool filter that controls which tools from this server
+// are exposed to the LLM. Only tools passing the filter are registered.
+func (b *MCPServerBuilder) WithToolFilter(filter *mcp.ToolFilter) *MCPServerBuilder {
+	b.config.ToolFilter = filter
+	return b
+}
+
 // Build returns the configured server config.
 func (b *MCPServerBuilder) Build() mcp.ServerConfig {
 	return b.config
@@ -998,6 +1018,131 @@ func WithMCPServer(builder *MCPServerBuilder) Option {
 func WithA2ATools(bridge *a2a.ToolBridge) Option {
 	return func(c *config) error {
 		c.a2aBridge = bridge
+		return nil
+	}
+}
+
+// a2aAgentConfig holds the configuration for a builder-based A2A agent registration.
+type a2aAgentConfig struct {
+	url    string
+	config *tools.A2AConfig
+}
+
+// A2AAgentBuilder provides a fluent interface for configuring A2A agent connections.
+type A2AAgentBuilder struct {
+	url          string
+	headers      map[string]string
+	headersEnv   []string
+	authScheme   string
+	authToken    string
+	authTokenEnv string
+	timeoutMs    int
+	retryPolicy  *tools.A2ARetryConfig
+	skillFilter  *tools.A2ASkillFilter
+}
+
+// NewA2AAgent creates a new A2A agent configuration builder.
+//
+//	agent := sdk.NewA2AAgent("https://agent.example.com").
+//	    WithAuth("Bearer", os.Getenv("AGENT_TOKEN")).
+//	    WithHeader("X-Tenant-ID", "acme")
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithA2AAgent(agent),
+//	)
+func NewA2AAgent(url string) *A2AAgentBuilder {
+	return &A2AAgentBuilder{
+		url:     url,
+		headers: make(map[string]string),
+	}
+}
+
+// WithAuth sets authentication credentials for the A2A agent.
+func (b *A2AAgentBuilder) WithAuth(scheme, token string) *A2AAgentBuilder {
+	b.authScheme = scheme
+	b.authToken = token
+	return b
+}
+
+// WithAuthFromEnv sets authentication using an environment variable for the token.
+func (b *A2AAgentBuilder) WithAuthFromEnv(scheme, envVar string) *A2AAgentBuilder {
+	b.authScheme = scheme
+	b.authTokenEnv = envVar
+	return b
+}
+
+// WithHeader adds a static header to all requests to this agent.
+func (b *A2AAgentBuilder) WithHeader(key, value string) *A2AAgentBuilder {
+	b.headers[key] = value
+	return b
+}
+
+// WithHeaderFromEnv adds a header that reads its value from an environment variable.
+// Format: "Header-Name=ENV_VAR_NAME"
+func (b *A2AAgentBuilder) WithHeaderFromEnv(headerEnv string) *A2AAgentBuilder {
+	b.headersEnv = append(b.headersEnv, headerEnv)
+	return b
+}
+
+// WithTimeout sets the request timeout in milliseconds.
+func (b *A2AAgentBuilder) WithTimeout(ms int) *A2AAgentBuilder {
+	b.timeoutMs = ms
+	return b
+}
+
+// WithRetryPolicy sets the retry policy for this agent.
+func (b *A2AAgentBuilder) WithRetryPolicy(maxRetries, initialDelayMs, maxDelayMs int) *A2AAgentBuilder {
+	b.retryPolicy = &tools.A2ARetryConfig{
+		MaxRetries:     maxRetries,
+		InitialDelayMs: initialDelayMs,
+		MaxDelayMs:     maxDelayMs,
+	}
+	return b
+}
+
+// WithSkillFilter sets a skill filter that controls which skills from this agent
+// are exposed to the LLM.
+func (b *A2AAgentBuilder) WithSkillFilter(filter *tools.A2ASkillFilter) *A2AAgentBuilder {
+	b.skillFilter = filter
+	return b
+}
+
+// Build returns the A2AConfig for this agent.
+func (b *A2AAgentBuilder) Build() *tools.A2AConfig {
+	cfg := &tools.A2AConfig{
+		AgentURL:       b.url,
+		Headers:        b.headers,
+		HeadersFromEnv: b.headersEnv,
+		TimeoutMs:      b.timeoutMs,
+		RetryPolicy:    b.retryPolicy,
+		SkillFilter:    b.skillFilter,
+	}
+	if b.authScheme != "" {
+		cfg.Auth = &tools.A2AAuthConfig{
+			Scheme:   b.authScheme,
+			Token:    b.authToken,
+			TokenEnv: b.authTokenEnv,
+		}
+	}
+	return cfg
+}
+
+// WithA2AAgent registers an A2A agent using the builder pattern.
+// The agent's skills are discovered at pipeline build time and registered as tools.
+//
+//	agent := sdk.NewA2AAgent("https://agent.example.com").
+//	    WithAuth("Bearer", os.Getenv("AGENT_TOKEN"))
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithA2AAgent(agent),
+//	)
+func WithA2AAgent(builder *A2AAgentBuilder) Option {
+	return func(c *config) error {
+		cfg := builder.Build()
+		c.a2aAgents = append(c.a2aAgents, a2aAgentConfig{
+			url:    builder.url,
+			config: cfg,
+		})
 		return nil
 	}
 }

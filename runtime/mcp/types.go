@@ -139,12 +139,45 @@ type Client interface {
 	IsAlive() bool
 }
 
+// ToolFilter controls which tools from an MCP server are exposed to the LLM.
+// If Allowlist is non-empty, only those tools are included.
+// If Blocklist is non-empty, those tools are excluded.
+// Allowlist takes precedence over Blocklist.
+type ToolFilter struct {
+	Allowlist []string `json:"allowlist,omitempty" yaml:"allowlist,omitempty"`
+	Blocklist []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
+}
+
+// Includes returns true if the given tool name passes the filter.
+func (f ToolFilter) Includes(name string) bool {
+	if len(f.Allowlist) > 0 {
+		for _, a := range f.Allowlist {
+			if a == name {
+				return true
+			}
+		}
+		return false
+	}
+	for _, b := range f.Blocklist {
+		if b == name {
+			return false
+		}
+	}
+	return true
+}
+
 // ServerConfig represents configuration for an MCP server
 type ServerConfig struct {
 	Name    string            `json:"name" yaml:"name"`       // Unique identifier for this server
 	Command string            `json:"command" yaml:"command"` // Command to execute
 	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	// WorkingDir sets the working directory for the server process.
+	WorkingDir string `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
+	// TimeoutMs sets the per-request timeout in milliseconds.
+	TimeoutMs int `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	// ToolFilter controls which tools from this server are exposed.
+	ToolFilter *ToolFilter `json:"tool_filter,omitempty" yaml:"tool_filter,omitempty"`
 }
 
 // Registry interface defines the MCP server registry operations
@@ -163,6 +196,9 @@ type Registry interface {
 
 	// ListAllTools returns all tools from all connected servers
 	ListAllTools(ctx context.Context) (map[string][]Tool, error)
+
+	// GetServerConfig returns the configuration for a registered server.
+	GetServerConfig(serverName string) (ServerConfig, bool)
 
 	// Close shuts down all MCP servers and connections
 	Close() error

@@ -1,0 +1,22 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+
+metadata:
+  name: mcp-assistant
+
+spec:
+  task_type: mcp-assistant
+  version: "v1.0.0"
+  description: "Assistant with access to the MCP everything server (filtered to echo and add)"
+  system_template: |
+    You are a helpful assistant with access to two tools:
+    - echo: Echoes back the message you send it
+    - get-sum: Returns the sum of two numbers
+
+    When the user asks you to echo something, use the echo tool.
+    When the user asks you to add or sum numbers, use the get-sum tool.
+    Always use the tools when requested — do not simulate the result.
+
+  allowed_tools:
+    - mcp__everything__echo
+    - mcp__everything__get-sum

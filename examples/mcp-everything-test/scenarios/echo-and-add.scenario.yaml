@@ -1,0 +1,54 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: echo-and-add
+
+spec:
+  id: "echo-and-add"
+  task_type: mcp-assistant
+  description: >
+    Tests the echo and get-sum tools from the MCP everything server.
+    Verifies tool_filter works (only echo and get-sum are exposed out of 14).
+
+  turns:
+    # Turn 1: Echo a message via real MCP server
+    - role: user
+      content: "Please echo the message: Hello from PromptKit!"
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["mcp__everything__echo"]
+            message: "Should call the echo tool from the MCP everything server"
+        - type: no_tool_errors
+          params:
+            tools: ["mcp__everything__echo"]
+            message: "MCP echo tool should execute without errors"
+        - type: tool_result_includes
+          params:
+            tool: "mcp__everything__echo"
+            patterns: ["Hello from PromptKit!"]
+            message: "Echo tool should return the original message"
+
+    # Turn 2: Add two numbers via real MCP server
+    - role: user
+      content: "Add 17 and 25 using the get-sum tool."
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["mcp__everything__get-sum"]
+            message: "Should call the get-sum tool from the MCP everything server"
+        - type: no_tool_errors
+          params:
+            tools: ["mcp__everything__get-sum"]
+            message: "MCP get-sum tool should execute without errors"
+        - type: tool_result_includes
+          params:
+            tool: "mcp__everything__get-sum"
+            patterns: ["42"]
+            message: "get-sum should return 42 (17 + 25)"
+
+  tool_policy:
+    tool_choice: required
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 10

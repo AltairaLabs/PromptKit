@@ -52,6 +52,15 @@ func (m *mockMCPRegistry) ListAllTools(ctx context.Context) (map[string][]mcp.To
 	return m.tools, nil
 }
 
+func (m *mockMCPRegistry) GetServerConfig(serverName string) (mcp.ServerConfig, bool) {
+	for _, s := range m.servers {
+		if s.Name == serverName {
+			return s, true
+		}
+	}
+	return mcp.ServerConfig{}, false
+}
+
 func (m *mockMCPRegistry) Close() error {
 	m.closed = true
 	return nil
