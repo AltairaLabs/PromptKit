@@ -181,8 +181,7 @@ func initLoggerWithConfig(level slog.Level, commonFields []slog.Attr, moduleConf
 		handler = NewContextHandler(baseHandler, commonFields...)
 	}
 
-	DefaultLogger = slog.New(handler)
-	slog.SetDefault(DefaultLogger)
+	storeLogger(slog.New(handler))
 }
 
 // GetModuleConfig returns the global module configuration.

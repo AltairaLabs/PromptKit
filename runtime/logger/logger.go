@@ -19,6 +19,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/AltairaLabs/PromptKit/runtime/version"
 )
@@ -26,7 +27,15 @@ import (
 var (
 	// DefaultLogger is the global structured logger instance.
 	// It is safe for concurrent use and initialized with slog.LevelInfo by default.
+	//
+	// Deprecated: Direct access to DefaultLogger is not goroutine-safe.
+	// Use the package-level functions (Info, Debug, Warn, Error, etc.) instead,
+	// or call GetLogger() for an atomic read.
 	DefaultLogger *slog.Logger
+
+	// atomicLogger holds the logger for goroutine-safe access.
+	// All package-level logging functions read from this.
+	atomicLogger atomic.Pointer[slog.Logger]
 
 	// logOutput is the destination for log output.
 	// Defaults to os.Stderr but can be changed for testing.
@@ -63,6 +72,21 @@ func init() {
 	version.LogStartup()
 }
 
+// GetLogger returns the current logger, safe for concurrent use.
+func GetLogger() *slog.Logger {
+	if l := atomicLogger.Load(); l != nil {
+		return l
+	}
+	return slog.Default()
+}
+
+// storeLogger atomically stores the logger and updates the legacy DefaultLogger.
+func storeLogger(l *slog.Logger) {
+	atomicLogger.Store(l)
+	DefaultLogger = l // maintain backwards compatibility
+	slog.SetDefault(l)
+}
+
 // initLogger creates the logger with the given level and common fields.
 func initLogger(level slog.Level, commonFields []slog.Attr) {
 	opts := &slog.HandlerOptions{
@@ -77,9 +101,7 @@ func initLogger(level slog.Level, commonFields []slog.Attr) {
 	}
 
 	contextHandler := NewContextHandler(baseHandler, commonFields...)
-	DefaultLogger = slog.New(contextHandler)
-	// Set as default slog logger so other packages using slog directly get the same config
-	slog.SetDefault(DefaultLogger)
+	storeLogger(slog.New(contextHandler))
 }
 
 // ParseLevel converts a string log level to slog.Level.
@@ -145,8 +167,7 @@ func SetLogger(l *slog.Logger) {
 		return
 	}
 	customHandler = l.Handler()
-	DefaultLogger = l
-	slog.SetDefault(l)
+	storeLogger(l)
 }
 
 // SetOutput changes the log output destination and reinitializes the logger.
@@ -166,46 +187,46 @@ func SetOutput(w io.Writer) {
 // Info logs an informational message with structured key-value attributes.
 // Args should be provided in key-value pairs: key1, value1, key2, value2, ...
 func Info(msg string, args ...any) {
-	DefaultLogger.Info(msg, args...)
+	GetLogger().Info(msg, args...)
 }
 
 // InfoContext logs an informational message with context and structured attributes.
 // The context can be used for request tracing and cancellation.
 func InfoContext(ctx context.Context, msg string, args ...any) {
-	DefaultLogger.InfoContext(ctx, msg, args...)
+	GetLogger().InfoContext(ctx, msg, args...)
 }
 
 // Debug logs a debug-level message with structured attributes.
 // Debug messages are only output when the log level is set to LevelDebug or lower.
 func Debug(msg string, args ...any) {
-	DefaultLogger.Debug(msg, args...)
+	GetLogger().Debug(msg, args...)
 }
 
 // DebugContext logs a debug message with context and structured attributes.
 func DebugContext(ctx context.Context, msg string, args ...any) {
-	DefaultLogger.DebugContext(ctx, msg, args...)
+	GetLogger().DebugContext(ctx, msg, args...)
 }
 
 // Warn logs a warning message with structured attributes.
 // Use for recoverable errors or unexpected but non-critical situations.
 func Warn(msg string, args ...any) {
-	DefaultLogger.Warn(msg, args...)
+	GetLogger().Warn(msg, args...)
 }
 
 // WarnContext logs a warning message with context and structured attributes.
 func WarnContext(ctx context.Context, msg string, args ...any) {
-	DefaultLogger.WarnContext(ctx, msg, args...)
+	GetLogger().WarnContext(ctx, msg, args...)
 }
 
 // Error logs an error message with structured attributes.
 // Use for errors that affect operation but don't cause complete failure.
 func Error(msg string, args ...any) {
-	DefaultLogger.Error(msg, args...)
+	GetLogger().Error(msg, args...)
 }
 
 // ErrorContext logs an error message with context and structured attributes.
 func ErrorContext(ctx context.Context, msg string, args ...any) {
-	DefaultLogger.ErrorContext(ctx, msg, args...)
+	GetLogger().ErrorContext(ctx, msg, args...)
 }
 
 // LLMCall logs a provider API call with structured fields for observability.
@@ -329,7 +350,7 @@ func RedactSensitiveData(input string) string {
 // Sensitive data in URL, headers, and body are automatically redacted.
 func APIRequest(provider, method, url string, headers map[string]string, body interface{}) {
 	// Early return if debug logging is disabled for performance
-	if !DefaultLogger.Enabled(context.Background(), slog.LevelDebug) {
+	if !GetLogger().Enabled(context.Background(), slog.LevelDebug) {
 		return
 	}
 
@@ -376,7 +397,7 @@ func APIRequest(provider, method, url string, headers map[string]string, body in
 // Status codes are logged with emoji indicators: 🟢 (2xx), 🟡 (3xx), 🔴 (4xx/5xx).
 func APIResponse(provider string, statusCode int, body string, err error) {
 	// Early return if debug logging is disabled for performance
-	if !DefaultLogger.Enabled(context.Background(), slog.LevelDebug) {
+	if !GetLogger().Enabled(context.Background(), slog.LevelDebug) {
 		return
 	}
 

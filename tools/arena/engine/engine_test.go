@@ -50,7 +50,7 @@ func newTestLogger(t *testing.T) *testLogger {
 
 	tl := &testLogger{
 		buffer:    &buf,
-		oldLogger: logger.DefaultLogger,
+		oldLogger: logger.GetLogger(),
 		t:         t,
 	}
 

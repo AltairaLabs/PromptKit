@@ -381,7 +381,7 @@ func (s *ProviderStage) executeRound(
 
 	// Emit provider call started event
 	if s.emitter != nil {
-		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(messages), toolCount)
+		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(messages), toolCount)
 	}
 
 	// Run BeforeCall hooks
@@ -429,7 +429,7 @@ func (s *ProviderStage) executeRound(
 		logger.Error("Provider call failed", "error", err, "duration", duration)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
 		}
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
 	}
@@ -569,7 +569,7 @@ func (s *ProviderStage) executeStreamingRound(
 
 	// Emit provider call started event
 	if s.emitter != nil {
-		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(params.messages), toolCount)
+		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(params.messages), toolCount)
 	}
 
 	startTime := time.Now()
@@ -580,7 +580,7 @@ func (s *ProviderStage) executeStreamingRound(
 		duration := time.Since(startTime)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
 		}
 		return types.Message{}, false, err
 	}
@@ -592,7 +592,7 @@ func (s *ProviderStage) executeStreamingRound(
 	if err != nil {
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
 		}
 		return types.Message{}, false, err
 	}

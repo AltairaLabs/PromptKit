@@ -65,8 +65,8 @@ func TestModuleConfig_SetDefaultLevel(t *testing.T) {
 
 func TestConfigure(t *testing.T) {
 	// Save original logger state
-	originalLogger := DefaultLogger
-	defer func() { DefaultLogger = originalLogger }()
+	originalLogger := GetLogger()
+	defer func() { storeLogger(originalLogger) }()
 
 	cfg := &LoggingConfigSpec{
 		DefaultLevel: "warn",
@@ -103,10 +103,10 @@ func TestConfigure_Nil(t *testing.T) {
 
 func TestConfigure_JSONFormat(t *testing.T) {
 	// Save original state
-	originalLogger := DefaultLogger
+	originalLogger := GetLogger()
 	originalOutput := logOutput
 	defer func() {
-		DefaultLogger = originalLogger
+		storeLogger(originalLogger)
 		logOutput = originalOutput
 	}()
 
@@ -214,9 +214,9 @@ func TestModuleHandler_WithContextFields(t *testing.T) {
 
 func TestSetOutput(t *testing.T) {
 	// Save original state
-	originalLogger := DefaultLogger
+	originalLogger := GetLogger()
 	defer func() {
-		DefaultLogger = originalLogger
+		storeLogger(originalLogger)
 		SetOutput(nil) // Reset to stderr
 	}()
 
