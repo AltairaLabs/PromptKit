@@ -11,7 +11,7 @@ The tool system bridges the gap between LLM reasoning and real-world actions. It
 
 - **Unified Tool Interface**: Consistent abstraction across different execution modes
 - **MCP Integration**: Native support for Model Context Protocol servers
-- **Flexible Execution**: Mock, HTTP, and MCP-based executors
+- **Flexible Execution**: Mock, HTTP, MCP, local, and client executors
 - **Schema Validation**: JSON Schema-based argument and result validation
 - **Kubernetes-Style Configuration**: Familiar YAML manifest format
 
@@ -68,16 +68,24 @@ The `ToolDescriptor` is the central data structure representing a tool:
 ```go
 type ToolDescriptor struct {
     Name         string          // Unique tool identifier
+    Namespace    string          // Optional namespace (e.g., "mcp", "a2a")
     Description  string          // Human-readable description
     InputSchema  json.RawMessage // JSON Schema for arguments
     OutputSchema json.RawMessage // JSON Schema for results
-    Mode         string          // "mock" | "live" | "mcp"
+    Mode         string          // "mock" | "live" | "local" | "mcp" | "client"
     TimeoutMs    int             // Execution timeout
 
+    // Mock configuration
+    MockResult       json.RawMessage // Static mock data
+    MockParts        []types.ContentPart // Multimodal mock parts
+    MockTemplate     string          // Inline template for dynamic mocks
+    MockResultFile   string          // External file for mock data
+    MockTemplateFile string          // External file for mock template
+
     // Mode-specific configuration
-    MockResult   json.RawMessage // For static mocks
-    MockTemplate string          // For dynamic mocks
-    HTTPConfig   *HTTPConfig     // For HTTP execution
+    HTTPConfig   *HTTPConfig   // For mode "live"
+    A2AConfig    *A2AConfig    // For A2A agent tools
+    ClientConfig *ClientConfig // For mode "client"
 }
 ```
 
@@ -150,8 +158,30 @@ All execution backends implement the `Executor` interface:
 
 ```go
 type Executor interface {
-    Execute(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
+    Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
     Name() string
+}
+```
+
+**Extended Executor Interfaces**:
+- **MultimodalExecutor**: Returns both JSON and content parts (images, audio)
+- **AsyncToolExecutor**: Returns pending status for HITL approval workflows
+
+```go
+// MultimodalExecutor supports tools returning rich content (images, audio, etc.)
+type MultimodalExecutor interface {
+    Executor
+    ExecuteMultimodal(
+        ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+    ) (json.RawMessage, []types.ContentPart, error)
+}
+
+// AsyncToolExecutor supports tools that may require approval before execution
+type AsyncToolExecutor interface {
+    Executor
+    ExecuteAsync(
+        ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+    ) (*ToolExecutionResult, error)
 }
 ```
 
@@ -160,6 +190,8 @@ type Executor interface {
 - **MockScriptedExecutor**: Template-based dynamic responses
 - **HTTPExecutor**: Makes HTTP API calls
 - **MCPExecutor**: Delegates to MCP servers
+- **LocalExecutor**: Dispatches to SDK-registered `OnTool()`/`OnToolCtx()` handlers
+- **ClientExecutor**: Handles client-side tools; defers execution when no handler is registered
 
 ## Tool Execution Flow
 
@@ -423,6 +455,7 @@ type MCPExecutor struct {
 }
 
 func (e *MCPExecutor) Execute(
+    ctx context.Context,
     descriptor *ToolDescriptor,
     args json.RawMessage,
 ) (json.RawMessage, error) {
@@ -594,6 +627,29 @@ http:
 - Configurable timeout
 - Automatic retry on transient errors
 - Response redaction for sensitive data
+
+### Local Mode
+
+**Use Case**: SDK tool handlers registered via `OnTool()` / `OnToolCtx()`
+
+Tools loaded from a pack default to `mode: local`. The SDK registers a `localExecutor` that dispatches to the appropriate Go handler function. This is the primary mode for SDK users.
+
+### Client Mode
+
+**Use Case**: Tools executed on the caller's device (GPS, camera, biometrics)
+
+**Configuration**:
+```yaml
+mode: client
+client:
+  consent:
+    required: true
+    message: "This app wants to access your location"
+    decline_strategy: reject
+  categories: [location]
+```
+
+When a handler is registered via `OnClientTool()`, execution is synchronous. When no handler is registered, execution is deferred — the pipeline returns a pending result and the caller provides the result asynchronously via `SendToolResult()`.
 
 ### MCP Mode
 

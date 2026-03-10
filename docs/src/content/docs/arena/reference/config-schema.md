@@ -959,7 +959,7 @@ spec:
         type: number
 
   # Execution mode
-  mode: live                        # Required: "mock" | "live" | "mcp"
+  mode: live                        # Required: "mock" | "live" | "local" | "mcp" | "client"
   timeout_ms: 5000                  # Optional: Execution timeout
 
   # For mock mode: Static response

@@ -37,6 +37,7 @@ assertions:
     message: "Description"        # Optional: Human-readable description
     when:                         # Optional: Conditional filtering
       tool_called: "tool_name"
+    pass_threshold: 0.8       # Optional: Required pass rate for trial runs (0.0-1.0)
 ```
 
 **Fields**:
@@ -44,6 +45,7 @@ assertions:
 - `params`: Parameters specific to the assertion type
 - `message`: Optional description shown in reports
 - `when`: Optional conditions that must be met for the assertion to run (see [Conditional Filtering](#conditional-filtering-when))
+- `pass_threshold`: Optional pass rate threshold when using trials (default: 1.0 = all must pass)
 
 ## Available Assertions
 
@@ -781,6 +783,46 @@ steps:
 
 ---
 
+#### `workflow_transition_order`
+
+Checks that workflow state transitions happen in an expected subsequence order.
+
+**Parameters**:
+- `sequence` (array of strings): Expected ordered state transitions
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: workflow_transition_order
+    params:
+      sequence: ["intake", "triage", "resolution"]
+    message: "Should follow standard support workflow"
+```
+
+---
+
+#### `workflow_tool_access`
+
+Enforces that tools are only called when the workflow is in a permitted state.
+
+**Parameters**:
+- `rules` (array): Each rule has `state` (string) and `allowed` (array of tool names)
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: workflow_tool_access
+    params:
+      rules:
+        - state: intake
+          allowed: ["get_customer_info", "search_faq"]
+        - state: resolution
+          allowed: ["issue_refund", "create_ticket"]
+    message: "Tools should only be used in appropriate workflow states"
+```
+
+---
+
 ### Guardrail Assertions
 
 #### `guardrail_triggered`
@@ -1263,6 +1305,111 @@ Each step object supports:
 
 ---
 
+### Tool Pattern & Efficiency Assertions
+
+#### `tool_anti_pattern`
+
+Checks that tool call sequences do NOT contain forbidden subsequences.
+
+**Parameters**:
+- `patterns` (array): Each item has `sequence` (array of tool names) and optional `message` (string)
+
+**Example**:
+```yaml
+assertions:
+  - type: tool_anti_pattern
+    params:
+      patterns:
+        - sequence: ["search", "search", "search"]
+          message: "Should not call search three times in a row"
+    message: "Avoid redundant search patterns"
+```
+
+---
+
+#### `tool_no_repeat`
+
+Detects consecutive repeated calls to the same tool.
+
+**Parameters**:
+- `tools` (array of strings): Tool names to monitor (optional — all tools if omitted)
+- `max_repeats` (int): Maximum consecutive calls allowed (default: 1)
+
+**Example**:
+```yaml
+assertions:
+  - type: tool_no_repeat
+    params:
+      tools: ["search"]
+      max_repeats: 2
+    message: "Should not call search more than 2 times in a row"
+```
+
+---
+
+#### `tool_efficiency`
+
+Checks tool usage efficiency metrics across the session.
+
+**Parameters**:
+- `max_calls` (int): Maximum total tool calls allowed
+- `max_errors` (int): Maximum tool errors allowed
+- `max_error_rate` (float): Maximum error rate (0.0-1.0)
+
+**Example**:
+```yaml
+assertions:
+  - type: tool_efficiency
+    params:
+      max_calls: 10
+      max_error_rate: 0.1
+    message: "Tool usage should be efficient"
+```
+
+---
+
+#### `cost_budget`
+
+Checks conversation cost and token usage limits.
+
+**Parameters**:
+- `max_cost_usd` (float): Maximum cost in USD
+- `max_input_tokens` (int): Maximum input tokens
+- `max_output_tokens` (int): Maximum output tokens
+- `max_total_tokens` (int): Maximum total tokens
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: cost_budget
+    params:
+      max_cost_usd: 0.50
+      max_total_tokens: 10000
+    message: "Stay within budget"
+```
+
+---
+
+#### `invariant_fields_preserved`
+
+Checks that field values in tool call arguments are not lost between calls to the same tool.
+
+**Parameters**:
+- `tool` (string): Tool name to monitor
+- `fields` (array of strings): Field names that should persist
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: invariant_fields_preserved
+    params:
+      tool: update_order
+      fields: ["order_id", "customer_id"]
+    message: "Order context should be preserved across updates"
+```
+
+---
+
 ### LLM Judge Assertions
 
 LLM judge assertions use a separate LLM as a judge to evaluate responses or tool call behavior. These require `judge_targets` to be configured in the arena config (via `config.judges`).
@@ -1412,6 +1559,29 @@ conversation_assertions:
         - search_products
       min_score: 0.8
     message: "Search strategy improves across turns"
+```
+
+---
+
+#### `llm_judge_session`
+
+Evaluates the full conversation using an LLM judge.
+
+**Parameters**:
+- `criteria` (string): What to evaluate
+- `rubric` (string, optional): Scoring rubric
+- `model` (string, optional): Model override
+- `system_prompt` (string, optional): Custom system prompt
+- `min_score` (float, optional): Minimum passing score (0.0-1.0)
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: llm_judge_session
+    params:
+      criteria: "Was the conversation professional and helpful throughout?"
+      min_score: 0.7
+    message: "Conversation should maintain quality throughout"
 ```
 
 ---
@@ -1587,6 +1757,22 @@ conversation_assertions:
       min_score: 0.8
     message: "Conversation quality check"
 ```
+
+---
+
+#### `rest_eval_session`
+
+POSTs all assistant messages to an external HTTP endpoint for session-level evaluation.
+
+**Parameters**: Same as `rest_eval` — `url`, `method`, `headers`, `timeout`, `criteria`, `min_score`
+
+---
+
+#### `a2a_eval_session`
+
+Sends all assistant messages to an A2A agent for session-level evaluation.
+
+**Parameters**: Same as `a2a_eval` — `agent_url`, `auth_token`, `timeout`, `criteria`, `min_score`
 
 ---
 
@@ -1777,6 +1963,258 @@ assertions:
     "min": 0.8
   }
 }
+```
+
+---
+
+### Skill Assertions
+
+#### `skill_activated`
+
+Checks that specific skills were activated during the conversation.
+
+**Parameters**:
+- `skill_names` (array of strings): Required skill IDs
+- `min_calls` (int): Minimum activations required (default: 1)
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: skill_activated
+    params:
+      skill_names: ["billing", "technical_support"]
+    message: "Should activate billing and support skills"
+```
+
+---
+
+#### `skill_not_activated`
+
+Checks that specific skills were NOT activated.
+
+**Parameters**:
+- `skill_names` (array of strings): Forbidden skill IDs
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: skill_not_activated
+    params:
+      skill_names: ["admin"]
+    message: "Admin skill should not be activated"
+```
+
+---
+
+#### `skill_activation_order`
+
+Checks that skills were activated in the specified order.
+
+**Parameters**:
+- `sequence` (array of strings): Expected skill activation order
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: skill_activation_order
+    params:
+      sequence: ["intake", "diagnosis", "resolution"]
+    message: "Skills should activate in order"
+```
+
+---
+
+### Media Assertions
+
+#### `image_format`
+
+Checks that images in assistant messages have allowed formats.
+
+**Parameters**:
+- `formats` (array of strings): Allowed formats (e.g., "png", "jpeg", "webp")
+
+**Example**:
+```yaml
+assertions:
+  - type: image_format
+    params:
+      formats: ["png", "jpeg"]
+    message: "Images should be PNG or JPEG"
+```
+
+---
+
+#### `image_dimensions`
+
+Checks that images meet dimension requirements.
+
+**Parameters**:
+- `min_width` / `max_width` (int): Width range
+- `min_height` / `max_height` (int): Height range
+- `width` / `height` (int): Exact dimensions
+
+**Example**:
+```yaml
+assertions:
+  - type: image_dimensions
+    params:
+      min_width: 256
+      min_height: 256
+      max_width: 1024
+      max_height: 1024
+    message: "Images should be between 256x256 and 1024x1024"
+```
+
+---
+
+#### `audio_format`
+
+Checks that audio content has allowed formats.
+
+**Parameters**:
+- `formats` (array of strings): Allowed formats (e.g., "mp3", "wav", "ogg")
+
+**Example**:
+```yaml
+assertions:
+  - type: audio_format
+    params:
+      formats: ["mp3", "wav"]
+```
+
+---
+
+#### `audio_duration`
+
+Checks that audio duration is within range.
+
+**Parameters**:
+- `min_seconds` (float): Minimum duration in seconds
+- `max_seconds` (float): Maximum duration in seconds
+
+**Example**:
+```yaml
+assertions:
+  - type: audio_duration
+    params:
+      min_seconds: 1.0
+      max_seconds: 60.0
+    message: "Audio should be between 1 and 60 seconds"
+```
+
+---
+
+#### `video_duration`
+
+Checks that video duration is within range.
+
+**Parameters**:
+- `min_seconds` (float): Minimum duration
+- `max_seconds` (float): Maximum duration
+
+---
+
+#### `video_resolution`
+
+Checks that video resolution meets requirements.
+
+**Parameters**:
+- `min_width` / `max_width` (int): Width range
+- `min_height` / `max_height` (int): Height range
+- `presets` (array of strings): Named presets (e.g., "720p", "1080p", "4k")
+
+**Example**:
+```yaml
+assertions:
+  - type: video_resolution
+    params:
+      presets: ["720p", "1080p"]
+    message: "Video should be at least 720p"
+```
+
+---
+
+### Length Assertions
+
+#### `min_length`
+
+Checks that the response has at least the specified number of characters.
+
+**Parameters**:
+- `min` or `min_characters` or `min_chars` (int): Minimum character count
+
+**Example**:
+```yaml
+assertions:
+  - type: min_length
+    params:
+      min: 100
+    message: "Response should be at least 100 characters"
+```
+
+---
+
+#### `max_length`
+
+Checks that the response does not exceed the specified character count.
+
+**Parameters**:
+- `max` or `max_characters` or `max_chars` (int): Maximum character count
+
+**Example**:
+```yaml
+assertions:
+  - type: max_length
+    params:
+      max: 500
+    message: "Response should be at most 500 characters"
+```
+
+---
+
+### Behavioral Testing Assertions
+
+#### `outcome_equivalent`
+
+Verifies perturbation-invariant outcomes in behavioral testing.
+
+**Parameters**:
+- `metric` (string): "tool_calls", "final_state", or "content_hash"
+- `expected_tools` (array of strings): For `tool_calls` metric
+- `expected_state` (string): For `final_state` metric
+- `expected_content` (string): For `content_hash` metric
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: outcome_equivalent
+    params:
+      metric: tool_calls
+      expected_tools: ["search", "summarize"]
+    message: "Should call the same tools regardless of phrasing"
+```
+
+---
+
+#### `directional`
+
+Compares a run's output against baseline expectations.
+
+**Parameters**:
+- `check` (string): "same_tool_calls", "same_outcome", or "similar_content"
+- `baseline_tools` (array of strings): Expected tool names
+- `baseline_state` (string): Expected workflow state
+- `baseline_content` (string): Expected content substring
+- `threshold` (float): Minimum overlap ratio for `similar_content` (default: 0.5)
+
+**Example**:
+```yaml
+conversation_assertions:
+  - type: directional
+    params:
+      check: same_tool_calls
+      baseline_tools: ["get_weather"]
+    message: "Should use the same tools as baseline"
 ```
 
 ---
@@ -2228,6 +2666,24 @@ pattern: "(?<=word)pattern(?=word)"
 # ✅ Fast: simple match
 pattern: "word.*pattern.*word"
 ```
+
+## Assertion Aliases
+
+For backwards compatibility, several alternative names are supported:
+
+| Alias | Canonical Type |
+|-------|---------------|
+| `content_includes` | `contains` |
+| `content_includes_any` | `contains_any` |
+| `content_matches` | `regex` |
+| `content_not_includes` | `content_excludes` |
+| `is_valid_json` | `json_valid` |
+| `valid_json` | `json_valid` |
+| `tool_called` | `tools_called` |
+| `tools_not_called_with_args` | `tool_args_excluded_session` |
+| `llm_judge_conversation` | `llm_judge_session` |
+
+Both the alias and canonical name work interchangeably.
 
 ## Next Steps
 
