@@ -79,7 +79,7 @@ type ToolDescriptor struct {
 	Description  string          `json:"description" yaml:"description"`
 	InputSchema  json.RawMessage `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
 	OutputSchema json.RawMessage `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
-	Mode         string          `json:"mode" yaml:"mode"`                   // "mock" | "live"
+	Mode         string          `json:"mode" yaml:"mode"`                   // mock|live|local|mcp|client
 	TimeoutMs    int             `json:"timeout_ms" yaml:"timeout_ms"`
 
 	// Static mock data (in-memory)

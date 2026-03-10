@@ -522,6 +522,9 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 		} else {
 			executorName = executorMockStatic
 		}
+	case modeLocal:
+		// "local" tools are handled by a registered executor (e.g. SDK's localExecutor)
+		executorName = modeLocal
 	case modeLive:
 		executorName = "http"
 	case modeMCP:
@@ -670,7 +673,7 @@ func (r *Registry) validateDescriptor(descriptor *ToolDescriptor) error {
 	// Mode must be empty (defaults to mock), a built-in mode, or a registered executor name
 	isBuiltinMode := descriptor.Mode == "" || descriptor.Mode == modeMock ||
 		descriptor.Mode == modeLive || descriptor.Mode == modeMCP ||
-		descriptor.Mode == modeClient
+		descriptor.Mode == modeClient || descriptor.Mode == modeLocal
 	r.mu.RLock()
 	_, isRegisteredExecutor := r.executors[descriptor.Mode]
 	r.mu.RUnlock()
