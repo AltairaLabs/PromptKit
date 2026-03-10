@@ -4,12 +4,16 @@ metadata:
   name: development
 spec:
   # ── Provider ────────────────────────────────────────────────────
-  # Uses mock provider for this example. Replace with a real provider
-  # (claude, openai, etc.) and set the credential env var.
-  providers:
-    - id: mock
-      type: mock
-      model: mock-model
+  # In production, configure a real provider here:
+  #
+  # providers:
+  #   - id: anthropic-main
+  #     type: claude
+  #     model: claude-sonnet-4-20250514
+  #     credential:
+  #       credential_env: ANTHROPIC_API_KEY
+  #
+  # This example uses a programmatic mock provider instead (see main.go).
 
   # ── Exec Tools ──────────────────────────────────────────────────
   # Bind the pack's "sentiment_analysis" tool to a Python script.

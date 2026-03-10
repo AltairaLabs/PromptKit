@@ -26,6 +26,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
@@ -48,6 +49,7 @@ func main() {
 
 	conv, err := sdk.Open("./agent.pack.json", "support",
 		sdk.WithRuntimeConfig("./runtime.yaml"),
+		sdk.WithProvider(mock.NewProvider("mock", "mock-model", false)),
 	)
 	if err != nil {
 		log.Fatalf("Failed to open: %v", err)

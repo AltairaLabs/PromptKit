@@ -208,7 +208,7 @@ func ErrorContext(ctx context.Context, msg string, args ...any) {
 	DefaultLogger.ErrorContext(ctx, msg, args...)
 }
 
-// LLMCall logs an LLM API call with structured fields for observability.
+// LLMCall logs a provider API call with structured fields for observability.
 // Additional attributes can be passed as key-value pairs after the required parameters.
 func LLMCall(provider, role string, messages int, temperature float64, attrs ...any) {
 	allAttrs := make([]any, 0, 8+len(attrs))
@@ -219,10 +219,10 @@ func LLMCall(provider, role string, messages int, temperature float64, attrs ...
 		"temperature", temperature,
 	)
 	allAttrs = append(allAttrs, attrs...)
-	Info("🤖 LLM API Call", allAttrs...)
+	Info("Provider API Call", allAttrs...)
 }
 
-// LLMResponse logs an LLM API response with token usage and cost tracking.
+// LLMResponse logs a provider API response with token usage and cost tracking.
 // Cost should be provided in USD (e.g., 0.0001 for $0.0001).
 func LLMResponse(provider, role string, tokensIn, tokensOut int, cost float64, attrs ...any) {
 	allAttrs := make([]any, 0, 10+len(attrs))
@@ -234,10 +234,10 @@ func LLMResponse(provider, role string, tokensIn, tokensOut int, cost float64, a
 		"cost", cost,
 	)
 	allAttrs = append(allAttrs, attrs...)
-	Info("✅ LLM API Response", allAttrs...)
+	Info("Provider API Response", allAttrs...)
 }
 
-// LLMError logs an LLM API error for debugging and monitoring.
+// LLMError logs a provider API error for debugging and monitoring.
 func LLMError(provider, role string, err error, attrs ...any) {
 	allAttrs := make([]any, 0, 6+len(attrs))
 	allAttrs = append(allAttrs,
@@ -246,7 +246,7 @@ func LLMError(provider, role string, err error, attrs ...any) {
 		"error", err,
 	)
 	allAttrs = append(allAttrs, attrs...)
-	Error("❌ LLM API Call Failed", allAttrs...)
+	Error("Provider API Call Failed", allAttrs...)
 }
 
 // ToolCall logs a tool execution request with context about available tools.
@@ -260,7 +260,7 @@ func ToolCall(provider string, messages, tools int, choice string, attrs ...any)
 		"choice", choice,
 	)
 	allAttrs = append(allAttrs, attrs...)
-	Info("🔧 LLM Tool Call", allAttrs...)
+	Info("Provider Tool Call", allAttrs...)
 }
 
 // ToolResponse logs the result of tool executions with token usage and cost.
@@ -274,7 +274,7 @@ func ToolResponse(provider string, tokensIn, tokensOut, toolCalls int, cost floa
 		"cost", cost,
 	)
 	allAttrs = append(allAttrs, attrs...)
-	Info("✅ LLM Tool Response", allAttrs...)
+	Info("Provider Tool Response", allAttrs...)
 }
 
 var (

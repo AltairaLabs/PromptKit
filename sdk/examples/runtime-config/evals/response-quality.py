@@ -20,9 +20,10 @@ def check_quality(content: str, min_words: int, max_words: int) -> dict:
     issues = []
     score = 1.0
 
-    # Word count check
+    # Word count check — heavily penalize very short responses
     if word_count < min_words:
-        score -= 0.3
+        shortfall = (min_words - word_count) / min_words
+        score -= 0.3 + (0.5 * shortfall)  # more penalty the shorter it is
         issues.append(f"too short ({word_count} words, minimum {min_words})")
     elif word_count > max_words:
         score -= 0.2
