@@ -382,8 +382,26 @@ Validation provides:
 - **Cost Control** — Prevent expensive requests via early abort
 - **Monitoring** — Track issues via hook metadata
 
+### External Hooks
+
+Hooks can also be implemented as external subprocesses in any language. Use RuntimeConfig to bind external processes as provider, tool, or session hooks:
+
+```yaml
+spec:
+  hooks:
+    pii_redactor:
+      command: ./hooks/pii-redactor.py
+      hook: provider
+      phases: [before_call, after_call]
+      mode: filter
+```
+
+This enables Python-based ML validators, Node.js compliance checks, or shell scripts — without writing Go code.
+
 ## Related Documentation
 
 - [Validation Tutorial](/runtime/tutorials/04-validation-guardrails/) — Step-by-step guide
 - [Hooks & Guardrails Reference](/runtime/reference/hooks/) — API documentation
+- [Exec Hooks](/sdk/how-to/exec-hooks/) — External hooks in any language
+- [RuntimeConfig](/sdk/how-to/use-runtime-config/) — Declarative SDK configuration
 - [PromptArena Guardrails](/arena/reference/validators/) — Testing validation

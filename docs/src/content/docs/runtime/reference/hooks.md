@@ -441,8 +441,45 @@ import (
 )
 ```
 
+## External Exec Hooks
+
+Hooks can be implemented as external subprocesses in any language using the exec protocol. Configure them in RuntimeConfig:
+
+```yaml
+spec:
+  hooks:
+    pii_redactor:
+      command: ./hooks/pii-redactor
+      hook: provider
+      phases: [before_call, after_call]
+      mode: filter
+      timeout_ms: 3000
+
+    audit_logger:
+      command: ./hooks/audit-logger
+      hook: session
+      phases: [session_start, session_update, session_end]
+      mode: observe
+```
+
+Three adapters bridge external processes to the hook interfaces:
+
+| Adapter | Implements | Description |
+|---------|-----------|-------------|
+| `ExecProviderHook` | `ProviderHook` | External provider interception |
+| `ExecToolHook` | `ToolHook` | External tool interception |
+| `ExecSessionHook` | `SessionHook` | External session tracking |
+
+**Modes:**
+- **filter** — Fail-closed. Process failure = deny. Can block the pipeline.
+- **observe** — Fire-and-forget. Process failure is swallowed. Pipeline always continues.
+
+See [Exec Hooks](/sdk/how-to/exec-hooks/) for the full how-to guide and [Exec Protocol](/sdk/reference/exec-protocol/) for the wire format.
+
 ## See Also
 
 - [Pipeline Reference](pipeline) — Stage and pipeline interfaces
 - [Validation Concepts](/concepts/validation/) — Why and when to validate
 - [Validation Tutorial](../tutorials/04-validation-guardrails) — Step-by-step guide
+- [Exec Hooks](/sdk/how-to/exec-hooks/) — External hooks in any language
+- [Exec Protocol](/sdk/reference/exec-protocol/) — Wire protocol reference
