@@ -3,7 +3,8 @@ module github.com/AltairaLabs/PromptKit/sdk
 go 1.25.1
 
 require (
-	github.com/AltairaLabs/PromptKit/runtime v1.2.0
+	github.com/AltairaLabs/PromptKit/pkg v0.0.0
+	github.com/AltairaLabs/PromptKit/runtime v1.3.5
 	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260225232044-f1d8282acd02
 	github.com/charmbracelet/bubbles v1.0.0
@@ -12,10 +13,12 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b
 	github.com/joho/godotenv v1.5.1
+	github.com/redis/go-redis/v9 v9.18.0
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/otel v1.40.0
 	go.opentelemetry.io/otel/sdk v1.40.0
 	go.opentelemetry.io/otel/trace v1.40.0
+	golang.org/x/text v0.34.0
 )
 
 require (
@@ -75,7 +78,6 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/redis/go-redis/v9 v9.18.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -98,7 +100,6 @@ require (
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260128011058-8636f8732409 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
@@ -114,6 +115,8 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
+
+replace github.com/AltairaLabs/PromptKit/pkg => ../pkg
 
 replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
 
