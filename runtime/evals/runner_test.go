@@ -524,6 +524,53 @@ func TestThresholdIntegration_MinScorePassesResult(t *testing.T) {
 	}
 }
 
+// priorCapturingHandler records the PriorResults it receives.
+type priorCapturingHandler struct {
+	typeName      string
+	score         float64
+	capturedPrior []EvalResult
+}
+
+func (p *priorCapturingHandler) Type() string { return p.typeName }
+
+func (p *priorCapturingHandler) Eval(
+	_ context.Context, evalCtx *EvalContext, _ map[string]any,
+) (*EvalResult, error) {
+	p.capturedPrior = append(p.capturedPrior, evalCtx.PriorResults...)
+	return &EvalResult{Passed: true, Score: &p.score}, nil
+}
+
+func TestRunTurnEvals_PriorResultsAccumulate(t *testing.T) {
+	score1 := 0.5
+	handler1 := &scoringHandler{typeName: "first", score: score1}
+	handler2 := &priorCapturingHandler{typeName: "second", score: 1.0}
+
+	reg := newTestRegistry(handler1, handler2)
+	runner := NewEvalRunner(reg)
+
+	defs := []EvalDef{
+		{ID: "e1", Type: "first", Trigger: TriggerEveryTurn},
+		{ID: "e2", Type: "second", Trigger: TriggerEveryTurn},
+	}
+	evalCtx := &EvalContext{SessionID: "s1"}
+
+	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+
+	// handler2 should have seen handler1's result in PriorResults
+	if len(handler2.capturedPrior) != 1 {
+		t.Fatalf("handler2 saw %d prior results, want 1", len(handler2.capturedPrior))
+	}
+	if handler2.capturedPrior[0].EvalID != "e1" {
+		t.Errorf("prior result EvalID = %q, want %q", handler2.capturedPrior[0].EvalID, "e1")
+	}
+	if handler2.capturedPrior[0].Score == nil || *handler2.capturedPrior[0].Score != score1 {
+		t.Errorf("prior result score = %v, want %v", handler2.capturedPrior[0].Score, score1)
+	}
+}
+
 func TestThresholdIntegration_NoThresholdPreservesResult(t *testing.T) {
 	reg := newTestRegistry(&stubHandler{typeName: "test"})
 	runner := NewEvalRunner(reg)

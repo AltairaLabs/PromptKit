@@ -288,5 +288,6 @@ func main() {
 ## See Also
 
 - [HTTP Tools](http-tools) — builder API for HTTP tool handlers
+- [Exec Tools](exec-tools) — bind tools to external subprocesses (Python, Node.js, etc.)
 - [Client-Side Tools](client-tools) — tools that run on the caller's device
 - [Tutorial 3: Tools](../tutorials/03-tool-integration) — step-by-step walkthrough

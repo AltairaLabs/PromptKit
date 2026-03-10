@@ -152,7 +152,9 @@ func evalMediaDuration(
 	return &evals.EvalResult{
 		Type:        typeName,
 		Passed:      passed,
+		Score:       boolScore(passed),
 		Explanation: explanation,
+		Value:       map[string]any{"durations_ms": foundDurations},
 		Details: map[string]any{
 			countKey:          len(parts),
 			"found_durations": foundDurations,
@@ -205,11 +207,27 @@ func evalMediaFormats(
 	return &evals.EvalResult{
 		Type:        typeName,
 		Passed:      passed,
+		Score:       boolScore(passed),
 		Explanation: explanation,
+		Value:       map[string]any{"formats": foundFormats, "expected": formats},
 		Details: map[string]any{
 			"found_formats":   foundFormats,
 			"invalid_formats": invalidFormats,
 			"allowed_formats": formats,
 		},
 	}, nil
+}
+
+// collectImageDimensions extracts width/height pairs from media content parts.
+func collectImageDimensions(parts []types.ContentPart) map[string]any {
+	var dims []map[string]any
+	for _, part := range parts {
+		if part.Media != nil && part.Media.Width != nil && part.Media.Height != nil {
+			dims = append(dims, map[string]any{
+				"width":  *part.Media.Width,
+				"height": *part.Media.Height,
+			})
+		}
+	}
+	return map[string]any{"dimensions": dims}
 }

@@ -69,10 +69,18 @@ func (h *CostBudgetHandler) Eval(
 		"total_tokens":   totalTokens,
 	}
 
+	value := map[string]any{
+		"total_cost_usd": totalCost,
+		"input_tokens":   inputTokens,
+		"output_tokens":  outputTokens,
+		"total_tokens":   totalTokens,
+	}
+
 	if len(failures) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
+			Value:       value,
 			Explanation: fmt.Sprintf("budget exceeded: %s", strings.Join(failures, "; ")),
 			Details:     details,
 		}, nil
@@ -91,6 +99,7 @@ func (h *CostBudgetHandler) Eval(
 		Type:        h.Type(),
 		Passed:      true,
 		Score:       &score,
+		Value:       value,
 		Explanation: fmt.Sprintf("within budget: $%.4f, %d tokens", totalCost, totalTokens),
 		Details:     details,
 	}, nil

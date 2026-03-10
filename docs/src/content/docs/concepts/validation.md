@@ -43,6 +43,19 @@ Check LLM responses before returning to user:
 
 PromptKit implements validation through **hooks** — interceptors that run before/after LLM calls and during streaming. Built-in guardrail hooks cover common safety patterns.
 
+### Enforcement Behavior
+
+When a built-in guardrail triggers, it **enforces in-place** and the pipeline continues:
+
+- **Length validators** (`max_length`, `length`) truncate content to the configured maximum
+- **Content blockers** (`banned_words`, `content_excludes`) replace content with a configurable blocked message
+
+This means guardrails are non-fatal — the caller receives a valid response with modified content, plus violation details in `message.Validations`.
+
+### Monitor-Only Mode
+
+Guardrails can run in **monitor-only mode** — they evaluate and record results but don't modify content. This is useful for gradual rollout and analytics.
+
 ### SDK Hooks
 
 ```go
@@ -76,6 +89,28 @@ guardrails:
   max_length: 1000
   min_length: 1
 ```
+
+### Pack JSON Validators
+
+In pack JSON files, validators support `message` and `monitor` fields:
+
+```json
+{
+  "validators": [
+    {
+      "type": "banned_words",
+      "config": { "words": ["hack", "crack"] },
+      "message": "This response has been blocked by our content policy.",
+      "monitor": false
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `message` | Custom user-facing message when content is blocked (default: generic policy message) |
+| `monitor` | When `true`, evaluate without enforcing — violations are recorded but content is not modified |
 
 ### PromptArena Validation
 
@@ -268,27 +303,55 @@ func (h *JSONHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, re
 
 ## Validation Strategies
 
-### Strict (Production)
+### Enforced (Default)
+
+Built-in guardrails enforce automatically — content is modified and the pipeline continues:
 
 ```go
 resp, err := conv.Send(ctx, message)
-if err != nil {
-    var hookErr *hooks.HookDeniedError
-    if errors.As(err, &hookErr) {
-        return safeFallbackResponse() // Block the response
-    }
+// No error — guardrails enforce in-place
+// Check resp.Validations for any violations that were enforced
+```
+
+### Monitor-Only (Observability)
+
+Evaluate guardrails without modifying content — useful for gradual rollout:
+
+```yaml
+# Pack JSON
+{
+  "type": "banned_words",
+  "config": { "words": ["guarantee"] },
+  "monitor": true
 }
 ```
 
-### Permissive (Development)
+```go
+// SDK option
+hook, _ := guardrails.NewGuardrailHook("banned_words", params,
+    guardrails.WithMonitorOnly(),
+)
+```
+
+Subscribe to `validation.failed` events to observe violations:
+
+```go
+hooks.On(conv, events.EventValidationFailed, func(e *events.Event) {
+    data := e.Data.(*events.ValidationEventData)
+    log.Printf("Guardrail %s triggered (monitor=%v)", data.ValidatorName, data.MonitorOnly)
+})
+```
+
+### Custom Hook Denial (Hard Block)
+
+Custom hooks can still use `hooks.Deny()` to stop the pipeline with an error:
 
 ```go
 resp, err := conv.Send(ctx, message)
 if err != nil {
     var hookErr *hooks.HookDeniedError
     if errors.As(err, &hookErr) {
-        logger.Warn("hook denied", "hook", hookErr.HookName, "reason", hookErr.Reason)
-        // Continue processing with fallback
+        return safeFallbackResponse()
     }
 }
 ```
@@ -319,8 +382,26 @@ Validation provides:
 - **Cost Control** — Prevent expensive requests via early abort
 - **Monitoring** — Track issues via hook metadata
 
+### External Hooks
+
+Hooks can also be implemented as external subprocesses in any language. Use RuntimeConfig to bind external processes as provider, tool, or session hooks:
+
+```yaml
+spec:
+  hooks:
+    pii_redactor:
+      command: ./hooks/pii-redactor.py
+      hook: provider
+      phases: [before_call, after_call]
+      mode: filter
+```
+
+This enables Python-based ML validators, Node.js compliance checks, or shell scripts — without writing Go code.
+
 ## Related Documentation
 
 - [Validation Tutorial](/runtime/tutorials/04-validation-guardrails/) — Step-by-step guide
 - [Hooks & Guardrails Reference](/runtime/reference/hooks/) — API documentation
+- [Exec Hooks](/sdk/how-to/exec-hooks/) — External hooks in any language
+- [RuntimeConfig](/sdk/how-to/use-runtime-config/) — Declarative SDK configuration
 - [PromptArena Guardrails](/arena/reference/validators/) — Testing validation

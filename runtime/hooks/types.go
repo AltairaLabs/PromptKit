@@ -11,6 +11,11 @@ type Decision struct {
 	Allow    bool
 	Reason   string
 	Metadata map[string]any
+	// Enforced indicates the hook already applied enforcement (e.g., truncated
+	// or replaced content on the response). When true, the provider stage
+	// records the validation result but continues the pipeline instead of
+	// returning an error.
+	Enforced bool
 }
 
 // Allow is the zero-cost approval decision.
@@ -24,6 +29,12 @@ func Deny(reason string) Decision {
 // DenyWithMetadata creates a denial decision with a reason and metadata.
 func DenyWithMetadata(reason string, metadata map[string]any) Decision {
 	return Decision{Allow: false, Reason: reason, Metadata: metadata}
+}
+
+// Enforced creates an enforced decision — the hook applied enforcement
+// (truncation, content replacement) and the pipeline should continue.
+func Enforced(reason string, metadata map[string]any) Decision {
+	return Decision{Allow: false, Reason: reason, Metadata: metadata, Enforced: true}
 }
 
 // ProviderRequest describes an LLM call about to be made.

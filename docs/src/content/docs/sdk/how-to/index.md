@@ -21,6 +21,12 @@ Practical, task-focused guides for common SDK operations.
 - **[Configure MCP Servers](configure-mcp)** - Connect MCP tool servers with `NewMCPServer()` and `WithMCPServer()`
 - **[Connect A2A Agents](connect-a2a-agents)** - Register remote A2A agents with `NewA2AAgent()` and `WithA2AAgent()`
 
+## Declarative Configuration
+
+- **[Use RuntimeConfig](use-runtime-config)** - Configure the SDK declaratively with a YAML file
+- **[Exec Tools](exec-tools)** - Bind tools to external subprocesses in any language
+- **[Exec Hooks](exec-hooks)** - Add external hooks (provider, tool, session) via subprocesses
+
 ## Variables & Templates
 
 - **[Manage Variables](manage-state)** - Use `SetVar()` and `GetVar()`
@@ -116,10 +122,17 @@ hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
 1. [Connect A2A Agents](connect-a2a-agents)
 2. [Configure MCP Servers](configure-mcp)
 
+### Declarative Setup
+
+1. [Use RuntimeConfig](use-runtime-config) (replace boilerplate with YAML)
+2. [Exec Tools](exec-tools) (tools in Python, Node.js, etc.)
+3. [Exec Hooks](exec-hooks) (external guardrails and audit)
+
 ### Building Safe AI Agents
 
 1. [Register Tools](register-tools) (see Async Tools section for HITL)
-2. [Monitor Events](monitor-events)
+2. [Exec Hooks](exec-hooks) (external guardrails)
+3. [Monitor Events](monitor-events)
 
 ### Evaluating Conversation Quality
 

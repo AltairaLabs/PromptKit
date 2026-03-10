@@ -381,7 +381,7 @@ func (s *ProviderStage) executeRound(
 
 	// Emit provider call started event
 	if s.emitter != nil {
-		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(messages), toolCount)
+		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(messages), toolCount)
 	}
 
 	// Run BeforeCall hooks
@@ -429,7 +429,7 @@ func (s *ProviderStage) executeRound(
 		logger.Error("Provider call failed", "error", err, "duration", duration)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
 		}
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
 	}
@@ -479,7 +479,9 @@ func (s *ProviderStage) executeRound(
 			Round:      round,
 			LatencyMs:  duration.Milliseconds(),
 		}
+		hookStart := time.Now()
 		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
+			s.emitGuardrailEvent(d, time.Since(hookStart))
 			// Populate msg.Validations for guardrail_triggered compat
 			if vType, ok := d.Metadata["validator_type"].(string); ok {
 				responseMsg.Validations = append(responseMsg.Validations, types.ValidationResult{
@@ -488,11 +490,18 @@ func (s *ProviderStage) executeRound(
 					Details:       d.Metadata,
 				})
 			}
-			return responseMsg, false, &hooks.HookDeniedError{
-				HookName: "provider_hook",
-				HookType: "provider_after",
-				Reason:   d.Reason,
-				Metadata: d.Metadata,
+			if d.Enforced {
+				// Hook already enforced (truncated/replaced content) — pick up
+				// the modified message and continue the pipeline.
+				responseMsg.Content = hookResp.Message.Content
+				responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
+			} else {
+				return responseMsg, false, &hooks.HookDeniedError{
+					HookName: "provider_hook",
+					HookType: "provider_after",
+					Reason:   d.Reason,
+					Metadata: d.Metadata,
+				}
 			}
 		}
 	}
@@ -560,7 +569,7 @@ func (s *ProviderStage) executeStreamingRound(
 
 	// Emit provider call started event
 	if s.emitter != nil {
-		s.emitter.ProviderCallStarted(s.provider.ID(), "", len(params.messages), toolCount)
+		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(params.messages), toolCount)
 	}
 
 	startTime := time.Now()
@@ -571,7 +580,7 @@ func (s *ProviderStage) executeStreamingRound(
 		duration := time.Since(startTime)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
 		}
 		return types.Message{}, false, err
 	}
@@ -583,7 +592,7 @@ func (s *ProviderStage) executeStreamingRound(
 	if err != nil {
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), "", err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
 		}
 		return types.Message{}, false, err
 	}
@@ -633,7 +642,9 @@ func (s *ProviderStage) executeStreamingRound(
 			Round:      params.round,
 			LatencyMs:  duration.Milliseconds(),
 		}
+		hookStart := time.Now()
 		if d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp); !d.Allow {
+			s.emitGuardrailEvent(d, time.Since(hookStart))
 			if vType, ok := d.Metadata["validator_type"].(string); ok {
 				responseMsg.Validations = append(
 					responseMsg.Validations,
@@ -644,11 +655,17 @@ func (s *ProviderStage) executeStreamingRound(
 					},
 				)
 			}
-			return responseMsg, false, &hooks.HookDeniedError{
-				HookName: "provider_hook",
-				HookType: "provider_after",
-				Reason:   d.Reason,
-				Metadata: d.Metadata,
+			if d.Enforced {
+				// Hook already enforced — pick up modified content and continue.
+				responseMsg.Content = hookResp.Message.Content
+				responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
+			} else {
+				return responseMsg, false, &hooks.HookDeniedError{
+					HookName: "provider_hook",
+					HookType: "provider_after",
+					Reason:   d.Reason,
+					Metadata: d.Metadata,
+				}
 			}
 		}
 	}
@@ -724,6 +741,13 @@ func (s *ProviderStage) processStreamChunks(
 		// Run chunk interceptor hooks
 		if s.hookRegistry != nil && s.hookRegistry.HasChunkInterceptors() {
 			if d := s.hookRegistry.RunOnChunk(ctx, &chunk); !d.Allow {
+				s.emitGuardrailEvent(d, 0)
+				if d.Enforced {
+					// Hook enforced (e.g., truncated content) — use the
+					// modified chunk content and stop reading the stream.
+					content = chunk.Content
+					break
+				}
 				return "", nil, nil, &providers.ValidationAbortError{
 					Reason: d.Reason,
 					Chunk:  chunk,
@@ -933,6 +957,28 @@ func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall) {
 		_ = json.Unmarshal(toolCall.Args, &argsMap)
 	}
 	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap)
+}
+
+// emitGuardrailEvent emits a validation event from a hook decision.
+func (s *ProviderStage) emitGuardrailEvent(d hooks.Decision, duration time.Duration) {
+	if s.emitter == nil {
+		return
+	}
+	vType, _ := d.Metadata["validator_type"].(string)
+	score, _ := d.Metadata["score"].(float64)
+	monitorOnly, _ := d.Metadata["monitor_only"].(bool)
+	data := &events.ValidationEventData{
+		ValidatorName: vType,
+		ValidatorType: vType,
+		Duration:      duration,
+		Enforced:      d.Enforced && !monitorOnly,
+		MonitorOnly:   monitorOnly,
+		Score:         score,
+	}
+	if !d.Allow {
+		data.Violations = []string{d.Reason}
+	}
+	s.emitter.GuardrailResult(data)
 }
 
 // buildPendingResult creates a toolCallResult for a pending tool execution.

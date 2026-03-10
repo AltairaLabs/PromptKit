@@ -61,21 +61,31 @@ func (h *ToolArgsExcludedSessionHandler) Eval(
 		)
 	}
 
-	if len(violations) > 0 {
+	passed := len(violations) == 0
+
+	if !passed {
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  boolScore(false),
 			Explanation: fmt.Sprintf(
 				"excluded args found: %s",
 				strings.Join(violations, "; "),
 			),
+			Value: map[string]any{
+				"violations": violations,
+			},
 		}, nil
 	}
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       boolScore(true),
 		Explanation: "no excluded args detected",
+		Value: map[string]any{
+			"violations": []string{},
+		},
 	}, nil
 }
 

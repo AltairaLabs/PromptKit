@@ -74,36 +74,55 @@ func (h *JSONPathHandler) Eval(
 }
 
 func (h *JSONPathHandler) validateResult(result any, params map[string]any) (*evals.EvalResult, error) {
+	expr, _ := params["expression"].(string)
+	if expr == "" {
+		expr, _ = params["jmespath_expression"].(string)
+	}
+
 	if expected, ok := params["expected"]; ok {
 		if !jsonCompareValues(result, expected) {
-			return h.fail("result does not match expected value",
-				map[string]any{"expected": expected, "actual": result}), nil
+			r := h.fail("result does not match expected value",
+				map[string]any{"expected": expected, "actual": result})
+			r.Value = map[string]any{"path": expr, "result": result}
+			return r, nil
 		}
 	}
 
 	if contains, ok := params["contains"]; ok {
 		if err := h.checkContains(result, contains); err != "" {
-			return h.fail(err, map[string]any{"result": result}), nil
+			r := h.fail(err, map[string]any{"result": result})
+			r.Value = map[string]any{"path": expr, "result": result}
+			return r, nil
 		}
 	}
 
 	if r := h.checkNumericRange(result, params); r != nil {
+		r.Value = map[string]any{"path": expr, "result": result}
 		return r, nil
 	}
 
 	if r := h.checkArrayCount(result, params); r != nil {
+		r.Value = map[string]any{"path": expr, "result": result}
 		return r, nil
 	}
 
 	return &evals.EvalResult{
 		Type: h.Type(), Passed: true,
+		Score:       boolScore(true),
 		Explanation: "JSON path validation passed",
+		Value:       map[string]any{"path": expr, "result": result},
 		Details:     map[string]any{"result": result},
 	}, nil
 }
 
 func (h *JSONPathHandler) fail(explanation string, details map[string]any) *evals.EvalResult {
-	return &evals.EvalResult{Type: h.Type(), Passed: false, Explanation: explanation, Details: details}
+	return &evals.EvalResult{
+		Type:        h.Type(),
+		Passed:      false,
+		Score:       boolScore(false),
+		Explanation: explanation,
+		Details:     details,
+	}
 }
 
 func (h *JSONPathHandler) checkNumericRange(result any, params map[string]any) *evals.EvalResult {

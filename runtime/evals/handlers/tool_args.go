@@ -65,10 +65,14 @@ func (h *ToolArgsHandler) checkArgs(
 			return &evals.EvalResult{
 				Type:   h.Type(),
 				Passed: true,
+				Score:  boolScore(true),
 				Explanation: fmt.Sprintf(
 					"tool %q called with expected args",
 					toolName,
 				),
+				Value: map[string]any{
+					"matched": true,
+				},
 			}, nil
 		}
 	}
@@ -80,10 +84,14 @@ func (h *ToolArgsHandler) checkArgs(
 	return &evals.EvalResult{
 		Type:   h.Type(),
 		Passed: false,
+		Score:  boolScore(false),
 		Explanation: fmt.Sprintf(
 			"tool %q args mismatch: %s",
 			toolName, strings.Join(violations, "; "),
 		),
+		Value: map[string]any{
+			"matched": false,
+		},
 	}, nil
 }
 

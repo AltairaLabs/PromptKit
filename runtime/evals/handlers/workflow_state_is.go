@@ -36,9 +36,15 @@ func (h *WorkflowStateIsHandler) Eval(
 		}, nil
 	}
 
-	if actual == expected {
+	passed := actual == expected
+	value := map[string]any{"current_state": actual, "expected_state": expected}
+
+	if passed {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: true,
+			Type:        h.Type(),
+			Passed:      true,
+			Score:       boolScore(true),
+			Value:       value,
 			Explanation: fmt.Sprintf("workflow is in expected state %q", expected),
 		}, nil
 	}
@@ -46,6 +52,8 @@ func (h *WorkflowStateIsHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      false,
+		Score:       boolScore(false),
+		Value:       value,
 		Explanation: fmt.Sprintf("expected state %q but got %q", expected, actual),
 		Details:     map[string]any{"expected": expected, "actual": actual},
 	}, nil

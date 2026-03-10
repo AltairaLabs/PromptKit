@@ -18,11 +18,16 @@ func compareToolSets(
 	actual := uniqueToolNames(evalCtx.ToolCalls)
 	expected := toSortedSet(expectedTools)
 
-	if setsEqual(actual, expected) {
+	matched := setsEqual(actual, expected)
+	value := map[string]any{"actual_tools": actual, "expected_tools": expected}
+
+	if matched {
 		return &evals.EvalResult{
 			Type:        evalType,
 			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: fmt.Sprintf("tool calls match %s: [%s]", expectedLabel, strings.Join(expected, ", ")),
+			Value:       value,
 			Details:     map[string]any{"actual": actual, expectedLabel: expected},
 		}
 	}
@@ -30,10 +35,12 @@ func compareToolSets(
 	return &evals.EvalResult{
 		Type:   evalType,
 		Passed: false,
+		Score:  boolScore(false),
 		Explanation: fmt.Sprintf(
 			"tool calls differ from %s: got [%s], %s [%s]",
 			expectedLabel, strings.Join(actual, ", "), expectedLabel, strings.Join(expected, ", "),
 		),
+		Value:   value,
 		Details: map[string]any{"actual": actual, expectedLabel: expected},
 	}
 }
@@ -55,11 +62,16 @@ func compareWorkflowState(
 	}
 
 	actualState := asString(raw)
-	if actualState == expectedState {
+	matched := actualState == expectedState
+	value := map[string]any{"actual_state": actualState, "expected_state": expectedState}
+
+	if matched {
 		return &evals.EvalResult{
 			Type:        evalType,
 			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: fmt.Sprintf("state matches %s: %q", expectedLabel, expectedState),
+			Value:       value,
 			Details:     map[string]any{"actual": actualState, expectedLabel: expectedState},
 		}
 	}
@@ -67,7 +79,9 @@ func compareWorkflowState(
 	return &evals.EvalResult{
 		Type:        evalType,
 		Passed:      false,
+		Score:       boolScore(false),
 		Explanation: fmt.Sprintf("state %q does not match %s %q", actualState, expectedLabel, expectedState),
+		Value:       value,
 		Details:     map[string]any{"actual": actualState, expectedLabel: expectedState},
 	}
 }

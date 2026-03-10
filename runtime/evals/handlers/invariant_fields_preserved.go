@@ -53,13 +53,28 @@ func (h *InvariantFieldsPreservedHandler) Eval(
 	}
 
 	violations := findFieldViolations(matchingCalls, fields)
+	preserved := len(fields) - len(violations)
+
 	if len(violations) > 0 {
-		return h.failResult(violations, tool), nil
+		r := h.failResult(violations, tool)
+		r.Score = ratioScore(preserved, len(fields))
+		r.Value = map[string]any{
+			"preserved": preserved,
+			"total":     len(fields),
+			"tool":      tool,
+		}
+		return r, nil
 	}
 
 	return &evals.EvalResult{
 		Type:   h.Type(),
 		Passed: true,
+		Score:  ratioScore(preserved, len(fields)),
+		Value: map[string]any{
+			"preserved": preserved,
+			"total":     len(fields),
+			"tool":      tool,
+		},
 		Explanation: fmt.Sprintf(
 			"all %d tracked field(s) preserved across %d calls to %q",
 			len(fields), len(matchingCalls), tool),

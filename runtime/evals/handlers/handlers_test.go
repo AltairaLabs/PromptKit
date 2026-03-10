@@ -1352,6 +1352,10 @@ func TestRegisterInit(t *testing.T) {
 		"outcome_equivalent",
 		"directional",
 
+		// Sentence count and field presence handlers
+		"sentence_count",
+		"field_presence",
+
 		// Arena assertion type aliases
 		"content_includes",
 		"content_includes_any",
@@ -1362,6 +1366,12 @@ func TestRegisterInit(t *testing.T) {
 		"tool_called",
 		"tools_not_called_with_args",
 		"llm_judge_conversation",
+
+		// New guardrail/validator aliases
+		"banned_words",
+		"length",
+		"max_sentences",
+		"required_fields",
 	}
 
 	r := evals.NewEvalTypeRegistry()

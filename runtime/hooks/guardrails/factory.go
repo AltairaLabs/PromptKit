@@ -1,97 +1,58 @@
 // Package guardrails provides built-in ProviderHook implementations that
-// replace the legacy validator system with hook-based guardrails.
+// bridge the unified eval system to the pipeline's hook infrastructure.
 package guardrails
 
 import (
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 )
 
-// Guardrail type name constants shared between Name() methods and the factory.
-const (
-	nameBannedWords    = "banned_words"
-	nameLength         = "length"
-	nameMaxSentences   = "max_sentences"
-	nameRequiredFields = "required_fields"
-)
+// GuardrailOption configures a GuardrailHookAdapter.
+type GuardrailOption func(*GuardrailHookAdapter)
 
-// NewGuardrailHook creates a guardrail ProviderHook from a validator config
-// type name and params map. This is used by ProviderStage to instantiate
-// pack-defined guardrails from metadata.
-func NewGuardrailHook(typeName string, params map[string]any) (hooks.ProviderHook, error) {
-	switch typeName {
-	case nameBannedWords:
-		return newBannedWordsFromParams(params), nil
-	case nameLength, "max_length":
-		return newLengthFromParams(params), nil
-	case nameMaxSentences:
-		return newMaxSentencesFromParams(params), nil
-	case nameRequiredFields:
-		return newRequiredFieldsFromParams(params), nil
-	default:
+// WithMessage sets the user-facing message shown when content is blocked.
+func WithMessage(msg string) GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.message = msg }
+}
+
+// WithMonitorOnly disables enforcement — the guardrail evaluates and records
+// results but does not modify content. Useful for monitoring guardrails
+// without affecting output.
+func WithMonitorOnly() GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.monitorOnly = true }
+}
+
+// NewGuardrailHookFromRegistry creates a guardrail ProviderHook using the eval registry.
+// Any registered eval handler (including aliases) can be used as a guardrail.
+func NewGuardrailHookFromRegistry(
+	typeName string, params map[string]any, registry *evals.EvalTypeRegistry,
+	opts ...GuardrailOption,
+) (hooks.ProviderHook, error) {
+	handler, err := registry.Get(typeName)
+	if err != nil {
 		return nil, fmt.Errorf("unknown guardrail type: %q", typeName)
 	}
-}
 
-func newBannedWordsFromParams(params map[string]any) *BannedWordsHook {
-	var words []string
-	if w, ok := params["words"]; ok {
-		switch v := w.(type) {
-		case []string:
-			words = v
-		case []any:
-			for _, item := range v {
-				if s, ok := item.(string); ok {
-					words = append(words, s)
-				}
-			}
-		}
+	direction := directionOutput
+	if d, ok := params["direction"].(string); ok {
+		direction = d
 	}
-	return NewBannedWordsHook(words)
-}
 
-func newLengthFromParams(params map[string]any) *LengthHook {
-	maxChars := intParam(params, "max_characters")
-	maxTokens := intParam(params, "max_tokens")
-	return NewLengthHook(maxChars, maxTokens)
-}
-
-func newMaxSentencesFromParams(params map[string]any) *MaxSentencesHook {
-	limit := intParam(params, "max_sentences")
-	return NewMaxSentencesHook(limit)
-}
-
-func newRequiredFieldsFromParams(params map[string]any) *RequiredFieldsHook {
-	var fields []string
-	if f, ok := params["required_fields"]; ok {
-		switch v := f.(type) {
-		case []string:
-			fields = v
-		case []any:
-			for _, item := range v {
-				if s, ok := item.(string); ok {
-					fields = append(fields, s)
-				}
-			}
-		}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  typeName,
+		params:    params,
+		direction: direction,
 	}
-	return NewRequiredFieldsHook(fields)
+	for _, opt := range opts {
+		opt(adapter)
+	}
+	return adapter, nil
 }
 
-// intParam extracts an int parameter from a map, handling both int and
-// float64 (common from JSON unmarshaling). Returns 0 if not found.
-func intParam(params map[string]any, key string) int {
-	v, ok := params[key]
-	if !ok {
-		return 0
-	}
-	switch n := v.(type) {
-	case int:
-		return n
-	case float64:
-		return int(n)
-	default:
-		return 0
-	}
+// NewGuardrailHook creates a guardrail ProviderHook using the default eval registry.
+func NewGuardrailHook(typeName string, params map[string]any, opts ...GuardrailOption) (hooks.ProviderHook, error) {
+	return NewGuardrailHookFromRegistry(typeName, params, evals.NewEvalTypeRegistry(), opts...)
 }

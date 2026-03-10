@@ -94,11 +94,15 @@ func (h *OutcomeEquivalentHandler) evalContentHash(
 	}
 
 	actual := evalCtx.CurrentOutput
-	if actual == expectedContent {
+	matched := actual == expectedContent
+
+	if matched {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "content matches expected output",
+			Value:       map[string]any{"matched": true, "length": len(actual)},
 			Details:     map[string]any{"length": len(actual)},
 		}, nil
 	}
@@ -106,7 +110,9 @@ func (h *OutcomeEquivalentHandler) evalContentHash(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      false,
+		Score:       boolScore(false),
 		Explanation: "content does not match expected output",
+		Value:       map[string]any{"matched": false, "actual_length": len(actual), "expected_length": len(expectedContent)},
 		Details:     map[string]any{"actual_length": len(actual), "expected_length": len(expectedContent)},
 	}, nil
 }

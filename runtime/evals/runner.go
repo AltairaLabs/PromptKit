@@ -113,11 +113,18 @@ func (r *EvalRunner) runEvals(
 	allowedTriggers map[EvalTrigger]bool,
 ) []EvalResult {
 	logger.Debug("evals: running evals", "count", len(defs), "session_id", evalCtx.SessionID)
+	// Preserve any PriorResults seeded by BuildEvalContext (e.g., from
+	// message.Validations) so they're visible to evals in this batch.
+	seeded := evalCtx.PriorResults
 	var results []EvalResult
 	for i := range defs {
 		if ctx.Err() != nil {
 			break
 		}
+		prior := make([]EvalResult, 0, len(seeded)+len(results))
+		prior = append(prior, seeded...)
+		prior = append(prior, results...)
+		evalCtx.PriorResults = prior
 		result := r.runOne(ctx, &defs[i], evalCtx, trigCtx, allowedTriggers)
 		if result != nil {
 			result.SessionID = evalCtx.SessionID
@@ -237,7 +244,16 @@ func (r *EvalRunner) executeHandler(
 	result.Type = def.Type
 	result.DurationMs = durationMs
 
-	if def.Threshold != nil {
+	// Apply threshold via AssertionEvalHandler wrapping when min/max score thresholds exist.
+	if def.Threshold != nil && (def.Threshold.MinScore != nil || def.Threshold.MaxScore != nil) {
+		wrapper := &AssertionEvalHandler{
+			Inner:     handler,
+			EvalType:  def.Type,
+			Threshold: def.Threshold,
+		}
+		// Re-apply assertion logic on the already-computed result
+		wrapper.applyThresholds(result)
+	} else if def.Threshold != nil {
 		def.Threshold.Apply(result)
 	}
 

@@ -26,14 +26,19 @@ func (h *NoToolErrorsHandler) Eval(
 
 	errors := coreNoToolErrors(views, tools)
 
-	if len(errors) > 0 {
-		names := make([]string, len(errors))
+	totalCalls := len(views)
+	errorCount := len(errors)
+
+	if errorCount > 0 {
+		names := make([]string, errorCount)
 		for i, e := range errors {
 			names[i] = fmt.Sprintf("%s: %s", e["tool"], e["error"])
 		}
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
+			Score:       inverseRatioScore(errorCount, totalCalls),
+			Value:       map[string]any{"error_count": errorCount, "total_calls": totalCalls},
 			Explanation: fmt.Sprintf("tool errors found: %s", strings.Join(names, "; ")),
 			Details:     map[string]any{"errors": errors},
 		}, nil
@@ -42,6 +47,8 @@ func (h *NoToolErrorsHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       boolScore(true),
+		Value:       map[string]any{"error_count": 0, "total_calls": totalCalls},
 		Explanation: "no tool errors found",
 	}, nil
 }

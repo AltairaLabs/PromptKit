@@ -66,10 +66,12 @@ func (h *ToolNoRepeatHandler) Eval(
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  boolScore(false),
 			Explanation: fmt.Sprintf(
 				"repeated tool calls detected (max %d): %s",
 				maxRepeats, strings.Join(names, ", "),
 			),
+			Value:   map[string]any{"repeated_tools": violations},
 			Details: map[string]any{"violations": violations},
 		}, nil
 	}
@@ -77,6 +79,8 @@ func (h *ToolNoRepeatHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("no tool called more than %d time(s) consecutively", maxRepeats),
+		Value:       map[string]any{"repeated_tools": []map[string]any{}},
 	}, nil
 }

@@ -126,6 +126,9 @@ func convertOneEvalResult(r *evals.EvalResult) ConversationValidationResult {
 	if r.MetricValue != nil {
 		details["metric_value"] = *r.MetricValue
 	}
+	if r.Value != nil {
+		details["value"] = r.Value
+	}
 	if r.Error != "" {
 		details["error"] = r.Error
 	}

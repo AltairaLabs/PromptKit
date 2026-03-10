@@ -51,7 +51,10 @@ func (h *WorkflowTransitionedToHandler) Eval(
 		}
 		if to, _ := tr["to"].(string); to == target {
 			return &evals.EvalResult{
-				Type: h.Type(), Passed: true,
+				Type:        h.Type(),
+				Passed:      true,
+				Score:       boolScore(true),
+				Value:       map[string]any{"target": target, "found": true, "transition": tr},
 				Explanation: fmt.Sprintf("workflow transitioned to %q", target),
 				Details:     map[string]any{"transition": tr},
 			}, nil
@@ -61,6 +64,8 @@ func (h *WorkflowTransitionedToHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      false,
+		Score:       boolScore(false),
+		Value:       map[string]any{"target": target, "found": false, "transitions": transitions},
 		Explanation: fmt.Sprintf("no transition to state %q found", target),
 		Details:     map[string]any{"target": target, "transitions": transitions},
 	}, nil

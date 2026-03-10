@@ -62,7 +62,13 @@ func (h *ToolCallsWithArgsHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
+		Score:       boolScore(passed),
 		Explanation: explanation,
+		Value: map[string]any{
+			"matching_calls":  len(matching),
+			"violation_count": len(violations),
+			"tool_name":       toolName,
+		},
 		Details: map[string]any{
 			"violations":     violations,
 			"matching_calls": len(matching),

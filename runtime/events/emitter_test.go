@@ -107,6 +107,20 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 				CallID: "call-1", ToolName: "test_tool",
 			})
 		},
+		func() {
+			emitter.GuardrailResult(&ValidationEventData{
+				ValidatorName: "banned_words",
+				ValidatorType: "banned_words",
+				Enforced:      true,
+				Violations:    []string{"bad word found"},
+			})
+		},
+		func() {
+			emitter.GuardrailResult(&ValidationEventData{
+				ValidatorName: "length",
+				ValidatorType: "length",
+			})
+		},
 	}
 
 	wg.Add(len(tests))

@@ -20,6 +20,18 @@ type EvalTypeHandler interface {
 	Eval(ctx context.Context, evalCtx *EvalContext, params map[string]any) (*EvalResult, error)
 }
 
+// StreamableEvalHandler is an opt-in extension for EvalTypeHandler.
+// Handlers implementing this interface support incremental evaluation
+// on partial (streaming) content, enabling early abort in guardrails.
+type StreamableEvalHandler interface {
+	EvalTypeHandler
+
+	// EvalPartial evaluates partial content accumulated so far.
+	// Called on each streaming chunk. Implementations should be efficient
+	// and avoid expensive operations on every call.
+	EvalPartial(ctx context.Context, content string, params map[string]any) (*EvalResult, error)
+}
+
 // EvalTypeRegistry provides thread-safe registration and lookup of
 // EvalTypeHandler implementations by type name.
 type EvalTypeRegistry struct {

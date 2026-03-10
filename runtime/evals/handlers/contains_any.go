@@ -33,6 +33,7 @@ func (h *ContainsAnyHandler) Eval(
 		}, nil
 	}
 
+	var matchedPatterns []string
 	for i := range evalCtx.Messages {
 		msg := &evalCtx.Messages[i]
 		if !strings.EqualFold(msg.Role, roleAssistant) {
@@ -41,21 +42,30 @@ func (h *ContainsAnyHandler) Eval(
 		content := msg.GetContent()
 		for _, p := range patterns {
 			if containsInsensitive(content, p) {
-				return &evals.EvalResult{
-					Type:   h.Type(),
-					Passed: true,
-					Explanation: fmt.Sprintf(
-						"turn %d contains pattern %q",
-						i, p,
-					),
-				}, nil
+				matchedPatterns = append(matchedPatterns, p)
 			}
 		}
+	}
+
+	passed := len(matchedPatterns) > 0
+	if passed {
+		return &evals.EvalResult{
+			Type:   h.Type(),
+			Passed: true,
+			Score:  boolScore(true),
+			Value:  map[string]any{"matched": matchedPatterns},
+			Explanation: fmt.Sprintf(
+				"matched patterns: %s",
+				strings.Join(matchedPatterns, ", "),
+			),
+		}, nil
 	}
 
 	return &evals.EvalResult{
 		Type:   h.Type(),
 		Passed: false,
+		Score:  boolScore(false),
+		Value:  map[string]any{"matched": matchedPatterns},
 		Explanation: fmt.Sprintf(
 			"no assistant message contained any of: %s",
 			strings.Join(patterns, ", "),

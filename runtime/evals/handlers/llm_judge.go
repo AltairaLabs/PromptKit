@@ -167,5 +167,6 @@ func buildEvalResult(
 		Passed:      passed,
 		Score:       &score,
 		Explanation: jr.Reasoning,
+		Value:       map[string]any{"score": score, "reasoning": jr.Reasoning},
 	}
 }

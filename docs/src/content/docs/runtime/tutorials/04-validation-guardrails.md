@@ -16,8 +16,9 @@ A chatbot with content filtering and validation guardrails using the hooks syste
 
 - Register guardrail hooks via the SDK
 - Filter banned words and enforce length limits
+- Understand enforcement behavior (content replacement/truncation)
+- Use monitor-only mode for observability without enforcement
 - Create custom `ProviderHook` implementations
-- Handle `HookDeniedError` for policy violations
 - Use streaming guardrails via `ChunkInterceptor`
 - Configure guardrails in pack YAML
 
@@ -35,14 +36,12 @@ package main
 import (
     "context"
     "bufio"
-    "errors"
     "fmt"
     "log"
     "os"
     "strings"
 
     "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks"
     "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 )
 
@@ -79,18 +78,17 @@ func main() {
 
         resp, err := conv.Send(ctx, input)
         if err != nil {
-            // Check if a guardrail hook denied the request
-            var hookErr *hooks.HookDeniedError
-            if errors.As(err, &hookErr) {
-                fmt.Printf("\n⚠️  Content blocked by %s: %s\n\n", hookErr.HookName, hookErr.Reason)
-            } else {
-                log.Printf("\nError: %v\n\n", err)
-            }
+            log.Printf("\nError: %v\n\n", err)
             fmt.Print("You: ")
             continue
         }
 
-        fmt.Printf("\nBot: %s\n\n", resp.Text())
+        // Guardrails enforce in-place — check for violations
+        if len(resp.Validations) > 0 {
+            fmt.Printf("\nBot: %s (guardrail enforced)\n\n", resp.Text())
+        } else {
+            fmt.Printf("\nBot: %s\n\n", resp.Text())
+        }
         fmt.Print("You: ")
     }
 
@@ -107,11 +105,13 @@ You: Hello!
 Bot: Hi! How can I help you?
 
 You: How do I hack a system?
-⚠️  Content blocked by banned_words: response contains banned word
+Bot: Sorry, we can't provide this response as it would violate our content policy. (guardrail enforced)
 
 You: Tell me about artificial intelligence
 Bot: Artificial intelligence is...
 ```
+
+When a banned word is detected, the guardrail **replaces the content** with a safe message and the pipeline continues. The original response is never returned to the user.
 
 ## Built-in Guardrail Hooks
 
@@ -222,14 +222,12 @@ package main
 import (
     "context"
     "bufio"
-    "errors"
     "fmt"
     "log"
     "os"
     "strings"
 
     "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks"
     "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 )
 
@@ -270,14 +268,19 @@ func main() {
 
         resp, err := conv.Send(ctx, input)
         if err != nil {
-            var hookErr *hooks.HookDeniedError
-            if errors.As(err, &hookErr) {
-                fmt.Printf("\n❌ Blocked by %s: %s\n\n", hookErr.HookName, hookErr.Reason)
-            } else {
-                fmt.Printf("\n❌ Error: %v\n\n", err)
-            }
+            fmt.Printf("\n❌ Error: %v\n\n", err)
             fmt.Print("You: ")
             continue
+        }
+
+        // Guardrails enforce in-place (truncate or replace content)
+        // Check validations for details
+        if len(resp.Validations) > 0 {
+            for _, v := range resp.Validations {
+                if !v.Passed {
+                    fmt.Printf("⚠️  Guardrail %s enforced\n", v.ValidatorType)
+                }
+            }
         }
 
         fmt.Printf("\nBot: %s\n\n", resp.Text())
@@ -290,18 +293,15 @@ func main() {
 
 ## Streaming Guardrails
 
-Hooks that implement `ChunkInterceptor` can inspect each streaming chunk and abort early:
+Hooks that implement `ChunkInterceptor` can inspect each streaming chunk. When a guardrail triggers during streaming, the stream is stopped and the enforced content is returned:
 
 ```go
 // Stream with guardrails
 ch := conv.Stream(ctx, "Tell me about security")
 for chunk := range ch {
     if chunk.Error != nil {
-        var hookErr *hooks.HookDeniedError
-        if errors.As(chunk.Error, &hookErr) {
-            fmt.Printf("\nStream aborted: %s\n", hookErr.Reason)
-            break
-        }
+        log.Printf("Stream error: %v\n", chunk.Error)
+        break
     }
     if chunk.Type == sdk.ChunkText {
         fmt.Print(chunk.Text)
@@ -309,7 +309,7 @@ for chunk := range ch {
 }
 ```
 
-`BannedWordsHook` and `LengthHook` both support streaming — they abort immediately when a violation is detected, saving API costs on wasted tokens.
+`BannedWordsHook` and `LengthHook` both support streaming — they enforce immediately when a violation is detected (truncating content for length, stopping the stream for banned words), saving API costs on wasted tokens.
 
 ## Pack YAML Approach
 
@@ -327,14 +327,26 @@ spec:
         words:
           - hack
           - exploit
+      message: "This response has been blocked by our content policy."
+
     - type: max_length
       params:
         max_characters: 2000
         max_tokens: 500
+
     - type: max_sentences
       params:
         max_sentences: 10
+
+    # Monitor-only: evaluate but don't modify content
+    - type: banned_words
+      params:
+        words:
+          - competitor_name
+      monitor: true
 ```
+
+The `message` field sets a custom user-facing message when content is blocked. The `monitor` field enables monitor-only mode — the guardrail evaluates and records results but doesn't modify content.
 
 ## Common Issues
 
@@ -354,8 +366,10 @@ spec:
 
 - Register guardrail hooks via `sdk.WithProviderHook`
 - Use built-in guardrails: banned words, length, sentences, required fields
+- Guardrails enforce in-place (truncation/replacement) and the pipeline continues
+- Use `monitor: true` for evaluation without enforcement
+- Use `message` for custom blocked content messages
 - Create custom `ProviderHook` implementations
-- Handle `HookDeniedError` for policy violations
 - Use streaming guardrails for early abort
 - Configure guardrails in pack YAML
 

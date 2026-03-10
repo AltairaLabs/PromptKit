@@ -507,10 +507,10 @@ func TestLogFormatEnvVar(t *testing.T) {
 
 func TestSetLogger_Custom(t *testing.T) {
 	// Save and restore state
-	origLogger := DefaultLogger
+	origLogger := GetLogger()
 	origOutput := logOutput
 	defer func() {
-		DefaultLogger = origLogger
+		storeLogger(origLogger)
 		logOutput = origOutput
 		initLogger(currentLevel, nil)
 	}()
@@ -532,12 +532,12 @@ func TestSetLogger_Custom(t *testing.T) {
 
 func TestSetLogger_SetLevelPreservesCustomLogger(t *testing.T) {
 	// Save and restore state
-	origLogger := DefaultLogger
+	origLogger := GetLogger()
 	origOutput := logOutput
 	origHandler := customHandler
 	defer func() {
 		customHandler = origHandler
-		DefaultLogger = origLogger
+		storeLogger(origLogger)
 		logOutput = origOutput
 		initLogger(currentLevel, nil)
 	}()
@@ -559,10 +559,10 @@ func TestSetLogger_SetLevelPreservesCustomLogger(t *testing.T) {
 
 func TestSetLogger_NilResetsDefault(t *testing.T) {
 	// Save and restore state
-	origLogger := DefaultLogger
+	origLogger := GetLogger()
 	origOutput := logOutput
 	defer func() {
-		DefaultLogger = origLogger
+		storeLogger(origLogger)
 		logOutput = origOutput
 		initLogger(currentLevel, nil)
 	}()
@@ -572,18 +572,18 @@ func TestSetLogger_NilResetsDefault(t *testing.T) {
 	custom := slog.New(slog.NewTextHandler(&buf, nil))
 	SetLogger(custom)
 
-	if DefaultLogger != custom {
-		t.Error("Expected DefaultLogger to be the custom logger")
+	if GetLogger() != custom {
+		t.Error("Expected GetLogger() to return the custom logger")
 	}
 
 	// Reset with nil
 	SetLogger(nil)
 
-	if DefaultLogger == custom {
-		t.Error("Expected DefaultLogger to be reset after SetLogger(nil)")
+	if GetLogger() == custom {
+		t.Error("Expected GetLogger() to be reset after SetLogger(nil)")
 	}
-	if DefaultLogger == nil {
-		t.Error("Expected DefaultLogger to not be nil after SetLogger(nil)")
+	if GetLogger() == nil {
+		t.Error("Expected GetLogger() to not be nil after SetLogger(nil)")
 	}
 
 	// Logging should still work
@@ -592,10 +592,10 @@ func TestSetLogger_NilResetsDefault(t *testing.T) {
 
 func TestSetLogger_SlogDefaultUpdated(t *testing.T) {
 	// Save and restore state
-	origLogger := DefaultLogger
+	origLogger := GetLogger()
 	origOutput := logOutput
 	defer func() {
-		DefaultLogger = origLogger
+		storeLogger(origLogger)
 		logOutput = origOutput
 		initLogger(currentLevel, nil)
 	}()
@@ -611,12 +611,12 @@ func TestSetLogger_SlogDefaultUpdated(t *testing.T) {
 
 func TestSetLogger_ConfigureDoesNotOverwrite(t *testing.T) {
 	// Save and restore state
-	origLogger := DefaultLogger
+	origLogger := GetLogger()
 	origOutput := logOutput
 	origHandler := customHandler
 	defer func() {
 		customHandler = origHandler
-		DefaultLogger = origLogger
+		storeLogger(origLogger)
 		logOutput = origOutput
 		initLogger(currentLevel, nil)
 	}()

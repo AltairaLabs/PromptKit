@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default eval handlers for guardrail factory
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -13,9 +14,10 @@ import (
 )
 
 // GuardrailEvalStage evaluates guardrail hooks against assistant messages
-// and records pass/fail results in message.Validations. Unlike ProviderStage
-// hook enforcement, this stage never terminates the pipeline on denial —
-// it records the result for downstream assertion stages to evaluate.
+// and records pass/fail results in message.Validations. When a guardrail
+// denies and FailOnViolation is true (the default), this stage also enforces
+// the guardrail by modifying the message content (e.g., truncating for length
+// validators, replacing content for content blockers).
 //
 // This stage reads "validator_configs" from element metadata (set by
 // PromptAssemblyStage) and uses guardrails.NewGuardrailHook to instantiate
@@ -100,6 +102,10 @@ func (s *GuardrailEvalStage) Process(
 					vr.Details[k] = v
 				}
 			}
+			// Enforce guardrail if FailOnViolation is not explicitly false
+			if cfg.FailOnViolation == nil || *cfg.FailOnViolation {
+				enforceGuardrail(msg, cfg, decision)
+			}
 		}
 		validations = append(validations, vr)
 	}
@@ -129,6 +135,77 @@ func (s *GuardrailEvalStage) extractValidatorConfigs(elements []stage.StreamElem
 		}
 	}
 	return nil
+}
+
+// lengthValidatorTypes maps validator types that enforce max length truncation.
+var lengthValidatorTypes = map[string]bool{
+	"length":     true,
+	"max_length": true,
+}
+
+// contentBlockerTypes maps validator types that block content entirely.
+var contentBlockerTypes = map[string]bool{
+	"banned_words":     true,
+	"content_excludes": true,
+}
+
+// enforceGuardrail modifies the message content when a guardrail denies.
+// For length validators, it truncates content to the configured maximum.
+// For content blockers, it replaces content with a configurable blocked message.
+func enforceGuardrail(msg *types.Message, cfg prompt.ValidatorConfig, decision hooks.Decision) {
+	switch {
+	case lengthValidatorTypes[cfg.Type]:
+		enforceMaxLength(msg, cfg.Params)
+	case contentBlockerTypes[cfg.Type]:
+		enforceContentBlock(msg, cfg)
+	default:
+		logger.Debug("Guardrail denied but no enforcement action defined",
+			"type", cfg.Type, "reason", decision.Reason)
+	}
+}
+
+// enforceMaxLength truncates message content to the configured maximum character count.
+func enforceMaxLength(msg *types.Message, params map[string]interface{}) {
+	maxLen := extractIntParam(params, "max_characters")
+	if maxLen == 0 {
+		maxLen = extractIntParam(params, "max")
+	}
+	if maxLen == 0 {
+		maxLen = extractIntParam(params, "max_chars")
+	}
+	if maxLen > 0 && len(msg.Content) > maxLen {
+		logger.Info("Guardrail enforced: truncating content", "original_length", len(msg.Content), "max_length", maxLen)
+		msg.Content = msg.Content[:maxLen]
+	}
+}
+
+// enforceContentBlock replaces message content when forbidden content is detected.
+// Uses the validator's configured Message, falling back to DefaultBlockedMessage.
+func enforceContentBlock(msg *types.Message, cfg prompt.ValidatorConfig) {
+	blockedMsg := cfg.Message
+	if blockedMsg == "" {
+		blockedMsg = prompt.DefaultBlockedMessage
+	}
+	logger.Info("Guardrail enforced: content blocked", "type", cfg.Type)
+	msg.Content = blockedMsg
+}
+
+// extractIntParam extracts an integer parameter from a map, handling both int and float64 types.
+func extractIntParam(params map[string]interface{}, key string) int {
+	v, ok := params[key]
+	if !ok {
+		return 0
+	}
+	switch val := v.(type) {
+	case int:
+		return val
+	case float64:
+		return int(val)
+	case int64:
+		return int(val)
+	default:
+		return 0
+	}
 }
 
 // forwardAll sends all elements to the output channel.

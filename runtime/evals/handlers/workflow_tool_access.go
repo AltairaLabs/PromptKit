@@ -65,7 +65,9 @@ func (h *WorkflowToolAccessHandler) Eval(
 		}
 	}
 
-	if len(violations) > 0 {
+	passed := len(violations) == 0
+
+	if !passed {
 		msgs := make([]string, len(violations))
 		for i, v := range violations {
 			msgs[i] = fmt.Sprintf("%s called in state %q (turn %d)",
@@ -74,6 +76,8 @@ func (h *WorkflowToolAccessHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
+			Score:       boolScore(false),
+			Value:       map[string]any{"violations": violations, "violation_count": len(violations)},
 			Explanation: fmt.Sprintf("%d violation(s): %s", len(violations), strings.Join(msgs, "; ")),
 			Details:     map[string]any{"violations": violations},
 		}, nil
@@ -82,6 +86,8 @@ func (h *WorkflowToolAccessHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       boolScore(true),
+		Value:       map[string]any{"violations": []map[string]any{}, "violation_count": 0},
 		Explanation: fmt.Sprintf("all tool calls comply with %d access rule(s)", len(rules)),
 	}, nil
 }

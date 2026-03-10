@@ -145,6 +145,7 @@ func parseExternalResponse(body []byte, minScore *float64) *evals.EvalResult {
 		Passed:      passed,
 		Score:       &score,
 		Explanation: resp.Reasoning,
+		Value:       map[string]any{"score": score, "reasoning": resp.Reasoning},
 	}
 }
 

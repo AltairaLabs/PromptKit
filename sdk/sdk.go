@@ -850,7 +850,14 @@ func convertPackValidatorsToHooks(prompt *pack.Prompt, cfg *config) {
 	}
 	var packHooks []hooks.ProviderHook
 	for _, v := range prompt.Validators {
-		hook, err := guardrails.NewGuardrailHook(v.Type, v.Config)
+		var opts []guardrails.GuardrailOption
+		if v.Message != "" {
+			opts = append(opts, guardrails.WithMessage(v.Message))
+		}
+		if v.Monitor {
+			opts = append(opts, guardrails.WithMonitorOnly())
+		}
+		hook, err := guardrails.NewGuardrailHook(v.Type, v.Config, opts...)
 		if err != nil {
 			logger.Warn("Skipping unknown pack validator type", "type", v.Type, "error", err)
 			continue

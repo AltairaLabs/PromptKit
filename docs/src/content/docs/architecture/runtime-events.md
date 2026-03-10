@@ -109,7 +109,13 @@ Events are organized into several categories:
 
 - `validation.started` - Validation begins
 - `validation.passed` - Validation succeeds
-- `validation.failed` - Validation fails (includes violations)
+- `validation.failed` - Validation fails (includes violations, enforcement status, score)
+
+Guardrail hooks in the provider stage emit `validation.passed` or `validation.failed` events automatically. The `ValidationEventData` payload includes:
+
+- `Enforced` — whether content was modified (truncated or replaced)
+- `MonitorOnly` — whether the guardrail ran in monitor-only mode
+- `Score` — evaluation score (0.0–1.0)
 
 #### Context & State
 

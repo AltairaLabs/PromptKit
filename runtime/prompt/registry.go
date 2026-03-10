@@ -205,7 +205,12 @@ type ValidatorConfig struct {
 	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	// Fail execution on violation (default: true)
 	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
+	// User-facing message shown when content is blocked (default: DefaultBlockedMessage)
+	Message string `yaml:"message,omitempty" json:"message,omitempty"`
 }
+
+// DefaultBlockedMessage is the user-facing message shown when a content guardrail blocks output.
+const DefaultBlockedMessage = "Sorry, we can't provide this response as it would violate our content policy."
 
 // TemplateEngineInfo describes the template engine used for variable substitution
 type TemplateEngineInfo struct {

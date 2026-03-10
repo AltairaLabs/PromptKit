@@ -61,10 +61,20 @@ func (h *VideoResolutionHandler) Eval(
 		explanation = "some videos violate resolution requirements"
 	}
 
+	// Collect resolution data for the Value field.
+	var resolutions []map[string]any
+	for _, part := range parts {
+		if part.Media.Width != nil && part.Media.Height != nil {
+			resolutions = append(resolutions, map[string]any{"width": *part.Media.Width, "height": *part.Media.Height})
+		}
+	}
+
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
+		Score:       boolScore(passed),
 		Explanation: explanation,
+		Value:       map[string]any{"resolutions": resolutions},
 		Details: map[string]any{
 			"video_count":       len(parts),
 			"found_resolutions": foundResolutions,

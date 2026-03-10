@@ -3,8 +3,12 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sync"
 	"testing"
 
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -18,6 +22,39 @@ import (
 // =============================================================================
 // Hook Integration Tests — ProviderStage with hooks.Registry
 // =============================================================================
+
+// maxCharsChunkInterceptor is a test ChunkInterceptor that aborts when
+// accumulated content exceeds maxChars.
+type maxCharsChunkInterceptor struct {
+	maxChars    int
+	accumulated string
+}
+
+func (h *maxCharsChunkInterceptor) Name() string { return "max_chars_test" }
+
+func (h *maxCharsChunkInterceptor) BeforeCall(
+	_ context.Context, _ *hooks.ProviderRequest,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *maxCharsChunkInterceptor) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *maxCharsChunkInterceptor) OnChunk(
+	_ context.Context, chunk *providers.StreamChunk,
+) hooks.Decision {
+	h.accumulated += chunk.Delta
+	if len(h.accumulated) > h.maxChars {
+		return hooks.Deny(fmt.Sprintf(
+			"content length %d exceeds max %d", len(h.accumulated), h.maxChars,
+		))
+	}
+	return hooks.Allow
+}
 
 // denyAllProviderHook is a test hook that denies all provider calls.
 type denyAllProviderHook struct {
@@ -272,11 +309,10 @@ func TestProviderStage_AfterCallHook_PopulatesValidations(t *testing.T) {
 func TestProviderStage_ChunkInterceptor_AbortsStream(t *testing.T) {
 	provider := mock.NewProvider("p", "m", false)
 
-	// LengthHook implements ChunkInterceptor. Set a very low char limit
-	// so the streamed content will exceed it.
-	lengthHook := guardrails.NewLengthHook(5, 0) // 5 chars max
+	// Use a simple chunk interceptor that aborts when content exceeds 5 chars.
+	interceptor := &maxCharsChunkInterceptor{maxChars: 5}
 
-	reg := hooks.NewRegistry(hooks.WithProviderHook(lengthHook))
+	reg := hooks.NewRegistry(hooks.WithProviderHook(interceptor))
 
 	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
 		MaxTokens: 100,
@@ -288,7 +324,7 @@ func TestProviderStage_ChunkInterceptor_AbortsStream(t *testing.T) {
 	require.Error(t, err)
 	var abortErr *providers.ValidationAbortError
 	require.ErrorAs(t, err, &abortErr)
-	assert.Contains(t, abortErr.Reason, "max_characters")
+	assert.Contains(t, abortErr.Reason, "exceeds max")
 }
 
 // =============================================================================
@@ -535,7 +571,7 @@ func TestNewProviderStageWithHooks_ChainsFromExisting(t *testing.T) {
 }
 
 // =============================================================================
-// Built-in guardrail hooks (BannedWordsHook) as provider hook
+// Built-in guardrail hooks via NewGuardrailHook
 // =============================================================================
 
 func TestProviderStage_BannedWordsGuardrail_NonStreaming(t *testing.T) {
@@ -543,19 +579,128 @@ func TestProviderStage_BannedWordsGuardrail_NonStreaming(t *testing.T) {
 	provider := &nonStreamingProvider{Provider: baseProvider}
 
 	// The mock provider returns "Mock response from p model m"
-	// Ban the word "Mock" so the guardrail rejects it.
-	bw := guardrails.NewBannedWordsHook([]string{"Mock"})
+	// Ban the word "Mock" so the guardrail enforces content replacement.
+	bw, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"Mock"},
+	})
+	require.NoError(t, err)
 	reg := hooks.NewRegistry(hooks.WithProviderHook(bw))
 
 	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
 		MaxTokens: 100,
 	}, nil, reg)
 
-	_, err := runProviderStage(t, stage, "hello")
+	elems, runErr := runProviderStage(t, stage, "hello")
 
-	require.Error(t, err)
-	var denied *hooks.HookDeniedError
-	require.ErrorAs(t, err, &denied)
-	assert.Equal(t, "provider_after", denied.HookType)
-	assert.Contains(t, denied.Reason, "banned")
+	// Guardrails now enforce (replace content) and continue the pipeline
+	require.NoError(t, runErr)
+
+	// Find the assistant message and verify it was replaced
+	var assistantMsg *types.Message
+	for i := range elems {
+		if elems[i].Message != nil && elems[i].Message.Role == "assistant" {
+			assistantMsg = elems[i].Message
+		}
+	}
+	require.NotNil(t, assistantMsg, "expected an assistant message")
+	assert.Contains(t, assistantMsg.Content, "content policy",
+		"content should be replaced with blocked message")
+	require.NotEmpty(t, assistantMsg.Validations)
+	assert.Equal(t, "banned_words", assistantMsg.Validations[0].ValidatorType)
+	assert.False(t, assistantMsg.Validations[0].Passed)
+}
+
+func TestProviderStage_GuardrailEmitsValidationEvent(t *testing.T) {
+	baseProvider := mock.NewProvider("p", "m", false)
+	provider := &nonStreamingProvider{Provider: baseProvider}
+
+	bw, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"Mock"},
+	})
+	require.NoError(t, err)
+	reg := hooks.NewRegistry(hooks.WithProviderHook(bw))
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+
+	var received []*events.Event
+	var mu sync.Mutex
+	bus.Subscribe(events.EventValidationFailed, func(e *events.Event) {
+		mu.Lock()
+		received = append(received, e)
+		mu.Unlock()
+	})
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, emitter, reg)
+
+	_, runErr := runProviderStage(t, stage, "hello")
+	require.NoError(t, runErr)
+
+	// Give the async event bus time to deliver
+	bus.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, received, 1, "expected one validation.failed event")
+	data, ok := received[0].Data.(*events.ValidationEventData)
+	require.True(t, ok)
+	assert.Equal(t, "banned_words", data.ValidatorName)
+	assert.True(t, data.Enforced)
+	assert.False(t, data.MonitorOnly)
+	assert.Len(t, data.Violations, 1)
+}
+
+func TestProviderStage_MonitorOnlyGuardrailEmitsEvent(t *testing.T) {
+	baseProvider := mock.NewProvider("p", "m", false)
+	provider := &nonStreamingProvider{Provider: baseProvider}
+
+	bw, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"Mock"},
+	}, guardrails.WithMonitorOnly())
+	require.NoError(t, err)
+	reg := hooks.NewRegistry(hooks.WithProviderHook(bw))
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+
+	var received []*events.Event
+	var mu sync.Mutex
+	bus.Subscribe(events.EventValidationFailed, func(e *events.Event) {
+		mu.Lock()
+		received = append(received, e)
+		mu.Unlock()
+	})
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, emitter, reg)
+
+	elems, runErr := runProviderStage(t, stage, "hello")
+	require.NoError(t, runErr)
+
+	// Monitor-only should NOT modify content
+	var assistantMsg *types.Message
+	for i := range elems {
+		if elems[i].Message != nil && elems[i].Message.Role == "assistant" {
+			assistantMsg = elems[i].Message
+		}
+	}
+	require.NotNil(t, assistantMsg)
+	assert.Contains(t, assistantMsg.Content, "Mock",
+		"monitor-only should not replace content")
+
+	bus.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, received, 1, "expected one validation.failed event")
+	data, ok := received[0].Data.(*events.ValidationEventData)
+	require.True(t, ok)
+	assert.Equal(t, "banned_words", data.ValidatorName)
+	assert.False(t, data.Enforced, "monitor-only should not be marked as enforced")
+	assert.True(t, data.MonitorOnly)
 }

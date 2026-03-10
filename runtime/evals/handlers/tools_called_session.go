@@ -52,20 +52,34 @@ func (h *ToolsCalledSessionHandler) Eval(
 		}
 	}
 
+	found := len(required) - len(missing)
+
 	if len(missing) > 0 {
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  ratioScore(found, len(required)),
 			Explanation: fmt.Sprintf(
 				"missing required tools: %s",
 				strings.Join(missing, "; "),
 			),
+			Value: map[string]any{
+				"found":    found,
+				"expected": len(required),
+				"missing":  missing,
+			},
 		}, nil
 	}
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       ratioScore(found, len(required)),
 		Explanation: "all required tools were called",
+		Value: map[string]any{
+			"found":    found,
+			"expected": len(required),
+			"missing":  []string{},
+		},
 	}, nil
 }

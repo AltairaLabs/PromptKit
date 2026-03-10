@@ -1,7 +1,7 @@
 // Package main demonstrates hooks and guardrails with the PromptKit SDK.
 //
 // This example shows:
-//   - Built-in guardrails: BannedWordsHook, LengthHook
+//   - Built-in guardrails via NewGuardrailHook
 //   - Custom ProviderHook: a PII detection hook
 //   - Detecting hook denials for graceful handling
 //   - Streaming with chunk-level guardrail enforcement
@@ -19,6 +19,7 @@ import (
 	"log"
 	"regexp"
 
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -79,6 +80,18 @@ func (h *PIIHook) check(content string) hooks.Decision {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: create guardrail hooks
+// ---------------------------------------------------------------------------
+
+func mustGuardrail(typeName string, params map[string]any) hooks.ProviderHook {
+	h, err := guardrails.NewGuardrailHook(typeName, params)
+	if err != nil {
+		log.Fatalf("failed to create guardrail %q: %v", typeName, err)
+	}
+	return h
+}
+
+// ---------------------------------------------------------------------------
 // Helper: detect hook denial errors
 // ---------------------------------------------------------------------------
 
@@ -105,9 +118,13 @@ func main() {
 	// Hooks execute in order; the first denial short-circuits.
 	conv, err := sdk.Open("./hooks.pack.json", "chat",
 		// Built-in: reject responses containing "password" or "secret"
-		sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{"password", "secret"})),
+		sdk.WithProviderHook(mustGuardrail("banned_words", map[string]any{
+			"words": []any{"password", "secret"},
+		})),
 		// Built-in: reject responses longer than 500 characters
-		sdk.WithProviderHook(guardrails.NewLengthHook(500, 0)),
+		sdk.WithProviderHook(mustGuardrail("length", map[string]any{
+			"max_characters": 500,
+		})),
 		// Custom: reject responses containing email/phone patterns
 		sdk.WithProviderHook(NewPIIHook()),
 	)

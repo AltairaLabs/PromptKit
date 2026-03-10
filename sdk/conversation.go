@@ -108,8 +108,9 @@ type Conversation struct {
 	pack           *pack.Pack
 	prompt         *pack.Prompt
 	promptName     string
-	promptRegistry *prompt.Registry // Registry for PromptAssemblyMiddleware
-	toolRegistry   *tools.Registry  // Registry for tools (pre-populated from pack)
+	promptRegistry *prompt.Registry      // Registry for PromptAssemblyMiddleware
+	toolRegistry   *tools.Registry       // Registry for tools (pre-populated from pack)
+	serverExecutor *tools.ServerExecutor // Long-running server executor (may be nil)
 
 	// Configuration from options (includes provider)
 	config *config
@@ -325,6 +326,7 @@ func (c *Conversation) buildPipelineConfig(
 	c.toolRegistry.RegisterExecutor(clientExec)
 
 	c.registerMCPExecutors()
+	c.registerExecExecutor()
 	// Register capability tools (includes A2A) — only on first build
 	if !c.capabilitiesRegistered {
 		for _, cap := range c.capabilities {
@@ -967,6 +969,13 @@ func (c *Conversation) Close() error {
 	if c.mcpRegistry != nil {
 		if err := c.mcpRegistry.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close MCP registry: %w", err))
+		}
+	}
+
+	// Close server executor (terminates long-running subprocesses)
+	if c.serverExecutor != nil {
+		if err := c.serverExecutor.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close server executor: %w", err))
 		}
 	}
 
