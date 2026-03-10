@@ -34,8 +34,9 @@ golangci-lint-report.json
 # Go workspace file
 go.work.sum
 
-# IDE
+# IDE / AI tools
 .VSCodeCounter/
+.claude/
 .idea/
 .scannerwork/
 .sonarlint/
@@ -99,6 +100,7 @@ packs/
 /promptpack-spec/
 
 # Ignore tools' built binaries (but not the source directories)
+/evaluate
 /packc
 /promptarena
 bin/packc
