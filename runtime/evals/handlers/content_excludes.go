@@ -9,6 +9,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
+// Compile-time interface check for streaming support.
+var _ evals.StreamableEvalHandler = (*ContentExcludesHandler)(nil)
+
 const (
 	matchModeSubstring    = "substring"
 	matchModeWordBoundary = "word_boundary"
@@ -80,6 +83,43 @@ func (h *ContentExcludesHandler) Eval(
 		Passed:      true,
 		Score:       boolScore(true),
 		Explanation: "no forbidden content detected",
+	}, nil
+}
+
+// EvalPartial checks partial streaming content for forbidden patterns.
+// Always uses substring mode to avoid false negatives on partial words
+// that would occur with word_boundary mode mid-stream.
+func (h *ContentExcludesHandler) EvalPartial(
+	_ context.Context, content string, params map[string]any,
+) (*evals.EvalResult, error) {
+	patterns := extractStringSlice(params, "patterns")
+	if len(patterns) == 0 {
+		return &evals.EvalResult{
+			Type:   h.Type(),
+			Passed: true,
+			Score:  boolScore(true),
+		}, nil
+	}
+
+	// Use substring mode for streaming to avoid false negatives on partial words.
+	for _, p := range patterns {
+		if containsInsensitive(content, p) {
+			return &evals.EvalResult{
+				Type:   h.Type(),
+				Passed: false,
+				Score:  boolScore(false),
+				Value:  map[string]any{"violations": []string{fmt.Sprintf("contains %q", p)}},
+				Explanation: fmt.Sprintf(
+					"forbidden content found in stream: %q", p,
+				),
+			}, nil
+		}
+	}
+
+	return &evals.EvalResult{
+		Type:   h.Type(),
+		Passed: true,
+		Score:  boolScore(true),
 	}, nil
 }
 

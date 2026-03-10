@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -25,8 +26,11 @@ type GuardrailHookAdapter struct {
 	direction string // "input" | "output" | "both"
 }
 
-// Compile-time interface check.
-var _ hooks.ProviderHook = (*GuardrailHookAdapter)(nil)
+// Compile-time interface checks.
+var (
+	_ hooks.ProviderHook     = (*GuardrailHookAdapter)(nil)
+	_ hooks.ChunkInterceptor = (*GuardrailHookAdapter)(nil)
+)
 
 // Name returns the eval type identifier for this guardrail.
 func (a *GuardrailHookAdapter) Name() string { return a.evalType }
@@ -92,13 +96,33 @@ func (a *GuardrailHookAdapter) evaluate(
 		return hooks.Deny("guardrail error: " + err.Error())
 	}
 
-	// Check score-based failure: score < 1.0 means violation
-	if result.Score != nil && *result.Score < 1.0 {
+	// Use IsPassed() which derives pass/fail from Score (score < 1.0 = fail).
+	if !result.IsPassed() {
 		return a.deny(result)
 	}
 
-	// Check Passed for handlers that set it directly
-	if !result.Passed {
+	return hooks.Allow
+}
+
+// OnChunk evaluates streaming chunks via StreamableEvalHandler.EvalPartial.
+// For non-streamable handlers, it always allows the chunk through.
+func (a *GuardrailHookAdapter) OnChunk(
+	ctx context.Context, chunk *providers.StreamChunk,
+) hooks.Decision {
+	streamable, ok := a.handler.(evals.StreamableEvalHandler)
+	if !ok {
+		return hooks.Allow
+	}
+
+	params := evals.ApplyDefaults(a.evalType, a.params)
+	params = evals.NormalizeParams(a.evalType, params)
+
+	result, err := streamable.EvalPartial(ctx, chunk.Content, params)
+	if err != nil {
+		return hooks.Deny("guardrail streaming error: " + err.Error())
+	}
+
+	if !result.IsPassed() {
 		return a.deny(result)
 	}
 

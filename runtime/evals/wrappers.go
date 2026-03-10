@@ -49,10 +49,12 @@ func extractParamString(params map[string]any, key, defaultVal string) string {
 }
 
 // AssertionEvalHandler wraps an inner eval and applies pass/fail judgment
-// based on score thresholds from params (min_score, max_score).
+// based on score thresholds from params (min_score, max_score) or from
+// a Threshold injected by the EvalRunner.
 type AssertionEvalHandler struct {
-	Inner    EvalTypeHandler
-	EvalType string // the inner eval type name
+	Inner     EvalTypeHandler
+	EvalType  string     // the inner eval type name
+	Threshold *Threshold // optional: injected by EvalRunner from EvalDef.Threshold
 }
 
 // Type returns the wrapper type identifier.
@@ -62,8 +64,8 @@ func (h *AssertionEvalHandler) Type() string { return "assertion:" + h.EvalType 
 func (h *AssertionEvalHandler) Eval(
 	ctx context.Context, evalCtx *EvalContext, params map[string]any,
 ) (*EvalResult, error) {
-	minScore := extractOptionalFloat64(params, "min_score")
-	maxScore := extractOptionalFloat64(params, "max_score")
+	// Resolve thresholds: Threshold field (from runner) takes precedence over params.
+	minScore, maxScore := h.resolveThresholds(params)
 	innerParams := extractInnerParams(params)
 
 	result, err := h.Inner.Eval(ctx, evalCtx, innerParams)
@@ -71,7 +73,6 @@ func (h *AssertionEvalHandler) Eval(
 		return nil, err
 	}
 
-	// Default: pass if score == 1.0 (or no score)
 	passed := true
 	if result.Score != nil {
 		if minScore != nil {
@@ -82,9 +83,9 @@ func (h *AssertionEvalHandler) Eval(
 		}
 	}
 
-	// When no explicit thresholds, use the handler's own Passed field
+	// When no explicit thresholds, derive from score
 	if minScore == nil && maxScore == nil {
-		passed = result.Passed
+		passed = result.IsPassed()
 	}
 
 	result.Passed = passed
@@ -93,6 +94,42 @@ func (h *AssertionEvalHandler) Eval(
 	}
 	result.Details["passed"] = passed
 	return result, nil
+}
+
+// applyThresholds applies threshold-based pass/fail to an already-computed result.
+// Used by EvalRunner to apply EvalDef.Threshold without re-running the handler.
+func (h *AssertionEvalHandler) applyThresholds(result *EvalResult) {
+	if h.Threshold == nil {
+		return
+	}
+	passed := true
+	if result.Score != nil {
+		if h.Threshold.MinScore != nil {
+			passed = passed && *result.Score >= *h.Threshold.MinScore
+		}
+		if h.Threshold.MaxScore != nil {
+			passed = passed && *result.Score <= *h.Threshold.MaxScore
+		}
+	}
+	if h.Threshold.MinScore == nil && h.Threshold.MaxScore == nil {
+		passed = result.IsPassed()
+	}
+	result.Passed = passed
+	if result.Details == nil {
+		result.Details = make(map[string]any)
+	}
+	result.Details["passed"] = passed
+}
+
+// resolveThresholds returns min/max score from the Threshold field or params.
+func (h *AssertionEvalHandler) resolveThresholds(
+	params map[string]any,
+) (minScore, maxScore *float64) {
+	if h.Threshold != nil {
+		return h.Threshold.MinScore, h.Threshold.MaxScore
+	}
+	return extractOptionalFloat64(params, "min_score"),
+		extractOptionalFloat64(params, "max_score")
 }
 
 // GuardrailEvalHandler wraps an inner eval and applies guardrail judgment.
@@ -124,7 +161,7 @@ func (h *GuardrailEvalHandler) Eval(
 		triggered = *result.Score < *minScore
 	} else {
 		// Default: triggered if the inner eval failed (score < 1.0)
-		triggered = !result.Passed
+		triggered = !result.IsPassed()
 	}
 
 	if result.Details == nil {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -90,6 +91,7 @@ func TestGuardrailHookAdapter_FailingPassed(t *testing.T) {
 		typeName: "test_fail_passed",
 		result: &evals.EvalResult{
 			Passed:      false,
+			Score:       floatPtr(0.0),
 			Explanation: "missing required field",
 		},
 	}
@@ -338,4 +340,111 @@ func (c *capturingHandler) Eval(
 
 func TestGuardrailHookAdapter_ImplementsProviderHook(t *testing.T) {
 	var _ hooks.ProviderHook = (*GuardrailHookAdapter)(nil)
+}
+
+// streamableStubHandler implements both EvalTypeHandler and StreamableEvalHandler.
+type streamableStubHandler struct {
+	typeName      string
+	result        *evals.EvalResult
+	partialResult *evals.EvalResult
+	partialErr    error
+}
+
+func (s *streamableStubHandler) Type() string { return s.typeName }
+
+func (s *streamableStubHandler) Eval(
+	_ context.Context, _ *evals.EvalContext, _ map[string]any,
+) (*evals.EvalResult, error) {
+	return s.result, nil
+}
+
+func (s *streamableStubHandler) EvalPartial(
+	_ context.Context, _ string, _ map[string]any,
+) (*evals.EvalResult, error) {
+	return s.partialResult, s.partialErr
+}
+
+func TestGuardrailHookAdapter_OnChunk_NonStreamable(t *testing.T) {
+	handler := &stubHandler{
+		typeName: "test_nonstreamable",
+		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_nonstreamable",
+		params:    map[string]any{},
+		direction: "output",
+	}
+
+	chunk := &providers.StreamChunk{Content: "hello world", Delta: "world"}
+	decision := adapter.OnChunk(context.Background(), chunk)
+	if !decision.Allow {
+		t.Error("expected Allow for non-streamable handler")
+	}
+}
+
+func TestGuardrailHookAdapter_OnChunk_StreamablePass(t *testing.T) {
+	handler := &streamableStubHandler{
+		typeName:      "test_streamable",
+		result:        &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		partialResult: &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_streamable",
+		params:    map[string]any{},
+		direction: "output",
+	}
+
+	chunk := &providers.StreamChunk{Content: "safe content", Delta: "content"}
+	decision := adapter.OnChunk(context.Background(), chunk)
+	if !decision.Allow {
+		t.Error("expected Allow for passing streamable handler")
+	}
+}
+
+func TestGuardrailHookAdapter_OnChunk_StreamableFail(t *testing.T) {
+	handler := &streamableStubHandler{
+		typeName:      "test_streamable_fail",
+		result:        &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		partialResult: &evals.EvalResult{Passed: false, Score: floatPtr(0.0), Explanation: "forbidden word detected"},
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_streamable_fail",
+		params:    map[string]any{},
+		direction: "output",
+	}
+
+	chunk := &providers.StreamChunk{Content: "bad content", Delta: "content"}
+	decision := adapter.OnChunk(context.Background(), chunk)
+	if decision.Allow {
+		t.Fatal("expected Deny for failing streamable handler")
+	}
+	if decision.Reason != "forbidden word detected" {
+		t.Errorf("unexpected reason: %s", decision.Reason)
+	}
+}
+
+func TestGuardrailHookAdapter_OnChunk_StreamableError(t *testing.T) {
+	handler := &streamableStubHandler{
+		typeName:   "test_streamable_err",
+		result:     &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		partialErr: errors.New("eval partial failed"),
+	}
+	adapter := &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  "test_streamable_err",
+		params:    map[string]any{},
+		direction: "output",
+	}
+
+	chunk := &providers.StreamChunk{Content: "test", Delta: "test"}
+	decision := adapter.OnChunk(context.Background(), chunk)
+	if decision.Allow {
+		t.Fatal("expected Deny on EvalPartial error")
+	}
+	if decision.Reason != "guardrail streaming error: eval partial failed" {
+		t.Errorf("unexpected reason: %s", decision.Reason)
+	}
 }

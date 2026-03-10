@@ -12,6 +12,10 @@ import (
 // GuardrailTriggeredHandler checks if a specific guardrail validator
 // triggered (or didn't trigger) as expected.
 // Params: validator_type string, should_trigger bool (default true).
+//
+// Deprecated: guardrail_triggered relies on pipeline-level Validations attached
+// to messages. Prefer using assertion or guardrail wrappers around eval handlers
+// directly. This handler will be removed in a future version.
 type GuardrailTriggeredHandler struct{}
 
 // Type returns the eval type identifier.

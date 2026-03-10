@@ -237,7 +237,16 @@ func (r *EvalRunner) executeHandler(
 	result.Type = def.Type
 	result.DurationMs = durationMs
 
-	if def.Threshold != nil {
+	// Apply threshold via AssertionEvalHandler wrapping when min/max score thresholds exist.
+	if def.Threshold != nil && (def.Threshold.MinScore != nil || def.Threshold.MaxScore != nil) {
+		wrapper := &AssertionEvalHandler{
+			Inner:     handler,
+			EvalType:  def.Type,
+			Threshold: def.Threshold,
+		}
+		// Re-apply assertion logic on the already-computed result
+		wrapper.applyThresholds(result)
+	} else if def.Threshold != nil {
 		def.Threshold.Apply(result)
 	}
 

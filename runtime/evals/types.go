@@ -212,8 +212,11 @@ func (m *MetricDef) UnmarshalJSON(data []byte) error {
 
 // EvalResult captures the outcome of a single eval execution.
 type EvalResult struct {
-	EvalID      string          `json:"eval_id"`
-	Type        string          `json:"type"`
+	EvalID string `json:"eval_id"`
+	Type   string `json:"type"`
+	// Deprecated: Passed will be removed in a future version. Use Score instead.
+	// Pass/fail is determined by wrappers (AssertionEvalHandler, GuardrailEvalHandler)
+	// or by Threshold.Apply. Handlers should set Score, not Passed.
 	Passed      bool            `json:"passed"`
 	Score       *float64        `json:"score,omitempty"`
 	Value       any             `json:"value,omitempty"`
@@ -228,6 +231,22 @@ type EvalResult struct {
 	SkipReason  string          `json:"skip_reason,omitempty"`
 	SessionID   string          `json:"session_id,omitempty"`
 	TurnIndex   int             `json:"turn_index,omitempty"`
+}
+
+// IsPassed derives pass/fail from Score. Returns true if Score is nil or >= 1.0.
+// This is the canonical way to check pass/fail without relying on the deprecated Passed field.
+func (r *EvalResult) IsPassed() bool {
+	if r.Score == nil {
+		return true
+	}
+	return *r.Score >= 1.0
+}
+
+// BooleanEvalResult extends EvalResult with an explicit Passed field.
+// Returned by assertion and guardrail wrappers that apply judgment to raw eval results.
+type BooleanEvalResult struct {
+	EvalResult
+	Passed bool `json:"passed"`
 }
 
 // EvalContext provides data to eval handlers.
