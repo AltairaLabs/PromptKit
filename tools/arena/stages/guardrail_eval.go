@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default eval handlers for guardrail factory
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"

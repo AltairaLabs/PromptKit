@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"fmt"
+
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -18,6 +21,39 @@ import (
 // =============================================================================
 // Hook Integration Tests — ProviderStage with hooks.Registry
 // =============================================================================
+
+// maxCharsChunkInterceptor is a test ChunkInterceptor that aborts when
+// accumulated content exceeds maxChars.
+type maxCharsChunkInterceptor struct {
+	maxChars    int
+	accumulated string
+}
+
+func (h *maxCharsChunkInterceptor) Name() string { return "max_chars_test" }
+
+func (h *maxCharsChunkInterceptor) BeforeCall(
+	_ context.Context, _ *hooks.ProviderRequest,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *maxCharsChunkInterceptor) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *maxCharsChunkInterceptor) OnChunk(
+	_ context.Context, chunk *providers.StreamChunk,
+) hooks.Decision {
+	h.accumulated += chunk.Delta
+	if len(h.accumulated) > h.maxChars {
+		return hooks.Deny(fmt.Sprintf(
+			"content length %d exceeds max %d", len(h.accumulated), h.maxChars,
+		))
+	}
+	return hooks.Allow
+}
 
 // denyAllProviderHook is a test hook that denies all provider calls.
 type denyAllProviderHook struct {
@@ -272,11 +308,10 @@ func TestProviderStage_AfterCallHook_PopulatesValidations(t *testing.T) {
 func TestProviderStage_ChunkInterceptor_AbortsStream(t *testing.T) {
 	provider := mock.NewProvider("p", "m", false)
 
-	// LengthHook implements ChunkInterceptor. Set a very low char limit
-	// so the streamed content will exceed it.
-	lengthHook := guardrails.NewLengthHook(5, 0) // 5 chars max
+	// Use a simple chunk interceptor that aborts when content exceeds 5 chars.
+	interceptor := &maxCharsChunkInterceptor{maxChars: 5}
 
-	reg := hooks.NewRegistry(hooks.WithProviderHook(lengthHook))
+	reg := hooks.NewRegistry(hooks.WithProviderHook(interceptor))
 
 	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
 		MaxTokens: 100,
@@ -288,7 +323,7 @@ func TestProviderStage_ChunkInterceptor_AbortsStream(t *testing.T) {
 	require.Error(t, err)
 	var abortErr *providers.ValidationAbortError
 	require.ErrorAs(t, err, &abortErr)
-	assert.Contains(t, abortErr.Reason, "max_characters")
+	assert.Contains(t, abortErr.Reason, "exceeds max")
 }
 
 // =============================================================================
@@ -535,7 +570,7 @@ func TestNewProviderStageWithHooks_ChainsFromExisting(t *testing.T) {
 }
 
 // =============================================================================
-// Built-in guardrail hooks (BannedWordsHook) as provider hook
+// Built-in guardrail hooks via NewGuardrailHook
 // =============================================================================
 
 func TestProviderStage_BannedWordsGuardrail_NonStreaming(t *testing.T) {
@@ -544,18 +579,21 @@ func TestProviderStage_BannedWordsGuardrail_NonStreaming(t *testing.T) {
 
 	// The mock provider returns "Mock response from p model m"
 	// Ban the word "Mock" so the guardrail rejects it.
-	bw := guardrails.NewBannedWordsHook([]string{"Mock"})
+	bw, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"Mock"},
+	})
+	require.NoError(t, err)
 	reg := hooks.NewRegistry(hooks.WithProviderHook(bw))
 
 	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
 		MaxTokens: 100,
 	}, nil, reg)
 
-	_, err := runProviderStage(t, stage, "hello")
+	_, runErr := runProviderStage(t, stage, "hello")
 
-	require.Error(t, err)
+	require.Error(t, runErr)
 	var denied *hooks.HookDeniedError
-	require.ErrorAs(t, err, &denied)
+	require.ErrorAs(t, runErr, &denied)
 	assert.Equal(t, "provider_after", denied.HookType)
-	assert.Contains(t, denied.Reason, "banned")
+	assert.Contains(t, denied.Reason, "forbidden")
 }

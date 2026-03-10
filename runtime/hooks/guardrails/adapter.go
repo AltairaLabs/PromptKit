@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // Direction constants for guardrail hook evaluation.
@@ -60,11 +61,19 @@ func (a *GuardrailHookAdapter) AfterCall(
 		return hooks.Allow
 	}
 
+	// Build messages list: request messages + the response being evaluated.
+	var msgs []types.Message
+	if req != nil {
+		msgs = make([]types.Message, len(req.Messages)+1)
+		copy(msgs, req.Messages)
+		msgs[len(req.Messages)] = resp.Message
+	} else {
+		msgs = []types.Message{resp.Message}
+	}
+
 	evalCtx := &evals.EvalContext{
 		CurrentOutput: resp.Message.GetContent(),
-	}
-	if req != nil {
-		evalCtx.Messages = req.Messages
+		Messages:      msgs,
 	}
 
 	return a.evaluate(ctx, evalCtx)
@@ -74,8 +83,9 @@ func (a *GuardrailHookAdapter) AfterCall(
 func (a *GuardrailHookAdapter) evaluate(
 	ctx context.Context, evalCtx *evals.EvalContext,
 ) hooks.Decision {
-	// Normalize legacy param names before invoking the handler
-	params := evals.NormalizeParams(a.evalType, a.params)
+	// Apply defaults for aliased eval types, then normalize legacy param names
+	params := evals.ApplyDefaults(a.evalType, a.params)
+	params = evals.NormalizeParams(a.evalType, params)
 
 	result, err := a.handler.Eval(ctx, evalCtx, params)
 	if err != nil {

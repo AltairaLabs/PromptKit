@@ -3,9 +3,15 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+)
+
+const (
+	matchModeSubstring    = "substring"
+	matchModeWordBoundary = "word_boundary"
 )
 
 // ContentExcludesHandler checks that NONE of the assistant messages
@@ -33,6 +39,13 @@ func (h *ContentExcludesHandler) Eval(
 		}, nil
 	}
 
+	mode := matchModeSubstring
+	if m, ok := params["match_mode"].(string); ok && m != "" {
+		mode = m
+	}
+
+	matcher := buildMatcher(mode, patterns)
+
 	var found []string
 	for i := range evalCtx.Messages {
 		msg := &evalCtx.Messages[i]
@@ -41,7 +54,7 @@ func (h *ContentExcludesHandler) Eval(
 		}
 		content := msg.GetContent()
 		for _, p := range patterns {
-			if containsInsensitive(content, p) {
+			if matcher(content, p) {
 				found = append(found, fmt.Sprintf(
 					"turn %d contains %q", i, p,
 				))
@@ -68,4 +81,30 @@ func (h *ContentExcludesHandler) Eval(
 		Score:       boolScore(true),
 		Explanation: "no forbidden content detected",
 	}, nil
+}
+
+// buildMatcher returns a match function for the given mode.
+// For word_boundary mode, it pre-compiles regexes for all patterns.
+func buildMatcher(
+	mode string, patterns []string,
+) func(text, pattern string) bool {
+	if mode != matchModeWordBoundary {
+		return containsInsensitive
+	}
+
+	// Pre-compile word-boundary regexes for each pattern.
+	regexMap := make(map[string]*regexp.Regexp, len(patterns))
+	for _, p := range patterns {
+		re := regexp.MustCompile(
+			`(?i)\b` + regexp.QuoteMeta(p) + `\b`,
+		)
+		regexMap[p] = re
+	}
+
+	return func(text, pattern string) bool {
+		if re, ok := regexMap[pattern]; ok {
+			return re.MatchString(text)
+		}
+		return false
+	}
 }

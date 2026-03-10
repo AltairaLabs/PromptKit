@@ -7,6 +7,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
+// charsPerToken is the estimated number of characters per token,
+// matching the guardrail estimation logic.
+const charsPerToken = 4
+
 // MinLengthHandler checks that CurrentOutput has at least the specified character count.
 // Accepts params: min or min_characters (int).
 type MinLengthHandler struct{}
@@ -92,11 +96,33 @@ func (h *MaxLengthHandler) Eval(
 		score = scorePtr(1.0)
 	}
 
+	value := map[string]any{"length": actual, "max": maxLen}
+	explanation := fmt.Sprintf("length %d, max %d", actual, maxLen)
+
+	// Check max_tokens if specified
+	maxTokens := extractInt(params, "max_tokens", 0)
+	if maxTokens > 0 {
+		tokenCount := actual / charsPerToken
+		value["tokens"] = tokenCount
+		value["max_tokens"] = maxTokens
+		if tokenCount > maxTokens {
+			passed = false
+			tokenScore := float64(maxTokens) / float64(tokenCount)
+			if score == nil || tokenScore < *score {
+				score = scorePtr(tokenScore)
+			}
+			explanation = fmt.Sprintf(
+				"length %d, max %d; tokens ~%d, max_tokens %d",
+				actual, maxLen, tokenCount, maxTokens,
+			)
+		}
+	}
+
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
 		Score:       score,
-		Value:       map[string]any{"length": actual, "max": maxLen},
-		Explanation: fmt.Sprintf("length %d, max %d", actual, maxLen),
+		Value:       value,
+		Explanation: explanation,
 	}, nil
 }

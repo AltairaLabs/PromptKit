@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default handlers
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -13,13 +14,15 @@ func TestNewGuardrailHook_AllTypes(t *testing.T) {
 	tests := []struct {
 		typeName string
 		params   map[string]any
-		wantName string
 	}{
-		{"banned_words", map[string]any{"words": []any{"bad"}}, "banned_words"},
-		{"length", map[string]any{"max_characters": 100}, "length"},
-		{"max_length", map[string]any{"max_tokens": 50}, "length"},
-		{"max_sentences", map[string]any{"max_sentences": 3}, "max_sentences"},
-		{"required_fields", map[string]any{"required_fields": []any{"name"}}, "required_fields"},
+		{"banned_words", map[string]any{"words": []any{"bad"}}},
+		{"length", map[string]any{"max_characters": 100}},
+		{"max_length", map[string]any{"max_tokens": 50}},
+		{"max_sentences", map[string]any{"max_sentences": 3}},
+		{"required_fields", map[string]any{"required_fields": []any{"name"}}},
+		{"content_excludes", map[string]any{"patterns": []any{"bad"}}},
+		{"sentence_count", map[string]any{"max": 5}},
+		{"field_presence", map[string]any{"fields": []any{"name"}}},
 	}
 
 	for _, tt := range tests {
@@ -28,8 +31,12 @@ func TestNewGuardrailHook_AllTypes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if h.Name() != tt.wantName {
-				t.Errorf("Name() = %q, want %q", h.Name(), tt.wantName)
+			if h.Name() != tt.typeName {
+				t.Errorf("Name() = %q, want %q", h.Name(), tt.typeName)
+			}
+			// All types should return an adapter
+			if _, ok := h.(*GuardrailHookAdapter); !ok {
+				t.Error("expected *GuardrailHookAdapter")
 			}
 		})
 	}
@@ -39,99 +46,6 @@ func TestNewGuardrailHook_UnknownType(t *testing.T) {
 	_, err := NewGuardrailHook("nonexistent", nil)
 	if err == nil {
 		t.Fatal("expected error for unknown type")
-	}
-}
-
-func TestNewGuardrailHook_BannedWords_ParamTypes(t *testing.T) {
-	// []any (from JSON unmarshal)
-	h1, _ := NewGuardrailHook("banned_words", map[string]any{
-		"words": []any{"bad", "evil"},
-	})
-	bw1 := h1.(*BannedWordsHook)
-	if len(bw1.words) != 2 {
-		t.Errorf("expected 2 words from []any, got %d", len(bw1.words))
-	}
-
-	// []string (from direct construction)
-	h2, _ := NewGuardrailHook("banned_words", map[string]any{
-		"words": []string{"bad", "evil"},
-	})
-	bw2 := h2.(*BannedWordsHook)
-	if len(bw2.words) != 2 {
-		t.Errorf("expected 2 words from []string, got %d", len(bw2.words))
-	}
-
-	// No words param
-	h3, _ := NewGuardrailHook("banned_words", map[string]any{})
-	bw3 := h3.(*BannedWordsHook)
-	if len(bw3.words) != 0 {
-		t.Errorf("expected 0 words from empty params, got %d", len(bw3.words))
-	}
-}
-
-func TestNewGuardrailHook_Length_ParamTypes(t *testing.T) {
-	// int params
-	h1, _ := NewGuardrailHook("length", map[string]any{
-		"max_characters": 100,
-		"max_tokens":     50,
-	})
-	lh1 := h1.(*LengthHook)
-	if lh1.maxCharacters != 100 || lh1.maxTokens != 50 {
-		t.Errorf("int params: maxChars=%d maxTokens=%d, want 100/50", lh1.maxCharacters, lh1.maxTokens)
-	}
-
-	// float64 params (from JSON unmarshal)
-	h2, _ := NewGuardrailHook("length", map[string]any{
-		"max_characters": float64(200),
-		"max_tokens":     float64(75),
-	})
-	lh2 := h2.(*LengthHook)
-	if lh2.maxCharacters != 200 || lh2.maxTokens != 75 {
-		t.Errorf("float64 params: maxChars=%d maxTokens=%d, want 200/75", lh2.maxCharacters, lh2.maxTokens)
-	}
-}
-
-func TestNewGuardrailHook_RequiredFields_ParamTypes(t *testing.T) {
-	// []any
-	h1, _ := NewGuardrailHook("required_fields", map[string]any{
-		"required_fields": []any{"name", "email"},
-	})
-	rf1 := h1.(*RequiredFieldsHook)
-	if len(rf1.requiredFields) != 2 {
-		t.Errorf("expected 2 fields from []any, got %d", len(rf1.requiredFields))
-	}
-
-	// []string
-	h2, _ := NewGuardrailHook("required_fields", map[string]any{
-		"required_fields": []string{"name"},
-	})
-	rf2 := h2.(*RequiredFieldsHook)
-	if len(rf2.requiredFields) != 1 {
-		t.Errorf("expected 1 field from []string, got %d", len(rf2.requiredFields))
-	}
-}
-
-func TestNewGuardrailHook_StreamingInterfaces(t *testing.T) {
-	streaming := []string{"banned_words", "length", "max_length"}
-	for _, name := range streaming {
-		h, err := NewGuardrailHook(name, map[string]any{})
-		if err != nil {
-			t.Fatalf("type %q: %v", name, err)
-		}
-		if _, ok := h.(hooks.ChunkInterceptor); !ok {
-			t.Errorf("type %q should implement ChunkInterceptor", name)
-		}
-	}
-
-	nonStreaming := []string{"max_sentences", "required_fields"}
-	for _, name := range nonStreaming {
-		h, err := NewGuardrailHook(name, map[string]any{})
-		if err != nil {
-			t.Fatalf("type %q: %v", name, err)
-		}
-		if _, ok := h.(hooks.ChunkInterceptor); ok {
-			t.Errorf("type %q should NOT implement ChunkInterceptor", name)
-		}
 	}
 }
 
@@ -154,34 +68,17 @@ func TestNewGuardrailHookFromRegistry_UsesRegisteredHandler(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", h.Name(), "custom_eval")
 	}
 
-	// Verify it returns an adapter
 	adapter, ok := h.(*GuardrailHookAdapter)
 	if !ok {
 		t.Fatal("expected *GuardrailHookAdapter")
 	}
 
-	// Verify AfterCall works
 	resp := &hooks.ProviderResponse{
 		Message: types.Message{Content: "test output"},
 	}
 	decision := adapter.AfterCall(context.Background(), nil, resp)
 	if !decision.Allow {
 		t.Errorf("expected Allow, got Deny: %s", decision.Reason)
-	}
-}
-
-func TestNewGuardrailHookFromRegistry_FallsBackToLegacy(t *testing.T) {
-	registry := evals.NewEmptyEvalTypeRegistry()
-
-	// "banned_words" is not in the registry, should fall back to legacy
-	h, err := NewGuardrailHookFromRegistry(
-		"banned_words", map[string]any{"words": []any{"bad"}}, registry,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if _, ok := h.(*BannedWordsHook); !ok {
-		t.Error("expected *BannedWordsHook from legacy fallback")
 	}
 }
 
@@ -231,5 +128,72 @@ func TestNewGuardrailHookFromRegistry_DefaultDirection(t *testing.T) {
 	adapter := h.(*GuardrailHookAdapter)
 	if adapter.direction != "output" {
 		t.Errorf("direction = %q, want %q", adapter.direction, "output")
+	}
+}
+
+func TestNewGuardrailHook_BannedWords_WordBoundaryMode(t *testing.T) {
+	// banned_words alias should apply word_boundary match_mode default
+	h, err := NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"bad"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	adapter := h.(*GuardrailHookAdapter)
+
+	// Test with output containing the banned word
+	resp := &hooks.ProviderResponse{
+		Message: types.Message{
+			Role:    "assistant",
+			Content: "this is bad content",
+		},
+	}
+	req := &hooks.ProviderRequest{
+		Messages: []types.Message{resp.Message},
+	}
+	decision := adapter.AfterCall(context.Background(), req, resp)
+	if decision.Allow {
+		t.Error("expected Deny for content with banned word")
+	}
+
+	// Test with output NOT containing the banned word as a whole word
+	resp2 := &hooks.ProviderResponse{
+		Message: types.Message{
+			Role:    "assistant",
+			Content: "this is badge content",
+		},
+	}
+	req2 := &hooks.ProviderRequest{
+		Messages: []types.Message{resp2.Message},
+	}
+	decision2 := adapter.AfterCall(context.Background(), req2, resp2)
+	if !decision2.Allow {
+		t.Error("expected Allow for content without banned word as whole word")
+	}
+}
+
+func TestNewGuardrailHook_MaxLength_WithTokens(t *testing.T) {
+	h, err := NewGuardrailHook("length", map[string]any{
+		"max_characters": 1000,
+		"max_tokens":     5,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	adapter := h.(*GuardrailHookAdapter)
+
+	// 100 chars = ~25 tokens, exceeds max_tokens of 5
+	longContent := "This is a long response that has many characters and should exceed the token limit easily enough."
+	resp := &hooks.ProviderResponse{
+		Message: types.Message{
+			Role:    "assistant",
+			Content: longContent,
+		},
+	}
+	decision := adapter.AfterCall(context.Background(), nil, resp)
+	if decision.Allow {
+		t.Error("expected Deny for content exceeding token limit")
 	}
 }
