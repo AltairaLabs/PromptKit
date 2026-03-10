@@ -8,14 +8,13 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // also registers built-in handlers via init()
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
-
-	// Blank import ensures all built-in eval handlers are registered via init().
-	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 )
 
 // EvaluateOpts configures standalone eval execution.
@@ -77,6 +76,14 @@ type EvaluateOpts struct {
 	// Logger is used for structured logging. If nil, the default logger is used.
 	Logger *slog.Logger
 
+	// --- RuntimeConfig ---
+
+	// RuntimeConfigPath loads exec eval handlers from a RuntimeConfig YAML file.
+	// Exec eval bindings in the config are registered in the eval type registry,
+	// enabling external subprocess evals (Python, Node.js, etc.) to run seamlessly.
+	// If Registry is also provided, the exec handlers are registered into it.
+	RuntimeConfigPath string
+
 	// --- Eval execution ---
 
 	// Registry overrides the default eval type registry.
@@ -127,6 +134,13 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	registry := opts.Registry
 	if registry == nil {
 		registry = evals.NewEvalTypeRegistry()
+	}
+
+	// Register exec eval handlers from RuntimeConfig (if provided)
+	if opts.RuntimeConfigPath != "" {
+		if err := registerExecEvalHandlers(registry, opts.RuntimeConfigPath); err != nil {
+			return nil, fmt.Errorf("load runtime config evals: %w", err)
+		}
 	}
 	var runnerOpts []evals.RunnerOption
 	if opts.Timeout > 0 {
@@ -240,6 +254,29 @@ func initEvalTracing(opts *EvaluateOpts) bool {
 	listener := telemetry.NewOTelEventListener(tracer)
 	opts.EventBus.SubscribeAll(listener.OnEvent)
 	return createdBus
+}
+
+// registerExecEvalHandlers loads a RuntimeConfig and registers any exec eval
+// handlers into the given registry.
+func registerExecEvalHandlers(registry *evals.EvalTypeRegistry, path string) error {
+	rc, err := pkgconfig.LoadRuntimeConfig(path)
+	if err != nil {
+		return fmt.Errorf("loading runtime config: %w", err)
+	}
+	for typeName, binding := range rc.Spec.Evals {
+		if binding == nil {
+			continue
+		}
+		handler := handlers.NewExecEvalHandler(&handlers.ExecEvalConfig{
+			TypeName:  typeName,
+			Command:   binding.Command,
+			Args:      binding.Args,
+			Env:       binding.Env,
+			TimeoutMs: binding.TimeoutMs,
+		})
+		registry.Register(handler)
+	}
+	return nil
 }
 
 // emitEvalEvents emits eval results as events on the event bus.

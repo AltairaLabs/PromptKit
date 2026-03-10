@@ -115,6 +115,8 @@ sdk/examples/**/*
 !sdk/examples/**/*.go
 !sdk/examples/**/*.md
 !sdk/examples/**/*.json
+!sdk/examples/**/*.yaml
+!sdk/examples/**/*.py
 !sdk/examples/**/go.mod
 !sdk/examples/**/go.sum
 !sdk/examples/**/

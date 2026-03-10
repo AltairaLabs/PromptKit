@@ -299,3 +299,58 @@ func TestEvaluate_JudgeMetadata(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.True(t, results[0].Passed)
 }
+
+func TestEvaluate_RuntimeConfigPath(t *testing.T) {
+	// Write a RuntimeConfig that binds an exec eval to a shell script
+	script := writeTestScript(t, `#!/bin/sh
+read input
+echo '{"score": 0.95, "detail": "exec eval OK"}'
+`)
+	rcYAML := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+metadata:
+  name: test
+spec:
+  evals:
+    custom_check:
+      command: ` + script + `
+      timeout_ms: 5000
+`)
+	rcPath := t.TempDir() + "/runtime.yaml"
+	require.NoError(t, os.WriteFile(rcPath, rcYAML, 0o644))
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs: []evals.EvalDef{{
+			ID:      "exec-eval",
+			Type:    "custom_check",
+			Trigger: evals.TriggerEveryTurn,
+		}},
+		RuntimeConfigPath: rcPath,
+		Messages:          []types.Message{types.NewAssistantMessage("hello world")},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "exec-eval", results[0].EvalID)
+	require.NotNil(t, results[0].Score)
+	assert.InDelta(t, 0.95, *results[0].Score, 0.001)
+	assert.Equal(t, "exec eval OK", results[0].Explanation)
+}
+
+func TestEvaluate_RuntimeConfigPath_InvalidPath(t *testing.T) {
+	_, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:          containsDef("check", "hello"),
+		RuntimeConfigPath: "/nonexistent/runtime.yaml",
+		Messages:          []types.Message{types.NewAssistantMessage("hello")},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load runtime config evals")
+}
+
+// writeTestScript creates a temporary executable shell script for tests.
+func writeTestScript(t *testing.T, content string) string {
+	t.Helper()
+	path := t.TempDir() + "/eval.sh"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o755))
+	return path
+}
