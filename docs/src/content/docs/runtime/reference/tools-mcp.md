@@ -26,7 +26,7 @@ type ToolDescriptor struct {
     Description  string
     InputSchema  json.RawMessage  // JSON Schema Draft-07
     OutputSchema json.RawMessage  // JSON Schema Draft-07
-    Mode         string           // "mock", "live", "mcp"
+    Mode         string           // "mock", "live", "local", "mcp", "client"
     TimeoutMs    int
     MockResult   json.RawMessage  // Static mock data
     MockTemplate string           // Template for dynamic mocks
@@ -162,6 +162,7 @@ fmt.Printf("Available tools: %v\n", toolNames)
 
 ```go
 func (r *Registry) Execute(
+    ctx context.Context,
     descriptor *ToolDescriptor,
     args json.RawMessage,
 ) (json.RawMessage, error)
@@ -172,7 +173,7 @@ Executes a tool with validated arguments.
 **Example**:
 ```go
 argsJSON := json.RawMessage(`{"location": "San Francisco"}`)
-result, err := registry.Execute(tool, argsJSON)
+result, err := registry.Execute(ctx, tool, argsJSON)
 if err != nil {
     log.Fatal(err)
 }
@@ -200,6 +201,7 @@ func (e *CustomExecutor) Name() string {
 }
 
 func (e *CustomExecutor) Execute(
+    ctx context.Context,
     descriptor *tools.ToolDescriptor,
     args json.RawMessage,
 ) (json.RawMessage, error) {
@@ -253,6 +255,32 @@ tool := &tools.ToolDescriptor{
     Mode: "mcp",  // Routes to MCP executor
 }
 ```
+
+#### Executor Interfaces
+
+The base `Executor` interface is extended by two optional interfaces:
+
+**MultimodalExecutor** — for tools returning images, audio, or other content parts:
+```go
+type MultimodalExecutor interface {
+    Executor
+    ExecuteMultimodal(
+        ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+    ) (json.RawMessage, []types.ContentPart, error)
+}
+```
+
+**AsyncToolExecutor** — for tools that may defer execution (HITL approval, long-running):
+```go
+type AsyncToolExecutor interface {
+    Executor
+    ExecuteAsync(
+        ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+    ) (*ToolExecutionResult, error)
+}
+```
+
+The registry automatically detects whether an executor implements these extended interfaces and uses them when available.
 
 #### HTTP Executor
 
@@ -603,7 +631,7 @@ tool := &tools.ToolDescriptor{
 
 // Execute via MCP
 argsJSON := json.RawMessage(`{"path": "/data/file.txt"}`)
-result, err := toolRegistry.Execute(tool, argsJSON)
+result, err := toolRegistry.Execute(ctx, tool, argsJSON)
 ```
 
 ## Examples
@@ -640,7 +668,7 @@ registry.Register(tool)
 
 // Execute
 args := json.RawMessage(`{"city": "SF"}`)
-result, err := registry.Execute(tool, args)
+result, err := registry.Execute(ctx, tool, args)
 ```
 
 ### MCP Filesystem Integration
@@ -695,11 +723,12 @@ func (e *ApprovalExecutor) Name() string {
 }
 
 func (e *ApprovalExecutor) Execute(
+    ctx context.Context,
     descriptor *tools.ToolDescriptor,
     args json.RawMessage,
 ) (json.RawMessage, error) {
     // Synchronous fallback
-    result, err := e.ExecuteAsync(descriptor, args)
+    result, err := e.ExecuteAsync(ctx, descriptor, args)
     if err != nil {
         return nil, err
     }
@@ -710,6 +739,7 @@ func (e *ApprovalExecutor) Execute(
 }
 
 func (e *ApprovalExecutor) ExecuteAsync(
+    ctx context.Context,
     descriptor *tools.ToolDescriptor,
     args json.RawMessage,
 ) (*tools.ToolExecutionResult, error) {
@@ -753,7 +783,7 @@ if err != nil {
 ### 2. Error Handling
 
 ```go
-result, err := registry.Execute(tool, args)
+result, err := registry.Execute(ctx, tool, args)
 if err != nil {
     // Check for validation errors
     if validErr, ok := err.(*tools.ValidationError); ok {
@@ -842,6 +872,6 @@ wg.Wait()
 ## See Also
 
 - [Pipeline Reference](pipeline) - Using tools in pipelines
-- [Tools How-To](../how-to/implement-tools) - Tool implementation guide
+- [Integrate MCP](../how-to/integrate-mcp) - MCP integration guide
 - [MCP Tutorial](../tutorials/03-mcp-integration) - Step-by-step MCP setup
-- [Tools Explanation](../explanation/tool-architecture) - Tool system architecture
+- [Runtime Tools Architecture](../../architecture/runtime-tools-mcp) - Tool system architecture

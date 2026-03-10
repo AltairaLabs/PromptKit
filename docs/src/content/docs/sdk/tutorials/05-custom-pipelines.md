@@ -304,7 +304,7 @@ http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) {
 ## Next Steps
 
 - **[Tutorial 6: Media](06-media-storage)** - Working with images
-- **[How-To: HITL Workflows](../how-to/hitl-workflows)** - Advanced patterns
+- **[How-To: Register Tools](../how-to/register-tools)** - Tool registration including async/HITL patterns
 
 ## Complete Example
 

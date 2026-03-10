@@ -322,7 +322,7 @@ type AgentInfo struct {
 type ToolInfo struct {
     Name        string      `json:"name"`
     Description string      `json:"description"`
-    Mode        string      `json:"mode"`          // "mock", "live", "mcp", "a2a"
+    Mode        string      `json:"mode"`          // "mock", "live", "local", "mcp", "client"
     HasSchema   bool        `json:"has_schema"`
     InputSchema interface{} `json:"input_schema,omitempty"`
     HTTPURL     string      `json:"http_url,omitempty"`

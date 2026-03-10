@@ -345,68 +345,6 @@ validators:
 
 ---
 
-#### `commit`
-
-Validates structured decision/commit blocks in responses.
-
-**Use Cases**:
-- Enforce decision documentation
-- Ensure reasoning is captured
-- Structured thinking responses
-
-**Parameters**:
-- `must_end_with_commit` (bool): Response must end with commit block
-- `commit_fields` (array): Required fields in commit block
-
-**Streaming**: ❌ No - Requires complete response
-
-**Example**:
-```yaml
-validators:
-  - type: commit
-    params:
-      must_end_with_commit: true
-      commit_fields:
-        - decision
-        - reasoning
-        - next step
-      message: "Must end with structured decision block"
-```
-
-**Expected Format**:
-```
-Your analysis here...
-
-Decision: Approve the request
-Reasoning: Meets all criteria and within policy
-Next Step: Process payment
-```
-
-**Use Case** (Agent Decision Making):
-```yaml
-validators:
-  - type: commit
-    params:
-      must_end_with_commit: true
-      commit_fields:
-        - decision
-        - confidence
-        - action
-```
-
-**Validation Details**:
-```json
-{
-  "passed": false,
-  "details": {
-    "error": "missing commit structure",
-    "missing_fields": ["decision", "reasoning"]
-  }
-}
-```
-
----
-
 ## Combining Validators
 
 Multiple validators can enforce different policies:
@@ -657,7 +595,6 @@ banned_words: ✅ Streaming
 max_length: ✅ Streaming
 max_sentences: ❌ Post-completion only
 required_fields: ❌ Post-completion only
-commit: ❌ Post-completion only
 ```
 
 ## Performance Considerations
@@ -733,9 +670,9 @@ validators:
 
 ## Next Steps
 
-- **[Assertions Reference](./assertions-reference)** - Test verification
-- **[Configuration Reference](./config-reference)** - Full config docs
-- **[Best Practices](./best-practices)** - Production tips
+- **[Assertions Reference](./assertions)** - Test verification
+- **[Configuration Reference](./config-schema)** - Full config docs
+- **[Scenario Format](./scenario-format)** - Scenario YAML reference
 
 ---
 

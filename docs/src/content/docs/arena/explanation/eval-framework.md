@@ -41,11 +41,25 @@ These run against individual assistant responses:
 | `regex` | Regex pattern match | `pattern` (string) |
 | `json_valid` | Output is valid JSON | — |
 | `json_schema` | Output matches JSON schema | `schema` (object) |
-| `tools_called` | Specific tools were invoked | `tools` (string array) |
-| `tools_not_called` | Specific tools were NOT invoked | `tools` (string array) |
-| `tool_args` | Tool arguments match expectations | `tool`, `args` (object) |
+| `json_path` | Extract and validate JSON path values | `expression`, `expected`, `contains`, `min_results`, `max_results` |
+| `tools_called` | Specific tools were invoked | `tool_names` (string array) |
+| `tools_not_called` | Specific tools were NOT invoked | `tool_names` (string array) |
+| `tool_args` | Tool arguments match expectations | `tool_name`, `expected_args` (object) |
+| `tool_call_count` | Tool call count within bounds | `tool` (string), `min`, `max` (int) |
+| `tool_calls_with_args` | Match tool calls with specific args | `tool_name`, `expected_args`, `result_includes` |
+| `tool_result_includes` | Tool result contains patterns | `tool_name`, `patterns` (string array) |
+| `tool_result_matches` | Tool result matches regex | `tool_name`, `pattern` (string) |
+| `no_tool_errors` | No tool calls returned errors | — |
+| `tool_call_sequence` | Tools called in exact order | `sequence` (string array) |
+| `tool_call_chain` | Tools called as ordered subsequence | `chain` (string array) |
+| `tool_anti_pattern` | Forbidden tool call subsequences | `patterns` (array of {`sequence`, `message`}) |
+| `tool_no_repeat` | No consecutive repeated tool calls | `tools`, `max_repeats` |
+| `tool_efficiency` | Tool usage within efficiency bounds | `max_calls`, `max_errors`, `max_error_rate` |
 | `latency_budget` | Response within time limit | `max_ms` (int) |
-| `cosine_similarity` | Semantic similarity to reference | `reference`, `threshold` |
+| `cosine_similarity` | Semantic similarity to reference | `reference`, `min_similarity` |
+| `min_length` | Minimum response length | `min` or `min_characters` (int) |
+| `max_length` | Maximum response length | `max` or `max_characters` (int) |
+| `guardrail_triggered` | A guardrail was triggered | `guardrail` (string) |
 
 ### Deterministic (Session-Level)
 
@@ -55,10 +69,12 @@ These run against the full conversation:
 |------|-------------|------------|
 | `contains_any` | Any pattern appears across all turns | `patterns` (string array) |
 | `content_excludes` | No forbidden content in any turn | `patterns` (string array) |
-| `tools_called_session` | Tools called anywhere in session | `tools` (string array) |
-| `tools_not_called_session` | Tools never called in session | `tools` (string array) |
-| `tool_args_session` | Tool args match across session | `tool`, `args` (object) |
-| `tool_args_excluded_session` | Forbidden tool args absent | `tool`, `args` (object) |
+| `tools_called` (session) | Tools called anywhere in session | `tool_names` (string array) |
+| `tools_not_called` (session) | Tools never called in session | `tool_names` (string array) |
+| `tool_args` (session) | Tool args match across session | `tool_name`, `expected_args` (object) |
+| `tool_args_excluded_session` | Forbidden tool args absent | `tool_name`, `excluded_args` (object) |
+| `cost_budget` | Session cost within budget | `max_cost_usd`, `max_total_tokens` |
+| `invariant_fields_preserved` | Tool arg fields persist across calls | `tool`, `fields` (string array) |
 
 ### LLM Judge
 
@@ -68,6 +84,7 @@ Use an LLM to evaluate quality when deterministic checks aren't sufficient:
 |------|-------------|------------|
 | `llm_judge` | LLM evaluates a single turn | `criteria` (string) |
 | `llm_judge_session` | LLM evaluates full session | `criteria` (string) |
+| `llm_judge_tool_calls` | LLM evaluates tool usage | `criteria`, `tools` (string array) |
 
 LLM judge evals require a judge provider configured in the eval context metadata.
 
@@ -84,6 +101,37 @@ Delegate evaluation to an external service — a REST endpoint or an A2A agent:
 
 External eval handlers send conversation context (messages, tool calls, variables) to the external service and expect a `{passed, score, reasoning}` JSON response. They support `${ENV_VAR}` interpolation for authentication headers and tokens, configurable timeouts, and a `min_score` threshold. REST evals use standard HTTP; A2A evals use the A2A protocol's `message/send` method.
 
+### Workflow & Skill Evals
+
+| Type | Description | Key Params |
+|------|-------------|------------|
+| `state_is` | Current workflow state matches | `state` (string) |
+| `transitioned_to` | A specific state transition occurred | `state` (string) |
+| `workflow_complete` | Workflow reached a terminal state | — |
+| `workflow_transition_order` | Transitions in expected order | `sequence` (string array) |
+| `workflow_tool_access` | Tools only used in permitted states | `rules` (array of {`state`, `allowed`}) |
+| `skill_activated` | Specific skills were activated | `skill_names` (string array) |
+| `skill_not_activated` | Specific skills were NOT activated | `skill_names` (string array) |
+| `skill_activation_order` | Skills activated in order | `sequence` (string array) |
+
+### Media Evals
+
+| Type | Description | Key Params |
+|------|-------------|------------|
+| `image_format` | Image format is allowed | `formats` (string array) |
+| `image_dimensions` | Image dimensions within bounds | `min_width`, `max_width`, `min_height`, `max_height` |
+| `audio_format` | Audio format is allowed | `formats` (string array) |
+| `audio_duration` | Audio duration within range | `min_seconds`, `max_seconds` |
+| `video_duration` | Video duration within range | `min_seconds`, `max_seconds` |
+| `video_resolution` | Video resolution within bounds | `min_width`, `max_width`, `presets` (string array) |
+
+### Behavioral Testing Evals
+
+| Type | Description | Key Params |
+|------|-------------|------------|
+| `outcome_equivalent` | Output matches expected outcome metric | `metric` ("tool_calls"\|"final_state"\|"content_hash") |
+| `directional` | Output matches baseline expectations | `check` ("same_tool_calls"\|"same_outcome"\|"similar_content") |
+
 ## Triggers
 
 Each eval specifies when it should fire:
@@ -94,6 +142,8 @@ Each eval specifies when it should fire:
 | `on_session_complete` | When session closes | Summary evaluations |
 | `sample_turns` | Percentage of turns (hash-based) | Production sampling |
 | `sample_sessions` | Percentage of sessions (hash-based) | Production sampling |
+| `on_conversation_complete` | When multi-session conversation closes | Final evaluation |
+| `on_workflow_step` | After a workflow state transition | Workflow validation |
 
 Sampling is **deterministic** — the same session ID and turn index always produce the same sampling decision (FNV-1a hash). This ensures reproducible behavior across runs.
 

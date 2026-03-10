@@ -14,7 +14,7 @@ Practical, task-focused guides for common SDK operations.
 
 - **[Register Tools](register-tools)** - Add tools with `OnTool()`
 - **[HTTP Tools](http-tools)** - External API calls with `OnToolHTTP()`
-- **[HITL Workflows](hitl-workflows)** - Approval with `OnToolAsync()`
+- **[Client-Side Tools](client-tools)** - Device tools with `OnClientTool()`
 
 ## Integrations
 
@@ -32,6 +32,10 @@ Practical, task-focused guides for common SDK operations.
 ## Media Processing
 
 - **[Preprocess Images](preprocess-images)** - Automatically resize and optimize images before sending to LLM providers
+
+## Evaluation
+
+- **[Run Evals](run-evals)** - Evaluate conversations with `sdk.Evaluate()`
 
 ## Observability
 
@@ -114,7 +118,12 @@ hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
 
 ### Building Safe AI Agents
 
-1. [HITL Workflows](hitl-workflows)
+1. [Register Tools](register-tools) (see Async Tools section for HITL)
+2. [Monitor Events](monitor-events)
+
+### Evaluating Conversation Quality
+
+1. [Run Evals](run-evals)
 2. [Monitor Events](monitor-events)
 
 ## See Also

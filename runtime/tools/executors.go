@@ -23,6 +23,7 @@ const (
 	modeLive             = "live"
 	modeMCP              = "mcp"
 	modeClient           = "client"
+	modeLocal            = "local"
 	executorMockStatic   = "mock-static"
 	executorMockScripted = "mock-scripted"
 )

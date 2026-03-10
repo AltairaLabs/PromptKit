@@ -66,29 +66,36 @@ weatherTool := &tools.ToolDescriptor{
 ```go
 type WeatherExecutor struct{}
 
-func (e *WeatherExecutor) Execute(ctx context.Context, call *types.ToolCall) (string, error) {
+func (e *WeatherExecutor) Name() string {
+    return "weather"
+}
+
+func (e *WeatherExecutor) Execute(
+    ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
     var params struct {
         City string `json:"city"`
     }
-    json.Unmarshal(call.Arguments, &params)
-    
-    // Call weather API
-    weather := getWeather(params.City)
-    
-    return fmt.Sprintf(`{"temp": %d, "condition": "%s"}`, weather.Temp, weather.Condition), nil
-}
+    json.Unmarshal(args, &params)
 
-func (e *WeatherExecutor) Name() string {
-    return "get_weather"
+    weather := getWeather(params.City)
+    return json.Marshal(map[string]any{
+        "temp":      weather.Temp,
+        "condition": weather.Condition,
+    })
 }
 ```
 
 ### Register Tools
 
 ```go
-// Create registry
+// Create registry and register the tool
 registry := tools.NewRegistry()
-registry.Register(weatherTool)
+registry.RegisterExecutor(&WeatherExecutor{})
+err := registry.Register(weatherTool)
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 The tool registry makes tools available for the LLM to call during conversations.
@@ -134,24 +141,24 @@ npx @modelcontextprotocol/server-memory
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/mcp"
 
-// Connect to MCP server
-mcpClient, err := mcp.NewStdioClient("npx", []string{
-    "@modelcontextprotocol/server-filesystem",
-    "/path/to/files",
+// Create MCP registry with server configuration
+mcpRegistry := mcp.NewRegistry()
+defer mcpRegistry.Close()
+
+err := mcpRegistry.RegisterServer(mcp.ServerConfig{
+    Name:    "filesystem",
+    Command: "npx",
+    Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "/path/to/files"},
 })
 if err != nil {
     log.Fatal(err)
 }
-defer mcpClient.Close()
 
-// Create MCP executor
-executor := mcp.NewMCPExecutor(mcpClient)
-
-// Register tools
-registry := tools.NewRegistry()
-mcpTools, _ := mcpClient.ListTools()
-for _, tool := range mcpTools {
-    registry.Register(tool)
+// Discover tools from all registered servers
+ctx := context.Background()
+serverTools, err := mcpRegistry.ListAllTools(ctx)
+if err != nil {
+    log.Fatal(err)
 }
 ```
 
@@ -259,19 +266,24 @@ InputSchema: json.RawMessage(`{
 ### Error Handling
 
 ```go
-func (e *WeatherExecutor) Execute(ctx context.Context, call *types.ToolCall) (string, error) {
-    // Validate parameters
-    if params.City == "" {
-        return "", errors.New("city is required")
+func (e *WeatherExecutor) Execute(
+    ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
+    var params struct {
+        City string `json:"city"`
     }
-    
-    // Handle API errors
+    if err := json.Unmarshal(args, &params); err != nil {
+        return nil, fmt.Errorf("invalid arguments: %w", err)
+    }
+    if params.City == "" {
+        return nil, errors.New("city is required")
+    }
+
     weather, err := api.GetWeather(params.City)
     if err != nil {
-        return "", fmt.Errorf("failed to get weather: %w", err)
+        return nil, fmt.Errorf("failed to get weather: %w", err)
     }
-    
-    // Return structured result
+
     return json.Marshal(weather)
 }
 ```
@@ -399,17 +411,21 @@ if userTier == "premium" {
 
 ```go
 type CachedExecutor struct {
-    inner Executor
-    cache map[string]string
+    inner tools.Executor
+    cache map[string]json.RawMessage
 }
 
-func (e *CachedExecutor) Execute(ctx context.Context, call *types.ToolCall) (string, error) {
-    key := getCacheKey(call)
+func (e *CachedExecutor) Name() string { return e.inner.Name() }
+
+func (e *CachedExecutor) Execute(
+    ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
+    key := getCacheKey(descriptor.Name, args)
     if cached, ok := e.cache[key]; ok {
         return cached, nil
     }
-    
-    result, err := e.inner.Execute(ctx, call)
+
+    result, err := e.inner.Execute(ctx, descriptor, args)
     if err == nil {
         e.cache[key] = result
     }
@@ -429,7 +445,7 @@ Tools & MCP provide:
 
 ## Related Documentation
 
-- [Integrate Tools](../runtime/how-to/integrate-tools) - Implementation guide
-- [MCP Integration Tutorial](../runtime/tutorials/03-mcp-integration) - Step-by-step guide
-- [Tools Reference](../runtime/reference/tools) - API documentation
-- [MCP Architecture](../runtime/explanation/runtime-tools-mcp) - Technical details
+- [Integrate MCP](../runtime/how-to/integrate-mcp) - MCP integration guide
+- [MCP Tutorial](../runtime/tutorials/03-mcp-integration) - Step-by-step setup
+- [Tools & MCP Reference](../runtime/reference/tools-mcp) - API documentation
+- [Runtime Tools Architecture](../architecture/runtime-tools-mcp) - Technical details

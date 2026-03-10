@@ -120,6 +120,77 @@ conv.OnTools(map[string]sdk.ToolHandler{
 })
 ```
 
+## Typed Handlers
+
+For type-safe tool arguments, use `tools.OnTyped`:
+
+```go
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+
+type SearchArgs struct {
+    Query      string `map:"query"`
+    MaxResults int    `map:"max_results"`
+}
+
+sdktools.OnTyped(conv, "search", func(args SearchArgs) (any, error) {
+    return searchAPI(args.Query, args.MaxResults), nil
+})
+```
+
+## HTTP Tools
+
+Register tools that call external APIs:
+
+```go
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
+
+conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
+    "https://api.example.com/tickets",
+    sdktools.WithMethod("POST"),
+    sdktools.WithHeader("Authorization", "Bearer "+apiKey),
+))
+```
+
+See [HTTP Tools](http-tools) for the full builder API.
+
+## Custom Executors
+
+Register a runtime `tools.Executor` implementation directly:
+
+```go
+conv.OnToolExecutor("custom_tool", &MyCustomExecutor{})
+```
+
+The executor must implement `runtime/tools.Executor`.
+
+## Async Tools (HITL)
+
+Register tools that require human approval before execution:
+
+```go
+conv.OnToolAsync("process_refund",
+    func(args map[string]any) sdktools.PendingResult {
+        amount := args["amount"].(float64)
+        if amount > 1000 {
+            return sdktools.PendingResult{
+                Reason:  "high_value_refund",
+                Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
+            }
+        }
+        return sdktools.PendingResult{} // proceed immediately
+    },
+    func(args map[string]any) (any, error) {
+        return refundAPI.Process(args)
+    },
+)
+
+resp, _ := conv.Send(ctx, "Process refund for order #123")
+for _, pending := range resp.PendingTools() {
+    conv.ResolveTool(pending.ID)  // or conv.RejectTool(pending.ID, "reason")
+}
+resp, _ = conv.Continue(ctx)
+```
+
 ## Error Handling
 
 Return errors to inform the LLM:
@@ -216,6 +287,6 @@ func main() {
 
 ## See Also
 
-- [HTTP Tools](http-tools)
-- [HITL Workflows](hitl-workflows)
-- [Tutorial 3: Tools](../tutorials/03-tool-integration)
+- [HTTP Tools](http-tools) — builder API for HTTP tool handlers
+- [Client-Side Tools](client-tools) — tools that run on the caller's device
+- [Tutorial 3: Tools](../tutorials/03-tool-integration) — step-by-step walkthrough
