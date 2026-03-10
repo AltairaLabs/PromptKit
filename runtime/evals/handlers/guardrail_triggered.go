@@ -72,7 +72,12 @@ func (h *GuardrailTriggeredHandler) evaluateResult(
 		if passed {
 			msg = fmt.Sprintf("validator %q did not run (as expected)", validatorType)
 		}
-		return &evals.EvalResult{Type: h.Type(), Passed: passed, Explanation: msg}
+		return &evals.EvalResult{
+			Type: h.Type(), Passed: passed,
+			Score:       boolScore(passed),
+			Explanation: msg,
+			Value:       map[string]any{"triggered": false, "validator_type": validatorType},
+		}
 	}
 
 	triggered := !found.Passed
@@ -84,13 +89,17 @@ func (h *GuardrailTriggeredHandler) evaluateResult(
 		}
 		return &evals.EvalResult{
 			Type: h.Type(), Passed: false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("expected validator %q to %s but it did not", validatorType, action),
+			Value:       map[string]any{"triggered": triggered, "validator_type": validatorType},
 		}
 	}
 
 	return &evals.EvalResult{
 		Type: h.Type(), Passed: true,
+		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("validator %q behaved as expected", validatorType),
+		Value:       map[string]any{"triggered": triggered, "validator_type": validatorType},
 		Details:     map[string]any{"validator": validatorType, "triggered": triggered},
 	}
 }

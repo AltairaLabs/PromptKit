@@ -108,6 +108,7 @@ func (h *DirectionalHandler) checkSimilarContent(
 		Type:   h.Type(),
 		Passed: passed,
 		Score:  &score,
+		Value:  map[string]any{"overlap_score": score, "threshold": threshold},
 		Details: map[string]any{
 			"overlap_score": score,
 			"threshold":     threshold,

@@ -68,10 +68,19 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 		}
 	}
 
+	value := map[string]any{
+		"matched_steps":      seqIdx,
+		"total_steps":        len(sequence),
+		"expected_sequence":  sequence,
+		"actual_transitions": actual,
+	}
+
 	if seqIdx < len(sequence) {
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  ratioScore(seqIdx, len(sequence)),
+			Value:  value,
 			Explanation: fmt.Sprintf(
 				"sequence incomplete: matched %d/%d, missing %q",
 				seqIdx, len(sequence), sequence[seqIdx],
@@ -88,6 +97,8 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       ratioScore(seqIdx, len(sequence)),
+		Value:       value,
 		Explanation: fmt.Sprintf("sequence [%s] fully matched", strings.Join(sequence, " → ")),
 		Details: map[string]any{
 			"matched_steps":      seqIdx,

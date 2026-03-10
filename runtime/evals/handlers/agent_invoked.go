@@ -41,17 +41,31 @@ func (h *AgentInvokedHandler) Eval(
 		}
 	}
 
+	invoked := make([]string, 0, len(agents))
+	for _, agent := range agents {
+		if calledSet[agent] {
+			invoked = append(invoked, agent)
+		}
+	}
+	value := map[string]any{"invoked": invoked, "expected": agents}
+	found := len(agents) - len(missing)
+
 	if len(missing) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
+			Score:       ratioScore(found, len(agents)),
+			Value:       value,
 			Explanation: fmt.Sprintf("missing agents: %s", strings.Join(missing, ", ")),
 			Details:     map[string]any{"missing_agents": missing},
 		}, nil
 	}
 
 	return &evals.EvalResult{
-		Type: h.Type(), Passed: true,
+		Type:        h.Type(),
+		Passed:      true,
+		Score:       ratioScore(found, len(agents)),
+		Value:       value,
 		Explanation: "all expected agents were invoked",
 	}, nil
 }

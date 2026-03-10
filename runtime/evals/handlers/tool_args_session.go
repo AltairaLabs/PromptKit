@@ -63,9 +63,13 @@ func (h *ToolArgsSessionHandler) Eval(
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: true,
+			Score:  boolScore(true),
 			Explanation: fmt.Sprintf(
 				"%s was called with expected args", toolName,
 			),
+			Value: map[string]any{
+				"matched": true,
+			},
 		}, nil
 	}
 
@@ -73,18 +77,26 @@ func (h *ToolArgsSessionHandler) Eval(
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  boolScore(false),
 			Explanation: fmt.Sprintf(
 				"tool %q was never called", toolName,
 			),
+			Value: map[string]any{
+				"matched": false,
+			},
 		}, nil
 	}
 
 	return &evals.EvalResult{
 		Type:   h.Type(),
 		Passed: false,
+		Score:  boolScore(false),
 		Explanation: fmt.Sprintf(
 			"%s called but args did not match: %s",
 			toolName, strings.Join(mismatches, "; "),
 		),
+		Value: map[string]any{
+			"matched": false,
+		},
 	}, nil
 }

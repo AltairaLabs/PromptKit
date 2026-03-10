@@ -216,6 +216,7 @@ type EvalResult struct {
 	Type        string          `json:"type"`
 	Passed      bool            `json:"passed"`
 	Score       *float64        `json:"score,omitempty"`
+	Value       any             `json:"value,omitempty"`
 	MetricValue *float64        `json:"metric_value,omitempty"`
 	Explanation string          `json:"explanation,omitempty"`
 	DurationMs  int64           `json:"duration_ms"`

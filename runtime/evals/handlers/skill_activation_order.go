@@ -44,10 +44,19 @@ func (h *SkillActivationOrderHandler) Eval(
 
 	matched := matchSkillSubsequence(activated, sequence)
 
+	value := map[string]any{
+		"matched_steps":     matched,
+		"total_steps":       len(sequence),
+		"expected_sequence": sequence,
+		"activated_skills":  activated,
+	}
+
 	if matched < len(sequence) {
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  ratioScore(matched, len(sequence)),
+			Value:  value,
 			Explanation: fmt.Sprintf(
 				"sequence incomplete: matched %d/%d, missing %q",
 				matched, len(sequence), sequence[matched],
@@ -63,6 +72,8 @@ func (h *SkillActivationOrderHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       ratioScore(matched, len(sequence)),
+		Value:       value,
 		Explanation: fmt.Sprintf("skill activation sequence [%s] fully matched", strings.Join(sequence, " → ")),
 		Details: map[string]any{
 			"matched_steps":    matched,

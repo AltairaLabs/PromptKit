@@ -65,10 +65,18 @@ func (h *ToolsCalledHandler) checkToolCalls(
 		)
 	}
 
+	found := len(toolNames) - len(missing)
+
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
+		Score:       ratioScore(found, len(toolNames)),
 		Explanation: explanation,
+		Value: map[string]any{
+			"found":    found,
+			"expected": len(toolNames),
+			"missing":  missing,
+		},
 	}, nil
 }
 

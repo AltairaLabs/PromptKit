@@ -33,12 +33,23 @@ func (h *ToolCallChainHandler) Eval(
 	views := viewsFromRecords(evalCtx.ToolCalls)
 	completed, failure := coreToolCallChain(views, steps)
 
+	stepNames := make([]string, len(steps))
+	for i, s := range steps {
+		stepNames[i] = s.tool
+	}
+
 	if failure != nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
+			Score:       ratioScore(completed, len(steps)),
 			Explanation: fmt.Sprintf("%v", failure["message"]),
-			Details:     failure,
+			Value: map[string]any{
+				"completed_steps": completed,
+				"total_steps":     len(steps),
+				"chain":           stepNames,
+			},
+			Details: failure,
 		}, nil
 	}
 
@@ -46,10 +57,16 @@ func (h *ToolCallChainHandler) Eval(
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  ratioScore(completed, len(steps)),
 			Explanation: fmt.Sprintf(
 				"chain incomplete: satisfied %d/%d steps, missing %q",
 				completed, len(steps), steps[completed].tool,
 			),
+			Value: map[string]any{
+				"completed_steps": completed,
+				"total_steps":     len(steps),
+				"chain":           stepNames,
+			},
 			Details: map[string]any{
 				"completed_steps": completed,
 				"total_steps":     len(steps),
@@ -60,7 +77,13 @@ func (h *ToolCallChainHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       ratioScore(completed, len(steps)),
 		Explanation: "chain fully satisfied",
+		Value: map[string]any{
+			"completed_steps": len(steps),
+			"total_steps":     len(steps),
+			"chain":           stepNames,
+		},
 		Details: map[string]any{
 			"completed_steps": len(steps),
 		},

@@ -44,7 +44,13 @@ func (h *ToolResultIncludesHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
+		Score:       boolScore(passed),
 		Explanation: explanation,
+		Value: map[string]any{
+			"match_count": matchCount,
+			"occurrence":  occurrence,
+			"patterns":    patterns,
+		},
 		Details: map[string]any{
 			"match_count":     matchCount,
 			"occurrence":      occurrence,

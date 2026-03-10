@@ -38,10 +38,15 @@ func (h *ToolCallSequenceHandler) Eval(
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  ratioScore(matched, len(sequence)),
 			Explanation: fmt.Sprintf(
 				"sequence incomplete: matched %d/%d, missing %q",
 				matched, len(sequence), sequence[matched],
 			),
+			Value: map[string]any{
+				"actual_sequence":   actualTools,
+				"expected_sequence": sequence,
+			},
 			Details: map[string]any{
 				"matched_steps": matched,
 				"total_steps":   len(sequence),
@@ -53,7 +58,12 @@ func (h *ToolCallSequenceHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       ratioScore(matched, len(sequence)),
 		Explanation: fmt.Sprintf("sequence [%s] fully matched", strings.Join(sequence, " → ")),
+		Value: map[string]any{
+			"actual_sequence":   actualTools,
+			"expected_sequence": sequence,
+		},
 		Details: map[string]any{
 			"matched_steps": matched,
 			"actual_tools":  actualTools,

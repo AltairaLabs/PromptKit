@@ -30,9 +30,22 @@ func (h *MinLengthHandler) Eval(
 	actual := len(evalCtx.CurrentOutput)
 	passed := actual >= minLen
 
+	var score *float64
+	if minLen > 0 {
+		s := float64(actual) / float64(minLen)
+		if s > 1.0 {
+			s = 1.0
+		}
+		score = scorePtr(s)
+	} else {
+		score = scorePtr(1.0)
+	}
+
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
+		Score:       score,
+		Value:       map[string]any{"length": actual, "min": minLen},
 		Explanation: fmt.Sprintf("length %d, min %d", actual, minLen),
 	}, nil
 }
@@ -68,9 +81,22 @@ func (h *MaxLengthHandler) Eval(
 	actual := len(evalCtx.CurrentOutput)
 	passed := actual <= maxLen
 
+	var score *float64
+	if actual > 0 {
+		s := float64(maxLen) / float64(actual)
+		if s > 1.0 {
+			s = 1.0
+		}
+		score = scorePtr(s)
+	} else {
+		score = scorePtr(1.0)
+	}
+
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
+		Score:       score,
+		Value:       map[string]any{"length": actual, "max": maxLen},
 		Explanation: fmt.Sprintf("length %d, max %d", actual, maxLen),
 	}, nil
 }

@@ -53,6 +53,8 @@ func (h *ContentExcludesHandler) Eval(
 		return &evals.EvalResult{
 			Type:   h.Type(),
 			Passed: false,
+			Score:  boolScore(false),
+			Value:  map[string]any{"violations": found},
 			Explanation: fmt.Sprintf(
 				"forbidden content found: %s",
 				strings.Join(found, "; "),
@@ -63,6 +65,7 @@ func (h *ContentExcludesHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      true,
+		Score:       boolScore(true),
 		Explanation: "no forbidden content detected",
 	}, nil
 }

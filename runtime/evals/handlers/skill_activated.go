@@ -36,17 +36,29 @@ func (h *SkillActivatedHandler) Eval(
 		}
 	}
 
+	activated := make([]string, 0, len(counts))
+	for name := range counts {
+		activated = append(activated, name)
+	}
+	value := map[string]any{"activated": activated, "expected": required}
+	found := len(required) - len(missing)
+
 	if len(missing) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
+			Score:       ratioScore(found, len(required)),
+			Value:       value,
 			Explanation: fmt.Sprintf("missing skill activations: %s", strings.Join(missing, ", ")),
 			Details:     map[string]any{"counts": counts, "min_calls": minCalls},
 		}, nil
 	}
 
 	return &evals.EvalResult{
-		Type: h.Type(), Passed: true,
+		Type:        h.Type(),
+		Passed:      true,
+		Score:       ratioScore(found, len(required)),
+		Value:       value,
 		Explanation: "all required skills were activated",
 		Details:     map[string]any{"counts": counts},
 	}, nil

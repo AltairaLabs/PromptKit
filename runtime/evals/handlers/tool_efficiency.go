@@ -50,11 +50,21 @@ func (h *ToolEfficiencyHandler) Eval(
 		details["error_rate"] = stats.errorRate()
 	}
 
+	value := map[string]any{
+		"total_calls": stats.totalCalls,
+		"errors":      stats.errorCount,
+	}
+	if stats.totalCalls > 0 {
+		value["error_rate"] = stats.errorRate()
+	}
+
 	if len(failures) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Passed:      false,
+			Score:       scorePtr(0),
 			Explanation: fmt.Sprintf("efficiency check failed: %v", failures),
+			Value:       value,
 			Details:     details,
 		}, nil
 	}
@@ -72,6 +82,7 @@ func (h *ToolEfficiencyHandler) Eval(
 		Passed:      true,
 		Score:       &score,
 		Explanation: fmt.Sprintf("%d calls, %d errors — within limits", stats.totalCalls, stats.errorCount),
+		Value:       value,
 		Details:     details,
 	}, nil
 }

@@ -54,7 +54,11 @@ func (h *ToolsNotCalledHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
+		Score:       boolScore(passed),
 		Explanation: explanation,
+		Value: map[string]any{
+			"forbidden_called": called,
+		},
 	}, nil
 }
 

@@ -62,7 +62,9 @@ func (h *ImageDimensionsHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Passed:      passed,
+		Score:       boolScore(passed),
 		Explanation: explanation,
+		Value:       collectImageDimensions(parts),
 		Details: map[string]any{
 			"image_count": len(parts),
 			"violations":  violations,
