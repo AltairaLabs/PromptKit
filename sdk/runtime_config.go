@@ -11,9 +11,12 @@ import (
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
 // WithRuntimeConfig loads a RuntimeConfig YAML file and applies its settings
@@ -83,7 +86,56 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 		c.logger = buildLoggerFromSpec(spec.Logging)
 	}
 
+	// Apply exec tool configs from RuntimeConfig tools map
+	applyExecToolConfigs(c, spec.Tools)
+
+	// Apply exec eval handlers from RuntimeConfig evals map
+	applyExecEvalHandlers(c, spec.Evals)
+
 	return nil
+}
+
+// applyExecToolConfigs stores exec tool configurations from RuntimeConfig.
+// These are applied to tool descriptors during pipeline construction.
+func applyExecToolConfigs(c *config, toolSpecs map[string]*pkgconfig.ToolSpec) {
+	for name, ts := range toolSpecs {
+		if ts == nil || ts.ExecConfig == nil {
+			continue
+		}
+		if c.execToolConfigs == nil {
+			c.execToolConfigs = make(map[string]*tools.ExecConfig)
+		}
+		c.execToolConfigs[name] = &tools.ExecConfig{
+			Command:   ts.ExecConfig.Command,
+			Args:      ts.ExecConfig.Args,
+			Env:       ts.ExecConfig.Env,
+			TimeoutMs: ts.ExecConfig.TimeoutMs,
+		}
+	}
+}
+
+// applyExecEvalHandlers creates exec eval handlers from RuntimeConfig eval bindings
+// and registers them in the eval registry.
+func applyExecEvalHandlers(c *config, evalBindings map[string]*pkgconfig.ExecBinding) {
+	for typeName, binding := range evalBindings {
+		if binding == nil {
+			continue
+		}
+		handler := handlers.NewExecEvalHandler(&handlers.ExecEvalConfig{
+			TypeName:  typeName,
+			Command:   binding.Command,
+			Args:      binding.Args,
+			Env:       binding.Env,
+			TimeoutMs: binding.TimeoutMs,
+		})
+		c.execEvalHandlers = append(c.execEvalHandlers, handler)
+
+		// Also register in eval registry (create if needed)
+		if c.evalRegistry == nil {
+			c.evalRegistry = evals.NewEvalTypeRegistry()
+		}
+		c.evalRegistry.Register(handler)
+	}
 }
 
 // buildLoggerFromSpec creates a *slog.Logger from a LoggingConfigSpec.

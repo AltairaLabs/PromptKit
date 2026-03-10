@@ -1166,6 +1166,8 @@ type ToolSpec struct {
 	MockTemplate string         `json:"mock_template,omitempty" yaml:"mock_template,omitempty"`
 	MockParts    []MockPartSpec `json:"mock_parts,omitempty" yaml:"mock_parts,omitempty"`
 	HTTPConfig   *HTTPConfig    `json:"http,omitempty" yaml:"http,omitempty"`
+	// Exec subprocess configuration (mode: exec)
+	ExecConfig *ExecBinding `json:"exec,omitempty" yaml:"exec,omitempty"`
 	// Client-side execution configuration
 	ClientConfig *ToolClientConfig `json:"client,omitempty" yaml:"client,omitempty"`
 }

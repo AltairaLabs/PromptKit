@@ -94,6 +94,7 @@ type ToolDescriptor struct {
 	HTTPConfig   *HTTPConfig   `json:"http,omitempty" yaml:"http,omitempty"`     // Live HTTP configuration
 	A2AConfig    *A2AConfig    `json:"a2a,omitempty" yaml:"a2a,omitempty"`       // A2A agent configuration
 	ClientConfig *ClientConfig `json:"client,omitempty" yaml:"client,omitempty"` // Client-side execution configuration
+	ExecConfig   *ExecConfig   `json:"exec,omitempty" yaml:"exec,omitempty"`     // Exec subprocess configuration
 }
 
 // HTTPConfig defines configuration for live HTTP tool execution
@@ -217,6 +218,16 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool {
 // ClientConfig defines configuration for client-side tool execution.
 // Tools with mode "client" are fulfilled by the SDK caller's device
 // (e.g., GPS, camera, contacts, biometrics).
+// ExecConfig defines configuration for exec subprocess tool execution.
+// The runtime spawns the command per invocation, passing tool arguments as JSON on stdin
+// and reading the result from stdout.
+type ExecConfig struct {
+	Command   string   `json:"command" yaml:"command"`
+	Args      []string `json:"args,omitempty" yaml:"args,omitempty"`
+	Env       []string `json:"env,omitempty" yaml:"env,omitempty"`
+	TimeoutMs int      `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+}
+
 type ClientConfig struct {
 	Consent        *ConsentConfig `json:"consent,omitempty" yaml:"consent,omitempty"`
 	TimeoutMs      int            `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`

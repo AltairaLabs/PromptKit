@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -279,6 +281,134 @@ func TestCreateStateStoreFromConfig_InvalidTTL(t *testing.T) {
 	_, err := createStateStoreFromConfig(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid TTL duration")
+}
+
+func TestApplyRuntimeConfig_ExecTools(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Tools: map[string]*pkgconfig.ToolSpec{
+			"sentiment": {
+				Mode: "exec",
+				ExecConfig: &pkgconfig.ExecBinding{
+					Command:   "/usr/bin/sentiment-check",
+					Args:      []string{"--strict"},
+					Env:       []string{"API_KEY"},
+					TimeoutMs: 5000,
+				},
+			},
+			"no_exec": {
+				Mode: "live",
+				// No ExecConfig — should be skipped
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+
+	require.Len(t, c.execToolConfigs, 1)
+	cfg, ok := c.execToolConfigs["sentiment"]
+	require.True(t, ok)
+	assert.Equal(t, "/usr/bin/sentiment-check", cfg.Command)
+	assert.Equal(t, []string{"--strict"}, cfg.Args)
+	assert.Equal(t, []string{"API_KEY"}, cfg.Env)
+	assert.Equal(t, 5000, cfg.TimeoutMs)
+}
+
+func TestApplyRuntimeConfig_ExecEvals(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Evals: map[string]*pkgconfig.ExecBinding{
+			"sentiment_check": {
+				Command:   "/usr/bin/eval-sentiment",
+				Args:      []string{"--lang", "en"},
+				Env:       []string{"NLTK_DATA"},
+				TimeoutMs: 10000,
+			},
+			"compliance_check": {
+				Command: "/usr/bin/compliance",
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+
+	assert.Len(t, c.execEvalHandlers, 2)
+	require.NotNil(t, c.evalRegistry)
+
+	// Verify handlers are registered in the registry
+	has1 := c.evalRegistry.Has("sentiment_check")
+	has2 := c.evalRegistry.Has("compliance_check")
+	assert.True(t, has1, "sentiment_check should be registered")
+	assert.True(t, has2, "compliance_check should be registered")
+}
+
+func TestApplyRuntimeConfig_ExecEvals_NilBinding(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Evals: map[string]*pkgconfig.ExecBinding{
+			"should_skip": nil,
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	assert.Empty(t, c.execEvalHandlers)
+}
+
+func TestApplyRuntimeConfig_ExecTools_NilSpec(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Tools: map[string]*pkgconfig.ToolSpec{
+			"nil_tool": nil,
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	assert.Empty(t, c.execToolConfigs)
+}
+
+func TestRegisterExecExecutor_NoConfigs(t *testing.T) {
+	conv := &Conversation{
+		toolRegistry: tools.NewRegistry(),
+		config:       &config{},
+	}
+	// Should be a no-op when no exec tool configs
+	conv.registerExecExecutor()
+}
+
+func TestRegisterExecExecutor_WithConfigs(t *testing.T) {
+	registry := tools.NewRegistry()
+	// Register a tool descriptor to be updated
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "my_tool",
+		Description: "Test tool",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "local",
+	})
+
+	execCfg := &tools.ExecConfig{
+		Command: "/usr/bin/my-tool",
+		Args:    []string{"--flag"},
+	}
+
+	conv := &Conversation{
+		toolRegistry: registry,
+		config: &config{
+			execToolConfigs: map[string]*tools.ExecConfig{
+				"my_tool":     execCfg,
+				"nonexistent": {Command: "/bin/false"},
+			},
+		},
+	}
+
+	conv.registerExecExecutor()
+
+	// Verify the tool descriptor was updated
+	td := registry.Get("my_tool")
+	require.NotNil(t, td)
+	assert.Equal(t, "exec", td.Mode)
+	require.NotNil(t, td.ExecConfig)
+	assert.Equal(t, "/usr/bin/my-tool", td.ExecConfig.Command)
+	assert.Equal(t, []string{"--flag"}, td.ExecConfig.Args)
 }
 
 // rtcMockStore is a minimal statestore.Store for runtime_config tests.

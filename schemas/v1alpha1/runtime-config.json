@@ -752,6 +752,9 @@
         "http": {
           "$ref": "#/$defs/HTTPConfig"
         },
+        "exec": {
+          "$ref": "#/$defs/ExecBinding"
+        },
         "client": {
           "$ref": "#/$defs/ToolClientConfig"
         }
@@ -828,10 +831,6 @@
           {
             "credential": {
               "credential_env": "OPENAI_API_KEY"
-            },
-            "defaults": {
-              "max_tokens": 4096,
-              "temperature": 0.7
             },
             "id": "main",
             "model": "gpt-4o",

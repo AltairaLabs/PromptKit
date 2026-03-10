@@ -845,6 +845,51 @@
         "mime_type"
       ]
     },
+    "ExecBinding": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "title": "Command",
+          "description": "Path to the executable"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "exec",
+            "server"
+          ],
+          "title": "Runtime",
+          "description": "Execution mode",
+          "default": "exec"
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Env",
+          "description": "Required environment variable names"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Args",
+          "description": "Additional command arguments"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "title": "Timeout",
+          "description": "Per-invocation timeout in milliseconds"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command"
+      ]
+    },
     "FragmentRef": {
       "properties": {
         "name": {
@@ -2260,6 +2305,9 @@
         },
         "http": {
           "$ref": "#/$defs/HTTPConfig"
+        },
+        "exec": {
+          "$ref": "#/$defs/ExecBinding"
         },
         "client": {
           "$ref": "#/$defs/ToolClientConfig"

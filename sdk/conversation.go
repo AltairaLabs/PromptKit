@@ -325,6 +325,7 @@ func (c *Conversation) buildPipelineConfig(
 	c.toolRegistry.RegisterExecutor(clientExec)
 
 	c.registerMCPExecutors()
+	c.registerExecExecutor()
 	// Register capability tools (includes A2A) — only on first build
 	if !c.capabilitiesRegistered {
 		for _, cap := range c.capabilities {
