@@ -1,9 +1,12 @@
 package guardrails
 
 import (
+	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestNewGuardrailHook_AllTypes(t *testing.T) {
@@ -129,5 +132,104 @@ func TestNewGuardrailHook_StreamingInterfaces(t *testing.T) {
 		if _, ok := h.(hooks.ChunkInterceptor); ok {
 			t.Errorf("type %q should NOT implement ChunkInterceptor", name)
 		}
+	}
+}
+
+func TestNewGuardrailHookFromRegistry_UsesRegisteredHandler(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	handler := &stubHandler{
+		typeName: "custom_eval",
+		result: &evals.EvalResult{
+			Passed: true,
+			Score:  floatPtr(1.0),
+		},
+	}
+	registry.Register(handler)
+
+	h, err := NewGuardrailHookFromRegistry("custom_eval", map[string]any{}, registry)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if h.Name() != "custom_eval" {
+		t.Errorf("Name() = %q, want %q", h.Name(), "custom_eval")
+	}
+
+	// Verify it returns an adapter
+	adapter, ok := h.(*GuardrailHookAdapter)
+	if !ok {
+		t.Fatal("expected *GuardrailHookAdapter")
+	}
+
+	// Verify AfterCall works
+	resp := &hooks.ProviderResponse{
+		Message: types.Message{Content: "test output"},
+	}
+	decision := adapter.AfterCall(context.Background(), nil, resp)
+	if !decision.Allow {
+		t.Errorf("expected Allow, got Deny: %s", decision.Reason)
+	}
+}
+
+func TestNewGuardrailHookFromRegistry_FallsBackToLegacy(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+
+	// "banned_words" is not in the registry, should fall back to legacy
+	h, err := NewGuardrailHookFromRegistry(
+		"banned_words", map[string]any{"words": []any{"bad"}}, registry,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := h.(*BannedWordsHook); !ok {
+		t.Error("expected *BannedWordsHook from legacy fallback")
+	}
+}
+
+func TestNewGuardrailHookFromRegistry_UnknownType(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+
+	_, err := NewGuardrailHookFromRegistry("nonexistent", nil, registry)
+	if err == nil {
+		t.Fatal("expected error for unknown type")
+	}
+}
+
+func TestNewGuardrailHookFromRegistry_DirectionParam(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	handler := &stubHandler{
+		typeName: "dir_test",
+		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+	}
+	registry.Register(handler)
+
+	h, err := NewGuardrailHookFromRegistry(
+		"dir_test", map[string]any{"direction": "input"}, registry,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	adapter := h.(*GuardrailHookAdapter)
+	if adapter.direction != "input" {
+		t.Errorf("direction = %q, want %q", adapter.direction, "input")
+	}
+}
+
+func TestNewGuardrailHookFromRegistry_DefaultDirection(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	handler := &stubHandler{
+		typeName: "default_dir",
+		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+	}
+	registry.Register(handler)
+
+	h, err := NewGuardrailHookFromRegistry("default_dir", map[string]any{}, registry)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	adapter := h.(*GuardrailHookAdapter)
+	if adapter.direction != "output" {
+		t.Errorf("direction = %q, want %q", adapter.direction, "output")
 	}
 }

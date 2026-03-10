@@ -87,6 +87,10 @@ func init() {
 	evals.RegisterDefault(&OutcomeEquivalentHandler{})
 	evals.RegisterDefault(&DirectionalHandler{})
 
+	// Sentence count and field presence handlers (ported from guardrails)
+	evals.RegisterDefault(&SentenceCountHandler{})
+	evals.RegisterDefault(&FieldPresenceHandler{})
+
 	// Arena assertion type aliases — map legacy/alternative names to canonical handlers
 	evals.RegisterDefaultAlias("content_includes", "contains")
 	evals.RegisterDefaultAlias("content_includes_any", "contains_any")
@@ -97,4 +101,10 @@ func init() {
 	evals.RegisterDefaultAlias("tool_called", "tools_called")
 	evals.RegisterDefaultAlias("tools_not_called_with_args", "tool_args_excluded_session")
 	evals.RegisterDefaultAlias("llm_judge_conversation", "llm_judge_session")
+
+	// New guardrail/validator aliases
+	evals.RegisterDefaultAlias("banned_words", "content_excludes")
+	evals.RegisterDefaultAlias("length", "max_length")
+	evals.RegisterDefaultAlias("max_sentences", "sentence_count")
+	evals.RegisterDefaultAlias("required_fields", "field_presence")
 }

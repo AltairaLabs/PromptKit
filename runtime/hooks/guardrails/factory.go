@@ -5,6 +5,7 @@ package guardrails
 import (
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 )
 
@@ -16,10 +17,41 @@ const (
 	nameRequiredFields = "required_fields"
 )
 
-// NewGuardrailHook creates a guardrail ProviderHook from a validator config
-// type name and params map. This is used by ProviderStage to instantiate
-// pack-defined guardrails from metadata.
+// NewGuardrailHookFromRegistry creates a guardrail ProviderHook using the eval registry.
+// This is the unified path — any registered eval handler can be used as a guardrail.
+func NewGuardrailHookFromRegistry(
+	typeName string, params map[string]any, registry *evals.EvalTypeRegistry,
+) (hooks.ProviderHook, error) {
+	handler, err := registry.Get(typeName)
+	if err != nil {
+		// Fall back to legacy constructors for backward compatibility.
+		return newLegacyGuardrailHook(typeName, params)
+	}
+
+	direction := directionOutput
+	if d, ok := params["direction"].(string); ok {
+		direction = d
+	}
+
+	return &GuardrailHookAdapter{
+		handler:   handler,
+		evalType:  typeName,
+		params:    params,
+		direction: direction,
+	}, nil
+}
+
+// NewGuardrailHook creates a guardrail ProviderHook using the default eval registry.
+// This maintains backward compatibility with existing callers.
 func NewGuardrailHook(typeName string, params map[string]any) (hooks.ProviderHook, error) {
+	return NewGuardrailHookFromRegistry(typeName, params, evals.NewEvalTypeRegistry())
+}
+
+// newLegacyGuardrailHook creates a guardrail from the hand-coded constructors.
+// These will be removed in Phase 3 once all types have eval handlers.
+func newLegacyGuardrailHook(
+	typeName string, params map[string]any,
+) (hooks.ProviderHook, error) {
 	switch typeName {
 	case nameBannedWords:
 		return newBannedWordsFromParams(params), nil
