@@ -411,6 +411,101 @@ func TestRegisterExecExecutor_WithConfigs(t *testing.T) {
 	assert.Equal(t, []string{"--flag"}, td.ExecConfig.Args)
 }
 
+func TestApplyExecHooks_ProviderHook(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Hooks: map[string]*pkgconfig.ExecHook{
+			"pii_redactor": {
+				ExecBinding: pkgconfig.ExecBinding{Command: "./hooks/pii-redactor"},
+				Hook:        "provider",
+				Phases:      []string{"before_call", "after_call"},
+				Mode:        "filter",
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	assert.Len(t, c.providerHooks, 1)
+	assert.Equal(t, "pii_redactor", c.providerHooks[0].Name())
+}
+
+func TestApplyExecHooks_ToolHook(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Hooks: map[string]*pkgconfig.ExecHook{
+			"query_allowlist": {
+				ExecBinding: pkgconfig.ExecBinding{Command: "./hooks/query-allowlist.py"},
+				Hook:        "tool",
+				Phases:      []string{"before_execution"},
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	assert.Len(t, c.toolHooks, 1)
+	assert.Equal(t, "query_allowlist", c.toolHooks[0].Name())
+}
+
+func TestApplyExecHooks_SessionHook(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Hooks: map[string]*pkgconfig.ExecHook{
+			"audit_logger": {
+				ExecBinding: pkgconfig.ExecBinding{Command: "./hooks/audit-logger.py"},
+				Hook:        "session",
+				Phases:      []string{"session_start", "session_end"},
+				Mode:        "observe",
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	assert.Len(t, c.sessionHooks, 1)
+	assert.Equal(t, "audit_logger", c.sessionHooks[0].Name())
+}
+
+func TestApplyExecHooks_NilBinding(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Hooks: map[string]*pkgconfig.ExecHook{
+			"should_skip": nil,
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	assert.Empty(t, c.providerHooks)
+	assert.Empty(t, c.toolHooks)
+	assert.Empty(t, c.sessionHooks)
+}
+
+func TestApplyExecHooks_MultipleTypes(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Hooks: map[string]*pkgconfig.ExecHook{
+			"pii": {
+				ExecBinding: pkgconfig.ExecBinding{Command: "./pii"},
+				Hook:        "provider",
+				Phases:      []string{"before_call"},
+			},
+			"audit": {
+				ExecBinding: pkgconfig.ExecBinding{Command: "./audit"},
+				Hook:        "session",
+				Phases:      []string{"session_start"},
+			},
+			"gate": {
+				ExecBinding: pkgconfig.ExecBinding{Command: "./gate"},
+				Hook:        "tool",
+				Phases:      []string{"before_execution"},
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	assert.Len(t, c.providerHooks, 1)
+	assert.Len(t, c.toolHooks, 1)
+	assert.Len(t, c.sessionHooks, 1)
+}
+
 // rtcMockStore is a minimal statestore.Store for runtime_config tests.
 type rtcMockStore struct{}
 

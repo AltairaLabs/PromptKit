@@ -13,11 +13,39 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
+
+// applyExecHooks creates exec hook adapters from RuntimeConfig hook bindings
+// and appends them to the appropriate hook slices in the SDK config.
+func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook) {
+	for name, binding := range hookBindings {
+		if binding == nil {
+			continue
+		}
+		cfg := &hooks.ExecHookConfig{
+			Name:      name,
+			Command:   binding.Command,
+			Args:      binding.Args,
+			Env:       binding.Env,
+			TimeoutMs: binding.TimeoutMs,
+			Phases:    binding.Phases,
+			Mode:      binding.Mode,
+		}
+		switch binding.Hook {
+		case "provider":
+			c.providerHooks = append(c.providerHooks, hooks.NewExecProviderHook(cfg))
+		case "tool":
+			c.toolHooks = append(c.toolHooks, hooks.NewExecToolHook(cfg))
+		case "session":
+			c.sessionHooks = append(c.sessionHooks, hooks.NewExecSessionHook(cfg))
+		}
+	}
+}
 
 // WithRuntimeConfig loads a RuntimeConfig YAML file and applies its settings
 // to the SDK conversation. This provides a declarative alternative to
@@ -91,6 +119,9 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 
 	// Apply exec eval handlers from RuntimeConfig evals map
 	applyExecEvalHandlers(c, spec.Evals)
+
+	// Apply exec hooks from RuntimeConfig hooks map
+	applyExecHooks(c, spec.Hooks)
 
 	return nil
 }
