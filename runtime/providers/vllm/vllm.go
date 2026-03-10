@@ -45,7 +45,10 @@ func NewProvider(
 	additionalConfig map[string]any,
 ) *Provider {
 	// vLLM can optionally require API keys - check for it
-	client := &http.Client{Timeout: vllmHTTPTimeout}
+	client := &http.Client{
+		Timeout:   vllmHTTPTimeout,
+		Transport: providers.NewInstrumentedTransport(providers.NewPooledTransport()),
+	}
 	base := providers.NewBaseProvider(id, includeRawOutput, client)
 
 	// Extract optional API key from additional config
