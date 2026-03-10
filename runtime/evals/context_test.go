@@ -185,3 +185,60 @@ func TestParseJSONArgs_Empty(t *testing.T) {
 	assert.NotNil(t, result)
 	assert.Empty(t, result)
 }
+
+func TestValidationsToPriorResults_SeedsFromLastAssistant(t *testing.T) {
+	messages := []types.Message{
+		types.NewUserMessage("hello"),
+		{
+			Role: "assistant",
+			Validations: []types.ValidationResult{
+				{ValidatorType: "content_excludes", Passed: false},
+				{ValidatorType: "max_length", Passed: true},
+			},
+		},
+	}
+
+	results := validationsToPriorResults(messages)
+	require.Len(t, results, 2)
+
+	assert.Equal(t, "content_excludes", results[0].Type)
+	assert.Equal(t, 0.0, *results[0].Score)
+
+	assert.Equal(t, "max_length", results[1].Type)
+	assert.Equal(t, 1.0, *results[1].Score)
+}
+
+func TestValidationsToPriorResults_NoValidations(t *testing.T) {
+	messages := []types.Message{
+		types.NewAssistantMessage("hi"),
+	}
+	assert.Nil(t, validationsToPriorResults(messages))
+}
+
+func TestValidationsToPriorResults_NoAssistantMessage(t *testing.T) {
+	messages := []types.Message{
+		types.NewUserMessage("hello"),
+	}
+	assert.Nil(t, validationsToPriorResults(messages))
+}
+
+func TestValidationsToPriorResults_Empty(t *testing.T) {
+	assert.Nil(t, validationsToPriorResults(nil))
+}
+
+func TestBuildEvalContext_SeedsPriorResultsFromValidations(t *testing.T) {
+	messages := []types.Message{
+		types.NewUserMessage("test"),
+		{
+			Role: "assistant",
+			Validations: []types.ValidationResult{
+				{ValidatorType: "banned_words", Passed: false},
+			},
+		},
+	}
+
+	ctx := BuildEvalContext(messages, 1, "s1", "p1", nil)
+	require.Len(t, ctx.PriorResults, 1)
+	assert.Equal(t, "banned_words", ctx.PriorResults[0].Type)
+	assert.Equal(t, 0.0, *ctx.PriorResults[0].Score)
+}

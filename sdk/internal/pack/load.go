@@ -167,8 +167,12 @@ type Parameters struct {
 
 // Validator represents a validator configuration.
 type Validator struct {
-	Type   string         `json:"type"`
-	Config map[string]any `json:"config,omitempty"`
+	Type    string         `json:"type"`
+	Config  map[string]any `json:"config,omitempty"`
+	Message string         `json:"message,omitempty"` // User-facing message when content is blocked
+	// Monitor when true means the validator only records results without enforcing.
+	// Equivalent to FailOnViolation=false in ValidatorConfig.
+	Monitor bool `json:"monitor,omitempty"`
 }
 
 // AgentsConfig maps prompts to A2A-compatible agent definitions.

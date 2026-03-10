@@ -3,11 +3,12 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sync"
 	"testing"
 
-	"fmt"
-
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -578,7 +579,7 @@ func TestProviderStage_BannedWordsGuardrail_NonStreaming(t *testing.T) {
 	provider := &nonStreamingProvider{Provider: baseProvider}
 
 	// The mock provider returns "Mock response from p model m"
-	// Ban the word "Mock" so the guardrail rejects it.
+	// Ban the word "Mock" so the guardrail enforces content replacement.
 	bw, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
 		"words": []any{"Mock"},
 	})
@@ -589,11 +590,117 @@ func TestProviderStage_BannedWordsGuardrail_NonStreaming(t *testing.T) {
 		MaxTokens: 100,
 	}, nil, reg)
 
-	_, runErr := runProviderStage(t, stage, "hello")
+	elems, runErr := runProviderStage(t, stage, "hello")
 
-	require.Error(t, runErr)
-	var denied *hooks.HookDeniedError
-	require.ErrorAs(t, runErr, &denied)
-	assert.Equal(t, "provider_after", denied.HookType)
-	assert.Contains(t, denied.Reason, "forbidden")
+	// Guardrails now enforce (replace content) and continue the pipeline
+	require.NoError(t, runErr)
+
+	// Find the assistant message and verify it was replaced
+	var assistantMsg *types.Message
+	for i := range elems {
+		if elems[i].Message != nil && elems[i].Message.Role == "assistant" {
+			assistantMsg = elems[i].Message
+		}
+	}
+	require.NotNil(t, assistantMsg, "expected an assistant message")
+	assert.Contains(t, assistantMsg.Content, "content policy",
+		"content should be replaced with blocked message")
+	require.NotEmpty(t, assistantMsg.Validations)
+	assert.Equal(t, "banned_words", assistantMsg.Validations[0].ValidatorType)
+	assert.False(t, assistantMsg.Validations[0].Passed)
+}
+
+func TestProviderStage_GuardrailEmitsValidationEvent(t *testing.T) {
+	baseProvider := mock.NewProvider("p", "m", false)
+	provider := &nonStreamingProvider{Provider: baseProvider}
+
+	bw, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"Mock"},
+	})
+	require.NoError(t, err)
+	reg := hooks.NewRegistry(hooks.WithProviderHook(bw))
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+
+	var received []*events.Event
+	var mu sync.Mutex
+	bus.Subscribe(events.EventValidationFailed, func(e *events.Event) {
+		mu.Lock()
+		received = append(received, e)
+		mu.Unlock()
+	})
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, emitter, reg)
+
+	_, runErr := runProviderStage(t, stage, "hello")
+	require.NoError(t, runErr)
+
+	// Give the async event bus time to deliver
+	bus.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, received, 1, "expected one validation.failed event")
+	data, ok := received[0].Data.(*events.ValidationEventData)
+	require.True(t, ok)
+	assert.Equal(t, "banned_words", data.ValidatorName)
+	assert.True(t, data.Enforced)
+	assert.False(t, data.MonitorOnly)
+	assert.Len(t, data.Violations, 1)
+}
+
+func TestProviderStage_MonitorOnlyGuardrailEmitsEvent(t *testing.T) {
+	baseProvider := mock.NewProvider("p", "m", false)
+	provider := &nonStreamingProvider{Provider: baseProvider}
+
+	bw, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"Mock"},
+	}, guardrails.WithMonitorOnly())
+	require.NoError(t, err)
+	reg := hooks.NewRegistry(hooks.WithProviderHook(bw))
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+
+	var received []*events.Event
+	var mu sync.Mutex
+	bus.Subscribe(events.EventValidationFailed, func(e *events.Event) {
+		mu.Lock()
+		received = append(received, e)
+		mu.Unlock()
+	})
+
+	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
+		MaxTokens: 100,
+	}, emitter, reg)
+
+	elems, runErr := runProviderStage(t, stage, "hello")
+	require.NoError(t, runErr)
+
+	// Monitor-only should NOT modify content
+	var assistantMsg *types.Message
+	for i := range elems {
+		if elems[i].Message != nil && elems[i].Message.Role == "assistant" {
+			assistantMsg = elems[i].Message
+		}
+	}
+	require.NotNil(t, assistantMsg)
+	assert.Contains(t, assistantMsg.Content, "Mock",
+		"monitor-only should not replace content")
+
+	bus.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, received, 1, "expected one validation.failed event")
+	data, ok := received[0].Data.(*events.ValidationEventData)
+	require.True(t, ok)
+	assert.Equal(t, "banned_words", data.ValidatorName)
+	assert.False(t, data.Enforced, "monitor-only should not be marked as enforced")
+	assert.True(t, data.MonitorOnly)
 }

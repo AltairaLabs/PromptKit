@@ -76,6 +76,7 @@ type Decision struct {
     Allow    bool
     Reason   string
     Metadata map[string]any
+    Enforced bool           // Hook already applied enforcement
 }
 ```
 
@@ -83,9 +84,20 @@ type Decision struct {
 
 ```go
 hooks.Allow                          // Zero-cost approval
-hooks.Deny("reason")                 // Denial with reason
+hooks.Deny("reason")                 // Denial with reason — pipeline stops with HookDeniedError
 hooks.DenyWithMetadata("reason", m)  // Denial with reason + metadata
+hooks.Enforced("reason", m)          // Enforcement applied — pipeline continues with modified content
 ```
+
+### Enforcement vs Denial
+
+Built-in guardrail hooks return `Enforced` decisions instead of `Deny`. When a guardrail triggers:
+
+1. The hook modifies content in-place (truncation for length validators, replacement for content blockers)
+2. Returns `hooks.Enforced()` so the pipeline **continues** with the modified content
+3. The violation is recorded in `message.Validations` and emitted as a `validation.failed` event
+
+This means guardrails are **non-fatal** — they fix the content and let the pipeline proceed, rather than returning an error to the caller. Custom hooks can choose either behavior.
 
 ## Request & Response Types
 
@@ -146,7 +158,7 @@ type SessionEvent struct {
 
 ## HookDeniedError
 
-When a hook denies a request, the runtime wraps the denial in a `HookDeniedError`:
+When a hook returns `Deny` (not `Enforced`), the runtime wraps the denial in a `HookDeniedError`:
 
 ```go
 type HookDeniedError struct {
@@ -165,6 +177,10 @@ if errors.As(err, &hookErr) {
     log.Printf("Denied by %s: %s", hookErr.HookName, hookErr.Reason)
 }
 ```
+
+:::note
+Built-in guardrail hooks return `Enforced` decisions, not `Deny`. They modify content in-place and the pipeline continues — no `HookDeniedError` is returned. You only need to handle `HookDeniedError` for custom hooks that use `hooks.Deny()`.
+:::
 
 ## Registry
 
@@ -267,6 +283,35 @@ hook, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
 ```
 
 Supported type names: `banned_words`, `length`, `max_length`, `max_sentences`, `required_fields`.
+
+### Factory Options
+
+```go
+// Set a custom blocked message (replaces content when guardrail triggers)
+hook, _ := guardrails.NewGuardrailHook("banned_words", params,
+    guardrails.WithMessage("This response has been blocked by our content policy."),
+)
+
+// Monitor-only mode: evaluate but don't modify content
+hook, _ := guardrails.NewGuardrailHook("banned_words", params,
+    guardrails.WithMonitorOnly(),
+)
+```
+
+| Option | Description |
+|--------|-------------|
+| `WithMessage(msg)` | Custom message shown when content is blocked (default: generic policy message) |
+| `WithMonitorOnly()` | Evaluate and record results without modifying content |
+
+### Monitor-Only Mode
+
+Monitor-only guardrails evaluate content and emit events, but never modify the response. This is useful for:
+
+- **Gradual rollout** — observe guardrail behavior before enforcing
+- **Analytics** — track policy violations without impacting users
+- **Shadow testing** — compare guardrail results against production traffic
+
+The guardrail still returns an `Enforced` decision (so the pipeline continues), and violations are recorded in `message.Validations` and emitted as `validation.failed` events with `MonitorOnly: true`.
 
 ## Custom Hooks
 

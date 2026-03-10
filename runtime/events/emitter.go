@@ -227,6 +227,19 @@ func (e *Emitter) ValidationFailed(
 	})
 }
 
+// GuardrailResult emits a validation.passed or validation.failed event
+// with full guardrail context (enforcement, monitor-only, score).
+func (e *Emitter) GuardrailResult(data *ValidationEventData) {
+	if data == nil {
+		return
+	}
+	if data.Error != nil || len(data.Violations) > 0 {
+		e.emit(EventValidationFailed, data)
+	} else {
+		e.emit(EventValidationPassed, data)
+	}
+}
+
 // ContextBuilt emits the context.built event.
 func (e *Emitter) ContextBuilt(messageCount, tokenCount, tokenBudget int, truncated bool) {
 	e.emit(EventContextBuilt, ContextBuiltData{

@@ -20,5 +20,9 @@ spec:
         should_trigger: true
       message: Expected length validator to trigger and terminate stream when response
         exceeds 100 characters
+    - type: max_length
+      params:
+        max_characters: 100
+      message: Response should have been truncated to 100 characters by the length validator
   description: Test that length validator triggers during streaming and terminates
     the stream

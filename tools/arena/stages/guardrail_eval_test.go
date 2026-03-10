@@ -129,6 +129,77 @@ func TestGuardrailEvalStage_NoAssistantMessage(t *testing.T) {
 	assert.Empty(t, results[0].Message.Validations)
 }
 
+func TestGuardrailEvalStage_EnforcesLengthTruncation(t *testing.T) {
+	s := NewGuardrailEvalStage()
+
+	longContent := "This is a very long response that exceeds the maximum length limit."
+	elem := newTestMessageElement("assistant", longContent)
+	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
+		{Type: "length", Params: map[string]interface{}{"max_characters": 20}},
+	}
+
+	results := runStage(t, s, []stage.StreamElement{elem})
+
+	require.Len(t, results, 1)
+	msg := results[0].Message
+	assert.Len(t, msg.Content, 20, "content should be truncated to max_characters")
+	assert.Equal(t, longContent[:20], msg.Content)
+
+	require.Len(t, msg.Validations, 1)
+	assert.False(t, msg.Validations[0].Passed)
+}
+
+func TestGuardrailEvalStage_EnforcesContentBlock(t *testing.T) {
+	s := NewGuardrailEvalStage()
+
+	elem := newTestMessageElement("assistant", "This contains forbidden words.")
+	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
+		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
+	}
+
+	results := runStage(t, s, []stage.StreamElement{elem})
+
+	require.Len(t, results, 1)
+	msg := results[0].Message
+	assert.Equal(t, prompt.DefaultBlockedMessage, msg.Content)
+}
+
+func TestGuardrailEvalStage_EnforcesContentBlockCustomMessage(t *testing.T) {
+	s := NewGuardrailEvalStage()
+
+	customMsg := "This response has been removed."
+	elem := newTestMessageElement("assistant", "This contains forbidden words.")
+	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
+		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}, Message: customMsg},
+	}
+
+	results := runStage(t, s, []stage.StreamElement{elem})
+
+	require.Len(t, results, 1)
+	msg := results[0].Message
+	assert.Equal(t, customMsg, msg.Content)
+}
+
+func TestGuardrailEvalStage_FailOnViolationFalseSkipsEnforcement(t *testing.T) {
+	s := NewGuardrailEvalStage()
+
+	originalContent := "This is a very long response that exceeds the limit."
+	failOnViolation := false
+	elem := newTestMessageElement("assistant", originalContent)
+	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
+		{Type: "length", Params: map[string]interface{}{"max_characters": 10}, FailOnViolation: &failOnViolation},
+	}
+
+	results := runStage(t, s, []stage.StreamElement{elem})
+
+	require.Len(t, results, 1)
+	msg := results[0].Message
+	assert.Equal(t, originalContent, msg.Content, "content should not be modified when FailOnViolation is false")
+
+	require.Len(t, msg.Validations, 1)
+	assert.False(t, msg.Validations[0].Passed, "validation should still record failure")
+}
+
 func TestGuardrailEvalStage_PassedValidationIncludesConfig(t *testing.T) {
 	s := NewGuardrailEvalStage()
 

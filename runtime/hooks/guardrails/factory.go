@@ -9,10 +9,26 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 )
 
+// GuardrailOption configures a GuardrailHookAdapter.
+type GuardrailOption func(*GuardrailHookAdapter)
+
+// WithMessage sets the user-facing message shown when content is blocked.
+func WithMessage(msg string) GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.message = msg }
+}
+
+// WithMonitorOnly disables enforcement — the guardrail evaluates and records
+// results but does not modify content. Useful for monitoring guardrails
+// without affecting output.
+func WithMonitorOnly() GuardrailOption {
+	return func(a *GuardrailHookAdapter) { a.monitorOnly = true }
+}
+
 // NewGuardrailHookFromRegistry creates a guardrail ProviderHook using the eval registry.
 // Any registered eval handler (including aliases) can be used as a guardrail.
 func NewGuardrailHookFromRegistry(
 	typeName string, params map[string]any, registry *evals.EvalTypeRegistry,
+	opts ...GuardrailOption,
 ) (hooks.ProviderHook, error) {
 	handler, err := registry.Get(typeName)
 	if err != nil {
@@ -24,15 +40,19 @@ func NewGuardrailHookFromRegistry(
 		direction = d
 	}
 
-	return &GuardrailHookAdapter{
+	adapter := &GuardrailHookAdapter{
 		handler:   handler,
 		evalType:  typeName,
 		params:    params,
 		direction: direction,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(adapter)
+	}
+	return adapter, nil
 }
 
 // NewGuardrailHook creates a guardrail ProviderHook using the default eval registry.
-func NewGuardrailHook(typeName string, params map[string]any) (hooks.ProviderHook, error) {
-	return NewGuardrailHookFromRegistry(typeName, params, evals.NewEvalTypeRegistry())
+func NewGuardrailHook(typeName string, params map[string]any, opts ...GuardrailOption) (hooks.ProviderHook, error) {
+	return NewGuardrailHookFromRegistry(typeName, params, evals.NewEvalTypeRegistry(), opts...)
 }

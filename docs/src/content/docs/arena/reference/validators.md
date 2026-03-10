@@ -105,8 +105,19 @@ spec:
       params:                    # Required: Type-specific params
         param1: value1
         param2: value2
-      message: "Policy description"  # Optional: Violation message
+      message: "Policy description"       # Optional: User-facing blocked message
+      fail_on_violation: true             # Optional: Enforce guardrail (default: true)
 ```
+
+### Enforcement Behavior
+
+When a validator triggers and `fail_on_violation` is `true` (the default):
+
+- **Length validators** (`max_length`, `length`) truncate content to the configured maximum
+- **Content blockers** (`banned_words`, `content_excludes`) replace content with the `message` (or a default policy message)
+- Other validator types log the violation but don't modify content
+
+When `fail_on_violation` is `false`, the validator evaluates and records results in `message.Validations` but does not modify content — equivalent to monitor-only mode.
 
 ## Available Validators
 
@@ -442,14 +453,16 @@ Validator failures are captured in test results:
 
 ### In Production (SDK)
 
-Configure behavior via fail_on:
+Built-in guardrails enforce in-place — they modify content (truncate or replace) and the pipeline continues. No error is returned to the caller. Violations are recorded in `message.Validations` and emitted as `validation.failed` events.
 
-```yaml
-# arena.yaml
-defaults:
-  fail_on:
-    - validation_error  # Treat as test failure
-    # OR omit to allow violations
+For monitor-only mode in pack JSON:
+
+```json
+{
+  "type": "banned_words",
+  "config": { "words": ["competitor"] },
+  "monitor": true
+}
 ```
 
 ## Best Practices

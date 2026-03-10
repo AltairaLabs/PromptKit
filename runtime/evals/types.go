@@ -262,6 +262,11 @@ type EvalContext struct {
 	Variables     map[string]any   `json:"variables,omitempty"`
 	Metadata      map[string]any   `json:"metadata,omitempty"`
 	Extras        map[string]any   `json:"extras,omitempty"`
+
+	// PriorResults holds results from evals that have already run in this
+	// batch. This allows evals like guardrail_triggered to inspect the
+	// outcomes of earlier evals without coupling to pipeline internals.
+	PriorResults []EvalResult `json:"prior_results,omitempty"`
 }
 
 // ToolCallRecord is an alias for types.ToolCallRecord so existing code

@@ -173,6 +173,50 @@ func TestNewGuardrailHook_BannedWords_WordBoundaryMode(t *testing.T) {
 	}
 }
 
+func TestWithMessage(t *testing.T) {
+	h, err := NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"bad"},
+	}, WithMessage("Custom blocked message"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	adapter := h.(*GuardrailHookAdapter)
+	if adapter.message != "Custom blocked message" {
+		t.Errorf("message = %q, want %q", adapter.message, "Custom blocked message")
+	}
+}
+
+func TestWithMonitorOnly(t *testing.T) {
+	h, err := NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"bad"},
+	}, WithMonitorOnly())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	adapter := h.(*GuardrailHookAdapter)
+	if !adapter.monitorOnly {
+		t.Error("expected monitorOnly=true")
+	}
+
+	// Monitor-only should not modify content
+	resp := &hooks.ProviderResponse{
+		Message: types.Message{
+			Role:    "assistant",
+			Content: "this is bad content",
+		},
+	}
+	decision := adapter.AfterCall(context.Background(), nil, resp)
+	if decision.Allow {
+		t.Error("expected non-Allow decision")
+	}
+	if !decision.Enforced {
+		t.Error("expected Enforced=true")
+	}
+	if resp.Message.Content != "this is bad content" {
+		t.Errorf("monitor-only should not modify content, got %q", resp.Message.Content)
+	}
+}
+
 func TestNewGuardrailHook_MaxLength_WithTokens(t *testing.T) {
 	h, err := NewGuardrailHook("length", map[string]any{
 		"max_characters": 1000,

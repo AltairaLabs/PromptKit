@@ -39,6 +39,7 @@ func BuildEvalContext(
 		PromptID:      promptID,
 		Extras:        ExtractWorkflowExtras(messages),
 		Metadata:      metadata,
+		PriorResults:  validationsToPriorResults(messages),
 	}
 }
 
@@ -125,4 +126,33 @@ func parseJSONArgs(data []byte) map[string]any {
 		return nil
 	}
 	return args
+}
+
+// validationsToPriorResults converts ValidationResult entries from the last
+// assistant message into EvalResult entries. This seeds PriorResults so that
+// evals like guardrail_triggered can inspect pipeline-level guardrail outcomes
+// without coupling to message.Validations directly.
+func validationsToPriorResults(messages []types.Message) []EvalResult {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != roleAssistant {
+			continue
+		}
+		if len(messages[i].Validations) == 0 {
+			return nil
+		}
+		results := make([]EvalResult, len(messages[i].Validations))
+		for j, v := range messages[i].Validations {
+			score := 1.0
+			if !v.Passed {
+				score = 0.0
+			}
+			results[j] = EvalResult{
+				Type:   v.ValidatorType,
+				Passed: v.Passed,
+				Score:  &score,
+			}
+		}
+		return results
+	}
+	return nil
 }

@@ -37,3 +37,20 @@ func TestAllow(t *testing.T) {
 		t.Error("Allow sentinel should have empty reason")
 	}
 }
+
+func TestEnforced(t *testing.T) {
+	meta := map[string]any{"validator_type": "banned_words", "score": 0.0}
+	d := Enforced("content blocked", meta)
+	if d.Allow {
+		t.Error("Enforced should produce Allow=false")
+	}
+	if !d.Enforced {
+		t.Error("Enforced should set Enforced=true")
+	}
+	if d.Reason != "content blocked" {
+		t.Errorf("expected reason 'content blocked', got %q", d.Reason)
+	}
+	if d.Metadata["validator_type"] != "banned_words" {
+		t.Error("metadata not preserved")
+	}
+}
