@@ -12,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/time/rate"
 
 	"github.com/AltairaLabs/PromptKit/runtime/httputil"
@@ -66,6 +67,18 @@ func NewPooledTransport() *http.Transport {
 	}
 }
 
+// NewInstrumentedTransport wraps an http.RoundTripper with OpenTelemetry
+// instrumentation. This propagates trace context (W3C traceparent header)
+// on outgoing requests and creates client-side HTTP spans. When no
+// TracerProvider is configured, the wrapper is a near-zero-cost passthrough.
+func NewInstrumentedTransport(base http.RoundTripper) http.RoundTripper {
+	return otelhttp.NewTransport(base,
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return "provider " + r.Method
+		}),
+	)
+}
+
 // BaseProvider provides common functionality shared across all provider implementations.
 // It should be embedded in concrete provider structs to avoid code duplication.
 type BaseProvider struct {
@@ -108,7 +121,7 @@ func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fal
 
 	client := &http.Client{
 		Timeout:   httputil.DefaultProviderTimeout,
-		Transport: NewPooledTransport(),
+		Transport: NewInstrumentedTransport(NewPooledTransport()),
 	}
 	return NewBaseProvider(id, includeRawOutput, client), apiKey
 }
@@ -135,7 +148,7 @@ func NewBaseProviderWithCredential(
 ) (base BaseProvider, apiKey string) {
 	client := &http.Client{
 		Timeout:   timeout,
-		Transport: NewPooledTransport(),
+		Transport: NewInstrumentedTransport(NewPooledTransport()),
 	}
 	base = NewBaseProvider(id, includeRawOutput, client)
 	apiKey = ExtractAPIKey(cred)

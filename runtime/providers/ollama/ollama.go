@@ -43,7 +43,10 @@ func NewProvider(
 	additionalConfig map[string]any,
 ) *Provider {
 	// Ollama doesn't require API keys - create base provider without key lookup
-	client := &http.Client{Timeout: ollamaHTTPTimeout}
+	client := &http.Client{
+		Timeout:   ollamaHTTPTimeout,
+		Transport: providers.NewInstrumentedTransport(providers.NewPooledTransport()),
+	}
 	base := providers.NewBaseProvider(id, includeRawOutput, client)
 
 	// Extract keep_alive from additional config
