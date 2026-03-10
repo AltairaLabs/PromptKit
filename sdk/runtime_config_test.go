@@ -411,6 +411,59 @@ func TestRegisterExecExecutor_WithConfigs(t *testing.T) {
 	assert.Equal(t, []string{"--flag"}, td.ExecConfig.Args)
 }
 
+func TestRegisterExecExecutor_ServerMode(t *testing.T) {
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "db_query",
+		Description: "Database query",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "local",
+	})
+
+	conv := &Conversation{
+		toolRegistry: registry,
+		config: &config{
+			execToolConfigs: map[string]*tools.ExecConfig{
+				"db_query": {
+					Command: "./tools/db-query",
+					Runtime: "server",
+				},
+			},
+		},
+	}
+
+	conv.registerExecExecutor()
+
+	td := registry.Get("db_query")
+	require.NotNil(t, td)
+	assert.Equal(t, "server", td.Mode)
+	assert.NotNil(t, conv.serverExecutor)
+
+	// Cleanup
+	require.NoError(t, conv.serverExecutor.Close())
+}
+
+func TestApplyRuntimeConfig_ExecTools_ServerRuntime(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Tools: map[string]*pkgconfig.ToolSpec{
+			"db_query": {
+				Mode: "exec",
+				ExecConfig: &pkgconfig.ExecBinding{
+					Command: "./tools/db-query",
+					Runtime: "server",
+				},
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+
+	require.Len(t, c.execToolConfigs, 1)
+	cfg := c.execToolConfigs["db_query"]
+	assert.Equal(t, "server", cfg.Runtime)
+}
+
 func TestApplyExecHooks_ProviderHook(t *testing.T) {
 	spec := &pkgconfig.RuntimeConfigSpec{
 		Hooks: map[string]*pkgconfig.ExecHook{

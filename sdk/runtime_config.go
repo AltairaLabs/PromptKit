@@ -138,6 +138,7 @@ func applyExecToolConfigs(c *config, toolSpecs map[string]*pkgconfig.ToolSpec) {
 		}
 		c.execToolConfigs[name] = &tools.ExecConfig{
 			Command:   ts.ExecConfig.Command,
+			Runtime:   ts.ExecConfig.Runtime,
 			Args:      ts.ExecConfig.Args,
 			Env:       ts.ExecConfig.Env,
 			TimeoutMs: ts.ExecConfig.TimeoutMs,

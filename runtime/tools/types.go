@@ -223,6 +223,7 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool {
 // and reading the result from stdout.
 type ExecConfig struct {
 	Command   string   `json:"command" yaml:"command"`
+	Runtime   string   `json:"runtime,omitempty" yaml:"runtime,omitempty"` // "exec" (default) or "server"
 	Args      []string `json:"args,omitempty" yaml:"args,omitempty"`
 	Env       []string `json:"env,omitempty" yaml:"env,omitempty"`
 	TimeoutMs int      `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`

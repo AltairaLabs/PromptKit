@@ -4,15 +4,33 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
-// registerExecExecutor registers the exec executor and applies exec tool configs
-// to matching tool descriptors in the registry. Called during pipeline construction.
+const serverRuntime = "server"
+
+// registerExecExecutor registers the exec and server executors, then applies
+// exec tool configs to matching tool descriptors in the registry.
+// Called during pipeline construction.
 func (c *Conversation) registerExecExecutor() {
 	if len(c.config.execToolConfigs) == 0 {
 		return
 	}
 
-	// Register the exec executor
-	c.toolRegistry.RegisterExecutor(&tools.ExecExecutor{})
+	var hasExec, hasServer bool
+	for _, cfg := range c.config.execToolConfigs {
+		if cfg.Runtime == serverRuntime {
+			hasServer = true
+		} else {
+			hasExec = true
+		}
+	}
+
+	if hasExec {
+		c.toolRegistry.RegisterExecutor(&tools.ExecExecutor{})
+	}
+	if hasServer {
+		se := &tools.ServerExecutor{}
+		c.toolRegistry.RegisterExecutor(se)
+		c.serverExecutor = se
+	}
 
 	// Apply exec configs to matching tool descriptors
 	for name, execCfg := range c.config.execToolConfigs {
@@ -20,7 +38,11 @@ func (c *Conversation) registerExecExecutor() {
 		if td == nil {
 			continue
 		}
-		td.Mode = "exec"
+		if execCfg.Runtime == serverRuntime {
+			td.Mode = "server"
+		} else {
+			td.Mode = "exec"
+		}
 		td.ExecConfig = execCfg
 	}
 }
