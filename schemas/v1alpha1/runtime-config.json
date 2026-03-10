@@ -1,0 +1,850 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/runtime-config.json",
+  "$defs": {
+    "CredentialConfig": {
+      "properties": {
+        "api_key": {
+          "type": "string"
+        },
+        "credential_file": {
+          "type": "string"
+        },
+        "credential_env": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ExecBinding": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "title": "Command",
+          "description": "Path to the executable"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "exec",
+            "server"
+          ],
+          "title": "Runtime",
+          "description": "Execution mode",
+          "default": "exec"
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Env",
+          "description": "Required environment variable names"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Args",
+          "description": "Additional command arguments"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "title": "Timeout",
+          "description": "Per-invocation timeout in milliseconds"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command"
+      ]
+    },
+    "ExecHook": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "title": "Command",
+          "description": "Path to the executable"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "exec",
+            "server"
+          ],
+          "title": "Runtime",
+          "description": "Execution mode",
+          "default": "exec"
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Env",
+          "description": "Required environment variable names"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Args",
+          "description": "Additional command arguments"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "title": "Timeout",
+          "description": "Per-invocation timeout in milliseconds"
+        },
+        "hook": {
+          "type": "string",
+          "enum": [
+            "provider",
+            "tool",
+            "session"
+          ],
+          "title": "Hook",
+          "description": "Hook interface type"
+        },
+        "phases": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Phases",
+          "description": "Hook phases to intercept"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "filter",
+            "observe"
+          ],
+          "title": "Mode",
+          "description": "Hook execution mode",
+          "default": "filter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command",
+        "hook"
+      ]
+    },
+    "HTTPConfig": {
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "headers_from_env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "redact": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "request": {
+          "$ref": "#/$defs/RequestMapping"
+        },
+        "response": {
+          "$ref": "#/$defs/ResponseMapping"
+        },
+        "multimodal": {
+          "$ref": "#/$defs/MultimodalConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "url",
+        "method",
+        "timeout_ms"
+      ]
+    },
+    "LoggingConfigSpec": {
+      "properties": {
+        "defaultLevel": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Default Level",
+          "description": "Default log level for all modules",
+          "default": "info"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "text"
+          ],
+          "title": "Format",
+          "description": "Log output format",
+          "default": "text"
+        },
+        "commonFields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Common Fields",
+          "description": "Key-value pairs added to every log entry"
+        },
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/ModuleLoggingConfig"
+          },
+          "type": "array",
+          "title": "Modules",
+          "description": "Per-module logging configuration"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MCPServerConfig": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "tool_filter": {
+          "$ref": "#/$defs/MCPToolFilter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "command"
+      ]
+    },
+    "MCPToolFilter": {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MockMediaSpec": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "MockPartSpec": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/MockMediaSpec"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ModuleLoggingConfig": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Module name pattern using dot notation (e.g. runtime.pipeline)"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Level",
+          "description": "Log level for this module"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Fields",
+          "description": "Additional fields added to logs from this module"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "level"
+      ]
+    },
+    "MultimodalConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "accept_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PlatformConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "additional_config": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Pricing": {
+      "properties": {
+        "input_cost_per_1k": {
+          "type": "number"
+        },
+        "output_cost_per_1k": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "input_cost_per_1k",
+        "output_cost_per_1k"
+      ]
+    },
+    "Provider": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "rate_limit": {
+          "$ref": "#/$defs/RateLimit"
+        },
+        "defaults": {
+          "$ref": "#/$defs/ProviderDefaults"
+        },
+        "pricing": {
+          "$ref": "#/$defs/Pricing"
+        },
+        "pricing_correct_at": {
+          "type": "string"
+        },
+        "include_raw_output": {
+          "type": "boolean"
+        },
+        "additional_config": {
+          "type": "object"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig"
+        },
+        "platform": {
+          "$ref": "#/$defs/PlatformConfig"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "model"
+      ]
+    },
+    "ProviderDefaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "temperature",
+        "top_p",
+        "max_tokens"
+      ]
+    },
+    "RateLimit": {
+      "properties": {
+        "rps": {
+          "type": "integer"
+        },
+        "burst": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rps",
+        "burst"
+      ]
+    },
+    "RedisConfig": {
+      "properties": {
+        "address": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "database": {
+          "type": "integer"
+        },
+        "ttl": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "address"
+      ]
+    },
+    "RequestMapping": {
+      "properties": {
+        "query_params": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "header_params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "body_mapping": {
+          "type": "string"
+        },
+        "exclude": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "static_query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "static_headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "static_body": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ResponseMapping": {
+      "properties": {
+        "body_mapping": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RuntimeConfigSpec": {
+      "properties": {
+        "providers": {
+          "items": {
+            "$ref": "#/$defs/Provider"
+          },
+          "type": "array",
+          "title": "Providers",
+          "description": "LLM provider configurations"
+        },
+        "tools": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolSpec"
+          },
+          "type": "object",
+          "title": "Tools",
+          "description": "Tool implementation bindings keyed by tool name"
+        },
+        "mcp_servers": {
+          "items": {
+            "$ref": "#/$defs/MCPServerConfig"
+          },
+          "type": "array",
+          "title": "MCP Servers",
+          "description": "MCP server configurations"
+        },
+        "state_store": {
+          "$ref": "#/$defs/StateStoreConfig",
+          "title": "State Store",
+          "description": "Conversation state persistence configuration"
+        },
+        "logging": {
+          "$ref": "#/$defs/LoggingConfigSpec",
+          "title": "Logging",
+          "description": "Logging configuration"
+        },
+        "evals": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ExecBinding"
+          },
+          "type": "object",
+          "title": "Evals",
+          "description": "External eval process bindings keyed by eval type name"
+        },
+        "hooks": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ExecHook"
+          },
+          "type": "object",
+          "title": "Hooks",
+          "description": "External hook process configurations"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "StateStoreConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "redis": {
+          "$ref": "#/$defs/RedisConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ToolClientConfig": {
+      "properties": {
+        "consent": {
+          "$ref": "#/$defs/ToolConsentConfig"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "validate_output": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolConsentConfig": {
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        },
+        "decline_strategy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "required"
+      ]
+    },
+    "ToolSpec": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input_schema": true,
+        "output_schema": true,
+        "mode": {
+          "type": "string"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "mock_result": true,
+        "mock_template": {
+          "type": "string"
+        },
+        "mock_parts": {
+          "items": {
+            "$ref": "#/$defs/MockPartSpec"
+          },
+          "type": "array"
+        },
+        "http": {
+          "$ref": "#/$defs/HTTPConfig"
+        },
+        "client": {
+          "$ref": "#/$defs/ToolClientConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description",
+        "input_schema",
+        "output_schema",
+        "mode"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "title": "API Version",
+      "description": "Schema version identifier"
+    },
+    "kind": {
+      "type": "string",
+      "title": "Kind",
+      "description": "Resource type"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta",
+      "title": "Metadata",
+      "description": "Resource metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/RuntimeConfigSpec",
+      "title": "Spec",
+      "description": "Runtime configuration specification"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptKit Runtime Configuration",
+  "description": "Environment-specific configuration for running a pack: providers, MCP servers, state store, logging, evals, and hooks",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "RuntimeConfig",
+      "metadata": {
+        "name": "production"
+      },
+      "spec": {
+        "logging": {
+          "defaultLevel": "info",
+          "format": "json"
+        },
+        "mcp_servers": [
+          {
+            "args": [
+              "-y",
+              "@anthropic/mcp-filesystem"
+            ],
+            "command": "npx",
+            "name": "filesystem"
+          }
+        ],
+        "providers": [
+          {
+            "credential": {
+              "credential_env": "OPENAI_API_KEY"
+            },
+            "defaults": {
+              "max_tokens": 4096,
+              "temperature": 0.7
+            },
+            "id": "main",
+            "model": "gpt-4o",
+            "type": "openai"
+          }
+        ],
+        "state_store": {
+          "redis": {
+            "address": "localhost:6379"
+          },
+          "type": "redis"
+        }
+      }
+    }
+  ]
+}

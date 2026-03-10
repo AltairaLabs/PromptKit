@@ -2490,6 +2490,9 @@
         },
         "fail_on_violation": {
           "type": "boolean"
+        },
+        "message": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

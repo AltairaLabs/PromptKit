@@ -64,6 +64,7 @@ func run() error {
 		{"Tool", generators.GenerateToolSchema, "tool.json"},
 		{"Persona", generators.GeneratePersonaSchema, "persona.json"},
 		{"Logging", generators.GenerateLoggingSchema, "logging.json"},
+		{"RuntimeConfig", generators.GenerateRuntimeConfigSchema, "runtime-config.json"},
 	}
 
 	if mkdirErr := os.MkdirAll(outputPath, dirPermissions); mkdirErr != nil {
