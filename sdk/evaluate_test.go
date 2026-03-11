@@ -190,9 +190,10 @@ func TestEvaluate_EventBusEmission(t *testing.T) {
 	})
 
 	results, err := Evaluate(context.Background(), EvaluateOpts{
-		EvalDefs: containsDef("pass", "hello"),
-		Messages: []types.Message{types.NewAssistantMessage("hello world")},
-		EventBus: bus,
+		EvalDefs:  containsDef("pass", "hello"),
+		Messages:  []types.Message{types.NewAssistantMessage("hello world")},
+		EventBus:  bus,
+		SessionID: "eval-session-456",
 	})
 
 	require.NoError(t, err)
@@ -206,6 +207,8 @@ func TestEvaluate_EventBusEmission(t *testing.T) {
 	defer mu.Unlock()
 	require.GreaterOrEqual(t, len(received), 1)
 	assert.Equal(t, events.EventEvalCompleted, received[0].Type)
+	assert.Equal(t, "eval-session-456", received[0].SessionID,
+		"eval events from Evaluate() should include the SessionID from opts")
 }
 
 func TestEvaluate_CustomRegistry(t *testing.T) {

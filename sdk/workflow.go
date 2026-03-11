@@ -110,12 +110,6 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 			machine.CurrentState(), promptName, err)
 	}
 
-	// Create emitter from event bus if configured
-	var emitter *events.Emitter
-	if cfg.eventBus != nil {
-		emitter = events.NewEmitter(cfg.eventBus, "", "", "")
-	}
-
 	// Create and init WorkflowCapability
 	wfCap := NewWorkflowCapability()
 	if err := wfCap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
@@ -130,7 +124,7 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 		sdkPack:             p,
 		activeConv:          conv,
 		opts:                opts,
-		emitter:             emitter,
+		emitter:             conv.newEmitter(cfg.eventBus),
 		stateStore:          cfg.stateStore,
 		workflowID:          cfg.conversationID,
 		contextCarryForward: cfg.contextCarryForward,
@@ -209,11 +203,6 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 			machine.CurrentState(), promptName, err)
 	}
 
-	var emitter *events.Emitter
-	if cfg.eventBus != nil {
-		emitter = events.NewEmitter(cfg.eventBus, "", "", "")
-	}
-
 	// Create and init WorkflowCapability
 	wfCap := NewWorkflowCapability()
 	if err := wfCap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
@@ -228,12 +217,12 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 		sdkPack:             p,
 		activeConv:          conv,
 		opts:                opts,
-		emitter:             emitter,
 		stateStore:          cfg.stateStore,
 		workflowID:          workflowID,
 		contextCarryForward: cfg.contextCarryForward,
 		workflowCap:         wfCap,
 	}
+	wc.emitter = conv.newEmitter(cfg.eventBus)
 
 	// Register workflow tools for the current state
 	wc.registerWorkflowTools()

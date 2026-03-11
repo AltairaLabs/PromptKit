@@ -514,6 +514,20 @@ func (c *Conversation) getBaseSession() session.BaseSession {
 	return c.duplexSession
 }
 
+// newEmitter creates an events.Emitter for this conversation, populating
+// the sessionID from the active session. Returns nil if the event bus is not
+// configured.
+func (c *Conversation) newEmitter(bus *events.EventBus) *events.Emitter {
+	if bus == nil {
+		return nil
+	}
+	sessionID := ""
+	if s := c.getBaseSession(); s != nil {
+		sessionID = s.ID()
+	}
+	return events.NewEmitter(bus, "", sessionID, "")
+}
+
 // SendChunk sends a streaming chunk in duplex mode.
 // Only available when the conversation was opened with OpenDuplex().
 func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {

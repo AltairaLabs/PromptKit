@@ -764,3 +764,43 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 		}
 	}
 }
+
+func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
+	bus := events.NewEventBus(events.WithWorkerPoolSize(1))
+	defer bus.Close()
+
+	received := make(chan *events.Event, 10)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
+		received <- e
+	})
+
+	// Create a conversation with a real unary session that has a known ID.
+	conv := newTestConversation()
+	conv.config.eventBus = bus
+	conv.pack.Evals = []evals.EvalDef{
+		{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	mw.emitResults([]evals.EvalResult{
+		{EvalID: "e1", Type: "contains", Passed: true},
+	})
+
+	select {
+	case e := <-received:
+		// The session ID should match the conversation's session ID.
+		expectedID := conv.ID()
+		if e.SessionID != expectedID {
+			t.Errorf("expected SessionID %q on eval event, got %q", expectedID, e.SessionID)
+		}
+		if e.SessionID == "" {
+			t.Error("eval event SessionID must not be empty when session is available")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for eval event")
+	}
+}
