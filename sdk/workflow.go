@@ -217,12 +217,12 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 		sdkPack:             p,
 		activeConv:          conv,
 		opts:                opts,
-		emitter:             conv.newEmitter(cfg.eventBus),
 		stateStore:          cfg.stateStore,
 		workflowID:          workflowID,
 		contextCarryForward: cfg.contextCarryForward,
 		workflowCap:         wfCap,
 	}
+	wc.emitter = conv.newEmitter(cfg.eventBus)
 
 	// Register workflow tools for the current state
 	wc.registerWorkflowTools()
