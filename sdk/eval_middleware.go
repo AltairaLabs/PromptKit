@@ -175,29 +175,7 @@ func (em *evalMiddleware) emitResults(results []evals.EvalResult) {
 	if em.emitter == nil {
 		return
 	}
-	for i := range results {
-		r := &results[i]
-		data := events.EvalEventData{
-			EvalID:      r.EvalID,
-			EvalType:    r.Type,
-			Passed:      r.Passed,
-			Score:       r.Score,
-			Explanation: r.Explanation,
-			DurationMs:  r.DurationMs,
-			Error:       r.Error,
-			Message:     r.Message,
-			Skipped:     r.Skipped,
-			SkipReason:  r.SkipReason,
-		}
-		for _, v := range r.Violations {
-			data.Violations = append(data.Violations, v.Description)
-		}
-		if r.Passed {
-			em.emitter.EvalCompleted(&data)
-		} else {
-			em.emitter.EvalFailed(&data)
-		}
-	}
+	emitEvalResultsTo(em.emitter, results)
 }
 
 // buildEvalContext creates an EvalContext from the conversation state.

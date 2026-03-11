@@ -282,6 +282,12 @@ func registerExecEvalHandlers(registry *evals.EvalTypeRegistry, path string) err
 // emitEvalEvents emits eval results as events on the event bus.
 func emitEvalEvents(bus *events.EventBus, sessionID string, results []evals.EvalResult) {
 	emitter := events.NewEmitter(bus, "", sessionID, "")
+	emitEvalResultsTo(emitter, results)
+}
+
+// emitEvalResultsTo emits eval results through the given emitter.
+// Shared by the standalone Evaluate() path and the eval middleware.
+func emitEvalResultsTo(emitter *events.Emitter, results []evals.EvalResult) {
 	for i := range results {
 		r := &results[i]
 		data := events.EvalEventData{
