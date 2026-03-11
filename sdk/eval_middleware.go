@@ -78,11 +78,8 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		runner = evals.NewEvalRunner(registry)
 	}
 
-	// Build emitter from event bus (nil-safe)
-	var emitter *events.Emitter
-	if conv.config.eventBus != nil {
-		emitter = events.NewEmitter(conv.config.eventBus, "", "", "")
-	}
+	// Build emitter from event bus (nil-safe), populating session ID if available.
+	emitter := conv.newEmitter(conv.config.eventBus)
 
 	maxConcurrent := DefaultMaxConcurrentEvals
 	if conv.config.maxConcurrentEvals > 0 {

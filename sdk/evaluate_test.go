@@ -208,6 +208,37 @@ func TestEvaluate_EventBusEmission(t *testing.T) {
 	assert.Equal(t, events.EventEvalCompleted, received[0].Type)
 }
 
+func TestEvaluate_EventBusIncludesSessionID(t *testing.T) {
+	bus := events.NewEventBus()
+
+	var mu sync.Mutex
+	var received []*events.Event
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
+		mu.Lock()
+		received = append(received, e)
+		mu.Unlock()
+	})
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:  containsDef("pass", "hello"),
+		Messages:  []types.Message{types.NewAssistantMessage("hello world")},
+		EventBus:  bus,
+		SessionID: "eval-session-456",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+
+	bus.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(received), 1)
+	assert.Equal(t, "eval-session-456", received[0].SessionID,
+		"eval events from Evaluate() should include the SessionID from opts")
+}
+
 func TestEvaluate_CustomRegistry(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
 
