@@ -1,136 +1,72 @@
 ---
 title: Eval Framework
 ---
+
 Understanding PromptKit's automated evaluation system for LLM outputs.
 
 ## Overview
 
 Evals are automated quality checks that run against LLM outputs. They answer questions like "Did the assistant stay on topic?", "Was the JSON valid?", or "Did it call the right tools?". Evals are defined in pack files and execute automatically during conversations or against recorded sessions.
 
+Evals use the same [check types](/reference/checks/) as assertions and guardrails. The difference is *when* and *where* they run: evals can fire in production on every turn, on a sampled subset, or at session close, whereas assertions only run during Arena tests and guardrails run inline before the response is delivered.
+
 ```
 Pack File (evals) ──► EvalRunner ──► ResultWriter ──► Metrics / Metadata
 ```
 
+:::note
+For the complete list of check types available as evals, see the [Checks Reference](/reference/checks/).
+:::
+
 ## Pack Evals vs Scenario Assertions
 
-PromptKit offers two complementary evaluation mechanisms:
+PromptKit offers two complementary evaluation mechanisms that share the same underlying [check types](/reference/checks/):
 
 | | Pack Evals | Scenario Assertions |
 |---|---|---|
 | **Defined in** | Pack file (`evals` array) | Arena scenario YAML |
 | **Scope** | Any conversation using the pack | Specific test scenarios |
 | **When** | Production + testing | Testing only |
-| **Types** | Deterministic + LLM judge + External | Content matching + LLM judge + External |
-| **Trigger** | Configurable (every turn, sampling) | Every turn / conversation end |
+| **Check types** | Any check from the [unified catalog](/reference/checks/) | Any check from the [unified catalog](/reference/checks/) |
+| **Trigger** | Configurable (every turn, sampling, session close) | Every turn / conversation end |
 
 **Pack evals** travel with your pack — they run in production, in Arena tests, and anywhere the pack is used. Think of them as built-in quality monitors.
 
 **Scenario assertions** are Arena-specific test expectations. They validate specific conversation flows defined in your test scenarios.
 
-Both can coexist: pack evals provide baseline quality monitoring while scenario assertions verify specific behaviors.
+Both can coexist: pack evals provide baseline quality monitoring while scenario assertions verify specific behaviors. See [Unified Check Model](/concepts/validation/) for how evals, assertions, and guardrails relate.
 
-## Eval Types
+## Eval Definition Structure
 
-### Deterministic (Turn-Level)
+Each eval is an `EvalDef` object in the pack's `evals` array. The structure combines a check type with trigger, sampling, threshold, and metric configuration:
 
-These run against individual assistant responses:
+```json
+{
+  "id": "quality_check",
+  "type": "contains",
+  "trigger": "every_turn",
+  "params": { "patterns": ["thank you"] },
+  "threshold": { "min_score": 0.8 },
+  "enabled": true,
+  "sample_percentage": 10,
+  "metric": {
+    "name": "response_quality",
+    "type": "gauge",
+    "labels": { "category": "tone" }
+  }
+}
+```
 
-| Type | Description | Key Params |
-|------|-------------|------------|
-| `contains` | Check output contains patterns | `patterns` (string array) |
-| `regex` | Regex pattern match | `pattern` (string) |
-| `json_valid` | Output is valid JSON | — |
-| `json_schema` | Output matches JSON schema | `schema` (object) |
-| `json_path` | Extract and validate JSON path values | `expression`, `expected`, `contains`, `min_results`, `max_results` |
-| `tools_called` | Specific tools were invoked | `tool_names` (string array) |
-| `tools_not_called` | Specific tools were NOT invoked | `tool_names` (string array) |
-| `tool_args` | Tool arguments match expectations | `tool_name`, `expected_args` (object) |
-| `tool_call_count` | Tool call count within bounds | `tool` (string), `min`, `max` (int) |
-| `tool_calls_with_args` | Match tool calls with specific args | `tool_name`, `expected_args`, `result_includes` |
-| `tool_result_includes` | Tool result contains patterns | `tool_name`, `patterns` (string array) |
-| `tool_result_matches` | Tool result matches regex | `tool_name`, `pattern` (string) |
-| `no_tool_errors` | No tool calls returned errors | — |
-| `tool_call_sequence` | Tools called in exact order | `sequence` (string array) |
-| `tool_call_chain` | Tools called as ordered subsequence | `chain` (string array) |
-| `tool_anti_pattern` | Forbidden tool call subsequences | `patterns` (array of {`sequence`, `message`}) |
-| `tool_no_repeat` | No consecutive repeated tool calls | `tools`, `max_repeats` |
-| `tool_efficiency` | Tool usage within efficiency bounds | `max_calls`, `max_errors`, `max_error_rate` |
-| `latency_budget` | Response within time limit | `max_ms` (int) |
-| `cosine_similarity` | Semantic similarity to reference | `reference`, `min_similarity` |
-| `min_length` | Minimum response length | `min` or `min_characters` (int) |
-| `max_length` | Maximum response length | `max` or `max_characters` (int) |
-| `guardrail_triggered` | A guardrail was triggered | `guardrail` (string) |
-
-### Deterministic (Session-Level)
-
-These run against the full conversation:
-
-| Type | Description | Key Params |
-|------|-------------|------------|
-| `contains_any` | Any pattern appears across all turns | `patterns` (string array) |
-| `content_excludes` | No forbidden content in any turn | `patterns` (string array) |
-| `tools_called` (session) | Tools called anywhere in session | `tool_names` (string array) |
-| `tools_not_called` (session) | Tools never called in session | `tool_names` (string array) |
-| `tool_args` (session) | Tool args match across session | `tool_name`, `expected_args` (object) |
-| `tool_args_excluded_session` | Forbidden tool args absent | `tool_name`, `excluded_args` (object) |
-| `cost_budget` | Session cost within budget | `max_cost_usd`, `max_total_tokens` |
-| `invariant_fields_preserved` | Tool arg fields persist across calls | `tool`, `fields` (string array) |
-
-### LLM Judge
-
-Use an LLM to evaluate quality when deterministic checks aren't sufficient:
-
-| Type | Description | Key Params |
-|------|-------------|------------|
-| `llm_judge` | LLM evaluates a single turn | `criteria` (string) |
-| `llm_judge_session` | LLM evaluates full session | `criteria` (string) |
-| `llm_judge_tool_calls` | LLM evaluates tool usage | `criteria`, `tools` (string array) |
-
-LLM judge evals require a judge provider configured in the eval context metadata.
-
-### External Evals
-
-Delegate evaluation to an external service — a REST endpoint or an A2A agent:
-
-| Type | Description | Key Params |
-|------|-------------|------------|
-| `rest_eval` | POST turn to an HTTP endpoint | `url` (string), `criteria` (string) |
-| `rest_eval_session` | POST full session to an HTTP endpoint | `url` (string), `criteria` (string) |
-| `a2a_eval` | Send turn to an A2A eval agent | `agent_url` (string), `criteria` (string) |
-| `a2a_eval_session` | Send full session to an A2A eval agent | `agent_url` (string), `criteria` (string) |
-
-External eval handlers send conversation context (messages, tool calls, variables) to the external service and expect a `{passed, score, reasoning}` JSON response. They support `${ENV_VAR}` interpolation for authentication headers and tokens, configurable timeouts, and a `min_score` threshold. REST evals use standard HTTP; A2A evals use the A2A protocol's `message/send` method.
-
-### Workflow & Skill Evals
-
-| Type | Description | Key Params |
-|------|-------------|------------|
-| `state_is` | Current workflow state matches | `state` (string) |
-| `transitioned_to` | A specific state transition occurred | `state` (string) |
-| `workflow_complete` | Workflow reached a terminal state | — |
-| `workflow_transition_order` | Transitions in expected order | `sequence` (string array) |
-| `workflow_tool_access` | Tools only used in permitted states | `rules` (array of {`state`, `allowed`}) |
-| `skill_activated` | Specific skills were activated | `skill_names` (string array) |
-| `skill_not_activated` | Specific skills were NOT activated | `skill_names` (string array) |
-| `skill_activation_order` | Skills activated in order | `sequence` (string array) |
-
-### Media Evals
-
-| Type | Description | Key Params |
-|------|-------------|------------|
-| `image_format` | Image format is allowed | `formats` (string array) |
-| `image_dimensions` | Image dimensions within bounds | `min_width`, `max_width`, `min_height`, `max_height` |
-| `audio_format` | Audio format is allowed | `formats` (string array) |
-| `audio_duration` | Audio duration within range | `min_seconds`, `max_seconds` |
-| `video_duration` | Video duration within range | `min_seconds`, `max_seconds` |
-| `video_resolution` | Video resolution within bounds | `min_width`, `max_width`, `presets` (string array) |
-
-### Behavioral Testing Evals
-
-| Type | Description | Key Params |
-|------|-------------|------------|
-| `outcome_equivalent` | Output matches expected outcome metric | `metric` ("tool_calls"\|"final_state"\|"content_hash") |
-| `directional` | Output matches baseline expectations | `check` ("same_tool_calls"\|"same_outcome"\|"similar_content") |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Unique identifier for the eval within the pack |
+| `type` | Yes | Check type from the [Checks Reference](/reference/checks/) |
+| `trigger` | Yes | When the eval fires (see [Triggers](#triggers)) |
+| `params` | Varies | Parameters specific to the check type |
+| `threshold` | No | Pass/fail threshold (e.g. `min_score`) |
+| `enabled` | No | Whether the eval is active (default: `true`) |
+| `sample_percentage` | No | Percentage of turns/sessions to evaluate (for sampling triggers) |
+| `metric` | No | Prometheus metric configuration (see [MetricCollector](#metriccollector--prometheus)) |
 
 ## Triggers
 
@@ -298,7 +234,10 @@ See the [`eval-test` example](https://github.com/AltairaLabs/PromptKit/tree/main
 
 ## See Also
 
-- [Observability](/sdk/explanation/observability/) — EventBus architecture and event types
+- [Checks Reference](/reference/checks/) — All check types and parameters
+- [Unified Check Model](/concepts/validation/) — How evals, assertions, and guardrails relate
+- [Run Evals](/sdk/how-to/run-evals/) — Programmatic eval execution via SDK
+- [Assertions Reference](/arena/reference/assertions/) — Test-time checks
+- [Observability](/sdk/explanation/observability/) — EventBus architecture
 - [Session Recording](/arena/explanation/session-recording/) — How recordings feed into evals
 - [Monitor Events](/sdk/how-to/monitor-events/) — MetricCollector usage in SDK
-- [Testing Philosophy](/arena/explanation/testing-philosophy/) — Why test prompts?

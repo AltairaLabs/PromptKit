@@ -413,13 +413,15 @@ promptarena run --verbose --scenario validator-test
 
 ## Next Steps
 
-- **[Integrate CI/CD](integrate-ci-cd)** - Automate validation in pipelines
-- **[Assertions Reference](../reference/assertions)** - Complete assertion catalog
-- **[Validators Reference](../reference/validators)** - Validator API details
+- **[Checks Reference](/reference/checks/)** -- All check types and parameters
+- **[Integrate CI/CD](integrate-ci-cd)** -- Automate validation in pipelines
+- **[Assertions Reference](../reference/assertions)** -- Assertion syntax and configuration
+- **[Guardrails Reference](../reference/validators)** -- Runtime policy enforcement
+- **[Unified Check Model](/concepts/validation/)** -- How assertions, guardrails, and evals relate
 
 ## Examples
 
 See validation examples:
-- `examples/assertions-test/` - All assertion types
-- `examples/guardrails-test/` - Custom validators
-- `examples/customer-support/` - Real-world validation patterns
+- `examples/assertions-test/` -- All assertion types
+- `examples/guardrails-test/` -- Guardrail patterns
+- `examples/customer-support/` -- Real-world validation patterns

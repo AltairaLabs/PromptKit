@@ -478,8 +478,10 @@ See [Exec Hooks](/sdk/how-to/exec-hooks/) for the full how-to guide and [Exec Pr
 
 ## See Also
 
-- [Pipeline Reference](pipeline) — Stage and pipeline interfaces
-- [Validation Concepts](/concepts/validation/) — Why and when to validate
-- [Validation Tutorial](../tutorials/04-validation-guardrails) — Step-by-step guide
-- [Exec Hooks](/sdk/how-to/exec-hooks/) — External hooks in any language
-- [Exec Protocol](/sdk/reference/exec-protocol/) — Wire protocol reference
+- [Checks Reference](/reference/checks/) -- All check types, parameters, and extensibility details
+- [Unified Check Model](/concepts/validation/) -- How guardrails, assertions, and evals relate
+- [Guardrails Reference](/arena/reference/validators/) -- Guardrail configuration and behavior
+- [Pipeline Reference](pipeline) -- Stage and pipeline interfaces
+- [Validation Tutorial](../tutorials/04-validation-guardrails) -- Step-by-step guide
+- [Exec Hooks](/sdk/how-to/exec-hooks/) -- External hooks in any language
+- [Exec Protocol](/sdk/reference/exec-protocol/) -- Wire protocol reference

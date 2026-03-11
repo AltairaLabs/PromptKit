@@ -186,6 +186,7 @@ type EvalResult struct {
 
 ## See Also
 
-- [Eval Framework](/arena/explanation/eval-framework/) — How evals work
-- [Assertions Reference](/arena/reference/assertions/) — All assertion/eval types
-- [Monitor Events](monitor-events) — Event-based observability
+- [Checks Reference](/reference/checks/) -- All check types and parameters
+- [Unified Check Model](/concepts/validation/) -- How evals, assertions, and guardrails relate
+- [Eval Framework](/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
+- [Monitor Events](monitor-events) -- Event-based observability

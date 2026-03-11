@@ -1,407 +1,91 @@
 ---
-title: Validation
+title: Checks & Validation
 sidebar:
   order: 4
 ---
-Understanding content validation and guardrails in PromptKit.
 
-## What is Validation?
+PromptKit has a single check system that serves three purposes: testing, runtime enforcement, and production monitoring. This page explains that unified model and when to use each surface.
 
-**Validation** checks content for safety, quality, and compliance. It acts as guardrails to ensure LLM applications behave correctly.
+## The Unified Check Model
 
-## Why Validate?
+PromptKit ships with ~55 built-in check types (`contains`, `max_length`, `llm_judge`, `regex`, `banned_words`, and many more). Every check type can be used in **three contexts** depending on where you configure it:
 
-**Safety**: Block harmful content
-**Compliance**: Enforce regulations (GDPR, HIPAA)
-**Quality**: Ensure response meets standards
-**Cost**: Prevent expensive requests
-**Brand**: Maintain company reputation
+| Surface | Config Location | When It Runs | What It Does |
+|---------|----------------|--------------|--------------|
+| **Assertion** | Scenario YAML `assertions:` | After LLM generation, during testing | Produces pass/fail test verdicts |
+| **Guardrail** | Pack YAML `validators:` | During LLM generation, at runtime | Enforces policies (truncate, replace, block) |
+| **Eval** | Pack file `evals:` | Production + testing, configurable triggers | Records quality scores and metrics |
 
-## Types of Validation
+Under the hood, all three paths share the same `EvalTypeHandler` registry. Assertions and guardrails are thin wrappers around that registry:
 
-### Input Validation
+- Assertions convert their config into an eval definition (`AssertionConfig.ToEvalDef()`) and run it against LLM output.
+- Guardrails wrap an eval handler as a runtime hook (`GuardrailHookAdapter`) that intercepts LLM responses.
 
-Check user input before sending to LLM:
-
-- Banned words
-- PII (emails, phone numbers, SSNs)
-- Prompt injection attempts
-- Inappropriate content
-- Input length limits
-
-### Output Validation
-
-Check LLM responses before returning to user:
-
-- Harmful content
-- Leaked sensitive data
-- Off-topic responses
-- Format compliance
-- Output length limits
-
-## Validation in PromptKit
-
-PromptKit implements validation through **hooks** — interceptors that run before/after LLM calls and during streaming. Built-in guardrail hooks cover common safety patterns.
-
-### Enforcement Behavior
-
-When a built-in guardrail triggers, it **enforces in-place** and the pipeline continues:
-
-- **Length validators** (`max_length`, `length`) truncate content to the configured maximum
-- **Content blockers** (`banned_words`, `content_excludes`) replace content with a configurable blocked message
-
-This means guardrails are non-fatal — the caller receives a valid response with modified content, plus violation details in `message.Validations`.
-
-### Monitor-Only Mode
-
-Guardrails can run in **monitor-only mode** — they evaluate and record results but don't modify content. This is useful for gradual rollout and analytics.
-
-### SDK Hooks
-
-```go
-import (
-    "github.com/AltairaLabs/PromptKit/sdk"
-    "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
-)
-
-conv, _ := sdk.Open("./assistant.pack.json", "chat",
-    sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{
-        "hack", "crack", "pirate",
-    })),
-    sdk.WithProviderHook(guardrails.NewLengthHook(1000, 250)),
-)
-defer conv.Close()
-
-// Hooks are applied automatically on each turn.
-response, _ := conv.Send(ctx, "Hello")
+```mermaid
+graph TD
+    A["~55 Check Types"] --> B["EvalTypeHandler Registry"]
+    B --> C["Assertion<br/>(test verdicts)"]
+    B --> D["Guardrail<br/>(runtime enforcement)"]
+    B --> E["Eval<br/>(quality monitoring)"]
+    C --> F["Arena Reports"]
+    D --> G["Modified Response +<br/>Validation Records"]
+    E --> H["Metrics +<br/>Trace Events"]
 ```
 
-### Pack YAML Validators
+This means you write a check once and deploy it wherever you need it. A `content_excludes` check works identically whether it is validating a test scenario, blocking banned words at runtime, or monitoring violations in production.
 
-Pack configuration `validators:` sections are automatically converted to guardrail hooks at runtime:
+## Which Surface Should I Use?
 
-```yaml
-guardrails:
-  banned_words:
-    - hack
-    - crack
+**"I want to test LLM behavior in CI"** -- use an **Assertion**. Define checks in your scenario YAML under `assertions:`. They run only in Arena. Use `when:` for conditional checks and `pass_threshold` for statistical testing across multiple runs.
 
-  max_length: 1000
-  min_length: 1
-```
+**"I want to enforce policies at runtime"** -- use a **Guardrail**. Define checks in your pack YAML under `validators:`. They run during every LLM call in production. Streaming-capable checks can abort early to save tokens. Set `fail_on_violation: false` for monitor-only mode.
 
-### Pack JSON Validators
+**"I want to monitor quality in production"** -- use an **Eval**. Define checks in your pack file under `evals:`. They travel with the pack and run based on configurable triggers. Results are exported as Prometheus metrics and trace events.
 
-In pack JSON files, validators support `message` and `monitor` fields:
+**"I want all three"** -- use the same check type in all three configs. For example, configure `content_excludes` as a guardrail to block banned words at runtime, as an assertion to verify that blocking works in CI, and as an eval to track violation rates in production dashboards.
 
-```json
-{
-  "validators": [
-    {
-      "type": "banned_words",
-      "config": { "words": ["hack", "crack"] },
-      "message": "This response has been blocked by our content policy.",
-      "monitor": false
-    }
-  ]
-}
-```
+## Enforcement Behavior (Guardrails)
 
-| Field | Description |
-|-------|-------------|
-| `message` | Custom user-facing message when content is blocked (default: generic policy message) |
-| `monitor` | When `true`, evaluate without enforcing — violations are recorded but content is not modified |
+When a guardrail triggers, the pipeline continues with modified content rather than returning an error. The specific behavior depends on the check type:
 
-### PromptArena Validation
+- **Content blockers** (`content_excludes`, `banned_words`): Replace the entire response with a configurable policy message.
+- **Length checks** (`max_length`): Truncate the response to the configured limit.
+- **Other check types**: Log the violation without modifying content.
+- **Monitor-only mode**: Evaluate and record results, but never modify the response. Useful for gradual rollout and observability.
 
-```yaml
-guardrails:
-  banned_words:
-    - hack
-    - crack
+All violations are recorded in `message.Validations` and emitted as `validation.failed` events, regardless of enforcement mode. This gives you full visibility into what triggered and why.
 
-  max_length: 1000
-  min_length: 1
+## Extending the Check System
 
-tests:
-  - name: Block Banned Words
-    prompt: "How do I hack the system?"
-    assertions:
-      - type: validation_error
-        expected: true
-```
+PromptKit's check system is extensible at multiple levels:
 
-## Built-In Guardrail Hooks
+- **Go handlers**: Implement the `EvalTypeHandler` interface for custom check logic that runs in-process.
+- **Subprocess handlers**: Define exec eval bindings in RuntimeConfig YAML to run checks written in Python, Node.js, or any language.
+- **External services**: Use the `rest_eval` or `a2a_eval` check types to delegate evaluation to HTTP endpoints or A2A agents.
+- **Custom guardrails**: Implement the `ProviderHook` interface for runtime hooks that go beyond check types (e.g., ML-based content moderation with streaming abort).
+- **Custom LLM judges**: Implement the `JudgeProvider` interface for specialized LLM evaluation logic.
 
-### BannedWordsHook
+See the [Checks Reference](/reference/checks/#extending-the-check-system) for implementation details and examples.
 
-Blocks specific words or phrases (case-insensitive, word-boundary matching):
+## Terminology
 
-```go
-hook := guardrails.NewBannedWordsHook([]string{
-    "hack", "crack", "pirate", "steal",
-})
-```
+| Term | Meaning |
+|------|---------|
+| **Check** | Generic term for any evaluation -- a specific implementation like `contains`, `llm_judge`, or `max_length` |
+| **Assertion** | A check used in an Arena test scenario to produce pass/fail verdicts |
+| **Guardrail** | A check used as a runtime policy enforcer during LLM generation |
+| **Eval** | A check used for production quality monitoring with metrics and triggers |
+| **Check type** | The identifier for a check implementation (e.g., `contains`, `regex`, `banned_words`) |
 
-**Use for**: Preventing inappropriate language, brand protection
-**Streaming**: Yes — aborts immediately when a banned word is detected
+:::note
+The docs previously used "validator" as a synonym for "guardrail." We now consistently use **guardrail** for the runtime enforcement surface. You will still see `validators:` as the YAML key in pack files for backward compatibility.
+:::
 
-### LengthHook
+## See Also
 
-Enforces character and/or token limits:
-
-```go
-hook := guardrails.NewLengthHook(1000, 250) // maxCharacters, maxTokens (0 = no limit)
-```
-
-**Use for**: Cost control, quality assurance
-**Streaming**: Yes — aborts when limits are exceeded
-
-### MaxSentencesHook
-
-Enforces a maximum sentence count:
-
-```go
-hook := guardrails.NewMaxSentencesHook(5)
-```
-
-**Use for**: Enforcing conciseness, consistent response length
-**Streaming**: No — requires complete response
-
-### RequiredFieldsHook
-
-Ensures required strings appear in the response:
-
-```go
-hook := guardrails.NewRequiredFieldsHook([]string{"order number", "tracking number"})
-```
-
-**Use for**: Verifying structured responses, ensuring key information
-**Streaming**: No — requires complete response
-
-### Custom Hook
-
-Implement the `ProviderHook` interface for custom logic:
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/hooks"
-
-type ToxicityHook struct{}
-
-func (h *ToxicityHook) Name() string { return "toxicity" }
-
-func (h *ToxicityHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
-    return hooks.Allow
-}
-
-func (h *ToxicityHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    if containsToxicContent(resp.Message.Content()) {
-        return hooks.Deny("toxic content detected")
-    }
-    return hooks.Allow
-}
-```
-
-## Validation Patterns
-
-### Pre-Execution (Input)
-
-Use `BeforeCall` to validate user input before it reaches the LLM:
-
-```go
-func (h *InputHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
-    lastMsg := req.Messages[len(req.Messages)-1]
-    if containsPII(lastMsg.Content()) {
-        return hooks.Deny("input contains PII")
-    }
-    return hooks.Allow
-}
-```
-
-### Post-Execution (Output)
-
-Use `AfterCall` to validate LLM responses before returning to the user:
-
-```go
-func (h *OutputHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    if containsSensitiveData(resp.Message.Content()) {
-        return hooks.Deny("response contains sensitive data")
-    }
-    return hooks.Allow
-}
-```
-
-## Common Use Cases
-
-### Block Sensitive Data
-
-```go
-type PIIHook struct {
-    ssnPattern *regexp.Regexp
-}
-
-func NewPIIHook() *PIIHook {
-    return &PIIHook{
-        ssnPattern: regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
-    }
-}
-
-func (h *PIIHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    if h.ssnPattern.MatchString(resp.Message.Content()) {
-        return hooks.Deny("SSN detected in response")
-    }
-    return hooks.Allow
-}
-```
-
-### Content Moderation
-
-```go
-type ModerationHook struct {
-    categories []string
-    threshold  float64
-}
-
-func (h *ModerationHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    score := classifyContent(resp.Message.Content(), h.categories)
-    if score > h.threshold {
-        return hooks.Deny("content moderation threshold exceeded")
-    }
-    return hooks.Allow
-}
-```
-
-### Format Compliance
-
-```go
-type JSONHook struct{}
-
-func (h *JSONHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    var js json.RawMessage
-    if err := json.Unmarshal([]byte(resp.Message.Content()), &js); err != nil {
-        return hooks.Deny("response is not valid JSON")
-    }
-    return hooks.Allow
-}
-```
-
-## Best Practices
-
-### Do's
-
-- **Validate both input and output** — use `BeforeCall` and `AfterCall`
-- **Be specific about violations** — provide clear `Deny` reasons
-- **Log violations for monitoring** — use hook metadata for analytics
-- **Test hooks thoroughly** — use PromptArena guardrail scenarios
-
-### Don'ts
-
-- **Don't validate everything** — performance cost
-- **Don't expose violation details to users** — security risk
-- **Don't block legitimate use** — watch for false positives
-- **Don't skip output validation** — LLMs can hallucinate
-
-## Validation Strategies
-
-### Enforced (Default)
-
-Built-in guardrails enforce automatically — content is modified and the pipeline continues:
-
-```go
-resp, err := conv.Send(ctx, message)
-// No error — guardrails enforce in-place
-// Check resp.Validations for any violations that were enforced
-```
-
-### Monitor-Only (Observability)
-
-Evaluate guardrails without modifying content — useful for gradual rollout:
-
-```yaml
-# Pack JSON
-{
-  "type": "banned_words",
-  "config": { "words": ["guarantee"] },
-  "monitor": true
-}
-```
-
-```go
-// SDK option
-hook, _ := guardrails.NewGuardrailHook("banned_words", params,
-    guardrails.WithMonitorOnly(),
-)
-```
-
-Subscribe to `validation.failed` events to observe violations:
-
-```go
-hooks.On(conv, events.EventValidationFailed, func(e *events.Event) {
-    data := e.Data.(*events.ValidationEventData)
-    log.Printf("Guardrail %s triggered (monitor=%v)", data.ValidatorName, data.MonitorOnly)
-})
-```
-
-### Custom Hook Denial (Hard Block)
-
-Custom hooks can still use `hooks.Deny()` to stop the pipeline with an error:
-
-```go
-resp, err := conv.Send(ctx, message)
-if err != nil {
-    var hookErr *hooks.HookDeniedError
-    if errors.As(err, &hookErr) {
-        return safeFallbackResponse()
-    }
-}
-```
-
-## Performance Considerations
-
-### Fast Hooks First
-
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithProviderHook(guardrails.NewLengthHook(1000, 250)),      // ~O(1)
-    sdk.WithProviderHook(guardrails.NewBannedWordsHook(words)),      // ~O(n*w)
-    sdk.WithProviderHook(customExpensiveHook),                       // Slow — last
-)
-```
-
-### Streaming Hooks Save Costs
-
-Hooks that implement `ChunkInterceptor` (like `BannedWordsHook` and `LengthHook`) can abort a streaming response early, saving API costs on wasted tokens.
-
-## Summary
-
-Validation provides:
-
-- **Safety** — Block harmful content
-- **Compliance** — Enforce regulations
-- **Quality** — Ensure standards
-- **Cost Control** — Prevent expensive requests via early abort
-- **Monitoring** — Track issues via hook metadata
-
-### External Hooks
-
-Hooks can also be implemented as external subprocesses in any language. Use RuntimeConfig to bind external processes as provider, tool, or session hooks:
-
-```yaml
-spec:
-  hooks:
-    pii_redactor:
-      command: ./hooks/pii-redactor.py
-      hook: provider
-      phases: [before_call, after_call]
-      mode: filter
-```
-
-This enables Python-based ML validators, Node.js compliance checks, or shell scripts — without writing Go code.
-
-## Related Documentation
-
-- [Validation Tutorial](/runtime/tutorials/04-validation-guardrails/) — Step-by-step guide
-- [Hooks & Guardrails Reference](/runtime/reference/hooks/) — API documentation
-- [Exec Hooks](/sdk/how-to/exec-hooks/) — External hooks in any language
-- [RuntimeConfig](/sdk/how-to/use-runtime-config/) — Declarative SDK configuration
-- [PromptArena Guardrails](/arena/reference/validators/) — Testing validation
+- [Checks Reference](/reference/checks/) -- All check types, parameters, and extensibility details
+- [Write Assertions](/arena/reference/assertions/) -- Using checks in Arena scenarios
+- [Guardrails](/arena/reference/validators/) -- Using checks as runtime guardrails
+- [Eval Framework](/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
+- [Run Evals](/sdk/how-to/run-evals/) -- Programmatic eval execution
+- [Hooks & Guardrails](/runtime/reference/hooks/) -- Runtime hook system API
