@@ -1,18 +1,18 @@
 ---
-title: Validators Reference
+title: Guardrails Reference
 ---
 
-Validators (also called guardrails) are runtime checks that enforce policies on LLM responses. Unlike assertions that verify test expectations, validators actively prevent policy violations and can abort streaming responses early.
+Guardrails are runtime checks that enforce policies on LLM responses. They use the same check types as assertions and evals, but run during generation and can actively modify or block content.
 
-:::note[Auto-Conversion]
-Pack YAML `validators:` sections are automatically converted to guardrail hooks (`runtime/hooks/guardrails`) at runtime. You can continue defining validators in YAML — the runtime handles the conversion transparently.
+:::note[Check Types]
+For the complete list of check types and their parameters, see the [Checks Reference](/reference/checks/). This page covers guardrail-specific configuration and behavior.
 :::
 
-## Validators vs Assertions
+## Guardrails vs Assertions
 
 ```mermaid
 graph TB
-    subgraph "Validators (Guardrails)"
+    subgraph "Guardrails"
         V1["Runtime Enforcement"]
         V2["Can Abort Streaming"]
         V3["Policy Compliance"]
@@ -32,7 +32,7 @@ graph TB
 
 **Key Differences**:
 
-| Aspect | Validators | Assertions |
+| Aspect | Guardrails | Assertions |
 |--------|-----------|------------|
 | Purpose | Enforce policies | Verify behavior |
 | When | During generation | After generation |
@@ -40,7 +40,7 @@ graph TB
 | Defined In | PromptConfig | Scenario |
 | Failure | Policy violation | Test failure |
 
-## How Validators Work
+## How Guardrails Work
 
 ### Non-Streaming Mode
 
@@ -48,16 +48,16 @@ graph TB
 sequenceDiagram
     participant LLM
     participant Response
-    participant Validators
+    participant Guardrails
     participant Result
 
     LLM->>Response: Generate Complete Response
-    Response->>Validators: Validate Content
+    Response->>Guardrails: Validate Content
 
     alt Validation Passes
-        Validators-->>Result: ✅ Return Response
+        Guardrails-->>Result: Return Response
     else Validation Fails
-        Validators-->>Result: ❌ Validation Error
+        Guardrails-->>Result: Validation Error
     end
 ```
 
@@ -67,447 +67,143 @@ sequenceDiagram
 sequenceDiagram
     participant LLM
     participant Stream
-    participant Validators
+    participant Guardrails
     participant Result
 
     LLM->>Stream: Start Streaming
 
     loop Each Chunk
-        Stream->>Validators: Validate Chunk
+        Stream->>Guardrails: Validate Chunk
 
         alt Validation OK
-            Validators-->>Result: ✅ Forward Chunk
+            Guardrails-->>Result: Forward Chunk
         else Validation Fails
-            Validators->>Stream: ❌ Abort Stream
+            Guardrails->>Stream: Abort Stream
             Stream-->>Result: Return Partial + Error
         end
     end
 ```
 
-**Benefits of Streaming Validation**:
-- Catch violations immediately
-- Save API costs by aborting early
-- Faster failure detection
-- Prevent bad content from reaching users
+## Guardrail Structure
 
-## Validator Structure
-
-Validators are defined in PromptConfig:
+Guardrails are defined in the `validators` section of a PromptConfig:
 
 ```yaml
-# prompts/my-prompt.yaml
 spec:
-  system_template: |
-    Your system prompt here...
-
   validators:
-    - type: validator_name       # Required: Validator type
-      params:                    # Required: Type-specific params
+    - type: check_type
+      params:
         param1: value1
-        param2: value2
-      message: "Policy description"       # Optional: User-facing blocked message
-      fail_on_violation: true             # Optional: Enforce guardrail (default: true)
+      message: "Policy description"
+      fail_on_violation: true
 ```
 
 ### Enforcement Behavior
 
-When a validator triggers and `fail_on_violation` is `true` (the default):
+When a guardrail triggers and `fail_on_violation` is `true` (the default):
 
-- **Length validators** (`max_length`, `length`) truncate content to the configured maximum
-- **Content blockers** (`banned_words`, `content_excludes`) replace content with the `message` (or a default policy message)
-- Other validator types log the violation but don't modify content
+- **Content blockers** (`banned_words` / `content_excludes`) replace content with the `message` (or a default policy message)
+- **Length guards** (`max_length` / `length`) truncate content to the configured maximum
+- Other check types log the violation but do not modify content
 
-When `fail_on_violation` is `false`, the validator evaluates and records results in `message.Validations` but does not modify content — equivalent to monitor-only mode.
+When `fail_on_violation` is `false`, the guardrail evaluates and records results in `message.Validations` but does not modify content -- equivalent to monitor-only mode.
 
-## Available Validators
+## Guardrail-Compatible Check Types
 
-### Content Safety Validators
+Any check type can technically be used as a guardrail, but only certain built-in types have specific enforcement behavior. Others evaluate and record results without modifying content.
 
-#### `banned_words`
+| Check Type | Aliases | Streaming | Enforcement |
+|-----------|---------|-----------|-------------|
+| `content_excludes` | `banned_words` | Yes | Replaces content |
+| `max_length` | `length` | Yes | Truncates |
+| `sentence_count` | `max_sentences` | No | Logs violation |
+| `field_presence` | `required_fields` | No | Logs violation |
 
-Prevents responses containing banned words or phrases.
+See the [Checks Reference](/reference/checks/) for the full list of check types and their parameters.
 
-**Use Cases**:
-- Avoid making absolute promises
-- Prevent inappropriate language
-- Enforce brand guidelines
-- Maintain professional tone
+## Streaming Guardrail Behavior
 
-**Parameters**:
-- `words` (array): List of banned words/phrases (case-insensitive)
-
-**Streaming**: ✅ Yes - Aborts immediately when banned word detected
-
-**Example**:
-```yaml
-validators:
-  - type: banned_words
-    params:
-      words:
-        - guarantee
-        - promise
-        - definitely
-        - "100%"
-        - absolutely
-        - always
-        - never
-      message: "Avoid absolute promises"
-```
-
-**How It Works**:
-- Case-insensitive matching
-- Word boundary detection (won't match partial words)
-- "guarantee" matches "I guarantee" but not "guaranteed"
-- Checks accumulated content in streaming mode
-
-**Real-World Example** (Customer Support):
-```yaml
-validators:
-  - type: banned_words
-    params:
-      words:
-        # Absolute promises
-        - guarantee
-        - promise
-        - definitely
-        - "100%"
-        - absolutely
-        - certainly
-
-        # Inappropriate for support
-        - stupid
-        - idiot
-        - dumb
-
-        # Avoid legal liability
-        - sue
-        - lawsuit
-        - lawyer
-      message: "Maintain professional tone and avoid absolute promises"
-```
-
-**Validation Details**:
-```json
-{
-  "passed": false,
-  "details": ["guarantee", "definitely"]
-}
-```
-
----
-
-#### `max_length`
-
-Enforces maximum response length.
-
-**Use Cases**:
-- Keep responses concise
-- Control API costs
-- Enforce UX constraints
-- Prevent rambling
-
-**Parameters**:
-- `max_characters` (int): Maximum character count
-- `max_tokens` (int): Maximum token count (approximate)
-
-**Streaming**: ✅ Yes - Aborts when limit exceeded
-
-**Example**:
-```yaml
-validators:
-  - type: max_length
-    params:
-      max_characters: 1000
-      max_tokens: 250
-      message: "Keep responses under 250 tokens"
-```
-
-**Token Estimation**:
-- If provider returns token count: uses exact count
-- Otherwise: estimates as `characters / 4`
-- Streaming: uses `chunk.TokenCount` if available
-
-**Both Limits**:
-```yaml
-# Enforce both character and token limits
-validators:
-  - type: max_length
-    params:
-      max_characters: 2000  # Hard limit
-      max_tokens: 500       # API limit
-```
-
-**Validation Details**:
-```json
-{
-  "passed": false,
-  "details": {
-    "character_count": 1250,
-    "max_characters": 1000,
-    "token_count": 312,
-    "max_tokens": 250
-  }
-}
-```
-
----
-
-### Structure Validators
-
-#### `max_sentences`
-
-Enforces maximum number of sentences in response.
-
-**Use Cases**:
-- Enforce conciseness
-- Maintain consistent response length
-- UI constraints (e.g., chat bubbles)
-
-**Parameters**:
-- `max_sentences` (int): Maximum sentence count
-
-**Streaming**: ❌ No - Requires complete response
-
-**Example**:
-```yaml
-validators:
-  - type: max_sentences
-    params:
-      max_sentences: 5
-      message: "Keep responses to 5 sentences or less"
-```
-
-**Sentence Counting**:
-- Splits on `.`, `!`, `?`
-- Handles common abbreviations (Dr., Mr., etc.)
-- Counts non-empty sentences
-
-**Example Scenarios**:
-
-```yaml
-# ✅ 3 sentences - PASS
-"Hello! How can I help? Let me know."
-
-# ❌ 6 sentences - FAIL
-"Hello! How are you? I can help with that. Let me check.
- I'll get back to you. Please wait."
-```
-
-**Validation Details**:
-```json
-{
-  "passed": false,
-  "details": {
-    "count": 6,
-    "max": 5
-  }
-}
-```
-
----
-
-#### `required_fields`
-
-Ensures response contains required fields/information.
-
-**Use Cases**:
-- Verify structured responses
-- Ensure key information is provided
-- Enforce response templates
-
-**Parameters**:
-- `required_fields` (array): List of required text fields
-
-**Streaming**: ❌ No - Requires complete response
-
-**Example**:
-```yaml
-validators:
-  - type: required_fields
-    params:
-      required_fields:
-        - "order number"
-        - "tracking number"
-        - "estimated delivery"
-      message: "Must provide order, tracking, and delivery info"
-```
-
-**Use Case** (Support Ticket):
-```yaml
-validators:
-  - type: required_fields
-    params:
-      required_fields:
-        - "ticket number"
-        - "priority"
-        - "assigned to"
-      message: "Support tickets must include number, priority, and assignment"
-```
-
-**Validation Details**:
-```json
-{
-  "passed": false,
-  "details": {
-    "missing": ["tracking number", "estimated delivery"]
-  }
-}
-```
-
----
-
-## Combining Validators
-
-Multiple validators can enforce different policies:
-
-```yaml
-validators:
-  # Content safety
-  - type: banned_words
-    params:
-      words: ["guarantee", "promise"]
-      message: "No absolute promises"
-
-  # Length control
-  - type: max_length
-    params:
-      max_characters: 1000
-      max_tokens: 250
-      message: "Stay concise"
-
-  # Structure
-  - type: max_sentences
-    params:
-      max_sentences: 5
-      message: "Maximum 5 sentences"
-```
-
-**Execution Order**:
-1. Streaming validators run during generation
-2. Non-streaming validators run after completion
-3. First failure stops validation chain
-
-## Streaming Validator Behavior
-
-### Immediate Abort
-
-Streaming validators abort generation immediately:
+Streaming-capable guardrails abort generation immediately when a violation is detected:
 
 ```mermaid
 graph LR
-    Start["Start"] --> C1["Chunk 1<br/>✅ OK"]
-    C1 --> C2["Chunk 2<br/>✅ OK"]
-    C2 --> C3["Chunk 3<br/>❌ Banned Word!"]
+    Start["Start"] --> C1["Chunk 1<br/>OK"]
+    C1 --> C2["Chunk 2<br/>OK"]
+    C2 --> C3["Chunk 3<br/>Banned Word!"]
     C3 --> Abort["Abort Stream"]
 
     style C3 fill:#f99
     style Abort fill:#f99
 ```
 
-**Benefits**:
-- Saves API costs (no wasted tokens)
+Benefits of streaming guardrails:
+- Catch violations immediately, preventing bad content from reaching users
+- Save API costs by aborting early (no wasted tokens on a response that will be blocked)
 - Faster failure detection
-- Prevents bad content in UI
 
-**Example**:
-```yaml
-# Response starts streaming...
-"I can help with that. Let me guarantee that..."
-                              ↑
-                    Validator detects "guarantee"
-                    Aborts immediately
-                    Returns partial response + error
-```
+## Combining Guardrails
 
-### Cost Savings
-
-```
-Without Streaming Validation:
-  Generate 500 tokens @ $0.03/1K = $0.015
-  Detect violation after complete = $0.015 wasted
-
-With Streaming Validation:
-  Generate 100 tokens @ $0.03/1K = $0.003
-  Detect violation early = $0.012 saved
-```
-
-## Validator Error Handling
-
-### In Test Mode (Arena)
-
-Validator failures are captured in test results:
-
-```json
-{
-  "scenario": "test-case",
-  "turn": 3,
-  "status": "failed",
-  "error": {
-    "type": "validation_error",
-    "validator": "banned_words",
-    "message": "Avoid absolute promises",
-    "details": ["guarantee"]
-  }
-}
-```
-
-### In Production (SDK)
-
-Built-in guardrails enforce in-place — they modify content (truncate or replace) and the pipeline continues. No error is returned to the caller. Violations are recorded in `message.Validations` and emitted as `validation.failed` events.
-
-For monitor-only mode in pack JSON:
-
-```json
-{
-  "type": "banned_words",
-  "config": { "words": ["competitor"] },
-  "monitor": true
-}
-```
-
-## Best Practices
-
-### 1. Layer Validators
+Multiple guardrails can enforce different policies simultaneously:
 
 ```yaml
 validators:
-  # Fast checks first (streaming)
+  # Content safety (streaming)
   - type: banned_words
     params:
-      words: ["inappropriate"]
+      words: ["guarantee", "promise", "definitely"]
+    message: "Avoid absolute promises"
 
+  # Length control (streaming)
   - type: max_length
     params:
-      max_tokens: 500
+      max_characters: 1000
+      max_tokens: 250
+    message: "Stay concise"
 
-  # Slow checks last (post-completion)
+  # Structure (post-completion)
   - type: max_sentences
     params:
-      max_sentences: 10
+      max_sentences: 5
+    message: "Maximum 5 sentences"
 ```
 
-### 2. Use Meaningful Messages
+**Execution order**:
+1. Streaming guardrails run during generation
+2. Non-streaming guardrails run after completion
+3. First failure stops the validation chain
+
+## Examples
+
+### Content Safety
 
 ```yaml
-# ❌ Generic message
-- type: banned_words
-  params:
-    words: ["guarantee"]
-  message: "Invalid content"
-
-# ✅ Specific guidance
-- type: banned_words
-  params:
-    words: ["guarantee"]
-  message: "Avoid absolute promises. Use phrases like 'we'll do our best' instead."
+validators:
+  - type: banned_words
+    params:
+      words:
+        - guarantee
+        - promise
+        - definitely
+        - "100%"
+    message: "Avoid absolute promises. Use phrases like 'we'll do our best' instead."
 ```
 
-### 3. Test Validators
-
-Create scenarios specifically to test guardrails:
+### Response Length Control
 
 ```yaml
-# scenarios/guardrail-tests.yaml
+validators:
+  - type: max_length
+    params:
+      max_characters: 2000
+      max_tokens: 500
+    message: "Keep responses concise"
+```
+
+### Testing Guardrails in Arena
+
+Create scenarios that verify guardrails fire correctly:
+
+```yaml
 spec:
   turns:
     - role: user
@@ -520,173 +216,29 @@ spec:
             message: "Should catch 'definitely'"
 ```
 
-### 4. Balance Safety and Utility
+## Best Practices
 
-```yaml
-# ❌ Too restrictive - blocks useful content
-validators:
-  - type: banned_words
-    params:
-      words: ["can", "will", "should"]  # Too common!
+1. **Order by speed** -- put streaming guardrails (e.g., `banned_words`, `max_length`) before post-completion checks (e.g., `max_sentences`).
+2. **Use specific messages** -- give actionable guidance, not generic "invalid content" errors.
+3. **Avoid overly broad rules** -- banning common words like "can" or "will" makes the system unusable.
+4. **Mirror policies in the system prompt** -- tell the LLM about the same constraints so it self-corrects before guardrails need to fire.
 
-# ✅ Target specific policy violations
-validators:
-  - type: banned_words
-    params:
-      words: ["guarantee", "promise", "definitely", "100%"]
-```
+## Custom Guardrails
 
-### 5. Document Policies
+For custom enforcement logic beyond the built-in check types, implement the `hooks.ProviderHook` interface and register it via the SDK:
 
-```yaml
-spec:
-  system_template: |
-    You are a support agent.
-
-    IMPORTANT: Our validators enforce these policies:
-    - No absolute promises (guarantee, definitely, etc.)
-    - Max 250 tokens per response
-    - Max 5 sentences
-    - Professional tone required
-
-  validators:
-    - type: banned_words
-      params:
-        words: ["guarantee", "definitely"]
-    - type: max_length
-      params:
-        max_tokens: 250
-    - type: max_sentences
-      params:
-        max_sentences: 5
-```
-
-## Troubleshooting
-
-### Validator Always Triggers
-
-**Check**:
-1. Are banned words too common?
-2. Is length limit reasonable?
-3. Is sentence count realistic?
-
-```yaml
-# ❌ Too strict
-max_sentences: 1
-max_tokens: 50
-
-# ✅ Reasonable
-max_sentences: 8
-max_tokens: 500
-```
-
-### Validator Never Triggers
-
-**Check**:
-1. Is validator registered?
-2. Are params correct?
-3. Is validator type spelled correctly?
-
-```yaml
-# ❌ Typo
-type: max_lenght
-
-# ✅ Correct
-type: max_length
-```
-
-### Streaming Abort Issues
-
-**Check**:
-1. Does validator support streaming?
-2. Is streaming enabled for provider?
-3. Are chunks being validated?
-
-```yaml
-# Check validator streaming support
-banned_words: ✅ Streaming
-max_length: ✅ Streaming
-max_sentences: ❌ Post-completion only
-required_fields: ❌ Post-completion only
-```
-
-## Performance Considerations
-
-### Validator Speed
-
-```yaml
-# Fast (O(n))
-- banned_words
-- max_length
-
-# Medium (O(n))
-- max_sentences
-- required_fields
-
-# Slow (O(n²))
-- complex regex in custom validators
-```
-
-### Optimization Tips
-
-1. **Order matters**: Put fast validators first
-2. **Streaming**: Use streaming validators when possible
-3. **Specific patterns**: Avoid overly broad checks
-4. **Batch validation**: Combine related checks
-
-## Custom Validators
-
-While PromptArena provides built-in validators, the SDK allows custom guardrail hooks by implementing the `hooks.ProviderHook` interface:
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/hooks"
-
-type CustomHook struct{}
-
-func (h *CustomHook) Name() string { return "custom_check" }
-
-func (h *CustomHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
-    return hooks.Allow
-}
-
-func (h *CustomHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    // Your validation logic
-    if violatesPolicy(resp.Message.Content()) {
-        return hooks.Deny("policy violation detected")
-    }
-    return hooks.Allow
-}
-```
-
-Register via the SDK:
 ```go
 conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithProviderHook(&CustomHook{}),
+    sdk.WithProviderHook(&MyCustomHook{}),
 )
 ```
 
-When a hook denies a request, the runtime returns a `hooks.HookDeniedError`:
-```go
-var hookErr *hooks.HookDeniedError
-if errors.As(err, &hookErr) {
-    log.Printf("Denied by %s: %s", hookErr.HookName, hookErr.Reason)
-}
-```
+See [Hooks Reference](/runtime/reference/hooks/) for the `ProviderHook` API and [Checks Reference extensibility](/reference/checks/#extending-the-check-system) for adding new check types.
 
-Pack YAML validators continue to work for built-in types:
-```yaml
-validators:
-  - type: banned_words
-    params:
-      words: ["guarantee", "promise"]
-```
+## See Also
 
-## Next Steps
-
-- **[Assertions Reference](./assertions)** - Test verification
-- **[Configuration Reference](./config-schema)** - Full config docs
-- **[Scenario Format](./scenario-format)** - Scenario YAML reference
-
----
-
-**Examples**: See `examples/customer-support/prompts/support-bot.yaml` for real-world validator usage.
+- [Checks Reference](/reference/checks/) -- All check types and parameters
+- [Unified Check Model](/concepts/validation/) -- How guardrails, assertions, and evals relate
+- [Assertions Reference](/arena/reference/assertions/) -- Test-time checks
+- [Hooks & Guardrails](/runtime/reference/hooks/) -- Runtime hook system API
+- [Validation Tutorial](/runtime/tutorials/04-validation-guardrails/) -- Step-by-step guardrails tutorial
