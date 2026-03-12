@@ -271,4 +271,5 @@ See the [`eval-test` example](https://github.com/AltairaLabs/PromptKit/tree/main
 - [Assertions Reference](/arena/reference/assertions/) — Test-time checks
 - [Observability](/sdk/explanation/observability/) — EventBus architecture
 - [Session Recording](/arena/explanation/session-recording/) — How recordings feed into evals
+- [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics
 - [Monitor Events](/sdk/how-to/monitor-events/) — Event hooks and Prometheus metrics in SDK

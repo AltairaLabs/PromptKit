@@ -193,6 +193,7 @@ groups:
 
 ## See Also
 
+- [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics, label architecture, and API reference
 - [Monitor Events](/sdk/how-to/monitor-events/) — Event-based observability and metrics setup
 - [Eval Framework](/arena/explanation/eval-framework/) — Eval architecture and metric types
 - [Run Evals](/sdk/how-to/run-evals/) — Programmatic eval execution via SDK

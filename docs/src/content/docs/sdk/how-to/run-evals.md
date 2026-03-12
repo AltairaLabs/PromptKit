@@ -276,6 +276,7 @@ type EvalResult struct {
 
 ## See Also
 
+- [Metrics Reference](/runtime/reference/metrics/) -- Complete catalog of all emitted metrics
 - [Checks Reference](/reference/checks/) -- All check types and parameters
 - [Unified Check Model](/concepts/validation/) -- How evals, assertions, and guardrails relate
 - [Eval Framework](/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
