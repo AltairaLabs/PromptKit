@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -763,6 +764,82 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
+	collector := evals.NewMetricCollector(evals.WithNamespace("test"))
+
+	conv := &Conversation{
+		config: &config{metricRecorder: collector},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{
+					ID:      "e1",
+					Type:    "contains",
+					Trigger: evals.TriggerEveryTurn,
+					Metric: &evals.MetricDef{
+						Name: "greeting",
+						Type: evals.MetricBoolean,
+					},
+				},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if mw.metricWriter == nil {
+		t.Fatal("expected non-nil metricWriter when MetricRecorder is configured")
+	}
+
+	// Simulate emitting a result — metric should be recorded.
+	mw.emitResults([]evals.EvalResult{
+		{EvalID: "e1", Type: "contains", Passed: true},
+	})
+
+	var buf strings.Builder
+	if err := collector.WritePrometheus(&buf); err != nil {
+		t.Fatalf("WritePrometheus failed: %v", err)
+	}
+	if !strings.Contains(buf.String(), "test_greeting") {
+		t.Errorf("expected metric 'test_greeting' in output, got: %s", buf.String())
+	}
+}
+
+func TestEvalMiddleware_WithoutMetricRecorder(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{
+					ID:      "e1",
+					Type:    "contains",
+					Trigger: evals.TriggerEveryTurn,
+					Metric: &evals.MetricDef{
+						Name: "greeting",
+						Type: evals.MetricBoolean,
+					},
+				},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if mw.metricWriter != nil {
+		t.Error("expected nil metricWriter when no MetricRecorder configured")
+	}
+
+	// Should not panic with nil metricWriter
+	mw.emitResults([]evals.EvalResult{
+		{EvalID: "e1", Type: "contains", Passed: true},
+	})
 }
 
 func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {

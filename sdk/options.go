@@ -147,6 +147,7 @@ type config struct {
 	evalRunner         *evals.EvalRunner
 	evalRegistry       *evals.EvalTypeRegistry
 	judgeProvider      handlers.JudgeProvider
+	metricRecorder     evals.MetricRecorder
 	evalsDisabled      bool
 	maxConcurrentEvals int
 
@@ -1851,6 +1852,19 @@ func WithMaxConcurrentEvals(n int) Option {
 			return fmt.Errorf("maxConcurrentEvals must be positive, got %d", n)
 		}
 		c.maxConcurrentEvals = n
+		return nil
+	}
+}
+
+// WithMetricRecorder configures a MetricRecorder for the eval middleware.
+//
+// When set, eval results are automatically recorded as Prometheus metrics
+// based on the Metric definition in each EvalDef. This is the conversation
+// equivalent of EvaluateOpts.MetricRecorder — it wires metric recording
+// into the live eval middleware that runs on every Send() and Close().
+func WithMetricRecorder(r evals.MetricRecorder) Option {
+	return func(c *config) error {
+		c.metricRecorder = r
 		return nil
 	}
 }
