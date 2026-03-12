@@ -67,7 +67,7 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 		func() { emitter.MiddlewareStarted("mw", 0) },
 		func() { emitter.MiddlewareCompleted("mw", 0, time.Millisecond) },
 		func() { emitter.MiddlewareFailed("mw", 0, errors.New("oops"), time.Millisecond) },
-		func() { emitter.ProviderCallStarted("provider", "model", 2, 1) },
+		func() { emitter.ProviderCallStarted("provider", "model", 2, 1, nil) },
 		func() {
 			emitter.ProviderCallCompleted(&ProviderCallCompletedData{
 				Provider:      "provider",
@@ -81,12 +81,12 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 				ToolCallCount: 0,
 			})
 		},
-		func() { emitter.ProviderCallFailed("provider", "model", errors.New("fail"), time.Millisecond) },
-		func() { emitter.ToolCallStarted("tool", "call", map[string]interface{}{"k": "v"}) },
+		func() { emitter.ProviderCallFailed("provider", "model", errors.New("fail"), time.Millisecond, nil) },
+		func() { emitter.ToolCallStarted("tool", "call", map[string]interface{}{"k": "v"}, nil) },
 		func() {
-			emitter.ToolCallCompleted("tool", "call", time.Millisecond, "success", []types.ContentPart{types.NewTextPart("tool result")})
+			emitter.ToolCallCompleted("tool", "call", time.Millisecond, "success", []types.ContentPart{types.NewTextPart("tool result")}, nil)
 		},
-		func() { emitter.ToolCallFailed("tool", "call", errors.New("fail"), time.Millisecond) },
+		func() { emitter.ToolCallFailed("tool", "call", errors.New("fail"), time.Millisecond, nil) },
 		func() { emitter.ValidationStarted("validator", "input") },
 		func() { emitter.ValidationPassed("validator", "input", time.Millisecond) },
 		func() {
@@ -426,6 +426,65 @@ func TestEmitter_ConversationStarted(t *testing.T) {
 
 	if data.SystemPrompt != "You are a helpful AI assistant." {
 		t.Fatalf("unexpected system prompt: %s", data.SystemPrompt)
+	}
+}
+
+func TestEmitter_ToolCallStarted_Labels(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-lbl", "session-lbl", "conv-lbl")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventToolCallStarted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	labels := map[string]string{"handler": "http", "team": "platform"}
+	emitter.ToolCallStarted("search", "call-1", nil, labels)
+	wg.Wait()
+
+	data, ok := got.Data.(ToolCallStartedData)
+	if !ok {
+		t.Fatalf("expected ToolCallStartedData, got %T", got.Data)
+	}
+	if data.Labels["handler"] != "http" {
+		t.Errorf("expected handler=http, got %q", data.Labels["handler"])
+	}
+	if data.Labels["team"] != "platform" {
+		t.Errorf("expected team=platform, got %q", data.Labels["team"])
+	}
+}
+
+func TestEmitter_ProviderCallStarted_Labels(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-lbl2", "session-lbl2", "conv-lbl2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventProviderCallStarted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	labels := map[string]string{"tier": "premium"}
+	emitter.ProviderCallStarted("openai", "gpt-4", 5, 2, labels)
+	wg.Wait()
+
+	data, ok := got.Data.(ProviderCallStartedData)
+	if !ok {
+		t.Fatalf("expected ProviderCallStartedData, got %T", got.Data)
+	}
+	if data.Labels["tier"] != "premium" {
+		t.Errorf("expected tier=premium, got %q", data.Labels["tier"])
 	}
 }
 

@@ -205,6 +205,7 @@ type ProviderCallStartedData struct {
 	Model        string
 	MessageCount int
 	ToolCount    int
+	Labels       map[string]string // Optional metadata propagated to metrics and traces
 }
 
 // ProviderCallCompletedData contains data for provider call completion events.
@@ -219,6 +220,7 @@ type ProviderCallCompletedData struct {
 	Cost          float64
 	FinishReason  string
 	ToolCallCount int
+	Labels        map[string]string // Optional metadata propagated to metrics and traces
 }
 
 // ProviderCallFailedData contains data for provider call failure events.
@@ -228,6 +230,7 @@ type ProviderCallFailedData struct {
 	Model    string
 	Error    error
 	Duration time.Duration
+	Labels   map[string]string // Optional metadata propagated to metrics and traces
 }
 
 // --- Tool call events (consolidated) ---
@@ -244,6 +247,7 @@ type ToolCallEventData struct {
 	Status   string                 // Set on completed (e.g. "success", "error", "pending")
 	Parts    []types.ContentPart    // Set on completed — tool result content parts
 	Error    error                  // Set on failed
+	Labels   map[string]string      // Optional metadata from ToolDescriptor.Labels
 }
 
 type (

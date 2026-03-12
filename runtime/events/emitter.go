@@ -132,12 +132,15 @@ func (e *Emitter) StageFailed(name string, index int, err error, duration time.D
 }
 
 // ProviderCallStarted emits the provider.call.started event.
-func (e *Emitter) ProviderCallStarted(provider, model string, messageCount, toolCount int) {
+func (e *Emitter) ProviderCallStarted(
+	provider, model string, messageCount, toolCount int, labels map[string]string,
+) {
 	e.emit(EventProviderCallStarted, ProviderCallStartedData{
 		Provider:     provider,
 		Model:        model,
 		MessageCount: messageCount,
 		ToolCount:    toolCount,
+		Labels:       labels,
 	})
 }
 
@@ -150,21 +153,27 @@ func (e *Emitter) ProviderCallCompleted(data *ProviderCallCompletedData) {
 }
 
 // ProviderCallFailed emits the provider.call.failed event.
-func (e *Emitter) ProviderCallFailed(provider, model string, err error, duration time.Duration) {
+func (e *Emitter) ProviderCallFailed(
+	provider, model string, err error, duration time.Duration, labels map[string]string,
+) {
 	e.emit(EventProviderCallFailed, ProviderCallFailedData{
 		Provider: provider,
 		Model:    model,
 		Error:    err,
 		Duration: duration,
+		Labels:   labels,
 	})
 }
 
 // ToolCallStarted emits the tool.call.started event.
-func (e *Emitter) ToolCallStarted(toolName, callID string, args map[string]interface{}) {
+func (e *Emitter) ToolCallStarted(
+	toolName, callID string, args map[string]interface{}, labels map[string]string,
+) {
 	e.emit(EventToolCallStarted, ToolCallStartedData{
 		ToolName: toolName,
 		CallID:   callID,
 		Args:     args,
+		Labels:   labels,
 	})
 }
 
@@ -174,6 +183,7 @@ func (e *Emitter) ToolCallCompleted(
 	duration time.Duration,
 	status string,
 	parts []types.ContentPart,
+	labels map[string]string,
 ) {
 	e.emit(EventToolCallCompleted, ToolCallCompletedData{
 		ToolName: toolName,
@@ -181,16 +191,20 @@ func (e *Emitter) ToolCallCompleted(
 		Duration: duration,
 		Status:   status,
 		Parts:    types.MetadataOnlyParts(parts),
+		Labels:   labels,
 	})
 }
 
 // ToolCallFailed emits the tool.call.failed event.
-func (e *Emitter) ToolCallFailed(toolName, callID string, err error, duration time.Duration) {
+func (e *Emitter) ToolCallFailed(
+	toolName, callID string, err error, duration time.Duration, labels map[string]string,
+) {
 	e.emit(EventToolCallFailed, ToolCallFailedData{
 		ToolName: toolName,
 		CallID:   callID,
 		Error:    err,
 		Duration: duration,
+		Labels:   labels,
 	})
 }
 

@@ -1148,6 +1148,73 @@ func TestOTelEventListener_ToolSpan_RegularToolType(t *testing.T) {
 	}
 }
 
+func TestOTelEventListener_ToolSpan_Labels(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	labels := map[string]string{"handler_type": "http", "team": "platform"}
+	listener.OnEvent(&events.Event{
+		Type: events.EventToolCallStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ToolCallStartedData{
+			ToolName: "search", CallID: "call-lbl", Labels: labels,
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventToolCallCompleted, Timestamp: now.Add(50 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ToolCallCompletedData{
+			ToolName: "search", CallID: "call-lbl",
+			Duration: 50 * time.Millisecond, Status: "success",
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	toolSpan := findSpan(t, spans, "execute_tool")
+	if !hasAttr(toolSpan, "promptkit.label.handler_type", "http") {
+		t.Error("expected promptkit.label.handler_type=http on tool span")
+	}
+	if !hasAttr(toolSpan, "promptkit.label.team", "platform") {
+		t.Error("expected promptkit.label.team=platform on tool span")
+	}
+}
+
+func TestOTelEventListener_ProviderSpan_Labels(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	labels := map[string]string{"tier": "premium"}
+	listener.OnEvent(&events.Event{
+		Type: events.EventProviderCallStarted, Timestamp: now,
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ProviderCallStartedData{
+			Provider: "openai", Model: "gpt-4", Labels: labels,
+		},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventProviderCallCompleted, Timestamp: now.Add(100 * time.Millisecond),
+		SessionID: "sess-1", RunID: "run-1",
+		Data: &events.ProviderCallCompletedData{
+			Provider: "openai", Model: "gpt-4",
+			Duration: 100 * time.Millisecond, Labels: labels,
+		},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	providerSpan := findSpan(t, spans, "openai chat")
+	if !hasAttr(providerSpan, "promptkit.label.tier", "premium") {
+		t.Error("expected promptkit.label.tier=premium on provider span")
+	}
+}
+
 func TestOTelEventListener_SessionAgentIdentity(t *testing.T) {
 	listener, exp, tp := newTestListener(t)
 
