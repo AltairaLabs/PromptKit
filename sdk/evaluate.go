@@ -45,6 +45,14 @@ type EvaluateOpts struct {
 	// TurnIndex is the current turn index (0-based) for per-turn trigger filtering.
 	TurnIndex int
 
+	// --- Group filter ---
+
+	// EvalGroups selects which eval groups to execute.
+	// Each EvalDef can belong to one or more groups; evals with no explicit
+	// groups belong to the "default" group. When set, only evals with at least
+	// one matching group run. If nil, all evals run regardless of group.
+	EvalGroups []string
+
 	// --- Trigger filter ---
 
 	// Trigger selects which eval trigger class to execute.
@@ -122,11 +130,12 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	// 0. Wire OTel listener if TracerProvider is set
 	ownsBus := initEvalTracing(&opts)
 
-	// 1. Resolve eval defs
+	// 1. Resolve eval defs and apply group filter
 	defs, err := resolveEvalDefs(&opts)
 	if err != nil {
 		return nil, fmt.Errorf("resolve eval defs: %w", err)
 	}
+	defs = evals.FilterByGroups(defs, opts.EvalGroups)
 	if len(defs) == 0 {
 		return nil, nil
 	}

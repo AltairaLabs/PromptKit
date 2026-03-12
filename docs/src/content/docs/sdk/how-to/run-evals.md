@@ -113,6 +113,81 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 })
 ```
 
+## Eval Groups
+
+Evals are automatically classified into well-known groups based on their handler type. When no explicit groups are configured, each eval belongs to `default` plus a classification group:
+
+| Group | Constant | Description |
+|-------|----------|-------------|
+| `default` | `evals.DefaultEvalGroup` | All evals with no explicit groups |
+| `fast-running` | `evals.GroupFastRunning` | Deterministic checks (string matching, regex, JSON validation) |
+| `long-running` | `evals.GroupLongRunning` | LLM calls, embeddings, network requests |
+| `external` | `evals.GroupExternal` | External systems (REST APIs, A2A agents, exec subprocesses) |
+
+Filter which groups to run with `EvalGroups`:
+
+```go
+// Only run fast, deterministic evals
+results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+    PackPath:   "./app.pack.json",
+    Messages:   messages,
+    EvalGroups: []string{evals.GroupFastRunning},
+})
+```
+
+Override automatic classification by setting explicit groups on an eval definition:
+
+```json
+{
+  "id": "custom_check",
+  "type": "llm_judge",
+  "trigger": "every_turn",
+  "groups": ["safety", "compliance"],
+  "params": { "criteria": "..." }
+}
+```
+
+When explicit groups are set, they fully replace the automatic classification.
+
+## Metrics
+
+Record eval results as Prometheus metrics using `MetricRecorder`:
+
+```go
+collector := evals.NewMetricCollector(
+    evals.WithLabels(map[string]string{"env": "prod"}),
+)
+
+results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+    PackPath:       "./app.pack.json",
+    Messages:       messages,
+    MetricRecorder: collector,
+})
+
+// Export metrics
+collector.WritePrometheus(os.Stdout)
+```
+
+Evals must have a `metric` definition in the pack to be recorded. See [MetricCollector & Prometheus](/arena/explanation/eval-framework/#metriccollector--prometheus) for metric types and label configuration.
+
+## Type Validation
+
+Use `ValidateEvalTypes()` as a preflight check to ensure all eval types have registered handlers:
+
+```go
+missing, err := sdk.ValidateEvalTypes(sdk.ValidateEvalTypesOpts{
+    PackPath:          "./app.pack.json",
+    RuntimeConfigPath: "./runtime-config.yaml", // registers exec handlers
+})
+if len(missing) > 0 {
+    for _, def := range missing {
+        log.Printf("missing handler for eval %q (type: %s)", def.ID, def.Type)
+    }
+}
+```
+
+This catches configuration errors (typos, missing RuntimeConfig bindings) at startup or in CI before evals are actually executed.
+
 ## Observability
 
 ### OpenTelemetry Tracing
@@ -155,12 +230,15 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 | `Messages` | `[]types.Message` | Conversation history to evaluate |
 | `SessionID` | `string` | Session ID for sampling determinism |
 | `TurnIndex` | `int` | Current turn index (0-based) |
+| `EvalGroups` | `[]string` | Filter evals by group (default: all) |
 | `Trigger` | `evals.EvalTrigger` | Trigger filter (default: `every_turn`) |
 | `JudgeProvider` | `any` | Pre-built LLM judge provider |
 | `JudgeTargets` | `map[string]any` | Provider specs for LLM judge evals |
 | `TracerProvider` | `trace.TracerProvider` | OpenTelemetry tracing |
 | `EventBus` | `*events.EventBus` | Event emission |
 | `Logger` | `*slog.Logger` | Structured logging |
+| `RuntimeConfigPath` | `string` | Load exec eval handlers from RuntimeConfig YAML |
+| `MetricRecorder` | `evals.MetricRecorder` | Record eval results as Prometheus metrics |
 | `Registry` | `*evals.EvalTypeRegistry` | Custom handler registry |
 | `Timeout` | `time.Duration` | Per-eval timeout (default: 30s) |
 | `SkipSchemaValidation` | `bool` | Skip JSON schema validation |

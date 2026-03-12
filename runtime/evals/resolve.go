@@ -48,3 +48,35 @@ func ResolveEvals(packEvals, promptEvals []EvalDef) []EvalDef {
 
 	return merged
 }
+
+// FilterByGroups returns only the defs that belong to at least one of the
+// requested groups. If groups is nil or empty, all defs are returned unchanged.
+// Each def's effective groups are determined by GetGroups() (defaults to ["default"]).
+func FilterByGroups(defs []EvalDef, groups []string) []EvalDef {
+	if len(groups) == 0 {
+		return defs
+	}
+
+	allowed := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		allowed[g] = true
+	}
+
+	filtered := make([]EvalDef, 0, len(defs))
+	for i := range defs {
+		for _, g := range defs[i].GetGroups() {
+			if allowed[g] {
+				filtered = append(filtered, defs[i])
+				break
+			}
+		}
+	}
+
+	logger.Debug("evals: filtered by groups",
+		"requested_groups", groups,
+		"before", len(defs),
+		"after", len(filtered),
+	)
+
+	return filtered
+}

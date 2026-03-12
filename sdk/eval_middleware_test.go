@@ -766,6 +766,90 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 	}
 }
 
+func TestNewEvalMiddleware_WithEvalGroups(t *testing.T) {
+	conv := &Conversation{
+		config: &config{evalGroups: []string{"safety"}},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
+				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"quality"}},
+				{ID: "c", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety", "quality"}},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if len(mw.defs) != 2 {
+		t.Fatalf("expected 2 defs (a,c), got %d", len(mw.defs))
+	}
+	if mw.defs[0].ID != "a" || mw.defs[1].ID != "c" {
+		t.Errorf("expected defs [a,c], got [%s,%s]", mw.defs[0].ID, mw.defs[1].ID)
+	}
+}
+
+func TestNewEvalMiddleware_WithEvalGroupsNoMatch(t *testing.T) {
+	conv := &Conversation{
+		config: &config{evalGroups: []string{"latency"}},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw != nil {
+		t.Error("expected nil middleware when no defs match group filter")
+	}
+}
+
+func TestNewEvalMiddleware_WithEvalGroupsDefaultGroup(t *testing.T) {
+	conv := &Conversation{
+		config: &config{evalGroups: []string{evals.DefaultEvalGroup}},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn},                             // no groups → default
+				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}}, // explicit
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if len(mw.defs) != 1 || mw.defs[0].ID != "a" {
+		t.Errorf("expected only def 'a' (default group), got %v", mw.defs)
+	}
+}
+
+func TestNewEvalMiddleware_NilEvalGroupsRunsAll(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn},
+				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if len(mw.defs) != 2 {
+		t.Errorf("expected all 2 defs when evalGroups is nil, got %d", len(mw.defs))
+	}
+}
+
 func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 	collector := evals.NewMetricCollector(evals.WithNamespace("test"))
 

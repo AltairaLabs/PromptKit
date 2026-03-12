@@ -148,6 +148,7 @@ type config struct {
 	evalRegistry       *evals.EvalTypeRegistry
 	judgeProvider      handlers.JudgeProvider
 	metricRecorder     evals.MetricRecorder
+	evalGroups         []string
 	evalsDisabled      bool
 	maxConcurrentEvals int
 
@@ -1852,6 +1853,19 @@ func WithMaxConcurrentEvals(n int) Option {
 			return fmt.Errorf("maxConcurrentEvals must be positive, got %d", n)
 		}
 		c.maxConcurrentEvals = n
+		return nil
+	}
+}
+
+// WithEvalGroups selects which eval groups to execute during the conversation.
+//
+// Each EvalDef can belong to one or more groups via its Groups field.
+// Evals with no explicit groups belong to the "default" group.
+// When groups are specified, only evals with at least one matching group run.
+// If not set (nil), all evals run regardless of group.
+func WithEvalGroups(groups ...string) Option {
+	return func(c *config) error {
+		c.evalGroups = groups
 		return nil
 	}
 }

@@ -40,7 +40,10 @@ type ExecEvalConfig struct {
 }
 
 // NewExecEvalHandler creates a new ExecEvalHandler from a config.
+// Exec handlers are automatically classified as long-running and external
+// for well-known group filtering.
 func NewExecEvalHandler(cfg *ExecEvalConfig) *ExecEvalHandler {
+	evals.RegisterTypeGroups(cfg.TypeName, []string{evals.GroupLongRunning, evals.GroupExternal})
 	return &ExecEvalHandler{
 		typeName:  cfg.TypeName,
 		command:   cfg.Command,

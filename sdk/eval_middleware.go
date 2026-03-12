@@ -64,6 +64,7 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		"has_pack", conv.pack != nil, "has_prompt", conv.prompt != nil)
 
 	defs := evals.ResolveEvals(packEvals, promptEvals)
+	defs = evals.FilterByGroups(defs, conv.config.evalGroups)
 	if len(defs) == 0 {
 		logger.Debug("evals: middleware skipped, no eval defs resolved", "reason", "no defs resolved")
 		return nil

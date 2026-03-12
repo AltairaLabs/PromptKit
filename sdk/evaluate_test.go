@@ -351,6 +351,58 @@ func TestEvaluate_RuntimeConfigPath_InvalidPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "load runtime config evals")
 }
 
+func TestEvaluate_WithEvalGroups(t *testing.T) {
+	defs := []evals.EvalDef{
+		{ID: "safety", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}, Groups: []string{"safety"}},
+		{ID: "quality", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}, Groups: []string{"quality"}},
+	}
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:   defs,
+		EvalGroups: []string{"safety"},
+		Messages:   []types.Message{types.NewAssistantMessage("hello")},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "safety", results[0].EvalID)
+}
+
+func TestEvaluate_WithEvalGroupsNilRunsAll(t *testing.T) {
+	defs := []evals.EvalDef{
+		{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}, Groups: []string{"safety"}},
+		{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}},
+	}
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs: defs,
+		Messages: []types.Message{types.NewAssistantMessage("hello")},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 2, "nil EvalGroups should run all evals")
+}
+
+func TestEvaluate_WithEvalGroupsNoMatchReturnsNil(t *testing.T) {
+	defs := []evals.EvalDef{
+		{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}, Groups: []string{"safety"}},
+	}
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:   defs,
+		EvalGroups: []string{"latency"},
+		Messages:   []types.Message{types.NewAssistantMessage("hello")},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, results, "no matching groups should return nil results")
+}
+
 func TestEvaluate_MetricRecorder(t *testing.T) {
 	defs := []evals.EvalDef{{
 		ID:      "scored-eval",

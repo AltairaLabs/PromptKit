@@ -66,6 +66,7 @@ Each eval is an `EvalDef` object in the pack's `evals` array. The structure comb
 | `threshold` | No | Pass/fail threshold (e.g. `min_score`) |
 | `enabled` | No | Whether the eval is active (default: `true`) |
 | `sample_percentage` | No | Percentage of turns/sessions to evaluate (for sampling triggers) |
+| `groups` | No | Eval groups for filtering (see [Eval Groups](#eval-groups)) |
 | `metric` | No | Prometheus metric configuration (see [MetricCollector](#metriccollector--prometheus)) |
 
 ## Triggers
@@ -94,6 +95,52 @@ Sampling is **deterministic** — the same session ID and turn index always prod
   }
 }
 ```
+
+## Eval Groups
+
+Evals can belong to one or more groups, enabling selective execution. When no explicit groups are set, evals are automatically classified based on their handler type:
+
+| Group | Value | Assigned To |
+|-------|-------|-------------|
+| Default | `default` | All evals with no explicit groups |
+| Fast-running | `fast-running` | Deterministic checks: `contains`, `regex`, `json_valid`, `tools_called`, workflow checks, etc. |
+| Long-running | `long-running` | Compute/network-intensive: `llm_judge`, `cosine_similarity`, `outcome_equivalent`, `a2a_eval`, `rest_eval`, exec handlers |
+| External | `external` | External system calls: `llm_judge`, `a2a_eval`, `rest_eval`, exec handlers |
+
+### Automatic classification
+
+Evals with no explicit `groups` field receive `default` plus one or more well-known groups. For example, a `contains` eval gets `["default", "fast-running"]`, while an `llm_judge` eval gets `["default", "long-running", "external"]`.
+
+### Explicit groups
+
+Setting `groups` on an eval definition overrides the automatic classification entirely:
+
+```json
+{
+  "id": "compliance_check",
+  "type": "llm_judge",
+  "trigger": "every_turn",
+  "groups": ["compliance", "safety"],
+  "params": { "criteria": "Check regulatory compliance" }
+}
+```
+
+This eval will only match when filtering for `compliance` or `safety` — it will no longer match `default`, `long-running`, or `external`.
+
+### Filtering by group
+
+In the SDK, use `EvalGroups` to select which groups to run:
+
+```go
+// Only run fast evals in the hot path
+results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+    PackPath:   "./app.pack.json",
+    Messages:   messages,
+    EvalGroups: []string{"fast-running"},
+})
+```
+
+When `EvalGroups` is nil or empty, all evals run regardless of group.
 
 ## Dispatch Patterns
 
