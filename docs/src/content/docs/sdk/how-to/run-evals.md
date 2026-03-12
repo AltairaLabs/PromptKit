@@ -151,24 +151,31 @@ When explicit groups are set, they fully replace the automatic classification.
 
 ## Metrics
 
-Record eval results as Prometheus metrics using `MetricRecorder`:
+Record eval results as Prometheus metrics using the unified `metrics.Collector`:
 
 ```go
-collector := evals.NewMetricCollector(
-    evals.WithLabels(map[string]string{"env": "prod"}),
+import (
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/AltairaLabs/PromptKit/runtime/metrics"
 )
+
+reg := prometheus.NewRegistry()
+collector := metrics.NewCollector(metrics.CollectorOpts{
+    Registerer: reg,
+    Namespace:  "myapp",
+})
+
+// Bind returns a MetricContext that implements evals.MetricRecorder
+metricCtx := collector.Bind(nil)
 
 results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
     PackPath:       "./app.pack.json",
     Messages:       messages,
-    MetricRecorder: collector,
+    MetricRecorder: metricCtx,
 })
-
-// Export metrics
-collector.WritePrometheus(os.Stdout)
 ```
 
-Evals must have a `metric` definition in the pack to be recorded. See [MetricCollector & Prometheus](/arena/explanation/eval-framework/#metriccollector--prometheus) for metric types and label configuration.
+Evals must have a `metric` definition in the pack to be recorded. See [Metrics & Prometheus](/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration, and [Monitor Events](/sdk/how-to/monitor-events/#prometheus-metrics) for the full metrics reference.
 
 ## Type Validation
 

@@ -27,6 +27,8 @@ type Exporter struct {
 }
 
 // NewExporter creates a new Prometheus exporter that serves metrics at the given address.
+//
+// Deprecated: Use metrics.NewCollector with sdk.WithMetrics instead.
 func NewExporter(addr string) *Exporter {
 	reg := prometheus.NewRegistry()
 

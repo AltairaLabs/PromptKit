@@ -34,6 +34,8 @@ type metricEntry struct {
 
 // MetricCollector implements MetricRecorder and provides Prometheus text
 // exposition. It is safe for concurrent use.
+//
+// Deprecated: Use metrics.NewCollector with sdk.WithMetrics instead.
 type MetricCollector struct {
 	mu         sync.RWMutex
 	metrics    map[string]*metricEntry
@@ -63,6 +65,8 @@ func WithLabels(labels map[string]string) MetricCollectorOption {
 }
 
 // NewMetricCollector creates a new MetricCollector with the given options.
+//
+// Deprecated: Use metrics.NewCollector with sdk.WithMetrics instead.
 func NewMetricCollector(opts ...MetricCollectorOption) *MetricCollector {
 	mc := &MetricCollector{
 		metrics:   make(map[string]*metricEntry),
@@ -131,6 +135,8 @@ func (mc *MetricCollector) Record(result EvalResult, metric *MetricDef) error {
 }
 
 // WritePrometheus writes all metrics in Prometheus text exposition format.
+//
+// Deprecated: Use metrics.NewCollector with sdk.WithMetrics instead.
 func (mc *MetricCollector) WritePrometheus(w io.Writer) error {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()

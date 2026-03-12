@@ -1912,6 +1912,8 @@ func WithEvalGroups(groups ...string) Option {
 // based on the Metric definition in each EvalDef. This is the conversation
 // equivalent of EvaluateOpts.MetricRecorder — it wires metric recording
 // into the live eval middleware that runs on every Send() and Close().
+//
+// Deprecated: Use WithMetrics with metrics.NewCollector instead.
 func WithMetricRecorder(r evals.MetricRecorder) Option {
 	return func(c *config) error {
 		c.metricRecorder = r

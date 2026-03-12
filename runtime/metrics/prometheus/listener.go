@@ -19,6 +19,8 @@ const (
 type MetricsListener struct{}
 
 // NewMetricsListener creates a new MetricsListener.
+//
+// Deprecated: Use metrics.NewCollector with sdk.WithMetrics instead.
 func NewMetricsListener() *MetricsListener {
 	return &MetricsListener{}
 }
