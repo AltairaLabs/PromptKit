@@ -50,7 +50,9 @@ func main() {
 | `{ns}_pipeline_duration_seconds` | Histogram | `status` | Total pipeline execution duration |
 | `{ns}_provider_request_duration_seconds` | Histogram | `provider`, `model` | LLM API call duration |
 | `{ns}_provider_requests_total` | Counter | `provider`, `model`, `status` | Total provider API calls |
-| `{ns}_provider_tokens_total` | Counter | `provider`, `model`, `type` | Token consumption (input/output/cached) |
+| `{ns}_provider_input_tokens_total` | Counter | `provider`, `model` | Input tokens sent to provider |
+| `{ns}_provider_output_tokens_total` | Counter | `provider`, `model` | Output tokens received from provider |
+| `{ns}_provider_cached_tokens_total` | Counter | `provider`, `model` | Cached tokens in provider calls |
 | `{ns}_provider_cost_total` | Counter | `provider`, `model` | Total cost in USD |
 | `{ns}_tool_call_duration_seconds` | Histogram | `tool` | Tool call execution duration |
 | `{ns}_tool_calls_total` | Counter | `tool`, `status` | Total tool call count |
@@ -182,7 +184,10 @@ groups:
 
       - alert: HighTokenConsumption
         expr: |
-          sum(increase(promptkit_provider_tokens_total[1h])) > 1000000
+          (
+            sum(increase(promptkit_provider_input_tokens_total[1h]))
+            + sum(increase(promptkit_provider_output_tokens_total[1h]))
+          ) > 1000000
         for: 1m
         labels:
           severity: info

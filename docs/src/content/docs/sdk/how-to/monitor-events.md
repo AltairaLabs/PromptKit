@@ -206,7 +206,9 @@ These are recorded automatically from EventBus events:
 | `{ns}_pipeline_duration_seconds` | histogram | status |
 | `{ns}_provider_request_duration_seconds` | histogram | provider, model |
 | `{ns}_provider_requests_total` | counter | provider, model, status |
-| `{ns}_provider_tokens_total` | counter | provider, model, type |
+| `{ns}_provider_input_tokens_total` | counter | provider, model |
+| `{ns}_provider_output_tokens_total` | counter | provider, model |
+| `{ns}_provider_cached_tokens_total` | counter | provider, model |
 | `{ns}_provider_cost_total` | counter | provider, model |
 | `{ns}_tool_call_duration_seconds` | histogram | tool |
 | `{ns}_tool_calls_total` | counter | tool, status |

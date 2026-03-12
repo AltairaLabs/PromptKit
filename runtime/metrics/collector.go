@@ -95,15 +95,17 @@ type CollectorOpts struct {
 // that the SDK creates per conversation using Bind().
 type Collector struct {
 	// Pre-declared pipeline metrics (registered once at creation)
-	pipelineDuration        *prometheus.HistogramVec
-	providerRequestDuration *prometheus.HistogramVec
-	providerRequestsTotal   *prometheus.CounterVec
-	providerTokensTotal     *prometheus.CounterVec
-	providerCostTotal       *prometheus.CounterVec
-	toolCallDuration        *prometheus.HistogramVec
-	toolCallsTotal          *prometheus.CounterVec
-	validationDuration      *prometheus.HistogramVec
-	validationsTotal        *prometheus.CounterVec
+	pipelineDuration          *prometheus.HistogramVec
+	providerRequestDuration   *prometheus.HistogramVec
+	providerRequestsTotal     *prometheus.CounterVec
+	providerInputTokensTotal  *prometheus.CounterVec
+	providerOutputTokensTotal *prometheus.CounterVec
+	providerCachedTokensTotal *prometheus.CounterVec
+	providerCostTotal         *prometheus.CounterVec
+	toolCallDuration          *prometheus.HistogramVec
+	toolCallsTotal            *prometheus.CounterVec
+	validationDuration        *prometheus.HistogramVec
+	validationsTotal          *prometheus.CounterVec
 
 	// Dynamic eval metrics (created on first observation)
 	evalMetrics map[string]evalMetricEntry
@@ -221,10 +223,22 @@ func (c *Collector) registerPipelineMetrics() {
 		[]string{"provider", "model", "status"},
 	)
 
-	c.providerTokensTotal = c.mustRegisterCounterVec(
-		"provider_tokens_total",
-		"Total tokens consumed by provider calls",
-		[]string{"provider", "model", "type"},
+	c.providerInputTokensTotal = c.mustRegisterCounterVec(
+		"provider_input_tokens_total",
+		"Total input tokens sent to provider calls",
+		[]string{"provider", "model"},
+	)
+
+	c.providerOutputTokensTotal = c.mustRegisterCounterVec(
+		"provider_output_tokens_total",
+		"Total output tokens received from provider calls",
+		[]string{"provider", "model"},
+	)
+
+	c.providerCachedTokensTotal = c.mustRegisterCounterVec(
+		"provider_cached_tokens_total",
+		"Total cached tokens in provider calls",
+		[]string{"provider", "model"},
 	)
 
 	c.providerCostTotal = c.mustRegisterCounterVec(
@@ -395,18 +409,18 @@ func (mc *MetricContext) handleProviderCallCompleted(event *events.Event) {
 	).Inc()
 
 	if data.InputTokens > 0 {
-		mc.collector.providerTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, "input")...,
+		mc.collector.providerInputTokensTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model)...,
 		).Add(float64(data.InputTokens))
 	}
 	if data.OutputTokens > 0 {
-		mc.collector.providerTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, "output")...,
+		mc.collector.providerOutputTokensTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model)...,
 		).Add(float64(data.OutputTokens))
 	}
 	if data.CachedTokens > 0 {
-		mc.collector.providerTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, "cached")...,
+		mc.collector.providerCachedTokensTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model)...,
 		).Add(float64(data.CachedTokens))
 	}
 

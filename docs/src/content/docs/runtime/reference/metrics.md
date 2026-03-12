@@ -47,12 +47,12 @@ These are registered at Collector creation time and recorded automatically when 
 |--------|------|--------------|-------------|
 | `{ns}_provider_request_duration_seconds` | Histogram | `provider`, `model` | LLM API call duration |
 | `{ns}_provider_requests_total` | Counter | `provider`, `model`, `status` | Total provider API calls |
-| `{ns}_provider_tokens_total` | Counter | `provider`, `model`, `type` | Token consumption |
+| `{ns}_provider_input_tokens_total` | Counter | `provider`, `model` | Input tokens sent to provider |
+| `{ns}_provider_output_tokens_total` | Counter | `provider`, `model` | Output tokens received from provider |
+| `{ns}_provider_cached_tokens_total` | Counter | `provider`, `model` | Cached tokens in provider calls |
 | `{ns}_provider_cost_total` | Counter | `provider`, `model` | Total cost in USD |
 
 `status` values: `success`, `error`
-
-`type` values: `input`, `output`, `cached`
 
 **Duration buckets:** 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60 seconds
 
@@ -232,7 +232,9 @@ For quick reference, here is every metric name emitted with the default `promptk
 | `promptkit_pipeline_duration_seconds` | Histogram | Pipeline |
 | `promptkit_provider_request_duration_seconds` | Histogram | Provider |
 | `promptkit_provider_requests_total` | Counter | Provider |
-| `promptkit_provider_tokens_total` | Counter | Provider |
+| `promptkit_provider_input_tokens_total` | Counter | Provider |
+| `promptkit_provider_output_tokens_total` | Counter | Provider |
+| `promptkit_provider_cached_tokens_total` | Counter | Provider |
 | `promptkit_provider_cost_total` | Counter | Provider |
 | `promptkit_tool_call_duration_seconds` | Histogram | Tool |
 | `promptkit_tool_calls_total` | Counter | Tool |

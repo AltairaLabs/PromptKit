@@ -200,13 +200,12 @@ func TestMetricContext_ProviderCallCompleted(t *testing.T) {
 	checks := []string{
 		"test_provider_request_duration_seconds",
 		"test_provider_requests_total",
-		"test_provider_tokens_total",
+		"test_provider_input_tokens_total",
+		"test_provider_output_tokens_total",
+		"test_provider_cached_tokens_total",
 		"test_provider_cost_total",
 		`provider="openai"`,
 		`model="gpt-4o"`,
-		`type="input"`,
-		`type="output"`,
-		`type="cached"`,
 	}
 	for _, check := range checks {
 		if !strings.Contains(output, check) {
