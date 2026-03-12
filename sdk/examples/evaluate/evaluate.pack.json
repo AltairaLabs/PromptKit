@@ -15,6 +15,10 @@
       "trigger": "every_turn",
       "params": {
         "patterns": ["hello"]
+      },
+      "metric": {
+        "name": "greeting_present",
+        "type": "boolean"
       }
     },
     {
@@ -23,6 +27,11 @@
       "trigger": "every_turn",
       "params": {
         "patterns": ["please", "thank"]
+      },
+      "metric": {
+        "name": "politeness",
+        "type": "counter",
+        "labels": { "category": "tone" }
       }
     },
     {
@@ -31,6 +40,10 @@
       "trigger": "on_session_complete",
       "params": {
         "patterns": ["goodbye"]
+      },
+      "metric": {
+        "name": "farewell_present",
+        "type": "gauge"
       }
     }
   ],

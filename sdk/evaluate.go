@@ -84,6 +84,13 @@ type EvaluateOpts struct {
 	// If Registry is also provided, the exec handlers are registered into it.
 	RuntimeConfigPath string
 
+	// --- Metrics ---
+
+	// MetricRecorder records eval results as metrics (e.g. Prometheus gauges,
+	// counters, histograms) based on Metric definitions in each EvalDef.
+	// If nil, no metrics are recorded.
+	MetricRecorder evals.MetricRecorder
+
 	// --- Eval execution ---
 
 	// Registry overrides the default eval type registry.
@@ -160,7 +167,15 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 		emitEvalEvents(opts.EventBus, opts.SessionID, results)
 	}
 
-	// 6. Close auto-created bus to flush events to OTel listener
+	// 6. Record metrics (optional)
+	if opts.MetricRecorder != nil {
+		writer := evals.NewMetricResultWriter(opts.MetricRecorder, defs)
+		if err := writer.WriteResults(ctx, results); err != nil {
+			return results, fmt.Errorf("record metrics: %w", err)
+		}
+	}
+
+	// 7. Close auto-created bus to flush OTel listener
 	if ownsBus && opts.EventBus != nil {
 		opts.EventBus.Close()
 	}
@@ -277,6 +292,79 @@ func registerExecEvalHandlers(registry *evals.EvalTypeRegistry, path string) err
 		registry.Register(handler)
 	}
 	return nil
+}
+
+// ValidateEvalTypesOpts configures eval type validation.
+type ValidateEvalTypesOpts struct {
+	// --- Pack source (use one of PackPath, PackData, or EvalDefs) ---
+
+	// PackPath loads a PromptPack from the filesystem.
+	PackPath string
+
+	// PackData parses a PromptPack from raw JSON bytes.
+	PackData []byte
+
+	// EvalDefs provides pre-resolved eval definitions directly.
+	EvalDefs []evals.EvalDef
+
+	// PromptName selects which prompt's evals to merge with pack-level evals.
+	// Only used with PackPath or PackData. If empty, only pack-level evals are checked.
+	PromptName string
+
+	// --- Extensibility ---
+
+	// RuntimeConfigPath registers exec eval handlers from a RuntimeConfig YAML file
+	// before validation, so custom eval types are recognized.
+	RuntimeConfigPath string
+
+	// Registry overrides the default eval type registry.
+	// If nil, a registry with all built-in handlers is created.
+	Registry *evals.EvalTypeRegistry
+
+	// SkipSchemaValidation disables JSON schema validation when loading from PackPath.
+	SkipSchemaValidation bool
+}
+
+// ValidateEvalTypes checks that every eval type referenced in the resolved
+// eval definitions has a registered handler in the EvalTypeRegistry.
+// Returns a list of eval IDs whose types are missing, or nil if all are valid.
+//
+// This is useful as a preflight check — e.g. at startup or in CI — to catch
+// configuration errors (typos, missing RuntimeConfig bindings) before evals
+// are actually executed.
+//
+//nolint:gocritic // hugeParam: value receiver is intentional for public API ergonomics
+func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error) {
+	// Reuse the same resolution logic as Evaluate().
+	resolveOpts := &EvaluateOpts{
+		PackPath:             opts.PackPath,
+		PackData:             opts.PackData,
+		EvalDefs:             opts.EvalDefs,
+		PromptName:           opts.PromptName,
+		SkipSchemaValidation: opts.SkipSchemaValidation,
+	}
+	defs, err := resolveEvalDefs(resolveOpts)
+	if err != nil {
+		return nil, fmt.Errorf("resolve eval defs: %w", err)
+	}
+
+	registry := opts.Registry
+	if registry == nil {
+		registry = evals.NewEvalTypeRegistry()
+	}
+	if opts.RuntimeConfigPath != "" {
+		if err := registerExecEvalHandlers(registry, opts.RuntimeConfigPath); err != nil {
+			return nil, fmt.Errorf("load runtime config evals: %w", err)
+		}
+	}
+
+	var missing []evals.EvalDef
+	for _, def := range defs {
+		if !registry.Has(def.Type) {
+			missing = append(missing, def)
+		}
+	}
+	return missing, nil
 }
 
 // emitEvalEvents emits eval results as events on the event bus.

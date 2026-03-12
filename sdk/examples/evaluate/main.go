@@ -6,6 +6,9 @@
 //   - Filtering evals by trigger (every_turn vs on_session_complete)
 //   - Running evals from inline definitions (no pack file needed)
 //   - Receiving eval results via the EventBus for reactive workflows
+//   - Recording eval results as Prometheus metrics via MetricRecorder
+//   - Validating that all eval types are registered before execution
+//   - Extending the eval registry with custom exec handlers via RuntimeConfig
 //
 // Run with:
 //
@@ -16,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -146,6 +150,109 @@ func main() {
 	mu.Lock()
 	fmt.Printf("\n  Summary: %d passed, %d failed\n", counters["passed"], counters["failed"])
 	mu.Unlock()
+
+	// Example 5: Metrics — record eval results as Prometheus metrics.
+	// Each eval in the pack has a "metric" definition that specifies the
+	// Prometheus metric name and type (boolean, counter, gauge, histogram).
+	// Pass a MetricCollector to Evaluate() to automatically record results.
+	fmt.Println("\n=== Example 5: Prometheus metrics from eval results ===")
+
+	collector := evals.NewMetricCollector(
+		evals.WithNamespace("myapp"),
+		evals.WithLabels(map[string]string{"env": "production"}),
+	)
+
+	results, err = sdk.Evaluate(ctx, sdk.EvaluateOpts{
+		PackPath:             "./evaluate.pack.json",
+		SkipSchemaValidation: true,
+		MetricRecorder:       collector,
+		Messages: []types.Message{
+			types.NewUserMessage("Hi there!"),
+			types.NewAssistantMessage("Hello! How can I help you today?"),
+		},
+		SessionID: "metrics-session",
+		TurnIndex: 1,
+	})
+	if err != nil {
+		log.Fatalf("Evaluate failed: %v", err)
+	}
+	printResults(results)
+
+	fmt.Println("\n  Prometheus output:")
+	if err := collector.WritePrometheus(os.Stdout); err != nil {
+		log.Fatalf("WritePrometheus failed: %v", err)
+	}
+
+	// Example 6: Validate eval types before execution.
+	// ValidateEvalTypes checks that every eval type referenced in the pack
+	// has a registered handler. This is a preflight check — useful at startup
+	// or in CI to catch typos or missing RuntimeConfig bindings early.
+	fmt.Println("\n=== Example 6: Validate eval types (preflight check) ===")
+
+	// All built-in types should be valid.
+	missing, err := sdk.ValidateEvalTypes(sdk.ValidateEvalTypesOpts{
+		PackPath:             "./evaluate.pack.json",
+		SkipSchemaValidation: true,
+	})
+	if err != nil {
+		log.Fatalf("ValidateEvalTypes failed: %v", err)
+	}
+	if len(missing) == 0 {
+		fmt.Println("  All eval types are registered.")
+	}
+
+	// Demonstrate a missing type: "sentiment" is not a built-in handler.
+	missing, err = sdk.ValidateEvalTypes(sdk.ValidateEvalTypesOpts{
+		EvalDefs: []evals.EvalDef{
+			{ID: "tone", Type: "contains"},
+			{ID: "mood", Type: "sentiment"},
+		},
+	})
+	if err != nil {
+		log.Fatalf("ValidateEvalTypes failed: %v", err)
+	}
+	for _, def := range missing {
+		fmt.Printf("  Missing handler: eval %q requires type %q\n", def.ID, def.Type)
+	}
+
+	// Example 7: RuntimeConfig — extend the registry with custom exec handlers.
+	// A RuntimeConfig YAML file can bind eval type names to external commands
+	// (Python scripts, Node.js, shell scripts, etc.). These bindings are
+	// registered into the eval registry so custom types work seamlessly.
+	//
+	// Example runtime-config.yaml:
+	//
+	//   apiVersion: promptkit.altairalabs.ai/v1alpha1
+	//   kind: RuntimeConfig
+	//   metadata:
+	//     name: my-app
+	//   spec:
+	//     evals:
+	//       sentiment:                         # registers "sentiment" eval type
+	//         command: python3
+	//         args: [scripts/sentiment.py]
+	//         timeout_ms: 10000
+	//       toxicity:                          # registers "toxicity" eval type
+	//         command: node
+	//         args: [scripts/toxicity.js]
+	//
+	// With a RuntimeConfig, the "sentiment" type above would pass validation:
+	//
+	//   missing, err := sdk.ValidateEvalTypes(sdk.ValidateEvalTypesOpts{
+	//       EvalDefs:          defs,
+	//       RuntimeConfigPath: "runtime-config.yaml",
+	//   })
+	//
+	// And Evaluate() would run the external command for that eval type:
+	//
+	//   results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+	//       EvalDefs:          defs,
+	//       RuntimeConfigPath: "runtime-config.yaml",
+	//       Messages:          messages,
+	//   })
+	fmt.Println("\n=== Example 7: RuntimeConfig (exec eval handlers) ===")
+	fmt.Println("  (See source code comments for RuntimeConfig YAML format)")
+	fmt.Println("  RuntimeConfigPath can be passed to both Evaluate() and ValidateEvalTypes()")
 }
 
 func printResults(results []evals.EvalResult) {
