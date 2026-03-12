@@ -238,18 +238,22 @@ OTLP traces and Prometheus metrics are complementary. Use both for full observab
 
 ```go
 import (
-    "github.com/AltairaLabs/PromptKit/runtime/metrics/prometheus"
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/AltairaLabs/PromptKit/runtime/metrics"
     "github.com/AltairaLabs/PromptKit/sdk"
 )
 
-// Traces: automatic with WithTracerProvider
+reg := prometheus.NewRegistry()
+collector := metrics.NewCollector(metrics.CollectorOpts{
+    Registerer: reg,
+    Namespace:  "myapp",
+})
+
+// Both traces and metrics in one call
 conv, _ := sdk.Open("./app.pack.json", "chat",
     sdk.WithTracerProvider(tp),
+    sdk.WithMetrics(collector, nil),
 )
-
-// Metrics: subscribe a Prometheus listener
-metricsListener := prometheus.NewMetricsListener()
-conv.EventBus().SubscribeAll(metricsListener.Listener())
 ```
 
 - **Prometheus** gives you dashboards, alerts, and aggregate metrics (p99 latency, error rates, token costs)

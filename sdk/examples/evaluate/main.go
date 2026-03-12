@@ -6,7 +6,7 @@
 //   - Filtering evals by trigger (every_turn vs on_session_complete)
 //   - Running evals from inline definitions (no pack file needed)
 //   - Receiving eval results via the EventBus for reactive workflows
-//   - Recording eval results as Prometheus metrics via MetricRecorder
+//   - Recording eval results as Prometheus metrics via MetricsCollector
 //   - Validating that all eval types are registered before execution
 //   - Extending the eval registry with custom exec handlers via RuntimeConfig
 //

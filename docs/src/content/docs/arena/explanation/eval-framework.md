@@ -67,7 +67,7 @@ Each eval is an `EvalDef` object in the pack's `evals` array. The structure comb
 | `enabled` | No | Whether the eval is active (default: `true`) |
 | `sample_percentage` | No | Percentage of turns/sessions to evaluate (for sampling triggers) |
 | `groups` | No | Eval groups for filtering (see [Eval Groups](#eval-groups)) |
-| `metric` | No | Prometheus metric configuration (see [MetricCollector](#metriccollector--prometheus)) |
+| `metric` | No | Prometheus metric configuration (see [Metrics & Prometheus](#metrics--prometheus)) |
 
 ## Triggers
 
@@ -271,4 +271,4 @@ See the [`eval-test` example](https://github.com/AltairaLabs/PromptKit/tree/main
 - [Assertions Reference](/arena/reference/assertions/) — Test-time checks
 - [Observability](/sdk/explanation/observability/) — EventBus architecture
 - [Session Recording](/arena/explanation/session-recording/) — How recordings feed into evals
-- [Monitor Events](/sdk/how-to/monitor-events/) — MetricCollector usage in SDK
+- [Monitor Events](/sdk/how-to/monitor-events/) — Event hooks and Prometheus metrics in SDK

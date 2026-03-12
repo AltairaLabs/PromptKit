@@ -256,8 +256,8 @@ Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the 
 | `Registerer` | `prometheus.Registerer` | Registry to register into (default: `DefaultRegisterer`) |
 | `Namespace` | `string` | Metric name prefix (default: `"promptkit"`) |
 | `ConstLabels` | `prometheus.Labels` | Process-level constant labels (env, region) |
-| `InstanceLabels` | `[]string` | Label names that vary per conversation (tenant, prompt_name) |
-| `DisablePipelineMetrics` | `bool` | Disable operational metrics |
+| `InstanceLabels` | `[]string` | Label names that vary per conversation (tenant, prompt_name). Sorted internally — `Bind()` label order doesn't matter. |
+| `DisablePipelineMetrics` | `bool` | Disable operational metrics (use for eval-only consumers, or use `NewEvalOnlyCollector`) |
 | `DisableEvalMetrics` | `bool` | Disable eval result metrics |
 
 ### Custom Event Counters

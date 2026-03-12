@@ -151,7 +151,7 @@ When explicit groups are set, they fully replace the automatic classification.
 
 ## Metrics
 
-Record eval results as Prometheus metrics using the unified `metrics.Collector`:
+Record eval results as Prometheus metrics by passing a `MetricsCollector` — the SDK calls `Bind()` internally, matching the `WithMetrics()` pattern from the conversation API:
 
 ```go
 import (
@@ -160,20 +160,23 @@ import (
 )
 
 reg := prometheus.NewRegistry()
-collector := metrics.NewCollector(metrics.CollectorOpts{
-    Registerer: reg,
-    Namespace:  "myapp",
+collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+    Registerer:     reg,
+    Namespace:      "myapp",
+    InstanceLabels: []string{"tenant"},
 })
-
-// Bind returns a MetricContext that implements evals.MetricRecorder
-metricCtx := collector.Bind(nil)
 
 results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    PackPath:       "./app.pack.json",
-    Messages:       messages,
-    MetricRecorder: metricCtx,
+    PackPath:              "./app.pack.json",
+    Messages:              messages,
+    MetricsCollector:      collector,
+    MetricsInstanceLabels: map[string]string{"tenant": "acme"},
 })
 ```
+
+`NewEvalOnlyCollector` skips pipeline metric registration — use it for standalone eval workers that don't run a live pipeline. For consumers that also need pipeline metrics, use `metrics.NewCollector()` instead.
+
+You can also pass a raw `MetricRecorder` for custom implementations, but `MetricsCollector` is preferred for new code.
 
 Evals must have a `metric` definition in the pack to be recorded. See [Metrics & Prometheus](/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration, and [Monitor Events](/sdk/how-to/monitor-events/#prometheus-metrics) for the full metrics reference.
 
@@ -245,7 +248,9 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 | `EventBus` | `*events.EventBus` | Event emission |
 | `Logger` | `*slog.Logger` | Structured logging |
 | `RuntimeConfigPath` | `string` | Load exec eval handlers from RuntimeConfig YAML |
-| `MetricRecorder` | `evals.MetricRecorder` | Record eval results as Prometheus metrics |
+| `MetricsCollector` | `*metrics.Collector` | Unified Prometheus collector (preferred — SDK calls `Bind()` internally) |
+| `MetricsInstanceLabels` | `map[string]string` | Per-invocation label values for `MetricsCollector` |
+| `MetricRecorder` | `evals.MetricRecorder` | Custom metric recorder (use `MetricsCollector` for new code) |
 | `Registry` | `*evals.EvalTypeRegistry` | Custom handler registry |
 | `Timeout` | `time.Duration` | Per-eval timeout (default: 30s) |
 | `SkipSchemaValidation` | `bool` | Skip JSON schema validation |

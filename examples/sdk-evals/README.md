@@ -6,7 +6,7 @@ Demonstrates how to use PromptKit's eval framework with the SDK.
 
 - **Pack-level evals**: Eval definitions live in the pack file (`assistant.pack.json`) — no Go code needed to define them
 - **InProcDispatcher**: Runs evals synchronously in-process (simplest pattern)
-- **MetricCollector**: Accumulates eval results and exports Prometheus text format
+- **Metrics Collector**: Records eval results as Prometheus metrics via the unified `metrics.NewEvalOnlyCollector`
 - **Turn vs session evals**: Turn evals run after each `Send()`, session evals run on `Close()`
 
 ## Eval Definitions

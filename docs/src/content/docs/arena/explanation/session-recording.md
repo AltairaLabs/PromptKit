@@ -98,7 +98,7 @@ Emitter ──► EventBus ──► EventBusEvalListener
                                                               │
                                                     ┌─────────┴─────────┐
                                                     ▼                   ▼
-                                             MetricCollector     Message Metadata
+                                             MetricContext       Message Metadata
                                              (Prometheus)        (pack_evals)
 ```
 
@@ -108,7 +108,7 @@ Emitter ──► EventBus ──► EventBusEvalListener
 2. **EventBusEvalListener** receives these events and accumulates messages per session in a `SessionAccumulator`
 3. On each **assistant message**, turn-level evals (`every_turn`, `sample_turns`) are dispatched asynchronously
 4. On **session close**, session-level evals (`on_session_complete`, `sample_sessions`) run synchronously
-5. Results feed into `MetricCollector` (for Prometheus export) and can be attached to message metadata
+5. Results feed into `MetricContext` (for Prometheus export) and can be attached to message metadata
 
 This means pack evals run automatically against recorded conversations without any additional wiring — the EventBus handles the connection between recording and evaluation. For details on eval types and configuration, see [Eval Framework](/arena/explanation/eval-framework/).
 
