@@ -448,6 +448,149 @@ func TestEvaluate_MetricRecorder(t *testing.T) {
 	assert.True(t, found, "expected test_greeting_score metric in registry")
 }
 
+func TestEvaluate_MetricsCollector(t *testing.T) {
+	defs := []evals.EvalDef{{
+		ID:      "scored-eval",
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": []any{"hello"}},
+		Metric: &evals.MetricDef{
+			Name: "greeting_score",
+			Type: evals.MetricGauge,
+		},
+	}}
+
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer: reg,
+		Namespace:  "test",
+	})
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:         defs,
+		Messages:         []types.Message{types.NewAssistantMessage("hello world")},
+		MetricsCollector: collector,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+
+	// Verify metric was recorded via prometheus registry
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "test_greeting_score" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected test_greeting_score metric in registry")
+}
+
+func TestEvaluate_MetricsCollector_WithInstanceLabels(t *testing.T) {
+	defs := []evals.EvalDef{{
+		ID:      "scored-eval",
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": []any{"hello"}},
+		Metric: &evals.MetricDef{
+			Name: "greeting_score",
+			Type: evals.MetricGauge,
+		},
+	}}
+
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer:     reg,
+		Namespace:      "test",
+		InstanceLabels: []string{"tenant"},
+	})
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:              defs,
+		Messages:              []types.Message{types.NewAssistantMessage("hello world")},
+		MetricsCollector:      collector,
+		MetricsInstanceLabels: map[string]string{"tenant": "acme"},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "test_greeting_score" {
+			found = true
+			require.NotEmpty(t, fam.GetMetric())
+			labels := fam.GetMetric()[0].GetLabel()
+			require.Len(t, labels, 1)
+			assert.Equal(t, "tenant", labels[0].GetName())
+			assert.Equal(t, "acme", labels[0].GetValue())
+			break
+		}
+	}
+	assert.True(t, found, "expected test_greeting_score metric with tenant label")
+}
+
+func TestEvaluate_MetricsCollector_TakesPrecedence(t *testing.T) {
+	// MetricsCollector should take precedence over MetricRecorder
+	defs := []evals.EvalDef{{
+		ID:      "scored-eval",
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": []any{"hello"}},
+		Metric: &evals.MetricDef{
+			Name: "greeting_score",
+			Type: evals.MetricGauge,
+		},
+	}}
+
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer: reg,
+		Namespace:  "preferred",
+	})
+
+	// MetricRecorder should be ignored when MetricsCollector is set
+	otherReg := prometheus.NewRegistry()
+	otherCollector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer: otherReg,
+		Namespace:  "ignored",
+	})
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:         defs,
+		Messages:         []types.Message{types.NewAssistantMessage("hello world")},
+		MetricsCollector: collector,
+		MetricRecorder:   otherCollector.Bind(nil),
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	// Metric should be in the preferred registry (from MetricsCollector)
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "preferred_greeting_score" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected preferred_greeting_score in MetricsCollector registry")
+
+	// MetricRecorder's registry should be empty
+	otherFamilies, gatherErr := otherReg.Gather()
+	require.NoError(t, gatherErr)
+	assert.Empty(t, otherFamilies, "MetricRecorder should not have received metrics")
+}
+
 func TestEvaluate_MetricRecorder_NoMetricDef(t *testing.T) {
 	// Evals without Metric defs should not cause errors when MetricRecorder is set
 	reg := prometheus.NewRegistry()

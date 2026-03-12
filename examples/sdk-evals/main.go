@@ -44,13 +44,12 @@ func main() {
 	}
 	fmt.Printf("Loaded pack %q with %d eval(s)\n\n", pack.Name, len(pack.Evals))
 
-	// 2. Create a unified metrics Collector and bind a MetricContext.
+	// 2. Create an eval-only metrics Collector.
 	//    ConstLabels are baked into metric descriptors; they apply to all metrics.
 	reg := prometheus.NewRegistry()
-	collector := metrics.NewCollector(metrics.CollectorOpts{
-		Registerer:             reg,
-		ConstLabels:            prometheus.Labels{"env": "demo", "tenant": "acme"},
-		DisablePipelineMetrics: true,
+	collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer:  reg,
+		ConstLabels: prometheus.Labels{"env": "demo", "tenant": "acme"},
 	})
 	metricCtx := collector.Bind(nil)
 	metricWriter := evals.NewMetricResultWriter(metricCtx, pack.Evals)

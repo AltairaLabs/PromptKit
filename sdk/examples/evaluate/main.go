@@ -158,22 +158,21 @@ func main() {
 	// Example 5: Metrics — record eval results as Prometheus metrics.
 	// Each eval in the pack has a "metric" definition that specifies the
 	// Prometheus metric name and type (boolean, counter, gauge, histogram).
-	// Use metrics.NewCollector + Bind() to create a MetricRecorder.
+	// Use MetricsCollector on EvaluateOpts — the SDK calls Bind() internally.
+	// NewEvalOnlyCollector is a convenience for eval-only consumers (no pipeline metrics).
 	fmt.Println("\n=== Example 5: Prometheus metrics from eval results ===")
 
 	reg := prometheus.NewRegistry()
-	metricsCollector := metrics.NewCollector(metrics.CollectorOpts{
-		Registerer:             reg,
-		Namespace:              "myapp",
-		ConstLabels:            prometheus.Labels{"env": "production"},
-		DisablePipelineMetrics: true,
+	metricsCollector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer:  reg,
+		Namespace:   "myapp",
+		ConstLabels: prometheus.Labels{"env": "production"},
 	})
-	metricCtx := metricsCollector.Bind(nil)
 
 	results, err = sdk.Evaluate(ctx, sdk.EvaluateOpts{
 		PackPath:             "./evaluate.pack.json",
 		SkipSchemaValidation: true,
-		MetricRecorder:       metricCtx,
+		MetricsCollector:     metricsCollector,
 		Messages: []types.Message{
 			types.NewUserMessage("Hi there!"),
 			types.NewAssistantMessage("Hello! How can I help you today?"),

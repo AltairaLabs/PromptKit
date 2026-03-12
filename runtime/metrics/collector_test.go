@@ -90,6 +90,44 @@ func TestNewCollector_DisablePipelineMetrics(t *testing.T) {
 	}
 }
 
+func TestNewEvalOnlyCollector(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	c := NewEvalOnlyCollector(CollectorOpts{
+		Registerer: reg,
+		Namespace:  "evalonly",
+	})
+	if c.pipelineDuration != nil {
+		t.Error("pipeline metrics should be nil for eval-only collector")
+	}
+	if c.disablePipeline != true {
+		t.Error("disablePipeline should be true for eval-only collector")
+	}
+	if c.disableEval {
+		t.Error("disableEval should be false for eval-only collector")
+	}
+	// No pipeline metrics should be registered.
+	families, _ := reg.Gather()
+	if len(families) != 0 {
+		t.Errorf("expected 0 metric families, got %d", len(families))
+	}
+}
+
+func TestNewEvalOnlyCollector_PreservesOtherOpts(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	c := NewEvalOnlyCollector(CollectorOpts{
+		Registerer:     reg,
+		Namespace:      "custom",
+		ConstLabels:    prometheus.Labels{"env": "test"},
+		InstanceLabels: []string{"tenant"},
+	})
+	if c.namespace != "custom" {
+		t.Errorf("namespace = %q, want %q", c.namespace, "custom")
+	}
+	if len(c.instanceLabels) != 1 || c.instanceLabels[0] != "tenant" {
+		t.Errorf("instanceLabels = %v, want [tenant]", c.instanceLabels)
+	}
+}
+
 func TestCollector_InstanceLabels_Sorted(t *testing.T) {
 	c, _ := newTestCollector(func(o *CollectorOpts) {
 		o.InstanceLabels = []string{"z_label", "a_label", "m_label"}

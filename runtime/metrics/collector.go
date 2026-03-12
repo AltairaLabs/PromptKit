@@ -75,7 +75,10 @@ type CollectorOpts struct {
 	// Use for: tenant, prompt_name, conversation_type.
 	InstanceLabels []string
 
-	// DisablePipelineMetrics disables operational metrics (provider, tool, pipeline, validation).
+	// DisablePipelineMetrics disables operational metrics (provider, tool, pipeline,
+	// validation). Set this to true when you only need eval result metrics — for
+	// example, in standalone eval workers that use sdk.Evaluate() without a live
+	// pipeline. See also NewEvalOnlyCollector() for a convenience constructor.
 	DisablePipelineMetrics bool
 
 	// DisableEvalMetrics disables eval result metrics.
@@ -163,6 +166,22 @@ func NewCollector(opts CollectorOpts) *Collector {
 	return c
 }
 
+// NewEvalOnlyCollector creates a Collector that only records eval result metrics,
+// with pipeline operational metrics disabled. This is a convenience wrapper for:
+//
+//	metrics.NewCollector(metrics.CollectorOpts{
+//	    Registerer:             reg,
+//	    DisablePipelineMetrics: true,
+//	    ...
+//	})
+//
+// Use this for standalone eval workers (e.g. sdk.Evaluate()) that don't run a
+// live pipeline and therefore don't need provider, tool, or pipeline metrics.
+func NewEvalOnlyCollector(opts CollectorOpts) *Collector {
+	opts.DisablePipelineMetrics = true
+	return NewCollector(opts)
+}
+
 // Registry returns the underlying *prometheus.Registry if one was provided,
 // or nil if a non-Registry Registerer was used.
 func (c *Collector) Registry() *prometheus.Registry { return c.registry }
@@ -170,6 +189,10 @@ func (c *Collector) Registry() *prometheus.Registry { return c.registry }
 // Bind creates a MetricContext for a specific conversation, binding
 // instance label values. The returned context implements both
 // events.Listener (via OnEvent) and evals.MetricRecorder (via Record).
+//
+// Label key ordering in the map does not matter — the Collector sorts
+// InstanceLabels internally for deterministic Prometheus label ordering.
+// Only the keys need to match; values are looked up by key, not position.
 //
 // If the Collector has no InstanceLabels, pass nil.
 func (c *Collector) Bind(instanceLabels map[string]string) *MetricContext {

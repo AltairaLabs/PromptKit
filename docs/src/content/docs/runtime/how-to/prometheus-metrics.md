@@ -63,6 +63,28 @@ Where `{ns}` is the configured namespace (default: `promptkit`).
 
 Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector. See [Eval Framework](/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration.
 
+## Standalone Eval Metrics
+
+For eval-only consumers (e.g. workers using `sdk.Evaluate()` without a live pipeline), use `NewEvalOnlyCollector` and pass it via `MetricsCollector` on `EvaluateOpts`:
+
+```go
+reg := prometheus.NewRegistry()
+collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+    Registerer:     reg,
+    Namespace:      "myapp",
+    InstanceLabels: []string{"tenant"},
+})
+
+results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+    PackPath:              "./app.pack.json",
+    Messages:              messages,
+    MetricsCollector:      collector,
+    MetricsInstanceLabels: map[string]string{"tenant": "acme"},
+})
+```
+
+`NewEvalOnlyCollector` is equivalent to `NewCollector` with `DisablePipelineMetrics: true` — it skips registration of provider, tool, pipeline, and validation metrics.
+
 ## Multi-Tenant Setup
 
 When multiple conversations share one Prometheus endpoint, use instance labels to distinguish them:
@@ -89,8 +111,8 @@ conv2, _ := sdk.Open(pack, "sales", sdk.WithMetrics(collector, map[string]string
 | `Registerer` | `prometheus.Registerer` | Registry to register into (default: `DefaultRegisterer`) |
 | `Namespace` | `string` | Metric name prefix (default: `"promptkit"`) |
 | `ConstLabels` | `prometheus.Labels` | Process-level constant labels (env, region) |
-| `InstanceLabels` | `[]string` | Label names that vary per conversation (tenant, prompt_name) |
-| `DisablePipelineMetrics` | `bool` | Disable operational metrics |
+| `InstanceLabels` | `[]string` | Label names that vary per conversation (tenant, prompt_name). Sorted internally — `Bind()` label order doesn't matter. |
+| `DisablePipelineMetrics` | `bool` | Disable operational metrics (use for eval-only consumers, or use `NewEvalOnlyCollector`) |
 | `DisableEvalMetrics` | `bool` | Disable eval result metrics |
 
 ## Grafana Dashboard

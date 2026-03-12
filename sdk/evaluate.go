@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // also registers built-in handlers via init()
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -94,9 +95,23 @@ type EvaluateOpts struct {
 
 	// --- Metrics ---
 
+	// MetricsCollector enables Prometheus eval metrics using the unified
+	// Collector, mirroring the WithMetrics() pattern from the conversation API.
+	// When set, the SDK calls Bind(MetricsInstanceLabels) internally and uses
+	// the resulting MetricContext as the recorder.
+	// Takes precedence over MetricRecorder.
+	MetricsCollector *metrics.Collector
+
+	// MetricsInstanceLabels provides per-invocation label values for the
+	// MetricsCollector. Keys must match the InstanceLabels declared on the
+	// Collector. If the Collector has no InstanceLabels, pass nil.
+	MetricsInstanceLabels map[string]string
+
 	// MetricRecorder records eval results as metrics (e.g. Prometheus gauges,
 	// counters, histograms) based on Metric definitions in each EvalDef.
 	// If nil, no metrics are recorded.
+	// Prefer MetricsCollector for new code — MetricRecorder is useful when
+	// you already have a custom recorder implementation.
 	MetricRecorder evals.MetricRecorder
 
 	// --- Eval execution ---
@@ -177,8 +192,9 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	}
 
 	// 6. Record metrics (optional)
-	if opts.MetricRecorder != nil {
-		writer := evals.NewMetricResultWriter(opts.MetricRecorder, defs)
+	recorder := resolveMetricRecorder(&opts)
+	if recorder != nil {
+		writer := evals.NewMetricResultWriter(recorder, defs)
 		if err := writer.WriteResults(ctx, results); err != nil {
 			return results, fmt.Errorf("record metrics: %w", err)
 		}
@@ -190,6 +206,16 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	}
 
 	return results, nil
+}
+
+// resolveMetricRecorder returns the MetricRecorder to use for eval metrics.
+// MetricsCollector takes precedence: Bind() is called internally to create
+// a MetricContext, matching the WithMetrics() pattern from the conversation API.
+func resolveMetricRecorder(opts *EvaluateOpts) evals.MetricRecorder {
+	if opts.MetricsCollector != nil {
+		return opts.MetricsCollector.Bind(opts.MetricsInstanceLabels)
+	}
+	return opts.MetricRecorder
 }
 
 // resolveEvalDefs resolves eval definitions from the opts.
