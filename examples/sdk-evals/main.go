@@ -15,14 +15,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/expfmt"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register built-in eval handlers
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/sdk"
@@ -41,16 +44,16 @@ func main() {
 	}
 	fmt.Printf("Loaded pack %q with %d eval(s)\n\n", pack.Name, len(pack.Evals))
 
-	// 2. Create a MetricCollector with platform-level base labels and wire
-	//    it to a MetricResultWriter. Base labels are merged with per-metric
-	//    labels declared in the pack (base labels win on conflict).
-	collector := evals.NewMetricCollector(
-		evals.WithLabels(map[string]string{
-			"env":    "demo",
-			"tenant": "acme",
-		}),
-	)
-	metricWriter := evals.NewMetricResultWriter(collector, pack.Evals)
+	// 2. Create a unified metrics Collector and bind a MetricContext.
+	//    ConstLabels are baked into metric descriptors; they apply to all metrics.
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		ConstLabels:            prometheus.Labels{"env": "demo", "tenant": "acme"},
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
+	metricWriter := evals.NewMetricResultWriter(metricCtx, pack.Evals)
 
 	// 3. Create an EvalRunner with the default handler registry.
 	//    Eval results are emitted as events on the EventBus; the
@@ -105,15 +108,20 @@ func main() {
 	fmt.Println("=== Prometheus Metrics ===")
 	fmt.Println()
 
-	var buf bytes.Buffer
-	if err := collector.WritePrometheus(&buf); err != nil {
-		log.Fatalf("Failed to write metrics: %v", err)
+	families, gatherErr := reg.Gather()
+	if gatherErr != nil {
+		log.Fatalf("Failed to gather metrics: %v", gatherErr)
 	}
 
-	if buf.Len() == 0 {
+	if len(families) == 0 {
 		fmt.Println("(no metrics recorded — evals may not have matched any triggers)")
 	} else {
-		fmt.Print(buf.String())
+		enc := expfmt.NewEncoder(os.Stdout, expfmt.NewFormat(expfmt.TypeTextPlain))
+		for _, fam := range families {
+			if err := enc.Encode(fam); err != nil {
+				log.Fatalf("Failed to encode metric: %v", err)
+			}
+		}
 	}
 
 	os.Exit(0)

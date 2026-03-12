@@ -22,8 +22,12 @@ import (
 	"os"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/expfmt"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
@@ -154,18 +158,22 @@ func main() {
 	// Example 5: Metrics — record eval results as Prometheus metrics.
 	// Each eval in the pack has a "metric" definition that specifies the
 	// Prometheus metric name and type (boolean, counter, gauge, histogram).
-	// Pass a MetricCollector to Evaluate() to automatically record results.
+	// Use metrics.NewCollector + Bind() to create a MetricRecorder.
 	fmt.Println("\n=== Example 5: Prometheus metrics from eval results ===")
 
-	collector := evals.NewMetricCollector(
-		evals.WithNamespace("myapp"),
-		evals.WithLabels(map[string]string{"env": "production"}),
-	)
+	reg := prometheus.NewRegistry()
+	metricsCollector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		Namespace:              "myapp",
+		ConstLabels:            prometheus.Labels{"env": "production"},
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := metricsCollector.Bind(nil)
 
 	results, err = sdk.Evaluate(ctx, sdk.EvaluateOpts{
 		PackPath:             "./evaluate.pack.json",
 		SkipSchemaValidation: true,
-		MetricRecorder:       collector,
+		MetricRecorder:       metricCtx,
 		Messages: []types.Message{
 			types.NewUserMessage("Hi there!"),
 			types.NewAssistantMessage("Hello! How can I help you today?"),
@@ -179,8 +187,15 @@ func main() {
 	printResults(results)
 
 	fmt.Println("\n  Prometheus output:")
-	if err := collector.WritePrometheus(os.Stdout); err != nil {
-		log.Fatalf("WritePrometheus failed: %v", err)
+	enc := expfmt.NewEncoder(os.Stdout, expfmt.NewFormat(expfmt.TypeTextPlain))
+	families, gatherErr := reg.Gather()
+	if gatherErr != nil {
+		log.Fatalf("Gather failed: %v", gatherErr)
+	}
+	for _, fam := range families {
+		if err := enc.Encode(fam); err != nil {
+			log.Fatalf("Encode failed: %v", err)
+		}
 	}
 
 	// Example 6: Validate eval types before execution.

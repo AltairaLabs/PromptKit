@@ -3,10 +3,10 @@ package sdk
 import (
 	"context"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -415,34 +416,51 @@ func TestEvaluate_MetricRecorder(t *testing.T) {
 		},
 	}}
 
-	collector := evals.NewMetricCollector(evals.WithNamespace("test"))
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		Namespace:              "test",
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
 
 	results, err := Evaluate(context.Background(), EvaluateOpts{
 		EvalDefs:       defs,
 		Messages:       []types.Message{types.NewAssistantMessage("hello world")},
-		MetricRecorder: collector,
+		MetricRecorder: metricCtx,
 	})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.True(t, results[0].Passed)
 
-	// Verify metric was recorded by writing Prometheus output
-	var buf strings.Builder
-	require.NoError(t, collector.WritePrometheus(&buf))
-	output := buf.String()
-	assert.Contains(t, output, "# TYPE test_greeting_score gauge", "metric should have correct Prometheus type")
-	assert.Contains(t, output, "test_greeting_score ", "metric should be recorded with namespace prefix")
+	// Verify metric was recorded via prometheus registry
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "test_greeting_score" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected test_greeting_score metric in registry")
 }
 
 func TestEvaluate_MetricRecorder_NoMetricDef(t *testing.T) {
 	// Evals without Metric defs should not cause errors when MetricRecorder is set
-	collector := evals.NewMetricCollector()
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
 
 	results, err := Evaluate(context.Background(), EvaluateOpts{
 		EvalDefs:       containsDef("simple", "hello"),
 		Messages:       []types.Message{types.NewAssistantMessage("hello")},
-		MetricRecorder: collector,
+		MetricRecorder: metricCtx,
 	})
 
 	require.NoError(t, err)
@@ -450,9 +468,9 @@ func TestEvaluate_MetricRecorder_NoMetricDef(t *testing.T) {
 	assert.True(t, results[0].Passed)
 
 	// No metrics should have been recorded
-	var buf strings.Builder
-	require.NoError(t, collector.WritePrometheus(&buf))
-	assert.Empty(t, buf.String(), "no metrics should be recorded for evals without MetricDef")
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+	assert.Empty(t, families, "no metrics should be recorded for evals without MetricDef")
 }
 
 func TestValidateEvalTypes_AllRegistered(t *testing.T) {

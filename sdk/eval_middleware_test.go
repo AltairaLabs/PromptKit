@@ -2,13 +2,15 @@ package sdk
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
 
@@ -851,10 +853,16 @@ func TestNewEvalMiddleware_NilEvalGroupsRunsAll(t *testing.T) {
 }
 
 func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
-	collector := evals.NewMetricCollector(evals.WithNamespace("test"))
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		Namespace:              "test",
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
 
 	conv := &Conversation{
-		config: &config{metricRecorder: collector},
+		config: &config{metricContext: metricCtx},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
 				{
@@ -876,7 +884,7 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 		t.Fatal("expected non-nil middleware")
 	}
 	if mw.metricWriter == nil {
-		t.Fatal("expected non-nil metricWriter when MetricRecorder is configured")
+		t.Fatal("expected non-nil metricWriter when MetricContext is configured")
 	}
 
 	// Simulate emitting a result — metric should be recorded.
@@ -884,12 +892,19 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 		{EvalID: "e1", Type: "contains", Passed: true},
 	})
 
-	var buf strings.Builder
-	if err := collector.WritePrometheus(&buf); err != nil {
-		t.Fatalf("WritePrometheus failed: %v", err)
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather failed: %v", err)
 	}
-	if !strings.Contains(buf.String(), "test_greeting") {
-		t.Errorf("expected metric 'test_greeting' in output, got: %s", buf.String())
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "test_greeting" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected metric 'test_greeting' in registry")
 	}
 }
 
