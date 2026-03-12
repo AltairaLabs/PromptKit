@@ -34,7 +34,7 @@ func TestEmitterPublishesSharedContext(t *testing.T) {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
-	data, ok := got.Data.(PipelineStartedData)
+	data, ok := got.Data.(*PipelineStartedData)
 	if !ok {
 		t.Fatalf("unexpected data type: %T", got.Data)
 	}
@@ -186,7 +186,7 @@ func TestEmitter_MessageCreated(t *testing.T) {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
-	data, ok := got.Data.(MessageCreatedData)
+	data, ok := got.Data.(*MessageCreatedData)
 	if !ok {
 		t.Fatalf("unexpected data type: %T", got.Data)
 	}
@@ -224,7 +224,7 @@ func TestEmitter_MessageCreated_WithToolResult(t *testing.T) {
 		t.Fatal("timed out waiting for message.created event with tool result")
 	}
 
-	data, ok := got.Data.(MessageCreatedData)
+	data, ok := got.Data.(*MessageCreatedData)
 	if !ok {
 		t.Fatalf("unexpected data type: %T", got.Data)
 	}
@@ -264,7 +264,7 @@ func TestEmitter_MessageCreated_WithParts(t *testing.T) {
 		t.Fatal("timed out waiting for message.created event with parts")
 	}
 
-	data, ok := got.Data.(MessageCreatedData)
+	data, ok := got.Data.(*MessageCreatedData)
 	if !ok {
 		t.Fatalf("unexpected data type: %T", got.Data)
 	}
@@ -320,7 +320,7 @@ func TestEmitter_MessageCreated_StripsBinaryData(t *testing.T) {
 		t.Fatal("timed out waiting for message.created event")
 	}
 
-	data, ok := got.Data.(MessageCreatedData)
+	data, ok := got.Data.(*MessageCreatedData)
 	if !ok {
 		t.Fatalf("unexpected data type: %T", got.Data)
 	}
@@ -381,7 +381,7 @@ func TestEmitter_MessageUpdated(t *testing.T) {
 		t.Fatalf("unexpected run ID: %s", got.RunID)
 	}
 
-	data, ok := got.Data.(MessageUpdatedData)
+	data, ok := got.Data.(*MessageUpdatedData)
 	if !ok {
 		t.Fatalf("unexpected data type: %T", got.Data)
 	}
@@ -419,7 +419,7 @@ func TestEmitter_ConversationStarted(t *testing.T) {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
-	data, ok := got.Data.(ConversationStartedData)
+	data, ok := got.Data.(*ConversationStartedData)
 	if !ok {
 		t.Fatalf("unexpected data type: %T", got.Data)
 	}
@@ -448,9 +448,9 @@ func TestEmitter_ToolCallStarted_Labels(t *testing.T) {
 	emitter.ToolCallStarted("search", "call-1", nil, labels)
 	wg.Wait()
 
-	data, ok := got.Data.(ToolCallStartedData)
+	data, ok := got.Data.(*ToolCallStartedData)
 	if !ok {
-		t.Fatalf("expected ToolCallStartedData, got %T", got.Data)
+		t.Fatalf("expected *ToolCallStartedData, got %T", got.Data)
 	}
 	if data.Labels["handler"] != "http" {
 		t.Errorf("expected handler=http, got %q", data.Labels["handler"])
@@ -479,9 +479,9 @@ func TestEmitter_ProviderCallStarted_Labels(t *testing.T) {
 	emitter.ProviderCallStarted("openai", "gpt-4", 5, 2, labels)
 	wg.Wait()
 
-	data, ok := got.Data.(ProviderCallStartedData)
+	data, ok := got.Data.(*ProviderCallStartedData)
 	if !ok {
-		t.Fatalf("expected ProviderCallStartedData, got %T", got.Data)
+		t.Fatalf("expected *ProviderCallStartedData, got %T", got.Data)
 	}
 	if data.Labels["tier"] != "premium" {
 		t.Errorf("expected tier=premium, got %q", data.Labels["tier"])

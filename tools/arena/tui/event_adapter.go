@@ -241,26 +241,26 @@ func (a *EventAdapter) logf(level string, event *events.Event, format string, ar
 }
 
 func providerName(event *events.Event) string {
-	if data, ok := event.Data.(events.ProviderCallStartedData); ok {
+	if data, ok := event.Data.(*events.ProviderCallStartedData); ok {
 		return data.Provider
 	}
-	if data, ok := event.Data.(events.ProviderCallCompletedData); ok {
+	if data, ok := event.Data.(*events.ProviderCallCompletedData); ok {
 		return data.Provider
 	}
-	if data, ok := event.Data.(events.ProviderCallFailedData); ok {
+	if data, ok := event.Data.(*events.ProviderCallFailedData); ok {
 		return data.Provider
 	}
 	return ""
 }
 
 func providerModel(event *events.Event) string {
-	if data, ok := event.Data.(events.ProviderCallStartedData); ok {
+	if data, ok := event.Data.(*events.ProviderCallStartedData); ok {
 		return data.Model
 	}
-	if data, ok := event.Data.(events.ProviderCallCompletedData); ok {
+	if data, ok := event.Data.(*events.ProviderCallCompletedData); ok {
 		return data.Model
 	}
-	if data, ok := event.Data.(events.ProviderCallFailedData); ok {
+	if data, ok := event.Data.(*events.ProviderCallFailedData); ok {
 		return data.Model
 	}
 	return ""
@@ -298,7 +298,7 @@ func validationName(event *events.Event) string {
 
 func eventError(event *events.Event) error {
 	switch data := event.Data.(type) {
-	case events.ProviderCallFailedData:
+	case *events.ProviderCallFailedData:
 		return data.Error
 	case events.MiddlewareEventData:
 		return data.Error
