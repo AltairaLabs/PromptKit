@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -348,6 +349,134 @@ func TestEvaluate_RuntimeConfigPath_InvalidPath(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "load runtime config evals")
+}
+
+func TestEvaluate_MetricRecorder(t *testing.T) {
+	defs := []evals.EvalDef{{
+		ID:      "scored-eval",
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": []any{"hello"}},
+		Metric: &evals.MetricDef{
+			Name: "greeting_score",
+			Type: evals.MetricGauge,
+		},
+	}}
+
+	collector := evals.NewMetricCollector(evals.WithNamespace("test"))
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:       defs,
+		Messages:       []types.Message{types.NewAssistantMessage("hello world")},
+		MetricRecorder: collector,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+
+	// Verify metric was recorded by writing Prometheus output
+	var buf strings.Builder
+	require.NoError(t, collector.WritePrometheus(&buf))
+	output := buf.String()
+	assert.Contains(t, output, "# TYPE test_greeting_score gauge", "metric should have correct Prometheus type")
+	assert.Contains(t, output, "test_greeting_score ", "metric should be recorded with namespace prefix")
+}
+
+func TestEvaluate_MetricRecorder_NoMetricDef(t *testing.T) {
+	// Evals without Metric defs should not cause errors when MetricRecorder is set
+	collector := evals.NewMetricCollector()
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:       containsDef("simple", "hello"),
+		Messages:       []types.Message{types.NewAssistantMessage("hello")},
+		MetricRecorder: collector,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+
+	// No metrics should have been recorded
+	var buf strings.Builder
+	require.NoError(t, collector.WritePrometheus(&buf))
+	assert.Empty(t, buf.String(), "no metrics should be recorded for evals without MetricDef")
+}
+
+func TestValidateEvalTypes_AllRegistered(t *testing.T) {
+	missing, err := ValidateEvalTypes(ValidateEvalTypesOpts{
+		EvalDefs: containsDef("check", "hello"),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, missing, "all built-in types should be registered")
+}
+
+func TestValidateEvalTypes_MissingType(t *testing.T) {
+	missing, err := ValidateEvalTypes(ValidateEvalTypesOpts{
+		EvalDefs: []evals.EvalDef{
+			{ID: "good", Type: "contains", Trigger: evals.TriggerEveryTurn},
+			{ID: "bad", Type: "nonexistent_eval_type", Trigger: evals.TriggerEveryTurn},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, missing, 1)
+	assert.Equal(t, "bad", missing[0].ID)
+	assert.Equal(t, "nonexistent_eval_type", missing[0].Type)
+}
+
+func TestValidateEvalTypes_FromPackPath(t *testing.T) {
+	missing, err := ValidateEvalTypes(ValidateEvalTypesOpts{
+		PackPath:             evalTestPack,
+		SkipSchemaValidation: true,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, missing, "pack eval types should all be registered")
+}
+
+func TestValidateEvalTypes_RuntimeConfigRegistersHandler(t *testing.T) {
+	script := writeTestScript(t, "#!/bin/sh\necho '{}'")
+	rcYAML := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+metadata:
+  name: test
+spec:
+  evals:
+    custom_type:
+      command: ` + script + `
+`)
+	rcPath := t.TempDir() + "/runtime.yaml"
+	require.NoError(t, os.WriteFile(rcPath, rcYAML, 0o644))
+
+	// Without RuntimeConfig, custom_type is missing
+	missing, err := ValidateEvalTypes(ValidateEvalTypesOpts{
+		EvalDefs: []evals.EvalDef{{ID: "ext", Type: "custom_type"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, missing, 1, "custom_type should be missing without RuntimeConfig")
+
+	// With RuntimeConfig, custom_type is registered
+	missing, err = ValidateEvalTypes(ValidateEvalTypesOpts{
+		EvalDefs:          []evals.EvalDef{{ID: "ext", Type: "custom_type"}},
+		RuntimeConfigPath: rcPath,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, missing, "custom_type should be registered via RuntimeConfig")
+}
+
+func TestValidateEvalTypes_EmptyDefs(t *testing.T) {
+	missing, err := ValidateEvalTypes(ValidateEvalTypesOpts{
+		EvalDefs: []evals.EvalDef{},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, missing)
+}
+
+func TestValidateEvalTypes_InvalidPackPath(t *testing.T) {
+	_, err := ValidateEvalTypes(ValidateEvalTypesOpts{
+		PackPath: "nonexistent.pack.json",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolve eval defs")
 }
 
 // writeTestScript creates a temporary executable shell script for tests.
