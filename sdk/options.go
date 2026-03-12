@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
@@ -172,6 +173,13 @@ type config struct {
 	// OTel event listener reference (set by initEventBus when tracerProvider is configured).
 	// Used by Send/Stream to call StartSession so pipeline spans are parented under the caller's context.
 	otelListener *telemetry.OTelEventListener
+
+	// Unified metrics collector (process-level, shared across conversations).
+	metricsCollector *metrics.Collector
+	// Per-conversation instance label values for the metrics collector.
+	metricsInstanceLabels map[string]string
+	// Per-conversation MetricContext (set by initEventBus when metricsCollector is configured).
+	metricContext *metrics.MetricContext
 
 	// Pipeline execution timeout override.
 	// When non-nil, overrides the default 30s execution timeout.
@@ -580,6 +588,34 @@ func WithRecording(cfg *RecordingConfig) Option {
 func WithTracerProvider(tp trace.TracerProvider) Option {
 	return func(c *config) error {
 		c.tracerProvider = tp
+		return nil
+	}
+}
+
+// WithMetrics attaches a unified metrics Collector to this conversation.
+// The Collector records both pipeline operational metrics (provider calls,
+// tokens, cost, tool calls, pipeline duration, validations) and eval
+// result metrics into a Prometheus registry.
+//
+// instanceLabels provides values for the InstanceLabels declared on the
+// Collector. If the Collector has no InstanceLabels, pass nil.
+//
+// The Collector is created once per process; each conversation binds its
+// own instance label values via this option:
+//
+//	collector := metrics.NewCollector(metrics.CollectorOpts{
+//	    Registerer:     reg,
+//	    Namespace:      "myapp",
+//	    InstanceLabels: []string{"tenant"},
+//	})
+//
+//	conv, _ := sdk.Open(pack, prompt,
+//	    sdk.WithMetrics(collector, map[string]string{"tenant": "acme"}),
+//	)
+func WithMetrics(collector *metrics.Collector, instanceLabels map[string]string) Option {
+	return func(c *config) error {
+		c.metricsCollector = collector
+		c.metricsInstanceLabels = instanceLabels
 		return nil
 	}
 }

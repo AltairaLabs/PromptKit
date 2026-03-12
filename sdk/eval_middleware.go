@@ -89,8 +89,11 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 	}
 
 	// Build metric writer if a recorder is configured.
+	// Unified MetricContext (from WithMetrics) takes precedence over legacy MetricRecorder.
 	var metricWriter *evals.MetricResultWriter
-	if conv.config.metricRecorder != nil {
+	if conv.config.metricContext != nil {
+		metricWriter = evals.NewMetricResultWriter(conv.config.metricContext, defs)
+	} else if conv.config.metricRecorder != nil {
 		metricWriter = evals.NewMetricResultWriter(conv.config.metricRecorder, defs)
 	}
 

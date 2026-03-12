@@ -481,6 +481,12 @@ func initEventBus(cfg *config) {
 		cfg.eventBus.SubscribeAll(listener.OnEvent)
 		cfg.otelListener = listener
 	}
+	// Wire unified metrics if a Collector is configured.
+	if cfg.metricsCollector != nil {
+		metricCtx := cfg.metricsCollector.Bind(cfg.metricsInstanceLabels)
+		cfg.eventBus.SubscribeAll(metricCtx.OnEvent)
+		cfg.metricContext = metricCtx
+	}
 }
 
 // initInternalStateStore initializes the internal state store for conversation history.

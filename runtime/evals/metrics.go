@@ -85,7 +85,7 @@ func (mc *MetricCollector) Record(result EvalResult, metric *MetricDef) error {
 	}
 
 	name := mc.prefixedName(metric.Name)
-	value := extractValue(result, metric)
+	value := ExtractValue(result, metric)
 
 	mc.validateRange(name, value, metric.Range)
 
@@ -269,11 +269,11 @@ func (mc *MetricCollector) validateRange(name string, value float64, r *Range) {
 	}
 }
 
-// extractValue extracts the numeric value from an EvalResult.
+// ExtractValue extracts the numeric value from an EvalResult.
 // Prefers MetricValue, falls back to Score, then defaults to 0.
 //
 //nolint:gocritic // EvalResult passed by value to match MetricRecorder.Record signature
-func extractValue(result EvalResult, _ *MetricDef) float64 {
+func ExtractValue(result EvalResult, _ *MetricDef) float64 {
 	if result.MetricValue != nil {
 		return *result.MetricValue
 	}
