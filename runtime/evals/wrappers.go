@@ -96,31 +96,6 @@ func (h *AssertionEvalHandler) Eval(
 	return result, nil
 }
 
-// applyThresholds applies threshold-based pass/fail to an already-computed result.
-// Used by EvalRunner to apply EvalDef.Threshold without re-running the handler.
-func (h *AssertionEvalHandler) applyThresholds(result *EvalResult) {
-	if h.Threshold == nil {
-		return
-	}
-	passed := true
-	if result.Score != nil {
-		if h.Threshold.MinScore != nil {
-			passed = passed && *result.Score >= *h.Threshold.MinScore
-		}
-		if h.Threshold.MaxScore != nil {
-			passed = passed && *result.Score <= *h.Threshold.MaxScore
-		}
-	}
-	if h.Threshold.MinScore == nil && h.Threshold.MaxScore == nil {
-		passed = result.IsPassed()
-	}
-	result.Passed = passed
-	if result.Details == nil {
-		result.Details = make(map[string]any)
-	}
-	result.Details["passed"] = passed
-}
-
 // resolveThresholds returns min/max score from the Threshold field or params.
 func (h *AssertionEvalHandler) resolveThresholds(
 	params map[string]any,

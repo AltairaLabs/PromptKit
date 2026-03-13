@@ -241,8 +241,8 @@ func TestEvalResult_JSON(t *testing.T) {
 	if decoded.EvalID != r.EvalID {
 		t.Errorf("EvalID = %q, want %q", decoded.EvalID, r.EvalID)
 	}
-	if decoded.Passed != r.Passed {
-		t.Errorf("Passed = %v, want %v", decoded.Passed, r.Passed)
+	if decoded.IsPassed() != r.IsPassed() {
+		t.Errorf("IsPassed() = %v, want %v", decoded.IsPassed(), r.IsPassed())
 	}
 	if decoded.Score == nil || *decoded.Score != *r.Score {
 		t.Errorf("Score = %v, want %v", decoded.Score, r.Score)
@@ -411,67 +411,6 @@ func TestEvalDef_DisabledExplicit(t *testing.T) {
 	}
 	if e.IsEnabled() {
 		t.Error("IsEnabled() should be false for explicit false")
-	}
-}
-
-func TestThreshold_Apply(t *testing.T) {
-	tests := []struct {
-		name       string
-		threshold  *Threshold
-		result     EvalResult
-		wantPassed bool
-	}{
-		{
-			name:       "nil threshold is no-op",
-			threshold:  nil,
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.5)},
-			wantPassed: true,
-		},
-		{
-			name:       "passed required but result failed",
-			threshold:  &Threshold{Passed: testutil.Ptr(true)},
-			result:     EvalResult{Passed: false, Score: testutil.Ptr(0.9)},
-			wantPassed: false,
-		},
-		{
-			name:       "min_score met",
-			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.8)},
-			wantPassed: true,
-		},
-		{
-			name:       "min_score not met",
-			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.5)},
-			wantPassed: false,
-		},
-		{
-			name:       "max_score met",
-			threshold:  &Threshold{MaxScore: testutil.Ptr(0.9)},
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.8)},
-			wantPassed: true,
-		},
-		{
-			name:       "max_score exceeded",
-			threshold:  &Threshold{MaxScore: testutil.Ptr(0.9)},
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.95)},
-			wantPassed: false,
-		},
-		{
-			name:       "nil score with min_score is no-op",
-			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
-			result:     EvalResult{Passed: true},
-			wantPassed: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.result
-			tt.threshold.Apply(&result)
-			if result.Passed != tt.wantPassed {
-				t.Errorf("Passed = %v, want %v", result.Passed, tt.wantPassed)
-			}
-		})
 	}
 }
 

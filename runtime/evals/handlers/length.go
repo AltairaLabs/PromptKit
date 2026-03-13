@@ -35,7 +35,6 @@ func (h *MinLengthHandler) Eval(
 		minLen = extractInt(params, "min_chars", 0)
 	}
 	actual := len(evalCtx.CurrentOutput)
-	passed := actual >= minLen
 
 	var score *float64
 	if minLen > 0 {
@@ -50,7 +49,6 @@ func (h *MinLengthHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       score,
 		Value:       map[string]any{"length": actual, "min": minLen},
 		Explanation: fmt.Sprintf("length %d, min %d", actual, minLen),
@@ -80,13 +78,12 @@ func (h *MaxLengthHandler) Eval(
 	if maxLen == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "missing or zero 'max'/'max_characters' param",
 		}, nil
 	}
 
 	actual := len(evalCtx.CurrentOutput)
-	passed := actual <= maxLen
 
 	var score *float64
 	if actual > 0 {
@@ -109,7 +106,6 @@ func (h *MaxLengthHandler) Eval(
 		value["tokens"] = tokenCount
 		value["max_tokens"] = maxTokens
 		if tokenCount > maxTokens {
-			passed = false
 			tokenScore := float64(maxTokens) / float64(tokenCount)
 			if score == nil || tokenScore < *score {
 				score = scorePtr(tokenScore)
@@ -123,7 +119,6 @@ func (h *MaxLengthHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       score,
 		Value:       value,
 		Explanation: explanation,
@@ -144,14 +139,12 @@ func (h *MaxLengthHandler) EvalPartial(
 	}
 	if maxLen == 0 {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: true,
-			Score:  scorePtr(1.0),
+			Type:  h.Type(),
+			Score: scorePtr(1.0),
 		}, nil
 	}
 
 	actual := len(content)
-	passed := actual <= maxLen
 
 	var score *float64
 	if actual > 0 {
@@ -173,7 +166,6 @@ func (h *MaxLengthHandler) EvalPartial(
 		value["tokens"] = tokenCount
 		value["max_tokens"] = maxTokens
 		if tokenCount > maxTokens {
-			passed = false
 			tokenScore := float64(maxTokens) / float64(tokenCount)
 			if score == nil || tokenScore < *score {
 				score = scorePtr(tokenScore)
@@ -183,7 +175,6 @@ func (h *MaxLengthHandler) EvalPartial(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       score,
 		Value:       value,
 		Explanation: fmt.Sprintf("stream length %d, max %d", actual, maxLen),

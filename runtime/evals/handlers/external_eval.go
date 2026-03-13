@@ -113,7 +113,7 @@ func buildToolCallViews(evalCtx *evals.EvalContext) []toolCallView {
 // parseExternalResponse parses the standard {passed, score, reasoning}
 // response from an external eval endpoint. Uses the same pass-determination
 // logic as parseJudgeResponse.
-func parseExternalResponse(body []byte, minScore *float64) *evals.EvalResult {
+func parseExternalResponse(body []byte) *evals.EvalResult {
 	var resp externalEvalResponse
 
 	// Extract JSON from response (might be wrapped in text/markdown)
@@ -126,23 +126,14 @@ func parseExternalResponse(body []byte, minScore *float64) *evals.EvalResult {
 
 	if err := json.Unmarshal([]byte(jsonStr), &resp); err != nil {
 		return &evals.EvalResult{
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("failed to parse response: %v", err),
 		}
 	}
 
 	score := resp.Score
-	var passed bool
-	if resp.Passed != nil {
-		passed = *resp.Passed
-	} else if minScore != nil {
-		passed = score >= *minScore
-	} else {
-		passed = score >= defaultPassThreshold
-	}
 
 	return &evals.EvalResult{
-		Passed:      passed,
 		Score:       &score,
 		Explanation: resp.Reasoning,
 		Value:       map[string]any{"score": score, "reasoning": resp.Reasoning},

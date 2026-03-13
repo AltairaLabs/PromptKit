@@ -14,12 +14,12 @@ PromptKit ships with ~55 built-in check types (`contains`, `max_length`, `llm_ju
 |---------|----------------|--------------|--------------|
 | **Assertion** | Scenario YAML `assertions:` | After LLM generation, during testing | Produces pass/fail test verdicts |
 | **Guardrail** | Pack YAML `validators:` | During LLM generation, at runtime | Enforces policies (truncate, replace, block) |
-| **Eval** | Pack file `evals:` | Production + testing, configurable triggers | Records quality scores and metrics |
+| **Eval** | Pack file `evals:` | Production + testing, configurable triggers | Produces scores (0.0–1.0) and records metrics |
 
-Under the hood, all three paths share the same `EvalTypeHandler` registry. Assertions and guardrails are thin wrappers around that registry:
+Under the hood, all three paths share the same `EvalTypeHandler` registry. Eval handlers produce **scores only** (0.0–1.0) — they never determine pass/fail. Assertions and guardrails are wrappers that add pass/fail judgment on top:
 
-- Assertions convert their config into an eval definition (`AssertionConfig.ToEvalDef()`) and run it against LLM output.
-- Guardrails wrap an eval handler as a runtime hook (`GuardrailHookAdapter`) that intercepts LLM responses.
+- **Assertions** wrap an eval handler in `AssertionEvalHandler`, which applies score thresholds (`min_score`, `max_score`) to determine pass/fail. Without explicit thresholds, a score of 1.0 passes.
+- **Guardrails** wrap an eval handler in `GuardrailEvalHandler`, which checks whether the score indicates a violation and enforces policy (truncate, replace, block).
 
 ```mermaid
 graph TD

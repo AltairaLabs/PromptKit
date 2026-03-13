@@ -10,6 +10,8 @@ Evals are automated quality checks that run against LLM outputs. They answer que
 
 Evals use the same [check types](/reference/checks/) as assertions and guardrails. The difference is *when* and *where* they run: evals can fire in production on every turn, on a sampled subset, or at session close, whereas assertions only run during Arena tests and guardrails run inline before the response is delivered.
 
+Eval handlers produce **scores only** (0.0–1.0). They never determine pass/fail — that responsibility belongs to assertion and guardrail wrappers. When used as standalone evals, the score is recorded as a metric and emitted as an event.
+
 ```
 Pack File (evals) ──► EvalRunner ──► ResultWriter ──► Metrics / Metadata
 ```
@@ -217,7 +219,7 @@ When `WithMetrics()` is configured, eval results with a `metric` definition are 
 | `gauge` | Set to the eval's score value |
 | `counter` | Increment count on each execution |
 | `histogram` | Observe value with configurable buckets, track sum/count |
-| `boolean` | 1.0 if passed, 0.0 if failed |
+| `boolean` | 1.0 if score ≥ 1.0, 0.0 otherwise |
 
 ### Label Sources
 
@@ -248,6 +250,21 @@ When `WithMetrics()` is configured, eval results with a `metric` definition are 
 **Instance labels** are set via `CollectorOpts.InstanceLabels` and bound per-conversation — conversation-level dimensions (tenant, prompt_name).
 
 Label names must match Prometheus naming rules (`^[a-zA-Z_][a-zA-Z0-9_]*$`) and must not start with `__` (reserved by Prometheus). Invalid label names are caught during pack validation.
+
+## Events
+
+Eval results emit events through the EventBus:
+
+| Event | Constant | When |
+|-------|----------|------|
+| `eval.completed` | `EventEvalCompleted` | Eval finished successfully (regardless of score) |
+| `eval.failed` | `EventEvalFailed` | Eval handler returned an error |
+
+The `eval.completed` event carries an `EvalCompletedData` payload with the eval ID, type, score, and derived `Passed` field (`IsPassed()` — true when score is nil or ≥ 1.0). The `eval.failed` event indicates an infrastructure error (the handler itself errored), not a low score.
+
+:::caution
+`eval.failed` means the eval **errored** — it does not mean the score was low. A working eval that returns score 0.0 emits `eval.completed`, not `eval.failed`.
+:::
 
 ## Pack Eval Resolution
 

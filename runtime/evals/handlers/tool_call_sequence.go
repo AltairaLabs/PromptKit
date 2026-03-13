@@ -27,7 +27,7 @@ func (h *ToolCallSequenceHandler) Eval(
 	if len(sequence) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "empty sequence always passes",
 		}, nil
 	}
@@ -36,9 +36,8 @@ func (h *ToolCallSequenceHandler) Eval(
 
 	if matched < len(sequence) {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  ratioScore(matched, len(sequence)),
+			Type:  h.Type(),
+			Score: ratioScore(matched, len(sequence)),
 			Explanation: fmt.Sprintf(
 				"sequence incomplete: matched %d/%d, missing %q",
 				matched, len(sequence), sequence[matched],
@@ -57,7 +56,6 @@ func (h *ToolCallSequenceHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       ratioScore(matched, len(sequence)),
 		Explanation: fmt.Sprintf("sequence [%s] fully matched", strings.Join(sequence, " → ")),
 		Value: map[string]any{

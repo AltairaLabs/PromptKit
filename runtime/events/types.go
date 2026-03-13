@@ -91,7 +91,7 @@ const (
 
 	// EventEvalCompleted marks a successful eval completion.
 	EventEvalCompleted EventType = "eval.completed"
-	// EventEvalFailed marks an eval failure (eval ran but result.Passed == false or error).
+	// EventEvalFailed marks an eval error (the eval handler returned an error, not a low score).
 	EventEvalFailed EventType = "eval.failed"
 
 	// EventWorkflowTransitioned marks a workflow state transition.

@@ -27,7 +27,7 @@ if err != nil {
 }
 
 for _, r := range results {
-    fmt.Printf("%s: passed=%v score=%v\n", r.EvalID, r.Passed, r.Score)
+    fmt.Printf("%s: score=%v explanation=%s\n", r.EvalID, r.Score, r.Explanation)
 }
 ```
 
@@ -263,16 +263,18 @@ Each result contains:
 type EvalResult struct {
     EvalID      string          // Eval identifier
     Type        string          // Handler type
-    Passed      bool            // Pass/fail
-    Score       *float64        // Optional score (0.0-1.0)
+    Score       *float64        // Score (0.0-1.0)
     Explanation string          // Human-readable explanation
     DurationMs  int64           // Execution time
-    Error       string          // Error message if failed
+    Error       string          // Error message if eval errored
     Violations  []EvalViolation // Detailed violations
     Skipped     bool            // Was eval skipped?
     SkipReason  string          // Why skipped
+    Passed      bool            // Deprecated: set only by assertion/guardrail wrappers
 }
 ```
+
+Eval handlers produce scores only. Use `result.IsPassed()` to derive pass/fail from the score (true when score is nil or ≥ 1.0). The `Passed` field is deprecated for standalone evals — it is only set explicitly by `AssertionEvalHandler` and `GuardrailEvalHandler` wrappers.
 
 ## See Also
 

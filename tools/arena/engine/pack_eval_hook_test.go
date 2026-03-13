@@ -254,7 +254,7 @@ func TestRunAssertionsAsEvals_ConversationTrigger(t *testing.T) {
 		evals.TriggerOnConversationComplete)
 	require.NotNil(t, results)
 	assert.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 }
 
 func TestRunAssertionsAsEvals_TurnTrigger(t *testing.T) {

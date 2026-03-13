@@ -74,8 +74,8 @@ EventImageInput         EventType = "image.input"
 EventImageOutput        EventType = "image.output"
 
 // Evals
-EventEvalCompleted EventType = "eval.completed"
-EventEvalFailed    EventType = "eval.failed"
+EventEvalCompleted EventType = "eval.completed"  // eval finished (any score)
+EventEvalFailed    EventType = "eval.failed"      // eval errored (not low score)
 
 // Stream control
 EventStreamInterrupted EventType = "stream.interrupted"
@@ -249,7 +249,7 @@ Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the 
 | `gauge` | Set to the eval's score value |
 | `counter` | Increment on each eval execution |
 | `histogram` | Observe score with configurable buckets |
-| `boolean` | Record 1.0 (pass) or 0.0 (fail) |
+| `boolean` | Record 1.0 if score ≥ 1.0, 0.0 otherwise |
 
 ### CollectorOpts Reference
 

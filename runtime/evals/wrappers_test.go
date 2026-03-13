@@ -57,7 +57,7 @@ func TestExtractInnerParams_StripsWrapperKeys(t *testing.T) {
 func TestAssertionEvalHandler_MinScore_Pass(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: true, Score: float64Ptr(0.8)},
+		result:   &EvalResult{Score: float64Ptr(0.8)},
 	}
 	h := &AssertionEvalHandler{Inner: inner, EvalType: "test"}
 	params := map[string]any{"min_score": 0.7}
@@ -74,7 +74,7 @@ func TestAssertionEvalHandler_MinScore_Pass(t *testing.T) {
 func TestAssertionEvalHandler_MinScore_Fail(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: true, Score: float64Ptr(0.3)},
+		result:   &EvalResult{Score: float64Ptr(0.3)},
 	}
 	h := &AssertionEvalHandler{Inner: inner, EvalType: "test"}
 	params := map[string]any{"min_score": 0.7}
@@ -91,7 +91,7 @@ func TestAssertionEvalHandler_MinScore_Fail(t *testing.T) {
 func TestAssertionEvalHandler_MaxScore_Pass(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: true, Score: float64Ptr(0.5)},
+		result:   &EvalResult{Score: float64Ptr(0.5)},
 	}
 	h := &AssertionEvalHandler{Inner: inner, EvalType: "test"}
 	params := map[string]any{"max_score": 0.8}
@@ -108,7 +108,7 @@ func TestAssertionEvalHandler_MaxScore_Pass(t *testing.T) {
 func TestAssertionEvalHandler_MaxScore_Fail(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: true, Score: float64Ptr(0.9)},
+		result:   &EvalResult{Score: float64Ptr(0.9)},
 	}
 	h := &AssertionEvalHandler{Inner: inner, EvalType: "test"}
 	params := map[string]any{"max_score": 0.8}
@@ -125,7 +125,7 @@ func TestAssertionEvalHandler_MaxScore_Fail(t *testing.T) {
 func TestAssertionEvalHandler_NoThresholds_FallsBackToInner(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: false, Score: float64Ptr(0.5)},
+		result:   &EvalResult{Score: float64Ptr(0.5)},
 	}
 	h := &AssertionEvalHandler{Inner: inner, EvalType: "test"}
 
@@ -134,7 +134,7 @@ func TestAssertionEvalHandler_NoThresholds_FallsBackToInner(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Passed {
-		t.Fatal("expected fail: no thresholds, falls back to inner Passed=false")
+		t.Fatal("expected fail: no thresholds, falls back to inner Score=0.5 (IsPassed()=false)")
 	}
 }
 
@@ -150,7 +150,7 @@ func TestAssertionEvalHandler_Type(t *testing.T) {
 func TestGuardrailEvalHandler_TriggeredOnLowScore(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: false, Score: float64Ptr(0.2)},
+		result:   &EvalResult{Score: float64Ptr(0.2)},
 	}
 	h := &GuardrailEvalHandler{Inner: inner, EvalType: "test"}
 
@@ -159,7 +159,7 @@ func TestGuardrailEvalHandler_TriggeredOnLowScore(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Passed {
-		t.Fatal("expected fail: guardrail triggered on inner Passed=false")
+		t.Fatal("expected fail: guardrail triggered on inner Score=0.2 (IsPassed()=false)")
 	}
 	if triggered, ok := result.Details["triggered"].(bool); !ok || !triggered {
 		t.Fatal("expected triggered=true in details")
@@ -172,7 +172,7 @@ func TestGuardrailEvalHandler_TriggeredOnLowScore(t *testing.T) {
 func TestGuardrailEvalHandler_NotTriggeredOnHighScore(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: true, Score: float64Ptr(1.0)},
+		result:   &EvalResult{Score: float64Ptr(1.0)},
 	}
 	h := &GuardrailEvalHandler{Inner: inner, EvalType: "test"}
 
@@ -181,7 +181,7 @@ func TestGuardrailEvalHandler_NotTriggeredOnHighScore(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !result.Passed {
-		t.Fatal("expected pass: guardrail not triggered on inner Passed=true")
+		t.Fatal("expected pass: guardrail not triggered on inner Score=1.0 (IsPassed()=true)")
 	}
 	if triggered, ok := result.Details["triggered"].(bool); !ok || triggered {
 		t.Fatal("expected triggered=false")
@@ -191,7 +191,7 @@ func TestGuardrailEvalHandler_NotTriggeredOnHighScore(t *testing.T) {
 func TestGuardrailEvalHandler_CustomMinScore(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: true, Score: float64Ptr(0.6)},
+		result:   &EvalResult{Score: float64Ptr(0.6)},
 	}
 	h := &GuardrailEvalHandler{Inner: inner, EvalType: "test"}
 	params := map[string]any{"min_score": 0.8}
@@ -208,7 +208,7 @@ func TestGuardrailEvalHandler_CustomMinScore(t *testing.T) {
 func TestGuardrailEvalHandler_CustomAction(t *testing.T) {
 	inner := &mockHandler{
 		typeName: "test",
-		result:   &EvalResult{Passed: false, Score: float64Ptr(0.0)},
+		result:   &EvalResult{Score: float64Ptr(0.0)},
 	}
 	h := &GuardrailEvalHandler{Inner: inner, EvalType: "test"}
 	params := map[string]any{"action": "warn"}

@@ -37,7 +37,7 @@ func (h *ContentExcludesHandler) Eval(
 	if len(patterns) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no patterns to check",
 		}, nil
 	}
@@ -67,10 +67,9 @@ func (h *ContentExcludesHandler) Eval(
 
 	if len(found) > 0 {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  boolScore(false),
-			Value:  map[string]any{"violations": found},
+			Type:  h.Type(),
+			Score: boolScore(false),
+			Value: map[string]any{"violations": found},
 			Explanation: fmt.Sprintf(
 				"forbidden content found: %s",
 				strings.Join(found, "; "),
@@ -80,7 +79,6 @@ func (h *ContentExcludesHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Explanation: "no forbidden content detected",
 	}, nil
@@ -95,9 +93,8 @@ func (h *ContentExcludesHandler) EvalPartial(
 	patterns := extractStringSlice(params, "patterns")
 	if len(patterns) == 0 {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: true,
-			Score:  boolScore(true),
+			Type:  h.Type(),
+			Score: boolScore(true),
 		}, nil
 	}
 
@@ -105,10 +102,9 @@ func (h *ContentExcludesHandler) EvalPartial(
 	for _, p := range patterns {
 		if containsInsensitive(content, p) {
 			return &evals.EvalResult{
-				Type:   h.Type(),
-				Passed: false,
-				Score:  boolScore(false),
-				Value:  map[string]any{"violations": []string{fmt.Sprintf("contains %q", p)}},
+				Type:  h.Type(),
+				Score: boolScore(false),
+				Value: map[string]any{"violations": []string{fmt.Sprintf("contains %q", p)}},
 				Explanation: fmt.Sprintf(
 					"forbidden content found in stream: %q", p,
 				),
@@ -117,9 +113,8 @@ func (h *ContentExcludesHandler) EvalPartial(
 	}
 
 	return &evals.EvalResult{
-		Type:   h.Type(),
-		Passed: true,
-		Score:  boolScore(true),
+		Type:  h.Type(),
+		Score: boolScore(true),
 	}, nil
 }
 

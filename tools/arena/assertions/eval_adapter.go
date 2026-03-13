@@ -139,7 +139,7 @@ func convertOneEvalResult(r *evals.EvalResult) ConversationValidationResult {
 
 	return ConversationValidationResult{
 		Type:    fmt.Sprintf("%s%s", PackEvalTypePrefix, r.Type),
-		Passed:  r.Passed,
+		Passed:  r.IsPassed(),
 		Message: msg,
 		Details: details,
 	}

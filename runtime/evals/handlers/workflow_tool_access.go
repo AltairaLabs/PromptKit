@@ -26,7 +26,7 @@ func (h *WorkflowToolAccessHandler) Eval(
 	if len(rules) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no access rules specified",
 		}, nil
 	}
@@ -75,7 +75,6 @@ func (h *WorkflowToolAccessHandler) Eval(
 		}
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       boolScore(false),
 			Value:       map[string]any{"violations": violations, "violation_count": len(violations)},
 			Explanation: fmt.Sprintf("%d violation(s): %s", len(violations), strings.Join(msgs, "; ")),
@@ -85,7 +84,6 @@ func (h *WorkflowToolAccessHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Value:       map[string]any{"violations": []map[string]any{}, "violation_count": 0},
 		Explanation: fmt.Sprintf("all tool calls comply with %d access rule(s)", len(rules)),

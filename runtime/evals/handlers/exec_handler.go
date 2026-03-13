@@ -105,6 +105,7 @@ func (h *ExecEvalHandler) Eval(
 		}
 		return &evals.EvalResult{
 			Type:        h.typeName,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("exec eval failed: %v%s", err, detail),
 		}, nil
 	}
@@ -113,6 +114,7 @@ func (h *ExecEvalHandler) Eval(
 	if err := json.Unmarshal(stdout, &resp); err != nil {
 		return &evals.EvalResult{
 			Type:        h.typeName,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("exec eval returned invalid JSON: %v", err),
 		}, nil
 	}

@@ -28,7 +28,7 @@ func (h *ToolResultIncludesHandler) Eval(
 	if len(patterns) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no patterns specified",
 		}, nil
 	}
@@ -43,7 +43,6 @@ func (h *ToolResultIncludesHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value: map[string]any{

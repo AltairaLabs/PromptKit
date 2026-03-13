@@ -35,7 +35,7 @@ func (h *ToolEfficiencyHandler) Eval(
 	if maxCalls == nil && maxErrors == nil && maxErrorRate == nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no efficiency thresholds specified (need max_calls, max_errors, or max_error_rate)",
 		}, nil
 	}
@@ -61,7 +61,6 @@ func (h *ToolEfficiencyHandler) Eval(
 	if len(failures) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       scorePtr(0),
 			Explanation: fmt.Sprintf("efficiency check failed: %v", failures),
 			Value:       value,
@@ -79,7 +78,6 @@ func (h *ToolEfficiencyHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       &score,
 		Explanation: fmt.Sprintf("%d calls, %d errors — within limits", stats.totalCalls, stats.errorCount),
 		Value:       value,

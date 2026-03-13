@@ -726,8 +726,8 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 	}
 
 	mw.emitResults([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains", Passed: true},
-		{EvalID: "e2", Type: "regex", Passed: false},
+		{EvalID: "e1", Type: "contains", Score: func() *float64 { v := 1.0; return &v }()},
+		{EvalID: "e2", Type: "regex", Error: "regex eval errored"},
 	})
 
 	// Collect 2 events (order may vary with multiple workers, so use maps).

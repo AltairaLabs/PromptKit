@@ -25,7 +25,7 @@ func (h *RegexHandler) Eval(
 	if patternStr == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no pattern specified",
 		}, nil
 	}
@@ -34,6 +34,7 @@ func (h *RegexHandler) Eval(
 	if compileErr != nil {
 		return &evals.EvalResult{
 			Type:  h.Type(),
+			Score: boolScore(false),
 			Error: fmt.Sprintf("invalid regex: %v", compileErr),
 		}, nil
 	}
@@ -54,7 +55,6 @@ func (h *RegexHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Value:       map[string]any{"matched": matched},
 		Explanation: explanation,

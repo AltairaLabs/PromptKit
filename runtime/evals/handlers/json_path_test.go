@@ -27,7 +27,7 @@ func TestJSONPathHandler_Expected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -45,7 +45,7 @@ func TestJSONPathHandler_ExpectedMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for mismatch")
 	}
 }
@@ -63,7 +63,7 @@ func TestJSONPathHandler_NumericMin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -81,7 +81,7 @@ func TestJSONPathHandler_NumericMinFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail below min")
 	}
 }
@@ -99,7 +99,7 @@ func TestJSONPathHandler_ArrayContains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -117,7 +117,7 @@ func TestJSONPathHandler_MinResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail below min_results")
 	}
 }
@@ -134,7 +134,7 @@ func TestJSONPathHandler_InvalidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for invalid JSON")
 	}
 }
@@ -145,7 +145,7 @@ func TestJSONPathHandler_NoExpression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail with no expression")
 	}
 }
@@ -164,7 +164,7 @@ func TestJSONPathHandler_AllowWrapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass with allow_wrapped: %s", result.Explanation)
 	}
 }
@@ -183,7 +183,7 @@ func TestJSONPathHandler_ExtractJSON_Object(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass with extract_json: %s", result.Explanation)
 	}
 }
@@ -202,7 +202,7 @@ func TestJSONPathHandler_ExtractJSON_Array(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass extracting array: %s", result.Explanation)
 	}
 }
@@ -220,7 +220,7 @@ func TestJSONPathHandler_ExtractJSON_NoJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for no extractable JSON")
 	}
 }
@@ -237,7 +237,7 @@ func TestJSONPathHandler_JMESPathError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for invalid JMESPath")
 	}
 }
@@ -255,7 +255,7 @@ func TestJSONPathHandler_JMESPathExpression(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass with jmespath_expression: %s", result.Explanation)
 	}
 }
@@ -273,7 +273,7 @@ func TestJSONPathHandler_NumericMax(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail above max")
 	}
 }
@@ -291,7 +291,7 @@ func TestJSONPathHandler_NumericRangeNonNumeric(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for non-numeric range check")
 	}
 }
@@ -309,7 +309,7 @@ func TestJSONPathHandler_MaxResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail above max_results")
 	}
 }
@@ -327,7 +327,7 @@ func TestJSONPathHandler_ArrayCountNotArray(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for non-array count check")
 	}
 }
@@ -345,7 +345,7 @@ func TestJSONPathHandler_ContainsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for missing contains item")
 	}
 }
@@ -363,7 +363,7 @@ func TestJSONPathHandler_ContainsNotArray(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for non-array contains check")
 	}
 }
@@ -381,7 +381,7 @@ func TestJSONPathHandler_ContainsNotArrayParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for non-array contains param")
 	}
 }

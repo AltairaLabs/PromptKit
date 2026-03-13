@@ -42,7 +42,7 @@ func TestEvaluate_WithEvalDefs(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 	assert.Equal(t, "greeting", results[0].EvalID)
 }
 
@@ -55,7 +55,7 @@ func TestEvaluate_WithEvalDefs_Failing(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.False(t, results[0].Passed)
+	assert.False(t, results[0].IsPassed())
 }
 
 const evalTestPack = "testdata/packs/eval-test.pack.json"
@@ -74,7 +74,7 @@ func TestEvaluate_WithPackPath(t *testing.T) {
 	// Default trigger is every_turn, so only greeting_check runs.
 	require.Len(t, results, 1)
 	assert.Equal(t, "greeting_check", results[0].EvalID)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 }
 
 func TestEvaluate_WithPackPath_PromptEvals(t *testing.T) {
@@ -112,7 +112,7 @@ func TestEvaluate_WithPackData(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "greeting_check", results[0].EvalID)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 }
 
 func TestEvaluate_SessionTrigger(t *testing.T) {
@@ -127,7 +127,7 @@ func TestEvaluate_SessionTrigger(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "session_check", results[0].EvalID)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 }
 
 func TestEvaluate_ErrorCases(t *testing.T) {
@@ -177,7 +177,7 @@ func TestEvaluate_EmptyMessages(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.False(t, results[0].Passed, "should fail with no messages to match")
+	assert.False(t, results[0].IsPassed(), "should fail with no messages to match")
 }
 
 func TestEvaluate_EventBusEmission(t *testing.T) {
@@ -200,7 +200,7 @@ func TestEvaluate_EventBusEmission(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 
 	// Close bus to flush pending events
 	bus.Close()
@@ -261,7 +261,7 @@ func TestEvaluate_TracerProvider(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 
 	// Force flush to ensure spans are exported
 	require.NoError(t, tp.ForceFlush(context.Background()))
@@ -290,7 +290,7 @@ func TestEvaluate_TracerProvider_CreatesEventBus(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 }
 
 func TestEvaluate_JudgeMetadata(t *testing.T) {
@@ -302,7 +302,7 @@ func TestEvaluate_JudgeMetadata(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 }
 
 func TestEvaluate_RuntimeConfigPath(t *testing.T) {
@@ -432,7 +432,7 @@ func TestEvaluate_MetricRecorder(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 
 	// Verify metric was recorded via prometheus registry
 	families, gatherErr := reg.Gather()
@@ -474,7 +474,7 @@ func TestEvaluate_MetricsCollector(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 
 	// Verify metric was recorded via prometheus registry
 	families, gatherErr := reg.Gather()
@@ -608,7 +608,7 @@ func TestEvaluate_MetricRecorder_NoMetricDef(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	assert.True(t, results[0].IsPassed())
 
 	// No metrics should have been recorded
 	families, gatherErr := reg.Gather()

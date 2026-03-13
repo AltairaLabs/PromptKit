@@ -23,7 +23,8 @@ func (h *WorkflowCompleteHandler) Eval(
 	raw, ok := evalCtx.Extras["workflow_complete"]
 	if !ok {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "no workflow completion status in context",
 		}, nil
 	}
@@ -31,7 +32,8 @@ func (h *WorkflowCompleteHandler) Eval(
 	complete, ok := raw.(bool)
 	if !ok {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "invalid workflow completion status type",
 		}, nil
 	}
@@ -40,7 +42,6 @@ func (h *WorkflowCompleteHandler) Eval(
 		state, _ := evalCtx.Extras["workflow_current_state"].(string)
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
 			Score:       boolScore(true),
 			Value:       map[string]any{"complete": true},
 			Explanation: fmt.Sprintf("workflow completed in terminal state %q", state),
@@ -49,7 +50,6 @@ func (h *WorkflowCompleteHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      false,
 		Score:       boolScore(false),
 		Value:       map[string]any{"complete": false},
 		Explanation: "workflow has not reached a terminal state",

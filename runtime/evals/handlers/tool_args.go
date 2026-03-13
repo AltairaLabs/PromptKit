@@ -25,7 +25,7 @@ func (h *ToolArgsHandler) Eval(
 	if toolName == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no tool_name specified",
 		}, nil
 	}
@@ -34,7 +34,7 @@ func (h *ToolArgsHandler) Eval(
 	if len(expectedArgs) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no expected_args specified",
 		}, nil
 	}
@@ -42,8 +42,8 @@ func (h *ToolArgsHandler) Eval(
 	matching := findMatchingCalls(evalCtx.ToolCalls, toolName)
 	if len(matching) == 0 {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
+			Type:  h.Type(),
+			Score: boolScore(false),
 			Explanation: fmt.Sprintf(
 				"tool %q was not called", toolName,
 			),
@@ -63,9 +63,8 @@ func (h *ToolArgsHandler) checkArgs(
 	for i := range matching {
 		if argsMatch(matching[i].Arguments, expectedArgs) {
 			return &evals.EvalResult{
-				Type:   h.Type(),
-				Passed: true,
-				Score:  boolScore(true),
+				Type:  h.Type(),
+				Score: boolScore(true),
 				Explanation: fmt.Sprintf(
 					"tool %q called with expected args",
 					toolName,
@@ -82,9 +81,8 @@ func (h *ToolArgsHandler) checkArgs(
 	)
 
 	return &evals.EvalResult{
-		Type:   h.Type(),
-		Passed: false,
-		Score:  boolScore(false),
+		Type:  h.Type(),
+		Score: boolScore(false),
 		Explanation: fmt.Sprintf(
 			"tool %q args mismatch: %s",
 			toolName, strings.Join(violations, "; "),

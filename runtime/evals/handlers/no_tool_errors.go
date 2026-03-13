@@ -36,7 +36,6 @@ func (h *NoToolErrorsHandler) Eval(
 		}
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       inverseRatioScore(errorCount, totalCalls),
 			Value:       map[string]any{"error_count": errorCount, "total_calls": totalCalls},
 			Explanation: fmt.Sprintf("tool errors found: %s", strings.Join(names, "; ")),
@@ -46,7 +45,6 @@ func (h *NoToolErrorsHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Value:       map[string]any{"error_count": 0, "total_calls": totalCalls},
 		Explanation: "no tool errors found",

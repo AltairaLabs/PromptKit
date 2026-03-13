@@ -46,7 +46,6 @@ func (h *SkillActivatedHandler) Eval(
 	if len(missing) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       ratioScore(found, len(required)),
 			Value:       value,
 			Explanation: fmt.Sprintf("missing skill activations: %s", strings.Join(missing, ", ")),
@@ -56,7 +55,6 @@ func (h *SkillActivatedHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       ratioScore(found, len(required)),
 		Value:       value,
 		Explanation: "all required skills were activated",

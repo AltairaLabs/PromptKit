@@ -25,7 +25,7 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 	if len(sequence) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "missing or empty required param 'sequence'",
 		}, nil
 	}
@@ -34,7 +34,7 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 	if !ok {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no workflow transitions available in context",
 		}, nil
 	}
@@ -43,7 +43,7 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 	if !ok {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "invalid transitions data in context",
 		}, nil
 	}
@@ -77,10 +77,9 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 
 	if seqIdx < len(sequence) {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  ratioScore(seqIdx, len(sequence)),
-			Value:  value,
+			Type:  h.Type(),
+			Score: ratioScore(seqIdx, len(sequence)),
+			Value: value,
 			Explanation: fmt.Sprintf(
 				"sequence incomplete: matched %d/%d, missing %q",
 				seqIdx, len(sequence), sequence[seqIdx],
@@ -96,7 +95,6 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       ratioScore(seqIdx, len(sequence)),
 		Value:       value,
 		Explanation: fmt.Sprintf("sequence [%s] fully matched", strings.Join(sequence, " → ")),

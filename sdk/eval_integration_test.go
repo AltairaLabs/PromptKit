@@ -29,7 +29,7 @@ func TestE2E_EvalMiddleware_DispatchesTurnEvalsAndEmitsEvents(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
 	registry.Register(&testEvalHandler{
 		typeName: "contains",
-		result:   &evals.EvalResult{Passed: true, Score: func() *float64 { v := 0.9; return &v }()},
+		result:   &evals.EvalResult{Score: func() *float64 { v := 1.0; return &v }()},
 	})
 	runner := evals.NewEvalRunner(registry)
 	bus := events.NewEventBus()

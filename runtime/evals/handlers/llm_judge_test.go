@@ -59,8 +59,8 @@ func TestLLMJudgeHandler_PassingEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
-		t.Error("expected passed=true")
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
 	}
 	if result.Score == nil || *result.Score != 0.9 {
 		t.Errorf("expected score 0.9, got %v", result.Score)
@@ -96,9 +96,6 @@ func TestLLMJudgeHandler_MissingProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
-		t.Error("expected passed=false for missing provider")
-	}
 	if result.Explanation != "judge_provider not found in metadata" {
 		t.Errorf("unexpected explanation: %s", result.Explanation)
 	}
@@ -111,8 +108,8 @@ func TestLLMJudgeHandler_MissingProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
-		t.Error("expected passed=false for missing key")
+	if result.Explanation != "judge_provider not found in metadata" {
+		t.Errorf("unexpected explanation: %s", result.Explanation)
 	}
 }
 
@@ -132,26 +129,21 @@ func TestLLMJudgeHandler_WrongProviderType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
-		t.Error("expected passed=false for wrong type")
-	}
 	if result.Explanation != "judge_provider has wrong type: string" {
 		t.Errorf("unexpected explanation: %s", result.Explanation)
 	}
 }
 
-func TestLLMJudgeHandler_MinScoreThreshold(t *testing.T) {
+func TestLLMJudgeHandler_ReturnsRawScore(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		score    float64
-		minScore float64
-		wantPass bool
+		name  string
+		score float64
 	}{
-		{"above threshold", 0.8, 0.7, true},
-		{"equal threshold", 0.7, 0.7, true},
-		{"below threshold", 0.6, 0.7, false},
+		{"high score", 0.8},
+		{"mid score", 0.7},
+		{"low score", 0.6},
 	}
 
 	for _, tt := range tests {
@@ -173,7 +165,7 @@ func TestLLMJudgeHandler_MinScoreThreshold(t *testing.T) {
 			}
 			params := map[string]any{
 				"criteria":  "test",
-				"min_score": tt.minScore,
+				"min_score": 0.7,
 			}
 
 			result, err := h.Eval(
@@ -182,10 +174,13 @@ func TestLLMJudgeHandler_MinScoreThreshold(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if result.Passed != tt.wantPass {
+			if result.Error != "" {
+				t.Errorf("unexpected error: %s", result.Error)
+			}
+			if result.Score == nil || *result.Score != tt.score {
 				t.Errorf(
-					"passed=%v, want %v",
-					result.Passed, tt.wantPass,
+					"score=%v, want %v",
+					result.Score, tt.score,
 				)
 			}
 		})
@@ -210,9 +205,6 @@ func TestLLMJudgeHandler_JudgeError(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Passed {
-		t.Error("expected passed=false on judge error")
 	}
 	if result.Explanation != "judge error: LLM unavailable" {
 		t.Errorf("unexpected explanation: %s", result.Explanation)
@@ -292,8 +284,11 @@ func TestLLMJudgeSessionHandler_ConcatenatesAssistant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
-		t.Error("expected passed=true")
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
+	}
+	if result.Score == nil || *result.Score != 0.85 {
+		t.Errorf("expected score 0.85, got %v", result.Score)
 	}
 	if result.Type != "llm_judge_session" {
 		t.Errorf("unexpected type: %s", result.Type)
@@ -324,8 +319,8 @@ func TestLLMJudgeSessionHandler_MissingProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
-		t.Error("expected passed=false")
+	if result.Explanation != "judge_provider not found in metadata" {
+		t.Errorf("unexpected explanation: %s", result.Explanation)
 	}
 }
 
@@ -349,9 +344,6 @@ func TestLLMJudgeSessionHandler_JudgeError(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Passed {
-		t.Error("expected passed=false on judge error")
 	}
 	if result.Explanation != "judge error: timeout" {
 		t.Errorf("unexpected explanation: %s", result.Explanation)
@@ -384,8 +376,11 @@ func TestLLMJudgeSessionHandler_MinScore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
-		t.Error("expected passed=false (0.5 < 0.7)")
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
+	}
+	if result.Score == nil || *result.Score != 0.5 {
+		t.Errorf("expected score 0.5, got %v", result.Score)
 	}
 }
 
@@ -422,7 +417,7 @@ func TestLLMJudgeSessionHandler_NoAssistantMessages(t *testing.T) {
 			mock.opts.Content,
 		)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected passed=false")
 	}
 }
@@ -444,9 +439,6 @@ func TestLLMJudgeSessionHandler_WrongProviderType(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Passed {
-		t.Error("expected passed=false for wrong type")
 	}
 	if result.Explanation != "judge_provider has wrong type: int" {
 		t.Errorf("unexpected explanation: %s", result.Explanation)

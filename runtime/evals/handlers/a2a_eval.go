@@ -71,13 +71,12 @@ func executeA2AEval(
 	if !ok || agentURL == "" {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "a2a_eval requires an 'agent_url' param",
 		}, nil
 	}
 
 	timeout := parseDuration(params, "timeout", defaultA2AEvalTimeout)
-	minScore := extractFloat64Ptr(params, "min_score")
 
 	// Build A2A client with optional auth.
 	var clientOpts []a2a.ClientOption
@@ -95,7 +94,7 @@ func executeA2AEval(
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("failed to marshal request: %v", err),
 		}, nil
 	}
@@ -120,7 +119,7 @@ func executeA2AEval(
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("a2a agent error: %v", err),
 		}, nil
 	}
@@ -130,12 +129,12 @@ func executeA2AEval(
 	if responseText == "" {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "a2a agent returned no text response",
 		}, nil
 	}
 
-	result := parseExternalResponse([]byte(responseText), minScore)
+	result := parseExternalResponse([]byte(responseText))
 	result.Type = evalType
 	return result, nil
 }

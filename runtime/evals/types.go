@@ -205,22 +205,6 @@ type Threshold struct {
 	MaxScore *float64 `json:"max_score,omitempty" yaml:"max_score,omitempty"`
 }
 
-// Apply adjusts the EvalResult based on threshold criteria.
-func (t *Threshold) Apply(result *EvalResult) {
-	if t == nil {
-		return
-	}
-	if t.Passed != nil && !result.Passed {
-		return
-	}
-	if t.MinScore != nil && result.Score != nil {
-		result.Passed = result.Passed && *result.Score >= *t.MinScore
-	}
-	if t.MaxScore != nil && result.Score != nil {
-		result.Passed = result.Passed && *result.Score <= *t.MaxScore
-	}
-}
-
 // EvalWhen specifies preconditions that must be met for an eval to run.
 type EvalWhen struct {
 	ToolCalled        string `json:"tool_called,omitempty" yaml:"tool_called,omitempty"`
@@ -309,9 +293,9 @@ func (m *MetricDef) UnmarshalJSON(data []byte) error {
 type EvalResult struct {
 	EvalID string `json:"eval_id"`
 	Type   string `json:"type"`
-	// Deprecated: Passed will be removed in a future version. Use Score instead.
-	// Pass/fail is determined by wrappers (AssertionEvalHandler, GuardrailEvalHandler)
-	// or by Threshold.Apply. Handlers should set Score, not Passed.
+	// Deprecated: Passed will be removed in a future version. Use IsPassed() instead.
+	// Pass/fail is determined by wrappers (AssertionEvalHandler, GuardrailEvalHandler).
+	// Handlers should set Score, not Passed.
 	Passed      bool            `json:"passed"`
 	Score       *float64        `json:"score,omitempty"`
 	Value       any             `json:"value,omitempty"`

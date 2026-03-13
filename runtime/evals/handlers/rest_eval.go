@@ -85,7 +85,7 @@ func executeRestEval(
 	if !ok || url == "" {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "rest_eval requires a 'url' param",
 		}, nil
 	}
@@ -96,14 +96,13 @@ func executeRestEval(
 	}
 
 	timeout := parseDuration(params, "timeout", defaultExternalTimeout)
-	minScore := extractFloat64Ptr(params, "min_score")
 
 	reqBody := buildExternalRequest(evalCtx, params, content)
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("failed to marshal request: %v", err),
 		}, nil
 	}
@@ -112,7 +111,7 @@ func executeRestEval(
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("failed to create request: %v", err),
 		}, nil
 	}
@@ -133,7 +132,7 @@ func executeRestEval(
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("request failed: %v", err),
 		}, nil
 	}
@@ -144,7 +143,7 @@ func executeRestEval(
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("failed to read response: %v", err),
 		}, nil
 	}
@@ -152,12 +151,12 @@ func executeRestEval(
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("endpoint returned status %d: %s", resp.StatusCode, string(respBody)),
 		}, nil
 	}
 
-	result := parseExternalResponse(respBody, minScore)
+	result := parseExternalResponse(respBody)
 	result.Type = evalType
 	return result, nil
 }

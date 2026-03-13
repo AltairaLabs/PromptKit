@@ -28,7 +28,8 @@ func (h *AgentResponseContainsHandler) Eval(
 
 	if agent == "" {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "no agent specified",
 		}, nil
 	}
@@ -42,7 +43,6 @@ func (h *AgentResponseContainsHandler) Eval(
 		if strings.Contains(resultStr, contains) {
 			return &evals.EvalResult{
 				Type:        h.Type(),
-				Passed:      true,
 				Score:       boolScore(true),
 				Value:       map[string]any{"agent": agent, "contains": contains, "found": true},
 				Explanation: fmt.Sprintf("agent %q response contains expected text", agent),
@@ -57,7 +57,6 @@ func (h *AgentResponseContainsHandler) Eval(
 			if strings.Contains(msg.ToolResult.GetTextContent(), contains) {
 				return &evals.EvalResult{
 					Type:        h.Type(),
-					Passed:      true,
 					Score:       boolScore(true),
 					Value:       map[string]any{"agent": agent, "contains": contains, "found": true},
 					Explanation: fmt.Sprintf("agent %q response contains expected text", agent),
@@ -68,7 +67,6 @@ func (h *AgentResponseContainsHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      false,
 		Score:       boolScore(false),
 		Value:       map[string]any{"agent": agent, "contains": contains, "found": false},
 		Explanation: fmt.Sprintf("no response from agent %q containing %q", agent, contains),

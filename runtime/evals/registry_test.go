@@ -16,7 +16,8 @@ func (s *stubHandler) Type() string { return s.typeName }
 func (s *stubHandler) Eval(
 	_ context.Context, _ *EvalContext, _ map[string]any,
 ) (*EvalResult, error) {
-	return &EvalResult{EvalID: s.typeName, Passed: true}, nil
+	score := 1.0
+	return &EvalResult{EvalID: s.typeName, Score: &score}, nil
 }
 
 func TestNewEmptyEvalTypeRegistry(t *testing.T) {
@@ -209,8 +210,8 @@ func TestHandlerEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Eval returned error: %v", err)
 	}
-	if !result.Passed {
-		t.Error("expected Passed=true")
+	if !result.IsPassed() {
+		t.Error("expected IsPassed()=true")
 	}
 	if result.EvalID != "test" {
 		t.Errorf("got EvalID=%q, want %q", result.EvalID, "test")

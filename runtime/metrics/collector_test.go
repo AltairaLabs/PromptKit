@@ -509,7 +509,7 @@ func TestMetricContext_EvalBoolean(t *testing.T) {
 
 	metric := &evals.MetricDef{Name: "safety_check", Type: evals.MetricBoolean}
 
-	if err := ctx.Record(evals.EvalResult{Passed: true}, metric); err != nil {
+	if err := ctx.Record(evals.EvalResult{Score: float64Ptr(1.0)}, metric); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 
@@ -519,7 +519,7 @@ func TestMetricContext_EvalBoolean(t *testing.T) {
 	}
 
 	// Record failed
-	if err := ctx.Record(evals.EvalResult{Passed: false}, metric); err != nil {
+	if err := ctx.Record(evals.EvalResult{Score: float64Ptr(0.0)}, metric); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 

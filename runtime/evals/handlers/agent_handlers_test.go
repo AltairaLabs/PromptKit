@@ -32,7 +32,7 @@ func TestAgentInvokedHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -51,7 +51,7 @@ func TestAgentInvokedHandler_Missing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for missing agent")
 	}
 }
@@ -62,7 +62,7 @@ func TestAgentInvokedHandler_NoAgents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail with no agents")
 	}
 }
@@ -90,7 +90,7 @@ func TestAgentNotInvokedHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -110,7 +110,7 @@ func TestAgentNotInvokedHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail for forbidden agent called")
 	}
 }
@@ -139,7 +139,7 @@ func TestAgentResponseContainsHandler_ViaToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -165,7 +165,7 @@ func TestAgentResponseContainsHandler_ViaMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass via messages: %s", result.Explanation)
 	}
 }
@@ -185,7 +185,7 @@ func TestAgentResponseContainsHandler_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail when content not found")
 	}
 }
@@ -196,7 +196,7 @@ func TestAgentResponseContainsHandler_NoAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail with no agent")
 	}
 }

@@ -416,7 +416,7 @@ func emitEvalResultsTo(emitter *events.Emitter, results []evals.EvalResult) {
 		data := events.EvalEventData{
 			EvalID:      r.EvalID,
 			EvalType:    r.Type,
-			Passed:      r.Passed,
+			Passed:      r.IsPassed(),
 			Score:       r.Score,
 			Explanation: r.Explanation,
 			DurationMs:  r.DurationMs,
@@ -428,10 +428,11 @@ func emitEvalResultsTo(emitter *events.Emitter, results []evals.EvalResult) {
 		for _, v := range r.Violations {
 			data.Violations = append(data.Violations, v.Description)
 		}
-		if r.Passed {
-			emitter.EvalCompleted(&data)
-		} else {
+		// EventEvalFailed means the eval errored, not that the score was low.
+		if r.Error != "" {
 			emitter.EvalFailed(&data)
+		} else {
+			emitter.EvalCompleted(&data)
 		}
 	}
 }

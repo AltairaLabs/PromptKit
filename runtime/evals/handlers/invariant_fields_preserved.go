@@ -35,7 +35,7 @@ func (h *InvariantFieldsPreservedHandler) Eval(
 	if tool == "" || len(fields) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "both 'tool' and 'fields' params are required",
 		}, nil
 	}
@@ -44,8 +44,8 @@ func (h *InvariantFieldsPreservedHandler) Eval(
 
 	if len(matchingCalls) < minCallsForComparison {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: true,
+			Type:  h.Type(),
+			Score: boolScore(true),
 			Explanation: fmt.Sprintf(
 				"fewer than %d calls to %q — nothing to compare",
 				minCallsForComparison, tool),
@@ -67,9 +67,8 @@ func (h *InvariantFieldsPreservedHandler) Eval(
 	}
 
 	return &evals.EvalResult{
-		Type:   h.Type(),
-		Passed: true,
-		Score:  ratioScore(preserved, len(fields)),
+		Type:  h.Type(),
+		Score: ratioScore(preserved, len(fields)),
 		Value: map[string]any{
 			"preserved": preserved,
 			"total":     len(fields),
@@ -131,8 +130,8 @@ func (h *InvariantFieldsPreservedHandler) failResult(
 		msgs[i] = fmt.Sprintf("field %q lost at call %d", v["field"], v["call_index"])
 	}
 	return &evals.EvalResult{
-		Type:   h.Type(),
-		Passed: false,
+		Type:  h.Type(),
+		Score: boolScore(false),
 		Explanation: fmt.Sprintf(
 			"%d field(s) lost: %s", len(violations), strings.Join(msgs, "; ")),
 		Details: map[string]any{"violations": violations, "tool": tool},

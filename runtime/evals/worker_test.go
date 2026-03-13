@@ -120,8 +120,8 @@ func TestEvalWorker_ProcessesTurnEvents(t *testing.T) {
 			"expected 1 result in batch, got %d", len(batches[0]),
 		)
 	}
-	if !batches[0][0].Passed {
-		t.Error("expected Passed=true")
+	if !batches[0][0].IsPassed() {
+		t.Error("expected IsPassed()=true")
 	}
 }
 

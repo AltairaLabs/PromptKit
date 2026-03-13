@@ -31,7 +31,8 @@ func (h *VideoResolutionHandler) Eval(
 	parts := extractMediaParts(evalCtx.Messages, types.ContentTypeVideo)
 	if len(parts) == 0 {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: errNoVideoFound,
 		}, nil
 	}
@@ -71,7 +72,6 @@ func (h *VideoResolutionHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value:       map[string]any{"resolutions": resolutions},

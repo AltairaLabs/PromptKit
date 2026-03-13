@@ -34,14 +34,14 @@ func (m *mockTurnEvalRunner) RunAssertionsAsEvals(
 		if cfg.Type == "state_is" {
 			expected, _ := cfg.Params["state"].(string)
 			if m.currentState == expected {
-				result.Passed = true
+				result.Score = floatPtr(1.0)
 				result.Message = "state matches"
 			} else {
-				result.Passed = false
+				result.Score = floatPtr(0.0)
 				result.Message = "state mismatch: expected " + expected + ", got " + m.currentState
 			}
 		} else {
-			result.Passed = true
+			result.Score = floatPtr(1.0)
 			result.Message = "unknown assertion type (auto-pass in mock)"
 		}
 		results = append(results, result)
@@ -76,6 +76,8 @@ func (m *mockDriver) Transitions() []TransitionRecord { return m.lastTransitions
 func (m *mockDriver) CurrentState() string            { return m.state }
 func (m *mockDriver) IsComplete() bool                { return m.terminal }
 func (m *mockDriver) Close() error                    { m.closed = true; return nil }
+
+func floatPtr(v float64) *float64 { return &v }
 
 func newMockFactory(driver *mockDriver, err error) DriverFactory {
 	return func(string, map[string]string, bool) (Driver, error) {

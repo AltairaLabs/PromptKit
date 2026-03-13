@@ -47,9 +47,8 @@ func (h *ToolsNotCalledSessionHandler) Eval(
 
 	if !passed {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  boolScore(false),
+			Type:  h.Type(),
+			Score: boolScore(false),
 			Explanation: fmt.Sprintf(
 				"forbidden tools were called: %s",
 				strings.Join(found, "; "),
@@ -62,7 +61,6 @@ func (h *ToolsNotCalledSessionHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Explanation: "no forbidden tools called",
 		Value: map[string]any{

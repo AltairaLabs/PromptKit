@@ -23,7 +23,8 @@ func (h *WorkflowStateIsHandler) Eval(
 	expected, _ := params["state"].(string)
 	if expected == "" {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "missing required param 'state'",
 		}, nil
 	}
@@ -31,7 +32,8 @@ func (h *WorkflowStateIsHandler) Eval(
 	actual, ok := evalCtx.Extras["workflow_current_state"].(string)
 	if !ok {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "no workflow state available in context",
 		}, nil
 	}
@@ -42,7 +44,6 @@ func (h *WorkflowStateIsHandler) Eval(
 	if passed {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
 			Score:       boolScore(true),
 			Value:       value,
 			Explanation: fmt.Sprintf("workflow is in expected state %q", expected),
@@ -51,7 +52,6 @@ func (h *WorkflowStateIsHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      false,
 		Score:       boolScore(false),
 		Value:       value,
 		Explanation: fmt.Sprintf("expected state %q but got %q", expected, actual),

@@ -36,7 +36,7 @@ func (h *ToolArgsExcludedSessionHandler) Eval(
 	if toolName == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "tool_name parameter is required",
 		}, nil
 	}
@@ -44,7 +44,7 @@ func (h *ToolArgsExcludedSessionHandler) Eval(
 	if len(forbidden) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no excluded_args to check",
 		}, nil
 	}
@@ -65,9 +65,8 @@ func (h *ToolArgsExcludedSessionHandler) Eval(
 
 	if !passed {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  boolScore(false),
+			Type:  h.Type(),
+			Score: boolScore(false),
 			Explanation: fmt.Sprintf(
 				"excluded args found: %s",
 				strings.Join(violations, "; "),
@@ -80,7 +79,6 @@ func (h *ToolArgsExcludedSessionHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Explanation: "no excluded args detected",
 		Value: map[string]any{

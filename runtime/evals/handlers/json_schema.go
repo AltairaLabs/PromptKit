@@ -28,7 +28,7 @@ func (h *JSONSchemaHandler) Eval(
 	if schema == nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no schema provided",
 		}, nil
 	}
@@ -49,8 +49,8 @@ func (h *JSONSchemaHandler) Eval(
 		[]byte(content), &target,
 	); parseErr != nil {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
+			Type:  h.Type(),
+			Score: boolScore(false),
 			Explanation: fmt.Sprintf(
 				"output is not valid JSON: %v", parseErr,
 			),
@@ -83,10 +83,9 @@ func (h *JSONSchemaHandler) validateSchema(
 			errs = append(errs, e.String())
 		}
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  boolScore(false),
-			Value:  map[string]any{"valid": false, "errors": errs},
+			Type:  h.Type(),
+			Score: boolScore(false),
+			Value: map[string]any{"valid": false, "errors": errs},
 			Explanation: fmt.Sprintf(
 				"schema violations: %s",
 				strings.Join(errs, "; "),
@@ -96,7 +95,6 @@ func (h *JSONSchemaHandler) validateSchema(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Value:       map[string]any{"valid": true, "errors": []string{}},
 		Explanation: "output matches JSON schema",

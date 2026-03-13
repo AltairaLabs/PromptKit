@@ -36,7 +36,7 @@ func TestA2AEvalHandler_MissingAgentURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false for missing agent_url")
 	}
 	if result.Explanation != "a2a_eval requires an 'agent_url' param" {
@@ -110,8 +110,8 @@ func TestA2AEvalHandler_SuccessfulEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
-		t.Errorf("expected Passed=true, got explanation: %s", result.Explanation)
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
 	}
 	if result.Score == nil || *result.Score != 0.9 {
 		t.Errorf("expected score 0.9, got %v", result.Score)
@@ -134,7 +134,7 @@ func TestA2AEvalHandler_FailedEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false")
 	}
 	if result.Score == nil || *result.Score != 0.2 {
@@ -175,7 +175,7 @@ func TestA2AEvalHandler_AgentError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false for agent error")
 	}
 }
@@ -199,7 +199,7 @@ func TestA2AEvalHandler_Timeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false for timeout")
 	}
 }
@@ -256,7 +256,7 @@ func TestA2AEvalHandler_AuthToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Errorf("expected Passed=true, got explanation: %s", result.Explanation)
 	}
 }
@@ -335,8 +335,11 @@ func TestA2AEvalSessionHandler_AggregatesContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
-		t.Errorf("expected Passed=true, got explanation: %s", result.Explanation)
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
+	}
+	if result.Score == nil || *result.Score != 0.85 {
+		t.Errorf("expected score 0.85, got %v", result.Score)
 	}
 	if result.Type != "a2a_eval_session" {
 		t.Errorf("expected type a2a_eval_session, got %s", result.Type)
@@ -381,7 +384,7 @@ func TestA2AEvalHandler_NoTextResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false for no text response")
 	}
 	if result.Explanation != "a2a agent returned no text response" {
@@ -389,48 +392,27 @@ func TestA2AEvalHandler_NoTextResponse(t *testing.T) {
 	}
 }
 
-func TestA2AEvalHandler_MinScore(t *testing.T) {
+func TestA2AEvalHandler_ReturnsRawScore(t *testing.T) {
 	t.Parallel()
 
-	t.Run("passes with lower threshold", func(t *testing.T) {
-		t.Parallel()
-		server := mockA2AServer(t, `{"score": 0.7, "reasoning": "decent"}`)
-		defer server.Close()
+	server := mockA2AServer(t, `{"score": 0.7, "reasoning": "decent"}`)
+	defer server.Close()
 
-		h := &A2AEvalHandler{}
-		evalCtx := &evals.EvalContext{CurrentOutput: "test"}
-		params := map[string]any{
-			"agent_url": server.URL,
-			"min_score": 0.6,
-		}
-		result, err := h.Eval(context.Background(), evalCtx, params)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.Passed {
-			t.Errorf("expected Passed=true with min_score=0.6, explanation=%s", result.Explanation)
-		}
-	})
-
-	t.Run("fails with higher threshold", func(t *testing.T) {
-		t.Parallel()
-		server := mockA2AServer(t, `{"score": 0.7, "reasoning": "decent"}`)
-		defer server.Close()
-
-		h := &A2AEvalHandler{}
-		evalCtx := &evals.EvalContext{CurrentOutput: "test"}
-		params := map[string]any{
-			"agent_url": server.URL,
-			"min_score": 0.8,
-		}
-		result, err := h.Eval(context.Background(), evalCtx, params)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Passed {
-			t.Error("expected Passed=false with min_score=0.8")
-		}
-	})
+	h := &A2AEvalHandler{}
+	evalCtx := &evals.EvalContext{CurrentOutput: "test"}
+	params := map[string]any{
+		"agent_url": server.URL,
+	}
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
+	}
+	if result.Score == nil || *result.Score != 0.7 {
+		t.Errorf("expected score 0.7, got %v", result.Score)
+	}
 }
 
 func TestExtractA2AResponseText(t *testing.T) {

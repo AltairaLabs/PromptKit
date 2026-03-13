@@ -41,7 +41,7 @@ func TestWorkflowToolAccess_ToolAllowedInState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -72,7 +72,7 @@ func TestWorkflowToolAccess_ToolNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail: delete is not allowed in readonly state")
 	}
 	if result.Details == nil {
@@ -106,7 +106,7 @@ func TestWorkflowToolAccess_NoRulesForState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass (open policy for state without rules): %s", result.Explanation)
 	}
 }
@@ -134,7 +134,7 @@ func TestWorkflowToolAccess_NoTransitionsData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No state info at all — open policy, should pass.
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass when no transitions data: %s", result.Explanation)
 	}
 }
@@ -163,7 +163,7 @@ func TestWorkflowToolAccess_FallbackWorkflowState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail: delete not allowed in locked state (fallback)")
 	}
 }
@@ -192,7 +192,7 @@ func TestWorkflowToolAccess_FallbackWorkflowStateAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: read is allowed in locked state: %s", result.Explanation)
 	}
 }
@@ -235,7 +235,7 @@ func TestWorkflowToolAccess_MultipleRulesMultipleTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail: delete not allowed in reviewing state")
 	}
 	violations := result.Details["violations"].([]map[string]any)
@@ -260,7 +260,7 @@ func TestWorkflowToolAccess_NoRulesParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass with no rules: %s", result.Explanation)
 	}
 }
@@ -292,7 +292,7 @@ func TestWorkflowToolAccess_TransitionsWithoutTurnIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Without turn_index, last "to" state is used for all turns.
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail: delete not allowed in locked state (no turn_index)")
 	}
 }
@@ -322,7 +322,7 @@ func TestWorkflowToolAccess_EmptyTransitionsArray(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass with empty transitions falling back to workflow_state: %s", result.Explanation)
 	}
 }
@@ -353,7 +353,7 @@ func TestWorkflowToolAccess_InvalidRulesSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -385,7 +385,7 @@ func TestWorkflowToolAccess_InitialStateFromFirstTransition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass: greet allowed in initial 'greeting' state: %s", result.Explanation)
 	}
 }
@@ -415,7 +415,7 @@ func TestWorkflowToolAccess_MultipleViolations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Fatal("expected fail: two violations")
 	}
 	violations := result.Details["violations"].([]map[string]any)
@@ -449,7 +449,7 @@ func TestWorkflowToolAccess_InvalidTransitionsType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass with invalid transitions type falling back to workflow_state: %s", result.Explanation)
 	}
 }

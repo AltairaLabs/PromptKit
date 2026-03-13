@@ -33,7 +33,7 @@ func (h *LLMJudgeHandler) Eval(
 	if extractErr != nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: extractErr.Error(),
 		}, nil
 	}
@@ -44,12 +44,12 @@ func (h *LLMJudgeHandler) Eval(
 	if judgeErr != nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
 		}, nil
 	}
 
-	return buildEvalResult(h.Type(), judgeResult, params), nil
+	return buildEvalResult(h.Type(), judgeResult), nil
 }
 
 // extractJudgeProvider retrieves the JudgeProvider from eval context metadata.
@@ -153,18 +153,11 @@ func buildJudgeOpts(
 func buildEvalResult(
 	evalType string,
 	jr *JudgeResult,
-	params map[string]any,
 ) *evals.EvalResult {
 	score := jr.Score
-	passed := jr.Passed
-
-	if minScore, ok := params["min_score"].(float64); ok {
-		passed = score >= minScore
-	}
 
 	return &evals.EvalResult{
 		Type:        evalType,
-		Passed:      passed,
 		Score:       &score,
 		Explanation: jr.Reasoning,
 		Value:       map[string]any{"score": score, "reasoning": jr.Reasoning},

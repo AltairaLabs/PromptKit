@@ -19,12 +19,11 @@ func TestConvertEvalResults_Empty(t *testing.T) {
 }
 
 func TestConvertEvalResults_PassingResult(t *testing.T) {
-	score := 0.95
+	score := 1.0
 	results := []evals.EvalResult{
 		{
 			EvalID:      "eval-1",
 			Type:        "contains",
-			Passed:      true,
 			Score:       &score,
 			Explanation: "Content contains expected text",
 			DurationMs:  42,
@@ -40,17 +39,18 @@ func TestConvertEvalResults_PassingResult(t *testing.T) {
 	assert.Equal(t, "Content contains expected text", c.Message)
 	assert.Equal(t, "eval-1", c.Details["eval_id"])
 	assert.Equal(t, int64(42), c.Details["duration_ms"])
-	assert.Equal(t, 0.95, c.Details["score"])
+	assert.Equal(t, 1.0, c.Details["score"])
 	_, hasError := c.Details["error"]
 	assert.False(t, hasError)
 }
 
 func TestConvertEvalResults_FailingResultWithError(t *testing.T) {
+	score := 0.0
 	results := []evals.EvalResult{
 		{
 			EvalID:      "eval-2",
 			Type:        "llm_judge",
-			Passed:      false,
+			Score:       &score,
 			Explanation: "Judge determined response is off-topic",
 			Error:       "provider timeout",
 			DurationMs:  5000,
@@ -70,18 +70,20 @@ func TestConvertEvalResults_FailingResultWithError(t *testing.T) {
 
 func TestConvertEvalResults_MultipleResults(t *testing.T) {
 	metricVal := 0.87
+	passScore := 1.0
+	failScore := 0.0
 	results := []evals.EvalResult{
 		{
 			EvalID:      "eval-a",
 			Type:        "contains",
-			Passed:      true,
+			Score:       &passScore,
 			Explanation: "ok",
 			DurationMs:  10,
 		},
 		{
 			EvalID:      "eval-b",
 			Type:        "cosine_similarity",
-			Passed:      true,
+			Score:       &passScore,
 			MetricValue: &metricVal,
 			Explanation: "similarity check passed",
 			DurationMs:  20,
@@ -89,7 +91,7 @@ func TestConvertEvalResults_MultipleResults(t *testing.T) {
 		{
 			EvalID:      "eval-c",
 			Type:        "json_valid",
-			Passed:      false,
+			Score:       &failScore,
 			Explanation: "invalid JSON",
 			DurationMs:  5,
 		},
@@ -113,7 +115,6 @@ func TestConvertEvalResults_SkippedResult(t *testing.T) {
 		{
 			EvalID:      "eval-skip",
 			Type:        "contains",
-			Passed:      true,
 			Skipped:     true,
 			SkipReason:  "when condition not met",
 			Explanation: "skipped",

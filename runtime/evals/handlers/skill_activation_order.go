@@ -26,7 +26,7 @@ func (h *SkillActivationOrderHandler) Eval(
 	if len(sequence) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "sequence param is required and must be non-empty",
 		}, nil
 	}
@@ -36,7 +36,7 @@ func (h *SkillActivationOrderHandler) Eval(
 	if len(activated) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no skill activations found",
 			Details:     map[string]any{"expected_sequence": sequence, "activated_skills": activated},
 		}, nil
@@ -53,10 +53,9 @@ func (h *SkillActivationOrderHandler) Eval(
 
 	if matched < len(sequence) {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  ratioScore(matched, len(sequence)),
-			Value:  value,
+			Type:  h.Type(),
+			Score: ratioScore(matched, len(sequence)),
+			Value: value,
 			Explanation: fmt.Sprintf(
 				"sequence incomplete: matched %d/%d, missing %q",
 				matched, len(sequence), sequence[matched],
@@ -71,7 +70,6 @@ func (h *SkillActivationOrderHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       ratioScore(matched, len(sequence)),
 		Value:       value,
 		Explanation: fmt.Sprintf("skill activation sequence [%s] fully matched", strings.Join(sequence, " → ")),

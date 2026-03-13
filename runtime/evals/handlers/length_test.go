@@ -18,7 +18,7 @@ func TestMaxLengthHandler_CharacterCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Error("expected pass: 10 chars <= 20 max")
 	}
 
@@ -49,7 +49,7 @@ func TestMaxLengthHandler_MaxTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Errorf("expected fail: ~%d tokens > 5 max_tokens", len(output)/4)
 	}
 
@@ -80,7 +80,7 @@ func TestMaxLengthHandler_MaxTokensPass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Error("expected pass: ~2 tokens <= 10 max_tokens")
 	}
 }
@@ -95,7 +95,7 @@ func TestMaxLengthHandler_MissingMax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected fail when no max param provided")
 	}
 }
@@ -106,7 +106,7 @@ func TestMaxLengthHandler_EvalPartial_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Error("expected pass: 5 chars <= 100 max")
 	}
 	if result.Score == nil || *result.Score != 1.0 {
@@ -120,7 +120,7 @@ func TestMaxLengthHandler_EvalPartial_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected fail: 10 chars > 5 max")
 	}
 	if result.Score == nil || *result.Score >= 1.0 {
@@ -134,7 +134,7 @@ func TestMaxLengthHandler_EvalPartial_NoMax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Error("expected pass when no max param")
 	}
 }
@@ -149,7 +149,7 @@ func TestMaxLengthHandler_EvalPartial_MaxTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected fail: ~10 tokens > 5 max_tokens")
 	}
 }
@@ -164,7 +164,7 @@ func TestMinLengthHandler_Basic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Error("expected pass: 5 chars >= 3 min")
 	}
 }

@@ -25,7 +25,7 @@ func (h *ToolCallChainHandler) Eval(
 	if len(steps) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "empty chain always passes",
 		}, nil
 	}
@@ -41,7 +41,6 @@ func (h *ToolCallChainHandler) Eval(
 	if failure != nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       ratioScore(completed, len(steps)),
 			Explanation: fmt.Sprintf("%v", failure["message"]),
 			Value: map[string]any{
@@ -55,9 +54,8 @@ func (h *ToolCallChainHandler) Eval(
 
 	if completed < len(steps) {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  ratioScore(completed, len(steps)),
+			Type:  h.Type(),
+			Score: ratioScore(completed, len(steps)),
 			Explanation: fmt.Sprintf(
 				"chain incomplete: satisfied %d/%d steps, missing %q",
 				completed, len(steps), steps[completed].tool,
@@ -76,7 +74,6 @@ func (h *ToolCallChainHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       ratioScore(completed, len(steps)),
 		Explanation: "chain fully satisfied",
 		Value: map[string]any{

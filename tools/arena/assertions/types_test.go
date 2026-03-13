@@ -32,9 +32,6 @@ func TestAssertionConfig_ToEvalDef_Basic(t *testing.T) {
 	assert.Equal(t, evals.TriggerEveryTurn, def.Trigger)
 	assert.Equal(t, cfg.Params, def.Params)
 	assert.Equal(t, "should include hello", def.Message)
-	assert.NotNil(t, def.Threshold)
-	assert.NotNil(t, def.Threshold.Passed)
-	assert.True(t, *def.Threshold.Passed)
 	assert.Nil(t, def.When)
 }
 

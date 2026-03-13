@@ -28,8 +28,8 @@ func TestLLMJudgeToolCallsHandler_NoProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
-		t.Fatal("expected fail when no judge provider")
+	if result.Explanation == "" {
+		t.Fatal("expected error explanation when no judge provider")
 	}
 }
 
@@ -49,7 +49,7 @@ func TestLLMJudgeToolCallsHandler_NoToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatalf("expected pass (skip) with no tool calls: %s", result.Explanation)
 	}
 	if !result.Skipped {
@@ -101,8 +101,11 @@ func TestLLMJudgeToolCallsHandler_WithProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
-		t.Fatalf("expected pass: %s", result.Explanation)
+	if result.Error != "" {
+		t.Fatalf("unexpected error: %s", result.Error)
+	}
+	if result.Score == nil || *result.Score != 0.85 {
+		t.Fatalf("expected score 0.85, got %v", result.Score)
 	}
 }
 

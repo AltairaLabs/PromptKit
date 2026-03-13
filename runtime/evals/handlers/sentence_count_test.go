@@ -20,7 +20,7 @@ func TestSentenceCountHandler_EmptyString(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Fatal("expected pass for measurement handler")
 	}
 	count, ok := result.Details["count"].(int)

@@ -545,7 +545,7 @@ func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef
 		entry.histogram.WithLabelValues(labelValues...).Observe(value)
 	case evals.MetricBoolean:
 		v := 0.0
-		if result.Passed { //nolint:staticcheck // Passed is deprecated but still the source for boolean metrics
+		if result.IsPassed() {
 			v = 1.0
 		}
 		entry.gauge.WithLabelValues(labelValues...).Set(v)

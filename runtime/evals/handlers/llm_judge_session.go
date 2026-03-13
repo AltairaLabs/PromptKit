@@ -38,7 +38,7 @@ func (h *LLMJudgeSessionHandler) Eval(
 	if extractErr != nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: extractErr.Error(),
 		}, nil
 	}
@@ -50,12 +50,12 @@ func (h *LLMJudgeSessionHandler) Eval(
 	if judgeErr != nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
 		}, nil
 	}
 
-	return buildEvalResult(h.Type(), judgeResult, params), nil
+	return buildEvalResult(h.Type(), judgeResult), nil
 }
 
 // collectAssistantContent concatenates all assistant message

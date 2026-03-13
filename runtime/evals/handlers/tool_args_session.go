@@ -30,7 +30,7 @@ func (h *ToolArgsSessionHandler) Eval(
 	if toolName == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "tool_name parameter is required",
 		}, nil
 	}
@@ -38,7 +38,7 @@ func (h *ToolArgsSessionHandler) Eval(
 	if len(expectedArgs) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no expected_args to check",
 		}, nil
 	}
@@ -61,9 +61,8 @@ func (h *ToolArgsSessionHandler) Eval(
 
 	if matched {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: true,
-			Score:  boolScore(true),
+			Type:  h.Type(),
+			Score: boolScore(true),
 			Explanation: fmt.Sprintf(
 				"%s was called with expected args", toolName,
 			),
@@ -75,9 +74,8 @@ func (h *ToolArgsSessionHandler) Eval(
 
 	if len(mismatches) == 0 {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  boolScore(false),
+			Type:  h.Type(),
+			Score: boolScore(false),
 			Explanation: fmt.Sprintf(
 				"tool %q was never called", toolName,
 			),
@@ -88,9 +86,8 @@ func (h *ToolArgsSessionHandler) Eval(
 	}
 
 	return &evals.EvalResult{
-		Type:   h.Type(),
-		Passed: false,
-		Score:  boolScore(false),
+		Type:  h.Type(),
+		Score: boolScore(false),
 		Explanation: fmt.Sprintf(
 			"%s called but args did not match: %s",
 			toolName, strings.Join(mismatches, "; "),

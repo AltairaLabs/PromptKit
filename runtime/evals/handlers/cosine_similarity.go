@@ -28,7 +28,7 @@ func (h *CosineSimilarityHandler) Eval(
 	if !ok || len(reference) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no reference embedding specified",
 		}, nil
 	}
@@ -37,7 +37,7 @@ func (h *CosineSimilarityHandler) Eval(
 	if !ok {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no min_similarity specified",
 		}, nil
 	}
@@ -48,7 +48,7 @@ func (h *CosineSimilarityHandler) Eval(
 	if !ok || len(target) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no embedding found in metadata",
 		}, nil
 	}
@@ -62,8 +62,8 @@ func (h *CosineSimilarityHandler) computeAndCheck(
 ) (result *evals.EvalResult, err error) {
 	if len(reference) != len(target) {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
+			Type:  h.Type(),
+			Score: boolScore(false),
 			Explanation: fmt.Sprintf(
 				"dimension mismatch: reference=%d, target=%d",
 				len(reference), len(target),
@@ -72,7 +72,6 @@ func (h *CosineSimilarityHandler) computeAndCheck(
 	}
 
 	similarity := cosineSimilarity(reference, target)
-	passed := similarity >= minSim
 	explanation := fmt.Sprintf(
 		"cosine similarity %.4f vs threshold %.4f",
 		similarity, minSim,
@@ -80,7 +79,6 @@ func (h *CosineSimilarityHandler) computeAndCheck(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       &similarity,
 		Value:       map[string]any{"similarity": similarity, "threshold": minSim},
 		Explanation: explanation,

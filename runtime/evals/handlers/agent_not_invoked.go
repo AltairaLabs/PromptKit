@@ -24,7 +24,8 @@ func (h *AgentNotInvokedHandler) Eval(
 	agents := extractStringSlice(params, "agents")
 	if len(agents) == 0 {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: true,
+			Type:        h.Type(),
+			Score:       boolScore(true),
 			Explanation: "no agents specified to exclude",
 		}, nil
 	}
@@ -44,7 +45,6 @@ func (h *AgentNotInvokedHandler) Eval(
 	if len(called) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       boolScore(false),
 			Value:       map[string]any{"forbidden_invoked": called},
 			Explanation: fmt.Sprintf("forbidden agents called: %s", strings.Join(called, ", ")),
@@ -54,7 +54,6 @@ func (h *AgentNotInvokedHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Value:       map[string]any{"forbidden_invoked": []string{}},
 		Explanation: "no forbidden agents were invoked",

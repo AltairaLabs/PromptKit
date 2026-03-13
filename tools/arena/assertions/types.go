@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
@@ -28,12 +27,11 @@ type AssertionResult struct {
 // This is the bridge for unifying arena assertions with runtime evals.
 func ToEvalDef(a AssertionConfig, index int) evals.EvalDef {
 	def := evals.EvalDef{
-		ID:        fmt.Sprintf("assertion_%d_%s", index, a.Type),
-		Type:      a.Type,
-		Trigger:   evals.TriggerEveryTurn,
-		Params:    a.Params,
-		Message:   a.Message,
-		Threshold: &evals.Threshold{Passed: testutil.Ptr(true)},
+		ID:      fmt.Sprintf("assertion_%d_%s", index, a.Type),
+		Type:    a.Type,
+		Trigger: evals.TriggerEveryTurn,
+		Params:  a.Params,
+		Message: a.Message,
 	}
 	if a.When != nil {
 		def.When = &evals.EvalWhen{

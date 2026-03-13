@@ -25,7 +25,7 @@ func TestContentExcludesHandler_MatchModeSubstring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected substring match to find 'forbidden' in 'unforbidden'")
 	}
 }
@@ -48,7 +48,7 @@ func TestContentExcludesHandler_MatchModeWordBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Error("word_boundary should NOT match 'forbidden' inside 'unforbidden'")
 	}
 
@@ -79,7 +79,7 @@ func TestContentExcludesHandler_EvalPartial_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Error("expected pass: no forbidden patterns in content")
 	}
 	if result.Score == nil || *result.Score != 1.0 {
@@ -95,7 +95,7 @@ func TestContentExcludesHandler_EvalPartial_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected fail: 'forbidden' found in content")
 	}
 	if result.Score == nil || *result.Score != 0.0 {
@@ -109,7 +109,7 @@ func TestContentExcludesHandler_EvalPartial_NoPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Error("expected pass: no patterns to check")
 	}
 }
@@ -124,7 +124,7 @@ func TestContentExcludesHandler_EvalPartial_UsesSubstringMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("EvalPartial should use substring mode, matching 'forbidden' inside 'unforbidden'")
 	}
 }
@@ -146,7 +146,7 @@ func TestContentExcludesHandler_MatchModeWordBoundaryCaseInsensitive(t *testing.
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("word_boundary should be case-insensitive")
 	}
 }

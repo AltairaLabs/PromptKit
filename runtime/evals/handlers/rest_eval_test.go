@@ -36,7 +36,7 @@ func TestRestEvalHandler_MissingURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false for missing URL")
 	}
 	if result.Explanation != "rest_eval requires a 'url' param" {
@@ -92,8 +92,8 @@ func TestRestEvalHandler_SuccessfulEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
-		t.Error("expected Passed=true")
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
 	}
 	if result.Score == nil || *result.Score != 0.95 {
 		t.Errorf("expected score 0.95, got %v", result.Score)
@@ -126,7 +126,7 @@ func TestRestEvalHandler_FailedEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false")
 	}
 	if result.Score == nil || *result.Score != 0.2 {
@@ -150,7 +150,7 @@ func TestRestEvalHandler_NonOKStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false for 500 status")
 	}
 	if result.Type != "rest_eval" {
@@ -173,7 +173,7 @@ func TestRestEvalHandler_InvalidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false for invalid JSON")
 	}
 }
@@ -197,7 +197,7 @@ func TestRestEvalHandler_Timeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.IsPassed() {
 		t.Error("expected Passed=false for timeout")
 	}
 }
@@ -234,7 +234,7 @@ func TestRestEvalHandler_EnvVarHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !result.IsPassed() {
 		t.Errorf("expected Passed=true, got explanation: %s", result.Explanation)
 	}
 }
@@ -249,49 +249,27 @@ func newScoreServer(score float64) *httptest.Server {
 	}))
 }
 
-func TestRestEvalHandler_MinScoreOverride(t *testing.T) {
+func TestRestEvalHandler_ReturnsRawScore(t *testing.T) {
 	t.Parallel()
 
-	t.Run("passes with lower threshold", func(t *testing.T) {
-		t.Parallel()
-		server := newScoreServer(0.7)
-		defer server.Close()
+	server := newScoreServer(0.7)
+	defer server.Close()
 
-		h := &RestEvalHandler{}
-		evalCtx := &evals.EvalContext{CurrentOutput: "test"}
-		params := map[string]any{
-			"url":       server.URL,
-			"min_score": 0.6,
-		}
-		result, err := h.Eval(context.Background(), evalCtx, params)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.Passed {
-			t.Errorf("expected Passed=true with min_score=0.6, score=%v, explanation=%s",
-				result.Score, result.Explanation)
-		}
-	})
-
-	t.Run("fails with higher threshold", func(t *testing.T) {
-		t.Parallel()
-		server := newScoreServer(0.7)
-		defer server.Close()
-
-		h := &RestEvalHandler{}
-		evalCtx := &evals.EvalContext{CurrentOutput: "test"}
-		params := map[string]any{
-			"url":       server.URL,
-			"min_score": 0.8,
-		}
-		result, err := h.Eval(context.Background(), evalCtx, params)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Passed {
-			t.Error("expected Passed=false with min_score=0.8")
-		}
-	})
+	h := &RestEvalHandler{}
+	evalCtx := &evals.EvalContext{CurrentOutput: "test"}
+	params := map[string]any{
+		"url": server.URL,
+	}
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
+	}
+	if result.Score == nil || *result.Score != 0.7 {
+		t.Errorf("expected score 0.7, got %v", result.Score)
+	}
 }
 
 func TestRestEvalSessionHandler_AggregatesContent(t *testing.T) {
@@ -323,8 +301,11 @@ func TestRestEvalSessionHandler_AggregatesContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
-		t.Error("expected Passed=true")
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
+	}
+	if result.Score == nil || *result.Score != 0.9 {
+		t.Errorf("expected score 0.9, got %v", result.Score)
 	}
 	if result.Type != "rest_eval_session" {
 		t.Errorf("expected type rest_eval_session, got %s", result.Type)
@@ -356,8 +337,11 @@ func TestRestEvalHandler_CustomMethod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
-		t.Error("expected Passed=true")
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
+	}
+	if result.Score == nil || *result.Score != 1.0 {
+		t.Errorf("expected score 1.0, got %v", result.Score)
 	}
 }
 
