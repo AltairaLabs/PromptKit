@@ -518,7 +518,7 @@ func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef
 	}
 
 	c := mc.collector
-	name := prefixedName(c.namespace, metric.Name)
+	name := prefixedName(c.namespace+"_eval", metric.Name)
 	key := evalMetricKey(name, metric)
 
 	c.mu.RLock()

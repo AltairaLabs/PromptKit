@@ -217,7 +217,7 @@ These are recorded automatically from EventBus events:
 
 ### Eval Metrics
 
-Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector. No extra wiring needed — `WithMetrics()` handles both pipeline and eval metrics.
+Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector under the `{ns}_eval_` sub-namespace. For example, the metric below becomes `myapp_eval_response_relevance_score`. No extra wiring needed — `WithMetrics()` handles both pipeline and eval metrics.
 
 ```json
 {

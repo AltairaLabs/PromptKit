@@ -19,6 +19,12 @@ All metrics share a common label structure:
 {namespace}_{metric_name}{const_labels, instance_labels, event_labels}
 ```
 
+Eval metrics use a separate sub-namespace to distinguish them from pipeline metrics:
+
+```
+{namespace}_eval_{metric_name}{const_labels, instance_labels, pack_labels}
+```
+
 Where:
 - **Namespace** — configurable prefix (default: `promptkit`)
 - **Const labels** — process-level labels baked into the metric descriptor (`env`, `region`)
@@ -113,7 +119,7 @@ Eval metrics are defined per-eval in the pack file's `metric` field. They are re
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Prometheus metric name (auto-prefixed with namespace if not already) |
+| `name` | Yes | Prometheus metric name (auto-prefixed with `{namespace}_eval_` if not already) |
 | `type` | Yes | One of `gauge`, `counter`, `histogram`, `boolean` |
 | `range` | No | Value range hint (`min`, `max`) — used for documentation, not enforced |
 | `labels` | No | Static labels added to this metric (pack-author defined) |
@@ -136,7 +142,7 @@ The full label set for an eval metric is: **instance labels** (sorted) + **pack-
 For example, with `InstanceLabels: ["tenant"]` and `metric.labels: {"category": "quality", "eval_type": "llm_judge"}`:
 
 ```
-response_quality_score{tenant="acme",category="quality",eval_type="llm_judge"} 0.85
+myapp_eval_response_quality_score{tenant="acme",category="quality",eval_type="llm_judge"} 0.85
 ```
 
 ### Score Extraction
@@ -240,7 +246,7 @@ For quick reference, here is every metric name emitted with the default `promptk
 | `promptkit_tool_calls_total` | Counter | Tool |
 | `promptkit_validation_duration_seconds` | Histogram | Validation |
 | `promptkit_validations_total` | Counter | Validation |
-| `{ns}_{eval_metric_name}` | Varies | Eval (pack-defined) |
+| `{ns}_eval_{metric_name}` | Varies | Eval (pack-defined) |
 
 ## See Also
 

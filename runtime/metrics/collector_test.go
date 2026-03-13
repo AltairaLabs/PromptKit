@@ -452,7 +452,7 @@ func TestMetricContext_EvalGauge(t *testing.T) {
 	}
 
 	output := gatherMetrics(t, reg)
-	if !strings.Contains(output, "test_quality_score") {
+	if !strings.Contains(output, "test_eval_quality_score") {
 		t.Error("expected quality_score metric")
 	}
 	if !strings.Contains(output, "0.85") {
@@ -472,7 +472,7 @@ func TestMetricContext_EvalCounter(t *testing.T) {
 	}
 
 	output := gatherMetrics(t, reg)
-	if !strings.Contains(output, "test_eval_runs") {
+	if !strings.Contains(output, "test_eval_eval_runs") {
 		t.Error("expected eval_runs metric")
 	}
 	if !strings.Contains(output, "3") {
@@ -492,13 +492,13 @@ func TestMetricContext_EvalHistogram(t *testing.T) {
 	}
 
 	output := gatherMetrics(t, reg)
-	if !strings.Contains(output, "test_latency_bucket") {
+	if !strings.Contains(output, "test_eval_latency_bucket") {
 		t.Error("expected histogram bucket")
 	}
-	if !strings.Contains(output, "test_latency_sum") {
+	if !strings.Contains(output, "test_eval_latency_sum") {
 		t.Error("expected histogram sum")
 	}
-	if !strings.Contains(output, "test_latency_count 4") {
+	if !strings.Contains(output, "test_eval_latency_count 4") {
 		t.Error("expected histogram count 4")
 	}
 }
@@ -514,7 +514,7 @@ func TestMetricContext_EvalBoolean(t *testing.T) {
 	}
 
 	output := gatherMetrics(t, reg)
-	if !strings.Contains(output, "test_safety_check 1") {
+	if !strings.Contains(output, "test_eval_safety_check 1") {
 		t.Errorf("expected boolean metric value 1, got:\n%s", output)
 	}
 
@@ -524,7 +524,7 @@ func TestMetricContext_EvalBoolean(t *testing.T) {
 	}
 
 	output = gatherMetrics(t, reg)
-	if !strings.Contains(output, "test_safety_check 0") {
+	if !strings.Contains(output, "test_eval_safety_check 0") {
 		t.Errorf("expected boolean metric value 0, got:\n%s", output)
 	}
 }
@@ -622,17 +622,17 @@ func TestMetricContext_EvalNamespacePrefix(t *testing.T) {
 	// Already prefixed name should not double-prefix.
 	if err := ctx.Record(
 		evals.EvalResult{Score: float64Ptr(1.0)},
-		&evals.MetricDef{Name: "test_already_prefixed", Type: evals.MetricGauge},
+		&evals.MetricDef{Name: "test_eval_already_prefixed", Type: evals.MetricGauge},
 	); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 
 	output := gatherMetrics(t, reg)
-	if strings.Contains(output, "test_test_already_prefixed") {
+	if strings.Contains(output, "test_eval_test_eval_already_prefixed") {
 		t.Error("should not double-prefix metric name")
 	}
-	if !strings.Contains(output, "test_already_prefixed") {
-		t.Error("expected test_already_prefixed metric")
+	if !strings.Contains(output, "test_eval_already_prefixed") {
+		t.Error("expected test_eval_already_prefixed metric")
 	}
 }
 
