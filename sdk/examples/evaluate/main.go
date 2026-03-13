@@ -6,7 +6,7 @@
 //   - Filtering evals by trigger (every_turn vs on_session_complete)
 //   - Running evals from inline definitions (no pack file needed)
 //   - Receiving eval results via the EventBus for reactive workflows
-//   - Recording eval results as Prometheus metrics via MetricRecorder
+//   - Recording eval results as Prometheus metrics via MetricsCollector
 //   - Validating that all eval types are registered before execution
 //   - Extending the eval registry with custom exec handlers via RuntimeConfig
 //
@@ -22,8 +22,12 @@ import (
 	"os"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/expfmt"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
@@ -154,18 +158,21 @@ func main() {
 	// Example 5: Metrics — record eval results as Prometheus metrics.
 	// Each eval in the pack has a "metric" definition that specifies the
 	// Prometheus metric name and type (boolean, counter, gauge, histogram).
-	// Pass a MetricCollector to Evaluate() to automatically record results.
+	// Use MetricsCollector on EvaluateOpts — the SDK calls Bind() internally.
+	// NewEvalOnlyCollector is a convenience for eval-only consumers (no pipeline metrics).
 	fmt.Println("\n=== Example 5: Prometheus metrics from eval results ===")
 
-	collector := evals.NewMetricCollector(
-		evals.WithNamespace("myapp"),
-		evals.WithLabels(map[string]string{"env": "production"}),
-	)
+	reg := prometheus.NewRegistry()
+	metricsCollector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer:  reg,
+		Namespace:   "myapp",
+		ConstLabels: prometheus.Labels{"env": "production"},
+	})
 
 	results, err = sdk.Evaluate(ctx, sdk.EvaluateOpts{
 		PackPath:             "./evaluate.pack.json",
 		SkipSchemaValidation: true,
-		MetricRecorder:       collector,
+		MetricsCollector:     metricsCollector,
 		Messages: []types.Message{
 			types.NewUserMessage("Hi there!"),
 			types.NewAssistantMessage("Hello! How can I help you today?"),
@@ -179,8 +186,15 @@ func main() {
 	printResults(results)
 
 	fmt.Println("\n  Prometheus output:")
-	if err := collector.WritePrometheus(os.Stdout); err != nil {
-		log.Fatalf("WritePrometheus failed: %v", err)
+	enc := expfmt.NewEncoder(os.Stdout, expfmt.NewFormat(expfmt.TypeTextPlain))
+	families, gatherErr := reg.Gather()
+	if gatherErr != nil {
+		log.Fatalf("Gather failed: %v", gatherErr)
+	}
+	for _, fam := range families {
+		if err := enc.Encode(fam); err != nil {
+			log.Fatalf("Encode failed: %v", err)
+		}
 	}
 
 	// Example 6: Validate eval types before execution.
@@ -258,7 +272,9 @@ func main() {
 func printResults(results []evals.EvalResult) {
 	for _, r := range results {
 		status := "PASS"
-		if !r.Passed {
+		if passed, ok := r.Value.(bool); ok && !passed {
+			status = "FAIL"
+		} else if r.Score != nil && *r.Score < 1.0 {
 			status = "FAIL"
 		}
 		fmt.Printf("  [%s] %s — %s\n", status, r.EvalID, r.Explanation)

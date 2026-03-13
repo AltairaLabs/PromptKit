@@ -185,7 +185,7 @@ func TestEngineEmitsRunStartedEvent(t *testing.T) {
 
 	// Verify event data
 	if emitter != nil {
-		data, ok := receivedEvent.Data.(events.CustomEventData)
+		data, ok := receivedEvent.Data.(*events.CustomEventData)
 		if !ok {
 			t.Fatal("expected CustomEventData")
 		}
@@ -250,7 +250,7 @@ func TestEngineEmitsRunCompletedEvent(t *testing.T) {
 	}
 
 	// Verify event data
-	data, ok := receivedEvent.Data.(events.CustomEventData)
+	data, ok := receivedEvent.Data.(*events.CustomEventData)
 	if !ok {
 		t.Fatal("expected CustomEventData")
 	}
@@ -311,7 +311,7 @@ func TestEngineEmitsRunFailedEvent(t *testing.T) {
 	}
 
 	// Verify event data contains error
-	data, ok := receivedEvent.Data.(events.CustomEventData)
+	data, ok := receivedEvent.Data.(*events.CustomEventData)
 	if !ok {
 		t.Fatal("expected CustomEventData")
 	}

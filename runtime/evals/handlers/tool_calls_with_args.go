@@ -42,7 +42,7 @@ func (h *ToolCallsWithArgsHandler) Eval(
 	if toolName != "" && len(matching) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("tool %q was not called", toolName),
 			Details:     map[string]any{"tool_name": toolName},
 		}, nil
@@ -61,7 +61,6 @@ func (h *ToolCallsWithArgsHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value: map[string]any{

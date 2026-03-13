@@ -98,7 +98,7 @@ func (a *GuardrailHookAdapter) AfterCall(
 		return hooks.Deny("guardrail error: " + err.Error())
 	}
 
-	if !result.IsPassed() {
+	if result.Score == nil || *result.Score < 1.0 {
 		if !a.monitorOnly {
 			a.enforce(&resp.Message, params)
 		}
@@ -121,8 +121,8 @@ func (a *GuardrailHookAdapter) evaluate(
 		return hooks.Deny("guardrail error: " + err.Error())
 	}
 
-	// Use IsPassed() which derives pass/fail from Score (score < 1.0 = fail).
-	if !result.IsPassed() {
+	// Derive pass/fail from Score (score < 1.0 = fail).
+	if result.Score == nil || *result.Score < 1.0 {
 		return a.enforced(result)
 	}
 
@@ -149,7 +149,7 @@ func (a *GuardrailHookAdapter) OnChunk(
 		return hooks.Deny("guardrail streaming error: " + err.Error())
 	}
 
-	if !result.IsPassed() {
+	if result.Score == nil || *result.Score < 1.0 {
 		if !a.monitorOnly {
 			// Truncate chunk content for length validators
 			if maxLen := extractMaxLen(params); maxLen > 0 && len(chunk.Content) > maxLen {

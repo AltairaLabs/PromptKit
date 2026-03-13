@@ -48,6 +48,7 @@ type ProviderConfig struct {
 	Temperature    float32
 	Seed           *int
 	ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
+	Labels         map[string]string         // Optional labels propagated to events, metrics, and traces
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -106,6 +107,19 @@ func NewProviderStageWithHooks(
 		emitter:      emitter,
 		hookRegistry: hookRegistry,
 	}
+}
+
+// toolLabels returns the Labels from the ToolDescriptor for the given tool name,
+// or nil if the tool is not found or has no labels.
+func (s *ProviderStage) toolLabels(name string) map[string]string {
+	if s.toolRegistry == nil {
+		return nil
+	}
+	desc := s.toolRegistry.Get(name)
+	if desc == nil {
+		return nil
+	}
+	return desc.Labels
 }
 
 // providerInput holds accumulated input data for provider execution.
@@ -381,7 +395,7 @@ func (s *ProviderStage) executeRound(
 
 	// Emit provider call started event
 	if s.emitter != nil {
-		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(messages), toolCount)
+		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(messages), toolCount, s.config.Labels)
 	}
 
 	// Run BeforeCall hooks
@@ -429,7 +443,7 @@ func (s *ProviderStage) executeRound(
 		logger.Error("Provider call failed", "error", err, "duration", duration)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
 		}
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
 	}
@@ -441,6 +455,7 @@ func (s *ProviderStage) executeRound(
 			Model:         s.provider.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
+			Labels:        s.config.Labels,
 		}
 		if resp.CostInfo != nil {
 			completedData.InputTokens = resp.CostInfo.InputTokens
@@ -569,7 +584,7 @@ func (s *ProviderStage) executeStreamingRound(
 
 	// Emit provider call started event
 	if s.emitter != nil {
-		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(params.messages), toolCount)
+		s.emitter.ProviderCallStarted(s.provider.ID(), s.provider.Model(), len(params.messages), toolCount, s.config.Labels)
 	}
 
 	startTime := time.Now()
@@ -580,7 +595,7 @@ func (s *ProviderStage) executeStreamingRound(
 		duration := time.Since(startTime)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
 		}
 		return types.Message{}, false, err
 	}
@@ -592,7 +607,7 @@ func (s *ProviderStage) executeStreamingRound(
 	if err != nil {
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration)
+			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
 		}
 		return types.Message{}, false, err
 	}
@@ -604,6 +619,7 @@ func (s *ProviderStage) executeStreamingRound(
 			Model:         s.provider.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
+			Labels:        s.config.Labels,
 		}
 		// Populate token counts from cost info if available (present in final chunk)
 		if costInfo != nil {
@@ -909,14 +925,15 @@ func (s *ProviderStage) executeSingleToolCall(
 		return blocked
 	}
 
-	s.emitToolStarted(toolCall)
+	labels := s.toolLabels(toolCall.Name)
+	s.emitToolStarted(toolCall, labels)
 
 	startTime := time.Now()
 	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
 	if err != nil {
 		if s.emitter != nil {
 			s.emitter.ToolCallFailed(
-				toolCall.Name, toolCall.ID, err, time.Since(startTime),
+				toolCall.Name, toolCall.ID, err, time.Since(startTime), labels,
 			)
 		}
 		errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
@@ -934,7 +951,7 @@ func (s *ProviderStage) executeSingleToolCall(
 	if s.emitter != nil {
 		status := string(asyncResult.Status)
 		s.emitter.ToolCallCompleted(
-			toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Parts,
+			toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Parts, labels,
 		)
 	}
 	resultMsg := types.NewToolResultMessage(result)
@@ -948,7 +965,7 @@ func (s *ProviderStage) executeSingleToolCall(
 }
 
 // emitToolStarted emits the tool call started event if an emitter is configured.
-func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall) {
+func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall, labels map[string]string) {
 	if s.emitter == nil {
 		return
 	}
@@ -956,7 +973,7 @@ func (s *ProviderStage) emitToolStarted(toolCall types.MessageToolCall) {
 	if toolCall.Args != nil {
 		_ = json.Unmarshal(toolCall.Args, &argsMap)
 	}
-	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap)
+	s.emitter.ToolCallStarted(toolCall.Name, toolCall.ID, argsMap, labels)
 }
 
 // emitGuardrailEvent emits a validation event from a hook decision.

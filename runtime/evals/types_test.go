@@ -223,7 +223,6 @@ func TestEvalResult_JSON(t *testing.T) {
 	r := EvalResult{
 		EvalID:      "tone-check",
 		Type:        "llm_judge",
-		Passed:      true,
 		Score:       testutil.Ptr(0.95),
 		MetricValue: testutil.Ptr(0.95),
 		Explanation: "Tone is professional",
@@ -241,9 +240,6 @@ func TestEvalResult_JSON(t *testing.T) {
 	if decoded.EvalID != r.EvalID {
 		t.Errorf("EvalID = %q, want %q", decoded.EvalID, r.EvalID)
 	}
-	if decoded.Passed != r.Passed {
-		t.Errorf("Passed = %v, want %v", decoded.Passed, r.Passed)
-	}
 	if decoded.Score == nil || *decoded.Score != *r.Score {
 		t.Errorf("Score = %v, want %v", decoded.Score, r.Score)
 	}
@@ -253,7 +249,6 @@ func TestEvalResult_ErrorField(t *testing.T) {
 	r := EvalResult{
 		EvalID:     "broken",
 		Type:       "contains",
-		Passed:     false,
 		DurationMs: 5,
 		Error:      "handler panicked",
 	}
@@ -274,7 +269,6 @@ func TestEvalResult_OmitsNilOptionals(t *testing.T) {
 	r := EvalResult{
 		EvalID:     "check",
 		Type:       "regex",
-		Passed:     true,
 		DurationMs: 3,
 	}
 	data, err := json.Marshal(r)
@@ -414,67 +408,6 @@ func TestEvalDef_DisabledExplicit(t *testing.T) {
 	}
 }
 
-func TestThreshold_Apply(t *testing.T) {
-	tests := []struct {
-		name       string
-		threshold  *Threshold
-		result     EvalResult
-		wantPassed bool
-	}{
-		{
-			name:       "nil threshold is no-op",
-			threshold:  nil,
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.5)},
-			wantPassed: true,
-		},
-		{
-			name:       "passed required but result failed",
-			threshold:  &Threshold{Passed: testutil.Ptr(true)},
-			result:     EvalResult{Passed: false, Score: testutil.Ptr(0.9)},
-			wantPassed: false,
-		},
-		{
-			name:       "min_score met",
-			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.8)},
-			wantPassed: true,
-		},
-		{
-			name:       "min_score not met",
-			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.5)},
-			wantPassed: false,
-		},
-		{
-			name:       "max_score met",
-			threshold:  &Threshold{MaxScore: testutil.Ptr(0.9)},
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.8)},
-			wantPassed: true,
-		},
-		{
-			name:       "max_score exceeded",
-			threshold:  &Threshold{MaxScore: testutil.Ptr(0.9)},
-			result:     EvalResult{Passed: true, Score: testutil.Ptr(0.95)},
-			wantPassed: false,
-		},
-		{
-			name:       "nil score with min_score is no-op",
-			threshold:  &Threshold{MinScore: testutil.Ptr(0.7)},
-			result:     EvalResult{Passed: true},
-			wantPassed: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := tt.result
-			tt.threshold.Apply(&result)
-			if result.Passed != tt.wantPassed {
-				t.Errorf("Passed = %v, want %v", result.Passed, tt.wantPassed)
-			}
-		})
-	}
-}
-
 func TestThreshold_JSON(t *testing.T) {
 	th := Threshold{
 		Passed:   testutil.Ptr(true),
@@ -582,7 +515,6 @@ func TestEvalResult_ExtendedFields(t *testing.T) {
 	r := EvalResult{
 		EvalID:  "check",
 		Type:    "test",
-		Passed:  false,
 		Message: "assertion failed",
 		Details: map[string]any{"expected": "foo", "got": "bar"},
 		Violations: []EvalViolation{
@@ -623,7 +555,6 @@ func TestEvalResult_OmitsNewOptionals(t *testing.T) {
 	r := EvalResult{
 		EvalID:     "check",
 		Type:       "test",
-		Passed:     true,
 		DurationMs: 3,
 	}
 	data, err := json.Marshal(r)

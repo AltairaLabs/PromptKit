@@ -122,64 +122,54 @@ func TestParseExternalResponse(t *testing.T) {
 	tests := []struct {
 		name     string
 		body     string
-		minScore *float64
-		passed   bool
 		hasScore bool
 		score    float64
+		hasError bool
 	}{
 		{
 			name:     "passed true with score",
 			body:     `{"passed": true, "score": 0.9, "reasoning": "good"}`,
-			passed:   true,
 			hasScore: true,
 			score:    0.9,
 		},
 		{
 			name:     "passed false",
 			body:     `{"passed": false, "score": 0.3, "reasoning": "bad"}`,
-			passed:   false,
 			hasScore: true,
 			score:    0.3,
 		},
 		{
-			name:     "no passed field score above default threshold",
+			name:     "score only",
 			body:     `{"score": 0.7, "reasoning": "ok"}`,
-			passed:   true,
 			hasScore: true,
 			score:    0.7,
 		},
 		{
-			name:     "no passed field score below default threshold",
+			name:     "low score",
 			body:     `{"score": 0.3, "reasoning": "bad"}`,
-			passed:   false,
 			hasScore: true,
 			score:    0.3,
 		},
 		{
-			name:     "min_score override pass",
+			name:     "high score",
 			body:     `{"score": 0.8, "reasoning": "ok"}`,
-			minScore: float64Ptr(0.7),
-			passed:   true,
 			hasScore: true,
 			score:    0.8,
 		},
 		{
-			name:     "min_score override fail",
+			name:     "mid score",
 			body:     `{"score": 0.6, "reasoning": "ok"}`,
-			minScore: float64Ptr(0.7),
-			passed:   false,
 			hasScore: true,
 			score:    0.6,
 		},
 		{
-			name:   "invalid JSON",
-			body:   "not json at all",
-			passed: false,
+			name:     "invalid JSON",
+			body:     "not json at all",
+			hasError: true,
 		},
 		{
 			name:     "JSON in markdown",
 			body:     "```json\n{\"passed\": true, \"score\": 0.95, \"reasoning\": \"great\"}\n```",
-			passed:   true,
 			hasScore: true,
 			score:    0.95,
 		},
@@ -188,9 +178,12 @@ func TestParseExternalResponse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := parseExternalResponse([]byte(tt.body), tt.minScore)
-			if result.Passed != tt.passed {
-				t.Errorf("Passed = %v, want %v", result.Passed, tt.passed)
+			result := parseExternalResponse([]byte(tt.body))
+			if tt.hasError {
+				if result.Explanation == "" {
+					t.Error("expected non-empty explanation for parse error")
+				}
+				return
 			}
 			if tt.hasScore && (result.Score == nil || *result.Score != tt.score) {
 				var gotScore float64
@@ -232,5 +225,3 @@ func TestParseDuration(t *testing.T) {
 		})
 	}
 }
-
-func float64Ptr(v float64) *float64 { return &v }

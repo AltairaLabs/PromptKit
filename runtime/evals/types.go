@@ -30,6 +30,88 @@ const (
 // DefaultSamplePercentage is the default sampling rate when not specified.
 const DefaultSamplePercentage = 5.0
 
+// DefaultEvalGroup is the group assigned to evals that have no explicit groups.
+const DefaultEvalGroup = "default"
+
+// Well-known eval groups for automatic classification based on handler type.
+// These are assigned as additional default groups alongside DefaultEvalGroup
+// when an eval has no explicit groups configured.
+const (
+	// GroupFastRunning classifies evals that use simple, deterministic logic
+	// (string matching, regex, JSON validation, etc.) and complete quickly.
+	GroupFastRunning = "fast-running"
+
+	// GroupLongRunning classifies evals that involve LLM calls, network requests,
+	// or compute-intensive operations (cosine similarity, LLM judge, etc.).
+	GroupLongRunning = "long-running"
+
+	// GroupExternal classifies evals that call external systems — REST APIs,
+	// A2A agents, subprocess exec, or LLM judge providers.
+	GroupExternal = "external"
+)
+
+// longRunningTypes is the set of eval types classified as long-running.
+var longRunningTypes = map[string]bool{
+	"llm_judge":            true,
+	"llm_judge_session":    true,
+	"llm_judge_tool_calls": true,
+	"outcome_equivalent":   true,
+	"cosine_similarity":    true,
+	"a2a_eval":             true,
+	"a2a_eval_session":     true,
+	"rest_eval":            true,
+	"rest_eval_session":    true,
+}
+
+// externalTypes is the set of eval types classified as external.
+// These are a subset of long-running types that call external systems.
+var externalTypes = map[string]bool{
+	"llm_judge":            true,
+	"llm_judge_session":    true,
+	"llm_judge_tool_calls": true,
+	"a2a_eval":             true,
+	"a2a_eval_session":     true,
+	"rest_eval":            true,
+	"rest_eval_session":    true,
+}
+
+// customTypeGroups holds dynamically registered type→groups mappings
+// for eval types not in the built-in maps (e.g. exec handlers).
+var customTypeGroups = make(map[string][]string)
+
+// RegisterTypeGroups registers well-known groups for a dynamic eval type.
+// This is used by exec eval handlers to self-classify as long-running/external.
+func RegisterTypeGroups(evalType string, groups []string) {
+	customTypeGroups[evalType] = groups
+}
+
+// DefaultGroupsForType returns the well-known groups for a given eval type.
+// The result always includes DefaultEvalGroup plus any classification groups
+// based on the handler's characteristics.
+func DefaultGroupsForType(evalType string) []string {
+	groups := []string{DefaultEvalGroup}
+
+	// Check custom registrations first (exec handlers, etc.)
+	if custom, ok := customTypeGroups[evalType]; ok {
+		return append(groups, custom...)
+	}
+
+	isLongRunning := longRunningTypes[evalType]
+	isExternal := externalTypes[evalType]
+
+	if !isLongRunning && !isExternal {
+		// Not in any known long-running/external map — classify as fast-running
+		groups = append(groups, GroupFastRunning)
+	}
+	if isLongRunning {
+		groups = append(groups, GroupLongRunning)
+	}
+	if isExternal {
+		groups = append(groups, GroupExternal)
+	}
+	return groups
+}
+
 // ValidTriggers is the set of valid trigger values.
 var ValidTriggers = map[EvalTrigger]bool{
 	TriggerEveryTurn:              true,
@@ -77,6 +159,7 @@ type EvalDef struct {
 	Threshold        *Threshold     `json:"threshold,omitempty" yaml:"threshold,omitempty"`
 	Message          string         `json:"message,omitempty" yaml:"message,omitempty"`
 	When             *EvalWhen      `json:"when,omitempty" yaml:"when,omitempty"`
+	Groups           []string       `json:"groups,omitempty" yaml:"groups,omitempty"`
 }
 
 // IsEnabled returns whether this eval is enabled.
@@ -97,6 +180,18 @@ func (e *EvalDef) GetSamplePercentage() float64 {
 	return *e.SamplePercentage
 }
 
+// GetGroups returns the groups this eval belongs to.
+// When no explicit groups are configured, returns DefaultGroupsForType(e.Type)
+// which includes DefaultEvalGroup plus well-known classification groups
+// (fast-running, long-running, external) based on the eval type.
+// When explicit groups are set, returns them as-is (overriding defaults).
+func (e *EvalDef) GetGroups() []string {
+	if len(e.Groups) == 0 {
+		return DefaultGroupsForType(e.Type)
+	}
+	return e.Groups
+}
+
 // Range defines the valid range for a metric value.
 type Range struct {
 	Min *float64 `json:"min,omitempty" yaml:"min,omitempty"`
@@ -108,22 +203,6 @@ type Threshold struct {
 	Passed   *bool    `json:"passed,omitempty" yaml:"passed,omitempty"`
 	MinScore *float64 `json:"min_score,omitempty" yaml:"min_score,omitempty"`
 	MaxScore *float64 `json:"max_score,omitempty" yaml:"max_score,omitempty"`
-}
-
-// Apply adjusts the EvalResult based on threshold criteria.
-func (t *Threshold) Apply(result *EvalResult) {
-	if t == nil {
-		return
-	}
-	if t.Passed != nil && !result.Passed {
-		return
-	}
-	if t.MinScore != nil && result.Score != nil {
-		result.Passed = result.Passed && *result.Score >= *t.MinScore
-	}
-	if t.MaxScore != nil && result.Score != nil {
-		result.Passed = result.Passed && *result.Score <= *t.MaxScore
-	}
 }
 
 // EvalWhen specifies preconditions that must be met for an eval to run.
@@ -211,13 +290,11 @@ func (m *MetricDef) UnmarshalJSON(data []byte) error {
 }
 
 // EvalResult captures the outcome of a single eval execution.
+// Handlers produce scores only (0.0–1.0). There is no pass/fail on evals.
+// Assertion wrappers store pass/fail as a bool in Value.
 type EvalResult struct {
-	EvalID string `json:"eval_id"`
-	Type   string `json:"type"`
-	// Deprecated: Passed will be removed in a future version. Use Score instead.
-	// Pass/fail is determined by wrappers (AssertionEvalHandler, GuardrailEvalHandler)
-	// or by Threshold.Apply. Handlers should set Score, not Passed.
-	Passed      bool            `json:"passed"`
+	EvalID      string          `json:"eval_id"`
+	Type        string          `json:"type"`
 	Score       *float64        `json:"score,omitempty"`
 	Value       any             `json:"value,omitempty"`
 	MetricValue *float64        `json:"metric_value,omitempty"`
@@ -231,22 +308,6 @@ type EvalResult struct {
 	SkipReason  string          `json:"skip_reason,omitempty"`
 	SessionID   string          `json:"session_id,omitempty"`
 	TurnIndex   int             `json:"turn_index,omitempty"`
-}
-
-// IsPassed derives pass/fail from Score. Returns true if Score is nil or >= 1.0.
-// This is the canonical way to check pass/fail without relying on the deprecated Passed field.
-func (r *EvalResult) IsPassed() bool {
-	if r.Score == nil {
-		return true
-	}
-	return *r.Score >= 1.0
-}
-
-// BooleanEvalResult extends EvalResult with an explicit Passed field.
-// Returned by assertion and guardrail wrappers that apply judgment to raw eval results.
-type BooleanEvalResult struct {
-	EvalResult
-	Passed bool `json:"passed"`
 }
 
 // EvalContext provides data to eval handlers.

@@ -197,7 +197,7 @@ assertions:
 
 ## LLM Judge Checks
 
-LLM judge checks send the assistant output (or full session) to a language model for evaluation. The judge returns a score (0.0--1.0), pass/fail, and reasoning.
+LLM judge checks send the assistant output (or full session) to a language model for evaluation. The judge returns a score (0.0--1.0) and reasoning.
 
 ### `llm_judge`
 
@@ -249,7 +249,7 @@ External checks delegate evaluation to HTTP endpoints or A2A agents. These are t
 
 ### `rest_eval`
 
-POSTs turn data to an HTTP endpoint. The endpoint must return `{"passed": bool, "score": float, "reasoning": string}`.
+POSTs turn data to an HTTP endpoint. The endpoint must return `{"score": float, "reasoning": string}`. The `passed` field is accepted for backward compatibility but ignored — pass/fail is determined by the assertion or guardrail wrapper based on score thresholds.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -414,7 +414,7 @@ spec:
 {"score": 0.85, "detail": "Explanation text", "data": {}}
 ```
 
-The `score` value (0.0--1.0) determines pass/fail. A score of 1.0 or above passes.
+The `score` value (0.0--1.0) is the eval's output. Pass/fail is not determined by the handler — assertion and guardrail wrappers apply score thresholds to determine pass/fail.
 
 ### Custom JudgeProvider (Go)
 

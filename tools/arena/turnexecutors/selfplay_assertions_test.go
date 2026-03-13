@@ -322,7 +322,7 @@ func (r *contentIncludesTurnEvalRunner) RunAssertionsAsEvals(
 			EvalID:  ac.Type,
 			Type:    ac.Type,
 			Score:   &score,
-			Passed:  passed,
+			Value:   passed,
 			Message: ac.Message,
 		})
 	}

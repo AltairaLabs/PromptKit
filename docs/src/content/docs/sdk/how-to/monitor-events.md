@@ -74,8 +74,8 @@ EventImageInput         EventType = "image.input"
 EventImageOutput        EventType = "image.output"
 
 // Evals
-EventEvalCompleted EventType = "eval.completed"
-EventEvalFailed    EventType = "eval.failed"
+EventEvalCompleted EventType = "eval.completed"  // eval finished (any score)
+EventEvalFailed    EventType = "eval.failed"      // eval errored (not low score)
 
 // Stream control
 EventStreamInterrupted EventType = "stream.interrupted"
@@ -142,74 +142,82 @@ type Event struct {
 }
 ```
 
-## Metrics Collection
+## Prometheus Metrics
+
+`WithMetrics()` enables automatic Prometheus metrics for both pipeline operations and eval results. It follows the same pattern as `WithTracerProvider()` — pass a collector, and the SDK handles the rest.
+
+### Basic Setup
 
 ```go
-type Metrics struct {
-    ToolCalls int64
-    Errors    int64
-    mu        sync.Mutex
-}
+import (
+    "net/http"
 
-func (m *Metrics) Attach(conv *sdk.Conversation) {
-    hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
-        m.mu.Lock()
-        m.ToolCalls++
-        m.mu.Unlock()
-    })
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
 
-    hooks.On(conv, events.EventToolCallFailed, func(e *events.Event) {
-        m.mu.Lock()
-        m.Errors++
-        m.mu.Unlock()
-    })
-}
-```
-
-## Collect Eval Metrics
-
-The `MetricCollector` records eval results as Prometheus-compatible metrics with labels. Three label sources are merged at record time:
-
-1. **Pack-author labels** — per-metric labels declared in the pack file
-2. **Platform base labels** — deployment-level labels set via `WithLabels`
-3. **Dynamic labels** — `session_id` and `turn_index` injected automatically
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/evals"
-
-// Create a MetricCollector with platform-level base labels
-collector := evals.NewMetricCollector(
-    evals.WithLabels(map[string]string{
-        "env":    "prod",
-        "tenant": "acme",
-    }),
+    "github.com/AltairaLabs/PromptKit/runtime/metrics"
+    "github.com/AltairaLabs/PromptKit/sdk"
 )
 
-// Create an EvalRunner and wire it into conversation options
-registry := evals.NewEvalTypeRegistry()
-runner := evals.NewEvalRunner(registry)
+// 1. Create collector once per process
+reg := prometheus.NewRegistry()
+collector := metrics.NewCollector(metrics.CollectorOpts{
+    Registerer:  reg,
+    Namespace:   "myapp",
+    ConstLabels: prometheus.Labels{"env": "prod"},
+})
 
+// 2. Attach to conversations
 conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithEvalRunner(runner),
+    sdk.WithMetrics(collector, nil),
 )
 defer conv.Close()
 
-// Use the conversation normally — evals run automatically based on pack config.
-// Eval results are emitted as eval.completed / eval.failed events on the event bus.
-resp, _ := conv.Send(ctx, "Hello!")
-
-// Export metrics in Prometheus text format
-collector.WritePrometheus(os.Stdout)
+// 3. Expose via your own HTTP server
+http.Handle("/metrics", promhttp.HandlerFor(collector.Registry(), promhttp.HandlerOpts{}))
 ```
 
-Output includes all three label sources:
+### Multi-Tenant Setup
 
-```
-# TYPE promptpack_response_relevance_score gauge
-promptpack_response_relevance_score{category="quality",env="prod",eval_type="llm_judge",session_id="abc-123",tenant="acme",turn_index="1"} 0.85
+When multiple conversations share one Prometheus endpoint, use instance labels to distinguish them:
+
+```go
+collector := metrics.NewCollector(metrics.CollectorOpts{
+    Registerer:     reg,
+    Namespace:      "myapp",
+    ConstLabels:    prometheus.Labels{"env": "prod"},
+    InstanceLabels: []string{"tenant", "prompt_name"},
+})
+
+conv1, _ := sdk.Open(pack, "support", sdk.WithMetrics(collector, map[string]string{
+    "tenant": "acme", "prompt_name": "support",
+}))
+conv2, _ := sdk.Open(pack, "sales", sdk.WithMetrics(collector, map[string]string{
+    "tenant": "globex", "prompt_name": "sales",
+}))
 ```
 
-Pack evals define per-metric labels in the `metric.labels` field:
+### Pipeline Metrics
+
+These are recorded automatically from EventBus events:
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `{ns}_pipeline_duration_seconds` | histogram | status |
+| `{ns}_provider_request_duration_seconds` | histogram | provider, model |
+| `{ns}_provider_requests_total` | counter | provider, model, status |
+| `{ns}_provider_input_tokens_total` | counter | provider, model |
+| `{ns}_provider_output_tokens_total` | counter | provider, model |
+| `{ns}_provider_cached_tokens_total` | counter | provider, model |
+| `{ns}_provider_cost_total` | counter | provider, model |
+| `{ns}_tool_call_duration_seconds` | histogram | tool |
+| `{ns}_tool_calls_total` | counter | tool, status |
+| `{ns}_validation_duration_seconds` | histogram | validator, validator_type |
+| `{ns}_validations_total` | counter | validator, validator_type, status |
+
+### Eval Metrics
+
+Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector under the `{ns}_eval_` sub-namespace. For example, the metric below becomes `myapp_eval_response_relevance_score`. No extra wiring needed — `WithMetrics()` handles both pipeline and eval metrics.
 
 ```json
 {
@@ -234,24 +242,51 @@ Pack evals define per-metric labels in the `metric.labels` field:
 }
 ```
 
-### Metric Types
+#### Eval Metric Types
 
 | Type | Behavior |
 |------|----------|
 | `gauge` | Set to the eval's score value |
 | `counter` | Increment on each eval execution |
 | `histogram` | Observe score with configurable buckets |
-| `boolean` | Record 1.0 (pass) or 0.0 (fail) |
+| `boolean` | Record 1.0 if score ≥ 1.0, 0.0 otherwise |
 
-### Collector Options
+### CollectorOpts Reference
 
-| Option | Description |
-|--------|-------------|
-| `WithNamespace(ns)` | Set metric name prefix (default: `"promptpack"`) |
-| `WithBuckets(b)` | Set custom histogram bucket boundaries |
-| `WithLabels(m)` | Set base labels merged into every metric (base wins on conflict) |
+| Field | Type | Description |
+|-------|------|-------------|
+| `Registerer` | `prometheus.Registerer` | Registry to register into (default: `DefaultRegisterer`) |
+| `Namespace` | `string` | Metric name prefix (default: `"promptkit"`) |
+| `ConstLabels` | `prometheus.Labels` | Process-level constant labels (env, region) |
+| `InstanceLabels` | `[]string` | Label names that vary per conversation (tenant, prompt_name). Sorted internally — `Bind()` label order doesn't matter. |
+| `DisablePipelineMetrics` | `bool` | Disable operational metrics (use for eval-only consumers, or use `NewEvalOnlyCollector`) |
+| `DisableEvalMetrics` | `bool` | Disable eval result metrics |
 
-Label names must match `^[a-zA-Z_][a-zA-Z0-9_]*$` and must not start with `__` (reserved by Prometheus).
+### Custom Event Counters
+
+For ad-hoc counters not covered by the built-in metrics, use hooks:
+
+```go
+type Metrics struct {
+    ToolCalls int64
+    Errors    int64
+    mu        sync.Mutex
+}
+
+func (m *Metrics) Attach(conv *sdk.Conversation) {
+    hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
+        m.mu.Lock()
+        m.ToolCalls++
+        m.mu.Unlock()
+    })
+
+    hooks.On(conv, events.EventToolCallFailed, func(e *events.Event) {
+        m.mu.Lock()
+        m.Errors++
+        m.mu.Unlock()
+    })
+}
+```
 
 ## Debug Mode
 
@@ -301,6 +336,7 @@ func main() {
 
 ## See Also
 
+- [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics
 - [Tutorial 6: Observability](../tutorials/06-media-storage)
 - [Explanation: Observability](../explanation/observability)
 - [Arena Eval Framework](/arena/explanation/eval-framework/)

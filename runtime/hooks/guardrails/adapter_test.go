@@ -32,8 +32,7 @@ func TestGuardrailHookAdapter_PassingHandler(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_pass",
 		result: &evals.EvalResult{
-			Passed: true,
-			Score:  floatPtr(1.0),
+			Score: floatPtr(1.0),
 		},
 	}
 	adapter := &GuardrailHookAdapter{
@@ -56,7 +55,6 @@ func TestGuardrailHookAdapter_FailingScore(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_fail",
 		result: &evals.EvalResult{
-			Passed:      false,
 			Score:       floatPtr(0.0),
 			Explanation: "content violation detected",
 		},
@@ -90,7 +88,6 @@ func TestGuardrailHookAdapter_FailingPassed(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_fail_passed",
 		result: &evals.EvalResult{
-			Passed:      false,
 			Score:       floatPtr(0.0),
 			Explanation: "missing required field",
 		},
@@ -118,8 +115,7 @@ func TestGuardrailHookAdapter_InputDirection(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_input",
 		result: &evals.EvalResult{
-			Passed: false,
-			Score:  floatPtr(0.0),
+			Score: floatPtr(0.0),
 		},
 	}
 	adapter := &GuardrailHookAdapter{
@@ -153,8 +149,7 @@ func TestGuardrailHookAdapter_BothDirection(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_both",
 		result: &evals.EvalResult{
-			Passed: true,
-			Score:  floatPtr(1.0),
+			Score: floatPtr(1.0),
 		},
 	}
 	// Wrap to count calls
@@ -234,8 +229,7 @@ func TestGuardrailHookAdapter_OutputDirection_BeforeCallAllows(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_output",
 		result: &evals.EvalResult{
-			Passed: false,
-			Score:  floatPtr(0.0),
+			Score: floatPtr(0.0),
 		},
 	}
 	adapter := &GuardrailHookAdapter{
@@ -257,7 +251,7 @@ func TestGuardrailHookAdapter_OutputDirection_BeforeCallAllows(t *testing.T) {
 func TestGuardrailHookAdapter_BeforeCall_NilRequest(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_nil",
-		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		result:   &evals.EvalResult{Score: floatPtr(1.0)},
 	}
 	adapter := &GuardrailHookAdapter{
 		handler:   handler,
@@ -275,7 +269,7 @@ func TestGuardrailHookAdapter_BeforeCall_NilRequest(t *testing.T) {
 func TestGuardrailHookAdapter_BeforeCall_EmptyMessages(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_empty",
-		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		result:   &evals.EvalResult{Score: floatPtr(1.0)},
 	}
 	adapter := &GuardrailHookAdapter{
 		handler:   handler,
@@ -295,7 +289,7 @@ func TestGuardrailHookAdapter_ParamsPassedToHandler(t *testing.T) {
 	var capturedParams map[string]any
 	handler := &capturingHandler{
 		typeName: "test_params",
-		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		result:   &evals.EvalResult{Score: floatPtr(1.0)},
 		capture:  &capturedParams,
 	}
 	params := map[string]any{
@@ -367,7 +361,7 @@ func (s *streamableStubHandler) EvalPartial(
 func TestGuardrailHookAdapter_OnChunk_NonStreamable(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "test_nonstreamable",
-		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		result:   &evals.EvalResult{Score: floatPtr(1.0)},
 	}
 	adapter := &GuardrailHookAdapter{
 		handler:   handler,
@@ -386,8 +380,8 @@ func TestGuardrailHookAdapter_OnChunk_NonStreamable(t *testing.T) {
 func TestGuardrailHookAdapter_OnChunk_StreamablePass(t *testing.T) {
 	handler := &streamableStubHandler{
 		typeName:      "test_streamable",
-		result:        &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
-		partialResult: &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		result:        &evals.EvalResult{Score: floatPtr(1.0)},
+		partialResult: &evals.EvalResult{Score: floatPtr(1.0)},
 	}
 	adapter := &GuardrailHookAdapter{
 		handler:   handler,
@@ -406,8 +400,8 @@ func TestGuardrailHookAdapter_OnChunk_StreamablePass(t *testing.T) {
 func TestGuardrailHookAdapter_OnChunk_StreamableFail(t *testing.T) {
 	handler := &streamableStubHandler{
 		typeName:      "test_streamable_fail",
-		result:        &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
-		partialResult: &evals.EvalResult{Passed: false, Score: floatPtr(0.0), Explanation: "forbidden word detected"},
+		result:        &evals.EvalResult{Score: floatPtr(1.0)},
+		partialResult: &evals.EvalResult{Score: floatPtr(0.0), Explanation: "forbidden word detected"},
 	}
 	adapter := &GuardrailHookAdapter{
 		handler:   handler,
@@ -429,7 +423,7 @@ func TestGuardrailHookAdapter_OnChunk_StreamableFail(t *testing.T) {
 func TestGuardrailHookAdapter_OnChunk_StreamableError(t *testing.T) {
 	handler := &streamableStubHandler{
 		typeName:   "test_streamable_err",
-		result:     &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		result:     &evals.EvalResult{Score: floatPtr(1.0)},
 		partialErr: errors.New("eval partial failed"),
 	}
 	adapter := &GuardrailHookAdapter{

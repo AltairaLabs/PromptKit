@@ -120,6 +120,11 @@ func (h *PackEvalHook) RunConversationEvals(
 // RunAssertionsAsEvals converts assertion configs to EvalDefs and runs them
 // through the runner. Returns raw EvalResults (not converted to assertion format).
 // The trigger parameter overrides the default trigger on each converted def.
+//
+// Each assertion is converted to an EvalDef with type "assertion", which the
+// runner dispatches to AssertionEvalHandler. The wrapper resolves the inner
+// eval handler from the registry, executes it, and applies min_score/max_score
+// thresholds to determine pass/fail.
 func (h *PackEvalHook) RunAssertionsAsEvals(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,

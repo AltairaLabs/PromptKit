@@ -25,7 +25,7 @@ func (h *ContainsHandler) Eval(
 	if len(patterns) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no patterns specified",
 		}, nil
 	}
@@ -45,7 +45,6 @@ func (h *ContainsHandler) Eval(
 	found := len(patterns) - len(missing)
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       ratioScore(found, len(patterns)),
 		Value:       map[string]any{"found": found, "total": len(patterns), "missing": missing},
 		Explanation: explanation,

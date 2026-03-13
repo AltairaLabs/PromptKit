@@ -132,7 +132,7 @@ A pending response pauses the pipeline until the operation is resolved externall
 
 ### How Callers Use the Result
 
-- **Assertions**: `Threshold.Apply()` checks min/max score to determine pass/fail.
+- **Assertions**: `AssertionEvalHandler` checks min/max score thresholds to determine pass/fail.
 - **Guardrails**: `GuardrailHookAdapter` calls `IsPassed()` (score < 1.0 = fail) to enforce or monitor.
 - **Standalone evals**: Score is recorded as a metric.
 

@@ -33,7 +33,7 @@ func (h *CostBudgetHandler) Eval(
 	if maxCostUSD == nil && maxInputTokens == nil && maxOutputTokens == nil && maxTotalTokens == nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no budget thresholds specified",
 		}, nil
 	}
@@ -79,7 +79,7 @@ func (h *CostBudgetHandler) Eval(
 	if len(failures) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Value:       value,
 			Explanation: fmt.Sprintf("budget exceeded: %s", strings.Join(failures, "; ")),
 			Details:     details,
@@ -97,7 +97,6 @@ func (h *CostBudgetHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       &score,
 		Value:       value,
 		Explanation: fmt.Sprintf("within budget: $%.4f, %d tokens", totalCost, totalTokens),

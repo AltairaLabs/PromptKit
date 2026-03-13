@@ -38,7 +38,8 @@ func (h *JSONPathHandler) Eval(
 	}
 	if expression == "" {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "no expression specified",
 		}, nil
 	}
@@ -56,7 +57,8 @@ func (h *JSONPathHandler) Eval(
 	var data any
 	if err := json.Unmarshal([]byte(jsonContent), &data); err != nil {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("invalid JSON: %v", err),
 		}, nil
 	}
@@ -64,7 +66,8 @@ func (h *JSONPathHandler) Eval(
 	result, err := jmespath.Search(expression, data)
 	if err != nil {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("JMESPath error: %v", err),
 			Details:     map[string]any{"expression": expression},
 		}, nil
@@ -107,7 +110,7 @@ func (h *JSONPathHandler) validateResult(result any, params map[string]any) (*ev
 	}
 
 	return &evals.EvalResult{
-		Type: h.Type(), Passed: true,
+		Type:        h.Type(),
 		Score:       boolScore(true),
 		Explanation: "JSON path validation passed",
 		Value:       map[string]any{"path": expr, "result": result},
@@ -118,7 +121,6 @@ func (h *JSONPathHandler) validateResult(result any, params map[string]any) (*ev
 func (h *JSONPathHandler) fail(explanation string, details map[string]any) *evals.EvalResult {
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      false,
 		Score:       boolScore(false),
 		Explanation: explanation,
 		Details:     details,

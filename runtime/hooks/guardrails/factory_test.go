@@ -54,8 +54,7 @@ func TestNewGuardrailHookFromRegistry_UsesRegisteredHandler(t *testing.T) {
 	handler := &stubHandler{
 		typeName: "custom_eval",
 		result: &evals.EvalResult{
-			Passed: true,
-			Score:  floatPtr(1.0),
+			Score: floatPtr(1.0),
 		},
 	}
 	registry.Register(handler)
@@ -95,7 +94,7 @@ func TestNewGuardrailHookFromRegistry_DirectionParam(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
 	handler := &stubHandler{
 		typeName: "dir_test",
-		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		result:   &evals.EvalResult{Score: floatPtr(1.0)},
 	}
 	registry.Register(handler)
 
@@ -116,7 +115,7 @@ func TestNewGuardrailHookFromRegistry_DefaultDirection(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
 	handler := &stubHandler{
 		typeName: "default_dir",
-		result:   &evals.EvalResult{Passed: true, Score: floatPtr(1.0)},
+		result:   &evals.EvalResult{Score: floatPtr(1.0)},
 	}
 	registry.Register(handler)
 

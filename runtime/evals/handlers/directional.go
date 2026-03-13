@@ -31,7 +31,7 @@ func (h *DirectionalHandler) Eval(
 	if check == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "missing required param 'check'",
 		}, nil
 	}
@@ -46,7 +46,7 @@ func (h *DirectionalHandler) Eval(
 	default:
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("unknown check %q; must be same_tool_calls, same_outcome, or similar_content", check),
 		}, nil
 	}
@@ -60,7 +60,7 @@ func (h *DirectionalHandler) checkSameToolCalls(
 	if len(tools) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no baseline_tools specified; skipping comparison",
 		}, nil
 	}
@@ -75,7 +75,7 @@ func (h *DirectionalHandler) checkSameOutcome(
 	if state == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no baseline_state specified; skipping comparison",
 		}, nil
 	}
@@ -90,7 +90,7 @@ func (h *DirectionalHandler) checkSimilarContent(
 	if baselineContent == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no baseline_content specified; skipping comparison",
 		}, nil
 	}
@@ -105,10 +105,9 @@ func (h *DirectionalHandler) checkSimilarContent(
 	passed := score >= threshold
 
 	result := &evals.EvalResult{
-		Type:   h.Type(),
-		Passed: passed,
-		Score:  &score,
-		Value:  map[string]any{"overlap_score": score, "threshold": threshold},
+		Type:  h.Type(),
+		Score: &score,
+		Value: map[string]any{"overlap_score": score, "threshold": threshold},
 		Details: map[string]any{
 			"overlap_score": score,
 			"threshold":     threshold,

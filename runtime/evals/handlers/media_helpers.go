@@ -129,7 +129,8 @@ func evalMediaDuration(
 	parts := extractMediaParts(messages, contentType)
 	if len(parts) == 0 {
 		return &evals.EvalResult{
-			Type: typeName, Passed: false,
+			Type:        typeName,
+			Score:       boolScore(false),
 			Explanation: errNoMedia,
 		}, nil
 	}
@@ -151,7 +152,6 @@ func evalMediaDuration(
 
 	return &evals.EvalResult{
 		Type:        typeName,
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value:       map[string]any{"durations_ms": foundDurations},
@@ -176,7 +176,8 @@ func evalMediaFormats(
 	formats := extractStringSlice(params, "formats")
 	if len(formats) == 0 {
 		return &evals.EvalResult{
-			Type: typeName, Passed: false,
+			Type:        typeName,
+			Score:       boolScore(false),
 			Explanation: errAtLeastOneFormat,
 		}, nil
 	}
@@ -184,7 +185,8 @@ func evalMediaFormats(
 	parts := extractMediaParts(messages, contentType)
 	if len(parts) == 0 {
 		return &evals.EvalResult{
-			Type: typeName, Passed: false,
+			Type:        typeName,
+			Score:       boolScore(false),
 			Explanation: errNoMedia,
 		}, nil
 	}
@@ -206,7 +208,6 @@ func evalMediaFormats(
 
 	return &evals.EvalResult{
 		Type:        typeName,
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value:       map[string]any{"formats": foundFormats, "expected": formats},

@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // also registers built-in handlers via init()
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -44,6 +45,14 @@ type EvaluateOpts struct {
 
 	// TurnIndex is the current turn index (0-based) for per-turn trigger filtering.
 	TurnIndex int
+
+	// --- Group filter ---
+
+	// EvalGroups selects which eval groups to execute.
+	// Each EvalDef can belong to one or more groups; evals with no explicit
+	// groups belong to the "default" group. When set, only evals with at least
+	// one matching group run. If nil, all evals run regardless of group.
+	EvalGroups []string
 
 	// --- Trigger filter ---
 
@@ -86,9 +95,23 @@ type EvaluateOpts struct {
 
 	// --- Metrics ---
 
+	// MetricsCollector enables Prometheus eval metrics using the unified
+	// Collector, mirroring the WithMetrics() pattern from the conversation API.
+	// When set, the SDK calls Bind(MetricsInstanceLabels) internally and uses
+	// the resulting MetricContext as the recorder.
+	// Takes precedence over MetricRecorder.
+	MetricsCollector *metrics.Collector
+
+	// MetricsInstanceLabels provides per-invocation label values for the
+	// MetricsCollector. Keys must match the InstanceLabels declared on the
+	// Collector. If the Collector has no InstanceLabels, pass nil.
+	MetricsInstanceLabels map[string]string
+
 	// MetricRecorder records eval results as metrics (e.g. Prometheus gauges,
 	// counters, histograms) based on Metric definitions in each EvalDef.
 	// If nil, no metrics are recorded.
+	// Prefer MetricsCollector for new code — MetricRecorder is useful when
+	// you already have a custom recorder implementation.
 	MetricRecorder evals.MetricRecorder
 
 	// --- Eval execution ---
@@ -122,11 +145,12 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	// 0. Wire OTel listener if TracerProvider is set
 	ownsBus := initEvalTracing(&opts)
 
-	// 1. Resolve eval defs
+	// 1. Resolve eval defs and apply group filter
 	defs, err := resolveEvalDefs(&opts)
 	if err != nil {
 		return nil, fmt.Errorf("resolve eval defs: %w", err)
 	}
+	defs = evals.FilterByGroups(defs, opts.EvalGroups)
 	if len(defs) == 0 {
 		return nil, nil
 	}
@@ -168,8 +192,9 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	}
 
 	// 6. Record metrics (optional)
-	if opts.MetricRecorder != nil {
-		writer := evals.NewMetricResultWriter(opts.MetricRecorder, defs)
+	recorder := resolveMetricRecorder(&opts)
+	if recorder != nil {
+		writer := evals.NewMetricResultWriter(recorder, defs)
 		if err := writer.WriteResults(ctx, results); err != nil {
 			return results, fmt.Errorf("record metrics: %w", err)
 		}
@@ -181,6 +206,16 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	}
 
 	return results, nil
+}
+
+// resolveMetricRecorder returns the MetricRecorder to use for eval metrics.
+// MetricsCollector takes precedence: Bind() is called internally to create
+// a MetricContext, matching the WithMetrics() pattern from the conversation API.
+func resolveMetricRecorder(opts *EvaluateOpts) evals.MetricRecorder {
+	if opts.MetricsCollector != nil {
+		return opts.MetricsCollector.Bind(opts.MetricsInstanceLabels)
+	}
+	return opts.MetricRecorder
 }
 
 // resolveEvalDefs resolves eval definitions from the opts.
@@ -378,10 +413,11 @@ func emitEvalEvents(bus *events.EventBus, sessionID string, results []evals.Eval
 func emitEvalResultsTo(emitter *events.Emitter, results []evals.EvalResult) {
 	for i := range results {
 		r := &results[i]
+		passed, _ := r.Value.(bool)
 		data := events.EvalEventData{
 			EvalID:      r.EvalID,
 			EvalType:    r.Type,
-			Passed:      r.Passed,
+			Passed:      passed,
 			Score:       r.Score,
 			Explanation: r.Explanation,
 			DurationMs:  r.DurationMs,
@@ -393,10 +429,11 @@ func emitEvalResultsTo(emitter *events.Emitter, results []evals.EvalResult) {
 		for _, v := range r.Violations {
 			data.Violations = append(data.Violations, v.Description)
 		}
-		if r.Passed {
-			emitter.EvalCompleted(&data)
-		} else {
+		// EventEvalFailed means the eval errored, not that the score was low.
+		if r.Error != "" {
 			emitter.EvalFailed(&data)
+		} else {
+			emitter.EvalCompleted(&data)
 		}
 	}
 }

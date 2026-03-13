@@ -147,9 +147,8 @@ func validationsToPriorResults(messages []types.Message) []EvalResult {
 				score = 0.0
 			}
 			results[j] = EvalResult{
-				Type:   v.ValidatorType,
-				Passed: v.Passed,
-				Score:  &score,
+				Type:  v.ValidatorType,
+				Score: &score,
 			}
 		}
 		return results

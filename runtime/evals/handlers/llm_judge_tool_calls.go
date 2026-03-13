@@ -32,7 +32,8 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	provider, extractErr := extractJudgeProvider(evalCtx)
 	if extractErr != nil {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: extractErr.Error(),
 		}, nil
 	}
@@ -40,7 +41,8 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	filtered := filterToolCallViews(evalCtx.ToolCalls, extractStringSlice(params, "tools"))
 	if len(filtered) == 0 {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: true,
+			Type:        h.Type(),
+			Score:       boolScore(true),
 			Explanation: "no matching tool calls to judge",
 			Skipped:     true,
 			SkipReason:  "no matching tool calls",
@@ -51,12 +53,13 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
 		}, nil
 	}
 
-	result := buildEvalResult(h.Type(), judgeResult, params)
+	result := buildEvalResult(h.Type(), judgeResult)
 	result.Details = map[string]any{
 		"tool_calls_sent": len(filtered),
 	}

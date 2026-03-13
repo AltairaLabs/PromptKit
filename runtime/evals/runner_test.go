@@ -63,7 +63,7 @@ func (s *scoringHandler) Type() string { return s.typeName }
 func (s *scoringHandler) Eval(
 	_ context.Context, _ *EvalContext, _ map[string]any,
 ) (*EvalResult, error) {
-	return &EvalResult{Passed: true, Score: &s.score}, nil
+	return &EvalResult{Score: &s.score}, nil
 }
 
 func newTestRegistry(handlers ...EvalTypeHandler) *EvalTypeRegistry {
@@ -104,8 +104,8 @@ func TestRunTurnEvals_Basic(t *testing.T) {
 	if results[0].EvalID != "e1" {
 		t.Errorf("got EvalID %q, want %q", results[0].EvalID, "e1")
 	}
-	if !results[0].Passed {
-		t.Error("expected Passed=true")
+	if !(results[0].Score != nil && *results[0].Score >= 1.0) {
+		t.Error("expected IsPassed()=true")
 	}
 }
 
@@ -318,13 +318,13 @@ func TestRunTurnEvals_MultipleEvals(t *testing.T) {
 	if len(results) != 3 {
 		t.Fatalf("got %d results, want 3", len(results))
 	}
-	if !results[0].Passed {
+	if !(results[0].Score != nil && *results[0].Score >= 1.0) {
 		t.Error("e1 should pass")
 	}
 	if results[1].Error == "" {
 		t.Error("e2 should have error")
 	}
-	if !results[2].Passed {
+	if !(results[2].Score != nil && *results[2].Score >= 1.0) {
 		t.Error("e3 should pass")
 	}
 }
@@ -439,8 +439,8 @@ func TestRunConversationEvals_Basic(t *testing.T) {
 	if results[0].EvalID != "conv-check" {
 		t.Errorf("got EvalID %q, want %q", results[0].EvalID, "conv-check")
 	}
-	if !results[0].Passed {
-		t.Error("expected Passed=true")
+	if !(results[0].Score != nil && *results[0].Score >= 1.0) {
+		t.Error("expected IsPassed()=true")
 	}
 }
 
@@ -474,56 +474,6 @@ func TestRunConversationEvals_SkipsSessionTrigger(t *testing.T) {
 	}
 }
 
-func TestThresholdIntegration_MinScoreFailsResult(t *testing.T) {
-	score := 0.5
-	reg := newTestRegistry(&scoringHandler{typeName: "scorer", score: score})
-	runner := NewEvalRunner(reg)
-
-	minScore := 0.7
-	defs := []EvalDef{
-		{
-			ID:        "threshold-check",
-			Type:      "scorer",
-			Trigger:   TriggerEveryTurn,
-			Threshold: &Threshold{MinScore: &minScore},
-		},
-	}
-	evalCtx := &EvalContext{SessionID: "s1"}
-
-	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
-	if results[0].Passed {
-		t.Error("expected Passed=false when score < min_score threshold")
-	}
-}
-
-func TestThresholdIntegration_MinScorePassesResult(t *testing.T) {
-	score := 0.9
-	reg := newTestRegistry(&scoringHandler{typeName: "scorer", score: score})
-	runner := NewEvalRunner(reg)
-
-	minScore := 0.7
-	defs := []EvalDef{
-		{
-			ID:        "threshold-check",
-			Type:      "scorer",
-			Trigger:   TriggerEveryTurn,
-			Threshold: &Threshold{MinScore: &minScore},
-		},
-	}
-	evalCtx := &EvalContext{SessionID: "s1"}
-
-	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
-	if !results[0].Passed {
-		t.Error("expected Passed=true when score >= min_score threshold")
-	}
-}
-
 // priorCapturingHandler records the PriorResults it receives.
 type priorCapturingHandler struct {
 	typeName      string
@@ -537,7 +487,7 @@ func (p *priorCapturingHandler) Eval(
 	_ context.Context, evalCtx *EvalContext, _ map[string]any,
 ) (*EvalResult, error) {
 	p.capturedPrior = append(p.capturedPrior, evalCtx.PriorResults...)
-	return &EvalResult{Passed: true, Score: &p.score}, nil
+	return &EvalResult{Score: &p.score}, nil
 }
 
 func TestRunTurnEvals_PriorResultsAccumulate(t *testing.T) {
@@ -568,23 +518,5 @@ func TestRunTurnEvals_PriorResultsAccumulate(t *testing.T) {
 	}
 	if handler2.capturedPrior[0].Score == nil || *handler2.capturedPrior[0].Score != score1 {
 		t.Errorf("prior result score = %v, want %v", handler2.capturedPrior[0].Score, score1)
-	}
-}
-
-func TestThresholdIntegration_NoThresholdPreservesResult(t *testing.T) {
-	reg := newTestRegistry(&stubHandler{typeName: "test"})
-	runner := NewEvalRunner(reg)
-
-	defs := []EvalDef{
-		{ID: "no-threshold", Type: "test", Trigger: TriggerEveryTurn},
-	}
-	evalCtx := &EvalContext{SessionID: "s1"}
-
-	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
-	if !results[0].Passed {
-		t.Error("expected Passed=true when no threshold defined")
 	}
 }

@@ -28,7 +28,7 @@ func (h *ContainsAnyHandler) Eval(
 	if len(patterns) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no patterns specified",
 		}, nil
 	}
@@ -50,10 +50,9 @@ func (h *ContainsAnyHandler) Eval(
 	passed := len(matchedPatterns) > 0
 	if passed {
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: true,
-			Score:  boolScore(true),
-			Value:  map[string]any{"matched": matchedPatterns},
+			Type:  h.Type(),
+			Score: boolScore(true),
+			Value: map[string]any{"matched": matchedPatterns},
 			Explanation: fmt.Sprintf(
 				"matched patterns: %s",
 				strings.Join(matchedPatterns, ", "),
@@ -62,10 +61,9 @@ func (h *ContainsAnyHandler) Eval(
 	}
 
 	return &evals.EvalResult{
-		Type:   h.Type(),
-		Passed: false,
-		Score:  boolScore(false),
-		Value:  map[string]any{"matched": matchedPatterns},
+		Type:  h.Type(),
+		Score: boolScore(false),
+		Value: map[string]any{"matched": matchedPatterns},
 		Explanation: fmt.Sprintf(
 			"no assistant message contained any of: %s",
 			strings.Join(patterns, ", "),

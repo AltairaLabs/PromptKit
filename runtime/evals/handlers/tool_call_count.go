@@ -32,7 +32,6 @@ func (h *ToolCallCountHandler) Eval(
 	if violation != "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       boolScore(false),
 			Value:       value,
 			Explanation: violation,
@@ -42,7 +41,6 @@ func (h *ToolCallCountHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Value:       value,
 		Explanation: fmt.Sprintf("tool call count %d is within bounds", count),

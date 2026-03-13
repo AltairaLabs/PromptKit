@@ -91,6 +91,11 @@ type ToolDescriptor struct {
 	MockResultFile   string `json:"mock_result_file,omitempty" yaml:"mock_result_file,omitempty"`
 	MockTemplateFile string `json:"mock_template_file,omitempty" yaml:"mock_template_file,omitempty"`
 
+	// Labels are optional key-value pairs propagated to events, metrics, and traces.
+	// Use for dynamic dimensions like handler type, service tier, or team ownership.
+	// These appear as additional Prometheus metric labels and OTel span attributes.
+	Labels map[string]string `json:"labels,omitempty" yaml:"labels,omitempty"`
+
 	HTTPConfig   *HTTPConfig   `json:"http,omitempty" yaml:"http,omitempty"`     // Live HTTP configuration
 	A2AConfig    *A2AConfig    `json:"a2a,omitempty" yaml:"a2a,omitempty"`       // A2A agent configuration
 	ClientConfig *ClientConfig `json:"client,omitempty" yaml:"client,omitempty"` // Client-side execution configuration

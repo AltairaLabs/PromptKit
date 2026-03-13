@@ -3,10 +3,10 @@ package sdk
 import (
 	"context"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -41,7 +42,8 @@ func TestEvaluate_WithEvalDefs(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 	assert.Equal(t, "greeting", results[0].EvalID)
 }
 
@@ -54,7 +56,8 @@ func TestEvaluate_WithEvalDefs_Failing(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.False(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Less(t, *results[0].Score, 1.0)
 }
 
 const evalTestPack = "testdata/packs/eval-test.pack.json"
@@ -73,7 +76,8 @@ func TestEvaluate_WithPackPath(t *testing.T) {
 	// Default trigger is every_turn, so only greeting_check runs.
 	require.Len(t, results, 1)
 	assert.Equal(t, "greeting_check", results[0].EvalID)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 }
 
 func TestEvaluate_WithPackPath_PromptEvals(t *testing.T) {
@@ -111,7 +115,8 @@ func TestEvaluate_WithPackData(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "greeting_check", results[0].EvalID)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 }
 
 func TestEvaluate_SessionTrigger(t *testing.T) {
@@ -126,7 +131,8 @@ func TestEvaluate_SessionTrigger(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Equal(t, "session_check", results[0].EvalID)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 }
 
 func TestEvaluate_ErrorCases(t *testing.T) {
@@ -176,7 +182,8 @@ func TestEvaluate_EmptyMessages(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.False(t, results[0].Passed, "should fail with no messages to match")
+	require.NotNil(t, results[0].Score)
+	assert.Less(t, *results[0].Score, 1.0, "should fail with no messages to match")
 }
 
 func TestEvaluate_EventBusEmission(t *testing.T) {
@@ -199,7 +206,8 @@ func TestEvaluate_EventBusEmission(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 
 	// Close bus to flush pending events
 	bus.Close()
@@ -260,7 +268,8 @@ func TestEvaluate_TracerProvider(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 
 	// Force flush to ensure spans are exported
 	require.NoError(t, tp.ForceFlush(context.Background()))
@@ -289,7 +298,8 @@ func TestEvaluate_TracerProvider_CreatesEventBus(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 }
 
 func TestEvaluate_JudgeMetadata(t *testing.T) {
@@ -301,7 +311,8 @@ func TestEvaluate_JudgeMetadata(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 }
 
 func TestEvaluate_RuntimeConfigPath(t *testing.T) {
@@ -351,6 +362,58 @@ func TestEvaluate_RuntimeConfigPath_InvalidPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "load runtime config evals")
 }
 
+func TestEvaluate_WithEvalGroups(t *testing.T) {
+	defs := []evals.EvalDef{
+		{ID: "safety", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}, Groups: []string{"safety"}},
+		{ID: "quality", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}, Groups: []string{"quality"}},
+	}
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:   defs,
+		EvalGroups: []string{"safety"},
+		Messages:   []types.Message{types.NewAssistantMessage("hello")},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "safety", results[0].EvalID)
+}
+
+func TestEvaluate_WithEvalGroupsNilRunsAll(t *testing.T) {
+	defs := []evals.EvalDef{
+		{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}, Groups: []string{"safety"}},
+		{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}},
+	}
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs: defs,
+		Messages: []types.Message{types.NewAssistantMessage("hello")},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 2, "nil EvalGroups should run all evals")
+}
+
+func TestEvaluate_WithEvalGroupsNoMatchReturnsNil(t *testing.T) {
+	defs := []evals.EvalDef{
+		{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"patterns": []any{"hello"}}, Groups: []string{"safety"}},
+	}
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:   defs,
+		EvalGroups: []string{"latency"},
+		Messages:   []types.Message{types.NewAssistantMessage("hello")},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, results, "no matching groups should return nil results")
+}
+
 func TestEvaluate_MetricRecorder(t *testing.T) {
 	defs := []evals.EvalDef{{
 		ID:      "scored-eval",
@@ -363,44 +426,207 @@ func TestEvaluate_MetricRecorder(t *testing.T) {
 		},
 	}}
 
-	collector := evals.NewMetricCollector(evals.WithNamespace("test"))
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		Namespace:              "test",
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
 
 	results, err := Evaluate(context.Background(), EvaluateOpts{
 		EvalDefs:       defs,
 		Messages:       []types.Message{types.NewAssistantMessage("hello world")},
-		MetricRecorder: collector,
+		MetricRecorder: metricCtx,
 	})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 
-	// Verify metric was recorded by writing Prometheus output
-	var buf strings.Builder
-	require.NoError(t, collector.WritePrometheus(&buf))
-	output := buf.String()
-	assert.Contains(t, output, "# TYPE test_greeting_score gauge", "metric should have correct Prometheus type")
-	assert.Contains(t, output, "test_greeting_score ", "metric should be recorded with namespace prefix")
+	// Verify metric was recorded via prometheus registry
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "test_eval_greeting_score" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected test_eval_greeting_score metric in registry")
+}
+
+func TestEvaluate_MetricsCollector(t *testing.T) {
+	defs := []evals.EvalDef{{
+		ID:      "scored-eval",
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": []any{"hello"}},
+		Metric: &evals.MetricDef{
+			Name: "greeting_score",
+			Type: evals.MetricGauge,
+		},
+	}}
+
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer: reg,
+		Namespace:  "test",
+	})
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:         defs,
+		Messages:         []types.Message{types.NewAssistantMessage("hello world")},
+		MetricsCollector: collector,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
+
+	// Verify metric was recorded via prometheus registry
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "test_eval_greeting_score" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected test_eval_greeting_score metric in registry")
+}
+
+func TestEvaluate_MetricsCollector_WithInstanceLabels(t *testing.T) {
+	defs := []evals.EvalDef{{
+		ID:      "scored-eval",
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": []any{"hello"}},
+		Metric: &evals.MetricDef{
+			Name: "greeting_score",
+			Type: evals.MetricGauge,
+		},
+	}}
+
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer:     reg,
+		Namespace:      "test",
+		InstanceLabels: []string{"tenant"},
+	})
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:              defs,
+		Messages:              []types.Message{types.NewAssistantMessage("hello world")},
+		MetricsCollector:      collector,
+		MetricsInstanceLabels: map[string]string{"tenant": "acme"},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "test_eval_greeting_score" {
+			found = true
+			require.NotEmpty(t, fam.GetMetric())
+			labels := fam.GetMetric()[0].GetLabel()
+			require.Len(t, labels, 1)
+			assert.Equal(t, "tenant", labels[0].GetName())
+			assert.Equal(t, "acme", labels[0].GetValue())
+			break
+		}
+	}
+	assert.True(t, found, "expected test_eval_greeting_score metric with tenant label")
+}
+
+func TestEvaluate_MetricsCollector_TakesPrecedence(t *testing.T) {
+	// MetricsCollector should take precedence over MetricRecorder
+	defs := []evals.EvalDef{{
+		ID:      "scored-eval",
+		Type:    "contains",
+		Trigger: evals.TriggerEveryTurn,
+		Params:  map[string]any{"patterns": []any{"hello"}},
+		Metric: &evals.MetricDef{
+			Name: "greeting_score",
+			Type: evals.MetricGauge,
+		},
+	}}
+
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer: reg,
+		Namespace:  "preferred",
+	})
+
+	// MetricRecorder should be ignored when MetricsCollector is set
+	otherReg := prometheus.NewRegistry()
+	otherCollector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+		Registerer: otherReg,
+		Namespace:  "ignored",
+	})
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:         defs,
+		Messages:         []types.Message{types.NewAssistantMessage("hello world")},
+		MetricsCollector: collector,
+		MetricRecorder:   otherCollector.Bind(nil),
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	// Metric should be in the preferred registry (from MetricsCollector)
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "preferred_eval_greeting_score" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected preferred_eval_greeting_score in MetricsCollector registry")
+
+	// MetricRecorder's registry should be empty
+	otherFamilies, gatherErr := otherReg.Gather()
+	require.NoError(t, gatherErr)
+	assert.Empty(t, otherFamilies, "MetricRecorder should not have received metrics")
 }
 
 func TestEvaluate_MetricRecorder_NoMetricDef(t *testing.T) {
 	// Evals without Metric defs should not cause errors when MetricRecorder is set
-	collector := evals.NewMetricCollector()
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
 
 	results, err := Evaluate(context.Background(), EvaluateOpts{
 		EvalDefs:       containsDef("simple", "hello"),
 		Messages:       []types.Message{types.NewAssistantMessage("hello")},
-		MetricRecorder: collector,
+		MetricRecorder: metricCtx,
 	})
 
 	require.NoError(t, err)
 	require.Len(t, results, 1)
-	assert.True(t, results[0].Passed)
+	require.NotNil(t, results[0].Score)
+	assert.Equal(t, 1.0, *results[0].Score)
 
 	// No metrics should have been recorded
-	var buf strings.Builder
-	require.NoError(t, collector.WritePrometheus(&buf))
-	assert.Empty(t, buf.String(), "no metrics should be recorded for evals without MetricDef")
+	families, gatherErr := reg.Gather()
+	require.NoError(t, gatherErr)
+	assert.Empty(t, families, "no metrics should be recorded for evals without MetricDef")
 }
 
 func TestValidateEvalTypes_AllRegistered(t *testing.T) {

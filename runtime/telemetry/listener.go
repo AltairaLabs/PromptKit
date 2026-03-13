@@ -364,14 +364,18 @@ func (l *OTelEventListener) startProvider(evt *events.Event) {
 	if !ok {
 		return
 	}
-	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "provider:"+evt.RunID,
-		data.Provider+" chat",
-		trace.SpanKindClient,
+	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.operation.name", "chat"),
 		attribute.String("gen_ai.system", data.Provider),
 		attribute.String("gen_ai.request.model", data.Model),
 		attribute.Int("promptkit.message.count", data.MessageCount),
 		attribute.Int("promptkit.tool.count", data.ToolCount),
+	}
+	attrs = append(attrs, labelsToAttributes(data.Labels)...)
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "provider:"+evt.RunID,
+		data.Provider+" chat",
+		trace.SpanKindClient,
+		attrs...,
 	)
 }
 
@@ -418,6 +422,7 @@ func (l *OTelEventListener) startTool(evt *events.Event) {
 			attrs = append(attrs, attribute.String("gen_ai.tool.call.arguments", string(argsJSON)))
 		}
 	}
+	attrs = append(attrs, labelsToAttributes(data.Labels)...)
 	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "tool:"+data.CallID, "execute_tool",
 		trace.SpanKindInternal,
 		attrs...,
@@ -636,4 +641,17 @@ func (l *OTelEventListener) emitEvalSpan(evt *events.Event, data *events.EvalEve
 		span.SetStatus(codes.Error, errMsg)
 	}
 	span.End()
+}
+
+// labelsToAttributes converts a map of string labels to OTel attribute.KeyValues
+// with a "promptkit.label." prefix. Returns nil for empty/nil maps.
+func labelsToAttributes(labels map[string]string) []attribute.KeyValue {
+	if len(labels) == 0 {
+		return nil
+	}
+	attrs := make([]attribute.KeyValue, 0, len(labels))
+	for k, v := range labels {
+		attrs = append(attrs, attribute.String("promptkit.label."+k, v))
+	}
+	return attrs
 }

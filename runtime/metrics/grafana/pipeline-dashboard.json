@@ -391,7 +391,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(promptkit_provider_tokens_total[$__rate_interval]))",
+          "expr": "sum(increase(promptkit_provider_input_tokens_total[$__rate_interval])) + sum(increase(promptkit_provider_output_tokens_total[$__rate_interval]))",
           "refId": "A"
         }
       ],
@@ -1082,9 +1082,27 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(promptkit_provider_tokens_total[$__rate_interval])) by (provider, model, type)",
-          "legendFormat": "{{provider}}/{{model}} - {{type}}",
+          "expr": "sum(rate(promptkit_provider_input_tokens_total[$__rate_interval])) by (provider, model)",
+          "legendFormat": "{{provider}}/{{model}} - input",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(promptkit_provider_output_tokens_total[$__rate_interval])) by (provider, model)",
+          "legendFormat": "{{provider}}/{{model}} - output",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(promptkit_provider_cached_tokens_total[$__rate_interval])) by (provider, model)",
+          "legendFormat": "{{provider}}/{{model}} - cached",
+          "refId": "C"
         }
       ],
       "title": "Token Consumption by Type",

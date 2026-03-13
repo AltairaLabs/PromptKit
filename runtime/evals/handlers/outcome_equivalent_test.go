@@ -21,7 +21,7 @@ func TestOutcomeEquivalent_MissingMetric(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when metric is missing")
 	}
 	if result.Explanation != "missing required param 'metric'" {
@@ -37,7 +37,7 @@ func TestOutcomeEquivalent_UnknownMetric(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail for unknown metric")
 	}
 	if result.Explanation == "" {
@@ -61,7 +61,7 @@ func TestOutcomeEquivalent_ToolCalls_Match(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass, got fail: %s", result.Explanation)
 	}
 }
@@ -80,7 +80,7 @@ func TestOutcomeEquivalent_ToolCalls_Mismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when tool sets differ")
 	}
 }
@@ -98,7 +98,7 @@ func TestOutcomeEquivalent_ToolCalls_NoExpected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass when no expected_tools: %s", result.Explanation)
 	}
 }
@@ -118,7 +118,7 @@ func TestOutcomeEquivalent_ToolCalls_OrderIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass (order independent): %s", result.Explanation)
 	}
 }
@@ -137,7 +137,7 @@ func TestOutcomeEquivalent_FinalState_Match(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass: %s", result.Explanation)
 	}
 }
@@ -156,7 +156,7 @@ func TestOutcomeEquivalent_FinalState_Mismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when states differ")
 	}
 }
@@ -174,7 +174,7 @@ func TestOutcomeEquivalent_FinalState_NoExpected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass when no expected_state: %s", result.Explanation)
 	}
 }
@@ -191,7 +191,7 @@ func TestOutcomeEquivalent_FinalState_MissingExtras(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when workflow_state is missing from extras")
 	}
 }
@@ -206,7 +206,7 @@ func TestOutcomeEquivalent_FinalState_NilExtras(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when extras is nil")
 	}
 }
@@ -223,7 +223,7 @@ func TestOutcomeEquivalent_ContentHash_Match(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass: %s", result.Explanation)
 	}
 }
@@ -240,7 +240,7 @@ func TestOutcomeEquivalent_ContentHash_Mismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when content differs")
 	}
 }
@@ -256,7 +256,7 @@ func TestOutcomeEquivalent_ContentHash_NoExpected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass when no expected_content: %s", result.Explanation)
 	}
 }
@@ -272,7 +272,7 @@ func TestOutcomeEquivalent_ToolCalls_EmptyActualAndExpected(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Empty expected_tools slice has length 0, so treated as "no expected"
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass for empty expected_tools: %s", result.Explanation)
 	}
 }
@@ -292,7 +292,7 @@ func TestOutcomeEquivalent_ToolCalls_StringSliceParam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass with []string param: %s", result.Explanation)
 	}
 }
@@ -309,7 +309,7 @@ func TestOutcomeEquivalent_ContentHash_EmptyContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when actual is empty but expected is not")
 	}
 }

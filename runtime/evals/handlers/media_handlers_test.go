@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -80,7 +80,7 @@ func TestImageFormatHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -97,7 +97,7 @@ func TestImageFormatHandler_InvalidFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for disallowed format")
 	}
 }
@@ -112,7 +112,7 @@ func TestImageFormatHandler_NoImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for no images")
 	}
 }
@@ -139,7 +139,7 @@ func TestImageDimensionsHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -156,7 +156,7 @@ func TestImageDimensionsHandler_ExactMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -173,7 +173,7 @@ func TestImageDimensionsHandler_TooWide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for exceeding max_width")
 	}
 }
@@ -199,7 +199,7 @@ func TestAudioFormatHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -226,7 +226,7 @@ func TestAudioDurationHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -243,7 +243,7 @@ func TestAudioDurationHandler_TooShort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for too short")
 	}
 }
@@ -270,7 +270,7 @@ func TestVideoDurationHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -296,7 +296,7 @@ func TestVideoResolutionHandler_PresetMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -313,7 +313,7 @@ func TestVideoResolutionHandler_PresetNoMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for preset mismatch")
 	}
 }
@@ -330,7 +330,7 @@ func TestVideoResolutionHandler_DimensionRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -347,7 +347,7 @@ func TestVideoResolutionHandler_NoVideos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for no videos")
 	}
 }
@@ -364,7 +364,7 @@ func TestVideoResolutionHandler_MissingMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing width/height metadata")
 	}
 }
@@ -402,7 +402,7 @@ func TestVideoResolutionHandler_AllPresets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("preset %q: %v", tt.preset, err)
 		}
-		if !result.Passed {
+		if !(result.Score != nil && *result.Score >= 1.0) {
 			t.Errorf("preset %q with height %d should pass: %s", tt.preset, tt.height, result.Explanation)
 		}
 	}
@@ -420,7 +420,7 @@ func TestVideoResolutionHandler_UnknownPreset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for unknown preset")
 	}
 }
@@ -437,7 +437,7 @@ func TestVideoResolutionHandler_WidthRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for width below min_width")
 	}
 }
@@ -454,7 +454,7 @@ func TestVideoResolutionHandler_MaxWidth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for width above max_width")
 	}
 }
@@ -471,7 +471,7 @@ func TestVideoResolutionHandler_HeightRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for height below min_height")
 	}
 }
@@ -488,7 +488,7 @@ func TestVideoResolutionHandler_MaxHeight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for height above max_height")
 	}
 }

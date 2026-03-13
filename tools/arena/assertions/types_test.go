@@ -28,14 +28,34 @@ func TestAssertionConfig_ToEvalDef_Basic(t *testing.T) {
 	def := ToEvalDef(cfg, 0)
 
 	assert.Equal(t, "assertion_0_content_includes", def.ID)
-	assert.Equal(t, "content_includes", def.Type)
+	assert.Equal(t, evals.WrapperTypeAssertion, def.Type)
 	assert.Equal(t, evals.TriggerEveryTurn, def.Trigger)
-	assert.Equal(t, cfg.Params, def.Params)
+	assert.Equal(t, "content_includes", def.Params["eval_type"])
+	assert.Equal(t, map[string]any{"patterns": []string{"hello"}}, def.Params["eval_params"])
 	assert.Equal(t, "should include hello", def.Message)
-	assert.NotNil(t, def.Threshold)
-	assert.NotNil(t, def.Threshold.Passed)
-	assert.True(t, *def.Threshold.Passed)
 	assert.Nil(t, def.When)
+}
+
+func TestAssertionConfig_ToEvalDef_WithThresholds(t *testing.T) {
+	cfg := AssertionConfig{
+		Type: "llm_judge",
+		Params: map[string]interface{}{
+			"criteria":  "check quality",
+			"min_score": 0.8,
+		},
+		Message: "quality check",
+	}
+
+	def := ToEvalDef(cfg, 0)
+
+	// min_score stays at wrapper level, criteria goes into eval_params
+	assert.Equal(t, evals.WrapperTypeAssertion, def.Type)
+	assert.Equal(t, "llm_judge", def.Params["eval_type"])
+	assert.Equal(t, 0.8, def.Params["min_score"])
+	evalParams := def.Params["eval_params"].(map[string]any)
+	assert.Equal(t, "check quality", evalParams["criteria"])
+	_, hasMinScore := evalParams["min_score"]
+	assert.False(t, hasMinScore, "min_score should not be in eval_params")
 }
 
 func TestAssertionConfig_ToEvalDef_WithWhen(t *testing.T) {
@@ -84,9 +104,10 @@ func TestAssertionConfig_ToConversationEvalDef(t *testing.T) {
 	def := ToConversationEvalDef(cfg, 2)
 
 	assert.Equal(t, "assertion_2_turn_count", def.ID)
-	assert.Equal(t, "turn_count", def.Type)
+	assert.Equal(t, evals.WrapperTypeAssertion, def.Type)
 	assert.Equal(t, evals.TriggerOnConversationComplete, def.Trigger)
-	assert.Equal(t, cfg.Params, def.Params)
+	assert.Equal(t, "turn_count", def.Params["eval_type"])
+	assert.Equal(t, map[string]any{"min": 3}, def.Params["eval_params"])
 }
 
 func TestAssertionConfig_ToConversationEvalDef_WithWhen(t *testing.T) {

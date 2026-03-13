@@ -10,6 +10,8 @@ Evals are automated quality checks that run against LLM outputs. They answer que
 
 Evals use the same [check types](/reference/checks/) as assertions and guardrails. The difference is *when* and *where* they run: evals can fire in production on every turn, on a sampled subset, or at session close, whereas assertions only run during Arena tests and guardrails run inline before the response is delivered.
 
+Eval handlers produce **scores only** (0.0–1.0). They never determine pass/fail — that responsibility belongs to assertion and guardrail wrappers. When used as standalone evals, the score is recorded as a metric and emitted as an event.
+
 ```
 Pack File (evals) ──► EvalRunner ──► ResultWriter ──► Metrics / Metadata
 ```
@@ -66,7 +68,8 @@ Each eval is an `EvalDef` object in the pack's `evals` array. The structure comb
 | `threshold` | No | Pass/fail threshold (e.g. `min_score`) |
 | `enabled` | No | Whether the eval is active (default: `true`) |
 | `sample_percentage` | No | Percentage of turns/sessions to evaluate (for sampling triggers) |
-| `metric` | No | Prometheus metric configuration (see [MetricCollector](#metriccollector--prometheus)) |
+| `groups` | No | Eval groups for filtering (see [Eval Groups](#eval-groups)) |
+| `metric` | No | Prometheus metric configuration (see [Metrics & Prometheus](#metrics--prometheus)) |
 
 ## Triggers
 
@@ -94,6 +97,52 @@ Sampling is **deterministic** — the same session ID and turn index always prod
   }
 }
 ```
+
+## Eval Groups
+
+Evals can belong to one or more groups, enabling selective execution. When no explicit groups are set, evals are automatically classified based on their handler type:
+
+| Group | Value | Assigned To |
+|-------|-------|-------------|
+| Default | `default` | All evals with no explicit groups |
+| Fast-running | `fast-running` | Deterministic checks: `contains`, `regex`, `json_valid`, `tools_called`, workflow checks, etc. |
+| Long-running | `long-running` | Compute/network-intensive: `llm_judge`, `cosine_similarity`, `outcome_equivalent`, `a2a_eval`, `rest_eval`, exec handlers |
+| External | `external` | External system calls: `llm_judge`, `a2a_eval`, `rest_eval`, exec handlers |
+
+### Automatic classification
+
+Evals with no explicit `groups` field receive `default` plus one or more well-known groups. For example, a `contains` eval gets `["default", "fast-running"]`, while an `llm_judge` eval gets `["default", "long-running", "external"]`.
+
+### Explicit groups
+
+Setting `groups` on an eval definition overrides the automatic classification entirely:
+
+```json
+{
+  "id": "compliance_check",
+  "type": "llm_judge",
+  "trigger": "every_turn",
+  "groups": ["compliance", "safety"],
+  "params": { "criteria": "Check regulatory compliance" }
+}
+```
+
+This eval will only match when filtering for `compliance` or `safety` — it will no longer match `default`, `long-running`, or `external`.
+
+### Filtering by group
+
+In the SDK, use `EvalGroups` to select which groups to run:
+
+```go
+// Only run fast evals in the hot path
+results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+    PackPath:   "./app.pack.json",
+    Messages:   messages,
+    EvalGroups: []string{"fast-running"},
+})
+```
+
+When `EvalGroups` is nil or empty, all evals run regardless of group.
 
 ## Dispatch Patterns
 
@@ -138,38 +187,30 @@ The `EvalConversationExecutor` evaluates **saved conversations** from recordings
 
 This enables offline evaluation of historical conversations without re-running them against a live LLM.
 
-## MetricCollector & Prometheus
+## Metrics & Prometheus
 
-The `MetricCollector` records eval results and exports them in Prometheus text format. It supports three label sources that are merged at record time:
-
-1. **Pack-author labels** — declared per-metric in the pack file (e.g. `eval_type`, `category`)
-2. **Platform base labels** — injected at collector creation via `WithLabels` (e.g. `env`, `tenant_id`)
-3. **Dynamic context labels** — `session_id` and `turn_index` injected automatically by `MetricResultWriter`
+Eval results can be recorded as Prometheus metrics using the unified `metrics.Collector`. The same collector records both pipeline operational metrics and eval metrics into a standard `prometheus.Registry`.
 
 ```go
-// Platform injects deployment-level labels at collector creation
-collector := evals.NewMetricCollector(
-    evals.WithLabels(map[string]string{
-        "env":    "prod",
-        "tenant": "acme",
-    }),
+import (
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/AltairaLabs/PromptKit/runtime/metrics"
+    "github.com/AltairaLabs/PromptKit/sdk"
 )
-writer := evals.NewMetricResultWriter(collector, pack.Evals)
 
-// After evals run, export metrics
-collector.WritePrometheus(os.Stdout)
+reg := prometheus.NewRegistry()
+collector := metrics.NewCollector(metrics.CollectorOpts{
+    Registerer:  reg,
+    Namespace:   "myapp",
+    ConstLabels: prometheus.Labels{"env": "prod"},
+})
+
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithMetrics(collector, nil),
+)
 ```
 
-Output:
-
-```
-# TYPE promptpack_response_quality gauge
-promptpack_response_quality{category="tone",env="prod",eval_type="llm_judge",session_id="abc-123",tenant="acme",turn_index="1"} 0.85
-# TYPE promptpack_json_valid gauge
-promptpack_json_valid{category="format",env="prod",eval_type="json_valid",session_id="abc-123",tenant="acme",turn_index="1"} 1
-```
-
-The same metric name with different label sets produces separate time series, with a single deduplicated `# TYPE` comment line.
+When `WithMetrics()` is configured, eval results with a `metric` definition are automatically recorded alongside pipeline metrics. Eval metrics are namespaced under `{namespace}_eval_` to distinguish them from pipeline metrics. For example, a metric named `response_quality_score` with namespace `myapp` becomes `myapp_eval_response_quality_score`. See [Metrics Reference](/runtime/reference/metrics/) for the full catalog.
 
 ### Metric Types
 
@@ -178,19 +219,11 @@ The same metric name with different label sets produces separate time series, wi
 | `gauge` | Set to the eval's score value |
 | `counter` | Increment count on each execution |
 | `histogram` | Observe value with configurable buckets, track sum/count |
-| `boolean` | 1.0 if passed, 0.0 if failed |
-
-### Collector Options
-
-| Option | Description |
-|--------|-------------|
-| `WithNamespace(ns)` | Set metric name prefix (default: `"promptpack"`) |
-| `WithBuckets(b)` | Set custom histogram bucket boundaries |
-| `WithLabels(m)` | Set base labels merged into every recorded metric. Base labels take precedence over pack-author labels on conflict. |
+| `boolean` | 1.0 if score ≥ 1.0, 0.0 otherwise |
 
 ### Label Sources
 
-**Pack-author labels** are declared in the `metric.labels` field of each eval definition. These describe per-metric dimensions controlled by the pack author:
+**Pack-author labels** are declared in the `metric.labels` field of each eval definition:
 
 ```json
 {
@@ -212,11 +245,26 @@ The same metric name with different label sets produces separate time series, wi
 }
 ```
 
-**Platform base labels** are set via `WithLabels()` when creating the collector. These are deployment-level labels (e.g. `env`, `tenant_id`, `region`) that the hosting platform controls. Base labels win on conflict with pack-author labels.
+**Const labels** are set via `CollectorOpts.ConstLabels` — process-level dimensions (env, region) baked into the metric descriptor.
 
-**Dynamic context labels** (`session_id`, `turn_index`) are injected automatically by `MetricResultWriter` from the `EvalResult`. No configuration needed — every metric gets these labels when they are available.
+**Instance labels** are set via `CollectorOpts.InstanceLabels` and bound per-conversation — conversation-level dimensions (tenant, prompt_name).
 
 Label names must match Prometheus naming rules (`^[a-zA-Z_][a-zA-Z0-9_]*$`) and must not start with `__` (reserved by Prometheus). Invalid label names are caught during pack validation.
+
+## Events
+
+Eval results emit events through the EventBus:
+
+| Event | Constant | When |
+|-------|----------|------|
+| `eval.completed` | `EventEvalCompleted` | Eval finished successfully (regardless of score) |
+| `eval.failed` | `EventEvalFailed` | Eval handler returned an error |
+
+The `eval.completed` event carries an `EvalCompletedData` payload with the eval ID, type, score, and derived `Passed` field (`IsPassed()` — true when score is nil or ≥ 1.0). The `eval.failed` event indicates an infrastructure error (the handler itself errored), not a low score.
+
+:::caution
+`eval.failed` means the eval **errored** — it does not mean the score was low. A working eval that returns score 0.0 emits `eval.completed`, not `eval.failed`.
+:::
 
 ## Pack Eval Resolution
 
@@ -240,4 +288,5 @@ See the [`eval-test` example](https://github.com/AltairaLabs/PromptKit/tree/main
 - [Assertions Reference](/arena/reference/assertions/) — Test-time checks
 - [Observability](/sdk/explanation/observability/) — EventBus architecture
 - [Session Recording](/arena/explanation/session-recording/) — How recordings feed into evals
-- [Monitor Events](/sdk/how-to/monitor-events/) — MetricCollector usage in SDK
+- [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics
+- [Monitor Events](/sdk/how-to/monitor-events/) — Event hooks and Prometheus metrics in SDK

@@ -28,7 +28,7 @@ func (h *ToolsCalledHandler) Eval(
 	if len(toolNames) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no tool_names specified",
 		}, nil
 	}
@@ -69,7 +69,6 @@ func (h *ToolsCalledHandler) checkToolCalls(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       ratioScore(found, len(toolNames)),
 		Explanation: explanation,
 		Value: map[string]any{

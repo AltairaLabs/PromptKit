@@ -63,7 +63,7 @@ func TestEventAdapterLogsProviderEvents(t *testing.T) {
 	adapter.HandleEvent(&events.Event{
 		Type:      events.EventProviderCallStarted,
 		Timestamp: time.Now(),
-		Data: events.ProviderCallStartedData{
+		Data: &events.ProviderCallStartedData{
 			Provider: "prov",
 			Model:    "model",
 		},
@@ -214,7 +214,7 @@ func TestEventAdapter_Subscribe(t *testing.T) {
 	bus.Publish(&events.Event{
 		Type:      events.EventProviderCallStarted,
 		Timestamp: time.Now(),
-		Data:      events.ProviderCallStartedData{Provider: "test-provider", Model: "test-model"},
+		Data:      &events.ProviderCallStartedData{Provider: "test-provider", Model: "test-model"},
 	})
 
 	// Give the event a moment to process
@@ -417,7 +417,7 @@ func TestEventAdapter_EventErrorExtraction(t *testing.T) {
 	}{
 		{
 			name:     "ProviderCallFailedData",
-			data:     events.ProviderCallFailedData{Error: testErr},
+			data:     &events.ProviderCallFailedData{Error: testErr},
 			expected: testErr,
 		},
 		{
@@ -466,17 +466,17 @@ func TestEventAdapter_NameExtraction(t *testing.T) {
 			expectedModel string
 		}{
 			{
-				data:          events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
+				data:          &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
 				expectedName:  "openai",
 				expectedModel: "gpt-4",
 			},
 			{
-				data:          events.ProviderCallCompletedData{Provider: "anthropic", Model: "claude-3"},
+				data:          &events.ProviderCallCompletedData{Provider: "anthropic", Model: "claude-3"},
 				expectedName:  "anthropic",
 				expectedModel: "claude-3",
 			},
 			{
-				data:          events.ProviderCallFailedData{Provider: "mock", Model: "test"},
+				data:          &events.ProviderCallFailedData{Provider: "mock", Model: "test"},
 				expectedName:  "mock",
 				expectedModel: "test",
 			},

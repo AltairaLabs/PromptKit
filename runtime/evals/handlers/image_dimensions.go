@@ -31,7 +31,8 @@ func (h *ImageDimensionsHandler) Eval(
 	parts := extractMediaParts(evalCtx.Messages, types.ContentTypeImage)
 	if len(parts) == 0 {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: errNoImagesFound,
 		}, nil
 	}
@@ -61,7 +62,6 @@ func (h *ImageDimensionsHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value:       collectImageDimensions(parts),

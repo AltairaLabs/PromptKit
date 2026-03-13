@@ -25,7 +25,7 @@ func (h *FieldPresenceHandler) Eval(
 	if len(fields) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no fields to check",
 		}, nil
 	}
@@ -41,7 +41,6 @@ func (h *FieldPresenceHandler) Eval(
 
 	total := len(fields)
 	score := float64(len(found)) / float64(total)
-	passed := len(missing) == 0
 
 	explanation := fmt.Sprintf("found %d/%d fields", len(found), total)
 	if len(missing) > 0 {
@@ -50,7 +49,6 @@ func (h *FieldPresenceHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       &score,
 		Explanation: explanation,
 		Details: map[string]any{

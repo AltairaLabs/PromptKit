@@ -16,11 +16,12 @@ const DefaultMaxConcurrentEvals = 10
 
 // evalMiddleware holds dispatch state for eval execution within a conversation.
 type evalMiddleware struct {
-	runner    *evals.EvalRunner
-	defs      []evals.EvalDef
-	emitter   *events.Emitter // nil-safe (bus may not be configured)
-	conv      *Conversation
-	turnIndex atomic.Int32 // atomic for thread safety across concurrent Send() calls
+	runner       *evals.EvalRunner
+	defs         []evals.EvalDef
+	emitter      *events.Emitter           // nil-safe (bus may not be configured)
+	metricWriter *evals.MetricResultWriter // nil-safe (recorder may not be configured)
+	conv         *Conversation
+	turnIndex    atomic.Int32 // atomic for thread safety across concurrent Send() calls
 
 	// Goroutine lifecycle management for async turn evals.
 	wg     sync.WaitGroup     // tracks in-flight turn eval goroutines
@@ -63,6 +64,7 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		"has_pack", conv.pack != nil, "has_prompt", conv.prompt != nil)
 
 	defs := evals.ResolveEvals(packEvals, promptEvals)
+	defs = evals.FilterByGroups(defs, conv.config.evalGroups)
 	if len(defs) == 0 {
 		logger.Debug("evals: middleware skipped, no eval defs resolved", "reason", "no defs resolved")
 		return nil
@@ -86,17 +88,27 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		maxConcurrent = conv.config.maxConcurrentEvals
 	}
 
+	// Build metric writer if a recorder is configured.
+	// Unified MetricContext (from WithMetrics) takes precedence over legacy MetricRecorder.
+	var metricWriter *evals.MetricResultWriter
+	if conv.config.metricContext != nil {
+		metricWriter = evals.NewMetricResultWriter(conv.config.metricContext, defs)
+	} else if conv.config.metricRecorder != nil {
+		metricWriter = evals.NewMetricResultWriter(conv.config.metricRecorder, defs)
+	}
+
 	logger.Info("evals: middleware created", "defs", len(defs), "max_concurrent", maxConcurrent)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	return &evalMiddleware{
-		runner:  runner,
-		defs:    defs,
-		emitter: emitter,
-		conv:    conv,
-		ctx:     ctx,
-		cancel:  cancel,
-		sem:     make(chan struct{}, maxConcurrent),
+		runner:       runner,
+		defs:         defs,
+		emitter:      emitter,
+		metricWriter: metricWriter,
+		conv:         conv,
+		ctx:          ctx,
+		cancel:       cancel,
+		sem:          make(chan struct{}, maxConcurrent),
 	}
 }
 
@@ -170,12 +182,16 @@ func (em *evalMiddleware) close() {
 	em.wg.Wait()
 }
 
-// emitResults emits eval results as events on the event bus.
+// emitResults emits eval results as events on the event bus and records metrics.
 func (em *evalMiddleware) emitResults(results []evals.EvalResult) {
-	if em.emitter == nil {
-		return
+	if em.emitter != nil {
+		emitEvalResultsTo(em.emitter, results)
 	}
-	emitEvalResultsTo(em.emitter, results)
+	if em.metricWriter != nil {
+		if err := em.metricWriter.WriteResults(context.Background(), results); err != nil {
+			logger.Warn("evals: metric recording failed", "error", err)
+		}
+	}
 }
 
 // buildEvalContext creates an EvalContext from the conversation state.

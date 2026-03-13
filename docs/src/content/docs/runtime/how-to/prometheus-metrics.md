@@ -11,31 +11,33 @@ PromptKit provides built-in Prometheus metrics for monitoring pipeline performan
 package main
 
 import (
-    "context"
-    "log"
-    "time"
+    "net/http"
 
-    "github.com/AltairaLabs/PromptKit/runtime/events"
-    "github.com/AltairaLabs/PromptKit/runtime/metrics/prometheus"
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+
+    "github.com/AltairaLabs/PromptKit/runtime/metrics"
+    "github.com/AltairaLabs/PromptKit/sdk"
 )
 
 func main() {
-    // Create and start the Prometheus exporter
-    exporter := prometheus.NewExporter(":9090")
-    go func() {
-        if err := exporter.Start(); err != nil {
-            log.Printf("Prometheus exporter stopped: %v", err)
-        }
-    }()
-    defer exporter.Shutdown(context.Background())
+    // 1. Create a collector — registers pipeline metrics once per process
+    reg := prometheus.NewRegistry()
+    collector := metrics.NewCollector(metrics.CollectorOpts{
+        Registerer:  reg,
+        Namespace:   "myapp",
+        ConstLabels: prometheus.Labels{"env": "prod"},
+    })
 
-    // Create event bus and register metrics listener
-    eventBus := events.NewEventBus()
-    metricsListener := prometheus.NewMetricsListener()
-    eventBus.SubscribeAll(metricsListener.Listener())
+    // 2. Attach to conversations via sdk.WithMetrics()
+    conv, _ := sdk.Open("./app.pack.json", "chat",
+        sdk.WithMetrics(collector, nil),
+    )
+    defer conv.Close()
 
-    // Your pipeline code here...
-    // Metrics are now available at http://localhost:9090/metrics
+    // 3. Expose via your own HTTP server
+    http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+    http.ListenAndServe(":9090", nil)
 }
 ```
 
@@ -45,69 +47,75 @@ func main() {
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `promptkit_pipelines_active` | Gauge | - | Number of currently active pipelines |
-| `promptkit_pipeline_duration_seconds` | Histogram | `status` | Total pipeline execution duration |
+| `{ns}_pipeline_duration_seconds` | Histogram | `status` | Total pipeline execution duration |
+| `{ns}_provider_request_duration_seconds` | Histogram | `provider`, `model` | LLM API call duration |
+| `{ns}_provider_requests_total` | Counter | `provider`, `model`, `status` | Total provider API calls |
+| `{ns}_provider_input_tokens_total` | Counter | `provider`, `model` | Input tokens sent to provider |
+| `{ns}_provider_output_tokens_total` | Counter | `provider`, `model` | Output tokens received from provider |
+| `{ns}_provider_cached_tokens_total` | Counter | `provider`, `model` | Cached tokens in provider calls |
+| `{ns}_provider_cost_total` | Counter | `provider`, `model` | Total cost in USD |
+| `{ns}_tool_call_duration_seconds` | Histogram | `tool` | Tool call execution duration |
+| `{ns}_tool_calls_total` | Counter | `tool`, `status` | Total tool call count |
+| `{ns}_validation_duration_seconds` | Histogram | `validator`, `validator_type` | Validation check duration |
+| `{ns}_validations_total` | Counter | `validator`, `validator_type`, `status` | Validation results (passed/failed) |
 
-### Stage Metrics
+Where `{ns}` is the configured namespace (default: `promptkit`).
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `promptkit_stage_duration_seconds` | Histogram | `stage`, `stage_type` | Per-stage processing duration |
-| `promptkit_stage_elements_total` | Counter | `stage`, `status` | Elements processed by stage |
+### Eval Metrics
 
-### Provider Metrics
+Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector under the `{ns}_eval_` sub-namespace. For example, a metric named `response_quality_score` with namespace `myapp` becomes `myapp_eval_response_quality_score`. This separates eval metrics from pipeline metrics, making it easy to query all evals with a pattern like `myapp_eval_.*`. See [Eval Framework](/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration.
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `promptkit_provider_request_duration_seconds` | Histogram | `provider`, `model` | LLM API call duration |
-| `promptkit_provider_requests_total` | Counter | `provider`, `model`, `status` | Total provider API calls |
-| `promptkit_provider_tokens_total` | Counter | `provider`, `model`, `type` | Token consumption (input/output/cached) |
-| `promptkit_provider_cost_total` | Counter | `provider`, `model` | Total cost in USD |
+## Standalone Eval Metrics
 
-### Tool Metrics
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `promptkit_tool_call_duration_seconds` | Histogram | `tool` | Tool call execution duration |
-| `promptkit_tool_calls_total` | Counter | `tool`, `status` | Total tool call count |
-
-### Validation Metrics
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `promptkit_validation_duration_seconds` | Histogram | `validator`, `validator_type` | Validation check duration |
-| `promptkit_validations_total` | Counter | `validator`, `validator_type`, `status` | Validation results (passed/failed) |
-
-## Pipeline Configuration
-
-Enable Prometheus metrics export via pipeline configuration:
+For eval-only consumers (e.g. workers using `sdk.Evaluate()` without a live pipeline), use `NewEvalOnlyCollector` and pass it via `MetricsCollector` on `EvaluateOpts`:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+reg := prometheus.NewRegistry()
+collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+    Registerer:     reg,
+    Namespace:      "myapp",
+    InstanceLabels: []string{"tenant"},
+})
 
-config := stage.DefaultPipelineConfig().
-    WithMetrics(true).
-    WithPrometheusExporter(":9090")
+results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+    PackPath:              "./app.pack.json",
+    Messages:              messages,
+    MetricsCollector:      collector,
+    MetricsInstanceLabels: map[string]string{"tenant": "acme"},
+})
 ```
 
-## Integration with Existing HTTP Server
+`NewEvalOnlyCollector` is equivalent to `NewCollector` with `DisablePipelineMetrics: true` — it skips registration of provider, tool, pipeline, and validation metrics.
 
-If you already have an HTTP server, use the `Handler()` method:
+## Multi-Tenant Setup
+
+When multiple conversations share one Prometheus endpoint, use instance labels to distinguish them:
 
 ```go
-import (
-    "net/http"
-    "github.com/AltairaLabs/PromptKit/runtime/metrics/prometheus"
-)
+collector := metrics.NewCollector(metrics.CollectorOpts{
+    Registerer:     reg,
+    Namespace:      "myapp",
+    InstanceLabels: []string{"tenant", "prompt_name"},
+})
 
-func main() {
-    exporter := prometheus.NewExporter(":9090")
-
-    // Add to your existing mux
-    http.Handle("/metrics", exporter.Handler())
-    http.ListenAndServe(":8080", nil)
-}
+conv1, _ := sdk.Open(pack, "support", sdk.WithMetrics(collector, map[string]string{
+    "tenant": "acme", "prompt_name": "support",
+}))
+conv2, _ := sdk.Open(pack, "sales", sdk.WithMetrics(collector, map[string]string{
+    "tenant": "globex", "prompt_name": "sales",
+}))
 ```
+
+## CollectorOpts Reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Registerer` | `prometheus.Registerer` | Registry to register into (default: `DefaultRegisterer`) |
+| `Namespace` | `string` | Metric name prefix (default: `"promptkit"`) |
+| `ConstLabels` | `prometheus.Labels` | Process-level constant labels (env, region) |
+| `InstanceLabels` | `[]string` | Label names that vary per conversation (tenant, prompt_name). Sorted internally — `Bind()` label order doesn't matter. |
+| `DisablePipelineMetrics` | `bool` | Disable operational metrics (use for eval-only consumers, or use `NewEvalOnlyCollector`) |
+| `DisableEvalMetrics` | `bool` | Disable eval result metrics |
 
 ## Grafana Dashboard
 
@@ -124,8 +132,7 @@ PromptKit includes a pre-built Grafana dashboard at `runtime/metrics/grafana/pip
 
 The dashboard includes:
 
-- **Pipeline Overview**: Active pipelines, completion rate, error rate, p95 duration, total cost, total tokens
-- **Stage Performance**: Per-stage latency heatmap, throughput by status
+- **Pipeline Overview**: Completion rate, error rate, p95 duration, total cost, total tokens
 - **Provider Metrics**: API latency percentiles, request rate, token consumption, cost breakdown
 - **Tool & Validation**: Tool call duration, validation pass/fail rates
 
@@ -177,7 +184,10 @@ groups:
 
       - alert: HighTokenConsumption
         expr: |
-          sum(increase(promptkit_provider_tokens_total[1h])) > 1000000
+          (
+            sum(increase(promptkit_provider_input_tokens_total[1h]))
+            + sum(increase(promptkit_provider_output_tokens_total[1h]))
+          ) > 1000000
         for: 1m
         labels:
           severity: info
@@ -186,74 +196,9 @@ groups:
           description: "Over 1M tokens consumed in the last hour"
 ```
 
-## Custom Metrics
+## See Also
 
-Register additional collectors with the exporter:
-
-```go
-import (
-    "github.com/prometheus/client_golang/prometheus"
-    pkprometheus "github.com/AltairaLabs/PromptKit/runtime/metrics/prometheus"
-)
-
-customCounter := prometheus.NewCounter(prometheus.CounterOpts{
-    Name: "my_custom_metric",
-    Help: "Custom application metric",
-})
-
-exporter := pkprometheus.NewExporter(":9090")
-exporter.MustRegister(customCounter)
-```
-
-## Recording Functions
-
-For manual metric recording (outside of event-based collection):
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/metrics/prometheus"
-
-// Record stage metrics
-prometheus.RecordStageDuration("my_stage", "transform", 0.5)
-prometheus.RecordStageElement("my_stage", "success")
-
-// Record provider metrics
-prometheus.RecordProviderRequest("anthropic", "claude-3", "success", 2.5)
-prometheus.RecordProviderTokens("anthropic", "claude-3", 100, 50, 0)
-prometheus.RecordProviderCost("anthropic", "claude-3", 0.05)
-
-// Record tool metrics
-prometheus.RecordToolCall("web_search", "success", 1.2)
-
-// Record validation metrics
-prometheus.RecordValidation("schema_validator", "output", "passed", 0.01)
-```
-
-## Health Endpoint
-
-The exporter also serves a health endpoint at `/health`:
-
-```bash
-curl http://localhost:9090/health
-# Returns: ok
-```
-
-## Graceful Shutdown
-
-Always shut down the exporter gracefully:
-
-```go
-import (
-    "context"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
-)
-
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer cancel()
-
-if err := exporter.Shutdown(ctx); err != nil {
-    log.Printf("Error shutting down exporter: %v", err)
-}
-```
+- [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics, label architecture, and API reference
+- [Monitor Events](/sdk/how-to/monitor-events/) — Event-based observability and metrics setup
+- [Eval Framework](/arena/explanation/eval-framework/) — Eval architecture and metric types
+- [Run Evals](/sdk/how-to/run-evals/) — Programmatic eval execution via SDK

@@ -29,9 +29,8 @@ func (h *SentenceCountHandler) Eval(
 	score := 1.0
 
 	return &evals.EvalResult{
-		Type:   h.Type(),
-		Passed: true,
-		Score:  &score,
+		Type:  h.Type(),
+		Score: &score,
 		Details: map[string]any{
 			"count": count,
 		},

@@ -27,7 +27,7 @@ func (h *ToolAntiPatternHandler) Eval(
 	if len(patterns) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no anti-patterns specified",
 		}, nil
 	}
@@ -56,7 +56,6 @@ func (h *ToolAntiPatternHandler) Eval(
 		}
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("found %d anti-pattern(s): %s", len(violations), strings.Join(msgs, "; ")),
 			Value:       map[string]any{"violations": violations},
@@ -66,7 +65,6 @@ func (h *ToolAntiPatternHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("none of %d anti-patterns detected", len(patterns)),
 		Value:       map[string]any{"violations": []map[string]any{}},

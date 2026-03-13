@@ -28,7 +28,7 @@ func (h *ToolResultMatchesHandler) Eval(
 	if pattern == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no pattern specified",
 		}, nil
 	}
@@ -37,7 +37,7 @@ func (h *ToolResultMatchesHandler) Eval(
 	if err != nil {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("invalid regex: %v", err),
 		}, nil
 	}
@@ -50,7 +50,6 @@ func (h *ToolResultMatchesHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value: map[string]any{

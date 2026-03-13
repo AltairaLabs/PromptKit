@@ -168,7 +168,6 @@ func (r *EvalRunner) runOne(
 			return &EvalResult{
 				EvalID:     def.ID,
 				Type:       def.Type,
-				Passed:     true,
 				Skipped:    true,
 				SkipReason: reason,
 			}
@@ -244,22 +243,9 @@ func (r *EvalRunner) executeHandler(
 	result.Type = def.Type
 	result.DurationMs = durationMs
 
-	// Apply threshold via AssertionEvalHandler wrapping when min/max score thresholds exist.
-	if def.Threshold != nil && (def.Threshold.MinScore != nil || def.Threshold.MaxScore != nil) {
-		wrapper := &AssertionEvalHandler{
-			Inner:     handler,
-			EvalType:  def.Type,
-			Threshold: def.Threshold,
-		}
-		// Re-apply assertion logic on the already-computed result
-		wrapper.applyThresholds(result)
-	} else if def.Threshold != nil {
-		def.Threshold.Apply(result)
-	}
-
 	logger.Info("evals: eval completed",
 		"eval_id", def.ID, "type", def.Type,
-		"passed", result.Passed, "duration_ms", durationMs,
+		"score", result.Score, "duration_ms", durationMs,
 	)
 	return result
 }

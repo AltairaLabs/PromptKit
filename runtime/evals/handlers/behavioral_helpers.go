@@ -24,7 +24,6 @@ func compareToolSets(
 	if matched {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      true,
 			Score:       boolScore(true),
 			Explanation: fmt.Sprintf("tool calls match %s: [%s]", expectedLabel, strings.Join(expected, ", ")),
 			Value:       value,
@@ -33,9 +32,8 @@ func compareToolSets(
 	}
 
 	return &evals.EvalResult{
-		Type:   evalType,
-		Passed: false,
-		Score:  boolScore(false),
+		Type:  evalType,
+		Score: boolScore(false),
 		Explanation: fmt.Sprintf(
 			"tool calls differ from %s: got [%s], %s [%s]",
 			expectedLabel, strings.Join(actual, ", "), expectedLabel, strings.Join(expected, ", "),
@@ -56,7 +54,7 @@ func compareWorkflowState(
 	if !ok {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "workflow_state not found in eval context extras",
 		}
 	}
@@ -68,7 +66,6 @@ func compareWorkflowState(
 	if matched {
 		return &evals.EvalResult{
 			Type:        evalType,
-			Passed:      true,
 			Score:       boolScore(true),
 			Explanation: fmt.Sprintf("state matches %s: %q", expectedLabel, expectedState),
 			Value:       value,
@@ -78,7 +75,6 @@ func compareWorkflowState(
 
 	return &evals.EvalResult{
 		Type:        evalType,
-		Passed:      false,
 		Score:       boolScore(false),
 		Explanation: fmt.Sprintf("state %q does not match %s %q", actualState, expectedLabel, expectedState),
 		Value:       value,

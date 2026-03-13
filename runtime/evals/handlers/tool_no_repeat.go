@@ -64,9 +64,8 @@ func (h *ToolNoRepeatHandler) Eval(
 			names[i] = fmt.Sprintf("%s(%dx)", v["tool"], v["consecutive"])
 		}
 		return &evals.EvalResult{
-			Type:   h.Type(),
-			Passed: false,
-			Score:  boolScore(false),
+			Type:  h.Type(),
+			Score: boolScore(false),
 			Explanation: fmt.Sprintf(
 				"repeated tool calls detected (max %d): %s",
 				maxRepeats, strings.Join(names, ", "),
@@ -78,7 +77,6 @@ func (h *ToolNoRepeatHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("no tool called more than %d time(s) consecutively", maxRepeats),
 		Value:       map[string]any{"repeated_tools": []map[string]any{}},

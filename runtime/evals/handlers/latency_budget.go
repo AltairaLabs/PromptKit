@@ -26,7 +26,7 @@ func (h *LatencyBudgetHandler) Eval(
 	if !ok {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no max_ms specified",
 		}, nil
 	}
@@ -37,12 +37,11 @@ func (h *LatencyBudgetHandler) Eval(
 	if !ok {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "latency_ms not found in metadata",
 		}, nil
 	}
 
-	passed := latencyMs <= maxMs
 	score := 1.0
 	if latencyMs > 0 {
 		score = maxMs / latencyMs
@@ -57,7 +56,6 @@ func (h *LatencyBudgetHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       &score,
 		Value:       map[string]any{"latency_ms": latencyMs, "budget_ms": maxMs},
 		Explanation: explanation,

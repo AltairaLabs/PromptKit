@@ -834,8 +834,8 @@ func TestProviderStage_EmitsProviderCallStartedEvent(t *testing.T) {
 	assert.Equal(t, "test-run", receivedEvent.RunID)
 	assert.Equal(t, "test-session", receivedEvent.SessionID)
 
-	data, ok := receivedEvent.Data.(events.ProviderCallStartedData)
-	require.True(t, ok, "event data should be ProviderCallStartedData")
+	data, ok := receivedEvent.Data.(*events.ProviderCallStartedData)
+	require.True(t, ok, "event data should be *ProviderCallStartedData")
 	assert.Equal(t, "test-provider", data.Provider)
 	assert.Equal(t, 1, data.MessageCount) // 1 user message
 }
@@ -1706,13 +1706,13 @@ func TestProviderStage_ExecuteToolCalls_EmitsStartedCompleted(t *testing.T) {
 	require.NotNil(t, startedEvt, "expected a tool.call.started event")
 	require.NotNil(t, completedEvt, "expected a tool.call.completed event")
 
-	startedData, ok := startedEvt.Data.(events.ToolCallStartedData)
+	startedData, ok := startedEvt.Data.(*events.ToolCallStartedData)
 	require.True(t, ok)
 	assert.Equal(t, "emit_tool", startedData.ToolName)
 	assert.Equal(t, "call-1", startedData.CallID)
 	assert.Equal(t, "value", startedData.Args["key"])
 
-	completedData, ok := completedEvt.Data.(events.ToolCallCompletedData)
+	completedData, ok := completedEvt.Data.(*events.ToolCallCompletedData)
 	require.True(t, ok)
 	assert.Equal(t, "emit_tool", completedData.ToolName)
 	assert.Equal(t, "call-1", completedData.CallID)
@@ -1769,7 +1769,7 @@ func TestProviderStage_ExecuteToolCalls_EmitsFailed(t *testing.T) {
 	require.NotNil(t, startedEvent, "expected tool.call.started event")
 	require.NotNil(t, failedEvent, "expected tool.call.failed event")
 
-	failedData, ok := failedEvent.Data.(events.ToolCallFailedData)
+	failedData, ok := failedEvent.Data.(*events.ToolCallFailedData)
 	require.True(t, ok)
 	assert.Equal(t, "nonexistent_tool", failedData.ToolName)
 	assert.Equal(t, "call-1", failedData.CallID)
@@ -1965,7 +1965,7 @@ func TestProviderStage_ToolCallCompletedEvent_MetadataOnlyParts(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.Len(t, captured, 1)
-	data := captured[0].Data.(events.ToolCallEventData)
+	data := captured[0].Data.(*events.ToolCallEventData)
 	assert.Equal(t, "img_tool", data.ToolName)
 	require.Len(t, data.Parts, 2)
 

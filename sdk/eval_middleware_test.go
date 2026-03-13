@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
 
@@ -284,7 +287,7 @@ func TestEvalMiddleware_EmitResults_NilEmitter(t *testing.T) {
 	}
 
 	// Should not panic with nil emitter
-	mw.emitResults([]evals.EvalResult{{EvalID: "e1", Passed: true}})
+	mw.emitResults([]evals.EvalResult{{EvalID: "e1"}})
 }
 
 func TestEvalMiddleware_WaitBlocksUntilGoroutinesComplete(t *testing.T) {
@@ -293,7 +296,7 @@ func TestEvalMiddleware_WaitBlocksUntilGoroutinesComplete(t *testing.T) {
 	registry.Register(&blockingEvalHandler{
 		typeName: "blocking",
 		started:  started,
-		result:   &evals.EvalResult{Passed: true},
+		result:   &evals.EvalResult{},
 	})
 	runner := evals.NewEvalRunner(registry)
 
@@ -446,7 +449,7 @@ func (h *cancellableEvalHandler) Eval(
 ) (*evals.EvalResult, error) {
 	close(h.started)
 	<-ctx.Done()
-	return &evals.EvalResult{Passed: false, Error: "cancelled"}, nil
+	return &evals.EvalResult{Error: "cancelled"}, nil
 }
 
 // countingEvalHandler increments a counter on each eval call.
@@ -464,7 +467,7 @@ func (h *countingEvalHandler) Eval(
 	h.mu.Lock()
 	*h.count++
 	h.mu.Unlock()
-	return &evals.EvalResult{Passed: true}, nil
+	return &evals.EvalResult{}, nil
 }
 
 func TestEvalMiddleware_SemaphoreSkipsWhenAtCapacity(t *testing.T) {
@@ -691,7 +694,7 @@ func (h *gatedEvalHandler) Eval(
 ) (*evals.EvalResult, error) {
 	h.started <- struct{}{}
 	<-h.unblock
-	return &evals.EvalResult{Passed: true}, nil
+	return &evals.EvalResult{}, nil
 }
 
 func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
@@ -723,8 +726,8 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 	}
 
 	mw.emitResults([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains", Passed: true},
-		{EvalID: "e2", Type: "regex", Passed: false},
+		{EvalID: "e1", Type: "contains", Score: func() *float64 { v := 1.0; return &v }()},
+		{EvalID: "e2", Type: "regex", Error: "regex eval errored"},
 	})
 
 	// Collect 2 events (order may vary with multiple workers, so use maps).
@@ -765,6 +768,179 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 	}
 }
 
+func TestNewEvalMiddleware_WithEvalGroups(t *testing.T) {
+	conv := &Conversation{
+		config: &config{evalGroups: []string{"safety"}},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
+				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"quality"}},
+				{ID: "c", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety", "quality"}},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if len(mw.defs) != 2 {
+		t.Fatalf("expected 2 defs (a,c), got %d", len(mw.defs))
+	}
+	if mw.defs[0].ID != "a" || mw.defs[1].ID != "c" {
+		t.Errorf("expected defs [a,c], got [%s,%s]", mw.defs[0].ID, mw.defs[1].ID)
+	}
+}
+
+func TestNewEvalMiddleware_WithEvalGroupsNoMatch(t *testing.T) {
+	conv := &Conversation{
+		config: &config{evalGroups: []string{"latency"}},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw != nil {
+		t.Error("expected nil middleware when no defs match group filter")
+	}
+}
+
+func TestNewEvalMiddleware_WithEvalGroupsDefaultGroup(t *testing.T) {
+	conv := &Conversation{
+		config: &config{evalGroups: []string{evals.DefaultEvalGroup}},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn},                             // no groups → default
+				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}}, // explicit
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if len(mw.defs) != 1 || mw.defs[0].ID != "a" {
+		t.Errorf("expected only def 'a' (default group), got %v", mw.defs)
+	}
+}
+
+func TestNewEvalMiddleware_NilEvalGroupsRunsAll(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "a", Type: "contains", Trigger: evals.TriggerEveryTurn},
+				{ID: "b", Type: "contains", Trigger: evals.TriggerEveryTurn, Groups: []string{"safety"}},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if len(mw.defs) != 2 {
+		t.Errorf("expected all 2 defs when evalGroups is nil, got %d", len(mw.defs))
+	}
+}
+
+func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		Namespace:              "test",
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
+
+	conv := &Conversation{
+		config: &config{metricContext: metricCtx},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{
+					ID:      "e1",
+					Type:    "contains",
+					Trigger: evals.TriggerEveryTurn,
+					Metric: &evals.MetricDef{
+						Name: "greeting",
+						Type: evals.MetricBoolean,
+					},
+				},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if mw.metricWriter == nil {
+		t.Fatal("expected non-nil metricWriter when MetricContext is configured")
+	}
+
+	// Simulate emitting a result — metric should be recorded.
+	mw.emitResults([]evals.EvalResult{
+		{EvalID: "e1", Type: "contains"},
+	})
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather failed: %v", err)
+	}
+	var found bool
+	for _, fam := range families {
+		if fam.GetName() == "test_eval_greeting" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected metric 'test_eval_greeting' in registry")
+	}
+}
+
+func TestEvalMiddleware_WithoutMetricRecorder(t *testing.T) {
+	conv := &Conversation{
+		config: &config{},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{
+					ID:      "e1",
+					Type:    "contains",
+					Trigger: evals.TriggerEveryTurn,
+					Metric: &evals.MetricDef{
+						Name: "greeting",
+						Type: evals.MetricBoolean,
+					},
+				},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+	if mw.metricWriter != nil {
+		t.Error("expected nil metricWriter when no MetricRecorder configured")
+	}
+
+	// Should not panic with nil metricWriter
+	mw.emitResults([]evals.EvalResult{
+		{EvalID: "e1", Type: "contains"},
+	})
+}
+
 func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 	bus := events.NewEventBus(events.WithWorkerPoolSize(1))
 	defer bus.Close()
@@ -787,7 +963,7 @@ func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 	}
 
 	mw.emitResults([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains", Passed: true},
+		{EvalID: "e1", Type: "contains"},
 	})
 
 	select {

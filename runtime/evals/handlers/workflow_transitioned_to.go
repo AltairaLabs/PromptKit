@@ -23,7 +23,8 @@ func (h *WorkflowTransitionedToHandler) Eval(
 	target, _ := params["state"].(string)
 	if target == "" {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "missing required param 'state'",
 		}, nil
 	}
@@ -31,7 +32,8 @@ func (h *WorkflowTransitionedToHandler) Eval(
 	raw, ok := evalCtx.Extras["workflow_transitions"]
 	if !ok {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "no workflow transitions available in context",
 		}, nil
 	}
@@ -39,7 +41,8 @@ func (h *WorkflowTransitionedToHandler) Eval(
 	transitions, ok := raw.([]any)
 	if !ok {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "invalid transitions data in context",
 		}, nil
 	}
@@ -52,7 +55,6 @@ func (h *WorkflowTransitionedToHandler) Eval(
 		if to, _ := tr["to"].(string); to == target {
 			return &evals.EvalResult{
 				Type:        h.Type(),
-				Passed:      true,
 				Score:       boolScore(true),
 				Value:       map[string]any{"target": target, "found": true, "transition": tr},
 				Explanation: fmt.Sprintf("workflow transitioned to %q", target),
@@ -63,7 +65,6 @@ func (h *WorkflowTransitionedToHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      false,
 		Score:       boolScore(false),
 		Value:       map[string]any{"target": target, "found": false, "transitions": transitions},
 		Explanation: fmt.Sprintf("no transition to state %q found", target),

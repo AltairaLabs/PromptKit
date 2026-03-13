@@ -29,7 +29,7 @@ func (h *OutcomeEquivalentHandler) Eval(
 	if metric == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "missing required param 'metric'",
 		}, nil
 	}
@@ -44,7 +44,7 @@ func (h *OutcomeEquivalentHandler) Eval(
 	default:
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("unknown metric %q; must be tool_calls, final_state, or content_hash", metric),
 		}, nil
 	}
@@ -58,7 +58,7 @@ func (h *OutcomeEquivalentHandler) evalToolCalls(
 	if len(tools) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no expected_tools specified; skipping single-run comparison",
 		}, nil
 	}
@@ -73,7 +73,7 @@ func (h *OutcomeEquivalentHandler) evalFinalState(
 	if state == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no expected_state specified; skipping single-run comparison",
 		}, nil
 	}
@@ -88,7 +88,7 @@ func (h *OutcomeEquivalentHandler) evalContentHash(
 	if expectedContent == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
+			Score:       boolScore(true),
 			Explanation: "no expected_content specified; skipping single-run comparison",
 		}, nil
 	}
@@ -99,7 +99,6 @@ func (h *OutcomeEquivalentHandler) evalContentHash(
 	if matched {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      true,
 			Score:       boolScore(true),
 			Explanation: "content matches expected output",
 			Value:       map[string]any{"matched": true, "length": len(actual)},
@@ -109,7 +108,6 @@ func (h *OutcomeEquivalentHandler) evalContentHash(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      false,
 		Score:       boolScore(false),
 		Explanation: "content does not match expected output",
 		Value:       map[string]any{"matched": false, "actual_length": len(actual), "expected_length": len(expectedContent)},

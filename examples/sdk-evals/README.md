@@ -6,7 +6,7 @@ Demonstrates how to use PromptKit's eval framework with the SDK.
 
 - **Pack-level evals**: Eval definitions live in the pack file (`assistant.pack.json`) — no Go code needed to define them
 - **InProcDispatcher**: Runs evals synchronously in-process (simplest pattern)
-- **MetricCollector**: Accumulates eval results and exports Prometheus text format
+- **Metrics Collector**: Records eval results as Prometheus metrics via the unified `metrics.NewEvalOnlyCollector`
 - **Turn vs session evals**: Turn evals run after each `Send()`, session evals run on `Close()`
 
 ## Eval Definitions
@@ -43,14 +43,14 @@ Turn 3: List three programming languages.
 
 === Prometheus Metrics ===
 
-# TYPE promptpack_json_format_valid boolean
-promptpack_json_format_valid 1
-# TYPE promptpack_no_unnecessary_apologies boolean
-promptpack_no_unnecessary_apologies 1
-# TYPE promptpack_response_has_content boolean
-promptpack_response_has_content 1
-# TYPE promptpack_session_has_substance boolean
-promptpack_session_has_substance 1
+# TYPE promptpack_eval_json_format_valid boolean
+promptpack_eval_json_format_valid 1
+# TYPE promptpack_eval_no_unnecessary_apologies boolean
+promptpack_eval_no_unnecessary_apologies 1
+# TYPE promptpack_eval_response_has_content boolean
+promptpack_eval_response_has_content 1
+# TYPE promptpack_eval_session_has_substance boolean
+promptpack_eval_session_has_substance 1
 ```
 
 ## Key Concepts

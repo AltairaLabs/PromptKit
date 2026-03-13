@@ -1,24 +1,15 @@
 package evals
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
-// wrapperParams are the param keys consumed by wrapper handlers.
-// These are extracted from params before delegating to the inner eval.
-var wrapperParams = map[string]bool{
-	"min_score": true, "max_score": true,
-	"action": true, "direction": true,
-}
+// WrapperTypeAssertion is the eval type name for the assertion wrapper handler.
+const WrapperTypeAssertion = "assertion"
 
-// extractInnerParams returns params with wrapper-specific keys removed.
-func extractInnerParams(params map[string]any) map[string]any {
-	inner := make(map[string]any, len(params))
-	for k, v := range params {
-		if !wrapperParams[k] {
-			inner[k] = v
-		}
-	}
-	return inner
-}
+// WrapperTypeGuardrail is the eval type name for the guardrail wrapper handler.
+const WrapperTypeGuardrail = "guardrail"
 
 // extractOptionalFloat64 extracts a float64 from params, handling int->float64.
 func extractOptionalFloat64(params map[string]any, key string) *float64 {
@@ -48,109 +39,124 @@ func extractParamString(params map[string]any, key, defaultVal string) string {
 	return defaultVal
 }
 
-// AssertionEvalHandler wraps an inner eval and applies pass/fail judgment
-// based on score thresholds from params (min_score, max_score) or from
-// a Threshold injected by the EvalRunner.
-type AssertionEvalHandler struct {
-	Inner     EvalTypeHandler
-	EvalType  string     // the inner eval type name
-	Threshold *Threshold // optional: injected by EvalRunner from EvalDef.Threshold
+// extractEvalParams extracts the nested eval_params map from wrapper params.
+// Returns nil if eval_params is not set or not a map.
+func extractEvalParams(params map[string]any) map[string]any {
+	if ep, ok := params["eval_params"].(map[string]any); ok {
+		return ep
+	}
+	return nil
 }
 
-// Type returns the wrapper type identifier.
-func (h *AssertionEvalHandler) Type() string { return "assertion:" + h.EvalType }
+// AssertionEvalHandler is a registered eval type ("assertion") that wraps an
+// inner eval and applies pass/fail judgment based on score thresholds.
+//
+// Params structure:
+//
+//	{
+//	  "eval_type":  "llm_judge",           // inner eval type (required)
+//	  "eval_params": { "criteria": "..." }, // params for inner eval
+//	  "min_score":  0.8,                    // assertion threshold (optional)
+//	  "max_score":  1.0                     // assertion threshold (optional)
+//	}
+type AssertionEvalHandler struct {
+	registry *EvalTypeRegistry
+}
 
-// Eval executes the inner eval and applies threshold-based pass/fail.
+// Type returns the registered eval type name.
+func (h *AssertionEvalHandler) Type() string { return WrapperTypeAssertion }
+
+// Eval resolves the inner handler from the registry, executes it, and applies
+// threshold-based pass/fail judgment.
 func (h *AssertionEvalHandler) Eval(
 	ctx context.Context, evalCtx *EvalContext, params map[string]any,
 ) (*EvalResult, error) {
-	// Resolve thresholds: Threshold field (from runner) takes precedence over params.
-	minScore, maxScore := h.resolveThresholds(params)
-	innerParams := extractInnerParams(params)
+	evalType, ok := params["eval_type"].(string)
+	if !ok || evalType == "" {
+		return nil, fmt.Errorf("assertion handler requires eval_type param")
+	}
 
-	result, err := h.Inner.Eval(ctx, evalCtx, innerParams)
+	handler, err := h.registry.Get(evalType)
+	if err != nil {
+		return nil, fmt.Errorf("assertion inner eval: %w", err)
+	}
+
+	minScore := extractOptionalFloat64(params, "min_score")
+	maxScore := extractOptionalFloat64(params, "max_score")
+	innerParams := extractEvalParams(params)
+
+	result, err := handler.Eval(ctx, evalCtx, innerParams)
 	if err != nil {
 		return nil, err
 	}
 
-	passed := true
-	if result.Score != nil {
-		if minScore != nil {
-			passed = passed && *result.Score >= *minScore
-		}
-		if maxScore != nil {
-			passed = passed && *result.Score <= *maxScore
-		}
-	}
-
-	// When no explicit thresholds, derive from score
-	if minScore == nil && maxScore == nil {
-		passed = result.IsPassed()
-	}
-
-	result.Passed = passed
-	if result.Details == nil {
-		result.Details = make(map[string]any)
-	}
-	result.Details["passed"] = passed
+	passed := h.applyThresholds(result, minScore, maxScore)
+	result.Value = passed
 	return result, nil
 }
 
-// applyThresholds applies threshold-based pass/fail to an already-computed result.
-// Used by EvalRunner to apply EvalDef.Threshold without re-running the handler.
-func (h *AssertionEvalHandler) applyThresholds(result *EvalResult) {
-	if h.Threshold == nil {
-		return
+// applyThresholds determines pass/fail from score thresholds.
+// When no explicit thresholds are configured, defaults to min_score=1.0
+// (inner eval must fully pass).
+func (h *AssertionEvalHandler) applyThresholds(
+	result *EvalResult, minScore, maxScore *float64,
+) bool {
+	if minScore == nil && maxScore == nil {
+		// Default: inner eval must score 1.0 to pass the assertion.
+		defaultMin := 1.0
+		minScore = &defaultMin
+	}
+	if result.Score == nil {
+		return true
 	}
 	passed := true
-	if result.Score != nil {
-		if h.Threshold.MinScore != nil {
-			passed = passed && *result.Score >= *h.Threshold.MinScore
-		}
-		if h.Threshold.MaxScore != nil {
-			passed = passed && *result.Score <= *h.Threshold.MaxScore
-		}
+	if minScore != nil {
+		passed = passed && *result.Score >= *minScore
 	}
-	if h.Threshold.MinScore == nil && h.Threshold.MaxScore == nil {
-		passed = result.IsPassed()
+	if maxScore != nil {
+		passed = passed && *result.Score <= *maxScore
 	}
-	result.Passed = passed
-	if result.Details == nil {
-		result.Details = make(map[string]any)
-	}
-	result.Details["passed"] = passed
+	return passed
 }
 
-// resolveThresholds returns min/max score from the Threshold field or params.
-func (h *AssertionEvalHandler) resolveThresholds(
-	params map[string]any,
-) (minScore, maxScore *float64) {
-	if h.Threshold != nil {
-		return h.Threshold.MinScore, h.Threshold.MaxScore
-	}
-	return extractOptionalFloat64(params, "min_score"),
-		extractOptionalFloat64(params, "max_score")
-}
-
-// GuardrailEvalHandler wraps an inner eval and applies guardrail judgment.
-// It checks if the eval result indicates a violation (score < 1.0 by default).
+// GuardrailEvalHandler is a registered eval type ("guardrail") that wraps an
+// inner eval and determines whether the guardrail was triggered.
+//
+// Params structure:
+//
+//	{
+//	  "eval_type":   "content_excludes",     // inner eval type (required)
+//	  "eval_params": { "patterns": ["..."] }, // params for inner eval
+//	  "action":      "block",                 // guardrail action (optional, default: "block")
+//	  "min_score":   0.8                      // trigger threshold (optional)
+//	}
 type GuardrailEvalHandler struct {
-	Inner    EvalTypeHandler
-	EvalType string
+	registry *EvalTypeRegistry
 }
 
-// Type returns the wrapper type identifier.
-func (h *GuardrailEvalHandler) Type() string { return "guardrail:" + h.EvalType }
+// Type returns the registered eval type name.
+func (h *GuardrailEvalHandler) Type() string { return WrapperTypeGuardrail }
 
-// Eval executes the inner eval and determines if the guardrail was triggered.
+// Eval resolves the inner handler from the registry, executes it, and determines
+// whether the guardrail was triggered.
 func (h *GuardrailEvalHandler) Eval(
 	ctx context.Context, evalCtx *EvalContext, params map[string]any,
 ) (*EvalResult, error) {
+	evalType, ok := params["eval_type"].(string)
+	if !ok || evalType == "" {
+		return nil, fmt.Errorf("guardrail handler requires eval_type param")
+	}
+
+	handler, err := h.registry.Get(evalType)
+	if err != nil {
+		return nil, fmt.Errorf("guardrail inner eval: %w", err)
+	}
+
 	action := extractParamString(params, "action", "block")
 	minScore := extractOptionalFloat64(params, "min_score")
-	innerParams := extractInnerParams(params)
+	innerParams := extractEvalParams(params)
 
-	result, err := h.Inner.Eval(ctx, evalCtx, innerParams)
+	result, err := handler.Eval(ctx, evalCtx, innerParams)
 	if err != nil {
 		return nil, err
 	}
@@ -160,8 +166,7 @@ func (h *GuardrailEvalHandler) Eval(
 	if minScore != nil && result.Score != nil {
 		triggered = *result.Score < *minScore
 	} else {
-		// Default: triggered if the inner eval failed (score < 1.0)
-		triggered = !result.IsPassed()
+		triggered = result.Score != nil && *result.Score < 1.0
 	}
 
 	if result.Details == nil {
@@ -169,6 +174,5 @@ func (h *GuardrailEvalHandler) Eval(
 	}
 	result.Details["triggered"] = triggered
 	result.Details["action"] = action
-	result.Passed = !triggered
 	return result, nil
 }

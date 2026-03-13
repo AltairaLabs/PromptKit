@@ -28,7 +28,7 @@ func (h *ToolResultHasMediaHandler) Eval(
 	if mediaType == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no media_type specified",
 		}, nil
 	}
@@ -42,7 +42,6 @@ func (h *ToolResultHasMediaHandler) Eval(
 			if strings.EqualFold(p.Type, mediaType) {
 				return &evals.EvalResult{
 					Type:        h.Type(),
-					Passed:      true,
 					Score:       boolScore(true),
 					Explanation: fmt.Sprintf("tool %q returned media of type %q", tc.ToolName, mediaType),
 					Value: map[string]any{
@@ -61,7 +60,6 @@ func (h *ToolResultHasMediaHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      false,
 		Score:       boolScore(false),
 		Explanation: fmt.Sprintf("no tool result contains media of type %q", mediaType),
 		Value: map[string]any{
@@ -95,7 +93,7 @@ func (h *ToolResultMediaTypeHandler) Eval(
 	if mimeType == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
+			Score:       boolScore(false),
 			Explanation: "no mime_type specified",
 		}, nil
 	}
@@ -112,7 +110,6 @@ func (h *ToolResultMediaTypeHandler) Eval(
 			if p.Media != nil && strings.EqualFold(p.Media.MIMEType, mimeType) {
 				return &evals.EvalResult{
 					Type:        h.Type(),
-					Passed:      true,
 					Score:       boolScore(true),
 					Explanation: fmt.Sprintf("tool %q returned media with MIME type %q", tc.ToolName, mimeType),
 					Value: map[string]any{
@@ -131,7 +128,6 @@ func (h *ToolResultMediaTypeHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      false,
 		Score:       boolScore(false),
 		Explanation: fmt.Sprintf("no tool result contains media with MIME type %q", mimeType),
 		Value: map[string]any{

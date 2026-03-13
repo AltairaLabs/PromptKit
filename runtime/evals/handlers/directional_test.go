@@ -21,7 +21,7 @@ func TestDirectional_MissingCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when check is missing")
 	}
 }
@@ -34,7 +34,7 @@ func TestDirectional_UnknownCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail for unknown check")
 	}
 }
@@ -54,7 +54,7 @@ func TestDirectional_SameToolCalls_Match(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass: %s", result.Explanation)
 	}
 }
@@ -73,7 +73,7 @@ func TestDirectional_SameToolCalls_Mismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when tool sets differ")
 	}
 }
@@ -86,7 +86,7 @@ func TestDirectional_SameToolCalls_NoBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass when no baseline: %s", result.Explanation)
 	}
 }
@@ -103,7 +103,7 @@ func TestDirectional_SameOutcome_Match(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass: %s", result.Explanation)
 	}
 }
@@ -120,7 +120,7 @@ func TestDirectional_SameOutcome_Mismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when states differ")
 	}
 }
@@ -133,7 +133,7 @@ func TestDirectional_SameOutcome_NoBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass when no baseline: %s", result.Explanation)
 	}
 }
@@ -148,7 +148,7 @@ func TestDirectional_SameOutcome_MissingExtras(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when workflow_state missing")
 	}
 }
@@ -163,7 +163,7 @@ func TestDirectional_SameOutcome_NilExtras(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when extras is nil")
 	}
 }
@@ -181,11 +181,11 @@ func TestDirectional_SimilarContent_AboveThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
-		t.Errorf("expected pass: %s", result.Explanation)
-	}
 	if result.Score == nil {
 		t.Fatal("expected score to be set")
+	}
+	if *result.Score < 0.5 {
+		t.Errorf("expected score >= 0.5, got %v: %s", *result.Score, result.Explanation)
 	}
 }
 
@@ -202,7 +202,7 @@ func TestDirectional_SimilarContent_BelowThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected fail when content is very different")
 	}
 }
@@ -215,7 +215,7 @@ func TestDirectional_SimilarContent_NoBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass when no baseline: %s", result.Explanation)
 	}
 }
@@ -234,7 +234,7 @@ func TestDirectional_SimilarContent_DefaultThreshold(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// With default threshold 0.5, low overlap should fail
-	if result.Passed {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Errorf("expected fail with default threshold: score=%v", result.Score)
 	}
 }
@@ -252,7 +252,7 @@ func TestDirectional_SimilarContent_IdenticalContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass for identical content: %s", result.Explanation)
 	}
 	if result.Score == nil || *result.Score != 1.0 {
@@ -272,7 +272,7 @@ func TestDirectional_SimilarContent_EmptyBoth(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Both empty word sets → score 1.0
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass for empty content: %s", result.Explanation)
 	}
 }
@@ -291,7 +291,7 @@ func TestDirectional_SameToolCalls_StringSliceParam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Passed {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected pass with []string param: %s", result.Explanation)
 	}
 }

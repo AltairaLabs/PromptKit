@@ -24,7 +24,8 @@ func (h *AgentInvokedHandler) Eval(
 	agents := extractStringSlice(params, "agents")
 	if len(agents) == 0 {
 		return &evals.EvalResult{
-			Type: h.Type(), Passed: false,
+			Type:        h.Type(),
+			Score:       boolScore(false),
 			Explanation: "no agents specified",
 		}, nil
 	}
@@ -53,7 +54,6 @@ func (h *AgentInvokedHandler) Eval(
 	if len(missing) > 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       ratioScore(found, len(agents)),
 			Value:       value,
 			Explanation: fmt.Sprintf("missing agents: %s", strings.Join(missing, ", ")),
@@ -63,7 +63,6 @@ func (h *AgentInvokedHandler) Eval(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       ratioScore(found, len(agents)),
 		Value:       value,
 		Explanation: "all expected agents were invoked",

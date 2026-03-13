@@ -1,12 +1,14 @@
 package evals_test
 
 import (
-	"bytes"
 	"context"
-	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 )
 
 // stubHandler is a configurable eval handler for testing.
@@ -30,15 +32,15 @@ func (h *stubHandler) Eval(
 func float64P(v float64) *float64 { return &v }
 
 func TestE2E_EvalRunner_FullFlow(t *testing.T) {
-	// Setup: Registry → EvalDefs → EvalRunner → MetricResultWriter → MetricCollector
+	// Setup: Registry → EvalDefs → EvalRunner → MetricResultWriter → metrics.Collector
 	registry := evals.NewEmptyEvalTypeRegistry()
 	registry.Register(&stubHandler{
 		evalType: "quality_check",
-		result:   &evals.EvalResult{Passed: true, Score: float64P(0.92)},
+		result:   &evals.EvalResult{Score: float64P(0.92)},
 	})
 	registry.Register(&stubHandler{
 		evalType: "length_check",
-		result:   &evals.EvalResult{Passed: true, MetricValue: float64P(150)},
+		result:   &evals.EvalResult{MetricValue: float64P(150)},
 	})
 
 	defs := []evals.EvalDef{
@@ -56,8 +58,13 @@ func TestE2E_EvalRunner_FullFlow(t *testing.T) {
 		},
 	}
 
-	collector := evals.NewMetricCollector()
-	metricWriter := evals.NewMetricResultWriter(collector, defs)
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
+	metricWriter := evals.NewMetricResultWriter(metricCtx, defs)
 	runner := evals.NewEvalRunner(registry)
 
 	evalCtx := &evals.EvalContext{
@@ -66,32 +73,48 @@ func TestE2E_EvalRunner_FullFlow(t *testing.T) {
 		CurrentOutput: "Hello, how can I help?",
 	}
 
-	// Run evals directly
 	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 
-	// Write results to metrics
 	if err := metricWriter.WriteResults(context.Background(), results); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify metrics via WritePrometheus
-	var buf bytes.Buffer
-	if err := collector.WritePrometheus(&buf); err != nil {
+	// Verify metrics via prometheus registry
+	families, err := reg.Gather()
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	output := buf.String()
-	if !strings.Contains(output, `promptpack_response_quality{session_id="test-session",turn_index="1"} 0.92`) {
-		t.Errorf("expected labeled quality gauge, got:\n%s", output)
+	famByName := make(map[string]*dto.MetricFamily, len(families))
+	for _, fam := range families {
+		famByName[fam.GetName()] = fam
 	}
-	if !strings.Contains(output, "# TYPE promptpack_response_length histogram") {
-		t.Errorf("expected length histogram, got:\n%s", output)
+
+	// Check gauge metric
+	qualityFam, ok := famByName["promptkit_eval_response_quality"]
+	if !ok {
+		t.Fatal("expected promptkit_eval_response_quality metric")
 	}
-	if !strings.Contains(output, `session_id="test-session"`) {
-		t.Errorf("expected session_id label in output, got:\n%s", output)
+	if qualityFam.GetType() != dto.MetricType_GAUGE {
+		t.Errorf("expected gauge, got %v", qualityFam.GetType())
+	}
+	if got := qualityFam.GetMetric()[0].GetGauge().GetValue(); got != 0.92 {
+		t.Errorf("expected 0.92, got %v", got)
+	}
+
+	// Check histogram metric
+	lengthFam, ok := famByName["promptkit_eval_response_length"]
+	if !ok {
+		t.Fatal("expected promptkit_eval_response_length metric")
+	}
+	if lengthFam.GetType() != dto.MetricType_HISTOGRAM {
+		t.Errorf("expected histogram, got %v", lengthFam.GetType())
+	}
+	if got := lengthFam.GetMetric()[0].GetHistogram().GetSampleCount(); got != 1 {
+		t.Errorf("expected sample count 1, got %d", got)
 	}
 }
 
@@ -99,15 +122,15 @@ func TestE2E_PackPromptOverrideResolution(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
 	registry.Register(&stubHandler{
 		evalType: "type_a",
-		result:   &evals.EvalResult{Passed: true, Score: float64P(1.0)},
+		result:   &evals.EvalResult{Score: float64P(1.0)},
 	})
 	registry.Register(&stubHandler{
 		evalType: "type_b_override",
-		result:   &evals.EvalResult{Passed: true, Score: float64P(0.8)},
+		result:   &evals.EvalResult{Score: float64P(0.8)},
 	})
 	registry.Register(&stubHandler{
 		evalType: "type_c",
-		result:   &evals.EvalResult{Passed: false, Score: float64P(0.3)},
+		result:   &evals.EvalResult{Score: float64P(0.3)},
 	})
 
 	packEvals := []evals.EvalDef{
@@ -138,65 +161,8 @@ func TestE2E_PackPromptOverrideResolution(t *testing.T) {
 	if results[1].Type != "type_b_override" {
 		t.Errorf("expected type_b_override, got %q", results[1].Type)
 	}
-	// Verify c ran and failed
-	if results[2].Passed {
-		t.Error("expected eval c to fail")
-	}
-}
-
-func TestE2E_MetricCollector_AllTypes(t *testing.T) {
-	collector := evals.NewMetricCollector()
-
-	// Gauge
-	_ = collector.Record(
-		evals.EvalResult{Score: float64P(0.75)},
-		&evals.MetricDef{Name: "quality_score", Type: evals.MetricGauge},
-	)
-
-	// Counter
-	for range 5 {
-		_ = collector.Record(
-			evals.EvalResult{},
-			&evals.MetricDef{Name: "eval_count", Type: evals.MetricCounter},
-		)
-	}
-
-	// Histogram
-	for _, v := range []float64{0.01, 0.05, 0.1, 0.5, 1.0} {
-		_ = collector.Record(
-			evals.EvalResult{MetricValue: float64P(v)},
-			&evals.MetricDef{Name: "latency_seconds", Type: evals.MetricHistogram},
-		)
-	}
-
-	// Boolean
-	_ = collector.Record(
-		evals.EvalResult{Passed: true},
-		&evals.MetricDef{Name: "safety_check", Type: evals.MetricBoolean},
-	)
-
-	var buf bytes.Buffer
-	if err := collector.WritePrometheus(&buf); err != nil {
-		t.Fatal(err)
-	}
-
-	output := buf.String()
-
-	// Verify all 4 types present
-	checks := []string{
-		"# TYPE promptpack_quality_score gauge",
-		"promptpack_quality_score 0.75",
-		"# TYPE promptpack_eval_count counter",
-		"promptpack_eval_count 5",
-		"# TYPE promptpack_latency_seconds histogram",
-		"promptpack_latency_seconds_count 5",
-		"# TYPE promptpack_safety_check gauge", // boolean rendered as gauge
-		"promptpack_safety_check 1",
-	}
-
-	for _, check := range checks {
-		if !strings.Contains(output, check) {
-			t.Errorf("missing: %q\nin output:\n%s", check, output)
-		}
+	// Verify c ran and had low score
+	if results[2].Score == nil || *results[2].Score >= 1.0 {
+		t.Error("expected eval c to have score < 1.0")
 	}
 }

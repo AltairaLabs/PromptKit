@@ -32,7 +32,6 @@ func (h *GuardrailTriggeredHandler) Eval(
 	if validatorType == "" {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       boolScore(false),
 			Explanation: "validator_type parameter required",
 		}, nil
@@ -46,7 +45,7 @@ func (h *GuardrailTriggeredHandler) Eval(
 	// Check PriorResults — includes both earlier evals in this batch and
 	// pipeline-level guardrail results seeded by BuildEvalContext.
 	if prior := findPriorResult(evalCtx.PriorResults, validatorType); prior != nil {
-		triggered := !prior.IsPassed()
+		triggered := prior.Score != nil && *prior.Score < 1.0
 		return h.buildResult(validatorType, triggered, shouldTrigger), nil
 	}
 
@@ -58,7 +57,6 @@ func (h *GuardrailTriggeredHandler) Eval(
 	}
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      passed,
 		Score:       boolScore(passed),
 		Explanation: msg,
 		Value:       map[string]any{"triggered": false, "validator_type": validatorType},
@@ -77,7 +75,6 @@ func (h *GuardrailTriggeredHandler) buildResult(
 		}
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Passed:      false,
 			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("expected validator %q to %s but it did not", validatorType, action),
 			Value:       map[string]any{"triggered": triggered, "validator_type": validatorType},
@@ -86,7 +83,6 @@ func (h *GuardrailTriggeredHandler) buildResult(
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Passed:      true,
 		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("validator %q behaved as expected", validatorType),
 		Value:       map[string]any{"triggered": triggered, "validator_type": validatorType},

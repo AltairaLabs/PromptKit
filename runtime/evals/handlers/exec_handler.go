@@ -40,7 +40,10 @@ type ExecEvalConfig struct {
 }
 
 // NewExecEvalHandler creates a new ExecEvalHandler from a config.
+// Exec handlers are automatically classified as long-running and external
+// for well-known group filtering.
 func NewExecEvalHandler(cfg *ExecEvalConfig) *ExecEvalHandler {
+	evals.RegisterTypeGroups(cfg.TypeName, []string{evals.GroupLongRunning, evals.GroupExternal})
 	return &ExecEvalHandler{
 		typeName:  cfg.TypeName,
 		command:   cfg.Command,
@@ -102,6 +105,7 @@ func (h *ExecEvalHandler) Eval(
 		}
 		return &evals.EvalResult{
 			Type:        h.typeName,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("exec eval failed: %v%s", err, detail),
 		}, nil
 	}
@@ -110,6 +114,7 @@ func (h *ExecEvalHandler) Eval(
 	if err := json.Unmarshal(stdout, &resp); err != nil {
 		return &evals.EvalResult{
 			Type:        h.typeName,
+			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("exec eval returned invalid JSON: %v", err),
 		}, nil
 	}

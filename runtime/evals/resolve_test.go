@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-
 func TestResolveEvals(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -177,5 +176,259 @@ func TestResolveEvals_OverridePreservesFields(t *testing.T) {
 	}
 	if e.Params["model"] != "claude-3" {
 		t.Errorf("params model: got %v, want claude-3", e.Params["model"])
+	}
+}
+
+func TestDefaultGroupsForType(t *testing.T) {
+	tests := []struct {
+		name       string
+		evalType   string
+		wantGroups []string
+	}{
+		{
+			name:       "fast-running type (contains)",
+			evalType:   "contains",
+			wantGroups: []string{DefaultEvalGroup, GroupFastRunning},
+		},
+		{
+			name:       "fast-running type (regex)",
+			evalType:   "regex",
+			wantGroups: []string{DefaultEvalGroup, GroupFastRunning},
+		},
+		{
+			name:       "fast-running type (json_valid)",
+			evalType:   "json_valid",
+			wantGroups: []string{DefaultEvalGroup, GroupFastRunning},
+		},
+		{
+			name:       "long-running and external (llm_judge)",
+			evalType:   "llm_judge",
+			wantGroups: []string{DefaultEvalGroup, GroupLongRunning, GroupExternal},
+		},
+		{
+			name:       "long-running and external (rest_eval)",
+			evalType:   "rest_eval",
+			wantGroups: []string{DefaultEvalGroup, GroupLongRunning, GroupExternal},
+		},
+		{
+			name:       "long-running and external (a2a_eval_session)",
+			evalType:   "a2a_eval_session",
+			wantGroups: []string{DefaultEvalGroup, GroupLongRunning, GroupExternal},
+		},
+		{
+			name:       "long-running only (cosine_similarity)",
+			evalType:   "cosine_similarity",
+			wantGroups: []string{DefaultEvalGroup, GroupLongRunning},
+		},
+		{
+			name:       "long-running only (outcome_equivalent)",
+			evalType:   "outcome_equivalent",
+			wantGroups: []string{DefaultEvalGroup, GroupLongRunning},
+		},
+		{
+			name:       "unknown type defaults to fast-running",
+			evalType:   "some_unknown_type",
+			wantGroups: []string{DefaultEvalGroup, GroupFastRunning},
+		},
+		{
+			name:       "empty type defaults to fast-running",
+			evalType:   "",
+			wantGroups: []string{DefaultEvalGroup, GroupFastRunning},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DefaultGroupsForType(tt.evalType)
+			if len(got) != len(tt.wantGroups) {
+				t.Fatalf("length mismatch: got %v, want %v", got, tt.wantGroups)
+			}
+			for i, g := range got {
+				if g != tt.wantGroups[i] {
+					t.Errorf("index %d: got %q, want %q", i, g, tt.wantGroups[i])
+				}
+			}
+		})
+	}
+}
+
+func TestDefaultGroupsForType_CustomRegistration(t *testing.T) {
+	// Register a custom type as long-running + external (simulates exec handler)
+	RegisterTypeGroups("my_custom_exec", []string{GroupLongRunning, GroupExternal})
+	defer func() {
+		delete(customTypeGroups, "my_custom_exec")
+	}()
+
+	got := DefaultGroupsForType("my_custom_exec")
+	want := []string{DefaultEvalGroup, GroupLongRunning, GroupExternal}
+	if len(got) != len(want) {
+		t.Fatalf("length mismatch: got %v, want %v", got, want)
+	}
+	for i, g := range got {
+		if g != want[i] {
+			t.Errorf("index %d: got %q, want %q", i, g, want[i])
+		}
+	}
+}
+
+func TestGetGroups_WithTypeClassification(t *testing.T) {
+	tests := []struct {
+		name       string
+		def        EvalDef
+		wantGroups []string
+	}{
+		{
+			name:       "no explicit groups, fast-running type",
+			def:        EvalDef{Type: "contains"},
+			wantGroups: []string{DefaultEvalGroup, GroupFastRunning},
+		},
+		{
+			name:       "no explicit groups, long-running type",
+			def:        EvalDef{Type: "llm_judge"},
+			wantGroups: []string{DefaultEvalGroup, GroupLongRunning, GroupExternal},
+		},
+		{
+			name:       "explicit groups override classification",
+			def:        EvalDef{Type: "llm_judge", Groups: []string{"custom"}},
+			wantGroups: []string{"custom"},
+		},
+		{
+			name:       "explicit groups preserve user choice",
+			def:        EvalDef{Type: "contains", Groups: []string{DefaultEvalGroup, "safety"}},
+			wantGroups: []string{DefaultEvalGroup, "safety"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.def.GetGroups()
+			if len(got) != len(tt.wantGroups) {
+				t.Fatalf("length mismatch: got %v, want %v", got, tt.wantGroups)
+			}
+			for i, g := range got {
+				if g != tt.wantGroups[i] {
+					t.Errorf("index %d: got %q, want %q", i, g, tt.wantGroups[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFilterByGroups(t *testing.T) {
+	tests := []struct {
+		name    string
+		defs    []EvalDef
+		groups  []string
+		wantIDs []string
+	}{
+		{
+			name:    "nil groups returns all",
+			defs:    []EvalDef{{ID: "a"}, {ID: "b"}},
+			groups:  nil,
+			wantIDs: []string{"a", "b"},
+		},
+		{
+			name:    "empty groups returns all",
+			defs:    []EvalDef{{ID: "a"}, {ID: "b"}},
+			groups:  []string{},
+			wantIDs: []string{"a", "b"},
+		},
+		{
+			name:    "empty defs returns empty",
+			defs:    []EvalDef{},
+			groups:  []string{"safety"},
+			wantIDs: []string{},
+		},
+		{
+			name: "default group matches evals with no explicit groups",
+			defs: []EvalDef{
+				{ID: "a"},                             // no groups → default
+				{ID: "b", Groups: []string{"safety"}}, // explicit
+			},
+			groups:  []string{DefaultEvalGroup},
+			wantIDs: []string{"a"},
+		},
+		{
+			name: "single group filter",
+			defs: []EvalDef{
+				{ID: "a", Groups: []string{"safety"}},
+				{ID: "b", Groups: []string{"quality"}},
+				{ID: "c", Groups: []string{"safety", "quality"}},
+			},
+			groups:  []string{"safety"},
+			wantIDs: []string{"a", "c"},
+		},
+		{
+			name: "multiple groups filter",
+			defs: []EvalDef{
+				{ID: "a", Groups: []string{"safety"}},
+				{ID: "b", Groups: []string{"quality"}},
+				{ID: "c", Groups: []string{"latency"}},
+			},
+			groups:  []string{"safety", "quality"},
+			wantIDs: []string{"a", "b"},
+		},
+		{
+			name: "no match returns empty",
+			defs: []EvalDef{
+				{ID: "a", Groups: []string{"safety"}},
+				{ID: "b", Groups: []string{"quality"}},
+			},
+			groups:  []string{"latency"},
+			wantIDs: []string{},
+		},
+		{
+			name: "eval in multiple groups matches any",
+			defs: []EvalDef{
+				{ID: "a", Groups: []string{"safety", "compliance"}},
+			},
+			groups:  []string{"compliance"},
+			wantIDs: []string{"a"},
+		},
+		{
+			name: "well-known group fast-running matches unclassified evals",
+			defs: []EvalDef{
+				{ID: "a", Type: "contains"},   // fast-running (auto)
+				{ID: "b", Type: "llm_judge"},  // long-running + external (auto)
+				{ID: "c", Type: "json_valid"}, // fast-running (auto)
+			},
+			groups:  []string{GroupFastRunning},
+			wantIDs: []string{"a", "c"},
+		},
+		{
+			name: "well-known group long-running matches LLM/external evals",
+			defs: []EvalDef{
+				{ID: "a", Type: "contains"},
+				{ID: "b", Type: "llm_judge"},
+				{ID: "c", Type: "cosine_similarity"},
+			},
+			groups:  []string{GroupLongRunning},
+			wantIDs: []string{"b", "c"},
+		},
+		{
+			name: "well-known group external matches external evals",
+			defs: []EvalDef{
+				{ID: "a", Type: "contains"},
+				{ID: "b", Type: "llm_judge"},
+				{ID: "c", Type: "cosine_similarity"},
+				{ID: "d", Type: "rest_eval"},
+			},
+			groups:  []string{GroupExternal},
+			wantIDs: []string{"b", "d"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FilterByGroups(tt.defs, tt.groups)
+			if len(got) != len(tt.wantIDs) {
+				t.Fatalf("length mismatch: got %d, want %d", len(got), len(tt.wantIDs))
+			}
+			for i, e := range got {
+				if e.ID != tt.wantIDs[i] {
+					t.Errorf("index %d: got ID %q, want %q", i, e.ID, tt.wantIDs[i])
+				}
+			}
+		})
 	}
 }

@@ -70,9 +70,9 @@ func TestArenaAssertionStage_WithPassingAssertion(t *testing.T) {
 		results: []evals.EvalResult{
 			{
 				Type:    "always_pass",
-				Passed:  true,
 				Score:   testutil.Ptr(1.0),
 				Message: "Should always pass",
+				Value:   true,
 				Details: map[string]any{"status": "passed"},
 			},
 		},
@@ -109,7 +109,6 @@ func TestArenaAssertionStage_WithFailingAssertion(t *testing.T) {
 		results: []evals.EvalResult{
 			{
 				Type:    "always_fail",
-				Passed:  false,
 				Score:   testutil.Ptr(0.0),
 				Message: "Should always fail",
 				Details: map[string]any{"status": "failed", "reason": "always fails"},
@@ -146,7 +145,7 @@ func TestArenaAssertionStage_NoAssistantMessage(t *testing.T) {
 
 	runner := &mockTurnEvalRunner{
 		results: []evals.EvalResult{
-			{Type: "always_pass", Passed: true, Score: testutil.Ptr(1.0)},
+			{Type: "always_pass", Score: testutil.Ptr(1.0)},
 		},
 	}
 
@@ -376,16 +375,16 @@ func TestArenaAssertionStage_MultipleAssertions(t *testing.T) {
 		results: []evals.EvalResult{
 			{
 				Type:    "pass1",
-				Passed:  true,
 				Score:   testutil.Ptr(1.0),
 				Message: "First assertion",
+				Value:   true,
 				Details: map[string]any{"status": "passed"},
 			},
 			{
 				Type:    "pass2",
-				Passed:  true,
 				Score:   testutil.Ptr(1.0),
 				Message: "Second assertion",
+				Value:   true,
 				Details: map[string]any{"status": "passed"},
 			},
 		},
@@ -419,16 +418,15 @@ func TestArenaAssertionStage_AllAssertionsRunOnFailure(t *testing.T) {
 		results: []evals.EvalResult{
 			{
 				Type:    "fail_first",
-				Passed:  false,
 				Score:   testutil.Ptr(0.0),
 				Message: "Will fail",
 				Details: map[string]any{"status": "failed"},
 			},
 			{
 				Type:    "also_runs",
-				Passed:  true,
 				Score:   testutil.Ptr(1.0),
 				Message: "Also runs",
+				Value:   true,
 				Details: map[string]any{"status": "passed"},
 			},
 		},
