@@ -440,12 +440,12 @@ func TestEvaluate_MetricRecorder(t *testing.T) {
 
 	var found bool
 	for _, fam := range families {
-		if fam.GetName() == "test_greeting_score" {
+		if fam.GetName() == "test_eval_greeting_score" {
 			found = true
 			break
 		}
 	}
-	assert.True(t, found, "expected test_greeting_score metric in registry")
+	assert.True(t, found, "expected test_eval_greeting_score metric in registry")
 }
 
 func TestEvaluate_MetricsCollector(t *testing.T) {
@@ -482,12 +482,12 @@ func TestEvaluate_MetricsCollector(t *testing.T) {
 
 	var found bool
 	for _, fam := range families {
-		if fam.GetName() == "test_greeting_score" {
+		if fam.GetName() == "test_eval_greeting_score" {
 			found = true
 			break
 		}
 	}
-	assert.True(t, found, "expected test_greeting_score metric in registry")
+	assert.True(t, found, "expected test_eval_greeting_score metric in registry")
 }
 
 func TestEvaluate_MetricsCollector_WithInstanceLabels(t *testing.T) {
@@ -524,7 +524,7 @@ func TestEvaluate_MetricsCollector_WithInstanceLabels(t *testing.T) {
 
 	var found bool
 	for _, fam := range families {
-		if fam.GetName() == "test_greeting_score" {
+		if fam.GetName() == "test_eval_greeting_score" {
 			found = true
 			require.NotEmpty(t, fam.GetMetric())
 			labels := fam.GetMetric()[0].GetLabel()
@@ -534,7 +534,7 @@ func TestEvaluate_MetricsCollector_WithInstanceLabels(t *testing.T) {
 			break
 		}
 	}
-	assert.True(t, found, "expected test_greeting_score metric with tenant label")
+	assert.True(t, found, "expected test_eval_greeting_score metric with tenant label")
 }
 
 func TestEvaluate_MetricsCollector_TakesPrecedence(t *testing.T) {
@@ -578,12 +578,12 @@ func TestEvaluate_MetricsCollector_TakesPrecedence(t *testing.T) {
 	require.NoError(t, gatherErr)
 	var found bool
 	for _, fam := range families {
-		if fam.GetName() == "preferred_greeting_score" {
+		if fam.GetName() == "preferred_eval_greeting_score" {
 			found = true
 			break
 		}
 	}
-	assert.True(t, found, "expected preferred_greeting_score in MetricsCollector registry")
+	assert.True(t, found, "expected preferred_eval_greeting_score in MetricsCollector registry")
 
 	// MetricRecorder's registry should be empty
 	otherFamilies, gatherErr := otherReg.Gather()

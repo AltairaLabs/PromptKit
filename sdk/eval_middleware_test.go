@@ -898,13 +898,13 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 	}
 	var found bool
 	for _, fam := range families {
-		if fam.GetName() == "test_greeting" {
+		if fam.GetName() == "test_eval_greeting" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("expected metric 'test_greeting' in registry")
+		t.Error("expected metric 'test_eval_greeting' in registry")
 	}
 }
 
