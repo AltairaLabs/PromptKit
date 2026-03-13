@@ -35,6 +35,7 @@ func (m *mockTurnEvalRunner) RunAssertionsAsEvals(
 			expected, _ := cfg.Params["state"].(string)
 			if m.currentState == expected {
 				result.Score = floatPtr(1.0)
+				result.Passed = true
 				result.Message = "state matches"
 			} else {
 				result.Score = floatPtr(0.0)
@@ -42,6 +43,7 @@ func (m *mockTurnEvalRunner) RunAssertionsAsEvals(
 			}
 		} else {
 			result.Score = floatPtr(1.0)
+			result.Passed = true
 			result.Message = "unknown assertion type (auto-pass in mock)"
 		}
 		results = append(results, result)

@@ -74,6 +74,7 @@ func (h *PackEvalHook) RunTurnEvals(
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results := h.runner.RunTurnEvals(ctx, h.defs, evalCtx)
+	applyDefaultPassFail(results)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -94,6 +95,7 @@ func (h *PackEvalHook) RunSessionEvals(
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results := h.runner.RunSessionEvals(ctx, h.defs, evalCtx)
+	applyDefaultPassFail(results)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -114,12 +116,17 @@ func (h *PackEvalHook) RunConversationEvals(
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results := h.runner.RunConversationEvals(ctx, h.defs, evalCtx)
+	applyDefaultPassFail(results)
 	return assertions.ConvertEvalResults(results)
 }
 
 // RunAssertionsAsEvals converts assertion configs to EvalDefs and runs them
 // through the runner. Returns raw EvalResults (not converted to assertion format).
 // The trigger parameter overrides the default trigger on each converted def.
+//
+// After the runner returns scores, this method applies assertion pass/fail
+// logic: min_score/max_score thresholds from assertion params take precedence,
+// falling back to IsPassed() (score >= 1.0) when no thresholds are configured.
 func (h *PackEvalHook) RunAssertionsAsEvals(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
@@ -140,13 +147,89 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 
+	var results []evals.EvalResult
 	switch trigger { //nolint:exhaustive // Only conversation and turn triggers are meaningful here
 	case evals.TriggerOnConversationComplete:
-		return h.runner.RunConversationEvals(ctx, defs, evalCtx)
+		results = h.runner.RunConversationEvals(ctx, defs, evalCtx)
 	case evals.TriggerEveryTurn:
-		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
+		results = h.runner.RunTurnEvals(ctx, defs, evalCtx)
 	default:
-		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
+		results = h.runner.RunTurnEvals(ctx, defs, evalCtx)
+	}
+
+	// Apply assertion pass/fail from score thresholds.
+	// Eval handlers return scores only; assertion configs carry
+	// min_score/max_score thresholds that determine pass/fail.
+	applyAssertionPassFail(results, assertionConfigs)
+	return results
+}
+
+// applyDefaultPassFail sets Passed on pack eval results using IsPassed()
+// (score >= 1.0 or nil). This bridges the gap between score-only handlers
+// and the Passed field used by ConvertEvalResults.
+func applyDefaultPassFail(results []evals.EvalResult) {
+	for i := range results {
+		results[i].Passed = results[i].IsPassed() //nolint:staticcheck // bridge score→Passed for ConvertEvalResults
+	}
+}
+
+// applyAssertionPassFail sets Passed on each result based on assertion
+// config thresholds (min_score, max_score). When no thresholds are
+// configured, falls back to IsPassed() (score >= 1.0).
+func applyAssertionPassFail(results []evals.EvalResult, configs []assertions.AssertionConfig) {
+	for i := range results {
+		if i >= len(configs) {
+			break
+		}
+		r := &results[i]
+		if r.Skipped || r.Error != "" {
+			continue
+		}
+		r.Passed = evalPassedWithThresholds(r, configs[i].Params) //nolint:staticcheck // assertion threshold→Passed
+	}
+}
+
+// evalPassedWithThresholds checks min_score/max_score from params against the
+// result score. Returns IsPassed() when no thresholds are configured.
+func evalPassedWithThresholds(r *evals.EvalResult, params map[string]any) bool {
+	minScore := extractFloat64Param(params, "min_score")
+	maxScore := extractFloat64Param(params, "max_score")
+
+	if minScore == nil && maxScore == nil {
+		return r.IsPassed()
+	}
+	if r.Score == nil {
+		return true
+	}
+	if minScore != nil && *r.Score < *minScore {
+		return false
+	}
+	if maxScore != nil && *r.Score > *maxScore {
+		return false
+	}
+	return true
+}
+
+// extractFloat64Param extracts a float64 from a params map, handling int→float64 coercion.
+func extractFloat64Param(params map[string]any, key string) *float64 {
+	if params == nil {
+		return nil
+	}
+	v, ok := params[key]
+	if !ok {
+		return nil
+	}
+	switch n := v.(type) {
+	case float64:
+		return &n
+	case int:
+		f := float64(n)
+		return &f
+	case int64:
+		f := float64(n)
+		return &f
+	default:
+		return nil
 	}
 }
 
