@@ -94,9 +94,9 @@ func TestE2E_EvalRunner_FullFlow(t *testing.T) {
 	}
 
 	// Check gauge metric
-	qualityFam, ok := famByName["promptkit_response_quality"]
+	qualityFam, ok := famByName["promptkit_eval_response_quality"]
 	if !ok {
-		t.Fatal("expected promptkit_response_quality metric")
+		t.Fatal("expected promptkit_eval_response_quality metric")
 	}
 	if qualityFam.GetType() != dto.MetricType_GAUGE {
 		t.Errorf("expected gauge, got %v", qualityFam.GetType())
@@ -106,9 +106,9 @@ func TestE2E_EvalRunner_FullFlow(t *testing.T) {
 	}
 
 	// Check histogram metric
-	lengthFam, ok := famByName["promptkit_response_length"]
+	lengthFam, ok := famByName["promptkit_eval_response_length"]
 	if !ok {
-		t.Fatal("expected promptkit_response_length metric")
+		t.Fatal("expected promptkit_eval_response_length metric")
 	}
 	if lengthFam.GetType() != dto.MetricType_HISTOGRAM {
 		t.Errorf("expected histogram, got %v", lengthFam.GetType())
