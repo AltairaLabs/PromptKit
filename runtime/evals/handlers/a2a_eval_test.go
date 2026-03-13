@@ -36,7 +36,7 @@ func TestA2AEvalHandler_MissingAgentURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for missing agent_url")
 	}
 	if result.Explanation != "a2a_eval requires an 'agent_url' param" {
@@ -134,7 +134,7 @@ func TestA2AEvalHandler_FailedEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false")
 	}
 	if result.Score == nil || *result.Score != 0.2 {
@@ -175,7 +175,7 @@ func TestA2AEvalHandler_AgentError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for agent error")
 	}
 }
@@ -199,7 +199,7 @@ func TestA2AEvalHandler_Timeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for timeout")
 	}
 }
@@ -256,7 +256,7 @@ func TestA2AEvalHandler_AuthToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected Passed=true, got explanation: %s", result.Explanation)
 	}
 }
@@ -384,7 +384,7 @@ func TestA2AEvalHandler_NoTextResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for no text response")
 	}
 	if result.Explanation != "a2a agent returned no text response" {

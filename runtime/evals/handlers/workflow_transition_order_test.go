@@ -31,7 +31,7 @@ func TestWorkflowTransitionOrderHandler_ExactMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass for exact match: %s", result.Explanation)
 	}
 	if result.Details["matched_steps"] != 2 {
@@ -59,7 +59,7 @@ func TestWorkflowTransitionOrderHandler_SubsequenceMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass for subsequence match: %s", result.Explanation)
 	}
 }
@@ -82,7 +82,7 @@ func TestWorkflowTransitionOrderHandler_WrongOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for wrong order")
 	}
 	if result.Details["matched_steps"] != 1 {
@@ -107,7 +107,7 @@ func TestWorkflowTransitionOrderHandler_MissingState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing state 'review'")
 	}
 }
@@ -124,7 +124,7 @@ func TestWorkflowTransitionOrderHandler_NoTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for no transitions in context")
 	}
 	if result.Explanation != "no workflow transitions available in context" {
@@ -146,7 +146,7 @@ func TestWorkflowTransitionOrderHandler_EmptySequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for empty sequence")
 	}
 	if result.Explanation != "missing or empty required param 'sequence'" {
@@ -164,7 +164,7 @@ func TestWorkflowTransitionOrderHandler_MissingSequenceParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing sequence param")
 	}
 }
@@ -186,7 +186,7 @@ func TestWorkflowTransitionOrderHandler_SingleState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass for single state present: %s", result.Explanation)
 	}
 }
@@ -207,7 +207,7 @@ func TestWorkflowTransitionOrderHandler_SingleStateMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for single state not present")
 	}
 }
@@ -226,7 +226,7 @@ func TestWorkflowTransitionOrderHandler_InvalidTransitionsData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for invalid transitions data")
 	}
 	if result.Explanation != "invalid transitions data in context" {
@@ -252,7 +252,7 @@ func TestWorkflowTransitionOrderHandler_StringSliceParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with []string param: %s", result.Explanation)
 	}
 }
@@ -276,7 +276,7 @@ func TestWorkflowTransitionOrderHandler_MalformedTransitionEntries(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass, skipping malformed entries: %s", result.Explanation)
 	}
 }

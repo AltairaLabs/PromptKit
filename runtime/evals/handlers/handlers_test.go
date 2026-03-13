@@ -31,7 +31,7 @@ func TestContainsHandler_AllFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -50,7 +50,7 @@ func TestContainsHandler_Missing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing pattern")
 	}
 }
@@ -64,7 +64,7 @@ func TestContainsHandler_NoPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no patterns")
 	}
 }
@@ -92,7 +92,7 @@ func TestRegexHandler_Match(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected match: %s", result.Explanation)
 	}
 }
@@ -109,7 +109,7 @@ func TestRegexHandler_NoMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected no match")
 	}
 }
@@ -138,7 +138,7 @@ func TestRegexHandler_NoPattern(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no pattern")
 	}
 }
@@ -163,7 +163,7 @@ func TestJSONValidHandler_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -179,7 +179,7 @@ func TestJSONValidHandler_Invalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for invalid JSON")
 	}
 }
@@ -195,7 +195,7 @@ func TestJSONValidHandler_Array(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("JSON array should be valid")
 	}
 }
@@ -230,7 +230,7 @@ func TestJSONSchemaHandler_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -255,7 +255,7 @@ func TestJSONSchemaHandler_Invalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for schema violation")
 	}
 }
@@ -272,7 +272,7 @@ func TestJSONSchemaHandler_NotJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for non-JSON")
 	}
 }
@@ -286,7 +286,7 @@ func TestJSONSchemaHandler_NoSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no schema")
 	}
 }
@@ -305,7 +305,7 @@ func TestJSONValidHandler_AllowWrapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail without allow_wrapped")
 	}
 
@@ -314,7 +314,7 @@ func TestJSONValidHandler_AllowWrapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with allow_wrapped, got: %s", result.Explanation)
 	}
 }
@@ -330,7 +330,7 @@ func TestJSONValidHandler_ExtractJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with extract_json, got: %s", result.Explanation)
 	}
 }
@@ -357,7 +357,7 @@ func TestJSONSchemaHandler_AllowWrapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail without allow_wrapped")
 	}
 
@@ -369,7 +369,7 @@ func TestJSONSchemaHandler_AllowWrapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with allow_wrapped, got: %s", result.Explanation)
 	}
 }
@@ -396,7 +396,7 @@ func TestJSONSchemaHandler_ExtractJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with extract_json, got: %s", result.Explanation)
 	}
 }
@@ -427,7 +427,7 @@ func TestToolsCalledHandler_AllCalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -448,7 +448,7 @@ func TestToolsCalledHandler_Missing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing fetch")
 	}
 }
@@ -470,7 +470,7 @@ func TestToolsCalledHandler_MinCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: only 1 call, need 3")
 	}
 }
@@ -484,7 +484,7 @@ func TestToolsCalledHandler_NoToolNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no tool_names")
 	}
 }
@@ -505,7 +505,7 @@ func TestToolsCalledHandler_LegacyToolsParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with legacy 'tools' param: %s", result.Explanation)
 	}
 }
@@ -535,7 +535,7 @@ func TestToolsNotCalledHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -556,7 +556,7 @@ func TestToolsNotCalledHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: delete was called")
 	}
 }
@@ -576,7 +576,7 @@ func TestToolsNotCalledHandler_LegacyToolsParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with legacy 'tools' param: %s", result.Explanation)
 	}
 }
@@ -600,7 +600,7 @@ func TestToolArgsExcludedSession_ForbiddenArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: mode=debug is forbidden")
 	}
 }
@@ -623,7 +623,7 @@ func TestToolArgsExcludedSession_ForbiddenArgsPass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: mode=normal is not forbidden: %s", result.Explanation)
 	}
 }
@@ -644,7 +644,7 @@ func TestToolArgsExcludedSession_ExcludedArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: key=secret is excluded")
 	}
 }
@@ -668,7 +668,7 @@ func TestToolArgsExcludedSession_ForbiddenArgsStringSlice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: flag=verbose is forbidden")
 	}
 }
@@ -692,7 +692,7 @@ func TestToolArgsExcludedSession_ForbiddenArgsSingleValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: flag=safe is forbidden")
 	}
 }
@@ -714,7 +714,7 @@ func TestToolArgsExcludedSession_ForbiddenArgsMapSliceAny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: mode=debug is forbidden")
 	}
 }
@@ -725,7 +725,7 @@ func TestToolArgsExcludedSession_NoToolName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: no tool_name")
 	}
 }
@@ -738,7 +738,7 @@ func TestToolArgsExcludedSession_NoForbiddenArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("expected pass: no excluded or forbidden args")
 	}
 }
@@ -799,7 +799,7 @@ func TestToolArgsHandler_Match(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -824,7 +824,7 @@ func TestToolArgsHandler_Mismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: args don't match")
 	}
 }
@@ -842,7 +842,7 @@ func TestToolArgsHandler_ToolNotCalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: tool not called")
 	}
 }
@@ -856,7 +856,7 @@ func TestToolArgsHandler_NoToolName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: no tool_name")
 	}
 }
@@ -882,7 +882,7 @@ func TestLatencyBudgetHandler_WithinBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 	if result.Score == nil || *result.Score != 1.0 {
@@ -902,7 +902,7 @@ func TestLatencyBudgetHandler_OverBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: over budget")
 	}
 	if result.Score == nil {
@@ -924,7 +924,7 @@ func TestLatencyBudgetHandler_NoMaxMs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: no max_ms")
 	}
 }
@@ -941,7 +941,7 @@ func TestLatencyBudgetHandler_NoLatencyInMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: no latency_ms in metadata")
 	}
 }
@@ -973,7 +973,7 @@ func TestCosineSimilarityHandler_Identical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 	if result.Score == nil {
@@ -1001,7 +1001,7 @@ func TestCosineSimilarityHandler_Orthogonal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: orthogonal vectors")
 	}
 }
@@ -1023,7 +1023,7 @@ func TestCosineSimilarityHandler_DimensionMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: dimension mismatch")
 	}
 }
@@ -1043,7 +1043,7 @@ func TestCosineSimilarityHandler_NoReference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: no reference")
 	}
 }
@@ -1063,7 +1063,7 @@ func TestCosineSimilarityHandler_NoEmbedding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: no embedding in metadata")
 	}
 }
@@ -1085,7 +1085,7 @@ func TestCosineSimilarityHandler_AnySlice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with []any: %s", result.Explanation)
 	}
 }
@@ -1111,7 +1111,7 @@ func TestMinLengthHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -1128,7 +1128,7 @@ func TestMinLengthHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: output too short")
 	}
 }
@@ -1142,7 +1142,7 @@ func TestMinLengthHandler_ZeroMin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("expected pass: zero min allows empty output")
 	}
 }
@@ -1157,7 +1157,7 @@ func TestMinLengthHandler_ExactLength(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("expected pass: exact length matches min")
 	}
 }
@@ -1172,7 +1172,7 @@ func TestMinLengthHandler_MinCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with min_characters: %s", result.Explanation)
 	}
 }
@@ -1198,7 +1198,7 @@ func TestMaxLengthHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -1215,7 +1215,7 @@ func TestMaxLengthHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: output too long")
 	}
 }
@@ -1229,7 +1229,7 @@ func TestMaxLengthHandler_ZeroMax(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: missing max param")
 	}
 }
@@ -1244,7 +1244,7 @@ func TestMaxLengthHandler_ExactLength(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("expected pass: exact length matches max")
 	}
 }
@@ -1259,7 +1259,7 @@ func TestMaxLengthHandler_MaxCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with max_characters: %s", result.Explanation)
 	}
 }

@@ -74,7 +74,6 @@ func (h *PackEvalHook) RunTurnEvals(
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results := h.runner.RunTurnEvals(ctx, h.defs, evalCtx)
-	applyDefaultPassFail(results)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -95,7 +94,6 @@ func (h *PackEvalHook) RunSessionEvals(
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results := h.runner.RunSessionEvals(ctx, h.defs, evalCtx)
-	applyDefaultPassFail(results)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -116,7 +114,6 @@ func (h *PackEvalHook) RunConversationEvals(
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 	results := h.runner.RunConversationEvals(ctx, h.defs, evalCtx)
-	applyDefaultPassFail(results)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -155,15 +152,6 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
 	default:
 		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
-	}
-}
-
-// applyDefaultPassFail sets Passed on pack eval results using IsPassed()
-// (score >= 1.0 or nil). This bridges the gap between score-only handlers
-// and the Passed field used by ConvertEvalResults.
-func applyDefaultPassFail(results []evals.EvalResult) {
-	for i := range results {
-		results[i].Passed = results[i].IsPassed() //nolint:staticcheck // bridge score→Passed for ConvertEvalResults
 	}
 }
 

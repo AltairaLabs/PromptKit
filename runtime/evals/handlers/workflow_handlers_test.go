@@ -29,7 +29,7 @@ func TestWorkflowCompleteHandler_Complete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -46,7 +46,7 @@ func TestWorkflowCompleteHandler_NotComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for incomplete workflow")
 	}
 }
@@ -61,7 +61,7 @@ func TestWorkflowCompleteHandler_Missing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing data")
 	}
 }
@@ -89,7 +89,7 @@ func TestWorkflowStateIsHandler_Match(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -108,7 +108,7 @@ func TestWorkflowStateIsHandler_Mismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for state mismatch")
 	}
 }
@@ -121,7 +121,7 @@ func TestWorkflowStateIsHandler_NoState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail when no state available")
 	}
 }
@@ -134,7 +134,7 @@ func TestWorkflowStateIsHandler_MissingParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with missing param")
 	}
 }
@@ -165,7 +165,7 @@ func TestWorkflowTransitionedToHandler_Found(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -186,7 +186,7 @@ func TestWorkflowTransitionedToHandler_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing transition")
 	}
 }
@@ -203,7 +203,7 @@ func TestWorkflowTransitionedToHandler_NoTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for no transitions")
 	}
 }

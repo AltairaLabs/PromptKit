@@ -24,7 +24,7 @@ func TestFieldPresenceHandler_AllFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 	if result.Score == nil || *result.Score != 1.0 {
@@ -42,7 +42,7 @@ func TestFieldPresenceHandler_SomeMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: Email and Phone are missing")
 	}
 	if result.Score == nil {
@@ -69,7 +69,7 @@ func TestFieldPresenceHandler_NoFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("expected pass when no fields to check")
 	}
 }
@@ -84,7 +84,7 @@ func TestFieldPresenceHandler_CaseInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with case-insensitive match: %s", result.Explanation)
 	}
 }

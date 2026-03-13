@@ -287,7 +287,7 @@ func TestEvalMiddleware_EmitResults_NilEmitter(t *testing.T) {
 	}
 
 	// Should not panic with nil emitter
-	mw.emitResults([]evals.EvalResult{{EvalID: "e1", Passed: true}})
+	mw.emitResults([]evals.EvalResult{{EvalID: "e1"}})
 }
 
 func TestEvalMiddleware_WaitBlocksUntilGoroutinesComplete(t *testing.T) {
@@ -296,7 +296,7 @@ func TestEvalMiddleware_WaitBlocksUntilGoroutinesComplete(t *testing.T) {
 	registry.Register(&blockingEvalHandler{
 		typeName: "blocking",
 		started:  started,
-		result:   &evals.EvalResult{Passed: true},
+		result:   &evals.EvalResult{},
 	})
 	runner := evals.NewEvalRunner(registry)
 
@@ -449,7 +449,7 @@ func (h *cancellableEvalHandler) Eval(
 ) (*evals.EvalResult, error) {
 	close(h.started)
 	<-ctx.Done()
-	return &evals.EvalResult{Passed: false, Error: "cancelled"}, nil
+	return &evals.EvalResult{Error: "cancelled"}, nil
 }
 
 // countingEvalHandler increments a counter on each eval call.
@@ -467,7 +467,7 @@ func (h *countingEvalHandler) Eval(
 	h.mu.Lock()
 	*h.count++
 	h.mu.Unlock()
-	return &evals.EvalResult{Passed: true}, nil
+	return &evals.EvalResult{}, nil
 }
 
 func TestEvalMiddleware_SemaphoreSkipsWhenAtCapacity(t *testing.T) {
@@ -694,7 +694,7 @@ func (h *gatedEvalHandler) Eval(
 ) (*evals.EvalResult, error) {
 	h.started <- struct{}{}
 	<-h.unblock
-	return &evals.EvalResult{Passed: true}, nil
+	return &evals.EvalResult{}, nil
 }
 
 func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
@@ -889,7 +889,7 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 
 	// Simulate emitting a result — metric should be recorded.
 	mw.emitResults([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains", Passed: true},
+		{EvalID: "e1", Type: "contains"},
 	})
 
 	families, err := reg.Gather()
@@ -937,7 +937,7 @@ func TestEvalMiddleware_WithoutMetricRecorder(t *testing.T) {
 
 	// Should not panic with nil metricWriter
 	mw.emitResults([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains", Passed: true},
+		{EvalID: "e1", Type: "contains"},
 	})
 }
 
@@ -963,7 +963,7 @@ func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 	}
 
 	mw.emitResults([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains", Passed: true},
+		{EvalID: "e1", Type: "contains"},
 	})
 
 	select {

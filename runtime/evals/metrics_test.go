@@ -40,9 +40,9 @@ func TestMetricResultWriter_SkipsEvalsWithoutMetric(t *testing.T) {
 	writer := NewMetricResultWriter(recorder, defs)
 
 	results := []EvalResult{
-		{EvalID: "e1", Passed: true},
-		{EvalID: "e2", Passed: true, Score: float64Ptr(0.9)},
-		{EvalID: "e3", Passed: true}, // unknown eval ID
+		{EvalID: "e1"},
+		{EvalID: "e2", Score: float64Ptr(0.9)},
+		{EvalID: "e3"}, // unknown eval ID
 	}
 	if err := writer.WriteResults(nil, results); err != nil {
 		t.Fatal(err)

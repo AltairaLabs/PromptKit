@@ -294,8 +294,8 @@ func TestAllAssertionsPassed_WithEvalResults(t *testing.T) {
 			Messages: []types.Message{{
 				Meta: map[string]interface{}{
 					"eval_results": []evals.EvalResult{
-						{EvalID: "e1", Passed: true},
-						{EvalID: "e2", Passed: true},
+						{EvalID: "e1", Value: true},
+						{EvalID: "e2", Value: true},
 					},
 				},
 			}},
@@ -308,8 +308,8 @@ func TestAllAssertionsPassed_WithEvalResults(t *testing.T) {
 			Messages: []types.Message{{
 				Meta: map[string]interface{}{
 					"eval_results": []evals.EvalResult{
-						{EvalID: "e1", Passed: true},
-						{EvalID: "e2", Passed: false},
+						{EvalID: "e1", Value: true},
+						{EvalID: "e2", Value: false},
 					},
 				},
 			}},
@@ -324,7 +324,7 @@ func TestHasAssertions_WithEvalResults(t *testing.T) {
 			Messages: []types.Message{{
 				Meta: map[string]interface{}{
 					"eval_results": []evals.EvalResult{
-						{EvalID: "e1", Passed: true},
+						{EvalID: "e1", Value: true},
 					},
 				},
 			}},
@@ -353,7 +353,7 @@ func TestCountResultsByStatus_ViolationsWithPassingEvalResults(t *testing.T) {
 			Messages: []types.Message{{
 				Meta: map[string]interface{}{
 					"eval_results": []evals.EvalResult{
-						{EvalID: "e1", Passed: true},
+						{EvalID: "e1", Value: true},
 					},
 				},
 			}},

@@ -37,7 +37,7 @@ func TestToolResultHasMediaHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -62,7 +62,7 @@ func TestToolResultHasMediaHandler_PassAudio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -87,7 +87,7 @@ func TestToolResultHasMediaHandler_FailWrongType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for wrong media type")
 	}
 }
@@ -112,7 +112,7 @@ func TestToolResultHasMediaHandler_FailWrongTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for wrong tool name")
 	}
 }
@@ -123,7 +123,7 @@ func TestToolResultHasMediaHandler_NoMediaType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no media_type")
 	}
 }
@@ -143,7 +143,7 @@ func TestToolResultHasMediaHandler_NilResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for nil result")
 	}
 }
@@ -163,7 +163,7 @@ func TestToolResultHasMediaHandler_StringResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for string result")
 	}
 }
@@ -187,7 +187,7 @@ func TestToolResultHasMediaHandler_NoToolFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass without tool filter: %s", result.Explanation)
 	}
 }
@@ -212,7 +212,7 @@ func TestToolResultHasMediaHandler_CaseInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with case-insensitive media_type: %s", result.Explanation)
 	}
 }
@@ -246,7 +246,7 @@ func TestToolResultMediaTypeHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -271,7 +271,7 @@ func TestToolResultMediaTypeHandler_FailWrongMIME(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for wrong MIME type")
 	}
 }
@@ -282,7 +282,7 @@ func TestToolResultMediaTypeHandler_NoMIMEType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no mime_type")
 	}
 }
@@ -307,7 +307,7 @@ func TestToolResultMediaTypeHandler_SkipsTextParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail when only text parts exist")
 	}
 }
@@ -327,7 +327,7 @@ func TestToolResultMediaTypeHandler_NilResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for nil result")
 	}
 }
@@ -351,7 +351,7 @@ func TestToolResultMediaTypeHandler_NoToolFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass without tool filter: %s", result.Explanation)
 	}
 }
@@ -376,7 +376,7 @@ func TestToolResultMediaTypeHandler_CaseInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with case-insensitive mime_type: %s", result.Explanation)
 	}
 }
@@ -401,7 +401,7 @@ func TestToolResultMediaTypeHandler_WrongTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for wrong tool name")
 	}
 }

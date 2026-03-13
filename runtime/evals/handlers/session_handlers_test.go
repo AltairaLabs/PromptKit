@@ -38,7 +38,7 @@ func TestContentExcludesHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -60,7 +60,7 @@ func TestContentExcludesHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for forbidden content")
 	}
 }
@@ -82,7 +82,7 @@ func TestContentExcludesHandler_IgnoresUserMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("should ignore user messages")
 	}
 }
@@ -100,7 +100,7 @@ func TestContentExcludesHandler_NoPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("no patterns should pass")
 	}
 }
@@ -127,7 +127,7 @@ func TestContainsAnyHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -149,7 +149,7 @@ func TestContainsAnyHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail")
 	}
 }
@@ -170,7 +170,7 @@ func TestContainsAnyHandler_CaseInsensitive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("case-insensitive match should pass")
 	}
 }
@@ -188,7 +188,7 @@ func TestContainsAnyHandler_NoPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("no patterns should fail")
 	}
 }
@@ -215,7 +215,7 @@ func TestToolsCalledSessionHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -236,7 +236,7 @@ func TestToolsCalledSessionHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing fetch")
 	}
 }
@@ -258,7 +258,7 @@ func TestToolsCalledSessionHandler_MinCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: only 1 call but need 2")
 	}
 }
@@ -283,7 +283,7 @@ func TestToolsNotCalledSessionHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -305,7 +305,7 @@ func TestToolsNotCalledSessionHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: delete was called")
 	}
 }
@@ -340,7 +340,7 @@ func TestToolArgsSessionHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -370,7 +370,7 @@ func TestToolArgsSessionHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: args don't match")
 	}
 }
@@ -392,7 +392,7 @@ func TestToolArgsSessionHandler_ToolNotCalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: tool not called")
 	}
 }
@@ -406,7 +406,7 @@ func TestToolArgsSessionHandler_NoToolName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: no tool_name")
 	}
 }
@@ -440,7 +440,7 @@ func TestToolArgsExcludedSessionHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -470,7 +470,7 @@ func TestToolArgsExcludedSessionHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: excluded args found")
 	}
 }
@@ -484,7 +484,7 @@ func TestToolArgsExcludedSessionHandler_NoToolName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: no tool_name")
 	}
 }
@@ -500,7 +500,7 @@ func TestToolArgsExcludedSessionHandler_NoExcludedArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("no excluded_args should pass")
 	}
 }

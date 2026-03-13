@@ -39,7 +39,7 @@ func TestNoToolErrorsHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -57,7 +57,7 @@ func TestNoToolErrorsHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for tool error")
 	}
 }
@@ -78,7 +78,7 @@ func TestNoToolErrorsHandler_ScopedTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("expected pass when scoped to fetch")
 	}
 }
@@ -108,7 +108,7 @@ func TestToolCallCountHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -127,7 +127,7 @@ func TestToolCallCountHandler_BelowMin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail below min")
 	}
 }
@@ -148,7 +148,7 @@ func TestToolCallCountHandler_AboveMax(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail above max")
 	}
 }
@@ -177,7 +177,7 @@ func TestToolResultIncludesHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -197,7 +197,7 @@ func TestToolResultIncludesHandler_MissingPattern(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing pattern")
 	}
 }
@@ -208,7 +208,7 @@ func TestToolResultIncludesHandler_NoPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no patterns")
 	}
 }
@@ -237,7 +237,7 @@ func TestToolResultMatchesHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -257,7 +257,7 @@ func TestToolResultMatchesHandler_NoMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for no match")
 	}
 }
@@ -270,7 +270,7 @@ func TestToolResultMatchesHandler_InvalidRegex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for invalid regex")
 	}
 }
@@ -281,7 +281,7 @@ func TestToolResultMatchesHandler_NoPattern(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no pattern")
 	}
 }
@@ -311,7 +311,7 @@ func TestToolCallSequenceHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -335,7 +335,7 @@ func TestToolCallSequenceHandler_Fail(t *testing.T) {
 	// but then "process" has already passed, so it can't match. Actually wait — subsequence check:
 	// we look for "search" first. tc[0] is "process" → no match. tc[1] is "search" → match (1/2).
 	// Then we look for "process" — no more calls. So matched=1 < 2, fail.
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for wrong order")
 	}
 }
@@ -346,7 +346,7 @@ func TestToolCallSequenceHandler_EmptySequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("empty sequence should pass")
 	}
 }
@@ -378,7 +378,7 @@ func TestToolCallChainHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -400,7 +400,7 @@ func TestToolCallChainHandler_IncompleteChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for incomplete chain")
 	}
 }
@@ -421,7 +421,7 @@ func TestToolCallChainHandler_StepViolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for step constraint violation")
 	}
 }
@@ -432,7 +432,7 @@ func TestToolCallChainHandler_EmptySteps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("empty chain should pass")
 	}
 }
@@ -461,7 +461,7 @@ func TestToolCallsWithArgsHandler_ExactArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -481,7 +481,7 @@ func TestToolCallsWithArgsHandler_ArgMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for arg mismatch")
 	}
 }
@@ -501,7 +501,7 @@ func TestToolCallsWithArgsHandler_PatternArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -520,7 +520,7 @@ func TestToolCallsWithArgsHandler_ToolNotCalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail when tool not called")
 	}
 }
@@ -541,7 +541,7 @@ func TestToolCallsWithArgsHandler_ResultConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -561,7 +561,7 @@ func TestToolCallsWithArgsHandler_ErrorViolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for tool error")
 	}
 }
@@ -583,7 +583,7 @@ func TestToolCallsWithArgsHandler_PatternMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing argument in pattern match")
 	}
 }
@@ -603,7 +603,7 @@ func TestToolCallsWithArgsHandler_PatternInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for invalid pattern")
 	}
 }
@@ -623,7 +623,7 @@ func TestToolCallsWithArgsHandler_PatternMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for pattern mismatch")
 	}
 }
@@ -645,7 +645,7 @@ func TestToolCallsWithArgsHandler_ExactArgMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing argument")
 	}
 }
@@ -666,7 +666,7 @@ func TestToolCallsWithArgsHandler_ExactArgNilExpected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass when expected is nil (existence check): %s", result.Explanation)
 	}
 }
@@ -688,7 +688,7 @@ func TestToolCallsWithArgsHandler_ResultIncludesMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing result pattern")
 	}
 }
@@ -708,7 +708,7 @@ func TestToolCallsWithArgsHandler_ResultMatchesInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for invalid result_matches regex")
 	}
 }
@@ -728,7 +728,7 @@ func TestToolCallsWithArgsHandler_ResultMatchesMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for result_matches mismatch")
 	}
 }
@@ -748,7 +748,7 @@ func TestToolCallsWithArgsHandler_NoToolNameMatchesAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass matching all tools: %s", result.Explanation)
 	}
 }

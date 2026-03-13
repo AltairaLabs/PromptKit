@@ -112,8 +112,10 @@ func ConvertEvalResults(results []evals.EvalResult) []ConversationValidationResu
 
 // convertOneEvalResult converts a single EvalResult to ConversationValidationResult.
 func convertOneEvalResult(r *evals.EvalResult) ConversationValidationResult {
+	passed, _ := r.Value.(bool)
+
 	msg := r.Explanation
-	if !r.Passed && r.Error != "" {
+	if !passed && r.Error != "" {
 		msg = r.Error
 	}
 
@@ -139,7 +141,7 @@ func convertOneEvalResult(r *evals.EvalResult) ConversationValidationResult {
 
 	return ConversationValidationResult{
 		Type:    fmt.Sprintf("%s%s", PackEvalTypePrefix, r.Type),
-		Passed:  r.Passed,
+		Passed:  passed,
 		Message: msg,
 		Details: details,
 	}

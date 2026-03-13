@@ -36,11 +36,11 @@ func TestE2E_EvalRunner_FullFlow(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
 	registry.Register(&stubHandler{
 		evalType: "quality_check",
-		result:   &evals.EvalResult{Passed: true, Score: float64P(0.92)},
+		result:   &evals.EvalResult{Score: float64P(0.92)},
 	})
 	registry.Register(&stubHandler{
 		evalType: "length_check",
-		result:   &evals.EvalResult{Passed: true, MetricValue: float64P(150)},
+		result:   &evals.EvalResult{MetricValue: float64P(150)},
 	})
 
 	defs := []evals.EvalDef{
@@ -122,15 +122,15 @@ func TestE2E_PackPromptOverrideResolution(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
 	registry.Register(&stubHandler{
 		evalType: "type_a",
-		result:   &evals.EvalResult{Passed: true, Score: float64P(1.0)},
+		result:   &evals.EvalResult{Score: float64P(1.0)},
 	})
 	registry.Register(&stubHandler{
 		evalType: "type_b_override",
-		result:   &evals.EvalResult{Passed: true, Score: float64P(0.8)},
+		result:   &evals.EvalResult{Score: float64P(0.8)},
 	})
 	registry.Register(&stubHandler{
 		evalType: "type_c",
-		result:   &evals.EvalResult{Passed: false, Score: float64P(0.3)},
+		result:   &evals.EvalResult{Score: float64P(0.3)},
 	})
 
 	packEvals := []evals.EvalDef{
@@ -161,8 +161,8 @@ func TestE2E_PackPromptOverrideResolution(t *testing.T) {
 	if results[1].Type != "type_b_override" {
 		t.Errorf("expected type_b_override, got %q", results[1].Type)
 	}
-	// Verify c ran and failed
-	if results[2].Passed {
-		t.Error("expected eval c to fail")
+	// Verify c ran and had low score
+	if results[2].Score == nil || *results[2].Score >= 1.0 {
+		t.Error("expected eval c to have score < 1.0")
 	}
 }

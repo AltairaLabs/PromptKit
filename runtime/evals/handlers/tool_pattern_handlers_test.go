@@ -22,7 +22,7 @@ func TestToolAntiPatternHandler_NoPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatal("expected pass with no patterns")
 	}
 }
@@ -49,7 +49,7 @@ func TestToolAntiPatternHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -74,7 +74,7 @@ func TestToolAntiPatternHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for detected anti-pattern")
 	}
 	if result.Details == nil {
@@ -100,7 +100,7 @@ func TestToolAntiPatternHandler_MultiplePatterns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — first pattern matches")
 	}
 	violations := result.Details["violations"].([]map[string]any)
@@ -131,7 +131,7 @@ func TestToolNoRepeatHandler_Pass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass — no consecutive repeats: %s", result.Explanation)
 	}
 }
@@ -148,7 +148,7 @@ func TestToolNoRepeatHandler_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for consecutive repeats")
 	}
 }
@@ -169,7 +169,7 @@ func TestToolNoRepeatHandler_CustomMaxRepeats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — 3 consecutive exceeds max_repeats=2")
 	}
 
@@ -180,7 +180,7 @@ func TestToolNoRepeatHandler_CustomMaxRepeats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass — 3 consecutive within max_repeats=3: %s", result.Explanation)
 	}
 }
@@ -201,7 +201,7 @@ func TestToolNoRepeatHandler_ScopedTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass — search repeats not in scope: %s", result.Explanation)
 	}
 }
@@ -221,7 +221,7 @@ func TestToolEfficiencyHandler_NoThresholds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no thresholds")
 	}
 }
@@ -260,7 +260,7 @@ func TestToolEfficiencyHandler_MaxCalls_Fail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — 3 calls exceed max_calls=2")
 	}
 }
@@ -282,7 +282,7 @@ func TestToolEfficiencyHandler_ErrorRate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — 50% error rate exceeds 25%")
 	}
 
@@ -293,7 +293,7 @@ func TestToolEfficiencyHandler_ErrorRate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass — 50%% error rate within 60%%: %s", result.Explanation)
 	}
 }
@@ -315,7 +315,7 @@ func TestCostBudgetHandler_NoThresholds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no thresholds")
 	}
 }
@@ -353,7 +353,7 @@ func TestCostBudgetHandler_CostFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — cost exceeds budget")
 	}
 }
@@ -374,7 +374,7 @@ func TestCostBudgetHandler_TokenLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — total tokens exceed limit")
 	}
 }

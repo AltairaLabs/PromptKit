@@ -210,8 +210,8 @@ func TestHandlerEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Eval returned error: %v", err)
 	}
-	if !result.IsPassed() {
-		t.Error("expected IsPassed()=true")
+	if result.Score == nil || *result.Score < 1.0 {
+		t.Error("expected score >= 1.0")
 	}
 	if result.EvalID != "test" {
 		t.Errorf("got EvalID=%q, want %q", result.EvalID, "test")

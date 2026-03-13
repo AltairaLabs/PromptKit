@@ -63,7 +63,7 @@ func (s *scoringHandler) Type() string { return s.typeName }
 func (s *scoringHandler) Eval(
 	_ context.Context, _ *EvalContext, _ map[string]any,
 ) (*EvalResult, error) {
-	return &EvalResult{Passed: true, Score: &s.score}, nil
+	return &EvalResult{Score: &s.score}, nil
 }
 
 func newTestRegistry(handlers ...EvalTypeHandler) *EvalTypeRegistry {
@@ -104,7 +104,7 @@ func TestRunTurnEvals_Basic(t *testing.T) {
 	if results[0].EvalID != "e1" {
 		t.Errorf("got EvalID %q, want %q", results[0].EvalID, "e1")
 	}
-	if !results[0].IsPassed() {
+	if !(results[0].Score != nil && *results[0].Score >= 1.0) {
 		t.Error("expected IsPassed()=true")
 	}
 }
@@ -318,13 +318,13 @@ func TestRunTurnEvals_MultipleEvals(t *testing.T) {
 	if len(results) != 3 {
 		t.Fatalf("got %d results, want 3", len(results))
 	}
-	if !results[0].IsPassed() {
+	if !(results[0].Score != nil && *results[0].Score >= 1.0) {
 		t.Error("e1 should pass")
 	}
 	if results[1].Error == "" {
 		t.Error("e2 should have error")
 	}
-	if !results[2].IsPassed() {
+	if !(results[2].Score != nil && *results[2].Score >= 1.0) {
 		t.Error("e3 should pass")
 	}
 }
@@ -439,7 +439,7 @@ func TestRunConversationEvals_Basic(t *testing.T) {
 	if results[0].EvalID != "conv-check" {
 		t.Errorf("got EvalID %q, want %q", results[0].EvalID, "conv-check")
 	}
-	if !results[0].IsPassed() {
+	if !(results[0].Score != nil && *results[0].Score >= 1.0) {
 		t.Error("expected IsPassed()=true")
 	}
 }
@@ -487,7 +487,7 @@ func (p *priorCapturingHandler) Eval(
 	_ context.Context, evalCtx *EvalContext, _ map[string]any,
 ) (*EvalResult, error) {
 	p.capturedPrior = append(p.capturedPrior, evalCtx.PriorResults...)
-	return &EvalResult{Passed: true, Score: &p.score}, nil
+	return &EvalResult{Score: &p.score}, nil
 }
 
 func TestRunTurnEvals_PriorResultsAccumulate(t *testing.T) {

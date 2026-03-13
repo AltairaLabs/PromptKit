@@ -24,7 +24,7 @@ func TestConvertEvalResults_PassingResult(t *testing.T) {
 		{
 			EvalID:      "eval-1",
 			Type:        "contains",
-			Passed:      true,
+			Value:       true,
 			Score:       &score,
 			Explanation: "Content contains expected text",
 			DurationMs:  42,
@@ -77,7 +77,7 @@ func TestConvertEvalResults_MultipleResults(t *testing.T) {
 		{
 			EvalID:      "eval-a",
 			Type:        "contains",
-			Passed:      true,
+			Value:       true,
 			Score:       &passScore,
 			Explanation: "ok",
 			DurationMs:  10,
@@ -85,7 +85,7 @@ func TestConvertEvalResults_MultipleResults(t *testing.T) {
 		{
 			EvalID:      "eval-b",
 			Type:        "cosine_similarity",
-			Passed:      true,
+			Value:       true,
 			Score:       &passScore,
 			MetricValue: &metricVal,
 			Explanation: "similarity check passed",

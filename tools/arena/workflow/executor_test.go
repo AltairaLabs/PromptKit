@@ -31,19 +31,23 @@ func (m *mockTurnEvalRunner) RunAssertionsAsEvals(
 			EvalID: cfg.Type,
 			Type:   cfg.Type,
 		}
+		if result.Details == nil {
+			result.Details = map[string]any{}
+		}
 		if cfg.Type == "state_is" {
 			expected, _ := cfg.Params["state"].(string)
 			if m.currentState == expected {
 				result.Score = floatPtr(1.0)
-				result.Passed = true
+				result.Value = true
 				result.Message = "state matches"
 			} else {
 				result.Score = floatPtr(0.0)
+				result.Value = false
 				result.Message = "state mismatch: expected " + expected + ", got " + m.currentState
 			}
 		} else {
 			result.Score = floatPtr(1.0)
-			result.Passed = true
+			result.Value = true
 			result.Message = "unknown assertion type (auto-pass in mock)"
 		}
 		results = append(results, result)

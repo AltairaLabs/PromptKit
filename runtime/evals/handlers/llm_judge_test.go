@@ -417,7 +417,7 @@ func TestLLMJudgeSessionHandler_NoAssistantMessages(t *testing.T) {
 			mock.opts.Content,
 		)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected passed=false")
 	}
 }

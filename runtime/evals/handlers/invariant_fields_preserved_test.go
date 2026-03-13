@@ -22,7 +22,7 @@ func TestInvariantFieldsPreserved_MissingParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with missing params")
 	}
 
@@ -33,7 +33,7 @@ func TestInvariantFieldsPreserved_MissingParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with missing fields param")
 	}
 
@@ -44,7 +44,7 @@ func TestInvariantFieldsPreserved_MissingParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with missing tool param")
 	}
 }
@@ -63,7 +63,7 @@ func TestInvariantFieldsPreserved_NoMatchingToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with no matching tool calls: %s", result.Explanation)
 	}
 }
@@ -82,7 +82,7 @@ func TestInvariantFieldsPreserved_SingleCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with single call: %s", result.Explanation)
 	}
 }
@@ -103,7 +103,7 @@ func TestInvariantFieldsPreserved_FieldsPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass — fields preserved: %s", result.Explanation)
 	}
 }
@@ -123,7 +123,7 @@ func TestInvariantFieldsPreserved_FieldDisappears(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — 'id' disappeared in second call")
 	}
 	violations := result.Details["violations"].([]map[string]any)
@@ -151,7 +151,7 @@ func TestInvariantFieldsPreserved_FieldNeverPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass — 'id' was never present, so not lost: %s", result.Explanation)
 	}
 }
@@ -172,7 +172,7 @@ func TestInvariantFieldsPreserved_MultipleFieldsMixed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — 'id' lost at call 1, 'email' lost at call 2")
 	}
 	violations := result.Details["violations"].([]map[string]any)
@@ -197,7 +197,7 @@ func TestInvariantFieldsPreserved_OtherToolCallsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass — other tool calls should be ignored: %s", result.Explanation)
 	}
 }
@@ -218,7 +218,7 @@ func TestInvariantFieldsPreserved_FieldAppearsLater(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass — 'id' appeared later and was preserved: %s", result.Explanation)
 	}
 }
@@ -239,7 +239,7 @@ func TestInvariantFieldsPreserved_FieldAppearsAndDisappears(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail — 'id' appeared at call 1 then disappeared at call 2")
 	}
 }
@@ -260,7 +260,7 @@ func TestInvariantFieldsPreserved_StringSliceFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with []string fields: %s", result.Explanation)
 	}
 }

@@ -272,7 +272,9 @@ func main() {
 func printResults(results []evals.EvalResult) {
 	for _, r := range results {
 		status := "PASS"
-		if !r.Passed {
+		if passed, ok := r.Value.(bool); ok && !passed {
+			status = "FAIL"
+		} else if r.Score != nil && *r.Score < 1.0 {
 			status = "FAIL"
 		}
 		fmt.Printf("  [%s] %s — %s\n", status, r.EvalID, r.Explanation)

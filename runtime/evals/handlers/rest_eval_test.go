@@ -36,7 +36,7 @@ func TestRestEvalHandler_MissingURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for missing URL")
 	}
 	if result.Explanation != "rest_eval requires a 'url' param" {
@@ -126,7 +126,7 @@ func TestRestEvalHandler_FailedEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false")
 	}
 	if result.Score == nil || *result.Score != 0.2 {
@@ -150,7 +150,7 @@ func TestRestEvalHandler_NonOKStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for 500 status")
 	}
 	if result.Type != "rest_eval" {
@@ -173,7 +173,7 @@ func TestRestEvalHandler_InvalidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for invalid JSON")
 	}
 }
@@ -197,7 +197,7 @@ func TestRestEvalHandler_Timeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Error("expected Passed=false for timeout")
 	}
 }
@@ -234,7 +234,7 @@ func TestRestEvalHandler_EnvVarHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Errorf("expected Passed=true, got explanation: %s", result.Explanation)
 	}
 }

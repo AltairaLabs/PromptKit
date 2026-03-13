@@ -413,10 +413,11 @@ func emitEvalEvents(bus *events.EventBus, sessionID string, results []evals.Eval
 func emitEvalResultsTo(emitter *events.Emitter, results []evals.EvalResult) {
 	for i := range results {
 		r := &results[i]
+		passed, _ := r.Value.(bool)
 		data := events.EvalEventData{
 			EvalID:      r.EvalID,
 			EvalType:    r.Type,
-			Passed:      r.IsPassed(),
+			Passed:      passed,
 			Score:       r.Score,
 			Explanation: r.Explanation,
 			DurationMs:  r.DurationMs,

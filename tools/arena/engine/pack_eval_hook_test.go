@@ -18,7 +18,11 @@ type testEvalHandler struct{}
 func (h *testEvalHandler) Type() string { return "test_handler" }
 
 func (h *testEvalHandler) Eval(_ context.Context, _ *evals.EvalContext, _ map[string]any) (*evals.EvalResult, error) {
-	return &evals.EvalResult{Passed: true, EvalID: "test", Type: "test_handler"}, nil
+	return &evals.EvalResult{
+		EvalID: "test",
+		Type:   "test_handler",
+		Value:  true,
+	}, nil
 }
 
 // newTestRegistry returns a registry with the testEvalHandler and wrapper handlers registered.
@@ -254,7 +258,9 @@ func TestRunAssertionsAsEvals_ConversationTrigger(t *testing.T) {
 		evals.TriggerOnConversationComplete)
 	require.NotNil(t, results)
 	assert.Len(t, results, 1)
-	assert.True(t, results[0].IsPassed())
+	passed, ok := results[0].Value.(bool)
+	assert.True(t, ok, "Value should be a bool")
+	assert.True(t, passed, "assertion should have passed")
 }
 
 func TestRunAssertionsAsEvals_TurnTrigger(t *testing.T) {

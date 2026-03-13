@@ -223,7 +223,6 @@ func TestEvalResult_JSON(t *testing.T) {
 	r := EvalResult{
 		EvalID:      "tone-check",
 		Type:        "llm_judge",
-		Passed:      true,
 		Score:       testutil.Ptr(0.95),
 		MetricValue: testutil.Ptr(0.95),
 		Explanation: "Tone is professional",
@@ -241,9 +240,6 @@ func TestEvalResult_JSON(t *testing.T) {
 	if decoded.EvalID != r.EvalID {
 		t.Errorf("EvalID = %q, want %q", decoded.EvalID, r.EvalID)
 	}
-	if decoded.IsPassed() != r.IsPassed() {
-		t.Errorf("IsPassed() = %v, want %v", decoded.IsPassed(), r.IsPassed())
-	}
 	if decoded.Score == nil || *decoded.Score != *r.Score {
 		t.Errorf("Score = %v, want %v", decoded.Score, r.Score)
 	}
@@ -253,7 +249,6 @@ func TestEvalResult_ErrorField(t *testing.T) {
 	r := EvalResult{
 		EvalID:     "broken",
 		Type:       "contains",
-		Passed:     false,
 		DurationMs: 5,
 		Error:      "handler panicked",
 	}
@@ -274,7 +269,6 @@ func TestEvalResult_OmitsNilOptionals(t *testing.T) {
 	r := EvalResult{
 		EvalID:     "check",
 		Type:       "regex",
-		Passed:     true,
 		DurationMs: 3,
 	}
 	data, err := json.Marshal(r)
@@ -521,7 +515,6 @@ func TestEvalResult_ExtendedFields(t *testing.T) {
 	r := EvalResult{
 		EvalID:  "check",
 		Type:    "test",
-		Passed:  false,
 		Message: "assertion failed",
 		Details: map[string]any{"expected": "foo", "got": "bar"},
 		Violations: []EvalViolation{
@@ -562,7 +555,6 @@ func TestEvalResult_OmitsNewOptionals(t *testing.T) {
 	r := EvalResult{
 		EvalID:     "check",
 		Type:       "test",
-		Passed:     true,
 		DurationMs: 3,
 	}
 	data, err := json.Marshal(r)

@@ -144,7 +144,8 @@ func AllAssertionsPassed(result *engine.RunResult) bool {
 			// Also check eval results (Phase 3 dual-write)
 			if evalResults, ok := meta["eval_results"].([]evals.EvalResult); ok {
 				for j := range evalResults {
-					if !evalResults[j].Passed {
+					passed, _ := evalResults[j].Value.(bool)
+					if !passed {
 						return false
 					}
 				}

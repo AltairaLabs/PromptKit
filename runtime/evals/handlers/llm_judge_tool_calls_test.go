@@ -49,7 +49,7 @@ func TestLLMJudgeToolCallsHandler_NoToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass (skip) with no tool calls: %s", result.Explanation)
 	}
 	if !result.Skipped {

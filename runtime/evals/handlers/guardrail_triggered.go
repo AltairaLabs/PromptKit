@@ -45,7 +45,7 @@ func (h *GuardrailTriggeredHandler) Eval(
 	// Check PriorResults — includes both earlier evals in this batch and
 	// pipeline-level guardrail results seeded by BuildEvalContext.
 	if prior := findPriorResult(evalCtx.PriorResults, validatorType); prior != nil {
-		triggered := !prior.IsPassed()
+		triggered := prior.Score != nil && *prior.Score < 1.0
 		return h.buildResult(validatorType, triggered, shouldTrigger), nil
 	}
 

@@ -91,22 +91,20 @@ func (h *AssertionEvalHandler) Eval(
 	}
 
 	passed := h.applyThresholds(result, minScore, maxScore)
-
-	result.Passed = passed
-	if result.Details == nil {
-		result.Details = make(map[string]any)
-	}
-	result.Details["passed"] = passed
+	result.Value = passed
 	return result, nil
 }
 
 // applyThresholds determines pass/fail from score thresholds.
-// When no thresholds are configured, falls back to IsPassed() (score >= 1.0).
+// When no explicit thresholds are configured, defaults to min_score=1.0
+// (inner eval must fully pass).
 func (h *AssertionEvalHandler) applyThresholds(
 	result *EvalResult, minScore, maxScore *float64,
 ) bool {
 	if minScore == nil && maxScore == nil {
-		return result.IsPassed()
+		// Default: inner eval must score 1.0 to pass the assertion.
+		defaultMin := 1.0
+		minScore = &defaultMin
 	}
 	if result.Score == nil {
 		return true
@@ -168,7 +166,7 @@ func (h *GuardrailEvalHandler) Eval(
 	if minScore != nil && result.Score != nil {
 		triggered = *result.Score < *minScore
 	} else {
-		triggered = !result.IsPassed()
+		triggered = result.Score != nil && *result.Score < 1.0
 	}
 
 	if result.Details == nil {
@@ -176,6 +174,5 @@ func (h *GuardrailEvalHandler) Eval(
 	}
 	result.Details["triggered"] = triggered
 	result.Details["action"] = action
-	result.Passed = !triggered
 	return result, nil
 }

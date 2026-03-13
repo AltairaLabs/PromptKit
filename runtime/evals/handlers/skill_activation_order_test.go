@@ -29,7 +29,7 @@ func TestSkillActivationOrderHandler_ExactMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass: %s", result.Explanation)
 	}
 }
@@ -50,7 +50,7 @@ func TestSkillActivationOrderHandler_SubsequenceWithIntervening(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with intervening skills: %s", result.Explanation)
 	}
 }
@@ -70,7 +70,7 @@ func TestSkillActivationOrderHandler_WrongOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for wrong order")
 	}
 }
@@ -89,7 +89,7 @@ func TestSkillActivationOrderHandler_MissingSkill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for missing skill")
 	}
 }
@@ -108,7 +108,7 @@ func TestSkillActivationOrderHandler_NoActivations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no skill activations")
 	}
 }
@@ -127,7 +127,7 @@ func TestSkillActivationOrderHandler_EmptySequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail for empty sequence")
 	}
 }
@@ -147,7 +147,7 @@ func TestSkillActivationOrderHandler_SingleSkillPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass for single skill present: %s", result.Explanation)
 	}
 }
@@ -167,7 +167,7 @@ func TestSkillActivationOrderHandler_NilArguments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass skipping nil args: %s", result.Explanation)
 	}
 }
@@ -180,7 +180,7 @@ func TestSkillActivationOrderHandler_NoSequenceParam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsPassed() {
+	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail with no sequence param")
 	}
 }
@@ -202,7 +202,7 @@ func TestSkillActivationOrderHandler_NonToolCallsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass ignoring non-skill tool calls: %s", result.Explanation)
 	}
 }
@@ -222,7 +222,7 @@ func TestSkillActivationOrderHandler_EmptyNameSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPassed() {
+	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass skipping empty name: %s", result.Explanation)
 	}
 }
