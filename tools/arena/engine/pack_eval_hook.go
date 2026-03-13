@@ -124,9 +124,10 @@ func (h *PackEvalHook) RunConversationEvals(
 // through the runner. Returns raw EvalResults (not converted to assertion format).
 // The trigger parameter overrides the default trigger on each converted def.
 //
-// After the runner returns scores, this method applies assertion pass/fail
-// logic: min_score/max_score thresholds from assertion params take precedence,
-// falling back to IsPassed() (score >= 1.0) when no thresholds are configured.
+// Each assertion is converted to an EvalDef with type "assertion", which the
+// runner dispatches to AssertionEvalHandler. The wrapper resolves the inner
+// eval handler from the registry, executes it, and applies min_score/max_score
+// thresholds to determine pass/fail.
 func (h *PackEvalHook) RunAssertionsAsEvals(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
@@ -147,21 +148,14 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
 
-	var results []evals.EvalResult
 	switch trigger { //nolint:exhaustive // Only conversation and turn triggers are meaningful here
 	case evals.TriggerOnConversationComplete:
-		results = h.runner.RunConversationEvals(ctx, defs, evalCtx)
+		return h.runner.RunConversationEvals(ctx, defs, evalCtx)
 	case evals.TriggerEveryTurn:
-		results = h.runner.RunTurnEvals(ctx, defs, evalCtx)
+		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
 	default:
-		results = h.runner.RunTurnEvals(ctx, defs, evalCtx)
+		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
 	}
-
-	// Apply assertion pass/fail from score thresholds.
-	// Eval handlers return scores only; assertion configs carry
-	// min_score/max_score thresholds that determine pass/fail.
-	applyAssertionPassFail(results, assertionConfigs)
-	return results
 }
 
 // applyDefaultPassFail sets Passed on pack eval results using IsPassed()
@@ -170,66 +164,6 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 func applyDefaultPassFail(results []evals.EvalResult) {
 	for i := range results {
 		results[i].Passed = results[i].IsPassed() //nolint:staticcheck // bridge score→Passed for ConvertEvalResults
-	}
-}
-
-// applyAssertionPassFail sets Passed on each result based on assertion
-// config thresholds (min_score, max_score). When no thresholds are
-// configured, falls back to IsPassed() (score >= 1.0).
-func applyAssertionPassFail(results []evals.EvalResult, configs []assertions.AssertionConfig) {
-	for i := range results {
-		if i >= len(configs) {
-			break
-		}
-		r := &results[i]
-		if r.Skipped || r.Error != "" {
-			continue
-		}
-		r.Passed = evalPassedWithThresholds(r, configs[i].Params) //nolint:staticcheck // assertion threshold→Passed
-	}
-}
-
-// evalPassedWithThresholds checks min_score/max_score from params against the
-// result score. Returns IsPassed() when no thresholds are configured.
-func evalPassedWithThresholds(r *evals.EvalResult, params map[string]any) bool {
-	minScore := extractFloat64Param(params, "min_score")
-	maxScore := extractFloat64Param(params, "max_score")
-
-	if minScore == nil && maxScore == nil {
-		return r.IsPassed()
-	}
-	if r.Score == nil {
-		return true
-	}
-	if minScore != nil && *r.Score < *minScore {
-		return false
-	}
-	if maxScore != nil && *r.Score > *maxScore {
-		return false
-	}
-	return true
-}
-
-// extractFloat64Param extracts a float64 from a params map, handling int→float64 coercion.
-func extractFloat64Param(params map[string]any, key string) *float64 {
-	if params == nil {
-		return nil
-	}
-	v, ok := params[key]
-	if !ok {
-		return nil
-	}
-	switch n := v.(type) {
-	case float64:
-		return &n
-	case int:
-		f := float64(n)
-		return &f
-	case int64:
-		f := float64(n)
-		return &f
-	default:
-		return nil
 	}
 }
 

@@ -60,6 +60,9 @@ func NewEvalTypeRegistry() *EvalTypeRegistry {
 	for _, pair := range defaultAliases {
 		_ = r.RegisterAlias(pair[0], pair[1])
 	}
+	// Register wrapper handlers that resolve inner evals from the registry.
+	r.Register(&AssertionEvalHandler{registry: r})
+	r.Register(&GuardrailEvalHandler{registry: r})
 	return r
 }
 

@@ -1372,6 +1372,10 @@ func TestRegisterInit(t *testing.T) {
 		"length",
 		"max_sentences",
 		"required_fields",
+
+		// Wrapper handlers (resolve inner evals from registry)
+		"assertion",
+		"guardrail",
 	}
 
 	r := evals.NewEvalTypeRegistry()

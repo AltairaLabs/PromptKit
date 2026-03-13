@@ -23,14 +23,17 @@ type AssertionResult struct {
 	Message string      `json:"message,omitempty"` // Human-readable description from config
 }
 
-// ToEvalDef converts an AssertionConfig to an evals.EvalDef.
-// This is the bridge for unifying arena assertions with runtime evals.
+// ToEvalDef converts an AssertionConfig to an evals.EvalDef with type "assertion".
+// The original eval type and params are nested under eval_type/eval_params,
+// while assertion-specific properties (min_score, max_score) stay at the top level.
 func ToEvalDef(a AssertionConfig, index int) evals.EvalDef {
+	params := buildAssertionParams(a.Type, a.Params)
+
 	def := evals.EvalDef{
 		ID:      fmt.Sprintf("assertion_%d_%s", index, a.Type),
-		Type:    a.Type,
+		Type:    evals.WrapperTypeAssertion,
 		Trigger: evals.TriggerEveryTurn,
-		Params:  a.Params,
+		Params:  params,
 		Message: a.Message,
 	}
 	if a.When != nil {
@@ -42,6 +45,40 @@ func ToEvalDef(a AssertionConfig, index int) evals.EvalDef {
 		}
 	}
 	return def
+}
+
+// assertionWrapperKeys are param keys that belong to the assertion wrapper,
+// not the inner eval handler.
+var assertionWrapperKeys = map[string]bool{
+	"min_score": true,
+	"max_score": true,
+}
+
+// buildAssertionParams constructs nested params for the assertion wrapper.
+// Wrapper-level properties (min_score, max_score) stay at the top level.
+// The inner eval type and its params are nested under eval_type/eval_params.
+func buildAssertionParams(evalType string, originalParams map[string]any) map[string]any {
+	params := map[string]any{
+		"eval_type": evalType,
+	}
+
+	// Separate wrapper params from inner eval params
+	var evalParams map[string]any
+	for k, v := range originalParams {
+		if assertionWrapperKeys[k] {
+			params[k] = v
+		} else {
+			if evalParams == nil {
+				evalParams = make(map[string]any)
+			}
+			evalParams[k] = v
+		}
+	}
+	if evalParams != nil {
+		params["eval_params"] = evalParams
+	}
+
+	return params
 }
 
 // ToConversationEvalDef converts an AssertionConfig to an evals.EvalDef

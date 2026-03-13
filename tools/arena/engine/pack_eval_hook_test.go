@@ -21,9 +21,9 @@ func (h *testEvalHandler) Eval(_ context.Context, _ *evals.EvalContext, _ map[st
 	return &evals.EvalResult{Passed: true, EvalID: "test", Type: "test_handler"}, nil
 }
 
-// newTestRegistry returns a registry with only the testEvalHandler registered.
+// newTestRegistry returns a registry with the testEvalHandler and wrapper handlers registered.
 func newTestRegistry() *evals.EvalTypeRegistry {
-	r := evals.NewEmptyEvalTypeRegistry()
+	r := evals.NewEvalTypeRegistry()
 	r.Register(&testEvalHandler{})
 	return r
 }
