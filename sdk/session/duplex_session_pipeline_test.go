@@ -5,10 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json"
+
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -159,5 +163,155 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 		// Close session
 		err = session.Close()
 		assert.NoError(t, err)
+	})
+}
+
+func TestDuplexSession_HandleToolCalls(t *testing.T) {
+	// Helper to create a minimal duplexSession with channels for testing handleToolCalls.
+	makeSession := func(t *testing.T, registry *tools.Registry) *duplexSession {
+		t.Helper()
+		return &duplexSession{
+			id:           "test",
+			toolRegistry: registry,
+			stageInput:   make(chan stage.StreamElement, 10),
+			streamOutput: make(chan providers.StreamChunk, 10),
+		}
+	}
+
+	t.Run("no registry forwards element as-is", func(t *testing.T) {
+		s := makeSession(t, nil)
+		elem := &stage.StreamElement{
+			EndOfStream: true,
+			Message: &types.Message{
+				ToolCalls: []types.MessageToolCall{
+					{ID: "c1", Name: "some_tool", Args: json.RawMessage(`{}`)},
+				},
+			},
+		}
+
+		err := s.handleToolCalls(context.Background(), elem)
+		require.NoError(t, err)
+
+		// Should have forwarded the chunk to streamOutput
+		select {
+		case chunk := <-s.streamOutput:
+			assert.Nil(t, chunk.Error)
+		default:
+			t.Fatal("expected chunk on streamOutput")
+		}
+	})
+
+	t.Run("all completed sends results to stageInput", func(t *testing.T) {
+		reg := makeRegistry(&syncTestExecutor{result: json.RawMessage(`{"ok":true}`)})
+		registerTool(t, reg, "sync_tool", "test")
+
+		s := makeSession(t, reg)
+		elem := &stage.StreamElement{
+			EndOfStream: true,
+			Message: &types.Message{
+				ToolCalls: []types.MessageToolCall{
+					{ID: "c1", Name: "sync_tool", Args: json.RawMessage(`{}`)},
+				},
+			},
+		}
+
+		err := s.handleToolCalls(context.Background(), elem)
+		require.NoError(t, err)
+
+		// Tool results sent to stageInput
+		select {
+		case inputElem := <-s.stageInput:
+			assert.NotNil(t, inputElem.Metadata)
+			assert.NotNil(t, inputElem.Metadata["tool_responses"])
+			assert.NotNil(t, inputElem.Metadata["tool_result_messages"])
+		default:
+			t.Fatal("expected tool results on stageInput")
+		}
+
+		// No pending tools → nothing on streamOutput
+		select {
+		case chunk := <-s.streamOutput:
+			t.Fatalf("unexpected chunk on streamOutput: %+v", chunk)
+		default:
+			// expected
+		}
+	})
+
+	t.Run("all pending surfaces pending tools to streamOutput", func(t *testing.T) {
+		reg := makeRegistry(&pendingTestExecutor{})
+		registerTool(t, reg, "client_tool", "pending")
+
+		s := makeSession(t, reg)
+		elem := &stage.StreamElement{
+			EndOfStream: true,
+			Message: &types.Message{
+				ToolCalls: []types.MessageToolCall{
+					{ID: "c1", Name: "client_tool", Args: json.RawMessage(`{"key":"val"}`)},
+				},
+			},
+		}
+
+		err := s.handleToolCalls(context.Background(), elem)
+		require.NoError(t, err)
+
+		// Pending tools surfaced on streamOutput
+		select {
+		case chunk := <-s.streamOutput:
+			require.NotEmpty(t, chunk.PendingTools)
+			assert.Equal(t, "c1", chunk.PendingTools[0].CallID)
+			assert.Equal(t, "client_tool", chunk.PendingTools[0].ToolName)
+		default:
+			t.Fatal("expected pending tools chunk on streamOutput")
+		}
+
+		// Nothing on stageInput (no completed tools)
+		select {
+		case inputElem := <-s.stageInput:
+			t.Fatalf("unexpected element on stageInput: %+v", inputElem)
+		default:
+			// expected
+		}
+	})
+
+	t.Run("mixed sends completed to stageInput and pending to streamOutput", func(t *testing.T) {
+		reg := makeRegistry(
+			&syncTestExecutor{result: json.RawMessage(`{"done":true}`)},
+			&pendingTestExecutor{},
+		)
+		registerTool(t, reg, "sync_tool", "test")
+		registerTool(t, reg, "client_tool", "pending")
+
+		s := makeSession(t, reg)
+		elem := &stage.StreamElement{
+			EndOfStream: true,
+			Message: &types.Message{
+				ToolCalls: []types.MessageToolCall{
+					{ID: "c1", Name: "sync_tool", Args: json.RawMessage(`{}`)},
+					{ID: "c2", Name: "client_tool", Args: json.RawMessage(`{}`)},
+				},
+			},
+		}
+
+		err := s.handleToolCalls(context.Background(), elem)
+		require.NoError(t, err)
+
+		// Completed tool results on stageInput
+		select {
+		case inputElem := <-s.stageInput:
+			responses := inputElem.Metadata["tool_responses"].([]providers.ToolResponse)
+			assert.Len(t, responses, 1)
+			assert.Equal(t, "c1", responses[0].ToolCallID)
+		default:
+			t.Fatal("expected tool results on stageInput")
+		}
+
+		// Pending tools on streamOutput
+		select {
+		case chunk := <-s.streamOutput:
+			require.Len(t, chunk.PendingTools, 1)
+			assert.Equal(t, "c2", chunk.PendingTools[0].CallID)
+		default:
+			t.Fatal("expected pending tools chunk on streamOutput")
+		}
 	})
 }

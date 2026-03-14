@@ -593,6 +593,7 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 		PipelineBuilder: pipelineBuilder,
 		Provider:        streamProvider,
 		Config:          streamConfig, // nil for VAD mode, set for ASM mode
+		ToolRegistry:    conv.toolRegistry,
 		Variables:       initialVars,
 	})
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -150,6 +151,7 @@ type DuplexSessionConfig struct {
 	PipelineBuilder PipelineBuilder                 // Function to build pipeline (required, typically a closure from SDK)
 	Provider        providers.Provider              // Provider for LLM calls (required)
 	Config          *providers.StreamingInputConfig // For ASM mode: base streaming config. For VAD mode: nil
+	ToolRegistry    *tools.Registry                 // Optional: for executing tool calls
 	Metadata        map[string]interface{}
 	Variables       map[string]string // Initial variables for template substitution
 }
