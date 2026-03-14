@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -586,14 +587,80 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	// PromptAssemblyStage adds system_prompt to element metadata
 	streamConfig := cfg.streamingConfig
 
+	// Build HITL checker closure — reads asyncHandlers dynamically under lock
+	// so handlers registered after OpenDuplex() are still consulted.
+	asyncChecker := session.AsyncToolChecker(func(callID, name string, args map[string]any) *session.AsyncToolCheckResult {
+		conv.asyncHandlersMu.RLock()
+		checkFunc, isAsync := conv.asyncHandlers[name]
+		conv.asyncHandlersMu.RUnlock()
+
+		if !isAsync {
+			return nil // Not an async tool — fall through to registry
+		}
+
+		checkResult := checkFunc(args)
+		if !checkResult.IsPending() {
+			// Check passed — execute the handler directly (it may not be in the registry
+			// since OnToolAsync is often called after OpenDuplex builds the pipeline).
+			conv.handlersMu.RLock()
+			handler := conv.handlers[name]
+			conv.handlersMu.RUnlock()
+			if handler == nil {
+				return nil // No handler — fall through to registry
+			}
+			result, execErr := handler(args)
+			if execErr != nil {
+				return &session.AsyncToolCheckResult{Handled: true, HandlerError: execErr}
+			}
+			resultJSON, marshalErr := json.Marshal(result)
+			if marshalErr != nil {
+				return &session.AsyncToolCheckResult{Handled: true, HandlerError: marshalErr}
+			}
+			return &session.AsyncToolCheckResult{Handled: true, HandlerResult: resultJSON}
+		}
+
+		// Tool requires human approval — create pending call using the provider's
+		// callID so ResolveTool maps directly.
+		pending := &sdktools.PendingToolCall{
+			ID:        callID,
+			Name:      name,
+			Arguments: args,
+			Reason:    checkResult.Reason,
+			Message:   checkResult.Message,
+		}
+
+		// Set the handler for execution on resolve
+		conv.handlersMu.RLock()
+		handler := conv.handlers[name]
+		conv.handlersMu.RUnlock()
+		if handler != nil {
+			pending.SetHandler(handler)
+		}
+
+		if err := conv.pendingStore.Add(pending); err != nil {
+			return nil
+		}
+
+		return &session.AsyncToolCheckResult{
+			ShouldWait: true,
+			PendingInfo: &tools.PendingToolInfo{
+				Reason:   checkResult.Reason,
+				Message:  checkResult.Message,
+				ToolName: name,
+			},
+		}
+	})
+
 	// Create duplex session with builder
 	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
-		ConversationID:  conversationID,
-		StateStore:      store,
-		PipelineBuilder: pipelineBuilder,
-		Provider:        streamProvider,
-		Config:          streamConfig, // nil for VAD mode, set for ASM mode
-		Variables:       initialVars,
+		ConversationID:   conversationID,
+		StateStore:       store,
+		PipelineBuilder:  pipelineBuilder,
+		Provider:         streamProvider,
+		Config:           streamConfig, // nil for VAD mode, set for ASM mode
+		ToolRegistry:     conv.toolRegistry,
+		AsyncToolChecker: asyncChecker,
+		Variables:        initialVars,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)

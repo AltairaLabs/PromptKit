@@ -11,9 +11,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -30,10 +32,12 @@ type duplexSession struct {
 	pipeline *stage.StreamPipeline
 	provider providers.Provider // Provider for LLM calls
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
-	variables map[string]string
-	varsMu    sync.RWMutex
-	closeMu   sync.Mutex
-	closed    bool
+	toolRegistry     *tools.Registry  // Optional: for executing tool calls (client tools, etc.)
+	asyncToolChecker AsyncToolChecker // Optional: HITL gate for tool calls
+	variables        map[string]string
+	varsMu           sync.RWMutex
+	closeMu          sync.Mutex
+	closed           bool
 
 	// Internal pipeline channel (stage.StreamElement)
 	stageInput chan stage.StreamElement // Feeds converted elements to pipeline
@@ -148,16 +152,18 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 
 	sess := &duplexSession{
-		id:            conversationID,
-		store:         store,
-		pipeline:      builtPipeline,
-		provider:      cfg.Provider,
-		variables:     vars,
-		stageInput:    stageInput,
-		streamOutput:  streamOutput,
-		sessionCtx:    sessionCtx,
-		sessionCancel: sessionCancel,
-		pipelineDone:  make(chan struct{}),
+		id:               conversationID,
+		store:            store,
+		pipeline:         builtPipeline,
+		provider:         cfg.Provider,
+		toolRegistry:     cfg.ToolRegistry,
+		asyncToolChecker: cfg.AsyncToolChecker,
+		variables:        vars,
+		stageInput:       stageInput,
+		streamOutput:     streamOutput,
+		sessionCtx:       sessionCtx,
+		sessionCancel:    sessionCancel,
+		pipelineDone:     make(chan struct{}),
 	}
 
 	return sess, nil
@@ -293,6 +299,12 @@ func (s *duplexSession) SendVideoChunk(ctx context.Context, vchunk *VideoChunk) 
 // executePipeline runs the stage pipeline with streaming input/output.
 // This is called once when the first chunk is received.
 // Converts stage.StreamElement output to providers.StreamChunk at the boundary.
+//
+// When a tool registry is configured, tool calls from the LLM are intercepted:
+//   - Sync-handled tools: results are sent back to the pipeline via stageInput
+//   - Pending (deferred) tools: surfaced to the caller via pending_tools metadata
+//
+//nolint:gocognit // Complexity is acceptable for pipeline orchestration with tool handling
 func (s *duplexSession) executePipeline(ctx context.Context) {
 	defer close(s.pipelineDone)
 	defer close(s.streamOutput)
@@ -311,7 +323,8 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 		return
 	}
 
-	// Forward stage output to streamOutput, converting StreamElement to StreamChunk
+	// Forward stage output to streamOutput, converting StreamElement to StreamChunk.
+	// When a tool registry is present, intercept tool call elements.
 	for {
 		select {
 		case <-ctx.Done():
@@ -326,14 +339,87 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 				// Stage pipeline finished
 				return
 			}
-			chunk := streamElementToStreamChunk(&elem)
-			select {
-			case s.streamOutput <- chunk:
-			case <-ctx.Done():
+
+			action, actionErr := streaming.ProcessResponseElement(&elem, "duplexSession")
+
+			switch action {
+			case streaming.ResponseActionToolCalls:
+				if err := s.handleToolCalls(ctx, &elem); err != nil {
+					logger.Error("duplexSession: tool handling failed", "error", err)
+					errChunk := providers.StreamChunk{Error: err}
+					select {
+					case s.streamOutput <- errChunk:
+					case <-ctx.Done():
+					}
+					return
+				}
+
+			case streaming.ResponseActionError:
+				// Forward the error to the caller
+				errChunk := providers.StreamChunk{Error: actionErr}
+				select {
+				case s.streamOutput <- errChunk:
+				case <-ctx.Done():
+				}
 				return
+
+			case streaming.ResponseActionContinue, streaming.ResponseActionComplete:
+				chunk := streamElementToStreamChunk(&elem)
+				select {
+				case s.streamOutput <- chunk:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}
+}
+
+// handleToolCalls processes tool calls from a response element.
+// If no tool registry is configured, the element is forwarded as-is.
+// Otherwise, tools are executed via the registry:
+//   - Completed tools: results sent back to the pipeline
+//   - Pending tools: forwarded to the caller with pending_tools metadata
+func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamElement) error {
+	// No registry — forward the element as-is (caller must handle tool calls)
+	if s.toolRegistry == nil {
+		chunk := streamElementToStreamChunk(elem)
+		select {
+		case s.streamOutput <- chunk:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		return nil
+	}
+
+	toolCalls := elem.Message.ToolCalls
+	logger.Debug("duplexSession: intercepting tool calls",
+		"count", len(toolCalls))
+
+	duplexResult := executeDuplexToolCalls(s.toolRegistry, toolCalls, s.asyncToolChecker)
+
+	// Send completed tool results back to the pipeline
+	if len(duplexResult.Completed.ProviderResponses) > 0 {
+		if err := streaming.SendToolResults(ctx, duplexResult.Completed, s.stageInput); err != nil {
+			return fmt.Errorf("failed to send tool results: %w", err)
+		}
+	}
+
+	// Surface pending tools to the caller
+	if len(duplexResult.Pending) > 0 {
+		if elem.Metadata == nil {
+			elem.Metadata = make(map[string]interface{})
+		}
+		elem.Metadata["pending_tools"] = duplexResult.Pending
+		chunk := streamElementToStreamChunk(elem)
+		select {
+		case s.streamOutput <- chunk:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return nil
 }
 
 // Response returns the response channel from the Pipeline.
@@ -416,6 +502,32 @@ func (s *duplexSession) Error() error {
 	return nil
 }
 
+// SubmitToolResults sends resolved/rejected tool results back into the
+// duplex pipeline so they flow to the provider via ToolResponseSupport.
+func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []providers.ToolResponse) error {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return fmt.Errorf("session is closed")
+	}
+	s.closeMu.Unlock()
+
+	result := &streaming.ToolExecutionResult{
+		ProviderResponses: responses,
+		ResultMessages:    make([]types.Message, 0, len(responses)),
+	}
+
+	for _, resp := range responses {
+		toolResult := types.NewTextToolResult(resp.ToolCallID, "", resp.Result)
+		if resp.IsError {
+			toolResult.Error = resp.Result
+		}
+		result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(toolResult))
+	}
+
+	return streaming.SendToolResults(ctx, result, s.stageInput)
+}
+
 // Variables returns a copy of the current variables.
 func (s *duplexSession) Variables() map[string]string {
 	s.varsMu.RLock()
@@ -482,11 +594,13 @@ func (s *duplexSession) ForkSession(
 
 	// Create new duplex session with the builder
 	return NewDuplexSession(ctx, &DuplexSessionConfig{
-		ConversationID:  forkID,
-		StateStore:      s.store,
-		PipelineBuilder: pipelineBuilder,
-		Provider:        s.provider,
-		Variables:       forkVars,
+		ConversationID:   forkID,
+		StateStore:       s.store,
+		PipelineBuilder:  pipelineBuilder,
+		Provider:         s.provider,
+		ToolRegistry:     s.toolRegistry,
+		AsyncToolChecker: s.asyncToolChecker,
+		Variables:        forkVars,
 	})
 }
 
