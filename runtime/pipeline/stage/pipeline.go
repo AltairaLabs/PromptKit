@@ -389,6 +389,16 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 					Content: elem.Message.Content,
 					Parts:   elem.Message.Parts,
 				}
+				// Propagate cost info from provider response to result
+				if elem.Message.CostInfo != nil {
+					result.CostInfo.InputTokens += elem.Message.CostInfo.InputTokens
+					result.CostInfo.OutputTokens += elem.Message.CostInfo.OutputTokens
+					result.CostInfo.CachedTokens += elem.Message.CostInfo.CachedTokens
+					result.CostInfo.InputCostUSD += elem.Message.CostInfo.InputCostUSD
+					result.CostInfo.OutputCostUSD += elem.Message.CostInfo.OutputCostUSD
+					result.CostInfo.CachedCostUSD += elem.Message.CostInfo.CachedCostUSD
+					result.CostInfo.TotalCost += elem.Message.CostInfo.TotalCost
+				}
 			}
 		}
 
