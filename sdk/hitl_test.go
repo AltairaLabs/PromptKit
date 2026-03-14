@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/sdk/session"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -325,6 +328,117 @@ func TestRejectToolStoresResolution(t *testing.T) {
 		assert.True(t, resolutions[0].Rejected)
 		assert.Equal(t, "not allowed", resolutions[0].RejectionReason)
 	})
+}
+
+func TestContinueDuplex(t *testing.T) {
+	t.Run("returns error in unary mode", func(t *testing.T) {
+		conv := newTestConversation() // unary by default
+		err := conv.ContinueDuplex(context.Background())
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "duplex mode")
+	})
+
+	t.Run("returns error when no resolved tools", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+		conv.resolvedStore = sdktools.NewResolvedStore()
+
+		err := conv.ContinueDuplex(context.Background())
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no resolved tools")
+	})
+
+	t.Run("builds rejected response", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		conv.resolvedStore.Add(&sdktools.ToolResolution{
+			ID:              "r1",
+			Rejected:        true,
+			RejectionReason: "not authorized",
+		})
+		conv.duplexSession = &fakeDuplexSession{}
+
+		err := conv.ContinueDuplex(context.Background())
+		require.NoError(t, err)
+	})
+
+	t.Run("builds error response", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		conv.resolvedStore.Add(&sdktools.ToolResolution{
+			ID:    "r2",
+			Error: assert.AnError,
+		})
+		conv.duplexSession = &fakeDuplexSession{}
+
+		err := conv.ContinueDuplex(context.Background())
+		require.NoError(t, err)
+	})
+
+	t.Run("builds resultJSON response", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		conv.resolvedStore.Add(&sdktools.ToolResolution{
+			ID:         "r3",
+			ResultJSON: []byte(`{"status":"ok"}`),
+		})
+		conv.duplexSession = &fakeDuplexSession{}
+
+		err := conv.ContinueDuplex(context.Background())
+		require.NoError(t, err)
+	})
+
+	t.Run("builds plain result response", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.mode = DuplexMode
+		conv.resolvedStore = sdktools.NewResolvedStore()
+		conv.resolvedStore.Add(&sdktools.ToolResolution{
+			ID:     "r4",
+			Result: "plain value",
+		})
+		conv.duplexSession = &fakeDuplexSession{}
+
+		err := conv.ContinueDuplex(context.Background())
+		require.NoError(t, err)
+	})
+}
+
+// fakeDuplexSession is a minimal DuplexSession implementation for testing ContinueDuplex.
+type fakeDuplexSession struct{}
+
+func (f *fakeDuplexSession) ID() string                     { return "fake" }
+func (f *fakeDuplexSession) Variables() map[string]string   { return nil }
+func (f *fakeDuplexSession) SetVar(_, _ string)             {}
+func (f *fakeDuplexSession) GetVar(_ string) (string, bool) { return "", false }
+func (f *fakeDuplexSession) Messages(_ context.Context) ([]types.Message, error) {
+	return nil, nil
+}
+func (f *fakeDuplexSession) Clear(_ context.Context) error { return nil }
+func (f *fakeDuplexSession) SendChunk(_ context.Context, _ *providers.StreamChunk) error {
+	return nil
+}
+func (f *fakeDuplexSession) SendText(_ context.Context, _ string) error { return nil }
+func (f *fakeDuplexSession) SendFrame(_ context.Context, _ *session.ImageFrame) error {
+	return nil
+}
+func (f *fakeDuplexSession) SendVideoChunk(_ context.Context, _ *session.VideoChunk) error {
+	return nil
+}
+func (f *fakeDuplexSession) Response() <-chan providers.StreamChunk { return nil }
+func (f *fakeDuplexSession) Close() error                           { return nil }
+func (f *fakeDuplexSession) Drain(_ context.Context) error          { return nil }
+func (f *fakeDuplexSession) Done() <-chan struct{}                  { return nil }
+func (f *fakeDuplexSession) Error() error                           { return nil }
+func (f *fakeDuplexSession) SubmitToolResults(_ context.Context, _ []providers.ToolResponse) error {
+	return nil
+}
+func (f *fakeDuplexSession) ForkSession(
+	_ context.Context, _ string, _ session.PipelineBuilder,
+) (session.DuplexSession, error) {
+	return nil, nil
 }
 
 func TestForkWithAsyncHandlers(t *testing.T) {

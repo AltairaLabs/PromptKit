@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -665,6 +666,18 @@ func TestInitEventBus(t *testing.T) {
 
 		// Should preserve the existing store, not overwrite with new one
 		assert.Equal(t, existingStore, cfg.eventBus.Store())
+	})
+
+	t.Run("wires metrics collector", func(t *testing.T) {
+		collector := metrics.NewCollector(metrics.CollectorOpts{Namespace: "test"})
+		cfg := &config{
+			metricsCollector:      collector,
+			metricsInstanceLabels: map[string]string{"env": "test"},
+		}
+		initEventBus(cfg)
+
+		assert.NotNil(t, cfg.eventBus)
+		assert.NotNil(t, cfg.metricContext)
 	})
 }
 

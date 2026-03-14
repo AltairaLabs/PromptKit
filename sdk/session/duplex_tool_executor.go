@@ -20,12 +20,45 @@ type duplexToolExecutionResult struct {
 	Pending []tools.PendingToolExecution
 }
 
+// hitlAction describes the outcome of an HITL check for a single tool call.
+type hitlAction int
+
+const (
+	hitlNone    hitlAction = iota // Not an async tool — proceed to registry
+	hitlGated                     // Tool requires human approval
+	hitlHandled                   // HITL checker executed the handler directly
+)
+
+// checkHITLGate consults the checker for a single tool call and returns
+// the action to take plus the check result (if any).
+func checkHITLGate(
+	checker AsyncToolChecker, tc types.MessageToolCall,
+) (hitlAction, map[string]any, *AsyncToolCheckResult) {
+	var argsMap map[string]any
+	if tc.Args != nil {
+		_ = json.Unmarshal(tc.Args, &argsMap)
+	}
+	checkResult := checker(tc.ID, tc.Name, argsMap)
+	if checkResult == nil {
+		return hitlNone, argsMap, nil
+	}
+	if checkResult.ShouldWait {
+		return hitlGated, argsMap, checkResult
+	}
+	if checkResult.Handled {
+		return hitlHandled, argsMap, checkResult
+	}
+	return hitlNone, argsMap, nil
+}
+
 // executeDuplexToolCalls processes tool calls from the LLM in duplex mode.
 // It uses ExecuteAsync to distinguish between sync handlers (ToolStatusComplete)
 // and deferred client tools (ToolStatusPending).
+// If checker is non-nil, it is consulted before execution to support HITL gating.
 func executeDuplexToolCalls(
 	registry *tools.Registry,
 	toolCalls []types.MessageToolCall,
+	checker AsyncToolChecker,
 ) *duplexToolExecutionResult {
 	result := &duplexToolExecutionResult{
 		Completed: &streaming.ToolExecutionResult{
@@ -37,6 +70,27 @@ func executeDuplexToolCalls(
 	for _, tc := range toolCalls {
 		logger.Debug("duplexToolExecutor: executing tool",
 			"name", tc.Name, "id", tc.ID)
+
+		if checker != nil {
+			action, argsMap, checkResult := checkHITLGate(checker, tc)
+			switch action { //nolint:exhaustive // hitlNone falls through to registry below
+			case hitlGated:
+				logger.Debug("duplexToolExecutor: tool gated by HITL",
+					"name", tc.Name, "id", tc.ID, "reason", checkResult.PendingInfo.Reason)
+				result.Pending = append(result.Pending, tools.PendingToolExecution{
+					CallID:      tc.ID,
+					ToolName:    tc.Name,
+					Args:        argsMap,
+					PendingInfo: checkResult.PendingInfo,
+				})
+				continue
+			case hitlHandled:
+				addHandledResult(result, tc, checkResult)
+				continue
+			default:
+				// hitlNone — fall through to registry
+			}
+		}
 
 		callCtx := tools.WithCallID(context.Background(), tc.ID)
 		asyncResult, err := registry.ExecuteAsync(callCtx, tc.Name, tc.Args)
@@ -87,6 +141,32 @@ func addPendingTool(
 		Args:        argsMap,
 		PendingInfo: ar.PendingInfo,
 	})
+}
+
+// addHandledResult appends a result for a tool that was handled directly by the HITL checker
+// (i.e., the check passed and the handler executed immediately).
+func addHandledResult(result *duplexToolExecutionResult, tc types.MessageToolCall, cr *AsyncToolCheckResult) {
+	isError := cr.HandlerError != nil
+	var resultStr string
+	if isError {
+		resultStr = cr.HandlerError.Error()
+	} else {
+		resultStr = string(cr.HandlerResult)
+	}
+
+	result.Completed.ProviderResponses = append(result.Completed.ProviderResponses, providers.ToolResponse{
+		ToolCallID: tc.ID,
+		Result:     resultStr,
+		IsError:    isError,
+	})
+
+	toolResult := types.NewTextToolResult(tc.ID, tc.Name, resultStr)
+	if isError {
+		toolResult.Error = resultStr
+	}
+	result.Completed.ResultMessages = append(
+		result.Completed.ResultMessages, types.NewToolResultMessage(toolResult),
+	)
 }
 
 // addCompletedTool appends a completed (or failed) tool result.

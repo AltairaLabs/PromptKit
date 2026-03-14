@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -87,6 +88,11 @@ type DuplexSession interface {
 	// Error returns any error that occurred during the session.
 	Error() error
 
+	// SubmitToolResults sends resolved/rejected tool results back into the
+	// duplex pipeline so they flow to the provider via ToolResponseSupport.
+	// Used after HITL approval or client tool fulfillment.
+	SubmitToolResults(ctx context.Context, responses []providers.ToolResponse) error
+
 	// ForkSession creates a new session that is a fork of this one.
 	// The new session will have an independent copy of the conversation state.
 	ForkSession(
@@ -124,6 +130,26 @@ type PipelineBuilder func(
 	store statestore.Store,
 ) (*stage.StreamPipeline, error)
 
+// AsyncToolCheckResult describes the outcome of an HITL check on a tool call.
+type AsyncToolCheckResult struct {
+	// ShouldWait is true if the tool requires human approval before execution.
+	ShouldWait bool
+	// PendingInfo provides context when ShouldWait is true.
+	PendingInfo *tools.PendingToolInfo
+	// Handled is true when the checker executed the handler directly
+	// (i.e., the tool was an async tool but the check passed, so it ran immediately).
+	Handled bool
+	// HandlerResult contains the JSON-encoded result when Handled is true.
+	HandlerResult json.RawMessage
+	// HandlerError is set when Handled is true but execution failed.
+	HandlerError error
+}
+
+// AsyncToolChecker is called before executing a tool to determine if it
+// requires human approval. Returns nil if the tool is not an async tool
+// (falls through to normal registry execution).
+type AsyncToolChecker func(callID, name string, args map[string]any) *AsyncToolCheckResult
+
 // DuplexSessionConfig configures a DuplexSession.
 //
 // PipelineBuilder and Provider are required.
@@ -145,13 +171,14 @@ type PipelineBuilder func(
 //
 // StateStore should match what's configured in the Pipeline middleware.
 type DuplexSessionConfig struct {
-	ConversationID  string
-	UserID          string
-	StateStore      statestore.Store                // StateStore for conversation history
-	PipelineBuilder PipelineBuilder                 // Function to build pipeline (required, typically a closure from SDK)
-	Provider        providers.Provider              // Provider for LLM calls (required)
-	Config          *providers.StreamingInputConfig // For ASM mode: base streaming config. For VAD mode: nil
-	ToolRegistry    *tools.Registry                 // Optional: for executing tool calls
-	Metadata        map[string]interface{}
-	Variables       map[string]string // Initial variables for template substitution
+	ConversationID   string
+	UserID           string
+	StateStore       statestore.Store                // StateStore for conversation history
+	PipelineBuilder  PipelineBuilder                 // Function to build pipeline (required, typically a closure from SDK)
+	Provider         providers.Provider              // Provider for LLM calls (required)
+	Config           *providers.StreamingInputConfig // For ASM mode: base streaming config. For VAD mode: nil
+	ToolRegistry     *tools.Registry                 // Optional: for executing tool calls
+	AsyncToolChecker AsyncToolChecker                // Optional: HITL gate for tool calls
+	Metadata         map[string]interface{}
+	Variables        map[string]string // Initial variables for template substitution
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
@@ -306,6 +307,59 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 
 	return c.buildResponse(result, startTime), nil
+}
+
+// ContinueDuplex sends resolved/rejected HITL tool results back into the
+// duplex stream. Unlike Continue() (which re-executes the unary pipeline),
+// this pushes tool results into the live duplex pipeline via SubmitToolResults.
+//
+// Usage:
+//
+//	for chunk := range conv.Response() {
+//	    if len(chunk.PendingTools) > 0 {
+//	        for _, pt := range chunk.PendingTools {
+//	            conv.ResolveTool(pt.CallID) // or RejectTool
+//	        }
+//	        conv.ContinueDuplex(ctx)
+//	    }
+//	}
+func (c *Conversation) ContinueDuplex(ctx context.Context) error {
+	c.mu.RLock()
+	if err := c.requireDuplex("ContinueDuplex()"); err != nil {
+		c.mu.RUnlock()
+		return err
+	}
+	c.mu.RUnlock()
+
+	resolutions := c.resolvedStore.PopAll()
+	if len(resolutions) == 0 {
+		return fmt.Errorf("no resolved tools to continue with")
+	}
+
+	responses := make([]providers.ToolResponse, 0, len(resolutions))
+	for _, res := range resolutions {
+		var result string
+		var isError bool
+		switch {
+		case res.Rejected:
+			result = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
+			isError = true
+		case res.Error != nil:
+			result = fmt.Sprintf("Tool error: %s", res.Error.Error())
+			isError = true
+		case res.ResultJSON != nil:
+			result = string(res.ResultJSON)
+		default:
+			result = fmt.Sprintf("%v", res.Result)
+		}
+		responses = append(responses, providers.ToolResponse{
+			ToolCallID: res.ID,
+			Result:     result,
+			IsError:    isError,
+		})
+	}
+
+	return c.duplexSession.SubmitToolResults(ctx, responses)
 }
 
 // PendingTools returns all pending tool calls awaiting approval.
