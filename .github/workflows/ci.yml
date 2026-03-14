@@ -83,10 +83,11 @@ jobs:
         gotestsum --junitfile test-results/coverage-inspect-state.xml --format testname -- -race -coverprofile=tools/inspect-state/inspect-state-coverage.out ./tools/inspect-state/...
         gotestsum --junitfile test-results/coverage-schema-gen.xml --format testname -- -race -coverprofile=tools/schema-gen/schema-gen-coverage.out ./tools/schema-gen/...
         gotestsum --junitfile test-results/coverage-server-a2a.xml --format testname -- -race -coverprofile=server/a2a/server-a2a-coverage.out ./server/a2a/...
+        gotestsum --junitfile test-results/coverage-sdk-integration.xml --format testname -- -race -coverpkg=github.com/AltairaLabs/PromptKit/sdk/... -coverprofile=sdk/sdk-integration-coverage.out ./sdk/integration/...
 
         # Merge coverage files
         echo "mode: set" > coverage.out
-        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out server/a2a/server-a2a-coverage.out >> coverage.out 2>/dev/null || true
+        grep -h -v "^mode:" runtime/runtime-coverage.out sdk/sdk-coverage.out sdk/sdk-integration-coverage.out tools/arena/arena-coverage.out pkg/pkg-coverage.out tools/packc/packc-coverage.out tools/inspect-state/inspect-state-coverage.out tools/schema-gen/schema-gen-coverage.out server/a2a/server-a2a-coverage.out >> coverage.out 2>/dev/null || true
 
         # Fix coverage paths for SonarCloud - strip module prefix to get repo-relative paths
         # Go coverage uses full module paths (github.com/AltairaLabs/PromptKit/...) but SonarCloud expects repo-relative paths
@@ -112,6 +113,7 @@ jobs:
           coverage.out
           runtime/runtime-coverage.out
           sdk/sdk-coverage.out
+          sdk/sdk-integration-coverage.out
           tools/arena/arena-coverage.out
           pkg/pkg-coverage.out
           tools/packc/packc-coverage.out
@@ -211,7 +213,7 @@ jobs:
     - name: Run SDK integration tests
       run: |
         mkdir -p test-results
-        gotestsum --junitfile test-results/integration.xml --format testname -- -race -v -count=1 ./sdk/integration/...
+        gotestsum --junitfile test-results/integration.xml --format testname -- -race -v -count=1 -coverpkg=github.com/AltairaLabs/PromptKit/sdk/... -coverprofile=sdk-integration-coverage.out ./sdk/integration/...
 
     - name: Publish Integration Test Results
       uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
