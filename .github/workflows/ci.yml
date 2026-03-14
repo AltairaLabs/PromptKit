@@ -106,7 +106,7 @@ jobs:
         fail-on-error: false
     
     - name: Upload coverage artifacts
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: coverage-report
         path: |
@@ -470,7 +470,7 @@ jobs:
     
     - name: Upload Customer Support Reports
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: arena-customer-support-reports
         path: examples/customer-support/out/
@@ -478,7 +478,7 @@ jobs:
     
     - name: Upload Multimodal Reports
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: arena-multimodal-reports
         path: examples/multimodal-basics/out/
@@ -486,7 +486,7 @@ jobs:
     
     - name: Upload Variables Reports
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: arena-variables-reports
         path: examples/variables-demo/out/
@@ -503,7 +503,7 @@ jobs:
     
     - name: Upload LLM Judge Reports
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: arena-llm-judge-reports
         path: examples/llm-judge/out/
@@ -520,7 +520,7 @@ jobs:
     
     - name: Upload Guardrails Reports
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: arena-guardrails-reports
         path: examples/guardrails-test/out/
@@ -537,7 +537,7 @@ jobs:
 
     - name: Upload Eval Test Reports
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: arena-eval-test-reports
         path: examples/eval-test/out/
@@ -554,7 +554,7 @@ jobs:
     
     - name: Upload Assertions Test Reports
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: arena-assertions-test-reports
         path: examples/assertions-test/out/
@@ -598,7 +598,7 @@ jobs:
 
     - name: Upload Action Test Reports
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: promptarena-action-reports
         path: examples/llm-judge/action-out/
@@ -643,7 +643,7 @@ jobs:
 
     - name: Upload Pack Artifact
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: packc-action-pack
         path: examples/llm-judge/*.pack.json
@@ -696,7 +696,7 @@ jobs:
 
     - name: Upload coverage report
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: ${{ matrix.action }}-coverage
         path: .github/actions/${{ matrix.action }}/coverage/
@@ -755,7 +755,7 @@ jobs:
 
     - name: Upload coverage report
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       with:
         name: npm-${{ matrix.package }}-coverage
         path: npm/${{ matrix.package }}/coverage/
