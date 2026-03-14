@@ -121,6 +121,11 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 				ValidatorType: "length",
 			})
 		},
+		func() {
+			emitter.ClientToolResolved(&ClientToolResolvedData{
+				CallID: "call-1", Status: "fulfilled",
+			})
+		},
 	}
 
 	wg.Add(len(tests))
@@ -743,4 +748,80 @@ func TestEmitter_ClientToolRequest_NilData(t *testing.T) {
 
 	// Should not panic when data is nil
 	emitter.ClientToolRequest(nil)
+}
+
+func TestEmitter_ClientToolResolved(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctr2", "session-ctr2", "conv-ctr2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventClientToolResolved, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.ClientToolResolved(&ClientToolResolvedData{
+		CallID:   "call-42",
+		ToolName: "get_location",
+		Status:   "fulfilled",
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for tool.client.resolved event")
+	}
+
+	data, ok := got.Data.(*ClientToolResolvedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+
+	if data.CallID != "call-42" || data.ToolName != "get_location" || data.Status != "fulfilled" {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+}
+
+func TestEmitter_ClientToolResolved_Rejected(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctr3", "session-ctr3", "conv-ctr3")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventClientToolResolved, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.ClientToolResolved(&ClientToolResolvedData{
+		CallID:          "call-99",
+		Status:          "rejected",
+		RejectionReason: "user denied",
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for tool.client.resolved event")
+	}
+
+	data := got.Data.(*ClientToolResolvedData)
+	if data.Status != "rejected" || data.RejectionReason != "user denied" {
+		t.Fatalf("unexpected rejection data: %+v", data)
+	}
+}
+
+func TestEmitter_ClientToolResolved_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctr4", "session-ctr4", "conv-ctr4")
+
+	// Should not panic when data is nil
+	emitter.ClientToolResolved(nil)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
@@ -338,6 +339,7 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 
 // buildToolResultMessages pops all resolved tool results and builds
 // tool-result messages. Shared by Resume() and ResumeStream().
+// It also emits tool.client.resolved events for each resolution.
 func (c *Conversation) buildToolResultMessages() ([]types.Message, error) {
 	resolutions := c.resolvedStore.PopAll()
 	if len(resolutions) == 0 {
@@ -367,7 +369,33 @@ func (c *Conversation) buildToolResultMessages() ([]types.Message, error) {
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}
 
+	c.emitClientToolResolvedEvents(resolutions)
+
 	return toolMsgs, nil
+}
+
+// emitClientToolResolvedEvents emits a tool.client.resolved event for each
+// resolution so that observers see the full request → resolved lifecycle.
+func (c *Conversation) emitClientToolResolvedEvents(resolutions []*sdktools.ToolResolution) {
+	if c.config.eventBus == nil {
+		return
+	}
+	emitter := events.NewEmitter(c.config.eventBus, "", "", "")
+	for _, res := range resolutions {
+		status := "fulfilled"
+		reason := ""
+		if res.Rejected {
+			status = "rejected"
+			reason = res.RejectionReason
+		} else if res.Error != nil {
+			status = "error"
+		}
+		emitter.ClientToolResolved(&events.ClientToolResolvedData{
+			CallID:          res.ID,
+			Status:          status,
+			RejectionReason: reason,
+		})
+	}
 }
 
 // executeHandler runs a ClientToolHandler and returns serialized JSON.

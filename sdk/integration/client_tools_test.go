@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk"
@@ -609,4 +610,137 @@ func TestClientTools_StreamingRejection(t *testing.T) {
 	require.NotNil(t, resumeDone)
 	assert.NotEmpty(t, resumeText, "resumed stream should produce text after rejection")
 	assert.False(t, resumeDone.Message.HasPendingClientTools())
+}
+
+// ---------------------------------------------------------------------------
+// 5.10 — Event lifecycle: request → pending completion → resolved
+// ---------------------------------------------------------------------------
+
+func TestClientTools_EventLifecycle(t *testing.T) {
+	repo := newTestTurnRepository()
+	repo.addTurn("default", 1, mock.Turn{
+		Type:    "tool_calls",
+		Content: "Let me check your location",
+		ToolCalls: []mock.ToolCall{{
+			Name:      "get_location",
+			Arguments: map[string]interface{}{"accuracy": "fine"},
+		}},
+	})
+	repo.addTurn("default", 2, mock.Turn{
+		Type:    "text",
+		Content: "You are in San Francisco.",
+	})
+
+	provider := mock.NewToolProviderWithRepository("mock", "mock-model", false, repo)
+	packPath := writePackFile(t, clientToolsPackJSON)
+
+	bus := events.NewEventBus()
+	collector := newEventCollector(bus)
+
+	conv, err := sdk.Open(packPath, "chat",
+		sdk.WithProvider(provider),
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithEventBus(bus),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+
+	patchToolMode(t, conv, "get_location", "client")
+
+	ctx := context.Background()
+
+	// Send — should produce pending tool
+	resp, err := conv.Send(ctx, "Where am I?")
+	require.NoError(t, err)
+	require.True(t, resp.HasPendingClientTools())
+
+	// Verify: tool.call.started, tool.client.request, tool.call.completed(pending)
+	startedEvents := collector.ofType(events.EventToolCallStarted)
+	requestEvents := collector.ofType(events.EventClientToolRequest)
+	completedEvents := collector.ofType(events.EventToolCallCompleted)
+
+	require.NotEmpty(t, startedEvents, "expected tool.call.started event")
+	require.NotEmpty(t, requestEvents, "expected tool.client.request event")
+	require.NotEmpty(t, completedEvents, "expected tool.call.completed event")
+
+	// Verify client request data
+	reqData := requestEvents[0].Data.(*events.ClientToolRequestData)
+	assert.Equal(t, "get_location", reqData.ToolName)
+	assert.NotEmpty(t, reqData.CallID)
+
+	// Verify completed has status "pending"
+	compData := completedEvents[0].Data.(*events.ToolCallCompletedData)
+	assert.Equal(t, "pending", compData.Status)
+
+	// Resolve and resume
+	pending := resp.ClientTools()
+	require.Len(t, pending, 1)
+
+	err = conv.SendToolResult(ctx, pending[0].CallID, map[string]any{"lat": 37.7, "lng": -122.4})
+	require.NoError(t, err)
+
+	resp2, err := conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp2.Text())
+
+	// Verify: tool.client.resolved event emitted during Resume
+	resolvedEvents := collector.ofType(events.EventClientToolResolved)
+	require.NotEmpty(t, resolvedEvents, "expected tool.client.resolved event after Resume")
+
+	resData := resolvedEvents[0].Data.(*events.ClientToolResolvedData)
+	assert.Equal(t, pending[0].CallID, resData.CallID)
+	assert.Equal(t, "fulfilled", resData.Status)
+}
+
+func TestClientTools_EventLifecycle_Rejection(t *testing.T) {
+	repo := newTestTurnRepository()
+	repo.addTurn("default", 1, mock.Turn{
+		Type:    "tool_calls",
+		Content: "Let me check your location",
+		ToolCalls: []mock.ToolCall{{
+			Name:      "get_location",
+			Arguments: map[string]interface{}{"accuracy": "fine"},
+		}},
+	})
+	repo.addTurn("default", 2, mock.Turn{
+		Type:    "text",
+		Content: "I understand you declined location access.",
+	})
+
+	provider := mock.NewToolProviderWithRepository("mock", "mock-model", false, repo)
+	packPath := writePackFile(t, clientToolsPackJSON)
+
+	bus := events.NewEventBus()
+	collector := newEventCollector(bus)
+
+	conv, err := sdk.Open(packPath, "chat",
+		sdk.WithProvider(provider),
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithEventBus(bus),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+
+	patchToolMode(t, conv, "get_location", "client")
+
+	ctx := context.Background()
+
+	resp, err := conv.Send(ctx, "Where am I?")
+	require.NoError(t, err)
+	require.True(t, resp.HasPendingClientTools())
+
+	pending := resp.ClientTools()
+	conv.RejectClientTool(ctx, pending[0].CallID, "user declined")
+
+	resp2, err := conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp2.Text())
+
+	// Verify resolved event has status "rejected"
+	resolvedEvents := collector.ofType(events.EventClientToolResolved)
+	require.NotEmpty(t, resolvedEvents, "expected tool.client.resolved event")
+
+	resData := resolvedEvents[0].Data.(*events.ClientToolResolvedData)
+	assert.Equal(t, "rejected", resData.Status)
+	assert.Equal(t, "user declined", resData.RejectionReason)
 }
