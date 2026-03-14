@@ -9,6 +9,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
+// resolveMemberName extracts the bare member name from a potentially qualified
+// tool descriptor name. For example, "a2a__worker" → "worker".
+func resolveMemberName(descriptorName string) string {
+	_, local := tools.ParseToolName(descriptorName)
+	return local
+}
+
 // defaultAgentSendTimeout is the default timeout applied to member agent Send
 // calls when the caller's context has no deadline.
 const defaultAgentSendTimeout = 5 * time.Minute
@@ -28,10 +35,13 @@ func (e *LocalAgentExecutor) Execute(
 		return nil, fmt.Errorf("failed to parse agent tool args: %w", err)
 	}
 
-	// Find the member conversation by tool name (which is the agent name)
-	conv, ok := e.members[descriptor.Name]
+	// Find the member conversation by bare agent name.
+	// Tool descriptors use qualified names (e.g. "a2a__worker"), but the
+	// members map is keyed by bare name (e.g. "worker").
+	memberName := resolveMemberName(descriptor.Name)
+	conv, ok := e.members[memberName]
 	if !ok {
-		return nil, fmt.Errorf("unknown agent member: %s", descriptor.Name)
+		return nil, fmt.Errorf("unknown agent member: %s (resolved from %s)", memberName, descriptor.Name)
 	}
 
 	// If the caller's context has no deadline, wrap with a default timeout
@@ -45,7 +55,7 @@ func (e *LocalAgentExecutor) Execute(
 	// Send the query to the member conversation.
 	resp, err := conv.Send(ctx, input.Query)
 	if err != nil {
-		return nil, fmt.Errorf("agent %s failed: %w", descriptor.Name, err)
+		return nil, fmt.Errorf("agent %s failed: %w", memberName, err)
 	}
 
 	// Return the response
