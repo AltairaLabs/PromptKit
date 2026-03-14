@@ -929,6 +929,7 @@ func (s *ProviderStage) executeSingleToolCall(
 	s.emitToolStarted(toolCall, labels)
 
 	startTime := time.Now()
+	ctx = tools.WithCallID(ctx, toolCall.ID)
 	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
 	if err != nil {
 		if s.emitter != nil {
@@ -999,6 +1000,9 @@ func (s *ProviderStage) emitGuardrailEvent(d hooks.Decision, duration time.Durat
 }
 
 // buildPendingResult creates a toolCallResult for a pending tool execution.
+// It emits a tool.client.request event so observers know a client tool is
+// awaiting fulfillment, and a tool.call.completed with status "pending" so
+// every tool.call.started has a matching completion.
 func (s *ProviderStage) buildPendingResult(
 	toolCall types.MessageToolCall, asyncResult *tools.ToolExecutionResult,
 ) toolCallResult {
@@ -1006,6 +1010,29 @@ func (s *ProviderStage) buildPendingResult(
 	if toolCall.Args != nil {
 		_ = json.Unmarshal(toolCall.Args, &argsMap)
 	}
+
+	// Emit client tool request event with consent/category metadata
+	if s.emitter != nil {
+		reqData := &events.ClientToolRequestData{
+			CallID:   toolCall.ID,
+			ToolName: toolCall.Name,
+			Args:     argsMap,
+		}
+		if asyncResult.PendingInfo != nil {
+			reqData.ConsentMsg = asyncResult.PendingInfo.Message
+			if cats, ok := asyncResult.PendingInfo.Metadata["categories"].([]string); ok {
+				reqData.Categories = cats
+			}
+		}
+		s.emitter.ClientToolRequest(reqData)
+	}
+
+	// Emit tool.call.completed with status "pending" so the started event is paired
+	if s.emitter != nil {
+		labels := s.toolLabels(toolCall.Name)
+		s.emitter.ToolCallCompleted(toolCall.Name, toolCall.ID, 0, "pending", nil, labels)
+	}
+
 	toolResult := s.handleToolResult(toolCall, asyncResult)
 	return toolCallResult{
 		pending: &tools.PendingToolExecution{

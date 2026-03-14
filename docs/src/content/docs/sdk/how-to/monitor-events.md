@@ -77,6 +77,10 @@ EventImageOutput        EventType = "image.output"
 EventEvalCompleted EventType = "eval.completed"  // eval finished (any score)
 EventEvalFailed    EventType = "eval.failed"      // eval errored (not low score)
 
+// Client tool lifecycle
+EventClientToolRequest  EventType = "tool.client.request"   // client tool awaiting fulfillment
+EventClientToolResolved EventType = "tool.client.resolved"  // client tool resolved by caller
+
 // Stream control
 EventStreamInterrupted EventType = "stream.interrupted"
 ```

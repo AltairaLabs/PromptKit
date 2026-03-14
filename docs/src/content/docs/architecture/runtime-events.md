@@ -102,8 +102,25 @@ Events are organized into several categories:
 #### Tool Execution
 
 - `tool.call.started` - Tool execution begins
-- `tool.call.completed` - Tool execution succeeds
+- `tool.call.completed` - Tool execution succeeds (status: `"complete"`, `"pending"`, etc.)
 - `tool.call.failed` - Tool execution fails
+
+#### Client Tool Lifecycle
+
+Client-mode tools (fulfilled on the caller's device) emit additional events to track the deferred execution lifecycle:
+
+- `tool.client.request` - Client tool awaiting caller fulfillment (emitted when the tool returns `ToolStatusPending`)
+- `tool.client.resolved` - Client tool resolved by the caller (emitted during `Resume`/`ResumeStream`)
+
+The full lifecycle for a deferred client tool:
+
+1. `tool.call.started` — tool execution begins
+2. `tool.client.request` — tool is pending, awaiting caller (includes consent message, categories)
+3. `tool.call.completed` (status: `"pending"`) — matches the started event
+4. *(Caller fulfills via `SendToolResult` / `RejectClientTool`)*
+5. `tool.client.resolved` (status: `"fulfilled"` | `"rejected"` | `"error"`) — emitted during `Resume`
+
+For synchronous client tools (handler registered via `OnClientTool`), only `tool.call.started` and `tool.call.completed` (status: `"complete"`) are emitted — no client-specific events.
 
 #### Validation
 

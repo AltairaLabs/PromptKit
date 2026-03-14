@@ -1776,6 +1776,86 @@ func TestProviderStage_ExecuteToolCalls_EmitsFailed(t *testing.T) {
 	assert.Error(t, failedData.Error)
 }
 
+func TestProviderStage_ExecuteToolCalls_PendingEmitsRequestAndCompleted(t *testing.T) {
+	// When a tool returns ToolStatusPending, buildPendingResult should emit:
+	//   1. tool.client.request — so observers know a client tool awaits fulfillment
+	//   2. tool.call.completed with status "pending" — so every started has a matching completion
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "location_tool",
+		Description: "Gets user location",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "client",
+	})
+
+	pendingExec := &mockAsyncExecutor{
+		name:       "client",
+		status:     tools.ToolStatusPending,
+		pendingMsg: "Allow location access?",
+	}
+	registry.RegisterExecutor(pendingExec)
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-pe", "session-pe", "conv-pe")
+
+	var captured []*events.Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(3) // started + client.request + completed(pending)
+
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStageWithEmitter(provider, registry, nil, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-loc", Name: "location_tool", Args: json.RawMessage(`{"accuracy":"fine"}`)},
+	}
+
+	_, err := stage.executeToolCalls(context.Background(), toolCalls)
+	require.Error(t, err, "should return ErrToolsPending")
+
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Classify captured events
+	var startedEvt, clientReqEvt, completedEvt *events.Event
+	for _, e := range captured {
+		switch e.Type {
+		case events.EventToolCallStarted:
+			startedEvt = e
+		case events.EventClientToolRequest:
+			clientReqEvt = e
+		case events.EventToolCallCompleted:
+			completedEvt = e
+		}
+	}
+
+	require.NotNil(t, startedEvt, "expected tool.call.started event")
+	require.NotNil(t, clientReqEvt, "expected tool.client.request event")
+	require.NotNil(t, completedEvt, "expected tool.call.completed event")
+
+	// Verify client request data
+	reqData, ok := clientReqEvt.Data.(*events.ClientToolRequestData)
+	require.True(t, ok)
+	assert.Equal(t, "call-loc", reqData.CallID)
+	assert.Equal(t, "location_tool", reqData.ToolName)
+	assert.Equal(t, "Allow location access?", reqData.ConsentMsg)
+
+	// Verify completed has status "pending"
+	compData, ok := completedEvt.Data.(*events.ToolCallCompletedData)
+	require.True(t, ok)
+	assert.Equal(t, "location_tool", compData.ToolName)
+	assert.Equal(t, "call-loc", compData.CallID)
+	assert.Equal(t, "pending", compData.Status)
+}
+
 func TestProviderStage_ExecuteToolCalls_BlockedNoEvents(t *testing.T) {
 	provider := mock.NewProvider("test", "model", false)
 	registry := tools.NewRegistry()

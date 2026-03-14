@@ -101,6 +101,8 @@ const (
 
 	// EventClientToolRequest marks a client-mode tool request awaiting caller fulfillment.
 	EventClientToolRequest EventType = "tool.client.request"
+	// EventClientToolResolved marks a client-mode tool that has been resolved by the caller.
+	EventClientToolResolved EventType = "tool.client.resolved"
 )
 
 // EventData is a marker interface for event payloads.
@@ -550,6 +552,19 @@ type ClientToolRequestData struct {
 	ConsentMsg string `json:"consent_msg,omitempty"`
 	// Categories are the semantic consent categories.
 	Categories []string `json:"categories,omitempty"`
+}
+
+// ClientToolResolvedData contains data for client tool resolution events.
+type ClientToolResolvedData struct {
+	baseEventData
+	// CallID is the provider-assigned ID for this tool invocation.
+	CallID string `json:"call_id"`
+	// ToolName is the tool's name (empty for deferred resolutions where name is unknown).
+	ToolName string `json:"tool_name,omitempty"`
+	// Status is the resolution outcome: "fulfilled", "rejected", or "error".
+	Status string `json:"status"`
+	// RejectionReason is set when Status is "rejected".
+	RejectionReason string `json:"rejection_reason,omitempty"`
 }
 
 // --- Eval events (consolidated) ---

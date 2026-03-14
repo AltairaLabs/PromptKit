@@ -376,6 +376,14 @@ func (e *Emitter) ClientToolRequest(data *ClientToolRequestData) {
 	e.emit(EventClientToolRequest, data)
 }
 
+// ClientToolResolved emits the tool.client.resolved event.
+func (e *Emitter) ClientToolResolved(data *ClientToolResolvedData) {
+	if data == nil {
+		return
+	}
+	e.emit(EventClientToolResolved, data)
+}
+
 // EvalCompleted emits the eval.completed event for a passed eval.
 func (e *Emitter) EvalCompleted(data *EvalCompletedData) {
 	e.emit(EventEvalCompleted, data)
