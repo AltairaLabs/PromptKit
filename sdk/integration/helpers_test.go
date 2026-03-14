@@ -7,6 +7,7 @@ package integration
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -153,12 +154,20 @@ func (ec *eventCollector) hasType(et events.EventType) bool {
 	return len(ec.ofType(et)) > 0
 }
 
-// typeSequence returns the ordered list of event types.
+// typeSequence returns event types ordered by timestamp.
+// Events are sorted by timestamp rather than listener invocation order
+// because the event bus dispatches to listeners via goroutines, which
+// can reorder delivery relative to publish order.
 func (ec *eventCollector) typeSequence() []events.EventType {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
-	seq := make([]events.EventType, len(ec.events))
-	for i, e := range ec.events {
+	sorted := make([]*events.Event, len(ec.events))
+	copy(sorted, ec.events)
+	slices.SortStableFunc(sorted, func(a, b *events.Event) int {
+		return a.Timestamp.Compare(b.Timestamp)
+	})
+	seq := make([]events.EventType, len(sorted))
+	for i, e := range sorted {
 		seq[i] = e.Type
 	}
 	return seq
