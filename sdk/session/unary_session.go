@@ -315,6 +315,7 @@ func (s *unarySession) ForkSession(
 func convertExecutionResult(result *stage.ExecutionResult) *pipeline.ExecutionResult {
 	pipelineResult := &pipeline.ExecutionResult{
 		Messages: result.Messages,
+		CostInfo: result.CostInfo,
 		Metadata: result.Metadata,
 		Trace: pipeline.ExecutionTrace{
 			LLMCalls: make([]pipeline.LLMCall, 0),
