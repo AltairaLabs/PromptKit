@@ -696,6 +696,54 @@ func TestClientExecutor_ExecuteAsync_NonContentPartsJSON(t *testing.T) {
 	assert.Empty(t, result.Parts)
 }
 
+func TestClientExecutor_Execute_PopulatesCallID(t *testing.T) {
+	conv := newTestConversation()
+
+	var capturedReq ClientToolRequest
+	conv.OnClientTool("get_location", func(_ context.Context, req ClientToolRequest) (any, error) {
+		capturedReq = req
+		return map[string]any{"lat": 37.7749}, nil
+	})
+
+	exec := &clientExecutor{
+		handlers:   conv.clientHandlers,
+		handlersMu: &clientHandlersMuAccessor{conv: conv},
+	}
+
+	desc := &tools.ToolDescriptor{Name: "get_location", Mode: "client"}
+	ctx := tools.WithCallID(context.Background(), "call-xyz-789")
+
+	_, err := exec.Execute(ctx, desc, json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	assert.Equal(t, "call-xyz-789", capturedReq.CallID,
+		"CallID should be populated from context")
+}
+
+func TestClientExecutor_ExecuteAsync_PopulatesCallID(t *testing.T) {
+	conv := newTestConversation()
+
+	var capturedReq ClientToolRequest
+	conv.OnClientTool("sensor", func(_ context.Context, req ClientToolRequest) (any, error) {
+		capturedReq = req
+		return "ok", nil
+	})
+
+	exec := &clientExecutor{
+		handlers:   conv.clientHandlers,
+		handlersMu: &clientHandlersMuAccessor{conv: conv},
+	}
+
+	desc := &tools.ToolDescriptor{Name: "sensor", Mode: "client"}
+	ctx := tools.WithCallID(context.Background(), "call-async-456")
+
+	result, err := exec.ExecuteAsync(ctx, desc, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, tools.ToolStatusComplete, result.Status)
+	assert.Equal(t, "call-async-456", capturedReq.CallID,
+		"CallID should be populated from context in async path")
+}
+
 func TestBuildToolResultMessages_ErrorBranch(t *testing.T) {
 	conv := newTestConversation()
 	conv.resolvedStore = sdktools.NewResolvedStore()

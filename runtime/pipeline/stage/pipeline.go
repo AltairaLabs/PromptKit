@@ -385,9 +385,10 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 			// Set response to last assistant message
 			if elem.Message.Role == roleAssistant {
 				result.Response = &Response{
-					Role:    elem.Message.Role,
-					Content: elem.Message.Content,
-					Parts:   elem.Message.Parts,
+					Role:      elem.Message.Role,
+					Content:   elem.Message.Content,
+					Parts:     elem.Message.Parts,
+					ToolCalls: elem.Message.ToolCalls,
 				}
 				// Propagate cost info from provider response to result
 				if elem.Message.CostInfo != nil {

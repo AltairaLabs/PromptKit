@@ -929,6 +929,7 @@ func (s *ProviderStage) executeSingleToolCall(
 	s.emitToolStarted(toolCall, labels)
 
 	startTime := time.Now()
+	ctx = tools.WithCallID(ctx, toolCall.ID)
 	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
 	if err != nil {
 		if s.emitter != nil {

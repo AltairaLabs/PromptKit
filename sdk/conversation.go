@@ -237,9 +237,14 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	}
 
 	resp := c.buildResponse(result, startTime)
-	c.sessionHooks.IncrementTurn()
-	c.sessionHooks.SessionUpdate(ctx)
-	c.evalMW.dispatchTurnEvals(ctx) // nil-safe, no-op if middleware is nil
+
+	// Skip lifecycle hooks when pipeline is suspended for pending client tools.
+	// The hooks will fire when Resume() completes the turn instead.
+	if !resp.HasPendingClientTools() {
+		c.sessionHooks.IncrementTurn()
+		c.sessionHooks.SessionUpdate(ctx)
+		c.evalMW.dispatchTurnEvals(ctx) // nil-safe, no-op if middleware is nil
+	}
 	return resp, nil
 }
 

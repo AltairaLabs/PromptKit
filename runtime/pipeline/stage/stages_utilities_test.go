@@ -1066,6 +1066,29 @@ func TestStreamPipeline_ExecuteSync(t *testing.T) {
 		assert.Error(t, err)
 		assert.NotNil(t, result)
 	})
+
+	t.Run("preserves tool calls on assistant messages", func(t *testing.T) {
+		passthrough := NewPassthroughStage("passthrough")
+		builder := NewPipelineBuilder().AddStage(passthrough)
+		pipeline, err := builder.Build()
+		require.NoError(t, err)
+
+		msg := &types.Message{
+			Role:    "assistant",
+			Content: "Let me check the weather",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "call-1", Name: "get_weather", Args: []byte(`{"city":"London"}`)},
+			},
+		}
+		input := NewMessageElement(msg)
+
+		result, err := pipeline.ExecuteSync(context.Background(), input)
+		require.NoError(t, err)
+		require.NotNil(t, result.Response)
+		assert.Len(t, result.Response.ToolCalls, 1,
+			"accumulateResult should preserve ToolCalls from assistant messages")
+		assert.Equal(t, "get_weather", result.Response.ToolCalls[0].Name)
+	})
 }
 
 // =============================================================================

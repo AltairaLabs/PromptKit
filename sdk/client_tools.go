@@ -270,8 +270,13 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	}
 
 	resp := c.buildResponse(result, startTime)
-	c.sessionHooks.IncrementTurn()
-	c.sessionHooks.SessionUpdate(ctx)
+
+	// Skip lifecycle hooks when the resumed pipeline returns more pending tools.
+	if !resp.HasPendingClientTools() {
+		c.sessionHooks.IncrementTurn()
+		c.sessionHooks.SessionUpdate(ctx)
+		c.evalMW.dispatchTurnEvals(ctx)
+	}
 	return resp, nil
 }
 
@@ -372,6 +377,7 @@ func (e *clientExecutor) executeHandler(
 ) (json.RawMessage, error) {
 	req := ClientToolRequest{
 		ToolName:   descriptor.Name,
+		CallID:     tools.CallIDFromContext(ctx),
 		Args:       argsMap,
 		Descriptor: descriptor,
 	}
@@ -408,6 +414,7 @@ func (e *clientExecutor) executeHandlerAsync(
 ) (*tools.ToolExecutionResult, error) {
 	req := ClientToolRequest{
 		ToolName:   descriptor.Name,
+		CallID:     tools.CallIDFromContext(ctx),
 		Args:       argsMap,
 		Descriptor: descriptor,
 	}
