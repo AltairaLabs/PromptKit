@@ -118,6 +118,159 @@ func TestE2E_EvalRunner_FullFlow(t *testing.T) {
 	}
 }
 
+// TestE2E_EvalsWithoutExplicitMetric_StillEmitPrometheus verifies that evals
+// without a metric: block in the pack still produce Prometheus gauges using
+// the eval ID as the metric name. This is a regression test — a previous change
+// broke this by skipping evals without explicit MetricDef.
+func TestE2E_EvalsWithoutExplicitMetric_StillEmitPrometheus(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	registry.Register(&stubHandler{
+		evalType: "quality_check",
+		result:   &evals.EvalResult{Score: float64P(0.85)},
+	})
+	registry.Register(&stubHandler{
+		evalType: "tone_check",
+		result:   &evals.EvalResult{Score: float64P(1.0)},
+	})
+
+	// Neither eval defines a Metric — this must still produce metrics.
+	defs := []evals.EvalDef{
+		{
+			ID:      "session-helpfulness",
+			Type:    "quality_check",
+			Trigger: evals.TriggerEveryTurn,
+			// No Metric field — should auto-generate gauge.
+		},
+		{
+			ID:      "tone-adherence",
+			Type:    "tone_check",
+			Trigger: evals.TriggerEveryTurn,
+			// No Metric field.
+		},
+	}
+
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
+	metricWriter := evals.NewMetricResultWriter(metricCtx, defs)
+	runner := evals.NewEvalRunner(registry)
+
+	evalCtx := &evals.EvalContext{
+		SessionID:     "test-session",
+		TurnIndex:     1,
+		CurrentOutput: "Sure, I can help with that.",
+	}
+
+	results := runner.RunTurnEvals(context.Background(), defs, evalCtx)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	if err := metricWriter.WriteResults(context.Background(), results); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify both evals produced Prometheus metrics.
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	famByName := make(map[string]*dto.MetricFamily, len(families))
+	for _, fam := range families {
+		famByName[fam.GetName()] = fam
+	}
+
+	// Auto-generated metric names should be: promptkit_eval_{evalID}
+	helpfulnessFam, ok := famByName["promptkit_eval_session-helpfulness"]
+	if !ok {
+		t.Fatal("expected promptkit_eval_session-helpfulness metric to be auto-generated for eval without explicit Metric definition")
+	}
+	if helpfulnessFam.GetType() != dto.MetricType_GAUGE {
+		t.Errorf("expected auto-generated metric to be gauge, got %v", helpfulnessFam.GetType())
+	}
+	if got := helpfulnessFam.GetMetric()[0].GetGauge().GetValue(); got != 0.85 {
+		t.Errorf("expected 0.85, got %v", got)
+	}
+
+	toneFam, ok := famByName["promptkit_eval_tone-adherence"]
+	if !ok {
+		t.Fatal("expected promptkit_eval_tone-adherence metric to be auto-generated")
+	}
+	if got := toneFam.GetMetric()[0].GetGauge().GetValue(); got != 1.0 {
+		t.Errorf("expected 1.0, got %v", got)
+	}
+}
+
+// TestE2E_MixedExplicitAndAutoMetrics verifies that evals with explicit metrics
+// use those definitions while evals without them get auto-generated gauges,
+// and both coexist correctly in the same Prometheus registry.
+func TestE2E_MixedExplicitAndAutoMetrics(t *testing.T) {
+	registry := evals.NewEmptyEvalTypeRegistry()
+	registry.Register(&stubHandler{
+		evalType: "check",
+		result:   &evals.EvalResult{Score: float64P(0.75), MetricValue: float64P(42)},
+	})
+
+	defs := []evals.EvalDef{
+		{
+			ID:      "with-metric",
+			Type:    "check",
+			Trigger: evals.TriggerEveryTurn,
+			Metric:  &evals.MetricDef{Name: "custom_metric", Type: evals.MetricHistogram},
+		},
+		{
+			ID:      "without-metric",
+			Type:    "check",
+			Trigger: evals.TriggerEveryTurn,
+			// No Metric — auto-generated.
+		},
+	}
+
+	reg := prometheus.NewRegistry()
+	collector := metrics.NewCollector(metrics.CollectorOpts{
+		Registerer:             reg,
+		DisablePipelineMetrics: true,
+	})
+	metricCtx := collector.Bind(nil)
+	metricWriter := evals.NewMetricResultWriter(metricCtx, defs)
+	runner := evals.NewEvalRunner(registry)
+
+	results := runner.RunTurnEvals(context.Background(), defs, &evals.EvalContext{
+		SessionID: "s1", TurnIndex: 1, CurrentOutput: "test",
+	})
+	if err := metricWriter.WriteResults(context.Background(), results); err != nil {
+		t.Fatal(err)
+	}
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	famByName := make(map[string]*dto.MetricFamily, len(families))
+	for _, fam := range families {
+		famByName[fam.GetName()] = fam
+	}
+
+	// Explicit metric should use the custom name and type.
+	if _, ok := famByName["promptkit_eval_custom_metric"]; !ok {
+		t.Fatal("expected explicit metric promptkit_eval_custom_metric")
+	}
+
+	// Auto-generated metric should exist as a gauge.
+	autoFam, ok := famByName["promptkit_eval_without-metric"]
+	if !ok {
+		t.Fatal("expected auto-generated metric promptkit_eval_without-metric")
+	}
+	if autoFam.GetType() != dto.MetricType_GAUGE {
+		t.Errorf("expected auto-generated to be gauge, got %v", autoFam.GetType())
+	}
+}
+
 func TestE2E_PackPromptOverrideResolution(t *testing.T) {
 	registry := evals.NewEmptyEvalTypeRegistry()
 	registry.Register(&stubHandler{
