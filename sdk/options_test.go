@@ -961,7 +961,7 @@ type testSessionHook struct {
 	name string
 }
 
-func (h *testSessionHook) Name() string                                          { return h.name }
+func (h *testSessionHook) Name() string                                                 { return h.name }
 func (h *testSessionHook) OnSessionStart(_ context.Context, _ hooks.SessionEvent) error { return nil }
 func (h *testSessionHook) OnSessionUpdate(_ context.Context, _ hooks.SessionEvent) error {
 	return nil
@@ -1008,4 +1008,28 @@ func TestDefaultRecordingConfig(t *testing.T) {
 	assert.True(t, cfg.IncludeAudio)
 	assert.False(t, cfg.IncludeVideo)
 	assert.True(t, cfg.IncludeImages)
+}
+
+func TestWithUserID(t *testing.T) {
+	opt := WithUserID("virtual-user-abc")
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, "virtual-user-abc", cfg.userID)
+}
+
+func TestWithSessionMetadata(t *testing.T) {
+	meta := map[string]any{
+		"tenant":  "acme-corp",
+		"channel": "web-chat",
+	}
+	opt := WithSessionMetadata(meta)
+	assert.NotNil(t, opt)
+
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, meta, cfg.sessionMetadata)
 }

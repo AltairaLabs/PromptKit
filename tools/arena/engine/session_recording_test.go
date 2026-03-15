@@ -67,9 +67,16 @@ func TestEnableSessionRecordingWithEventBus(t *testing.T) {
 		t.Fatalf("EnableSessionRecording failed: %v", err)
 	}
 
-	// Verify event bus has the store attached
-	if eventBus.Store() == nil {
-		t.Error("Event bus should have event store attached")
+	// Verify store receives events by publishing one
+	eventBus.Publish(&events.Event{
+		Type:      events.EventPipelineStarted,
+		SessionID: "verify-session",
+	})
+	eventBus.Close()
+
+	// Check that a recording file was created
+	if _, err := os.Stat(filepath.Join(tempDir, "verify-session.jsonl")); os.IsNotExist(err) {
+		t.Error("Event store should persist events from bus")
 	}
 
 	// Clean up
@@ -99,9 +106,16 @@ func TestEnableSessionRecordingBeforeEventBus(t *testing.T) {
 	eventBus := events.NewEventBus()
 	engine.SetEventBus(eventBus)
 
-	// Verify event bus has the store attached
-	if eventBus.Store() == nil {
-		t.Error("Event bus should have event store attached when set after recording enabled")
+	// Verify store receives events by publishing one
+	eventBus.Publish(&events.Event{
+		Type:      events.EventPipelineStarted,
+		SessionID: "verify-session",
+	})
+	eventBus.Close()
+
+	// Check that a recording file was created
+	if _, err := os.Stat(filepath.Join(tempDir, "verify-session.jsonl")); os.IsNotExist(err) {
+		t.Error("Event store should persist events when bus set after recording enabled")
 	}
 
 	// Clean up
@@ -199,8 +213,8 @@ func TestRecordingIntegrationWithEventStore(t *testing.T) {
 	}
 	engine.SetEventBus(eventBus)
 
-	// Get the event store
-	store := eventBus.Store()
+	// Get the event store from the engine
+	store := engine.eventStore
 	if store == nil {
 		t.Fatal("Event store should be available")
 	}

@@ -7,7 +7,7 @@ import (
 // EventSource is an interface for objects that provide an EventBus.
 // This is typically a [sdk.Conversation].
 type EventSource interface {
-	EventBus() *events.EventBus
+	EventBus() events.Bus
 }
 
 // OnEvent subscribes to all events from the source.

@@ -43,7 +43,7 @@ type ToolResult struct {
 
 // EventBusProvider abstracts access to the conversation's event bus.
 type EventBusProvider interface {
-	EventBus() *events.EventBus
+	EventBus() events.Bus
 }
 
 // StateProvider produces a state snapshot for the AG-UI StateSnapshotEvent.

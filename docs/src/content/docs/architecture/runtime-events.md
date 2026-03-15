@@ -72,10 +72,11 @@ emitter.EmitMiddlewareFailed(name, index, err, duration)
 
 The emitter automatically populates:
 - `Timestamp`: When the event occurred
+- `Sequence`: Monotonic counter assigned at publish time (for consumer-side ordering)
 - `RunID`, `SessionID`, `ConversationID`: Context identifiers
+- `UserID`: Pseudonymous user identifier (set via `emitter.WithUserID()`)
 - `Type`: Specific event type
 - `Data`: Type-specific payload
-- `Metadata`: Additional context (extensible)
 
 ### Event Types
 

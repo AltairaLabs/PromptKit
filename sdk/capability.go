@@ -33,6 +33,18 @@ type StatefulCapability interface {
 type CapabilityContext struct {
 	Pack       *pack.Pack
 	PromptName string
+	UserID     string
+	Metadata   map[string]any
+}
+
+// newCapabilityContext builds a CapabilityContext from pack info and config.
+func newCapabilityContext(p *pack.Pack, promptName string, cfg *config) CapabilityContext {
+	return CapabilityContext{
+		Pack:       p,
+		PromptName: promptName,
+		UserID:     cfg.userID,
+		Metadata:   cfg.sessionMetadata,
+	}
 }
 
 // inferCapabilities inspects pack structure and returns auto-detected capabilities.

@@ -278,14 +278,14 @@ func TestFileEventStore_Stream_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestEventBus_WithStore(t *testing.T) {
+func TestStoreSubscribedToBus(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewFileEventStore(dir)
 	require.NoError(t, err)
 	defer store.Close()
 
-	bus := NewEventBus().WithStore(store)
-	assert.Equal(t, store, bus.Store())
+	bus := NewEventBus()
+	bus.SubscribeAll(store.OnEvent)
 
 	sessionID := "session-bus-test"
 
@@ -298,8 +298,7 @@ func TestEventBus_WithStore(t *testing.T) {
 	}
 	bus.Publish(event)
 
-	// Close the bus to ensure the worker finishes processing the event
-	// (store writes are now asynchronous in the dispatch worker).
+	// Close the bus to ensure the worker finishes processing the event.
 	bus.Close()
 
 	// Sync to disk
@@ -312,12 +311,13 @@ func TestEventBus_WithStore(t *testing.T) {
 	assert.Equal(t, EventMessageCreated, events[0].Type)
 }
 
-func TestEventBus_WithStore_SkipsEventsWithoutSessionID(t *testing.T) {
+func TestStoreOnEventSkipsEventsWithoutSessionID(t *testing.T) {
 	store, err := NewFileEventStore(t.TempDir())
 	require.NoError(t, err)
 	defer store.Close()
 
-	bus := NewEventBus().WithStore(store)
+	bus := NewEventBus()
+	bus.SubscribeAll(store.OnEvent)
 
 	// Publish event without session ID
 	event := &Event{

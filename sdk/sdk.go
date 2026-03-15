@@ -233,8 +233,9 @@ func initConversation(
 	allCaps = ensureSkillsCapability(allCaps, cfg)
 	wireA2AConfig(allCaps, cfg)
 	wireSkillsConfig(allCaps, cfg)
+	capCtx := newCapabilityContext(p, promptName, cfg)
 	for _, cap := range allCaps {
-		if err := cap.Init(CapabilityContext{Pack: p, PromptName: promptName}); err != nil {
+		if err := cap.Init(capCtx); err != nil {
 			return nil, nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
 		}
 	}
@@ -465,15 +466,15 @@ func vertexBaseURL(pc *platformConfig, provType string) string {
 }
 
 // initEventBus initializes the conversation's event bus.
-// If an event store is configured, it is attached to the bus for persistence.
+// If an event store is configured, it is subscribed to the bus for persistence.
 // If a TracerProvider is configured, an OTel event listener is wired in.
 func initEventBus(cfg *config) {
 	if cfg.eventBus == nil {
 		cfg.eventBus = events.NewEventBus()
 	}
-	// Attach event store if configured (and not already attached)
-	if cfg.eventStore != nil && cfg.eventBus.Store() == nil {
-		cfg.eventBus.WithStore(cfg.eventStore)
+	// Subscribe event store for persistence if configured.
+	if cfg.eventStore != nil {
+		cfg.eventBus.SubscribeAll(cfg.eventStore.OnEvent)
 	}
 	// Wire OTel event listener if a TracerProvider is configured.
 	if cfg.tracerProvider != nil {
@@ -527,8 +528,10 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 	// Create text session wrapping the pipeline
 	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
 		ConversationID: conversationID,
+		UserID:         cfg.userID,
 		StateStore:     store,
 		Pipeline:       pipeline,
+		Metadata:       cfg.sessionMetadata,
 		Variables:      initialVars,
 	})
 	if err != nil {
@@ -654,12 +657,14 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	// Create duplex session with builder
 	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
 		ConversationID:   conversationID,
+		UserID:           cfg.userID,
 		StateStore:       store,
 		PipelineBuilder:  pipelineBuilder,
 		Provider:         streamProvider,
 		Config:           streamConfig, // nil for VAD mode, set for ASM mode
 		ToolRegistry:     conv.toolRegistry,
 		AsyncToolChecker: asyncChecker,
+		Metadata:         cfg.sessionMetadata,
 		Variables:        initialVars,
 	})
 	if err != nil {

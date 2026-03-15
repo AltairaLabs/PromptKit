@@ -43,6 +43,25 @@ Override the model.
 sdk.WithModel("gpt-4o")
 ```
 
+### WithUserID
+
+Set a pseudonymous user identifier for cross-session correlation (e.g., memory, analytics). PromptKit does not manage user-to-session mapping — that is the operator's concern.
+
+```go
+sdk.WithUserID("virtual-user-abc")
+```
+
+### WithSessionMetadata
+
+Attach arbitrary key-value metadata to the session. Metadata is persisted in the state store and available to capabilities via `CapabilityContext`.
+
+```go
+sdk.WithSessionMetadata(map[string]any{
+    "tenant":  "acme-corp",
+    "channel": "web-chat",
+})
+```
+
 ### WithImageFile
 
 Attach an image from a file.
@@ -232,7 +251,7 @@ func (c *Conversation) OnToolHTTP(name string, config *tools.HTTPToolConfig)
 Get the event bus for subscribing to events via the `hooks` package.
 
 ```go
-func (c *Conversation) EventBus() *events.EventBus
+func (c *Conversation) EventBus() events.Bus
 ```
 
 **Example:**

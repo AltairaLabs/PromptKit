@@ -101,7 +101,7 @@ type TurnRequest struct {
 	TurnEvalRunner interface{} // Optional stages.TurnEvalRunner for dual-write (Phase 2)
 
 	// Observability
-	EventBus *events.EventBus
+	EventBus events.Bus
 	RunID    string
 }
 

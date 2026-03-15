@@ -80,7 +80,7 @@ type EvaluateOpts struct {
 
 	// EventBus enables eval event emission (eval.completed / eval.failed).
 	// If nil and TracerProvider is set, a bus is created automatically.
-	EventBus *events.EventBus
+	EventBus events.Bus
 
 	// Logger is used for structured logging. If nil, the default logger is used.
 	Logger *slog.Logger
@@ -403,7 +403,7 @@ func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error) {
 }
 
 // emitEvalEvents emits eval results as events on the event bus.
-func emitEvalEvents(bus *events.EventBus, sessionID string, results []evals.EvalResult) {
+func emitEvalEvents(bus events.Bus, sessionID string, results []evals.EvalResult) {
 	emitter := events.NewEmitter(bus, "", sessionID, "")
 	emitEvalResultsTo(emitter, results)
 }

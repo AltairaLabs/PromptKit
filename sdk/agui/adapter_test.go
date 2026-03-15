@@ -66,10 +66,10 @@ func (m *mockSender) Resume(_ context.Context) (*sdk.Response, error) {
 
 // mockEventBusProvider implements EventBusProvider for testing.
 type mockEventBusProvider struct {
-	bus *events.EventBus
+	bus events.Bus
 }
 
-func (m *mockEventBusProvider) EventBus() *events.EventBus {
+func (m *mockEventBusProvider) EventBus() events.Bus {
 	return m.bus
 }
 

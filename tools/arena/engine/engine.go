@@ -69,7 +69,7 @@ type Engine struct {
 	conversationExecutor ConversationExecutor
 	toolRegistry         *tools.Registry    // Registry for tool descriptors and executors (used by workflow driver)
 	adapterRegistry      *adapters.Registry // Registry for recording adapters (used for eval enumeration)
-	eventBus             *events.EventBus   // Optional event bus for runtime/TUI events
+	eventBus             events.Bus         // Optional event bus for runtime/TUI events
 	eventStore           events.EventStore  // Optional event store for session recording
 	recordingDir         string             // Directory where session recordings are stored
 	a2aCleanup           func()             // Cleanup function for mock A2A servers
@@ -218,13 +218,13 @@ func (e *Engine) Close() error {
 }
 
 // SetEventBus configures the shared event bus used for runtime and TUI observability.
-// If session recording is enabled, the event bus will be wired to the event store.
-func (e *Engine) SetEventBus(bus *events.EventBus) {
+// If session recording is enabled, the event store is subscribed to the bus.
+func (e *Engine) SetEventBus(bus events.Bus) {
 	e.eventBus = bus
-	// Wire event store to bus if both are configured
+	// Subscribe event store to bus if both are configured
 	if e.eventStore != nil && bus != nil {
-		bus.WithStore(e.eventStore)
-		logger.Debug("Wired event store for existing session recording")
+		bus.SubscribeAll(e.eventStore.OnEvent)
+		logger.Debug("Subscribed event store for session recording")
 	}
 }
 
@@ -240,10 +240,10 @@ func (e *Engine) EnableSessionRecording(recordingDir string) error {
 	e.eventStore = store
 	e.recordingDir = recordingDir
 
-	// Wire to existing event bus if present
+	// Subscribe store to existing event bus if present
 	if e.eventBus != nil {
-		e.eventBus.WithStore(store)
-		logger.Debug("Wired event store for new session recording")
+		e.eventBus.SubscribeAll(store.OnEvent)
+		logger.Debug("Subscribed event store for session recording")
 	}
 
 	logger.Info("Session recording enabled", "directory", recordingDir)
