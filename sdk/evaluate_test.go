@@ -604,7 +604,7 @@ func TestEvaluate_MetricsCollector_TakesPrecedence(t *testing.T) {
 }
 
 func TestEvaluate_MetricRecorder_NoMetricDef(t *testing.T) {
-	// Evals without Metric defs should not cause errors when MetricRecorder is set
+	// Evals without explicit Metric defs should auto-generate a gauge metric.
 	reg := prometheus.NewRegistry()
 	collector := metrics.NewCollector(metrics.CollectorOpts{
 		Registerer:             reg,
@@ -623,10 +623,10 @@ func TestEvaluate_MetricRecorder_NoMetricDef(t *testing.T) {
 	require.NotNil(t, results[0].Score)
 	assert.Equal(t, 1.0, *results[0].Score)
 
-	// No metrics should have been recorded
+	// An auto-generated gauge metric should have been recorded.
 	families, gatherErr := reg.Gather()
 	require.NoError(t, gatherErr)
-	assert.Empty(t, families, "no metrics should be recorded for evals without MetricDef")
+	assert.NotEmpty(t, families, "evals without explicit MetricDef should still emit auto-generated metrics")
 }
 
 func TestValidateEvalTypes_AllRegistered(t *testing.T) {

@@ -12,8 +12,9 @@ type MetricRecorder interface {
 }
 
 // MetricResultWriter feeds eval results to a MetricRecorder for
-// Prometheus exposition. Only results whose corresponding EvalDef
-// has a Metric definition are recorded.
+// Prometheus exposition. Every eval result is recorded: if the EvalDef
+// includes an explicit Metric definition it is used; otherwise a default
+// gauge metric named after the eval ID is created automatically.
 type MetricResultWriter struct {
 	recorder MetricRecorder
 	// defs maps eval ID to its definition for metric lookup.
@@ -32,20 +33,41 @@ func NewMetricResultWriter(
 	return &MetricResultWriter{recorder: recorder, defs: m}
 }
 
-// WriteResults records each result that has an associated metric.
+// WriteResults records each eval result as a Prometheus metric.
+// If the EvalDef has an explicit Metric definition, that is used.
+// Otherwise a default gauge metric named after the eval ID is generated
+// so that every eval produces a metric without requiring pack authors
+// to define one explicitly.
 func (w *MetricResultWriter) WriteResults(
 	_ context.Context, results []EvalResult,
 ) error {
 	for i := range results {
-		def, ok := w.defs[results[i].EvalID]
-		if !ok || def.Metric == nil {
+		metric := w.metricForEval(results[i].EvalID)
+		if metric == nil {
 			continue
 		}
-		if err := w.recorder.Record(results[i], def.Metric); err != nil {
+		if err := w.recorder.Record(results[i], metric); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// metricForEval returns the metric definition for an eval result.
+// Returns the explicit definition if present, generates a default gauge
+// if the eval is known but has no metric, or returns nil for unknown evals.
+func (w *MetricResultWriter) metricForEval(evalID string) *MetricDef {
+	def, ok := w.defs[evalID]
+	if !ok {
+		return nil
+	}
+	if def.Metric != nil {
+		return def.Metric
+	}
+	// Auto-generate a default gauge metric for evals without an explicit definition.
+	m := &MetricDef{Name: evalID, Type: MetricGauge}
+	def.Metric = m
+	return m
 }
 
 // ExtractValue extracts the numeric value from an EvalResult.
