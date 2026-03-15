@@ -112,11 +112,7 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 
 	// Create and init WorkflowCapability
 	wfCap := NewWorkflowCapability()
-	capCtx := CapabilityContext{
-		Pack: p, PromptName: promptName,
-		UserID: cfg.userID, Metadata: cfg.sessionMetadata,
-	}
-	if err := wfCap.Init(capCtx); err != nil {
+	if err := wfCap.Init(newCapabilityContext(p, promptName, cfg)); err != nil {
 		_ = conv.Close()
 		return nil, fmt.Errorf("workflow capability init failed: %w", err)
 	}
@@ -209,11 +205,7 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 
 	// Create and init WorkflowCapability
 	wfCap := NewWorkflowCapability()
-	capCtx := CapabilityContext{
-		Pack: p, PromptName: promptName,
-		UserID: cfg.userID, Metadata: cfg.sessionMetadata,
-	}
-	if err := wfCap.Init(capCtx); err != nil {
+	if err := wfCap.Init(newCapabilityContext(p, promptName, cfg)); err != nil {
 		_ = conv.Close()
 		return nil, fmt.Errorf("workflow capability init failed: %w", err)
 	}

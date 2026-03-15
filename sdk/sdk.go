@@ -233,11 +233,8 @@ func initConversation(
 	allCaps = ensureSkillsCapability(allCaps, cfg)
 	wireA2AConfig(allCaps, cfg)
 	wireSkillsConfig(allCaps, cfg)
+	capCtx := newCapabilityContext(p, promptName, cfg)
 	for _, cap := range allCaps {
-		capCtx := CapabilityContext{
-			Pack: p, PromptName: promptName,
-			UserID: cfg.userID, Metadata: cfg.sessionMetadata,
-		}
 		if err := cap.Init(capCtx); err != nil {
 			return nil, nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
 		}
