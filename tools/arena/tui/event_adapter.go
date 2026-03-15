@@ -27,7 +27,7 @@ func NewEventAdapterWithModel(model *Model) *EventAdapter {
 }
 
 // Subscribe subscribes the adapter to an event bus.
-func (a *EventAdapter) Subscribe(bus *events.EventBus) {
+func (a *EventAdapter) Subscribe(bus events.Bus) {
 	if bus == nil {
 		return
 	}

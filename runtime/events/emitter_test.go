@@ -825,3 +825,92 @@ func TestEmitter_ClientToolResolved_NilData(t *testing.T) {
 	// Should not panic when data is nil
 	emitter.ClientToolResolved(nil)
 }
+
+func TestEmitter_WithUserID(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-uid", "session-uid", "conv-uid").
+		WithUserID("virtual-user-123")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(EventPipelineStarted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.PipelineStarted(1)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event")
+	}
+
+	if got.UserID != "virtual-user-123" {
+		t.Fatalf("expected UserID 'virtual-user-123', got %q", got.UserID)
+	}
+}
+
+func TestEmitter_WithUserID_NilEmitter(t *testing.T) {
+	t.Parallel()
+
+	var emitter *Emitter
+	// Should not panic
+	result := emitter.WithUserID("user-123")
+	if result != nil {
+		t.Fatal("expected nil emitter to return nil")
+	}
+}
+
+func TestEventBus_PublishStampsSequence(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	var events []*Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	bus.SubscribeAll(func(e *Event) {
+		mu.Lock()
+		events = append(events, e)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	emitter := NewEmitter(bus, "run-seq", "session-seq", "conv-seq")
+	emitter.PipelineStarted(1)
+	emitter.PipelineCompleted(time.Second, 0.01, 100, 50, 2)
+	emitter.PipelineFailed(errors.New("test"), time.Second)
+
+	if !waitForWG(&wg, 500*time.Millisecond) {
+		t.Fatal("timed out waiting for events")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+
+	// Collect sequences (delivery order may differ from publish order due to goroutine dispatch)
+	seqs := make([]int64, len(events))
+	for i, e := range events {
+		seqs[i] = e.Sequence
+		if e.Sequence <= 0 {
+			t.Fatalf("event %d has non-positive sequence: %d", i, e.Sequence)
+		}
+	}
+
+	// All three sequences should be distinct
+	seen := map[int64]bool{}
+	for _, s := range seqs {
+		if seen[s] {
+			t.Fatalf("duplicate sequence: %d", s)
+		}
+		seen[s] = true
+	}
+}

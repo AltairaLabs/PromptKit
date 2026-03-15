@@ -70,4 +70,21 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 		assert.Equal(t, "banned_words", cfg.providerHooks[0].Name())
 		assert.Equal(t, "length", cfg.providerHooks[1].Name())
 	})
+
+	t.Run("validator with message and monitor options", func(t *testing.T) {
+		prompt := &pack.Prompt{
+			Validators: []pack.Validator{
+				{
+					Type:    "banned_words",
+					Config:  map[string]any{"words": []any{"bad"}},
+					Message: "custom rejection message",
+					Monitor: true,
+				},
+			},
+		}
+		cfg := &config{}
+		convertPackValidatorsToHooks(prompt, cfg)
+		require.Len(t, cfg.providerHooks, 1)
+		assert.Equal(t, "banned_words", cfg.providerHooks[0].Name())
+	})
 }

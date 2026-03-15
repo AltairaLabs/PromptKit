@@ -8,20 +8,29 @@ import (
 
 // Emitter provides helpers for publishing runtime events with shared metadata.
 type Emitter struct {
-	bus            *EventBus
+	bus            Bus
 	runID          string
 	sessionID      string
 	conversationID string
+	userID         string
 }
 
 // NewEmitter creates a new event emitter.
-func NewEmitter(bus *EventBus, runID, sessionID, conversationID string) *Emitter {
+func NewEmitter(bus Bus, runID, sessionID, conversationID string) *Emitter {
 	return &Emitter{
 		bus:            bus,
 		runID:          runID,
 		sessionID:      sessionID,
 		conversationID: conversationID,
 	}
+}
+
+// WithUserID returns the emitter with a user ID that will be stamped on all events.
+func (e *Emitter) WithUserID(userID string) *Emitter {
+	if e != nil {
+		e.userID = userID
+	}
+	return e
 }
 
 // emit publishes an event with shared context fields.
@@ -36,6 +45,7 @@ func (e *Emitter) emit(eventType EventType, data EventData) {
 		RunID:          e.runID,
 		SessionID:      e.sessionID,
 		ConversationID: e.conversationID,
+		UserID:         e.userID,
 		Data:           data,
 	}
 

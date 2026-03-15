@@ -114,9 +114,11 @@ type EventData interface {
 type Event struct {
 	Type           EventType
 	Timestamp      time.Time
+	Sequence       int64
 	RunID          string
 	SessionID      string
 	ConversationID string
+	UserID         string
 	Data           EventData
 }
 

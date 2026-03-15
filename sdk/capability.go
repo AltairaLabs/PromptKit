@@ -33,6 +33,8 @@ type StatefulCapability interface {
 type CapabilityContext struct {
 	Pack       *pack.Pack
 	PromptName string
+	UserID     string
+	Metadata   map[string]any
 }
 
 // inferCapabilities inspects pack structure and returns auto-detected capabilities.

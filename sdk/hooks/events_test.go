@@ -12,10 +12,10 @@ import (
 
 // mockEventSource implements EventSource for testing
 type mockEventSource struct {
-	bus *events.EventBus
+	bus events.Bus
 }
 
-func (m *mockEventSource) EventBus() *events.EventBus {
+func (m *mockEventSource) EventBus() events.Bus {
 	return m.bus
 }
 

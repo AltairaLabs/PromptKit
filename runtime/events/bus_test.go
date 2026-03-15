@@ -622,28 +622,20 @@ func TestEventBusCloseWithoutSubscribers(t *testing.T) {
 	}
 }
 
-func TestEventBusStoreWriteInDispatchWorker(t *testing.T) {
+func TestEventBusStoreSubscriberReceivesEvents(t *testing.T) {
 	t.Parallel()
 
 	bus := NewEventBus(WithWorkerPoolSize(1))
-	defer bus.Close()
 
-	// Use a mock store that records which goroutine Append runs on.
+	// Wire store as a subscriber via OnEvent.
 	store := &goroutineTrackingStore{}
-	bus.WithStore(store)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	bus.Subscribe(EventPipelineStarted, func(*Event) {
-		wg.Done()
-	})
+	bus.SubscribeAll(store.OnEvent)
 
 	// Publish from the test goroutine.
 	bus.Publish(&Event{Type: EventPipelineStarted, SessionID: "test-session"})
 
-	if !waitForWG(&wg, 200*time.Millisecond) {
-		t.Fatal("timed out waiting for event")
-	}
+	// Close drains all pending events, ensuring store.OnEvent has been called.
+	bus.Close()
 
 	// Verify store.Append was called.
 	if store.appendCount.Load() != 1 {
@@ -651,27 +643,19 @@ func TestEventBusStoreWriteInDispatchWorker(t *testing.T) {
 	}
 }
 
-func TestEventBusStoreWriteSkipsEmptySessionID(t *testing.T) {
+func TestEventBusStoreSubscriberSkipsEmptySessionID(t *testing.T) {
 	t.Parallel()
 
 	bus := NewEventBus(WithWorkerPoolSize(1))
-	defer bus.Close()
 
 	store := &goroutineTrackingStore{}
-	bus.WithStore(store)
+	bus.SubscribeAll(store.OnEvent)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	bus.Subscribe(EventPipelineStarted, func(*Event) {
-		wg.Done()
-	})
-
-	// Publish event without SessionID — store should NOT be called.
+	// Publish event without SessionID — store.OnEvent should skip it.
 	bus.Publish(&Event{Type: EventPipelineStarted})
 
-	if !waitForWG(&wg, 200*time.Millisecond) {
-		t.Fatal("timed out waiting for event")
-	}
+	// Close drains all pending events.
+	bus.Close()
 
 	if store.appendCount.Load() != 0 {
 		t.Fatalf("expected 0 store appends for empty session ID, got %d", store.appendCount.Load())
@@ -685,7 +669,7 @@ func TestEventBusStoreAppendErrorLogged(t *testing.T) {
 	defer bus.Close()
 
 	store := &failingStore{}
-	bus.WithStore(store)
+	bus.SubscribeAll(store.OnEvent)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -753,6 +737,13 @@ func (s *goroutineTrackingStore) Stream(context.Context, string) (<-chan *Event,
 	return ch, nil
 }
 
+func (s *goroutineTrackingStore) OnEvent(event *Event) {
+	if event.SessionID == "" {
+		return
+	}
+	_ = s.Append(context.Background(), event)
+}
+
 func (s *goroutineTrackingStore) Close() error { return nil }
 
 // failingStore is a mock EventStore whose Append always returns an error.
@@ -772,6 +763,13 @@ func (s *failingStore) Stream(context.Context, string) (<-chan *Event, error) {
 	ch := make(chan *Event)
 	close(ch)
 	return ch, nil
+}
+
+func (s *failingStore) OnEvent(event *Event) {
+	if event.SessionID == "" {
+		return
+	}
+	_ = s.Append(context.Background(), event)
 }
 
 func (s *failingStore) Close() error { return nil }

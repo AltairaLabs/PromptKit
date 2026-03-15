@@ -60,13 +60,13 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 // It observes elements flowing through without modifying them.
 type RecordingStage struct {
 	BaseStage
-	eventBus  *events.EventBus
+	eventBus  events.Bus
 	config    RecordingStageConfig
 	startTime time.Time
 }
 
 // NewRecordingStage creates a new recording stage.
-func NewRecordingStage(eventBus *events.EventBus, config RecordingStageConfig) *RecordingStage {
+func NewRecordingStage(eventBus events.Bus, config RecordingStageConfig) *RecordingStage {
 	name := "recording_" + string(config.Position)
 	return &RecordingStage{
 		BaseStage: NewBaseStage(name, StageTypeTransform),

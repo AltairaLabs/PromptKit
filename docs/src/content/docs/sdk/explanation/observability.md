@@ -119,7 +119,8 @@ Publisher ──► EventBus ──┬──► EventStore (sync persist)
 bus := events.NewEventBus()
 
 // Optional: persist events to disk
-bus.WithStore(events.NewFileEventStore("./recordings"))
+store, _ := events.NewFileEventStore("./recordings")
+bus.SubscribeAll(store.OnEvent)
 
 // Subscribe to specific events
 bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {

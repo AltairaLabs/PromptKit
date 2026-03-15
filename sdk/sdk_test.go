@@ -639,7 +639,7 @@ func TestInitEventBus(t *testing.T) {
 		assert.Equal(t, bus, cfg.eventBus)
 	})
 
-	t.Run("attaches event store to bus", func(t *testing.T) {
+	t.Run("subscribes event store to bus", func(t *testing.T) {
 		store, err := events.NewFileEventStore(t.TempDir())
 		require.NoError(t, err)
 		defer store.Close()
@@ -648,24 +648,20 @@ func TestInitEventBus(t *testing.T) {
 		initEventBus(cfg)
 
 		assert.NotNil(t, cfg.eventBus)
-		assert.Equal(t, store, cfg.eventBus.Store())
-	})
 
-	t.Run("preserves existing store on provided bus", func(t *testing.T) {
-		existingStore, err := events.NewFileEventStore(t.TempDir())
+		// Verify store receives events by publishing one and checking persistence
+		cfg.eventBus.Publish(&events.Event{
+			Type:      events.EventPipelineStarted,
+			SessionID: "test-session",
+		})
+		cfg.eventBus.Close()
+		require.NoError(t, store.Sync())
+
+		stored, err := store.Query(context.Background(), &events.EventFilter{
+			SessionID: "test-session",
+		})
 		require.NoError(t, err)
-		defer existingStore.Close()
-
-		newStore, err := events.NewFileEventStore(t.TempDir())
-		require.NoError(t, err)
-		defer newStore.Close()
-
-		bus := events.NewEventBus().WithStore(existingStore)
-		cfg := &config{eventBus: bus, eventStore: newStore}
-		initEventBus(cfg)
-
-		// Should preserve the existing store, not overwrite with new one
-		assert.Equal(t, existingStore, cfg.eventBus.Store())
+		assert.Len(t, stored, 1)
 	})
 
 	t.Run("wires metrics collector", func(t *testing.T) {

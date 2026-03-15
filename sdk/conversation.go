@@ -345,7 +345,8 @@ func (c *Conversation) buildPipelineConfig(
 	// Create event emitter if event bus is configured
 	var eventEmitter *events.Emitter
 	if c.config.eventBus != nil {
-		eventEmitter = events.NewEmitter(c.config.eventBus, "", conversationID, conversationID)
+		eventEmitter = events.NewEmitter(c.config.eventBus, "", conversationID, conversationID).
+			WithUserID(c.config.userID)
 	}
 
 	// Build pipeline configuration
@@ -522,7 +523,7 @@ func (c *Conversation) getBaseSession() session.BaseSession {
 // newEmitter creates an events.Emitter for this conversation, populating
 // the sessionID from the active session. Returns nil if the event bus is not
 // configured.
-func (c *Conversation) newEmitter(bus *events.EventBus) *events.Emitter {
+func (c *Conversation) newEmitter(bus events.Bus) *events.Emitter {
 	if bus == nil {
 		return nil
 	}
@@ -530,7 +531,7 @@ func (c *Conversation) newEmitter(bus *events.EventBus) *events.Emitter {
 	if s := c.getBaseSession(); s != nil {
 		sessionID = s.ID()
 	}
-	return events.NewEmitter(bus, "", sessionID, "")
+	return events.NewEmitter(bus, "", sessionID, "").WithUserID(c.config.userID)
 }
 
 // SendChunk sends a streaming chunk in duplex mode.
@@ -1036,7 +1037,7 @@ func (c *Conversation) ID() string {
 //	})
 //
 // For convenience methods, see the [hooks] package.
-func (c *Conversation) EventBus() *events.EventBus {
+func (c *Conversation) EventBus() events.Bus {
 	return c.config.eventBus
 }
 

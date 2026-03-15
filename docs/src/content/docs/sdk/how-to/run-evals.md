@@ -245,7 +245,7 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 | `JudgeProvider` | `any` | Pre-built LLM judge provider |
 | `JudgeTargets` | `map[string]any` | Provider specs for LLM judge evals |
 | `TracerProvider` | `trace.TracerProvider` | OpenTelemetry tracing |
-| `EventBus` | `*events.EventBus` | Event emission |
+| `EventBus` | `events.Bus` | Event emission |
 | `Logger` | `*slog.Logger` | Structured logging |
 | `RuntimeConfigPath` | `string` | Load exec eval handlers from RuntimeConfig YAML |
 | `MetricsCollector` | `*metrics.Collector` | Unified Prometheus collector (preferred — SDK calls `Bind()` internally) |

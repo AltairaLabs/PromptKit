@@ -206,7 +206,11 @@ func (t *PackTemplate) initConversation(conv *Conversation, packPrompt *pack.Pro
 	wireA2AConfig(allCaps, cfg)
 	wireSkillsConfig(allCaps, cfg)
 	for _, cap := range allCaps {
-		if err := cap.Init(CapabilityContext{Pack: t.pack, PromptName: conv.promptName}); err != nil {
+		capCtx := CapabilityContext{
+			Pack: t.pack, PromptName: conv.promptName,
+			UserID: cfg.userID, Metadata: cfg.sessionMetadata,
+		}
+		if err := cap.Init(capCtx); err != nil {
 			return fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
 		}
 	}

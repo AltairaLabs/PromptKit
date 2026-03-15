@@ -63,7 +63,7 @@ type ConversationRequest struct {
 	Metadata map[string]string // Additional metadata for debugging/tracing
 
 	// Event bus for runtime/TUI events
-	EventBus *events.EventBus
+	EventBus events.Bus
 
 	// State management
 	StateStoreConfig *StateStoreConfig // Optional state store configuration

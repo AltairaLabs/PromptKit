@@ -146,7 +146,7 @@ type Config struct {
 
 	// RecordingEventBus is the event bus used by recording stages.
 	// Required when RecordingConfig is set.
-	RecordingEventBus *events.EventBus
+	RecordingEventBus events.Bus
 }
 
 // Build creates a stage-based streaming pipeline.

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/internal/lru"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // File system constants.
@@ -33,6 +34,11 @@ const (
 type EventStore interface {
 	// Append adds an event to the store.
 	Append(ctx context.Context, event *Event) error
+
+	// OnEvent is a Listener-compatible method for wiring the store as a bus subscriber.
+	// Events without a SessionID are silently skipped; errors are logged.
+	// Usage: bus.SubscribeAll(store.OnEvent)
+	OnEvent(event *Event)
 
 	// Query returns events matching the filter.
 	Query(ctx context.Context, filter *EventFilter) ([]*Event, error)
@@ -72,9 +78,11 @@ type StoredEvent struct {
 type SerializableEvent struct {
 	Type           EventType       `json:"type"`
 	Timestamp      time.Time       `json:"timestamp"`
+	Sequence       int64           `json:"sequence,omitempty"`
 	RunID          string          `json:"run_id,omitempty"`
 	SessionID      string          `json:"session_id"`
 	ConversationID string          `json:"conversation_id,omitempty"`
+	UserID         string          `json:"user_id,omitempty"`
 	DataType       string          `json:"data_type,omitempty"`
 	Data           json.RawMessage `json:"data,omitempty"`
 }
@@ -84,9 +92,11 @@ func toSerializable(e *Event) (*SerializableEvent, error) {
 	se := &SerializableEvent{
 		Type:           e.Type,
 		Timestamp:      e.Timestamp,
+		Sequence:       e.Sequence,
 		RunID:          e.RunID,
 		SessionID:      e.SessionID,
 		ConversationID: e.ConversationID,
+		UserID:         e.UserID,
 	}
 	if e.Data != nil {
 		se.DataType = fmt.Sprintf("%T", e.Data)
@@ -105,9 +115,11 @@ func (se *SerializableEvent) toEvent() *Event {
 	event := &Event{
 		Type:           se.Type,
 		Timestamp:      se.Timestamp,
+		Sequence:       se.Sequence,
 		RunID:          se.RunID,
 		SessionID:      se.SessionID,
 		ConversationID: se.ConversationID,
+		UserID:         se.UserID,
 	}
 
 	// Attempt to deserialize Data based on DataType
@@ -587,6 +599,24 @@ func (s *FileEventStore) matchesFilterWithSet(
 		return false
 	}
 	return matchesEventTypeSet(event.Type, typeSet)
+}
+
+// OnEvent is a Listener-compatible method that persists an event to the store.
+// Events without a SessionID are silently skipped.
+// This allows wiring the store as a regular bus subscriber:
+//
+//	bus.SubscribeAll(store.OnEvent)
+func (s *FileEventStore) OnEvent(event *Event) {
+	if event.SessionID == "" {
+		return
+	}
+	if err := s.Append(context.Background(), event); err != nil {
+		logger.Warn("event store append failed",
+			"event_type", string(event.Type),
+			"session_id", event.SessionID,
+			"error", err,
+		)
+	}
 }
 
 // Ensure FileEventStore implements EventStore.

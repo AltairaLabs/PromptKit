@@ -2,7 +2,6 @@
 package events
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,7 +14,6 @@ const (
 	DefaultWorkerPoolSize    = 10
 	DefaultEventBufferSize   = 1000
 	DefaultSubscriberTimeout = 5 * time.Second
-	DefaultStoreTimeout      = 3 * time.Second
 	dropLogRateLimit         = 100 // log every Nth drop to avoid spam
 )
 
@@ -29,7 +27,6 @@ type busConfig struct {
 	workerPoolSize    int
 	eventBufferSize   int
 	subscriberTimeout time.Duration
-	storeTimeout      time.Duration
 }
 
 // WithWorkerPoolSize sets the number of worker goroutines that process events.
@@ -62,17 +59,6 @@ func WithSubscriberTimeout(d time.Duration) BusOption {
 	}
 }
 
-// WithStoreTimeout sets the maximum duration for event store persistence operations.
-// A slow event store will not block the worker pool longer than this. Defaults to
-// DefaultStoreTimeout (3s).
-func WithStoreTimeout(d time.Duration) BusOption {
-	return func(c *busConfig) {
-		if d > 0 {
-			c.storeTimeout = d
-		}
-	}
-}
-
 // listenerEntry holds a listener with a unique ID for unsubscription.
 type listenerEntry struct {
 	id       uint64
@@ -82,6 +68,27 @@ type listenerEntry struct {
 // maxLeakCount is the number of timeout strikes before a listener is skipped.
 const maxLeakCount = 3
 
+// Bus is the interface for publishing and subscribing to runtime events.
+// The default implementation is EventBus (in-process, goroutine-pool based).
+// Implement this interface to bridge events to an external transport
+// such as NATS JetStream, Kafka, or Redis Streams.
+type Bus interface {
+	// Publish sends an event for delivery to all registered listeners.
+	// Returns false if the bus has been closed or the event was dropped.
+	Publish(event *Event) bool
+
+	// Subscribe registers a listener for a specific event type.
+	// Returns an unsubscribe function.
+	Subscribe(eventType EventType, listener Listener) func()
+
+	// SubscribeAll registers a listener for all event types.
+	// Returns an unsubscribe function.
+	SubscribeAll(listener Listener) func()
+
+	// Close shuts down the bus and waits for pending events to drain.
+	Close()
+}
+
 // EventBus manages event distribution to listeners via a fixed-size worker pool.
 // Workers are started lazily on the first Subscribe/SubscribeAll call to avoid
 // spawning goroutines when no one is listening.
@@ -89,8 +96,8 @@ type EventBus struct {
 	mu              sync.RWMutex
 	listeners       map[EventType][]listenerEntry
 	globalListeners []listenerEntry
-	store           EventStore
 	nextID          atomic.Uint64
+	seq             atomic.Int64 // monotonic sequence counter for events
 
 	eventCh           chan *Event
 	wg                sync.WaitGroup
@@ -98,7 +105,6 @@ type EventBus struct {
 	started           atomic.Bool // true once workers have been launched
 	droppedCount      atomic.Int64
 	subscriberTimeout time.Duration
-	storeTimeout      time.Duration
 
 	// leakCount tracks how many times each listener has timed out.
 	// Protected by mu.
@@ -124,16 +130,10 @@ func NewEventBus(opts ...BusOption) *EventBus {
 		opt(cfg)
 	}
 
-	storeTimeout := cfg.storeTimeout
-	if storeTimeout == 0 {
-		storeTimeout = DefaultStoreTimeout
-	}
-
 	eb := &EventBus{
 		listeners:         make(map[EventType][]listenerEntry),
 		eventCh:           make(chan *Event, cfg.eventBufferSize),
 		subscriberTimeout: cfg.subscriberTimeout,
-		storeTimeout:      storeTimeout,
 		workerPoolSize:    cfg.workerPoolSize,
 		leakCount:         make(map[uint64]int),
 	}
@@ -167,23 +167,6 @@ func (eb *EventBus) worker() {
 // Each listener is invoked with a timeout; if a listener exceeds the subscriber
 // timeout it is skipped and a warning is logged.
 func (eb *EventBus) dispatch(event *Event) {
-	// Persist to store if configured (asynchronous — runs in worker goroutine)
-	eb.mu.RLock()
-	store := eb.store
-	eb.mu.RUnlock()
-
-	if store != nil && event.SessionID != "" {
-		storeCtx, storeCancel := context.WithTimeout(context.Background(), eb.storeTimeout)
-		if err := store.Append(storeCtx, event); err != nil {
-			logger.Warn("event store append failed",
-				"event_type", string(event.Type),
-				"session_id", event.SessionID,
-				"error", err,
-			)
-		}
-		storeCancel()
-	}
-
 	eb.mu.RLock()
 	typeListeners := eb.listeners[event.Type]
 
@@ -269,27 +252,6 @@ func (eb *EventBus) invokeWithTimeout(id uint64, listener Listener, event *Event
 	}()
 }
 
-// WithStore returns the event bus configured with the given store for persistence.
-// If a non-nil store is provided, workers are started immediately since store
-// writes happen in the dispatch worker goroutine.
-func (eb *EventBus) WithStore(store EventStore) *EventBus {
-	eb.mu.Lock()
-	eb.store = store
-	eb.mu.Unlock()
-
-	if store != nil {
-		eb.ensureStarted()
-	}
-	return eb
-}
-
-// Store returns the configured event store, or nil if none.
-func (eb *EventBus) Store() EventStore {
-	eb.mu.RLock()
-	defer eb.mu.RUnlock()
-	return eb.store
-}
-
 // Subscribe registers a listener for a specific event type and returns
 // an unsubscribe function that removes the listener when called.
 // On the first call, workers are started lazily.
@@ -353,6 +315,9 @@ func (eb *EventBus) Publish(event *Event) bool {
 	if eb.closed.Load() {
 		return false
 	}
+
+	// Stamp monotonic sequence for consumer-side ordering.
+	event.Sequence = eb.seq.Add(1)
 
 	// Non-blocking send: if the buffer is full, drop the event rather than blocking
 	// the caller indefinitely. In practice, the buffer should be sized to handle bursts.

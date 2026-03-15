@@ -55,11 +55,15 @@ type config struct {
 	stateStore     statestore.Store
 	conversationID string
 
+	// Session identity
+	userID          string
+	sessionMetadata map[string]any
+
 	// Tool registry (for power users)
 	toolRegistry *tools.Registry
 
 	// Event bus for observability
-	eventBus *events.EventBus
+	eventBus events.Bus
 
 	// Event store for session recording
 	eventStore events.EventStore
@@ -447,6 +451,40 @@ func WithConversationID(id string) Option {
 	}
 }
 
+// WithUserID sets a pseudonymous user identifier for the session.
+//
+// This is an operator-provided virtual identity used for cross-session
+// correlation (e.g., memory, analytics). PromptKit does not manage
+// user-to-session mapping — that is the operator's concern.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithUserID("virtual-user-abc"),
+//	)
+func WithUserID(id string) Option {
+	return func(c *config) error {
+		c.userID = id
+		return nil
+	}
+}
+
+// WithSessionMetadata attaches arbitrary key-value metadata to the session.
+//
+// Metadata is persisted in the state store and available to capabilities
+// via CapabilityContext. Common uses: tenant ID, channel, tier, A/B cohort.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithSessionMetadata(map[string]any{
+//	        "tenant":  "acme-corp",
+//	        "channel": "web-chat",
+//	    }),
+//	)
+func WithSessionMetadata(metadata map[string]any) Option {
+	return func(c *config) error {
+		c.sessionMetadata = metadata
+		return nil
+	}
+}
+
 // WithToolRegistry provides a pre-configured tool registry.
 //
 // This is a power-user option for scenarios requiring direct registry access.
@@ -476,7 +514,7 @@ func WithToolRegistry(registry *tools.Registry) Option {
 //
 //	conv1, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithEventBus(bus))
 //	conv2, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithEventBus(bus))
-func WithEventBus(bus *events.EventBus) Option {
+func WithEventBus(bus events.Bus) Option {
 	return func(c *config) error {
 		c.eventBus = bus
 		return nil
@@ -504,7 +542,8 @@ func WithEventBus(bus *events.EventBus) Option {
 // Example with shared bus and store:
 //
 //	store, _ := events.NewFileEventStore("/var/log/sessions")
-//	bus := events.NewEventBus().WithStore(store)
+//	bus := events.NewEventBus()
+//	bus.SubscribeAll(store.OnEvent)
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithEventBus(bus),
