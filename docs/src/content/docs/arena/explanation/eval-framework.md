@@ -210,7 +210,7 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 )
 ```
 
-When `WithMetrics()` is configured, eval results with a `metric` definition are automatically recorded alongside pipeline metrics. Eval metrics are namespaced under `{namespace}_eval_` to distinguish them from pipeline metrics. For example, a metric named `response_quality_score` with namespace `myapp` becomes `myapp_eval_response_quality_score`. See [Metrics Reference](/runtime/reference/metrics/) for the full catalog.
+When `WithMetrics()` is configured, all eval results are automatically recorded as Prometheus metrics alongside pipeline metrics. Evals with an explicit `metric` definition use that configuration; evals without one get an auto-generated gauge metric named after the eval ID. Eval metrics are namespaced under `{namespace}_eval_` to distinguish them from pipeline metrics. For example, a metric named `response_quality_score` with namespace `myapp` becomes `myapp_eval_response_quality_score`, and an eval with ID `check-tone` without an explicit metric becomes `myapp_eval_check-tone`. See [Metrics Reference](/runtime/reference/metrics/) for the full catalog.
 
 ### Metric Types
 

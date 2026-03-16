@@ -97,7 +97,9 @@ These are registered at Collector creation time and recorded automatically when 
 
 ## Eval Metrics
 
-Eval metrics are defined per-eval in the pack file's `metric` field. They are registered dynamically on first observation (with double-checked locking for thread safety). Disable with `DisableEvalMetrics: true`.
+Eval metrics are registered dynamically on first observation (with double-checked locking for thread safety). Disable with `DisableEvalMetrics: true`.
+
+Every eval that runs produces a Prometheus metric. If the eval definition includes an explicit `metric` field, that definition is used. If no `metric` field is present, a default **gauge** metric is auto-generated using the eval ID as the metric name (e.g., eval `"response-quality"` becomes `{ns}_eval_response-quality`). This ensures pack authors don't need to opt in to metrics — every eval result is observable by default.
 
 ### MetricDef Structure
 
@@ -147,10 +149,13 @@ myapp_eval_response_quality_score{tenant="acme",category="quality",eval_type="ll
 
 ### Score Extraction
 
-The score value recorded for `gauge` and `histogram` types is extracted as follows:
+The score value recorded for `gauge` and `histogram` types is extracted by `ExtractValue` as follows:
 
-1. If `EvalResult.Score` is non-nil, use `*Score`
-2. Otherwise, if `EvalResult.Passed` is true, use `1.0`; else `0.0`
+1. If `EvalResult.MetricValue` is non-nil, use `*MetricValue`
+2. Otherwise, if `EvalResult.Score` is non-nil, use `*Score`
+3. Otherwise, default to `0.0`
+
+For `boolean` metrics, the value is `1.0` if `Score >= 1.0`, otherwise `0.0`.
 
 ## Label Architecture
 
@@ -246,7 +251,8 @@ For quick reference, here is every metric name emitted with the default `promptk
 | `promptkit_tool_calls_total` | Counter | Tool |
 | `promptkit_validation_duration_seconds` | Histogram | Validation |
 | `promptkit_validations_total` | Counter | Validation |
-| `{ns}_eval_{metric_name}` | Varies | Eval (pack-defined) |
+| `{ns}_eval_{metric_name}` | Varies | Eval (explicit pack-defined metric) |
+| `{ns}_eval_{eval_id}` | Gauge | Eval (auto-generated when no metric defined) |
 
 ## See Also
 
