@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: simple-qa
+spec:
+  id: simple-qa
+  task_type: assistant
+  description: "Single-turn Q&A workload. Lightweight baseline for latency measurement."
+
+  trials: 5
+
+  turns:
+    - role: user
+      content: "What are the three laws of thermodynamics? Explain each in one sentence."

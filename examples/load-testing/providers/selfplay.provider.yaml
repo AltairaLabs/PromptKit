@@ -1,0 +1,12 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: selfplay
+spec:
+  id: selfplay
+  type: openai
+  model: gpt-4o-mini
+  defaults:
+    temperature: 0.8
+    max_tokens: 256
+    top_p: 1.0

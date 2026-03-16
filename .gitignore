@@ -36,7 +36,8 @@ go.work.sum
 
 # IDE / AI tools
 .VSCodeCounter/
-.claude/
+.claude/*
+!.claude/skills/
 .idea/
 .scannerwork/
 .sonarlint/
