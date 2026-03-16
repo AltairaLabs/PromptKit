@@ -254,6 +254,43 @@ For quick reference, here is every metric name emitted with the default `promptk
 | `{ns}_eval_{metric_name}` | Varies | Eval (explicit pack-defined metric) |
 | `{ns}_eval_{eval_id}` | Gauge | Eval (auto-generated when no metric defined) |
 
+## Metric-to-Trace Correlation
+
+PromptKit metrics and traces are correlated through the **session ID**. The session ID (a UUID) appears as:
+
+- **Metrics**: instance label (e.g., `session_id="4e597ba3-92bf-47cf-84f3-29d3ece24456"`)
+- **Traces**: `gen_ai.conversation.id` span attribute
+- **Events**: `Event.SessionID` field
+
+The OTel trace ID equals the session ID with dashes removed (e.g., session `4e597ba3-92bf-47cf-84f3-29d3ece24456` → trace ID `4e597ba392bf47cf84f329d3ece24456`), so a single session ID query correlates logs, metrics, and traces.
+
+### Prometheus Exemplars
+
+PromptKit's built-in Collector does not attach [Prometheus exemplars](https://prometheus.io/docs/prometheus/latest/feature_flags/#exemplars-storage) to observations. This is intentional — exemplar configuration (trace ID format, label keys, sampling) is an operator concern.
+
+Operators who want exemplar support (e.g., clicking from a Grafana metric panel to a specific trace in Tempo) can subscribe their own listener to the `EventBus` and record metrics with exemplars:
+
+```go
+bus.SubscribeAll(func(event *events.Event) {
+    if event.Type != events.EventPipelineCompleted {
+        return
+    }
+    data := event.Data.(*events.PipelineCompletedData)
+
+    // Derive trace ID from session ID (remove dashes).
+    traceID := strings.ReplaceAll(event.SessionID, "-", "")
+
+    // Record with exemplar for Grafana → Tempo linking.
+    hist, _ := pipelineDuration.GetMetricWithLabelValues("success")
+    hist.(prometheus.ExemplarObserver).ObserveWithExemplar(
+        data.Duration.Seconds(),
+        prometheus.Labels{"trace_id": traceID},
+    )
+})
+```
+
+This approach gives operators full control over which metrics carry exemplars and how trace IDs are derived.
+
 ## See Also
 
 - [Prometheus Metrics How-To](/runtime/how-to/prometheus-metrics/) — Setup guide with Grafana dashboard and alerts
