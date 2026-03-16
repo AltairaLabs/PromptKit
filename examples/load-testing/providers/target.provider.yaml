@@ -1,0 +1,18 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: target
+spec:
+  id: target
+  type: openai
+  model: gpt-4o-mini
+  # Point this at your deployed service for load testing.
+  # The service must expose an OpenAI-compatible chat completions endpoint.
+  # base_url: http://localhost:8080/v1
+  pricing:
+    input_cost_per_1k: 0.00015
+    output_cost_per_1k: 0.0006
+  defaults:
+    temperature: 0.7
+    max_tokens: 1024
+    top_p: 1.0

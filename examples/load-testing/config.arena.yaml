@@ -1,0 +1,35 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: load-testing
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/assistant.yaml
+
+  providers:
+    - file: providers/target.provider.yaml
+    - file: providers/selfplay.provider.yaml
+
+  scenarios:
+    - file: scenarios/simple-qa.scenario.yaml
+    - file: scenarios/multi-turn-selfplay.scenario.yaml
+    - file: scenarios/deep-conversation.scenario.yaml
+
+  self_play:
+    enabled: true
+    personas:
+      - file: personas/detail-planner.persona.yaml
+      - file: personas/senior-engineer.persona.yaml
+    roles:
+      - id: gemini-user
+        provider: selfplay
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1024
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]

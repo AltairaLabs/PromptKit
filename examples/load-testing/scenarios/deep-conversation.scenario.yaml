@@ -1,0 +1,19 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: deep-conversation
+spec:
+  id: deep-conversation
+  task_type: assistant
+  description: "Long-running self-play (3-12 turns, natural termination). Context window stress workload."
+
+  trials: 2
+
+  turns:
+    - role: user
+      content: "I'm designing a distributed system for a real-time multiplayer game. The system needs to handle 100,000 concurrent players with sub-50ms latency. Let's work through the architecture step by step, starting with the networking layer."
+
+    - role: gemini-user
+      persona: senior-engineer
+      turns: 3
+      max_turns: 12

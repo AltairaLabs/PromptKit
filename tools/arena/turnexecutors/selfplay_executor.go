@@ -40,13 +40,22 @@ func (e *SelfPlayExecutor) ExecuteTurn(ctx context.Context, req TurnRequest) err
 	}
 
 	// Generate user message using LLM
-	userMessage, err := e.generateUserMessage(ctx, &req, history)
+	userMessage, completionDetected, err := e.generateUserMessage(ctx, &req, history)
 	if err != nil {
 		return err
 	}
 
-	// Execute AI response through the pipeline
-	return e.pipelineExecutor.Execute(ctx, &req, &userMessage)
+	// Execute AI response through the pipeline (assistant responds to the natural closing message)
+	if err := e.pipelineExecutor.Execute(ctx, &req, &userMessage); err != nil {
+		return err
+	}
+
+	// Signal conversation completion after the assistant has responded
+	if completionDetected {
+		return selfplay.ErrConversationComplete
+	}
+
+	return nil
 }
 
 // loadHistory loads conversation history from StateStore
@@ -72,29 +81,44 @@ func (e *SelfPlayExecutor) loadHistory(ctx context.Context, req *TurnRequest) ([
 	return nil, nil
 }
 
-// generateUserMessage generates a user message using the content provider
+// generateUserMessage generates a user message using the content provider.
+// Returns the message, whether a completion marker was detected, and any error.
 func (e *SelfPlayExecutor) generateUserMessage(
 	ctx context.Context,
 	req *TurnRequest,
 	history []types.Message,
-) (types.Message, error) {
+) (types.Message, bool, error) {
 	filteredHistory := filterOutToolMessages(history)
 
 	contentGen, err := e.contentProvider.GetContentGenerator(req.SelfPlayRole, req.SelfPlayPersona)
 	if err != nil {
-		return types.Message{}, fmt.Errorf("failed to get content generator: %w", err)
+		return types.Message{}, false, fmt.Errorf("failed to get content generator: %w", err)
 	}
 
-	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID, nil)
+	// Build generator options from turn request metadata
+	var genOpts *selfplay.GeneratorOptions
+	if nt, ok := req.Metadata["natural_termination_enabled"].(bool); ok && nt {
+		genOpts = &selfplay.GeneratorOptions{NaturalTerminationEnabled: true}
+	}
+
+	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID, genOpts)
 	if err != nil {
-		return types.Message{}, fmt.Errorf("failed to generate user turn: %w", err)
+		return types.Message{}, false, fmt.Errorf("failed to generate user turn: %w", err)
 	}
 
 	if execResult.Response == nil || execResult.Response.Content == "" {
-		return types.Message{}, fmt.Errorf("no response content generated")
+		return types.Message{}, false, fmt.Errorf("no response content generated")
 	}
 
-	return e.buildUserMessageFromResult(req, execResult), nil
+	// Detect and strip completion marker
+	completionDetected := false
+	cleaned, detected := selfplay.DetectAndStripCompletion(execResult.Response.Content)
+	if detected {
+		completionDetected = true
+		execResult.Response.Content = cleaned
+	}
+
+	return e.buildUserMessageFromResult(req, execResult), completionDetected, nil
 }
 
 // buildUserMessageFromResult constructs a user message from execution result
@@ -159,18 +183,26 @@ func (e *SelfPlayExecutor) ExecuteTurnStream(
 		}
 
 		// Generate user message using LLM
-		userMessage, err := e.generateUserMessageForStream(ctx, &req, history, outChan)
+		userMessage, completionDetected, err := e.generateUserMessageForStream(ctx, &req, history, outChan)
 		if err != nil {
 			return // Error already sent to channel
 		}
 
 		// Handle non-streaming providers
 		if e.handleNonStreamingProvider(ctx, &req, &userMessage, outChan) {
+			if completionDetected {
+				outChan <- MessageStreamChunk{Error: selfplay.ErrConversationComplete}
+			}
 			return
 		}
 
 		// Execute streaming pipeline
 		e.executeStreamingPipeline(ctx, &req, &userMessage, outChan)
+
+		// Signal completion after the assistant response has been streamed
+		if completionDetected {
+			outChan <- MessageStreamChunk{Error: selfplay.ErrConversationComplete}
+		}
 	}()
 
 	return outChan, nil
@@ -206,35 +238,50 @@ func (e *SelfPlayExecutor) loadHistoryForStream(
 	return nil, nil
 }
 
-// generateUserMessageForStream generates the user message for self-play
+// generateUserMessageForStream generates the user message for self-play.
+// Returns the message, whether a completion marker was detected, and any error.
 func (e *SelfPlayExecutor) generateUserMessageForStream(
 	ctx context.Context,
 	req *TurnRequest,
 	history []types.Message,
 	outChan chan<- MessageStreamChunk,
-) (types.Message, error) {
+) (types.Message, bool, error) {
 	// Tool role messages are not valid input for LLM chat APIs; drop them before generation.
 	filteredHistory := filterOutToolMessages(history)
 
 	contentGen, err := e.contentProvider.GetContentGenerator(req.SelfPlayRole, req.SelfPlayPersona)
 	if err != nil {
 		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to get content generator: %w", err)}
-		return types.Message{}, err
+		return types.Message{}, false, err
 	}
 
-	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID, nil)
+	// Build generator options from turn request metadata
+	var genOpts *selfplay.GeneratorOptions
+	if nt, ok := req.Metadata["natural_termination_enabled"].(bool); ok && nt {
+		genOpts = &selfplay.GeneratorOptions{NaturalTerminationEnabled: true}
+	}
+
+	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID, genOpts)
 	if err != nil {
 		outChan <- MessageStreamChunk{Error: fmt.Errorf("failed to generate user turn: %w", err)}
-		return types.Message{}, err
+		return types.Message{}, false, err
 	}
 
 	if execResult.Response == nil || execResult.Response.Content == "" {
 		err := fmt.Errorf("no response content generated")
 		outChan <- MessageStreamChunk{Error: err}
-		return types.Message{}, err
+		return types.Message{}, false, err
 	}
 
-	return e.buildUserMessage(req, execResult), nil
+	// Detect and strip completion marker
+	completionDetected := false
+	cleaned, detected := selfplay.DetectAndStripCompletion(execResult.Response.Content)
+	if detected {
+		completionDetected = true
+		execResult.Response.Content = cleaned
+	}
+
+	return e.buildUserMessage(req, execResult), completionDetected, nil
 }
 
 // buildUserMessage constructs a user message from execution result

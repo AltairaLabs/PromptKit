@@ -1,0 +1,19 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: multi-turn-selfplay
+spec:
+  id: multi-turn-selfplay
+  task_type: assistant
+  description: "Multi-turn self-play (2-8 turns, natural termination). Realistic sustained context handling workload."
+
+  trials: 3
+
+  turns:
+    - role: user
+      content: "I'm planning a hiking trip in Patagonia. What should I know about the weather, gear, and trail difficulty?"
+
+    - role: gemini-user
+      persona: detail-planner
+      turns: 2
+      max_turns: 8

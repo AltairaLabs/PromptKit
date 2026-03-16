@@ -94,9 +94,13 @@ func (cg *ContentGenerator) NextUserTurn(
 	// 3. SelfPlayUserTurnContextStage - injects scenario context for MockProvider
 	// 4. TemplateStage - final variable substitution
 	// 5. ProviderStage - calls LLM
+	maxTokens := 200 // Short user messages
+	if opts != nil && opts.NaturalTerminationEnabled {
+		maxTokens = 300 // Extra room for completion marker
+	}
 	providerConfig := &stage.ProviderConfig{
 		Temperature: temperature,
-		MaxTokens:   200, // Short user messages
+		MaxTokens:   maxTokens,
 	}
 
 	// Create the selfplay context stage.
@@ -118,11 +122,22 @@ func (cg *ContentGenerator) NextUserTurn(
 
 	stages := []stage.Stage{
 		arenastages.NewPersonaAssemblyStage(cg.persona, region, baseVariables),
-		arenastages.NewHistoryInjectionStage(history),
+	}
+
+	// Append natural termination instruction when enabled
+	if opts != nil && opts.NaturalTerminationEnabled {
+		stages = append(stages, arenastages.NewCompletionInstructionStage(CompletionInstruction))
+	}
+
+	// Swap user↔assistant roles so the self-play LLM sees its own prior outputs
+	// as "assistant" and the target's responses as "user". This prevents the LLM
+	// from confusing itself with the target and generating assistant-style answers.
+	stages = append(stages,
+		arenastages.NewHistoryInjectionStageSwapped(history),
 		selfplayContextStage,
 		stage.NewTemplateStage(),
 		stage.NewProviderStage(cg.provider, nil, nil, providerConfig),
-	}
+	)
 
 	builder := stage.NewPipelineBuilder()
 	pl, err := builder.Chain(stages...).Build()

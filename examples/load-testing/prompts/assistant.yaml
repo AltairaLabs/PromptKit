@@ -1,0 +1,12 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: assistant
+spec:
+  version: "1.0.0"
+  description: "General-purpose assistant for load testing workloads"
+  task_type: assistant
+  system_template: |
+    You are a knowledgeable assistant. Answer questions clearly and concisely.
+    When asked about a topic, provide accurate information with specific details.
+    Keep responses focused and under 200 words unless the question requires more depth.

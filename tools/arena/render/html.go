@@ -394,6 +394,8 @@ func getReportTemplate() *template.Template {
 			"hasA2AAgents":                hasA2AAgents,
 			"renderA2AAgentCards":         renderA2AAgentCards,
 			"consentStatus":               consentStatus,
+			"selfPlayPrompt":              selfPlayPrompt,
+			"selfPlayPersona":             selfPlayPersona,
 		}).Parse(reportTemplate))
 	})
 	return reportTmpl
@@ -452,6 +454,40 @@ func extractValidationsViaReflection(msgOrMeta interface{}) map[string]interface
 		return result
 	}
 	return nil
+}
+
+// selfPlayPrompt extracts the self-play system prompt from a message's meta.raw_response.system_prompt.
+// Returns empty string if not a self-play message.
+func selfPlayPrompt(meta map[string]interface{}) string {
+	rawResp := selfPlayRawResponse(meta)
+	if rawResp == nil {
+		return ""
+	}
+	sp, _ := rawResp["system_prompt"].(string)
+	return sp
+}
+
+// selfPlayPersona extracts the persona ID from a message's meta.raw_response.persona.
+// Returns empty string if not a self-play message.
+func selfPlayPersona(meta map[string]interface{}) string {
+	rawResp := selfPlayRawResponse(meta)
+	if rawResp == nil {
+		return ""
+	}
+	p, _ := rawResp["persona"].(string)
+	return p
+}
+
+// selfPlayRawResponse extracts the raw_response map from message metadata.
+func selfPlayRawResponse(meta map[string]interface{}) map[string]interface{} {
+	if meta == nil {
+		return nil
+	}
+	rawResp, ok := meta["raw_response"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return rawResp
 }
 
 // convertValidationsToMap converts validations array to map by validator type

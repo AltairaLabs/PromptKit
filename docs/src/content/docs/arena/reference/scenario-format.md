@@ -247,7 +247,7 @@ Configure responses in `providers/mock-responses.yaml`. See [Mock Provider Usage
 
 ### 6. Self-Play Testing
 
-Define AI personas to automatically test conversational flows:
+Define AI personas to automatically generate user messages in conversations:
 
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -255,13 +255,31 @@ kind: Persona
 metadata:
   name: frustrated-customer
 spec:
+  id: frustrated-customer
+  description: A frustrated customer with a delayed order
   system_prompt: |
-    You are a frustrated customer...
-  max_turns: 8
-  goal: "Get reassurance about order delivery and feel heard"
+    You are a frustrated customer whose order hasn't arrived.
+    Ask about delivery status and express your concerns.
+  goals:
+    - Get an update on order status
+    - Express frustration appropriately
+  constraints:
+    - Keep messages to 1-2 sentences
+  defaults:
+    temperature: 0.8
 ```
 
-See the [Self-Play Guide](./selfplay) for details.
+Then reference the persona in a scenario turn:
+
+```yaml
+turns:
+  - role: user
+    content: "My order hasn't arrived yet."
+  - role: gemini-user
+    persona: frustrated-customer
+    turns: 3
+    max_turns: 8
+```
 
 ---
 

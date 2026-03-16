@@ -146,17 +146,21 @@ func (ce *DefaultConversationExecutor) executeNonStreamingSelfPlayTurn(
 	turnReq turnexecutors.TurnRequest,
 	scenarioTurn config.TurnDefinition,
 ) error {
+	minTurns, maxTurns, naturalTermination := selfPlayTurnBounds(&scenarioTurn)
+
 	turnReq.SelfPlayRole = scenarioTurn.Role
 	turnReq.SelfPlayPersona = scenarioTurn.Persona
-
-	turnsToExecute := scenarioTurn.Turns
-	if turnsToExecute == 0 {
-		turnsToExecute = 1
+	if naturalTermination {
+		if turnReq.Metadata == nil {
+			turnReq.Metadata = make(map[string]interface{})
+		}
+		turnReq.Metadata["natural_termination_enabled"] = true
 	}
 
-	for i := 0; i < turnsToExecute; i++ {
-		if err := ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq); err != nil {
-			return err
+	for i := 0; i < maxTurns; i++ {
+		err := ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
+		if done, loopErr := handleCompletionError(err, i, minTurns, maxTurns); done {
+			return loopErr
 		}
 	}
 	return nil
@@ -175,18 +179,11 @@ func (ce *DefaultConversationExecutor) executeWithStreaming(
 
 		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
 
-		// Execute multiple self-play turns if specified
-		turnsToExecute := 1
-		if ce.isSelfPlayRole(scenarioTurn.Role) && scenarioTurn.Turns > 0 {
-			turnsToExecute = scenarioTurn.Turns
-		}
-
 		var err error
-		for i := 0; i < turnsToExecute; i++ {
+		if ce.isSelfPlayRole(scenarioTurn.Role) {
+			err = ce.executeStreamingSelfPlayTurns(turnCtx, req, turnIdx, scenarioTurn)
+		} else {
 			err = ce.executeStreamingTurn(turnCtx, *req, turnIdx, scenarioTurn)
-			if err != nil {
-				break
-			}
 		}
 
 		if err != nil {
@@ -338,6 +335,84 @@ func (ce *DefaultConversationExecutor) executeTurnByRole(ctx context.Context, tu
 	}
 
 	return fmt.Errorf(errUnsupportedRole, scenarioTurn.Role)
+}
+
+// executeStreamingSelfPlayTurns handles multi-turn self-play with natural termination in streaming mode.
+//
+//nolint:gocritic // scenarioTurn value receiver matches range variable from caller
+func (ce *DefaultConversationExecutor) executeStreamingSelfPlayTurns(
+	ctx context.Context,
+	req *ConversationRequest,
+	turnIdx int,
+	scenarioTurn config.TurnDefinition,
+) error {
+	minTurns, maxTurns, naturalTermination := selfPlayTurnBounds(&scenarioTurn)
+	shouldStream := req.Scenario.ShouldStreamTurn(turnIdx)
+
+	for i := 0; i < maxTurns; i++ {
+		turnReq := ce.buildSelfPlayTurnRequest(req, &scenarioTurn, naturalTermination)
+
+		var err error
+		if shouldStream {
+			err = ce.executeTurnWithStreaming(ctx, turnReq, ce.selfPlayExecutor)
+		} else {
+			err = ce.selfPlayExecutor.ExecuteTurn(ctx, turnReq)
+		}
+
+		if done, loopErr := handleCompletionError(err, i, minTurns, maxTurns); done {
+			return loopErr
+		}
+	}
+	return nil
+}
+
+// selfPlayTurnBounds computes the min/max turn counts and whether natural termination is active.
+func selfPlayTurnBounds(turn *config.TurnDefinition) (minTurns, maxTurns int, naturalTermination bool) {
+	minTurns = turn.Turns
+	if minTurns == 0 {
+		minTurns = 1
+	}
+	maxTurns = minTurns
+	if turn.MaxTurns > minTurns {
+		maxTurns = turn.MaxTurns
+	}
+	naturalTermination = maxTurns > minTurns
+	return
+}
+
+// buildSelfPlayTurnRequest creates a TurnRequest configured for self-play execution.
+func (ce *DefaultConversationExecutor) buildSelfPlayTurnRequest(
+	req *ConversationRequest,
+	scenarioTurn *config.TurnDefinition,
+	naturalTermination bool,
+) turnexecutors.TurnRequest {
+	turnReq := ce.buildTurnRequest(*req, *scenarioTurn)
+	turnReq.SelfPlayRole = scenarioTurn.Role
+	turnReq.SelfPlayPersona = scenarioTurn.Persona
+	if naturalTermination {
+		if turnReq.Metadata == nil {
+			turnReq.Metadata = make(map[string]interface{})
+		}
+		turnReq.Metadata["natural_termination_enabled"] = true
+	}
+	return turnReq
+}
+
+// handleCompletionError processes an error from a self-play turn and determines
+// whether the loop should exit. Returns (shouldExit, error).
+func handleCompletionError(err error, turnIndex, minTurns, maxTurns int) (bool, error) {
+	if errors.Is(err, selfplay.ErrConversationComplete) {
+		if turnIndex+1 >= minTurns {
+			logger.Debug("Natural conversation termination",
+				"turn", turnIndex+1, "min", minTurns, "max", maxTurns)
+			return true, nil
+		}
+		return false, nil // Below minimum — continue
+	}
+	if err != nil {
+		return true, err
+	}
+	return false, nil
 }
 
 // executeSelfPlayTurn executes a self-play turn
