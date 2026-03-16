@@ -83,7 +83,13 @@ func TestEvents_DataPointerTypes(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Test pointer types")
 	require.NoError(t, err)
 
-	ec.waitForEvent(events.EventPipelineCompleted, 2*time.Second)
+	// Wait for ALL event types we're about to assert on — not just PipelineCompleted.
+	// Provider events are emitted asynchronously and may arrive after PipelineCompleted.
+	require.True(t, ec.waitForEvents([]events.EventType{
+		events.EventPipelineCompleted,
+		events.EventProviderCallCompleted,
+		events.EventPipelineStarted,
+	}, 2*time.Second), "not all expected events arrived")
 
 	// Verify PipelineCompleted data is a pointer type (not value).
 	pipeCompleted := ec.ofType(events.EventPipelineCompleted)
