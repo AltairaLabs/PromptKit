@@ -64,7 +64,7 @@ This example uses `InProcDispatcher` (Pattern A). For production, consider:
 
 ### MetricResultWriter
 
-The `MetricResultWriter` only records results for evals that have a `metric` definition in the pack. Evals without metrics still run (for pass/fail reporting) but aren't tracked in Prometheus.
+The `MetricResultWriter` records all eval results as Prometheus metrics. Evals with an explicit `metric` definition in the pack use that configuration (custom name, type, labels). Evals without a `metric` definition automatically get a default gauge metric named after the eval ID.
 
 ### Eval Resolution
 

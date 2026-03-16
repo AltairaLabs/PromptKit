@@ -297,6 +297,16 @@ func matchLabels(m *io_prometheus_client.Metric, labels map[string]string) bool 
 	return true
 }
 
+// gaugeValue returns the value of the first gauge metric in the family.
+func gaugeValue(family *io_prometheus_client.MetricFamily) float64 {
+	for _, m := range family.GetMetric() {
+		if g := m.GetGauge(); g != nil {
+			return g.GetValue()
+		}
+	}
+	return 0
+}
+
 // dumpRegistry prints all metrics in the registry (useful for debugging).
 func dumpRegistry(t *testing.T, reg *prometheus.Registry) {
 	t.Helper()

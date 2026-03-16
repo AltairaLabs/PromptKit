@@ -97,7 +97,9 @@ These are registered at Collector creation time and recorded automatically when 
 
 ## Eval Metrics
 
-Eval metrics are defined per-eval in the pack file's `metric` field. They are registered dynamically on first observation (with double-checked locking for thread safety). Disable with `DisableEvalMetrics: true`.
+Eval metrics are registered dynamically on first observation (with double-checked locking for thread safety). Disable with `DisableEvalMetrics: true`.
+
+Every eval that runs produces a Prometheus metric. If the eval definition includes an explicit `metric` field, that definition is used. If no `metric` field is present, a default **gauge** metric is auto-generated using the eval ID as the metric name (e.g., eval `"response-quality"` becomes `{ns}_eval_response-quality`). This ensures pack authors don't need to opt in to metrics — every eval result is observable by default.
 
 ### MetricDef Structure
 
@@ -147,10 +149,13 @@ myapp_eval_response_quality_score{tenant="acme",category="quality",eval_type="ll
 
 ### Score Extraction
 
-The score value recorded for `gauge` and `histogram` types is extracted as follows:
+The score value recorded for `gauge` and `histogram` types is extracted by `ExtractValue` as follows:
 
-1. If `EvalResult.Score` is non-nil, use `*Score`
-2. Otherwise, if `EvalResult.Passed` is true, use `1.0`; else `0.0`
+1. If `EvalResult.MetricValue` is non-nil, use `*MetricValue`
+2. Otherwise, if `EvalResult.Score` is non-nil, use `*Score`
+3. Otherwise, default to `0.0`
+
+For `boolean` metrics, the value is `1.0` if `Score >= 1.0`, otherwise `0.0`.
 
 ## Label Architecture
 
@@ -246,7 +251,45 @@ For quick reference, here is every metric name emitted with the default `promptk
 | `promptkit_tool_calls_total` | Counter | Tool |
 | `promptkit_validation_duration_seconds` | Histogram | Validation |
 | `promptkit_validations_total` | Counter | Validation |
-| `{ns}_eval_{metric_name}` | Varies | Eval (pack-defined) |
+| `{ns}_eval_{metric_name}` | Varies | Eval (explicit pack-defined metric) |
+| `{ns}_eval_{eval_id}` | Gauge | Eval (auto-generated when no metric defined) |
+
+## Metric-to-Trace Correlation
+
+PromptKit metrics and traces are correlated through the **session ID**. The session ID (a UUID) appears as:
+
+- **Metrics**: instance label (e.g., `session_id="4e597ba3-92bf-47cf-84f3-29d3ece24456"`)
+- **Traces**: `gen_ai.conversation.id` span attribute
+- **Events**: `Event.SessionID` field
+
+The OTel trace ID equals the session ID with dashes removed (e.g., session `4e597ba3-92bf-47cf-84f3-29d3ece24456` → trace ID `4e597ba392bf47cf84f329d3ece24456`), so a single session ID query correlates logs, metrics, and traces.
+
+### Prometheus Exemplars
+
+PromptKit's built-in Collector does not attach [Prometheus exemplars](https://prometheus.io/docs/prometheus/latest/feature_flags/#exemplars-storage) to observations. This is intentional — exemplar configuration (trace ID format, label keys, sampling) is an operator concern.
+
+Operators who want exemplar support (e.g., clicking from a Grafana metric panel to a specific trace in Tempo) can subscribe their own listener to the `EventBus` and record metrics with exemplars:
+
+```go
+bus.SubscribeAll(func(event *events.Event) {
+    if event.Type != events.EventPipelineCompleted {
+        return
+    }
+    data := event.Data.(*events.PipelineCompletedData)
+
+    // Derive trace ID from session ID (remove dashes).
+    traceID := strings.ReplaceAll(event.SessionID, "-", "")
+
+    // Record with exemplar for Grafana → Tempo linking.
+    hist, _ := pipelineDuration.GetMetricWithLabelValues("success")
+    hist.(prometheus.ExemplarObserver).ObserveWithExemplar(
+        data.Duration.Seconds(),
+        prometheus.Labels{"trace_id": traceID},
+    )
+})
+```
+
+This approach gives operators full control over which metrics carry exemplars and how trace IDs are derived.
 
 ## See Also
 
