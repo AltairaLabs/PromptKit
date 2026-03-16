@@ -159,7 +159,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_Error(t *testing.T) {
 		Scenario:        &config.Scenario{ID: "test-scenario"},
 	}
 
-	_, err := executor.generateUserMessage(context.Background(), &req, nil)
+	_, _, err := executor.generateUserMessage(context.Background(), &req, nil)
 	if err == nil {
 		t.Error("Expected error from generateUserMessage, got nil")
 	}
@@ -193,7 +193,7 @@ func TestSelfPlayExecutor_GenerateUserMessage_NoContent(t *testing.T) {
 		Scenario:        &config.Scenario{ID: "test-scenario"},
 	}
 
-	_, err := executor.generateUserMessage(context.Background(), &req, nil)
+	_, _, err := executor.generateUserMessage(context.Background(), &req, nil)
 	if err == nil {
 		t.Error("Expected error for empty content, got nil")
 	}
@@ -258,7 +258,7 @@ func TestSelfPlayExecutor_GenerateUserMessageForStream_Error(t *testing.T) {
 
 	outChan := make(chan MessageStreamChunk, 1)
 
-	_, err := executor.generateUserMessageForStream(context.Background(), &req, nil, outChan)
+	_, _, err := executor.generateUserMessageForStream(context.Background(), &req, nil, outChan)
 
 	// Should have sent error to channel
 	select {
@@ -272,5 +272,173 @@ func TestSelfPlayExecutor_GenerateUserMessageForStream_Error(t *testing.T) {
 
 	if err == nil {
 		t.Error("Expected error from generateUserMessageForStream, got nil")
+	}
+}
+
+// TestSelfPlayExecutor_GenerateUserMessage_CompletionDetected tests that the completion
+// marker is detected and stripped from the generated content.
+func TestSelfPlayExecutor_GenerateUserMessage_CompletionDetected(t *testing.T) {
+	mockContentProvider := new(MockSelfPlayContentProvider)
+	mockGen := new(MockContentGen)
+
+	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&pipeline.ExecutionResult{
+		Response: &pipeline.Response{
+			Role:    "assistant",
+			Content: "Thanks for the help! " + selfplay.CompletionMarker,
+		},
+		Trace: pipeline.ExecutionTrace{},
+	}, nil)
+
+	mockContentProvider.On("GetContentGenerator", "test-role", "test-persona").Return(mockGen, nil)
+
+	executor := &SelfPlayExecutor{
+		contentProvider: mockContentProvider,
+	}
+
+	req := TurnRequest{
+		SelfPlayRole:    "test-role",
+		SelfPlayPersona: "test-persona",
+		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Metadata:        map[string]interface{}{"natural_termination_enabled": true},
+	}
+
+	msg, detected, err := executor.generateUserMessage(context.Background(), &req, nil)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !detected {
+		t.Error("Expected completion to be detected")
+	}
+	if msg.Content != "Thanks for the help!" {
+		t.Errorf("Expected marker to be stripped, got: %q", msg.Content)
+	}
+}
+
+// TestSelfPlayExecutor_GenerateUserMessage_NoCompletionMarker verifies that when
+// there is no completion marker, detected is false.
+func TestSelfPlayExecutor_GenerateUserMessage_NoCompletionMarker(t *testing.T) {
+	mockContentProvider := new(MockSelfPlayContentProvider)
+	mockGen := new(MockContentGen)
+
+	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&pipeline.ExecutionResult{
+		Response: &pipeline.Response{
+			Role:    "assistant",
+			Content: "Just a regular question?",
+		},
+		Trace: pipeline.ExecutionTrace{},
+	}, nil)
+
+	mockContentProvider.On("GetContentGenerator", "test-role", "test-persona").Return(mockGen, nil)
+
+	executor := &SelfPlayExecutor{
+		contentProvider: mockContentProvider,
+	}
+
+	req := TurnRequest{
+		SelfPlayRole:    "test-role",
+		SelfPlayPersona: "test-persona",
+		Scenario:        &config.Scenario{ID: "test-scenario"},
+	}
+
+	msg, detected, err := executor.generateUserMessage(context.Background(), &req, nil)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if detected {
+		t.Error("Expected no completion detection")
+	}
+	if msg.Content != "Just a regular question?" {
+		t.Errorf("Expected content unchanged, got: %q", msg.Content)
+	}
+}
+
+// TestSelfPlayExecutor_GenerateUserMessageForStream_CompletionDetected tests completion
+// marker detection in the streaming variant.
+func TestSelfPlayExecutor_GenerateUserMessageForStream_CompletionDetected(t *testing.T) {
+	mockContentProvider := new(MockSelfPlayContentProvider)
+	mockGen := new(MockContentGen)
+
+	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&pipeline.ExecutionResult{
+		Response: &pipeline.Response{
+			Role:    "assistant",
+			Content: "All good, thanks! " + selfplay.CompletionMarker,
+		},
+		Trace: pipeline.ExecutionTrace{},
+	}, nil)
+
+	mockContentProvider.On("GetContentGenerator", "test-role", "test-persona").Return(mockGen, nil)
+
+	executor := &SelfPlayExecutor{contentProvider: mockContentProvider}
+	req := TurnRequest{
+		SelfPlayRole:    "test-role",
+		SelfPlayPersona: "test-persona",
+		Scenario:        &config.Scenario{ID: "test-scenario"},
+		Metadata:        map[string]interface{}{"natural_termination_enabled": true},
+	}
+
+	outChan := make(chan MessageStreamChunk, 1)
+	msg, detected, err := executor.generateUserMessageForStream(context.Background(), &req, nil, outChan)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !detected {
+		t.Error("Expected completion to be detected in streaming path")
+	}
+	if msg.Content != "All good, thanks!" {
+		t.Errorf("Expected marker stripped, got: %q", msg.Content)
+	}
+}
+
+// TestSelfPlayExecutor_GenerateUserMessageForStream_NoContent tests empty content in streaming.
+func TestSelfPlayExecutor_GenerateUserMessageForStream_NoContent(t *testing.T) {
+	mockContentProvider := new(MockSelfPlayContentProvider)
+	mockGen := new(MockContentGen)
+
+	mockGen.On("NextUserTurn", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&pipeline.ExecutionResult{
+		Response: &pipeline.Response{Role: "assistant", Content: ""},
+		Trace:    pipeline.ExecutionTrace{},
+	}, nil)
+
+	mockContentProvider.On("GetContentGenerator", "test-role", "test-persona").Return(mockGen, nil)
+
+	executor := &SelfPlayExecutor{contentProvider: mockContentProvider}
+	req := TurnRequest{
+		SelfPlayRole:    "test-role",
+		SelfPlayPersona: "test-persona",
+		Scenario:        &config.Scenario{ID: "test-scenario"},
+	}
+
+	outChan := make(chan MessageStreamChunk, 1)
+	_, _, err := executor.generateUserMessageForStream(context.Background(), &req, nil, outChan)
+	if err == nil {
+		t.Error("Expected error for empty content")
+	}
+
+	select {
+	case chunk := <-outChan:
+		if chunk.Error == nil {
+			t.Error("Expected error in channel")
+		}
+	default:
+		t.Error("Expected error chunk in channel")
+	}
+}
+
+// TestSelfPlayExecutor_GenerateUserMessageForStream_GetGeneratorError tests provider error.
+func TestSelfPlayExecutor_GenerateUserMessageForStream_GetGeneratorError(t *testing.T) {
+	mockContentProvider := new(MockSelfPlayContentProvider)
+	mockContentProvider.On("GetContentGenerator", "test-role", "test-persona").Return(nil, errors.New("provider unavailable"))
+
+	executor := &SelfPlayExecutor{contentProvider: mockContentProvider}
+	req := TurnRequest{
+		SelfPlayRole:    "test-role",
+		SelfPlayPersona: "test-persona",
+		Scenario:        &config.Scenario{ID: "test-scenario"},
+	}
+
+	outChan := make(chan MessageStreamChunk, 1)
+	_, _, err := executor.generateUserMessageForStream(context.Background(), &req, nil, outChan)
+	if err == nil {
+		t.Error("Expected error from GetContentGenerator")
 	}
 }

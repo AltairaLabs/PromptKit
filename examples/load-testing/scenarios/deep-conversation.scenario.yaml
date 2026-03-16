@@ -5,7 +5,7 @@ metadata:
 spec:
   id: deep-conversation
   task_type: assistant
-  description: "Long-running self-play (10 turns). Context window stress workload."
+  description: "Long-running self-play (3-12 turns, natural termination). Context window stress workload."
 
   trials: 2
 
@@ -15,4 +15,5 @@ spec:
 
     - role: gemini-user
       persona: senior-engineer
-      turns: 9
+      turns: 3
+      max_turns: 12

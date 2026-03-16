@@ -628,50 +628,43 @@ spec:
               - check_order_status
             message: "Should call order status tool"
 
-  # Optional: Context metadata
+    # Self-play turn with natural termination
+    - role: gemini-user              # Self-play role (must match a configured role)
+      persona: detail-planner        # Persona ID
+      turns: 2                       # Minimum turns (exact count if max_turns absent)
+      max_turns: 8                   # Upper bound; enables natural termination when > turns
+
+  # Optional: Context metadata (for documentation and reporting)
   context:
-    goal: "Verify order tracking flow"     # Test objective
-    user_type: "concerned customer"        # User persona
-    situation: "delayed delivery"          # Scenario context
-    timeline: "immediate"                  # Urgency level
+    goal: "Verify order tracking flow"     # Arbitrary key-value pairs
+    user_type: "concerned customer"
 
   context_metadata:
     domain: "e-commerce"                   # Domain
-    role: "support agent"                  # LLM role
-    user_conpatterns: ["customer waiting"]       # User situation
-    session_goal: "resolve concern"        # Desired outcome
-
-  # Optional: Constraints
-  constraints:
-    max_turns: 10                          # Max conversation length
-    max_tokens_per_turn: 200               # Max tokens per response
-    required_themes:                       # Required themes
-      - professional
-      - helpful
-
-  # Optional: Self-play mode
-  self_play:
-    enabled: true                          # Enable self-play
-    persona: frustrated-customer           # Persona to use
-    max_turns: 8                           # Max self-play turns
-    exit_conditions:                       # Stop conditions
-      - satisfaction_expressed
-      - escalation_requested
+    user_role: "support agent"             # LLM role
+    project_stage: "production"            # Project stage
 ```
 
 ### Field Descriptions
 
 #### `turns`
 
-Array of conversation turns. Each turn is either a user message (which triggers LLM response) or an assistant message (which provides context).
+Array of conversation turns. Each turn is either a scripted user message, an assistant message, or a self-play turn.
 
-**Turn Fields**:
-- `role` (string, required): Either "user" or "assistant"
+**Scripted Turn Fields**:
+- `role` (string, required): `"user"` or `"assistant"`
 - `content` (string, required): Turn content
 - `assertions` (array, optional): Checks to run (user turns only)
 
+**Self-Play Turn Fields**:
+- `role` (string, required): A self-play role (e.g. `"gemini-user"`) matching a configured role in `self_play.roles`
+- `persona` (string, required): Persona ID to use for message generation
+- `turns` (int, optional): Number of self-play exchanges. Exact count if `max_turns` absent. Defaults to 1.
+- `max_turns` (int, optional): Upper bound on turns. When `max_turns > turns`, natural termination is enabled — the self-play LLM can end the conversation after the minimum turns.
+
 **User Turn**: Triggers LLM generation, assertions check the response
 **Assistant Turn**: Provides context, no LLM generation
+**Self-Play Turn**: Generates user messages via a persona LLM, each triggering an assistant response
 
 #### `assertions`
 
@@ -688,17 +681,7 @@ assertions:
 
 #### `context` and `context_metadata`
 
-Optional metadata about the scenario. Used for documentation and reporting.
-
-#### `self_play`
-
-Optional self-play configuration. When enabled, an AI persona interacts with the prompt instead of scripted turns.
-
-**Fields**:
-- `enabled` (bool): Enable self-play mode
-- `persona` (string): Reference to Persona configuration
-- `max_turns` (int): Maximum conversation length
-- `exit_conditions` (array): Conditions to stop conversation
+Optional metadata about the scenario. `context` is a free-form key-value map. `context_metadata` has typed fields: `domain`, `user_role`, `project_stage`.
 
 ## Provider
 
@@ -1313,7 +1296,7 @@ promptar ena run --config arena.yaml
 
 ## Persona (Self-Play)
 
-Defines an AI character for self-play testing.
+Defines an AI character for self-play testing. Personas drive the user side of the conversation.
 
 ### Complete Structure
 
@@ -1324,60 +1307,46 @@ metadata:
   name: frustrated-customer
 
 spec:
-  name: "Frustrated Customer"      # Required: Display name
-  description: |                   # Required: Persona description
+  id: frustrated-customer            # Required: Unique identifier
+  description: |                     # Required: Persona description
     A customer who is upset about a delayed order
 
-  # Persona's system prompt
-  system_prompt: |                 # Required: Persona instructions
+  # Persona's system prompt — instructs the self-play LLM how to behave
+  system_prompt: |                   # Required: Persona instructions
     You are a frustrated customer whose order is late.
+    Ask about delivery status and express your concerns.
+    Keep messages to 1-2 sentences.
 
-    Your situation:
-    - Order #12345 was supposed to arrive yesterday
-    - You need it for an important event tomorrow
-    - Still not delivered despite tracking
-    - Upset but trying to be reasonable
+  # Goals and constraints shape persona behavior
+  goals:                             # Optional: What the persona is trying to achieve
+    - Get an update on order status
+    - Express frustration appropriately
+  constraints:                       # Optional: Behavioral boundaries
+    - Keep messages brief (1-2 sentences)
+    - Stay on topic
 
-    Your personality:
-    - Initially frustrated and impatient
-    - Want quick solutions
-    - Will escalate if not satisfied
-    - Appreciate empathy and concrete help
+  # Style tuning
+  style:                             # Optional: Persona style
+    verbosity: medium                # low, medium, high
+    challenge_level: high            # low, medium, high
 
-    Behavior:
-    - Start with a complaint
-    - Ask direct questions
-    - Become understanding if helped well
-    - Become more frustrated if dismissed
-
-  # Conversation parameters
-  max_turns: 8                     # Optional: Max turns (default: 10)
-  temperature: 0.8                 # Optional: Sampling temp (default: 0.7)
-
-  # Conversation goal
-  goal: |                          # Optional: Persona's objective
-    Get reassurance about order delivery and feel heard
-
-  # Exit conditions
-  exit_conditions:                 # Optional: When to stop
-    - type: satisfaction_expressed
-      description: "Express satisfaction with support"
-
-    - type: escalation_requested
-      description: "Ask to speak to manager (failure)"
-
-    - type: max_turns_reached
-      description: "Conversation timeout"
+  # LLM defaults for this persona
+  defaults:                          # Optional: Generation parameters
+    temperature: 0.8                 # Sampling temperature (default: 0.7)
+    seed: 42                         # Reproducibility seed
 ```
 
-### Exit Conditions
+### Turn-Level Control
 
-Exit conditions determine when self-play conversations end:
+Turn count and natural termination are configured on the scenario turn, not the persona:
 
-- `satisfaction_expressed`: Persona is satisfied (success)
-- `escalation_requested`: Persona wants escalation (failure)
-- `max_turns_reached`: Conversation timeout
-- Custom conditions can be defined
+```yaml
+turns:
+  - role: gemini-user
+    persona: frustrated-customer
+    turns: 3           # Minimum exchanges
+    max_turns: 8       # Upper bound (natural termination enabled)
+```
 
 ## Next Steps
 

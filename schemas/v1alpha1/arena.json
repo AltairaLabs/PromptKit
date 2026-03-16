@@ -752,6 +752,12 @@
         },
         "when": {
           "$ref": "#/$defs/EvalWhen"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -2358,6 +2364,9 @@
           "type": "string"
         },
         "turns": {
+          "type": "integer"
+        },
+        "max_turns": {
           "type": "integer"
         },
         "assistant_temp": {

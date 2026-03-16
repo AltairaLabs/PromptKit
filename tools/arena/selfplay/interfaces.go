@@ -44,4 +44,8 @@ type GeneratorOptions struct {
 	// If set, this overrides the automatic turn counting from history.
 	// This is important for scenarios with mixed file-based and selfplay turns.
 	SelfplayTurnIndex int
+
+	// NaturalTerminationEnabled signals the generator to append completion instructions
+	// to the persona system prompt, allowing the self-play LLM to end the conversation.
+	NaturalTerminationEnabled bool
 }

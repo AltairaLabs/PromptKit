@@ -422,6 +422,9 @@
         "turns": {
           "type": "integer"
         },
+        "max_turns": {
+          "type": "integer"
+        },
         "assistant_temp": {
           "type": "number"
         },

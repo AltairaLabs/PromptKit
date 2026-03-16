@@ -1964,6 +1964,9 @@
                                         {{end}}
                                     {{end}}
                                 {{end}}
+                                {{$selfPlayPrompt := selfPlayPrompt $msg.Meta}}
+                                {{$hasSelfPlayPrompt := ne $selfPlayPrompt ""}}
+                                {{$selfPlayPersonaID := selfPlayPersona $msg.Meta}}
                                 {{$hasDiagnostics := or $hasAssertions $hasValidators $hasAvailableTools $hasRawRequest $hasRawResponse $hasLLMTrace $hasPackEvals $hasWorkflowState $msg.CostInfo (not (not $msg.ToolCalls)) (eq $msg.Role "system") (eq $msg.Role "user")}}
                                 {{$assertionsFailed := not (assertionsPassed $assertions)}}
                                 {{$validatorsFailed := not (validatorsPassed $validators)}}
@@ -1972,11 +1975,11 @@
                                     <div class="turn-header">
                                         <div class="turn-role">{{$msg.Role}}</div>
                                         <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                            {{/* Show persona indicator for self-play user turns */}}
-                                            {{if and (eq $msg.Role "user") $result.PersonaID}}
+                                            {{/* Show persona indicator for self-play user turns (not scripted seed turns) */}}
+                                            {{if and (eq $msg.Role "user") (ne $selfPlayPersonaID "")}}
                                             <span class="ai-indicator" title="Self-Play Persona">
                                                 <span class="ai-icon">🤖</span>
-                                                <span class="persona-name">{{$result.PersonaID}}</span>
+                                                <span class="persona-name">{{$selfPlayPersonaID}}</span>
                                             </span>
                                             {{end}}
                                             {{if or $msg.LatencyMs $msg.CostInfo}}
@@ -2074,6 +2077,9 @@
                                         {{end}}
                                         {{if eq $msg.Role "system"}}
                                         <div data-devtools="systemprompt">{{$msg.Content}}</div>
+                                        {{end}}
+                                        {{if $hasSelfPlayPrompt}}
+                                        <div data-devtools="selfplay">{{$selfPlayPrompt}}</div>
                                         {{end}}
                                         {{if $hasRawRequest}}
                                         <div data-devtools="request">{{prettyJSON (index $msg.Meta "_llm_raw_request")}}</div>
@@ -2288,6 +2294,7 @@
             var toolcallsEl = data.querySelector('[data-devtools="toolcalls"]');
             var workflowEl = data.querySelector('[data-devtools="workflow"]');
             var promptEl = data.querySelector('[data-devtools="systemprompt"]');
+            var selfPlayEl = data.querySelector('[data-devtools="selfplay"]');
             var requestEl = data.querySelector('[data-devtools="request"]');
             var responseEl = data.querySelector('[data-devtools="response"]');
             var traceEl = data.querySelector('[data-devtools="trace"]');
@@ -2313,6 +2320,7 @@
             }
 
             if (promptEl) tabs.push({ id: 'prompt', label: 'Prompt', icon: '📝' });
+            if (selfPlayEl) tabs.push({ id: 'selfplay', label: 'Self-Play', icon: '🤖' });
             if (requestEl) tabs.push({ id: 'request', label: 'Request', icon: '📡' });
             if (responseEl) tabs.push({ id: 'response', label: 'Response', icon: '📥' });
             if (traceEl) tabs.push({ id: 'trace', label: 'Trace', icon: '🔍' });
@@ -2576,6 +2584,14 @@
                 html += '<div class="devtools-tab-content' + (firstTab === 'prompt' ? ' active' : '') + '" data-tab-content="prompt">';
                 html += '<div class="devtools-section"><div class="devtools-section-title">System Prompt</div>';
                 html += '<div class="devtools-json" style="white-space:pre-wrap;color:#a6e3a1;">' + escapeHtml(promptEl.textContent) + '</div>';
+                html += '</div></div>';
+            }
+
+            // --- Self-Play tab ---
+            if (selfPlayEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'selfplay' ? ' active' : '') + '" data-tab-content="selfplay">';
+                html += '<div class="devtools-section"><div class="devtools-section-title">Self-Play Persona Prompt</div>';
+                html += '<div class="devtools-json" style="white-space:pre-wrap;color:#cba6f7;">' + escapeHtml(selfPlayEl.textContent) + '</div>';
                 html += '</div></div>';
             }
 

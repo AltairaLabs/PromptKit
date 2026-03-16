@@ -365,13 +365,20 @@ Test scenario definition.
 
 ```go
 type TurnDefinition struct {
-    Role    string  // "user" or "assistant"
-    Content string
+    Role      string  // "user", "assistant", or self-play role (e.g. "gemini-user")
+    Content   string  // Message content (scripted turns)
+    Persona   string  // Persona ID (self-play turns)
+    Turns     int     // Number of self-play turns (exact if MaxTurns absent)
+    MaxTurns  int     // Upper bound; enables natural termination when > Turns
     // ... additional fields
 }
 ```
 
-Single conversation turn.
+Single conversation turn. For self-play turns, `Turns` sets the minimum number of
+exchanges and `MaxTurns` sets the upper bound. When `MaxTurns > Turns`, natural
+termination is enabled: the self-play LLM can signal conversation completion after
+the minimum turns are reached. If `MaxTurns` is absent, exactly `Turns` exchanges
+are executed (backward compatible).
 
 ---
 

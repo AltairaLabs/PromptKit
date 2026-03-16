@@ -1010,8 +1010,11 @@ type TurnDefinition struct {
 	Parts []TurnContentPart `json:"parts,omitempty" yaml:"parts,omitempty"`
 
 	// Self-play specific fields (when role is a provider selector like "claude-user")
-	Persona       string  `json:"persona,omitempty" yaml:"persona,omitempty"`               // Persona ID for self-play
-	Turns         int     `json:"turns,omitempty" yaml:"turns,omitempty"`                   // Number of user messages to generate
+	Persona string `json:"persona,omitempty" yaml:"persona,omitempty"` // Persona ID for self-play
+	// Turns is the number of self-play exchanges. Exact count if MaxTurns absent.
+	Turns int `json:"turns,omitempty" yaml:"turns,omitempty"`
+	// MaxTurns is the upper bound; enables natural termination when > Turns.
+	MaxTurns      int     `json:"max_turns,omitempty" yaml:"max_turns,omitempty"`
 	AssistantTemp float32 `json:"assistant_temp,omitempty" yaml:"assistant_temp,omitempty"` // Override assistant temperature
 	UserTemp      float32 `json:"user_temp,omitempty" yaml:"user_temp,omitempty"`           // Override user temperature
 	Seed          int     `json:"seed,omitempty" yaml:"seed,omitempty"`                     // Override seed

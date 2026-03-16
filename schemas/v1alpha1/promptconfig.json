@@ -119,6 +119,12 @@
         },
         "when": {
           "$ref": "#/$defs/EvalWhen"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,

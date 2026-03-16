@@ -112,7 +112,7 @@ spec:
   description: "Step-by-step information collection"
   
   context_metadata:
-    session_goal: "Book a flight"
+    domain: "travel"
   
   turns:
     # Turn 1: Initial inquiry
@@ -402,7 +402,7 @@ cat out/results.json | jq '.results[] | select(.assertions[] |
 
 ### Self-Play Testing
 
-Test both sides of a conversation:
+Use self-play turns to have an AI persona generate user messages automatically. The persona LLM drives the conversation while the target assistant responds:
 
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -414,20 +414,29 @@ metadata:
 
 spec:
   task_type: support
-  
-  self_play:
-    enabled: true
-    persona: frustrated-customer
-    max_turns: 10
-    exit_conditions:
-      - satisfaction_expressed
-      - escalation_requested
+
+  turns:
+    # Seed the conversation with a scripted opening
+    - role: user
+      content: "My order hasn't arrived and it's been a week."
+
+    # Self-play takes over: persona generates follow-up messages
+    - role: gemini-user               # Must match a role in arena.yaml self_play.roles
+      persona: frustrated-customer    # Must match a configured persona
+      turns: 3                        # Minimum exchanges
+      max_turns: 8                    # Upper bound (natural termination enabled)
 ```
 
-Run self-play mode:
+Self-play requires configuration in your `arena.yaml`:
 
-```bash
-promptarena run --selfplay --scenario self-play-customer
+```yaml
+self_play:
+  enabled: true
+  personas:
+    - file: personas/frustrated-customer.persona.yaml
+  roles:
+    - id: gemini-user
+      provider: selfplay              # Provider ID for persona LLM
 ```
 
 ### Conversation Patterns
@@ -523,10 +532,14 @@ metadata:
 
 spec:
   task_type: support
-  constraints:
-    max_turns: 20
   turns:
-    # ... 20+ turns
+    # Define as many scripted turns as needed, or use self-play:
+    - role: user
+      content: "I have a complex issue..."
+    - role: gemini-user
+      persona: persistent-customer
+      turns: 10
+      max_turns: 20
 
 ---
 # Topic switching

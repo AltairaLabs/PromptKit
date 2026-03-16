@@ -5,7 +5,7 @@ metadata:
 spec:
   id: multi-turn-selfplay
   task_type: assistant
-  description: "Multi-turn self-play (5 turns). Realistic sustained context handling workload."
+  description: "Multi-turn self-play (2-8 turns, natural termination). Realistic sustained context handling workload."
 
   trials: 3
 
@@ -15,4 +15,5 @@ spec:
 
     - role: gemini-user
       persona: detail-planner
-      turns: 4
+      turns: 2
+      max_turns: 8

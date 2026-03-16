@@ -4,8 +4,8 @@ metadata:
   name: selfplay
 spec:
   id: selfplay
-  type: openai
-  model: gpt-4o-mini
+  type: gemini
+  model: gemini-2.0-flash
   defaults:
     temperature: 0.8
     max_tokens: 256
