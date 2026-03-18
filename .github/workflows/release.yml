@@ -618,6 +618,17 @@ jobs:
           -f "client_payload[version]=$VERSION"
         echo "✓ Dispatched to promptarena-deploy-agentcore"
 
+    - name: Dispatch to promptarena-deploy-omnia
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+        GH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+      run: |
+        echo "Notifying promptarena-deploy-omnia of runtime/$VERSION..."
+        gh api repos/AltairaLabs/PromptArena-deploy-omnia/dispatches \
+          -f event_type=promptkit-release \
+          -f "client_payload[version]=$VERSION"
+        echo "✓ Dispatched to promptarena-deploy-omnia"
+
   summary:
     name: Release Summary
     runs-on: ubuntu-latest
