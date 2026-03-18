@@ -33,6 +33,10 @@ src/content/docs/arena/tutorials/deploy/agentcore/
 src/content/docs/arena/how-to/deploy/agentcore/
 src/content/docs/arena/reference/deploy/agentcore/
 src/content/docs/arena/explanation/deploy/agentcore/
+src/content/docs/arena/tutorials/deploy/omnia/
+src/content/docs/arena/how-to/deploy/omnia/
+src/content/docs/arena/reference/deploy/omnia/
+src/content/docs/arena/explanation/deploy/omnia/
 
 # macOS-specific files
 .DS_Store
