@@ -17,7 +17,6 @@ spec:
     - file: scenarios/deep-conversation.scenario.yaml
 
   self_play:
-    enabled: true
     personas:
       - file: personas/detail-planner.persona.yaml
       - file: personas/senior-engineer.persona.yaml

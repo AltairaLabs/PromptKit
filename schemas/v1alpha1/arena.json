@@ -2003,7 +2003,6 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "enabled",
         "personas",
         "roles"
       ]

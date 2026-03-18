@@ -357,7 +357,7 @@ func (de *DuplexConversationExecutor) applySelfPlayVADConfig(
 	cfg *providers.StreamingInputConfig,
 	req *ConversationRequest,
 ) {
-	if req.Config == nil || req.Config.SelfPlay == nil || !req.Config.SelfPlay.Enabled {
+	if req.Config == nil || req.Config.SelfPlay == nil || !req.Config.SelfPlay.IsEnabled() {
 		return
 	}
 	cfg.Metadata["vad_disabled"] = true

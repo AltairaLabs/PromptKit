@@ -50,7 +50,6 @@ spec:
 
   # Self-play configuration for simulated conversations
   self_play:
-    enabled: true
     personas:
       - file: personas/curious-customer.persona.yaml
       - file: personas/technical-user.persona.yaml

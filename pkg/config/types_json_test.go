@@ -64,7 +64,6 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 			Verbose:     true,
 		},
 		SelfPlay: &SelfPlayConfig{
-			Enabled:  true,
 			Personas: []PersonaRef{{File: "personas/p1.yaml"}},
 			Roles:    []SelfPlayRoleGroup{{ID: "r1", Provider: "openai"}},
 		},

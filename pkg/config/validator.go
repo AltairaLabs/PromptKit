@@ -236,7 +236,7 @@ func (v *ConfigValidator) validateSelfPlay() {
 		return // Self-play is optional
 	}
 
-	if !v.config.SelfPlay.Enabled {
+	if !v.config.SelfPlay.IsEnabled() {
 		return // Disabled, no need to validate
 	}
 

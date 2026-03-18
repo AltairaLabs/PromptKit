@@ -169,7 +169,6 @@ Self-play requires `self_play` config in the arena config:
 ```yaml
 spec:
   self_play:
-    enabled: true
     roles:
       - id: gemini-user
         provider: <provider-id>

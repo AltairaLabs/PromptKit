@@ -233,7 +233,7 @@ func LoadConfig(filename string) (*Config, error) {
 	}
 
 	// Load self-play resources if enabled
-	if cfg.SelfPlay != nil && cfg.SelfPlay.Enabled {
+	if cfg.SelfPlay != nil && cfg.SelfPlay.IsEnabled() {
 		if err := cfg.loadSelfPlayResources(filename); err != nil {
 			return nil, err
 		}

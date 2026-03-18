@@ -15,7 +15,7 @@ func collectInspectionData(cfg *config.Config, configFile string) *InspectionDat
 	data := &InspectionData{
 		ConfigFile:         filepath.Base(configFile),
 		AvailableTaskTypes: getAvailableTaskTypes(cfg),
-		SelfPlayEnabled:    cfg.SelfPlay != nil && cfg.SelfPlay.Enabled,
+		SelfPlayEnabled:    cfg.SelfPlay != nil && cfg.SelfPlay.IsEnabled(),
 	}
 
 	// Collect each section using helper functions
