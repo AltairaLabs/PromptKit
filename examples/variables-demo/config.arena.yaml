@@ -68,7 +68,6 @@ spec:
     - file: scenarios/product-enterprise.scenario.yaml
 
   self_play:
-    enabled: true
     personas:
       - file: personas/selfplay-default.persona.yaml
     roles:

@@ -327,6 +327,7 @@ func TestConfig_Defaults(t *testing.T) {
 }
 
 func TestLoadConfig_WithSelfPlay(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	// Create a temporary config file
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "test-config.yaml")
@@ -407,7 +408,6 @@ spec:
     - file: provider1.yaml
 
   self_play:
-    enabled: true
     personas:
       - file: persona1.yaml
     roles:
@@ -434,7 +434,7 @@ spec:
 		t.Fatal("SelfPlay config is nil")
 	}
 
-	if !config.SelfPlay.Enabled {
+	if !config.SelfPlay.IsEnabled() {
 		t.Error("Expected self-play to be enabled")
 	}
 

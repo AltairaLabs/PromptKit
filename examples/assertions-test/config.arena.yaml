@@ -25,7 +25,6 @@ spec:
 
     # Self-play configuration
   self_play:
-    enabled: true
     personas:
       - file: personas/curious-learner.persona.yaml
     roles:

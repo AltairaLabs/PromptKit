@@ -303,9 +303,10 @@ func TestConfigValidator_ValidatePersonas_MissingFile(t *testing.T) {
 }
 
 func TestConfigValidator_ValidateSelfPlay_Disabled(t *testing.T) {
+	disabled := false
 	cfg := &Config{
 		SelfPlay: &SelfPlayConfig{
-			Enabled: false,
+			Enabled: &disabled,
 		},
 	}
 
@@ -321,8 +322,7 @@ func TestConfigValidator_ValidateSelfPlay_Disabled(t *testing.T) {
 func TestConfigValidator_ValidateSelfPlay_NoRoles(t *testing.T) {
 	cfg := &Config{
 		SelfPlay: &SelfPlayConfig{
-			Enabled: true,
-			Roles:   []SelfPlayRoleGroup{},
+			Roles: []SelfPlayRoleGroup{},
 		},
 	}
 
@@ -345,7 +345,6 @@ func TestConfigValidator_ValidateSelfPlay_DuplicateRoleIDs(t *testing.T) {
 
 	cfg := &Config{
 		SelfPlay: &SelfPlayConfig{
-			Enabled: true,
 			Roles: []SelfPlayRoleGroup{
 				{ID: "role1", Provider: "openai-gpt4o-mini"},
 				{ID: "role1", Provider: "claude-haiku"}, // Duplicate ID
@@ -364,7 +363,6 @@ func TestConfigValidator_ValidateSelfPlay_DuplicateRoleIDs(t *testing.T) {
 func TestConfigValidator_ValidateSelfPlay_MissingProvider(t *testing.T) {
 	cfg := &Config{
 		SelfPlay: &SelfPlayConfig{
-			Enabled: true,
 			Roles: []SelfPlayRoleGroup{
 				{ID: "role1"}, // Missing Provider
 			},

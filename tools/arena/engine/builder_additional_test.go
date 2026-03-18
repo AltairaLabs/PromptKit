@@ -98,7 +98,6 @@ func TestBuildSelfPlayComponents_Success(t *testing.T) {
 			},
 		},
 		SelfPlay: &config.SelfPlayConfig{
-			Enabled: true,
 			Roles: []config.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",
@@ -123,7 +122,6 @@ func TestBuildSelfPlayComponents_UnknownProvider(t *testing.T) {
 	cfg := &config.Config{
 		LoadedProviders: map[string]*config.Provider{},
 		SelfPlay: &config.SelfPlayConfig{
-			Enabled: true,
 			Roles: []config.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",
@@ -153,7 +151,6 @@ func TestBuildSelfPlayComponents_ProviderNotInRegistry(t *testing.T) {
 			},
 		},
 		SelfPlay: &config.SelfPlayConfig{
-			Enabled: true,
 			Roles: []config.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",
@@ -188,7 +185,6 @@ func TestBuildSelfPlayComponents_MultipleRoles(t *testing.T) {
 			},
 		},
 		SelfPlay: &config.SelfPlayConfig{
-			Enabled: true,
 			Roles: []config.SelfPlayRoleGroup{
 				{
 					ID:       "assistant-role",
@@ -229,7 +225,6 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 			},
 		},
 		SelfPlay: &config.SelfPlayConfig{
-			Enabled: true,
 			Roles: []config.SelfPlayRoleGroup{
 				{
 					ID:       "user-role",

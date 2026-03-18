@@ -479,7 +479,7 @@ func newConversationExecutor(
 	var selfPlayExecutor *turnexecutors.SelfPlayExecutor
 	var selfPlayRegistry *selfplay.Registry
 
-	if cfg.SelfPlay != nil && cfg.SelfPlay.Enabled {
+	if cfg.SelfPlay != nil && cfg.SelfPlay.IsEnabled() {
 		var err error
 		selfPlayRegistry, selfPlayExecutor, err = buildSelfPlayComponents(cfg, pipelineExecutor, providerRegistry)
 		if err != nil {

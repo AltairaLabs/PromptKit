@@ -563,7 +563,7 @@ func TestExecuteConversation_SelfPlayTurnNonStreaming(t *testing.T) {
 		Provider: mockProvider,
 		Config: &config.Config{
 			Defaults: config.Defaults{Verbose: false},
-			SelfPlay: &config.SelfPlayConfig{Enabled: true},
+			SelfPlay: &config.SelfPlayConfig{},
 		},
 		StateStoreConfig: &StateStoreConfig{
 			Store:  createTestStateStore(),
@@ -634,7 +634,7 @@ func TestExecuteConversation_SelfPlayTurnStreaming(t *testing.T) {
 		Provider: mockProvider,
 		Config: &config.Config{
 			Defaults: config.Defaults{Verbose: false},
-			SelfPlay: &config.SelfPlayConfig{Enabled: true},
+			SelfPlay: &config.SelfPlayConfig{},
 		},
 		StateStoreConfig: &StateStoreConfig{
 			Store:  createTestStateStore(),

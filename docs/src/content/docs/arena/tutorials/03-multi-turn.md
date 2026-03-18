@@ -431,7 +431,6 @@ Self-play requires configuration in your `arena.yaml`:
 
 ```yaml
 self_play:
-  enabled: true
   personas:
     - file: personas/frustrated-customer.persona.yaml
   roles:

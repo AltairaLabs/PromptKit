@@ -358,12 +358,25 @@ type ToolRef struct {
 	File string `yaml:"file" json:"file"`
 }
 
-// SelfPlayConfig configures self-play functionality
+// SelfPlayConfig configures self-play functionality.
+// Self-play is enabled by default when this section is present.
 type SelfPlayConfig struct {
-	Enabled      bool                        `yaml:"enabled" json:"enabled"`
+	// Deprecated: Enabled is redundant — self-play is enabled whenever this section
+	// is present. The field is retained for backward compatibility and will be removed
+	// in a future release. To disable self-play, remove the self_play section entirely.
+	Enabled      *bool                       `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	Personas     []PersonaRef                `yaml:"personas" json:"personas"`
 	PersonaSpecs map[string]*UserPersonaPack `yaml:"persona_specs,omitempty" json:"persona_specs,omitempty"`
 	Roles        []SelfPlayRoleGroup         `yaml:"roles" json:"roles"`
+}
+
+// IsEnabled returns whether self-play is enabled. Defaults to true when the
+// Enabled field is not set (nil).
+func (c *SelfPlayConfig) IsEnabled() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
 }
 
 // PersonaRef references a persona file

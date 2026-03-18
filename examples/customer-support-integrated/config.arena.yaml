@@ -24,7 +24,6 @@ spec:
 
   # Self-play configuration
   self_play:
-    enabled: true
     personas:
       - file: personas/social-engineer.persona.yaml
     roles:

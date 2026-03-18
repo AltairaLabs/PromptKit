@@ -270,7 +270,6 @@ func TestInlinePersonaSpecs(t *testing.T) {
 	configPath := writeArenaConfig(t, dir, `  providers:
     - file: `+provFile+`
   self_play:
-    enabled: true
     personas: []
     persona_specs:
       frustrated-user:
