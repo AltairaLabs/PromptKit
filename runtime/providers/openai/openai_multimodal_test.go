@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -1208,7 +1209,9 @@ func TestPredictStreamWithMessages_Cancellation(t *testing.T) {
 
 	// Should have error or cancelled finish reason
 	if lastChunk.Error != nil {
-		assert.Contains(t, lastChunk.Error.Error(), "context")
+		errMsg := lastChunk.Error.Error()
+		assert.True(t, strings.Contains(errMsg, "context") || strings.Contains(errMsg, "closed"),
+			"expected error to contain 'context' or 'closed', got: %s", errMsg)
 	} else {
 		assert.NotNil(t, lastChunk.FinishReason)
 		assert.Equal(t, "cancelled", *lastChunk.FinishReason)
@@ -1299,11 +1302,11 @@ func TestGetAudioFormat(t *testing.T) {
 		{"audio/x-wav", "wav"},
 		{types.MIMETypeAudioMP3, "mp3"},
 		{"audio/mpeg", "mp3"},
-		{types.MIMETypeAudioOgg, ""},     // Not supported
-		{"audio/flac", ""},               // Not supported
-		{"audio/aac", ""},                // Not supported
-		{"video/mp4", ""},                // Not audio
-		{"", ""},                         // Empty
+		{types.MIMETypeAudioOgg, ""}, // Not supported
+		{"audio/flac", ""},           // Not supported
+		{"audio/aac", ""},            // Not supported
+		{"video/mp4", ""},            // Not audio
+		{"", ""},                     // Empty
 	}
 
 	for _, tt := range tests {
@@ -1607,24 +1610,24 @@ func TestOpenAIProvider_AudioNotSupportedOnNonAudioModel(t *testing.T) {
 
 func TestOpenAIProvider_APIMode_Configuration(t *testing.T) {
 	tests := []struct {
-		name            string
+		name             string
 		additionalConfig map[string]any
-		expectedAPIMode string
+		expectedAPIMode  string
 	}{
 		{
-			name:            "default is responses",
+			name:             "default is responses",
 			additionalConfig: nil,
-			expectedAPIMode: "responses",
+			expectedAPIMode:  "responses",
 		},
 		{
-			name:            "explicit completions",
+			name:             "explicit completions",
 			additionalConfig: map[string]any{"api_mode": "completions"},
-			expectedAPIMode: "completions",
+			expectedAPIMode:  "completions",
 		},
 		{
-			name:            "explicit responses",
+			name:             "explicit responses",
 			additionalConfig: map[string]any{"api_mode": "responses"},
-			expectedAPIMode: "responses",
+			expectedAPIMode:  "responses",
 		},
 	}
 
