@@ -600,6 +600,46 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Review at:** https://github.com/${{ github.repository }}/releases" >> $GITHUB_STEP_SUMMARY
 
+  verify-docs:
+    name: Verify Docs Deployment
+    runs-on: ubuntu-latest
+    needs: [validate, create-release]
+    if: ${{ inputs.phase == 'full' && needs.create-release.result == 'success' }}
+
+    steps:
+    - name: Wait for docs deployment
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GITHUB_REPO: ${{ github.repository }}
+      run: |
+        echo "Waiting for docs deployment to start..."
+        sleep 30
+
+        # Find the docs workflow run triggered by this release
+        for i in {1..5}; do
+          RUN_ID=$(gh run list --repo "$GITHUB_REPO" --workflow docs.yml --limit 1 --json databaseId,event,status --jq '.[0] | select(.event == "release") | .databaseId')
+          if [ -n "$RUN_ID" ]; then
+            echo "Found docs workflow run: $RUN_ID"
+            break
+          fi
+          echo "Attempt $i/5: Docs workflow not started yet, waiting 15s..."
+          sleep 15
+        done
+
+        if [ -z "$RUN_ID" ]; then
+          echo "::error::Docs workflow did not start after release publish"
+          exit 1
+        fi
+
+        echo "Watching docs workflow run $RUN_ID..."
+        if gh run watch "$RUN_ID" --repo "$GITHUB_REPO" --exit-status; then
+          echo "✓ Docs deployed successfully"
+        else
+          echo "::error::Docs deployment failed — schemas may not be published"
+          echo "Re-run the docs workflow manually: gh workflow run docs.yml"
+          exit 1
+        fi
+
   notify-downstream:
     name: Notify Downstream Repos
     runs-on: ubuntu-latest
@@ -632,7 +672,7 @@ jobs:
   summary:
     name: Release Summary
     runs-on: ubuntu-latest
-    needs: [validate, tag-dependencies, update-tools, create-release, notify-downstream]
+    needs: [validate, tag-dependencies, update-tools, create-release, verify-docs, notify-downstream]
     if: always()
     
     steps:
@@ -643,6 +683,7 @@ jobs:
         DEPENDENCIES_RESULT: ${{ needs.tag-dependencies.result }}
         TOOLS_RESULT: ${{ needs.update-tools.result }}
         RELEASE_RESULT: ${{ needs.create-release.result }}
+        DOCS_RESULT: ${{ needs.verify-docs.result }}
         DOWNSTREAM_RESULT: ${{ needs.notify-downstream.result }}
         GITHUB_REPO: ${{ github.repository }}
       run: |
@@ -655,6 +696,7 @@ jobs:
         - Dependencies: $DEPENDENCIES_RESULT
         - Tools: $TOOLS_RESULT
         - GitHub Release: $RELEASE_RESULT
+        - Docs Deployment: $DOCS_RESULT
         - Downstream Notification: $DOWNSTREAM_RESULT
         
         ## Installation
