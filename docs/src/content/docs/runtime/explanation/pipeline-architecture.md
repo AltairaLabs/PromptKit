@@ -85,6 +85,19 @@ type StreamElement struct {
 
 **Key insight**: Each element carries one content type, enabling type-safe routing and priority scheduling.
 
+### Base Metadata
+
+Pipelines support `BaseMetadata` — a set of key-value pairs that are automatically merged into every `StreamElement` entering the pipeline. This is designed for session-level context (e.g., `session_id`, `tenant_id`, `user_id`) that should be available to all stages and providers on every turn without manual injection per element.
+
+```go
+pipeline.BaseMetadata = map[string]interface{}{
+    "session_id": sessionID,
+    "tenant_id":  tenantID,
+}
+```
+
+Base metadata is merged at the `Execute`/`ExecuteSync` boundary. Per-element metadata takes precedence on key collision, so stages and callers can always override base values for specific elements.
+
 ## Stage Interface
 
 All stages implement:

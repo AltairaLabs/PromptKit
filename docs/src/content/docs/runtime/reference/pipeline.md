@@ -745,6 +745,23 @@ case <-ctx.Done():
 }
 ```
 
+## Base Metadata
+
+`StreamPipeline.BaseMetadata` provides session-level metadata that is automatically merged into every `StreamElement` at the start of each `Execute`/`ExecuteSync` call. This is useful for injecting context that should be available to all stages and providers across every turn of a conversation — without manually setting it on each input element.
+
+```go
+pipeline, _ := builder.Build()
+pipeline.BaseMetadata = map[string]interface{}{
+    "session_id": "sess-abc123",
+    "tenant_id":  "acme-corp",
+    "user_id":    "user-42",
+}
+```
+
+Per-element metadata takes precedence over base metadata on key collision. `BaseMetadata` is nil by default with zero cost when unused.
+
+Base metadata flows through the same path as per-element metadata: it is accumulated by `ProviderStage` and included in `PredictionRequest.Metadata`, making it available to all provider implementations.
+
 ## Metadata Keys
 
 Standard metadata keys used by built-in stages:

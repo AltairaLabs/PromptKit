@@ -425,6 +425,25 @@ func ExecuteSync(ctx context.Context, pipeline *stage.StreamPipeline, message st
 }
 ```
 
+## Session Metadata
+
+Use `BaseMetadata` to attach session-level context that flows through to all stages and providers on every turn:
+
+```go
+pipeline, _ := builder.Build()
+pipeline.BaseMetadata = map[string]interface{}{
+    "session_id": sessionID,
+    "tenant_id":  tenantID,
+    "user_id":    userID,
+}
+
+// All Execute/ExecuteSync calls now include these keys in element metadata.
+// Per-element metadata overrides base metadata on key collision.
+result, err := pipeline.ExecuteSync(ctx, input)
+```
+
+This avoids manually injecting the same metadata into every `StreamElement` on each turn. Providers receive these values in `PredictionRequest.Metadata`.
+
 ## Testing Configuration
 
 ### Test Pipeline

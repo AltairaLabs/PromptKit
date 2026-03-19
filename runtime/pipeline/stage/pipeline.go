@@ -22,11 +22,32 @@ type StreamPipeline struct {
 	config       *PipelineConfig
 	eventEmitter *events.Emitter
 
+	// BaseMetadata is merged into every StreamElement at the start of each
+	// Execute/ExecuteSync call. Per-element metadata takes precedence over
+	// base metadata on key collision. Nil by default (zero cost when unused).
+	BaseMetadata map[string]interface{}
+
 	// Concurrency control
 	wg         sync.WaitGroup
 	shutdown   chan struct{}
 	shutdownMu sync.RWMutex
 	isShutdown bool
+}
+
+// applyBaseMetadata merges BaseMetadata into an element. Per-element keys
+// already present take precedence over base metadata keys.
+func (p *StreamPipeline) applyBaseMetadata(elem *StreamElement) {
+	if len(p.BaseMetadata) == 0 {
+		return
+	}
+	if elem.Metadata == nil {
+		elem.Metadata = make(map[string]interface{}, len(p.BaseMetadata))
+	}
+	for k, v := range p.BaseMetadata {
+		if _, exists := elem.Metadata[k]; !exists {
+			elem.Metadata[k] = v
+		}
+	}
 }
 
 // Execute starts the pipeline execution with the given input channel.
@@ -36,6 +57,20 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	// Check if shutting down
 	if p.isShuttingDown() {
 		return nil, ErrPipelineShuttingDown
+	}
+
+	// Wrap input to inject base metadata if configured
+	actualInput := input
+	if len(p.BaseMetadata) > 0 {
+		wrapped := make(chan StreamElement, p.config.ChannelBufferSize)
+		go func() {
+			defer close(wrapped)
+			for elem := range input {
+				p.applyBaseMetadata(&elem)
+				wrapped <- elem
+			}
+		}()
+		actualInput = wrapped
 	}
 
 	// Apply execution timeout if configured
@@ -55,7 +90,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	output := make(chan StreamElement, p.config.ChannelBufferSize)
 
 	// Execute pipeline in background
-	go p.executeBackground(execCtx, input, output, cancel)
+	go p.executeBackground(execCtx, actualInput, output, cancel)
 
 	return output, nil
 }
