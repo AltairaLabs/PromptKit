@@ -418,14 +418,27 @@ func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, outpu
 }
 ```
 
-#### Pattern 2: State Access via Metadata
+#### Pattern 2: Base Metadata (Session Context)
+
+Use `BaseMetadata` on the pipeline to inject session-level context into every element automatically:
+
+```go
+pipeline.BaseMetadata = map[string]interface{}{
+    "session_id": sessionID,
+    "tenant_id":  tenantID,
+}
+// All elements entering the pipeline will have these keys merged in.
+// Per-element metadata takes precedence on key collision.
+```
+
+#### Pattern 3: State Access via Metadata
 
 ```go
 elem.Metadata["system_prompt"] = "..."
 elem.Metadata["allowed_tools"] = []string{...}
 ```
 
-#### Pattern 3: Error Handling
+#### Pattern 4: Error Handling
 
 ```go
 if err != nil {
