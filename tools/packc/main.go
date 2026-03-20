@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
@@ -12,7 +13,7 @@ import (
 
 const outputFilePerm = 0o600
 
-const version = "v0.1.0"
+var version = "dev" //nolint:gochecknoglobals // overridden via ldflags at build time
 
 const warningFormat = "  - %s\n"
 
@@ -75,8 +76,13 @@ func printTemplateEngine(pack *prompt.Pack) {
 
 func printPrompts(pack *prompt.Pack) {
 	fmt.Printf("\n=== Prompts (%d) ===\n", len(pack.Prompts))
-	for taskType, p := range pack.Prompts {
-		printPromptDetails(taskType, p)
+	taskTypes := make([]string, 0, len(pack.Prompts))
+	for taskType := range pack.Prompts {
+		taskTypes = append(taskTypes, taskType)
+	}
+	sort.Strings(taskTypes)
+	for _, taskType := range taskTypes {
+		printPromptDetails(taskType, pack.Prompts[taskType])
 	}
 }
 
@@ -152,14 +158,25 @@ func printWorkflow(pack *prompt.Pack) {
 	fmt.Printf("\n=== Workflow (v%d) ===\n", pack.Workflow.Version)
 	fmt.Printf("Entry: %s\n", pack.Workflow.Entry)
 	fmt.Printf("States (%d):\n", len(pack.Workflow.States))
-	for name, state := range pack.Workflow.States {
+	stateNames := make([]string, 0, len(pack.Workflow.States))
+	for name := range pack.Workflow.States {
+		stateNames = append(stateNames, name)
+	}
+	sort.Strings(stateNames)
+	for _, name := range stateNames {
+		state := pack.Workflow.States[name]
 		fmt.Printf("  [%s] prompt_task=%s\n", name, state.PromptTask)
 		if state.Description != "" {
 			fmt.Printf("    Description: %s\n", state.Description)
 		}
 		if len(state.OnEvent) > 0 {
-			for event, target := range state.OnEvent {
-				fmt.Printf("    on %s → %s\n", event, target)
+			events := make([]string, 0, len(state.OnEvent))
+			for event := range state.OnEvent {
+				events = append(events, event)
+			}
+			sort.Strings(events)
+			for _, event := range events {
+				fmt.Printf("    on %s → %s\n", event, state.OnEvent[event])
 			}
 		}
 		if state.Persistence != "" {
@@ -178,7 +195,13 @@ func printAgents(pack *prompt.Pack) {
 	fmt.Printf("\n=== Agents ===\n")
 	fmt.Printf("Entry: %s\n", pack.Agents.Entry)
 	fmt.Printf("Members (%d):\n", len(pack.Agents.Members))
-	for name, agent := range pack.Agents.Members {
+	memberNames := make([]string, 0, len(pack.Agents.Members))
+	for name := range pack.Agents.Members {
+		memberNames = append(memberNames, name)
+	}
+	sort.Strings(memberNames)
+	for _, name := range memberNames {
+		agent := pack.Agents.Members[name]
 		fmt.Printf("  [%s]\n", name)
 		if agent.Description != "" {
 			fmt.Printf("    Description: %s\n", agent.Description)
@@ -224,6 +247,7 @@ func getFragmentNames(fragments map[string]string) []string {
 	for name := range fragments {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

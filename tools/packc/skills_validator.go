@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,26 @@ import (
 )
 
 const skillMDFilename = "SKILL.md"
+
+// errPathTraversal is returned when a YAML-sourced path escapes the pack directory.
+var errPathTraversal = fmt.Errorf("path traversal detected")
+
+// validatePathContainment checks that resolvedAbs is within or equal to baseDir.
+// Returns an error if the resolved path escapes the base directory.
+func validatePathContainment(rawPath, baseDir string) error {
+	absPath := rawPath
+	if !filepath.IsAbs(absPath) {
+		absPath = filepath.Join(baseDir, absPath)
+	}
+	absPath = filepath.Clean(absPath)
+	cleanBase := filepath.Clean(baseDir)
+
+	// The resolved path must be the base itself or start with base + separator.
+	if absPath != cleanBase && !strings.HasPrefix(absPath, cleanBase+string(filepath.Separator)) {
+		return fmt.Errorf("%w: %q resolves outside pack directory %q", errPathTraversal, rawPath, cleanBase)
+	}
+	return nil
+}
 
 // ValidateSkillErrors returns blocking errors for skill configuration in the pack.
 func ValidateSkillErrors(pack *prompt.Pack, packDir string) []string {
@@ -52,6 +73,10 @@ func ValidateSkills(pack *prompt.Pack, packDir string) []string {
 		if dir == "" {
 			continue
 		}
+		// Skip cross-ref check for paths that escape the pack directory
+		if err := validatePathContainment(dir, packDir); err != nil {
+			continue
+		}
 		absDir := dir
 		if !filepath.IsAbs(absDir) {
 			absDir = filepath.Join(packDir, absDir)
@@ -67,6 +92,11 @@ func ValidateSkills(pack *prompt.Pack, packDir string) []string {
 func validateSkillDirectory(dir, packDir string, idx int, seen map[string]bool) []string {
 	var errs []string
 
+	if err := validatePathContainment(dir, packDir); err != nil {
+		errs = append(errs, fmt.Sprintf("skills[%d]: %v", idx, err))
+		return errs
+	}
+
 	absDir := dir
 	if !filepath.IsAbs(absDir) {
 		absDir = filepath.Join(packDir, absDir)
@@ -79,11 +109,11 @@ func validateSkillDirectory(dir, packDir string, idx int, seen map[string]bool) 
 	}
 
 	// Walk directory for SKILL.md files
-	err = filepath.Walk(absDir, func(path string, fi os.FileInfo, walkErr error) error {
+	err = filepath.WalkDir(absDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if fi.IsDir() || fi.Name() != skillMDFilename {
+		if d.IsDir() || d.Name() != skillMDFilename {
 			return nil
 		}
 
@@ -140,6 +170,11 @@ func validateWorkflowStateSkills(wf *prompt.WorkflowConfig, packDir string) []st
 			continue
 		}
 
+		if err := validatePathContainment(state.Skills, packDir); err != nil {
+			errs = append(errs, fmt.Sprintf("workflow state %q: %v", name, err))
+			continue
+		}
+
 		absPath := state.Skills
 		if !filepath.IsAbs(absPath) {
 			absPath = filepath.Join(packDir, absPath)
@@ -159,8 +194,8 @@ func validateWorkflowStateSkills(wf *prompt.WorkflowConfig, packDir string) []st
 func checkAllowedToolsCrossRef(absDir string, packToolNames map[string]bool) []string {
 	var warnings []string
 
-	_ = filepath.Walk(absDir, func(path string, fi os.FileInfo, err error) error {
-		if err != nil || fi.IsDir() || fi.Name() != skillMDFilename {
+	_ = filepath.WalkDir(absDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || d.Name() != skillMDFilename {
 			return nil //nolint:nilerr // skip non-SKILL.md files
 		}
 

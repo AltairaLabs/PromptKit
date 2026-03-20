@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -202,6 +203,7 @@ func printPackSummary(pack *prompt.Pack, outputFile string) {
 		for name := range pack.Tools {
 			toolNames = append(toolNames, name)
 		}
+		sort.Strings(toolNames)
 		fmt.Printf("  Contains %d tools: %v\n", len(pack.Tools), toolNames)
 	}
 	if len(pack.Evals) > 0 {
@@ -281,6 +283,20 @@ func compileCommand() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to marshal pack: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Validate skills configuration
+	skillErrs := ValidateSkillErrors(pack, configDir)
+	if len(skillErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "✗ Skill validation errors:\n")
+		for _, e := range skillErrs {
+			fmt.Fprintf(os.Stderr, "  - %s\n", e)
+		}
+		os.Exit(1)
+	}
+	skillWarnings := ValidateSkills(pack, configDir)
+	for _, w := range skillWarnings {
+		fmt.Printf("⚠ %s\n", w)
 	}
 
 	// Validate workflow before writing if present
@@ -441,6 +457,21 @@ func validateCommand() {
 			fmt.Fprintf(os.Stderr, warningFormat, w)
 		}
 		os.Exit(1)
+	}
+
+	// Validate skills configuration
+	packDir := filepath.Dir(packFile)
+	skillErrs := ValidateSkillErrors(pack, packDir)
+	if len(skillErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "✗ Skill validation errors:\n")
+		for _, e := range skillErrs {
+			fmt.Fprintf(os.Stderr, "  - %s\n", e)
+		}
+		os.Exit(1)
+	}
+	skillWarnings := ValidateSkills(pack, packDir)
+	for _, w := range skillWarnings {
+		fmt.Printf("⚠ %s\n", w)
 	}
 
 	// Workflow warnings are informational (PascalCase, cycles)

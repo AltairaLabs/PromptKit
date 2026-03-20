@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -758,5 +759,151 @@ func TestSanitizePackID(t *testing.T) {
 			result := sanitizePackID(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+func TestGetFragmentNames_Deterministic(t *testing.T) {
+	fragments := map[string]string{
+		"zebra":   "z",
+		"alpha":   "a",
+		"middle":  "m",
+		"beta":    "b",
+		"omega":   "o",
+		"delta":   "d",
+		"gamma":   "g",
+		"epsilon": "e",
+		"zeta":    "z2",
+		"iota":    "i",
+		"kappa":   "k",
+		"lambda":  "l",
+		"mu":      "mu",
+		"nu":      "nu",
+		"omicron": "oi",
+		"pi":      "pi",
+		"rho":     "rho",
+		"sigma":   "sig",
+		"tau":     "tau",
+		"upsilon": "ups",
+	}
+
+	// Run 20 times to catch non-determinism (Go map iteration is random)
+	const iterations = 20
+	first := getFragmentNames(fragments)
+	for i := 1; i < iterations; i++ {
+		result := getFragmentNames(fragments)
+		assert.Equal(t, first, result, "iteration %d produced different order", i)
+	}
+}
+
+func TestPrintPrompts_Deterministic(t *testing.T) {
+	pack := &prompt.Pack{
+		Prompts: map[string]*prompt.PackPrompt{
+			"zebra":   {ID: "zebra", Name: "Zebra", Version: "1.0"},
+			"alpha":   {ID: "alpha", Name: "Alpha", Version: "1.0"},
+			"middle":  {ID: "middle", Name: "Middle", Version: "1.0"},
+			"beta":    {ID: "beta", Name: "Beta", Version: "1.0"},
+			"delta":   {ID: "delta", Name: "Delta", Version: "1.0"},
+			"gamma":   {ID: "gamma", Name: "Gamma", Version: "1.0"},
+			"epsilon": {ID: "epsilon", Name: "Epsilon", Version: "1.0"},
+		},
+	}
+
+	const iterations = 20
+	captureOutput := func() string {
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		printPrompts(pack)
+		w.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		os.Stdout = old
+		return buf.String()
+	}
+
+	first := captureOutput()
+	for i := 1; i < iterations; i++ {
+		result := captureOutput()
+		assert.Equal(t, first, result, "iteration %d produced different output", i)
+	}
+}
+
+func TestVersionIsOverridable(t *testing.T) {
+	// version should be a var (not const) so ldflags can override it
+	original := version
+	version = "v1.2.3-test"
+	assert.Equal(t, "v1.2.3-test", version)
+	version = original
+
+	// Verify default value
+	assert.Equal(t, "dev", original)
+}
+
+func TestPrintWorkflow_Deterministic(t *testing.T) {
+	pack := &prompt.Pack{
+		Workflow: &prompt.WorkflowConfig{
+			Version: 1,
+			Entry:   "start",
+			States: map[string]*prompt.WorkflowState{
+				"start":  {PromptTask: "greeting", OnEvent: map[string]string{"Done": "middle", "Error": "end"}},
+				"middle": {PromptTask: "process", OnEvent: map[string]string{"Next": "end", "Back": "start"}},
+				"end":    {PromptTask: "farewell"},
+				"alpha":  {PromptTask: "a"},
+				"zebra":  {PromptTask: "z"},
+			},
+		},
+	}
+
+	const iterations = 20
+	captureOutput := func() string {
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		printWorkflow(pack)
+		w.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		os.Stdout = old
+		return buf.String()
+	}
+
+	first := captureOutput()
+	for i := 1; i < iterations; i++ {
+		result := captureOutput()
+		assert.Equal(t, first, result, "iteration %d produced different output", i)
+	}
+}
+
+func TestPrintAgents_Deterministic(t *testing.T) {
+	pack := &prompt.Pack{
+		Agents: &prompt.AgentsConfig{
+			Entry: "triage",
+			Members: map[string]*prompt.AgentDef{
+				"triage":  {Description: "Triage"},
+				"billing": {Description: "Billing"},
+				"support": {Description: "Support"},
+				"alpha":   {Description: "Alpha"},
+				"zebra":   {Description: "Zebra"},
+			},
+		},
+	}
+
+	const iterations = 20
+	captureOutput := func() string {
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		printAgents(pack)
+		w.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		os.Stdout = old
+		return buf.String()
+	}
+
+	first := captureOutput()
+	for i := 1; i < iterations; i++ {
+		result := captureOutput()
+		assert.Equal(t, first, result, "iteration %d produced different output", i)
 	}
 }
