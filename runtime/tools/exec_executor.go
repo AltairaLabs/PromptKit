@@ -88,9 +88,11 @@ func runExecProcess(
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
-	// Pass through requested environment variables from the host
+	// Pass through ONLY the explicitly requested environment variables.
+	// When envNames is specified, the subprocess gets a minimal environment
+	// to prevent accidental leakage of secrets from the parent process.
 	if len(envNames) > 0 {
-		cmd.Env = os.Environ()
+		cmd.Env = make([]string, 0, len(envNames))
 		for _, name := range envNames {
 			if val, ok := os.LookupEnv(name); ok {
 				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", name, val))

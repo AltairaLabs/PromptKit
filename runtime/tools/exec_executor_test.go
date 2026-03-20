@@ -159,6 +159,35 @@ echo "{\"result\": {\"val\": \"$TEST_EXEC_VAR\"}}"
 	assert.Equal(t, "from_env", parsed["val"])
 }
 
+func TestExecExecutor_Execute_EnvIsolation(t *testing.T) {
+	// Set a "secret" env var that is NOT in the envNames list.
+	// The subprocess must NOT see it.
+	script := writeScript(t, "tool.sh", `#!/bin/sh
+# Print the secret env var — should be empty when properly isolated
+echo "{\"result\": {\"secret\": \"$EXEC_TEST_SECRET\", \"allowed\": \"$EXEC_TEST_ALLOWED\"}}"
+`)
+
+	t.Setenv("EXEC_TEST_SECRET", "s3cr3t")
+	t.Setenv("EXEC_TEST_ALLOWED", "visible")
+
+	e := &ExecExecutor{}
+	desc := &ToolDescriptor{
+		Name: "env-isolation-tool",
+		ExecConfig: &ExecConfig{
+			Command: script,
+			Env:     []string{"EXEC_TEST_ALLOWED"}, // only this one should be passed
+		},
+	}
+
+	result, err := e.Execute(context.Background(), desc, json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	var parsed map[string]string
+	require.NoError(t, json.Unmarshal(result, &parsed))
+	assert.Equal(t, "visible", parsed["allowed"], "explicitly allowed env var should be present")
+	assert.Empty(t, parsed["secret"], "env var not in envNames must NOT leak to subprocess")
+}
+
 func TestExecExecutor_Execute_ContextTimeout(t *testing.T) {
 	script := writeScript(t, "tool.sh", `#!/bin/sh
 sleep 10

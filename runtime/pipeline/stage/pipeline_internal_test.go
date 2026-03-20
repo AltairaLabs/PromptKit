@@ -310,6 +310,48 @@ func TestEmitCompletionEvent(t *testing.T) {
 	})
 }
 
+// TestBaseMetadataGoroutineExitsOnContextCancel verifies that the wrapper
+// goroutine in Execute exits promptly when the context is cancelled and the
+// input channel is blocked (never sends).
+func TestBaseMetadataGoroutineExitsOnContextCancel(t *testing.T) {
+	p, err := NewPipelineBuilder().
+		Chain(&testPassthroughStage{name: "pass"}).
+		Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	p.BaseMetadata = map[string]interface{}{"key": "value"}
+
+	// Create an input channel that never sends — simulates a blocked producer.
+	blocked := make(chan StreamElement)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	output, err := p.Execute(ctx, blocked)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Cancel the context; the wrapper goroutine should stop even though
+	// `blocked` never produces an element.
+	cancel()
+
+	// Drain the output channel. It must close within a reasonable time;
+	// if the goroutine leaked, this would hang.
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case _, ok := <-output:
+			if !ok {
+				return // output closed — goroutine exited correctly
+			}
+		case <-timer.C:
+			t.Fatal("output channel not closed within 2s — wrapper goroutine likely leaked")
+		}
+	}
+}
+
 // TestBaseMetadata tests the BaseMetadata feature on StreamPipeline.
 func TestBaseMetadata(t *testing.T) {
 	buildPassthroughPipeline := func() *StreamPipeline {

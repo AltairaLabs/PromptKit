@@ -547,9 +547,7 @@ func (r *Registry) executeWithAsyncExecutor(
 	ctx context.Context, asyncExecutor AsyncToolExecutor,
 	tool *ToolDescriptor, _ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
-	start := getCurrentTimeMs()
 	result, err := asyncExecutor.ExecuteAsync(ctx, tool, args)
-	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
 	if err != nil {
 		errMsg := err.Error()
@@ -590,8 +588,6 @@ func (r *Registry) executeSyncFallback(
 	ctx context.Context, executor Executor, tool *ToolDescriptor,
 	_ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
-	start := getCurrentTimeMs()
-
 	var result json.RawMessage
 	var parts []types.ContentPart
 	var err error
@@ -601,7 +597,6 @@ func (r *Registry) executeSyncFallback(
 	} else {
 		result, err = executor.Execute(ctx, tool, args)
 	}
-	_ = getCurrentTimeMs() - start // Track latency but unused for now
 
 	if err != nil {
 		errMsg := err.Error()
