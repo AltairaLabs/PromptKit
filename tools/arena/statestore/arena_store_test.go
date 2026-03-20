@@ -365,8 +365,8 @@ func TestArenaStateStore_DumpToJSON(t *testing.T) {
 	assert.Equal(t, true, assertions["passed"])
 }
 
-// TestArenaStateStore_SaveRunMetadata tests saving run metadata
-func TestArenaStateStore_SaveRunMetadata(t *testing.T) {
+// TestArenaStateStore_SaveMetadata tests saving run metadata
+func TestArenaStateStore_SaveMetadata(t *testing.T) {
 	store := NewArenaStateStore()
 	ctx := context.Background()
 
@@ -400,7 +400,7 @@ func TestArenaStateStore_SaveRunMetadata(t *testing.T) {
 		PersonaID: "customer",
 	}
 
-	err = store.SaveRunMetadata(ctx, "run-123", metadata)
+	err = store.SaveMetadata(ctx, "run-123", metadata)
 	require.NoError(t, err)
 
 	// Retrieve and verify
@@ -417,8 +417,8 @@ func TestArenaStateStore_SaveRunMetadata(t *testing.T) {
 	assert.Equal(t, "customer", arenaState.RunMetadata.PersonaID)
 }
 
-// TestArenaStateStore_SaveRunMetadata_WithError tests saving metadata with error
-func TestArenaStateStore_SaveRunMetadata_WithError(t *testing.T) {
+// TestArenaStateStore_SaveMetadata_WithError tests saving metadata with error
+func TestArenaStateStore_SaveMetadata_WithError(t *testing.T) {
 	store := NewArenaStateStore()
 	ctx := context.Background()
 
@@ -434,7 +434,7 @@ func TestArenaStateStore_SaveRunMetadata_WithError(t *testing.T) {
 	}
 
 	// Should save even without conversation state (for early failures)
-	err := store.SaveRunMetadata(ctx, "run-error", metadata)
+	err := store.SaveMetadata(ctx, "run-error", metadata)
 	require.NoError(t, err)
 
 	// Retrieve and verify error is stored
@@ -444,8 +444,8 @@ func TestArenaStateStore_SaveRunMetadata_WithError(t *testing.T) {
 	assert.Equal(t, "provider not found: test-provider", arenaState.RunMetadata.Error)
 }
 
-// TestArenaStateStore_GetRunResult tests reconstructing RunResult
-func TestArenaStateStore_GetRunResult(t *testing.T) {
+// TestArenaStateStore_GetResult tests reconstructing RunResult
+func TestArenaStateStore_GetResult(t *testing.T) {
 	store := NewArenaStateStore()
 	ctx := context.Background()
 
@@ -494,11 +494,11 @@ func TestArenaStateStore_GetRunResult(t *testing.T) {
 		EndTime:    endTime,
 		Duration:   endTime.Sub(startTime),
 	}
-	err = store.SaveRunMetadata(ctx, "run-123", metadata)
+	err = store.SaveMetadata(ctx, "run-123", metadata)
 	require.NoError(t, err)
 
 	// Get reconstructed RunResult
-	result, err := store.GetRunResult(ctx, "run-123")
+	result, err := store.GetResult(ctx, "run-123")
 	require.NoError(t, err)
 
 	// Verify metadata fields
@@ -529,8 +529,8 @@ func TestArenaStateStore_GetRunResult(t *testing.T) {
 	assert.Equal(t, "length", result.Violations[0].Type)
 }
 
-// TestArenaStateStore_GetRunResult_NoMetadata tests error when metadata missing
-func TestArenaStateStore_GetRunResult_NoMetadata(t *testing.T) {
+// TestArenaStateStore_GetResult_NoMetadata tests error when metadata missing
+func TestArenaStateStore_GetResult_NoMetadata(t *testing.T) {
 	store := NewArenaStateStore()
 	ctx := context.Background()
 
@@ -544,7 +544,7 @@ func TestArenaStateStore_GetRunResult_NoMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should fail to get RunResult without metadata
-	_, err = store.GetRunResult(ctx, "run-no-meta")
+	_, err = store.GetResult(ctx, "run-no-meta")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "run metadata not found")
 }
@@ -569,7 +569,7 @@ func TestArenaStateStore_ListRunIDs(t *testing.T) {
 			ScenarioID: "test",
 			ProviderID: "test",
 		}
-		err = store.SaveRunMetadata(ctx, runID, metadata)
+		err = store.SaveMetadata(ctx, runID, metadata)
 		require.NoError(t, err)
 	}
 
@@ -623,7 +623,7 @@ func TestArenaStateStore_DumpToJSON_WithMetadata(t *testing.T) {
 		EndTime:    time.Now(),
 		Duration:   5 * time.Second,
 	}
-	err = store.SaveRunMetadata(ctx, "run-123", metadata)
+	err = store.SaveMetadata(ctx, "run-123", metadata)
 	require.NoError(t, err)
 
 	// Dump to JSON

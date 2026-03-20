@@ -222,7 +222,7 @@ func TestExecuteRuns_MultipleCombinations(t *testing.T) {
 	}
 
 	for i, runID := range runIDs {
-		result, err := arenaStore.GetRunResult(ctx, runID)
+		result, err := arenaStore.GetResult(ctx, runID)
 		if err != nil {
 			t.Fatalf("Failed to get result %d: %v", i, err)
 		}

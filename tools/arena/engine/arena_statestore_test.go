@@ -100,7 +100,7 @@ func TestArenaStateStore_CapturesTelemetry(t *testing.T) {
 	t.Logf("Run ID: %s", runID)
 
 	// Retrieve result from statestore
-	result, err := arenaStore.GetRunResult(context.Background(), runID)
+	result, err := arenaStore.GetResult(context.Background(), runID)
 	if err != nil {
 		t.Fatalf("Failed to get run result: %v", err)
 	}

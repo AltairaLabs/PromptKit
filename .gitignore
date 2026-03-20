@@ -107,6 +107,7 @@ packs/
 bin/packc
 bin/promptarena
 tools/arena/arena
+tools/packc/packc
 commit-msg.txt
 !tools/packc/
 !tools/arena/

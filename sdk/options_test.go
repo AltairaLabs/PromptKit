@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -672,6 +673,105 @@ func TestWithCredentialEnv(t *testing.T) {
 	assert.Equal(t, "MY_API_KEY_VAR", cfg.credentialEnv)
 }
 
+func TestWithCredential(t *testing.T) {
+	t.Run("stores credential config", func(t *testing.T) {
+		opt := WithCredential(WithCredentialAPIKey("sk-from-credential"))
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.credential)
+		assert.Equal(t, "sk-from-credential", cfg.credential.apiKey)
+	})
+
+	t.Run("multiple credential options", func(t *testing.T) {
+		opt := WithCredential(
+			WithCredentialAPIKey("sk-key"),
+			WithCredentialEnv("MY_VAR"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.credential)
+		assert.Equal(t, "sk-key", cfg.credential.apiKey)
+		assert.Equal(t, "MY_VAR", cfg.credential.credentialEnv)
+	})
+}
+
+func TestResolveCredentialAPIKey(t *testing.T) {
+	t.Run("direct API key", func(t *testing.T) {
+		cc := &credentialConfig{apiKey: "sk-direct"}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-direct", key)
+	})
+
+	t.Run("env var", func(t *testing.T) {
+		t.Setenv("TEST_CREDENTIAL_KEY", "sk-from-env")
+		cc := &credentialConfig{credentialEnv: "TEST_CREDENTIAL_KEY"}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-from-env", key)
+	})
+
+	t.Run("env var not set", func(t *testing.T) {
+		cc := &credentialConfig{credentialEnv: "TEST_CREDENTIAL_KEY_NONEXISTENT"}
+		_, err := resolveCredentialAPIKey(cc)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not set or empty")
+	})
+
+	t.Run("file", func(t *testing.T) {
+		tmpFile := t.TempDir() + "/api-key.txt"
+		err := os.WriteFile(tmpFile, []byte("sk-from-file\n"), 0o600)
+		require.NoError(t, err)
+
+		cc := &credentialConfig{credentialFile: tmpFile}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-from-file", key)
+	})
+
+	t.Run("file not found", func(t *testing.T) {
+		cc := &credentialConfig{credentialFile: "/nonexistent/path/key.txt"}
+		_, err := resolveCredentialAPIKey(cc)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read credential file")
+	})
+
+	t.Run("priority: api key over env", func(t *testing.T) {
+		t.Setenv("TEST_CREDENTIAL_KEY_PRIORITY", "sk-from-env")
+		cc := &credentialConfig{
+			apiKey:        "sk-direct",
+			credentialEnv: "TEST_CREDENTIAL_KEY_PRIORITY",
+		}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-direct", key)
+	})
+
+	t.Run("priority: env over file", func(t *testing.T) {
+		t.Setenv("TEST_CREDENTIAL_KEY_PRIORITY2", "sk-from-env")
+		tmpFile := t.TempDir() + "/api-key.txt"
+		err := os.WriteFile(tmpFile, []byte("sk-from-file"), 0o600)
+		require.NoError(t, err)
+
+		cc := &credentialConfig{
+			credentialEnv:  "TEST_CREDENTIAL_KEY_PRIORITY2",
+			credentialFile: tmpFile,
+		}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-from-env", key)
+	})
+
+	t.Run("empty config returns empty", func(t *testing.T) {
+		cc := &credentialConfig{}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "", key)
+	})
+}
+
 // Platform option tests
 
 func TestWithPlatformRegion(t *testing.T) {
@@ -1018,6 +1118,122 @@ func TestWithUserID(t *testing.T) {
 	err := opt(cfg)
 	assert.NoError(t, err)
 	assert.Equal(t, "virtual-user-abc", cfg.userID)
+}
+
+// Platform credential override option tests
+
+func TestWithAWSRoleARN(t *testing.T) {
+	opt := WithAWSRoleARN("arn:aws:iam::123456789012:role/BedrockAccess")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/BedrockAccess", cfg.roleARN)
+}
+
+func TestWithAWSProfile(t *testing.T) {
+	opt := WithAWSProfile("bedrock-prod")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "bedrock-prod", cfg.awsProfile)
+}
+
+func TestWithGCPServiceAccount(t *testing.T) {
+	opt := WithGCPServiceAccount("/path/to/sa-key.json")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "/path/to/sa-key.json", cfg.serviceAccountKeyPath)
+}
+
+func TestWithAzureManagedIdentity(t *testing.T) {
+	opt := WithAzureManagedIdentity("user-assigned-client-id")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "user-assigned-client-id", cfg.managedIdentityClientID)
+}
+
+func TestWithAzureClientSecret(t *testing.T) {
+	opt := WithAzureClientSecret("tenant-123", "client-456", "secret-789")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	require.NotNil(t, cfg.azureClientSecret)
+	assert.Equal(t, "tenant-123", cfg.azureClientSecret.tenantID)
+	assert.Equal(t, "client-456", cfg.azureClientSecret.clientID)
+	assert.Equal(t, "secret-789", cfg.azureClientSecret.clientSecret)
+}
+
+func TestBedrockWithCredentialOverrides(t *testing.T) {
+	t.Run("with role ARN", func(t *testing.T) {
+		opt := WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514",
+			WithAWSRoleARN("arn:aws:iam::123456789012:role/BedrockAccess"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "bedrock", cfg.platform.platformType)
+		assert.Equal(t, "arn:aws:iam::123456789012:role/BedrockAccess", cfg.platform.roleARN)
+	})
+
+	t.Run("with profile", func(t *testing.T) {
+		opt := WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514",
+			WithAWSProfile("bedrock-prod"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "bedrock-prod", cfg.platform.awsProfile)
+	})
+}
+
+func TestVertexWithCredentialOverrides(t *testing.T) {
+	opt := WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash",
+		WithGCPServiceAccount("/path/to/sa-key.json"),
+	)
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	require.NotNil(t, cfg.platform)
+	assert.Equal(t, "vertex", cfg.platform.platformType)
+	assert.Equal(t, "/path/to/sa-key.json", cfg.platform.serviceAccountKeyPath)
+}
+
+func TestAzureWithCredentialOverrides(t *testing.T) {
+	t.Run("with managed identity", func(t *testing.T) {
+		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
+			WithAzureManagedIdentity("client-id-123"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "azure", cfg.platform.platformType)
+		assert.Equal(t, "client-id-123", cfg.platform.managedIdentityClientID)
+	})
+
+	t.Run("with client secret", func(t *testing.T) {
+		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
+			WithAzureClientSecret("tenant-1", "client-2", "secret-3"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "azure", cfg.platform.platformType)
+		require.NotNil(t, cfg.platform.azureClientSecret)
+		assert.Equal(t, "tenant-1", cfg.platform.azureClientSecret.tenantID)
+		assert.Equal(t, "client-2", cfg.platform.azureClientSecret.clientID)
+		assert.Equal(t, "secret-3", cfg.platform.azureClientSecret.clientSecret)
+	})
 }
 
 func TestWithSessionMetadata(t *testing.T) {

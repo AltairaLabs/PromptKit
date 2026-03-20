@@ -92,7 +92,7 @@ type trialRunResult struct {
 func loadTrialResults(store *statestore.ArenaStateStore, runIDs []string) []trialRunResult {
 	results := make([]trialRunResult, 0, len(runIDs))
 	for _, runID := range runIDs {
-		rr, err := store.GetRunResult(nil, runID) //nolint:staticcheck // nil ctx is fine for in-memory store
+		rr, err := store.GetResult(nil, runID) //nolint:staticcheck // nil ctx is fine for in-memory store
 		if err != nil || rr == nil {
 			results = append(results, trialRunResult{runID: runID, conversationError: true})
 			continue

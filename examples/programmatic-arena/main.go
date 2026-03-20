@@ -101,7 +101,7 @@ Be concise, accurate, and friendly in your responses.`,
 	}
 
 	for i, runID := range runIDs {
-		result, err := arenaStore.GetRunResult(ctx, runID)
+		result, err := arenaStore.GetResult(ctx, runID)
 		if err != nil {
 			log.Printf("Failed to get result for run %s: %v", runID, err)
 			continue

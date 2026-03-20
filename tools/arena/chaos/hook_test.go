@@ -103,7 +103,7 @@ func TestHook_BeforeExecution_SlowMode(t *testing.T) {
 	if !d.Allow {
 		t.Error("expected allow for slow mode (adds latency but doesn't block)")
 	}
-	if d.Metadata["chaos_delay_ms"] != 2000 {
+	if d.Metadata["chaos_delay_ms"] != int64(2000) {
 		t.Errorf("expected delay metadata, got %v", d.Metadata["chaos_delay_ms"])
 	}
 }

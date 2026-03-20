@@ -47,9 +47,10 @@ type config struct {
 	promptName string
 
 	// Provider configuration
-	provider providers.Provider
-	apiKey   string
-	model    string
+	provider   providers.Provider
+	apiKey     string
+	model      string
+	credential *credentialConfig
 
 	// State management
 	stateStore     statestore.Store
@@ -301,6 +302,42 @@ func WithCredentialEnv(envVar string) CredentialOption {
 	})
 }
 
+// WithCredential configures advanced credential resolution for the provider.
+//
+// This is the advanced form of credential configuration. For simple API key
+// usage, prefer [WithAPIKey]. When both WithCredential and WithAPIKey are set,
+// WithCredential takes precedence.
+//
+// Credential resolution priority: direct API key > environment variable > file.
+//
+// Example with environment variable:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithCredential(sdk.WithCredentialEnv("MY_SERVICE_API_KEY")),
+//	)
+//
+// Example with file:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithCredential(sdk.WithCredentialFile("/run/secrets/api-key")),
+//	)
+//
+// Example with direct key (equivalent to WithAPIKey):
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithCredential(sdk.WithCredentialAPIKey("sk-...")),
+//	)
+func WithCredential(opts ...CredentialOption) Option {
+	return func(c *config) error {
+		cc := &credentialConfig{}
+		for _, opt := range opts {
+			opt.applyCredential(cc)
+		}
+		c.credential = cc
+		return nil
+	}
+}
+
 // PlatformOption configures a platform for a provider.
 type PlatformOption interface {
 	applyPlatform(*platformConfig)
@@ -314,6 +351,24 @@ type platformConfig struct {
 	region       string
 	project      string
 	endpoint     string
+
+	// AWS credential overrides
+	roleARN    string
+	awsProfile string
+
+	// GCP credential overrides
+	serviceAccountKeyPath string
+
+	// Azure credential overrides
+	managedIdentityClientID string
+	azureClientSecret       *azureClientSecretConfig
+}
+
+// azureClientSecretConfig holds Azure service principal client secret credentials.
+type azureClientSecretConfig struct {
+	tenantID     string
+	clientID     string
+	clientSecret string
 }
 
 type platformOptionFunc func(*platformConfig)
@@ -340,6 +395,84 @@ func WithPlatformProject(project string) PlatformOption {
 func WithPlatformEndpoint(endpoint string) PlatformOption {
 	return platformOptionFunc(func(c *platformConfig) {
 		c.endpoint = endpoint
+	})
+}
+
+// WithAWSRoleARN configures AWS STS role assumption for Bedrock credentials.
+// When set, the SDK uses NewAWSCredentialWithRole instead of the default
+// credential chain.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514",
+//	        sdk.WithAWSRoleARN("arn:aws:iam::123456789012:role/BedrockAccess"),
+//	    ),
+//	)
+func WithAWSRoleARN(arn string) PlatformOption {
+	return platformOptionFunc(func(c *platformConfig) {
+		c.roleARN = arn
+	})
+}
+
+// WithAWSProfile configures a named AWS profile for Bedrock credentials.
+// When set, the SDK loads credentials from the named profile in
+// ~/.aws/credentials or ~/.aws/config.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514",
+//	        sdk.WithAWSProfile("bedrock-prod"),
+//	    ),
+//	)
+func WithAWSProfile(profile string) PlatformOption {
+	return platformOptionFunc(func(c *platformConfig) {
+		c.awsProfile = profile
+	})
+}
+
+// WithGCPServiceAccount configures a service account key file for Vertex AI credentials.
+// When set, the SDK uses NewGCPCredentialWithServiceAccount instead of
+// Application Default Credentials.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash",
+//	        sdk.WithGCPServiceAccount("/path/to/service-account.json"),
+//	    ),
+//	)
+func WithGCPServiceAccount(keyPath string) PlatformOption {
+	return platformOptionFunc(func(c *platformConfig) {
+		c.serviceAccountKeyPath = keyPath
+	})
+}
+
+// WithAzureManagedIdentity configures Azure Managed Identity for authentication.
+// The clientID is optional — pass an empty string to use system-assigned identity,
+// or a client ID for user-assigned identity.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
+//	        sdk.WithAzureManagedIdentity("client-id-for-user-assigned"),
+//	    ),
+//	)
+func WithAzureManagedIdentity(clientID string) PlatformOption {
+	return platformOptionFunc(func(c *platformConfig) {
+		c.managedIdentityClientID = clientID
+	})
+}
+
+// WithAzureClientSecret configures Azure service principal authentication
+// using a client secret (tenant ID, client ID, and secret).
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
+//	        sdk.WithAzureClientSecret("tenant-id", "client-id", "client-secret"),
+//	    ),
+//	)
+func WithAzureClientSecret(tenantID, clientID, secret string) PlatformOption {
+	return platformOptionFunc(func(c *platformConfig) {
+		c.azureClientSecret = &azureClientSecretConfig{
+			tenantID:     tenantID,
+			clientID:     clientID,
+			clientSecret: secret,
+		}
 	})
 }
 

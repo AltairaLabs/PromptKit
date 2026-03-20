@@ -185,7 +185,7 @@ func TestExecuteRun_Timeout(t *testing.T) {
 		require.NoError(t, err) // executeRun saves error in statestore, returns nil
 
 		// Verify the run was recorded with a timeout error
-		result, err := store.GetRunResult(ctx, runID)
+		result, err := store.GetResult(ctx, runID)
 		require.NoError(t, err)
 		assert.Contains(t, result.Error, "run timed out after 200ms")
 
@@ -225,7 +225,7 @@ func TestExecuteRun_Timeout(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify the run succeeded without timeout error
-		result, err := store.GetRunResult(ctx, runID)
+		result, err := store.GetResult(ctx, runID)
 		require.NoError(t, err)
 		assert.Empty(t, result.Error, "successful run should have no error")
 

@@ -263,7 +263,7 @@ func TestExecuteRuns_InvalidProvider(t *testing.T) {
 		t.Fatal("Failed to get ArenaStateStore")
 	}
 
-	result, err := arenaStore.GetRunResult(ctx, runIDs[0])
+	result, err := arenaStore.GetResult(ctx, runIDs[0])
 	if err != nil {
 		t.Fatalf("Failed to get run result: %v", err)
 	}

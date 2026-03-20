@@ -334,6 +334,18 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 		return cfg.provider, nil
 	}
 
+	// Resolve credential config into an API key if set.
+	// WithCredential takes precedence over WithAPIKey.
+	if cfg.credential != nil {
+		key, err := resolveCredentialAPIKey(cfg.credential)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve credential: %w", err)
+		}
+		if key != "" {
+			cfg.apiKey = key
+		}
+	}
+
 	// Platform-based provider creation (Bedrock, Vertex, Azure)
 	if cfg.platform != nil {
 		p, err := resolvePlatformProvider(cfg)
@@ -350,6 +362,34 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 	}
 	cfg.provider = detected
 	return detected, nil
+}
+
+// resolveCredentialAPIKey resolves a credentialConfig into an API key string.
+// Priority: direct API key > environment variable > file.
+func resolveCredentialAPIKey(cc *credentialConfig) (string, error) {
+	// 1. Direct API key takes highest priority
+	if cc.apiKey != "" {
+		return cc.apiKey, nil
+	}
+
+	// 2. Environment variable
+	if cc.credentialEnv != "" {
+		if val := os.Getenv(cc.credentialEnv); val != "" {
+			return val, nil
+		}
+		return "", fmt.Errorf("credential environment variable %q is not set or empty", cc.credentialEnv)
+	}
+
+	// 3. Credential file
+	if cc.credentialFile != "" {
+		data, err := os.ReadFile(cc.credentialFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read credential file %q: %w", cc.credentialFile, err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+
+	return "", nil
 }
 
 // Platform type constants.
@@ -412,23 +452,11 @@ func resolvePlatformProvider(cfg *config) (providers.Provider, error) {
 func resolvePlatformCredential(ctx context.Context, pc *platformConfig) (providers.Credential, error) {
 	switch pc.platformType {
 	case platformTypeBedrock:
-		cred, err := credentials.NewAWSCredential(ctx, pc.region)
-		if err != nil {
-			return nil, fmt.Errorf("bedrock credentials: %w", err)
-		}
-		return cred, nil
+		return resolveBedrockCredential(ctx, pc)
 	case platformTypeVertex:
-		cred, err := credentials.NewGCPCredential(ctx, pc.project, pc.region)
-		if err != nil {
-			return nil, fmt.Errorf("vertex credentials: %w", err)
-		}
-		return cred, nil
+		return resolveVertexCredential(ctx, pc)
 	case platformTypeAzure:
-		cred, err := credentials.NewAzureCredential(ctx, pc.endpoint)
-		if err != nil {
-			return nil, fmt.Errorf("azure credentials: %w", err)
-		}
-		return cred, nil
+		return resolveAzureCredential(ctx, pc)
 	default:
 		return nil, fmt.Errorf("unsupported platform: %s", pc.platformType)
 	}

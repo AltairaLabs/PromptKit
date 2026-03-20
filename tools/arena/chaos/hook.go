@@ -44,7 +44,7 @@ func (h *Hook) BeforeExecution(ctx context.Context, req hooks.ToolRequest) hooks
 		if !shouldFire(rule.Probability) {
 			continue
 		}
-		return applyFailure(req.Name, rule)
+		return applyFailure(ctx, req.Name, rule)
 	}
 
 	return hooks.Allow
@@ -56,7 +56,7 @@ func (h *Hook) AfterExecution(_ context.Context, _ hooks.ToolRequest, _ hooks.To
 }
 
 // applyFailure creates the appropriate failure decision for the given mode.
-func applyFailure(toolName string, rule config.ChaosToolFailure) hooks.Decision {
+func applyFailure(ctx context.Context, toolName string, rule config.ChaosToolFailure) hooks.Decision {
 	msg := rule.Message
 	meta := map[string]any{
 		"chaos_injected": true,
@@ -79,10 +79,14 @@ func applyFailure(toolName string, rule config.ChaosToolFailure) hooks.Decision 
 		return hooks.DenyWithMetadata(msg, meta)
 
 	case "slow":
-		// For "slow" mode, we add latency but still allow the call
-		const slowDelaySeconds = 2
-		time.Sleep(slowDelaySeconds * time.Second)
-		meta["chaos_delay_ms"] = slowDelaySeconds * 1000 //nolint:mnd // convert seconds to ms
+		// For "slow" mode, we add latency but still allow the call.
+		// Respect context cancellation to avoid blocking on shutdown.
+		const slowDelay = 2 * time.Second
+		select {
+		case <-time.After(slowDelay):
+		case <-ctx.Done():
+		}
+		meta["chaos_delay_ms"] = slowDelay.Milliseconds()
 		return hooks.Decision{Allow: true, Metadata: meta}
 
 	default:
