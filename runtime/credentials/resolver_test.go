@@ -441,6 +441,54 @@ func TestResolve_SecondaryClaudeEnvVar(t *testing.T) {
 	assert.Equal(t, "claude-fallback-key", akc.APIKey())
 }
 
+func TestReadCredentialFile_PathTraversal(t *testing.T) {
+	configDir := t.TempDir()
+
+	// Attempts to escape the config directory should be rejected
+	traversalPaths := []string{
+		"../../etc/passwd",
+		"../../../etc/shadow",
+		"subdir/../../etc/passwd",
+		"../outside-file",
+	}
+
+	for _, p := range traversalPaths {
+		t.Run(p, func(t *testing.T) {
+			cfg := ResolverConfig{
+				ProviderType: "openai",
+				CredentialConfig: &CredentialConfig{
+					CredentialFile: p,
+				},
+				ConfigDir: configDir,
+			}
+
+			_, err := Resolve(context.Background(), cfg)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "outside")
+		})
+	}
+}
+
+func TestReadCredentialFile_ValidRelativePath(t *testing.T) {
+	configDir := t.TempDir()
+	err := os.WriteFile(filepath.Join(configDir, "key.txt"), []byte("sk-valid-key"), 0600)
+	require.NoError(t, err)
+
+	cfg := ResolverConfig{
+		ProviderType: "openai",
+		CredentialConfig: &CredentialConfig{
+			CredentialFile: "key.txt",
+		},
+		ConfigDir: configDir,
+	}
+
+	cred, err := Resolve(context.Background(), cfg)
+	require.NoError(t, err)
+	akc, ok := cred.(*APIKeyCredential)
+	require.True(t, ok)
+	assert.Equal(t, "sk-valid-key", akc.APIKey())
+}
+
 func TestResolve_GeminiSecondaryEnvVar(t *testing.T) {
 	// Test that GOOGLE_API_KEY works as fallback for gemini
 	t.Setenv("GEMINI_API_KEY", "")

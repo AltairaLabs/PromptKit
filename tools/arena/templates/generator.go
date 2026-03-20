@@ -440,7 +440,7 @@ func fetchURL(url string) ([]byte, error) {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
@@ -450,7 +450,7 @@ func fetchURL(url string) ([]byte, error) {
 		return nil, fmt.Errorf("http status %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxTemplateSize))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}

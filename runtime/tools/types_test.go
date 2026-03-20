@@ -383,3 +383,30 @@ func TestAsyncToolExecutor_CompleteResult(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `{"result": "success"}`, string(result))
 }
+
+func TestA2AAuthConfig_TokenNotSerialized(t *testing.T) {
+	cfg := A2AAuthConfig{
+		Scheme:   "Bearer",
+		Token:    "super-secret-token-value",
+		TokenEnv: "MY_TOKEN_ENV",
+	}
+
+	data, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	// Token MUST NOT appear in JSON output
+	assert.NotContains(t, string(data), "super-secret-token-value")
+	assert.NotContains(t, string(data), `"token"`)
+
+	// Scheme and TokenEnv should still be present
+	assert.Contains(t, string(data), `"scheme"`)
+	assert.Contains(t, string(data), `"token_env"`)
+
+	// Verify round-trip: Token should not be populated from JSON
+	var decoded A2AAuthConfig
+	err = json.Unmarshal([]byte(`{"scheme":"Bearer","token":"should-be-ignored","token_env":"MY_TOKEN_ENV"}`), &decoded)
+	require.NoError(t, err)
+	assert.Empty(t, decoded.Token, "Token should not be populated from JSON")
+	assert.Equal(t, "Bearer", decoded.Scheme)
+	assert.Equal(t, "MY_TOKEN_ENV", decoded.TokenEnv)
+}

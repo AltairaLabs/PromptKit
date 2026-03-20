@@ -181,8 +181,9 @@ type A2AConfig struct {
 
 // A2AAuthConfig defines authentication for an A2A agent connection.
 type A2AAuthConfig struct {
-	Scheme   string `json:"scheme" yaml:"scheme"`                           // e.g. "Bearer", "Basic"
-	Token    string `json:"token,omitempty" yaml:"token,omitempty"`         // Static token value
+	Scheme string `json:"scheme" yaml:"scheme"` // e.g. "Bearer", "Basic"
+	// Token is the static token value. Excluded from JSON serialization to prevent leaks.
+	Token    string `json:"-" yaml:"token,omitempty"`
 	TokenEnv string `json:"token_env,omitempty" yaml:"token_env,omitempty"` // Env var containing the token
 }
 

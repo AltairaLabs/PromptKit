@@ -43,7 +43,8 @@ func (e *MCPExecutor) Execute(
 		return nil, ErrMCPExecutorOnly
 	}
 
-	logger.Info("MCP tool call", "tool", descriptor.Name, "args", string(args))
+	logger.Info("MCP tool call", "tool", descriptor.Name)
+	logger.Debug("MCP tool call args", "tool", descriptor.Name, "args", string(args))
 
 	response, err := e.callMCPTool(ctx, descriptor.Name, args)
 	if err != nil {

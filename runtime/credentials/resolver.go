@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -165,12 +166,29 @@ func createAPIKeyCredential(apiKey, providerType string) *APIKeyCredential {
 // readCredentialFile reads an API key from a file.
 func readCredentialFile(path, configDir string) (string, error) {
 	// Handle relative paths
-	if !strings.HasPrefix(path, "/") && configDir != "" {
-		path = configDir + "/" + path
+	if !filepath.IsAbs(path) && configDir != "" {
+		path = filepath.Join(configDir, path)
 	}
 
-	//nolint:gosec // G304: File path is from trusted configuration
-	data, err := os.ReadFile(path)
+	// Resolve to absolute and clean the path to remove traversal sequences
+	absPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve credential file path: %w", err)
+	}
+
+	// If a configDir was provided, ensure the resolved path stays within it
+	if configDir != "" {
+		absConfigDir, absErr := filepath.Abs(filepath.Clean(configDir))
+		if absErr != nil {
+			return "", fmt.Errorf("failed to resolve config directory: %w", absErr)
+		}
+		if !strings.HasPrefix(absPath, absConfigDir+string(filepath.Separator)) && absPath != absConfigDir {
+			return "", fmt.Errorf("credential file path %q resolves outside config directory", path)
+		}
+	}
+
+	//nolint:gosec // G304: Path is validated above against traversal
+	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return "", err
 	}

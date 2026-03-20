@@ -8,9 +8,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/spf13/cobra"
 )
+
+const (
+	serverReadTimeout  = 30 * time.Second
+	serverWriteTimeout = 30 * time.Second
+)
+
+// serveAddr returns the listen address for the given port, binding to localhost only.
+func serveAddr(port int) string {
+	return fmt.Sprintf("127.0.0.1:%d", port)
+}
 
 const (
 	defaultServePort = 8080 // Default HTTP port for serve command
@@ -66,7 +77,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Find an available port if the default is in use
 	//nolint:noctx // Dev tool - context not needed for port check
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", servePort))
+	listener, err := net.Listen("tcp", serveAddr(servePort))
 	if err != nil {
 		return fmt.Errorf("port %d is in use, try a different port with -p", servePort)
 	}
@@ -94,10 +105,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	fs := http.FileServer(http.Dir(absDir))
 	http.Handle("/", fs)
 
-	// Start server
-	//nolint:gosec // G114: Dev tool - timeouts not needed for local server
+	// Start server with timeouts, bound to localhost only
 	// NOSONAR: TLS not required - local development tool, binds to localhost only
-	return http.ListenAndServe(fmt.Sprintf(":%d", actualPort), nil)
+	srv := &http.Server{
+		Addr:         serveAddr(actualPort),
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+	}
+	return srv.ListenAndServe()
 }
 
 // openBrowser opens the default browser to the given URL
