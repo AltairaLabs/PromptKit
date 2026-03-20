@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,9 +10,8 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/tools/packc/compiler"
 )
 
 const (
@@ -170,139 +168,32 @@ func parseCompileFlags() compileFlags {
 	}
 }
 
-// validateAndWritePack validates the pack against schema and writes it to the output file.
-func validateAndWritePack(data []byte, outputFile string) {
-	fmt.Printf("Validating pack against schema...\n")
-	validationResult, err := ValidatePackAgainstSchema(data)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Schema validation could not be performed: %v\n", err)
-		// Continue anyway - schema might not be available
-	} else if !validationResult.Valid {
-		fmt.Fprintf(os.Stderr, "⚠ Pack failed schema validation:\n")
-		for _, validationErr := range validationResult.Errors {
-			fmt.Fprintf(os.Stderr, "  - %s\n", validationErr)
-		}
-		os.Exit(1)
-	} else {
-		fmt.Printf("✓ Pack validated against schema\n")
-	}
-
-	if err := os.WriteFile(outputFile, data, outputFilePerm); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to write pack file: %v\n", err)
-		os.Exit(1)
-	}
-}
-
 func compileCommand() {
 	flags := parseCompileFlags()
 
-	cfg := mustLoadConfig(flags.configFile)
-	memRepo, err := buildMemoryRepo(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-	registry := prompt.NewRegistryWithRepository(memRepo)
-	if registry == nil {
-		fmt.Fprintln(os.Stderr, "No prompt configs found in arena.yaml")
-		os.Exit(1)
-	}
-
-	fmt.Printf("Loaded %d prompt configs from memory repository\n", len(cfg.LoadedPromptConfigs))
-
-	configDir := filepath.Dir(flags.configFile)
-	validateLoadedMedia(cfg, configDir)
-
-	compiler := prompt.NewPackCompiler(registry)
-
-	fmt.Printf("Compiling %d prompts into pack '%s'...\n", len(cfg.PromptConfigs), flags.packID)
-
-	// Parse tools from loaded tool data (per PromptPack spec Section 9)
-	parsedTools := parseToolsFromConfig(cfg)
-	if len(parsedTools) > 0 {
-		fmt.Printf("Including %d tool definitions in pack\n", len(parsedTools))
-	}
-
-	// Parse pack-level evals from arena config
-	packEvals := parsePackEvalsFromConfig(cfg)
-	if len(packEvals) > 0 {
-		fmt.Printf("Including %d pack-level eval definitions in pack\n", len(packEvals))
-	}
-
-	// Parse workflow and agents from arena config
-	workflowConfig := parseWorkflowFromConfig(cfg)
-	agentsConfig := parseAgentsFromConfig(cfg)
-
-	// Build compile options
-	var compileOpts []prompt.CompileOption
-	if workflowConfig != nil {
-		compileOpts = append(compileOpts, prompt.WithWorkflow(workflowConfig))
-		fmt.Printf("Including workflow configuration in pack\n")
-	}
-	if agentsConfig != nil {
-		compileOpts = append(compileOpts, prompt.WithAgents(agentsConfig))
-		fmt.Printf("Including agents configuration in pack\n")
-	}
-
-	// Compile all prompts into a single pack with tool definitions and pack evals
 	compilerVer := fmt.Sprintf("packc-%s", version)
-	pack, err := compiler.CompileFromRegistryWithOptions(
-		flags.packID, compilerVer, parsedTools, packEvals, compileOpts...,
+
+	result, err := compiler.Compile(flags.configFile,
+		compiler.WithPackID(flags.packID),
+		compiler.WithCompilerVersion(compilerVer),
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Marshal to JSON with indentation
-	data, err := json.MarshalIndent(pack, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to marshal pack: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Validate skills configuration
-	skillErrs, skillWarnings := runSkillValidation(pack, configDir)
-	if len(skillErrs) > 0 {
-		fmt.Fprintf(os.Stderr, "✗ Skill validation errors:\n")
-		for _, e := range skillErrs {
-			fmt.Fprintf(os.Stderr, "  - %s\n", e)
-		}
-		os.Exit(1)
-	}
-	for _, w := range skillWarnings {
+	// Print any warnings
+	for _, w := range result.Warnings {
 		fmt.Printf("⚠ %s\n", w)
 	}
 
-	// Validate workflow before writing if present
-	if pack.Workflow != nil {
-		wfResult := pack.ValidateWorkflow()
-		if wfResult.HasErrors() {
-			fmt.Fprintf(os.Stderr, "✗ Workflow validation errors:\n")
-			for _, e := range wfResult.Errors {
-				fmt.Fprintf(os.Stderr, "  - %s\n", e)
-			}
-			os.Exit(1)
-		}
-		if len(wfResult.Warnings) > 0 {
-			fmt.Printf("⚠ Workflow warnings:\n")
-			for _, w := range wfResult.Warnings {
-				fmt.Printf("  - %s\n", w)
-			}
-		}
-	}
-
-	validateAndWritePack(data, flags.outputFile)
-	printPackSummary(pack, flags.outputFile)
-}
-
-func mustLoadConfig(configFile string) *config.Config {
-	cfg, err := config.LoadConfig(configFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading arena config: %v\n", err)
+	// Write the output file
+	if err := os.WriteFile(flags.outputFile, result.JSON, outputFilePerm); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to write pack file: %v\n", err)
 		os.Exit(1)
 	}
-	return cfg
+
+	printPackSummary(result.Pack, flags.outputFile)
 }
 
 func compilePromptCommand() {
@@ -363,12 +254,12 @@ func compilePromptCommand() {
 	// Create registry with memory repository
 	registry := prompt.NewRegistryWithRepository(memRepo)
 
-	// Create compiler and compile
-	compiler := prompt.NewPackCompiler(registry)
+	// Create pack compiler and compile
+	packCompiler := prompt.NewPackCompiler(registry)
 
 	fmt.Printf("Compiling prompt '%s' to pack...\n", taskType)
 
-	if err := compiler.CompileToFile(taskType, *outputFile, fmt.Sprintf("packc-%s", version)); err != nil {
+	if err := packCompiler.CompileToFile(taskType, *outputFile, fmt.Sprintf("packc-%s", version)); err != nil {
 		fmt.Fprintf(os.Stderr, "Compilation failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -485,82 +376,6 @@ func inspectCommand() {
 	printCompilationInfo(pack)
 
 	fmt.Println()
-}
-
-// parseToolsFromConfig parses raw tool YAML data from config into ParsedTool structs
-// Uses the tools.Registry which handles YAML→JSON conversion properly
-func parseToolsFromConfig(cfg *config.Config) []prompt.ParsedTool {
-	var result []prompt.ParsedTool
-
-	if len(cfg.LoadedTools) == 0 {
-		return result
-	}
-
-	// Create a temporary registry to parse tools
-	registry := tools.NewRegistry()
-
-	for _, td := range cfg.LoadedTools {
-		// Use registry's LoadToolFromBytes which handles YAML→JSON properly
-		if err := registry.LoadToolFromBytes(td.FilePath, td.Data); err != nil {
-			// Log warning but continue - tool may be invalid or not a tool file
-			fmt.Fprintf(os.Stderr, "Warning: skipping tool %s: %v\n", td.FilePath, err)
-			continue
-		}
-	}
-
-	// Extract parsed tools from registry
-	for name, tool := range registry.GetTools() {
-		result = append(result, prompt.ParsedTool{
-			Name:        name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-		})
-	}
-
-	return result
-}
-
-// parsePackEvalsFromConfig returns pack-level eval definitions from arena config
-func parsePackEvalsFromConfig(cfg *config.Config) []evals.EvalDef {
-	return cfg.PackEvals
-}
-
-// parseWorkflowFromConfig parses workflow config from arena config.
-// The config loader deserializes YAML into interface{}, so we re-marshal to JSON
-// then unmarshal into the typed struct.
-func parseWorkflowFromConfig(cfg *config.Config) *prompt.WorkflowConfig {
-	if cfg.Workflow == nil {
-		return nil
-	}
-	data, err := json.Marshal(cfg.Workflow)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to marshal workflow config: %v\n", err)
-		return nil
-	}
-	var wf prompt.WorkflowConfig
-	if err := json.Unmarshal(data, &wf); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to parse workflow config: %v\n", err)
-		return nil
-	}
-	return &wf
-}
-
-// parseAgentsFromConfig parses agents config from arena config.
-func parseAgentsFromConfig(cfg *config.Config) *prompt.AgentsConfig {
-	if cfg.Agents == nil {
-		return nil
-	}
-	data, err := json.Marshal(cfg.Agents)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to marshal agents config: %v\n", err)
-		return nil
-	}
-	var ag prompt.AgentsConfig
-	if err := json.Unmarshal(data, &ag); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to parse agents config: %v\n", err)
-		return nil
-	}
-	return &ag
 }
 
 func completionCommand() {

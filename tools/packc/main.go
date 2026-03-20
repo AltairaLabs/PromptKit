@@ -38,23 +38,6 @@ func buildMemoryRepo(cfg *config.Config) (*memory.PromptRepository, error) {
 	return memRepo, nil
 }
 
-func validateLoadedMedia(cfg *config.Config, configDir string) {
-	for _, promptData := range cfg.LoadedPromptConfigs {
-		promptConfig, ok := promptData.Config.(*prompt.Config)
-		if !ok {
-			continue
-		}
-
-		warnings := validateMediaReferences(promptConfig, configDir)
-		if len(warnings) > 0 {
-			fmt.Printf("⚠ Media validation warnings for %s:\n", promptConfig.Spec.TaskType)
-			for _, w := range warnings {
-				fmt.Printf(warningFormat, w)
-			}
-		}
-	}
-}
-
 func printPackInfo(pack *prompt.Pack) {
 	fmt.Printf("\n=== Pack Information ===\n")
 	fmt.Printf("Pack: %s\n", pack.Name)
