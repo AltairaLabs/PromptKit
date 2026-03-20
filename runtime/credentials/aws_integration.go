@@ -61,6 +61,27 @@ func NewAWSCredential(ctx context.Context, region string) (*AWSCredential, error
 	}, nil
 }
 
+// NewAWSCredentialWithProfile creates an AWS credential using a named profile
+// from the shared credentials/config files (~/.aws/credentials, ~/.aws/config).
+func NewAWSCredentialWithProfile(ctx context.Context, region, profile string) (*AWSCredential, error) {
+	if region == "" {
+		region = defaultAWSRegion
+	}
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion(region),
+		awsconfig.WithSharedConfigProfile(profile),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config with profile %q: %w", profile, err)
+	}
+
+	return &AWSCredential{
+		cfg:    cfg,
+		region: region,
+	}, nil
+}
+
 // NewAWSCredentialWithRole creates an AWS credential that assumes a role.
 func NewAWSCredentialWithRole(ctx context.Context, region, roleARN string) (*AWSCredential, error) {
 	if region == "" {

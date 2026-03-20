@@ -1120,6 +1120,122 @@ func TestWithUserID(t *testing.T) {
 	assert.Equal(t, "virtual-user-abc", cfg.userID)
 }
 
+// Platform credential override option tests
+
+func TestWithAWSRoleARN(t *testing.T) {
+	opt := WithAWSRoleARN("arn:aws:iam::123456789012:role/BedrockAccess")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/BedrockAccess", cfg.roleARN)
+}
+
+func TestWithAWSProfile(t *testing.T) {
+	opt := WithAWSProfile("bedrock-prod")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "bedrock-prod", cfg.awsProfile)
+}
+
+func TestWithGCPServiceAccount(t *testing.T) {
+	opt := WithGCPServiceAccount("/path/to/sa-key.json")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "/path/to/sa-key.json", cfg.serviceAccountKeyPath)
+}
+
+func TestWithAzureManagedIdentity(t *testing.T) {
+	opt := WithAzureManagedIdentity("user-assigned-client-id")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	assert.Equal(t, "user-assigned-client-id", cfg.managedIdentityClientID)
+}
+
+func TestWithAzureClientSecret(t *testing.T) {
+	opt := WithAzureClientSecret("tenant-123", "client-456", "secret-789")
+	assert.NotNil(t, opt)
+
+	cfg := &platformConfig{}
+	opt.applyPlatform(cfg)
+	require.NotNil(t, cfg.azureClientSecret)
+	assert.Equal(t, "tenant-123", cfg.azureClientSecret.tenantID)
+	assert.Equal(t, "client-456", cfg.azureClientSecret.clientID)
+	assert.Equal(t, "secret-789", cfg.azureClientSecret.clientSecret)
+}
+
+func TestBedrockWithCredentialOverrides(t *testing.T) {
+	t.Run("with role ARN", func(t *testing.T) {
+		opt := WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514",
+			WithAWSRoleARN("arn:aws:iam::123456789012:role/BedrockAccess"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "bedrock", cfg.platform.platformType)
+		assert.Equal(t, "arn:aws:iam::123456789012:role/BedrockAccess", cfg.platform.roleARN)
+	})
+
+	t.Run("with profile", func(t *testing.T) {
+		opt := WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514",
+			WithAWSProfile("bedrock-prod"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "bedrock-prod", cfg.platform.awsProfile)
+	})
+}
+
+func TestVertexWithCredentialOverrides(t *testing.T) {
+	opt := WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash",
+		WithGCPServiceAccount("/path/to/sa-key.json"),
+	)
+	cfg := &config{}
+	err := opt(cfg)
+	assert.NoError(t, err)
+	require.NotNil(t, cfg.platform)
+	assert.Equal(t, "vertex", cfg.platform.platformType)
+	assert.Equal(t, "/path/to/sa-key.json", cfg.platform.serviceAccountKeyPath)
+}
+
+func TestAzureWithCredentialOverrides(t *testing.T) {
+	t.Run("with managed identity", func(t *testing.T) {
+		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
+			WithAzureManagedIdentity("client-id-123"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "azure", cfg.platform.platformType)
+		assert.Equal(t, "client-id-123", cfg.platform.managedIdentityClientID)
+	})
+
+	t.Run("with client secret", func(t *testing.T) {
+		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
+			WithAzureClientSecret("tenant-1", "client-2", "secret-3"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.platform)
+		assert.Equal(t, "azure", cfg.platform.platformType)
+		require.NotNil(t, cfg.platform.azureClientSecret)
+		assert.Equal(t, "tenant-1", cfg.platform.azureClientSecret.tenantID)
+		assert.Equal(t, "client-2", cfg.platform.azureClientSecret.clientID)
+		assert.Equal(t, "secret-3", cfg.platform.azureClientSecret.clientSecret)
+	})
+}
+
 func TestWithSessionMetadata(t *testing.T) {
 	meta := map[string]any{
 		"tenant":  "acme-corp",

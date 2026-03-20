@@ -452,23 +452,11 @@ func resolvePlatformProvider(cfg *config) (providers.Provider, error) {
 func resolvePlatformCredential(ctx context.Context, pc *platformConfig) (providers.Credential, error) {
 	switch pc.platformType {
 	case platformTypeBedrock:
-		cred, err := credentials.NewAWSCredential(ctx, pc.region)
-		if err != nil {
-			return nil, fmt.Errorf("bedrock credentials: %w", err)
-		}
-		return cred, nil
+		return resolveBedrockCredential(ctx, pc)
 	case platformTypeVertex:
-		cred, err := credentials.NewGCPCredential(ctx, pc.project, pc.region)
-		if err != nil {
-			return nil, fmt.Errorf("vertex credentials: %w", err)
-		}
-		return cred, nil
+		return resolveVertexCredential(ctx, pc)
 	case platformTypeAzure:
-		cred, err := credentials.NewAzureCredential(ctx, pc.endpoint)
-		if err != nil {
-			return nil, fmt.Errorf("azure credentials: %w", err)
-		}
-		return cred, nil
+		return resolveAzureCredential(ctx, pc)
 	default:
 		return nil, fmt.Errorf("unsupported platform: %s", pc.platformType)
 	}
