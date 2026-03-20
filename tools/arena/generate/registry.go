@@ -2,6 +2,7 @@ package generate
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -46,5 +47,6 @@ func (r *Registry) Names() []string {
 	for name := range r.adapters {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }

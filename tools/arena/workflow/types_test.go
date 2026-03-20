@@ -68,11 +68,11 @@ func TestScenario_Validate_EventStepRejected(t *testing.T) {
 	s := &Scenario{
 		ID:    "x",
 		Pack:  "x.pack.json",
-		Steps: []Step{{Type: StepEvent, Event: "Escalate"}},
+		Steps: []Step{{Type: "event", Event: "Escalate"}},
 	}
 	err := s.Validate()
 	if err == nil {
-		t.Fatal("expected error for event step (event steps are no longer supported)")
+		t.Fatal("expected error for event step (unknown step type)")
 	}
 	stepErr, ok := err.(*StepError)
 	if !ok {

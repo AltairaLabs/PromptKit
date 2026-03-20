@@ -2,7 +2,6 @@ package generate
 
 import (
 	"context"
-	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -47,9 +46,21 @@ func TestRegistry_Names(t *testing.T) {
 	r.Register(&mockAdapter{name: "beta"})
 	r.Register(&mockAdapter{name: "alpha"})
 
+	// Names() should return sorted results without caller needing to sort
 	names := r.Names()
-	sort.Strings(names)
 	assert.Equal(t, []string{"alpha", "beta"}, names)
+}
+
+func TestRegistry_Names_Sorted(t *testing.T) {
+	r := NewRegistry()
+	r.Register(&mockAdapter{name: "gamma"})
+	r.Register(&mockAdapter{name: "alpha"})
+	r.Register(&mockAdapter{name: "delta"})
+	r.Register(&mockAdapter{name: "beta"})
+
+	names := r.Names()
+	assert.Equal(t, []string{"alpha", "beta", "delta", "gamma"}, names,
+		"Names() must return adapters in sorted order")
 }
 
 func TestRegistry_RegisterOverwrites(t *testing.T) {

@@ -58,9 +58,6 @@ type StepType string
 const (
 	// StepInput sends a user message to the active conversation.
 	StepInput StepType = "input"
-
-	// StepEvent triggers a workflow state transition.
-	StepEvent StepType = "event"
 )
 
 // Step is a single action in a workflow scenario.
@@ -107,11 +104,6 @@ func (step *Step) validate(index int) error {
 	case StepInput:
 		if step.Content == "" {
 			return &StepError{Index: index, Msg: "input step requires content"}
-		}
-	case StepEvent:
-		return &StepError{
-			Index: index,
-			Msg:   "event steps are not supported; transitions are LLM-initiated via workflow__transition tool calls",
 		}
 	default:
 		return &StepError{Index: index, Msg: "unknown step type: " + string(step.Type)}
