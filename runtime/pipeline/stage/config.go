@@ -28,11 +28,6 @@ type PipelineConfig struct {
 	// Default: 16
 	ChannelBufferSize int
 
-	// PriorityQueueEnabled enables priority-based scheduling.
-	// When enabled, high-priority elements (audio) are processed before low-priority (logs).
-	// Default: false
-	PriorityQueueEnabled bool
-
 	// MaxConcurrentPipelines limits the number of concurrent pipeline executions.
 	// This is used by PipelinePool to control concurrency.
 	// Default: 100
@@ -46,26 +41,15 @@ type PipelineConfig struct {
 	// GracefulShutdownTimeout sets the maximum time to wait for in-flight executions during shutdown.
 	// Default: 10 seconds
 	GracefulShutdownTimeout time.Duration
-
-	// EnableMetrics enables collection of per-stage metrics (latency, throughput, etc.).
-	// Default: false
-	EnableMetrics bool
-
-	// EnableTracing enables detailed tracing of element flow through stages.
-	// Default: false (can be expensive for high-throughput pipelines)
-	EnableTracing bool
 }
 
 // DefaultPipelineConfig returns a PipelineConfig with sensible defaults.
 func DefaultPipelineConfig() *PipelineConfig {
 	return &PipelineConfig{
 		ChannelBufferSize:       DefaultChannelBufferSize,
-		PriorityQueueEnabled:    false,
 		MaxConcurrentPipelines:  DefaultMaxConcurrentPipelines,
 		ExecutionTimeout:        DefaultExecutionTimeoutSeconds * time.Second,
 		GracefulShutdownTimeout: DefaultGracefulShutdownTimeoutSeconds * time.Second,
-		EnableMetrics:           false,
-		EnableTracing:           false,
 	}
 }
 
@@ -92,12 +76,6 @@ func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig {
 	return c
 }
 
-// WithPriorityQueue enables or disables priority-based scheduling.
-func (c *PipelineConfig) WithPriorityQueue(enabled bool) *PipelineConfig {
-	c.PriorityQueueEnabled = enabled
-	return c
-}
-
 // WithMaxConcurrentPipelines sets the maximum number of concurrent pipeline executions.
 func (c *PipelineConfig) WithMaxConcurrentPipelines(maxPipelines int) *PipelineConfig {
 	c.MaxConcurrentPipelines = maxPipelines
@@ -113,17 +91,5 @@ func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineCo
 // WithGracefulShutdownTimeout sets the graceful shutdown timeout.
 func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *PipelineConfig {
 	c.GracefulShutdownTimeout = timeout
-	return c
-}
-
-// WithMetrics enables or disables metrics collection.
-func (c *PipelineConfig) WithMetrics(enabled bool) *PipelineConfig {
-	c.EnableMetrics = enabled
-	return c
-}
-
-// WithTracing enables or disables detailed tracing.
-func (c *PipelineConfig) WithTracing(enabled bool) *PipelineConfig {
-	c.EnableTracing = enabled
 	return c
 }

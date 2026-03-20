@@ -77,9 +77,7 @@ func ExampleStreamElement() {
 func ExamplePipelineBuilder_withConfig() {
 	// Create custom config
 	config := stage.DefaultPipelineConfig().
-		WithChannelBufferSize(32).
-		WithPriorityQueue(true).
-		WithMetrics(true)
+		WithChannelBufferSize(32)
 
 	// Build pipeline with config
 	pipeline, err := stage.NewPipelineBuilderWithConfig(config).

@@ -937,13 +937,6 @@ func TestPipelineConfig_WithGracefulShutdownTimeout(t *testing.T) {
 	assert.Equal(t, 10*time.Second, result.GracefulShutdownTimeout)
 }
 
-func TestPipelineConfig_WithTracing(t *testing.T) {
-	config := &PipelineConfig{}
-	result := config.WithTracing(true)
-
-	assert.True(t, result.EnableTracing)
-}
-
 // =============================================================================
 // StageError Tests
 // =============================================================================

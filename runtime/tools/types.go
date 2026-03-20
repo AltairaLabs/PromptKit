@@ -325,14 +325,6 @@ type ToolPolicy struct {
 	Blocklist           []string `json:"blocklist,omitempty"`
 }
 
-// ToolGuidance provides hints for different interaction modes
-// This is a flexible structure that can be extended with task-specific guidance
-type ToolGuidance struct {
-	Support   string `json:"support,omitempty"`
-	Assistant string `json:"assistant,omitempty"`
-	Generic   string `json:"generic,omitempty"`
-}
-
 // ValidationError represents a tool validation failure
 type ValidationError struct {
 	Type   string `json:"type"` // "args_invalid" | "result_invalid" | "policy_violation"
