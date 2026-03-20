@@ -7,7 +7,9 @@ on:
       - 'pkg/config/**'
       - 'tools/schema-gen/**'
       - 'schemas/**/*.json'
+      - 'runtime/prompt/schema/**'
       - 'examples/**/*.yaml'
+      - 'tools/packc/**'
       - '.github/workflows/schemas.yml'
   pull_request:
     branches: [ main ]
@@ -15,7 +17,9 @@ on:
       - 'pkg/config/**'
       - 'tools/schema-gen/**'
       - 'schemas/**/*.json'
+      - 'runtime/prompt/schema/**'
       - 'examples/**/*.yaml'
+      - 'tools/packc/**'
       - '.github/workflows/schemas.yml'
 
 permissions:
@@ -102,5 +106,83 @@ jobs:
         
         if [ $ERRORS -gt 0 ]; then
           echo "::error::$ERRORS arena config(s) failed CLI validation"
+          exit 1
+        fi
+
+  check-promptpack-schema:
+    name: Check PromptPack Schema Freshness
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Fetch upstream PromptPack schema
+      run: |
+        curl -sf --max-time 30 \
+          https://promptpack.org/schema/latest/promptpack.schema.json \
+          -o /tmp/upstream-schema.json
+
+    - name: Compare with embedded schema
+      run: |
+        EMBEDDED="runtime/prompt/schema/promptpack.schema.json"
+        if ! diff -q "$EMBEDDED" /tmp/upstream-schema.json > /dev/null 2>&1; then
+          EMBEDDED_VER=$(python3 -c "import json; print(json.load(open('$EMBEDDED')).get('version','unknown'))")
+          UPSTREAM_VER=$(python3 -c "import json; print(json.load(open('/tmp/upstream-schema.json')).get('version','unknown'))")
+          echo "::warning::Embedded PromptPack schema ($EMBEDDED_VER) differs from upstream ($UPSTREAM_VER). Run: curl -o $EMBEDDED https://promptpack.org/schema/latest/promptpack.schema.json"
+        else
+          echo "✓ Embedded PromptPack schema is up to date"
+        fi
+
+  compile-examples:
+    name: Compile Example Packs
+    runs-on: ubuntu-latest
+
+    env:
+      PROMPTKIT_SCHEMA_SOURCE: local
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+      with:
+        go-version: '1.25.1'
+
+    - name: Install dependencies
+      run: go work sync
+
+    - name: Build packc
+      run: make build-packc
+
+    - name: Compile examples with packc
+      run: |
+        echo "Compiling examples that have prompt configs..."
+        ERRORS=0
+        COMPILED=0
+
+        for dir in examples/*/; do
+          config="$dir/config.arena.yaml"
+          [ -f "$config" ] || continue
+          # Skip examples without prompt configs (use pre-built packs)
+          grep -q "prompt_configs\|prompts:" "$config" 2>/dev/null || continue
+
+          name=$(basename "$dir")
+          echo -n "Compiling $name... "
+          if ./bin/packc compile -c "$config" -o "/tmp/${name}.pack.json" 2>&1; then
+            echo "✓"
+            COMPILED=$((COMPILED + 1))
+          else
+            echo "✗"
+            ERRORS=$((ERRORS + 1))
+          fi
+        done
+
+        echo ""
+        echo "Compiled: $COMPILED, Failed: $ERRORS"
+
+        if [ $ERRORS -gt 0 ]; then
+          echo "::error::$ERRORS example(s) failed packc compile"
           exit 1
         fi

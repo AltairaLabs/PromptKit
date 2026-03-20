@@ -419,7 +419,7 @@
       "type": "object",
       "description": "A tool definition following OpenAI's function calling format. Tools enable the LLM to call external functions to retrieve data or perform actions.",
       "required": ["name", "description"],
-      "additionalProperties": true,
+      "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string",
@@ -613,19 +613,9 @@
       "properties": {
         "type": {
           "type": "string",
-          "description": "Type of validation to perform",
-          "enum": [
-            "banned_words",
-            "max_length",
-            "min_length",
-            "regex_match",
-            "json_schema",
-            "sentiment",
-            "toxicity",
-            "pii_detection",
-            "custom"
-          ],
-          "examples": ["banned_words", "max_length"]
+          "description": "The validator type that determines how validation is performed. Not an enum — runtimes define and register their own validator types.",
+          "minLength": 1,
+          "examples": ["banned_words", "max_length", "length", "max_sentences", "regex_match", "sentiment", "custom"]
         },
         
         "enabled": {
@@ -789,18 +779,15 @@
           }
         }
       },
-      "patternProperties": {
-        "^[a-z0-9_]+$": {
-          "oneOf": [
-            {"$ref": "#/$defs/ImageConfig"},
-            {"$ref": "#/$defs/AudioConfig"},
-            {"$ref": "#/$defs/VideoConfig"},
-            {"$ref": "#/$defs/DocumentConfig"},
-            {"$ref": "#/$defs/GenericMediaTypeConfig"}
-          ]
-        }
-      },
-      "additionalProperties": false
+      "additionalProperties": {
+        "oneOf": [
+          {"$ref": "#/$defs/ImageConfig"},
+          {"$ref": "#/$defs/AudioConfig"},
+          {"$ref": "#/$defs/VideoConfig"},
+          {"$ref": "#/$defs/DocumentConfig"},
+          {"$ref": "#/$defs/GenericMediaTypeConfig"}
+        ]
+      }
     },
     
     "ImageConfig": {
@@ -865,7 +852,7 @@
           "description": "List of allowed audio formats",
           "items": {
             "type": "string",
-            "enum": ["mp3", "wav", "opus", "flac", "m4a", "aac"]
+            "enum": ["mp3", "wav", "opus", "flac", "m4a", "aac", "ogg"]
           },
           "examples": [["mp3", "wav", "opus"]]
         },
