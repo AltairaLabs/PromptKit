@@ -193,28 +193,6 @@ func validateAndWritePack(data []byte, outputFile string) {
 	}
 }
 
-// printPackSummary prints a summary of the compiled pack.
-func printPackSummary(pack *prompt.Pack, outputFile string) {
-	fmt.Printf("✓ Pack compiled successfully: %s\n", outputFile)
-	fmt.Printf("  Contains %d prompts: %v\n", len(pack.Prompts), pack.ListPrompts())
-	if len(pack.Tools) > 0 {
-		toolNames := make([]string, 0, len(pack.Tools))
-		for name := range pack.Tools {
-			toolNames = append(toolNames, name)
-		}
-		fmt.Printf("  Contains %d tools: %v\n", len(pack.Tools), toolNames)
-	}
-	if len(pack.Evals) > 0 {
-		fmt.Printf("  Pack-level evals: %d\n", len(pack.Evals))
-	}
-	if pack.Workflow != nil {
-		fmt.Printf("  Workflow: %d states (entry: %s)\n", len(pack.Workflow.States), pack.Workflow.Entry)
-	}
-	if pack.Agents != nil {
-		fmt.Printf("  Agents: %d members (entry: %s)\n", len(pack.Agents.Members), pack.Agents.Entry)
-	}
-}
-
 func compileCommand() {
 	flags := parseCompileFlags()
 
@@ -281,6 +259,19 @@ func compileCommand() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to marshal pack: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Validate skills configuration
+	skillErrs, skillWarnings := runSkillValidation(pack, configDir)
+	if len(skillErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "✗ Skill validation errors:\n")
+		for _, e := range skillErrs {
+			fmt.Fprintf(os.Stderr, "  - %s\n", e)
+		}
+		os.Exit(1)
+	}
+	for _, w := range skillWarnings {
+		fmt.Printf("⚠ %s\n", w)
 	}
 
 	// Validate workflow before writing if present
@@ -441,6 +432,20 @@ func validateCommand() {
 			fmt.Fprintf(os.Stderr, warningFormat, w)
 		}
 		os.Exit(1)
+	}
+
+	// Validate skills configuration
+	packDir := filepath.Dir(packFile)
+	skillErrs, skillWarnings := runSkillValidation(pack, packDir)
+	if len(skillErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "✗ Skill validation errors:\n")
+		for _, e := range skillErrs {
+			fmt.Fprintf(os.Stderr, "  - %s\n", e)
+		}
+		os.Exit(1)
+	}
+	for _, w := range skillWarnings {
+		fmt.Printf("⚠ %s\n", w)
 	}
 
 	// Workflow warnings are informational (PascalCase, cycles)

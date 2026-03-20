@@ -132,7 +132,7 @@ func (de *DuplexConversationExecutor) storeAssertionResults(
 	msg.Meta["assertions"] = assertionResults
 
 	// Update the state store with the modified message
-	arenaStore.UpdateLastAssistantMessage(msg)
+	arenaStore.UpdateLastAssistantMessage(req.ConversationID, msg)
 }
 
 // countPassedAssertions counts how many assertions passed.

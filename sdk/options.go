@@ -96,9 +96,6 @@ type config struct {
 	// Exec tool configs from RuntimeConfig (keyed by tool name)
 	execToolConfigs map[string]*tools.ExecConfig
 
-	// Exec eval handlers from RuntimeConfig (registered into eval registry at build time)
-	execEvalHandlers []*handlers.ExecEvalHandler
-
 	// MCP configuration
 	mcpServers []mcp.ServerConfig
 

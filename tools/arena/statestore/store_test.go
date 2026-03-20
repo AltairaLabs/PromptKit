@@ -39,7 +39,7 @@ func TestUpdateLastAssistantMessage(t *testing.T) {
 		},
 	}
 
-	store.UpdateLastAssistantMessage(updatedMsg)
+	store.UpdateLastAssistantMessage(convID, updatedMsg)
 
 	// Load and verify
 	loaded, err := store.Load(ctx, convID)
@@ -101,7 +101,7 @@ func TestUpdateLastAssistantMessageMultipleAssistants(t *testing.T) {
 		},
 	}
 
-	store.UpdateLastAssistantMessage(updatedMsg)
+	store.UpdateLastAssistantMessage(convID, updatedMsg)
 
 	// Verify
 	loaded, err := store.Load(ctx, convID)
@@ -154,7 +154,7 @@ func TestUpdateLastAssistantMessageNoMatch(t *testing.T) {
 	}
 
 	// Should not panic, just be a no-op
-	store.UpdateLastAssistantMessage(updatedMsg)
+	store.UpdateLastAssistantMessage(convID, updatedMsg)
 
 	// Verify state unchanged
 	loaded, err := store.Load(ctx, convID)
@@ -164,5 +164,102 @@ func TestUpdateLastAssistantMessageNoMatch(t *testing.T) {
 
 	if len(loaded.Messages) != 1 {
 		t.Errorf("Expected 1 message, got %d", len(loaded.Messages))
+	}
+}
+
+func TestUpdateLastAssistantMessageDirectLookup(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	// Create two conversations with the same assistant message content
+	conv1 := "conv-1"
+	conv2 := "conv-2"
+	sharedContent := "Same answer"
+
+	state1 := &runtimestore.ConversationState{
+		ID: conv1,
+		Messages: []types.Message{
+			{Role: "user", Content: "Q1"},
+			{Role: "assistant", Content: sharedContent},
+		},
+	}
+	state2 := &runtimestore.ConversationState{
+		ID: conv2,
+		Messages: []types.Message{
+			{Role: "user", Content: "Q2"},
+			{Role: "assistant", Content: sharedContent},
+		},
+	}
+
+	if err := store.Save(ctx, state1); err != nil {
+		t.Fatalf("Failed to save state1: %v", err)
+	}
+	if err := store.Save(ctx, state2); err != nil {
+		t.Fatalf("Failed to save state2: %v", err)
+	}
+
+	// Update only conv2 using direct conversationID lookup
+	updatedMsg := &types.Message{
+		Role:    "assistant",
+		Content: sharedContent,
+		Meta: map[string]interface{}{
+			"targeted": true,
+		},
+	}
+	store.UpdateLastAssistantMessage(conv2, updatedMsg)
+
+	// conv2 should be updated
+	loaded2, err := store.Load(ctx, conv2)
+	if err != nil {
+		t.Fatalf("Failed to load conv2: %v", err)
+	}
+	if loaded2.Messages[1].Meta == nil || loaded2.Messages[1].Meta["targeted"] != true {
+		t.Error("Expected conv2 assistant message to be updated")
+	}
+
+	// conv1 should NOT be updated
+	loaded1, err := store.Load(ctx, conv1)
+	if err != nil {
+		t.Fatalf("Failed to load conv1: %v", err)
+	}
+	if loaded1.Messages[1].Meta != nil {
+		if _, exists := loaded1.Messages[1].Meta["targeted"]; exists {
+			t.Error("Expected conv1 assistant message to remain untouched")
+		}
+	}
+}
+
+func TestUpdateLastAssistantMessageFallbackWithEmptyID(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	convID := "conv-fallback"
+	state := &runtimestore.ConversationState{
+		ID: convID,
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+			{Role: "assistant", Content: "Hi there!"},
+		},
+	}
+	if err := store.Save(ctx, state); err != nil {
+		t.Fatalf("Failed to save state: %v", err)
+	}
+
+	// Empty conversationID should still work via fallback scan
+	updatedMsg := &types.Message{
+		Role:    "assistant",
+		Content: "Hi there!",
+		Meta: map[string]interface{}{
+			"fallback": true,
+		},
+	}
+	store.UpdateLastAssistantMessage("", updatedMsg)
+
+	loaded, err := store.Load(ctx, convID)
+	if err != nil {
+		t.Fatalf("Failed to load state: %v", err)
+	}
+	if loaded.Messages[1].Meta == nil || loaded.Messages[1].Meta["fallback"] != true {
+		t.Error("Expected fallback scan to update the message")
 	}
 }

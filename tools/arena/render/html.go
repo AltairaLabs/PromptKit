@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -158,21 +159,24 @@ func prepareReportData(results []engine.RunResult) HTMLReportData {
 	// Calculate media statistics
 	mediaStats := calculateMediaStats(results)
 
-	// Convert maps to slices
+	// Convert maps to sorted slices for deterministic output
 	providerList := make([]string, 0, len(providers))
 	for p := range providers {
 		providerList = append(providerList, p)
 	}
+	sort.Strings(providerList)
 
 	regionList := make([]string, 0, len(regions))
 	for r := range regions {
 		regionList = append(regionList, r)
 	}
+	sort.Strings(regionList)
 
 	scenarioList := make([]string, 0, len(scenarios))
 	for s := range scenarios {
 		scenarioList = append(scenarioList, s)
 	}
+	sort.Strings(scenarioList)
 
 	// Calculate average latency
 	avgLatency := "N/A"
@@ -318,16 +322,18 @@ func generateScenarioGroups(results []engine.RunResult, scenarios []string) []Sc
 		providersMap := providersByScenario[scenario]
 		regionsMap := regionsByScenario[scenario]
 
-		// Convert maps to slices
+		// Convert maps to sorted slices for deterministic output
 		providers := make([]string, 0, len(providersMap))
 		for p := range providersMap {
 			providers = append(providers, p)
 		}
+		sort.Strings(providers)
 
 		regions := make([]string, 0, len(regionsMap))
 		for r := range regionsMap {
 			regions = append(regions, r)
 		}
+		sort.Strings(regions)
 
 		// Generate matrix for this scenario
 		matrix := generateMatrix(scenarioResults, providers, regions)

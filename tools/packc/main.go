@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
@@ -12,7 +13,7 @@ import (
 
 const outputFilePerm = 0o600
 
-const version = "v0.1.0"
+var version = "dev" //nolint:gochecknoglobals // overridden via ldflags at build time
 
 const warningFormat = "  - %s\n"
 
@@ -75,8 +76,13 @@ func printTemplateEngine(pack *prompt.Pack) {
 
 func printPrompts(pack *prompt.Pack) {
 	fmt.Printf("\n=== Prompts (%d) ===\n", len(pack.Prompts))
-	for taskType, p := range pack.Prompts {
-		printPromptDetails(taskType, p)
+	taskTypes := make([]string, 0, len(pack.Prompts))
+	for taskType := range pack.Prompts {
+		taskTypes = append(taskTypes, taskType)
+	}
+	sort.Strings(taskTypes)
+	for _, taskType := range taskTypes {
+		printPromptDetails(taskType, pack.Prompts[taskType])
 	}
 }
 
@@ -152,22 +158,36 @@ func printWorkflow(pack *prompt.Pack) {
 	fmt.Printf("\n=== Workflow (v%d) ===\n", pack.Workflow.Version)
 	fmt.Printf("Entry: %s\n", pack.Workflow.Entry)
 	fmt.Printf("States (%d):\n", len(pack.Workflow.States))
-	for name, state := range pack.Workflow.States {
-		fmt.Printf("  [%s] prompt_task=%s\n", name, state.PromptTask)
-		if state.Description != "" {
-			fmt.Printf("    Description: %s\n", state.Description)
+	stateNames := make([]string, 0, len(pack.Workflow.States))
+	for name := range pack.Workflow.States {
+		stateNames = append(stateNames, name)
+	}
+	sort.Strings(stateNames)
+	for _, name := range stateNames {
+		printWorkflowState(name, pack.Workflow.States[name])
+	}
+}
+
+func printWorkflowState(name string, state *prompt.WorkflowState) {
+	fmt.Printf("  [%s] prompt_task=%s\n", name, state.PromptTask)
+	if state.Description != "" {
+		fmt.Printf("    Description: %s\n", state.Description)
+	}
+	if len(state.OnEvent) > 0 {
+		events := make([]string, 0, len(state.OnEvent))
+		for event := range state.OnEvent {
+			events = append(events, event)
 		}
-		if len(state.OnEvent) > 0 {
-			for event, target := range state.OnEvent {
-				fmt.Printf("    on %s → %s\n", event, target)
-			}
+		sort.Strings(events)
+		for _, event := range events {
+			fmt.Printf("    on %s → %s\n", event, state.OnEvent[event])
 		}
-		if state.Persistence != "" {
-			fmt.Printf("    Persistence: %s\n", state.Persistence)
-		}
-		if state.Orchestration != "" {
-			fmt.Printf("    Orchestration: %s\n", state.Orchestration)
-		}
+	}
+	if state.Persistence != "" {
+		fmt.Printf("    Persistence: %s\n", state.Persistence)
+	}
+	if state.Orchestration != "" {
+		fmt.Printf("    Orchestration: %s\n", state.Orchestration)
 	}
 }
 
@@ -178,7 +198,13 @@ func printAgents(pack *prompt.Pack) {
 	fmt.Printf("\n=== Agents ===\n")
 	fmt.Printf("Entry: %s\n", pack.Agents.Entry)
 	fmt.Printf("Members (%d):\n", len(pack.Agents.Members))
-	for name, agent := range pack.Agents.Members {
+	memberNames := make([]string, 0, len(pack.Agents.Members))
+	for name := range pack.Agents.Members {
+		memberNames = append(memberNames, name)
+	}
+	sort.Strings(memberNames)
+	for _, name := range memberNames {
+		agent := pack.Agents.Members[name]
 		fmt.Printf("  [%s]\n", name)
 		if agent.Description != "" {
 			fmt.Printf("    Description: %s\n", agent.Description)
@@ -224,7 +250,39 @@ func getFragmentNames(fragments map[string]string) []string {
 	for name := range fragments {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
+}
+
+// runSkillValidation validates skill configurations in a pack, returning errors and warnings.
+// Returns fatal errors (should abort) and non-fatal warnings (informational).
+func runSkillValidation(pack *prompt.Pack, dir string) (fatalErrors, warnings []string) {
+	fatalErrors = ValidateSkillErrors(pack, dir)
+	warnings = ValidateSkills(pack, dir)
+	return fatalErrors, warnings
+}
+
+// printPackSummary prints a summary of the compiled pack.
+func printPackSummary(pack *prompt.Pack, outputFile string) {
+	fmt.Printf("✓ Pack compiled successfully: %s\n", outputFile)
+	fmt.Printf("  Contains %d prompts: %v\n", len(pack.Prompts), pack.ListPrompts())
+	if len(pack.Tools) > 0 {
+		toolNames := make([]string, 0, len(pack.Tools))
+		for name := range pack.Tools {
+			toolNames = append(toolNames, name)
+		}
+		sort.Strings(toolNames)
+		fmt.Printf("  Contains %d tools: %v\n", len(pack.Tools), toolNames)
+	}
+	if len(pack.Evals) > 0 {
+		fmt.Printf("  Pack-level evals: %d\n", len(pack.Evals))
+	}
+	if pack.Workflow != nil {
+		fmt.Printf("  Workflow: %d states (entry: %s)\n", len(pack.Workflow.States), pack.Workflow.Entry)
+	}
+	if pack.Agents != nil {
+		fmt.Printf("  Agents: %d members (entry: %s)\n", len(pack.Agents.Members), pack.Agents.Entry)
+	}
 }
 
 // validateMediaReferences checks if media files referenced in examples exist

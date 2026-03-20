@@ -318,3 +318,89 @@ func TestValidateSkillErrors_NoSkills(t *testing.T) {
 	errs := ValidateSkillErrors(pack, "/tmp")
 	assert.Empty(t, errs)
 }
+
+func TestValidateSkillErrors_PathTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name    string
+		dir     string
+		wantErr string
+	}{
+		{
+			name:    "relative path escapes pack dir",
+			dir:     "../../etc",
+			wantErr: "path traversal detected",
+		},
+		{
+			name:    "dot-dot in middle of path",
+			dir:     "skills/../../etc/passwd",
+			wantErr: "path traversal detected",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pack := &prompt.Pack{
+				Skills: []prompt.SkillSourceConfig{
+					{Dir: tt.dir},
+				},
+				Prompts: map[string]*prompt.PackPrompt{"p": {ID: "p"}},
+			}
+
+			errs := ValidateSkillErrors(pack, tmpDir)
+			require.Len(t, errs, 1)
+			assert.Contains(t, errs[0], tt.wantErr)
+		})
+	}
+}
+
+func TestValidateSkillErrors_PathTraversal_WorkflowState(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	pack := &prompt.Pack{
+		Workflow: &workflow.Spec{
+			Version: 1,
+			Entry:   "start",
+			States: map[string]*workflow.State{
+				"start": {
+					PromptTask: "p",
+					Skills:     "../../etc",
+				},
+			},
+		},
+		Prompts: map[string]*prompt.PackPrompt{"p": {ID: "p"}},
+	}
+
+	errs := ValidateSkillErrors(pack, tmpDir)
+	require.Len(t, errs, 1)
+	assert.Contains(t, errs[0], "path traversal detected")
+}
+
+func TestValidatePathContainment(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{name: "valid relative path", path: "skills", wantErr: false},
+		{name: "valid nested path", path: "skills/sub", wantErr: false},
+		{name: "traversal escapes", path: "../../etc", wantErr: true},
+		{name: "traversal in middle", path: "skills/../../etc", wantErr: true},
+		{name: "dot current dir", path: ".", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePathContainment(tt.path, tmpDir)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, errPathTraversal)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

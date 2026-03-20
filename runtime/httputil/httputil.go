@@ -4,6 +4,8 @@
 package httputil
 
 import (
+	"crypto/tls"
+	"net"
 	"net/http"
 	"time"
 )
@@ -24,10 +26,41 @@ const (
 	// responses (e.g. SSE streams). Streaming connections stay open much
 	// longer than regular request/response cycles.
 	DefaultStreamingTimeout = 300 * time.Second
+
+	// Connection pool and transport defaults.
+	defaultDialTimeout         = 30 * time.Second
+	defaultDialKeepAlive       = 30 * time.Second
+	defaultMaxIdleConns        = 100
+	defaultMaxIdleConnsPerHost = 10
+	defaultMaxConnsPerHost     = 10
+	defaultIdleConnTimeout     = 90 * time.Second
+	defaultTLSHandshakeTimeout = 10 * time.Second
 )
 
-// NewHTTPClient returns an *http.Client configured with the given timeout.
+// NewHTTPClient returns an *http.Client configured with the given timeout,
+// a TLS 1.2 minimum, and connection pool limits.
 // Pass one of the Default*Timeout constants, or a custom duration.
 func NewHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: newDefaultTransport(),
+	}
+}
+
+// newDefaultTransport creates an HTTP transport with TLS 1.2 minimum and
+// connection pooling defaults.
+func newDefaultTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   defaultDialTimeout,
+			KeepAlive: defaultDialKeepAlive,
+		}).DialContext,
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12}, //#nosec G402
+		MaxIdleConns:        defaultMaxIdleConns,
+		MaxIdleConnsPerHost: defaultMaxIdleConnsPerHost,
+		MaxConnsPerHost:     defaultMaxConnsPerHost,
+		IdleConnTimeout:     defaultIdleConnTimeout,
+		TLSHandshakeTimeout: defaultTLSHandshakeTimeout,
+		ForceAttemptHTTP2:   true,
+	}
 }

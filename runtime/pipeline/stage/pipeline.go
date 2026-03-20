@@ -65,9 +65,17 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 		wrapped := make(chan StreamElement, p.config.ChannelBufferSize)
 		go func() {
 			defer close(wrapped)
-			for elem := range input {
-				p.applyBaseMetadata(&elem)
-				wrapped <- elem
+			for {
+				select {
+				case elem, ok := <-input:
+					if !ok {
+						return
+					}
+					p.applyBaseMetadata(&elem)
+					wrapped <- elem
+				case <-ctx.Done():
+					return
+				}
 			}
 		}()
 		actualInput = wrapped

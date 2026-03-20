@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	mock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
-	mock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/session"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
@@ -142,7 +142,7 @@ func TestStreamWithCallback_ClientToolRequest(t *testing.T) {
 		},
 	}
 
-	conv.emitStreamChunk(providerChunk, outCh, state)
+	conv.emitStreamChunk(context.Background(), providerChunk, outCh, state)
 	close(outCh)
 
 	// Verify ChunkClientTool was emitted

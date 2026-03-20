@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 	"github.com/stretchr/testify/assert"
@@ -173,6 +174,47 @@ func TestOpenWithValidPack(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, conv)
 	})
+}
+
+func TestWithToolRegistry_Applied(t *testing.T) {
+	// Create a minimal pack file
+	dir := t.TempDir()
+	packFile := filepath.Join(dir, "test.pack.json")
+	packContent := `{
+		"name": "test-pack",
+		"version": "v1",
+		"prompts": {
+			"main": {
+				"system_template": "You are helpful."
+			}
+		}
+	}`
+	err := os.WriteFile(packFile, []byte(packContent), 0644)
+	require.NoError(t, err)
+
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	// Pre-register a custom tool in the provided registry
+	customRegistry := tools.NewRegistry()
+	_ = customRegistry.Register(&tools.ToolDescriptor{
+		Name:        "custom_tool",
+		Description: "A custom tool registered via WithToolRegistry",
+	})
+
+	conv, err := Open(packFile, "main",
+		WithSkipSchemaValidation(),
+		WithToolRegistry(customRegistry),
+	)
+	require.NoError(t, err)
+
+	// The conversation's tool registry should be the one we provided
+	assert.Same(t, customRegistry, conv.ToolRegistry(),
+		"WithToolRegistry should apply the provided registry, not create a new one")
+
+	// The custom tool should be accessible
+	td := conv.ToolRegistry().Get("custom_tool")
+	require.NotNil(t, td, "custom_tool should be available in the conversation's registry")
+	assert.Equal(t, "A custom tool registered via WithToolRegistry", td.Description)
 }
 
 func TestOpenWithVariableDefaults(t *testing.T) {

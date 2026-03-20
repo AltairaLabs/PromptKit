@@ -3154,3 +3154,70 @@ func TestIsValidatorPassed_Struct(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareReportData_DeterministicOrdering(t *testing.T) {
+	results := []engine.RunResult{
+		createTestResult("r1", "zeta-ai", "us-west-2", "s-beta", 0.01, 10, 5, false, time.Second),
+		createTestResult("r2", "alpha-ai", "eu-west-1", "s-alpha", 0.02, 20, 10, false, time.Second),
+		createTestResult("r3", "mid-ai", "ap-south-1", "s-gamma", 0.03, 30, 15, false, time.Second),
+	}
+
+	// Run multiple times to verify determinism
+	var prevProviders, prevRegions, prevScenarios []string
+	for i := 0; i < 10; i++ {
+		data := prepareReportData(results)
+
+		if prevProviders != nil {
+			if !reflect.DeepEqual(data.Providers, prevProviders) {
+				t.Fatalf("Providers not deterministic: got %v, previously %v", data.Providers, prevProviders)
+			}
+			if !reflect.DeepEqual(data.Regions, prevRegions) {
+				t.Fatalf("Regions not deterministic: got %v, previously %v", data.Regions, prevRegions)
+			}
+			if !reflect.DeepEqual(data.Scenarios, prevScenarios) {
+				t.Fatalf("Scenarios not deterministic: got %v, previously %v", data.Scenarios, prevScenarios)
+			}
+		}
+		prevProviders = data.Providers
+		prevRegions = data.Regions
+		prevScenarios = data.Scenarios
+	}
+
+	// Verify sorted order
+	wantProviders := []string{"alpha-ai", "mid-ai", "zeta-ai"}
+	wantRegions := []string{"ap-south-1", "eu-west-1", "us-west-2"}
+	wantScenarios := []string{"s-alpha", "s-beta", "s-gamma"}
+
+	if !reflect.DeepEqual(prevProviders, wantProviders) {
+		t.Errorf("Providers not sorted: got %v, want %v", prevProviders, wantProviders)
+	}
+	if !reflect.DeepEqual(prevRegions, wantRegions) {
+		t.Errorf("Regions not sorted: got %v, want %v", prevRegions, wantRegions)
+	}
+	if !reflect.DeepEqual(prevScenarios, wantScenarios) {
+		t.Errorf("Scenarios not sorted: got %v, want %v", prevScenarios, wantScenarios)
+	}
+}
+
+func TestGenerateScenarioGroups_DeterministicOrdering(t *testing.T) {
+	results := []engine.RunResult{
+		createTestResult("r1", "zeta", "us-west", "s1", 0.01, 10, 5, false, time.Second),
+		createTestResult("r2", "alpha", "eu-west", "s1", 0.02, 20, 10, false, time.Second),
+		createTestResult("r3", "mid", "ap-south", "s1", 0.03, 30, 15, false, time.Second),
+	}
+
+	groups := generateScenarioGroups(results, []string{"s1"})
+	if len(groups) != 1 {
+		t.Fatalf("Expected 1 group, got %d", len(groups))
+	}
+
+	wantProviders := []string{"alpha", "mid", "zeta"}
+	wantRegions := []string{"ap-south", "eu-west", "us-west"}
+
+	if !reflect.DeepEqual(groups[0].Providers, wantProviders) {
+		t.Errorf("ScenarioGroup providers not sorted: got %v, want %v", groups[0].Providers, wantProviders)
+	}
+	if !reflect.DeepEqual(groups[0].Regions, wantRegions) {
+		t.Errorf("ScenarioGroup regions not sorted: got %v, want %v", groups[0].Regions, wantRegions)
+	}
+}

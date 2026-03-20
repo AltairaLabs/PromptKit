@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -758,5 +760,254 @@ func TestSanitizePackID(t *testing.T) {
 			result := sanitizePackID(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+func TestGetFragmentNames_Deterministic(t *testing.T) {
+	fragments := map[string]string{
+		"zebra":   "z",
+		"alpha":   "a",
+		"middle":  "m",
+		"beta":    "b",
+		"omega":   "o",
+		"delta":   "d",
+		"gamma":   "g",
+		"epsilon": "e",
+		"zeta":    "z2",
+		"iota":    "i",
+		"kappa":   "k",
+		"lambda":  "l",
+		"mu":      "mu",
+		"nu":      "nu",
+		"omicron": "oi",
+		"pi":      "pi",
+		"rho":     "rho",
+		"sigma":   "sig",
+		"tau":     "tau",
+		"upsilon": "ups",
+	}
+
+	// Run 20 times to catch non-determinism (Go map iteration is random)
+	const iterations = 20
+	first := getFragmentNames(fragments)
+	for i := 1; i < iterations; i++ {
+		result := getFragmentNames(fragments)
+		assert.Equal(t, first, result, "iteration %d produced different order", i)
+	}
+}
+
+func TestPrintPrompts_Deterministic(t *testing.T) {
+	pack := &prompt.Pack{
+		Prompts: map[string]*prompt.PackPrompt{
+			"zebra":   {ID: "zebra", Name: "Zebra", Version: "1.0"},
+			"alpha":   {ID: "alpha", Name: "Alpha", Version: "1.0"},
+			"middle":  {ID: "middle", Name: "Middle", Version: "1.0"},
+			"beta":    {ID: "beta", Name: "Beta", Version: "1.0"},
+			"delta":   {ID: "delta", Name: "Delta", Version: "1.0"},
+			"gamma":   {ID: "gamma", Name: "Gamma", Version: "1.0"},
+			"epsilon": {ID: "epsilon", Name: "Epsilon", Version: "1.0"},
+		},
+	}
+
+	const iterations = 20
+	captureOutput := func() string {
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		printPrompts(pack)
+		w.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		os.Stdout = old
+		return buf.String()
+	}
+
+	first := captureOutput()
+	for i := 1; i < iterations; i++ {
+		result := captureOutput()
+		assert.Equal(t, first, result, "iteration %d produced different output", i)
+	}
+}
+
+func TestVersionIsOverridable(t *testing.T) {
+	// version should be a var (not const) so ldflags can override it
+	original := version
+	version = "v1.2.3-test"
+	assert.Equal(t, "v1.2.3-test", version)
+	version = original
+
+	// Verify default value
+	assert.Equal(t, "dev", original)
+}
+
+func TestPrintWorkflow_Deterministic(t *testing.T) {
+	pack := &prompt.Pack{
+		Workflow: &prompt.WorkflowConfig{
+			Version: 1,
+			Entry:   "start",
+			States: map[string]*prompt.WorkflowState{
+				"start":  {PromptTask: "greeting", OnEvent: map[string]string{"Done": "middle", "Error": "end"}},
+				"middle": {PromptTask: "process", OnEvent: map[string]string{"Next": "end", "Back": "start"}},
+				"end":    {PromptTask: "farewell"},
+				"alpha":  {PromptTask: "a"},
+				"zebra":  {PromptTask: "z"},
+			},
+		},
+	}
+
+	const iterations = 20
+	captureOutput := func() string {
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		printWorkflow(pack)
+		w.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		os.Stdout = old
+		return buf.String()
+	}
+
+	first := captureOutput()
+	for i := 1; i < iterations; i++ {
+		result := captureOutput()
+		assert.Equal(t, first, result, "iteration %d produced different output", i)
+	}
+}
+
+func TestPrintWorkflowState(t *testing.T) {
+	t.Run("full state", func(t *testing.T) {
+		state := &prompt.WorkflowState{
+			PromptTask:    "greeting",
+			Description:   "Initial state",
+			OnEvent:       map[string]string{"Done": "end", "Error": "fallback"},
+			Persistence:   "persistent",
+			Orchestration: "internal",
+		}
+		// Should not panic
+		printWorkflowState("start", state)
+	})
+
+	t.Run("minimal state", func(t *testing.T) {
+		state := &prompt.WorkflowState{
+			PromptTask: "farewell",
+		}
+		printWorkflowState("end", state)
+	})
+
+	t.Run("state with events only", func(t *testing.T) {
+		state := &prompt.WorkflowState{
+			PromptTask: "process",
+			OnEvent:    map[string]string{"Next": "end"},
+		}
+		printWorkflowState("middle", state)
+	})
+}
+
+func TestRunSkillValidation(t *testing.T) {
+	t.Run("no skills", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"test": {ID: "test"},
+			},
+		}
+		errs, warnings := runSkillValidation(pack, t.TempDir())
+		assert.Empty(t, errs)
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("with skills directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		skillsDir := filepath.Join(tmpDir, "skills")
+		require.NoError(t, os.MkdirAll(filepath.Join(skillsDir, "greet"), 0o755))
+		require.NoError(t, os.WriteFile(
+			filepath.Join(skillsDir, "greet", "prompt.md"),
+			[]byte("Hello!"),
+			0o644,
+		))
+
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"test": {ID: "test"},
+			},
+			Skills: []prompt.SkillSourceConfig{
+				{Dir: "skills"},
+			},
+		}
+		errs, warnings := runSkillValidation(pack, tmpDir)
+		assert.Empty(t, errs)
+		assert.Empty(t, warnings)
+	})
+}
+
+func TestPrintPackSummary(t *testing.T) {
+	t.Run("minimal pack", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"test": {ID: "test"},
+			},
+		}
+		printPackSummary(pack, "test.pack.json")
+	})
+
+	t.Run("full pack", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"test": {ID: "test"},
+			},
+			Tools: map[string]*prompt.PackTool{
+				"search":     {Name: "search", Description: "Search"},
+				"calculator": {Name: "calculator", Description: "Calc"},
+			},
+			Evals: []evals.EvalDef{{ID: "eval1", Type: "contains"}},
+			Workflow: &prompt.WorkflowConfig{
+				Version: 1,
+				Entry:   "start",
+				States: map[string]*prompt.WorkflowState{
+					"start": {PromptTask: "test"},
+				},
+			},
+			Agents: &prompt.AgentsConfig{
+				Entry: "agent1",
+				Members: map[string]*prompt.AgentDef{
+					"agent1": {Description: "Agent 1"},
+				},
+			},
+		}
+		printPackSummary(pack, "full.pack.json")
+	})
+}
+
+func TestPrintAgents_Deterministic(t *testing.T) {
+	pack := &prompt.Pack{
+		Agents: &prompt.AgentsConfig{
+			Entry: "triage",
+			Members: map[string]*prompt.AgentDef{
+				"triage":  {Description: "Triage"},
+				"billing": {Description: "Billing"},
+				"support": {Description: "Support"},
+				"alpha":   {Description: "Alpha"},
+				"zebra":   {Description: "Zebra"},
+			},
+		},
+	}
+
+	const iterations = 20
+	captureOutput := func() string {
+		old := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		printAgents(pack)
+		w.Close()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(r)
+		os.Stdout = old
+		return buf.String()
+	}
+
+	first := captureOutput()
+	for i := 1; i < iterations; i++ {
+		result := captureOutput()
+		assert.Equal(t, first, result, "iteration %d produced different output", i)
 	}
 }

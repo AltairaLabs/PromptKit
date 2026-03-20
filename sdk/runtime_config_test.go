@@ -332,14 +332,11 @@ func TestApplyRuntimeConfig_ExecEvals(t *testing.T) {
 	c := &config{}
 	require.NoError(t, applyRuntimeConfig(c, spec))
 
-	assert.Len(t, c.execEvalHandlers, 2)
 	require.NotNil(t, c.evalRegistry)
 
 	// Verify handlers are registered in the registry
-	has1 := c.evalRegistry.Has("sentiment_check")
-	has2 := c.evalRegistry.Has("compliance_check")
-	assert.True(t, has1, "sentiment_check should be registered")
-	assert.True(t, has2, "compliance_check should be registered")
+	assert.True(t, c.evalRegistry.Has("sentiment_check"), "sentiment_check should be registered")
+	assert.True(t, c.evalRegistry.Has("compliance_check"), "compliance_check should be registered")
 }
 
 func TestApplyRuntimeConfig_ExecEvals_NilBinding(t *testing.T) {
@@ -351,7 +348,8 @@ func TestApplyRuntimeConfig_ExecEvals_NilBinding(t *testing.T) {
 
 	c := &config{}
 	require.NoError(t, applyRuntimeConfig(c, spec))
-	assert.Empty(t, c.execEvalHandlers)
+	// With nil bindings, no eval registry should be created
+	assert.Nil(t, c.evalRegistry)
 }
 
 func TestApplyRuntimeConfig_ExecTools_NilSpec(t *testing.T) {

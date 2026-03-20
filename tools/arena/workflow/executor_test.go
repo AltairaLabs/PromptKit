@@ -272,7 +272,7 @@ func TestExecutor_Execute_EventStepRejected(t *testing.T) {
 		ID:   "test",
 		Pack: "./test.pack.json",
 		Steps: []Step{
-			{Type: StepEvent, Event: "Escalate"},
+			{Type: "event", Event: "Escalate"},
 		},
 	}
 

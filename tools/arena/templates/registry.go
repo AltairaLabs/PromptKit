@@ -25,7 +25,15 @@ const (
 
 	httpPrefix  = "http://"
 	httpsPrefix = "https://"
+
+	// maxTemplateSize is the maximum number of bytes to read from an HTTP response body (10 MB).
+	maxTemplateSize int64 = 10 * 1024 * 1024
 )
+
+const httpClientTimeout = 30 * time.Second
+
+// httpClient is a shared HTTP client with a timeout to prevent hanging on slow servers.
+var httpClient = &http.Client{Timeout: httpClientTimeout}
 
 // DefaultIndex is the index location used for remote loads (overridable in tests).
 var DefaultIndex = DefaultGitHubIndex
@@ -66,7 +74,7 @@ func loadBytes(location string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("http request %s: %w", location, err)
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("http get %s: %w", location, err)
 		}
@@ -74,7 +82,7 @@ func loadBytes(location string) ([]byte, error) {
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("http get %s: status %d", location, resp.StatusCode)
 		}
-		data, err := io.ReadAll(resp.Body)
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxTemplateSize))
 		if err != nil {
 			return nil, fmt.Errorf("read http body: %w", err)
 		}

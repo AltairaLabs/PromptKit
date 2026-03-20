@@ -22,14 +22,7 @@ type ToolPolicy struct {
 
 // PipelineConfig represents the complete pipeline configuration for pack format
 type Config struct {
-	Stages     []string           `json:"stages"`               // Pipeline stages in order
-	Middleware []MiddlewareConfig `json:"middleware,omitempty"` // Deprecated: for backward compatibility only
-}
-
-// MiddlewareConfig represents configuration for a specific middleware (deprecated)
-type MiddlewareConfig struct {
-	Type   string                 `json:"type"`             // Middleware type
-	Config map[string]interface{} `json:"config,omitempty"` // Type-specific configuration
+	Stages []string `json:"stages"` // Pipeline stages in order
 }
 
 // RetryPolicy defines retry behavior for provider middleware
@@ -37,24 +30,6 @@ type RetryPolicy struct {
 	MaxRetries     int    `json:"max_retries"`                // Maximum retry attempts
 	Backoff        string `json:"backoff"`                    // Backoff strategy ("fixed", "exponential")
 	InitialDelayMs int    `json:"initial_delay_ms,omitempty"` // Initial delay in milliseconds
-}
-
-// TemplateMiddlewareConfig contains configuration for template middleware
-type TemplateMiddlewareConfig struct {
-	StrictMode     bool `json:"strict_mode"`     // Fail on undefined variables
-	AllowUndefined bool `json:"allow_undefined"` // Allow undefined variables
-}
-
-// ProviderMiddlewareConfig contains configuration for provider middleware
-type ProviderMiddlewareConfig struct {
-	RetryPolicy *RetryPolicy `json:"retry_policy,omitempty"` // Retry policy
-	TimeoutMs   int          `json:"timeout_ms,omitempty"`   // Request timeout in milliseconds
-}
-
-// ValidatorMiddlewareConfig contains configuration for validator middleware
-type ValidatorMiddlewareConfig struct {
-	FailFast         bool `json:"fail_fast"`          // Stop on first validation error
-	CollectAllErrors bool `json:"collect_all_errors"` // Collect all errors before failing
 }
 
 // ExecutionTrace captures the complete execution history of a pipeline run.

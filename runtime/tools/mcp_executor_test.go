@@ -1,12 +1,15 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 )
 
@@ -449,6 +452,50 @@ func TestMCPExecutor_ExtractTextContent_EmptyText(t *testing.T) {
 	}
 	if parts[0] != "Valid text" {
 		t.Errorf("extractTextContent() = %q, want %q", parts[0], "Valid text")
+	}
+}
+
+func TestMCPExecutor_Execute_ArgsNotLoggedAtInfo(t *testing.T) {
+	// Capture log output
+	var buf bytes.Buffer
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger.SetLogger(slog.New(handler))
+	defer logger.SetLogger(nil) // reset
+
+	registry := &mockMCPRegistry{
+		getClientFunc: func(ctx context.Context, toolName string) (mcp.Client, error) {
+			return &mockMCPClient{
+				callToolFunc: func(ctx context.Context, name string, args json.RawMessage) (*mcp.ToolCallResponse, error) {
+					return &mcp.ToolCallResponse{
+						Content: []mcp.Content{{Type: "text", Text: "ok"}},
+					}, nil
+				},
+			}, nil
+		},
+	}
+
+	executor := NewMCPExecutor(registry)
+	descriptor := &ToolDescriptor{Name: "test_tool", Mode: modeMCP}
+	args := json.RawMessage(`{"password":"s3cret","ssn":"123-45-6789"}`)
+
+	_, err := executor.Execute(context.Background(), descriptor, args)
+	if err != nil {
+		t.Fatalf("Execute() failed: %v", err)
+	}
+
+	logOutput := buf.String()
+
+	// The tool name SHOULD appear in logs
+	if !bytes.Contains(buf.Bytes(), []byte("test_tool")) {
+		t.Error("expected tool name to appear in INFO log output")
+	}
+
+	// The raw args (containing PII) should NOT appear at INFO level
+	if bytes.Contains(buf.Bytes(), []byte("s3cret")) {
+		t.Errorf("raw tool args with PII leaked into INFO log output: %s", logOutput)
+	}
+	if bytes.Contains(buf.Bytes(), []byte("123-45-6789")) {
+		t.Errorf("raw tool args with PII leaked into INFO log output: %s", logOutput)
 	}
 }
 

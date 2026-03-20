@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -651,17 +652,91 @@ func TestExtractMessageText_Empty(t *testing.T) {
 }
 
 func TestBuildContextSummary_WithMessages(t *testing.T) {
-	// buildContextSummary needs a real Conversation with a session, which requires
-	// a full pack load. Test the helper functions independently.
-	// We can test via the Transition path indirectly — already tested above.
-	// Here we test the output format directly by constructing messages.
-
 	// Test extractMessageText with Part fallback (no text in Part)
 	msg := &types.Message{
 		Role:  "user",
 		Parts: []types.ContentPart{{Type: "image"}},
 	}
 	assert.Equal(t, "", extractMessageText(msg))
+}
+
+func TestSummarizeMessages_Empty(t *testing.T) {
+	result := summarizeMessages("start", nil)
+	assert.Equal(t, "", result)
+
+	result = summarizeMessages("start", []types.Message{})
+	assert.Equal(t, "", result)
+}
+
+func TestSummarizeMessages_FiltersSystem(t *testing.T) {
+	messages := []types.Message{
+		{Role: "system", Content: "You are a helpful assistant"},
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi there"},
+	}
+	result := summarizeMessages("intake", messages)
+	assert.Contains(t, result, "[Previous state: intake, 3 messages]")
+	assert.Contains(t, result, "user: Hello")
+	assert.Contains(t, result, "assistant: Hi there")
+	assert.NotContains(t, result, "system:")
+}
+
+func TestSummarizeMessages_TruncatesLongContent(t *testing.T) {
+	longContent := strings.Repeat("x", 300)
+	messages := []types.Message{
+		{Role: "user", Content: longContent},
+	}
+	result := summarizeMessages("state1", messages)
+	assert.Contains(t, result, "...")
+	// Should be truncated to maxSummaryContentLen + "..."
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	assert.Len(t, lines, 2) // header + 1 message
+	// Content line should be truncated
+	assert.True(t, len(lines[1]) < 300)
+}
+
+func TestSummarizeMessages_SkipsEmptyContent(t *testing.T) {
+	messages := []types.Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant"}, // empty content
+		{Role: "user", Content: "World"},
+	}
+	result := summarizeMessages("s1", messages)
+	assert.Contains(t, result, "user: Hello")
+	assert.Contains(t, result, "user: World")
+	// Should not have an empty assistant line
+	assert.NotContains(t, result, "assistant:")
+}
+
+func TestSummarizeMessages_LimitsToMaxMessages(t *testing.T) {
+	// Create more messages than defaultMaxSummaryMessages (10)
+	messages := make([]types.Message, 15)
+	for i := range messages {
+		messages[i] = types.Message{
+			Role:    "user",
+			Content: fmt.Sprintf("message %d", i),
+		}
+	}
+	result := summarizeMessages("busy", messages)
+	assert.Contains(t, result, "15 messages")
+	// Should only include last 10 messages (5-14)
+	assert.NotContains(t, result, "message 4")
+	assert.Contains(t, result, "message 5")
+	assert.Contains(t, result, "message 14")
+}
+
+func TestSummarizeMessages_ReversesToChronological(t *testing.T) {
+	messages := []types.Message{
+		{Role: "user", Content: "first"},
+		{Role: "assistant", Content: "second"},
+		{Role: "user", Content: "third"},
+	}
+	result := summarizeMessages("s1", messages)
+	firstIdx := strings.Index(result, "first")
+	secondIdx := strings.Index(result, "second")
+	thirdIdx := strings.Index(result, "third")
+	assert.True(t, firstIdx < secondIdx, "first should come before second")
+	assert.True(t, secondIdx < thirdIdx, "second should come before third")
 }
 
 func TestResumeWorkflow_BadOption(t *testing.T) {
