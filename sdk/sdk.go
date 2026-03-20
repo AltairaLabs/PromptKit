@@ -205,13 +205,19 @@ func initConversation(
 		return nil, nil, err
 	}
 
+	// Use caller-provided tool registry or create a new one from the pack.
+	toolReg := cfg.toolRegistry
+	if toolReg == nil {
+		toolReg = tools.NewRegistryWithRepository(p.ToToolRepository())
+	}
+
 	// Create conversation
 	conv := &Conversation{
 		pack:           p,
 		prompt:         prompt,
 		promptName:     promptName,
-		promptRegistry: p.ToPromptRegistry(),                                  // Create registry for PromptAssemblyMiddleware
-		toolRegistry:   tools.NewRegistryWithRepository(p.ToToolRepository()), // Create registry with pack tools
+		promptRegistry: p.ToPromptRegistry(), // Create registry for PromptAssemblyMiddleware
+		toolRegistry:   toolReg,
 		config:         cfg,
 		handlers:       make(map[string]ToolHandler),
 		ctxHandlers:    make(map[string]ToolHandlerCtx),

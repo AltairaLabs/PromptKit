@@ -267,7 +267,7 @@ func (c *Conversation) processAndFinalizeStreamWithState(
 	state *streamState,
 ) error {
 	// Process all stream chunks
-	if err := c.processStreamChunks(streamCh, outCh, state); err != nil {
+	if err := c.processStreamChunks(ctx, streamCh, outCh, state); err != nil {
 		return err
 	}
 
@@ -286,7 +286,10 @@ func (c *Conversation) processAndFinalizeStreamWithState(
 }
 
 // processStreamChunks processes provider chunks and emits SDK chunks.
+// It respects context cancellation to avoid goroutine leaks when the consumer
+// abandons the output channel.
 func (c *Conversation) processStreamChunks(
+	ctx context.Context,
 	streamCh <-chan providers.StreamChunk,
 	outCh chan<- StreamChunk,
 	state *streamState,
@@ -296,13 +299,23 @@ func (c *Conversation) processStreamChunks(
 			return chunk.Error
 		}
 
-		c.emitStreamChunk(&chunk, outCh, state)
+		c.emitStreamChunk(ctx, &chunk, outCh, state)
 	}
 	return nil
 }
 
+// sendChunk sends a StreamChunk to outCh, returning immediately if ctx is canceled.
+func sendChunk(ctx context.Context, outCh chan<- StreamChunk, chunk StreamChunk) {
+	select {
+	case outCh <- chunk:
+	case <-ctx.Done():
+	}
+}
+
 // emitStreamChunk converts a provider chunk to SDK chunk(s) and updates state.
+// All channel sends respect context cancellation to prevent goroutine leaks.
 func (c *Conversation) emitStreamChunk(
+	ctx context.Context,
 	chunk *providers.StreamChunk,
 	outCh chan<- StreamChunk,
 	state *streamState,
@@ -310,18 +323,18 @@ func (c *Conversation) emitStreamChunk(
 	// Emit text delta
 	if chunk.Delta != "" {
 		state.contentBuilder.WriteString(chunk.Delta)
-		outCh <- StreamChunk{Type: ChunkText, Text: chunk.Delta}
+		sendChunk(ctx, outCh, StreamChunk{Type: ChunkText, Text: chunk.Delta})
 	}
 
 	// Emit media delta
 	if chunk.MediaDelta != nil {
-		outCh <- StreamChunk{Type: ChunkMedia, Media: chunk.MediaDelta}
+		sendChunk(ctx, outCh, StreamChunk{Type: ChunkMedia, Media: chunk.MediaDelta})
 	}
 
 	// Emit new tool calls
 	if len(chunk.ToolCalls) > len(state.lastToolCalls) {
 		for i := len(state.lastToolCalls); i < len(chunk.ToolCalls); i++ {
-			outCh <- StreamChunk{Type: ChunkToolCall, ToolCall: &chunk.ToolCalls[i]}
+			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolCall, ToolCall: &chunk.ToolCalls[i]})
 		}
 		// Copy the slice to avoid holding a reference to the provider's internal slice
 		state.lastToolCalls = make([]types.MessageToolCall, len(chunk.ToolCalls))
@@ -333,7 +346,7 @@ func (c *Conversation) emitStreamChunk(
 		for i := range chunk.PendingTools {
 			pct := buildPendingClientToolFromExecution(&chunk.PendingTools[i])
 			state.pendingTools = append(state.pendingTools, pct)
-			outCh <- StreamChunk{Type: ChunkClientTool, ClientTool: &pct}
+			sendChunk(ctx, outCh, StreamChunk{Type: ChunkClientTool, ClientTool: &pct})
 		}
 		if result, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
 			state.finalResult = result

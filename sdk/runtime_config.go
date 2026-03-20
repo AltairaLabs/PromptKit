@@ -160,9 +160,7 @@ func applyExecEvalHandlers(c *config, evalBindings map[string]*pkgconfig.ExecBin
 			Env:       binding.Env,
 			TimeoutMs: binding.TimeoutMs,
 		})
-		c.execEvalHandlers = append(c.execEvalHandlers, handler)
-
-		// Also register in eval registry (create if needed)
+		// Register in eval registry (create if needed)
 		if c.evalRegistry == nil {
 			c.evalRegistry = evals.NewEvalTypeRegistry()
 		}

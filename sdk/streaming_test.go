@@ -151,6 +151,39 @@ func TestStreamWhenClosed(t *testing.T) {
 	assert.NotEmpty(t, receivedChunks)
 }
 
+func TestStreamContextCancellation_NoGoroutineLeak(t *testing.T) {
+	// emitStreamChunk should respect context cancellation and not block
+	// when the consumer abandons the output channel.
+	conv := newTestConversation()
+
+	// Unbuffered channel — sends will block unless someone reads.
+	outCh := make(chan StreamChunk)
+	state := &streamState{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	providerChunk := &providers.StreamChunk{
+		Delta:   "hello",
+		Content: "hello",
+	}
+
+	// This must return promptly (context already cancelled) instead of
+	// blocking forever on the unbuffered channel send.
+	done := make(chan struct{})
+	go func() {
+		conv.emitStreamChunk(ctx, providerChunk, outCh, state)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success — emitStreamChunk returned without blocking.
+	case <-time.After(2 * time.Second):
+		t.Fatal("emitStreamChunk blocked on cancelled context — goroutine leak")
+	}
+}
+
 func TestStreamInDuplexMode(t *testing.T) {
 	conv := newTestConversation()
 	conv.mode = DuplexMode
@@ -219,7 +252,7 @@ func TestEmitStreamChunk(t *testing.T) {
 		Delta:   "test",
 	}
 
-	conv.emitStreamChunk(&providerChunk, out, &streamState{})
+	conv.emitStreamChunk(context.Background(), &providerChunk, out, &streamState{})
 
 	close(out)
 	chunks := []StreamChunk{}
@@ -610,7 +643,7 @@ func TestEmitStreamChunk_ClientTool(t *testing.T) {
 		},
 	}
 
-	conv.emitStreamChunk(providerChunk, outCh, state)
+	conv.emitStreamChunk(context.Background(), providerChunk, outCh, state)
 	close(outCh)
 
 	var chunks []StreamChunk
@@ -672,7 +705,7 @@ func TestEmitStreamChunk_NormalFinish(t *testing.T) {
 		FinishReason: &finishReason,
 	}
 
-	conv.emitStreamChunk(providerChunk, outCh, state)
+	conv.emitStreamChunk(context.Background(), providerChunk, outCh, state)
 	close(outCh)
 
 	var chunks []StreamChunk
