@@ -3,7 +3,7 @@
 // This example shows:
 //   - Opening a duplex session with video streaming enabled
 //   - Sending image frames using SendFrame()
-//   - Image preprocessing with WithAutoResize
+//   - Frame rate limiting with WithStreamingVideo
 //   - Receiving streaming responses from vision models
 //
 // This simulates a webcam or screen capture scenario where frames are
@@ -64,8 +64,14 @@ func main() {
 				Type: types.ContentTypeImage,
 			},
 		}),
-		// Image preprocessing: auto-resize to 1024x1024
-		sdk.WithAutoResize(1024, 1024),
+		// Configure video streaming: 1 FPS, auto-resize to 1024x1024
+		sdk.WithStreamingVideo(&sdk.VideoStreamConfig{
+			TargetFPS:    1.0, // 1 frame per second for LLM processing
+			MaxWidth:     1024,
+			MaxHeight:    1024,
+			Quality:      85,
+			EnableResize: true,
+		}),
 	)
 	if err != nil {
 		log.Fatalf("Failed to open duplex session: %v", err)

@@ -34,6 +34,12 @@ const (
 	defaultVADSampleRate        = 16000
 )
 
+// Video streaming default configuration constants.
+const (
+	defaultVideoStreamFPS     = 1.0
+	defaultVideoStreamQuality = 85
+)
+
 // config holds the configuration for a conversation.
 // It is populated by Option functions passed to Open.
 type config struct {
@@ -106,6 +112,9 @@ type config struct {
 	// TTS configuration for Pipeline middleware
 	ttsService tts.Service
 
+	// Audio session configuration for Pipeline middleware
+	turnDetector audio.TurnDetector
+
 	// Streaming configuration for duplex mode
 	// If set: ASM mode (audio streaming model with continuous bidirectional streaming)
 	// If nil: VAD mode (voice activity detection with turn-based streaming)
@@ -121,6 +130,10 @@ type config struct {
 	// Image preprocessing configuration
 	// When set, images are preprocessed (resized, optimized) before sending to provider
 	imagePreprocessConfig *stage.ImagePreprocessConfig
+
+	// Video streaming configuration for realtime video in duplex sessions
+	// When set, enables frame rate limiting and preprocessing for video/image streams
+	videoStreamConfig *VideoStreamConfig
 
 	// ResponseFormat configures the LLM response format (JSON mode)
 	// When set, the provider will request responses in the specified format
@@ -247,6 +260,45 @@ func WithProvider(p providers.Provider) Option {
 		c.provider = p
 		return nil
 	}
+}
+
+// CredentialOption configures credentials for a provider.
+type CredentialOption interface {
+	applyCredential(*credentialConfig)
+}
+
+// credentialConfig holds credential configuration.
+type credentialConfig struct {
+	apiKey         string
+	credentialFile string
+	credentialEnv  string
+}
+
+type credentialOptionFunc func(*credentialConfig)
+
+func (f credentialOptionFunc) applyCredential(c *credentialConfig) {
+	f(c)
+}
+
+// WithCredentialAPIKey sets an explicit API key.
+func WithCredentialAPIKey(key string) CredentialOption {
+	return credentialOptionFunc(func(c *credentialConfig) {
+		c.apiKey = key
+	})
+}
+
+// WithCredentialFile sets a credential file path.
+func WithCredentialFile(path string) CredentialOption {
+	return credentialOptionFunc(func(c *credentialConfig) {
+		c.credentialFile = path
+	})
+}
+
+// WithCredentialEnv sets an environment variable name for the credential.
+func WithCredentialEnv(envVar string) CredentialOption {
+	return credentialOptionFunc(func(c *credentialConfig) {
+		c.credentialEnv = envVar
+	})
 }
 
 // PlatformOption configures a platform for a provider.
@@ -1272,6 +1324,20 @@ func WithTTS(service tts.Service) Option {
 	}
 }
 
+// WithTurnDetector configures turn detection for the Pipeline.
+//
+// Turn detectors determine when a user has finished speaking in audio sessions.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
+//	    sdk.WithTurnDetector(audio.NewSilenceDetector(500 * time.Millisecond)),
+//	)
+func WithTurnDetector(detector audio.TurnDetector) Option {
+	return func(c *config) error {
+		c.turnDetector = detector
+		return nil
+	}
+}
+
 // WithStreamingConfig configures streaming for duplex mode.
 // When set, enables ASM (Audio Streaming Model) mode with continuous bidirectional streaming.
 // When nil (default), uses VAD (Voice Activity Detection) mode with turn-based streaming.
@@ -1518,6 +1584,87 @@ func WithJSONMode() Option {
 		c.responseFormat = &providers.ResponseFormat{
 			Type: providers.ResponseFormatJSON,
 		}
+		return nil
+	}
+}
+
+// VideoStreamConfig configures realtime video/image streaming for duplex sessions.
+// This enables webcam feeds, screen sharing, and continuous frame analysis.
+type VideoStreamConfig struct {
+	// TargetFPS is the target frame rate for streaming.
+	// Frames exceeding this rate will be dropped.
+	// Default: 1.0 (one frame per second, suitable for most LLM vision scenarios)
+	TargetFPS float64
+
+	// MaxWidth is the maximum frame width in pixels.
+	// Frames larger than this are resized. 0 means no limit.
+	// Default: 0 (no resizing)
+	MaxWidth int
+
+	// MaxHeight is the maximum frame height in pixels.
+	// Frames larger than this are resized. 0 means no limit.
+	// Default: 0 (no resizing)
+	MaxHeight int
+
+	// Quality is the JPEG compression quality (1-100) for frame encoding.
+	// Higher values = better quality, larger size.
+	// Default: 85
+	Quality int
+
+	// EnableResize enables automatic frame resizing when dimensions exceed limits.
+	// Default: true (resizing enabled when MaxWidth/MaxHeight are set)
+	EnableResize bool
+}
+
+// DefaultVideoStreamConfig returns sensible defaults for video streaming.
+func DefaultVideoStreamConfig() *VideoStreamConfig {
+	return &VideoStreamConfig{
+		TargetFPS:    defaultVideoStreamFPS,
+		MaxWidth:     0,
+		MaxHeight:    0,
+		Quality:      defaultVideoStreamQuality,
+		EnableResize: true,
+	}
+}
+
+// WithStreamingVideo enables realtime video/image streaming for duplex sessions.
+// This is used for webcam feeds, screen sharing, and continuous frame analysis.
+//
+// The FrameRateLimitStage is added to the pipeline when TargetFPS > 0, dropping
+// frames to maintain the target frame rate for LLM processing.
+//
+// Example with defaults (1 FPS):
+//
+//	session, _ := sdk.OpenDuplex("./assistant.pack.json", "vision-chat",
+//	    sdk.WithStreamingVideo(nil), // Use default settings
+//	)
+//
+// Example with custom config:
+//
+//	session, _ := sdk.OpenDuplex("./assistant.pack.json", "vision-chat",
+//	    sdk.WithStreamingVideo(&sdk.VideoStreamConfig{
+//	        TargetFPS:  2.0,      // 2 frames per second
+//	        MaxWidth:   1280,     // Resize large frames
+//	        MaxHeight:  720,
+//	        Quality:    80,
+//	    }),
+//	)
+//
+// Sending frames:
+//
+//	for frame := range webcam.Frames() {
+//	    session.SendFrame(ctx, &session.ImageFrame{
+//	        Data:      frame.JPEG(),
+//	        MIMEType:  "image/jpeg",
+//	        Timestamp: time.Now(),
+//	    })
+//	}
+func WithStreamingVideo(cfg *VideoStreamConfig) Option {
+	return func(c *config) error {
+		if cfg == nil {
+			cfg = DefaultVideoStreamConfig()
+		}
+		c.videoStreamConfig = cfg
 		return nil
 	}
 }
