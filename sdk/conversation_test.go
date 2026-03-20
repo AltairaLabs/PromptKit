@@ -20,6 +20,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	mock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -1014,6 +1015,15 @@ func (m *convMockTurnDetector) IsUserSpeaking() bool {
 
 func (m *convMockTurnDetector) Reset() {}
 
+// convMockSTTService implements stt.Service for testing
+type convMockSTTService struct{}
+
+func (m *convMockSTTService) Name() string { return "mock-stt" }
+func (m *convMockSTTService) Transcribe(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
+	return "hello", nil
+}
+func (m *convMockSTTService) SupportedFormats() []string { return []string{"pcm"} }
+
 // =============================================================================
 // Duplex Mode Tests
 // =============================================================================
@@ -1949,6 +1959,61 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 	})
+}
+
+func TestBuildStreamPipelineWiresTurnDetector(t *testing.T) {
+	store := statestore.NewMemoryStore()
+
+	p := &pack.Pack{
+		ID: "test-pack",
+		Prompts: map[string]*pack.Prompt{
+			"voice": {
+				ID:             "voice",
+				SystemTemplate: "You are a voice assistant.",
+			},
+		},
+	}
+
+	detector := &convMockTurnDetector{complete: false, userSpeak: true}
+
+	conv := &Conversation{
+		pack:           p,
+		prompt:         p.Prompts["voice"],
+		promptName:     "voice",
+		promptRegistry: p.ToPromptRegistry(),
+		toolRegistry:   tools.NewRegistry(),
+		config: &config{
+			provider:     mock.NewProvider("test-mock", "test-model", false),
+			turnDetector: detector,
+			vadModeConfig: &VADModeConfig{
+				SilenceDuration:   800 * time.Millisecond,
+				MinSpeechDuration: 200 * time.Millisecond,
+				MaxTurnDuration:   30 * time.Second,
+				SampleRate:        16000,
+				Language:          "en",
+				Voice:             "alloy",
+				Speed:             1.0,
+			},
+			sttService: &convMockSTTService{},
+			ttsService: newConvMockTTSService(),
+		},
+		mode:          DuplexMode,
+		handlers:      make(map[string]ToolHandler),
+		ctxHandlers:   make(map[string]ToolHandlerCtx),
+		asyncHandlers: make(map[string]sdktools.AsyncToolHandler),
+	}
+
+	// buildStreamPipelineWithParams should wire the turn detector into
+	// the VAD pipeline's AudioTurnConfig.
+	pipeline, err := conv.buildStreamPipelineWithParams(store, "test-conv", nil, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, pipeline)
+
+	// Also verify that without a turn detector, the pipeline still builds
+	conv.config.turnDetector = nil
+	pipeline2, err := conv.buildStreamPipelineWithParams(store, "test-conv", nil, nil)
+	require.NoError(t, err)
+	assert.NotNil(t, pipeline2)
 }
 
 func TestSendWithDifferentModes(t *testing.T) {

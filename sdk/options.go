@@ -47,9 +47,10 @@ type config struct {
 	promptName string
 
 	// Provider configuration
-	provider providers.Provider
-	apiKey   string
-	model    string
+	provider   providers.Provider
+	apiKey     string
+	model      string
+	credential *credentialConfig
 
 	// State management
 	stateStore     statestore.Store
@@ -299,6 +300,42 @@ func WithCredentialEnv(envVar string) CredentialOption {
 	return credentialOptionFunc(func(c *credentialConfig) {
 		c.credentialEnv = envVar
 	})
+}
+
+// WithCredential configures advanced credential resolution for the provider.
+//
+// This is the advanced form of credential configuration. For simple API key
+// usage, prefer [WithAPIKey]. When both WithCredential and WithAPIKey are set,
+// WithCredential takes precedence.
+//
+// Credential resolution priority: direct API key > environment variable > file.
+//
+// Example with environment variable:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithCredential(sdk.WithCredentialEnv("MY_SERVICE_API_KEY")),
+//	)
+//
+// Example with file:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithCredential(sdk.WithCredentialFile("/run/secrets/api-key")),
+//	)
+//
+// Example with direct key (equivalent to WithAPIKey):
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithCredential(sdk.WithCredentialAPIKey("sk-...")),
+//	)
+func WithCredential(opts ...CredentialOption) Option {
+	return func(c *config) error {
+		cc := &credentialConfig{}
+		for _, opt := range opts {
+			opt.applyCredential(cc)
+		}
+		c.credential = cc
+		return nil
+	}
 }
 
 // PlatformOption configures a platform for a provider.

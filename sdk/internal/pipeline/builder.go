@@ -126,6 +126,10 @@ type Config struct {
 	// When non-nil, ImagePreprocessStage is added before the provider stage
 	ImagePreprocessConfig *stage.ImagePreprocessConfig
 
+	// VideoStreamConfig configures frame rate limiting for realtime video streaming.
+	// When non-nil and TargetFPS > 0, a FrameRateLimitStage is added before the provider stage.
+	VideoStreamConfig *stage.FrameRateLimitConfig
+
 	// EventEmitter for emitting provider call events (optional)
 	// When provided, ProviderStage will emit ProviderCallStarted/Completed/Failed events
 	EventEmitter *events.Emitter
@@ -272,6 +276,11 @@ func collectPipelineStages(
 	// 4.6 Image preprocessing stage - resize/optimize images before provider
 	if cfg.ImagePreprocessConfig != nil {
 		stages = append(stages, stage.NewImagePreprocessStage(*cfg.ImagePreprocessConfig))
+	}
+
+	// 4.7 Frame rate limiting stage - drop excess video/image frames before provider
+	if cfg.VideoStreamConfig != nil && cfg.VideoStreamConfig.TargetFPS > 0 {
+		stages = append(stages, stage.NewFrameRateLimitStage(*cfg.VideoStreamConfig))
 	}
 
 	// 5. Provider stage - LLM calls with streaming and tool support

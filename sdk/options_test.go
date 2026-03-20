@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -670,6 +671,105 @@ func TestWithCredentialEnv(t *testing.T) {
 	cfg := &credentialConfig{}
 	opt.applyCredential(cfg)
 	assert.Equal(t, "MY_API_KEY_VAR", cfg.credentialEnv)
+}
+
+func TestWithCredential(t *testing.T) {
+	t.Run("stores credential config", func(t *testing.T) {
+		opt := WithCredential(WithCredentialAPIKey("sk-from-credential"))
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.credential)
+		assert.Equal(t, "sk-from-credential", cfg.credential.apiKey)
+	})
+
+	t.Run("multiple credential options", func(t *testing.T) {
+		opt := WithCredential(
+			WithCredentialAPIKey("sk-key"),
+			WithCredentialEnv("MY_VAR"),
+		)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		require.NotNil(t, cfg.credential)
+		assert.Equal(t, "sk-key", cfg.credential.apiKey)
+		assert.Equal(t, "MY_VAR", cfg.credential.credentialEnv)
+	})
+}
+
+func TestResolveCredentialAPIKey(t *testing.T) {
+	t.Run("direct API key", func(t *testing.T) {
+		cc := &credentialConfig{apiKey: "sk-direct"}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-direct", key)
+	})
+
+	t.Run("env var", func(t *testing.T) {
+		t.Setenv("TEST_CREDENTIAL_KEY", "sk-from-env")
+		cc := &credentialConfig{credentialEnv: "TEST_CREDENTIAL_KEY"}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-from-env", key)
+	})
+
+	t.Run("env var not set", func(t *testing.T) {
+		cc := &credentialConfig{credentialEnv: "TEST_CREDENTIAL_KEY_NONEXISTENT"}
+		_, err := resolveCredentialAPIKey(cc)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not set or empty")
+	})
+
+	t.Run("file", func(t *testing.T) {
+		tmpFile := t.TempDir() + "/api-key.txt"
+		err := os.WriteFile(tmpFile, []byte("sk-from-file\n"), 0o600)
+		require.NoError(t, err)
+
+		cc := &credentialConfig{credentialFile: tmpFile}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-from-file", key)
+	})
+
+	t.Run("file not found", func(t *testing.T) {
+		cc := &credentialConfig{credentialFile: "/nonexistent/path/key.txt"}
+		_, err := resolveCredentialAPIKey(cc)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read credential file")
+	})
+
+	t.Run("priority: api key over env", func(t *testing.T) {
+		t.Setenv("TEST_CREDENTIAL_KEY_PRIORITY", "sk-from-env")
+		cc := &credentialConfig{
+			apiKey:        "sk-direct",
+			credentialEnv: "TEST_CREDENTIAL_KEY_PRIORITY",
+		}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-direct", key)
+	})
+
+	t.Run("priority: env over file", func(t *testing.T) {
+		t.Setenv("TEST_CREDENTIAL_KEY_PRIORITY2", "sk-from-env")
+		tmpFile := t.TempDir() + "/api-key.txt"
+		err := os.WriteFile(tmpFile, []byte("sk-from-file"), 0o600)
+		require.NoError(t, err)
+
+		cc := &credentialConfig{
+			credentialEnv:  "TEST_CREDENTIAL_KEY_PRIORITY2",
+			credentialFile: tmpFile,
+		}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "sk-from-env", key)
+	})
+
+	t.Run("empty config returns empty", func(t *testing.T) {
+		cc := &credentialConfig{}
+		key, err := resolveCredentialAPIKey(cc)
+		assert.NoError(t, err)
+		assert.Equal(t, "", key)
+	})
 }
 
 // Platform option tests

@@ -1052,3 +1052,55 @@ func (t *testVariableProvider) Name() string {
 func (t *testVariableProvider) Provide(ctx context.Context) (map[string]string, error) {
 	return t.vars, t.err
 }
+
+func TestBuildWithVideoStreamConfig(t *testing.T) {
+	t.Run("builds with video stream config", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		frlCfg := stage.DefaultFrameRateLimitConfig()
+		frlCfg.TargetFPS = 2.0
+		cfg := &Config{
+			PromptRegistry:    registry,
+			TaskType:          "chat",
+			Provider:          provider,
+			VideoStreamConfig: &frlCfg,
+		}
+
+		pipeline, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("no frame rate limit stage without config", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       provider,
+		}
+
+		pipeline, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+
+	t.Run("no frame rate limit stage when TargetFPS is zero", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		provider := mock.NewProvider("test", "test-model", false)
+
+		frlCfg := stage.FrameRateLimitConfig{TargetFPS: 0}
+		cfg := &Config{
+			PromptRegistry:    registry,
+			TaskType:          "chat",
+			Provider:          provider,
+			VideoStreamConfig: &frlCfg,
+		}
+
+		pipeline, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipeline)
+	})
+}

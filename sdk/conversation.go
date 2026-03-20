@@ -367,6 +367,7 @@ func (c *Conversation) buildPipelineConfig(
 		TruncationStrategy:    c.config.truncationStrategy,
 		RelevanceConfig:       c.buildRelevanceConfig(),
 		ImagePreprocessConfig: c.config.imagePreprocessConfig,
+		VideoStreamConfig:     c.buildVideoStreamConfig(),
 		EventEmitter:          eventEmitter,
 		ResponseFormat:        c.config.responseFormat,
 		ContextWindow:         c.config.contextWindow,
@@ -443,6 +444,12 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		// Convert SDK config to internal stage configs
 		vadCfg := c.config.vadModeConfig
 		audioTurnCfg := vadCfg.toAudioTurnConfig(interruptionHandler)
+
+		// Wire custom turn detector from WithTurnDetector option
+		if c.config.turnDetector != nil {
+			audioTurnCfg.TurnDetector = c.config.turnDetector
+		}
+
 		sttCfg := vadCfg.toSTTStageConfig()
 		ttsCfg := vadCfg.toTTSStageConfig(interruptionHandler)
 
@@ -1053,6 +1060,18 @@ func (c *Conversation) sessionInfo() (sessionID, conversationID string, messages
 		conversationID = c.config.conversationID
 	}
 	return sessionID, conversationID, messages
+}
+
+// buildVideoStreamConfig converts SDK VideoStreamConfig to stage.FrameRateLimitConfig.
+func (c *Conversation) buildVideoStreamConfig() *stage.FrameRateLimitConfig {
+	if c.config.videoStreamConfig == nil {
+		return nil
+	}
+	cfg := stage.DefaultFrameRateLimitConfig()
+	if c.config.videoStreamConfig.TargetFPS > 0 {
+		cfg.TargetFPS = c.config.videoStreamConfig.TargetFPS
+	}
+	return &cfg
 }
 
 // buildRelevanceConfig converts SDK RelevanceConfig to stage.RelevanceConfig.
