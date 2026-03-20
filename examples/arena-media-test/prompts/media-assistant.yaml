@@ -7,7 +7,7 @@ spec:
   version: "v1.0.0"
   description: "AI assistant that analyzes and generates media content including images, audio, and video"
 
-  system_template: ""
+  system_template: "You are a media analysis assistant. Analyze images, audio, and video content provided by the user."
 
   # Multimodal media configuration
   media:
