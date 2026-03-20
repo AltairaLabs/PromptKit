@@ -25,6 +25,7 @@ promptarena [command] [flags]
 | `render` | Generate HTML report from existing results |
 | `validate` | Validate configuration files |
 | `view` | View test results |
+| `export` | Export arena config as a PromptPack JSON file |
 | `deploy` | Deploy prompt packs to cloud providers via adapter plugins |
 | `skill` | Manage shared AgentSkills.io skills (install, list, remove) |
 | `completion` | Generate shell autocompletion script |
@@ -536,6 +537,50 @@ promptarena run --seed 12345
 # Same seed across runs produces same results
 promptarena run --seed 12345 --provider openai
 ```
+
+---
+
+## `promptarena export`
+
+Export an Arena configuration to a self-contained PromptPack JSON file. This compiles all prompt configs, tools, workflows, agents, and skills from the arena config into a single portable pack file.
+
+Uses the same compilation pipeline as `packc compile` but integrated into the promptarena CLI.
+
+### Usage
+
+```bash
+promptarena export [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-c, --config` | string | `config.arena.yaml` | Path to arena config file |
+| `-o, --output` | string | stdout | Output file path (omit for stdout) |
+| `--id` | string | folder name | Pack identifier |
+
+### Examples
+
+```bash
+# Export to stdout (pipe to other tools)
+promptarena export
+
+# Export to a file
+promptarena export -o my-pack.json
+
+# Export with a specific config and custom ID
+promptarena export -c arena.yaml -o packs/support.pack.json --id customer-support
+
+# Pipe to jq for inspection
+promptarena export | jq '.prompts | keys'
+```
+
+### Notes
+
+- The config must contain `prompt_configs` (inline prompts). Configs that reference pre-built pack files cannot be exported.
+- Schema validation is performed against the embedded PromptPack schema. Set `PROMPTKIT_SCHEMA_SOURCE=local` to use local schemas during development.
+- Skill validation and workflow validation are run automatically. Errors are fatal; warnings are printed to stderr.
 
 ---
 
