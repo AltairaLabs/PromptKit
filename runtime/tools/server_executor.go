@@ -30,6 +30,17 @@ const (
 //
 // Each tool gets its own subprocess, started lazily on first invocation.
 // Requests are serialized per-process to maintain request-response ordering.
+//
+// # Security: Trust Boundary
+//
+// The command and arguments used to start server processes come from pack
+// files (tool definitions) and runtime config files (YAML manifests). These
+// config files are the trust boundary: commands are not sandboxed, validated,
+// or restricted in any way. This is by design for maximum flexibility.
+//
+// Pack files and runtime config files MUST come from trusted sources.
+// Untrusted or unreviewed packs should never be loaded, as they can execute
+// arbitrary commands with the privileges of the host process.
 type ServerExecutor struct {
 	mu        sync.Mutex
 	processes map[string]*serverProcess

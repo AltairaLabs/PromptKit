@@ -64,37 +64,46 @@ func NewRegistryWithTTS(
 }
 
 // GetContentGenerator implements Provider interface
-// Returns a Generator for the given role and persona (cached for efficiency)
+// Returns a Generator for the given role and persona (cached for efficiency).
+// Uses double-check locking to prevent duplicate creation under concurrency.
 func (r *Registry) GetContentGenerator(role, personaID string) (Generator, error) {
 	cacheKey := CacheKey{Role: role, PersonaID: personaID}
 
-	// Check cache first
+	// Fast path: check cache under read lock
 	r.mu.RLock()
-	if cached, exists := r.userGenerators[cacheKey]; exists {
-		r.mu.RUnlock()
+	cached, exists := r.userGenerators[cacheKey]
+	r.mu.RUnlock()
 
-		// Track cache hit
+	if exists {
 		r.mu.Lock()
 		r.cacheHits++
 		r.mu.Unlock()
-
 		return cached, nil
 	}
-	r.mu.RUnlock()
 
-	// Track cache miss
+	// Slow path: acquire write lock and double-check before creating
 	r.mu.Lock()
+	// Re-check: another goroutine may have populated the cache between RUnlock and Lock
+	if cached, exists := r.userGenerators[cacheKey]; exists {
+		r.cacheHits++
+		r.mu.Unlock()
+		return cached, nil
+	}
 	r.cacheMisses++
 	r.mu.Unlock()
 
-	// Create new content generator
+	// Create new content generator (outside lock to avoid holding it during I/O)
 	contentGen, err := r.createContentGenerator(role, personaID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache the result
+	// Cache the result; if another goroutine raced us, keep the first entry
 	r.mu.Lock()
+	if existing, exists := r.userGenerators[cacheKey]; exists {
+		r.mu.Unlock()
+		return existing, nil
+	}
 	r.userGenerators[cacheKey] = contentGen
 	r.mu.Unlock()
 

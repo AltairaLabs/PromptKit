@@ -14,6 +14,17 @@ const execExecutorName = "exec"
 // ExecExecutor runs tool invocations as one-shot subprocesses.
 // The tool arguments are written as JSON to stdin; the subprocess result is read from stdout.
 // Stderr output is captured and logged on failure.
+//
+// # Security: Trust Boundary
+//
+// The command and arguments executed by ExecExecutor come from pack files
+// (tool definitions) and runtime config files (YAML manifests). These config
+// files are the trust boundary: commands are not sandboxed, validated, or
+// restricted in any way. This is by design for maximum flexibility.
+//
+// Pack files and runtime config files MUST come from trusted sources.
+// Untrusted or unreviewed packs should never be loaded, as they can execute
+// arbitrary commands with the privileges of the host process.
 type ExecExecutor struct{}
 
 // Name returns the executor name used for mode-based routing.

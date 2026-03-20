@@ -71,6 +71,15 @@ func WithRuntimeConfig(path string) Option {
 }
 
 // applyRuntimeConfig applies a RuntimeConfigSpec to the SDK config struct.
+//
+// # Security: Trust Boundary
+//
+// Runtime config files are a trust boundary. They may specify MCP server
+// commands, exec tool commands, and hook commands that are executed as
+// subprocesses without sandboxing or validation. Runtime config files MUST
+// come from trusted sources. Untrusted config files should never be loaded
+// without review, as they can execute arbitrary commands with the privileges
+// of the host process.
 func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	// Apply provider (use first provider if configured and no provider already set)
 	if len(spec.Providers) > 0 && c.provider == nil {

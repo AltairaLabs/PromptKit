@@ -260,14 +260,60 @@ func (c *Conversation) validateSendState() error {
 func (c *Conversation) buildUserMessage(message any) (*types.Message, error) {
 	switch m := message.(type) {
 	case string:
+		if err := c.validateMessageSize(len(m)); err != nil {
+			return nil, err
+		}
 		userMsg := &types.Message{Role: "user"}
 		userMsg.AddTextPart(m)
 		return userMsg, nil
 	case *types.Message:
+		if err := c.validateMessageSize(messageContentSize(m)); err != nil {
+			return nil, err
+		}
 		return m, nil
 	default:
 		return nil, fmt.Errorf("message must be string or *types.Message, got %T", message)
 	}
+}
+
+// maxMessageSize returns the configured maximum message size, falling back to the default.
+func (c *Conversation) maxMessageSize() int {
+	if c.config != nil && c.config.maxMessageSize > 0 {
+		return c.config.maxMessageSize
+	}
+	return defaultMaxMessageSize
+}
+
+// validateMessageSize checks whether the given size exceeds the configured limit.
+func (c *Conversation) validateMessageSize(size int) error {
+	if size > c.maxMessageSize() {
+		return fmt.Errorf("%w: %d bytes exceeds limit of %d bytes", ErrMessageTooLarge, size, c.maxMessageSize())
+	}
+	return nil
+}
+
+// messageContentSize returns the total content size of a message in bytes.
+// For text-only messages it returns len(Content). For multimodal messages it
+// sums the size of each part's text or data payload.
+func messageContentSize(msg *types.Message) int {
+	if len(msg.Parts) == 0 {
+		return len(msg.Content)
+	}
+	total := 0
+	for _, p := range msg.Parts {
+		switch p.Type {
+		case types.ContentTypeText:
+			if p.Text != nil {
+				total += len(*p.Text)
+			}
+		default:
+			// For binary parts, count the data payload (base64 or raw).
+			if p.Media != nil && p.Media.Data != nil {
+				total += len(*p.Media.Data)
+			}
+		}
+	}
+	return total
 }
 
 // applyOptionsToMessage applies send options and adds content parts to the message.
@@ -299,7 +345,15 @@ func (c *Conversation) buildPipelineConfig(
 		}
 	}
 
-	// Snapshot handler maps under lock to avoid races, then release before I/O.
+	// Snapshot handler maps and build tool registry under a single lock to avoid
+	// a TOCTOU window between the snapshot and executor registration.
+	c.clientHandlersMu.RLock()
+	clientHandlersCopy := make(map[string]ClientToolHandler, len(c.clientHandlers))
+	for k, v := range c.clientHandlers {
+		clientHandlersCopy[k] = v
+	}
+	c.clientHandlersMu.RUnlock()
+
 	c.handlersMu.Lock()
 	handlersCopy := make(map[string]ToolHandler, len(c.handlers))
 	for k, v := range c.handlers {
@@ -309,18 +363,7 @@ func (c *Conversation) buildPipelineConfig(
 	for k, v := range c.ctxHandlers {
 		ctxHandlersCopy[k] = v
 	}
-	c.handlersMu.Unlock()
 
-	c.clientHandlersMu.RLock()
-	clientHandlersCopy := make(map[string]ClientToolHandler, len(c.clientHandlers))
-	for k, v := range c.clientHandlers {
-		clientHandlersCopy[k] = v
-	}
-	c.clientHandlersMu.RUnlock()
-
-	// Build tool registry — uses write lock because RegisterExecutor/RegisterTools mutate state.
-	// Handler map copies are used so the executor doesn't alias the Conversation's live maps.
-	c.handlersMu.Lock()
 	localExec := &localExecutor{handlers: handlersCopy, ctxHandlers: ctxHandlersCopy}
 	c.toolRegistry.RegisterExecutor(localExec)
 

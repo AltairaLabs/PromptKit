@@ -154,9 +154,15 @@ func (c *Conversation) buildStreamMessage(message any, opts []SendOption) (*type
 	var userMsg *types.Message
 	switch m := message.(type) {
 	case string:
+		if err := c.validateMessageSize(len(m)); err != nil {
+			return nil, err
+		}
 		userMsg = &types.Message{Role: "user"}
 		userMsg.AddTextPart(m)
 	case *types.Message:
+		if err := c.validateMessageSize(messageContentSize(m)); err != nil {
+			return nil, err
+		}
 		userMsg = m
 	default:
 		return nil, fmt.Errorf("message must be string or *types.Message, got %T", message)

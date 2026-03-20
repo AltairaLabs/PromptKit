@@ -529,6 +529,169 @@ func TestExtractValidations_TurnIndexCountsUserMessages(t *testing.T) {
 	}
 }
 
+func TestDeepCloneValue_MapStringString(t *testing.T) {
+	store := NewArenaStateStore()
+
+	original := map[string]string{"a": "1", "b": "2"}
+	cloned := store.deepCloneValue(original)
+
+	clonedMap, ok := cloned.(map[string]string)
+	if !ok {
+		t.Fatal("Expected map[string]string")
+	}
+
+	if clonedMap["a"] != "1" || clonedMap["b"] != "2" {
+		t.Errorf("Cloned map has wrong values: %v", clonedMap)
+	}
+
+	// Mutate original and verify clone is unaffected
+	original["a"] = "mutated"
+	original["c"] = "new"
+	if clonedMap["a"] != "1" {
+		t.Error("Clone was affected by original mutation")
+	}
+	if _, exists := clonedMap["c"]; exists {
+		t.Error("Clone was affected by adding key to original")
+	}
+}
+
+func TestDeepCloneValue_SliceInt(t *testing.T) {
+	store := NewArenaStateStore()
+
+	original := []int{1, 2, 3}
+	cloned := store.deepCloneValue(original)
+
+	clonedSlice, ok := cloned.([]int)
+	if !ok {
+		t.Fatal("Expected []int")
+	}
+
+	if len(clonedSlice) != 3 || clonedSlice[0] != 1 || clonedSlice[1] != 2 || clonedSlice[2] != 3 {
+		t.Errorf("Cloned slice has wrong values: %v", clonedSlice)
+	}
+
+	// Mutate original
+	original[0] = 99
+	if clonedSlice[0] != 1 {
+		t.Error("Clone was affected by original mutation")
+	}
+}
+
+func TestDeepCloneValue_SliceFloat64(t *testing.T) {
+	store := NewArenaStateStore()
+
+	original := []float64{1.1, 2.2, 3.3}
+	cloned := store.deepCloneValue(original)
+
+	clonedSlice, ok := cloned.([]float64)
+	if !ok {
+		t.Fatal("Expected []float64")
+	}
+
+	if len(clonedSlice) != 3 || clonedSlice[0] != 1.1 {
+		t.Errorf("Cloned slice has wrong values: %v", clonedSlice)
+	}
+
+	original[0] = 99.9
+	if clonedSlice[0] != 1.1 {
+		t.Error("Clone was affected by original mutation")
+	}
+}
+
+func TestDeepCloneValue_SliceBool(t *testing.T) {
+	store := NewArenaStateStore()
+
+	original := []bool{true, false, true}
+	cloned := store.deepCloneValue(original)
+
+	clonedSlice, ok := cloned.([]bool)
+	if !ok {
+		t.Fatal("Expected []bool")
+	}
+
+	if len(clonedSlice) != 3 || !clonedSlice[0] || clonedSlice[1] || !clonedSlice[2] {
+		t.Errorf("Cloned slice has wrong values: %v", clonedSlice)
+	}
+
+	original[0] = false
+	if !clonedSlice[0] {
+		t.Error("Clone was affected by original mutation")
+	}
+}
+
+func TestDeepCloneValue_MapInterfaceInterface(t *testing.T) {
+	store := NewArenaStateStore()
+
+	original := map[interface{}]interface{}{
+		"key1": "value1",
+		42:     "numeric_key",
+	}
+	cloned := store.deepCloneValue(original)
+
+	clonedMap, ok := cloned.(map[interface{}]interface{})
+	if !ok {
+		t.Fatal("Expected map[interface{}]interface{}")
+	}
+
+	if clonedMap["key1"] != "value1" || clonedMap[42] != "numeric_key" {
+		t.Errorf("Cloned map has wrong values: %v", clonedMap)
+	}
+
+	original["key1"] = "mutated"
+	if clonedMap["key1"] != "value1" {
+		t.Error("Clone was affected by original mutation")
+	}
+}
+
+func TestDeepCloneValue_UnknownCompositeType_JSONFallback(t *testing.T) {
+	store := NewArenaStateStore()
+
+	// Use a struct type that's not explicitly handled
+	type customStruct struct {
+		Name  string `json:"name"`
+		Value int    `json:"value"`
+	}
+
+	original := &customStruct{Name: "test", Value: 42}
+	cloned := store.deepCloneValue(original)
+
+	// JSON round-trip produces map[string]interface{}, not the original struct
+	clonedMap, ok := cloned.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected JSON round-trip to produce map[string]interface{}, got %T", cloned)
+	}
+	if clonedMap["name"] != "test" {
+		t.Errorf("Expected name 'test', got %v", clonedMap["name"])
+	}
+
+	// Mutate original and verify clone is unaffected
+	original.Name = "mutated"
+	if clonedMap["name"] != "test" {
+		t.Error("Clone was affected by original mutation")
+	}
+}
+
+func TestDeepCloneValue_PrimitiveTypes(t *testing.T) {
+	store := NewArenaStateStore()
+
+	// Primitives should be returned as-is
+	if store.deepCloneValue(42) != 42 {
+		t.Error("int should be returned as-is")
+	}
+	if store.deepCloneValue("hello") != "hello" {
+		t.Error("string should be returned as-is")
+	}
+	if store.deepCloneValue(3.14) != 3.14 {
+		t.Error("float64 should be returned as-is")
+	}
+	if store.deepCloneValue(true) != true {
+		t.Error("bool should be returned as-is")
+	}
+	if store.deepCloneValue(nil) != nil {
+		t.Error("nil should be returned as nil")
+	}
+}
+
 func TestBuildConversationAssertionsSummary(t *testing.T) {
 	t.Run("nil results is vacuous pass", func(t *testing.T) {
 		summary := buildConversationAssertionsSummary(nil)

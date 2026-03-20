@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
 const (
@@ -180,103 +178,16 @@ func (e *ScriptedExecutor) executeStreamingPipeline(
 	e.forwardStageElements(outputChan, messages, outChan)
 }
 
-// buildStreamingStages constructs the stage pipeline for streaming
+// buildStreamingStages constructs the stage pipeline for streaming.
+// Delegates to the shared buildCommonStreamingStages with scripted-specific options.
 func (e *ScriptedExecutor) buildStreamingStages(req *TurnRequest) (*stage.StreamPipeline, error) {
-	baseVariables := buildBaseVariables(req.Region)
-	mergedVars := map[string]string{}
-	for k, v := range baseVariables {
-		mergedVars[k] = v
-	}
-	for k, v := range req.PromptVars {
-		mergedVars[k] = v
-	}
-
-	builder := stage.NewPipelineBuilder()
-	var stages []stage.Stage
-
-	// StateStore Load stage
-	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
-		storeConfig := &pipeline.StateStoreConfig{
-			Store:          req.StateStoreConfig.Store,
-			ConversationID: req.ConversationID,
-			UserID:         req.StateStoreConfig.UserID,
-			Metadata:       req.StateStoreConfig.Metadata,
-		}
-		stages = append(stages, stage.NewStateStoreLoadStage(storeConfig))
-	}
-
-	// Variable injection
-	stages = append(stages, arenastages.NewVariableInjectionStage(mergedVars))
-	if len(req.Metadata) > 0 {
-		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
-	}
-
-	// Prompt assembly, context extraction, and template stages
-	stages = append(stages,
-		stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars),
-		arenastages.NewScenarioContextExtractionStage(req.Scenario),
-		stage.NewTemplateStage(),
-	)
-
-	// Mock scenario context (for mock providers only)
-	if isMockProvider(req.Provider) {
-		stages = append(stages, arenastages.NewMockScenarioContextStage(req.Scenario))
-	}
-
-	// Context builder (if policy exists)
-	if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
-		stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
-	}
-
-	// Provider stage
-	providerConfig := &stage.ProviderConfig{
-		MaxTokens:   req.MaxTokens,
-		Temperature: float32(req.Temperature),
-		Seed:        req.Seed,
-	}
-
-	stages = append(stages,
-		stage.NewProviderStage(
-			req.Provider, e.pipelineExecutor.toolRegistry, buildToolPolicy(req.Scenario), providerConfig),
-	)
-
-	// Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
-	stages = append(stages, arenastages.NewGuardrailEvalStage())
-
-	// Media externalization stage
-	if e.pipelineExecutor.mediaStorage != nil {
-		mediaConfig := &stage.MediaExternalizerConfig{
-			Enabled:         true,
-			StorageService:  e.pipelineExecutor.mediaStorage,
-			SizeThresholdKB: mediaExternalizerThresholdKB,
-			DefaultPolicy:   "retain",
-			RunID:           req.ConversationID,
-			ConversationID:  req.ConversationID,
-		}
-		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
-	}
-
-	// Assertion stage - must run before state store save
-	if len(req.Assertions) > 0 {
-		assertionStage := arenastages.NewArenaAssertionStage(req.Assertions)
-		if runner, ok := req.TurnEvalRunner.(arenastages.TurnEvalRunner); ok {
-			assertionStage.WithTurnEvalRunner(runner, req.ConversationID)
-		}
-		stages = append(stages, assertionStage)
-	}
-
-	// Arena state store save - saves messages with assertion metadata
-	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
-		storeConfig := &pipeline.StateStoreConfig{
-			Store:          req.StateStoreConfig.Store,
-			ConversationID: req.ConversationID,
-			UserID:         req.StateStoreConfig.UserID,
-			Metadata:       req.StateStoreConfig.Metadata,
-		}
-		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
-	}
-
-	return builder.Chain(stages...).Build()
+	return e.pipelineExecutor.buildCommonStreamingStages(req, StreamingStagesConfig{
+		IncludeScenarioContextExtraction: true,
+		IncludeGuardrailEval:             true,
+		IncludeMediaExternalizer:         true,
+		IncludeAssertions:                true,
+		UseArenaStateStoreSave:           true,
+	})
 }
 
 // extractFinishReason extracts finish reason from element metadata.

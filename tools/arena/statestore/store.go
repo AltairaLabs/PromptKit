@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -581,6 +582,18 @@ func (s *ArenaStateStore) deepCloneValue(v interface{}) interface{} {
 			cloned[k] = s.deepCloneValue(v2)
 		}
 		return cloned
+	case map[string]string:
+		cloned := make(map[string]string, len(val))
+		for k, v2 := range val {
+			cloned[k] = v2
+		}
+		return cloned
+	case map[interface{}]interface{}:
+		cloned := make(map[interface{}]interface{}, len(val))
+		for k, v2 := range val {
+			cloned[k] = s.deepCloneValue(v2)
+		}
+		return cloned
 	case []interface{}:
 		cloned := make([]interface{}, len(val))
 		for i, v2 := range val {
@@ -591,13 +604,53 @@ func (s *ArenaStateStore) deepCloneValue(v interface{}) interface{} {
 		cloned := make([]string, len(val))
 		copy(cloned, val)
 		return cloned
+	case []int:
+		cloned := make([]int, len(val))
+		copy(cloned, val)
+		return cloned
+	case []float64:
+		cloned := make([]float64, len(val))
+		copy(cloned, val)
+		return cloned
+	case []bool:
+		cloned := make([]bool, len(val))
+		copy(cloned, val)
+		return cloned
 	case json.RawMessage:
 		return append(json.RawMessage(nil), val...)
 	default:
 		// For primitive types (string, int, float, bool, etc.), direct assignment is fine
-		// since they're copied by value
+		// since they're copied by value.
+		// For unknown composite types, use JSON round-trip as a safe fallback.
+		if isCompositeValue(v) {
+			return jsonRoundTripClone(v)
+		}
 		return v
 	}
+}
+
+// isCompositeValue checks if a value is a composite type (slice, map, or pointer)
+// that would be shared by reference if not deep-cloned.
+func isCompositeValue(v interface{}) bool {
+	if v == nil {
+		return false
+	}
+	kind := reflect.TypeOf(v).Kind()
+	return kind == reflect.Slice || kind == reflect.Map || kind == reflect.Ptr
+}
+
+// jsonRoundTripClone performs a JSON marshal/unmarshal round-trip to deep clone
+// unknown composite types. Returns the original value if round-trip fails.
+func jsonRoundTripClone(v interface{}) interface{} {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var cloned interface{}
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return v
+	}
+	return cloned
 }
 
 // Load retrieves conversation state (implements Store interface)

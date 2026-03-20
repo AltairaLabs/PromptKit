@@ -1249,3 +1249,29 @@ func TestWithSessionMetadata(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, meta, cfg.sessionMetadata)
 }
+
+func TestWithMaxMessageSize(t *testing.T) {
+	t.Run("sets size", func(t *testing.T) {
+		opt := WithMaxMessageSize(1024 * 1024)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.NoError(t, err)
+		assert.Equal(t, 1024*1024, cfg.maxMessageSize)
+	})
+
+	t.Run("rejects zero", func(t *testing.T) {
+		opt := WithMaxMessageSize(0)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "must be positive")
+	})
+
+	t.Run("rejects negative", func(t *testing.T) {
+		opt := WithMaxMessageSize(-1)
+		cfg := &config{}
+		err := opt(cfg)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "must be positive")
+	})
+}
