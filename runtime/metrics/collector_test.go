@@ -192,6 +192,7 @@ func TestMetricContext_ProviderCallCompleted(t *testing.T) {
 			OutputTokens: 50,
 			CachedTokens: 10,
 			Cost:         0.005,
+			Source:       events.SourceAgent,
 		},
 	})
 
@@ -206,6 +207,7 @@ func TestMetricContext_ProviderCallCompleted(t *testing.T) {
 		"test_provider_cost_total",
 		`provider="openai"`,
 		`model="gpt-4o"`,
+		`source="agent"`,
 	}
 	for _, check := range checks {
 		if !strings.Contains(output, check) {
@@ -224,6 +226,7 @@ func TestMetricContext_ProviderCallFailed(t *testing.T) {
 			Provider: "anthropic",
 			Model:    "claude-3",
 			Duration: 200 * time.Millisecond,
+			Source:   events.SourceAgent,
 		},
 	})
 

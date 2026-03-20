@@ -95,9 +95,11 @@ func (e *SelfPlayExecutor) generateUserMessage(
 	}
 
 	// Build generator options from turn request metadata
-	var genOpts *selfplay.GeneratorOptions
+	genOpts := &selfplay.GeneratorOptions{
+		Emitter: emitterFromRequest(req),
+	}
 	if nt, ok := req.Metadata["natural_termination_enabled"].(bool); ok && nt {
-		genOpts = &selfplay.GeneratorOptions{NaturalTerminationEnabled: true}
+		genOpts.NaturalTerminationEnabled = true
 	}
 
 	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID, genOpts)
@@ -255,9 +257,11 @@ func (e *SelfPlayExecutor) generateUserMessageForStream(
 	}
 
 	// Build generator options from turn request metadata
-	var genOpts *selfplay.GeneratorOptions
+	genOpts := &selfplay.GeneratorOptions{
+		Emitter: emitterFromRequest(req),
+	}
 	if nt, ok := req.Metadata["natural_termination_enabled"].(bool); ok && nt {
-		genOpts = &selfplay.GeneratorOptions{NaturalTerminationEnabled: true}
+		genOpts.NaturalTerminationEnabled = true
 	}
 
 	execResult, err := contentGen.NextUserTurn(ctx, filteredHistory, req.Scenario.ID, genOpts)

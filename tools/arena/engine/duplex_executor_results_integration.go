@@ -54,8 +54,8 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 	convAssertionResults := de.evaluateConversationAssertions(ctx, req, messages)
 
 	// Run pack eval session-level evals if configured
-	if de.packEvalHook != nil && de.packEvalHook.HasEvals() {
-		packResults := de.packEvalHook.RunSessionEvals(
+	if de.evalOrchestrator != nil && de.evalOrchestrator.HasEvals() {
+		packResults := de.evalOrchestrator.RunSessionEvals(
 			ctx, messages, req.ConversationID)
 		convAssertionResults = append(convAssertionResults, packResults...)
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default eval handlers
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/media"
@@ -357,10 +358,21 @@ func (e *PipelineExecutor) handleExecutionError(provider providers.Provider, err
 	return fmt.Errorf("pipeline execution failed: %w", err)
 }
 
+// emitterFromRequest creates an event emitter from a TurnRequest's event bus.
+// Returns nil if no event bus is configured, which is safe — ProviderStage
+// treats a nil emitter as "no telemetry".
+func emitterFromRequest(req *TurnRequest) *events.Emitter {
+	if req.EventBus == nil {
+		return nil
+	}
+	return events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+}
+
 // buildProviderStage creates a provider stage, attaching hooks
 // for consent simulation and/or chaos injection when configured.
 func (e *PipelineExecutor) buildProviderStage(req *TurnRequest, providerConfig *stage.ProviderConfig) stage.Stage {
 	toolPolicy := buildToolPolicy(req.Scenario)
+	emitter := emitterFromRequest(req)
 
 	var toolHooks []hooks.ToolHook
 	if len(req.ConsentOverrides) > 0 {
@@ -376,9 +388,9 @@ func (e *PipelineExecutor) buildProviderStage(req *TurnRequest, providerConfig *
 			opts = append(opts, hooks.WithToolHook(h))
 		}
 		hookReg := hooks.NewRegistry(opts...)
-		return stage.NewProviderStageWithHooks(req.Provider, e.toolRegistry, toolPolicy, providerConfig, nil, hookReg)
+		return stage.NewProviderStageWithHooks(req.Provider, e.toolRegistry, toolPolicy, providerConfig, emitter, hookReg)
 	}
-	return stage.NewProviderStage(req.Provider, e.toolRegistry, toolPolicy, providerConfig)
+	return stage.NewProviderStageWithEmitter(req.Provider, e.toolRegistry, toolPolicy, providerConfig, emitter)
 }
 
 // Execute runs the conversation through the pipeline and returns the new messages generated.
@@ -513,8 +525,8 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	if cfg.UseHooksProvider {
 		stages = append(stages, e.buildProviderStage(req, providerConfig))
 	} else {
-		stages = append(stages, stage.NewProviderStage(
-			req.Provider, e.toolRegistry, buildToolPolicy(req.Scenario), providerConfig))
+		stages = append(stages, stage.NewProviderStageWithEmitter(
+			req.Provider, e.toolRegistry, buildToolPolicy(req.Scenario), providerConfig, emitterFromRequest(req)))
 	}
 
 	// Guardrail evaluation (scripted only)

@@ -202,6 +202,16 @@ type (
 
 // --- Provider call events (kept separate: each phase has very distinct fields) ---
 
+// ProviderCallSource constants identify the origin of a provider call.
+const (
+	// SourceAgent is the default source for regular agent pipeline calls.
+	SourceAgent = "agent"
+	// SourceJudge identifies calls made by LLM judge evaluations.
+	SourceJudge = "judge"
+	// SourceSelfPlay identifies calls made by the self-play user generator.
+	SourceSelfPlay = "selfplay"
+)
+
 // ProviderCallStartedData contains data for provider call start events.
 type ProviderCallStartedData struct {
 	baseEventData
@@ -209,6 +219,7 @@ type ProviderCallStartedData struct {
 	Model        string
 	MessageCount int
 	ToolCount    int
+	Source       string            // Origin of the call: "agent" (default), "judge", "selfplay"
 	Labels       map[string]string // Optional metadata propagated to metrics and traces
 }
 
@@ -224,6 +235,7 @@ type ProviderCallCompletedData struct {
 	Cost          float64
 	FinishReason  string
 	ToolCallCount int
+	Source        string            // Origin of the call: "agent" (default), "judge", "selfplay"
 	Labels        map[string]string // Optional metadata propagated to metrics and traces
 }
 
@@ -234,6 +246,7 @@ type ProviderCallFailedData struct {
 	Model    string
 	Error    error
 	Duration time.Duration
+	Source   string            // Origin of the call: "agent" (default), "judge", "selfplay"
 	Labels   map[string]string // Optional metadata propagated to metrics and traces
 }
 

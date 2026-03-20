@@ -568,7 +568,7 @@ func TestEvalConversationExecutor_BuildConversationContext(t *testing.T) {
 }
 
 func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
-	// Without a packEvalHook, applyTurnAssertions marks assertions as failed
+	// Without a evalOrchestrator, applyTurnAssertions marks assertions as failed
 	// (assertions defined but eval runner not configured).
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
@@ -593,7 +593,7 @@ func TestEvalConversationExecutor_ApplyTurnAssertions(t *testing.T) {
 		}
 	})
 
-	t.Run("assertions without packEvalHook are marked failed", func(t *testing.T) {
+	t.Run("assertions without evalOrchestrator are marked failed", func(t *testing.T) {
 		msg := &types.Message{Role: "assistant", Content: "hello"}
 		convCtx := &assertions.ConversationContext{
 			AllTurns: []types.Message{*msg},
@@ -667,10 +667,10 @@ func TestEvalConversationExecutor_ExecuteConversationStream(t *testing.T) {
 }
 
 func TestEvalConversationExecutor_ConversationAssertionsWithEvalOnlyHook(t *testing.T) {
-	// Build a PackEvalHook with empty defs (eval-only mode, no pack).
+	// Build a EvalOrchestrator with empty defs (eval-only mode, no pack).
 	// This simulates the fix: eval mode creates a hook so assertions execute.
 	registry := evals.NewEvalTypeRegistry()
-	hook := NewPackEvalHook(registry, nil, false, nil, "")
+	hook := NewEvalOrchestrator(registry, nil, false, nil, "")
 
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
@@ -717,7 +717,7 @@ func TestEvalConversationExecutor_ConversationAssertionsWithEvalOnlyHook(t *test
 
 func TestEvalConversationExecutor_TurnAssertionsWithEvalOnlyHook(t *testing.T) {
 	registry := evals.NewEvalTypeRegistry()
-	hook := NewPackEvalHook(registry, nil, false, nil, "")
+	hook := NewEvalOrchestrator(registry, nil, false, nil, "")
 
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
@@ -759,7 +759,7 @@ func TestEvalConversationExecutor_TurnAssertionsWithEvalOnlyHook(t *testing.T) {
 }
 
 func TestEvalConversationExecutor_ApplyConversationAssertions(t *testing.T) {
-	// Without a packEvalHook, evaluateConversationAssertions marks assertions as failed.
+	// Without a evalOrchestrator, evaluateConversationAssertions marks assertions as failed.
 	executor := NewEvalConversationExecutor(
 		adapters.NewRegistry(),
 		prompt.NewRegistryWithRepository(memory.NewPromptRepository()),
@@ -778,7 +778,7 @@ func TestEvalConversationExecutor_ApplyConversationAssertions(t *testing.T) {
 		}
 	})
 
-	t.Run("assertions without packEvalHook are marked failed", func(t *testing.T) {
+	t.Run("assertions without evalOrchestrator are marked failed", func(t *testing.T) {
 		convCtx := &assertions.ConversationContext{
 			AllTurns: []types.Message{{Role: "user", Content: "hello"}},
 			Metadata: assertions.ConversationMetadata{Extras: map[string]interface{}{}},

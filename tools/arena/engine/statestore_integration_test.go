@@ -61,7 +61,7 @@ func TestStateStore_EndToEnd(t *testing.T) {
 		nil, // no self-play
 		nil, // no self-play registry
 		nil, // no prompt registry
-		nil, // no packEvalHook
+		nil, // no evalOrchestrator
 	)
 
 	// Create engine

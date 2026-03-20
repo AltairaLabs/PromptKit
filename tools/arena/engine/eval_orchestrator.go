@@ -4,30 +4,32 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
-// PackEvalHook manages pack eval execution during Arena conversation runs.
+// EvalOrchestrator manages pack eval execution during Arena conversation runs.
 // It wraps an EvalRunner and converts results into the assertion format
 // used by Arena's reporting pipeline.
-type PackEvalHook struct {
+type EvalOrchestrator struct {
 	runner   *evals.EvalRunner
 	defs     []evals.EvalDef
 	taskType string
 	metadata map[string]any // injected into every EvalContext (e.g. judge_targets)
+	eventBus events.Bus     // optional event bus for provider call telemetry in evals
 }
 
-// NewPackEvalHook creates a hook for executing pack evals during Arena runs.
+// NewEvalOrchestrator creates a hook for executing pack evals during Arena runs.
 // If skipEvals is true, the runner is nil and all methods are no-ops.
 // The evalTypeFilter, when non-empty, restricts execution to matching eval types.
-func NewPackEvalHook(
+func NewEvalOrchestrator(
 	registry *evals.EvalTypeRegistry,
 	defs []evals.EvalDef,
 	skipEvals bool,
 	evalTypeFilter []string,
 	taskType string,
-) *PackEvalHook {
+) *EvalOrchestrator {
 	// Filter defs by eval type if filter is set
 	filteredDefs := filterEvalDefs(defs, evalTypeFilter)
 
@@ -36,7 +38,7 @@ func NewPackEvalHook(
 		runner = evals.NewEvalRunner(registry)
 	}
 
-	return &PackEvalHook{
+	return &EvalOrchestrator{
 		runner:   runner,
 		defs:     filteredDefs,
 		taskType: taskType,
@@ -45,15 +47,25 @@ func NewPackEvalHook(
 
 // SetMetadata sets metadata that will be injected into every EvalContext.
 // Used to pass judge_targets, prompt_registry, and other config to eval handlers.
-func (h *PackEvalHook) SetMetadata(metadata map[string]any) {
+func (h *EvalOrchestrator) SetMetadata(metadata map[string]any) {
 	if h == nil {
 		return
 	}
 	h.metadata = metadata
 }
 
+// SetEventBus configures the event bus for provider call telemetry in eval handlers.
+// When set, an emitter is injected into each EvalContext's metadata so that
+// LLM judge provider calls emit ProviderCallStarted/Completed/Failed events.
+func (h *EvalOrchestrator) SetEventBus(bus events.Bus) {
+	if h == nil {
+		return
+	}
+	h.eventBus = bus
+}
+
 // HasEvals returns true if there are eval defs to execute.
-func (h *PackEvalHook) HasEvals() bool {
+func (h *EvalOrchestrator) HasEvals() bool {
 	if h == nil {
 		return false
 	}
@@ -62,7 +74,7 @@ func (h *PackEvalHook) HasEvals() bool {
 
 // RunTurnEvals runs turn-triggered evals after a turn completes.
 // Returns converted ConversationValidationResult entries.
-func (h *PackEvalHook) RunTurnEvals(
+func (h *EvalOrchestrator) RunTurnEvals(
 	ctx context.Context,
 	messages []types.Message,
 	turnIndex int,
@@ -79,7 +91,7 @@ func (h *PackEvalHook) RunTurnEvals(
 
 // RunSessionEvals runs session-complete evals after conversation finishes.
 // Returns converted ConversationValidationResult entries.
-func (h *PackEvalHook) RunSessionEvals(
+func (h *EvalOrchestrator) RunSessionEvals(
 	ctx context.Context,
 	messages []types.Message,
 	sessionID string,
@@ -99,7 +111,7 @@ func (h *PackEvalHook) RunSessionEvals(
 
 // RunConversationEvals runs conversation-complete evals after all turns finish.
 // Returns converted ConversationValidationResult entries.
-func (h *PackEvalHook) RunConversationEvals(
+func (h *EvalOrchestrator) RunConversationEvals(
 	ctx context.Context,
 	messages []types.Message,
 	sessionID string,
@@ -125,7 +137,7 @@ func (h *PackEvalHook) RunConversationEvals(
 // runner dispatches to AssertionEvalHandler. The wrapper resolves the inner
 // eval handler from the registry, executes it, and applies min_score/max_score
 // thresholds to determine pass/fail.
-func (h *PackEvalHook) RunAssertionsAsEvals(
+func (h *EvalOrchestrator) RunAssertionsAsEvals(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
 	messages []types.Message,
@@ -158,7 +170,7 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 // RunAssertionsAsConversationResults converts assertion configs to EvalDefs,
 // runs them through the runner, and wraps results in ConversationValidationResult.
 // The results use the original assertion type names (not pack_eval: prefixed).
-func (h *PackEvalHook) RunAssertionsAsConversationResults(
+func (h *EvalOrchestrator) RunAssertionsAsConversationResults(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
 	messages []types.Message,
@@ -183,12 +195,24 @@ func (h *PackEvalHook) RunAssertionsAsConversationResults(
 
 // buildEvalContext constructs an EvalContext from Arena messages.
 // Delegates to the shared evals.BuildEvalContext helper.
-func (h *PackEvalHook) buildEvalContext(
+// If an event bus is configured, an emitter is injected into metadata
+// so LLM judge handlers can emit provider call telemetry.
+func (h *EvalOrchestrator) buildEvalContext(
 	messages []types.Message,
 	turnIndex int,
 	sessionID string,
 ) *evals.EvalContext {
-	return evals.BuildEvalContext(messages, turnIndex, sessionID, h.taskType, h.metadata)
+	metadata := h.metadata
+	if h.eventBus != nil {
+		// Create a merged copy to avoid mutating the shared metadata map
+		merged := make(map[string]any, len(metadata)+1)
+		for k, v := range metadata {
+			merged[k] = v
+		}
+		merged["emitter"] = events.NewEmitter(h.eventBus, sessionID, sessionID, sessionID)
+		metadata = merged
+	}
+	return evals.BuildEvalContext(messages, turnIndex, sessionID, h.taskType, metadata)
 }
 
 // filterEvalDefs filters eval defs to only include types in the filter list.

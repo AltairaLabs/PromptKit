@@ -24,7 +24,7 @@ type EvalConversationExecutor struct {
 	adapterRegistry  *adapters.Registry
 	promptRegistry   *prompt.Registry
 	providerRegistry *providers.Registry
-	packEvalHook     *PackEvalHook
+	evalOrchestrator *EvalOrchestrator
 }
 
 // NewEvalConversationExecutor creates a new eval conversation executor.
@@ -32,13 +32,13 @@ func NewEvalConversationExecutor(
 	adapterRegistry *adapters.Registry,
 	promptRegistry *prompt.Registry,
 	providerRegistry *providers.Registry,
-	packEvalHook *PackEvalHook,
+	evalOrchestrator *EvalOrchestrator,
 ) *EvalConversationExecutor {
 	return &EvalConversationExecutor{
 		adapterRegistry:  adapterRegistry,
 		promptRegistry:   promptRegistry,
 		providerRegistry: providerRegistry,
-		packEvalHook:     packEvalHook,
+		evalOrchestrator: evalOrchestrator,
 	}
 }
 
@@ -66,8 +66,8 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 	convResults := e.evaluateConversationAssertions(ctx, mergedEvalAssertions, convCtx)
 
 	// Run pack eval session-level evals if configured
-	if e.packEvalHook != nil && e.packEvalHook.HasEvals() {
-		packResults := e.packEvalHook.RunSessionEvals(ctx, messages, req.ConversationID)
+	if e.evalOrchestrator != nil && e.evalOrchestrator.HasEvals() {
+		packResults := e.evalOrchestrator.RunSessionEvals(ctx, messages, req.ConversationID)
 		convResults = append(convResults, packResults...)
 	}
 
@@ -145,7 +145,7 @@ func (e *EvalConversationExecutor) extractTurnAssertions(turns []config.EvalTurn
 	return assertionConfigs
 }
 
-// evaluateConversationAssertions runs conversation-level assertions via PackEvalHook.
+// evaluateConversationAssertions runs conversation-level assertions via EvalOrchestrator.
 func (e *EvalConversationExecutor) evaluateConversationAssertions(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
@@ -155,7 +155,7 @@ func (e *EvalConversationExecutor) evaluateConversationAssertions(
 		return nil
 	}
 
-	if e.packEvalHook == nil {
+	if e.evalOrchestrator == nil {
 		logger.Warn("Assertions defined but eval runner not configured — marking all as failed",
 			"assertion_count", len(assertionConfigs))
 		results := make([]assertions.ConversationValidationResult, len(assertionConfigs))
@@ -170,7 +170,7 @@ func (e *EvalConversationExecutor) evaluateConversationAssertions(
 		return results
 	}
 
-	results := e.packEvalHook.RunAssertionsAsConversationResults(
+	results := e.evalOrchestrator.RunAssertionsAsConversationResults(
 		ctx, assertionConfigs, convCtx.AllTurns,
 		len(convCtx.AllTurns)-1, "",
 		evals.TriggerOnConversationComplete,
@@ -255,7 +255,7 @@ func (e *EvalConversationExecutor) buildConversationContext(
 	return assertions.BuildConversationContextFromMessages(messages, meta)
 }
 
-// applyTurnAssertions applies turn-level assertions to a single message via PackEvalHook.
+// applyTurnAssertions applies turn-level assertions to a single message via EvalOrchestrator.
 func (e *EvalConversationExecutor) applyTurnAssertions(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
@@ -266,7 +266,7 @@ func (e *EvalConversationExecutor) applyTurnAssertions(
 		return
 	}
 
-	if e.packEvalHook == nil {
+	if e.evalOrchestrator == nil {
 		logger.Warn("Turn assertions defined but eval runner not configured — marking all as failed",
 			"assertion_count", len(assertionConfigs))
 		results := make([]assertions.AssertionResult, len(assertionConfigs))
@@ -285,7 +285,7 @@ func (e *EvalConversationExecutor) applyTurnAssertions(
 	}
 
 	// Run assertions through eval pipeline
-	evalResults := e.packEvalHook.RunAssertionsAsEvals(
+	evalResults := e.evalOrchestrator.RunAssertionsAsEvals(
 		ctx, assertionConfigs, convCtx.AllTurns,
 		len(convCtx.AllTurns)-1, "",
 		evals.TriggerEveryTurn,

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -48,4 +49,7 @@ type GeneratorOptions struct {
 	// NaturalTerminationEnabled signals the generator to append completion instructions
 	// to the persona system prompt, allowing the self-play LLM to end the conversation.
 	NaturalTerminationEnabled bool
+
+	// Emitter is an optional event emitter for provider call telemetry.
+	Emitter *events.Emitter
 }

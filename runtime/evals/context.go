@@ -14,7 +14,7 @@ const roleAssistant = "assistant"
 // workflow metadata from message Meta fields.
 //
 // This is the canonical way to build an EvalContext outside of a live conversation.
-// Both Arena (PackEvalHook) and the SDK (Evaluate) use this function.
+// Both Arena (EvalOrchestrator) and the SDK (Evaluate) use this function.
 func BuildEvalContext(
 	messages []types.Message,
 	turnIndex int,

@@ -491,6 +491,64 @@ func TestEmitter_ProviderCallStarted_Labels(t *testing.T) {
 	if data.Labels["tier"] != "premium" {
 		t.Errorf("expected tier=premium, got %q", data.Labels["tier"])
 	}
+	if data.Source != SourceAgent {
+		t.Errorf("expected Source=%q, got %q", SourceAgent, data.Source)
+	}
+}
+
+func TestEmitter_ProviderCallCompleted_DefaultSource(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-src", "session-src", "conv-src")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventProviderCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	// Source not set — should default to "agent"
+	emitter.ProviderCallCompleted(&ProviderCallCompletedData{
+		Provider: "openai",
+		Model:    "gpt-4",
+	})
+	wg.Wait()
+
+	data := got.Data.(*ProviderCallCompletedData)
+	if data.Source != SourceAgent {
+		t.Errorf("expected Source=%q, got %q", SourceAgent, data.Source)
+	}
+}
+
+func TestEmitter_ProviderCallCompleted_PreserveSource(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-src2", "session-src2", "conv-src2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventProviderCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	// Source explicitly set — should be preserved
+	emitter.ProviderCallCompleted(&ProviderCallCompletedData{
+		Provider: "openai",
+		Model:    "gpt-4",
+		Source:   SourceJudge,
+	})
+	wg.Wait()
+
+	data := got.Data.(*ProviderCallCompletedData)
+	if data.Source != SourceJudge {
+		t.Errorf("expected Source=%q, got %q", SourceJudge, data.Source)
+	}
 }
 
 func TestEmitter_ProviderCallCompleted_NilData(t *testing.T) {

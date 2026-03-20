@@ -98,7 +98,7 @@ type Executor struct {
 }
 
 // TurnEvalRunner is an optional interface for running assertions as evals during workflow steps.
-// PackEvalHook in the engine package implements this interface.
+// EvalOrchestrator in the engine package implements this interface.
 type TurnEvalRunner interface {
 	RunAssertionsAsEvals(
 		ctx context.Context,
@@ -215,4 +215,3 @@ func (e *Executor) executeInputStep(ctx context.Context, driver Driver, index in
 
 	return sr
 }
-

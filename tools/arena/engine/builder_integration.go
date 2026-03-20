@@ -107,9 +107,9 @@ func BuildEngineComponents(cfg *config.Config) (
 	}
 
 	// Build pack eval hook if pack is loaded (before A2A/skill setup to fail fast on config errors)
-	var packEvalHook *PackEvalHook
+	var evalOrchestrator *EvalOrchestrator
 	if cfg.LoadedPack != nil {
-		packEvalHook, err = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+		evalOrchestrator, err = buildEvalOrchestrator(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
 		if err != nil {
 			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
 		}
@@ -117,7 +117,7 @@ func BuildEngineComponents(cfg *config.Config) (
 		// Always create an eval-only hook when no pack is loaded.
 		// This ensures turn-level and conversation-level assertions can execute
 		// through the eval pipeline even without pack-defined evals.
-		packEvalHook = buildEvalOnlyHook()
+		evalOrchestrator = buildEvalOnlyOrchestrator()
 	}
 
 	// Build media storage service
@@ -142,18 +142,18 @@ func BuildEngineComponents(cfg *config.Config) (
 
 	// Inject judge metadata so eval handlers (llm_judge, llm_judge_session)
 	// can resolve judge providers from config targets.
-	if packEvalHook != nil {
+	if evalOrchestrator != nil {
 		metadata := make(map[string]any)
 		attachJudgeMetadata(metadata, cfg)
 		if promptRegistry != nil {
 			metadata["prompt_registry"] = promptRegistry
 		}
-		packEvalHook.SetMetadata(metadata)
+		evalOrchestrator.SetMetadata(metadata)
 	}
 
 	// Build conversation executor (engine-specific, stays here)
 	conversationExecutor, adapterRegistry, err := newConversationExecutor(
-		cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry, packEvalHook)
+		cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry, evalOrchestrator)
 	if err != nil {
 		if a2aCleanupFn != nil {
 			a2aCleanupFn()
@@ -469,7 +469,7 @@ func newConversationExecutor(
 	promptRegistry *prompt.Registry,
 	mediaStorage storage.MediaStorageService,
 	providerRegistry *providers.Registry,
-	packEvalHook *PackEvalHook,
+	evalOrchestrator *EvalOrchestrator,
 ) (ConversationExecutor, *adapters.Registry, error) {
 	// Build turn executors (always needed, even without self-play)
 	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry, mediaStorage)
@@ -493,7 +493,7 @@ func newConversationExecutor(
 		selfPlayExecutor,
 		selfPlayRegistry,
 		promptRegistry,
-		packEvalHook,
+		evalOrchestrator,
 	)
 
 	// Build duplex conversation executor
@@ -502,21 +502,21 @@ func newConversationExecutor(
 		promptRegistry,
 		toolRegistry,
 		mediaStorage,
-		packEvalHook,
+		evalOrchestrator,
 	)
 
 	// Build eval conversation executor components
-	evalExecutor, adapterRegistry := buildEvalExecutor(promptRegistry, providerRegistry, packEvalHook)
+	evalExecutor, adapterRegistry := buildEvalExecutor(promptRegistry, providerRegistry, evalOrchestrator)
 
 	// Return composite executor that routes based on scenario configuration
 	return NewCompositeConversationExecutor(defaultExecutor, duplexExecutor, evalExecutor), adapterRegistry, nil
 }
 
-// buildPackEvalHook creates a PackEvalHook from the loaded pack.
+// buildEvalOrchestrator creates a EvalOrchestrator from the loaded pack.
 // It resolves pack-level and prompt-level evals, creates a registry with default handlers,
 // and validates that all referenced eval types have registered handlers.
 // Returns an error if any eval references an unknown type.
-func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []string) (*PackEvalHook, error) {
+func buildEvalOrchestrator(cfg *config.Config, skipEvals bool, evalTypeFilter []string) (*EvalOrchestrator, error) {
 	pack := cfg.LoadedPack
 
 	// Collect all eval defs from pack level
@@ -541,15 +541,15 @@ func buildPackEvalHook(cfg *config.Config, skipEvals bool, evalTypeFilter []stri
 		return nil, fmt.Errorf("unknown eval types:\n  %s", strings.Join(typeErrs, "\n  "))
 	}
 
-	return NewPackEvalHook(registry, allDefs, skipEvals, evalTypeFilter, pack.ID), nil
+	return NewEvalOrchestrator(registry, allDefs, skipEvals, evalTypeFilter, pack.ID), nil
 }
 
-// buildEvalOnlyHook creates a PackEvalHook with an empty defs list and a fresh registry.
+// buildEvalOnlyOrchestrator creates a EvalOrchestrator with an empty defs list and a fresh registry.
 // This is used in eval mode (no pack) so that RunAssertionsAsEvals and
 // RunAssertionsAsConversationResults can dispatch ad-hoc assertion configs.
-func buildEvalOnlyHook() *PackEvalHook {
+func buildEvalOnlyOrchestrator() *EvalOrchestrator {
 	registry := evals.NewEvalTypeRegistry()
-	return NewPackEvalHook(registry, nil, false, nil, "")
+	return NewEvalOrchestrator(registry, nil, false, nil, "")
 }
 
 // buildEvalExecutor creates the eval conversation executor with required registries.
@@ -557,7 +557,7 @@ func buildEvalOnlyHook() *PackEvalHook {
 func buildEvalExecutor(
 	promptRegistry *prompt.Registry,
 	providerRegistry *providers.Registry,
-	packEvalHook *PackEvalHook,
+	evalOrchestrator *EvalOrchestrator,
 ) (*EvalConversationExecutor, *adapters.Registry) {
 	// Import adapters and assertions packages
 	// We need to do this here to avoid circular dependencies
@@ -567,7 +567,7 @@ func buildEvalExecutor(
 		adapterRegistry,
 		promptRegistry,
 		providerRegistry,
-		packEvalHook,
+		evalOrchestrator,
 	), adapterRegistry
 }
 

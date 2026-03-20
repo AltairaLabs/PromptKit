@@ -50,6 +50,7 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	}
 
 	opts := buildJudgeOpts(formatToolCallViews(filtered), params)
+	opts.Emitter = emitterFromEvalCtx(evalCtx)
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {
 		return &evals.EvalResult{

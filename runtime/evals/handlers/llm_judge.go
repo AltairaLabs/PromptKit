@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
@@ -39,6 +40,7 @@ func (h *LLMJudgeHandler) Eval(
 	}
 
 	opts := buildJudgeOpts(evalCtx.CurrentOutput, params)
+	opts.Emitter = emitterFromEvalCtx(evalCtx)
 
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {
@@ -121,6 +123,17 @@ func coerceJudgeTargets(raw any) map[string]providers.ProviderSpec {
 	default:
 		return nil
 	}
+}
+
+// emitterFromEvalCtx extracts an *events.Emitter from eval context metadata, if present.
+func emitterFromEvalCtx(evalCtx *evals.EvalContext) *events.Emitter {
+	if evalCtx == nil || evalCtx.Metadata == nil {
+		return nil
+	}
+	if e, ok := evalCtx.Metadata["emitter"].(*events.Emitter); ok {
+		return e
+	}
+	return nil
 }
 
 // buildJudgeOpts constructs JudgeOpts from content and params.

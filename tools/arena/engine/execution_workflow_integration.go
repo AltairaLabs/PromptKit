@@ -44,8 +44,8 @@ func (e *Engine) executeWorkflowRun(
 	// Create workflow executor with a driver factory for this provider
 	factory, getDriver := newArenaDriverFactory(provider, combo.ScenarioID, e.toolRegistry)
 	executor := wf.NewExecutor(factory)
-	if e.packEvalHook != nil {
-		executor.WithTurnEvalRunner(e.packEvalHook, runID)
+	if e.evalOrchestrator != nil {
+		executor.WithTurnEvalRunner(e.evalOrchestrator, runID)
 	}
 
 	// Execute the workflow
@@ -57,10 +57,10 @@ func (e *Engine) executeWorkflowRun(
 	drv := getDriver()
 	messages, assertionResults := workflowResultToMessages(result, drv)
 
-	// Evaluate conversation-level assertions (pack + scenario) via PackEvalHook
+	// Evaluate conversation-level assertions (pack + scenario) via EvalOrchestrator
 	mergedAssertionConfigs := mergeAssertionConfigs(e.config, scenario.ConversationAssertions)
-	if e.packEvalHook != nil && len(mergedAssertionConfigs) > 0 {
-		convAssertionResults := e.packEvalHook.RunAssertionsAsConversationResults(
+	if e.evalOrchestrator != nil && len(mergedAssertionConfigs) > 0 {
+		convAssertionResults := e.evalOrchestrator.RunAssertionsAsConversationResults(
 			ctx, mergedAssertionConfigs, messages, len(messages)-1, runID,
 			evals.TriggerOnConversationComplete,
 		)
@@ -68,8 +68,8 @@ func (e *Engine) executeWorkflowRun(
 	}
 
 	// Run pack-level conversation evals if configured
-	if e.packEvalHook != nil && e.packEvalHook.HasEvals() {
-		packResults := e.packEvalHook.RunConversationEvals(ctx, messages, runID)
+	if e.evalOrchestrator != nil && e.evalOrchestrator.HasEvals() {
+		packResults := e.evalOrchestrator.RunConversationEvals(ctx, messages, runID)
 		assertionResults = append(assertionResults, packResults...)
 	}
 

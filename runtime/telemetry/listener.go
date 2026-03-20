@@ -370,6 +370,7 @@ func (l *OTelEventListener) startProvider(evt *events.Event) {
 		attribute.String("gen_ai.request.model", data.Model),
 		attribute.Int("promptkit.message.count", data.MessageCount),
 		attribute.Int("promptkit.tool.count", data.ToolCount),
+		attribute.String("promptkit.provider.source", data.Source),
 	}
 	attrs = append(attrs, labelsToAttributes(data.Labels)...)
 	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.RunID), "provider:"+evt.RunID,
@@ -389,6 +390,7 @@ func (l *OTelEventListener) completeProvider(evt *events.Event) {
 		attribute.Int("gen_ai.usage.output_tokens", data.OutputTokens),
 		attribute.String("gen_ai.response.finish_reason", data.FinishReason),
 		attribute.Float64("promptkit.provider.cost", data.Cost),
+		attribute.String("promptkit.provider.source", data.Source),
 	)
 }
 

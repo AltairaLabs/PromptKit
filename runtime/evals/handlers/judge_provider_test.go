@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/mock" // register mock provider factory
 )
 
 // mockJudgeProvider implements JudgeProvider for testing.
@@ -166,6 +169,87 @@ func TestParseJudgeResponse_InvalidJSON(t *testing.T) {
 func TestSpecJudgeProvider_Implements(t *testing.T) {
 	t.Parallel()
 	var _ JudgeProvider = (*SpecJudgeProvider)(nil)
+}
+
+func TestSpecJudgeProvider_Judge(t *testing.T) {
+	t.Parallel()
+	// Mock provider returns its default response which won't be valid judge JSON,
+	// but parseJudgeResponse handles that gracefully with a fallback result.
+	spec := &providers.ProviderSpec{
+		Type:  "mock",
+		Model: "test-judge",
+	}
+	provider := NewSpecJudgeProvider(spec)
+	result, err := provider.Judge(context.Background(), JudgeOpts{
+		Content:  "Hello, how can I help?",
+		Criteria: "Is the response helpful?",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Mock returns non-JSON → parseJudgeResponse fallback: Passed=true, Score=0.5
+	if !result.Passed {
+		t.Error("expected Passed=true (parse fallback)")
+	}
+	if result.Score != defaultPassThreshold {
+		t.Errorf("got score %f, want %f", result.Score, defaultPassThreshold)
+	}
+}
+
+func TestSpecJudgeProvider_Judge_WithEmitter(t *testing.T) {
+	t.Parallel()
+	spec := &providers.ProviderSpec{
+		Type:  "mock",
+		Model: "test-judge",
+	}
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	var completed *events.ProviderCallCompletedData
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
+		completed = e.Data.(*events.ProviderCallCompletedData)
+		wg.Done()
+	})
+
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+	provider := NewSpecJudgeProvider(spec)
+	result, err := provider.Judge(context.Background(), JudgeOpts{
+		Content:  "Hello",
+		Criteria: "Is it helpful?",
+		Emitter:  emitter,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Passed {
+		t.Error("expected Passed=true")
+	}
+
+	wg.Wait()
+	if completed == nil {
+		t.Fatal("expected ProviderCallCompleted event")
+	}
+	if completed.Source != events.SourceJudge {
+		t.Errorf("expected Source=%q, got %q", events.SourceJudge, completed.Source)
+	}
+	if completed.Model != "test-judge" {
+		t.Errorf("expected Model=test-judge, got %q", completed.Model)
+	}
+}
+
+func TestSpecJudgeProvider_Judge_InvalidSpec(t *testing.T) {
+	t.Parallel()
+	spec := &providers.ProviderSpec{Type: "nonexistent"}
+	provider := NewSpecJudgeProvider(spec)
+	_, err := provider.Judge(context.Background(), JudgeOpts{
+		Content:  "test",
+		Criteria: "test",
+	})
+	if err == nil {
+		t.Error("expected error for invalid provider type")
+	}
 }
 
 func TestCoerceJudgeTargets_TypedMap(t *testing.T) {

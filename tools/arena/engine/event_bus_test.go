@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestConversationExecutorEmitsTurnEventsToBus(t *testing.T) {
@@ -97,6 +98,47 @@ func TestEngineSetEventBus(t *testing.T) {
 	if e.eventBus != bus {
 		t.Fatalf("expected eventBus to be set")
 	}
+}
+
+func TestEngineSetTracerProvider(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no-op without event bus", func(t *testing.T) {
+		e := &Engine{}
+		e.SetTracerProvider(noop.NewTracerProvider()) // should not panic without bus
+		if e.otelListener != nil {
+			t.Fatal("expected nil otelListener without event bus")
+		}
+	})
+
+	t.Run("creates listener with event bus", func(t *testing.T) {
+		bus := events.NewEventBus()
+		e := &Engine{}
+		e.SetEventBus(bus)
+		// Use noop tracer provider
+		e.SetTracerProvider(noop.NewTracerProvider())
+		if e.otelListener == nil {
+			t.Fatal("expected otelListener to be set")
+		}
+		bus.Close()
+	})
+}
+
+func TestEngineSetMetrics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no-op without event bus", func(t *testing.T) {
+		e := &Engine{}
+		e.SetMetrics(nil, nil) // should not panic
+	})
+
+	t.Run("no-op with nil collector", func(t *testing.T) {
+		bus := events.NewEventBus()
+		e := &Engine{}
+		e.SetEventBus(bus)
+		e.SetMetrics(nil, nil) // should not panic
+		bus.Close()
+	})
 }
 
 func TestBuildTurnRequestSetsEventFields(t *testing.T) {

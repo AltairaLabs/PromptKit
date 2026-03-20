@@ -40,8 +40,8 @@ func sampleDefs() []evals.EvalDef {
 	}
 }
 
-func TestNewPackEvalHook_SkipEvalsTrue(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), true, nil, "chat")
+func TestNewEvalOrchestrator_SkipEvalsTrue(t *testing.T) {
+	hook := NewEvalOrchestrator(newTestRegistry(), sampleDefs(), true, nil, "chat")
 	// When skipEvals is true, defs are still stored but runner is nil.
 	// HasEvals reflects whether defs exist, not whether the runner is set.
 	// RunTurnEvals/RunSessionEvals will still produce nil results via nil runner guard.
@@ -56,19 +56,19 @@ func TestNewPackEvalHook_SkipEvalsTrue(t *testing.T) {
 	assert.Empty(t, results, "nil runner should produce no results")
 }
 
-func TestNewPackEvalHook_EmptyDefs(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), nil, false, nil, "chat")
+func TestNewEvalOrchestrator_EmptyDefs(t *testing.T) {
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
 	assert.False(t, hook.HasEvals(), "HasEvals should be false when defs are empty")
 
-	hook2 := NewPackEvalHook(newTestRegistry(), []evals.EvalDef{}, false, nil, "chat")
+	hook2 := NewEvalOrchestrator(newTestRegistry(), []evals.EvalDef{}, false, nil, "chat")
 	assert.False(t, hook2.HasEvals(), "HasEvals should be false when defs slice is empty")
 }
 
-func TestNewPackEvalHook_ValidDefs(t *testing.T) {
+func TestNewEvalOrchestrator_ValidDefs(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerEveryTurn},
 	}
-	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), defs, false, nil, "chat")
 	assert.True(t, hook.HasEvals(), "HasEvals should be true when valid defs are provided")
 }
 
@@ -96,13 +96,13 @@ func TestFilterEvalDefs_NoMatch(t *testing.T) {
 }
 
 func TestRunTurnEvals_NoEvals(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), nil, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
 	results := hook.RunTurnEvals(context.Background(), nil, 0, "session-1")
 	assert.Nil(t, results, "RunTurnEvals should return nil when there are no evals")
 }
 
 func TestRunSessionEvals_NoEvals(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), nil, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
 	results := hook.RunSessionEvals(context.Background(), nil, "session-1")
 	assert.Nil(t, results, "RunSessionEvals should return nil when there are no evals")
 }
@@ -111,7 +111,7 @@ func TestBuildEvalContext_ExtractsLastAssistantMessage(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerEveryTurn},
 	}
-	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), defs, false, nil, "chat")
 
 	messages := []types.Message{
 		types.NewUserMessage("hello"),
@@ -133,7 +133,7 @@ func TestBuildEvalContext_NoMessages(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerEveryTurn},
 	}
-	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), defs, false, nil, "chat")
 
 	evalCtx := hook.buildEvalContext(nil, 0, "session-1")
 
@@ -147,7 +147,7 @@ func TestBuildEvalContext_ExtractsToolCalls(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerEveryTurn},
 	}
-	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), defs, false, nil, "chat")
 
 	messages := []types.Message{
 		types.NewUserMessage("search for cats"),
@@ -174,7 +174,7 @@ func TestRunTurnEvals_WithValidHandler(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerEveryTurn},
 	}
-	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), defs, false, nil, "chat")
 
 	messages := []types.Message{
 		types.NewUserMessage("hello"),
@@ -190,7 +190,7 @@ func TestRunSessionEvals_WithValidHandler(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerOnSessionComplete},
 	}
-	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), defs, false, nil, "chat")
 
 	messages := []types.Message{
 		types.NewUserMessage("hello"),
@@ -203,7 +203,7 @@ func TestRunSessionEvals_WithValidHandler(t *testing.T) {
 }
 
 func TestRunConversationEvals_NoEvals(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), nil, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
 	results := hook.RunConversationEvals(context.Background(), nil, "session-1")
 	assert.Nil(t, results)
 }
@@ -212,7 +212,7 @@ func TestRunConversationEvals_WithValidHandler(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerOnConversationComplete},
 	}
-	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), defs, false, nil, "chat")
 
 	messages := []types.Message{
 		types.NewUserMessage("hello"),
@@ -228,7 +228,7 @@ func TestRunConversationEvals_EmptyMessages(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerOnConversationComplete},
 	}
-	hook := NewPackEvalHook(newTestRegistry(), defs, false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), defs, false, nil, "chat")
 
 	results := hook.RunConversationEvals(context.Background(), []types.Message{}, "session-1")
 	require.NotNil(t, results)
@@ -236,14 +236,14 @@ func TestRunConversationEvals_EmptyMessages(t *testing.T) {
 }
 
 func TestRunAssertionsAsEvals_EmptyAssertions(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), sampleDefs(), false, nil, "chat")
 	results := hook.RunAssertionsAsEvals(
 		context.Background(), nil, nil, 0, "session-1", evals.TriggerEveryTurn)
 	assert.Nil(t, results)
 }
 
 func TestRunAssertionsAsEvals_ConversationTrigger(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), sampleDefs(), false, nil, "chat")
 
 	cfgs := []assertions.AssertionConfig{
 		{Type: "test_handler", Params: map[string]interface{}{}},
@@ -264,7 +264,7 @@ func TestRunAssertionsAsEvals_ConversationTrigger(t *testing.T) {
 }
 
 func TestRunAssertionsAsEvals_TurnTrigger(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), sampleDefs(), false, nil, "chat")
 
 	cfgs := []assertions.AssertionConfig{
 		{Type: "test_handler", Params: map[string]interface{}{}},
@@ -281,7 +281,7 @@ func TestRunAssertionsAsEvals_TurnTrigger(t *testing.T) {
 }
 
 func TestRunAssertionsAsConversationResults(t *testing.T) {
-	hook := NewPackEvalHook(newTestRegistry(), sampleDefs(), false, nil, "chat")
+	hook := NewEvalOrchestrator(newTestRegistry(), sampleDefs(), false, nil, "chat")
 
 	cfgs := []assertions.AssertionConfig{
 		{Type: "test_handler", Params: map[string]interface{}{}},
@@ -405,8 +405,8 @@ func TestExtractWorkflowExtras_NilMeta(t *testing.T) {
 	assert.Nil(t, extras)
 }
 
-func TestPackEvalHook_NilReceiver(t *testing.T) {
-	var hook *PackEvalHook
+func TestEvalOrchestrator_NilReceiver(t *testing.T) {
+	var hook *EvalOrchestrator
 	ctx := context.Background()
 	msgs := []types.Message{{Role: "assistant", Content: "hello"}}
 	configs := []assertions.AssertionConfig{{Type: "contains", Params: map[string]interface{}{"value": "hello"}}}

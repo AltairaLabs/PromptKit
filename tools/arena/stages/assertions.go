@@ -12,7 +12,7 @@ import (
 )
 
 // TurnEvalRunner is an interface for running assertions as evals during turn execution.
-// PackEvalHook in the engine package implements this interface.
+// EvalOrchestrator in the engine package implements this interface.
 type TurnEvalRunner interface {
 	RunAssertionsAsEvals(
 		ctx context.Context,
