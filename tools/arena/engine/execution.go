@@ -351,7 +351,7 @@ func (e *Engine) intersectProviders(scenarioProviders, providerFilter []string) 
 // 4. Saves evaluation results to StateStore
 //
 // Handles errors gracefully, always returning a RunID (with Error saved in StateStore if failed).
-// Returns the RunID. Results can be retrieved from StateStore using GetRunResult().
+// Returns the RunID. Results can be retrieved from StateStore using GetResult().
 func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, error) {
 	// Apply per-run timeout to prevent hanging provider calls from blocking indefinitely
 	runTimeout := e.resolveRunTimeout()

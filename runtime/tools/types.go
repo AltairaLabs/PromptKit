@@ -317,14 +317,6 @@ type PendingToolInfo struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
-// ToolPolicy defines constraints for tool usage in scenarios
-type ToolPolicy struct {
-	ToolChoice          string   `json:"tool_choice"` // "auto" | "required" | "none"
-	MaxToolCallsPerTurn int      `json:"max_tool_calls_per_turn"`
-	MaxTotalToolCalls   int      `json:"max_total_tool_calls"`
-	Blocklist           []string `json:"blocklist,omitempty"`
-}
-
 // ValidationError represents a tool validation failure
 type ValidationError struct {
 	Type   string `json:"type"` // "args_invalid" | "result_invalid" | "policy_violation"
@@ -362,32 +354,4 @@ type AsyncToolExecutor interface {
 
 	// ExecuteAsync may return immediately with a pending status
 	ExecuteAsync(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error)
-}
-
-// PredictionRequest represents a predict request (extending existing type)
-type PredictionRequest struct {
-	System      string           `json:"system"`
-	Messages    []PredictMessage `json:"messages"`
-	Temperature float32          `json:"temperature"`
-	TopP        float32          `json:"top_p"`
-	MaxTokens   int              `json:"max_tokens"`
-	Seed        *int             `json:"seed,omitempty"`
-}
-
-// PredictMessage represents a predict message (simplified version for tool context)
-type PredictMessage struct {
-	Role               string     `json:"role"`
-	Content            string     `json:"content"`
-	ToolCalls          []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallResponseID string     `json:"tool_call_id,omitempty"` // For tool result messages
-}
-
-// PredictionResponse represents a predict response (extending existing type)
-type PredictionResponse struct {
-	Content   string        `json:"content"`
-	TokensIn  int           `json:"tokens_in"`
-	TokensOut int           `json:"tokens_out"`
-	Latency   time.Duration `json:"latency"`
-	Raw       []byte        `json:"raw,omitempty"`
-	ToolCalls []ToolCall    `json:"tool_calls,omitempty"` // Tools called in this response
 }

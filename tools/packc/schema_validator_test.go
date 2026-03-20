@@ -8,8 +8,7 @@ import (
 )
 
 func TestValidatePackAgainstSchema_ValidPack(t *testing.T) {
-	// Note: This test requires network access to fetch the schema from promptpack.org
-	// If the schema is not available, the test will be skipped
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 
 	validPackJSON := []byte(`{
 		"$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
@@ -33,18 +32,12 @@ func TestValidatePackAgainstSchema_ValidPack(t *testing.T) {
 	}`)
 
 	result, err := ValidatePackAgainstSchema(validPackJSON)
-
-	// If schema fetch fails, skip the test
-	if err != nil {
-		t.Skipf("Schema validation could not be performed (schema may not be available): %v", err)
-	}
+	require.NoError(t, err, "Schema validation should not fail with local schema")
 
 	if !result.Valid {
 		t.Logf("Validation errors: %v", result.Errors)
 	}
 
-	// The schema may have additional required fields we're not aware of
-	// So we just check that validation completed without error
 	assert.NotNil(t, result)
 }
 
@@ -61,16 +54,13 @@ func TestValidatePackAgainstSchema_InvalidJSON(t *testing.T) {
 }
 
 func TestValidatePackAgainstSchema_EmptyPack(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+
 	emptyPackJSON := []byte(`{}`)
 
 	result, err := ValidatePackAgainstSchema(emptyPackJSON)
-
-	// If schema fetch fails, skip the test
-	if err != nil {
-		t.Skipf("Schema validation could not be performed: %v", err)
-	}
+	require.NoError(t, err, "Schema validation should not fail with local schema")
 
 	// Empty pack should fail validation (missing required fields)
-	// But we don't know the exact schema requirements
 	assert.NotNil(t, result)
 }

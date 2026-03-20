@@ -186,7 +186,7 @@ func TestExecuteRuns_InvalidScenario(t *testing.T) {
 		t.Fatal("StateStore is not ArenaStateStore")
 	}
 
-	result, err := arenaStore.GetRunResult(ctx, results[0])
+	result, err := arenaStore.GetResult(ctx, results[0])
 	if err != nil {
 		t.Fatalf("Failed to get result: %v", err)
 	}

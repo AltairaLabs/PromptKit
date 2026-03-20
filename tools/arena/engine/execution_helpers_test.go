@@ -105,8 +105,8 @@ func TestEngine_SaveRunError(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, runID, resultID)
 
-		// Verify metadata was saved using GetRunResult
-		result, err := store.GetRunResult(ctx, runID)
+		// Verify metadata was saved using GetResult
+		result, err := store.GetResult(ctx, runID)
 		require.NoError(t, err)
 		assert.Equal(t, runID, result.RunID)
 		assert.Equal(t, errorMsg, result.Error)
@@ -168,8 +168,8 @@ func TestEngine_SaveRunMetadata(t *testing.T) {
 	err := e.saveRunMetadata(ctx, store, combo, result, runID, startTime, duration)
 	require.NoError(t, err)
 
-	// Verify metadata was saved using GetRunResult
-	runResult, err := store.GetRunResult(ctx, runID)
+	// Verify metadata was saved using GetResult
+	runResult, err := store.GetResult(ctx, runID)
 	require.NoError(t, err)
 	assert.Equal(t, runID, runResult.RunID)
 	assert.Equal(t, combo.Region, runResult.Region)
@@ -273,8 +273,8 @@ func TestEngine_SaveEvalMetadata(t *testing.T) {
 	assert.Len(t, state.Messages, 2)
 	assert.Equal(t, "Test message", state.Messages[0].Content)
 
-	// Verify metadata was saved using GetRunResult
-	runResult, err := store.GetRunResult(ctx, runID)
+	// Verify metadata was saved using GetResult
+	runResult, err := store.GetResult(ctx, runID)
 	require.NoError(t, err)
 	assert.Equal(t, runID, runResult.RunID)
 	assert.Equal(t, combo.EvalID, runResult.ScenarioID) // EvalID stored in ScenarioID field

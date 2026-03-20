@@ -66,7 +66,7 @@ func TestEngine_ExecuteEvalRun_Success(t *testing.T) {
 	assert.Contains(t, runID, "eval")
 
 	// Verify metadata was saved
-	result, err := e.stateStore.(*statestore.ArenaStateStore).GetRunResult(ctx, runID)
+	result, err := e.stateStore.(*statestore.ArenaStateStore).GetResult(ctx, runID)
 	require.NoError(t, err)
 	assert.Equal(t, "test-eval", result.ScenarioID) // EvalID stored in ScenarioID field
 	assert.Equal(t, "eval", result.ProviderID)

@@ -295,15 +295,3 @@ func (s *ArenaStateStore) calculateMediaSize(media *types.MediaContent) int64 {
 	}
 	return 0
 }
-
-// SaveRunMetadata is deprecated: use SaveMetadata instead
-// Kept for backwards compatibility
-func (s *ArenaStateStore) SaveRunMetadata(ctx context.Context, conversationID string, metadata *RunMetadata) error {
-	return s.SaveMetadata(ctx, conversationID, metadata)
-}
-
-// GetRunResult is deprecated: use GetResult instead
-// Kept for backwards compatibility
-func (s *ArenaStateStore) GetRunResult(ctx context.Context, runID string) (*RunResult, error) {
-	return s.GetResult(ctx, runID)
-}

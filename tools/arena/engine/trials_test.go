@@ -215,9 +215,9 @@ func TestAggregateTrialResults(t *testing.T) {
 		}
 
 		// Verify the trial results were attached to the first run
-		rr, err := store.GetRunResult(ctx, "run-a")
+		rr, err := store.GetResult(ctx, "run-a")
 		if err != nil {
-			t.Fatalf("GetRunResult: %v", err)
+			t.Fatalf("GetResult: %v", err)
 		}
 		if rr.TrialResults == nil {
 			t.Fatal("expected TrialResults to be attached")
@@ -301,9 +301,9 @@ func TestAttachTrialResults(t *testing.T) {
 		}
 		attachTrialResults(store, "run-1", tr)
 
-		rr, err := store.GetRunResult(ctx, "run-1")
+		rr, err := store.GetResult(ctx, "run-1")
 		if err != nil {
-			t.Fatalf("GetRunResult: %v", err)
+			t.Fatalf("GetResult: %v", err)
 		}
 		if rr.TrialResults == nil {
 			t.Fatal("expected TrialResults to be attached")
@@ -330,8 +330,8 @@ func setupTrialRun(t *testing.T, store *statestore.ArenaStateStore, ctx context.
 		RunID:                        runID,
 		ConversationAssertionResults: cvResults,
 	}
-	if err := store.SaveRunMetadata(ctx, runID, meta); err != nil {
-		t.Fatalf("SaveRunMetadata: %v", err)
+	if err := store.SaveMetadata(ctx, runID, meta); err != nil {
+		t.Fatalf("SaveMetadata: %v", err)
 	}
 }
 
@@ -347,7 +347,7 @@ func setupTrialRunWithError(t *testing.T, store *statestore.ArenaStateStore, ctx
 		RunID: runID,
 		Error: errMsg,
 	}
-	if err := store.SaveRunMetadata(ctx, runID, meta); err != nil {
-		t.Fatalf("SaveRunMetadata: %v", err)
+	if err := store.SaveMetadata(ctx, runID, meta); err != nil {
+		t.Fatalf("SaveMetadata: %v", err)
 	}
 }

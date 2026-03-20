@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -400,19 +399,6 @@ func TestWithTTS(t *testing.T) {
 	assert.Equal(t, "openai", cfg.ttsService.Name())
 }
 
-func TestWithTurnDetector(t *testing.T) {
-	detector := &mockTurnDetector{name: "silence"}
-
-	opt := WithTurnDetector(detector)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg.turnDetector)
-	assert.Equal(t, "silence", cfg.turnDetector.Name())
-}
-
 // Mock types for testing
 
 type mockVariableProvider struct {
@@ -446,28 +432,6 @@ func (m *mockTTSService) SupportedVoices() []tts.Voice {
 func (m *mockTTSService) SupportedFormats() []tts.AudioFormat {
 	return nil
 }
-
-type mockTurnDetector struct {
-	name string
-}
-
-func (m *mockTurnDetector) Name() string {
-	return m.name
-}
-
-func (m *mockTurnDetector) ProcessAudio(_ context.Context, _ []byte) (bool, error) {
-	return false, nil
-}
-
-func (m *mockTurnDetector) ProcessVADState(_ context.Context, _ audio.VADState) (bool, error) {
-	return false, nil
-}
-
-func (m *mockTurnDetector) IsUserSpeaking() bool {
-	return false
-}
-
-func (m *mockTurnDetector) Reset() {}
 
 func TestWithImagePreprocessing(t *testing.T) {
 	t.Run("with custom config", func(t *testing.T) {
@@ -513,54 +477,6 @@ func TestWithAutoResize(t *testing.T) {
 	assert.NotNil(t, c.imagePreprocessConfig)
 	assert.Equal(t, 1280, c.imagePreprocessConfig.Resize.MaxWidth)
 	assert.Equal(t, 720, c.imagePreprocessConfig.Resize.MaxHeight)
-}
-
-func TestDefaultVideoStreamConfig(t *testing.T) {
-	cfg := DefaultVideoStreamConfig()
-	assert.NotNil(t, cfg)
-	assert.Equal(t, 1.0, cfg.TargetFPS)
-	assert.Equal(t, 0, cfg.MaxWidth)
-	assert.Equal(t, 0, cfg.MaxHeight)
-	assert.Equal(t, 85, cfg.Quality)
-	assert.True(t, cfg.EnableResize)
-}
-
-func TestWithStreamingVideo(t *testing.T) {
-	t.Run("with custom config", func(t *testing.T) {
-		cfg := &VideoStreamConfig{
-			TargetFPS:    2.5,
-			MaxWidth:     1920,
-			MaxHeight:    1080,
-			Quality:      75,
-			EnableResize: false,
-		}
-
-		opt := WithStreamingVideo(cfg)
-		assert.NotNil(t, opt)
-
-		c := &config{}
-		err := opt(c)
-		assert.NoError(t, err)
-		assert.NotNil(t, c.videoStreamConfig)
-		assert.Equal(t, 2.5, c.videoStreamConfig.TargetFPS)
-		assert.Equal(t, 1920, c.videoStreamConfig.MaxWidth)
-		assert.Equal(t, 1080, c.videoStreamConfig.MaxHeight)
-		assert.Equal(t, 75, c.videoStreamConfig.Quality)
-		assert.False(t, c.videoStreamConfig.EnableResize)
-	})
-
-	t.Run("with nil config uses defaults", func(t *testing.T) {
-		opt := WithStreamingVideo(nil)
-		assert.NotNil(t, opt)
-
-		c := &config{}
-		err := opt(c)
-		assert.NoError(t, err)
-		assert.NotNil(t, c.videoStreamConfig)
-		assert.Equal(t, 1.0, c.videoStreamConfig.TargetFPS)
-		assert.Equal(t, 85, c.videoStreamConfig.Quality)
-		assert.True(t, c.videoStreamConfig.EnableResize)
-	})
 }
 
 func TestWithEventStore(t *testing.T) {
@@ -641,35 +557,6 @@ func TestVADModeConfigConversions(t *testing.T) {
 	ttsCfg := cfg.toTTSStageConfig(nil)
 	assert.Equal(t, cfg.Voice, ttsCfg.Voice)
 	assert.Equal(t, cfg.Speed, ttsCfg.Speed)
-}
-
-// Credential option tests
-
-func TestWithCredentialAPIKey(t *testing.T) {
-	opt := WithCredentialAPIKey("sk-test-key")
-	assert.NotNil(t, opt)
-
-	cfg := &credentialConfig{}
-	opt.applyCredential(cfg)
-	assert.Equal(t, "sk-test-key", cfg.apiKey)
-}
-
-func TestWithCredentialFile(t *testing.T) {
-	opt := WithCredentialFile("/path/to/credential.txt")
-	assert.NotNil(t, opt)
-
-	cfg := &credentialConfig{}
-	opt.applyCredential(cfg)
-	assert.Equal(t, "/path/to/credential.txt", cfg.credentialFile)
-}
-
-func TestWithCredentialEnv(t *testing.T) {
-	opt := WithCredentialEnv("MY_API_KEY_VAR")
-	assert.NotNil(t, opt)
-
-	cfg := &credentialConfig{}
-	opt.applyCredential(cfg)
-	assert.Equal(t, "MY_API_KEY_VAR", cfg.credentialEnv)
 }
 
 // Platform option tests

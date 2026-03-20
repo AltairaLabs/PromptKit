@@ -450,7 +450,7 @@ func TestEngine_WithStateStore(t *testing.T) {
 		t.Fatal("Failed to get ArenaStateStore")
 	}
 
-	result, err := arenaStore.GetRunResult(context.Background(), runIDs[0])
+	result, err := arenaStore.GetResult(context.Background(), runIDs[0])
 	if err != nil {
 		t.Fatalf("Failed to get run result: %v", err)
 	}
@@ -557,7 +557,7 @@ func TestEngine_WithoutStateStore(t *testing.T) {
 		t.Fatal("Failed to get ArenaStateStore")
 	}
 
-	result, err := arenaStore.GetRunResult(context.Background(), runIDs[0])
+	result, err := arenaStore.GetResult(context.Background(), runIDs[0])
 	if err != nil {
 		t.Fatalf("Failed to get run result: %v", err)
 	}

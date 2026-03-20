@@ -61,7 +61,7 @@ func TestEngine_ExecuteRun_ScenarioNotFound(t *testing.T) {
 	assert.NotEmpty(t, runID)
 
 	// Verify error was saved
-	result, err := e.stateStore.(*statestore.ArenaStateStore).GetRunResult(ctx, runID)
+	result, err := e.stateStore.(*statestore.ArenaStateStore).GetResult(ctx, runID)
 	require.NoError(t, err)
 	assert.Contains(t, result.Error, "scenario not found: missing-scenario")
 }
@@ -91,7 +91,7 @@ func TestEngine_ExecuteRun_ProviderNotFound(t *testing.T) {
 	assert.NotEmpty(t, runID)
 
 	// Verify error was saved
-	result, err := e.stateStore.(*statestore.ArenaStateStore).GetRunResult(ctx, runID)
+	result, err := e.stateStore.(*statestore.ArenaStateStore).GetResult(ctx, runID)
 	require.NoError(t, err)
 	assert.Contains(t, result.Error, "provider not found: missing-provider")
 }
@@ -119,7 +119,7 @@ func TestEngine_ExecuteRun_EvalNotFound(t *testing.T) {
 	assert.Contains(t, runID, "eval")
 
 	// Verify error was saved
-	result, err := e.stateStore.(*statestore.ArenaStateStore).GetRunResult(ctx, runID)
+	result, err := e.stateStore.(*statestore.ArenaStateStore).GetResult(ctx, runID)
 	require.NoError(t, err)
 	assert.Contains(t, result.Error, "eval not found: missing-eval")
 }
