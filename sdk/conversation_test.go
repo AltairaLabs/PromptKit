@@ -2326,3 +2326,131 @@ func TestSetLoggerOnce(t *testing.T) {
 	setLoggerOnce(l)
 	setLoggerOnce(l)
 }
+
+func TestMessageSizeValidation(t *testing.T) {
+	t.Run("string message within limit", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.config.maxMessageSize = 100
+		msg, err := conv.buildUserMessage("hello")
+		assert.NoError(t, err)
+		assert.NotNil(t, msg)
+	})
+
+	t.Run("string message exceeds limit", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.config.maxMessageSize = 5
+		_, err := conv.buildUserMessage("hello world")
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrMessageTooLarge)
+	})
+
+	t.Run("typed message within limit", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.config.maxMessageSize = 100
+		userMsg := &types.Message{Role: "user", Content: "hi"}
+		msg, err := conv.buildUserMessage(userMsg)
+		assert.NoError(t, err)
+		assert.NotNil(t, msg)
+	})
+
+	t.Run("typed message exceeds limit", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.config.maxMessageSize = 5
+		userMsg := &types.Message{Role: "user", Content: "hello world"}
+		_, err := conv.buildUserMessage(userMsg)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrMessageTooLarge)
+	})
+
+	t.Run("multimodal message size counts parts", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.config.maxMessageSize = 10
+		text := "hello"
+		userMsg := &types.Message{
+			Role: "user",
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeText, Text: &text},
+			},
+		}
+		msg, err := conv.buildUserMessage(userMsg)
+		assert.NoError(t, err)
+		assert.NotNil(t, msg)
+	})
+
+	t.Run("default limit allows normal messages", func(t *testing.T) {
+		conv := newTestConversation()
+		// config.maxMessageSize is 0, so defaultMaxMessageSize (10MB) is used
+		msg, err := conv.buildUserMessage("normal message")
+		assert.NoError(t, err)
+		assert.NotNil(t, msg)
+	})
+
+	t.Run("error message includes sizes", func(t *testing.T) {
+		conv := newTestConversation()
+		conv.config.maxMessageSize = 5
+		_, err := conv.buildUserMessage("hello world")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "11 bytes")
+		assert.Contains(t, err.Error(), "5 bytes")
+	})
+}
+
+func TestMessageContentSize(t *testing.T) {
+	t.Run("text only via Content field", func(t *testing.T) {
+		msg := &types.Message{Content: "hello"}
+		assert.Equal(t, 5, messageContentSize(msg))
+	})
+
+	t.Run("text parts", func(t *testing.T) {
+		text1 := "hello"
+		text2 := " world"
+		msg := &types.Message{
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeText, Text: &text1},
+				{Type: types.ContentTypeText, Text: &text2},
+			},
+		}
+		assert.Equal(t, 11, messageContentSize(msg))
+	})
+
+	t.Run("media parts count data length", func(t *testing.T) {
+		data := "base64data"
+		msg := &types.Message{
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeImage, Media: &types.MediaContent{Data: &data}},
+			},
+		}
+		assert.Equal(t, 10, messageContentSize(msg))
+	})
+
+	t.Run("mixed parts", func(t *testing.T) {
+		text := "hi"
+		data := "imgdata"
+		msg := &types.Message{
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeText, Text: &text},
+				{Type: types.ContentTypeImage, Media: &types.MediaContent{Data: &data}},
+			},
+		}
+		assert.Equal(t, 9, messageContentSize(msg))
+	})
+
+	t.Run("nil text pointer", func(t *testing.T) {
+		msg := &types.Message{
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeText, Text: nil},
+			},
+		}
+		assert.Equal(t, 0, messageContentSize(msg))
+	})
+
+	t.Run("media part without data", func(t *testing.T) {
+		url := "https://example.com/img.jpg"
+		msg := &types.Message{
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeImage, Media: &types.MediaContent{URL: &url}},
+			},
+		}
+		assert.Equal(t, 0, messageContentSize(msg))
+	})
+}

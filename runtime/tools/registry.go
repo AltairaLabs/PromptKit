@@ -55,6 +55,14 @@ func WithMaxToolResultSize(bytes int) RegistryOption {
 	}
 }
 
+// WithRateLimit sets a per-tool rate limit (maximum calls per minute).
+// Pass 0 to disable rate limiting (the default).
+func WithRateLimit(maxCallsPerMinute int) RegistryOption {
+	return func(r *Registry) {
+		r.rateLimiter = newRateLimiter(maxCallsPerMinute)
+	}
+}
+
 // Registry manages tool descriptors and provides access to executors.
 // All map access is protected by mu (RWMutex) for safe concurrent use.
 type Registry struct {
@@ -65,6 +73,7 @@ type Registry struct {
 	executors         map[string]Executor        // Registered tool executors
 	defaultTimeoutMs  int                        // Default timeout for tools without explicit TimeoutMs
 	maxToolResultSize int                        // Max result size in bytes (0 = unlimited)
+	rateLimiter       *rateLimiter               // Per-tool rate limiter (nil = unlimited)
 }
 
 // NewRegistry creates a new tool registry without a repository backend (legacy mode)
@@ -379,6 +388,14 @@ func (r *Registry) Execute(
 		return nil, valErr
 	}
 
+	// Check per-tool rate limit
+	if rateLimitErr := r.rateLimiter.Allow(toolName); rateLimitErr != nil {
+		return &ToolResult{
+			Name:  toolName,
+			Error: rateLimitErr.Error(),
+		}, nil
+	}
+
 	// Find appropriate executor using shared logic
 	executor, err := r.getExecutorForTool(tool)
 	if err != nil {
@@ -472,6 +489,14 @@ func (r *Registry) ExecuteAsync(
 	// Validate arguments
 	if valErr := r.validator.ValidateArgs(tool, args); valErr != nil {
 		return nil, valErr
+	}
+
+	// Check per-tool rate limit
+	if rateLimitErr := r.rateLimiter.Allow(toolName); rateLimitErr != nil {
+		return &ToolExecutionResult{
+			Status: ToolStatusFailed,
+			Error:  rateLimitErr.Error(),
+		}, nil
 	}
 
 	executor, err := r.getExecutorForTool(tool)

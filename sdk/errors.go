@@ -39,6 +39,9 @@ var (
 
 	// ErrWorkflowTerminal is returned when Transition is called on a terminal state.
 	ErrWorkflowTerminal = errors.New("workflow is in terminal state")
+
+	// ErrMessageTooLarge is returned when a user message exceeds the configured maximum size.
+	ErrMessageTooLarge = errors.New("message exceeds maximum size")
 )
 
 // ValidationError represents a validation failure.

@@ -34,6 +34,9 @@ const (
 	defaultVADSampleRate        = 16000
 )
 
+// defaultMaxMessageSize is the default maximum user message size (10 MB).
+const defaultMaxMessageSize = 10 * 1024 * 1024
+
 // Video streaming default configuration constants.
 const (
 	defaultVideoStreamFPS     = 1.0
@@ -192,6 +195,9 @@ type config struct {
 	// When set, RecordingStages are inserted into the pipeline to capture
 	// full message content (including binary data) for session replay.
 	recordingConfig *RecordingConfig
+
+	// Maximum user message size in bytes (0 = use default)
+	maxMessageSize int
 
 	// Custom logger for SDK consumers
 	logger *slog.Logger
@@ -824,6 +830,24 @@ func WithExecutionTimeout(d time.Duration) Option {
 	}
 }
 
+// WithMaxMessageSize sets the maximum allowed user message size in bytes.
+//
+// When a message exceeds this limit, Send() and Stream() return
+// [ErrMessageTooLarge]. The default is 10 MB.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithMaxMessageSize(1024 * 1024), // 1 MB limit
+//	)
+func WithMaxMessageSize(bytes int) Option {
+	return func(c *config) error {
+		if bytes <= 0 {
+			return fmt.Errorf("WithMaxMessageSize: size must be positive, got %d", bytes)
+		}
+		c.maxMessageSize = bytes
+		return nil
+	}
+}
+
 // WithTokenBudget sets the maximum tokens for context (prompt + history).
 //
 // When the conversation history exceeds this budget, older messages are
@@ -1127,6 +1151,13 @@ func WithCapability(capability Capability) Option {
 //	    sdk.WithMCP("filesystem", "npx", "@modelcontextprotocol/server-filesystem", "/path"),
 //	    sdk.WithMCP("memory", "npx", "@modelcontextprotocol/server-memory"),
 //	)
+//
+// # Security: Trust Boundary
+//
+// The command and args are executed as a subprocess (via stdio-based MCP
+// transport). Commands are not sandboxed or validated. The caller is
+// responsible for ensuring that command values come from trusted sources.
+// Untrusted input should never be passed as the command or args parameters.
 func WithMCP(name, command string, args ...string) Option {
 	return func(c *config) error {
 		c.mcpServers = append(c.mcpServers, mcp.ServerConfig{

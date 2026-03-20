@@ -430,3 +430,140 @@ func (e *PipelineExecutor) Execute(
 	logger.Debug("Stage pipeline execution completed successfully")
 	return nil
 }
+
+// StreamingStagesConfig controls which optional stages are included in the
+// streaming pipeline built by buildCommonStreamingStages.
+type StreamingStagesConfig struct {
+	// IncludeTurnIndex adds a TurnIndex stage after StateStore load (self-play).
+	IncludeTurnIndex bool
+	// IncludeScenarioContextExtraction adds ScenarioContextExtraction after PromptAssembly (scripted).
+	IncludeScenarioContextExtraction bool
+	// IncludeStripToolMessages adds StripToolMessages after Template (self-play).
+	IncludeStripToolMessages bool
+	// IncludeGuardrailEval adds a GuardrailEval stage after the provider (scripted).
+	IncludeGuardrailEval bool
+	// IncludeMediaExternalizer adds media externalization (scripted).
+	IncludeMediaExternalizer bool
+	// IncludeAssertions adds the assertion stage (scripted).
+	IncludeAssertions bool
+	// UseArenaStateStoreSave uses ArenaStateStoreSave instead of StateStoreSave.
+	UseArenaStateStoreSave bool
+	// UseHooksProvider uses buildProviderStage (which wires hooks) instead of plain NewProviderStage.
+	UseHooksProvider bool
+}
+
+// buildCommonStreamingStages constructs the stage pipeline for streaming execution.
+// Both ScriptedExecutor and SelfPlayExecutor share the same core sequence;
+// the StreamingStagesConfig toggles executor-specific stages.
+//
+//nolint:gocognit // Consolidates two near-duplicate methods; linear config-driven branching is intentional
+func (e *PipelineExecutor) buildCommonStreamingStages(
+	req *TurnRequest,
+	cfg StreamingStagesConfig,
+) (*stage.StreamPipeline, error) {
+	mergedVars := mergePromptVars(req)
+	builder := stage.NewPipelineBuilder()
+	var stages []stage.Stage
+
+	// StateStore Load stage
+	if hasStateStore(req) {
+		storeConfig := buildStateStoreConfig(req)
+		stages = append(stages, stage.NewStateStoreLoadStage(storeConfig))
+		if cfg.IncludeTurnIndex {
+			stages = append(stages, arenastages.NewTurnIndexStage())
+		}
+	}
+
+	// Variable injection
+	stages = append(stages, arenastages.NewVariableInjectionStage(mergedVars))
+	if len(req.Metadata) > 0 {
+		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
+	}
+
+	// Prompt assembly
+	stages = append(stages, stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars))
+
+	// Scenario context extraction (scripted only)
+	if cfg.IncludeScenarioContextExtraction {
+		stages = append(stages, arenastages.NewScenarioContextExtractionStage(req.Scenario))
+	}
+
+	// Template
+	stages = append(stages, stage.NewTemplateStage())
+
+	// Strip tool messages (self-play only)
+	if cfg.IncludeStripToolMessages {
+		stages = append(stages, arenastages.NewStripToolMessagesStage())
+	}
+
+	// Mock scenario context (for mock providers only)
+	if isMockProvider(req.Provider) {
+		stages = append(stages, arenastages.NewMockScenarioContextStage(req.Scenario))
+	}
+
+	// Context builder (if policy exists) — scripted path
+	if cfg.IncludeScenarioContextExtraction {
+		if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
+			stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
+		}
+	}
+
+	// Provider stage
+	providerConfig := buildProviderConfig(req)
+	if cfg.UseHooksProvider {
+		stages = append(stages, e.buildProviderStage(req, providerConfig))
+	} else {
+		stages = append(stages, stage.NewProviderStage(
+			req.Provider, e.toolRegistry, buildToolPolicy(req.Scenario), providerConfig))
+	}
+
+	// Guardrail evaluation (scripted only)
+	if cfg.IncludeGuardrailEval {
+		stages = append(stages, arenastages.NewGuardrailEvalStage())
+	}
+
+	// Media externalization (scripted only)
+	if cfg.IncludeMediaExternalizer && e.mediaStorage != nil {
+		mediaConfig := buildMediaConfig(req.ConversationID, e.mediaStorage)
+		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
+	}
+
+	// Assertion stage (scripted only)
+	if cfg.IncludeAssertions && len(req.Assertions) > 0 {
+		assertionStage := arenastages.NewArenaAssertionStage(req.Assertions)
+		if runner, ok := req.TurnEvalRunner.(arenastages.TurnEvalRunner); ok {
+			assertionStage.WithTurnEvalRunner(runner, req.ConversationID)
+		}
+		stages = append(stages, assertionStage)
+	}
+
+	// State store save
+	if hasStateStore(req) {
+		storeConfig := buildStateStoreConfig(req)
+		if cfg.UseArenaStateStoreSave {
+			stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
+		} else {
+			stages = append(stages, stage.NewStateStoreSaveStage(storeConfig))
+		}
+	}
+
+	return builder.Chain(stages...).Build()
+}
+
+// mergePromptVars merges base variables (from region) with request prompt vars.
+func mergePromptVars(req *TurnRequest) map[string]string {
+	baseVariables := buildBaseVariables(req.Region)
+	mergedVars := make(map[string]string, len(baseVariables)+len(req.PromptVars))
+	for k, v := range baseVariables {
+		mergedVars[k] = v
+	}
+	for k, v := range req.PromptVars {
+		mergedVars[k] = v
+	}
+	return mergedVars
+}
+
+// hasStateStore returns true if the request has a valid state store configuration.
+func hasStateStore(req *TurnRequest) bool {
+	return req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil && req.ConversationID != ""
+}
