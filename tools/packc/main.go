@@ -164,27 +164,30 @@ func printWorkflow(pack *prompt.Pack) {
 	}
 	sort.Strings(stateNames)
 	for _, name := range stateNames {
-		state := pack.Workflow.States[name]
-		fmt.Printf("  [%s] prompt_task=%s\n", name, state.PromptTask)
-		if state.Description != "" {
-			fmt.Printf("    Description: %s\n", state.Description)
+		printWorkflowState(name, pack.Workflow.States[name])
+	}
+}
+
+func printWorkflowState(name string, state *prompt.WorkflowState) {
+	fmt.Printf("  [%s] prompt_task=%s\n", name, state.PromptTask)
+	if state.Description != "" {
+		fmt.Printf("    Description: %s\n", state.Description)
+	}
+	if len(state.OnEvent) > 0 {
+		events := make([]string, 0, len(state.OnEvent))
+		for event := range state.OnEvent {
+			events = append(events, event)
 		}
-		if len(state.OnEvent) > 0 {
-			events := make([]string, 0, len(state.OnEvent))
-			for event := range state.OnEvent {
-				events = append(events, event)
-			}
-			sort.Strings(events)
-			for _, event := range events {
-				fmt.Printf("    on %s → %s\n", event, state.OnEvent[event])
-			}
+		sort.Strings(events)
+		for _, event := range events {
+			fmt.Printf("    on %s → %s\n", event, state.OnEvent[event])
 		}
-		if state.Persistence != "" {
-			fmt.Printf("    Persistence: %s\n", state.Persistence)
-		}
-		if state.Orchestration != "" {
-			fmt.Printf("    Orchestration: %s\n", state.Orchestration)
-		}
+	}
+	if state.Persistence != "" {
+		fmt.Printf("    Persistence: %s\n", state.Persistence)
+	}
+	if state.Orchestration != "" {
+		fmt.Printf("    Orchestration: %s\n", state.Orchestration)
 	}
 }
 
@@ -249,6 +252,37 @@ func getFragmentNames(fragments map[string]string) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// runSkillValidation validates skill configurations in a pack, returning errors and warnings.
+// Returns fatal errors (should abort) and non-fatal warnings (informational).
+func runSkillValidation(pack *prompt.Pack, dir string) (fatalErrors, warnings []string) {
+	fatalErrors = ValidateSkillErrors(pack, dir)
+	warnings = ValidateSkills(pack, dir)
+	return fatalErrors, warnings
+}
+
+// printPackSummary prints a summary of the compiled pack.
+func printPackSummary(pack *prompt.Pack, outputFile string) {
+	fmt.Printf("✓ Pack compiled successfully: %s\n", outputFile)
+	fmt.Printf("  Contains %d prompts: %v\n", len(pack.Prompts), pack.ListPrompts())
+	if len(pack.Tools) > 0 {
+		toolNames := make([]string, 0, len(pack.Tools))
+		for name := range pack.Tools {
+			toolNames = append(toolNames, name)
+		}
+		sort.Strings(toolNames)
+		fmt.Printf("  Contains %d tools: %v\n", len(pack.Tools), toolNames)
+	}
+	if len(pack.Evals) > 0 {
+		fmt.Printf("  Pack-level evals: %d\n", len(pack.Evals))
+	}
+	if pack.Workflow != nil {
+		fmt.Printf("  Workflow: %d states (entry: %s)\n", len(pack.Workflow.States), pack.Workflow.Entry)
+	}
+	if pack.Agents != nil {
+		fmt.Printf("  Agents: %d members (entry: %s)\n", len(pack.Agents.Members), pack.Agents.Entry)
+	}
 }
 
 // validateMediaReferences checks if media files referenced in examples exist

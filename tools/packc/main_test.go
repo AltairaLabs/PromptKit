@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -872,6 +873,109 @@ func TestPrintWorkflow_Deterministic(t *testing.T) {
 		result := captureOutput()
 		assert.Equal(t, first, result, "iteration %d produced different output", i)
 	}
+}
+
+func TestPrintWorkflowState(t *testing.T) {
+	t.Run("full state", func(t *testing.T) {
+		state := &prompt.WorkflowState{
+			PromptTask:    "greeting",
+			Description:   "Initial state",
+			OnEvent:       map[string]string{"Done": "end", "Error": "fallback"},
+			Persistence:   "persistent",
+			Orchestration: "internal",
+		}
+		// Should not panic
+		printWorkflowState("start", state)
+	})
+
+	t.Run("minimal state", func(t *testing.T) {
+		state := &prompt.WorkflowState{
+			PromptTask: "farewell",
+		}
+		printWorkflowState("end", state)
+	})
+
+	t.Run("state with events only", func(t *testing.T) {
+		state := &prompt.WorkflowState{
+			PromptTask: "process",
+			OnEvent:    map[string]string{"Next": "end"},
+		}
+		printWorkflowState("middle", state)
+	})
+}
+
+func TestRunSkillValidation(t *testing.T) {
+	t.Run("no skills", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"test": {ID: "test"},
+			},
+		}
+		errs, warnings := runSkillValidation(pack, t.TempDir())
+		assert.Empty(t, errs)
+		assert.Empty(t, warnings)
+	})
+
+	t.Run("with skills directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		skillsDir := filepath.Join(tmpDir, "skills")
+		require.NoError(t, os.MkdirAll(filepath.Join(skillsDir, "greet"), 0o755))
+		require.NoError(t, os.WriteFile(
+			filepath.Join(skillsDir, "greet", "prompt.md"),
+			[]byte("Hello!"),
+			0o644,
+		))
+
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"test": {ID: "test"},
+			},
+			Skills: []prompt.SkillSourceConfig{
+				{Dir: "skills"},
+			},
+		}
+		errs, warnings := runSkillValidation(pack, tmpDir)
+		assert.Empty(t, errs)
+		assert.Empty(t, warnings)
+	})
+}
+
+func TestPrintPackSummary(t *testing.T) {
+	t.Run("minimal pack", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"test": {ID: "test"},
+			},
+		}
+		printPackSummary(pack, "test.pack.json")
+	})
+
+	t.Run("full pack", func(t *testing.T) {
+		pack := &prompt.Pack{
+			Prompts: map[string]*prompt.PackPrompt{
+				"test": {ID: "test"},
+			},
+			Tools: map[string]*prompt.PackTool{
+				"search":     {Name: "search", Description: "Search"},
+				"calculator": {Name: "calculator", Description: "Calc"},
+			},
+			Evals: []evals.EvalDef{{ID: "eval1", Type: "contains"}},
+			Workflow: &prompt.WorkflowConfig{
+				Version: 1,
+				Entry:   "start",
+				States: map[string]*prompt.WorkflowState{
+					"start": {PromptTask: "test"},
+				},
+			},
+			Agents: &prompt.AgentsConfig{
+				Entry: "agent1",
+				Members: map[string]*prompt.AgentDef{
+					"agent1": {Description: "Agent 1"},
+				},
+			},
+		}
+		printPackSummary(pack, "full.pack.json")
+	})
 }
 
 func TestPrintAgents_Deterministic(t *testing.T) {
