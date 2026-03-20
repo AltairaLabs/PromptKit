@@ -33,9 +33,59 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
+
+// structFieldMeta holds pre-computed metadata for a single struct field.
+type structFieldMeta struct {
+	index  int    // field index within the struct
+	mapKey string // key to look up in the args map
+}
+
+// structMeta holds cached reflection metadata for a struct type.
+type structMeta struct {
+	fields []structFieldMeta
+}
+
+// structMetaCache maps reflect.Type → *structMeta. Using sync.Map because
+// the cache is read-heavy after warm-up and the key set grows monotonically.
+var structMetaCache sync.Map
+
+// getStructMeta returns cached metadata for the given struct type, computing
+// it on the first call.
+func getStructMeta(rt reflect.Type) *structMeta {
+	if cached, ok := structMetaCache.Load(rt); ok {
+		return cached.(*structMeta)
+	}
+
+	meta := &structMeta{
+		fields: make([]structFieldMeta, 0, rt.NumField()),
+	}
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		mapKey := f.Tag.Get("map")
+		if mapKey == "" {
+			mapKey = f.Name
+		}
+		// Respect "map:\"-\"" to skip fields, and strip options after comma.
+		if mapKey == "-" {
+			continue
+		}
+		if idx := strings.IndexByte(mapKey, ','); idx != -1 {
+			mapKey = mapKey[:idx]
+		}
+		meta.fields = append(meta.fields, structFieldMeta{index: i, mapKey: mapKey})
+	}
+
+	actual, _ := structMetaCache.LoadOrStore(rt, meta)
+	return actual.(*structMeta)
+}
 
 // TypedHandler is a function that executes a tool call with typed arguments.
 // T must be a struct type with fields tagged with `map:"fieldname"`.
@@ -79,9 +129,9 @@ type ToolRegistrar interface {
 type ToolHandler = func(args map[string]any) (any, error)
 
 // mapToStruct converts a map[string]any to a struct using reflection.
-// It looks for "map" struct tags or uses lowercase field names.
-// TODO: Cache reflect.Type field metadata (tag lookup, field index) per type
-// to avoid repeated reflection on hot paths with many tool calls.
+// It looks for "map" struct tags or uses the field name as-is.
+// Field metadata is cached per type via structMetaCache to avoid repeated
+// tag parsing and field enumeration on hot paths with many tool calls.
 func mapToStruct(m map[string]any, v any) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
@@ -93,29 +143,17 @@ func mapToStruct(m map[string]any, v any) error {
 	}
 
 	rt := rv.Type()
-	for i := 0; i < rv.NumField(); i++ {
-		field := rt.Field(i)
-		fieldValue := rv.Field(i)
+	meta := getStructMeta(rt)
 
-		if !fieldValue.CanSet() {
-			continue
-		}
-
-		// Get the map key from tag or field name
-		mapKey := field.Tag.Get("map")
-		if mapKey == "" {
-			mapKey = field.Name
-		}
-
-		// Look up value in map
-		mapVal, ok := m[mapKey]
+	for _, fm := range meta.fields {
+		mapVal, ok := m[fm.mapKey]
 		if !ok {
 			continue
 		}
 
-		// Set the field value
+		fieldValue := rv.Field(fm.index)
 		if err := setFieldValue(fieldValue, mapVal); err != nil {
-			return fmt.Errorf("failed to set field %s: %w", field.Name, err)
+			return fmt.Errorf("failed to set field %s: %w", rt.Field(fm.index).Name, err)
 		}
 	}
 

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -244,4 +245,55 @@ func TestMapToStructEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"a", "b", "c"}, target.Items)
 	})
+}
+
+func TestStructMetadataCaching(t *testing.T) {
+	type CachedTarget struct {
+		Name  string `map:"name"`
+		Value int    `map:"value"`
+	}
+
+	m := map[string]any{"name": "test", "value": float64(42)}
+
+	// First call populates cache
+	var t1 CachedTarget
+	require.NoError(t, mapToStruct(m, &t1))
+	assert.Equal(t, "test", t1.Name)
+	assert.Equal(t, 42, t1.Value)
+
+	// Second call uses cached metadata — should produce identical results
+	var t2 CachedTarget
+	require.NoError(t, mapToStruct(m, &t2))
+	assert.Equal(t, t1, t2)
+
+	// Verify cache entry exists
+	rt := reflect.TypeOf(CachedTarget{})
+	cached, ok := structMetaCache.Load(rt)
+	assert.True(t, ok, "expected cache entry for CachedTarget")
+	meta := cached.(*structMeta)
+	assert.Len(t, meta.fields, 2)
+}
+
+func BenchmarkMapToStruct(b *testing.B) {
+	type Args struct {
+		City    string  `map:"city"`
+		Country string  `map:"country"`
+		Lat     float64 `map:"lat"`
+		Lon     float64 `map:"lon"`
+		Pop     int     `map:"pop"`
+	}
+
+	m := map[string]any{
+		"city":    "Tokyo",
+		"country": "Japan",
+		"lat":     float64(35.6762),
+		"lon":     float64(139.6503),
+		"pop":     float64(13960000),
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var args Args
+		_ = mapToStruct(m, &args)
+	}
 }

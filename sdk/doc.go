@@ -78,9 +78,9 @@
 //   - sdk (this package): Entry point, [Open], [Conversation], [Response]
 //   - sdk/tools: Typed tool handlers, HITL support
 //   - sdk/stream: Streaming response handling
-//   - sdk/message: Multimodal message building
 //   - sdk/hooks: Event subscription and lifecycle hooks
-//   - sdk/validation: Validator registration and error handling
+//   - sdk/session: Session management and persistence
+//   - sdk/agui: AG-UI protocol adapter
 //
 // Most users only need to import the root sdk package.
 //
