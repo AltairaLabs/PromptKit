@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -360,7 +361,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	startTime := time.Now()
 	runID := generateRunID(combo)
-	runEmitter := e.createRunEmitter(runID, combo)
+	runEmitter := e.createRunEmitter(runCtx, runID, &combo)
 
 	// Get Arena state store
 	arenaStore, ok := e.stateStore.(*statestore.ArenaStateStore)
@@ -519,10 +520,20 @@ func (e *Engine) enrichMessagesWithToolDescriptors(
 	}
 }
 
-func (e *Engine) createRunEmitter(runID string, combo RunCombination) *events.Emitter {
+func (e *Engine) createRunEmitter(ctx context.Context, runID string, combo *RunCombination) *events.Emitter {
 	if e.eventBus == nil {
 		return nil
 	}
+
+	// Start OTel session if tracing is configured via SetTracerProvider.
+	// This creates a root span parented under the caller's context.
+	if e.otelListener != nil {
+		e.otelListener.StartSession(ctx, runID, telemetry.AgentInfo{
+			Name: combo.ScenarioID,
+			ID:   combo.ProviderID,
+		})
+	}
+
 	// Use runID as sessionID for session recording - this ensures events are
 	// associated with the recording file for this run
 	emitter := events.NewEmitter(e.eventBus, runID, runID, runID)
@@ -620,6 +631,11 @@ func (e *Engine) notifyRunCompletion(
 	duration time.Duration,
 	cost float64,
 ) {
+	// End OTel session if tracing is configured via SetTracerProvider
+	if e.otelListener != nil {
+		e.otelListener.EndSession(runID)
+	}
+
 	if runEmitter == nil {
 		return
 	}

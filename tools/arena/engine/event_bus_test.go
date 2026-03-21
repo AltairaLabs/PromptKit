@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -197,7 +198,7 @@ func TestEngineEmitsRunStartedEvent(t *testing.T) {
 		Region:     "us-east",
 	}
 	runID := generateRunID(combo)
-	emitter := eng.createRunEmitter(runID, combo)
+	emitter := eng.createRunEmitter(context.Background(), runID, &combo)
 
 	// Wait for async event delivery
 	done := make(chan struct{})
