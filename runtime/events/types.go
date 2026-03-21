@@ -115,7 +115,7 @@ type Event struct {
 	Type           EventType
 	Timestamp      time.Time
 	Sequence       int64
-	RunID          string
+	ExecutionID    string
 	SessionID      string
 	ConversationID string
 	UserID         string

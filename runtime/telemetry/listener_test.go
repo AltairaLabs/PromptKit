@@ -88,29 +88,29 @@ func TestOTelEventListener_PipelineSpan(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineStartedData{MiddlewareCount: 2},
 	})
 
 	// Emit provider, tool, and middleware spans inside the pipeline.
 	listener.OnEvent(&events.Event{
 		Type: events.EventMiddlewareStarted, Timestamp: now.Add(10 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MiddlewareStartedData{Name: "guard", Index: 0},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventMiddlewareCompleted, Timestamp: now.Add(20 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MiddlewareCompletedData{Name: "guard", Index: 0, Duration: 10 * time.Millisecond},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now.Add(50 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallCompleted, Timestamp: now.Add(200 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallCompletedData{
 			Provider: "openai", Model: "gpt-4",
 			Duration: 150 * time.Millisecond, FinishReason: "stop",
@@ -118,12 +118,12 @@ func TestOTelEventListener_PipelineSpan(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallStarted, Timestamp: now.Add(300 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallStartedData{ToolName: "search", CallID: "call-h1"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallCompleted, Timestamp: now.Add(400 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallCompletedData{
 			ToolName: "search", CallID: "call-h1",
 			Duration: 100 * time.Millisecond, Status: "success",
@@ -132,7 +132,7 @@ func TestOTelEventListener_PipelineSpan(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineCompleted, Timestamp: now.Add(time.Second),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineCompletedData{
 			Duration: time.Second, TotalCost: 0.01,
 			InputTokens: 100, OutputTokens: 50,
@@ -180,12 +180,12 @@ func TestOTelEventListener_PipelineFailed(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineStartedData{},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineFailed, Timestamp: now.Add(time.Second),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineFailedData{
 			Duration: time.Second, Error: errors.New("boom"),
 		},
@@ -211,7 +211,7 @@ func TestOTelEventListener_ProviderSpan(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallStartedData{
 			Provider: "openai", Model: "gpt-4",
 			MessageCount: 5, ToolCount: 2,
@@ -219,7 +219,7 @@ func TestOTelEventListener_ProviderSpan(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallCompleted, Timestamp: now.Add(500 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallCompletedData{
 			Provider: "openai", Model: "gpt-4",
 			Duration:    500 * time.Millisecond,
@@ -251,12 +251,12 @@ func TestOTelEventListener_ProviderFailed(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallFailed, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallFailedData{
 			Provider: "openai", Model: "gpt-4",
 			Duration: 100 * time.Millisecond, Error: errors.New("rate limited"),
@@ -283,7 +283,7 @@ func TestOTelEventListener_ToolSpan(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallStartedData{
 			ToolName: "search", CallID: "call-123",
 			Args: map[string]interface{}{"query": "test"},
@@ -291,7 +291,7 @@ func TestOTelEventListener_ToolSpan(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallCompleted, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallCompletedData{
 			ToolName: "search", CallID: "call-123",
 			Duration: 100 * time.Millisecond, Status: "success",
@@ -318,12 +318,12 @@ func TestOTelEventListener_ToolFailed(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallStartedData{ToolName: "search", CallID: "call-1"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallFailed, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallFailedData{
 			ToolName: "search", CallID: "call-1",
 			Duration: 100 * time.Millisecond, Error: errors.New("tool failed"),
@@ -347,12 +347,12 @@ func TestOTelEventListener_MiddlewareSpan(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventMiddlewareStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MiddlewareStartedData{Name: "auth", Index: 0},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventMiddlewareCompleted, Timestamp: now.Add(50 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MiddlewareCompletedData{
 			Name: "auth", Index: 0, Duration: 50 * time.Millisecond,
 		},
@@ -375,12 +375,12 @@ func TestOTelEventListener_MiddlewareFailed(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventMiddlewareStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MiddlewareStartedData{Name: "auth", Index: 0},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventMiddlewareFailed, Timestamp: now.Add(50 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MiddlewareFailedData{
 			Name: "auth", Index: 0,
 			Duration: 50 * time.Millisecond, Error: errors.New("auth failed"),
@@ -404,17 +404,17 @@ func TestOTelEventListener_MessageCreated_OnProvider(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventMessageCreated, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MessageCreatedData{Role: "user", Content: "Hello!"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallCompleted, Timestamp: now.Add(500 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallCompletedData{
 			Provider: "openai", Model: "gpt-4",
 			Duration: 500 * time.Millisecond, FinishReason: "stop",
@@ -442,7 +442,7 @@ func TestOTelEventListener_MessageCreated_FallsBackToSession(t *testing.T) {
 	// Message without active provider span falls back to session root.
 	listener.OnEvent(&events.Event{
 		Type: events.EventMessageCreated, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MessageCreatedData{Role: "user", Content: "Hello without provider"},
 	})
 
@@ -466,12 +466,12 @@ func TestOTelEventListener_MessageCreated_WithToolCalls(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventMessageCreated, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.MessageCreatedData{
 			Role: "assistant",
 			ToolCalls: []events.MessageToolCall{
@@ -481,7 +481,7 @@ func TestOTelEventListener_MessageCreated_WithToolCalls(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallCompleted, Timestamp: now.Add(500 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallCompletedData{
 			Provider: "openai", Model: "gpt-4",
 			Duration: 500 * time.Millisecond, FinishReason: "tool_calls",
@@ -517,7 +517,7 @@ func TestOTelEventListener_WorkflowTransition(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventWorkflowTransitioned, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.WorkflowTransitionedData{
 			FromState: "greeting", ToState: "issue_triage",
 			Event: "issue_reported", PromptTask: "triage the issue",
@@ -544,7 +544,7 @@ func TestOTelEventListener_WorkflowCompleted(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventWorkflowCompleted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.WorkflowCompletedData{FinalState: "resolved", TransitionCount: 5},
 	})
 
@@ -580,12 +580,12 @@ func TestOTelEventListener_ToolNilArgs(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallStartedData{ToolName: "noop", CallID: "call-nil"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallCompleted, Timestamp: now.Add(10 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallCompletedData{
 			ToolName: "noop", CallID: "call-nil",
 			Duration: 10 * time.Millisecond, Status: "success",
@@ -645,7 +645,7 @@ func TestOTelEventListener_UnknownEventType(t *testing.T) {
 	// Should not panic on unhandled event types.
 	listener.OnEvent(&events.Event{
 		Type:      events.EventConversationStarted,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 	})
 
 	listener.EndSession("sess-1")
@@ -660,7 +660,7 @@ func TestOTelEventListener_SpanAttributes(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallStartedData{
 			Provider: "anthropic", Model: "claude-3",
 			MessageCount: 3, ToolCount: 1,
@@ -668,7 +668,7 @@ func TestOTelEventListener_SpanAttributes(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallCompleted, Timestamp: now.Add(time.Second),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallCompletedData{
 			Provider: "anthropic", Model: "claude-3",
 			Duration:     time.Second,
@@ -715,7 +715,7 @@ func TestOTelEventListener_OutOfOrderDelivery(t *testing.T) {
 	// Send completed BEFORE started (simulates async race).
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineCompleted, Timestamp: now.Add(time.Second),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: events.PipelineCompletedData{
 			Duration: time.Second, TotalCost: 0.01,
 			InputTokens: 100, OutputTokens: 50,
@@ -723,7 +723,7 @@ func TestOTelEventListener_OutOfOrderDelivery(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 	})
 
 	listener.EndSession("sess-1")
@@ -753,12 +753,12 @@ func TestOTelEventListener_SpanHierarchy_NoPipeline_FallsBackToSession(t *testin
 	// Start a provider span without a pipeline span inflight.
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallStartedData{Provider: "openai", Model: "gpt-4"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallCompleted, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallCompletedData{
 			Provider: "openai", Model: "gpt-4",
 			Duration: 100 * time.Millisecond, FinishReason: "stop",
@@ -787,7 +787,7 @@ func TestOTelEventListener_OutOfOrderFailed(t *testing.T) {
 	// Send failed BEFORE started.
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallFailed, Timestamp: now.Add(time.Second),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: events.ProviderCallFailedData{
 			Provider: "test", Model: "test-model",
 			Error: errors.New("timeout"), Duration: time.Second,
@@ -795,7 +795,7 @@ func TestOTelEventListener_OutOfOrderFailed(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: events.ProviderCallStartedData{
 			Provider: "test", Model: "test-model",
 		},
@@ -821,12 +821,12 @@ func TestOTelEventListener_ValidationSpan_Passed(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineStartedData{},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventValidationStarted, Timestamp: now.Add(10 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ValidationStartedData{
 			ValidatorName: "banned_words",
 			ValidatorType: "output",
@@ -834,7 +834,7 @@ func TestOTelEventListener_ValidationSpan_Passed(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventValidationPassed, Timestamp: now.Add(20 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ValidationPassedData{
 			ValidatorName: "banned_words",
 			ValidatorType: "output",
@@ -843,7 +843,7 @@ func TestOTelEventListener_ValidationSpan_Passed(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineCompleted, Timestamp: now.Add(time.Second),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineCompletedData{Duration: time.Second},
 	})
 
@@ -888,7 +888,7 @@ func TestOTelEventListener_ValidationSpan_Failed(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventValidationStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ValidationStartedData{
 			ValidatorName: "length",
 			ValidatorType: "output",
@@ -896,7 +896,7 @@ func TestOTelEventListener_ValidationSpan_Failed(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventValidationFailed, Timestamp: now.Add(15 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ValidationFailedData{
 			ValidatorName: "length",
 			ValidatorType: "output",
@@ -935,7 +935,7 @@ func TestOTelEventListener_ValidationSpan_FailedWithViolations(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventValidationStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ValidationStartedData{
 			ValidatorName: "banned_words",
 			ValidatorType: "output",
@@ -943,7 +943,7 @@ func TestOTelEventListener_ValidationSpan_FailedWithViolations(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventValidationFailed, Timestamp: now.Add(10 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ValidationFailedData{
 			ValidatorName: "banned_words",
 			ValidatorType: "output",
@@ -970,12 +970,12 @@ func TestOTelEventListener_EvalCompleted(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineStartedData{},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventEvalCompleted, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.EvalCompletedData{
 			EvalID:      "response-quality",
 			EvalType:    "llm_judge",
@@ -988,7 +988,7 @@ func TestOTelEventListener_EvalCompleted(t *testing.T) {
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventPipelineCompleted, Timestamp: now.Add(time.Second),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.PipelineCompletedData{Duration: time.Second},
 	})
 
@@ -1036,7 +1036,7 @@ func TestOTelEventListener_EvalFailed(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventEvalFailed, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.EvalFailedData{
 			EvalID:      "contains-greeting",
 			EvalType:    "contains",
@@ -1068,7 +1068,7 @@ func TestOTelEventListener_EvalNoScore(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventEvalCompleted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.EvalCompletedData{
 			EvalID:   "json-valid",
 			EvalType: "json_valid",
@@ -1096,14 +1096,14 @@ func TestOTelEventListener_ToolSpan_MCPToolType(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallStartedData{
 			ToolName: "mcp__weather__get_forecast", CallID: "call-mcp",
 		},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallCompleted, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallCompletedData{
 			ToolName: "mcp__weather__get_forecast", CallID: "call-mcp",
 			Duration: 100 * time.Millisecond, Status: "success",
@@ -1127,12 +1127,12 @@ func TestOTelEventListener_ToolSpan_RegularToolType(t *testing.T) {
 
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallStartedData{ToolName: "search", CallID: "call-reg"},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallCompleted, Timestamp: now.Add(50 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallCompletedData{
 			ToolName: "search", CallID: "call-reg",
 			Duration: 50 * time.Millisecond, Status: "success",
@@ -1157,14 +1157,14 @@ func TestOTelEventListener_ToolSpan_Labels(t *testing.T) {
 	labels := map[string]string{"handler_type": "http", "team": "platform"}
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallStartedData{
 			ToolName: "search", CallID: "call-lbl", Labels: labels,
 		},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventToolCallCompleted, Timestamp: now.Add(50 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ToolCallCompletedData{
 			ToolName: "search", CallID: "call-lbl",
 			Duration: 50 * time.Millisecond, Status: "success",
@@ -1192,14 +1192,14 @@ func TestOTelEventListener_ProviderSpan_Labels(t *testing.T) {
 	labels := map[string]string{"tier": "premium"}
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallStarted, Timestamp: now,
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallStartedData{
 			Provider: "openai", Model: "gpt-4", Labels: labels,
 		},
 	})
 	listener.OnEvent(&events.Event{
 		Type: events.EventProviderCallCompleted, Timestamp: now.Add(100 * time.Millisecond),
-		SessionID: "sess-1", RunID: "run-1",
+		SessionID: "sess-1", ExecutionID: "run-1",
 		Data: &events.ProviderCallCompletedData{
 			Provider: "openai", Model: "gpt-4",
 			Duration: 100 * time.Millisecond, Labels: labels,

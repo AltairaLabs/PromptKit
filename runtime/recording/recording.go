@@ -261,7 +261,7 @@ func Export(ctx context.Context, store events.EventStore, sessionID string) (*Se
 			Offset:         e.Timestamp.Sub(sessionStart),
 			SessionID:      e.SessionID,
 			ConversationID: e.ConversationID,
-			RunID:          e.RunID,
+			RunID:          e.ExecutionID,
 			DataType:       e.DataType,
 			Data:           e.Data,
 		}
@@ -584,7 +584,7 @@ func (r *SessionRecording) ToEvents() []*events.Event {
 			Timestamp:      re.Timestamp,
 			SessionID:      re.SessionID,
 			ConversationID: re.ConversationID,
-			RunID:          re.RunID,
+			ExecutionID:    re.RunID,
 		}
 	}
 	return result
@@ -601,7 +601,7 @@ func (r *SessionRecording) ToTypedEvents() ([]*events.Event, error) {
 			Timestamp:      re.Timestamp,
 			SessionID:      re.SessionID,
 			ConversationID: re.ConversationID,
-			RunID:          re.RunID,
+			ExecutionID:    re.RunID,
 		}
 
 		// Deserialize the Data field based on DataType

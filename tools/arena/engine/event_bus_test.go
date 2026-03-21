@@ -222,8 +222,8 @@ func TestEngineEmitsRunStartedEvent(t *testing.T) {
 	if receivedEvent.Type != events.EventType("arena.run.started") {
 		t.Fatalf("expected arena.run.started, got %s", receivedEvent.Type)
 	}
-	if receivedEvent.RunID != runID {
-		t.Fatalf("expected RunID %s, got %s", runID, receivedEvent.RunID)
+	if receivedEvent.ExecutionID != runID {
+		t.Fatalf("expected RunID %s, got %s", runID, receivedEvent.ExecutionID)
 	}
 
 	// Verify event data

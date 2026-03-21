@@ -191,7 +191,7 @@ func (a *EventAdapter) handleArenaEvents(event *events.Event) tea.Msg {
 	switch event.Type { //nolint:exhaustive // only map arena-specific custom events
 	case events.EventType("arena.run.started"):
 		return RunStartedMsg{
-			RunID:    event.RunID,
+			RunID:    event.ExecutionID,
 			Scenario: readString(event.Data, "scenario"),
 			Provider: readString(event.Data, "provider"),
 			Region:   readString(event.Data, "region"),
@@ -199,20 +199,20 @@ func (a *EventAdapter) handleArenaEvents(event *events.Event) tea.Msg {
 		}
 	case events.EventType("arena.run.completed"):
 		return RunCompletedMsg{
-			RunID:    event.RunID,
+			RunID:    event.ExecutionID,
 			Duration: readDuration(event.Data, "duration"),
 			Cost:     readFloat(event.Data, "cost"),
 			Time:     event.Timestamp,
 		}
 	case events.EventType("arena.run.failed"):
 		return RunFailedMsg{
-			RunID: event.RunID,
+			RunID: event.ExecutionID,
 			Error: readError(event.Data, "error"),
 			Time:  event.Timestamp,
 		}
 	case events.EventType("arena.turn.started"):
 		return TurnStartedMsg{
-			RunID:     event.RunID,
+			RunID:     event.ExecutionID,
 			TurnIndex: readInt(event.Data, "turn_index"),
 			Role:      readString(event.Data, "role"),
 			Scenario:  readString(event.Data, "scenario"),
@@ -220,7 +220,7 @@ func (a *EventAdapter) handleArenaEvents(event *events.Event) tea.Msg {
 		}
 	case events.EventType("arena.turn.completed"), events.EventType("arena.turn.failed"):
 		return TurnCompletedMsg{
-			RunID:     event.RunID,
+			RunID:     event.ExecutionID,
 			TurnIndex: readInt(event.Data, "turn_index"),
 			Role:      readString(event.Data, "role"),
 			Scenario:  readString(event.Data, "scenario"),

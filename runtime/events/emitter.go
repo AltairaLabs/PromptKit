@@ -9,17 +9,17 @@ import (
 // Emitter provides helpers for publishing runtime events with shared metadata.
 type Emitter struct {
 	bus            Bus
-	runID          string
+	executionID    string
 	sessionID      string
 	conversationID string
 	userID         string
 }
 
 // NewEmitter creates a new event emitter.
-func NewEmitter(bus Bus, runID, sessionID, conversationID string) *Emitter {
+func NewEmitter(bus Bus, executionID, sessionID, conversationID string) *Emitter {
 	return &Emitter{
 		bus:            bus,
-		runID:          runID,
+		executionID:    executionID,
 		sessionID:      sessionID,
 		conversationID: conversationID,
 	}
@@ -42,7 +42,7 @@ func (e *Emitter) emit(eventType EventType, data EventData) {
 	event := &Event{
 		Type:           eventType,
 		Timestamp:      time.Now(),
-		RunID:          e.runID,
+		ExecutionID:    e.executionID,
 		SessionID:      e.sessionID,
 		ConversationID: e.conversationID,
 		UserID:         e.userID,

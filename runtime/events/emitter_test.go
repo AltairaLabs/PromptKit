@@ -30,7 +30,7 @@ func TestEmitterPublishesSharedContext(t *testing.T) {
 		t.Fatal("timed out waiting for pipeline started event")
 	}
 
-	if got.RunID != "run-1" || got.SessionID != "session-1" || got.ConversationID != "conv-1" {
+	if got.ExecutionID != "run-1" || got.SessionID != "session-1" || got.ConversationID != "conv-1" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -187,7 +187,7 @@ func TestEmitter_MessageCreated(t *testing.T) {
 		t.Fatal("timed out waiting for message.created event")
 	}
 
-	if got.RunID != "run-mc" || got.SessionID != "session-mc" || got.ConversationID != "conv-mc" {
+	if got.ExecutionID != "run-mc" || got.SessionID != "session-mc" || got.ConversationID != "conv-mc" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -382,8 +382,8 @@ func TestEmitter_MessageUpdated(t *testing.T) {
 		t.Fatal("timed out waiting for message.updated event")
 	}
 
-	if got.RunID != "run-mu" {
-		t.Fatalf("unexpected run ID: %s", got.RunID)
+	if got.ExecutionID != "run-mu" {
+		t.Fatalf("unexpected run ID: %s", got.ExecutionID)
 	}
 
 	data, ok := got.Data.(*MessageUpdatedData)
@@ -420,7 +420,7 @@ func TestEmitter_ConversationStarted(t *testing.T) {
 		t.Fatal("timed out waiting for conversation.started event")
 	}
 
-	if got.RunID != "run-cs" || got.SessionID != "session-cs" || got.ConversationID != "conv-cs" {
+	if got.ExecutionID != "run-cs" || got.SessionID != "session-cs" || got.ConversationID != "conv-cs" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -597,7 +597,7 @@ func TestEmitter_AudioInput(t *testing.T) {
 		t.Fatal("timed out waiting for audio.input event")
 	}
 
-	if got.RunID != "run-ai" || got.SessionID != "session-ai" || got.ConversationID != "conv-ai" {
+	if got.ExecutionID != "run-ai" || got.SessionID != "session-ai" || got.ConversationID != "conv-ai" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -659,7 +659,7 @@ func TestEmitter_AudioOutput(t *testing.T) {
 		t.Fatal("timed out waiting for audio.output event")
 	}
 
-	if got.RunID != "run-ao" || got.SessionID != "session-ao" || got.ConversationID != "conv-ao" {
+	if got.ExecutionID != "run-ao" || got.SessionID != "session-ao" || got.ConversationID != "conv-ao" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -778,7 +778,7 @@ func TestEmitter_ClientToolRequest(t *testing.T) {
 		t.Fatal("timed out waiting for tool.client.request event")
 	}
 
-	if got.RunID != "run-ctr" || got.SessionID != "session-ctr" || got.ConversationID != "conv-ctr" {
+	if got.ExecutionID != "run-ctr" || got.SessionID != "session-ctr" || got.ConversationID != "conv-ctr" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 

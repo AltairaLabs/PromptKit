@@ -55,6 +55,12 @@
     },
     "yaml.schemaStore.enable": true,
     "yaml.validate": true,
+    "go.toolsEnvVars": {
+        "GOWORK": "${workspaceFolder}/go.work"
+    },
+    "gopls": {
+        "expandWorkspaceToModule": false
+    },
     "workbench.colorCustomizations": {
         "activityBar.activeBackground": "#149f38",
         "activityBar.background": "#149f38",
