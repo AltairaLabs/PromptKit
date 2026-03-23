@@ -11,6 +11,8 @@ import (
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
+const roleSystem = "system"
+
 // initWorkflow parses the workflow config and registers the workflow__transition
 // tool in the tool registry. Called during engine initialization when config.Workflow
 // is present.
@@ -122,7 +124,7 @@ func (e *Engine) enrichWorkflowMessages(messages []types.Message) bool {
 				enriched = true
 			}
 		}
-		if msg.Role == "system" && i == 0 {
+		if msg.Role == roleSystem && i == 0 {
 			setMeta(msg, "_workflow_state", e.buildEntryStateMeta(currentState))
 			enriched = true
 		}

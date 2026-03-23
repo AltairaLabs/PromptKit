@@ -394,6 +394,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		scenario = &wfScenario
 		workflowOrch = e.prepareWorkflowScenario(scenario, runID)
 		runCtx = withWorkflowScenarioID(runCtx, runID)
+		defer e.workflowTransExec.UnregisterRun(runID)
 	}
 
 	// Get provider
@@ -454,7 +455,6 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	// Enrich conversation messages with workflow state metadata for reports
 	if e.workflowTransExec != nil {
 		e.enrichMessagesWithWorkflowState(runCtx, arenaStore, runID)
-		e.workflowTransExec.UnregisterRun(runID)
 	}
 
 	// Calculate duration and cost
