@@ -6,7 +6,11 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'docs/**'
+      - 'docs/package.json'
+      - 'docs/package-lock.json'
+      - 'docs/astro.config.*'
+      - 'docs/tsconfig.json'
+      - 'docs/src/content.config.ts'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
     inputs:
