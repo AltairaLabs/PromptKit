@@ -3,6 +3,11 @@ name: Deploy Documentation to GitHub Pages
 on:
   release:
     types: [published]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
     inputs:
       reason:
@@ -84,6 +89,7 @@ jobs:
           path: docs/dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: build
     environment:
