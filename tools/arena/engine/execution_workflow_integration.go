@@ -2,209 +2,193 @@ package engine
 
 import (
 	"context"
-	"fmt"
-	"time"
+	"encoding/json"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/evals"
-	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
-	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	asrt "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
-	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
-	wf "github.com/AltairaLabs/PromptKit/tools/arena/workflow"
+	"github.com/AltairaLabs/PromptKit/runtime/workflow"
+	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
-// executeWorkflowRun executes a workflow scenario using the workflow executor.
-// It converts config.Scenario → workflow.Scenario, executes via the workflow
-// executor, and converts the result back to the Arena state store format.
-func (e *Engine) executeWorkflowRun(
+// initWorkflow parses the workflow config and registers the workflow__transition
+// tool in the tool registry. Called during engine initialization when config.Workflow
+// is present.
+//
+// The transition tool executor updates scenario.TaskType on each transition so that
+// the next pipeline turn uses the correct prompt from the PromptRegistry.
+func (e *Engine) initWorkflow() error {
+	if e.config.Workflow == nil {
+		return nil
+	}
+
+	spec, err := workflow.ParseConfig(e.config.Workflow)
+	if err != nil {
+		return err
+	}
+
+	// Register transition tool executor
+	transExec := newWorkflowTransitionExecutor(spec, e.toolRegistry)
+	e.toolRegistry.RegisterExecutor(transExec)
+
+	// Register the transition tool descriptor for the entry state
+	if entryState := spec.States[spec.Entry]; entryState != nil {
+		registerTransitionTool(e.toolRegistry, entryState)
+	}
+
+	e.workflowSpec = spec
+	e.workflowTransExec = transExec
+
+	return nil
+}
+
+// prepareWorkflowScenario sets up a workflow scenario for execution through
+// the standard ConversationExecutor. It sets the TaskType to the current
+// workflow state's prompt_task and converts Steps to Turns if needed.
+//
+// Called from executeRun before ConversationExecutor.ExecuteConversation().
+// prepareWorkflowScenario returns a per-run EvalOrchestrator clone with the
+// workflow metadata provider set. The caller should set it on the ConversationRequest.
+func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string) *EvalOrchestrator {
+	if e.workflowSpec == nil {
+		return nil
+	}
+
+	// Set TaskType to entry state's prompt_task
+	if entryState := e.workflowSpec.States[e.workflowSpec.Entry]; entryState != nil {
+		scenario.TaskType = entryState.PromptTask
+	}
+
+	// Register a per-run state machine for concurrent scenario execution
+	if e.workflowTransExec != nil {
+		e.workflowTransExec.RegisterRun(runID, scenario)
+	}
+
+	// Clone the eval orchestrator for this run with per-run workflow metadata.
+	// This avoids data races when concurrent runs set different providers on a
+	// shared orchestrator.
+	var orch *EvalOrchestrator
+	if e.workflowTransExec != nil {
+		provider := &workflowRunMetadataProvider{exec: e.workflowTransExec, scenarioID: runID}
+		if e.evalOrchestrator != nil {
+			orch = e.evalOrchestrator.Clone()
+			orch.SetWorkflowMetadataProvider(provider)
+		}
+	}
+
+	// Convert workflow Steps to Turns so ConversationExecutor can iterate them
+	if len(scenario.Steps) > 0 && len(scenario.Turns) == 0 {
+		scenario.Turns = make([]config.TurnDefinition, len(scenario.Steps))
+		for i, step := range scenario.Steps {
+			scenario.Turns[i] = config.TurnDefinition{
+				Role:       "user",
+				Content:    step.Content,
+				Assertions: step.Assertions,
+			}
+		}
+	}
+
+	return orch
+}
+
+// enrichMessagesWithWorkflowState adds _workflow_state metadata to assistant messages
+// that contain workflow__transition tool calls. This makes workflow state visible in
+// the HTML report's devtools panel.
+func (e *Engine) enrichMessagesWithWorkflowState(
 	ctx context.Context,
-	combo *RunCombination,
-	runID string,
-	startTime time.Time,
-	arenaStore *statestore.ArenaStateStore,
-	runEmitter *events.Emitter,
-	saveError func(string) (string, error),
-) (string, error) {
-	scenario, exists := e.scenarios[combo.ScenarioID]
-	if !exists {
-		return saveError(fmt.Sprintf("scenario not found: %s", combo.ScenarioID))
+	store *arenastore.ArenaStateStore,
+	conversationID string,
+) {
+	if e.workflowSpec == nil {
+		return
 	}
 
-	provider, exists := e.providerRegistry.Get(combo.ProviderID)
-	if !exists {
-		return saveError(fmt.Sprintf("provider not found: %s", combo.ProviderID))
+	convState, err := store.Load(ctx, conversationID)
+	if err != nil {
+		logger.Warn("Failed to load conversation for workflow enrichment",
+			"conversation_id", conversationID, "error", err)
+		return
+	}
+	if len(convState.Messages) == 0 {
+		return
 	}
 
-	// Convert config.Scenario → workflow.Scenario
-	wfScenario := configToWorkflowScenario(scenario)
-
-	// Create workflow executor with a driver factory for this provider
-	factory, getDriver := newArenaDriverFactory(provider, combo.ScenarioID, e.toolRegistry)
-	executor := wf.NewExecutor(factory)
-	if e.evalOrchestrator != nil {
-		executor.WithTurnEvalRunner(e.evalOrchestrator, runID)
-	}
-
-	// Execute the workflow
-	result := executor.Execute(ctx, wfScenario)
-
-	// Convert workflow result to messages + assertions for state store.
-	// The driver provides state→system prompt lookup so each transition
-	// shows the new system prompt in the report.
-	drv := getDriver()
-	messages, assertionResults := workflowResultToMessages(result, drv)
-
-	// Evaluate conversation-level assertions (pack + scenario) via EvalOrchestrator
-	mergedAssertionConfigs := mergeAssertionConfigs(e.config, scenario.ConversationAssertions)
-	if e.evalOrchestrator != nil && len(mergedAssertionConfigs) > 0 {
-		convAssertionResults := e.evalOrchestrator.RunAssertionsAsConversationResults(
-			ctx, mergedAssertionConfigs, messages, len(messages)-1, runID,
-			evals.TriggerOnConversationComplete,
-		)
-		assertionResults = append(assertionResults, convAssertionResults...)
-	}
-
-	// Run pack-level conversation evals if configured
-	if e.evalOrchestrator != nil && e.evalOrchestrator.HasEvals() {
-		packResults := e.evalOrchestrator.RunConversationEvals(ctx, messages, runID)
-		assertionResults = append(assertionResults, packResults...)
-	}
-
-	// Build conversation result for metadata
-	convResult := &ConversationResult{
-		Messages:                     messages,
-		ConversationAssertionResults: assertionResults,
-	}
-	if result.Failed {
-		convResult.Failed = true
-		convResult.Error = result.Error
-	}
-	// Check conversation-level assertions for failures
-	for _, ar := range assertionResults {
-		if !ar.Passed {
-			convResult.Failed = true
-			if convResult.Error == "" {
-				convResult.Error = fmt.Sprintf("assertion %q failed: %s", ar.Type, ar.Message)
-			}
+	if e.enrichWorkflowMessages(convState.Messages) {
+		if saveErr := store.Save(ctx, convState); saveErr != nil {
+			logger.Warn("Failed to save workflow state metadata",
+				"conversation_id", convState.ID, "error", saveErr)
 		}
-	}
-
-	duration := time.Since(startTime)
-
-	// Save run metadata
-	metadata := &statestore.RunMetadata{
-		RunID:                        runID,
-		Region:                       combo.Region,
-		ScenarioID:                   combo.ScenarioID,
-		ProviderID:                   combo.ProviderID,
-		StartTime:                    startTime,
-		EndTime:                      time.Now(),
-		Duration:                     duration,
-		Error:                        convResult.Error,
-		RecordingPath:                e.GetRecordingPath(runID),
-		ConversationAssertionResults: assertionResults,
-		A2AAgents:                    e.getA2AAgentsFromConfig(),
-	}
-
-	logger.Debug("Saving workflow run metadata",
-		"run_id", runID,
-		"scenario", combo.ScenarioID,
-		"final_state", result.FinalState,
-		"steps", len(result.Steps),
-		"failed", result.Failed,
-	)
-
-	// Save conversation messages to state store so they appear in reports
-	convState := &runtimestore.ConversationState{
-		ID:       runID,
-		Messages: messages,
-		Metadata: map[string]interface{}{
-			"region":        combo.Region,
-			"provider":      combo.ProviderID,
-			"scenario":      combo.ScenarioID,
-			"final_state":   result.FinalState,
-			"system_prompt": drv.InitialSystemPrompt(),
-		},
-	}
-	if err := arenaStore.Save(ctx, convState); err != nil {
-		return runID, fmt.Errorf("failed to save workflow conversation: %w", err)
-	}
-
-	if err := arenaStore.SaveMetadata(ctx, runID, metadata); err != nil {
-		return runID, fmt.Errorf("failed to save workflow run metadata: %w", err)
-	}
-
-	e.notifyRunCompletion(runEmitter, convResult, runID, duration, 0)
-
-	return runID, nil
-}
-
-// configToWorkflowScenario converts a config.Scenario to a workflow.Scenario.
-func configToWorkflowScenario(s *config.Scenario) *wf.Scenario {
-	steps := make([]wf.Step, len(s.Steps))
-	for i, cs := range s.Steps {
-		// Convert assertions
-		assertions := make([]asrt.AssertionConfig, len(cs.Assertions))
-		copy(assertions, cs.Assertions)
-
-		steps[i] = wf.Step{
-			Type:       wf.StepType(cs.Type),
-			Content:    cs.Content,
-			Assertions: assertions,
-		}
-	}
-
-	return &wf.Scenario{
-		ID:                  s.ID,
-		Pack:                s.Pack,
-		Description:         s.Description,
-		Steps:               steps,
-		Variables:           s.Variables,
-		ContextCarryForward: s.ContextCarryForward,
 	}
 }
 
-// workflowResultToMessages returns the driver's message trace and collects all
-// assertion results from the workflow execution.
-// The message trace already contains: initial system prompt → user/assistant pairs
-// → tool calls → tool results → new system prompts across all state transitions.
-func workflowResultToMessages(
-	result *wf.Result, drv *arenaWorkflowDriver,
-) ([]types.Message, []asrt.ConversationValidationResult) {
-	var allAssertions []asrt.ConversationValidationResult
-	for _, step := range result.Steps {
-		allAssertions = append(allAssertions, step.AssertionResults...)
-	}
-
-	var messages []types.Message
-	if drv != nil {
-		// Prepend the initial state's system prompt with available tools metadata
-		if sp := drv.InitialSystemPrompt(); sp != "" {
-			sysMsg := types.Message{
-				Role:      "system",
-				Content:   sp,
-				Timestamp: time.Now(),
+// enrichWorkflowMessages walks messages and adds _workflow_state metadata.
+func (e *Engine) enrichWorkflowMessages(messages []types.Message) bool {
+	currentState := e.workflowSpec.Entry
+	enriched := false
+	for i := range messages {
+		msg := &messages[i]
+		if msg.Role == "tool" && msg.ToolResult != nil && msg.ToolResult.Name == workflow.TransitionToolName {
+			if newState, ws := e.buildTransitionMeta(msg, currentState); ws != nil {
+				currentState = newState
+				setMeta(msg, "_workflow_state", ws)
+				enriched = true
 			}
-			meta := map[string]interface{}{}
-			if toolNames := drv.AvailableToolNames(); len(toolNames) > 0 {
-				meta["_available_tools"] = toolNames
-			}
-			if toolDescs := drv.InitialToolDescriptors(); len(toolDescs) > 0 {
-				meta["_tool_descriptors"] = toolDescs
-			}
-			if ws := drv.InitialWorkflowState(); ws != nil {
-				meta["_workflow_state"] = ws
-			}
-			if len(meta) > 0 {
-				sysMsg.Meta = meta
-			}
-			messages = append(messages, sysMsg)
 		}
-		messages = append(messages, drv.MessageTrace()...)
+		if msg.Role == "system" && i == 0 {
+			setMeta(msg, "_workflow_state", e.buildEntryStateMeta(currentState))
+			enriched = true
+		}
 	}
+	return enriched
+}
 
-	return messages, allAssertions
+// buildTransitionMeta extracts transition info from a tool result and returns
+// the new state name and metadata map. Returns ("", nil) if not a transition.
+//
+//nolint:gocritic // unnamedResult: intentional for clarity
+func (e *Engine) buildTransitionMeta(
+	msg *types.Message, previousState string,
+) (string, map[string]interface{}) {
+	var result struct {
+		NewState string `json:"new_state"`
+		Event    string `json:"event"`
+	}
+	content := msg.ToolResult.GetTextContent()
+	if json.Unmarshal([]byte(content), &result) != nil || result.NewState == "" {
+		return "", nil
+	}
+	ws := map[string]interface{}{
+		"current_state":  result.NewState,
+		"previous_state": previousState,
+		"transition":     result.Event,
+	}
+	if state := e.workflowSpec.States[result.NewState]; state != nil {
+		if state.Description != "" {
+			ws["description"] = state.Description
+		}
+		ws["terminal"] = len(state.OnEvent) == 0
+	}
+	return result.NewState, ws
+}
+
+// buildEntryStateMeta builds workflow metadata for the entry state system prompt.
+func (e *Engine) buildEntryStateMeta(stateName string) map[string]interface{} {
+	ws := map[string]interface{}{"current_state": stateName}
+	if state := e.workflowSpec.States[stateName]; state != nil {
+		if state.Description != "" {
+			ws["description"] = state.Description
+		}
+		if len(state.OnEvent) > 0 {
+			ws["available_events"] = state.OnEvent
+		}
+	}
+	return ws
+}
+
+// setMeta sets a key on a message's Meta map, initializing if needed.
+func setMeta(msg *types.Message, key string, value interface{}) {
+	if msg.Meta == nil {
+		msg.Meta = map[string]interface{}{}
+	}
+	msg.Meta[key] = value
 }

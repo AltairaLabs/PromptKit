@@ -386,9 +386,14 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		return saveError(fmt.Sprintf("scenario not found: %s", combo.ScenarioID))
 	}
 
-	// Route workflow scenarios to the workflow executor
-	if scenario.IsWorkflow() {
-		return e.executeWorkflowRun(runCtx, &combo, runID, startTime, arenaStore, runEmitter, saveError)
+	// Prepare workflow scenarios: shallow-copy to avoid mutating the shared
+	// scenario, then set TaskType from state machine and wire metadata.
+	var workflowOrch *EvalOrchestrator
+	if e.workflowSpec != nil {
+		wfScenario := *scenario
+		scenario = &wfScenario
+		workflowOrch = e.prepareWorkflowScenario(scenario, runID)
+		runCtx = withWorkflowScenarioID(runCtx, runID)
 	}
 
 	// Get provider
@@ -410,12 +415,13 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Execute conversation
 	req := ConversationRequest{
-		Provider: provider,
-		Scenario: execScenario,
-		Config:   e.config,
-		Region:   combo.Region,
-		RunID:    runID,
-		EventBus: e.eventBus,
+		Provider:         provider,
+		Scenario:         execScenario,
+		Config:           e.config,
+		Region:           combo.Region,
+		RunID:            runID,
+		EventBus:         e.eventBus,
+		EvalOrchestrator: workflowOrch,
 	}
 
 	// Always configure StateStore (always enabled now)
@@ -444,6 +450,12 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Enrich conversation messages with tool descriptor metadata for reports
 	e.enrichMessagesWithToolDescriptors(runCtx, arenaStore, runID)
+
+	// Enrich conversation messages with workflow state metadata for reports
+	if e.workflowTransExec != nil {
+		e.enrichMessagesWithWorkflowState(runCtx, arenaStore, runID)
+		e.workflowTransExec.UnregisterRun(runID)
+	}
 
 	// Calculate duration and cost
 	duration := time.Since(startTime)

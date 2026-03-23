@@ -405,6 +405,29 @@ func TestExtractWorkflowExtras_NilMeta(t *testing.T) {
 	assert.Nil(t, extras)
 }
 
+func TestEvalOrchestrator_Clone(t *testing.T) {
+	registry := evals.NewEvalTypeRegistry()
+	orch := NewEvalOrchestrator(registry, nil, false, nil, "test")
+	orch.SetMetadata(map[string]any{"key": "value"})
+
+	clone := orch.Clone()
+	require.NotNil(t, clone)
+	assert.Equal(t, "value", clone.metadata["key"])
+
+	// Mutating clone metadata doesn't affect original
+	clone.metadata["key"] = "changed"
+	assert.Equal(t, "value", orch.metadata["key"])
+
+	// WorkflowMetadataProvider is independent
+	clone.SetWorkflowMetadataProvider(nil)
+	assert.Nil(t, clone.workflowMetaProvider)
+}
+
+func TestEvalOrchestrator_Clone_Nil(t *testing.T) {
+	var orch *EvalOrchestrator
+	assert.Nil(t, orch.Clone())
+}
+
 func TestEvalOrchestrator_NilReceiver(t *testing.T) {
 	var hook *EvalOrchestrator
 	ctx := context.Background()

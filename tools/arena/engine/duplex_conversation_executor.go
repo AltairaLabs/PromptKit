@@ -88,7 +88,7 @@ func (de *DuplexConversationExecutor) ExecuteConversation(
 	// Create event emitter if event bus is configured
 	var emitter *events.Emitter
 	if req.EventBus != nil {
-		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+		emitter = events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
 	}
 
 	// Get timeout from config or use default

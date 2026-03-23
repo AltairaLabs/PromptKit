@@ -9,15 +9,20 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
-// EvalOrchestrator manages pack eval execution during Arena conversation runs.
-// It wraps an EvalRunner and converts results into the assertion format
-// used by Arena's reporting pipeline.
+// WorkflowMetadataProvider is implemented by types that provide workflow state
+// metadata for injection into the eval context during assertion evaluation.
+type WorkflowMetadataProvider interface {
+	WorkflowMetadata() map[string]any
+}
+
+// EvalOrchestrator orchestrates eval and assertion execution during Arena runs.
 type EvalOrchestrator struct {
-	runner   *evals.EvalRunner
-	defs     []evals.EvalDef
-	taskType string
-	metadata map[string]any // injected into every EvalContext (e.g. judge_targets)
-	eventBus events.Bus     // optional event bus for provider call telemetry in evals
+	runner               *evals.EvalRunner
+	defs                 []evals.EvalDef
+	taskType             string
+	metadata             map[string]any           // injected into every EvalContext (e.g. judge_targets)
+	eventBus             events.Bus               // optional event bus for provider call telemetry in evals
+	workflowMetaProvider WorkflowMetadataProvider // optional workflow state provider
 }
 
 // NewEvalOrchestrator creates a hook for executing pack evals during Arena runs.
@@ -43,6 +48,26 @@ func NewEvalOrchestrator(
 		defs:     filteredDefs,
 		taskType: taskType,
 	}
+}
+
+// Clone creates a shallow copy suitable for per-run use. The runner and defs
+// are shared (immutable after construction), but metadata and workflow provider
+// are independent. This avoids data races when concurrent runs set different
+// workflow metadata providers.
+func (h *EvalOrchestrator) Clone() *EvalOrchestrator {
+	if h == nil {
+		return nil
+	}
+	clone := *h
+	clone.workflowMetaProvider = nil
+	// Copy metadata map so per-run mutations don't affect the original
+	if h.metadata != nil {
+		clone.metadata = make(map[string]any, len(h.metadata))
+		for k, v := range h.metadata {
+			clone.metadata[k] = v
+		}
+	}
+	return &clone
 }
 
 // SetMetadata sets metadata that will be injected into every EvalContext.
@@ -193,23 +218,41 @@ func (h *EvalOrchestrator) RunAssertionsAsConversationResults(
 	return converted
 }
 
+// SetWorkflowMetadataProvider sets the workflow state provider for eval context injection.
+// Called per-run for workflow scenarios so assertions can access the current workflow state.
+func (h *EvalOrchestrator) SetWorkflowMetadataProvider(provider WorkflowMetadataProvider) {
+	if h == nil {
+		return
+	}
+	h.workflowMetaProvider = provider
+}
+
 // buildEvalContext constructs an EvalContext from Arena messages.
 // Delegates to the shared evals.BuildEvalContext helper.
 // If an event bus is configured, an emitter is injected into metadata
 // so LLM judge handlers can emit provider call telemetry.
+// If a workflow metadata provider is set, workflow state is injected
+// so workflow assertions (state_is, transitioned_to, workflow_complete) work.
 func (h *EvalOrchestrator) buildEvalContext(
 	messages []types.Message,
 	turnIndex int,
 	sessionID string,
 ) *evals.EvalContext {
 	metadata := h.metadata
-	if h.eventBus != nil {
-		// Create a merged copy to avoid mutating the shared metadata map
-		merged := make(map[string]any, len(metadata)+1)
+	needsCopy := h.eventBus != nil || h.workflowMetaProvider != nil
+	if needsCopy {
+		merged := make(map[string]any, len(metadata)+4) //nolint:mnd // extra capacity for emitter + workflow keys
 		for k, v := range metadata {
 			merged[k] = v
 		}
-		merged["emitter"] = events.NewEmitter(h.eventBus, sessionID, sessionID, sessionID)
+		if h.eventBus != nil {
+			merged["emitter"] = events.NewEmitter(h.eventBus, sessionID, sessionID, sessionID)
+		}
+		if h.workflowMetaProvider != nil {
+			for k, v := range h.workflowMetaProvider.WorkflowMetadata() {
+				merged[k] = v
+			}
+		}
 		metadata = merged
 	}
 	return evals.BuildEvalContext(messages, turnIndex, sessionID, h.taskType, metadata)

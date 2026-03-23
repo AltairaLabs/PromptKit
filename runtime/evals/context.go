@@ -30,6 +30,20 @@ func BuildEvalContext(
 		}
 	}
 
+	extras := ExtractWorkflowExtras(messages)
+
+	// Merge workflow metadata from the metadata map (set by engine for workflow scenarios)
+	if metadata != nil {
+		for _, key := range []string{"workflow_current_state", "workflow_transitions", "workflow_complete"} {
+			if v, ok := metadata[key]; ok {
+				if extras == nil {
+					extras = make(map[string]any)
+				}
+				extras[key] = v
+			}
+		}
+	}
+
 	return &EvalContext{
 		Messages:      messages,
 		TurnIndex:     turnIndex,
@@ -37,7 +51,7 @@ func BuildEvalContext(
 		ToolCalls:     ExtractToolCalls(messages),
 		SessionID:     sessionID,
 		PromptID:      promptID,
-		Extras:        ExtractWorkflowExtras(messages),
+		Extras:        extras,
 		Metadata:      metadata,
 		PriorResults:  validationsToPriorResults(messages),
 	}
@@ -70,6 +84,9 @@ func ExtractWorkflowExtras(messages []types.Message) map[string]any {
 		}
 		if state, ok := messages[i].Meta["_workflow_state"]; ok {
 			extras["workflow_state"] = state
+		}
+		if state, ok := messages[i].Meta["_workflow_current_state"]; ok {
+			extras["workflow_current_state"] = state
 		}
 		if transitions, ok := messages[i].Meta["_workflow_transitions"]; ok {
 			extras["workflow_transitions"] = transitions

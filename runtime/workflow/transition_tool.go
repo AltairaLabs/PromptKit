@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"sort"
 
-	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -27,17 +26,6 @@ func BuildTransitionToolDescriptor(events []string) *tools.ToolDescriptor {
 	}
 }
 
-// BuildTransitionProviderDescriptor creates a providers.ToolDescriptor
-// (minimal 4-field variant) for use with Arena's provider interface.
-func BuildTransitionProviderDescriptor(events []string) *providers.ToolDescriptor {
-	schemaJSON := buildTransitionSchema(events)
-	return &providers.ToolDescriptor{
-		Name:        TransitionToolName,
-		Description: transitionToolDescription,
-		InputSchema: schemaJSON,
-	}
-}
-
 // SortedEvents returns a sorted copy of the event keys from an OnEvent map.
 func SortedEvents(onEvent map[string]string) []string {
 	events := make([]string, 0, len(onEvent))
@@ -46,6 +34,23 @@ func SortedEvents(onEvent map[string]string) []string {
 	}
 	sort.Strings(events)
 	return events
+}
+
+// RegisterTransitionTool registers the workflow__transition tool in the given
+// registry for the specified state's available events. Skips terminal states
+// (no events) and externally orchestrated states.
+//
+// Both the SDK (WorkflowCapability) and Arena (engine) use this function.
+func RegisterTransitionTool(registry *tools.Registry, state *State) {
+	if registry == nil || state == nil || len(state.OnEvent) == 0 {
+		return
+	}
+	if state.Orchestration == OrchestrationExternal {
+		return
+	}
+	evts := SortedEvents(state.OnEvent)
+	desc := BuildTransitionToolDescriptor(evts)
+	_ = registry.Register(desc)
 }
 
 // buildTransitionSchema constructs the JSON schema for the transition tool.

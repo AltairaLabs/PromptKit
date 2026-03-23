@@ -35,15 +35,7 @@ func (w *WorkflowCapability) RegisterTools(_ *tools.Registry) {}
 func (w *WorkflowCapability) RegisterToolsForState(
 	registry *tools.Registry, state *workflow.State,
 ) {
-	if state == nil || len(state.OnEvent) == 0 {
-		return // terminal state
-	}
-	if state.Orchestration == workflow.OrchestrationExternal {
-		return // caller drives transitions
-	}
-	events := workflow.SortedEvents(state.OnEvent)
-	desc := workflow.BuildTransitionToolDescriptor(events)
-	_ = registry.Register(desc)
+	workflow.RegisterTransitionTool(registry, state)
 }
 
 // Close is a no-op for WorkflowCapability.

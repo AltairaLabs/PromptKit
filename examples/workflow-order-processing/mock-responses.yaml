@@ -1,54 +1,78 @@
 # Mock responses for the workflow-order-processing example.
 # Responses are keyed by scenario ID and turn number.
-# Turns with tool_calls simulate LLM-initiated workflow transitions.
+#
+# Turn numbering accounts for the ProviderStage multi-round loop:
+# - Turn N: LLM responds with tool call (workflow__transition)
+# - Turn N+1: LLM sees tool result and responds with text (no more tool calls)
+# Each pipeline execution consumes 2 mock turns when a transition occurs.
 
 scenarios:
   order-flow:
     turns:
+      # Pipeline turn 1: User asks about order -> LLM confirms and transitions to payment
       1:
-        response: "Thank you for your order! Your order ORD-78901 has been placed successfully. You ordered 1x Wireless Headphones ($79.99). We'll notify you once payment is confirmed. Estimated delivery is 5-7 business days."
+        response: "Great news! Your order for Wireless Headphones has been confirmed. Order number: ORD-12345. Let me process your payment now."
         tool_calls:
           - name: workflow__transition
             arguments:
               event: PaymentReceived
-              context: "Order ORD-78901 placed for 1x Wireless Headphones ($79.99). Payment pending confirmation."
-      2:
-        response: "Great news! Payment of $79.99 has been received for order ORD-78901 via credit card ending in 4242. Transaction ID: TXN-55678. Your order is now being prepared for shipping."
+              context: "Order ORD-12345 confirmed for Wireless Headphones. Processing payment."
+      2: "Your payment of $79.99 has been successfully processed via PayPal. Transaction ID: TXN-67890. Your order is being prepared for shipping."
+
+      # Pipeline turn 2: User asks about payment -> LLM transitions to fulfillment
+      3:
+        response: "Your payment was confirmed. Let me check the shipping status for you. Your order has been shipped!"
         tool_calls:
           - name: workflow__transition
             arguments:
               event: ItemShipped
-              context: "Payment confirmed for ORD-78901. TXN-55678. $79.99 via credit card ending 4242."
-      3:
-        response: "Your order ORD-78901 has shipped! Tracking number: TRACK-99012. The package is currently at our distribution center and will be handed off to the carrier today. Estimated delivery: March 3-5."
+              context: "Payment confirmed via PayPal (TXN-67890). Order shipped."
+      4: "Your package is on its way! Tracking number: TRACK-11111. Estimated delivery: 3-5 business days via Express Shipping."
+
+      # Pipeline turn 3: User asks about delivery -> LLM transitions to complete
+      5:
+        response: "According to our records, your package has been delivered to the address on file."
         tool_calls:
           - name: workflow__transition
             arguments:
               event: Delivered
-              context: "Order ORD-78901 shipped with tracking TRACK-99012. Estimated delivery March 3-5."
-      4: "Your order ORD-78901 has been delivered! The package was left at your front door at 2:15 PM today. We hope you enjoy your Wireless Headphones. If you have any issues, our return policy covers 30 days from delivery."
+              context: "Package delivered to customer address. Tracking: TRACK-11111."
+      6: "Wonderful! Your Wireless Headphones have been delivered. If you have any issues, you can return within 30 days. Enjoy your purchase!"
+
+      # Pipeline turn 4: Customer confirms
+      7: "Thank you for shopping with ShopCo! We hope you enjoy your Wireless Headphones. If you need anything, we're here to help."
 
   validation-checks:
     turns:
+      # Pipeline turn 1: Order placed -> transition to payment
       1:
-        response: "Your order ORD-55123 for 2x USB-C Cables ($12.99 each) has been confirmed. Total: $25.98. Payment will be processed shortly."
+        response: "Your order for 2 USB-C Cables has been placed. Order number: ORD-54321. Total: $19.98. Processing payment now."
         tool_calls:
           - name: workflow__transition
             arguments:
               event: PaymentReceived
-              context: "Order ORD-55123 confirmed. 2x USB-C Cables, total $25.98."
-      2:
-        response: "Payment confirmed! $25.98 charged to your PayPal account. Transaction ID: TXN-88234. Your order ORD-55123 is queued for fulfillment."
+              context: "Order ORD-54321 for 2 USB-C Cables, $19.98."
+      2: "Payment of $19.98 received via credit card. Transaction ID: TXN-98765."
+
+      # Pipeline turn 2: Payment -> fulfillment
+      3:
+        response: "Payment confirmed. Your order is being shipped."
         tool_calls:
           - name: workflow__transition
             arguments:
               event: ItemShipped
-              context: "Payment of $25.98 confirmed via PayPal. TXN-88234."
-      3:
-        response: "Order ORD-55123 has shipped via standard delivery. Tracking number: TRACK-44567. Expected delivery: March 5-7."
+              context: "Order shipped. TXN-98765 confirmed."
+      4: "Your package is on its way! Tracking number: TRACK-22222. Expected delivery in 2-3 business days."
+
+      # Pipeline turn 3: Fulfillment -> complete
+      5:
+        response: "Your package has been delivered!"
         tool_calls:
           - name: workflow__transition
             arguments:
               event: Delivered
-              context: "Order ORD-55123 shipped. Tracking TRACK-44567. Expected March 5-7."
-      4: "Delivery confirmed for order ORD-55123. Both USB-C Cables were delivered to your mailbox at 11:30 AM. Thank you for shopping with ShopCo! Our return policy covers 30 days from delivery."
+              context: "Package delivered. Tracking: TRACK-22222."
+      6: "Your 2 USB-C Cables have been delivered. Our 30 day return policy applies. Enjoy!"
+
+      # Pipeline turn 4: Confirmation
+      7: "Thank you for your order! If you need anything, don't hesitate to reach out."

@@ -42,6 +42,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
 	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -79,6 +80,8 @@ type Engine struct {
 	recordingDir         string                       // Directory where session recordings are stored
 	a2aCleanup           func()                       // Cleanup function for mock A2A servers
 	evalOrchestrator     *EvalOrchestrator            // Orchestrates eval and assertion execution during runs
+	workflowSpec         *workflow.Spec               // Optional workflow spec (set if config.Workflow != nil)
+	workflowTransExec    *workflowTransitionExecutor  // Optional transition executor (set if config.Workflow != nil)
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -136,6 +139,15 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	}
 	eng.a2aCleanup = a2aCleanup
 	eng.toolRegistry = toolRegistry
+
+	// Initialize workflow state machine and register transition tool if configured
+	if err := eng.initWorkflow(); err != nil {
+		if a2aCleanup != nil {
+			a2aCleanup()
+		}
+		return nil, fmt.Errorf("failed to initialize workflow: %w", err)
+	}
+
 	// Build pack eval hook for workflow executor (conversation executors get their own copy).
 	// Eval type validation already passed in BuildEngineComponents above, so this call
 	// cannot fail — unknown types were already rejected.

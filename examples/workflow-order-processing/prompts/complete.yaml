@@ -1,0 +1,16 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: complete
+spec:
+  task_type: "complete"
+  version: "v1.0.0"
+  description: "Order delivered - final confirmation"
+  system_template: |
+    The order has been delivered. Confirm delivery with the customer and
+    provide any post-delivery support information.
+
+    Guidelines:
+    - Confirm the delivery
+    - Ask if the customer is satisfied
+    - Provide return policy information if needed
