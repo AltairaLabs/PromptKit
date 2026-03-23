@@ -19,9 +19,8 @@ const (
 
 // ConvertOptions controls how a session is converted into a scenario.
 type ConvertOptions struct {
-	// Pack is the path to a .pack.json file. When set, the scenario is generated
-	// as a workflow scenario (with Steps) instead of a regular conversation scenario.
-	Pack string
+	// TaskType overrides the scenario's task_type. Defaults to "conversation".
+	TaskType string
 }
 
 // ConvertSessionToScenario converts a SessionDetail into a ScenarioConfig YAML document.
@@ -38,19 +37,17 @@ func ConvertSessionToScenario(session *SessionDetail, opts ConvertOptions) (*con
 		Description: description,
 	}
 
-	if opts.Pack != "" {
-		scenario.Pack = opts.Pack
-		scenario.Steps = buildWorkflowSteps(session)
-	} else {
+	scenario.TaskType = opts.TaskType
+	if scenario.TaskType == "" {
 		scenario.TaskType = "conversation"
-		scenario.Turns = buildTurns(session)
 	}
+	scenario.Turns = buildTurns(session)
 
 	// Add conversation-level assertions from failed eval results.
 	scenario.ConversationAssertions = buildConversationAssertions(session.EvalResults)
 
 	// Add turn-level assertions from failed turn eval results.
-	applyTurnAssertions(&scenario, session.TurnEvalResults, opts.Pack != "")
+	applyTurnAssertions(&scenario, session.TurnEvalResults)
 
 	return &config.ScenarioConfig{
 		APIVersion: apiVersion,
@@ -109,20 +106,6 @@ func buildTurns(session *SessionDetail) []config.TurnDefinition {
 	return turns
 }
 
-func buildWorkflowSteps(session *SessionDetail) []config.WorkflowStep {
-	var steps []config.WorkflowStep
-	for i := range session.Messages {
-		if session.Messages[i].Role != roleUser {
-			continue
-		}
-		steps = append(steps, config.WorkflowStep{
-			Type:    "input",
-			Content: session.Messages[i].GetContent(),
-		})
-	}
-	return steps
-}
-
 func buildConversationAssertions(
 	results []assertions.ConversationValidationResult,
 ) []assertions.AssertionConfig {
@@ -144,11 +127,10 @@ func buildConversationAssertions(
 }
 
 // applyTurnAssertions attaches per-turn assertions from failed TurnEvalResults
-// to the appropriate turn or workflow step.
+// to the appropriate turn.
 func applyTurnAssertions(
 	scenario *config.Scenario,
 	turnResults map[int][]TurnEvalResult,
-	isWorkflow bool,
 ) {
 	if len(turnResults) == 0 {
 		return
@@ -159,7 +141,9 @@ func applyTurnAssertions(
 		if len(failedAssertions) == 0 {
 			continue
 		}
-		attachAssertions(scenario, turnIdx, failedAssertions, isWorkflow)
+		if turnIdx < len(scenario.Turns) {
+			scenario.Turns[turnIdx].Assertions = append(scenario.Turns[turnIdx].Assertions, failedAssertions...)
+		}
 	}
 }
 
@@ -179,21 +163,4 @@ func collectFailedTurnAssertions(results []TurnEvalResult) []assertions.Assertio
 		out = append(out, ac)
 	}
 	return out
-}
-
-func attachAssertions(
-	scenario *config.Scenario,
-	turnIdx int,
-	asrtConfigs []assertions.AssertionConfig,
-	isWorkflow bool,
-) {
-	if isWorkflow {
-		if turnIdx < len(scenario.Steps) {
-			scenario.Steps[turnIdx].Assertions = append(scenario.Steps[turnIdx].Assertions, asrtConfigs...)
-		}
-	} else {
-		if turnIdx < len(scenario.Turns) {
-			scenario.Turns[turnIdx].Assertions = append(scenario.Turns[turnIdx].Assertions, asrtConfigs...)
-		}
-	}
 }

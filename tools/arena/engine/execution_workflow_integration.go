@@ -76,18 +76,6 @@ func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string
 		}
 	}
 
-	// Convert workflow Steps to Turns so ConversationExecutor can iterate them
-	if len(scenario.Steps) > 0 && len(scenario.Turns) == 0 {
-		scenario.Turns = make([]config.TurnDefinition, len(scenario.Steps))
-		for i, step := range scenario.Steps {
-			scenario.Turns[i] = config.TurnDefinition{
-				Role:       "user",
-				Content:    step.Content,
-				Assertions: step.Assertions,
-			}
-		}
-	}
-
 	return orch
 }
 

@@ -86,7 +86,8 @@ func writeScenarios(cmd *cobra.Command, sessions []*generate.SessionDetail) erro
 		return fmt.Errorf("creating output directory: %w", err)
 	}
 
-	opts := generate.ConvertOptions{Pack: packFile}
+	taskType := packFile // --pack flag repurposed as task_type override
+	opts := generate.ConvertOptions{TaskType: taskType}
 
 	for _, session := range sessions {
 		if err := writeSessionScenario(session, opts, outputDir); err != nil {
