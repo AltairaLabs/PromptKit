@@ -7,7 +7,7 @@
 //
 // Usage:
 //
-//	go run ./examples/sdk-http-auth
+//	go run ./sdk/examples/sdk-http-auth
 //
 // No API key required — uses a mock provider with canned responses.
 package main
@@ -36,7 +36,7 @@ func main() {
 	)
 	provider := mock.NewProviderWithRepository("mock", "mock-model", false, repo)
 
-	conv, err := sdk.Open("./examples/sdk-http-auth/assistant.pack.json", "assistant",
+	conv, err := sdk.Open("./sdk/examples/sdk-http-auth/assistant.pack.json", "assistant",
 		sdk.WithProvider(provider),
 	)
 	if err != nil {

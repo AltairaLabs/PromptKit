@@ -1,10 +1,10 @@
-module github.com/AltairaLabs/PromptKit/examples/sdk-evals
+module github.com/AltairaLabs/PromptKit/sdk/examples/sdk-evals
 
 go 1.25.1
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
+replace github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
 
-replace github.com/AltairaLabs/PromptKit/sdk => ../../sdk
+replace github.com/AltairaLabs/PromptKit/sdk => ../../
 
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.3.5

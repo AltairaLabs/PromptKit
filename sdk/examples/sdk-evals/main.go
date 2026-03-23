@@ -5,13 +5,13 @@
 //
 // Usage:
 //
-//	go run ./examples/sdk-evals
+//	go run ./sdk/examples/sdk-evals
 //
 // No API key required — uses a mock provider with canned responses.
 // To use a real provider instead:
 //
 //	export OPENAI_API_KEY=sk-...
-//	go run ./examples/sdk-evals --live
+//	go run ./sdk/examples/sdk-evals --live
 package main
 
 import (
@@ -31,7 +31,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
 
-const packPath = "./examples/sdk-evals/assistant.pack.json"
+const packPath = "./sdk/examples/sdk-evals/assistant.pack.json"
 
 func main() {
 	fmt.Println("=== SDK Evals Example ===")

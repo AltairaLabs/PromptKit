@@ -94,4 +94,4 @@ For each tool call, the pipeline runs in order:
 
 - [MCP Tools Example](../mcp-tools/) - MCP server integration
 - [A2A Agent Example](../a2a-agent/) - Remote agent integration with auth
-- [SDK HTTP Auth Example](../../../examples/sdk-http-auth/) - More auth patterns
+- [SDK HTTP Auth Example](../sdk-http-auth/) - More auth patterns

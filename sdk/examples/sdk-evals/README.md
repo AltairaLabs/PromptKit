@@ -24,7 +24,7 @@ The pack defines four evals:
 
 ```bash
 export OPENAI_API_KEY=sk-...
-go run ./examples/sdk-evals
+go run ./sdk/examples/sdk-evals
 ```
 
 ## Expected Output

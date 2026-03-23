@@ -1,16 +1,16 @@
-module github.com/AltairaLabs/PromptKit/examples/sdk-http-auth
+module github.com/AltairaLabs/PromptKit/sdk/examples/sdk-http-auth
 
 go 1.25.1
 
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
+replace github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
 
-replace github.com/AltairaLabs/PromptKit/sdk => ../../sdk
+replace github.com/AltairaLabs/PromptKit/sdk => ../../
 
-replace github.com/AltairaLabs/PromptKit/server/a2a => ../../server/a2a
+replace github.com/AltairaLabs/PromptKit/server/a2a => ../../../server/a2a
 
-replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
+replace github.com/AltairaLabs/PromptKit/pkg => ../../../pkg
 
-replace github.com/AltairaLabs/PromptKit/tools/arena => ../../tools/arena
+replace github.com/AltairaLabs/PromptKit/tools/arena => ../../../tools/arena
 
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.3.5

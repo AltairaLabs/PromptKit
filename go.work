@@ -4,8 +4,8 @@ use (
 	./examples/a2a-auth-test
 	./examples/a2a-demo
 	./examples/programmatic-arena
-	./examples/sdk-evals
-	./examples/sdk-http-auth
+	./sdk/examples/sdk-evals
+	./sdk/examples/sdk-http-auth
 	./examples/workflow-support/sdk-example
 	./pkg
 	./runtime
