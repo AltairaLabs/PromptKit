@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/stretchr/testify/assert"
@@ -420,7 +421,25 @@ func TestEvalOrchestrator_Clone(t *testing.T) {
 
 	// WorkflowMetadataProvider is independent
 	clone.SetWorkflowMetadataProvider(nil)
+
+	// Runner is independent (cloned, not shared)
+	assert.NotSame(t, orch.runner, clone.runner)
 	assert.Nil(t, clone.workflowMetaProvider)
+}
+
+func TestEvalOrchestrator_Clone_WithEventBus(t *testing.T) {
+	registry := evals.NewEvalTypeRegistry()
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	orch := NewEvalOrchestrator(registry, nil, false, nil, "test")
+	orch.SetEventBus(bus)
+
+	clone := orch.Clone()
+	require.NotNil(t, clone)
+	assert.NotSame(t, orch.runner, clone.runner)
+	// Event bus is shared (intentional — events go to same bus)
+	assert.Equal(t, bus, clone.eventBus)
 }
 
 func TestEvalOrchestrator_Clone_Nil(t *testing.T) {

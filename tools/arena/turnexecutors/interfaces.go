@@ -23,6 +23,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -101,8 +102,9 @@ type TurnRequest struct {
 	TurnEvalRunner interface{} // Optional stages.TurnEvalRunner for dual-write (Phase 2)
 
 	// Observability
-	EventBus events.Bus
-	RunID    string
+	EventBus        events.Bus
+	RunID           string
+	RecordingConfig *stage.RecordingStageConfig // Optional — enables RecordingStage in pipeline
 }
 
 // StateStoreConfig wraps the state store configuration for turn executors

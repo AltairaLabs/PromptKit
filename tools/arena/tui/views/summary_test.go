@@ -118,6 +118,47 @@ func TestSummaryView_Render_CIMode(t *testing.T) {
 	assert.NotContains(t, output, "HTML Report:")
 }
 
+func TestSummaryView_Render_CIMode_WithAssertions(t *testing.T) {
+	data := &viewmodels.SummaryData{
+		TotalRuns:       5,
+		CompletedRuns:   4,
+		FailedRuns:      1,
+		TotalTokens:     2000,
+		TotalCost:       0.50,
+		TotalDuration:   10 * time.Second,
+		AvgDuration:     2 * time.Second,
+		AssertionTotal:  8,
+		AssertionFailed: 3,
+		ScenarioCount:   2,
+		OutputDir:       "/tmp/ci-results",
+	}
+
+	vm := viewmodels.NewSummaryViewModel(data)
+	view := NewSummaryView(100, true)
+	output := view.Render(vm)
+
+	// Verify assertions section is present in CI mode
+	assert.Contains(t, output, "Assertions:       8 total")
+	assert.Contains(t, output, "Assertions Fail:  3")
+}
+
+func TestSummaryView_Render_CIMode_AllAssertionsPassed(t *testing.T) {
+	data := &viewmodels.SummaryData{
+		TotalRuns:      5,
+		CompletedRuns:  5,
+		AssertionTotal: 10,
+		ScenarioCount:  1,
+		OutputDir:      "/tmp/ci-results",
+	}
+
+	vm := viewmodels.NewSummaryViewModel(data)
+	view := NewSummaryView(100, true)
+	output := view.Render(vm)
+
+	assert.Contains(t, output, "Assertions:       10 total")
+	assert.Contains(t, output, "Assertions Pass:  all passed")
+}
+
 func TestSummaryView_WithAssertions(t *testing.T) {
 	data := &viewmodels.SummaryData{
 		TotalRuns:       10,

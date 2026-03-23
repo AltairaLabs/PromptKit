@@ -60,6 +60,11 @@ func (h *EvalOrchestrator) Clone() *EvalOrchestrator {
 	}
 	clone := *h
 	clone.workflowMetaProvider = nil
+	// Clone the runner so the emitter is independent per run.
+	// The emitter is wired per-call in buildEvalContext with proper session IDs.
+	if h.runner != nil {
+		clone.runner = h.runner.Clone()
+	}
 	// Copy metadata map so per-run mutations don't affect the original
 	if h.metadata != nil {
 		clone.metadata = make(map[string]any, len(h.metadata))
@@ -246,7 +251,13 @@ func (h *EvalOrchestrator) buildEvalContext(
 			merged[k] = v
 		}
 		if h.eventBus != nil {
-			merged["emitter"] = events.NewEmitter(h.eventBus, sessionID, sessionID, sessionID)
+			emitter := events.NewEmitter(h.eventBus, sessionID, sessionID, sessionID)
+			merged["emitter"] = emitter
+			// Wire the emitter into the runner for eval.completed/failed events.
+			// Safe: each concurrent run gets its own orchestrator clone (and runner).
+			if h.runner != nil {
+				h.runner.SetEmitter(emitter)
+			}
 		}
 		if h.workflowMetaProvider != nil {
 			for k, v := range h.workflowMetaProvider.WorkflowMetadata() {
