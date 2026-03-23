@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
 // panicHandler panics when Eval is called.
@@ -518,5 +520,90 @@ func TestRunTurnEvals_PriorResultsAccumulate(t *testing.T) {
 	}
 	if handler2.capturedPrior[0].Score == nil || *handler2.capturedPrior[0].Score != score1 {
 		t.Errorf("prior result score = %v, want %v", handler2.capturedPrior[0].Score, score1)
+	}
+}
+
+func TestEvalRunner_Clone(t *testing.T) {
+	reg := NewEvalTypeRegistry()
+	r := NewEvalRunner(reg, WithTimeout(5*time.Second))
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	r.SetEmitter(events.NewEmitter(bus, "", "", ""))
+
+	clone := r.Clone()
+	if clone.registry != r.registry {
+		t.Error("clone should share registry")
+	}
+	if clone.timeout != r.timeout {
+		t.Error("clone should copy timeout")
+	}
+	if clone.emitter != nil {
+		t.Error("clone should have nil emitter")
+	}
+}
+
+func TestEvalRunner_EmitResult(t *testing.T) {
+	reg := NewEvalTypeRegistry()
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	received := make(chan *events.Event, 10)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
+		received <- e
+	})
+
+	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
+	r := NewEvalRunner(reg, WithEmitter(emitter))
+
+	r.emitResult(&EvalResult{
+		EvalID: "e1",
+		Type:   "test",
+		Score:  func() *float64 { v := 1.0; return &v }(),
+	})
+
+	select {
+	case e := <-received:
+		data := e.Data.(*events.EvalCompletedData)
+		if data.EvalID != "e1" {
+			t.Errorf("expected eval ID e1, got %q", data.EvalID)
+		}
+		if !data.Passed {
+			t.Error("expected passed=true for score 1.0")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out")
+	}
+}
+
+func TestEvalRunner_EmitResult_UsesValueForPassed(t *testing.T) {
+	reg := NewEvalTypeRegistry()
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	received := make(chan *events.Event, 10)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
+		received <- e
+	})
+
+	emitter := events.NewEmitter(bus, "", "", "")
+	r := NewEvalRunner(reg, WithEmitter(emitter))
+
+	// Score is 0.7 (below 1.0) but Value is true (threshold passed)
+	r.emitResult(&EvalResult{
+		EvalID: "e1",
+		Type:   "test",
+		Score:  func() *float64 { v := 0.7; return &v }(),
+		Value:  true,
+	})
+
+	select {
+	case e := <-received:
+		data := e.Data.(*events.EvalCompletedData)
+		if !data.Passed {
+			t.Error("expected passed=true from Value, not score")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out")
 	}
 }

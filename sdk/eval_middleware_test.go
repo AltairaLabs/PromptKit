@@ -287,7 +287,7 @@ func TestEvalMiddleware_EmitResults_NilEmitter(t *testing.T) {
 	}
 
 	// Should not panic with nil emitter
-	mw.emitResults([]evals.EvalResult{{EvalID: "e1"}})
+	mw.recordMetrics([]evals.EvalResult{{EvalID: "e1"}})
 }
 
 func TestEvalMiddleware_WaitBlocksUntilGoroutinesComplete(t *testing.T) {
@@ -698,7 +698,9 @@ func (h *gatedEvalHandler) Eval(
 }
 
 func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
-	// Use a single worker to guarantee ordered dispatch of events.
+	// Eval events are now emitted by the EvalRunner (not the middleware).
+	// This test verifies that the runner's emitter is wired to the event bus
+	// when the middleware is created with an event bus.
 	bus := events.NewEventBus(events.WithWorkerPoolSize(1))
 	defer bus.Close()
 
@@ -706,15 +708,13 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
 		received <- e
 	})
-	bus.Subscribe(events.EventEvalFailed, func(e *events.Event) {
-		received <- e
-	})
 
 	conv := &Conversation{
 		config: &config{eventBus: bus},
 		pack: &pack.Pack{
 			Evals: []evals.EvalDef{
-				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
+					Params: map[string]any{"substring": "hello"}},
 			},
 		},
 		prompt: &pack.Prompt{},
@@ -725,46 +725,30 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 		t.Fatal("expected non-nil middleware")
 	}
 
-	mw.emitResults([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains", Score: func() *float64 { v := 1.0; return &v }()},
-		{EvalID: "e2", Type: "regex", Error: "regex eval errored"},
-	})
+	// Run evals through the runner (which emits events)
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "hello world",
+		SessionID:     "test-session",
+	}
+	results := mw.runner.RunTurnEvals(context.Background(), mw.defs, evalCtx)
+	if len(results) == 0 {
+		t.Fatal("expected eval results")
+	}
 
-	// Collect 2 events (order may vary with multiple workers, so use maps).
-	var got []*events.Event
-	for range 2 {
-		select {
-		case e := <-received:
-			got = append(got, e)
-		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for eval events")
+	select {
+	case e := <-received:
+		if e.Type != events.EventEvalCompleted {
+			t.Errorf("expected eval.completed, got %s", e.Type)
 		}
-	}
-
-	// Verify we received one completed and one failed event.
-	typeCount := map[events.EventType]int{}
-	for _, e := range got {
-		typeCount[e.Type]++
-	}
-
-	if typeCount[events.EventEvalCompleted] != 1 {
-		t.Errorf("expected 1 eval.completed, got %d", typeCount[events.EventEvalCompleted])
-	}
-	if typeCount[events.EventEvalFailed] != 1 {
-		t.Errorf("expected 1 eval.failed, got %d", typeCount[events.EventEvalFailed])
-	}
-
-	// Verify eval IDs are present.
-	for _, e := range got {
-		if e.Type == events.EventEvalCompleted {
-			data, ok := e.Data.(*events.EvalCompletedData)
-			if !ok {
-				t.Fatal("expected *EvalCompletedData")
-			}
-			if data.EvalID != "e1" {
-				t.Errorf("expected eval ID e1, got %q", data.EvalID)
-			}
+		data, ok := e.Data.(*events.EvalCompletedData)
+		if !ok {
+			t.Fatal("expected *EvalCompletedData")
 		}
+		if data.EvalID != "e1" {
+			t.Errorf("expected eval ID e1, got %q", data.EvalID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for eval event")
 	}
 }
 
@@ -888,7 +872,7 @@ func TestEvalMiddleware_WithMetricRecorder(t *testing.T) {
 	}
 
 	// Simulate emitting a result — metric should be recorded.
-	mw.emitResults([]evals.EvalResult{
+	mw.recordMetrics([]evals.EvalResult{
 		{EvalID: "e1", Type: "contains"},
 	})
 
@@ -936,12 +920,14 @@ func TestEvalMiddleware_WithoutMetricRecorder(t *testing.T) {
 	}
 
 	// Should not panic with nil metricWriter
-	mw.emitResults([]evals.EvalResult{
+	mw.recordMetrics([]evals.EvalResult{
 		{EvalID: "e1", Type: "contains"},
 	})
 }
 
 func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
+	// Eval events are now emitted by the EvalRunner. This test verifies
+	// that the emitter's SessionID is set correctly via the middleware.
 	bus := events.NewEventBus(events.WithWorkerPoolSize(1))
 	defer bus.Close()
 
@@ -950,11 +936,11 @@ func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 		received <- e
 	})
 
-	// Create a conversation with a real unary session that has a known ID.
 	conv := newTestConversation()
 	conv.config.eventBus = bus
 	conv.pack.Evals = []evals.EvalDef{
-		{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+		{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
+			Params: map[string]any{"substring": "hello"}},
 	}
 
 	mw := newEvalMiddleware(conv)
@@ -962,13 +948,15 @@ func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 		t.Fatal("expected non-nil middleware")
 	}
 
-	mw.emitResults([]evals.EvalResult{
-		{EvalID: "e1", Type: "contains"},
-	})
+	// Run evals through the runner
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "hello world",
+		SessionID:     conv.ID(),
+	}
+	mw.runner.RunTurnEvals(context.Background(), mw.defs, evalCtx)
 
 	select {
 	case e := <-received:
-		// The session ID should match the conversation's session ID.
 		expectedID := conv.ID()
 		if e.SessionID != expectedID {
 			t.Errorf("expected SessionID %q on eval event, got %q", expectedID, e.SessionID)

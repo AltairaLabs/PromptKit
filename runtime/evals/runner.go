@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
@@ -16,6 +17,7 @@ const DefaultEvalTimeout = 30 * time.Second
 type EvalRunner struct {
 	registry *EvalTypeRegistry
 	timeout  time.Duration
+	emitter  *events.Emitter // optional — emits eval.completed/failed events
 }
 
 // RunnerOption configures an EvalRunner.
@@ -24,6 +26,24 @@ type RunnerOption func(*EvalRunner)
 // WithTimeout sets the per-eval execution timeout.
 func WithTimeout(d time.Duration) RunnerOption {
 	return func(r *EvalRunner) { r.timeout = d }
+}
+
+// WithEmitter configures the runner to emit eval.completed/eval.failed events.
+func WithEmitter(e *events.Emitter) RunnerOption {
+	return func(r *EvalRunner) { r.emitter = e }
+}
+
+// Clone creates a copy of the runner with the same registry and timeout but no emitter.
+func (r *EvalRunner) Clone() *EvalRunner {
+	return &EvalRunner{
+		registry: r.registry,
+		timeout:  r.timeout,
+	}
+}
+
+// SetEmitter sets (or clears) the event emitter. Must be called before running evals.
+func (r *EvalRunner) SetEmitter(e *events.Emitter) {
+	r.emitter = e
 }
 
 // NewEvalRunner creates an EvalRunner with the given registry and options.
@@ -129,6 +149,7 @@ func (r *EvalRunner) runEvals(
 		if result != nil {
 			result.SessionID = evalCtx.SessionID
 			result.TurnIndex = evalCtx.TurnIndex
+			r.emitResult(result)
 			results = append(results, *result)
 		}
 	}
@@ -248,4 +269,40 @@ func (r *EvalRunner) executeHandler(
 		"score", result.Score, "duration_ms", durationMs,
 	)
 	return result
+}
+
+// emitResult publishes eval.completed or eval.failed via the emitter (if set).
+func (r *EvalRunner) emitResult(result *EvalResult) {
+	if r.emitter == nil {
+		return
+	}
+	data := &events.EvalEventData{
+		EvalID:      result.EvalID,
+		EvalType:    result.Type,
+		Score:       result.Score,
+		Explanation: result.Explanation,
+		DurationMs:  result.DurationMs,
+		Error:       result.Error,
+		Message:     result.Message,
+		Skipped:     result.Skipped,
+		SkipReason:  result.SkipReason,
+	}
+	// Determine passed status: skip skipped evals, use handler's Value (bool)
+	// if available (accounts for min_score/max_score thresholds), otherwise
+	// default to score >= 1.0.
+	if !result.Skipped {
+		if passed, ok := result.Value.(bool); ok {
+			data.Passed = passed
+		} else if result.Score == nil || *result.Score >= 1.0 {
+			data.Passed = true
+		}
+	}
+	for _, v := range result.Violations {
+		data.Violations = append(data.Violations, v.Description)
+	}
+	if result.Error != "" {
+		r.emitter.EvalFailed(data)
+	} else {
+		r.emitter.EvalCompleted(data)
+	}
 }

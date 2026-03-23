@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -72,6 +73,10 @@ type ConversationRequest struct {
 	// Per-run eval orchestrator override (for workflow scenarios that need
 	// isolated workflow metadata). If nil, the executor's shared orchestrator is used.
 	EvalOrchestrator *EvalOrchestrator
+
+	// RecordingConfig enables RecordingStage in the pipeline for message.created events.
+	// If nil, no recording stages are added.
+	RecordingConfig *stage.RecordingStageConfig
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena

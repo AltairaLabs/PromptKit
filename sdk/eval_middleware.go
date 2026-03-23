@@ -100,6 +100,9 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 	logger.Info("evals: middleware created", "defs", len(defs), "max_concurrent", maxConcurrent)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	// Wire the emitter into the runner so eval events are emitted as each eval completes.
+	runner.SetEmitter(emitter)
+
 	return &evalMiddleware{
 		runner:       runner,
 		defs:         defs,
@@ -144,7 +147,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 		defer em.wg.Done()
 		defer func() { <-em.sem }()
 		results := em.runner.RunTurnEvals(em.ctx, em.defs, evalCtx)
-		em.emitResults(results)
+		em.recordMetrics(results)
 	}()
 }
 
@@ -158,7 +161,7 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 
 	evalCtx := em.buildEvalContext(ctx)
 	results := em.runner.RunSessionEvals(ctx, em.defs, evalCtx)
-	em.emitResults(results)
+	em.recordMetrics(results)
 }
 
 // wait blocks until all in-flight turn eval goroutines have completed.
@@ -182,11 +185,9 @@ func (em *evalMiddleware) close() {
 	em.wg.Wait()
 }
 
-// emitResults emits eval results as events on the event bus and records metrics.
-func (em *evalMiddleware) emitResults(results []evals.EvalResult) {
-	if em.emitter != nil {
-		emitEvalResultsTo(em.emitter, results)
-	}
+// recordMetrics writes eval result metrics. Event emission is handled by
+// the EvalRunner (via SetEmitter).
+func (em *evalMiddleware) recordMetrics(results []evals.EvalResult) {
 	if em.metricWriter != nil {
 		if err := em.metricWriter.WriteResults(context.Background(), results); err != nil {
 			logger.Warn("evals: metric recording failed", "error", err)

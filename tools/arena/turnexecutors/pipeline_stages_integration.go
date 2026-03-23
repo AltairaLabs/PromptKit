@@ -318,12 +318,18 @@ func (e *PipelineExecutor) buildStagePipeline(
 		stages = append(stages, stage.NewMediaConvertStage(mediaConvertConfig))
 	}
 
+	// 5b. Input recording stage (opt-in via RecordingConfig)
+	stages = appendRecordingStage(stages, req, stage.RecordingPositionInput)
+
 	// 6. Provider stage (with consent simulation hook if overrides are present)
 	// 7. Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
 	providerConfig := buildProviderConfig(req)
 	stages = append(stages, e.buildProviderStage(req, providerConfig), arenastages.NewGuardrailEvalStage())
 
-	// 7a. Media externalization (if configured)
+	// 7a. Output recording stage (opt-in via RecordingConfig)
+	stages = appendRecordingStage(stages, req, stage.RecordingPositionOutput)
+
+	// 7b. Media externalization (if configured)
 	if mediaConfig := buildMediaConfig(req.ConversationID, e.mediaStorage); mediaConfig != nil {
 		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
 	}
@@ -358,6 +364,18 @@ func (e *PipelineExecutor) handleExecutionError(provider providers.Provider, err
 	return fmt.Errorf("pipeline execution failed: %w", err)
 }
 
+// appendRecordingStage adds a RecordingStage if recording is configured.
+func appendRecordingStage(stages []stage.Stage, req *TurnRequest, position stage.RecordingPosition) []stage.Stage {
+	if req.RecordingConfig == nil || req.EventBus == nil {
+		return stages
+	}
+	cfg := *req.RecordingConfig
+	cfg.Position = position
+	cfg.SessionID = req.RunID
+	cfg.ConversationID = req.ConversationID
+	return append(stages, stage.NewRecordingStage(req.EventBus, cfg))
+}
+
 // emitterFromRequest creates an event emitter from a TurnRequest's event bus.
 // Returns nil if no event bus is configured, which is safe — ProviderStage
 // treats a nil emitter as "no telemetry".
@@ -365,7 +383,7 @@ func emitterFromRequest(req *TurnRequest) *events.Emitter {
 	if req.EventBus == nil {
 		return nil
 	}
-	return events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+	return events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
 }
 
 // buildProviderStage creates a provider stage, attaching hooks
@@ -520,6 +538,9 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 		}
 	}
 
+	// Input recording stage (opt-in via RecordingConfig)
+	stages = appendRecordingStage(stages, req, stage.RecordingPositionInput)
+
 	// Provider stage
 	providerConfig := buildProviderConfig(req)
 	if cfg.UseHooksProvider {
@@ -533,6 +554,9 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	if cfg.IncludeGuardrailEval {
 		stages = append(stages, arenastages.NewGuardrailEvalStage())
 	}
+
+	// Output recording stage (opt-in via RecordingConfig)
+	stages = appendRecordingStage(stages, req, stage.RecordingPositionOutput)
 
 	// Media externalization (scripted only)
 	if cfg.IncludeMediaExternalizer && e.mediaStorage != nil {

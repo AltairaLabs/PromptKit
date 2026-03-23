@@ -414,6 +414,14 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		}
 	}
 
+	// Clone the eval orchestrator for this run so concurrent runs don't race
+	// on the shared runner's emitter. Workflow runs already get a clone via
+	// prepareWorkflowScenario; non-workflow runs need one too.
+	runOrch := workflowOrch
+	if runOrch == nil && e.evalOrchestrator != nil {
+		runOrch = e.evalOrchestrator.Clone()
+	}
+
 	// Execute conversation
 	req := ConversationRequest{
 		Provider:         provider,
@@ -422,7 +430,8 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		Region:           combo.Region,
 		RunID:            runID,
 		EventBus:         e.eventBus,
-		EvalOrchestrator: workflowOrch,
+		EvalOrchestrator: runOrch,
+		RecordingConfig:  e.recordingConfig,
 	}
 
 	// Always configure StateStore (always enabled now)

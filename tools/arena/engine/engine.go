@@ -34,6 +34,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
@@ -82,6 +83,7 @@ type Engine struct {
 	evalOrchestrator     *EvalOrchestrator            // Orchestrates eval and assertion execution during runs
 	workflowSpec         *workflow.Spec               // Optional workflow spec (set if config.Workflow != nil)
 	workflowTransExec    *workflowTransitionExecutor  // Optional transition executor (set if config.Workflow != nil)
+	recordingConfig      *stage.RecordingStageConfig  // Optional — enables RecordingStage in pipelines
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -297,6 +299,12 @@ func (e *Engine) EnableSessionRecording(recordingDir string) error {
 	if e.eventBus != nil {
 		e.eventBus.SubscribeAll(store.OnEvent)
 		logger.Debug("Subscribed event store for session recording")
+	}
+
+	// Enable RecordingStage in pipelines so message.created events are published
+	if e.recordingConfig == nil {
+		defaults := stage.DefaultRecordingStageConfig()
+		e.recordingConfig = &defaults
 	}
 
 	logger.Info("Session recording enabled", "directory", recordingDir)

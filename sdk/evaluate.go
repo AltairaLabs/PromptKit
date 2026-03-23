@@ -177,6 +177,11 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	if opts.Timeout > 0 {
 		runnerOpts = append(runnerOpts, evals.WithTimeout(opts.Timeout))
 	}
+	// Wire emitter into the runner so eval events are emitted as each eval completes.
+	if opts.EventBus != nil {
+		emitter := events.NewEmitter(opts.EventBus, "", opts.SessionID, "")
+		runnerOpts = append(runnerOpts, evals.WithEmitter(emitter))
+	}
 	runner := evals.NewEvalRunner(registry, runnerOpts...)
 
 	// 4. Dispatch by trigger
@@ -185,11 +190,6 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 		trigger = evals.TriggerEveryTurn
 	}
 	results := dispatchEvals(ctx, runner, defs, evalCtx, trigger)
-
-	// 5. Emit events (optional)
-	if opts.EventBus != nil {
-		emitEvalEvents(opts.EventBus, opts.SessionID, results)
-	}
 
 	// 6. Record metrics (optional)
 	recorder := resolveMetricRecorder(&opts)
@@ -400,40 +400,4 @@ func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error) {
 		}
 	}
 	return missing, nil
-}
-
-// emitEvalEvents emits eval results as events on the event bus.
-func emitEvalEvents(bus events.Bus, sessionID string, results []evals.EvalResult) {
-	emitter := events.NewEmitter(bus, "", sessionID, "")
-	emitEvalResultsTo(emitter, results)
-}
-
-// emitEvalResultsTo emits eval results through the given emitter.
-// Shared by the standalone Evaluate() path and the eval middleware.
-func emitEvalResultsTo(emitter *events.Emitter, results []evals.EvalResult) {
-	for i := range results {
-		r := &results[i]
-		passed, _ := r.Value.(bool)
-		data := events.EvalEventData{
-			EvalID:      r.EvalID,
-			EvalType:    r.Type,
-			Passed:      passed,
-			Score:       r.Score,
-			Explanation: r.Explanation,
-			DurationMs:  r.DurationMs,
-			Error:       r.Error,
-			Message:     r.Message,
-			Skipped:     r.Skipped,
-			SkipReason:  r.SkipReason,
-		}
-		for _, v := range r.Violations {
-			data.Violations = append(data.Violations, v.Description)
-		}
-		// EventEvalFailed means the eval errored, not that the score was low.
-		if r.Error != "" {
-			emitter.EvalFailed(&data)
-		} else {
-			emitter.EvalCompleted(&data)
-		}
-	}
 }
