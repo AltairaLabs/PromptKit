@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -655,9 +656,11 @@ func TestClientTools_EventLifecycle(t *testing.T) {
 	require.True(t, resp.HasPendingClientTools())
 
 	// Verify: tool.call.started, tool.client.request, tool.call.completed(pending)
-	startedEvents := collector.ofType(events.EventToolCallStarted)
-	requestEvents := collector.ofType(events.EventClientToolRequest)
-	completedEvents := collector.ofType(events.EventToolCallCompleted)
+	// Use waitForType because the event bus dispatches asynchronously via a goroutine.
+	const eventTimeout = 2 * time.Second
+	startedEvents := collector.waitForType(events.EventToolCallStarted, eventTimeout)
+	requestEvents := collector.waitForType(events.EventClientToolRequest, eventTimeout)
+	completedEvents := collector.waitForType(events.EventToolCallCompleted, eventTimeout)
 
 	require.NotEmpty(t, startedEvents, "expected tool.call.started event")
 	require.NotEmpty(t, requestEvents, "expected tool.client.request event")
@@ -684,7 +687,7 @@ func TestClientTools_EventLifecycle(t *testing.T) {
 	assert.NotEmpty(t, resp2.Text())
 
 	// Verify: tool.client.resolved event emitted during Resume
-	resolvedEvents := collector.ofType(events.EventClientToolResolved)
+	resolvedEvents := collector.waitForType(events.EventClientToolResolved, eventTimeout)
 	require.NotEmpty(t, resolvedEvents, "expected tool.client.resolved event after Resume")
 
 	resData := resolvedEvents[0].Data.(*events.ClientToolResolvedData)
@@ -737,7 +740,8 @@ func TestClientTools_EventLifecycle_Rejection(t *testing.T) {
 	assert.NotEmpty(t, resp2.Text())
 
 	// Verify resolved event has status "rejected"
-	resolvedEvents := collector.ofType(events.EventClientToolResolved)
+	const eventTimeout = 2 * time.Second
+	resolvedEvents := collector.waitForType(events.EventClientToolResolved, eventTimeout)
 	require.NotEmpty(t, resolvedEvents, "expected tool.client.resolved event")
 
 	resData := resolvedEvents[0].Data.(*events.ClientToolResolvedData)

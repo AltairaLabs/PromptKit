@@ -149,6 +149,19 @@ func (ec *eventCollector) ofType(et events.EventType) []*events.Event {
 	return out
 }
 
+// waitForType polls until at least one event of the given type is collected,
+// or the timeout expires. Returns the matching events.
+func (ec *eventCollector) waitForType(et events.EventType, timeout time.Duration) []*events.Event {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if evts := ec.ofType(et); len(evts) > 0 {
+			return evts
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return ec.ofType(et)
+}
+
 // hasType returns true if at least one event of the given type was collected.
 func (ec *eventCollector) hasType(et events.EventType) bool {
 	return len(ec.ofType(et)) > 0
