@@ -150,13 +150,11 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 		return nil, fmt.Errorf("failed to initialize workflow: %w", err)
 	}
 
-	// Build pack eval hook for workflow executor (conversation executors get their own copy).
-	// Eval type validation already passed in BuildEngineComponents above, so this call
-	// cannot fail — unknown types were already rejected.
-	if cfg.LoadedPack != nil {
-		eng.evalOrchestrator, _ = buildEvalOrchestrator(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
-	} else {
-		eng.evalOrchestrator = buildEvalOnlyOrchestrator()
+	// Use the eval orchestrator from the conversation executor — it already has
+	// judge metadata, prompt_registry, and other config injected by BuildEngineComponents.
+	// Creating a separate orchestrator here would lose that metadata.
+	if ce, ok := convExecutor.(*DefaultConversationExecutor); ok {
+		eng.evalOrchestrator = ce.evalOrchestrator
 	}
 	return eng, nil
 }
