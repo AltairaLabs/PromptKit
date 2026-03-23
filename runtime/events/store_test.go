@@ -703,9 +703,9 @@ func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 
 	// Create events with different properties
 	events := []*Event{
-		{Type: EventMessageCreated, Timestamp: baseTime, SessionID: sessionID, RunID: "run-1", ConversationID: "conv-1"},
-		{Type: EventMessageCreated, Timestamp: baseTime.Add(time.Second), SessionID: sessionID, RunID: "run-2", ConversationID: "conv-1"},
-		{Type: EventToolCallStarted, Timestamp: baseTime.Add(2 * time.Second), SessionID: sessionID, RunID: "run-1", ConversationID: "conv-2"},
+		{Type: EventMessageCreated, Timestamp: baseTime, SessionID: sessionID, ExecutionID: "run-1", ConversationID: "conv-1"},
+		{Type: EventMessageCreated, Timestamp: baseTime.Add(time.Second), SessionID: sessionID, ExecutionID: "run-2", ConversationID: "conv-1"},
+		{Type: EventToolCallStarted, Timestamp: baseTime.Add(2 * time.Second), SessionID: sessionID, ExecutionID: "run-1", ConversationID: "conv-2"},
 	}
 
 	for _, e := range events {
@@ -713,10 +713,10 @@ func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 	}
 	require.NoError(t, store.Sync())
 
-	t.Run("filter by RunID", func(t *testing.T) {
+	t.Run("filter by ExecutionID", func(t *testing.T) {
 		result, err := store.Query(context.Background(), &EventFilter{
 			SessionID: sessionID,
-			RunID:     "run-1",
+			ExecutionID: "run-1",
 		})
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
@@ -743,7 +743,7 @@ func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 	t.Run("combined filters", func(t *testing.T) {
 		result, err := store.Query(context.Background(), &EventFilter{
 			SessionID:      sessionID,
-			RunID:          "run-1",
+			ExecutionID:    "run-1",
 			ConversationID: "conv-1",
 		})
 		require.NoError(t, err)
@@ -775,7 +775,7 @@ func TestFileEventStore_toSerializable_WithData(t *testing.T) {
 		Timestamp:      time.Now(),
 		SessionID:      "test-session",
 		ConversationID: "test-conv",
-		RunID:          "test-run",
+		ExecutionID:    "test-run",
 		Data: &MessageCreatedData{
 			Role:    "user",
 			Content: "Hello",

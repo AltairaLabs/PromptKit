@@ -31,7 +31,7 @@ type DefaultConversationExecutor struct {
 	selfPlayExecutor turnexecutors.TurnExecutor
 	selfPlayRegistry *selfplay.Registry
 	promptRegistry   *prompt.Registry
-	packEvalHook     *PackEvalHook
+	evalOrchestrator *EvalOrchestrator
 }
 
 // NewDefaultConversationExecutor creates a new conversation executor
@@ -40,14 +40,14 @@ func NewDefaultConversationExecutor(
 	selfPlayExecutor turnexecutors.TurnExecutor,
 	selfPlayRegistry *selfplay.Registry,
 	promptRegistry *prompt.Registry,
-	packEvalHook *PackEvalHook,
+	evalOrchestrator *EvalOrchestrator,
 ) *DefaultConversationExecutor {
 	return &DefaultConversationExecutor{
 		scriptedExecutor: scriptedExecutor,
 		selfPlayExecutor: selfPlayExecutor,
 		selfPlayRegistry: selfPlayRegistry,
 		promptRegistry:   promptRegistry,
-		packEvalHook:     packEvalHook,
+		evalOrchestrator: evalOrchestrator,
 	}
 }
 
@@ -69,7 +69,7 @@ func (ce *DefaultConversationExecutor) ExecuteConversation(ctx context.Context, 
 
 	var emitter *events.Emitter
 	if req.EventBus != nil {
-		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+		emitter = events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
 	}
 	// Check if scenario uses streaming - if so, use streaming path
 	if req.Scenario.Streaming {
@@ -319,9 +319,19 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		ConsentOverrides: scenarioTurn.ConsentOverrides,
 		ChaosConfig:      scenarioTurn.Chaos,
 		Assertions:       scenarioTurn.Assertions,
-		TurnEvalRunner:   ce.packEvalHook,
+		TurnEvalRunner:   ce.resolveEvalOrchestrator(&req),
 		Metadata:         metadata,
 	}
+}
+
+// resolveEvalOrchestrator returns the per-run orchestrator from the request if set,
+// falling back to the shared orchestrator. This supports per-run workflow metadata
+// without data races on the shared orchestrator.
+func (ce *DefaultConversationExecutor) resolveEvalOrchestrator(req *ConversationRequest) *EvalOrchestrator {
+	if req.EvalOrchestrator != nil {
+		return req.EvalOrchestrator
+	}
+	return ce.evalOrchestrator
 }
 
 // executeTurnByRole executes a turn based on its role (self-play or scripted)
@@ -689,8 +699,9 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(
 	convAssertionResults := ce.evaluateConversationAssertions(ctx, req, messages)
 
 	// Run pack eval session-level evals if configured
-	if ce.packEvalHook != nil && ce.packEvalHook.HasEvals() {
-		packResults := ce.packEvalHook.RunSessionEvals(
+	orch := ce.resolveEvalOrchestrator(req)
+	if orch != nil && orch.HasEvals() {
+		packResults := orch.RunSessionEvals(
 			ctx, messages, req.ConversationID)
 		convAssertionResults = append(convAssertionResults, packResults...)
 	}
@@ -736,7 +747,7 @@ func collectConversationAssertions(
 }
 
 // evaluateConversationAssertions evaluates scenario-level conversation assertions after all turns complete.
-// Uses the eval-only path via PackEvalHook.
+// Uses the eval-only path via EvalOrchestrator.
 func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -762,7 +773,8 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 		return nil
 	}
 
-	if ce.packEvalHook == nil {
+	orch := ce.resolveEvalOrchestrator(req)
+	if orch == nil {
 		logger.Warn("Assertions defined but eval runner not configured — marking all as failed",
 			"assertion_count", len(assertionConfigs))
 		results := make([]asrt.ConversationValidationResult, len(assertionConfigs))
@@ -778,7 +790,7 @@ func (ce *DefaultConversationExecutor) evaluateConversationAssertions(
 	}
 
 	// Run assertions through the eval pipeline and convert to ConversationValidationResult
-	results := ce.packEvalHook.RunAssertionsAsConversationResults(
+	results := orch.RunAssertionsAsConversationResults(
 		ctx, assertionConfigs, messages,
 		len(messages)-1, req.ConversationID,
 		evals.TriggerOnConversationComplete,

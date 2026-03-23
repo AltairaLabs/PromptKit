@@ -1,11 +1,11 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: PromptConfig
 metadata:
-  name: support-workflow
+  name: intake
 spec:
   task_type: "intake"
   version: "v1.0.0"
-  description: "Workflow-aware customer support prompt"
+  description: "Initial customer contact and triage"
 
   system_template: |
     You are a customer support agent for TechCo, a software company.

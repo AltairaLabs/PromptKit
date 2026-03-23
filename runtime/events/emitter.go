@@ -9,17 +9,17 @@ import (
 // Emitter provides helpers for publishing runtime events with shared metadata.
 type Emitter struct {
 	bus            Bus
-	runID          string
+	executionID    string
 	sessionID      string
 	conversationID string
 	userID         string
 }
 
 // NewEmitter creates a new event emitter.
-func NewEmitter(bus Bus, runID, sessionID, conversationID string) *Emitter {
+func NewEmitter(bus Bus, executionID, sessionID, conversationID string) *Emitter {
 	return &Emitter{
 		bus:            bus,
-		runID:          runID,
+		executionID:    executionID,
 		sessionID:      sessionID,
 		conversationID: conversationID,
 	}
@@ -42,7 +42,7 @@ func (e *Emitter) emit(eventType EventType, data EventData) {
 	event := &Event{
 		Type:           eventType,
 		Timestamp:      time.Now(),
-		RunID:          e.runID,
+		ExecutionID:    e.executionID,
 		SessionID:      e.sessionID,
 		ConversationID: e.conversationID,
 		UserID:         e.userID,
@@ -142,6 +142,7 @@ func (e *Emitter) StageFailed(name string, index int, err error, duration time.D
 }
 
 // ProviderCallStarted emits the provider.call.started event.
+// Source defaults to "agent" if not set in the labels.
 func (e *Emitter) ProviderCallStarted(
 	provider, model string, messageCount, toolCount int, labels map[string]string,
 ) {
@@ -150,19 +151,25 @@ func (e *Emitter) ProviderCallStarted(
 		Model:        model,
 		MessageCount: messageCount,
 		ToolCount:    toolCount,
+		Source:       SourceAgent,
 		Labels:       labels,
 	})
 }
 
 // ProviderCallCompleted emits the provider.call.completed event.
+// Source defaults to "agent" if not already set on data.
 func (e *Emitter) ProviderCallCompleted(data *ProviderCallCompletedData) {
 	if data == nil {
 		return
+	}
+	if data.Source == "" {
+		data.Source = SourceAgent
 	}
 	e.emit(EventProviderCallCompleted, data)
 }
 
 // ProviderCallFailed emits the provider.call.failed event.
+// Source defaults to "agent".
 func (e *Emitter) ProviderCallFailed(
 	provider, model string, err error, duration time.Duration, labels map[string]string,
 ) {
@@ -171,6 +178,7 @@ func (e *Emitter) ProviderCallFailed(
 		Model:    model,
 		Error:    err,
 		Duration: duration,
+		Source:   SourceAgent,
 		Labels:   labels,
 	})
 }

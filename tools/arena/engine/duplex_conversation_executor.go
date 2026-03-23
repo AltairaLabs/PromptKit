@@ -36,7 +36,7 @@ type DuplexConversationExecutor struct {
 	promptRegistry   *prompt.Registry
 	toolRegistry     *tools.Registry
 	mediaStorage     storage.MediaStorageService
-	packEvalHook     *PackEvalHook
+	evalOrchestrator *EvalOrchestrator
 }
 
 // NewDuplexConversationExecutor creates a new duplex conversation executor.
@@ -45,14 +45,14 @@ func NewDuplexConversationExecutor(
 	promptRegistry *prompt.Registry,
 	toolRegistry *tools.Registry,
 	mediaStorage storage.MediaStorageService,
-	packEvalHook *PackEvalHook,
+	evalOrchestrator *EvalOrchestrator,
 ) *DuplexConversationExecutor {
 	return &DuplexConversationExecutor{
 		selfPlayRegistry: selfPlayRegistry,
 		promptRegistry:   promptRegistry,
 		toolRegistry:     toolRegistry,
 		mediaStorage:     mediaStorage,
-		packEvalHook:     packEvalHook,
+		evalOrchestrator: evalOrchestrator,
 	}
 }
 
@@ -88,7 +88,7 @@ func (de *DuplexConversationExecutor) ExecuteConversation(
 	// Create event emitter if event bus is configured
 	var emitter *events.Emitter
 	if req.EventBus != nil {
-		emitter = events.NewEmitter(req.EventBus, req.RunID, "", req.ConversationID)
+		emitter = events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
 	}
 
 	// Get timeout from config or use default

@@ -20,9 +20,9 @@ func TestEventAdapterHandlesRunLifecycle(t *testing.T) {
 	adapter := NewEventAdapterWithModel(model)
 
 	start := &events.Event{
-		Type:      events.EventType("arena.run.started"),
-		RunID:     "run-1",
-		Timestamp: time.Now(),
+		Type:        events.EventType("arena.run.started"),
+		ExecutionID: "run-1",
+		Timestamp:   time.Now(),
 		Data: events.CustomEventData{
 			Data: map[string]interface{}{
 				"scenario": "sc-1",
@@ -32,9 +32,9 @@ func TestEventAdapterHandlesRunLifecycle(t *testing.T) {
 		},
 	}
 	complete := &events.Event{
-		Type:      events.EventType("arena.run.completed"),
-		RunID:     "run-1",
-		Timestamp: time.Now(),
+		Type:        events.EventType("arena.run.completed"),
+		ExecutionID: "run-1",
+		Timestamp:   time.Now(),
 		Data: events.CustomEventData{
 			Data: map[string]interface{}{
 				"duration": time.Second,
@@ -323,9 +323,9 @@ func TestEventAdapter_ArenaCustomEvents(t *testing.T) {
 
 	t.Run("arena run failed", func(t *testing.T) {
 		evt := &events.Event{
-			Type:      events.EventType("arena.run.failed"),
-			RunID:     "run-fail",
-			Timestamp: time.Now(),
+			Type:        events.EventType("arena.run.failed"),
+			ExecutionID: "run-fail",
+			Timestamp:   time.Now(),
 			Data: events.CustomEventData{
 				Data: map[string]interface{}{
 					"error": "test failure",
@@ -340,9 +340,9 @@ func TestEventAdapter_ArenaCustomEvents(t *testing.T) {
 
 	t.Run("arena turn events", func(t *testing.T) {
 		started := &events.Event{
-			Type:      events.EventType("arena.turn.started"),
-			RunID:     "run-1",
-			Timestamp: time.Now(),
+			Type:        events.EventType("arena.turn.started"),
+			ExecutionID: "run-1",
+			Timestamp:   time.Now(),
 			Data: events.CustomEventData{
 				Data: map[string]interface{}{
 					"turn_index": 1,
@@ -354,9 +354,9 @@ func TestEventAdapter_ArenaCustomEvents(t *testing.T) {
 		adapter.HandleEvent(started)
 
 		completed := &events.Event{
-			Type:      events.EventType("arena.turn.completed"),
-			RunID:     "run-1",
-			Timestamp: time.Now(),
+			Type:        events.EventType("arena.turn.completed"),
+			ExecutionID: "run-1",
+			Timestamp:   time.Now(),
 			Data: events.CustomEventData{
 				Data: map[string]interface{}{
 					"turn_index": 1,

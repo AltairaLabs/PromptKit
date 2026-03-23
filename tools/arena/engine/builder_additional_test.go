@@ -250,7 +250,7 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 	require.NotNil(t, composite.GetDuplexExecutor())
 }
 
-func TestBuildPackEvalHook_UnknownEvalType(t *testing.T) {
+func TestBuildEvalOrchestrator_UnknownEvalType(t *testing.T) {
 	cfg := &config.Config{
 		LoadedPack: &prompt.Pack{
 			ID: "test-pack",
@@ -261,14 +261,14 @@ func TestBuildPackEvalHook_UnknownEvalType(t *testing.T) {
 		},
 	}
 
-	hook, err := buildPackEvalHook(cfg, false, nil)
+	hook, err := buildEvalOrchestrator(cfg, false, nil)
 	require.Error(t, err)
 	require.Nil(t, hook)
 	require.Contains(t, err.Error(), "unknown eval types")
 	require.Contains(t, err.Error(), `"contians"`)
 }
 
-func TestBuildPackEvalHook_AllKnownTypes(t *testing.T) {
+func TestBuildEvalOrchestrator_AllKnownTypes(t *testing.T) {
 	cfg := &config.Config{
 		LoadedPack: &prompt.Pack{
 			ID: "test-pack",
@@ -278,19 +278,19 @@ func TestBuildPackEvalHook_AllKnownTypes(t *testing.T) {
 		},
 	}
 
-	hook, err := buildPackEvalHook(cfg, false, nil)
+	hook, err := buildEvalOrchestrator(cfg, false, nil)
 	require.NoError(t, err)
 	require.NotNil(t, hook)
 }
 
-func TestBuildPackEvalHook_EmptyEvalsReturnsNil(t *testing.T) {
+func TestBuildEvalOrchestrator_EmptyEvalsReturnsNil(t *testing.T) {
 	cfg := &config.Config{
 		LoadedPack: &prompt.Pack{
 			ID: "test-pack",
 		},
 	}
 
-	hook, err := buildPackEvalHook(cfg, false, nil)
+	hook, err := buildEvalOrchestrator(cfg, false, nil)
 	require.NoError(t, err)
 	require.Nil(t, hook)
 }

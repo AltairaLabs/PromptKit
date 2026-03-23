@@ -35,10 +35,9 @@ func TestConvertSessionToScenario_Conversation(t *testing.T) {
 	assert.Len(t, sc.Spec.Turns, 2)
 	assert.Equal(t, "Hello", sc.Spec.Turns[0].Content)
 	assert.Equal(t, "How are you?", sc.Spec.Turns[1].Content)
-	assert.Empty(t, sc.Spec.Steps)
 }
 
-func TestConvertSessionToScenario_Workflow(t *testing.T) {
+func TestConvertSessionToScenario_WithTaskType(t *testing.T) {
 	session := &SessionDetail{
 		SessionSummary: SessionSummary{ID: "wf-session"},
 		Messages: []types.Message{
@@ -48,15 +47,12 @@ func TestConvertSessionToScenario_Workflow(t *testing.T) {
 		},
 	}
 
-	sc, err := ConvertSessionToScenario(session, ConvertOptions{Pack: "order.pack.json"})
+	sc, err := ConvertSessionToScenario(session, ConvertOptions{TaskType: "intake"})
 	require.NoError(t, err)
 
-	assert.Equal(t, "order.pack.json", sc.Spec.Pack)
-	assert.Empty(t, sc.Spec.TaskType)
-	assert.Empty(t, sc.Spec.Turns)
-	assert.Len(t, sc.Spec.Steps, 2)
-	assert.Equal(t, "input", sc.Spec.Steps[0].Type)
-	assert.Equal(t, "Start order", sc.Spec.Steps[0].Content)
+	assert.Equal(t, "intake", sc.Spec.TaskType)
+	assert.Len(t, sc.Spec.Turns, 2)
+	assert.Equal(t, "Start order", sc.Spec.Turns[0].Content)
 }
 
 func TestConvertSessionToScenario_WithConversationAssertions(t *testing.T) {

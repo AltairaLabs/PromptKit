@@ -3,12 +3,39 @@ kind: Arena
 metadata:
   name: workflow-support-arena
 spec:
+  prompt_configs:
+    - id: intake
+      file: prompts/intake.yaml
+    - id: specialist
+      file: prompts/specialist.yaml
+    - id: closed
+      file: prompts/closed.yaml
+
   providers:
     - file: providers/mock-provider.yaml
 
   scenarios:
     - file: scenarios/basic-flow.scenario.yaml
-    - file: scenarios/state-assertions.scenario.yaml
+
+  workflow:
+    version: 1
+    entry: intake
+    states:
+      intake:
+        prompt_task: intake
+        description: "Initial customer contact and triage"
+        on_event:
+          Escalate: specialist
+          Resolve: closed
+      specialist:
+        prompt_task: specialist
+        description: "Specialized support for escalated issues"
+        on_event:
+          Resolve: closed
+      closed:
+        prompt_task: closed
+        description: "Conversation resolved"
+        on_event: {}
 
   defaults:
     temperature: 0.1

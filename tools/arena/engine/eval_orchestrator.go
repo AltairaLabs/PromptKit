@@ -4,30 +4,37 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
-// PackEvalHook manages pack eval execution during Arena conversation runs.
-// It wraps an EvalRunner and converts results into the assertion format
-// used by Arena's reporting pipeline.
-type PackEvalHook struct {
-	runner   *evals.EvalRunner
-	defs     []evals.EvalDef
-	taskType string
-	metadata map[string]any // injected into every EvalContext (e.g. judge_targets)
+// WorkflowMetadataProvider is implemented by types that provide workflow state
+// metadata for injection into the eval context during assertion evaluation.
+type WorkflowMetadataProvider interface {
+	WorkflowMetadata() map[string]any
 }
 
-// NewPackEvalHook creates a hook for executing pack evals during Arena runs.
+// EvalOrchestrator orchestrates eval and assertion execution during Arena runs.
+type EvalOrchestrator struct {
+	runner               *evals.EvalRunner
+	defs                 []evals.EvalDef
+	taskType             string
+	metadata             map[string]any           // injected into every EvalContext (e.g. judge_targets)
+	eventBus             events.Bus               // optional event bus for provider call telemetry in evals
+	workflowMetaProvider WorkflowMetadataProvider // optional workflow state provider
+}
+
+// NewEvalOrchestrator creates a hook for executing pack evals during Arena runs.
 // If skipEvals is true, the runner is nil and all methods are no-ops.
 // The evalTypeFilter, when non-empty, restricts execution to matching eval types.
-func NewPackEvalHook(
+func NewEvalOrchestrator(
 	registry *evals.EvalTypeRegistry,
 	defs []evals.EvalDef,
 	skipEvals bool,
 	evalTypeFilter []string,
 	taskType string,
-) *PackEvalHook {
+) *EvalOrchestrator {
 	// Filter defs by eval type if filter is set
 	filteredDefs := filterEvalDefs(defs, evalTypeFilter)
 
@@ -36,24 +43,54 @@ func NewPackEvalHook(
 		runner = evals.NewEvalRunner(registry)
 	}
 
-	return &PackEvalHook{
+	return &EvalOrchestrator{
 		runner:   runner,
 		defs:     filteredDefs,
 		taskType: taskType,
 	}
 }
 
+// Clone creates a shallow copy suitable for per-run use. The runner and defs
+// are shared (immutable after construction), but metadata and workflow provider
+// are independent. This avoids data races when concurrent runs set different
+// workflow metadata providers.
+func (h *EvalOrchestrator) Clone() *EvalOrchestrator {
+	if h == nil {
+		return nil
+	}
+	clone := *h
+	clone.workflowMetaProvider = nil
+	// Copy metadata map so per-run mutations don't affect the original
+	if h.metadata != nil {
+		clone.metadata = make(map[string]any, len(h.metadata))
+		for k, v := range h.metadata {
+			clone.metadata[k] = v
+		}
+	}
+	return &clone
+}
+
 // SetMetadata sets metadata that will be injected into every EvalContext.
 // Used to pass judge_targets, prompt_registry, and other config to eval handlers.
-func (h *PackEvalHook) SetMetadata(metadata map[string]any) {
+func (h *EvalOrchestrator) SetMetadata(metadata map[string]any) {
 	if h == nil {
 		return
 	}
 	h.metadata = metadata
 }
 
+// SetEventBus configures the event bus for provider call telemetry in eval handlers.
+// When set, an emitter is injected into each EvalContext's metadata so that
+// LLM judge provider calls emit ProviderCallStarted/Completed/Failed events.
+func (h *EvalOrchestrator) SetEventBus(bus events.Bus) {
+	if h == nil {
+		return
+	}
+	h.eventBus = bus
+}
+
 // HasEvals returns true if there are eval defs to execute.
-func (h *PackEvalHook) HasEvals() bool {
+func (h *EvalOrchestrator) HasEvals() bool {
 	if h == nil {
 		return false
 	}
@@ -62,7 +99,7 @@ func (h *PackEvalHook) HasEvals() bool {
 
 // RunTurnEvals runs turn-triggered evals after a turn completes.
 // Returns converted ConversationValidationResult entries.
-func (h *PackEvalHook) RunTurnEvals(
+func (h *EvalOrchestrator) RunTurnEvals(
 	ctx context.Context,
 	messages []types.Message,
 	turnIndex int,
@@ -79,7 +116,7 @@ func (h *PackEvalHook) RunTurnEvals(
 
 // RunSessionEvals runs session-complete evals after conversation finishes.
 // Returns converted ConversationValidationResult entries.
-func (h *PackEvalHook) RunSessionEvals(
+func (h *EvalOrchestrator) RunSessionEvals(
 	ctx context.Context,
 	messages []types.Message,
 	sessionID string,
@@ -99,7 +136,7 @@ func (h *PackEvalHook) RunSessionEvals(
 
 // RunConversationEvals runs conversation-complete evals after all turns finish.
 // Returns converted ConversationValidationResult entries.
-func (h *PackEvalHook) RunConversationEvals(
+func (h *EvalOrchestrator) RunConversationEvals(
 	ctx context.Context,
 	messages []types.Message,
 	sessionID string,
@@ -125,7 +162,7 @@ func (h *PackEvalHook) RunConversationEvals(
 // runner dispatches to AssertionEvalHandler. The wrapper resolves the inner
 // eval handler from the registry, executes it, and applies min_score/max_score
 // thresholds to determine pass/fail.
-func (h *PackEvalHook) RunAssertionsAsEvals(
+func (h *EvalOrchestrator) RunAssertionsAsEvals(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
 	messages []types.Message,
@@ -158,7 +195,7 @@ func (h *PackEvalHook) RunAssertionsAsEvals(
 // RunAssertionsAsConversationResults converts assertion configs to EvalDefs,
 // runs them through the runner, and wraps results in ConversationValidationResult.
 // The results use the original assertion type names (not pack_eval: prefixed).
-func (h *PackEvalHook) RunAssertionsAsConversationResults(
+func (h *EvalOrchestrator) RunAssertionsAsConversationResults(
 	ctx context.Context,
 	assertionConfigs []assertions.AssertionConfig,
 	messages []types.Message,
@@ -181,14 +218,44 @@ func (h *PackEvalHook) RunAssertionsAsConversationResults(
 	return converted
 }
 
+// SetWorkflowMetadataProvider sets the workflow state provider for eval context injection.
+// Called per-run for workflow scenarios so assertions can access the current workflow state.
+func (h *EvalOrchestrator) SetWorkflowMetadataProvider(provider WorkflowMetadataProvider) {
+	if h == nil {
+		return
+	}
+	h.workflowMetaProvider = provider
+}
+
 // buildEvalContext constructs an EvalContext from Arena messages.
 // Delegates to the shared evals.BuildEvalContext helper.
-func (h *PackEvalHook) buildEvalContext(
+// If an event bus is configured, an emitter is injected into metadata
+// so LLM judge handlers can emit provider call telemetry.
+// If a workflow metadata provider is set, workflow state is injected
+// so workflow assertions (state_is, transitioned_to, workflow_complete) work.
+func (h *EvalOrchestrator) buildEvalContext(
 	messages []types.Message,
 	turnIndex int,
 	sessionID string,
 ) *evals.EvalContext {
-	return evals.BuildEvalContext(messages, turnIndex, sessionID, h.taskType, h.metadata)
+	metadata := h.metadata
+	needsCopy := h.eventBus != nil || h.workflowMetaProvider != nil
+	if needsCopy {
+		merged := make(map[string]any, len(metadata)+4) //nolint:mnd // extra capacity for emitter + workflow keys
+		for k, v := range metadata {
+			merged[k] = v
+		}
+		if h.eventBus != nil {
+			merged["emitter"] = events.NewEmitter(h.eventBus, sessionID, sessionID, sessionID)
+		}
+		if h.workflowMetaProvider != nil {
+			for k, v := range h.workflowMetaProvider.WorkflowMetadata() {
+				merged[k] = v
+			}
+		}
+		metadata = merged
+	}
+	return evals.BuildEvalContext(messages, turnIndex, sessionID, h.taskType, metadata)
 }
 
 // filterEvalDefs filters eval defs to only include types in the filter list.

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -98,9 +99,14 @@ func (cg *ContentGenerator) NextUserTurn(
 	if opts != nil && opts.NaturalTerminationEnabled {
 		maxTokens = 300 // Extra room for completion marker
 	}
+	var emitter *events.Emitter
+	if opts != nil {
+		emitter = opts.Emitter
+	}
 	providerConfig := &stage.ProviderConfig{
 		Temperature: temperature,
 		MaxTokens:   maxTokens,
+		Source:      events.SourceSelfPlay,
 	}
 
 	// Create the selfplay context stage.
@@ -136,7 +142,7 @@ func (cg *ContentGenerator) NextUserTurn(
 		arenastages.NewHistoryInjectionStageSwapped(history),
 		selfplayContextStage,
 		stage.NewTemplateStage(),
-		stage.NewProviderStage(cg.provider, nil, nil, providerConfig),
+		stage.NewProviderStageWithEmitter(cg.provider, nil, nil, providerConfig, emitter),
 	)
 
 	builder := stage.NewPipelineBuilder()

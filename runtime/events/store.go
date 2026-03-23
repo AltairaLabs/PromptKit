@@ -59,7 +59,7 @@ type EventStore interface {
 type EventFilter struct {
 	SessionID      string
 	ConversationID string
-	RunID          string
+	ExecutionID    string
 	Types          []EventType
 	Since          time.Time
 	Until          time.Time
@@ -79,7 +79,7 @@ type SerializableEvent struct {
 	Type           EventType       `json:"type"`
 	Timestamp      time.Time       `json:"timestamp"`
 	Sequence       int64           `json:"sequence,omitempty"`
-	RunID          string          `json:"run_id,omitempty"`
+	ExecutionID    string          `json:"execution_id,omitempty"`
 	SessionID      string          `json:"session_id"`
 	ConversationID string          `json:"conversation_id,omitempty"`
 	UserID         string          `json:"user_id,omitempty"`
@@ -93,7 +93,7 @@ func toSerializable(e *Event) (*SerializableEvent, error) {
 		Type:           e.Type,
 		Timestamp:      e.Timestamp,
 		Sequence:       e.Sequence,
-		RunID:          e.RunID,
+		ExecutionID:    e.ExecutionID,
 		SessionID:      e.SessionID,
 		ConversationID: e.ConversationID,
 		UserID:         e.UserID,
@@ -116,7 +116,7 @@ func (se *SerializableEvent) toEvent() *Event {
 		Type:           se.Type,
 		Timestamp:      se.Timestamp,
 		Sequence:       se.Sequence,
-		RunID:          se.RunID,
+		ExecutionID:    se.ExecutionID,
 		SessionID:      se.SessionID,
 		ConversationID: se.ConversationID,
 		UserID:         se.UserID,
@@ -556,7 +556,7 @@ func (s *FileEventStore) matchesBasicCriteria(event *Event, filter *EventFilter)
 	if filter.ConversationID != "" && event.ConversationID != filter.ConversationID {
 		return false
 	}
-	if filter.RunID != "" && event.RunID != filter.RunID {
+	if filter.ExecutionID != "" && event.ExecutionID != filter.ExecutionID {
 		return false
 	}
 	if !filter.Since.IsZero() && event.Timestamp.Before(filter.Since) {

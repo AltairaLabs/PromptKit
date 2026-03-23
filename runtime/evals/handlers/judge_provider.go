@@ -4,7 +4,13 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 const (
@@ -96,6 +102,9 @@ type JudgeOpts struct {
 
 	// Extra holds additional parameters for provider-specific features.
 	Extra map[string]any
+
+	// Emitter is an optional event emitter for provider call telemetry.
+	Emitter *events.Emitter
 }
 
 // JudgeResult captures the output of an LLM judge evaluation.
@@ -112,3 +121,87 @@ type JudgeResult struct {
 	// Raw is the unprocessed LLM response text.
 	Raw string
 }
+
+// SpecJudgeProvider implements JudgeProvider by creating a provider
+// from a ProviderSpec. This is the standard implementation used by
+// Arena and any caller that has judge targets as ProviderSpecs.
+type SpecJudgeProvider struct {
+	spec *providers.ProviderSpec
+}
+
+// NewSpecJudgeProvider creates a JudgeProvider from a provider spec.
+func NewSpecJudgeProvider(spec *providers.ProviderSpec) *SpecJudgeProvider {
+	return &SpecJudgeProvider{spec: spec}
+}
+
+// Judge creates a provider from the spec, sends the evaluation prompt,
+// and parses the verdict. Emits ProviderCallStarted/Completed/Failed
+// events if an emitter is set on opts.
+//
+//nolint:gocritic // JudgeOpts passed by value intentionally for simplicity
+func (sp *SpecJudgeProvider) Judge(ctx context.Context, opts JudgeOpts) (*JudgeResult, error) {
+	provider, err := providers.CreateProviderFromSpec(*sp.spec)
+	if err != nil {
+		return nil, fmt.Errorf("create judge provider: %w", err)
+	}
+	defer provider.Close()
+
+	systemPrompt := opts.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = defaultJudgeSystemPrompt
+	}
+
+	userContent := fmt.Sprintf(
+		"Content to evaluate:\n%s\n\nCriteria: %s",
+		opts.Content, opts.Criteria,
+	)
+	if opts.Rubric != "" {
+		userContent += fmt.Sprintf("\n\nRubric: %s", opts.Rubric)
+	}
+
+	userMsg := types.Message{Role: "user"}
+	userMsg.AddTextPart(userContent)
+
+	// Emit provider call started
+	if opts.Emitter != nil {
+		opts.Emitter.ProviderCallStarted(provider.ID(), provider.Model(), 1, 0, nil)
+	}
+
+	startTime := time.Now()
+	resp, err := provider.Predict(ctx, providers.PredictionRequest{
+		System:      systemPrompt,
+		Messages:    []types.Message{userMsg},
+		Temperature: 0.0,
+		MaxTokens:   judgeMaxTokens,
+	})
+	duration := time.Since(startTime)
+
+	if err != nil {
+		if opts.Emitter != nil {
+			opts.Emitter.ProviderCallFailed(provider.ID(), provider.Model(), err, duration, nil)
+		}
+		return nil, fmt.Errorf("judge predict failed: %w", err)
+	}
+
+	// Emit provider call completed
+	if opts.Emitter != nil {
+		completedData := &events.ProviderCallCompletedData{
+			Provider: provider.ID(),
+			Model:    provider.Model(),
+			Duration: duration,
+			Source:   events.SourceJudge,
+		}
+		if resp.CostInfo != nil {
+			completedData.InputTokens = resp.CostInfo.InputTokens
+			completedData.OutputTokens = resp.CostInfo.OutputTokens
+			completedData.CachedTokens = resp.CostInfo.CachedTokens
+			completedData.Cost = resp.CostInfo.TotalCost
+		}
+		opts.Emitter.ProviderCallCompleted(completedData)
+	}
+
+	return parseJudgeResponse(resp.Content, opts.MinScore)
+}
+
+// Ensure SpecJudgeProvider implements JudgeProvider.
+var _ JudgeProvider = (*SpecJudgeProvider)(nil)

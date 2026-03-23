@@ -30,7 +30,7 @@ func TestEmitterPublishesSharedContext(t *testing.T) {
 		t.Fatal("timed out waiting for pipeline started event")
 	}
 
-	if got.RunID != "run-1" || got.SessionID != "session-1" || got.ConversationID != "conv-1" {
+	if got.ExecutionID != "run-1" || got.SessionID != "session-1" || got.ConversationID != "conv-1" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -187,7 +187,7 @@ func TestEmitter_MessageCreated(t *testing.T) {
 		t.Fatal("timed out waiting for message.created event")
 	}
 
-	if got.RunID != "run-mc" || got.SessionID != "session-mc" || got.ConversationID != "conv-mc" {
+	if got.ExecutionID != "run-mc" || got.SessionID != "session-mc" || got.ConversationID != "conv-mc" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -382,8 +382,8 @@ func TestEmitter_MessageUpdated(t *testing.T) {
 		t.Fatal("timed out waiting for message.updated event")
 	}
 
-	if got.RunID != "run-mu" {
-		t.Fatalf("unexpected run ID: %s", got.RunID)
+	if got.ExecutionID != "run-mu" {
+		t.Fatalf("unexpected run ID: %s", got.ExecutionID)
 	}
 
 	data, ok := got.Data.(*MessageUpdatedData)
@@ -420,7 +420,7 @@ func TestEmitter_ConversationStarted(t *testing.T) {
 		t.Fatal("timed out waiting for conversation.started event")
 	}
 
-	if got.RunID != "run-cs" || got.SessionID != "session-cs" || got.ConversationID != "conv-cs" {
+	if got.ExecutionID != "run-cs" || got.SessionID != "session-cs" || got.ConversationID != "conv-cs" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -491,6 +491,64 @@ func TestEmitter_ProviderCallStarted_Labels(t *testing.T) {
 	if data.Labels["tier"] != "premium" {
 		t.Errorf("expected tier=premium, got %q", data.Labels["tier"])
 	}
+	if data.Source != SourceAgent {
+		t.Errorf("expected Source=%q, got %q", SourceAgent, data.Source)
+	}
+}
+
+func TestEmitter_ProviderCallCompleted_DefaultSource(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-src", "session-src", "conv-src")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventProviderCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	// Source not set — should default to "agent"
+	emitter.ProviderCallCompleted(&ProviderCallCompletedData{
+		Provider: "openai",
+		Model:    "gpt-4",
+	})
+	wg.Wait()
+
+	data := got.Data.(*ProviderCallCompletedData)
+	if data.Source != SourceAgent {
+		t.Errorf("expected Source=%q, got %q", SourceAgent, data.Source)
+	}
+}
+
+func TestEmitter_ProviderCallCompleted_PreserveSource(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-src2", "session-src2", "conv-src2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventProviderCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	// Source explicitly set — should be preserved
+	emitter.ProviderCallCompleted(&ProviderCallCompletedData{
+		Provider: "openai",
+		Model:    "gpt-4",
+		Source:   SourceJudge,
+	})
+	wg.Wait()
+
+	data := got.Data.(*ProviderCallCompletedData)
+	if data.Source != SourceJudge {
+		t.Errorf("expected Source=%q, got %q", SourceJudge, data.Source)
+	}
 }
 
 func TestEmitter_ProviderCallCompleted_NilData(t *testing.T) {
@@ -539,7 +597,7 @@ func TestEmitter_AudioInput(t *testing.T) {
 		t.Fatal("timed out waiting for audio.input event")
 	}
 
-	if got.RunID != "run-ai" || got.SessionID != "session-ai" || got.ConversationID != "conv-ai" {
+	if got.ExecutionID != "run-ai" || got.SessionID != "session-ai" || got.ConversationID != "conv-ai" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -601,7 +659,7 @@ func TestEmitter_AudioOutput(t *testing.T) {
 		t.Fatal("timed out waiting for audio.output event")
 	}
 
-	if got.RunID != "run-ao" || got.SessionID != "session-ao" || got.ConversationID != "conv-ao" {
+	if got.ExecutionID != "run-ao" || got.SessionID != "session-ao" || got.ConversationID != "conv-ao" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 
@@ -720,7 +778,7 @@ func TestEmitter_ClientToolRequest(t *testing.T) {
 		t.Fatal("timed out waiting for tool.client.request event")
 	}
 
-	if got.RunID != "run-ctr" || got.SessionID != "session-ctr" || got.ConversationID != "conv-ctr" {
+	if got.ExecutionID != "run-ctr" || got.SessionID != "session-ctr" || got.ConversationID != "conv-ctr" {
 		t.Fatalf("unexpected context: %+v", got)
 	}
 

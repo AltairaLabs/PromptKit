@@ -12,7 +12,7 @@ import (
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
-// evaluateTurnAssertions evaluates assertions configured on a turn via PackEvalHook.
+// evaluateTurnAssertions evaluates assertions configured on a turn via EvalOrchestrator.
 // Assertions on user turns validate the subsequent assistant response.
 func (de *DuplexConversationExecutor) evaluateTurnAssertions(
 	ctx context.Context,
@@ -55,9 +55,9 @@ func (de *DuplexConversationExecutor) evaluateTurnAssertions(
 		}
 	}
 
-	// Run turn assertions through PackEvalHook
-	if de.packEvalHook != nil {
-		evalResults := de.packEvalHook.RunAssertionsAsEvals(
+	// Run turn assertions through EvalOrchestrator
+	if de.evalOrchestrator != nil {
+		evalResults := de.evalOrchestrator.RunAssertionsAsEvals(
 			ctx, assertionConfigs, messages,
 			len(messages)-1, req.ConversationID,
 			evals.TriggerEveryTurn,
@@ -157,7 +157,7 @@ func (de *DuplexConversationExecutor) countFailedAssertions(results []arenaasser
 	return count
 }
 
-// evaluateConversationAssertions evaluates pack + scenario conversation assertions via PackEvalHook.
+// evaluateConversationAssertions evaluates pack + scenario conversation assertions via EvalOrchestrator.
 func (de *DuplexConversationExecutor) evaluateConversationAssertions(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -173,7 +173,7 @@ func (de *DuplexConversationExecutor) evaluateConversationAssertions(
 		return nil
 	}
 
-	if de.packEvalHook == nil {
+	if de.evalOrchestrator == nil {
 		logger.Warn("Assertions defined but eval runner not configured — marking all as failed",
 			"assertion_count", len(assertionConfigs))
 		results := make([]arenaassertions.ConversationValidationResult, len(assertionConfigs))
@@ -191,7 +191,7 @@ func (de *DuplexConversationExecutor) evaluateConversationAssertions(
 	logger.Debug("Evaluating duplex conversation assertions",
 		"assertion_count", len(assertionConfigs))
 
-	results := de.packEvalHook.RunAssertionsAsConversationResults(
+	results := de.evalOrchestrator.RunAssertionsAsConversationResults(
 		ctx, assertionConfigs, messages,
 		len(messages)-1, req.ConversationID,
 		evals.TriggerOnConversationComplete,

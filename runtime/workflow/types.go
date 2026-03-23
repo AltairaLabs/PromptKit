@@ -4,7 +4,29 @@
 // Each state references a prompt_task and defines transitions via named events.
 package workflow
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+// ParseConfig parses an untyped workflow config (typically from config.Workflow
+// which is stored as interface{}) into a typed Spec. Returns nil, nil when
+// raw is nil.
+func ParseConfig(raw interface{}) (*Spec, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling workflow config: %w", err)
+	}
+	var spec Spec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return nil, fmt.Errorf("parsing workflow config: %w", err)
+	}
+	return &spec, nil
+}
 
 // Spec is the top-level workflow definition from a PromptPack.
 type Spec struct {

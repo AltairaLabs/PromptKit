@@ -45,6 +45,7 @@ func (h *LLMJudgeSessionHandler) Eval(
 
 	content := collectAssistantContent(evalCtx)
 	opts := buildJudgeOpts(content, params)
+	opts.Emitter = emitterFromEvalCtx(evalCtx)
 
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {

@@ -27,17 +27,22 @@ import (
 	"path/filepath"
 	"sync"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/storage/local"
+	"github.com/AltairaLabs/PromptKit/runtime/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -67,13 +72,16 @@ type Engine struct {
 	providers            map[string]*config.Provider
 	personas             map[string]*config.UserPersonaPack
 	conversationExecutor ConversationExecutor
-	toolRegistry         *tools.Registry    // Registry for tool descriptors and executors (used by workflow driver)
-	adapterRegistry      *adapters.Registry // Registry for recording adapters (used for eval enumeration)
-	eventBus             events.Bus         // Optional event bus for runtime/TUI events
-	eventStore           events.EventStore  // Optional event store for session recording
-	recordingDir         string             // Directory where session recordings are stored
-	a2aCleanup           func()             // Cleanup function for mock A2A servers
-	packEvalHook         *PackEvalHook      // Pack eval hook for running evals during execution
+	toolRegistry         *tools.Registry              // Tool descriptors and executors (workflow driver)
+	adapterRegistry      *adapters.Registry           // Registry for recording adapters (used for eval enumeration)
+	eventBus             events.Bus                   // Optional event bus for runtime/TUI events
+	eventStore           events.EventStore            // Optional event store for session recording
+	otelListener         *telemetry.OTelEventListener // Optional OTel listener for distributed tracing
+	recordingDir         string                       // Directory where session recordings are stored
+	a2aCleanup           func()                       // Cleanup function for mock A2A servers
+	evalOrchestrator     *EvalOrchestrator            // Orchestrates eval and assertion execution during runs
+	workflowSpec         *workflow.Spec               // Optional workflow spec (set if config.Workflow != nil)
+	workflowTransExec    *workflowTransitionExecutor  // Optional transition executor (set if config.Workflow != nil)
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -131,13 +139,22 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 	}
 	eng.a2aCleanup = a2aCleanup
 	eng.toolRegistry = toolRegistry
+
+	// Initialize workflow state machine and register transition tool if configured
+	if err := eng.initWorkflow(); err != nil {
+		if a2aCleanup != nil {
+			a2aCleanup()
+		}
+		return nil, fmt.Errorf("failed to initialize workflow: %w", err)
+	}
+
 	// Build pack eval hook for workflow executor (conversation executors get their own copy).
 	// Eval type validation already passed in BuildEngineComponents above, so this call
 	// cannot fail — unknown types were already rejected.
 	if cfg.LoadedPack != nil {
-		eng.packEvalHook, _ = buildPackEvalHook(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+		eng.evalOrchestrator, _ = buildEvalOrchestrator(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
 	} else {
-		eng.packEvalHook = buildEvalOnlyHook()
+		eng.evalOrchestrator = buildEvalOnlyOrchestrator()
 	}
 	return eng, nil
 }
@@ -214,6 +231,10 @@ func (e *Engine) Close() error {
 		return err
 	}
 
+	if e.otelListener != nil {
+		e.otelListener.Close()
+	}
+
 	return e.closeEventStore()
 }
 
@@ -226,6 +247,38 @@ func (e *Engine) SetEventBus(bus events.Bus) {
 		bus.SubscribeAll(e.eventStore.OnEvent)
 		logger.Debug("Subscribed event store for session recording")
 	}
+	// Wire event bus to eval orchestrator for judge provider telemetry
+	if e.evalOrchestrator != nil {
+		e.evalOrchestrator.SetEventBus(bus)
+	}
+}
+
+// SetTracerProvider configures OpenTelemetry distributed tracing for the engine.
+// When set, an OTelEventListener is created and subscribed to the event bus,
+// converting provider call, tool call, and pipeline events into OTel spans.
+// An event bus must be configured via SetEventBus before calling this method.
+func (e *Engine) SetTracerProvider(tp trace.TracerProvider) {
+	if tp == nil || e.eventBus == nil {
+		return
+	}
+	tracer := telemetry.Tracer(tp)
+	listener := telemetry.NewOTelEventListener(tracer)
+	e.eventBus.SubscribeAll(listener.OnEvent)
+	e.otelListener = listener
+	logger.Debug("OTel tracing enabled for Arena engine")
+}
+
+// SetMetrics configures Prometheus metrics collection for the engine.
+// When set, a MetricContext is created and subscribed to the event bus,
+// recording provider call durations, token counts, costs, and tool call metrics.
+// An event bus must be configured via SetEventBus before calling this method.
+func (e *Engine) SetMetrics(collector *metrics.Collector, instanceLabels map[string]string) {
+	if collector == nil || e.eventBus == nil {
+		return
+	}
+	metricCtx := collector.Bind(instanceLabels)
+	e.eventBus.SubscribeAll(metricCtx.OnEvent)
+	logger.Debug("Metrics collection enabled for Arena engine")
 }
 
 // EnableSessionRecording enables session recording for all runs.

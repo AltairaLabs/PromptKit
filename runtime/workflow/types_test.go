@@ -315,3 +315,47 @@ func TestContextMetadataOmitempty(t *testing.T) {
 		t.Error("metadata field should be omitted when nil")
 	}
 }
+
+func TestParseConfig(t *testing.T) {
+	raw := map[string]any{
+		"version": 1,
+		"entry":   "intake",
+		"states": map[string]any{
+			"intake": map[string]any{
+				"prompt_task": "intake",
+				"on_event":    map[string]any{"Resolve": "closed"},
+			},
+			"closed": map[string]any{
+				"prompt_task": "closed",
+			},
+		},
+	}
+
+	spec, err := ParseConfig(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if spec.Entry != "intake" {
+		t.Errorf("expected entry=intake, got %s", spec.Entry)
+	}
+	if len(spec.States) != 2 {
+		t.Errorf("expected 2 states, got %d", len(spec.States))
+	}
+}
+
+func TestParseConfig_Nil(t *testing.T) {
+	spec, err := ParseConfig(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if spec != nil {
+		t.Error("expected nil spec for nil input")
+	}
+}
+
+func TestParseConfig_Invalid(t *testing.T) {
+	_, err := ParseConfig("not a map")
+	if err == nil {
+		t.Error("expected error for invalid input")
+	}
+}

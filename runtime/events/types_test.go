@@ -54,7 +54,7 @@ func TestEvent_Creation(t *testing.T) {
 	event := &Event{
 		Type:           EventPipelineStarted,
 		Timestamp:      now,
-		RunID:          "test-run",
+		ExecutionID:    "test-run",
 		SessionID:      "test-session",
 		ConversationID: "test-conversation",
 		Data: &PipelineStartedData{
@@ -68,8 +68,8 @@ func TestEvent_Creation(t *testing.T) {
 	if event.Timestamp != now {
 		t.Errorf("Event.Timestamp = %v, want %v", event.Timestamp, now)
 	}
-	if event.RunID != "test-run" {
-		t.Errorf("Event.RunID = %v, want test-run", event.RunID)
+	if event.ExecutionID != "test-run" {
+		t.Errorf("Event.ExecutionID = %v, want test-run", event.ExecutionID)
 	}
 
 	data, ok := event.Data.(*PipelineStartedData)

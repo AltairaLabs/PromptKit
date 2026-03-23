@@ -3,13 +3,48 @@ kind: Arena
 metadata:
   name: workflow-skills-arena
 spec:
+  prompt_configs:
+    - id: intake
+      file: prompts/intake.yaml
+    - id: billing
+      file: prompts/billing.yaml
+    - id: orders
+      file: prompts/orders.yaml
+    - id: closed
+      file: prompts/closed.yaml
+
   providers:
     - file: providers/mock-provider.yaml
-    #- file: providers/gemini-flash.provider.yaml
 
   scenarios:
     - file: scenarios/billing-flow.scenario.yaml
     - file: scenarios/orders-flow.scenario.yaml
+
+  workflow:
+    version: 1
+    entry: intake
+    states:
+      intake:
+        prompt_task: intake
+        description: "Initial customer contact and triage"
+        on_event:
+          RouteBilling: billing
+          RouteOrders: orders
+          Resolve: closed
+      billing:
+        prompt_task: billing
+        description: "Billing specialist handling"
+        on_event:
+          Resolve: closed
+      orders:
+        prompt_task: orders
+        description: "Orders specialist handling"
+        on_event:
+          Resolve: closed
+      closed:
+        prompt_task: closed
+        description: "Conversation complete"
+        on_event: {}
 
   defaults:
     temperature: 0.1

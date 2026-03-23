@@ -70,7 +70,7 @@ func TestEngine_CreateRunEmitter(t *testing.T) {
 		}
 		runID := "test-run-id"
 
-		emitter := e.createRunEmitter(runID, combo)
+		emitter := e.createRunEmitter(context.Background(), runID, &combo)
 		assert.NotNil(t, emitter)
 	})
 
@@ -81,7 +81,7 @@ func TestEngine_CreateRunEmitter(t *testing.T) {
 		combo := RunCombination{}
 		runID := "test-run-id"
 
-		emitter := e.createRunEmitter(runID, combo)
+		emitter := e.createRunEmitter(context.Background(), runID, &combo)
 		assert.Nil(t, emitter)
 	})
 }

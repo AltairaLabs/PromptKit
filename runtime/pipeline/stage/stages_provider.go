@@ -49,6 +49,7 @@ type ProviderConfig struct {
 	Seed           *int
 	ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
 	Labels         map[string]string         // Optional labels propagated to events, metrics, and traces
+	Source         string                    // Origin of the call: "agent" (default), "judge", "selfplay"
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -455,6 +456,7 @@ func (s *ProviderStage) executeRound(
 			Model:         s.provider.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
+			Source:        s.config.Source,
 			Labels:        s.config.Labels,
 		}
 		if resp.CostInfo != nil {
@@ -619,6 +621,7 @@ func (s *ProviderStage) executeStreamingRound(
 			Model:         s.provider.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
+			Source:        s.config.Source,
 			Labels:        s.config.Labels,
 		}
 		// Populate token counts from cost info if available (present in final chunk)

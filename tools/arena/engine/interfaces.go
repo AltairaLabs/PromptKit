@@ -68,6 +68,10 @@ type ConversationRequest struct {
 	// State management
 	StateStoreConfig *StateStoreConfig // Optional state store configuration
 	ConversationID   string            // Conversation identifier for state persistence
+
+	// Per-run eval orchestrator override (for workflow scenarios that need
+	// isolated workflow metadata). If nil, the executor's shared orchestrator is used.
+	EvalOrchestrator *EvalOrchestrator
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena

@@ -214,37 +214,37 @@ func (c *Collector) registerPipelineMetrics() {
 		"provider_request_duration_seconds",
 		"Duration of LLM provider API calls in seconds",
 		providerBuckets,
-		[]string{"provider", "model"},
+		[]string{"provider", "model", "source"},
 	)
 
 	c.providerRequestsTotal = c.mustRegisterCounterVec(
 		"provider_requests_total",
 		"Total number of provider API calls",
-		[]string{"provider", "model", "status"},
+		[]string{"provider", "model", "source", "status"},
 	)
 
 	c.providerInputTokensTotal = c.mustRegisterCounterVec(
 		"provider_input_tokens_total",
 		"Total input tokens sent to provider calls",
-		[]string{"provider", "model"},
+		[]string{"provider", "model", "source"},
 	)
 
 	c.providerOutputTokensTotal = c.mustRegisterCounterVec(
 		"provider_output_tokens_total",
 		"Total output tokens received from provider calls",
-		[]string{"provider", "model"},
+		[]string{"provider", "model", "source"},
 	)
 
 	c.providerCachedTokensTotal = c.mustRegisterCounterVec(
 		"provider_cached_tokens_total",
 		"Total cached tokens in provider calls",
-		[]string{"provider", "model"},
+		[]string{"provider", "model", "source"},
 	)
 
 	c.providerCostTotal = c.mustRegisterCounterVec(
 		"provider_cost_total",
 		"Total cost in USD from provider calls",
-		[]string{"provider", "model"},
+		[]string{"provider", "model", "source"},
 	)
 
 	c.toolCallDuration = c.mustRegisterHistogramVec(
@@ -401,32 +401,32 @@ func (mc *MetricContext) handleProviderCallCompleted(event *events.Event) {
 		return
 	}
 	mc.collector.providerRequestDuration.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model)...,
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
 	).Observe(data.Duration.Seconds())
 
 	mc.collector.providerRequestsTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, statusSuccess)...,
+		mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
 	).Inc()
 
 	if data.InputTokens > 0 {
 		mc.collector.providerInputTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model)...,
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
 		).Add(float64(data.InputTokens))
 	}
 	if data.OutputTokens > 0 {
 		mc.collector.providerOutputTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model)...,
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
 		).Add(float64(data.OutputTokens))
 	}
 	if data.CachedTokens > 0 {
 		mc.collector.providerCachedTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model)...,
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
 		).Add(float64(data.CachedTokens))
 	}
 
 	if data.Cost > 0 {
 		mc.collector.providerCostTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model)...,
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
 		).Add(data.Cost)
 	}
 }
@@ -437,11 +437,11 @@ func (mc *MetricContext) handleProviderCallFailed(event *events.Event) {
 		return
 	}
 	mc.collector.providerRequestDuration.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model)...,
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
 	).Observe(data.Duration.Seconds())
 
 	mc.collector.providerRequestsTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, statusError)...,
+		mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
 	).Inc()
 }
 

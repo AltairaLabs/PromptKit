@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt/schema"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
 // buildMemoryRepo creates a memory-backed prompt repository from the loaded config.
@@ -135,18 +136,7 @@ func parsePackEvalsFromConfig(cfg *config.Config) []evals.EvalDef {
 // parseWorkflowFromConfig parses workflow config from arena config.
 // Returns nil, nil when no workflow is configured.
 func parseWorkflowFromConfig(cfg *config.Config) (*prompt.WorkflowConfig, error) {
-	if cfg.Workflow == nil {
-		return nil, nil
-	}
-	data, err := json.Marshal(cfg.Workflow)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling workflow: %w", err)
-	}
-	var wf prompt.WorkflowConfig
-	if err := json.Unmarshal(data, &wf); err != nil {
-		return nil, fmt.Errorf("parsing workflow: %w", err)
-	}
-	return &wf, nil
+	return workflow.ParseConfig(cfg.Workflow)
 }
 
 // parseAgentsFromConfig parses agents config from arena config.

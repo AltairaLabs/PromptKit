@@ -831,7 +831,7 @@ func TestProviderStage_EmitsProviderCallStartedEvent(t *testing.T) {
 	// Verify event data
 	require.NotNil(t, receivedEvent)
 	assert.Equal(t, events.EventProviderCallStarted, receivedEvent.Type)
-	assert.Equal(t, "test-run", receivedEvent.RunID)
+	assert.Equal(t, "test-run", receivedEvent.ExecutionID)
 	assert.Equal(t, "test-session", receivedEvent.SessionID)
 
 	data, ok := receivedEvent.Data.(*events.ProviderCallStartedData)
@@ -888,7 +888,7 @@ func TestProviderStage_EmitsProviderCallCompletedEvent(t *testing.T) {
 	// Verify event data
 	require.NotNil(t, receivedEvent)
 	assert.Equal(t, events.EventProviderCallCompleted, receivedEvent.Type)
-	assert.Equal(t, "test-run", receivedEvent.RunID)
+	assert.Equal(t, "test-run", receivedEvent.ExecutionID)
 	assert.Equal(t, "test-session", receivedEvent.SessionID)
 
 	data, ok := receivedEvent.Data.(*events.ProviderCallCompletedData)
