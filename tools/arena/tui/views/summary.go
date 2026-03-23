@@ -123,6 +123,17 @@ func (v *SummaryView) renderCIMode(vm *viewmodels.SummaryViewModel) string {
 	sb.WriteString(fmt.Sprintf("Failed:           %s\n", vm.GetFormattedFailed()))
 	sb.WriteString("\n")
 
+	// Assertions (if any)
+	if vm.HasAssertions() {
+		sb.WriteString(fmt.Sprintf("Assertions:       %s\n", vm.GetFormattedAssertionTotal()))
+		if vm.HasFailedAssertions() {
+			sb.WriteString(fmt.Sprintf("Assertions Fail:  %s\n", vm.GetFormattedAssertionFailed()))
+		} else {
+			sb.WriteString("Assertions Pass:  all passed\n")
+		}
+		sb.WriteString("\n")
+	}
+
 	// Cost and performance
 	sb.WriteString(fmt.Sprintf("Total Cost:       %s\n", vm.GetFormattedTotalCost()))
 	sb.WriteString(fmt.Sprintf("Total Tokens:     %s\n", vm.GetFormattedTotalTokens()))

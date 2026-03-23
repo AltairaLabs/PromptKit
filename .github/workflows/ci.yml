@@ -323,41 +323,46 @@ jobs:
       run: |
         cd examples/customer-support
         ../../bin/promptarena run --config config.arena.yaml \
+          --ci \
           --mock-provider \
           --mock-config mock-responses.yaml \
           --scenario customer-support-scenarios \
           --formats json,junit,html,markdown
-    
+
     - name: Test multimodal-basics example
       run: |
         cd examples/multimodal-basics
         ../../bin/promptarena run --config config.arena.yaml \
+          --ci \
           --mock-provider \
           --mock-config mock-responses.yaml \
           --formats json,junit,html,markdown
-    
+
     - name: Test variables-demo example
       run: |
         cd examples/variables-demo
         ../../bin/promptarena run --config config.arena.yaml \
+          --ci \
           --mock-provider \
           --mock-config mock-config.yaml \
           --formats json,junit,html,markdown
-    
+
     - name: Test assertions-test example (includes self-play multi-turn)
       run: |
         cd examples/assertions-test
         ../../bin/promptarena run --config config.arena.yaml \
+          --ci \
           --mock-provider \
           --mock-config mock-responses.yaml \
           --formats json,junit,html,markdown
-    
+
     - name: Test llm-judge example
       run: |
         cd examples/llm-judge
         ../../bin/promptarena run --config config.arena.yaml \
+          --ci \
           --formats json,junit,html,markdown
-    
+
     - name: Test guardrails-test example
       run: |
         cd examples/guardrails-test
@@ -369,6 +374,7 @@ jobs:
       run: |
         cd examples/eval-test
         ../../bin/promptarena run --config config.arena.yaml \
+          --ci \
           --formats json,junit,html,markdown
 
     - name: Verify outputs were generated
