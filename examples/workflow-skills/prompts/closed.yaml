@@ -1,0 +1,15 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: closed
+spec:
+  task_type: "closed"
+  version: "v1.0.0"
+  description: "Conversation complete - farewell prompt"
+  system_template: |
+    The support conversation is now resolved. Thank the customer for their patience and confirm the resolution.
+
+    Guidelines:
+    - Summarize what was resolved
+    - Provide any follow-up instructions
+    - Thank the customer
