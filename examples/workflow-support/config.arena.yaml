@@ -35,6 +35,7 @@ spec:
       closed:
         prompt_task: closed
         description: "Conversation resolved"
+        on_event: {}
 
   defaults:
     temperature: 0.1

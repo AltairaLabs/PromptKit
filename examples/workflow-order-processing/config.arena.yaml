@@ -41,6 +41,7 @@ spec:
       complete:
         prompt_task: complete
         description: "Order delivered"
+        on_event: {}
 
   defaults:
     temperature: 0.1
