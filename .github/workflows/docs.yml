@@ -3,6 +3,15 @@ name: Deploy Documentation to GitHub Pages
 on:
   release:
     types: [published]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/package.json'
+      - 'docs/package-lock.json'
+      - 'docs/astro.config.*'
+      - 'docs/tsconfig.json'
+      - 'docs/src/content.config.ts'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
     inputs:
       reason:
@@ -43,7 +52,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@65d868f8d4d85d7d4abb7de0875cde3fcc8798f5 # v6.1.0
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: docs/package-lock.json
       
@@ -84,6 +93,7 @@ jobs:
           path: docs/dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: build
     environment:
