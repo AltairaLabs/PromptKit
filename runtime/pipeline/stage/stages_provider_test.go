@@ -2059,3 +2059,64 @@ func TestProviderStage_ToolCallCompletedEvent_MetadataOnlyParts(t *testing.T) {
 	assert.Nil(t, data.Parts[1].Media.Data, "binary data should be stripped from events")
 	assert.Equal(t, "image/png", data.Parts[1].Media.MIMEType)
 }
+
+// errorProvider always returns an error from Predict.
+type errorProvider struct {
+	providers.Provider
+}
+
+func (p *errorProvider) ID() string              { return "error-provider" }
+func (p *errorProvider) Model() string           { return "error-model" }
+func (p *errorProvider) SupportsStreaming() bool { return false }
+func (p *errorProvider) SupportsTools() bool     { return false }
+func (p *errorProvider) Predict(_ context.Context, _ providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{}, fmt.Errorf("provider unavailable")
+}
+
+func TestProviderStage_EmitsProviderCallFailedEvent(t *testing.T) {
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	var receivedEvent *events.Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(events.EventProviderCallFailed, func(e *events.Event) {
+		receivedEvent = e
+		wg.Done()
+	})
+
+	provider := &errorProvider{}
+	stage := NewProviderStageWithEmitter(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, emitter)
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "You are helpful"
+	input <- elem
+	close(input)
+
+	output := make(chan StreamElement, 10)
+	err := stage.Process(context.Background(), input, output)
+	require.Error(t, err)
+
+	// Drain output
+	for range output {
+	}
+
+	if !waitForWG(&wg, 500*time.Millisecond) {
+		t.Fatal("timed out waiting for ProviderCallFailed event")
+	}
+
+	require.NotNil(t, receivedEvent)
+	assert.Equal(t, events.EventProviderCallFailed, receivedEvent.Type)
+
+	data, ok := receivedEvent.Data.(*events.ProviderCallFailedData)
+	require.True(t, ok)
+	assert.Equal(t, "error-provider", data.Provider)
+	assert.Equal(t, "error-model", data.Model)
+	assert.Contains(t, data.Error.Error(), "provider unavailable")
+}
