@@ -1113,6 +1113,16 @@ func TestEmitter_ProviderCallCompletedCtx_NilData(t *testing.T) {
 	emitter.ProviderCallCompletedCtx(context.Background(), nil)
 }
 
+func TestEmitter_ProviderCallFailedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctxn2", "session-ctxn2", "conv-ctxn2")
+
+	// Should not panic when data is nil
+	emitter.ProviderCallFailedCtx(context.Background(), nil)
+}
+
 func TestEventBus_PublishStampsSequence(t *testing.T) {
 	t.Parallel()
 
