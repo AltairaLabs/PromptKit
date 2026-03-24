@@ -1,12 +1,15 @@
 package evals
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // panicHandler panics when Eval is called.
@@ -66,6 +69,17 @@ func (s *scoringHandler) Eval(
 	_ context.Context, _ *EvalContext, _ map[string]any,
 ) (*EvalResult, error) {
 	return &EvalResult{Score: &s.score}, nil
+}
+
+// nilScoreHandler returns a result with a nil Score.
+type nilScoreHandler struct{}
+
+func (n *nilScoreHandler) Type() string { return "nilscore" }
+
+func (n *nilScoreHandler) Eval(
+	_ context.Context, _ *EvalContext, _ map[string]any,
+) (*EvalResult, error) {
+	return &EvalResult{Value: true}, nil
 }
 
 func newTestRegistry(handlers ...EvalTypeHandler) *EvalTypeRegistry {
@@ -520,6 +534,57 @@ func TestRunTurnEvals_PriorResultsAccumulate(t *testing.T) {
 	}
 	if handler2.capturedPrior[0].Score == nil || *handler2.capturedPrior[0].Score != score1 {
 		t.Errorf("prior result score = %v, want %v", handler2.capturedPrior[0].Score, score1)
+	}
+}
+
+func TestRunTurnEvals_ScoreLoggedAsValue(t *testing.T) {
+	// Capture log output to verify score is logged as a float value, not a pointer address.
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	t.Cleanup(func() { logger.SetOutput(nil) })
+
+	score := 0.85
+	handler := &scoringHandler{typeName: "test", score: score}
+	reg := newTestRegistry(handler)
+	runner := NewEvalRunner(reg)
+
+	defs := []EvalDef{
+		{ID: "score-log", Type: "test", Trigger: TriggerEveryTurn},
+	}
+	evalCtx := &EvalContext{SessionID: "s1"}
+
+	runner.RunTurnEvals(context.Background(), defs, evalCtx)
+
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, "score=0.85") {
+		t.Errorf("expected log to contain 'score=0.85', got:\n%s", logOutput)
+	}
+	// Ensure no pointer address is logged (pointer addresses start with 0x)
+	if strings.Contains(logOutput, "score=0x") {
+		t.Errorf("score logged as pointer address:\n%s", logOutput)
+	}
+}
+
+func TestRunTurnEvals_NilScoreLoggedSafely(t *testing.T) {
+	// Verify nil score is logged without panic or pointer address.
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	t.Cleanup(func() { logger.SetOutput(nil) })
+
+	handler := &nilScoreHandler{}
+	reg := newTestRegistry(handler)
+	runner := NewEvalRunner(reg)
+
+	defs := []EvalDef{
+		{ID: "nil-score", Type: "nilscore", Trigger: TriggerEveryTurn},
+	}
+	evalCtx := &EvalContext{SessionID: "s1"}
+
+	runner.RunTurnEvals(context.Background(), defs, evalCtx)
+
+	logOutput := buf.String()
+	if strings.Contains(logOutput, "score=0x") {
+		t.Errorf("nil score logged as pointer address:\n%s", logOutput)
 	}
 }
 
