@@ -216,6 +216,35 @@ func TestMetricContext_ProviderCallCompleted(t *testing.T) {
 	}
 }
 
+func TestMetricContext_ProviderCallCompleted_ZeroCostEmitsMetric(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventProviderCallCompleted,
+		Data: &events.ProviderCallCompletedData{
+			Provider:     "ollama",
+			Model:        "llama3",
+			Duration:     200 * time.Millisecond,
+			InputTokens:  50,
+			OutputTokens: 30,
+			CachedTokens: 0,
+			Cost:         0,
+			Source:       events.SourceAgent,
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	// Cost and cached tokens should appear even when zero, so the time series exists.
+	if !strings.Contains(output, "test_provider_cost_total") {
+		t.Error("expected test_provider_cost_total to be emitted even with zero cost")
+	}
+	if !strings.Contains(output, "test_provider_cached_tokens_total") {
+		t.Error("expected test_provider_cached_tokens_total to be emitted even with zero cached tokens")
+	}
+}
+
 func TestMetricContext_ProviderCallFailed(t *testing.T) {
 	c, reg := newTestCollector()
 	ctx := c.Bind(nil)

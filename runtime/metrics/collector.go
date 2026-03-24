@@ -418,17 +418,13 @@ func (mc *MetricContext) handleProviderCallCompleted(event *events.Event) {
 			mc.labelValues(data.Provider, data.Model, data.Source)...,
 		).Add(float64(data.OutputTokens))
 	}
-	if data.CachedTokens > 0 {
-		mc.collector.providerCachedTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		).Add(float64(data.CachedTokens))
-	}
+	mc.collector.providerCachedTokensTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(float64(data.CachedTokens))
 
-	if data.Cost > 0 {
-		mc.collector.providerCostTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		).Add(data.Cost)
-	}
+	mc.collector.providerCostTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(data.Cost)
 }
 
 func (mc *MetricContext) handleProviderCallFailed(event *events.Event) {
