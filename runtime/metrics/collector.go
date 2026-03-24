@@ -408,16 +408,13 @@ func (mc *MetricContext) handleProviderCallCompleted(event *events.Event) {
 		mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
 	).Inc()
 
-	if data.InputTokens > 0 {
-		mc.collector.providerInputTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		).Add(float64(data.InputTokens))
-	}
-	if data.OutputTokens > 0 {
-		mc.collector.providerOutputTokensTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		).Add(float64(data.OutputTokens))
-	}
+	mc.collector.providerInputTokensTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(float64(data.InputTokens))
+
+	mc.collector.providerOutputTokensTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(float64(data.OutputTokens))
 	mc.collector.providerCachedTokensTotal.WithLabelValues(
 		mc.labelValues(data.Provider, data.Model, data.Source)...,
 	).Add(float64(data.CachedTokens))
