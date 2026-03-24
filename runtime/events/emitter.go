@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -47,6 +48,27 @@ func (e *Emitter) emit(eventType EventType, data EventData) {
 		ConversationID: e.conversationID,
 		UserID:         e.userID,
 		Data:           data,
+	}
+
+	e.bus.Publish(event)
+}
+
+// emitCtx publishes an event with shared context fields and a request context
+// for trace correlation (exemplars).
+func (e *Emitter) emitCtx(ctx context.Context, eventType EventType, data EventData) {
+	if e == nil || e.bus == nil {
+		return
+	}
+
+	event := &Event{
+		Type:           eventType,
+		Timestamp:      time.Now(),
+		ExecutionID:    e.executionID,
+		SessionID:      e.sessionID,
+		ConversationID: e.conversationID,
+		UserID:         e.userID,
+		Data:           data,
+		Ctx:            ctx,
 	}
 
 	e.bus.Publish(event)
@@ -218,6 +240,65 @@ func (e *Emitter) ToolCallFailed(
 	toolName, callID string, err error, duration time.Duration, labels map[string]string,
 ) {
 	e.emit(EventToolCallFailed, &ToolCallFailedData{
+		ToolName: toolName,
+		CallID:   callID,
+		Error:    err,
+		Duration: duration,
+		Labels:   labels,
+	})
+}
+
+// ProviderCallCompletedCtx emits provider.call.completed with trace context for exemplar correlation.
+func (e *Emitter) ProviderCallCompletedCtx(ctx context.Context, data *ProviderCallCompletedData) {
+	if data == nil {
+		return
+	}
+	if data.Source == "" {
+		data.Source = SourceAgent
+	}
+	e.emitCtx(ctx, EventProviderCallCompleted, data)
+}
+
+// ProviderCallFailedCtx emits provider.call.failed with trace context for exemplar correlation.
+func (e *Emitter) ProviderCallFailedCtx(
+	ctx context.Context,
+	provider, model string, err error, duration time.Duration, labels map[string]string,
+) {
+	e.emitCtx(ctx, EventProviderCallFailed, &ProviderCallFailedData{
+		Provider: provider,
+		Model:    model,
+		Error:    err,
+		Duration: duration,
+		Source:   SourceAgent,
+		Labels:   labels,
+	})
+}
+
+// ToolCallCompletedCtx emits tool.call.completed with trace context for exemplar correlation.
+func (e *Emitter) ToolCallCompletedCtx(
+	ctx context.Context,
+	toolName, callID string,
+	duration time.Duration,
+	status string,
+	parts []types.ContentPart,
+	labels map[string]string,
+) {
+	e.emitCtx(ctx, EventToolCallCompleted, &ToolCallCompletedData{
+		ToolName: toolName,
+		CallID:   callID,
+		Duration: duration,
+		Status:   status,
+		Parts:    types.MetadataOnlyParts(parts),
+		Labels:   labels,
+	})
+}
+
+// ToolCallFailedCtx emits tool.call.failed with trace context for exemplar correlation.
+func (e *Emitter) ToolCallFailedCtx(
+	ctx context.Context,
+	toolName, callID string, err error, duration time.Duration, labels map[string]string,
+) {
+	e.emitCtx(ctx, EventToolCallFailed, &ToolCallFailedData{
 		ToolName: toolName,
 		CallID:   callID,
 		Error:    err,

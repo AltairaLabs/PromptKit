@@ -400,13 +400,22 @@ func (mc *MetricContext) handleProviderCallCompleted(event *events.Event) {
 	if !ok {
 		return
 	}
-	mc.collector.providerRequestDuration.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source)...,
-	).Observe(data.Duration.Seconds())
+	exemplar := traceExemplar(event.Ctx)
 
-	mc.collector.providerRequestsTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
-	).Inc()
+	observeWithExemplar(
+		mc.collector.providerRequestDuration.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
+		),
+		data.Duration.Seconds(),
+		exemplar,
+	)
+
+	incWithExemplar(
+		mc.collector.providerRequestsTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
+		),
+		exemplar,
+	)
 
 	if data.InputTokens > 0 {
 		mc.collector.providerInputTokensTotal.WithLabelValues(
@@ -436,13 +445,22 @@ func (mc *MetricContext) handleProviderCallFailed(event *events.Event) {
 	if !ok {
 		return
 	}
-	mc.collector.providerRequestDuration.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source)...,
-	).Observe(data.Duration.Seconds())
+	exemplar := traceExemplar(event.Ctx)
 
-	mc.collector.providerRequestsTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
-	).Inc()
+	observeWithExemplar(
+		mc.collector.providerRequestDuration.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
+		),
+		data.Duration.Seconds(),
+		exemplar,
+	)
+
+	incWithExemplar(
+		mc.collector.providerRequestsTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
+		),
+		exemplar,
+	)
 }
 
 func (mc *MetricContext) handleToolCallCompleted(event *events.Event) {
@@ -450,17 +468,26 @@ func (mc *MetricContext) handleToolCallCompleted(event *events.Event) {
 	if !ok {
 		return
 	}
+	exemplar := traceExemplar(event.Ctx)
+
 	status := statusSuccess
 	if data.Status == statusError {
 		status = statusError
 	}
-	mc.collector.toolCallDuration.WithLabelValues(
-		mc.labelValues(data.ToolName)...,
-	).Observe(data.Duration.Seconds())
+	observeWithExemplar(
+		mc.collector.toolCallDuration.WithLabelValues(
+			mc.labelValues(data.ToolName)...,
+		),
+		data.Duration.Seconds(),
+		exemplar,
+	)
 
-	mc.collector.toolCallsTotal.WithLabelValues(
-		mc.labelValues(data.ToolName, status)...,
-	).Inc()
+	incWithExemplar(
+		mc.collector.toolCallsTotal.WithLabelValues(
+			mc.labelValues(data.ToolName, status)...,
+		),
+		exemplar,
+	)
 }
 
 func (mc *MetricContext) handleToolCallFailed(event *events.Event) {
@@ -468,13 +495,22 @@ func (mc *MetricContext) handleToolCallFailed(event *events.Event) {
 	if !ok {
 		return
 	}
-	mc.collector.toolCallDuration.WithLabelValues(
-		mc.labelValues(data.ToolName)...,
-	).Observe(data.Duration.Seconds())
+	exemplar := traceExemplar(event.Ctx)
 
-	mc.collector.toolCallsTotal.WithLabelValues(
-		mc.labelValues(data.ToolName, statusError)...,
-	).Inc()
+	observeWithExemplar(
+		mc.collector.toolCallDuration.WithLabelValues(
+			mc.labelValues(data.ToolName)...,
+		),
+		data.Duration.Seconds(),
+		exemplar,
+	)
+
+	incWithExemplar(
+		mc.collector.toolCallsTotal.WithLabelValues(
+			mc.labelValues(data.ToolName, statusError)...,
+		),
+		exemplar,
+	)
 }
 
 func (mc *MetricContext) handleValidationPassed(event *events.Event) {

@@ -444,7 +444,7 @@ func (s *ProviderStage) executeRound(
 		logger.Error("Provider call failed", "error", err, "duration", duration)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
+			s.emitter.ProviderCallFailedCtx(ctx, s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
 		}
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
 	}
@@ -465,7 +465,7 @@ func (s *ProviderStage) executeRound(
 			completedData.CachedTokens = resp.CostInfo.CachedTokens
 			completedData.Cost = resp.CostInfo.TotalCost
 		}
-		s.emitter.ProviderCallCompleted(completedData)
+		s.emitter.ProviderCallCompletedCtx(ctx, completedData)
 	}
 
 	// Build response message with latency and cost info
@@ -597,7 +597,7 @@ func (s *ProviderStage) executeStreamingRound(
 		duration := time.Since(startTime)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
+			s.emitter.ProviderCallFailedCtx(ctx, s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
 		}
 		return types.Message{}, false, err
 	}
@@ -609,7 +609,7 @@ func (s *ProviderStage) executeStreamingRound(
 	if err != nil {
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailed(s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
+			s.emitter.ProviderCallFailedCtx(ctx, s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
 		}
 		return types.Message{}, false, err
 	}
@@ -631,7 +631,7 @@ func (s *ProviderStage) executeStreamingRound(
 			completedData.CachedTokens = costInfo.CachedTokens
 			completedData.Cost = costInfo.TotalCost
 		}
-		s.emitter.ProviderCallCompleted(completedData)
+		s.emitter.ProviderCallCompletedCtx(ctx, completedData)
 	}
 
 	// Build final response message with latency and cost info
@@ -936,8 +936,8 @@ func (s *ProviderStage) executeSingleToolCall(
 	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
 	if err != nil {
 		if s.emitter != nil {
-			s.emitter.ToolCallFailed(
-				toolCall.Name, toolCall.ID, err, time.Since(startTime), labels,
+			s.emitter.ToolCallFailedCtx(
+				ctx, toolCall.Name, toolCall.ID, err, time.Since(startTime), labels,
 			)
 		}
 		errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
@@ -954,8 +954,8 @@ func (s *ProviderStage) executeSingleToolCall(
 	result := s.handleToolResult(toolCall, asyncResult)
 	if s.emitter != nil {
 		status := string(asyncResult.Status)
-		s.emitter.ToolCallCompleted(
-			toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Parts, labels,
+		s.emitter.ToolCallCompletedCtx(
+			ctx, toolCall.Name, toolCall.ID, time.Since(startTime), status, result.Parts, labels,
 		)
 	}
 	resultMsg := types.NewToolResultMessage(result)

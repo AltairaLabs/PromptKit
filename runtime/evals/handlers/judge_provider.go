@@ -178,7 +178,7 @@ func (sp *SpecJudgeProvider) Judge(ctx context.Context, opts JudgeOpts) (*JudgeR
 
 	if err != nil {
 		if opts.Emitter != nil {
-			opts.Emitter.ProviderCallFailed(provider.ID(), provider.Model(), err, duration, nil)
+			opts.Emitter.ProviderCallFailedCtx(ctx, provider.ID(), provider.Model(), err, duration, nil)
 		}
 		return nil, fmt.Errorf("judge predict failed: %w", err)
 	}
@@ -197,7 +197,7 @@ func (sp *SpecJudgeProvider) Judge(ctx context.Context, opts JudgeOpts) (*JudgeR
 			completedData.CachedTokens = resp.CostInfo.CachedTokens
 			completedData.Cost = resp.CostInfo.TotalCost
 		}
-		opts.Emitter.ProviderCallCompleted(completedData)
+		opts.Emitter.ProviderCallCompletedCtx(ctx, completedData)
 	}
 
 	return parseJudgeResponse(resp.Content, opts.MinScore)

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -920,6 +921,173 @@ func TestEmitter_WithUserID_NilEmitter(t *testing.T) {
 	if result != nil {
 		t.Fatal("expected nil emitter to return nil")
 	}
+}
+
+func TestEmitter_ProviderCallCompletedCtx_SetsContext(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctx", "session-ctx", "conv-ctx")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventProviderCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	type ctxKey string
+	ctx := context.WithValue(context.Background(), ctxKey("test"), "value")
+	emitter.ProviderCallCompletedCtx(ctx, &ProviderCallCompletedData{
+		Provider: "openai",
+		Model:    "gpt-4",
+		Source:   SourceJudge,
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event")
+	}
+
+	if got.Ctx == nil {
+		t.Fatal("expected event.Ctx to be set")
+	}
+	if got.Ctx.Value(ctxKey("test")) != "value" {
+		t.Error("expected context value to propagate")
+	}
+	data := got.Data.(*ProviderCallCompletedData)
+	if data.Source != SourceJudge {
+		t.Errorf("expected Source=%q, got %q", SourceJudge, data.Source)
+	}
+}
+
+func TestEmitter_ProviderCallCompletedCtx_DefaultSource(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctx2", "session-ctx2", "conv-ctx2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventProviderCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.ProviderCallCompletedCtx(context.Background(), &ProviderCallCompletedData{
+		Provider: "openai",
+		Model:    "gpt-4",
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event")
+	}
+
+	data := got.Data.(*ProviderCallCompletedData)
+	if data.Source != SourceAgent {
+		t.Errorf("expected default Source=%q, got %q", SourceAgent, data.Source)
+	}
+}
+
+func TestEmitter_ProviderCallFailedCtx_SetsContext(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctx3", "session-ctx3", "conv-ctx3")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventProviderCallFailed, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	ctx := context.Background()
+	emitter.ProviderCallFailedCtx(ctx, "openai", "gpt-4", errors.New("timeout"), time.Second, nil)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event")
+	}
+
+	if got.Ctx == nil {
+		t.Fatal("expected event.Ctx to be set")
+	}
+}
+
+func TestEmitter_ToolCallCompletedCtx_SetsContext(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctx4", "session-ctx4", "conv-ctx4")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventToolCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	ctx := context.Background()
+	emitter.ToolCallCompletedCtx(ctx, "search", "call-1", time.Millisecond, "success", nil, nil)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event")
+	}
+
+	if got.Ctx == nil {
+		t.Fatal("expected event.Ctx to be set")
+	}
+}
+
+func TestEmitter_ToolCallFailedCtx_SetsContext(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctx5", "session-ctx5", "conv-ctx5")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventToolCallFailed, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	ctx := context.Background()
+	emitter.ToolCallFailedCtx(ctx, "search", "call-1", errors.New("fail"), time.Millisecond, nil)
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for event")
+	}
+
+	if got.Ctx == nil {
+		t.Fatal("expected event.Ctx to be set")
+	}
+}
+
+func TestEmitter_CtxMethods_NilEmitter(t *testing.T) {
+	t.Parallel()
+
+	var emitter *Emitter
+	ctx := context.Background()
+	// None of these should panic
+	emitter.ProviderCallCompletedCtx(ctx, &ProviderCallCompletedData{})
+	emitter.ProviderCallFailedCtx(ctx, "p", "m", errors.New("e"), time.Second, nil)
+	emitter.ToolCallCompletedCtx(ctx, "t", "c", time.Second, "s", nil, nil)
+	emitter.ToolCallFailedCtx(ctx, "t", "c", errors.New("e"), time.Second, nil)
+}
+
+func TestEmitter_ProviderCallCompletedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ctxn", "session-ctxn", "conv-ctxn")
+
+	// Should not panic when data is nil
+	emitter.ProviderCallCompletedCtx(context.Background(), nil)
 }
 
 func TestEventBus_PublishStampsSequence(t *testing.T) {

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -120,6 +121,7 @@ type Event struct {
 	ConversationID string
 	UserID         string
 	Data           EventData
+	Ctx            context.Context `json:"-"` // carries trace span for exemplar correlation; not serialized
 }
 
 // baseEventData provides a shared marker implementation for all event payloads.
