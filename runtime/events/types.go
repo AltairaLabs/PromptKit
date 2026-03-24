@@ -3,6 +3,8 @@ package events
 import (
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -120,6 +122,7 @@ type Event struct {
 	ConversationID string
 	UserID         string
 	Data           EventData
+	SpanContext    trace.SpanContext `json:"-"` // trace span for exemplar correlation; not serialized
 }
 
 // baseEventData provides a shared marker implementation for all event payloads.

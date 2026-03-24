@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -737,5 +739,171 @@ func TestMetricContext_WrongEventDataType(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// traceSpanContext creates a trace.SpanContext with a known trace ID for exemplar testing.
+func traceSpanContext(hex string) trace.SpanContext {
+	traceID, _ := trace.TraceIDFromHex(hex)
+	return trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     trace.SpanID{1},
+		TraceFlags: trace.FlagsSampled,
+	})
+}
+
+// findExemplarTraceID searches gathered metric families for an exemplar with the given trace_id.
+func findExemplarTraceID(families []*dto.MetricFamily, metricName, wantTraceID string) bool {
+	for _, fam := range families {
+		if fam.GetName() != metricName {
+			continue
+		}
+		for _, m := range fam.GetMetric() {
+			// Check histogram bucket exemplars.
+			if h := m.GetHistogram(); h != nil {
+				for _, b := range h.GetBucket() {
+					if matchExemplarTraceID(b.GetExemplar(), wantTraceID) {
+						return true
+					}
+				}
+			}
+			// Check counter exemplar.
+			if c := m.GetCounter(); c != nil {
+				if matchExemplarTraceID(c.GetExemplar(), wantTraceID) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func matchExemplarTraceID(e *dto.Exemplar, wantTraceID string) bool {
+	if e == nil {
+		return false
+	}
+	for _, lp := range e.GetLabel() {
+		if lp.GetName() == "trace_id" && lp.GetValue() == wantTraceID {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMetricContext_ProviderCallCompleted_Exemplar(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	traceHex := "0102030405060708090a0b0c0d0e0f10"
+	ctx.OnEvent(&events.Event{
+		Type:        events.EventProviderCallCompleted,
+		SpanContext: traceSpanContext(traceHex),
+		Data: &events.ProviderCallCompletedData{
+			Provider: "openai",
+			Model:    "gpt-4o",
+			Duration: 500 * time.Millisecond,
+			Source:   events.SourceAgent,
+		},
+	})
+
+	families, _ := reg.Gather()
+	if !findExemplarTraceID(families, "test_provider_request_duration_seconds", traceHex) {
+		t.Error("expected trace_id exemplar on provider_request_duration_seconds histogram")
+	}
+	if !findExemplarTraceID(families, "test_provider_requests_total", traceHex) {
+		t.Error("expected trace_id exemplar on provider_requests_total counter")
+	}
+}
+
+func TestMetricContext_ProviderCallFailed_Exemplar(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	traceHex := "aabbccddeeff00112233445566778899"
+	ctx.OnEvent(&events.Event{
+		Type:        events.EventProviderCallFailed,
+		SpanContext: traceSpanContext(traceHex),
+		Data: &events.ProviderCallFailedData{
+			Provider: "anthropic",
+			Model:    "claude-3",
+			Duration: time.Second,
+			Source:   events.SourceAgent,
+		},
+	})
+
+	families, _ := reg.Gather()
+	if !findExemplarTraceID(families, "test_provider_request_duration_seconds", traceHex) {
+		t.Error("expected trace_id exemplar on provider_request_duration_seconds histogram")
+	}
+	if !findExemplarTraceID(families, "test_provider_requests_total", traceHex) {
+		t.Error("expected trace_id exemplar on provider_requests_total counter")
+	}
+}
+
+func TestMetricContext_ToolCallCompleted_Exemplar(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	traceHex := "11223344556677889900aabbccddeeff"
+	ctx.OnEvent(&events.Event{
+		Type:        events.EventToolCallCompleted,
+		SpanContext: traceSpanContext(traceHex),
+		Data: &events.ToolCallCompletedData{
+			ToolName: "search",
+			Duration: 100 * time.Millisecond,
+			Status:   "success",
+		},
+	})
+
+	families, _ := reg.Gather()
+	if !findExemplarTraceID(families, "test_tool_call_duration_seconds", traceHex) {
+		t.Error("expected trace_id exemplar on tool_call_duration_seconds histogram")
+	}
+	if !findExemplarTraceID(families, "test_tool_calls_total", traceHex) {
+		t.Error("expected trace_id exemplar on tool_calls_total counter")
+	}
+}
+
+func TestMetricContext_ToolCallFailed_Exemplar(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	traceHex := "ffeeddccbbaa99887766554433221100"
+	ctx.OnEvent(&events.Event{
+		Type:        events.EventToolCallFailed,
+		SpanContext: traceSpanContext(traceHex),
+		Data: &events.ToolCallFailedData{
+			ToolName: "calculator",
+			Duration: 50 * time.Millisecond,
+		},
+	})
+
+	families, _ := reg.Gather()
+	if !findExemplarTraceID(families, "test_tool_call_duration_seconds", traceHex) {
+		t.Error("expected trace_id exemplar on tool_call_duration_seconds histogram")
+	}
+	if !findExemplarTraceID(families, "test_tool_calls_total", traceHex) {
+		t.Error("expected trace_id exemplar on tool_calls_total counter")
+	}
+}
+
+func TestMetricContext_NilCtx_NoExemplar(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	// Event with nil Ctx should not panic and should still record metric.
+	ctx.OnEvent(&events.Event{
+		Type: events.EventProviderCallCompleted,
+		Data: &events.ProviderCallCompletedData{
+			Provider: "openai",
+			Model:    "gpt-4o",
+			Duration: time.Second,
+			Source:   events.SourceAgent,
+		},
+	})
+
+	out := gatherMetrics(t, reg)
+	if !strings.Contains(out, "test_provider_request_duration_seconds") {
+		t.Error("expected metric to be recorded even without trace context")
 	}
 }
