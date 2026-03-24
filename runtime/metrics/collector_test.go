@@ -218,6 +218,51 @@ func TestMetricContext_ProviderCallCompleted(t *testing.T) {
 	}
 }
 
+func TestMetricContext_ProviderCallCompleted_ZeroValuesEmitMetrics(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventProviderCallCompleted,
+		Data: &events.ProviderCallCompletedData{
+			Provider:     "ollama",
+			Model:        "llama3",
+			Duration:     200 * time.Millisecond,
+			InputTokens:  0,
+			OutputTokens: 0,
+			CachedTokens: 0,
+			Cost:         0,
+			Source:       events.SourceAgent,
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	// All counter metrics should exist even when zero, so Prometheus time series are created.
+	for _, metric := range []string{
+		"test_provider_input_tokens_total",
+		"test_provider_output_tokens_total",
+		"test_provider_cached_tokens_total",
+		"test_provider_cost_total",
+	} {
+		if !strings.Contains(output, metric) {
+			t.Errorf("expected %s to be emitted even with zero value", metric)
+		}
+	}
+
+	// Verify all counters have value 0.
+	for _, metric := range []string{
+		`test_provider_input_tokens_total{model="llama3",provider="ollama",source="agent"} 0`,
+		`test_provider_output_tokens_total{model="llama3",provider="ollama",source="agent"} 0`,
+		`test_provider_cached_tokens_total{model="llama3",provider="ollama",source="agent"} 0`,
+		`test_provider_cost_total{model="llama3",provider="ollama",source="agent"} 0`,
+	} {
+		if !strings.Contains(output, metric) {
+			t.Errorf("expected %q in output, got:\n%s", metric, output)
+		}
+	}
+}
+
 func TestMetricContext_ProviderCallFailed(t *testing.T) {
 	c, reg := newTestCollector()
 	ctx := c.Bind(nil)
