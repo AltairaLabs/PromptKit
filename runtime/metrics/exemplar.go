@@ -1,23 +1,18 @@
 package metrics
 
 import (
-	"context"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// traceExemplar extracts a trace_id exemplar from the context's span.
-// Returns nil if there is no valid trace ID (no span, or invalid trace ID).
-func traceExemplar(ctx context.Context) prometheus.Labels {
-	if ctx == nil {
+// traceExemplar extracts a trace_id exemplar from a span context.
+// Returns nil if the trace ID is invalid (zero value or no active trace).
+func traceExemplar(sc trace.SpanContext) prometheus.Labels {
+	tid := sc.TraceID()
+	if !tid.IsValid() {
 		return nil
 	}
-	sc := trace.SpanContextFromContext(ctx)
-	if !sc.TraceID().IsValid() {
-		return nil
-	}
-	return prometheus.Labels{"trace_id": sc.TraceID().String()}
+	return prometheus.Labels{"trace_id": tid.String()}
 }
 
 // observeWithExemplar observes a histogram value, attaching an exemplar if labels is non-nil.

@@ -178,7 +178,13 @@ func (sp *SpecJudgeProvider) Judge(ctx context.Context, opts JudgeOpts) (*JudgeR
 
 	if err != nil {
 		if opts.Emitter != nil {
-			opts.Emitter.ProviderCallFailedCtx(ctx, provider.ID(), provider.Model(), err, duration, nil)
+			opts.Emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
+				Provider: provider.ID(),
+				Model:    provider.Model(),
+				Error:    err,
+				Duration: duration,
+				Source:   events.SourceJudge,
+			})
 		}
 		return nil, fmt.Errorf("judge predict failed: %w", err)
 	}

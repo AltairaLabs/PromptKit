@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -923,7 +925,7 @@ func TestEmitter_WithUserID_NilEmitter(t *testing.T) {
 	}
 }
 
-func TestEmitter_ProviderCallCompletedCtx_SetsContext(t *testing.T) {
+func TestEmitter_ProviderCallCompletedCtx_SetsSpanContext(t *testing.T) {
 	t.Parallel()
 
 	bus := NewEventBus()
@@ -937,8 +939,13 @@ func TestEmitter_ProviderCallCompletedCtx_SetsContext(t *testing.T) {
 		wg.Done()
 	})
 
-	type ctxKey string
-	ctx := context.WithValue(context.Background(), ctxKey("test"), "value")
+	traceID, _ := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     trace.SpanID{1},
+		TraceFlags: trace.FlagsSampled,
+	})
+	ctx := trace.ContextWithSpanContext(context.Background(), sc)
 	emitter.ProviderCallCompletedCtx(ctx, &ProviderCallCompletedData{
 		Provider: "openai",
 		Model:    "gpt-4",
@@ -949,11 +956,11 @@ func TestEmitter_ProviderCallCompletedCtx_SetsContext(t *testing.T) {
 		t.Fatal("timed out waiting for event")
 	}
 
-	if got.Ctx == nil {
-		t.Fatal("expected event.Ctx to be set")
+	if !got.SpanContext.TraceID().IsValid() {
+		t.Fatal("expected valid trace ID on event.SpanContext")
 	}
-	if got.Ctx.Value(ctxKey("test")) != "value" {
-		t.Error("expected context value to propagate")
+	if got.SpanContext.TraceID().String() != "0102030405060708090a0b0c0d0e0f10" {
+		t.Errorf("expected trace ID 0102030405060708090a0b0c0d0e0f10, got %s", got.SpanContext.TraceID().String())
 	}
 	data := got.Data.(*ProviderCallCompletedData)
 	if data.Source != SourceJudge {
@@ -990,7 +997,7 @@ func TestEmitter_ProviderCallCompletedCtx_DefaultSource(t *testing.T) {
 	}
 }
 
-func TestEmitter_ProviderCallFailedCtx_SetsContext(t *testing.T) {
+func TestEmitter_ProviderCallFailedCtx_SetsSpanContext(t *testing.T) {
 	t.Parallel()
 
 	bus := NewEventBus()
@@ -1004,19 +1011,29 @@ func TestEmitter_ProviderCallFailedCtx_SetsContext(t *testing.T) {
 		wg.Done()
 	})
 
-	ctx := context.Background()
-	emitter.ProviderCallFailedCtx(ctx, "openai", "gpt-4", errors.New("timeout"), time.Second, nil)
+	traceID, _ := trace.TraceIDFromHex("aabbccddeeff00112233445566778899")
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled,
+	})
+	ctx := trace.ContextWithSpanContext(context.Background(), sc)
+	emitter.ProviderCallFailedCtx(ctx, &ProviderCallFailedData{
+		Provider: "openai", Model: "gpt-4", Error: errors.New("timeout"), Duration: time.Second,
+	})
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for event")
 	}
 
-	if got.Ctx == nil {
-		t.Fatal("expected event.Ctx to be set")
+	if !got.SpanContext.TraceID().IsValid() {
+		t.Fatal("expected valid trace ID on event.SpanContext")
+	}
+	data := got.Data.(*ProviderCallFailedData)
+	if data.Source != SourceAgent {
+		t.Errorf("expected default Source=%q, got %q", SourceAgent, data.Source)
 	}
 }
 
-func TestEmitter_ToolCallCompletedCtx_SetsContext(t *testing.T) {
+func TestEmitter_ToolCallCompletedCtx_SetsSpanContext(t *testing.T) {
 	t.Parallel()
 
 	bus := NewEventBus()
@@ -1030,19 +1047,22 @@ func TestEmitter_ToolCallCompletedCtx_SetsContext(t *testing.T) {
 		wg.Done()
 	})
 
-	ctx := context.Background()
+	traceID, _ := trace.TraceIDFromHex("11223344556677889900aabbccddeeff")
+	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID, SpanID: trace.SpanID{3}, TraceFlags: trace.FlagsSampled,
+	}))
 	emitter.ToolCallCompletedCtx(ctx, "search", "call-1", time.Millisecond, "success", nil, nil)
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for event")
 	}
 
-	if got.Ctx == nil {
-		t.Fatal("expected event.Ctx to be set")
+	if !got.SpanContext.TraceID().IsValid() {
+		t.Fatal("expected valid trace ID on event.SpanContext")
 	}
 }
 
-func TestEmitter_ToolCallFailedCtx_SetsContext(t *testing.T) {
+func TestEmitter_ToolCallFailedCtx_SetsSpanContext(t *testing.T) {
 	t.Parallel()
 
 	bus := NewEventBus()
@@ -1056,15 +1076,18 @@ func TestEmitter_ToolCallFailedCtx_SetsContext(t *testing.T) {
 		wg.Done()
 	})
 
-	ctx := context.Background()
+	traceID, _ := trace.TraceIDFromHex("ffeeddccbbaa99887766554433221100")
+	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: traceID, SpanID: trace.SpanID{4}, TraceFlags: trace.FlagsSampled,
+	}))
 	emitter.ToolCallFailedCtx(ctx, "search", "call-1", errors.New("fail"), time.Millisecond, nil)
 
 	if !waitForWG(&wg, 200*time.Millisecond) {
 		t.Fatal("timed out waiting for event")
 	}
 
-	if got.Ctx == nil {
-		t.Fatal("expected event.Ctx to be set")
+	if !got.SpanContext.TraceID().IsValid() {
+		t.Fatal("expected valid trace ID on event.SpanContext")
 	}
 }
 
@@ -1075,7 +1098,7 @@ func TestEmitter_CtxMethods_NilEmitter(t *testing.T) {
 	ctx := context.Background()
 	// None of these should panic
 	emitter.ProviderCallCompletedCtx(ctx, &ProviderCallCompletedData{})
-	emitter.ProviderCallFailedCtx(ctx, "p", "m", errors.New("e"), time.Second, nil)
+	emitter.ProviderCallFailedCtx(ctx, &ProviderCallFailedData{})
 	emitter.ToolCallCompletedCtx(ctx, "t", "c", time.Second, "s", nil, nil)
 	emitter.ToolCallFailedCtx(ctx, "t", "c", errors.New("e"), time.Second, nil)
 }

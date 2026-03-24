@@ -400,7 +400,7 @@ func (mc *MetricContext) handleProviderCallCompleted(event *events.Event) {
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.Ctx)
+	exemplar := traceExemplar(event.SpanContext)
 
 	observeWithExemplar(
 		mc.collector.providerRequestDuration.WithLabelValues(
@@ -445,7 +445,7 @@ func (mc *MetricContext) handleProviderCallFailed(event *events.Event) {
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.Ctx)
+	exemplar := traceExemplar(event.SpanContext)
 
 	observeWithExemplar(
 		mc.collector.providerRequestDuration.WithLabelValues(
@@ -468,7 +468,7 @@ func (mc *MetricContext) handleToolCallCompleted(event *events.Event) {
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.Ctx)
+	exemplar := traceExemplar(event.SpanContext)
 
 	status := statusSuccess
 	if data.Status == statusError {
@@ -495,7 +495,7 @@ func (mc *MetricContext) handleToolCallFailed(event *events.Event) {
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.Ctx)
+	exemplar := traceExemplar(event.SpanContext)
 
 	observeWithExemplar(
 		mc.collector.toolCallDuration.WithLabelValues(

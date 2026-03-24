@@ -444,7 +444,14 @@ func (s *ProviderStage) executeRound(
 		logger.Error("Provider call failed", "error", err, "duration", duration)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailedCtx(ctx, s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
+			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
+				Provider: s.provider.ID(),
+				Model:    s.provider.Model(),
+				Error:    err,
+				Duration: duration,
+				Source:   s.config.Source,
+				Labels:   s.config.Labels,
+			})
 		}
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
 	}
@@ -597,7 +604,14 @@ func (s *ProviderStage) executeStreamingRound(
 		duration := time.Since(startTime)
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailedCtx(ctx, s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
+			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
+				Provider: s.provider.ID(),
+				Model:    s.provider.Model(),
+				Error:    err,
+				Duration: duration,
+				Source:   s.config.Source,
+				Labels:   s.config.Labels,
+			})
 		}
 		return types.Message{}, false, err
 	}
@@ -609,7 +623,14 @@ func (s *ProviderStage) executeStreamingRound(
 	if err != nil {
 		// Emit provider call failed event
 		if s.emitter != nil {
-			s.emitter.ProviderCallFailedCtx(ctx, s.provider.ID(), s.provider.Model(), err, duration, s.config.Labels)
+			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
+				Provider: s.provider.ID(),
+				Model:    s.provider.Model(),
+				Error:    err,
+				Duration: duration,
+				Source:   s.config.Source,
+				Labels:   s.config.Labels,
+			})
 		}
 		return types.Message{}, false, err
 	}
@@ -948,7 +969,7 @@ func (s *ProviderStage) executeSingleToolCall(
 	}
 
 	if asyncResult.Status == tools.ToolStatusPending {
-		return s.buildPendingResult(toolCall, asyncResult)
+		return s.buildPendingResult(ctx, toolCall, asyncResult)
 	}
 
 	result := s.handleToolResult(toolCall, asyncResult)
@@ -1007,7 +1028,7 @@ func (s *ProviderStage) emitGuardrailEvent(d hooks.Decision, duration time.Durat
 // awaiting fulfillment, and a tool.call.completed with status "pending" so
 // every tool.call.started has a matching completion.
 func (s *ProviderStage) buildPendingResult(
-	toolCall types.MessageToolCall, asyncResult *tools.ToolExecutionResult,
+	ctx context.Context, toolCall types.MessageToolCall, asyncResult *tools.ToolExecutionResult,
 ) toolCallResult {
 	var argsMap map[string]any
 	if toolCall.Args != nil {
@@ -1033,7 +1054,7 @@ func (s *ProviderStage) buildPendingResult(
 	// Emit tool.call.completed with status "pending" so the started event is paired
 	if s.emitter != nil {
 		labels := s.toolLabels(toolCall.Name)
-		s.emitter.ToolCallCompleted(toolCall.Name, toolCall.ID, 0, "pending", nil, labels)
+		s.emitter.ToolCallCompletedCtx(ctx, toolCall.Name, toolCall.ID, 0, "pending", nil, labels)
 	}
 
 	toolResult := s.handleToolResult(toolCall, asyncResult)

@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -743,15 +742,14 @@ func TestMetricContext_WrongEventDataType(t *testing.T) {
 	}
 }
 
-// traceContext creates a context with a known trace ID for exemplar testing.
-func traceContext(hex string) context.Context {
+// traceSpanContext creates a trace.SpanContext with a known trace ID for exemplar testing.
+func traceSpanContext(hex string) trace.SpanContext {
 	traceID, _ := trace.TraceIDFromHex(hex)
-	sc := trace.NewSpanContext(trace.SpanContextConfig{
+	return trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		SpanID:     trace.SpanID{1},
 		TraceFlags: trace.FlagsSampled,
 	})
-	return trace.ContextWithSpanContext(context.Background(), sc)
 }
 
 // findExemplarTraceID searches gathered metric families for an exemplar with the given trace_id.
@@ -798,8 +796,8 @@ func TestMetricContext_ProviderCallCompleted_Exemplar(t *testing.T) {
 
 	traceHex := "0102030405060708090a0b0c0d0e0f10"
 	ctx.OnEvent(&events.Event{
-		Type: events.EventProviderCallCompleted,
-		Ctx:  traceContext(traceHex),
+		Type:        events.EventProviderCallCompleted,
+		SpanContext: traceSpanContext(traceHex),
 		Data: &events.ProviderCallCompletedData{
 			Provider: "openai",
 			Model:    "gpt-4o",
@@ -823,8 +821,8 @@ func TestMetricContext_ProviderCallFailed_Exemplar(t *testing.T) {
 
 	traceHex := "aabbccddeeff00112233445566778899"
 	ctx.OnEvent(&events.Event{
-		Type: events.EventProviderCallFailed,
-		Ctx:  traceContext(traceHex),
+		Type:        events.EventProviderCallFailed,
+		SpanContext: traceSpanContext(traceHex),
 		Data: &events.ProviderCallFailedData{
 			Provider: "anthropic",
 			Model:    "claude-3",
@@ -848,8 +846,8 @@ func TestMetricContext_ToolCallCompleted_Exemplar(t *testing.T) {
 
 	traceHex := "11223344556677889900aabbccddeeff"
 	ctx.OnEvent(&events.Event{
-		Type: events.EventToolCallCompleted,
-		Ctx:  traceContext(traceHex),
+		Type:        events.EventToolCallCompleted,
+		SpanContext: traceSpanContext(traceHex),
 		Data: &events.ToolCallCompletedData{
 			ToolName: "search",
 			Duration: 100 * time.Millisecond,
@@ -872,8 +870,8 @@ func TestMetricContext_ToolCallFailed_Exemplar(t *testing.T) {
 
 	traceHex := "ffeeddccbbaa99887766554433221100"
 	ctx.OnEvent(&events.Event{
-		Type: events.EventToolCallFailed,
-		Ctx:  traceContext(traceHex),
+		Type:        events.EventToolCallFailed,
+		SpanContext: traceSpanContext(traceHex),
 		Data: &events.ToolCallFailedData{
 			ToolName: "calculator",
 			Duration: 50 * time.Millisecond,

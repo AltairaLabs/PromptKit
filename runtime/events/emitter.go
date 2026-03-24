@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -34,13 +36,12 @@ func (e *Emitter) WithUserID(userID string) *Emitter {
 	return e
 }
 
-// emit publishes an event with shared context fields.
+// emit publishes an event with shared context fields (no trace context).
 func (e *Emitter) emit(eventType EventType, data EventData) {
 	if e == nil || e.bus == nil {
 		return
 	}
-
-	event := &Event{
+	e.bus.Publish(&Event{
 		Type:           eventType,
 		Timestamp:      time.Now(),
 		ExecutionID:    e.executionID,
@@ -48,18 +49,22 @@ func (e *Emitter) emit(eventType EventType, data EventData) {
 		ConversationID: e.conversationID,
 		UserID:         e.userID,
 		Data:           data,
-	}
-
-	e.bus.Publish(event)
+	})
 }
 
 // emitCtx publishes an event with shared context fields and a request context
-// for trace correlation (exemplars).
+// for trace correlation (exemplars). The span context is extracted from ctx
+// and stored as a value type on the event.
 func (e *Emitter) emitCtx(ctx context.Context, eventType EventType, data EventData) {
 	if e == nil || e.bus == nil {
 		return
 	}
 
+	var sc trace.SpanContext
+	if ctx != nil {
+		sc = trace.SpanContextFromContext(ctx)
+	}
+
 	event := &Event{
 		Type:           eventType,
 		Timestamp:      time.Now(),
@@ -68,7 +73,7 @@ func (e *Emitter) emitCtx(ctx context.Context, eventType EventType, data EventDa
 		ConversationID: e.conversationID,
 		UserID:         e.userID,
 		Data:           data,
-		Ctx:            ctx,
+		SpanContext:    sc,
 	}
 
 	e.bus.Publish(event)
@@ -260,18 +265,15 @@ func (e *Emitter) ProviderCallCompletedCtx(ctx context.Context, data *ProviderCa
 }
 
 // ProviderCallFailedCtx emits provider.call.failed with trace context for exemplar correlation.
-func (e *Emitter) ProviderCallFailedCtx(
-	ctx context.Context,
-	provider, model string, err error, duration time.Duration, labels map[string]string,
-) {
-	e.emitCtx(ctx, EventProviderCallFailed, &ProviderCallFailedData{
-		Provider: provider,
-		Model:    model,
-		Error:    err,
-		Duration: duration,
-		Source:   SourceAgent,
-		Labels:   labels,
-	})
+// Source defaults to "agent" if not already set on data.
+func (e *Emitter) ProviderCallFailedCtx(ctx context.Context, data *ProviderCallFailedData) {
+	if data == nil {
+		return
+	}
+	if data.Source == "" {
+		data.Source = SourceAgent
+	}
+	e.emitCtx(ctx, EventProviderCallFailed, data)
 }
 
 // ToolCallCompletedCtx emits tool.call.completed with trace context for exemplar correlation.

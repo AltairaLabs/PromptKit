@@ -1,36 +1,28 @@
 package metrics
 
 import (
-	"context"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func TestTraceExemplar_NilContext(t *testing.T) {
-	//nolint:staticcheck // intentional nil context for testing
-	if got := traceExemplar(nil); got != nil {
-		t.Errorf("expected nil, got %v", got)
+func TestTraceExemplar_ZeroSpanContext(t *testing.T) {
+	var sc trace.SpanContext // zero value
+	if got := traceExemplar(sc); got != nil {
+		t.Errorf("expected nil for zero SpanContext, got %v", got)
 	}
 }
 
-func TestTraceExemplar_NoSpan(t *testing.T) {
-	if got := traceExemplar(context.Background()); got != nil {
-		t.Errorf("expected nil for context without span, got %v", got)
-	}
-}
-
-func TestTraceExemplar_ValidSpan(t *testing.T) {
+func TestTraceExemplar_ValidSpanContext(t *testing.T) {
 	traceID, _ := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
 	sc := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID:    traceID,
 		SpanID:     trace.SpanID{1},
 		TraceFlags: trace.FlagsSampled,
 	})
-	ctx := trace.ContextWithSpanContext(context.Background(), sc)
 
-	got := traceExemplar(ctx)
+	got := traceExemplar(sc)
 	if got == nil {
 		t.Fatal("expected non-nil exemplar")
 	}
