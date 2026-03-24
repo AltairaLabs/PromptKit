@@ -264,9 +264,13 @@ func (r *EvalRunner) executeHandler(
 	result.Type = def.Type
 	result.DurationMs = durationMs
 
+	var scoreVal any = "<nil>"
+	if result.Score != nil {
+		scoreVal = *result.Score
+	}
 	logger.Info("evals: eval completed",
 		"eval_id", def.ID, "type", def.Type,
-		"score", result.Score, "duration_ms", durationMs,
+		"score", scoreVal, "duration_ms", durationMs,
 	)
 	return result
 }
