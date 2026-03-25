@@ -281,6 +281,17 @@ func (e *Engine) SetMetrics(collector *metrics.Collector, instanceLabels map[str
 	logger.Debug("Metrics collection enabled for Arena engine")
 }
 
+// EnableMessageEvents enables RecordingStage in pipelines so message.created
+// events are published to the event bus. This does NOT write session recordings
+// to disk — use EnableSessionRecording for that. Requires an event bus to be
+// configured via SetEventBus.
+func (e *Engine) EnableMessageEvents() {
+	if e.recordingConfig == nil {
+		defaults := stage.DefaultRecordingStageConfig()
+		e.recordingConfig = &defaults
+	}
+}
+
 // EnableSessionRecording enables session recording for all runs.
 // Recordings are stored in the specified directory as JSONL files,
 // one file per session (using RunID as session ID).
