@@ -20,17 +20,19 @@ jobs:
     strategy:
       matrix:
         package: [promptarena, packc]
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@65d868f8d4d85d7d4abb7de0875cde3fcc8798f5 # v6.1.0
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-      
+
+      - name: Configure npm registry
+        run: npm config set registry https://registry.npmjs.org/
+
       - name: Determine version
         id: version
         run: |
@@ -48,31 +50,29 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Publishing version: $VERSION"
-      
+
       - name: Update package.json version
         working-directory: npm/${{ matrix.package }}
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           TARGET_VERSION="${{ steps.version.outputs.version }}"
-          
+
           if [ "$CURRENT_VERSION" = "$TARGET_VERSION" ]; then
             echo "Package already at version $TARGET_VERSION"
           else
             npm version $TARGET_VERSION --no-git-tag-version
             echo "Updated package.json from $CURRENT_VERSION to $TARGET_VERSION"
           fi
-      
+
       - name: Verify package contents
         working-directory: npm/${{ matrix.package }}
         run: |
           npm pack --dry-run
-      
+
       - name: Publish to npm
         working-directory: npm/${{ matrix.package }}
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      
+
       - name: Create summary
         run: |
           echo "### ✅ Published @altairalabs/${{ matrix.package }}@${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
