@@ -238,9 +238,28 @@ func (e *Engine) Close() error {
 	return e.closeEventStore()
 }
 
+// EventBusOption configures optional behavior when setting the event bus.
+type EventBusOption func(*eventBusConfig)
+
+type eventBusConfig struct {
+	emitMessages bool
+}
+
+// WithMessageEvents enables RecordingStage in pipelines so message.created
+// events are published to the event bus. This does NOT write session recordings
+// to disk — use EnableSessionRecording for that.
+func WithMessageEvents() EventBusOption {
+	return func(c *eventBusConfig) { c.emitMessages = true }
+}
+
 // SetEventBus configures the shared event bus used for runtime and TUI observability.
 // If session recording is enabled, the event store is subscribed to the bus.
-func (e *Engine) SetEventBus(bus events.Bus) {
+func (e *Engine) SetEventBus(bus events.Bus, opts ...EventBusOption) {
+	var cfg eventBusConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	e.eventBus = bus
 	// Subscribe event store to bus if both are configured
 	if e.eventStore != nil && bus != nil {
@@ -250,6 +269,10 @@ func (e *Engine) SetEventBus(bus events.Bus) {
 	// Wire event bus to eval orchestrator for judge provider telemetry
 	if e.evalOrchestrator != nil {
 		e.evalOrchestrator.SetEventBus(bus)
+	}
+	// Enable RecordingStage so message.created events flow to the bus
+	if cfg.emitMessages {
+		e.EnableMessageEvents()
 	}
 }
 

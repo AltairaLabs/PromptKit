@@ -131,6 +131,34 @@ func TestEngineEnableMessageEvents_PreservesExisting(t *testing.T) {
 	}
 }
 
+func TestEngineSetEventBus_WithMessageEvents(t *testing.T) {
+	t.Parallel()
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	e := &Engine{}
+
+	e.SetEventBus(bus, WithMessageEvents())
+
+	if e.recordingConfig == nil {
+		t.Fatal("expected recordingConfig to be set with WithMessageEvents option")
+	}
+}
+
+func TestEngineSetEventBus_WithoutMessageEvents(t *testing.T) {
+	t.Parallel()
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	e := &Engine{}
+
+	e.SetEventBus(bus)
+
+	if e.recordingConfig != nil {
+		t.Fatal("expected nil recordingConfig without WithMessageEvents option")
+	}
+}
+
 func TestEngineSetTracerProvider(t *testing.T) {
 	t.Parallel()
 
