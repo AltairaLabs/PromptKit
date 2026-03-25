@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
@@ -98,6 +99,63 @@ func TestEngineSetEventBus(t *testing.T) {
 	e.SetEventBus(bus)
 	if e.eventBus != bus {
 		t.Fatalf("expected eventBus to be set")
+	}
+}
+
+func TestEngineEnableMessageEvents(t *testing.T) {
+	t.Parallel()
+
+	e := &Engine{}
+	if e.recordingConfig != nil {
+		t.Fatal("expected nil recordingConfig initially")
+	}
+
+	e.EnableMessageEvents()
+
+	if e.recordingConfig == nil {
+		t.Fatal("expected recordingConfig to be set after EnableMessageEvents")
+	}
+}
+
+func TestEngineEnableMessageEvents_PreservesExisting(t *testing.T) {
+	t.Parallel()
+
+	e := &Engine{}
+	custom := &stage.RecordingStageConfig{IncludeAudio: false}
+	e.recordingConfig = custom
+
+	e.EnableMessageEvents()
+
+	if e.recordingConfig != custom {
+		t.Fatal("expected existing recordingConfig to be preserved")
+	}
+}
+
+func TestEngineSetEventBus_WithMessageEvents(t *testing.T) {
+	t.Parallel()
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	e := &Engine{}
+
+	e.SetEventBus(bus, WithMessageEvents())
+
+	if e.recordingConfig == nil {
+		t.Fatal("expected recordingConfig to be set with WithMessageEvents option")
+	}
+}
+
+func TestEngineSetEventBus_WithoutMessageEvents(t *testing.T) {
+	t.Parallel()
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	e := &Engine{}
+
+	e.SetEventBus(bus)
+
+	if e.recordingConfig != nil {
+		t.Fatal("expected nil recordingConfig without WithMessageEvents option")
 	}
 }
 
