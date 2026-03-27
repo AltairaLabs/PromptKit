@@ -2188,3 +2188,120 @@ func TestProviderStage_ResetsIdleOnNonStreamingRound(t *testing.T) {
 	// Non-streaming path: reset at round entry + after round
 	assert.Greater(t, resetCount, int32(0), "idle reset should be called for non-streaming rounds")
 }
+
+// =============================================================================
+// Idle Timeout End-to-End Tests (slow provider)
+// =============================================================================
+
+// delayedStreamProvider simulates a provider that waits before producing its
+// first chunk — like Ollama queued behind other requests.
+type delayedStreamProvider struct {
+	providers.Provider
+	delay    time.Duration
+	response string
+}
+
+func (p *delayedStreamProvider) ID() string              { return "delayed" }
+func (p *delayedStreamProvider) Model() string           { return "delayed-model" }
+func (p *delayedStreamProvider) SupportsStreaming() bool { return true }
+func (p *delayedStreamProvider) MaxContextTokens() int   { return 4096 }
+func (p *delayedStreamProvider) SupportsToolUse() bool   { return false }
+
+func (p *delayedStreamProvider) PredictStream(
+	ctx context.Context, _ providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	ch := make(chan providers.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		select {
+		case <-time.After(p.delay):
+			finish := "stop"
+			ch <- providers.StreamChunk{
+				Content:      p.response,
+				Delta:        p.response,
+				FinishReason: &finish,
+			}
+		case <-ctx.Done():
+			return
+		}
+	}()
+	return ch, nil
+}
+
+func (p *delayedStreamProvider) Predict(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	select {
+	case <-time.After(p.delay):
+		return providers.PredictionResponse{Content: p.response}, nil
+	case <-ctx.Done():
+		return providers.PredictionResponse{}, ctx.Err()
+	}
+}
+
+func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
+	// Provider delays 200ms before first chunk; idle timeout is 100ms.
+	// The pipeline should be cancelled by the idle timeout — the provider
+	// never produces a response because ctx is cancelled before the delay.
+	provider := &delayedStreamProvider{delay: 200 * time.Millisecond, response: "late"}
+
+	providerStage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	})
+
+	config := DefaultPipelineConfig()
+	config.IdleTimeout = 100 * time.Millisecond
+	config.ExecutionTimeout = 0
+
+	pl, err := NewPipelineBuilderWithConfig(config).
+		Chain(providerStage).
+		Build()
+	require.NoError(t, err)
+
+	userMsg := types.Message{Role: "user", Content: "hello"}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "You are a helper"
+
+	start := time.Now()
+	result, _ := pl.ExecuteSync(context.Background(), elem)
+	elapsed := time.Since(start)
+
+	// Pipeline terminates at ~100ms (idle timeout), not 200ms (provider delay).
+	// No assistant response is produced because the provider was cancelled.
+	assert.Less(t, elapsed, 180*time.Millisecond,
+		"should terminate at ~100ms (idle timeout), not 200ms (provider delay)")
+	assert.Nil(t, result.Response,
+		"no response should be produced when provider is cancelled by idle timeout")
+}
+
+func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
+	// Provider delays 50ms before first chunk; idle timeout is 200ms.
+	// The pipeline should succeed because the chunk arrives in time.
+	provider := &delayedStreamProvider{delay: 50 * time.Millisecond, response: "hello"}
+
+	providerStage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	})
+
+	config := DefaultPipelineConfig()
+	config.IdleTimeout = 200 * time.Millisecond
+	config.ExecutionTimeout = 0
+
+	pl, err := NewPipelineBuilderWithConfig(config).
+		Chain(providerStage).
+		Build()
+	require.NoError(t, err)
+
+	userMsg := types.Message{Role: "user", Content: "hello"}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "You are a helper"
+
+	result, execErr := pl.ExecuteSync(context.Background(), elem)
+
+	// Should succeed — chunk arrives at 50ms, well within 200ms timeout
+	require.NoError(t, execErr)
+	require.NotNil(t, result.Response)
+	assert.Equal(t, "hello", result.Response.Content)
+}
