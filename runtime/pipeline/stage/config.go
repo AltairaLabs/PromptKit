@@ -15,7 +15,11 @@ const (
 	// DefaultMaxConcurrentPipelines is the default maximum number of concurrent pipeline executions.
 	DefaultMaxConcurrentPipelines = 100
 	// DefaultExecutionTimeoutSeconds is the default execution timeout in seconds.
-	DefaultExecutionTimeoutSeconds = 30
+	// Set to 0 (disabled) — use IdleTimeout as the primary liveness check.
+	DefaultExecutionTimeoutSeconds = 0
+	// DefaultIdleTimeoutSeconds is the default idle timeout in seconds.
+	// The timer resets on each activity signal (stream chunk, round, tool completion).
+	DefaultIdleTimeoutSeconds = 30
 	// DefaultGracefulShutdownTimeoutSeconds is the default graceful shutdown timeout in seconds.
 	DefaultGracefulShutdownTimeoutSeconds = 10
 )
@@ -33,10 +37,16 @@ type PipelineConfig struct {
 	// Default: 100
 	MaxConcurrentPipelines int
 
-	// ExecutionTimeout sets the maximum duration for a single pipeline execution.
-	// Set to 0 to disable timeout.
-	// Default: 30 seconds
+	// ExecutionTimeout sets a hard maximum duration for a single pipeline execution.
+	// This is a safety ceiling — prefer IdleTimeout for liveness detection.
+	// Set to 0 to disable (default).
 	ExecutionTimeout time.Duration
+
+	// IdleTimeout sets the maximum duration of inactivity before the pipeline is
+	// canceled. The timer resets on each streaming chunk, round completion, and
+	// tool completion. Set to 0 to disable.
+	// Default: 30 seconds.
+	IdleTimeout time.Duration
 
 	// GracefulShutdownTimeout sets the maximum time to wait for in-flight executions during shutdown.
 	// Default: 10 seconds
@@ -49,6 +59,7 @@ func DefaultPipelineConfig() *PipelineConfig {
 		ChannelBufferSize:       DefaultChannelBufferSize,
 		MaxConcurrentPipelines:  DefaultMaxConcurrentPipelines,
 		ExecutionTimeout:        DefaultExecutionTimeoutSeconds * time.Second,
+		IdleTimeout:             DefaultIdleTimeoutSeconds * time.Second,
 		GracefulShutdownTimeout: DefaultGracefulShutdownTimeoutSeconds * time.Second,
 	}
 }
@@ -63,6 +74,9 @@ func (c *PipelineConfig) Validate() error {
 	}
 	if c.ExecutionTimeout < 0 {
 		return ErrInvalidExecutionTimeout
+	}
+	if c.IdleTimeout < 0 {
+		return ErrInvalidIdleTimeout
 	}
 	if c.GracefulShutdownTimeout < 0 {
 		return ErrInvalidGracefulShutdownTimeout
@@ -85,6 +99,12 @@ func (c *PipelineConfig) WithMaxConcurrentPipelines(maxPipelines int) *PipelineC
 // WithExecutionTimeout sets the execution timeout.
 func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineConfig {
 	c.ExecutionTimeout = timeout
+	return c
+}
+
+// WithIdleTimeout sets the idle timeout.
+func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig {
+	c.IdleTimeout = timeout
 	return c
 }
 

@@ -937,6 +937,29 @@ func TestPipelineConfig_WithGracefulShutdownTimeout(t *testing.T) {
 	assert.Equal(t, 10*time.Second, result.GracefulShutdownTimeout)
 }
 
+func TestPipelineConfig_DefaultIdleTimeout(t *testing.T) {
+	config := DefaultPipelineConfig()
+
+	assert.Equal(t, time.Duration(DefaultIdleTimeoutSeconds)*time.Second, config.IdleTimeout)
+	assert.Equal(t, time.Duration(0), config.ExecutionTimeout, "ExecutionTimeout should default to 0 (disabled)")
+}
+
+func TestPipelineConfig_WithIdleTimeout(t *testing.T) {
+	config := &PipelineConfig{}
+	result := config.WithIdleTimeout(45 * time.Second)
+
+	assert.Equal(t, 45*time.Second, result.IdleTimeout)
+}
+
+func TestPipelineConfig_Validate_NegativeIdleTimeout(t *testing.T) {
+	config := DefaultPipelineConfig()
+	config.IdleTimeout = -1 * time.Second
+
+	err := config.Validate()
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidIdleTimeout)
+}
+
 // =============================================================================
 // StageError Tests
 // =============================================================================
