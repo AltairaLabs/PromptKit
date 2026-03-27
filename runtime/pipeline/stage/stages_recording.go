@@ -36,10 +36,15 @@ type RecordingStageConfig struct {
 	// ConversationID groups events within a session.
 	ConversationID string
 
-	// IncludeAudio records audio data (may be large).
+	// IncludeStreamingText records individual text streaming deltas.
+	// When false (default), only the final accumulated Message is recorded.
+	// Enable for session replay that needs token-level timing.
+	IncludeStreamingText bool
+
+	// IncludeAudio records audio streaming chunks (may be very high volume).
 	IncludeAudio bool
 
-	// IncludeVideo records video data (may be large).
+	// IncludeVideo records video streaming chunks (may be very large).
 	IncludeVideo bool
 
 	// IncludeImages records image data.
@@ -113,9 +118,11 @@ func (rs *RecordingStage) recordElement(_ context.Context, elem *StreamElement) 
 	// Determine the actor based on position
 	role := rs.determineRole()
 
-	// Record based on content type
+	// Record based on content type.
+	// Streaming content (text deltas, audio/video chunks) is opt-in per modality.
+	// Complete messages are always recorded.
 	switch {
-	case elem.Text != nil:
+	case elem.Text != nil && rs.config.IncludeStreamingText:
 		rs.recordTextElement(elem, role)
 	case elem.Message != nil:
 		rs.recordMessageElement(elem)
@@ -140,7 +147,7 @@ func (rs *RecordingStage) determineRole() string {
 	return roleAssistant
 }
 
-// recordTextElement records a text element as a message event.
+// recordTextElement records a streaming text delta.
 func (rs *RecordingStage) recordTextElement(elem *StreamElement, role string) {
 	rs.eventBus.Publish(&events.Event{
 		Type:           events.EventMessageCreated,

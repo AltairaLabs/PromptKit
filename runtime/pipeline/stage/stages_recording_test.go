@@ -26,7 +26,7 @@ func TestNewRecordingStage(t *testing.T) {
 	assert.Equal(t, StageTypeTransform, stage.Type())
 }
 
-func TestRecordingStage_TextElement(t *testing.T) {
+func TestRecordingStage_TextElement_SkipsChunks(t *testing.T) {
 	bus := events.NewEventBus()
 	config := RecordingStageConfig{
 		Position:       RecordingPositionInput,
@@ -45,7 +45,7 @@ func TestRecordingStage_TextElement(t *testing.T) {
 		mu.Unlock()
 	})
 
-	// Run stage with text element
+	// Run stage with text element (streaming chunk)
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
@@ -59,23 +59,17 @@ func TestRecordingStage_TextElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	// Verify element passed through
+	// Verify element passed through (recording doesn't filter downstream)
 	elem := <-output
 	assert.Equal(t, "Hello, world!", *elem.Text)
 
 	// Wait for async event delivery
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify event was published
+	// Text elements (streaming chunks) should NOT produce message.created events.
+	// The complete message arrives as a Message element after streaming finishes.
 	mu.Lock()
-	require.Len(t, captured, 1)
-	assert.Equal(t, events.EventMessageCreated, captured[0].Type)
-	assert.Equal(t, "test-session", captured[0].SessionID)
-	assert.Equal(t, "conv-1", captured[0].ConversationID)
-
-	data := captured[0].Data.(*events.MessageCreatedData)
-	assert.Equal(t, "user", data.Role) // Input position = user
-	assert.Equal(t, "Hello, world!", data.Content)
+	assert.Empty(t, captured, "text chunks should not produce message.created events")
 	mu.Unlock()
 }
 
@@ -99,8 +93,11 @@ func TestRecordingStage_OutputPosition(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	text := "Response"
-	input <- StreamElement{Text: &text, Timestamp: time.Now()}
+	// Use a Message element (not Text) to verify output position → assistant role
+	input <- StreamElement{
+		Message:   &types.Message{Role: "assistant", Content: "Response"},
+		Timestamp: time.Now(),
+	}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -111,7 +108,7 @@ func TestRecordingStage_OutputPosition(t *testing.T) {
 	mu.Lock()
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.MessageCreatedData)
-	assert.Equal(t, "assistant", data.Role) // Output position = assistant
+	assert.Equal(t, "assistant", data.Role)
 	mu.Unlock()
 }
 
@@ -337,7 +334,7 @@ func TestRecordingStage_NilEventBus(t *testing.T) {
 	assert.Equal(t, "test", *elem.Text)
 }
 
-func TestRecordingStage_MultipleElements(t *testing.T) {
+func TestRecordingStage_MultipleChunksProduceNoEvents(t *testing.T) {
 	bus := events.NewEventBus()
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
@@ -357,9 +354,9 @@ func TestRecordingStage_MultipleElements(t *testing.T) {
 	input := make(chan StreamElement, 3)
 	output := make(chan StreamElement, 3)
 
-	// Send multiple text elements
+	// Send multiple text elements (streaming chunks)
 	for i := 0; i < 3; i++ {
-		text := "message"
+		text := "chunk"
 		input <- StreamElement{Text: &text, Timestamp: time.Now()}
 	}
 	close(input)
@@ -367,7 +364,7 @@ func TestRecordingStage_MultipleElements(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	// Drain output
+	// All chunks pass through downstream
 	count := 0
 	for range output {
 		count++
@@ -376,8 +373,61 @@ func TestRecordingStage_MultipleElements(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
+	// No message.created events — chunks are skipped
 	mu.Lock()
-	assert.Len(t, captured, 3)
+	assert.Empty(t, captured, "text chunks should not produce events")
+	mu.Unlock()
+}
+
+func TestRecordingStage_StreamingTextOptIn(t *testing.T) {
+	bus := events.NewEventBus()
+	config := RecordingStageConfig{
+		Position:             RecordingPositionOutput,
+		SessionID:            "test-session",
+		ConversationID:       "conv-1",
+		IncludeStreamingText: true, // opt in to chunk recording
+	}
+
+	stage := NewRecordingStage(bus, config)
+
+	var captured []*events.Event
+	var mu sync.Mutex
+	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+	})
+
+	input := make(chan StreamElement, 3)
+	output := make(chan StreamElement, 3)
+
+	for _, chunk := range []string{"Hello", " world", "!"} {
+		c := chunk
+		input <- StreamElement{Text: &c, Timestamp: time.Now()}
+	}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	for range output {
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	// With IncludeStreamingText enabled, each chunk produces an event
+	mu.Lock()
+	require.Len(t, captured, 3, "each chunk should produce an event")
+	// Verify all are assistant role with non-empty content (order not guaranteed)
+	contents := make(map[string]bool)
+	for _, e := range captured {
+		data := e.Data.(*events.MessageCreatedData)
+		assert.Equal(t, "assistant", data.Role)
+		contents[data.Content] = true
+	}
+	assert.True(t, contents["Hello"])
+	assert.True(t, contents[" world"])
+	assert.True(t, contents["!"])
 	mu.Unlock()
 }
 
@@ -397,6 +447,7 @@ func TestDefaultRecordingStageConfig(t *testing.T) {
 	cfg := DefaultRecordingStageConfig()
 
 	assert.Equal(t, RecordingPositionInput, cfg.Position)
+	assert.False(t, cfg.IncludeStreamingText, "streaming text off by default")
 	assert.True(t, cfg.IncludeAudio)
 	assert.False(t, cfg.IncludeVideo)
 	assert.True(t, cfg.IncludeImages)
