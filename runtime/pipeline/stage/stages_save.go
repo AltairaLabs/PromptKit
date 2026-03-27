@@ -34,6 +34,11 @@ type IncrementalSaveConfig struct {
 
 	// SummarizeBatchSize is how many messages to summarize at once.
 	SummarizeBatchSize int
+
+	// MessageLog, when set, indicates that messages are already persisted per-round
+	// by the provider stage's write-through. The save stage skips message append
+	// but still handles indexing and summarization.
+	MessageLog statestore.MessageLog
 }
 
 // IncrementalSaveStage saves only new messages from the current turn using
@@ -78,29 +83,40 @@ func (s *IncrementalSaveStage) Process(
 
 	convID := s.config.StateStoreConfig.ConversationID
 
-	// Try MessageAppender for incremental save
-	if appender, ok := s.config.StateStoreConfig.Store.(statestore.MessageAppender); ok {
-		if err := appender.AppendMessages(ctx, convID, newMessages); err != nil {
-			return fmt.Errorf("incremental save: failed to append messages: %w", err)
-		}
-	} else {
-		// Fallback: full load+save cycle
-		if err := s.fullSave(ctx, collected); err != nil {
+	// When MessageLog is NOT active, persist messages via the store.
+	// When MessageLog IS active, messages are already persisted per-round
+	// by the provider stage write-through — skip message append.
+	if s.config.MessageLog == nil {
+		if err := s.persistMessages(ctx, convID, newMessages, collected); err != nil {
 			return err
 		}
 	}
 
-	// Index new messages (Phase 2)
+	// Index and summarize regardless of persistence path
 	if s.config.MessageIndex != nil {
 		s.indexNewMessages(ctx, convID, newMessages)
 	}
-
-	// Auto-summarize if needed (Phase 3)
 	if s.config.Summarizer != nil && s.config.SummarizeThreshold > 0 {
 		s.maybeSummarize(ctx, convID)
 	}
 
 	return nil
+}
+
+// persistMessages saves new messages to the store via MessageAppender or full save fallback.
+func (s *IncrementalSaveStage) persistMessages(
+	ctx context.Context,
+	convID string,
+	newMessages []types.Message,
+	collected *incrementalCollectedData,
+) error {
+	if appender, ok := s.config.StateStoreConfig.Store.(statestore.MessageAppender); ok {
+		if err := appender.AppendMessages(ctx, convID, newMessages); err != nil {
+			return fmt.Errorf("incremental save: failed to append messages: %w", err)
+		}
+		return nil
+	}
+	return s.fullSave(ctx, collected)
 }
 
 // incrementalCollectedData holds data collected during processing.

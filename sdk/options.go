@@ -204,6 +204,9 @@ type config struct {
 
 	// Shutdown manager for graceful conversation cleanup
 	shutdownManager *ShutdownManager
+
+	// MessageLog for per-round write-through during tool loops
+	messageLog statestore.MessageLog
 }
 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.
@@ -812,6 +815,20 @@ func WithMetrics(collector *metrics.Collector, instanceLabels map[string]string)
 func WithLogger(l *slog.Logger) Option {
 	return func(c *config) error {
 		c.logger = l
+		return nil
+	}
+}
+
+// WithMessageLog enables per-round write-through persistence during tool loops.
+// When configured, messages are appended to the log after each tool-loop round
+// completes, so they survive process crashes without waiting for the pipeline's
+// save stage. The save stage skips message append when a MessageLog is active.
+//
+// The store must implement [statestore.MessageLog]. MemoryStore implements it
+// by default. Pass nil to disable.
+func WithMessageLog(log statestore.MessageLog) Option {
+	return func(c *config) error {
+		c.messageLog = log
 		return nil
 	}
 }

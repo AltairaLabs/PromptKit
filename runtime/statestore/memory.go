@@ -463,24 +463,15 @@ func (s *MemoryStore) LoadMetadata(ctx context.Context, id string) (map[string]i
 	return cloneMapStringInterface(state.Metadata), nil
 }
 
-// AppendMessages appends messages to the conversation's message history.
-// If the entry is expired, it is treated as non-existent and a new state is created.
-func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []types.Message) error {
-	if id == "" {
-		return ErrInvalidID
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+// getOrCreateStateLocked returns the state for the given ID, creating it if needed.
+// Caller must hold s.mu write lock.
+func (s *MemoryStore) getOrCreateStateLocked(id string) *ConversationState {
 	state, exists := s.states[id]
 	if exists && s.isExpired(state) {
 		s.deleteStateLocked(id, state)
 		exists = false
 	}
-
 	if !exists {
-		// Evict if at capacity
 		if s.maxEntries > 0 && len(s.states) >= s.maxEntries {
 			s.evictLRULocked()
 		}
@@ -491,14 +482,91 @@ func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []
 		}
 		s.states[id] = state
 	}
+	return state
+}
 
-	// Deep copy new messages before appending using structural cloning
+// appendAndTouch clones messages, appends them, and updates LRU tracking.
+// Caller must hold s.mu write lock.
+func (s *MemoryStore) appendAndTouch(id string, state *ConversationState, messages []types.Message) {
 	state.Messages = append(state.Messages, cloneMessages(messages)...)
 	now := time.Now()
 	state.LastAccessedAt = now
 	s.touchLRULocked(id, now)
+}
 
+// AppendMessages appends messages to the conversation's message history.
+// If the entry is expired, it is treated as non-existent and a new state is created.
+func (s *MemoryStore) AppendMessages(ctx context.Context, id string, messages []types.Message) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := s.getOrCreateStateLocked(id)
+	s.appendAndTouch(id, state, messages)
 	return nil
+}
+
+// LogAppend appends messages with sequence-based idempotent deduplication.
+// Messages before startSeq are already persisted and are skipped.
+func (s *MemoryStore) LogAppend(ctx context.Context, id string, startSeq int, messages []types.Message) (int, error) {
+	if id == "" {
+		return 0, ErrInvalidID
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := s.getOrCreateStateLocked(id)
+	currentLen := len(state.Messages)
+
+	// Clamp startSeq to current length (handles gaps gracefully)
+	if startSeq > currentLen {
+		startSeq = currentLen
+	}
+
+	// Skip messages already persisted (idempotent deduplication)
+	skip := currentLen - startSeq
+	if skip >= len(messages) {
+		return currentLen, nil
+	}
+
+	s.appendAndTouch(id, state, messages[skip:])
+	return len(state.Messages), nil
+}
+
+// LogLoad returns messages for the conversation.
+// If recent > 0, returns only the last N messages.
+// Returns an empty slice if the conversation doesn't exist.
+func (s *MemoryStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, exists := s.states[id]
+	if !exists || s.isExpired(state) {
+		return nil, nil
+	}
+
+	msgs := state.Messages
+	if recent > 0 && recent < len(msgs) {
+		msgs = msgs[len(msgs)-recent:]
+	}
+
+	return cloneMessages(msgs), nil
+}
+
+// LogLen returns the total message count for the conversation.
+// Returns 0 if the conversation doesn't exist.
+func (s *MemoryStore) LogLen(ctx context.Context, id string) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, exists := s.states[id]
+	if !exists || s.isExpired(state) {
+		return 0, nil
+	}
+
+	return len(state.Messages), nil
 }
 
 // LoadSummaries returns all summaries for the given conversation.

@@ -68,6 +68,11 @@ type Config struct {
 	// ConversationID for state store operations
 	ConversationID string
 
+	// MessageLog for per-round write-through during tool loops (optional).
+	// When set, the provider stage persists messages per-round and the
+	// save stage skips message append.
+	MessageLog statestore.MessageLog
+
 	// ContextWindow is the hot window size for RAG context assembly.
 	// When > 0, ContextAssemblyStage + IncrementalSaveStage replace the
 	// standard StateStoreLoad/Save stages.
@@ -340,9 +345,11 @@ func buildProviderStages(cfg *Config) ([]stage.Stage, error) {
 	if cfg.Provider != nil {
 		// Text mode: standard LLM call
 		providerConfig := &stage.ProviderConfig{
-			MaxTokens:      cfg.MaxTokens,
-			Temperature:    cfg.Temperature,
-			ResponseFormat: cfg.ResponseFormat,
+			MaxTokens:        cfg.MaxTokens,
+			Temperature:      cfg.Temperature,
+			ResponseFormat:   cfg.ResponseFormat,
+			MessageLog:       cfg.MessageLog,
+			MessageLogConvID: cfg.ConversationID,
 		}
 		return []stage.Stage{stage.NewProviderStageWithHooks(
 			cfg.Provider,
@@ -373,6 +380,7 @@ func appendStateStoreSaveStages(
 			Summarizer:         cfg.Summarizer,
 			SummarizeThreshold: cfg.SummarizeThreshold,
 			SummarizeBatchSize: cfg.SummarizeBatchSize,
+			MessageLog:         cfg.MessageLog,
 		}))
 	}
 	return append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
