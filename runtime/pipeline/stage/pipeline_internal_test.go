@@ -469,3 +469,150 @@ func TestBaseMetadata(t *testing.T) {
 		}
 	})
 }
+
+// blockingStage blocks until context is cancelled.
+type blockingStage struct {
+	name string
+}
+
+func (s *blockingStage) Name() string    { return s.name }
+func (s *blockingStage) Type() StageType { return StageTypeTransform }
+func (s *blockingStage) Process(ctx context.Context, _ <-chan StreamElement, out chan<- StreamElement) error {
+	defer close(out)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestExecute_IdleTimeoutCancelsWhenIdle(t *testing.T) {
+	config := DefaultPipelineConfig()
+	config.IdleTimeout = 100 * time.Millisecond
+	config.ExecutionTimeout = 0
+
+	p, err := NewPipelineBuilderWithConfig(config).
+		Chain(&blockingStage{name: "block"}).
+		Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// Input that never sends — stage will block until idle timeout fires
+	input := make(chan StreamElement)
+	defer close(input)
+
+	output, err := p.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Output should close within ~300ms (idle timeout at 100ms + processing)
+	timer := time.NewTimer(500 * time.Millisecond)
+	defer timer.Stop()
+	for {
+		select {
+		case _, ok := <-output:
+			if !ok {
+				return // output closed — idle timeout worked
+			}
+		case <-timer.C:
+			t.Fatal("output not closed within 500ms — idle timeout did not fire")
+		}
+	}
+}
+
+func TestExecute_IdleTimeoutDisabledWhenZero(t *testing.T) {
+	config := DefaultPipelineConfig()
+	config.IdleTimeout = 0
+	config.ExecutionTimeout = 0
+
+	p, err := NewPipelineBuilderWithConfig(config).
+		Chain(&testPassthroughStage{name: "pass"}).
+		Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	input := make(chan StreamElement, 1)
+	text := "hello"
+	input <- StreamElement{Text: &text}
+	close(input)
+
+	result, err := p.ExecuteSync(context.Background(), StreamElement{Text: &text})
+	if err != nil {
+		t.Fatalf("ExecuteSync: %v", err)
+	}
+	_ = result // completes normally — no spurious timeout
+}
+
+func TestExecute_BothTimeoutsCoexist(t *testing.T) {
+	config := DefaultPipelineConfig()
+	config.ExecutionTimeout = 500 * time.Millisecond
+	config.IdleTimeout = 100 * time.Millisecond
+
+	p, err := NewPipelineBuilderWithConfig(config).
+		Chain(&blockingStage{name: "block"}).
+		Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	input := make(chan StreamElement)
+	defer close(input)
+
+	start := time.Now()
+	output, err := p.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	for range output {
+	}
+	elapsed := time.Since(start)
+
+	// Should terminate around 100ms (idle), not 500ms (execution)
+	if elapsed > 350*time.Millisecond {
+		t.Errorf("expected termination near 100ms (idle), got %v", elapsed)
+	}
+}
+
+// resetDetectorStage checks whether a reset func is present in the context.
+type resetDetectorStage struct {
+	name  string
+	found bool
+}
+
+func (s *resetDetectorStage) Name() string    { return s.name }
+func (s *resetDetectorStage) Type() StageType { return StageTypeTransform }
+func (s *resetDetectorStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
+	defer close(out)
+	// Check if idle reset func is in context
+	if _, ok := ctx.Value(idleResetKey{}).(func()); ok {
+		s.found = true
+	}
+	for elem := range in {
+		out <- elem
+	}
+	return nil
+}
+
+func TestExecute_IdleResetFuncInContext(t *testing.T) {
+	config := DefaultPipelineConfig()
+	config.IdleTimeout = 5 * time.Second // long enough to not fire
+
+	detector := &resetDetectorStage{name: "detect"}
+	p, err := NewPipelineBuilderWithConfig(config).
+		Chain(detector).
+		Build()
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	text := "test"
+	_, err = p.ExecuteSync(context.Background(), StreamElement{Text: &text})
+	if err != nil {
+		t.Fatalf("ExecuteSync: %v", err)
+	}
+
+	if !detector.found {
+		t.Error("expected idle reset func to be present in context")
+	}
+}

@@ -289,6 +289,7 @@ func (s *ProviderStage) executeMultiRound(
 		}
 
 		messages = append(messages, toolResults...)
+		ResetIdleFromContext(ctx)
 		toolChoice = "auto"
 
 		if round == maxRounds {
@@ -351,6 +352,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		}
 
 		messages = append(messages, toolResults...)
+		ResetIdleFromContext(ctx)
 		toolChoice = "auto"
 
 		if round == maxRounds {
@@ -370,6 +372,8 @@ func (s *ProviderStage) executeRound(
 	round int,
 	metadata map[string]interface{},
 ) (types.Message, bool, error) {
+	ResetIdleFromContext(ctx)
+
 	// Build provider request
 	req := providers.PredictionRequest{
 		System:         systemPrompt,
@@ -547,6 +551,8 @@ func (s *ProviderStage) executeStreamingRound(
 	params *streamingRoundParams,
 	output chan<- StreamElement,
 ) (types.Message, bool, error) {
+	ResetIdleFromContext(ctx)
+
 	// Build provider request
 	req := providers.PredictionRequest{
 		System:         params.systemPrompt,
@@ -760,6 +766,8 @@ func (s *ProviderStage) processStreamChunks(
 	var costInfo *types.CostInfo
 
 	for chunk := range streamChan {
+		ResetIdleFromContext(ctx)
+
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
 			return "", nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
@@ -955,6 +963,7 @@ func (s *ProviderStage) executeSingleToolCall(
 	startTime := time.Now()
 	ctx = tools.WithCallID(ctx, toolCall.ID)
 	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
+	ResetIdleFromContext(ctx)
 	if err != nil {
 		if s.emitter != nil {
 			s.emitter.ToolCallFailedCtx(

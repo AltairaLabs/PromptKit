@@ -2120,3 +2120,71 @@ func TestProviderStage_EmitsProviderCallFailedEvent(t *testing.T) {
 	assert.Equal(t, "error-model", data.Model)
 	assert.Contains(t, data.Error.Error(), "provider unavailable")
 }
+
+// =============================================================================
+// Idle Timeout Reset Tests
+// =============================================================================
+
+func TestProviderStage_ResetsIdleOnStreamChunks(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	})
+
+	// Set up context with a spy reset func
+	var resetCount int32
+	spy := func() { resetCount++ }
+	ctx := contextWithIdleReset(context.Background(), spy)
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "You are a helper"
+	input <- elem
+	close(input)
+
+	output := make(chan StreamElement, 20)
+	err := stage.Process(ctx, input, output)
+	require.NoError(t, err)
+
+	// Drain output
+	for range output {
+	}
+
+	// Mock provider streams multiple chunks — reset should be called at least once
+	// (once per chunk in processStreamChunks, plus round boundaries)
+	assert.Greater(t, resetCount, int32(0), "idle reset should be called during streaming")
+}
+
+func TestProviderStage_ResetsIdleOnNonStreamingRound(t *testing.T) {
+	inner := mock.NewProvider("test-provider", "test-model", false)
+	provider := &nonStreamingProvider{Provider: inner}
+
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	})
+
+	var resetCount int32
+	spy := func() { resetCount++ }
+	ctx := contextWithIdleReset(context.Background(), spy)
+
+	input := make(chan StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := NewMessageElement(&userMsg)
+	elem.Metadata["system_prompt"] = "You are a helper"
+	input <- elem
+	close(input)
+
+	output := make(chan StreamElement, 20)
+	err := stage.Process(ctx, input, output)
+	require.NoError(t, err)
+
+	for range output {
+	}
+
+	// Non-streaming path: reset at round entry + after round
+	assert.Greater(t, resetCount, int32(0), "idle reset should be called for non-streaming rounds")
+}

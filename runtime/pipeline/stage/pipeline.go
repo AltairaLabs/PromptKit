@@ -81,13 +81,31 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 		actualInput = wrapped
 	}
 
-	// Apply execution timeout if configured
+	// Apply execution timeout if configured (hard ceiling)
 	execCtx := ctx
 	var cancel context.CancelFunc
 	if p.config.ExecutionTimeout > 0 {
 		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
 		logger.Debug("Pipeline ExecutionTimeout configured",
 			"timeout", p.config.ExecutionTimeout,
+			"stages", len(p.stages))
+	}
+
+	// Apply idle timeout if configured (resets on activity)
+	if p.config.IdleTimeout > 0 {
+		var idleCancel context.CancelFunc
+		var resetIdle func()
+		execCtx, idleCancel, resetIdle = withIdleTimeout(execCtx, p.config.IdleTimeout)
+		execCtx = contextWithIdleReset(execCtx, resetIdle)
+		prevCancel := cancel
+		cancel = func() {
+			idleCancel()
+			if prevCancel != nil {
+				prevCancel()
+			}
+		}
+		logger.Debug("Pipeline IdleTimeout configured",
+			"timeout", p.config.IdleTimeout,
 			"stages", len(p.stages))
 	}
 

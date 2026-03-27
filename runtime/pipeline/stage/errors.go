@@ -40,6 +40,9 @@ var (
 	// ErrInvalidGracefulShutdownTimeout is returned for invalid graceful shutdown timeout.
 	ErrInvalidGracefulShutdownTimeout = errors.New("graceful shutdown timeout must be non-negative")
 
+	// ErrInvalidIdleTimeout is returned for invalid idle timeout.
+	ErrInvalidIdleTimeout = errors.New("idle timeout must be non-negative")
+
 	// ErrFFmpegNotFound is returned when FFmpeg binary cannot be found.
 	ErrFFmpegNotFound = errors.New("ffmpeg not found")
 
