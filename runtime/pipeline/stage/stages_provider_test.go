@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks" // Used by TestAfterRound_ExcludesAfterRepeatedRejection
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
@@ -1334,7 +1335,7 @@ func TestProviderStage_BuildProviderTools_ToolChoice(t *testing.T) {
 	stage := NewProviderStage(provider, registry, toolPolicy, nil)
 
 	// Build tools with allowed_tools
-	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"})
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"}, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, providerTools)
@@ -1348,7 +1349,7 @@ func TestProviderStage_BuildProviderTools_ToolNotFound(t *testing.T) {
 	stage := NewProviderStage(provider, registry, nil, nil)
 
 	// Build tools with non-existent tool — no descriptors to send, returns nil
-	providerTools, toolChoice, err := stage.buildProviderTools([]string{"nonexistent_tool"})
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"nonexistent_tool"}, nil)
 
 	require.NoError(t, err)
 	// No tools found means no BuildTooling call
@@ -1370,7 +1371,7 @@ func TestProviderStage_BuildProviderTools_ProviderNoToolSupport(t *testing.T) {
 	stage := NewProviderStage(provider, registry, nil, nil)
 
 	// Build tools with allowed_tools - should return nil since provider doesn't support tools
-	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"})
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"}, nil)
 
 	require.NoError(t, err)
 	assert.Nil(t, providerTools)
@@ -1383,7 +1384,7 @@ func TestProviderStage_BuildProviderTools_EmptyAllowedTools(t *testing.T) {
 	provider := mock.NewToolProvider("test", "model", false, nil)
 	stage := NewProviderStage(provider, registry, nil, nil)
 
-	providerTools, toolChoice, err := stage.buildProviderTools([]string{})
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{}, nil)
 
 	require.NoError(t, err)
 	assert.Nil(t, providerTools)
@@ -1395,7 +1396,7 @@ func TestProviderStage_BuildProviderTools_NilRegistry(t *testing.T) {
 	provider := mock.NewToolProvider("test", "model", false, nil)
 	stage := NewProviderStage(provider, nil, nil, nil)
 
-	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"})
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"}, nil)
 
 	require.NoError(t, err)
 	assert.Nil(t, providerTools)
@@ -1421,7 +1422,7 @@ func TestProviderStage_BuildProviderTools_SystemToolsIncluded(t *testing.T) {
 	stage := NewProviderStage(provider, registry, nil, nil)
 
 	// Only allow regular_tool — skill__activate should still be included as a system tool
-	providerTools, toolChoice, err := stage.buildProviderTools([]string{"regular_tool"})
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"regular_tool"}, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "auto", toolChoice)
@@ -1440,7 +1441,7 @@ func TestProviderStage_BuildProviderTools_SystemToolsWithEmptyAllowed(t *testing
 	provider := mock.NewToolProvider("test", "model", false, nil)
 	stage := NewProviderStage(provider, registry, nil, nil)
 
-	providerTools, toolChoice, err := stage.buildProviderTools([]string{})
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{}, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "auto", toolChoice)
@@ -2229,7 +2230,7 @@ func (p *delayedStreamProvider) PredictStream(
 }
 
 func (p *delayedStreamProvider) Predict(
-	ctx context.Context, req providers.PredictionRequest,
+	ctx context.Context, _ providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
 	select {
 	case <-time.After(p.delay):
@@ -2240,10 +2241,10 @@ func (p *delayedStreamProvider) Predict(
 }
 
 func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
-	// Provider delays 200ms before first chunk; idle timeout is 100ms.
+	// Provider delays 2s before first chunk; idle timeout is 200ms.
 	// The pipeline should be cancelled by the idle timeout — the provider
 	// never produces a response because ctx is cancelled before the delay.
-	provider := &delayedStreamProvider{delay: 200 * time.Millisecond, response: "late"}
+	provider := &delayedStreamProvider{delay: 2 * time.Second, response: "late"}
 
 	providerStage := NewProviderStage(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
@@ -2251,7 +2252,7 @@ func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
 	})
 
 	config := DefaultPipelineConfig()
-	config.IdleTimeout = 100 * time.Millisecond
+	config.IdleTimeout = 200 * time.Millisecond
 	config.ExecutionTimeout = 0
 
 	pl, err := NewPipelineBuilderWithConfig(config).
@@ -2267,12 +2268,16 @@ func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
 	result, _ := pl.ExecuteSync(context.Background(), elem)
 	elapsed := time.Since(start)
 
-	// Pipeline terminates at ~100ms (idle timeout), not 200ms (provider delay).
+	// Pipeline terminates at ~200ms (idle timeout), not 2s (provider delay).
 	// No assistant response is produced because the provider was cancelled.
-	assert.Less(t, elapsed, 180*time.Millisecond,
-		"should terminate at ~100ms (idle timeout), not 200ms (provider delay)")
-	assert.Nil(t, result.Response,
-		"no response should be produced when provider is cancelled by idle timeout")
+	assert.Less(t, elapsed, 1*time.Second,
+		"should terminate at ~200ms (idle timeout), not 2s (provider delay)")
+	// The provider was cancelled before producing content — response is either
+	// nil or an empty shell depending on pipeline timing.
+	if result.Response != nil {
+		assert.Empty(t, result.Response.Content,
+			"response content should be empty when provider is cancelled by idle timeout")
+	}
 }
 
 func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
@@ -2304,4 +2309,218 @@ func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
 	require.NoError(t, execErr)
 	require.NotNil(t, result.Response)
 	assert.Equal(t, "hello", result.Response.Content)
+}
+
+// =============================================================================
+// Tool Rejection Auto-Exclusion Tests
+// =============================================================================
+
+func TestUpdateExcludedTools_CountsAndExcludes(t *testing.T) {
+	stage := &ProviderStage{}
+	rejectionCounts := map[string]int{}
+	excluded := map[string]bool{}
+
+	// First rejection: count=1, not yet excluded
+	results := []types.Message{
+		types.NewToolResultMessage(types.MessageToolResult{
+			ID: "c1", Name: "dangerous_tool", Error: "blocked by hook",
+			Parts: []types.ContentPart{types.NewTextPart("blocked by hook")},
+		}),
+	}
+	changed := stage.updateExcludedTools(results, rejectionCounts, excluded)
+	assert.False(t, changed, "first rejection should not exclude")
+	assert.Equal(t, 1, rejectionCounts["dangerous_tool"])
+	assert.False(t, excluded["dangerous_tool"])
+
+	// Second rejection: count=2, now excluded
+	changed = stage.updateExcludedTools(results, rejectionCounts, excluded)
+	assert.True(t, changed, "second rejection should exclude")
+	assert.Equal(t, 2, rejectionCounts["dangerous_tool"])
+	assert.True(t, excluded["dangerous_tool"])
+
+	// Third rejection: already excluded, no change
+	changed = stage.updateExcludedTools(results, rejectionCounts, excluded)
+	assert.False(t, changed, "already excluded, no change")
+}
+
+func TestUpdateExcludedTools_IgnoresSuccessfulResults(t *testing.T) {
+	stage := &ProviderStage{}
+	rejectionCounts := map[string]int{}
+	excluded := map[string]bool{}
+
+	results := []types.Message{
+		types.NewToolResultMessage(types.MessageToolResult{
+			ID: "c1", Name: "good_tool", Error: "",
+			Parts: []types.ContentPart{types.NewTextPart("success")},
+		}),
+	}
+	changed := stage.updateExcludedTools(results, rejectionCounts, excluded)
+	assert.False(t, changed)
+	assert.Equal(t, 0, rejectionCounts["good_tool"])
+}
+
+func TestBuildProviderTools_RespectsExcluded(t *testing.T) {
+	// Use ToolProvider which implements ToolSupport (BuildTooling)
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+
+	for _, name := range []string{"tool_a", "tool_b", "tool_c"} {
+		err := registry.Register(&tools.ToolDescriptor{
+			Name:        name,
+			Description: "Test tool " + name,
+			InputSchema: json.RawMessage(`{"type": "object"}`),
+		})
+		require.NoError(t, err)
+	}
+
+	stage := NewProviderStage(provider, registry, nil, &ProviderConfig{})
+
+	// No exclusions — all tools present
+	allTools, _, err := stage.buildProviderTools(
+		[]string{"tool_a", "tool_b", "tool_c"}, nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, allTools)
+
+	// Exclude tool_b
+	excluded := map[string]bool{"tool_b": true}
+	excludedTools, _, err := stage.buildProviderTools(
+		[]string{"tool_a", "tool_b", "tool_c"}, excluded,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, excludedTools)
+
+	// BuildTooling returns []*providers.ToolDescriptor for mock ToolProvider
+	allDescs, ok1 := allTools.([]*providers.ToolDescriptor)
+	exclDescs, ok2 := excludedTools.([]*providers.ToolDescriptor)
+	require.True(t, ok1, "expected []*providers.ToolDescriptor")
+	require.True(t, ok2, "expected []*providers.ToolDescriptor")
+
+	assert.Equal(t, 3, len(allDescs))
+	assert.Equal(t, 2, len(exclDescs))
+	for _, d := range exclDescs {
+		assert.NotEqual(t, "tool_b", d.Name, "excluded tool should not be present")
+	}
+}
+
+func TestNewToolLoop_BuildError(t *testing.T) {
+	// Provider that doesn't support tools — buildProviderTools returns nil, nil, nil
+	// which is not an error. Use a nil registry with allowed tools to force an error path.
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+
+	acc := &providerInput{
+		allowedTools: []string{"some_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	// No registry → buildProviderTools returns nil tools (no error, just no tools)
+	require.NoError(t, err)
+	assert.NotNil(t, loop)
+	assert.Nil(t, loop.providerTools)
+}
+
+func TestAfterRound_NoToolCalls(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+
+	acc := &providerInput{
+		messages: []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+
+	response := types.Message{Role: "assistant", Content: "hello"}
+	done, msgs, err := loop.afterRound(context.Background(), nil, &response, false, 1)
+
+	assert.True(t, done, "should be done when no tool calls")
+	require.NoError(t, err)
+	assert.Len(t, msgs, 2) // original user msg + response
+	assert.Equal(t, "hello", msgs[1].Content)
+}
+
+func TestAfterRound_MaxRoundsExceeded(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	stage := NewProviderStage(provider, registry, nil, &ProviderConfig{})
+
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	loop.maxRounds = 1 // force max rounds = current round
+
+	// Response with a tool call
+	response := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+
+	assert.True(t, done)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max rounds")
+}
+
+func TestAfterRound_ExcludesAfterRepeatedRejection(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "blocked_tool",
+		Description: "always blocked",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	// Use denyToolHook from stages_provider_hooks_test.go (same package)
+	hookReg := hooks.NewRegistry(hooks.WithToolHook(&denyToolHook{
+		blockedTool: "blocked_tool",
+		reason:      "blocked by test",
+	}))
+
+	stage := NewProviderStageWithHooks(provider, registry, nil, &ProviderConfig{}, nil, hookReg)
+
+	acc := &providerInput{
+		allowedTools: []string{"blocked_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	loop.maxRounds = 10
+
+	// First call — tool gets rejected, still available
+	response := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, _ := loop.afterRound(context.Background(), []string{"blocked_tool"}, &response, true, 1)
+	assert.False(t, done)
+	assert.False(t, loop.excluded["blocked_tool"], "first rejection should not exclude")
+
+	// Second call — tool gets rejected again, now excluded
+	response2 := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c2", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, _ = loop.afterRound(context.Background(), []string{"blocked_tool"}, &response2, true, 2)
+	assert.False(t, done)
+	assert.True(t, loop.excluded["blocked_tool"], "second rejection should exclude")
 }

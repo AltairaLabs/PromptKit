@@ -22,6 +22,7 @@ import (
 const (
 	defaultMaxRounds            = 10
 	defaultMaxParallelToolCalls = 10
+	toolChoiceAuto              = "auto"
 )
 
 // ProviderStage implementation notes:
@@ -257,47 +258,21 @@ func (s *ProviderStage) executeMultiRound(
 	ctx context.Context,
 	acc *providerInput,
 ) ([]types.Message, error) {
-	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools)
+	loop, err := s.newToolLoop(acc)
 	if err != nil {
-		return nil, fmt.Errorf("provider stage: %w", err)
+		return nil, err
 	}
-
-	messages := acc.messages
-	maxRounds := s.getMaxRounds()
-
-	for round := 1; round <= maxRounds; round++ {
+	for round := 1; round <= loop.maxRounds; round++ {
 		response, hasToolCalls, err := s.executeRound(
-			ctx, messages, acc.systemPrompt, providerTools, toolChoice, round, acc.metadata)
+			ctx, loop.messages, acc.systemPrompt, loop.providerTools, loop.toolChoice, round, acc.metadata)
 		if err != nil {
-			return messages, err
+			return loop.messages, err
 		}
-
-		messages = append(messages, response)
-
-		if !hasToolCalls {
-			break
-		}
-
-		toolResults, err := s.executeToolCalls(ctx, response.ToolCalls)
-		if err != nil {
-			// If tools are pending, append completed results and propagate
-			if _, ok := tools.IsErrToolsPending(err); ok {
-				messages = append(messages, toolResults...)
-				return messages, err
-			}
-			return messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
-		}
-
-		messages = append(messages, toolResults...)
-		ResetIdleFromContext(ctx)
-		toolChoice = "auto"
-
-		if round == maxRounds {
-			return messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", maxRounds)
+		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, round); done {
+			return msgs, err
 		}
 	}
-
-	return messages, nil
+	return loop.messages, nil
 }
 
 // getMaxRounds returns the maximum number of tool call rounds.
@@ -313,54 +288,101 @@ func (s *ProviderStage) executeStreamingMultiRound(
 	acc *providerInput,
 	output chan<- StreamElement,
 ) ([]types.Message, error) {
-	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools)
+	loop, err := s.newToolLoop(acc)
 	if err != nil {
-		return nil, fmt.Errorf("provider stage: %w", err)
+		return nil, err
 	}
-
-	messages := acc.messages
-	maxRounds := s.getMaxRounds()
-
-	for round := 1; round <= maxRounds; round++ {
+	for round := 1; round <= loop.maxRounds; round++ {
 		params := &streamingRoundParams{
-			messages:      messages,
+			messages:      loop.messages,
 			systemPrompt:  acc.systemPrompt,
-			providerTools: providerTools,
-			toolChoice:    toolChoice,
+			providerTools: loop.providerTools,
+			toolChoice:    loop.toolChoice,
 			round:         round,
 			metadata:      acc.metadata,
 		}
 		response, hasToolCalls, err := s.executeStreamingRound(ctx, params, output)
 		if err != nil {
-			return messages, err
+			return loop.messages, err
 		}
-
-		messages = append(messages, response)
-
-		if !hasToolCalls {
-			break
-		}
-
-		toolResults, err := s.executeToolCalls(ctx, response.ToolCalls)
-		if err != nil {
-			// If tools are pending, append completed results and propagate
-			if _, ok := tools.IsErrToolsPending(err); ok {
-				messages = append(messages, toolResults...)
-				return messages, err
-			}
-			return messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
-		}
-
-		messages = append(messages, toolResults...)
-		ResetIdleFromContext(ctx)
-		toolChoice = "auto"
-
-		if round == maxRounds {
-			return messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", maxRounds)
+		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, round); done {
+			return msgs, err
 		}
 	}
+	return loop.messages, nil
+}
 
-	return messages, nil
+// toolLoop holds shared state for multi-round tool execution.
+type toolLoop struct {
+	stage           *ProviderStage
+	messages        []types.Message
+	providerTools   interface{}
+	toolChoice      string
+	maxRounds       int
+	excluded        map[string]bool
+	rejectionCounts map[string]int
+}
+
+func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
+	excluded := map[string]bool{}
+	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, excluded)
+	if err != nil {
+		return nil, fmt.Errorf("provider stage: %w", err)
+	}
+	return &toolLoop{
+		stage:           s,
+		messages:        acc.messages,
+		providerTools:   providerTools,
+		toolChoice:      toolChoice,
+		maxRounds:       s.getMaxRounds(),
+		excluded:        excluded,
+		rejectionCounts: map[string]int{},
+	}, nil
+}
+
+// afterRound handles tool execution, rejection tracking, and loop control after
+// a provider round completes. Returns (done, messages, error). When done is true,
+// the caller should return immediately with the provided messages and error.
+func (tl *toolLoop) afterRound(
+	ctx context.Context,
+	allowedTools []string,
+	response *types.Message,
+	hasToolCalls bool,
+	round int,
+) (bool, []types.Message, error) {
+	tl.messages = append(tl.messages, *response)
+
+	if !hasToolCalls {
+		return true, tl.messages, nil
+	}
+
+	toolResults, err := tl.stage.executeToolCalls(ctx, response.ToolCalls)
+	if err != nil {
+		if _, ok := tools.IsErrToolsPending(err); ok {
+			tl.messages = append(tl.messages, toolResults...)
+			return true, tl.messages, err
+		}
+		return true, tl.messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
+	}
+
+	tl.messages = append(tl.messages, toolResults...)
+	ResetIdleFromContext(ctx)
+
+	if tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded) {
+		rebuilt, _, rebuildErr := tl.stage.buildProviderTools(allowedTools, tl.excluded)
+		if rebuildErr != nil {
+			return true, tl.messages, fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
+		}
+		tl.providerTools = rebuilt
+	}
+
+	tl.toolChoice = toolChoiceAuto
+
+	if round == tl.maxRounds {
+		return true, tl.messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", tl.maxRounds)
+	}
+
+	return false, nil, nil
 }
 
 func (s *ProviderStage) executeRound(
@@ -1222,10 +1244,36 @@ func formatToolResult(value interface{}) string {
 	}
 }
 
+// updateExcludedTools increments rejection counts for tools whose results have
+// errors and marks them for exclusion after the second rejection. Returns true
+// if the excluded set changed (caller should rebuild provider tools).
+func (s *ProviderStage) updateExcludedTools(
+	results []types.Message,
+	rejectionCounts map[string]int,
+	excluded map[string]bool,
+) bool {
+	changed := false
+	for i := range results {
+		tr := results[i].ToolResult
+		if tr == nil || tr.Error == "" {
+			continue
+		}
+		rejectionCounts[tr.Name]++
+		if rejectionCounts[tr.Name] > 1 && !excluded[tr.Name] {
+			excluded[tr.Name] = true
+			changed = true
+			logger.Warn("Tool excluded after repeated rejection",
+				"tool", tr.Name, "rejections", rejectionCounts[tr.Name])
+		}
+	}
+	return changed
+}
+
 // buildProviderTools constructs the tool descriptors sent to the provider.
-// It is called once at the start of each multi-round execution (not per round)
-// so the resulting snapshot is reused across all tool-call rounds.
-func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, string, error) {
+// Tools in the excluded set are omitted from the result.
+func (s *ProviderStage) buildProviderTools(
+	allowedTools []string, excluded map[string]bool,
+) (providerTools interface{}, toolChoice string, err error) {
 	if s.toolRegistry == nil {
 		return nil, "", nil
 	}
@@ -1242,6 +1290,9 @@ func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, 
 
 	// 1. Add pack-declared tools from the prompt's allowed list
 	for _, toolName := range allowedTools {
+		if excluded[toolName] {
+			continue
+		}
 		tool, err := s.toolRegistry.GetTool(toolName)
 		if err != nil {
 			logger.Warn("Tool not found in registry", "tool", toolName, "error", err)
@@ -1259,7 +1310,7 @@ func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, 
 	//    These are registered by capabilities and are always available to the LLM.
 	//    Uses IterateTools to avoid a full map copy from GetTools.
 	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-		if seen[name] || !tools.IsSystemTool(name) {
+		if seen[name] || excluded[name] || !tools.IsSystemTool(name) {
 			return
 		}
 		descriptors = append(descriptors, &providers.ToolDescriptor{
@@ -1274,13 +1325,13 @@ func (s *ProviderStage) buildProviderTools(allowedTools []string) (interface{}, 
 	}
 
 	// Build provider-specific tools
-	providerTools, err := toolProvider.BuildTooling(descriptors)
+	providerTools, err = toolProvider.BuildTooling(descriptors)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
 
 	// Determine tool choice from policy
-	toolChoice := "auto" // default
+	toolChoice = toolChoiceAuto // default
 	if s.toolPolicy != nil && s.toolPolicy.ToolChoice != "" {
 		toolChoice = s.toolPolicy.ToolChoice
 	}
