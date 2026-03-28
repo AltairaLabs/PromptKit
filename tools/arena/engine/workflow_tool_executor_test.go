@@ -40,20 +40,20 @@ func TestWorkflowTransitionExecutor_Execute(t *testing.T) {
 	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
 	exec.RegisterRun("test", scenario)
 
-	// Execute Escalate transition
+	// Execute stores pending (deferred)
 	args, _ := json.Marshal(map[string]string{"event": "Escalate", "context": "test"})
 	result, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
 	require.NoError(t, err)
 
-	var res struct {
-		NewState string `json:"new_state"`
-		Event    string `json:"event"`
-	}
+	var res map[string]string
 	require.NoError(t, json.Unmarshal(result, &res))
-	assert.Equal(t, "specialist", res.NewState)
-	assert.Equal(t, "Escalate", res.Event)
+	assert.Equal(t, "transition_scheduled", res["status"])
 
-	// Verify scenario TaskType was updated
+	// TaskType not yet updated (deferred)
+	assert.Equal(t, "intake", scenario.TaskType)
+
+	// Commit applies the transition
+	require.NoError(t, exec.CommitPendingTransition("test"))
 	assert.Equal(t, "specialist", scenario.TaskType)
 }
 
@@ -65,8 +65,12 @@ func TestWorkflowTransitionExecutor_InvalidEvent(t *testing.T) {
 	scenario := &config.Scenario{ID: "test"}
 	exec.RegisterRun("test", scenario)
 
+	// Execute succeeds (stores pending), commit fails
 	args, _ := json.Marshal(map[string]string{"event": "NonExistent"})
 	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
+	require.NoError(t, err) // Execute always succeeds (just stores pending)
+
+	err = exec.CommitPendingTransition("test")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "NonExistent")
 }
@@ -84,10 +88,11 @@ func TestWorkflowTransitionExecutor_WorkflowMetadata(t *testing.T) {
 	assert.Equal(t, "intake", meta["workflow_current_state"])
 	assert.Equal(t, false, meta["workflow_complete"])
 
-	// After transition
+	// After transition (execute + commit)
 	args, _ := json.Marshal(map[string]string{"event": "Escalate"})
 	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
 	require.NoError(t, err)
+	require.NoError(t, exec.CommitPendingTransition("test"))
 
 	meta = exec.RunMetadata("test")
 	assert.Equal(t, "specialist", meta["workflow_current_state"])
@@ -110,6 +115,7 @@ func TestWorkflowTransitionExecutor_TerminalState(t *testing.T) {
 	args, _ := json.Marshal(map[string]string{"event": "Resolve"})
 	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
 	require.NoError(t, err)
+	require.NoError(t, exec.CommitPendingTransition("test"))
 
 	meta := exec.RunMetadata("test")
 	assert.Equal(t, true, meta["workflow_complete"])
@@ -130,12 +136,14 @@ func TestWorkflowTransitionExecutor_ConcurrentRuns(t *testing.T) {
 	args, _ := json.Marshal(map[string]string{"event": "Escalate"})
 	_, err := exec.Execute(ctx1, nil, args)
 	require.NoError(t, err)
+	require.NoError(t, exec.CommitPendingTransition("s1"))
 	assert.Equal(t, "specialist", s1.TaskType)
 
 	// s2 should still be able to Escalate (its own state machine)
 	ctx2 := withWorkflowScenarioID(context.Background(), "s2")
 	_, err = exec.Execute(ctx2, nil, args)
 	require.NoError(t, err)
+	require.NoError(t, exec.CommitPendingTransition("s2"))
 	assert.Equal(t, "specialist", s2.TaskType)
 }
 
@@ -165,23 +173,17 @@ func TestWorkflowTransitionExecutor_MaxVisitsRedirect(t *testing.T) {
 
 	// First transition: start -> loop (visit 1)
 	args, _ := json.Marshal(map[string]string{"event": "Go", "context": "test"})
-	result, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
+	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
 	require.NoError(t, err)
-
-	var res struct {
-		NewState string `json:"new_state"`
-		Event    string `json:"event"`
-	}
-	require.NoError(t, json.Unmarshal(result, &res))
-	assert.Equal(t, "loop", res.NewState)
+	require.NoError(t, exec.CommitPendingTransition("test"))
+	assert.Equal(t, "loop", scenario.TaskType)
 
 	// Second transition: loop -> loop, but max_visits=1 so redirect to done
 	args2, _ := json.Marshal(map[string]string{"event": "Again", "context": "test"})
-	result2, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args2)
+	_, err = exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args2)
 	require.NoError(t, err)
-
-	require.NoError(t, json.Unmarshal(result2, &res))
-	assert.Equal(t, "done", res.NewState, "should redirect to on_max_visits target")
+	require.NoError(t, exec.CommitPendingTransition("test"))
+	assert.Equal(t, "done", scenario.TaskType, "should redirect to on_max_visits target")
 
 	// Verify redirect info in transitions metadata
 	meta := exec.RunMetadata("test")
@@ -201,7 +203,7 @@ func TestRegisterTransitionTool(t *testing.T) {
 
 	tool := registry.Get(workflow.TransitionToolName)
 	require.NotNil(t, tool)
-	assert.Equal(t, workflowTransitionMode, tool.Mode)
+	assert.Equal(t, workflow.TransitionExecutorMode, tool.Mode)
 }
 
 func TestRegisterTransitionTool_TerminalState(t *testing.T) {

@@ -84,6 +84,11 @@ func (e *TransitionExecutor) Pending() *PendingTransition {
 	return e.pending
 }
 
+// StateMachine returns the underlying state machine for metadata access.
+func (e *TransitionExecutor) StateMachine() *StateMachine {
+	return e.sm
+}
+
 // ClearPending discards any pending transition without committing.
 func (e *TransitionExecutor) ClearPending() {
 	e.mu.Lock()

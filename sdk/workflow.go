@@ -47,14 +47,9 @@ type WorkflowConversation struct {
 	workflowID          string
 	contextCarryForward bool
 	workflowCap         *WorkflowCapability
-	pendingTransition   *pendingTransition
+	transExec           *workflow.TransitionExecutor
+	artifactExec        *workflow.ArtifactExecutor
 	closed              bool
-}
-
-// pendingTransition captures an LLM-initiated transition from a tool call.
-type pendingTransition struct {
-	event   string
-	context string
 }
 
 // defaultMaxSummaryMessages is the max messages to include in a carry-forward summary.
@@ -243,7 +238,9 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 		return nil, ErrWorkflowClosed
 	}
 	conv := wc.activeConv
-	wc.pendingTransition = nil
+	if wc.transExec != nil {
+		wc.transExec.ClearPending()
+	}
 	wc.mu.Unlock()
 
 	resp, err := conv.Send(ctx, message, opts...)
@@ -251,18 +248,25 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 		return nil, err
 	}
 
-	// Process pending transition from tool call
+	// Commit any pending transition from a workflow__transition tool call.
+	// The TransitionExecutor deferred the ProcessEvent until now.
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
-	// Re-check closed after re-acquiring lock; Close() may have run while Send was in progress.
 	if wc.closed {
 		return nil, ErrWorkflowClosed
 	}
-	if wc.pendingTransition != nil {
-		pt := wc.pendingTransition
-		wc.pendingTransition = nil
-		if _, transErr := wc.transitionInternal(pt.event, pt.context); transErr != nil {
-			return resp, transErr
+	if wc.transExec != nil {
+		if pending := wc.transExec.Pending(); pending != nil {
+			contextSummary := pending.ContextSummary
+			result, commitErr := wc.transExec.CommitPending()
+			if commitErr != nil {
+				return resp, commitErr
+			}
+			if result != nil {
+				if _, transErr := wc.applyTransition(result, contextSummary); transErr != nil {
+					return resp, transErr
+				}
+			}
 		}
 	}
 	return resp, nil
@@ -298,34 +302,82 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 	return wc.transitionInternal(event, contextSummary)
 }
 
-// registerWorkflowTools registers the workflow__transition tool and handler
-// for the current state on the active conversation.
+// registerWorkflowTools registers the workflow tool executors and descriptors
+// for the current state on the active conversation's tool registry.
 func (wc *WorkflowConversation) registerWorkflowTools() {
+	registry := wc.activeConv.ToolRegistry()
 	state := wc.workflowSpec.States[wc.machine.CurrentState()]
-	if wc.workflowCap != nil {
-		wc.workflowCap.RegisterToolsForState(wc.activeConv.ToolRegistry(), state)
-	}
 
-	// Register tool handler only if the state has events and is not externally orchestrated
-	if state != nil && len(state.OnEvent) > 0 && state.Orchestration != workflow.OrchestrationExternal {
-		wc.activeConv.OnTool(workflow.TransitionToolName, wc.handleTransitionTool)
-	}
+	// Create and register transition executor (deferred commit pattern)
+	wc.transExec = workflow.NewTransitionExecutor(wc.machine, wc.workflowSpec)
+	registry.RegisterExecutor(wc.transExec)
+	wc.transExec.RegisterForState(registry, state)
+
+	// Create and register artifact executor if spec declares artifacts
+	wc.artifactExec = workflow.NewArtifactExecutor(wc.machine)
+	registry.RegisterExecutor(wc.artifactExec)
+	workflow.RegisterArtifactTool(registry, wc.workflowSpec)
 }
 
-// handleTransitionTool processes the workflow__transition tool call from the LLM.
-// It stores the transition request for processing after Send completes.
-func (wc *WorkflowConversation) handleTransitionTool(args map[string]any) (any, error) {
-	event, _ := args["event"].(string)
-	ctx, _ := args["context"].(string)
+// applyTransition handles post-commit transition logic: close old conversation,
+// open new one, re-register tools, persist context, emit events.
+func (wc *WorkflowConversation) applyTransition(
+	result *workflow.TransitionResult, contextSummary string,
+) (string, error) {
+	toState := result.To
 
-	wc.mu.Lock()
-	wc.pendingTransition = &pendingTransition{event: event, context: ctx}
-	wc.mu.Unlock()
+	// Close old conversation
+	if wc.activeConv != nil {
+		_ = wc.activeConv.Close()
+	}
 
-	return transitionResult(event, wc.workflowSpec), nil
+	// Build options, injecting context as a template variable if available
+	opts := wc.opts
+	if contextSummary != "" {
+		opts = append(append([]Option{}, wc.opts...), WithVariables(map[string]string{
+			"workflow_context": contextSummary,
+		}))
+	}
+
+	// Inject artifact values as template variables
+	if arts := wc.machine.Artifacts(); len(arts) > 0 {
+		artVars := make(map[string]string, len(arts))
+		for k, v := range arts {
+			artVars["artifacts."+k] = v
+		}
+		opts = append(append([]Option{}, opts...), WithVariables(artVars))
+	}
+
+	// Open new conversation for the new state
+	promptName := wc.machine.CurrentPromptTask()
+	conv, err := Open(wc.packPath, promptName, opts...)
+	if err != nil {
+		return "", fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
+			toState, promptName, err)
+	}
+	wc.activeConv = conv
+
+	// Re-register workflow tools for the new state
+	wc.registerWorkflowTools()
+
+	// Persist workflow context if state store is configured
+	if wc.stateStore != nil && wc.workflowID != "" {
+		wc.persistWorkflowContext()
+	}
+
+	// Emit transition event
+	if wc.emitter != nil {
+		wc.emitter.WorkflowTransitioned(result.From, toState, result.Event, promptName)
+		if wc.machine.IsTerminal() {
+			wc.emitter.WorkflowCompleted(toState, wc.machine.Context().TransitionCount())
+		}
+	}
+
+	return toState, nil
 }
 
 // transitionResult builds a response to return to the LLM after a transition tool call.
+// Kept for backward compatibility with explicit Transition() calls.
 func transitionResult(event string, spec *workflow.Spec) map[string]string {
 	result := map[string]string{
 		"status": "transition_scheduled",
