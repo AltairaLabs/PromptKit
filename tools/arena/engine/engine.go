@@ -33,6 +33,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -83,6 +84,7 @@ type Engine struct {
 	evalOrchestrator     *EvalOrchestrator            // Orchestrates eval and assertion execution during runs
 	workflowSpec         *workflow.Spec               // Optional workflow spec (set if config.Workflow != nil)
 	workflowTransExec    *workflowTransitionExecutor  // Optional transition executor (set if config.Workflow != nil)
+	memoryStore          *memory.InMemoryStore        // Optional memory store (set if config.Memory != nil)
 	recordingConfig      *stage.RecordingStageConfig  // Optional — enables RecordingStage in pipelines
 }
 
@@ -148,6 +150,14 @@ func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
 			a2aCleanup()
 		}
 		return nil, fmt.Errorf("failed to initialize workflow: %w", err)
+	}
+
+	// Initialize memory subsystem if configured
+	if err := eng.initMemory(); err != nil {
+		if a2aCleanup != nil {
+			a2aCleanup()
+		}
+		return nil, fmt.Errorf("failed to initialize memory: %w", err)
 	}
 
 	// Use the eval orchestrator from the conversation executor — it already has

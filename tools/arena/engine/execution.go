@@ -388,6 +388,11 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Prepare workflow scenarios: shallow-copy to avoid mutating the shared
 	// scenario, then set TaskType from state machine and wire metadata.
+	// Register per-run memory scope if memory is enabled
+	if e.memoryStore != nil {
+		e.registerMemoryForRun(combo.ScenarioID, runID)
+	}
+
 	var workflowOrch *EvalOrchestrator
 	if e.workflowSpec != nil {
 		wfScenario := *scenario

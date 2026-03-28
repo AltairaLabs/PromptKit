@@ -1,0 +1,54 @@
+# Mock responses for the memory agent scenarios.
+# Responses are keyed by scenario ID and turn number.
+#
+# When the mock provider returns tool_calls, the real memory executor
+# handles them — the InMemoryStore actually stores and retrieves data.
+
+scenarios:
+  preference-recall:
+    turns:
+      # Turn 1: User says they prefer dark mode — agent stores it
+      1:
+        response: "I'll remember that you prefer dark mode!"
+        tool_calls:
+          - name: memory__remember
+            arguments:
+              content: "User prefers dark mode for everything"
+              type: "preference"
+              confidence: 0.95
+      2: "Got it, your dark mode preference has been saved."
+
+      # Turn 2: User asks about preferences — agent recalls
+      3:
+        response: "Let me check what I know about your preferences."
+        tool_calls:
+          - name: memory__recall
+            arguments:
+              query: "preferences"
+              types: ["preference"]
+      4: "Based on my memory, I know you prefer dark mode for everything."
+
+  cross-turn-memory:
+    turns:
+      # Turn 1: User introduces themselves — agent stores facts
+      1:
+        response: "Great to meet you, Craig! I'll remember that."
+        tool_calls:
+          - name: memory__remember
+            arguments:
+              content: "User's name is Craig, Go developer, working on agent platform called Omnia"
+              type: "fact"
+              confidence: 0.95
+      2: "Nice to meet you, Craig! I've noted that you're a Go developer working on Omnia."
+
+      # Turn 2: User asks for recommendation (no memory tools needed)
+      3: "For storing vector embeddings, I'd recommend PostgreSQL with the pgvector extension. Since you're working with Go, the pgx driver has excellent pgvector support. Other options include Qdrant (Rust-based, fast) or Weaviate (Go-based)."
+
+      # Turn 3: User asks what agent remembers — agent recalls
+      4:
+        response: "Let me check what I remember."
+        tool_calls:
+          - name: memory__recall
+            arguments:
+              query: "user work projects"
+      5: "From our conversation, I remember that your name is Craig, you're a Go developer, and you're working on an agent platform called Omnia."

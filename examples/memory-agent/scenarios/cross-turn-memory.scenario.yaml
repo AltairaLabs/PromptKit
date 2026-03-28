@@ -1,0 +1,41 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: cross-turn-memory-scenario
+spec:
+  id: "cross-turn-memory"
+  task_type: assistant
+  description: "Tests that the agent proactively uses memory across multiple conversation turns"
+
+  turns:
+    - role: user
+      content: "My name is Craig and I'm a Go developer working on an agent platform called Omnia."
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["memory__remember"]
+          message: "Agent should store key facts about the user"
+        - type: min_length
+          params:
+            min: 20
+          message: "Agent should acknowledge the information"
+
+    - role: user
+      content: "Can you recommend a good database for storing vector embeddings?"
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(pgvector|postgres|pinecone|weaviate|qdrant|milvus|chroma)"
+          message: "Agent should recommend a vector database"
+
+    - role: user
+      content: "What do you remember about what I'm working on?"
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["memory__recall"]
+          message: "Agent should recall stored information"
+        - type: content_matches
+          params:
+            pattern: "(?i)(omnia|agent|platform|go)"
+          message: "Agent should recall details about the user's work"

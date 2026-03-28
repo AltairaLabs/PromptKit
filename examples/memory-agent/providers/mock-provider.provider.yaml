@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-memory-provider
+spec:
+  id: mock-memory
+  type: mock
+  model: mock-model
+  additional_config:
+    mock_config: mock-responses.yaml
+  defaults:
+    temperature: 0.7
+    max_tokens: 1500
+    top_p: 1.0

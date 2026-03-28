@@ -85,6 +85,7 @@ type Config struct {
 	PackEvals      []evals.EvalDef   `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
 	PackAssertions []AssertionConfig `yaml:"pack_assertions,omitempty" json:"pack_assertions,omitempty"`
 	Workflow       interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+	Memory         interface{}       `yaml:"memory,omitempty" json:"memory,omitempty"`
 	Agents         interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
 	Deploy         *DeployConfig     `yaml:"deploy,omitempty" json:"deploy,omitempty"`
 	MCPServers     []MCPServerConfig `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`

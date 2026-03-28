@@ -386,6 +386,7 @@
           "type": "array"
         },
         "workflow": true,
+        "memory": true,
         "agents": true,
         "deploy": {
           "$ref": "#/$defs/DeployConfig"
