@@ -92,8 +92,16 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 		}
 
 		beforeTokens := tokenizer.CountMessageTokensDefault([]types.Message{*msg})
-		msg.Content = foldToolResult(msg)
+		folded := foldToolResult(msg)
+		msg.Content = folded
 		msg.Parts = nil // clear multimodal parts
+		// Update ToolResult.Parts so GetContent() (which reads from ToolResult
+		// for tool messages) returns the folded content for token counting.
+		if msg.ToolResult != nil {
+			msg.ToolResult.Parts = []types.ContentPart{
+				{Type: types.ContentTypeText, Text: &folded},
+			}
+		}
 		afterTokens := tokenizer.CountMessageTokensDefault([]types.Message{*msg})
 
 		totalTokens -= beforeTokens - afterTokens
@@ -124,8 +132,10 @@ func isCompactable(msg *types.Message) bool {
 	if msg.ToolResult != nil && msg.ToolResult.Error != "" {
 		return false
 	}
-	// Already compacted or too small to bother — skip
-	if len(msg.Content) < 50 || strings.Contains(msg.Content, compactedMarker) {
+	// Already compacted or too small to bother — skip.
+	// Use GetContent() which reads from ToolResult.Parts for tool messages.
+	content := msg.GetContent()
+	if len(content) < 50 || strings.Contains(content, compactedMarker) {
 		return false
 	}
 	return true
@@ -157,7 +167,7 @@ func foldToolResult(msg *types.Message) string {
 	}
 
 	// Text-only: preview + size
-	content := msg.Content
+	content := msg.GetContent()
 	originalBytes := len(content)
 
 	preview := content

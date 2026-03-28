@@ -295,4 +295,86 @@ func TestFoldToolResult_ShortContent(t *testing.T) {
 	assert.Contains(t, folded, compactedMarker)
 }
 
+func TestCompactor_LastInputTokensTriggersCompaction(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   10000,
+		Threshold:      0.70,
+		PinRecentCount: 2,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hello"},
+		largeToolResult("file_read", 500),
+		{Role: "assistant", Content: "got it"},
+		{Role: "user", Content: "next"},
+	}
+
+	// With heuristic counting, these messages are well under budget (10000 * 0.7 = 7000).
+	result := c.Compact(msgs, 0)
+	assert.Zero(t, result.MessagesFolded, "heuristic should not trigger compaction")
+
+	// Pretend the provider reported 8000 input tokens (above 7000 threshold).
+	// This should trigger compaction even though heuristic says we're fine.
+	result = c.Compact(msgs, 8000)
+	assert.Greater(t, result.MessagesFolded, 0, "lastInputTokens above threshold should trigger compaction")
+}
+
+func TestCompactor_LastInputTokensBelowThresholdSkips(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   10000,
+		Threshold:      0.70,
+		PinRecentCount: 2,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hello"},
+		largeToolResult("file_read", 500),
+		{Role: "assistant", Content: "got it"},
+		{Role: "user", Content: "next"},
+	}
+
+	// Provider says 5000 tokens — under 7000 threshold.
+	result := c.Compact(msgs, 5000)
+	assert.Zero(t, result.MessagesFolded, "lastInputTokens below threshold should skip compaction")
+}
+
+func TestCompactor_CompactResultMetadata(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   500,
+		Threshold:      0.70,
+		PinRecentCount: 2,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		largeToolResult("big_tool", 2000),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	result := c.Compact(msgs, 0)
+	assert.Greater(t, result.MessagesFolded, 0, "should fold at least one message")
+	assert.Greater(t, result.OriginalTokens, 0, "OriginalTokens should be positive")
+	assert.Greater(t, result.CompactedTokens, 0, "CompactedTokens should be positive")
+	assert.Less(t, result.CompactedTokens, result.OriginalTokens,
+		"CompactedTokens should be less than OriginalTokens after folding")
+}
+
+func TestCompactor_NoOpResultMetadata(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens: 10000,
+		Threshold:    0.70,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi"},
+	}
+
+	result := c.Compact(msgs, 0)
+	assert.Zero(t, result.MessagesFolded)
+	assert.Zero(t, result.OriginalTokens, "no-op should not compute tokens")
+	assert.Zero(t, result.CompactedTokens)
+}
+
 func stringPtr(s string) *string { return &s }

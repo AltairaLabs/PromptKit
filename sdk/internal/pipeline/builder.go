@@ -359,7 +359,9 @@ func buildProviderStages(cfg *Config) ([]stage.Stage, error) {
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {
 			budgetTokens := stage.DefaultBudgetTokens
 			if cwp, ok := cfg.Provider.(providers.ContextWindowProvider); ok {
-				budgetTokens = cwp.MaxContextTokens()
+				if v := cwp.MaxContextTokens(); v > 0 {
+					budgetTokens = v
+				}
 			}
 			providerConfig.Compactor = &stage.ContextCompactor{
 				BudgetTokens: budgetTokens,

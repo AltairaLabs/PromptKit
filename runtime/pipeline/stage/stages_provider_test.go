@@ -2764,3 +2764,148 @@ func TestAfterRound_ExcludesAfterRepeatedRejection(t *testing.T) {
 	assert.False(t, done)
 	assert.True(t, loop.excluded["blocked_tool"], "second rejection should exclude")
 }
+
+func TestAfterRound_CostBudgetExceeded(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	stage := NewProviderStage(provider, registry,
+		&pipeline.ToolPolicy{MaxCostUSD: 0.10},
+		&ProviderConfig{},
+	)
+
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+
+	// Round 1: cost under budget
+	response1 := types.Message{
+		Role:     "assistant",
+		CostInfo: &types.CostInfo{TotalCost: 0.05},
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response1, true, 1)
+	assert.False(t, done, "should continue when under budget")
+	require.NoError(t, err)
+	assert.InDelta(t, 0.05, loop.cumulativeCost, 0.001)
+
+	// Round 2: cost exceeds budget (0.05 + 0.06 = 0.11 > 0.10)
+	response2 := types.Message{
+		Role:     "assistant",
+		CostInfo: &types.CostInfo{TotalCost: 0.06},
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c2", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response2, true, 2)
+	assert.True(t, done, "should stop when cost budget exceeded")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cost budget exceeded")
+	assert.Contains(t, err.Error(), "0.1100")
+	assert.Contains(t, err.Error(), "0.1000")
+	assert.NotEmpty(t, msgs, "should return messages even on budget exceeded")
+}
+
+func TestAfterRound_CostBudgetZeroIsUnlimited(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil,
+		&pipeline.ToolPolicy{MaxCostUSD: 0}, // zero = unlimited
+		&ProviderConfig{},
+	)
+
+	acc := &providerInput{
+		messages: []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+
+	// Even with high cost, should not terminate
+	response := types.Message{
+		Role:     "assistant",
+		Content:  "done",
+		CostInfo: &types.CostInfo{TotalCost: 999.99},
+	}
+	done, _, err := loop.afterRound(context.Background(), nil, &response, false, 1)
+	assert.True(t, done, "done because no tool calls")
+	require.NoError(t, err, "should not error — zero MaxCostUSD means unlimited")
+}
+
+func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	stg := NewProviderStageWithHooks(provider, registry, nil, &ProviderConfig{
+		Compactor: &ContextCompactor{
+			BudgetTokens:   100, // very low to force compaction
+			Threshold:      0.50,
+			PinRecentCount: 2,
+		},
+	}, emitter, nil)
+
+	// Build messages with a large tool result that will be compacted
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		largeToolResult("file_read", 2000),
+		{Role: "assistant", Content: "got the file"},
+	}
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages:     msgs,
+	}
+	loop, err := stg.newToolLoop(acc)
+	require.NoError(t, err)
+
+	// Subscribe before the event
+	var receivedEvent *events.Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(events.EventContextCompacted, func(e *events.Event) {
+		receivedEvent = e
+		wg.Done()
+	})
+
+	// afterRound with tool calls triggers compaction
+	response := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, 1)
+	assert.False(t, done)
+	require.NoError(t, err)
+
+	// Wait for event delivery
+	wg.Wait()
+	require.NotNil(t, receivedEvent, "should have received context.compacted event")
+	assert.Equal(t, events.EventContextCompacted, receivedEvent.Type)
+	data, ok := receivedEvent.Data.(*events.ContextCompactionData)
+	require.True(t, ok, "event data should be *ContextCompactionData")
+	assert.Equal(t, 1, data.Round)
+	assert.Greater(t, data.MessagesFolded, 0)
+	assert.Greater(t, data.OriginalTokens, data.CompactedTokens)
+	assert.Equal(t, 100, data.BudgetTokens)
+}

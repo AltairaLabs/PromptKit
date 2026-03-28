@@ -410,13 +410,11 @@ func (tl *toolLoop) afterRound(
 	tl.toolChoice = toolChoiceAuto
 
 	// Compact stale tool results before next round's provider call.
-	// Uses actual token count from the last provider response when available.
+	// Pass 0 for lastInputTokens: the provider's InputTokens reflects what it
+	// saw on the last call, but we've since appended the assistant response and
+	// tool results — using the stale count would under-compact.
 	if tl.stage.config != nil && tl.stage.config.Compactor != nil {
-		lastInputTokens := 0
-		if response.CostInfo != nil {
-			lastInputTokens = response.CostInfo.InputTokens
-		}
-		cr := tl.stage.config.Compactor.Compact(tl.messages, lastInputTokens)
+		cr := tl.stage.config.Compactor.Compact(tl.messages, 0)
 		tl.messages = cr.Messages
 		if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
 			tl.stage.emitter.ContextCompacted(round, cr.OriginalTokens, cr.CompactedTokens,
