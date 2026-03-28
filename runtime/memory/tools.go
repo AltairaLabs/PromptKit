@@ -181,6 +181,13 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 			Namespace: "memory",
 			Description: "Search your memories for relevant information. " +
 				"Use this to recall facts, preferences, or context from previous conversations.",
+			OutputSchema: mustJSON(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"memories": map[string]any{"type": "array"},
+					"count":    map[string]any{"type": "integer"},
+				},
+			}),
 			InputSchema: mustJSON(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -210,6 +217,13 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 			Namespace: "memory",
 			Description: "Store something in memory for future conversations. " +
 				"Use this to remember user preferences, important facts, or decisions.",
+			OutputSchema: mustJSON(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"status": map[string]any{"type": "string"},
+					"id":     map[string]any{"type": "string"},
+				},
+			}),
 			InputSchema: mustJSON(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -237,6 +251,13 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 			Name:        ListToolName,
 			Namespace:   "memory",
 			Description: "List stored memories, optionally filtered by type.",
+			OutputSchema: mustJSON(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"memories": map[string]any{"type": "array"},
+					"count":    map[string]any{"type": "integer"},
+				},
+			}),
 			InputSchema: mustJSON(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -256,6 +277,13 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 			Name:        ForgetToolName,
 			Namespace:   "memory",
 			Description: "Delete a specific memory by ID.",
+			OutputSchema: mustJSON(map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"status":    map[string]any{"type": "string"},
+					"memory_id": map[string]any{"type": "string"},
+				},
+			}),
 			InputSchema: mustJSON(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
