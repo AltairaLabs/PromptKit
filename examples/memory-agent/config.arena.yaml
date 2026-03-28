@@ -8,7 +8,7 @@ spec:
       file: prompts/memory-assistant.yaml
 
   providers:
-    - file: providers/mock-provider.provider.yaml
+    - file: providers/openai.provider.yaml
 
   scenarios:
     - file: scenarios/preference-recall.scenario.yaml
