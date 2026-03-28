@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -51,6 +52,15 @@ type ProviderConfig struct {
 	ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
 	Labels         map[string]string         // Optional labels propagated to events, metrics, and traces
 	Source         string                    // Origin of the call: "agent" (default), "judge", "selfplay"
+
+	// MessageLog enables per-round write-through persistence during tool loops.
+	// When set, messages are appended to the log after each tool-loop round
+	// completes, so they survive process crashes. Best-effort: failures are
+	// logged but don't abort the loop.
+	MessageLog statestore.MessageLog
+
+	// MessageLogConvID is the conversation ID for message log operations.
+	MessageLogConvID string
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -314,13 +324,14 @@ func (s *ProviderStage) executeStreamingMultiRound(
 
 // toolLoop holds shared state for multi-round tool execution.
 type toolLoop struct {
-	stage           *ProviderStage
-	messages        []types.Message
-	providerTools   interface{}
-	toolChoice      string
-	maxRounds       int
-	excluded        map[string]bool
-	rejectionCounts map[string]int
+	stage            *ProviderStage
+	messages         []types.Message
+	providerTools    interface{}
+	toolChoice       string
+	maxRounds        int
+	excluded         map[string]bool
+	rejectionCounts  map[string]int
+	lastPersistedSeq int // messages persisted so far via MessageLog
 }
 
 func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
@@ -330,13 +341,14 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
 	return &toolLoop{
-		stage:           s,
-		messages:        acc.messages,
-		providerTools:   providerTools,
-		toolChoice:      toolChoice,
-		maxRounds:       s.getMaxRounds(),
-		excluded:        excluded,
-		rejectionCounts: map[string]int{},
+		stage:            s,
+		messages:         acc.messages,
+		providerTools:    providerTools,
+		toolChoice:       toolChoice,
+		maxRounds:        s.getMaxRounds(),
+		excluded:         excluded,
+		rejectionCounts:  map[string]int{},
+		lastPersistedSeq: len(acc.messages), // history already in store
 	}, nil
 }
 
@@ -353,6 +365,7 @@ func (tl *toolLoop) afterRound(
 	tl.messages = append(tl.messages, *response)
 
 	if !hasToolCalls {
+		tl.persistMessages(ctx, round)
 		return true, tl.messages, nil
 	}
 
@@ -360,6 +373,7 @@ func (tl *toolLoop) afterRound(
 	if err != nil {
 		if _, ok := tools.IsErrToolsPending(err); ok {
 			tl.messages = append(tl.messages, toolResults...)
+			tl.persistMessages(ctx, round)
 			return true, tl.messages, err
 		}
 		return true, tl.messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
@@ -367,6 +381,7 @@ func (tl *toolLoop) afterRound(
 
 	tl.messages = append(tl.messages, toolResults...)
 	ResetIdleFromContext(ctx)
+	tl.persistMessages(ctx, round)
 
 	if tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded) {
 		rebuilt, _, rebuildErr := tl.stage.buildProviderTools(allowedTools, tl.excluded)
@@ -383,6 +398,25 @@ func (tl *toolLoop) afterRound(
 	}
 
 	return false, nil, nil
+}
+
+// persistMessages writes new messages to the MessageLog if configured.
+// Best-effort: failures are logged but don't affect the tool loop.
+func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
+	cfg := tl.stage.config
+	if cfg == nil || cfg.MessageLog == nil {
+		return
+	}
+	newMsgs := tl.messages[tl.lastPersistedSeq:]
+	if len(newMsgs) == 0 {
+		return
+	}
+	newTotal, err := cfg.MessageLog.LogAppend(ctx, cfg.MessageLogConvID, tl.lastPersistedSeq, newMsgs)
+	if err != nil {
+		logger.Warn("message log append failed", "round", round, "error", err)
+		return
+	}
+	tl.lastPersistedSeq = newTotal
 }
 
 func (s *ProviderStage) executeRound(

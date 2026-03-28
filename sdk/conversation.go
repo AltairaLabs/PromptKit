@@ -419,6 +419,7 @@ func (c *Conversation) buildPipelineConfig(
 		SummarizeBatchSize:    c.config.summarizeBatchSize,
 		HookRegistry:          c.hookRegistry,
 		ExecutionTimeout:      c.config.executionTimeout,
+		MessageLog:            c.config.messageLog,
 	}
 
 	// Wire recording config if enabled

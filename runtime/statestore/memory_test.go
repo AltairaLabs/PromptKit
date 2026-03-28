@@ -3,6 +3,7 @@ package statestore
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -1378,4 +1379,147 @@ func TestCloneRawMessage_Nil(t *testing.T) {
 func TestCloneMapStringInterface_Nil(t *testing.T) {
 	result := cloneMapStringInterface(nil)
 	assert.Nil(t, result)
+}
+
+// =============================================================================
+// MessageLog Tests
+// =============================================================================
+
+func makeMsg(role, content string) types.Message {
+	return types.Message{Role: role, Content: content}
+}
+
+func TestMemoryStore_MessageLog_Append(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	msgs := []types.Message{
+		makeMsg("user", "hello"),
+		makeMsg("assistant", "hi"),
+		makeMsg("user", "how are you"),
+	}
+
+	total, err := store.LogAppend(ctx, "conv-1", 0, msgs)
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+
+	length, err := store.LogLen(ctx, "conv-1")
+	require.NoError(t, err)
+	assert.Equal(t, 3, length)
+
+	loaded, err := store.LogLoad(ctx, "conv-1", 0)
+	require.NoError(t, err)
+	require.Len(t, loaded, 3)
+	assert.Equal(t, "hello", loaded[0].Content)
+	assert.Equal(t, "hi", loaded[1].Content)
+	assert.Equal(t, "how are you", loaded[2].Content)
+}
+
+func TestMemoryStore_MessageLog_AppendIdempotent(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// First append: 3 messages at seq 0
+	msgs1 := []types.Message{
+		makeMsg("user", "a"),
+		makeMsg("assistant", "b"),
+		makeMsg("user", "c"),
+	}
+	total, err := store.LogAppend(ctx, "conv-1", 0, msgs1)
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+
+	// Second append: 5 messages at seq 0 (first 3 overlap)
+	msgs2 := []types.Message{
+		makeMsg("user", "a"),
+		makeMsg("assistant", "b"),
+		makeMsg("user", "c"),
+		makeMsg("assistant", "d"),
+		makeMsg("user", "e"),
+	}
+	total, err = store.LogAppend(ctx, "conv-1", 0, msgs2)
+	require.NoError(t, err)
+	assert.Equal(t, 5, total, "should have 5 total, not 8 (first 3 deduplicated)")
+
+	loaded, err := store.LogLoad(ctx, "conv-1", 0)
+	require.NoError(t, err)
+	require.Len(t, loaded, 5)
+	assert.Equal(t, "d", loaded[3].Content)
+	assert.Equal(t, "e", loaded[4].Content)
+}
+
+func TestMemoryStore_MessageLog_AppendDelta(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// First append: 3 messages
+	msgs1 := []types.Message{makeMsg("user", "a"), makeMsg("assistant", "b"), makeMsg("user", "c")}
+	total, err := store.LogAppend(ctx, "conv-1", 0, msgs1)
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+
+	// Second append: 2 more at seq 3 (no overlap)
+	msgs2 := []types.Message{makeMsg("assistant", "d"), makeMsg("user", "e")}
+	total, err = store.LogAppend(ctx, "conv-1", 3, msgs2)
+	require.NoError(t, err)
+	assert.Equal(t, 5, total)
+}
+
+func TestMemoryStore_MessageLog_LoadRecent(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	msgs := make([]types.Message, 10)
+	for i := range msgs {
+		msgs[i] = makeMsg("user", fmt.Sprintf("msg-%d", i))
+	}
+	_, err := store.LogAppend(ctx, "conv-1", 0, msgs)
+	require.NoError(t, err)
+
+	// Load last 3
+	recent, err := store.LogLoad(ctx, "conv-1", 3)
+	require.NoError(t, err)
+	require.Len(t, recent, 3)
+	assert.Equal(t, "msg-7", recent[0].Content)
+	assert.Equal(t, "msg-8", recent[1].Content)
+	assert.Equal(t, "msg-9", recent[2].Content)
+}
+
+func TestMemoryStore_MessageLog_EmptyConversation(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	loaded, err := store.LogLoad(ctx, "nonexistent", 0)
+	require.NoError(t, err)
+	assert.Empty(t, loaded)
+
+	length, err := store.LogLen(ctx, "nonexistent")
+	require.NoError(t, err)
+	assert.Equal(t, 0, length)
+}
+
+func TestMemoryStore_MessageLog_CoexistsWithStore(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Save via Store interface
+	state := &ConversationState{
+		ID:       "conv-1",
+		Messages: []types.Message{makeMsg("user", "original")},
+		Metadata: map[string]interface{}{},
+	}
+	require.NoError(t, store.Save(ctx, state))
+
+	// Append via MessageLog
+	newMsgs := []types.Message{makeMsg("assistant", "response")}
+	total, err := store.LogAppend(ctx, "conv-1", 1, newMsgs)
+	require.NoError(t, err)
+	assert.Equal(t, 2, total)
+
+	// Load via Store interface — should see both
+	loaded, err := store.Load(ctx, "conv-1")
+	require.NoError(t, err)
+	require.Len(t, loaded.Messages, 2)
+	assert.Equal(t, "original", loaded.Messages[0].Content)
+	assert.Equal(t, "response", loaded.Messages[1].Content)
 }
