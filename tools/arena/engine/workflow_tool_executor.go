@@ -94,16 +94,24 @@ func (e *workflowTransitionExecutor) Execute(
 		return nil, fmt.Errorf("no active workflow run for transition event %q", a.Event)
 	}
 
-	from := run.sm.CurrentState()
-	if err := run.sm.ProcessEvent(a.Event); err != nil {
+	tr, err := run.sm.ProcessEvent(a.Event)
+	if err != nil {
 		return nil, fmt.Errorf("transition event %q failed: %w", a.Event, err)
 	}
-	to := run.sm.CurrentState()
+	from := tr.From
+	to := tr.To
 
-	run.transitions = append(run.transitions, map[string]any{
+	transitionRecord := map[string]any{
 		"from": from, "to": to, "event": a.Event,
-	})
-	logger.Info("workflow state transition", "from", from, "to", to, "event", a.Event)
+	}
+	if tr.Redirected {
+		transitionRecord["redirected"] = true
+		transitionRecord["redirect_reason"] = tr.RedirectReason
+		transitionRecord["original_target"] = tr.OriginalTarget
+	}
+	run.transitions = append(run.transitions, transitionRecord)
+	logger.Info("workflow state transition", "from", from, "to", to,
+		"event", a.Event, "redirected", tr.Redirected)
 
 	// Update scenario TaskType and re-register tool for the new state
 	if newState := e.wfSpec.States[to]; newState != nil {

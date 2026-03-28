@@ -18,4 +18,7 @@ type WorkflowState struct {
 	Persistence   string            `json:"persistence,omitempty"`
 	Orchestration string            `json:"orchestration,omitempty"`
 	Skills        string            `json:"skills,omitempty"`
+	Terminal      bool              `json:"terminal,omitempty"`      // RFC 0009
+	MaxVisits     int               `json:"max_visits,omitempty"`    // RFC 0009
+	OnMaxVisits   string            `json:"on_max_visits,omitempty"` // RFC 0009
 }

@@ -74,33 +74,70 @@ func (sm *StateMachine) CurrentPromptTask() string {
 }
 
 // ProcessEvent applies an event and transitions to the target state.
-func (sm *StateMachine) ProcessEvent(event string) error {
+// Returns a TransitionResult describing the transition (including any
+// max_visits redirect). Returns ErrMaxVisitsExceeded when the target
+// state's visit limit is reached and no on_max_visits fallback is set.
+func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	state := sm.spec.States[sm.context.CurrentState]
 	if state == nil {
-		return fmt.Errorf("%w: state %q not found in spec", ErrInvalidEvent, sm.context.CurrentState)
+		return nil, fmt.Errorf("%w: state %q not found in spec",
+			ErrInvalidEvent, sm.context.CurrentState)
 	}
 
 	if len(state.OnEvent) == 0 {
-		return fmt.Errorf("%w: state %q has no transitions", ErrTerminalState, sm.context.CurrentState)
+		return nil, fmt.Errorf("%w: state %q has no transitions",
+			ErrTerminalState, sm.context.CurrentState)
 	}
 
 	target, ok := state.OnEvent[event]
 	if !ok {
-		return fmt.Errorf("%w: event %q not defined for state %q (available: %v)",
+		return nil, fmt.Errorf("%w: event %q not defined for state %q (available: %v)",
 			ErrInvalidEvent, event, sm.context.CurrentState, sm.availableEventsLocked())
 	}
 
 	fromState := sm.context.CurrentState
+	originalTarget := target
+
+	// Loop guard: check max_visits on the target state before entering it.
+	targetState := sm.spec.States[target]
+	if targetState != nil && targetState.MaxVisits > 0 {
+		visits := sm.context.VisitCounts[target]
+		if visits >= targetState.MaxVisits {
+			if targetState.OnMaxVisits != "" {
+				target = targetState.OnMaxVisits
+			} else {
+				return nil, fmt.Errorf("%w: state %q visited %d times (max %d)",
+					ErrMaxVisitsExceeded, originalTarget, visits, targetState.MaxVisits)
+			}
+		}
+	}
+
 	sm.context.RecordTransition(fromState, target, event, sm.now())
+
+	result := &TransitionResult{
+		From:  fromState,
+		To:    target,
+		Event: event,
+	}
+	if target != originalTarget {
+		result.Redirected = true
+		result.RedirectReason = fmt.Sprintf("max_visits (%d) reached for %q",
+			targetState.MaxVisits, originalTarget)
+		result.OriginalTarget = originalTarget
+	}
+
 	logger.Info("workflow state transition",
-		"from", fromState, "to", target, "event", event)
-	return nil
+		"from", fromState, "to", target, "event", event,
+		"redirected", result.Redirected)
+	return result, nil
 }
 
-// IsTerminal returns true if the current state has no outgoing transitions.
+// IsTerminal returns true if the current state is terminal.
+// A state is terminal when explicitly marked (Terminal: true) or
+// when it has no outgoing transitions (backward compatible).
 func (sm *StateMachine) IsTerminal() bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -108,7 +145,7 @@ func (sm *StateMachine) IsTerminal() bool {
 	if state == nil {
 		return true
 	}
-	return len(state.OnEvent) == 0
+	return state.Terminal || len(state.OnEvent) == 0
 }
 
 // AvailableEvents returns the set of valid events for the current state, sorted.

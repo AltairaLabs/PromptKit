@@ -6,9 +6,14 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrMaxVisitsExceeded is returned when a state's max_visits limit is reached
+// and no on_max_visits fallback is configured.
+var ErrMaxVisitsExceeded = errors.New("max visits exceeded")
 
 // ParseConfig parses an untyped workflow config (typically from config.Workflow
 // which is stored as interface{}) into a typed Spec. Returns nil, nil when
@@ -44,6 +49,21 @@ type State struct {
 	Persistence   Persistence       `json:"persistence,omitempty"`
 	Orchestration Orchestration     `json:"orchestration,omitempty"`
 	Skills        string            `json:"skills,omitempty"`
+	Terminal      bool              `json:"terminal,omitempty"`      // RFC 0009: explicit terminal marker
+	MaxVisits     int               `json:"max_visits,omitempty"`    // RFC 0009: max times this state can be entered
+	OnMaxVisits   string            `json:"on_max_visits,omitempty"` // RFC 0009: redirect target when max_visits reached
+}
+
+// TransitionResult is returned by ProcessEvent to communicate what happened.
+// Redirects (e.g., max_visits exceeded → on_max_visits) are successful
+// transitions, not errors.
+type TransitionResult struct {
+	From           string `json:"from"`
+	To             string `json:"to"`
+	Event          string `json:"event"`
+	Redirected     bool   `json:"redirected,omitempty"`
+	RedirectReason string `json:"redirect_reason,omitempty"`
+	OriginalTarget string `json:"original_target,omitempty"`
 }
 
 // Persistence is the storage hint for a workflow state.
@@ -70,6 +90,7 @@ type Context struct {
 	CurrentState string            `json:"current_state"`
 	History      []StateTransition `json:"history"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
+	VisitCounts  map[string]int    `json:"visit_counts,omitempty"` // RFC 0009: per-state visit counts
 	StartedAt    time.Time         `json:"started_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
 }

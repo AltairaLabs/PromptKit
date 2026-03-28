@@ -139,6 +139,58 @@ func TestWorkflowTransitionExecutor_ConcurrentRuns(t *testing.T) {
 	assert.Equal(t, "specialist", s2.TaskType)
 }
 
+func TestWorkflowTransitionExecutor_MaxVisitsRedirect(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 2,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {
+				PromptTask: "start",
+				OnEvent:    map[string]string{"Go": "loop"},
+			},
+			"loop": {
+				PromptTask:  "loop",
+				MaxVisits:   1,
+				OnMaxVisits: "done",
+				OnEvent:     map[string]string{"Again": "loop"},
+			},
+			"done": {PromptTask: "done"},
+		},
+	}
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	scenario := &config.Scenario{ID: "test", TaskType: "start"}
+	exec.RegisterRun("test", scenario)
+
+	// First transition: start -> loop (visit 1)
+	args, _ := json.Marshal(map[string]string{"event": "Go", "context": "test"})
+	result, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
+	require.NoError(t, err)
+
+	var res struct {
+		NewState string `json:"new_state"`
+		Event    string `json:"event"`
+	}
+	require.NoError(t, json.Unmarshal(result, &res))
+	assert.Equal(t, "loop", res.NewState)
+
+	// Second transition: loop -> loop, but max_visits=1 so redirect to done
+	args2, _ := json.Marshal(map[string]string{"event": "Again", "context": "test"})
+	result2, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args2)
+	require.NoError(t, err)
+
+	require.NoError(t, json.Unmarshal(result2, &res))
+	assert.Equal(t, "done", res.NewState, "should redirect to on_max_visits target")
+
+	// Verify redirect info in transitions metadata
+	meta := exec.RunMetadata("test")
+	transitions := meta["workflow_transitions"].([]any)
+	lastTransition := transitions[len(transitions)-1].(map[string]any)
+	assert.Equal(t, true, lastTransition["redirected"])
+	assert.Contains(t, lastTransition["redirect_reason"].(string), "max_visits")
+}
+
 func TestRegisterTransitionTool(t *testing.T) {
 	registry := tools.NewRegistry()
 	state := &workflow.State{

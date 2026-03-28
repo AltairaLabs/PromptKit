@@ -11,13 +11,13 @@ import (
 // This function calls Open() to create a new conversation for the target state,
 // so it requires a valid pack file and is tested via integration tests.
 func (wc *WorkflowConversation) transitionInternal(event, contextSummary string) (string, error) {
-	fromState := wc.machine.CurrentState()
-
-	if err := wc.machine.ProcessEvent(event); err != nil {
+	result, err := wc.machine.ProcessEvent(event)
+	if err != nil {
 		return "", err
 	}
 
-	toState := wc.machine.CurrentState()
+	toState := result.To
+	fromState := result.From
 
 	// Close old conversation
 	if wc.activeConv != nil {

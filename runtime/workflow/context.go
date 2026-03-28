@@ -14,6 +14,7 @@ func NewContext(entryState string, now time.Time) *Context {
 		CurrentState: entryState,
 		History:      []StateTransition{},
 		Metadata:     map[string]any{},
+		VisitCounts:  map[string]int{entryState: 1},
 		StartedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -32,6 +33,10 @@ func (ctx *Context) RecordTransition(from, to, event string, ts time.Time) {
 		copy(trimmed, ctx.History[len(ctx.History)-MaxHistoryLength:])
 		ctx.History = trimmed
 	}
+	if ctx.VisitCounts == nil {
+		ctx.VisitCounts = make(map[string]int)
+	}
+	ctx.VisitCounts[to]++
 	ctx.CurrentState = to
 	ctx.UpdatedAt = ts
 }
@@ -49,6 +54,12 @@ func (ctx *Context) Clone() *Context {
 	}
 	if ctx.Metadata != nil {
 		c.Metadata = deepCopyMap(ctx.Metadata)
+	}
+	if ctx.VisitCounts != nil {
+		c.VisitCounts = make(map[string]int, len(ctx.VisitCounts))
+		for k, v := range ctx.VisitCounts {
+			c.VisitCounts[k] = v
+		}
 	}
 	return c
 }
