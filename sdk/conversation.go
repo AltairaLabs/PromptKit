@@ -421,6 +421,8 @@ func (c *Conversation) buildPipelineConfig(
 		ExecutionTimeout:      c.config.executionTimeout,
 		MessageLog:            c.config.messageLog,
 		CompactionEnabled:     c.config.compactionEnabled,
+		CompactionStrategy:    c.config.compactionStrategy,
+		CompactionRules:       c.config.compactionRules,
 	}
 
 	// Wire recording config if enabled

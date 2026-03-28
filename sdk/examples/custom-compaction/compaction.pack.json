@@ -1,0 +1,19 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "custom-compaction-example",
+  "name": "Custom Compaction Example",
+  "version": "1.0.0",
+  "description": "Demonstrates custom context compaction strategies and rules",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful coding assistant. Use tools to read and edit files as needed."
+    }
+  }
+}

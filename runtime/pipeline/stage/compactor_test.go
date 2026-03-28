@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -375,6 +376,251 @@ func TestCompactor_NoOpResultMetadata(t *testing.T) {
 	assert.Zero(t, result.MessagesFolded)
 	assert.Zero(t, result.OriginalTokens, "no-op should not compute tokens")
 	assert.Zero(t, result.CompactedTokens)
+}
+
+// --- Strategy interface tests ---
+
+type mockStrategy struct {
+	called bool
+	budget int
+}
+
+func (m *mockStrategy) Compact(msgs []types.Message, _ int) CompactResult {
+	m.called = true
+	return CompactResult{Messages: msgs, MessagesFolded: 42}
+}
+func (m *mockStrategy) TokenBudget() int { return m.budget }
+
+func TestCompactionStrategy_CustomStrategy(t *testing.T) {
+	s := &mockStrategy{budget: 99999}
+	msgs := []types.Message{{Role: "user", Content: "hello"}}
+
+	result := s.Compact(msgs, 0)
+	assert.True(t, s.called)
+	assert.Equal(t, 42, result.MessagesFolded)
+	assert.Equal(t, 99999, s.TokenBudget())
+}
+
+func TestContextCompactor_ImplementsCompactionStrategy(t *testing.T) {
+	// Compile-time check
+	var _ CompactionStrategy = (*ContextCompactor)(nil)
+}
+
+// --- Custom rule tests ---
+
+type alwaysFoldRule struct {
+	name string
+}
+
+func (r *alwaysFoldRule) Name() string { return r.name }
+
+func (r *alwaysFoldRule) CanFold(msg *types.Message, _ int, _ *CompactionContext) bool {
+	return msg.Role == roleTool
+}
+
+func (r *alwaysFoldRule) Fold(msg *types.Message, _ int, _ *CompactionContext) (string, []int) {
+	return "[custom-folded]", nil
+}
+
+func TestCompactor_CustomRules(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
+		Rules:          []CompactionRule{&alwaysFoldRule{name: "custom"}},
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		largeToolResult("big_tool", 2000),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	result := c.Compact(msgs, 0)
+	assert.Greater(t, result.MessagesFolded, 0)
+
+	// The custom rule's fold text should appear
+	found := false
+	for _, msg := range result.Messages {
+		if strings.Contains(msg.Content, "custom-folded") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "custom rule fold text should appear")
+}
+
+func TestCompactor_RuleFirstMatchWins(t *testing.T) {
+	called := map[string]int{}
+	rule1 := &trackingRule{name: "first", called: &called, canFold: true}
+	rule2 := &trackingRule{name: "second", called: &called, canFold: true}
+
+	c := &ContextCompactor{
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
+		Rules:          []CompactionRule{rule1, rule2},
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		largeToolResult("tool", 2000),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	c.Compact(msgs, 0)
+	assert.Equal(t, 1, called["first"], "first rule should be called once")
+	assert.Zero(t, called["second"], "second rule should not be called (first matched)")
+}
+
+type trackingRule struct {
+	name    string
+	called  *map[string]int
+	canFold bool
+}
+
+func (r *trackingRule) Name() string { return r.name }
+func (r *trackingRule) CanFold(msg *types.Message, _ int, _ *CompactionContext) bool {
+	return r.canFold && msg.Role == roleTool && len(msg.GetContent()) >= 50
+}
+func (r *trackingRule) Fold(msg *types.Message, _ int, _ *CompactionContext) (string, []int) {
+	(*r.called)[r.name]++
+	return "[folded-by-" + r.name + "]", nil
+}
+
+func TestCompactor_DefaultRuleWhenNoRulesSet(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
+		// Rules intentionally nil — should default to FoldToolResults()
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		largeToolResult("file_read", 2000),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	result := c.Compact(msgs, 0)
+	assert.Greater(t, result.MessagesFolded, 0)
+	// Should use default FoldToolResults format
+	for _, msg := range result.Messages {
+		if msg.Role == roleTool && strings.Contains(msg.Content, compactedMarker) {
+			assert.Contains(t, msg.Content, "file_read")
+			break
+		}
+	}
+}
+
+// --- CollapsePairs rule tests ---
+
+func assistantToolCallMsg(toolCallID, toolName, argsJSON string) types.Message {
+	return types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: toolCallID, Name: toolName, Args: json.RawMessage(argsJSON)},
+		},
+	}
+}
+
+func toolResultMsgWithID(id, name, content string) types.Message {
+	tr := types.NewTextToolResult(id, name, content)
+	return types.NewToolResultMessage(tr)
+}
+
+func TestCollapsePairs_SupersededPairCollapsed(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
+		Rules:          []CompactionRule{CollapsePairs(), FoldToolResults()},
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		// First file_read("main.go") — should be collapsed
+		assistantToolCallMsg("call-1", "file_read", `{"path":"main.go"}`),
+		toolResultMsgWithID("call-1", "file_read", strings.Repeat("package main\n", 200)),
+		// Second file_read("main.go") — supersedes the first
+		assistantToolCallMsg("call-2", "file_read", `{"path":"main.go"}`),
+		toolResultMsgWithID("call-2", "file_read", strings.Repeat("package main\nfunc main() {}\n", 200)),
+		// Recent:
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	result := c.Compact(msgs, 0)
+
+	// The first assistant+tool pair should be collapsed
+	foundSuperseded := false
+	for _, msg := range result.Messages {
+		if strings.Contains(msg.Content, "superseded") {
+			foundSuperseded = true
+			break
+		}
+	}
+	assert.True(t, foundSuperseded, "superseded pair should be collapsed")
+
+	// The message count should be less (assistant msg removed)
+	assert.Less(t, len(result.Messages), len(msgs), "collapsed pair should reduce message count")
+}
+
+func TestCollapsePairs_DifferentArgsDontCollapse(t *testing.T) {
+	rule := CollapsePairs()
+
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		assistantToolCallMsg("call-1", "file_read", `{"path":"main.go"}`),
+		toolResultMsgWithID("call-1", "file_read", strings.Repeat("content a ", 100)),
+		assistantToolCallMsg("call-2", "file_read", `{"path":"config.go"}`),
+		toolResultMsgWithID("call-2", "file_read", strings.Repeat("content b ", 100)),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	ctx := &CompactionContext{
+		Messages:    msgs,
+		PinBoundary: 5,
+	}
+
+	// The first file_read("main.go") should NOT be superseded by file_read("config.go")
+	assert.False(t, rule.CanFold(&msgs[2], 2, ctx),
+		"different args should not be considered superseded")
+}
+
+func TestCollapsePairs_ErrorsNotCollapsed(t *testing.T) {
+	rule := CollapsePairs()
+
+	errResult := toolResultMsgWithError("file_read", strings.Repeat("error ", 50), "file not found")
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		errResult,
+		toolResultMsgWithID("call-2", "file_read", strings.Repeat("content ", 100)),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	ctx := &CompactionContext{Messages: msgs, PinBoundary: 3}
+	assert.False(t, rule.CanFold(&msgs[1], 1, ctx), "error results should never be collapsed")
+}
+
+func TestCollapsePairs_AlreadyCompactedSkipped(t *testing.T) {
+	rule := CollapsePairs()
+
+	msg := toolResultMsg("file_read", "[file_read: superseded — 500 bytes compacted]")
+	msgs := []types.Message{
+		msg,
+		toolResultMsgWithID("call-2", "file_read", strings.Repeat("content ", 100)),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	ctx := &CompactionContext{Messages: msgs, PinBoundary: 2}
+	assert.False(t, rule.CanFold(&msgs[0], 0, ctx), "already compacted should be skipped")
 }
 
 func stringPtr(s string) *string { return &s }

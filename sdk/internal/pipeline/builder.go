@@ -77,6 +77,14 @@ type Config struct {
 	// nil = default (enabled), false = disabled.
 	CompactionEnabled *bool
 
+	// CompactionStrategy replaces the default compactor entirely.
+	// Mutually exclusive with CompactionRules.
+	CompactionStrategy stage.CompactionStrategy
+
+	// CompactionRules configures custom rules on the default ContextCompactor.
+	// Mutually exclusive with CompactionStrategy.
+	CompactionRules []stage.CompactionRule
+
 	// ContextWindow is the hot window size for RAG context assembly.
 	// When > 0, ContextAssemblyStage + IncrementalSaveStage replace the
 	// standard StateStoreLoad/Save stages.
@@ -355,17 +363,9 @@ func buildProviderStages(cfg *Config) ([]stage.Stage, error) {
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
 		}
-		// Auto-configure compactor (default-on) unless explicitly disabled
+		// Configure compaction strategy
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {
-			budgetTokens := stage.DefaultBudgetTokens
-			if cwp, ok := cfg.Provider.(providers.ContextWindowProvider); ok {
-				if v := cwp.MaxContextTokens(); v > 0 {
-					budgetTokens = v
-				}
-			}
-			providerConfig.Compactor = &stage.ContextCompactor{
-				BudgetTokens: budgetTokens,
-			}
+			providerConfig.Compactor = buildCompactionStrategy(cfg)
 		}
 		return []stage.Stage{stage.NewProviderStageWithHooks(
 			cfg.Provider,
@@ -436,4 +436,30 @@ func convertTruncationStrategy(strategy string) stage.TruncationStrategy {
 	default:
 		return stage.TruncateOldest
 	}
+}
+
+// buildCompactionStrategy creates the appropriate compaction strategy from config.
+func buildCompactionStrategy(cfg *Config) stage.CompactionStrategy {
+	// User-provided strategy takes precedence
+	if cfg.CompactionStrategy != nil {
+		return cfg.CompactionStrategy
+	}
+
+	budgetTokens := stage.DefaultBudgetTokens
+	if cwp, ok := cfg.Provider.(providers.ContextWindowProvider); ok {
+		if v := cwp.MaxContextTokens(); v > 0 {
+			budgetTokens = v
+		}
+	}
+
+	compactor := &stage.ContextCompactor{
+		BudgetTokens: budgetTokens,
+	}
+
+	// User-provided rules replace the defaults
+	if len(cfg.CompactionRules) > 0 {
+		compactor.Rules = cfg.CompactionRules
+	}
+
+	return compactor
 }
