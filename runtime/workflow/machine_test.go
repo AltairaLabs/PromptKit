@@ -651,3 +651,150 @@ func TestVisitCounts_Persisted(t *testing.T) {
 		t.Error("Clone() should deep-copy VisitCounts")
 	}
 }
+
+// --- Budget tests ---
+
+func TestBudget_MaxTotalVisitsExhausted(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t", OnEvent: map[string]string{"Back": "a"}},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_total_visits": 3},
+		},
+	}
+	sm := NewStateMachine(spec)
+	// Entry = "a" (visit 1). Budget = 3 total visits.
+	if _, err := sm.ProcessEvent("Go"); err != nil { // → b (visit 2)
+		t.Fatalf("ProcessEvent(Go): %v", err)
+	}
+	if _, err := sm.ProcessEvent("Back"); err != nil { // → a (visit 3, at limit)
+		t.Fatalf("ProcessEvent(Back): %v", err)
+	}
+
+	// Next transition should fail — total visits would be 4
+	_, err := sm.ProcessEvent("Go")
+	if !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted, got: %v", err)
+	}
+}
+
+func TestBudget_MaxToolCallsExhausted(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_tool_calls": 5},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.IncrementToolCalls(5) // hit the limit
+
+	_, err := sm.ProcessEvent("Go")
+	if !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted, got: %v", err)
+	}
+}
+
+func TestBudget_MaxWallTimeExhausted(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_wall_time_sec": 10},
+		},
+	}
+	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	sm := NewStateMachine(spec).WithTimeFunc(func() time.Time {
+		return baseTime.Add(11 * time.Second)
+	})
+	sm.context.StartedAt = baseTime
+
+	_, err := sm.ProcessEvent("Go")
+	if !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted, got: %v", err)
+	}
+}
+
+func TestBudget_NoBudgetIsUnlimited(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+		// No Engine/budget
+	}
+	sm := NewStateMachine(spec)
+	sm.IncrementToolCalls(9999)
+
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("expected no error without budget, got: %v", err)
+	}
+}
+
+func TestBudget_PrecedesMaxVisits(t *testing.T) {
+	// Budget exhaustion should take precedence over max_visits
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", MaxVisits: 100, OnMaxVisits: "fallback",
+				OnEvent: map[string]string{"Go": "a"}},
+			"fallback": {PromptTask: "t"},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_total_visits": 2},
+		},
+	}
+	sm := NewStateMachine(spec)
+	// Entry = "a" (visit 1). Budget = 2 total visits.
+	if _, err := sm.ProcessEvent("Go"); err != nil { // → a (visit 2, at budget)
+		t.Fatalf("ProcessEvent(Go): %v", err)
+	}
+	_, err := sm.ProcessEvent("Go") // budget exhausted before max_visits
+	if !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("budget should take precedence, got: %v", err)
+	}
+}
+
+func TestIncrementToolCalls(t *testing.T) {
+	spec := &Spec{Version: 1, Entry: "a", States: map[string]*State{
+		"a": {PromptTask: "t"},
+	}}
+	sm := NewStateMachine(spec)
+	sm.IncrementToolCalls(3)
+	sm.IncrementToolCalls(2)
+
+	ctx := sm.Context()
+	if ctx.TotalToolCalls != 5 {
+		t.Errorf("TotalToolCalls = %d, want 5", ctx.TotalToolCalls)
+	}
+}
+
+func TestTotalVisits(t *testing.T) {
+	ctx := NewContext("a", time.Now())
+	if ctx.TotalVisits() != 1 {
+		t.Errorf("TotalVisits = %d, want 1", ctx.TotalVisits())
+	}
+	ctx.RecordTransition("a", "b", "Go", time.Now())
+	if ctx.TotalVisits() != 2 {
+		t.Errorf("TotalVisits = %d, want 2", ctx.TotalVisits())
+	}
+	ctx.RecordTransition("b", "a", "Back", time.Now())
+	if ctx.TotalVisits() != 3 {
+		t.Errorf("TotalVisits = %d, want 3", ctx.TotalVisits())
+	}
+}

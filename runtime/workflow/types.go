@@ -11,9 +11,22 @@ import (
 	"time"
 )
 
-// ErrMaxVisitsExceeded is returned when a state's max_visits limit is reached
-// and no on_max_visits fallback is configured.
-var ErrMaxVisitsExceeded = errors.New("max visits exceeded")
+// Sentinel errors for workflow execution.
+var (
+	// ErrMaxVisitsExceeded is returned when a state's max_visits limit is reached
+	// and no on_max_visits fallback is configured.
+	ErrMaxVisitsExceeded = errors.New("max visits exceeded")
+
+	// ErrBudgetExhausted is returned when a workflow-level budget limit is reached.
+	ErrBudgetExhausted = errors.New("workflow budget exhausted")
+)
+
+// Budget defines workflow-level resource limits from the engine block.
+type Budget struct {
+	MaxTotalVisits int `json:"max_total_visits,omitempty"`
+	MaxToolCalls   int `json:"max_tool_calls,omitempty"`
+	MaxWallTimeSec int `json:"max_wall_time_sec,omitempty"`
+}
 
 // ParseConfig parses an untyped workflow config (typically from config.Workflow
 // which is stored as interface{}) into a typed Spec. Returns nil, nil when
@@ -87,12 +100,13 @@ const (
 
 // Context holds the runtime state of a workflow execution.
 type Context struct {
-	CurrentState string            `json:"current_state"`
-	History      []StateTransition `json:"history"`
-	Metadata     map[string]any    `json:"metadata,omitempty"`
-	VisitCounts  map[string]int    `json:"visit_counts,omitempty"` // RFC 0009: per-state visit counts
-	StartedAt    time.Time         `json:"started_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	CurrentState   string            `json:"current_state"`
+	History        []StateTransition `json:"history"`
+	Metadata       map[string]any    `json:"metadata,omitempty"`
+	VisitCounts    map[string]int    `json:"visit_counts,omitempty"`     // RFC 0009: per-state visit counts
+	TotalToolCalls int               `json:"total_tool_calls,omitempty"` // RFC 0009: workflow-wide tool call count
+	StartedAt      time.Time         `json:"started_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
 }
 
 // StateTransition records a single state transition.

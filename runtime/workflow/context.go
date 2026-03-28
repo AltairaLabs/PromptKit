@@ -44,9 +44,10 @@ func (ctx *Context) RecordTransition(from, to, event string, ts time.Time) {
 // Clone returns a deep copy of the Context.
 func (ctx *Context) Clone() *Context {
 	c := &Context{
-		CurrentState: ctx.CurrentState,
-		StartedAt:    ctx.StartedAt,
-		UpdatedAt:    ctx.UpdatedAt,
+		CurrentState:   ctx.CurrentState,
+		TotalToolCalls: ctx.TotalToolCalls,
+		StartedAt:      ctx.StartedAt,
+		UpdatedAt:      ctx.UpdatedAt,
 	}
 	if ctx.History != nil {
 		c.History = make([]StateTransition, len(ctx.History))
@@ -102,4 +103,18 @@ func (ctx *Context) LastTransition() *StateTransition {
 	}
 	t := ctx.History[len(ctx.History)-1]
 	return &t
+}
+
+// TotalVisits returns the sum of all per-state visit counts.
+func (ctx *Context) TotalVisits() int {
+	total := 0
+	for _, v := range ctx.VisitCounts {
+		total += v
+	}
+	return total
+}
+
+// IncrementToolCalls adds n to the workflow-wide tool call counter.
+func (ctx *Context) IncrementToolCalls(n int) {
+	ctx.TotalToolCalls += n
 }

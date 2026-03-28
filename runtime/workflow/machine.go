@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -77,9 +78,15 @@ func (sm *StateMachine) CurrentPromptTask() string {
 // Returns a TransitionResult describing the transition (including any
 // max_visits redirect). Returns ErrMaxVisitsExceeded when the target
 // state's visit limit is reached and no on_max_visits fallback is set.
+// Returns ErrBudgetExhausted when a workflow-level budget limit is reached.
 func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	// Budget check runs before event resolution.
+	if err := sm.checkBudgetLocked(); err != nil {
+		return nil, err
+	}
 
 	state := sm.spec.States[sm.context.CurrentState]
 	if state == nil {
@@ -174,4 +181,60 @@ func (sm *StateMachine) Context() *Context {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.context.Clone()
+}
+
+// IncrementToolCalls adds n to the workflow-wide tool call counter.
+// Thread-safe; intended to be called by the SDK after tool executions.
+func (sm *StateMachine) IncrementToolCalls(n int) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.context.IncrementToolCalls(n)
+}
+
+// checkBudgetLocked checks workflow-level budget limits.
+// Caller must hold the write lock.
+func (sm *StateMachine) checkBudgetLocked() error {
+	budget := sm.parseBudget()
+	if budget == nil {
+		return nil
+	}
+	if budget.MaxTotalVisits > 0 && sm.context.TotalVisits() >= budget.MaxTotalVisits {
+		return fmt.Errorf("%w: total visits %d reached limit %d",
+			ErrBudgetExhausted, sm.context.TotalVisits(), budget.MaxTotalVisits)
+	}
+	if budget.MaxToolCalls > 0 && sm.context.TotalToolCalls >= budget.MaxToolCalls {
+		return fmt.Errorf("%w: tool calls %d reached limit %d",
+			ErrBudgetExhausted, sm.context.TotalToolCalls, budget.MaxToolCalls)
+	}
+	if budget.MaxWallTimeSec > 0 {
+		elapsed := sm.now().Sub(sm.context.StartedAt)
+		if int(elapsed.Seconds()) >= budget.MaxWallTimeSec {
+			return fmt.Errorf("%w: wall time %ds reached limit %ds",
+				ErrBudgetExhausted, int(elapsed.Seconds()), budget.MaxWallTimeSec)
+		}
+	}
+	return nil
+}
+
+// parseBudget extracts the Budget from Spec.Engine["budget"], if present.
+func (sm *StateMachine) parseBudget() *Budget {
+	if sm.spec.Engine == nil {
+		return nil
+	}
+	raw, ok := sm.spec.Engine["budget"]
+	if !ok || raw == nil {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var b Budget
+	if err := json.Unmarshal(data, &b); err != nil {
+		return nil
+	}
+	if b.MaxTotalVisits == 0 && b.MaxToolCalls == 0 && b.MaxWallTimeSec == 0 {
+		return nil
+	}
+	return &b
 }
