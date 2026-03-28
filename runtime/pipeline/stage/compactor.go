@@ -1,9 +1,6 @@
 package stage
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -13,10 +10,8 @@ const (
 	defaultCompactThreshold = 0.70
 	defaultPinRecentCount   = 4
 	// DefaultBudgetTokens is the default context window budget for compaction.
-	DefaultBudgetTokens      = 128000 // sensible default for modern models
-	compactedPreviewMaxBytes = 100
-	compactedMarker          = "compacted"
-	roleTool                 = "tool"
+	DefaultBudgetTokens = 128000 // sensible default for modern models
+	compactedMarker     = "compacted"
 )
 
 // CompactResult contains the output of a compaction pass.
@@ -27,30 +22,70 @@ type CompactResult struct {
 	MessagesFolded  int
 }
 
-// ContextCompactor folds stale tool results between rounds to keep context
-// bounded. Deterministic, zero LLM calls. Only modifies the in-memory message
-// slice sent to the provider — the persisted log (via MessageLog) retains the
-// full uncompacted history.
-type ContextCompactor struct {
-	// BudgetTokens is the context window size. When 0, compaction is disabled.
-	BudgetTokens int
+// CompactionStrategy is the top-level interface for context compaction.
+// Called by ProviderStage between tool loop rounds. Implementations must
+// be safe for concurrent use if the provider stage is used concurrently
+// across conversations (each conversation has its own message slice).
+type CompactionStrategy interface {
+	Compact(messages []types.Message, lastInputTokens int) CompactResult
+	// BudgetTokens returns the configured token budget for event emission.
+	BudgetTokens() int
+}
 
-	// Threshold is the fraction of BudgetTokens above which compaction triggers.
+// CompactionRule transforms individual messages during compaction.
+// Rules are applied in order to each compactable message outside the
+// pinned window. The first rule whose CanFold returns true wins.
+type CompactionRule interface {
+	Name() string
+	// CanFold reports whether this rule can compact the message at idx.
+	CanFold(msg *types.Message, idx int, ctx *CompactionContext) bool
+	// Fold returns the compacted content for the message, plus indices of
+	// additional messages to remove (e.g., the preceding assistant message
+	// in a pair collapse). Return nil for no additional removals.
+	Fold(msg *types.Message, idx int, ctx *CompactionContext) (string, []int)
+}
+
+// CompactionContext provides read-only context to rules.
+type CompactionContext struct {
+	Messages    []types.Message // full message slice (read-only view of the copy)
+	PinBoundary int             // messages at/after this index are pinned
+	Budget      int             // target token count
+	Current     int             // current estimated token count
+}
+
+// ContextCompactor is the default CompactionStrategy. It applies rules in
+// order to fold stale messages until context is under the token budget.
+// Deterministic, zero LLM calls.
+type ContextCompactor struct {
+	// BudgetTokensValue is the context window size. When 0, compaction is disabled.
+	BudgetTokensValue int
+
+	// Threshold is the fraction of BudgetTokensValue above which compaction triggers.
 	// Default: 0.70 (compact when usage exceeds 70% of budget).
 	Threshold float64
 
 	// PinRecentCount is the number of recent messages to preserve verbatim.
 	// Default: 4 (2 round-trips).
 	PinRecentCount int
+
+	// Rules are applied in order; first match wins. When nil/empty,
+	// defaults to [FoldToolResults()].
+	Rules []CompactionRule
 }
 
-// Compact folds stale tool results to reduce token usage.
-// lastInputTokens is the actual token count from the provider's CostInfo.InputTokens.
-// When > 0, used instead of heuristic counting (more accurate). Pass 0 for heuristic only.
+// BudgetTokens returns the configured token budget.
+func (c *ContextCompactor) BudgetTokens() int {
+	if c == nil {
+		return 0
+	}
+	return c.BudgetTokensValue
+}
+
+// Compact applies rules to fold stale messages until under budget.
 // Safe to call on a nil receiver (returns messages unchanged).
 func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult {
 	noOp := CompactResult{Messages: messages}
-	if c == nil || c.BudgetTokens <= 0 || len(messages) == 0 {
+	if c == nil || c.BudgetTokensValue <= 0 || len(messages) == 0 {
 		return noOp
 	}
 
@@ -63,9 +98,8 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 		pinCount = defaultPinRecentCount
 	}
 
-	budget := int(float64(c.BudgetTokens) * threshold)
+	budget := int(float64(c.BudgetTokensValue) * threshold)
 
-	// Use actual token count from provider if available (more accurate)
 	originalTokens := lastInputTokens
 	if originalTokens <= 0 {
 		originalTokens = tokenizer.CountMessageTokensDefault(messages)
@@ -82,30 +116,68 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 	compacted := make([]types.Message, len(messages))
 	copy(compacted, messages)
 
+	rules := c.Rules
+	if len(rules) == 0 {
+		rules = []CompactionRule{FoldToolResults()}
+	}
+
+	ctx := &CompactionContext{
+		Messages:    compacted,
+		PinBoundary: pinBoundary,
+		Budget:      budget,
+		Current:     originalTokens,
+	}
+
 	totalTokens := originalTokens
 	messagesFolded := 0
+	removed := map[int]bool{}
+
 	for i := 0; i < pinBoundary && totalTokens > budget; i++ {
+		if removed[i] {
+			continue
+		}
 		msg := &compacted[i]
 
-		if !isCompactable(msg) {
+		ctx.Current = totalTokens
+
+		var matchedRule CompactionRule
+		for _, rule := range rules {
+			if rule.CanFold(msg, i, ctx) {
+				matchedRule = rule
+				break
+			}
+		}
+		if matchedRule == nil {
 			continue
 		}
 
 		beforeTokens := tokenizer.CountMessageTokensDefault([]types.Message{*msg})
-		folded := foldToolResult(msg)
-		msg.Content = folded
-		msg.Parts = nil // clear multimodal parts
-		// Update ToolResult.Parts so GetContent() (which reads from ToolResult
-		// for tool messages) returns the folded content for token counting.
-		if msg.ToolResult != nil {
-			msg.ToolResult.Parts = []types.ContentPart{
-				{Type: types.ContentTypeText, Text: &folded},
-			}
-		}
+		folded, extraRemovals := matchedRule.Fold(msg, i, ctx)
+		applyFold(msg, folded)
 		afterTokens := tokenizer.CountMessageTokensDefault([]types.Message{*msg})
-
 		totalTokens -= beforeTokens - afterTokens
 		messagesFolded++
+
+		// Handle additional removals (e.g., pair collapse removes the assistant msg)
+		for _, ri := range extraRemovals {
+			if ri >= 0 && ri < pinBoundary && !removed[ri] {
+				removed[ri] = true
+				totalTokens -= tokenizer.CountMessageTokensDefault(
+					[]types.Message{compacted[ri]})
+				messagesFolded++
+			}
+		}
+	}
+
+	// Build final message slice, excluding removed indices
+	if len(removed) > 0 {
+		final := make([]types.Message, 0, len(compacted)-len(removed))
+		for i := range compacted {
+			if !removed[i] {
+				final = append(final, compacted[i])
+			}
+		}
+		compacted = final
 	}
 
 	if messagesFolded > 0 {
@@ -124,57 +196,14 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 	}
 }
 
-// isCompactable returns true if a message can be folded.
-func isCompactable(msg *types.Message) bool {
-	if msg.Role != roleTool {
-		return false
-	}
-	if msg.ToolResult != nil && msg.ToolResult.Error != "" {
-		return false
-	}
-	// Already compacted or too small to bother — skip.
-	// Use GetContent() which reads from ToolResult.Parts for tool messages.
-	content := msg.GetContent()
-	if len(content) < 50 || strings.Contains(content, compactedMarker) {
-		return false
-	}
-	return true
-}
-
-// foldToolResult creates a compact summary of a tool result.
-func foldToolResult(msg *types.Message) string {
-	name := ""
+// applyFold sets the folded content on a message, updating both Content
+// and ToolResult.Parts so that GetContent() returns the folded text.
+func applyFold(msg *types.Message, folded string) {
+	msg.Content = folded
+	msg.Parts = nil
 	if msg.ToolResult != nil {
-		name = msg.ToolResult.Name
-	}
-	if name == "" {
-		name = "tool"
-	}
-
-	// Handle multimodal parts
-	if len(msg.Parts) > 0 {
-		totalBytes := 0
-		for _, part := range msg.Parts {
-			if part.Text != nil {
-				totalBytes += len(*part.Text)
-			}
-			if part.Media != nil && part.Media.Data != nil {
-				totalBytes += len(*part.Media.Data)
-			}
+		msg.ToolResult.Parts = []types.ContentPart{
+			{Type: types.ContentTypeText, Text: &folded},
 		}
-		return fmt.Sprintf("[%s: %d parts, %d bytes %s]",
-			name, len(msg.Parts), totalBytes, compactedMarker)
 	}
-
-	// Text-only: preview + size
-	content := msg.GetContent()
-	originalBytes := len(content)
-
-	preview := content
-	if len(preview) > compactedPreviewMaxBytes {
-		preview = preview[:compactedPreviewMaxBytes] + "..."
-	}
-
-	return fmt.Sprintf("[%s: %s — %d bytes %s]",
-		name, preview, originalBytes, compactedMarker)
 }

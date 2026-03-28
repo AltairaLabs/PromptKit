@@ -64,7 +64,7 @@ type ProviderConfig struct {
 
 	// Compactor folds stale tool results between rounds when token usage
 	// exceeds the configured threshold. Nil = disabled.
-	Compactor *ContextCompactor
+	Compactor CompactionStrategy
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -418,7 +418,7 @@ func (tl *toolLoop) afterRound(
 		tl.messages = cr.Messages
 		if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
 			tl.stage.emitter.ContextCompacted(round, cr.OriginalTokens, cr.CompactedTokens,
-				cr.MessagesFolded, tl.stage.config.Compactor.BudgetTokens)
+				cr.MessagesFolded, tl.stage.config.Compactor.BudgetTokens())
 		}
 	}
 

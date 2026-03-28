@@ -210,6 +210,12 @@ type config struct {
 
 	// Compaction control (nil = default enabled, false = disabled)
 	compactionEnabled *bool
+
+	// Custom compaction strategy (replaces default ContextCompactor entirely)
+	compactionStrategy stage.CompactionStrategy
+
+	// Custom compaction rules (used with default ContextCompactor)
+	compactionRules []stage.CompactionRule
 }
 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.
@@ -829,6 +835,29 @@ func WithLogger(l *slog.Logger) Option {
 func WithCompaction(enabled bool) Option {
 	return func(c *config) error {
 		c.compactionEnabled = &enabled
+		return nil
+	}
+}
+
+// WithCompactionStrategy replaces the default context compactor with a
+// custom CompactionStrategy implementation. This is mutually exclusive
+// with WithCompactionRules — the last one set wins.
+func WithCompactionStrategy(strategy stage.CompactionStrategy) Option {
+	return func(c *config) error {
+		c.compactionStrategy = strategy
+		c.compactionRules = nil // mutually exclusive
+		return nil
+	}
+}
+
+// WithCompactionRules configures the default ContextCompactor with custom
+// rules. Rules are applied in order; first match wins. This replaces the
+// default rules (FoldToolResults). This is mutually exclusive with
+// WithCompactionStrategy — the last one set wins.
+func WithCompactionRules(rules ...stage.CompactionRule) Option {
+	return func(c *config) error {
+		c.compactionRules = rules
+		c.compactionStrategy = nil // mutually exclusive
 		return nil
 	}
 }
