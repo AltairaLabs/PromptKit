@@ -24,6 +24,21 @@ func TestNewTextPart(t *testing.T) {
 	}
 }
 
+func TestNewThinkingPart(t *testing.T) {
+	text := "Let me reason about this..."
+	part := NewThinkingPart(text)
+
+	if part.Type != ContentTypeThinking {
+		t.Errorf("expected type %s, got %s", ContentTypeThinking, part.Type)
+	}
+	if part.Text == nil || *part.Text != text {
+		t.Errorf("expected text %q, got %v", text, part.Text)
+	}
+	if part.Media != nil {
+		t.Errorf("expected nil media, got %v", part.Media)
+	}
+}
+
 func TestNewImagePartFromURL(t *testing.T) {
 	url := "https://example.com/image.jpg"
 	detail := "high"

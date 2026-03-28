@@ -1222,3 +1222,106 @@ func TestOpenAI_PlatformField(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractContentParts_StringContent(t *testing.T) {
+	parts := extractContentParts("Hello, world!")
+	if len(parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(parts))
+	}
+	if parts[0].Type != "text" {
+		t.Errorf("expected type 'text', got %q", parts[0].Type)
+	}
+	if parts[0].Text == nil || *parts[0].Text != "Hello, world!" {
+		t.Errorf("expected text 'Hello, world!', got %v", parts[0].Text)
+	}
+}
+
+func TestExtractContentParts_ArrayContent(t *testing.T) {
+	content := []interface{}{
+		map[string]interface{}{"type": "text", "text": "visible answer"},
+		map[string]interface{}{"type": "thinking", "thinking": "internal reasoning"},
+	}
+	parts := extractContentParts(content)
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(parts))
+	}
+	if parts[0].Type != "text" || parts[0].Text == nil || *parts[0].Text != "visible answer" {
+		t.Errorf("unexpected first part: %+v", parts[0])
+	}
+	if parts[1].Type != "thinking" || parts[1].Text == nil || *parts[1].Text != "internal reasoning" {
+		t.Errorf("unexpected second part: %+v", parts[1])
+	}
+}
+
+func TestExtractContentParts_EmptyAndNil(t *testing.T) {
+	if parts := extractContentParts(nil); parts != nil {
+		t.Errorf("expected nil for nil input, got %v", parts)
+	}
+	if parts := extractContentParts(""); parts != nil {
+		t.Errorf("expected nil for empty string, got %v", parts)
+	}
+	if parts := extractContentParts(42); parts != nil {
+		t.Errorf("expected nil for non-string/non-array, got %v", parts)
+	}
+}
+
+func TestConvertOpenAIPart_TextType(t *testing.T) {
+	part := map[string]interface{}{"type": "text", "text": "hello"}
+	cp := convertOpenAIPart(part)
+	if cp == nil {
+		t.Fatal("expected non-nil part")
+	}
+	if cp.Type != "text" {
+		t.Errorf("expected type 'text', got %q", cp.Type)
+	}
+	if cp.Text == nil || *cp.Text != "hello" {
+		t.Errorf("expected text 'hello', got %v", cp.Text)
+	}
+}
+
+func TestConvertOpenAIPart_ThinkingType(t *testing.T) {
+	part := map[string]interface{}{"type": "thinking", "thinking": "deep thought"}
+	cp := convertOpenAIPart(part)
+	if cp == nil {
+		t.Fatal("expected non-nil part")
+	}
+	if cp.Type != "thinking" {
+		t.Errorf("expected type 'thinking', got %q", cp.Type)
+	}
+	if cp.Text == nil || *cp.Text != "deep thought" {
+		t.Errorf("expected text 'deep thought', got %v", cp.Text)
+	}
+}
+
+func TestConvertOpenAIPart_UnknownType(t *testing.T) {
+	part := map[string]interface{}{"type": "image_url", "url": "https://example.com/img.png"}
+	cp := convertOpenAIPart(part)
+	if cp != nil {
+		t.Errorf("expected nil for unknown type, got %+v", cp)
+	}
+}
+
+func TestConvertOpenAIPart_NonMap(t *testing.T) {
+	cp := convertOpenAIPart("not a map")
+	if cp != nil {
+		t.Errorf("expected nil for non-map input, got %+v", cp)
+	}
+}
+
+func TestConvertOpenAIPart_TextMissingField(t *testing.T) {
+	// type is "text" but "text" field is missing
+	part := map[string]interface{}{"type": "text"}
+	cp := convertOpenAIPart(part)
+	if cp != nil {
+		t.Errorf("expected nil when text field is missing, got %+v", cp)
+	}
+}
+
+func TestConvertOpenAIPart_ThinkingMissingField(t *testing.T) {
+	// type is "thinking" but "thinking" field is missing
+	part := map[string]interface{}{"type": "thinking"}
+	cp := convertOpenAIPart(part)
+	if cp != nil {
+		t.Errorf("expected nil when thinking field is missing, got %+v", cp)
+	}
+}

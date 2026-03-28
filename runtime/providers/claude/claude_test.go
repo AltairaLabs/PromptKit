@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
@@ -688,4 +689,128 @@ func (c *applyTrackingCredential) Type() string { return "tracking" }
 func (c *applyTrackingCredential) Apply(_ context.Context, _ *http.Request) error {
 	c.onApply()
 	return nil
+}
+
+func TestParseAndValidateClaudeResponse_ThinkingAndText(t *testing.T) {
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "https://api.anthropic.com", providers.ProviderDefaults{
+		Pricing: providers.Pricing{InputCostPer1K: 0.003, OutputCostPer1K: 0.015},
+	}, false)
+
+	respJSON := `{
+		"id": "msg_123",
+		"type": "message",
+		"role": "assistant",
+		"content": [
+			{"type": "thinking", "text": "Let me think about this..."},
+			{"type": "text", "text": "Here is my answer."}
+		],
+		"model": "claude-3-5-sonnet-20241022",
+		"stop_reason": "end_turn",
+		"usage": {"input_tokens": 100, "output_tokens": 50}
+	}`
+
+	predictResp := providers.PredictionResponse{}
+	_, responseText, result, err := provider.parseAndValidateClaudeResponse([]byte(respJSON), predictResp, time.Now())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// responseText should only contain the text block, not thinking
+	if responseText != "Here is my answer." {
+		t.Errorf("expected responseText %q, got %q", "Here is my answer.", responseText)
+	}
+
+	// Parts should contain both thinking and text
+	if len(result.Parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(result.Parts))
+	}
+
+	if result.Parts[0].Type != "thinking" {
+		t.Errorf("expected first part type 'thinking', got %q", result.Parts[0].Type)
+	}
+	if result.Parts[0].Text == nil || *result.Parts[0].Text != "Let me think about this..." {
+		t.Errorf("expected first part text 'Let me think about this...', got %v", result.Parts[0].Text)
+	}
+
+	if result.Parts[1].Type != "text" {
+		t.Errorf("expected second part type 'text', got %q", result.Parts[1].Type)
+	}
+	if result.Parts[1].Text == nil || *result.Parts[1].Text != "Here is my answer." {
+		t.Errorf("expected second part text 'Here is my answer.', got %v", result.Parts[1].Text)
+	}
+}
+
+func TestParseAndValidateClaudeResponse_TextOnly(t *testing.T) {
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "https://api.anthropic.com", providers.ProviderDefaults{
+		Pricing: providers.Pricing{InputCostPer1K: 0.003, OutputCostPer1K: 0.015},
+	}, false)
+
+	respJSON := `{
+		"id": "msg_456",
+		"type": "message",
+		"role": "assistant",
+		"content": [
+			{"type": "text", "text": "Simple response."}
+		],
+		"model": "claude-3-5-sonnet-20241022",
+		"stop_reason": "end_turn",
+		"usage": {"input_tokens": 50, "output_tokens": 20}
+	}`
+
+	predictResp := providers.PredictionResponse{}
+	_, responseText, result, err := provider.parseAndValidateClaudeResponse([]byte(respJSON), predictResp, time.Now())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if responseText != "Simple response." {
+		t.Errorf("expected responseText %q, got %q", "Simple response.", responseText)
+	}
+
+	if len(result.Parts) != 1 {
+		t.Fatalf("expected 1 part, got %d", len(result.Parts))
+	}
+	if result.Parts[0].Type != "text" {
+		t.Errorf("expected part type 'text', got %q", result.Parts[0].Type)
+	}
+}
+
+func TestParseAndValidateClaudeResponse_EmptyContent(t *testing.T) {
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "https://api.anthropic.com", providers.ProviderDefaults{}, false)
+
+	respJSON := `{
+		"id": "msg_789",
+		"type": "message",
+		"role": "assistant",
+		"content": [],
+		"model": "claude-3-5-sonnet-20241022",
+		"stop_reason": "end_turn",
+		"usage": {"input_tokens": 10, "output_tokens": 0}
+	}`
+
+	predictResp := providers.PredictionResponse{}
+	_, _, _, err := provider.parseAndValidateClaudeResponse([]byte(respJSON), predictResp, time.Now())
+	if err == nil {
+		t.Fatal("expected error for empty content, got nil")
+	}
+	if !strings.Contains(err.Error(), "no content") {
+		t.Errorf("expected 'no content' error, got: %v", err)
+	}
+}
+
+func TestParseAndValidateClaudeResponse_APIError(t *testing.T) {
+	provider := NewProvider("test", "claude-3-5-sonnet-20241022", "https://api.anthropic.com", providers.ProviderDefaults{}, false)
+
+	respJSON := `{
+		"error": {"type": "rate_limit_error", "message": "Rate limit exceeded"}
+	}`
+
+	predictResp := providers.PredictionResponse{}
+	_, _, _, err := provider.parseAndValidateClaudeResponse([]byte(respJSON), predictResp, time.Now())
+	if err == nil {
+		t.Fatal("expected error for API error response, got nil")
+	}
+	if !strings.Contains(err.Error(), "Rate limit exceeded") {
+		t.Errorf("expected rate limit error message, got: %v", err)
+	}
 }
