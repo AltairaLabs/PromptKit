@@ -929,38 +929,6 @@ func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
 	wg.Wait()
 }
 
-func TestTransitionResult(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1", OnEvent: map[string]string{"Next": "end"}},
-			"end":   {PromptTask: "p2"},
-		},
-	}
-
-	result := transitionResult("Next", spec)
-	assert.Equal(t, "transition_scheduled", result["status"])
-	assert.Equal(t, "Next", result["event"])
-	assert.Equal(t, "end", result["target_state"])
-}
-
-func TestTransitionResult_UnknownEvent(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1"},
-		},
-	}
-
-	result := transitionResult("Unknown", spec)
-	assert.Equal(t, "transition_scheduled", result["status"])
-	assert.Equal(t, "Unknown", result["event"])
-	_, hasTarget := result["target_state"]
-	assert.False(t, hasTarget)
-}
-
 func TestHandleTransitionTool(t *testing.T) {
 	spec := &workflow.Spec{
 		Version: 1,
@@ -975,24 +943,23 @@ func TestHandleTransitionTool(t *testing.T) {
 	}
 	machine := workflow.NewStateMachine(spec)
 
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-	}
+	// Use the runtime TransitionExecutor directly (replaces handleTransitionTool)
+	transExec := workflow.NewTransitionExecutor(machine, spec)
 
-	args := map[string]any{
+	args, _ := json.Marshal(map[string]string{
 		"event":   "InfoComplete",
 		"context": "User wants billing help",
-	}
+	})
 
-	result, err := wc.handleTransitionTool(args)
+	result, err := transExec.Execute(context.Background(), nil, args)
 	require.NoError(t, err)
 	assert.NotNil(t, result)
 
-	// Verify pending transition is set
-	assert.NotNil(t, wc.pendingTransition)
-	assert.Equal(t, "InfoComplete", wc.pendingTransition.event)
-	assert.Equal(t, "User wants billing help", wc.pendingTransition.context)
+	// Verify pending transition is set on the executor
+	pending := transExec.Pending()
+	require.NotNil(t, pending)
+	assert.Equal(t, "InfoComplete", pending.Event)
+	assert.Equal(t, "User wants billing help", pending.ContextSummary)
 }
 
 func TestRegisterWorkflowTools_InternalState(t *testing.T) {
@@ -1027,15 +994,13 @@ func TestRegisterWorkflowTools_InternalState(t *testing.T) {
 
 	wc.registerWorkflowTools()
 
-	// Tool should be registered
+	// Tool should be registered with executor mode
 	tool := conv.ToolRegistry().Get(workflow.TransitionToolName)
 	assert.NotNil(t, tool)
+	assert.Equal(t, workflow.TransitionExecutorMode, tool.Mode)
 
-	// Handler should be registered
-	conv.handlersMu.RLock()
-	_, hasHandler := conv.handlers[workflow.TransitionToolName]
-	conv.handlersMu.RUnlock()
-	assert.True(t, hasHandler)
+	// TransitionExecutor should be created
+	assert.NotNil(t, wc.transExec)
 }
 
 func TestRegisterWorkflowTools_ExternalState(t *testing.T) {
@@ -1171,16 +1136,22 @@ func TestSend_ClearsPendingTransitionBeforeSend(t *testing.T) {
 		States:  map[string]*workflow.State{"s": {PromptTask: "p"}},
 	}
 
+	sm := workflow.NewStateMachine(spec)
+	transExec := workflow.NewTransitionExecutor(sm, spec)
+	// Pre-set a pending transition to verify it gets cleared
+	preArgs, _ := json.Marshal(map[string]string{"event": "stale", "context": "old"})
+	_, _ = transExec.Execute(context.Background(), nil, preArgs)
+
 	wc := &WorkflowConversation{
-		activeConv:        conv,
-		machine:           workflow.NewStateMachine(spec),
-		pendingTransition: &pendingTransition{event: "stale", context: "old"},
+		activeConv: conv,
+		machine:    sm,
+		transExec:  transExec,
 	}
 
 	_, err := wc.Send(context.Background(), "hello")
 	// Send fails because inner conversation is closed
 	assert.ErrorIs(t, err, ErrConversationClosed)
-	// pendingTransition should have been cleared before the send attempt
+	// transExec pending should have been cleared before the send attempt
 }
 
 func TestWorkflowConversation_ConcurrentSendAndTransition(t *testing.T) {

@@ -111,6 +111,13 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 			return result
 		}
 
+		// Commit deferred workflow transitions after the pipeline completes
+		if req.PostTurnHook != nil {
+			if hookErr := req.PostTurnHook(); hookErr != nil {
+				logger.Error("Post-turn hook failed", "turn", turnIdx, "error", hookErr)
+			}
+		}
+
 		ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, nil)
 		logger.Debug("Turn completed",
 			"turn", turnIdx,

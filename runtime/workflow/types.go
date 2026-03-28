@@ -6,9 +6,27 @@ package workflow
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// Sentinel errors for workflow execution.
+var (
+	// ErrMaxVisitsExceeded is returned when a state's max_visits limit is reached
+	// and no on_max_visits fallback is configured.
+	ErrMaxVisitsExceeded = errors.New("max visits exceeded")
+
+	// ErrBudgetExhausted is returned when a workflow-level budget limit is reached.
+	ErrBudgetExhausted = errors.New("workflow budget exhausted")
+)
+
+// Budget defines workflow-level resource limits from the engine block.
+type Budget struct {
+	MaxTotalVisits int `json:"max_total_visits,omitempty"`
+	MaxToolCalls   int `json:"max_tool_calls,omitempty"`
+	MaxWallTimeSec int `json:"max_wall_time_sec,omitempty"`
+}
 
 // ParseConfig parses an untyped workflow config (typically from config.Workflow
 // which is stored as interface{}) into a typed Spec. Returns nil, nil when
@@ -38,12 +56,37 @@ type Spec struct {
 
 // State defines a single state in the workflow state machine.
 type State struct {
-	PromptTask    string            `json:"prompt_task"`
-	Description   string            `json:"description,omitempty"`
-	OnEvent       map[string]string `json:"on_event,omitempty"`
-	Persistence   Persistence       `json:"persistence,omitempty"`
-	Orchestration Orchestration     `json:"orchestration,omitempty"`
-	Skills        string            `json:"skills,omitempty"`
+	PromptTask    string                  `json:"prompt_task"`
+	Description   string                  `json:"description,omitempty"`
+	OnEvent       map[string]string       `json:"on_event,omitempty"`
+	Persistence   Persistence             `json:"persistence,omitempty"`
+	Orchestration Orchestration           `json:"orchestration,omitempty"`
+	Skills        string                  `json:"skills,omitempty"`
+	Terminal      bool                    `json:"terminal,omitempty"`      // RFC 0009: explicit terminal marker
+	MaxVisits     int                     `json:"max_visits,omitempty"`    // RFC 0009: max times this state can be entered
+	OnMaxVisits   string                  `json:"on_max_visits,omitempty"` // RFC 0009: redirect on max_visits
+	Artifacts     map[string]*ArtifactDef `json:"artifacts,omitempty"`     // RFC 0009: artifact slot declarations
+}
+
+// ArtifactDef declares a named artifact slot on a workflow state.
+// Artifacts are workflow-scoped: if two states declare the same name, they
+// reference the same artifact. Values are accessible as {{artifacts.<name>}}.
+type ArtifactDef struct {
+	Type        string `json:"type"`                  // MIME type (e.g., "text/plain", "application/json")
+	Description string `json:"description,omitempty"` // What the artifact contains
+	Mode        string `json:"mode,omitempty"`        // "replace" (default) or "append"
+}
+
+// TransitionResult is returned by ProcessEvent to communicate what happened.
+// Redirects (e.g., max_visits exceeded → on_max_visits) are successful
+// transitions, not errors.
+type TransitionResult struct {
+	From           string `json:"from"`
+	To             string `json:"to"`
+	Event          string `json:"event"`
+	Redirected     bool   `json:"redirected,omitempty"`
+	RedirectReason string `json:"redirect_reason,omitempty"`
+	OriginalTarget string `json:"original_target,omitempty"`
 }
 
 // Persistence is the storage hint for a workflow state.
@@ -67,11 +110,24 @@ const (
 
 // Context holds the runtime state of a workflow execution.
 type Context struct {
-	CurrentState string            `json:"current_state"`
-	History      []StateTransition `json:"history"`
-	Metadata     map[string]any    `json:"metadata,omitempty"`
-	StartedAt    time.Time         `json:"started_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	CurrentState    string             `json:"current_state"`
+	History         []StateTransition  `json:"history"`
+	Metadata        map[string]any     `json:"metadata,omitempty"`
+	VisitCounts     map[string]int     `json:"visit_counts,omitempty"`     // RFC 0009: per-state visit counts
+	TotalToolCalls  int                `json:"total_tool_calls,omitempty"` // RFC 0009: workflow-wide tool call count
+	Artifacts       map[string]string  `json:"artifacts,omitempty"`        // RFC 0009: current artifact values
+	ArtifactHistory []ArtifactSnapshot `json:"artifact_history,omitempty"` // RFC 0009: artifact values at each transition
+	StartedAt       time.Time          `json:"started_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
+// ArtifactSnapshot captures artifact values at a specific state transition.
+type ArtifactSnapshot struct {
+	FromState string            `json:"from_state"`
+	ToState   string            `json:"to_state"`
+	Event     string            `json:"event"`
+	Values    map[string]string `json:"values"`
+	Timestamp time.Time         `json:"timestamp"`
 }
 
 // StateTransition records a single state transition.

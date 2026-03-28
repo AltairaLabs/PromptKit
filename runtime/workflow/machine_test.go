@@ -25,7 +25,7 @@ func branchingSpec() *Spec {
 		Entry:   "start",
 		States: map[string]*State{
 			"start": {PromptTask: "triage", OnEvent: map[string]string{
-				"ToBilling":  "billing",
+				"ToBilling":   "billing",
 				"ToTechnical": "technical",
 			}},
 			"billing":   {PromptTask: "billing_task"},
@@ -69,7 +69,7 @@ func TestLinearWorkflow(t *testing.T) {
 	sm := NewStateMachine(linearSpec()).WithTimeFunc(func() time.Time { return fixedTime() })
 
 	// a -> b
-	if err := sm.ProcessEvent("Next"); err != nil {
+	if _, err := sm.ProcessEvent("Next"); err != nil {
 		t.Fatalf("ProcessEvent(Next): %v", err)
 	}
 	if sm.CurrentState() != "b" {
@@ -83,7 +83,7 @@ func TestLinearWorkflow(t *testing.T) {
 	}
 
 	// b -> c
-	if err := sm.ProcessEvent("Next"); err != nil {
+	if _, err := sm.ProcessEvent("Next"); err != nil {
 		t.Fatalf("ProcessEvent(Next): %v", err)
 	}
 	if sm.CurrentState() != "c" {
@@ -94,7 +94,7 @@ func TestLinearWorkflow(t *testing.T) {
 	}
 
 	// c is terminal — further events should fail
-	err := sm.ProcessEvent("Next")
+	_, err := sm.ProcessEvent("Next")
 	if !errors.Is(err, ErrTerminalState) {
 		t.Errorf("expected ErrTerminalState, got: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestLinearWorkflow(t *testing.T) {
 func TestBranchingWorkflow(t *testing.T) {
 	sm := NewStateMachine(branchingSpec())
 
-	if err := sm.ProcessEvent("ToBilling"); err != nil {
+	if _, err := sm.ProcessEvent("ToBilling"); err != nil {
 		t.Fatalf("ProcessEvent(ToBilling): %v", err)
 	}
 	if sm.CurrentState() != "billing" {
@@ -115,7 +115,7 @@ func TestBranchingWorkflow(t *testing.T) {
 
 	// Start fresh and go the other way
 	sm2 := NewStateMachine(branchingSpec())
-	if err := sm2.ProcessEvent("ToTechnical"); err != nil {
+	if _, err := sm2.ProcessEvent("ToTechnical"); err != nil {
 		t.Fatalf("ProcessEvent(ToTechnical): %v", err)
 	}
 	if sm2.CurrentState() != "technical" {
@@ -127,24 +127,24 @@ func TestLoopingWorkflow(t *testing.T) {
 	sm := NewStateMachine(loopingSpec())
 
 	// draft -> review -> draft -> review -> done
-	if err := sm.ProcessEvent("Review"); err != nil {
+	if _, err := sm.ProcessEvent("Review"); err != nil {
 		t.Fatal(err)
 	}
 	if sm.CurrentState() != "review" {
 		t.Fatalf("CurrentState = %q, want review", sm.CurrentState())
 	}
 
-	if err := sm.ProcessEvent("Revise"); err != nil {
+	if _, err := sm.ProcessEvent("Revise"); err != nil {
 		t.Fatal(err)
 	}
 	if sm.CurrentState() != "draft" {
 		t.Fatalf("CurrentState = %q, want draft", sm.CurrentState())
 	}
 
-	if err := sm.ProcessEvent("Review"); err != nil {
+	if _, err := sm.ProcessEvent("Review"); err != nil {
 		t.Fatal(err)
 	}
-	if err := sm.ProcessEvent("Approve"); err != nil {
+	if _, err := sm.ProcessEvent("Approve"); err != nil {
 		t.Fatal(err)
 	}
 	if sm.CurrentState() != "done" {
@@ -162,7 +162,7 @@ func TestLoopingWorkflow(t *testing.T) {
 
 func TestInvalidEvent(t *testing.T) {
 	sm := NewStateMachine(linearSpec())
-	err := sm.ProcessEvent("Nonexistent")
+	_, err := sm.ProcessEvent("Nonexistent")
 	if !errors.Is(err, ErrInvalidEvent) {
 		t.Errorf("expected ErrInvalidEvent, got: %v", err)
 	}
@@ -185,8 +185,8 @@ func TestAvailableEvents(t *testing.T) {
 
 	// Terminal state has no events
 	sm2 := NewStateMachine(linearSpec())
-	_ = sm2.ProcessEvent("Next")
-	_ = sm2.ProcessEvent("Next")
+	_, _ = sm2.ProcessEvent("Next")
+	_, _ = sm2.ProcessEvent("Next")
 	if events := sm2.AvailableEvents(); events != nil {
 		t.Errorf("terminal state AvailableEvents = %v, want nil", events)
 	}
@@ -194,7 +194,7 @@ func TestAvailableEvents(t *testing.T) {
 
 func TestContextSnapshot(t *testing.T) {
 	sm := NewStateMachine(linearSpec()).WithTimeFunc(func() time.Time { return fixedTime() })
-	_ = sm.ProcessEvent("Next")
+	_, _ = sm.ProcessEvent("Next")
 
 	ctx := sm.Context()
 	if ctx.CurrentState != "b" {
@@ -214,7 +214,7 @@ func TestContextSnapshot(t *testing.T) {
 func TestRestoreFromContext(t *testing.T) {
 	spec := linearSpec()
 	sm := NewStateMachine(spec).WithTimeFunc(func() time.Time { return fixedTime() })
-	_ = sm.ProcessEvent("Next") // a -> b
+	_, _ = sm.ProcessEvent("Next") // a -> b
 
 	// Persist and restore
 	savedCtx := sm.Context()
@@ -228,7 +228,7 @@ func TestRestoreFromContext(t *testing.T) {
 	}
 
 	// Continue from restored state
-	if err := sm2.ProcessEvent("Next"); err != nil {
+	if _, err := sm2.ProcessEvent("Next"); err != nil {
 		t.Fatalf("ProcessEvent after restore: %v", err)
 	}
 	if sm2.CurrentState() != "c" {
@@ -254,8 +254,8 @@ func TestTransitionHistoryTimestamps(t *testing.T) {
 		return t
 	})
 
-	_ = sm.ProcessEvent("Next")
-	_ = sm.ProcessEvent("Next")
+	_, _ = sm.ProcessEvent("Next")
+	_, _ = sm.ProcessEvent("Next")
 
 	ctx := sm.Context()
 	if !ctx.History[0].Timestamp.Equal(times[0]) {
@@ -287,7 +287,7 @@ func stateNameForIndex(i int) string {
 
 func TestConcurrentReads(t *testing.T) {
 	sm := NewStateMachine(loopingSpec())
-	_ = sm.ProcessEvent("Review")
+	_, _ = sm.ProcessEvent("Review")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -318,9 +318,9 @@ func TestConcurrentProcessEvent(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
 				// Try all possible events; ignore errors from invalid state combos
-				_ = sm.ProcessEvent("Review")
-				_ = sm.ProcessEvent("Revise")
-				_ = sm.ProcessEvent("Approve")
+				_, _ = sm.ProcessEvent("Review")
+				_, _ = sm.ProcessEvent("Revise")
+				_, _ = sm.ProcessEvent("Approve")
 			}
 		}()
 	}
@@ -345,8 +345,8 @@ func TestConcurrentReadsDuringWrites(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				_ = sm.ProcessEvent("Review")
-				_ = sm.ProcessEvent("Revise")
+				_, _ = sm.ProcessEvent("Review")
+				_, _ = sm.ProcessEvent("Revise")
 			}
 		}()
 	}
@@ -381,8 +381,8 @@ func TestConcurrentContextSnapshot(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = sm.ProcessEvent("Review")
-			_ = sm.ProcessEvent("Revise")
+			_, _ = sm.ProcessEvent("Review")
+			_, _ = sm.ProcessEvent("Revise")
 		}()
 	}
 	for i := 0; i < 20; i++ {
@@ -402,5 +402,579 @@ func TestConcurrentContextSnapshot(t *testing.T) {
 		if snap.CurrentState != "draft" && snap.CurrentState != "review" && snap.CurrentState != "done" {
 			t.Errorf("snapshot %d has invalid state %q", i, snap.CurrentState)
 		}
+	}
+}
+
+func TestTerminal_ExplicitField(t *testing.T) {
+	spec := &Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Next": "b"}},
+			"b": {PromptTask: "task_b", Terminal: true},
+		},
+	}
+	sm := NewStateMachine(spec)
+	if _, err := sm.ProcessEvent("Next"); err != nil {
+		t.Fatalf("ProcessEvent(Next): %v", err)
+	}
+	if !sm.IsTerminal() {
+		t.Error("state b with Terminal:true should be terminal")
+	}
+}
+
+func TestTerminal_BackwardCompat(t *testing.T) {
+	// A state with empty OnEvent (no Terminal field set) is still terminal.
+	spec := &Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Next": "b"}},
+			"b": {PromptTask: "task_b"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	if _, err := sm.ProcessEvent("Next"); err != nil {
+		t.Fatalf("ProcessEvent(Next): %v", err)
+	}
+	if !sm.IsTerminal() {
+		t.Error("state b with empty OnEvent should be terminal (backward compat)")
+	}
+}
+
+func TestTerminal_WithOnEvent_BlocksTransitions(t *testing.T) {
+	// A state with Terminal: true blocks ProcessEvent even if OnEvent is set.
+	// This ensures consistency between IsTerminal() and ProcessEvent().
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "task_a",
+				Terminal:   true,
+				OnEvent:    map[string]string{"Next": "b"},
+			},
+			"b": {PromptTask: "task_b"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	if !sm.IsTerminal() {
+		t.Error("state a with Terminal: true should be terminal")
+	}
+	_, err := sm.ProcessEvent("Next")
+	if !errors.Is(err, ErrTerminalState) {
+		t.Errorf("expected ErrTerminalState, got: %v", err)
+	}
+}
+
+func TestMaxVisits_RedirectOnExceeded(t *testing.T) {
+	spec := &Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Loop": "b"}},
+			"b": {
+				PromptTask:  "task_b",
+				MaxVisits:   2,
+				OnMaxVisits: "c",
+				OnEvent:     map[string]string{"Back": "a"},
+			},
+			"c": {PromptTask: "task_c"},
+		},
+	}
+	sm := NewStateMachine(spec)
+
+	// Visit b twice (MaxVisits=2)
+	if _, err := sm.ProcessEvent("Loop"); err != nil { // a -> b (visit 1)
+		t.Fatal(err)
+	}
+	if sm.CurrentState() != "b" {
+		t.Fatalf("expected b, got %q", sm.CurrentState())
+	}
+	if _, err := sm.ProcessEvent("Back"); err != nil { // b -> a
+		t.Fatal(err)
+	}
+	if _, err := sm.ProcessEvent("Loop"); err != nil { // a -> b (visit 2)
+		t.Fatal(err)
+	}
+	if sm.CurrentState() != "b" {
+		t.Fatalf("expected b, got %q", sm.CurrentState())
+	}
+	if _, err := sm.ProcessEvent("Back"); err != nil { // b -> a
+		t.Fatal(err)
+	}
+
+	// Third attempt should redirect to c
+	result, err := sm.ProcessEvent("Loop") // a -> redirect to c
+	if err != nil {
+		t.Fatalf("expected redirect, got error: %v", err)
+	}
+	if sm.CurrentState() != "c" {
+		t.Errorf("expected redirect to c, got %q", sm.CurrentState())
+	}
+	if !result.Redirected {
+		t.Error("expected Redirected=true")
+	}
+	if result.OriginalTarget != "b" {
+		t.Errorf("OriginalTarget = %q, want %q", result.OriginalTarget, "b")
+	}
+}
+
+func TestMaxVisits_ErrorWhenNoFallback(t *testing.T) {
+	spec := &Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Loop": "b"}},
+			"b": {
+				PromptTask: "task_b",
+				MaxVisits:  1,
+				OnEvent:    map[string]string{"Back": "a"},
+			},
+		},
+	}
+	sm := NewStateMachine(spec)
+
+	// First visit succeeds
+	if _, err := sm.ProcessEvent("Loop"); err != nil { // a -> b (visit 1)
+		t.Fatal(err)
+	}
+	if _, err := sm.ProcessEvent("Back"); err != nil { // b -> a
+		t.Fatal(err)
+	}
+
+	// Second attempt should fail — no OnMaxVisits fallback
+	_, err := sm.ProcessEvent("Loop")
+	if !errors.Is(err, ErrMaxVisitsExceeded) {
+		t.Errorf("expected ErrMaxVisitsExceeded, got: %v", err)
+	}
+	// State should not change on error
+	if sm.CurrentState() != "a" {
+		t.Errorf("state should remain a on error, got %q", sm.CurrentState())
+	}
+}
+
+func TestMaxVisits_EntryStateCounted(t *testing.T) {
+	spec := &Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Next": "b"}},
+			"b": {PromptTask: "task_b"},
+		},
+	}
+	sm := NewStateMachine(spec)
+
+	ctx := sm.Context()
+	if ctx.VisitCounts["a"] != 1 {
+		t.Errorf("entry state visit count = %d, want 1", ctx.VisitCounts["a"])
+	}
+}
+
+func TestMaxVisits_RedirectTargetVisitCounted(t *testing.T) {
+	spec := &Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "task_a", OnEvent: map[string]string{"Loop": "b"}},
+			"b": {
+				PromptTask:  "task_b",
+				MaxVisits:   1,
+				OnMaxVisits: "c",
+				OnEvent:     map[string]string{"Back": "a"},
+			},
+			"c": {PromptTask: "task_c"},
+		},
+	}
+	sm := NewStateMachine(spec)
+
+	// Visit b once
+	if _, err := sm.ProcessEvent("Loop"); err != nil { // a -> b (visit 1)
+		t.Fatal(err)
+	}
+	if _, err := sm.ProcessEvent("Back"); err != nil { // b -> a
+		t.Fatal(err)
+	}
+
+	// Second attempt redirects to c
+	if _, err := sm.ProcessEvent("Loop"); err != nil { // a -> redirect to c
+		t.Fatal(err)
+	}
+
+	ctx := sm.Context()
+	if ctx.VisitCounts["c"] != 1 {
+		t.Errorf("redirect target visit count = %d, want 1", ctx.VisitCounts["c"])
+	}
+}
+
+func TestProcessEvent_ReturnsTransitionResult(t *testing.T) {
+	sm := NewStateMachine(linearSpec())
+
+	result, err := sm.ProcessEvent("Next") // a -> b
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.From != "a" {
+		t.Errorf("From = %q, want %q", result.From, "a")
+	}
+	if result.To != "b" {
+		t.Errorf("To = %q, want %q", result.To, "b")
+	}
+	if result.Event != "Next" {
+		t.Errorf("Event = %q, want %q", result.Event, "Next")
+	}
+	if result.Redirected {
+		t.Error("expected Redirected=false for normal transition")
+	}
+	if result.OriginalTarget != "" {
+		t.Errorf("OriginalTarget = %q, want empty", result.OriginalTarget)
+	}
+}
+
+func TestVisitCounts_Persisted(t *testing.T) {
+	sm := NewStateMachine(linearSpec())
+	_, _ = sm.ProcessEvent("Next") // a -> b
+
+	ctx := sm.Context()
+	clone := ctx.Clone()
+
+	if clone.VisitCounts["a"] != 1 {
+		t.Errorf("clone VisitCounts[a] = %d, want 1", clone.VisitCounts["a"])
+	}
+	if clone.VisitCounts["b"] != 1 {
+		t.Errorf("clone VisitCounts[b] = %d, want 1", clone.VisitCounts["b"])
+	}
+
+	// Mutating original should not affect clone
+	ctx.VisitCounts["a"] = 999
+	if clone.VisitCounts["a"] != 1 {
+		t.Error("Clone() should deep-copy VisitCounts")
+	}
+}
+
+// --- Budget tests ---
+
+func TestBudget_MaxTotalVisitsExhausted(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t", OnEvent: map[string]string{"Back": "a"}},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_total_visits": 3},
+		},
+	}
+	sm := NewStateMachine(spec)
+	// Entry = "a" (visit 1). Budget = 3 total visits.
+	if _, err := sm.ProcessEvent("Go"); err != nil { // → b (visit 2)
+		t.Fatalf("ProcessEvent(Go): %v", err)
+	}
+	if _, err := sm.ProcessEvent("Back"); err != nil { // → a (visit 3, at limit)
+		t.Fatalf("ProcessEvent(Back): %v", err)
+	}
+
+	// Next transition should fail — total visits would be 4
+	_, err := sm.ProcessEvent("Go")
+	if !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted, got: %v", err)
+	}
+}
+
+func TestBudget_MaxToolCallsExhausted(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_tool_calls": 5},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.IncrementToolCalls(5) // hit the limit
+
+	_, err := sm.ProcessEvent("Go")
+	if !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted, got: %v", err)
+	}
+}
+
+func TestBudget_MaxWallTimeExhausted(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_wall_time_sec": 10},
+		},
+	}
+	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	sm := NewStateMachine(spec).WithTimeFunc(func() time.Time {
+		return baseTime.Add(11 * time.Second)
+	})
+	sm.context.StartedAt = baseTime
+
+	_, err := sm.ProcessEvent("Go")
+	if !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted, got: %v", err)
+	}
+}
+
+func TestBudget_NoBudgetIsUnlimited(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+		// No Engine/budget
+	}
+	sm := NewStateMachine(spec)
+	sm.IncrementToolCalls(9999)
+
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("expected no error without budget, got: %v", err)
+	}
+}
+
+func TestBudget_PrecedesMaxVisits(t *testing.T) {
+	// Budget exhaustion should take precedence over max_visits
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", MaxVisits: 100, OnMaxVisits: "fallback",
+				OnEvent: map[string]string{"Go": "a"}},
+			"fallback": {PromptTask: "t"},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_total_visits": 2},
+		},
+	}
+	sm := NewStateMachine(spec)
+	// Entry = "a" (visit 1). Budget = 2 total visits.
+	if _, err := sm.ProcessEvent("Go"); err != nil { // → a (visit 2, at budget)
+		t.Fatalf("ProcessEvent(Go): %v", err)
+	}
+	_, err := sm.ProcessEvent("Go") // budget exhausted before max_visits
+	if !errors.Is(err, ErrBudgetExhausted) {
+		t.Fatalf("budget should take precedence, got: %v", err)
+	}
+}
+
+func TestIncrementToolCalls(t *testing.T) {
+	spec := &Spec{Version: 1, Entry: "a", States: map[string]*State{
+		"a": {PromptTask: "t"},
+	}}
+	sm := NewStateMachine(spec)
+	sm.IncrementToolCalls(3)
+	sm.IncrementToolCalls(2)
+
+	ctx := sm.Context()
+	if ctx.TotalToolCalls != 5 {
+		t.Errorf("TotalToolCalls = %d, want 5", ctx.TotalToolCalls)
+	}
+}
+
+func TestTotalVisits(t *testing.T) {
+	ctx := NewContext("a", time.Now())
+	if ctx.TotalVisits() != 1 {
+		t.Errorf("TotalVisits = %d, want 1", ctx.TotalVisits())
+	}
+	ctx.RecordTransition("a", "b", "Go", time.Now())
+	if ctx.TotalVisits() != 2 {
+		t.Errorf("TotalVisits = %d, want 2", ctx.TotalVisits())
+	}
+	ctx.RecordTransition("b", "a", "Back", time.Now())
+	if ctx.TotalVisits() != 3 {
+		t.Errorf("TotalVisits = %d, want 3", ctx.TotalVisits())
+	}
+}
+
+// --- Artifact tests ---
+
+func TestArtifact_SetAndGet(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts: map[string]*ArtifactDef{
+					"commit_sha": {Type: "text/plain"},
+				},
+				OnEvent: map[string]string{"Go": "b"},
+			},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("commit_sha", "abc123")
+
+	arts := sm.Artifacts()
+	if arts["commit_sha"] != "abc123" {
+		t.Errorf("commit_sha = %q, want %q", arts["commit_sha"], "abc123")
+	}
+}
+
+func TestArtifact_AppendMode(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts: map[string]*ArtifactDef{
+					"log": {Type: "text/plain", Mode: "append"},
+				},
+			},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("log", "line1\n")
+	sm.SetArtifact("log", "line2\n")
+
+	arts := sm.Artifacts()
+	if arts["log"] != "line1\nline2\n" {
+		t.Errorf("log = %q, want %q", arts["log"], "line1\nline2\n")
+	}
+}
+
+func TestArtifact_ReplaceMode(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts: map[string]*ArtifactDef{
+					"result": {Type: "text/plain"}, // default = replace
+				},
+			},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("result", "first")
+	sm.SetArtifact("result", "second")
+
+	arts := sm.Artifacts()
+	if arts["result"] != "second" {
+		t.Errorf("result = %q, want %q", arts["result"], "second")
+	}
+}
+
+func TestArtifact_SnapshotOnTransition(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts: map[string]*ArtifactDef{
+					"sha": {Type: "text/plain"},
+				},
+				OnEvent: map[string]string{"Go": "b"},
+			},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("sha", "abc123")
+
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("ProcessEvent: %v", err)
+	}
+
+	ctx := sm.Context()
+	if len(ctx.ArtifactHistory) != 1 {
+		t.Fatalf("ArtifactHistory length = %d, want 1", len(ctx.ArtifactHistory))
+	}
+	snap := ctx.ArtifactHistory[0]
+	if snap.FromState != "a" || snap.ToState != "b" {
+		t.Errorf("snapshot states = %q→%q, want a→b", snap.FromState, snap.ToState)
+	}
+	if snap.Values["sha"] != "abc123" {
+		t.Errorf("snapshot sha = %q, want %q", snap.Values["sha"], "abc123")
+	}
+}
+
+func TestArtifact_NoSnapshotWhenEmpty(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	// No artifacts set
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("ProcessEvent: %v", err)
+	}
+
+	ctx := sm.Context()
+	if len(ctx.ArtifactHistory) != 0 {
+		t.Errorf("ArtifactHistory length = %d, want 0 (no artifacts set)", len(ctx.ArtifactHistory))
+	}
+}
+
+func TestArtifact_CloneDeepCopies(t *testing.T) {
+	ctx := NewContext("a", time.Now())
+	ctx.SetArtifact("key", "original", "")
+	ctx.ArtifactHistory = append(ctx.ArtifactHistory, ArtifactSnapshot{
+		Values: map[string]string{"key": "v1"},
+	})
+
+	clone := ctx.Clone()
+
+	// Mutating original should not affect clone
+	ctx.Artifacts["key"] = "mutated"
+	ctx.ArtifactHistory[0].Values["key"] = "mutated"
+
+	if clone.Artifacts["key"] != "original" {
+		t.Error("Clone should deep-copy Artifacts")
+	}
+	if clone.ArtifactHistory[0].Values["key"] != "v1" {
+		t.Error("Clone should deep-copy ArtifactHistory values")
+	}
+}
+
+func TestArtifact_CrossStateScope(t *testing.T) {
+	// Artifacts are workflow-scoped: setting in state A is visible in state B
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts:  map[string]*ArtifactDef{"sha": {Type: "text/plain"}},
+				OnEvent:    map[string]string{"Go": "b"},
+			},
+			"b": {
+				PromptTask: "t",
+				Artifacts:  map[string]*ArtifactDef{"sha": {Type: "text/plain"}},
+			},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("sha", "abc123")
+
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("ProcessEvent: %v", err)
+	}
+
+	// After transitioning to B, the artifact is still accessible
+	arts := sm.Artifacts()
+	if arts["sha"] != "abc123" {
+		t.Errorf("artifact sha = %q after transition, want %q", arts["sha"], "abc123")
 	}
 }

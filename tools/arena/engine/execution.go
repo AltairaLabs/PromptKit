@@ -433,6 +433,12 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		EvalOrchestrator: runOrch,
 		RecordingConfig:  e.recordingConfig,
 	}
+	// Wire deferred workflow transition commit after each turn
+	if e.workflowTransExec != nil {
+		req.PostTurnHook = func() error {
+			return e.workflowTransExec.CommitPendingTransition(runID)
+		}
+	}
 
 	// Always configure StateStore (always enabled now)
 	req.StateStoreConfig = &StateStoreConfig{

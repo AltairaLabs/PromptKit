@@ -39,10 +39,10 @@ func Validate(spec *Spec, promptKeys []string) *ValidationResult {
 	return r
 }
 
-// validateVersion checks rule 1: version must equal 1.
+// validateVersion checks rule 1: version must be 1 or 2.
 func validateVersion(spec *Spec, r *ValidationResult) {
-	if spec.Version != 1 {
-		r.Errors = append(r.Errors, fmt.Sprintf("workflow.version must be 1, got %d", spec.Version))
+	if spec.Version != 1 && spec.Version != 2 {
+		r.Errors = append(r.Errors, fmt.Sprintf("workflow.version must be 1 or 2, got %d", spec.Version))
 	}
 }
 
@@ -71,6 +71,7 @@ func validateStates(spec *Spec, promptSet map[string]bool, r *ValidationResult) 
 		validateEvents(spec, name, state, r)
 		validatePersistence(name, state, r)
 		validateOrchestration(name, state, r)
+		validateLoopGuards(spec, name, state, r)
 	}
 }
 
@@ -110,6 +111,30 @@ func validateOrchestration(name string, state *State, r *ValidationResult) {
 		r.Errors = append(r.Errors, fmt.Sprintf(
 			"workflow.states[%q].orchestration %q is not valid (must be \"internal\", \"external\", or \"hybrid\")",
 			name, state.Orchestration))
+	}
+}
+
+// validateLoopGuards checks RFC 0009 loop guard fields.
+func validateLoopGuards(spec *Spec, name string, state *State, r *ValidationResult) {
+	// Terminal state with transitions is contradictory
+	if state.Terminal && len(state.OnEvent) > 0 {
+		r.Warnings = append(r.Warnings, fmt.Sprintf(
+			"workflow.states[%q]: terminal state has on_event transitions (they will never fire)",
+			name))
+	}
+
+	// on_max_visits validation
+	if state.OnMaxVisits != "" {
+		target := spec.States[state.OnMaxVisits]
+		if target == nil {
+			r.Errors = append(r.Errors, fmt.Sprintf(
+				"workflow.states[%q].on_max_visits %q does not exist in states",
+				name, state.OnMaxVisits))
+		} else if target.MaxVisits > 0 {
+			r.Warnings = append(r.Warnings, fmt.Sprintf(
+				"workflow.states[%q].on_max_visits target %q also has max_visits — potential redirect chain",
+				name, state.OnMaxVisits))
+		}
 	}
 }
 

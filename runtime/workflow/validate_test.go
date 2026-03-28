@@ -40,14 +40,23 @@ func TestValidate_ValidSpec(t *testing.T) {
 	}
 }
 
-func TestValidate_Rule1_VersionMustBeOne(t *testing.T) {
+func TestValidate_Rule1_VersionMustBeOneOrTwo(t *testing.T) {
+	// Version 1 is valid (tested via validSpec in other tests)
+	// Version 2 is valid (RFC 0009)
 	spec := validSpec()
 	spec.Version = 2
 	r := Validate(spec, allPrompts)
-	if !r.HasErrors() {
-		t.Fatal("expected error for version != 1")
+	if r.HasErrors() {
+		t.Fatalf("version 2 should be valid: %v", r.Errors)
 	}
-	assertContains(t, r.Errors, "version must be 1")
+
+	// Version 3 is invalid
+	spec.Version = 3
+	r = Validate(spec, allPrompts)
+	if !r.HasErrors() {
+		t.Fatal("expected error for version 3")
+	}
+	assertContains(t, r.Errors, "version must be 1 or 2")
 }
 
 func TestValidate_Rule2_StatesNonEmpty(t *testing.T) {
@@ -175,6 +184,58 @@ func TestValidate_MultipleErrors(t *testing.T) {
 	if len(r.Errors) < 3 {
 		t.Errorf("expected multiple errors, got %d: %v", len(r.Errors), r.Errors)
 	}
+}
+
+func TestValidate_OnMaxVisitsTargetMustExist(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "p1", MaxVisits: 3, OnMaxVisits: "ghost",
+				OnEvent: map[string]string{"Next": "a"}},
+		},
+	}
+	r := Validate(spec, []string{"p1"})
+	if !r.HasErrors() {
+		t.Fatal("expected error for on_max_visits referencing non-existent state")
+	}
+	assertContains(t, r.Errors, "on_max_visits")
+	assertContains(t, r.Errors, "ghost")
+}
+
+func TestValidate_TerminalWithOnEventWarns(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "p1", Terminal: true,
+				OnEvent: map[string]string{"Next": "a"}},
+		},
+	}
+	r := Validate(spec, []string{"p1"})
+	if r.HasErrors() {
+		t.Fatalf("terminal+on_event should be a warning, not error: %v", r.Errors)
+	}
+	assertContains(t, r.Warnings, "terminal")
+}
+
+func TestValidate_RedirectChainWarns(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "p1", MaxVisits: 2, OnMaxVisits: "b",
+				OnEvent: map[string]string{"Next": "a"}},
+			"b": {PromptTask: "p2", MaxVisits: 2, OnMaxVisits: "c",
+				OnEvent: map[string]string{"Next": "a"}},
+			"c": {PromptTask: "p3"},
+		},
+	}
+	r := Validate(spec, []string{"p1", "p2", "p3"})
+	if r.HasErrors() {
+		t.Fatalf("redirect chain should be a warning, not error: %v", r.Errors)
+	}
+	assertContains(t, r.Warnings, "redirect chain")
 }
 
 // --- helpers ---

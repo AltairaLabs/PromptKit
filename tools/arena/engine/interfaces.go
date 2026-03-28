@@ -77,6 +77,10 @@ type ConversationRequest struct {
 	// RecordingConfig enables RecordingStage in the pipeline for message.created events.
 	// If nil, no recording stages are added.
 	RecordingConfig *stage.RecordingStageConfig
+
+	// PostTurnHook is called after each turn completes. Used by the workflow
+	// engine to commit deferred transitions after the pipeline finishes.
+	PostTurnHook func() error
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena

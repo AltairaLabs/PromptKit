@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -22,10 +23,12 @@ type TimeFunc func() time.Time
 
 // StateMachine manages workflow state transitions.
 type StateMachine struct {
-	mu      sync.RWMutex
-	spec    *Spec
-	context *Context
-	now     TimeFunc
+	mu         sync.RWMutex
+	spec       *Spec
+	context    *Context
+	now        TimeFunc
+	budget     *Budget
+	budgetOnce sync.Once
 }
 
 // NewStateMachine creates a state machine from a workflow spec.
@@ -74,33 +77,76 @@ func (sm *StateMachine) CurrentPromptTask() string {
 }
 
 // ProcessEvent applies an event and transitions to the target state.
-func (sm *StateMachine) ProcessEvent(event string) error {
+// Returns a TransitionResult describing the transition (including any
+// max_visits redirect). Returns ErrMaxVisitsExceeded when the target
+// state's visit limit is reached and no on_max_visits fallback is set.
+// Returns ErrBudgetExhausted when a workflow-level budget limit is reached.
+func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	state := sm.spec.States[sm.context.CurrentState]
-	if state == nil {
-		return fmt.Errorf("%w: state %q not found in spec", ErrInvalidEvent, sm.context.CurrentState)
+	// Budget check runs before event resolution.
+	if err := sm.checkBudgetLocked(); err != nil {
+		return nil, err
 	}
 
-	if len(state.OnEvent) == 0 {
-		return fmt.Errorf("%w: state %q has no transitions", ErrTerminalState, sm.context.CurrentState)
+	state := sm.spec.States[sm.context.CurrentState]
+	if state == nil {
+		return nil, fmt.Errorf("%w: state %q not found in spec",
+			ErrInvalidEvent, sm.context.CurrentState)
+	}
+
+	if state.Terminal || len(state.OnEvent) == 0 {
+		return nil, fmt.Errorf("%w: state %q is terminal",
+			ErrTerminalState, sm.context.CurrentState)
 	}
 
 	target, ok := state.OnEvent[event]
 	if !ok {
-		return fmt.Errorf("%w: event %q not defined for state %q (available: %v)",
+		return nil, fmt.Errorf("%w: event %q not defined for state %q (available: %v)",
 			ErrInvalidEvent, event, sm.context.CurrentState, sm.availableEventsLocked())
 	}
 
 	fromState := sm.context.CurrentState
+	originalTarget := target
+
+	// Loop guard: check max_visits on the target state before entering it.
+	targetState := sm.spec.States[target]
+	if targetState != nil && targetState.MaxVisits > 0 {
+		visits := sm.context.VisitCounts[target]
+		if visits >= targetState.MaxVisits {
+			if targetState.OnMaxVisits != "" {
+				target = targetState.OnMaxVisits
+			} else {
+				return nil, fmt.Errorf("%w: state %q visited %d times (max %d)",
+					ErrMaxVisitsExceeded, originalTarget, visits, targetState.MaxVisits)
+			}
+		}
+	}
+
 	sm.context.RecordTransition(fromState, target, event, sm.now())
+
+	result := &TransitionResult{
+		From:  fromState,
+		To:    target,
+		Event: event,
+	}
+	if target != originalTarget {
+		result.Redirected = true
+		result.RedirectReason = fmt.Sprintf("max_visits (%d) reached for %q",
+			targetState.MaxVisits, originalTarget)
+		result.OriginalTarget = originalTarget
+	}
+
 	logger.Info("workflow state transition",
-		"from", fromState, "to", target, "event", event)
-	return nil
+		"from", fromState, "to", target, "event", event,
+		"redirected", result.Redirected)
+	return result, nil
 }
 
-// IsTerminal returns true if the current state has no outgoing transitions.
+// IsTerminal returns true if the current state is terminal.
+// A state is terminal when explicitly marked (Terminal: true) or
+// when it has no outgoing transitions (backward compatible).
 func (sm *StateMachine) IsTerminal() bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -108,7 +154,7 @@ func (sm *StateMachine) IsTerminal() bool {
 	if state == nil {
 		return true
 	}
-	return len(state.OnEvent) == 0
+	return state.Terminal || len(state.OnEvent) == 0
 }
 
 // AvailableEvents returns the set of valid events for the current state, sorted.
@@ -137,4 +183,104 @@ func (sm *StateMachine) Context() *Context {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return sm.context.Clone()
+}
+
+// IncrementToolCalls adds n to the workflow-wide tool call counter.
+// Thread-safe; intended to be called by the SDK after tool executions.
+func (sm *StateMachine) IncrementToolCalls(n int) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.context.IncrementToolCalls(n)
+}
+
+// SetArtifact sets an artifact value on the workflow context.
+// The mode is looked up from the spec's artifact definitions for the
+// current state. Thread-safe.
+func (sm *StateMachine) SetArtifact(name, value string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	mode := sm.artifactMode(name)
+	sm.context.SetArtifact(name, value, mode)
+}
+
+// Artifacts returns a snapshot of the current artifact values.
+func (sm *StateMachine) Artifacts() map[string]string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if sm.context.Artifacts == nil {
+		return nil
+	}
+	cp := make(map[string]string, len(sm.context.Artifacts))
+	for k, v := range sm.context.Artifacts {
+		cp[k] = v
+	}
+	return cp
+}
+
+// artifactMode returns the mode for an artifact by searching the current
+// state's artifact defs first, then all states in the spec.
+// Caller must hold at least a read lock.
+func (sm *StateMachine) artifactMode(name string) string {
+	// Check current state first
+	if state := sm.spec.States[sm.context.CurrentState]; state != nil {
+		if def := state.Artifacts[name]; def != nil {
+			return def.Mode
+		}
+	}
+	// Fall back to any state that declares this artifact
+	for _, state := range sm.spec.States {
+		if def := state.Artifacts[name]; def != nil {
+			return def.Mode
+		}
+	}
+	return "" // default = replace
+}
+
+// checkBudgetLocked checks workflow-level budget limits.
+// Caller must hold the write lock.
+func (sm *StateMachine) checkBudgetLocked() error {
+	sm.budgetOnce.Do(func() { sm.budget = sm.parseBudgetFromSpec() })
+	if sm.budget == nil {
+		return nil
+	}
+	budget := sm.budget
+	if budget.MaxTotalVisits > 0 && sm.context.TotalVisits() >= budget.MaxTotalVisits {
+		return fmt.Errorf("%w: total visits %d reached limit %d",
+			ErrBudgetExhausted, sm.context.TotalVisits(), budget.MaxTotalVisits)
+	}
+	if budget.MaxToolCalls > 0 && sm.context.TotalToolCalls >= budget.MaxToolCalls {
+		return fmt.Errorf("%w: tool calls %d reached limit %d",
+			ErrBudgetExhausted, sm.context.TotalToolCalls, budget.MaxToolCalls)
+	}
+	if budget.MaxWallTimeSec > 0 {
+		elapsed := sm.now().Sub(sm.context.StartedAt)
+		if int(elapsed.Seconds()) >= budget.MaxWallTimeSec {
+			return fmt.Errorf("%w: wall time %ds reached limit %ds",
+				ErrBudgetExhausted, int(elapsed.Seconds()), budget.MaxWallTimeSec)
+		}
+	}
+	return nil
+}
+
+// parseBudgetFromSpec extracts the Budget from Spec.Engine["budget"], if present.
+func (sm *StateMachine) parseBudgetFromSpec() *Budget {
+	if sm.spec.Engine == nil {
+		return nil
+	}
+	raw, ok := sm.spec.Engine["budget"]
+	if !ok || raw == nil {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var b Budget
+	if err := json.Unmarshal(data, &b); err != nil {
+		return nil
+	}
+	if b.MaxTotalVisits == 0 && b.MaxToolCalls == 0 && b.MaxWallTimeSec == 0 {
+		return nil
+	}
+	return &b
 }

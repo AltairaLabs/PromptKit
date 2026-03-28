@@ -14,6 +14,7 @@ func NewContext(entryState string, now time.Time) *Context {
 		CurrentState: entryState,
 		History:      []StateTransition{},
 		Metadata:     map[string]any{},
+		VisitCounts:  map[string]int{entryState: 1},
 		StartedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -32,6 +33,26 @@ func (ctx *Context) RecordTransition(from, to, event string, ts time.Time) {
 		copy(trimmed, ctx.History[len(ctx.History)-MaxHistoryLength:])
 		ctx.History = trimmed
 	}
+	if ctx.VisitCounts == nil {
+		ctx.VisitCounts = make(map[string]int)
+	}
+	ctx.VisitCounts[to]++
+
+	// Snapshot current artifact values at this transition
+	if len(ctx.Artifacts) > 0 {
+		snapshot := ArtifactSnapshot{
+			FromState: from,
+			ToState:   to,
+			Event:     event,
+			Values:    make(map[string]string, len(ctx.Artifacts)),
+			Timestamp: ts,
+		}
+		for k, v := range ctx.Artifacts {
+			snapshot.Values[k] = v
+		}
+		ctx.ArtifactHistory = append(ctx.ArtifactHistory, snapshot)
+	}
+
 	ctx.CurrentState = to
 	ctx.UpdatedAt = ts
 }
@@ -39,9 +60,10 @@ func (ctx *Context) RecordTransition(from, to, event string, ts time.Time) {
 // Clone returns a deep copy of the Context.
 func (ctx *Context) Clone() *Context {
 	c := &Context{
-		CurrentState: ctx.CurrentState,
-		StartedAt:    ctx.StartedAt,
-		UpdatedAt:    ctx.UpdatedAt,
+		CurrentState:   ctx.CurrentState,
+		TotalToolCalls: ctx.TotalToolCalls,
+		StartedAt:      ctx.StartedAt,
+		UpdatedAt:      ctx.UpdatedAt,
 	}
 	if ctx.History != nil {
 		c.History = make([]StateTransition, len(ctx.History))
@@ -49,6 +71,30 @@ func (ctx *Context) Clone() *Context {
 	}
 	if ctx.Metadata != nil {
 		c.Metadata = deepCopyMap(ctx.Metadata)
+	}
+	if ctx.VisitCounts != nil {
+		c.VisitCounts = make(map[string]int, len(ctx.VisitCounts))
+		for k, v := range ctx.VisitCounts {
+			c.VisitCounts[k] = v
+		}
+	}
+	if ctx.Artifacts != nil {
+		c.Artifacts = make(map[string]string, len(ctx.Artifacts))
+		for k, v := range ctx.Artifacts {
+			c.Artifacts[k] = v
+		}
+	}
+	if ctx.ArtifactHistory != nil {
+		c.ArtifactHistory = make([]ArtifactSnapshot, len(ctx.ArtifactHistory))
+		for i, s := range ctx.ArtifactHistory {
+			c.ArtifactHistory[i] = s
+			if s.Values != nil {
+				c.ArtifactHistory[i].Values = make(map[string]string, len(s.Values))
+				for k, v := range s.Values {
+					c.ArtifactHistory[i].Values[k] = v
+				}
+			}
+		}
 	}
 	return c
 }
@@ -91,4 +137,35 @@ func (ctx *Context) LastTransition() *StateTransition {
 	}
 	t := ctx.History[len(ctx.History)-1]
 	return &t
+}
+
+// TotalVisits returns the sum of all per-state visit counts.
+func (ctx *Context) TotalVisits() int {
+	total := 0
+	for _, v := range ctx.VisitCounts {
+		total += v
+	}
+	return total
+}
+
+// IncrementToolCalls adds n to the workflow-wide tool call counter.
+func (ctx *Context) IncrementToolCalls(n int) {
+	ctx.TotalToolCalls += n
+}
+
+// SetArtifact sets an artifact value, respecting the mode (replace or append).
+func (ctx *Context) SetArtifact(name, value, mode string) {
+	if ctx.Artifacts == nil {
+		ctx.Artifacts = make(map[string]string)
+	}
+	if mode == "append" {
+		ctx.Artifacts[name] += value
+	} else {
+		ctx.Artifacts[name] = value
+	}
+}
+
+// GetArtifact returns an artifact value, or empty string if not set.
+func (ctx *Context) GetArtifact(name string) string {
+	return ctx.Artifacts[name]
 }
