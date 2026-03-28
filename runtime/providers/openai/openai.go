@@ -611,6 +611,47 @@ func getTextFromPart(part interface{}) string {
 	return textVal
 }
 
+// extractContentParts builds typed ContentParts from OpenAI response content.
+// Handles both string content and array-of-parts content.
+func extractContentParts(content interface{}) []types.ContentPart {
+	if str, ok := content.(string); ok && str != "" {
+		return []types.ContentPart{types.NewTextPart(str)}
+	}
+	parts, ok := content.([]interface{})
+	if !ok {
+		return nil
+	}
+	var result []types.ContentPart
+	for _, part := range parts {
+		if cp := convertOpenAIPart(part); cp != nil {
+			result = append(result, *cp)
+		}
+	}
+	return result
+}
+
+// convertOpenAIPart converts a single OpenAI content part to a typed ContentPart.
+func convertOpenAIPart(part interface{}) *types.ContentPart {
+	partMap, ok := part.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	partType, _ := partMap["type"].(string)
+	switch partType {
+	case "text":
+		if text, ok := partMap["text"].(string); ok {
+			cp := types.NewTextPart(text)
+			return &cp
+		}
+	case types.ContentTypeThinking:
+		if text, ok := partMap["thinking"].(string); ok {
+			cp := types.NewThinkingPart(text)
+			return &cp
+		}
+	}
+	return nil
+}
+
 // predictWithMessages is a refactored version of Predict that accepts pre-converted messages
 func (p *Provider) predictWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
@@ -731,6 +772,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	content := extractContentString(openAIResp.Choices[0].Message.Content)
 
 	predictResp.Content = content
+	predictResp.Parts = extractContentParts(openAIResp.Choices[0].Message.Content)
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody

@@ -393,6 +393,21 @@ func extractTextContentFromResponse(content []claudeContent) string {
 	return ""
 }
 
+// extractContentParts converts Claude content blocks to typed ContentParts.
+// Returns text and thinking parts; tool_use blocks are handled separately.
+func extractContentParts(content []claudeContent) []types.ContentPart {
+	var parts []types.ContentPart
+	for _, c := range content {
+		switch c.Type {
+		case "text":
+			parts = append(parts, types.NewTextPart(c.Text))
+		case types.ContentTypeThinking:
+			parts = append(parts, types.NewThinkingPart(c.Text))
+		}
+	}
+	return parts
+}
+
 // parseToolCallsFromRawResponse extracts tool calls from raw JSON response
 func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
 	var toolCalls []types.MessageToolCall
@@ -463,6 +478,7 @@ func (p *ToolProvider) parseToolResponse(
 	costBreakdown := p.Provider.CalculateCost(resp.Usage.InputTokens, resp.Usage.OutputTokens, resp.Usage.CacheReadInputTokens)
 
 	predictResp.Content = textContent
+	predictResp.Parts = extractContentParts(resp.Content)
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBytes
