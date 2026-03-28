@@ -54,6 +54,7 @@ const (
 	ContentTypeAudio    = "audio"
 	ContentTypeVideo    = "video"
 	ContentTypeDocument = "document"
+	ContentTypeThinking = "thinking"
 )
 
 // Common MIME types
@@ -86,6 +87,15 @@ const (
 func NewTextPart(text string) ContentPart {
 	return ContentPart{
 		Type: ContentTypeText,
+		Text: &text,
+	}
+}
+
+// NewThinkingPart creates a ContentPart with thinking/reasoning content.
+// Thinking parts are stored alongside text parts but excluded from GetContent().
+func NewThinkingPart(text string) ContentPart {
+	return ContentPart{
+		Type: ContentTypeThinking,
 		Text: &text,
 	}
 }

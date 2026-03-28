@@ -1001,3 +1001,80 @@ func TestToolProvider_MakeRequest_BedrockBodyMutation(t *testing.T) {
 		t.Error("model field should be removed from Bedrock request body")
 	}
 }
+
+func TestExtractContentParts(t *testing.T) {
+	t.Run("text and thinking blocks", func(t *testing.T) {
+		content := []claudeContent{
+			{Type: "thinking", Text: "reasoning here"},
+			{Type: "text", Text: "final answer"},
+		}
+		parts := extractContentParts(content)
+		if len(parts) != 2 {
+			t.Fatalf("expected 2 parts, got %d", len(parts))
+		}
+		if parts[0].Type != "thinking" {
+			t.Errorf("expected first part type 'thinking', got %q", parts[0].Type)
+		}
+		if parts[0].Text == nil || *parts[0].Text != "reasoning here" {
+			t.Errorf("expected first part text 'reasoning here', got %v", parts[0].Text)
+		}
+		if parts[1].Type != "text" {
+			t.Errorf("expected second part type 'text', got %q", parts[1].Type)
+		}
+		if parts[1].Text == nil || *parts[1].Text != "final answer" {
+			t.Errorf("expected second part text 'final answer', got %v", parts[1].Text)
+		}
+	})
+
+	t.Run("text only", func(t *testing.T) {
+		content := []claudeContent{
+			{Type: "text", Text: "just text"},
+		}
+		parts := extractContentParts(content)
+		if len(parts) != 1 {
+			t.Fatalf("expected 1 part, got %d", len(parts))
+		}
+		if parts[0].Type != "text" || parts[0].Text == nil || *parts[0].Text != "just text" {
+			t.Errorf("unexpected part: %+v", parts[0])
+		}
+	})
+
+	t.Run("unknown types are skipped", func(t *testing.T) {
+		content := []claudeContent{
+			{Type: "text", Text: "hello"},
+			{Type: "tool_use", Text: ""},
+			{Type: "unknown_type", Text: "should be skipped"},
+		}
+		parts := extractContentParts(content)
+		if len(parts) != 1 {
+			t.Fatalf("expected 1 part (only text), got %d", len(parts))
+		}
+		if parts[0].Type != "text" {
+			t.Errorf("expected text part, got %q", parts[0].Type)
+		}
+	})
+
+	t.Run("empty content", func(t *testing.T) {
+		parts := extractContentParts(nil)
+		if len(parts) != 0 {
+			t.Errorf("expected 0 parts for nil input, got %d", len(parts))
+		}
+		parts = extractContentParts([]claudeContent{})
+		if len(parts) != 0 {
+			t.Errorf("expected 0 parts for empty input, got %d", len(parts))
+		}
+	})
+
+	t.Run("thinking only", func(t *testing.T) {
+		content := []claudeContent{
+			{Type: "thinking", Text: "deep thoughts"},
+		}
+		parts := extractContentParts(content)
+		if len(parts) != 1 {
+			t.Fatalf("expected 1 part, got %d", len(parts))
+		}
+		if parts[0].Type != "thinking" || parts[0].Text == nil || *parts[0].Text != "deep thoughts" {
+			t.Errorf("unexpected part: %+v", parts[0])
+		}
+	})
+}

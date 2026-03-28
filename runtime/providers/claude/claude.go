@@ -494,13 +494,20 @@ func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp p
 		return claudeResp, "", predictResp, fmt.Errorf("no content in response")
 	}
 
-	// Find text content
+	// Extract text and thinking content from response blocks
 	var responseText string
+	var parts []types.ContentPart
 	for _, content := range claudeResp.Content {
-		if content.Type == "text" {
+		switch content.Type {
+		case "text":
 			responseText = content.Text
-			break
+			parts = append(parts, types.NewTextPart(content.Text))
+		case types.ContentTypeThinking:
+			parts = append(parts, types.NewThinkingPart(content.Text))
 		}
+	}
+	if len(parts) > 0 {
+		predictResp.Parts = parts
 	}
 
 	if responseText == "" {
