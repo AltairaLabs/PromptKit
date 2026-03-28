@@ -37,6 +37,22 @@ func (ctx *Context) RecordTransition(from, to, event string, ts time.Time) {
 		ctx.VisitCounts = make(map[string]int)
 	}
 	ctx.VisitCounts[to]++
+
+	// Snapshot current artifact values at this transition
+	if len(ctx.Artifacts) > 0 {
+		snapshot := ArtifactSnapshot{
+			FromState: from,
+			ToState:   to,
+			Event:     event,
+			Values:    make(map[string]string, len(ctx.Artifacts)),
+			Timestamp: ts,
+		}
+		for k, v := range ctx.Artifacts {
+			snapshot.Values[k] = v
+		}
+		ctx.ArtifactHistory = append(ctx.ArtifactHistory, snapshot)
+	}
+
 	ctx.CurrentState = to
 	ctx.UpdatedAt = ts
 }
@@ -60,6 +76,24 @@ func (ctx *Context) Clone() *Context {
 		c.VisitCounts = make(map[string]int, len(ctx.VisitCounts))
 		for k, v := range ctx.VisitCounts {
 			c.VisitCounts[k] = v
+		}
+	}
+	if ctx.Artifacts != nil {
+		c.Artifacts = make(map[string]string, len(ctx.Artifacts))
+		for k, v := range ctx.Artifacts {
+			c.Artifacts[k] = v
+		}
+	}
+	if ctx.ArtifactHistory != nil {
+		c.ArtifactHistory = make([]ArtifactSnapshot, len(ctx.ArtifactHistory))
+		for i, s := range ctx.ArtifactHistory {
+			c.ArtifactHistory[i] = s
+			if s.Values != nil {
+				c.ArtifactHistory[i].Values = make(map[string]string, len(s.Values))
+				for k, v := range s.Values {
+					c.ArtifactHistory[i].Values[k] = v
+				}
+			}
 		}
 	}
 	return c
@@ -117,4 +151,21 @@ func (ctx *Context) TotalVisits() int {
 // IncrementToolCalls adds n to the workflow-wide tool call counter.
 func (ctx *Context) IncrementToolCalls(n int) {
 	ctx.TotalToolCalls += n
+}
+
+// SetArtifact sets an artifact value, respecting the mode (replace or append).
+func (ctx *Context) SetArtifact(name, value, mode string) {
+	if ctx.Artifacts == nil {
+		ctx.Artifacts = make(map[string]string)
+	}
+	if mode == "append" {
+		ctx.Artifacts[name] += value
+	} else {
+		ctx.Artifacts[name] = value
+	}
+}
+
+// GetArtifact returns an artifact value, or empty string if not set.
+func (ctx *Context) GetArtifact(name string) string {
+	return ctx.Artifacts[name]
 }

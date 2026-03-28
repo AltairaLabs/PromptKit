@@ -798,3 +798,183 @@ func TestTotalVisits(t *testing.T) {
 		t.Errorf("TotalVisits = %d, want 3", ctx.TotalVisits())
 	}
 }
+
+// --- Artifact tests ---
+
+func TestArtifact_SetAndGet(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts: map[string]*ArtifactDef{
+					"commit_sha": {Type: "text/plain"},
+				},
+				OnEvent: map[string]string{"Go": "b"},
+			},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("commit_sha", "abc123")
+
+	arts := sm.Artifacts()
+	if arts["commit_sha"] != "abc123" {
+		t.Errorf("commit_sha = %q, want %q", arts["commit_sha"], "abc123")
+	}
+}
+
+func TestArtifact_AppendMode(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts: map[string]*ArtifactDef{
+					"log": {Type: "text/plain", Mode: "append"},
+				},
+			},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("log", "line1\n")
+	sm.SetArtifact("log", "line2\n")
+
+	arts := sm.Artifacts()
+	if arts["log"] != "line1\nline2\n" {
+		t.Errorf("log = %q, want %q", arts["log"], "line1\nline2\n")
+	}
+}
+
+func TestArtifact_ReplaceMode(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts: map[string]*ArtifactDef{
+					"result": {Type: "text/plain"}, // default = replace
+				},
+			},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("result", "first")
+	sm.SetArtifact("result", "second")
+
+	arts := sm.Artifacts()
+	if arts["result"] != "second" {
+		t.Errorf("result = %q, want %q", arts["result"], "second")
+	}
+}
+
+func TestArtifact_SnapshotOnTransition(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts: map[string]*ArtifactDef{
+					"sha": {Type: "text/plain"},
+				},
+				OnEvent: map[string]string{"Go": "b"},
+			},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("sha", "abc123")
+
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("ProcessEvent: %v", err)
+	}
+
+	ctx := sm.Context()
+	if len(ctx.ArtifactHistory) != 1 {
+		t.Fatalf("ArtifactHistory length = %d, want 1", len(ctx.ArtifactHistory))
+	}
+	snap := ctx.ArtifactHistory[0]
+	if snap.FromState != "a" || snap.ToState != "b" {
+		t.Errorf("snapshot states = %q→%q, want a→b", snap.FromState, snap.ToState)
+	}
+	if snap.Values["sha"] != "abc123" {
+		t.Errorf("snapshot sha = %q, want %q", snap.Values["sha"], "abc123")
+	}
+}
+
+func TestArtifact_NoSnapshotWhenEmpty(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	// No artifacts set
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("ProcessEvent: %v", err)
+	}
+
+	ctx := sm.Context()
+	if len(ctx.ArtifactHistory) != 0 {
+		t.Errorf("ArtifactHistory length = %d, want 0 (no artifacts set)", len(ctx.ArtifactHistory))
+	}
+}
+
+func TestArtifact_CloneDeepCopies(t *testing.T) {
+	ctx := NewContext("a", time.Now())
+	ctx.SetArtifact("key", "original", "")
+	ctx.ArtifactHistory = append(ctx.ArtifactHistory, ArtifactSnapshot{
+		Values: map[string]string{"key": "v1"},
+	})
+
+	clone := ctx.Clone()
+
+	// Mutating original should not affect clone
+	ctx.Artifacts["key"] = "mutated"
+	ctx.ArtifactHistory[0].Values["key"] = "mutated"
+
+	if clone.Artifacts["key"] != "original" {
+		t.Error("Clone should deep-copy Artifacts")
+	}
+	if clone.ArtifactHistory[0].Values["key"] != "v1" {
+		t.Error("Clone should deep-copy ArtifactHistory values")
+	}
+}
+
+func TestArtifact_CrossStateScope(t *testing.T) {
+	// Artifacts are workflow-scoped: setting in state A is visible in state B
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "t",
+				Artifacts:  map[string]*ArtifactDef{"sha": {Type: "text/plain"}},
+				OnEvent:    map[string]string{"Go": "b"},
+			},
+			"b": {
+				PromptTask: "t",
+				Artifacts:  map[string]*ArtifactDef{"sha": {Type: "text/plain"}},
+			},
+		},
+	}
+	sm := NewStateMachine(spec)
+	sm.SetArtifact("sha", "abc123")
+
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("ProcessEvent: %v", err)
+	}
+
+	// After transitioning to B, the artifact is still accessible
+	arts := sm.Artifacts()
+	if arts["sha"] != "abc123" {
+		t.Errorf("artifact sha = %q after transition, want %q", arts["sha"], "abc123")
+	}
+}

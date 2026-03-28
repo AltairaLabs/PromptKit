@@ -191,6 +191,49 @@ func (sm *StateMachine) IncrementToolCalls(n int) {
 	sm.context.IncrementToolCalls(n)
 }
 
+// SetArtifact sets an artifact value on the workflow context.
+// The mode is looked up from the spec's artifact definitions for the
+// current state. Thread-safe.
+func (sm *StateMachine) SetArtifact(name, value string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	mode := sm.artifactMode(name)
+	sm.context.SetArtifact(name, value, mode)
+}
+
+// Artifacts returns a snapshot of the current artifact values.
+func (sm *StateMachine) Artifacts() map[string]string {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if sm.context.Artifacts == nil {
+		return nil
+	}
+	cp := make(map[string]string, len(sm.context.Artifacts))
+	for k, v := range sm.context.Artifacts {
+		cp[k] = v
+	}
+	return cp
+}
+
+// artifactMode returns the mode for an artifact by searching the current
+// state's artifact defs first, then all states in the spec.
+// Caller must hold at least a read lock.
+func (sm *StateMachine) artifactMode(name string) string {
+	// Check current state first
+	if state := sm.spec.States[sm.context.CurrentState]; state != nil {
+		if def := state.Artifacts[name]; def != nil {
+			return def.Mode
+		}
+	}
+	// Fall back to any state that declares this artifact
+	for _, state := range sm.spec.States {
+		if def := state.Artifacts[name]; def != nil {
+			return def.Mode
+		}
+	}
+	return "" // default = replace
+}
+
 // checkBudgetLocked checks workflow-level budget limits.
 // Caller must hold the write lock.
 func (sm *StateMachine) checkBudgetLocked() error {
