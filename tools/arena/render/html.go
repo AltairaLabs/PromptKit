@@ -397,6 +397,7 @@ func getReportTemplate() *template.Template {
 			"renderToolResultMediaBadges": renderToolResultMediaBadges,
 			"isAgentTool":                 isAgentTool,
 			"isWorkflowTool":              isWorkflowTool,
+			"isMemoryTool":                isMemoryTool,
 			"hasA2AAgents":                hasA2AAgents,
 			"renderA2AAgentCards":         renderA2AAgentCards,
 			"consentStatus":               consentStatus,
@@ -1201,6 +1202,11 @@ func isAgentTool(name string) bool {
 // isWorkflowTool returns true if the tool name is a workflow transition tool.
 func isWorkflowTool(name string) bool {
 	return strings.HasPrefix(name, "workflow__")
+}
+
+// isMemoryTool returns true if the tool name is a memory tool.
+func isMemoryTool(name string) bool {
+	return strings.HasPrefix(name, "memory__")
 }
 
 // hasA2AAgents checks if a result has A2A agent metadata.

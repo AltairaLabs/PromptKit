@@ -1694,6 +1694,25 @@
             margin-right: 0.25rem;
         }
 
+        /* Memory tool call styling */
+        .tool-call-name.memory {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            color: white;
+            padding: 0.15rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+
+        .tool-response-name.memory {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1);
+            color: white;
+            padding: 0.15rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+
+        .memory-icon {
+            margin-right: 0.25rem;
+        }
+
         /* A2A Agent Cards Section */
         .a2a-agents-section {
             margin-top: 1rem;
@@ -2024,7 +2043,7 @@
                                         {{range $toolIdx, $toolCall := $msg.ToolCalls}}
                                         <div class="tool-call">
                                             <div class="tool-call-header" onclick="toggleToolContent(this)">
-                                                <span class="tool-call-name{{if isAgentTool $toolCall.Name}} agent{{else if isWorkflowTool $toolCall.Name}} workflow{{end}}">{{if isAgentTool $toolCall.Name}}<span class="agent-icon">🤖</span>{{else if isWorkflowTool $toolCall.Name}}<span class="workflow-icon">⚡</span>{{end}}{{$toolCall.Name}}</span>
+                                                <span class="tool-call-name{{if isAgentTool $toolCall.Name}} agent{{else if isWorkflowTool $toolCall.Name}} workflow{{else if isMemoryTool $toolCall.Name}} memory{{end}}">{{if isAgentTool $toolCall.Name}}<span class="agent-icon">🤖</span>{{else if isWorkflowTool $toolCall.Name}}<span class="workflow-icon">⚡</span>{{else if isMemoryTool $toolCall.Name}}<span class="memory-icon">🧠</span>{{end}}{{$toolCall.Name}}</span>
                                                 <span class="tool-call-id">{{$toolCall.ID}}</span>
                                                 <span class="tool-call-toggle">▶</span>
                                             </div>
@@ -2106,7 +2125,7 @@
                                     <div class="tool-response"{{if and $consent $msg.ToolResult}} data-consent-status="{{$consent}}" data-tool-call-id="{{$msg.ToolResult.ID}}"{{end}}>
                                         <div class="tool-response-header" onclick="toggleToolResponse(this)">
                                             {{if $msg.ToolResult}}
-                                            <span class="tool-response-name{{if isAgentTool $msg.ToolResult.Name}} agent{{else if isWorkflowTool $msg.ToolResult.Name}} workflow{{end}}">{{if isAgentTool $msg.ToolResult.Name}}<span class="agent-icon">🤖</span>{{else if isWorkflowTool $msg.ToolResult.Name}}<span class="workflow-icon">⚡</span>{{end}}{{$msg.ToolResult.Name}}</span>
+                                            <span class="tool-response-name{{if isAgentTool $msg.ToolResult.Name}} agent{{else if isWorkflowTool $msg.ToolResult.Name}} workflow{{else if isMemoryTool $msg.ToolResult.Name}} memory{{end}}">{{if isAgentTool $msg.ToolResult.Name}}<span class="agent-icon">🤖</span>{{else if isWorkflowTool $msg.ToolResult.Name}}<span class="workflow-icon">⚡</span>{{else if isMemoryTool $msg.ToolResult.Name}}<span class="memory-icon">🧠</span>{{end}}{{$msg.ToolResult.Name}}</span>
                                             <span class="tool-response-id">{{$msg.ToolResult.ID}}</span>
                                             {{else}}
                                             <span class="tool-response-name">Tool Response</span>
