@@ -87,8 +87,8 @@ func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 			ErrInvalidEvent, sm.context.CurrentState)
 	}
 
-	if len(state.OnEvent) == 0 {
-		return nil, fmt.Errorf("%w: state %q has no transitions",
+	if state.Terminal || len(state.OnEvent) == 0 {
+		return nil, fmt.Errorf("%w: state %q is terminal",
 			ErrTerminalState, sm.context.CurrentState)
 	}
 

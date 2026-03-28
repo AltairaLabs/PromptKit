@@ -123,18 +123,14 @@ func validateLoopGuards(spec *Spec, name string, state *State, r *ValidationResu
 			name))
 	}
 
-	// on_max_visits must reference an existing state
+	// on_max_visits validation
 	if state.OnMaxVisits != "" {
-		if _, ok := spec.States[state.OnMaxVisits]; !ok {
+		target := spec.States[state.OnMaxVisits]
+		if target == nil {
 			r.Errors = append(r.Errors, fmt.Sprintf(
 				"workflow.states[%q].on_max_visits %q does not exist in states",
 				name, state.OnMaxVisits))
-		}
-	}
-
-	// Warn if on_max_visits target also has max_visits (redirect chain risk)
-	if state.OnMaxVisits != "" {
-		if target := spec.States[state.OnMaxVisits]; target != nil && target.MaxVisits > 0 {
+		} else if target.MaxVisits > 0 {
 			r.Warnings = append(r.Warnings, fmt.Sprintf(
 				"workflow.states[%q].on_max_visits target %q also has max_visits — potential redirect chain",
 				name, state.OnMaxVisits))

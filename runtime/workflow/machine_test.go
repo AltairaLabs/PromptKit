@@ -442,6 +442,31 @@ func TestTerminal_BackwardCompat(t *testing.T) {
 	}
 }
 
+func TestTerminal_WithOnEvent_BlocksTransitions(t *testing.T) {
+	// A state with Terminal: true blocks ProcessEvent even if OnEvent is set.
+	// This ensures consistency between IsTerminal() and ProcessEvent().
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {
+				PromptTask: "task_a",
+				Terminal:   true,
+				OnEvent:    map[string]string{"Next": "b"},
+			},
+			"b": {PromptTask: "task_b"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	if !sm.IsTerminal() {
+		t.Error("state a with Terminal: true should be terminal")
+	}
+	_, err := sm.ProcessEvent("Next")
+	if !errors.Is(err, ErrTerminalState) {
+		t.Errorf("expected ErrTerminalState, got: %v", err)
+	}
+}
+
 func TestMaxVisits_RedirectOnExceeded(t *testing.T) {
 	spec := &Spec{
 		Version: 1,
