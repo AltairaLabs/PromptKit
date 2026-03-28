@@ -61,6 +61,10 @@ type ProviderConfig struct {
 
 	// MessageLogConvID is the conversation ID for message log operations.
 	MessageLogConvID string
+
+	// Compactor folds stale tool results between rounds when token usage
+	// exceeds the configured threshold. Nil = disabled.
+	Compactor *ContextCompactor
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -392,6 +396,12 @@ func (tl *toolLoop) afterRound(
 	}
 
 	tl.toolChoice = toolChoiceAuto
+
+	// Compact stale tool results before next round's provider call.
+	// This modifies the in-memory slice only — the persisted log retains full history.
+	if tl.stage.config != nil && tl.stage.config.Compactor != nil {
+		tl.messages = tl.stage.config.Compactor.Compact(tl.messages)
+	}
 
 	if round == tl.maxRounds {
 		return true, tl.messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", tl.maxRounds)
