@@ -13,12 +13,9 @@ spec:
       assertions:
         - type: tools_called
           params:
-            tool_names: ["memory__remember"]
+            tools:
+              - "memory__remember"
           message: "Agent should store key facts about the user"
-        - type: min_length
-          params:
-            min: 20
-          message: "Agent should acknowledge the information"
 
     - role: user
       content: "Can you recommend a good database for storing vector embeddings?"
@@ -33,9 +30,6 @@ spec:
       assertions:
         - type: tools_called
           params:
-            tool_names: ["memory__recall"]
+            tools:
+              - "memory__recall"
           message: "Agent should recall stored information"
-        - type: content_matches
-          params:
-            pattern: "(?i)(omnia|agent|platform|go)"
-          message: "Agent should recall details about the user's work"

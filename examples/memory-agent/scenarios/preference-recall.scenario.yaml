@@ -11,7 +11,17 @@ spec:
     - role: user
       content: "I really prefer dark mode for everything. Can you remember that?"
       assertions:
-        - type: min_length
+        - type: tools_called
           params:
-            min: 5
-          message: "Should respond with something"
+            tools:
+              - "memory__remember"
+          message: "Agent should use memory__remember to store the dark mode preference"
+
+    - role: user
+      content: "What do you know about my preferences?"
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - "memory__recall"
+          message: "Agent should use memory__recall to look up preferences"
