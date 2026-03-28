@@ -63,7 +63,6 @@ func (s *InMemoryStore) Retrieve(
 			continue
 		}
 		if query == "" || strings.Contains(strings.ToLower(m.Content), queryLower) {
-			m.AccessedAt = time.Now()
 			results = append(results, m)
 		}
 	}

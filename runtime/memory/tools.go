@@ -197,6 +197,10 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 						"type":        "integer",
 						"description": "Maximum number of results.",
 					},
+					"min_confidence": map[string]any{
+						"type":        "number",
+						"description": "Minimum confidence threshold (0.0-1.0).",
+					},
 				},
 				"required": []string{"query"},
 			}),
@@ -220,6 +224,10 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 					"confidence": map[string]any{
 						"type":        "number",
 						"description": "How confident you are (0.0-1.0). Default: 0.8.",
+					},
+					"metadata": map[string]any{
+						"type":        "object",
+						"description": "Optional structured data to attach to the memory.",
 					},
 				},
 				"required": []string{"content"},
@@ -263,6 +271,9 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 }
 
 func mustJSON(v any) json.RawMessage {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("mustJSON: %v", err))
+	}
 	return b
 }
