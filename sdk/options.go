@@ -207,6 +207,9 @@ type config struct {
 
 	// MessageLog for per-round write-through during tool loops
 	messageLog statestore.MessageLog
+
+	// Compaction control (nil = default enabled, false = disabled)
+	compactionEnabled *bool
 }
 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.
@@ -815,6 +818,17 @@ func WithMetrics(collector *metrics.Collector, instanceLabels map[string]string)
 func WithLogger(l *slog.Logger) Option {
 	return func(c *config) error {
 		c.logger = l
+		return nil
+	}
+}
+
+// WithCompaction controls context compaction in tool loops.
+// When enabled (default), stale tool results are folded between rounds to
+// prevent context overflow. The budget is auto-detected from the provider's
+// context window or defaults to 128K tokens. Pass false to disable.
+func WithCompaction(enabled bool) Option {
+	return func(c *config) error {
+		c.compactionEnabled = &enabled
 		return nil
 	}
 }

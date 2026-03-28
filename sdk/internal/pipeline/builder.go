@@ -73,6 +73,10 @@ type Config struct {
 	// save stage skips message append.
 	MessageLog statestore.MessageLog
 
+	// CompactionEnabled controls context compaction in tool loops.
+	// nil = default (enabled), false = disabled.
+	CompactionEnabled *bool
+
 	// ContextWindow is the hot window size for RAG context assembly.
 	// When > 0, ContextAssemblyStage + IncrementalSaveStage replace the
 	// standard StateStoreLoad/Save stages.
@@ -350,6 +354,16 @@ func buildProviderStages(cfg *Config) ([]stage.Stage, error) {
 			ResponseFormat:   cfg.ResponseFormat,
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
+		}
+		// Auto-configure compactor (default-on) unless explicitly disabled
+		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {
+			budgetTokens := stage.DefaultBudgetTokens
+			if cwp, ok := cfg.Provider.(providers.ContextWindowProvider); ok {
+				budgetTokens = cwp.MaxContextTokens()
+			}
+			providerConfig.Compactor = &stage.ContextCompactor{
+				BudgetTokens: budgetTokens,
+			}
 		}
 		return []stage.Stage{stage.NewProviderStageWithHooks(
 			cfg.Provider,

@@ -751,7 +751,7 @@ func TestProviderStage_GetMaxRounds(t *testing.T) {
 
 	t.Run("returns default when no policy", func(t *testing.T) {
 		stage := NewProviderStage(provider, nil, nil, nil)
-		assert.Equal(t, 10, stage.getMaxRounds()) // defaultMaxRounds
+		assert.Equal(t, 50, stage.getMaxRounds()) // defaultMaxRounds
 	})
 
 	t.Run("returns policy value when set", func(t *testing.T) {
@@ -761,7 +761,7 @@ func TestProviderStage_GetMaxRounds(t *testing.T) {
 
 	t.Run("returns default when policy MaxRounds is zero", func(t *testing.T) {
 		stage := NewProviderStage(provider, nil, &pipeline.ToolPolicy{MaxRounds: 0}, nil)
-		assert.Equal(t, 10, stage.getMaxRounds())
+		assert.Equal(t, 50, stage.getMaxRounds())
 	})
 }
 

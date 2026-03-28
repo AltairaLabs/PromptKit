@@ -512,3 +512,15 @@ func (e *Emitter) WorkflowCompleted(finalState string, transitionCount int) {
 		TransitionCount: transitionCount,
 	})
 }
+
+// ContextCompacted emits the context.compacted event when the compactor
+// folds stale tool results between tool-loop rounds.
+func (e *Emitter) ContextCompacted(round, originalTokens, compactedTokens, messagesFolded, budgetTokens int) {
+	e.emit(EventContextCompacted, &ContextCompactionData{
+		Round:           round,
+		OriginalTokens:  originalTokens,
+		CompactedTokens: compactedTokens,
+		MessagesFolded:  messagesFolded,
+		BudgetTokens:    budgetTokens,
+	})
+}
