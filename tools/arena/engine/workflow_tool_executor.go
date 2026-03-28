@@ -189,7 +189,7 @@ func (p *workflowRunMetadataProvider) WorkflowMetadata() map[string]any {
 // registerTransitionTool registers the workflow__transition tool with the executor
 // routing mode set so the registry dispatches to workflowTransitionExecutor.
 func registerTransitionTool(registry *tools.Registry, state *workflow.State) {
-	if registry == nil || state == nil || len(state.OnEvent) == 0 {
+	if registry == nil || state == nil || state.Terminal || len(state.OnEvent) == 0 {
 		return
 	}
 	if state.Orchestration == workflow.OrchestrationExternal {

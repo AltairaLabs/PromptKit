@@ -376,23 +376,6 @@ func (wc *WorkflowConversation) applyTransition(
 	return toState, nil
 }
 
-// transitionResult builds a response to return to the LLM after a transition tool call.
-// Kept for backward compatibility with explicit Transition() calls.
-func transitionResult(event string, spec *workflow.Spec) map[string]string {
-	result := map[string]string{
-		"status": "transition_scheduled",
-		"event":  event,
-	}
-	// Look up the target state for a more informative response
-	for _, state := range spec.States {
-		if target, ok := state.OnEvent[event]; ok {
-			result["target_state"] = target
-			break
-		}
-	}
-	return result
-}
-
 // CurrentState returns the current workflow state name.
 func (wc *WorkflowConversation) CurrentState() string {
 	wc.mu.RLock()

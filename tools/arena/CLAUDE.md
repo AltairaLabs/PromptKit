@@ -31,21 +31,21 @@ tools/arena/
 
 ## Critical Design Patterns
 
-### 1. Immediate Workflow Transitions (vs SDK's Deferred)
+### 1. Deferred Workflow Transitions
 
-Arena executes workflow transitions **synchronously during tool execution**:
+Arena uses the same deferred transition pattern as the SDK, via the runtime's `TransitionExecutor`. The executor defers `ProcessEvent` during tool execution and commits it after the turn completes:
 
 ```go
 // In workflowTransitionExecutor.Execute():
-tr, err := run.sm.ProcessEvent(event)  // immediate
+// Delegates to TransitionExecutor which defers the transition
+
+// In CommitPendingTransition() — called via PostTurnHook after each turn:
+tr, err := run.transExec.CommitPending()
 run.scenario.TaskType = newState.PromptTask  // update for next turn
-registerTransitionTool(registry, newState)    // re-register for new events
+run.transExec.RegisterForState(registry, newState)  // re-register for new events
 ```
 
-This differs from the SDK which defers transitions until after `Send()`. Arena can do this because:
-- Arena controls the turn loop externally (scripted turns, not interactive)
-- The next turn naturally uses the updated TaskType
-- No need to send a tool result to the LLM before transitioning (Arena manages the conversation)
+Both SDK and Arena now share the same deferred commit pattern — the runtime `TransitionExecutor` handles deferral, and each consumer commits at the appropriate point in its turn loop.
 
 ### 2. Per-Run State Machine Isolation
 

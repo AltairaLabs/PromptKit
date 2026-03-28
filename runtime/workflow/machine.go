@@ -23,10 +23,12 @@ type TimeFunc func() time.Time
 
 // StateMachine manages workflow state transitions.
 type StateMachine struct {
-	mu      sync.RWMutex
-	spec    *Spec
-	context *Context
-	now     TimeFunc
+	mu         sync.RWMutex
+	spec       *Spec
+	context    *Context
+	now        TimeFunc
+	budget     *Budget
+	budgetOnce sync.Once
 }
 
 // NewStateMachine creates a state machine from a workflow spec.
@@ -237,10 +239,11 @@ func (sm *StateMachine) artifactMode(name string) string {
 // checkBudgetLocked checks workflow-level budget limits.
 // Caller must hold the write lock.
 func (sm *StateMachine) checkBudgetLocked() error {
-	budget := sm.parseBudget()
-	if budget == nil {
+	sm.budgetOnce.Do(func() { sm.budget = sm.parseBudgetFromSpec() })
+	if sm.budget == nil {
 		return nil
 	}
+	budget := sm.budget
 	if budget.MaxTotalVisits > 0 && sm.context.TotalVisits() >= budget.MaxTotalVisits {
 		return fmt.Errorf("%w: total visits %d reached limit %d",
 			ErrBudgetExhausted, sm.context.TotalVisits(), budget.MaxTotalVisits)
@@ -259,8 +262,8 @@ func (sm *StateMachine) checkBudgetLocked() error {
 	return nil
 }
 
-// parseBudget extracts the Budget from Spec.Engine["budget"], if present.
-func (sm *StateMachine) parseBudget() *Budget {
+// parseBudgetFromSpec extracts the Budget from Spec.Engine["budget"], if present.
+func (sm *StateMachine) parseBudgetFromSpec() *Budget {
 	if sm.spec.Engine == nil {
 		return nil
 	}

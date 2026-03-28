@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -118,21 +119,6 @@ func collectArtifactNames(spec *Spec) []string {
 	for name := range seen {
 		names = append(names, name)
 	}
-	return SortedStrings(names)
-}
-
-// SortedStrings returns a sorted copy of the input slice.
-func SortedStrings(s []string) []string {
-	cp := make([]string, len(s))
-	copy(cp, s)
-	sortStrings(cp)
-	return cp
-}
-
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
+	slices.Sort(names)
+	return names
 }

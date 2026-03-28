@@ -49,9 +49,9 @@ Every `Send()` rebuilds the entire pipeline. This enables:
 
 ### 3. Deferred Workflow Transitions
 
-When the LLM calls `workflow__transition`, the SDK does NOT execute the transition immediately. It stores a `pendingTransition` and processes it after `Send()` returns the tool result to the LLM. This ensures the LLM sees a consistent response before the state changes.
+When the LLM calls `workflow__transition`, the runtime's `TransitionExecutor` defers the actual `ProcessEvent` call. The SDK commits it after `Send()` completes via `TransitionExecutor.Pending()` and `CommitPending()`. This ensures the LLM sees a consistent tool response before the state changes.
 
-**This is a fundamental behavioral difference from Arena**, which executes transitions immediately.
+Both SDK and Arena now use the same deferred pattern — the runtime `TransitionExecutor` handles deferral, and each consumer commits at the appropriate point in its turn loop.
 
 ### 4. Capability Inference
 
@@ -80,7 +80,7 @@ Capabilities are auto-detected from pack structure. Explicit `WithCapability()` 
 - **Don't duplicate runtime interfaces** — use `tools.Executor`, not a parallel dispatch mechanism
 - **Don't import `sdk/` from `runtime/`** — if both need it, it belongs in runtime
 - **Don't cache pipelines across Send() calls** — the per-Send rebuild is intentional
-- **Don't execute workflow transitions immediately** — use the deferred pattern via `pendingTransition`
+- **Don't execute workflow transitions immediately** — use the deferred pattern via `TransitionExecutor.Pending()`/`CommitPending()`
 
 ## Testing
 

@@ -929,38 +929,6 @@ func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
 	wg.Wait()
 }
 
-func TestTransitionResult(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1", OnEvent: map[string]string{"Next": "end"}},
-			"end":   {PromptTask: "p2"},
-		},
-	}
-
-	result := transitionResult("Next", spec)
-	assert.Equal(t, "transition_scheduled", result["status"])
-	assert.Equal(t, "Next", result["event"])
-	assert.Equal(t, "end", result["target_state"])
-}
-
-func TestTransitionResult_UnknownEvent(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1"},
-		},
-	}
-
-	result := transitionResult("Unknown", spec)
-	assert.Equal(t, "transition_scheduled", result["status"])
-	assert.Equal(t, "Unknown", result["event"])
-	_, hasTarget := result["target_state"]
-	assert.False(t, hasTarget)
-}
-
 func TestHandleTransitionTool(t *testing.T) {
 	spec := &workflow.Spec{
 		Version: 1,
