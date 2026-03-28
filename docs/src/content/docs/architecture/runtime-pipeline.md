@@ -192,10 +192,12 @@ assemblyStage := stage.NewPromptAssemblyStage(
 
 **Behavior**:
 - Calls the configured LLM provider
-- Handles multi-round tool execution loops
+- Handles multi-round tool execution loops (default: up to 50 rounds)
 - Supports both streaming and non-streaming modes
-- Enforces tool policies (blocklist, ToolChoice)
-- Tracks token usage and latency
+- Enforces tool policies (blocklist, ToolChoice, cost budget)
+- Context compactor folds stale tool results between rounds to prevent context overflow
+- Tools rejected by hooks twice are auto-excluded from subsequent rounds
+- Tracks token usage, latency, and cumulative cost
 
 **Configuration**:
 ```go
@@ -468,7 +470,7 @@ sequenceDiagram
 **Features**:
 - Automatic tool call detection
 - Parallel tool execution
-- Round limit enforcement (default: 10 rounds)
+- Round limit enforcement (default: 50 rounds)
 - Tool policy enforcement
 
 ## Configuration
@@ -493,7 +495,8 @@ pipeline := stage.NewPipelineBuilderWithConfig(config).
 | Setting | Default | Description |
 |---------|---------|-------------|
 | ChannelBufferSize | 16 | Buffer size for inter-stage channels |
-| ExecutionTimeout | 30s | Maximum pipeline execution time |
+| ExecutionTimeout | 0 (disabled) | Maximum pipeline execution time (wall-clock) |
+| IdleTimeout | 30s | Cancels pipeline after inactivity (resets on each provider call, tool execution, or streaming chunk) |
 | GracefulShutdownTimeout | 10s | Timeout for graceful shutdown |
 | PriorityQueue | false | Enable priority-based scheduling |
 | Metrics | false | Enable per-stage metrics collection |

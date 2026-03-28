@@ -103,6 +103,12 @@ type Provider interface {
 	CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo
 }
 
+// ContextWindowProvider is an optional interface for providers that can report
+// their context window size. Used to auto-configure the compactor budget.
+type ContextWindowProvider interface {
+	MaxContextTokens() int
+}
+
 // ToolDescriptor represents a tool that can be used by providers
 type ToolDescriptor struct {
 	Name         string          `json:"name"`

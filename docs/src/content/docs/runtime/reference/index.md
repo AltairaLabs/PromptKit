@@ -169,10 +169,12 @@ provider := openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
 
 ```go
 policy := &pipeline.ToolPolicy{
-    ToolChoice:          "auto",     // "auto", "required", "none", or specific tool
-    MaxRounds:           5,          // Max tool execution rounds
-    MaxToolCallsPerTurn: 10,         // Max tools per LLM response
-    Blocklist:           []string{"dangerous_tool"},  // Blocked tools
+    ToolChoice:           "auto",     // "auto", "required", "none", or specific tool
+    MaxRounds:            5,          // Max tool execution rounds (default: 50)
+    MaxToolCallsPerTurn:  10,         // Max tools per LLM response
+    MaxParallelToolCalls: 5,          // Max concurrent tool executions (default: 10)
+    MaxCostUSD:           1.00,       // Stop after $1 spent (0 = unlimited)
+    Blocklist:            []string{"dangerous_tool"},  // Blocked tools
 }
 ```
 

@@ -77,6 +77,18 @@ type MultimodalSupport interface {
 }
 ```
 
+### ContextWindowProvider (Optional)
+
+Providers that can report their context window size implement `ContextWindowProvider`. Used by the context compactor to auto-detect token budgets:
+
+```go
+type ContextWindowProvider interface {
+    MaxContextTokens() int
+}
+```
+
+When a provider does not implement this interface, the compactor falls back to a default of 128,000 tokens.
+
 **MultimodalCapabilities**:
 
 ```go

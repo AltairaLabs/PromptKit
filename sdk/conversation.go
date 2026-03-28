@@ -420,6 +420,7 @@ func (c *Conversation) buildPipelineConfig(
 		HookRegistry:          c.hookRegistry,
 		ExecutionTimeout:      c.config.executionTimeout,
 		MessageLog:            c.config.messageLog,
+		CompactionEnabled:     c.config.compactionEnabled,
 	}
 
 	// Wire recording config if enabled

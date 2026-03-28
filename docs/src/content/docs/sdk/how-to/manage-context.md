@@ -141,6 +141,26 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 )
 ```
 
+## Context Compaction (Tool Loops)
+
+During multi-round tool execution, tool results accumulate and can exhaust the context window. The **context compactor** runs automatically between rounds and folds stale tool results into compact summaries (e.g., `[file_read: package main... — 12000 bytes compacted]`).
+
+Compaction is **on by default**. It:
+- Triggers when estimated context exceeds 70% of the token budget
+- Folds oldest tool results first, preserving the most recent 4 messages
+- Never modifies error results, system messages, or non-tool messages
+- Emits a `context.compacted` event with token count details
+
+The token budget is auto-detected from the provider if it implements `ContextWindowProvider`, otherwise defaults to 128K tokens.
+
+To disable compaction:
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithCompaction(false),
+)
+```
+
 ## Embedding Providers
 
 ### OpenAI

@@ -74,6 +74,20 @@ type MessageAppender interface {
 
 Used by `IncrementalSaveStage` to append only new messages after each turn.
 
+### MessageLog
+
+Enables per-round write-through persistence during tool loops. Messages are appended after each LLM round, ensuring durability even if the pipeline is interrupted mid-loop:
+
+```go
+type MessageLog interface {
+    LogAppend(ctx context.Context, id string, startSeq int, messages []types.Message) (int, error)
+    LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error)
+    LogLen(ctx context.Context, id string) (int, error)
+}
+```
+
+`LogAppend` uses sequence-based idempotent append: if `startSeq` is behind the current length, already-persisted messages are skipped. Used via `sdk.WithMessageLog()`.
+
 ### SummaryAccessor
 
 Enables reading and writing summaries independently of the full conversation state:

@@ -329,19 +329,25 @@ if err != nil {
 
 ```go
 type ToolPolicy struct {
-    ToolChoice          string   // "auto", "required", "none", or specific tool
-    MaxRounds           int      // Max tool execution rounds
-    MaxToolCallsPerTurn int      // Max tools per LLM response
-    Blocklist           []string // Blocked tool names
+    ToolChoice           string   // "auto", "required", "none", or specific tool
+    MaxRounds            int      // Max tool execution rounds (default: 50)
+    MaxToolCallsPerTurn  int      // Max tools per LLM response
+    MaxParallelToolCalls int      // Max concurrent tool executions (default: 10)
+    MaxCallsPerMinute    int      // Per-tool rate limit (0 = unlimited)
+    MaxCostUSD           float64  // Cost budget in USD (0 = unlimited)
+    Blocklist            []string // Blocked tool names
 }
 
 policy := &pipeline.ToolPolicy{
     ToolChoice:          "auto",
     MaxRounds:           5,
     MaxToolCallsPerTurn: 10,
+    MaxCostUSD:          1.00, // Stop after $1 spent
     Blocklist:           []string{"dangerous_tool"},
 }
 ```
+
+Tools that are repeatedly rejected by hooks (2+ rejections) are automatically excluded from subsequent rounds to prevent infinite loops.
 
 ## Model Context Protocol (MCP)
 

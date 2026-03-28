@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultMaxRounds            = 10
+	defaultMaxRounds            = 50
 	defaultMaxParallelToolCalls = 10
 	toolChoiceAuto              = "auto"
 )
@@ -335,7 +335,8 @@ type toolLoop struct {
 	maxRounds        int
 	excluded         map[string]bool
 	rejectionCounts  map[string]int
-	lastPersistedSeq int // messages persisted so far via MessageLog
+	lastPersistedSeq int     // messages persisted so far via MessageLog
+	cumulativeCost   float64 // accumulated cost across rounds
 }
 
 func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
@@ -368,6 +369,17 @@ func (tl *toolLoop) afterRound(
 ) (bool, []types.Message, error) {
 	tl.messages = append(tl.messages, *response)
 
+	// Track cumulative cost for budget enforcement
+	if response.CostInfo != nil {
+		tl.cumulativeCost += response.CostInfo.TotalCost
+	}
+	policy := tl.stage.toolPolicy
+	if policy != nil && policy.MaxCostUSD > 0 && tl.cumulativeCost > policy.MaxCostUSD {
+		tl.persistMessages(ctx, round)
+		return true, tl.messages, fmt.Errorf(
+			"provider stage: cost budget exceeded (%.4f > %.4f USD)", tl.cumulativeCost, policy.MaxCostUSD)
+	}
+
 	if !hasToolCalls {
 		tl.persistMessages(ctx, round)
 		return true, tl.messages, nil
@@ -398,9 +410,16 @@ func (tl *toolLoop) afterRound(
 	tl.toolChoice = toolChoiceAuto
 
 	// Compact stale tool results before next round's provider call.
-	// This modifies the in-memory slice only — the persisted log retains full history.
+	// Pass 0 for lastInputTokens: the provider's InputTokens reflects what it
+	// saw on the last call, but we've since appended the assistant response and
+	// tool results — using the stale count would under-compact.
 	if tl.stage.config != nil && tl.stage.config.Compactor != nil {
-		tl.messages = tl.stage.config.Compactor.Compact(tl.messages)
+		cr := tl.stage.config.Compactor.Compact(tl.messages, 0)
+		tl.messages = cr.Messages
+		if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
+			tl.stage.emitter.ContextCompacted(round, cr.OriginalTokens, cr.CompactedTokens,
+				cr.MessagesFolded, tl.stage.config.Compactor.BudgetTokens)
+		}
 	}
 
 	if round == tl.maxRounds {

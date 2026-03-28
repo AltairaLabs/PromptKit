@@ -105,6 +105,9 @@ const (
 	EventClientToolRequest EventType = "tool.client.request"
 	// EventClientToolResolved marks a client-mode tool that has been resolved by the caller.
 	EventClientToolResolved EventType = "tool.client.resolved"
+
+	// EventContextCompacted marks context compaction between tool-loop rounds.
+	EventContextCompacted EventType = "context.compacted"
 )
 
 // EventData is a marker interface for event payloads.
@@ -632,4 +635,14 @@ type WorkflowCompletedData struct {
 	FinalState string `json:"final_state"`
 	// TransitionCount is the total number of transitions that occurred.
 	TransitionCount int `json:"transition_count"`
+}
+
+// ContextCompactionData contains data for context compaction events.
+type ContextCompactionData struct {
+	baseEventData
+	Round           int `json:"round"`
+	OriginalTokens  int `json:"original_tokens"`
+	CompactedTokens int `json:"compacted_tokens"`
+	MessagesFolded  int `json:"messages_folded"`
+	BudgetTokens    int `json:"budget_tokens"`
 }

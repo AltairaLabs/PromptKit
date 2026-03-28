@@ -45,9 +45,9 @@ func TestCompactor_NoOpUnderThreshold(t *testing.T) {
 		{Role: "assistant", Content: "I'm good"},
 	}
 
-	result := c.Compact(msgs)
-	assert.Equal(t, len(msgs), len(result), "should not compact when under threshold")
-	assert.Equal(t, msgs[0].Content, result[0].Content)
+	result := c.Compact(msgs, 0)
+	assert.Equal(t, len(msgs), len(result.Messages), "should not compact when under threshold")
+	assert.Equal(t, msgs[0].Content, result.Messages[0].Content)
 }
 
 func TestCompactor_FoldsOldToolResults(t *testing.T) {
@@ -71,15 +71,15 @@ func TestCompactor_FoldsOldToolResults(t *testing.T) {
 		{Role: "assistant", Content: "running tests now"},
 	}
 
-	result := c.Compact(msgs)
+	result := c.Compact(msgs, 0)
 
 	// Recent 4 messages should be preserved verbatim
-	assert.Equal(t, "Let me edit the file", result[len(result)-4].Content)
-	assert.Equal(t, "run tests", result[len(result)-2].Content)
+	assert.Equal(t, "Let me edit the file", result.Messages[len(result.Messages)-4].Content)
+	assert.Equal(t, "run tests", result.Messages[len(result.Messages)-2].Content)
 
 	// Old large tool results should be folded (contain "compacted")
 	foundCompacted := false
-	for _, msg := range result {
+	for _, msg := range result.Messages {
 		if msg.Role == "tool" && strings.Contains(msg.Content, "compacted") {
 			foundCompacted = true
 			break
@@ -102,11 +102,11 @@ func TestCompactor_PreservesSystemMessages(t *testing.T) {
 		{Role: "assistant", Content: "done"},
 	}
 
-	result := c.Compact(msgs)
+	result := c.Compact(msgs, 0)
 
 	// System message must be preserved regardless of size
-	assert.Equal(t, "system", result[0].Role)
-	assert.Contains(t, result[0].Content, "system prompt")
+	assert.Equal(t, "system", result.Messages[0].Role)
+	assert.Contains(t, result.Messages[0].Content, "system prompt")
 }
 
 func TestCompactor_PreservesErrors(t *testing.T) {
@@ -123,10 +123,10 @@ func TestCompactor_PreservesErrors(t *testing.T) {
 		{Role: "user", Content: "try again"},
 	}
 
-	result := c.Compact(msgs)
+	result := c.Compact(msgs, 0)
 
 	// Error tool result must be preserved verbatim
-	for _, msg := range result {
+	for _, msg := range result.Messages {
 		if msg.ToolResult != nil && msg.ToolResult.Error != "" {
 			assert.Contains(t, msg.Content, "error details",
 				"error tool results should not be compacted")
@@ -151,17 +151,17 @@ func TestCompactor_PreservesRecentMessages(t *testing.T) {
 		{Role: "assistant", Content: "recent-4"},
 	}
 
-	result := c.Compact(msgs)
+	result := c.Compact(msgs, 0)
 
 	// Last 4 messages must be untouched
-	n := len(result)
+	n := len(result.Messages)
 	require.GreaterOrEqual(t, n, 4)
-	assert.Equal(t, "recent-1", result[n-4].Content)
-	assert.Equal(t, "recent-3", result[n-2].Content)
-	assert.Equal(t, "recent-4", result[n-1].Content)
+	assert.Equal(t, "recent-1", result.Messages[n-4].Content)
+	assert.Equal(t, "recent-3", result.Messages[n-2].Content)
+	assert.Equal(t, "recent-4", result.Messages[n-1].Content)
 
 	// The recent tool result should NOT be compacted
-	assert.NotContains(t, result[n-3].Content, "compacted",
+	assert.NotContains(t, result.Messages[n-3].Content, "compacted",
 		"recent tool result should be preserved verbatim")
 }
 
@@ -180,13 +180,13 @@ func TestCompactor_IdempotentOnAlreadyCompacted(t *testing.T) {
 	}
 
 	// First compaction
-	result1 := c.Compact(msgs)
+	result1 := c.Compact(msgs, 0)
 	// Second compaction on already-compacted result
-	result2 := c.Compact(result1)
+	result2 := c.Compact(result1.Messages, 0)
 
-	assert.Equal(t, len(result1), len(result2), "second compaction should be a no-op")
-	for i := range result1 {
-		assert.Equal(t, result1[i].Content, result2[i].Content)
+	assert.Equal(t, len(result1.Messages), len(result2.Messages), "second compaction should be a no-op")
+	for i := range result1.Messages {
+		assert.Equal(t, result1.Messages[i].Content, result2.Messages[i].Content)
 	}
 }
 
@@ -209,10 +209,10 @@ func TestCompactor_FoldsOldestFirst(t *testing.T) {
 		{Role: "assistant", Content: "done"},
 	}
 
-	result := c.Compact(msgs)
+	result := c.Compact(msgs, 0)
 
 	// The oldest tool result should be compacted first
-	for _, msg := range result {
+	for _, msg := range result.Messages {
 		if msg.ToolResult != nil && msg.ToolResult.Name == "tool_oldest" {
 			assert.Contains(t, msg.Content, "compacted",
 				"oldest tool result should be compacted first")
@@ -231,8 +231,8 @@ func TestCompactor_DisabledWhenBudgetZero(t *testing.T) {
 		{Role: "assistant", Content: "done"},
 	}
 
-	result := c.Compact(msgs)
-	assert.Equal(t, len(msgs), len(result), "should not compact when budget is 0")
+	result := c.Compact(msgs, 0)
+	assert.Equal(t, len(msgs), len(result.Messages), "should not compact when budget is 0")
 }
 
 func TestCompactor_NilCompactorSafe(t *testing.T) {
@@ -240,8 +240,8 @@ func TestCompactor_NilCompactorSafe(t *testing.T) {
 	msgs := []types.Message{{Role: "user", Content: "hello"}}
 
 	// Should not panic
-	result := c.Compact(msgs)
-	assert.Equal(t, msgs, result)
+	result := c.Compact(msgs, 0)
+	assert.Equal(t, msgs, result.Messages)
 }
 
 func TestFoldToolResult(t *testing.T) {
@@ -293,6 +293,88 @@ func TestFoldToolResult_ShortContent(t *testing.T) {
 	assert.Contains(t, folded, "brief result here")
 	assert.NotContains(t, folded, "...")
 	assert.Contains(t, folded, compactedMarker)
+}
+
+func TestCompactor_LastInputTokensTriggersCompaction(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   10000,
+		Threshold:      0.70,
+		PinRecentCount: 2,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hello"},
+		largeToolResult("file_read", 500),
+		{Role: "assistant", Content: "got it"},
+		{Role: "user", Content: "next"},
+	}
+
+	// With heuristic counting, these messages are well under budget (10000 * 0.7 = 7000).
+	result := c.Compact(msgs, 0)
+	assert.Zero(t, result.MessagesFolded, "heuristic should not trigger compaction")
+
+	// Pretend the provider reported 8000 input tokens (above 7000 threshold).
+	// This should trigger compaction even though heuristic says we're fine.
+	result = c.Compact(msgs, 8000)
+	assert.Greater(t, result.MessagesFolded, 0, "lastInputTokens above threshold should trigger compaction")
+}
+
+func TestCompactor_LastInputTokensBelowThresholdSkips(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   10000,
+		Threshold:      0.70,
+		PinRecentCount: 2,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hello"},
+		largeToolResult("file_read", 500),
+		{Role: "assistant", Content: "got it"},
+		{Role: "user", Content: "next"},
+	}
+
+	// Provider says 5000 tokens — under 7000 threshold.
+	result := c.Compact(msgs, 5000)
+	assert.Zero(t, result.MessagesFolded, "lastInputTokens below threshold should skip compaction")
+}
+
+func TestCompactor_CompactResultMetadata(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   500,
+		Threshold:      0.70,
+		PinRecentCount: 2,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		largeToolResult("big_tool", 2000),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	result := c.Compact(msgs, 0)
+	assert.Greater(t, result.MessagesFolded, 0, "should fold at least one message")
+	assert.Greater(t, result.OriginalTokens, 0, "OriginalTokens should be positive")
+	assert.Greater(t, result.CompactedTokens, 0, "CompactedTokens should be positive")
+	assert.Less(t, result.CompactedTokens, result.OriginalTokens,
+		"CompactedTokens should be less than OriginalTokens after folding")
+}
+
+func TestCompactor_NoOpResultMetadata(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens: 10000,
+		Threshold:    0.70,
+	}
+
+	msgs := []types.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi"},
+	}
+
+	result := c.Compact(msgs, 0)
+	assert.Zero(t, result.MessagesFolded)
+	assert.Zero(t, result.OriginalTokens, "no-op should not compute tokens")
+	assert.Zero(t, result.CompactedTokens)
 }
 
 func stringPtr(s string) *string { return &s }

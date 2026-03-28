@@ -687,10 +687,13 @@ Enforces constraints on tool usage:
 
 ```go
 type ToolPolicy struct {
-    ToolChoice          string   // "auto" | "required" | "none"
-    MaxToolCallsPerTurn int      // Per LLM response
-    MaxTotalToolCalls   int      // Across entire conversation
-    Blocklist           []string // Prohibited tools
+    ToolChoice           string   // "auto" | "required" | "none"
+    MaxRounds            int      // Max tool execution rounds (default: 50)
+    MaxToolCallsPerTurn  int      // Per LLM response
+    MaxParallelToolCalls int      // Max concurrent tool executions (default: 10)
+    MaxCallsPerMinute    int      // Per-tool rate limit (0 = unlimited)
+    MaxCostUSD           float64  // Cost budget in USD (0 = unlimited)
+    Blocklist            []string // Prohibited tools
 }
 ```
 
@@ -702,7 +705,7 @@ graph TD
     CheckChoice["Check ToolChoice Policy"]
     CheckCount["Check MaxToolCallsPerTurn"]
     CheckBlocklist["Check Blocklist"]
-    CheckTotal["Check MaxTotalToolCalls"]
+    CheckCost["Check MaxCostUSD Budget"]
     Execute["Execute Tools"]
     Reject["Reject Tool Calls"]
 
@@ -711,14 +714,16 @@ graph TD
     CheckChoice -->|Denied| Reject
     CheckCount -->|Within Limit| CheckBlocklist
     CheckCount -->|Exceeded| Reject
-    CheckBlocklist -->|Allowed| CheckTotal
+    CheckBlocklist -->|Allowed| CheckCost
     CheckBlocklist -->|Blocked| Reject
-    CheckTotal -->|Within Limit| Execute
-    CheckTotal -->|Exceeded| Reject
+    CheckCost -->|Within Budget| Execute
+    CheckCost -->|Exceeded| Reject
 
     style Execute fill:#9f9
     style Reject fill:#f99
 ```
+
+**Auto-Exclusion**: Tools that are rejected by hooks twice within a single tool loop are automatically excluded from the provider's tool list in subsequent rounds. This prevents infinite loops where the LLM repeatedly invokes a rejected tool.
 
 ### Pending Tool Execution
 

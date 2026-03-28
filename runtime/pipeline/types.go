@@ -18,6 +18,7 @@ type ToolPolicy struct {
 	MaxToolCallsPerTurn  int      `json:"max_tool_calls_per_turn,omitempty"`
 	MaxParallelToolCalls int      `json:"max_parallel_tool_calls,omitempty"` // Max concurrent tool executions (default 10)
 	MaxCallsPerMinute    int      `json:"max_calls_per_minute,omitempty"`    // Per-tool calls/minute (0=unlimited)
+	MaxCostUSD           float64  `json:"max_cost_usd,omitempty"`            // Cost budget in USD (0=unlimited)
 	Blocklist            []string `json:"blocklist,omitempty"`
 }
 

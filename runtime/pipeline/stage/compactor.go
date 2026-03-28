@@ -10,12 +10,22 @@ import (
 )
 
 const (
-	defaultCompactThreshold  = 0.70
-	defaultPinRecentCount    = 4
+	defaultCompactThreshold = 0.70
+	defaultPinRecentCount   = 4
+	// DefaultBudgetTokens is the default context window budget for compaction.
+	DefaultBudgetTokens      = 128000 // sensible default for modern models
 	compactedPreviewMaxBytes = 100
 	compactedMarker          = "compacted"
 	roleTool                 = "tool"
 )
+
+// CompactResult contains the output of a compaction pass.
+type CompactResult struct {
+	Messages        []types.Message
+	OriginalTokens  int
+	CompactedTokens int
+	MessagesFolded  int
+}
 
 // ContextCompactor folds stale tool results between rounds to keep context
 // bounded. Deterministic, zero LLM calls. Only modifies the in-memory message
@@ -35,11 +45,13 @@ type ContextCompactor struct {
 }
 
 // Compact folds stale tool results to reduce token usage.
-// Returns the original messages unchanged if no compaction is needed.
+// lastInputTokens is the actual token count from the provider's CostInfo.InputTokens.
+// When > 0, used instead of heuristic counting (more accurate). Pass 0 for heuristic only.
 // Safe to call on a nil receiver (returns messages unchanged).
-func (c *ContextCompactor) Compact(messages []types.Message) []types.Message {
+func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult {
+	noOp := CompactResult{Messages: messages}
 	if c == nil || c.BudgetTokens <= 0 || len(messages) == 0 {
-		return messages
+		return noOp
 	}
 
 	threshold := c.Threshold
@@ -52,16 +64,16 @@ func (c *ContextCompactor) Compact(messages []types.Message) []types.Message {
 	}
 
 	budget := int(float64(c.BudgetTokens) * threshold)
-	originalTokens := tokenizer.CountMessageTokensDefault(messages)
+
+	// Use actual token count from provider if available (more accurate)
+	originalTokens := lastInputTokens
+	if originalTokens <= 0 {
+		originalTokens = tokenizer.CountMessageTokensDefault(messages)
+	}
 	if originalTokens <= budget {
-		return messages
+		return noOp
 	}
 
-	// Identify which messages can be compacted:
-	// - Must be a tool result (Role == "tool")
-	// - Must NOT be in the pinned window (last pinCount messages)
-	// - Must NOT be an error result
-	// - Must NOT already be compacted (contains marker)
 	pinBoundary := len(messages) - pinCount
 	if pinBoundary < 0 {
 		pinBoundary = 0
@@ -71,6 +83,7 @@ func (c *ContextCompactor) Compact(messages []types.Message) []types.Message {
 	copy(compacted, messages)
 
 	totalTokens := originalTokens
+	messagesFolded := 0
 	for i := 0; i < pinBoundary && totalTokens > budget; i++ {
 		msg := &compacted[i]
 
@@ -79,21 +92,36 @@ func (c *ContextCompactor) Compact(messages []types.Message) []types.Message {
 		}
 
 		beforeTokens := tokenizer.CountMessageTokensDefault([]types.Message{*msg})
-		msg.Content = foldToolResult(msg)
+		folded := foldToolResult(msg)
+		msg.Content = folded
 		msg.Parts = nil // clear multimodal parts
+		// Update ToolResult.Parts so GetContent() (which reads from ToolResult
+		// for tool messages) returns the folded content for token counting.
+		if msg.ToolResult != nil {
+			msg.ToolResult.Parts = []types.ContentPart{
+				{Type: types.ContentTypeText, Text: &folded},
+			}
+		}
 		afterTokens := tokenizer.CountMessageTokensDefault([]types.Message{*msg})
 
 		totalTokens -= beforeTokens - afterTokens
+		messagesFolded++
 	}
 
-	if totalTokens < originalTokens {
+	if messagesFolded > 0 {
 		logger.Debug("Context compacted",
 			"original_tokens", originalTokens,
 			"compacted_tokens", totalTokens,
+			"messages_folded", messagesFolded,
 			"budget", budget)
 	}
 
-	return compacted
+	return CompactResult{
+		Messages:        compacted,
+		OriginalTokens:  originalTokens,
+		CompactedTokens: totalTokens,
+		MessagesFolded:  messagesFolded,
+	}
 }
 
 // isCompactable returns true if a message can be folded.
@@ -104,8 +132,10 @@ func isCompactable(msg *types.Message) bool {
 	if msg.ToolResult != nil && msg.ToolResult.Error != "" {
 		return false
 	}
-	// Already compacted or too small to bother — skip
-	if len(msg.Content) < 50 || strings.Contains(msg.Content, compactedMarker) {
+	// Already compacted or too small to bother — skip.
+	// Use GetContent() which reads from ToolResult.Parts for tool messages.
+	content := msg.GetContent()
+	if len(content) < 50 || strings.Contains(content, compactedMarker) {
 		return false
 	}
 	return true
@@ -137,7 +167,7 @@ func foldToolResult(msg *types.Message) string {
 	}
 
 	// Text-only: preview + size
-	content := msg.Content
+	content := msg.GetContent()
 	originalBytes := len(content)
 
 	preview := content

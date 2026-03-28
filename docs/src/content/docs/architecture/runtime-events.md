@@ -139,6 +139,7 @@ Guardrail hooks in the provider stage emit `validation.passed` or `validation.fa
 
 - `context.built` - Message context assembled (includes token counts)
 - `context.token_budget_exceeded` - Token budget exceeded
+- `context.compacted` - Context compactor folded stale tool results during a tool loop round. Payload: `ContextCompactionData` with `Round`, `OriginalTokens`, `CompactedTokens`, `MessagesFolded`, `BudgetTokens`.
 - `state.loaded` - Conversation state loaded
 - `state.saved` - Conversation state saved
 
