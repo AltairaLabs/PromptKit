@@ -2859,9 +2859,9 @@ func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
 
 	stg := NewProviderStageWithHooks(provider, registry, nil, &ProviderConfig{
 		Compactor: &ContextCompactor{
-			BudgetTokensValue: 100, // very low to force compaction
-			Threshold:         0.50,
-			PinRecentCount:    2,
+			BudgetTokens:   100, // very low to force compaction
+			Threshold:      0.50,
+			PinRecentCount: 2,
 		},
 	}, emitter, nil)
 

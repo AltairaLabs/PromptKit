@@ -28,8 +28,8 @@ type CompactResult struct {
 // across conversations (each conversation has its own message slice).
 type CompactionStrategy interface {
 	Compact(messages []types.Message, lastInputTokens int) CompactResult
-	// BudgetTokens returns the configured token budget for event emission.
-	BudgetTokens() int
+	// TokenBudget returns the configured token budget for event emission.
+	TokenBudget() int
 }
 
 // CompactionRule transforms individual messages during compaction.
@@ -57,10 +57,10 @@ type CompactionContext struct {
 // order to fold stale messages until context is under the token budget.
 // Deterministic, zero LLM calls.
 type ContextCompactor struct {
-	// BudgetTokensValue is the context window size. When 0, compaction is disabled.
-	BudgetTokensValue int
+	// BudgetTokens is the context window size. When 0, compaction is disabled.
+	BudgetTokens int
 
-	// Threshold is the fraction of BudgetTokensValue above which compaction triggers.
+	// Threshold is the fraction of BudgetTokens above which compaction triggers.
 	// Default: 0.70 (compact when usage exceeds 70% of budget).
 	Threshold float64
 
@@ -73,19 +73,19 @@ type ContextCompactor struct {
 	Rules []CompactionRule
 }
 
-// BudgetTokens returns the configured token budget.
-func (c *ContextCompactor) BudgetTokens() int {
+// TokenBudget implements CompactionStrategy.
+func (c *ContextCompactor) TokenBudget() int {
 	if c == nil {
 		return 0
 	}
-	return c.BudgetTokensValue
+	return c.BudgetTokens
 }
 
 // Compact applies rules to fold stale messages until under budget.
 // Safe to call on a nil receiver (returns messages unchanged).
 func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult {
 	noOp := CompactResult{Messages: messages}
-	if c == nil || c.BudgetTokensValue <= 0 || len(messages) == 0 {
+	if c == nil || c.BudgetTokens <= 0 || len(messages) == 0 {
 		return noOp
 	}
 
@@ -98,7 +98,7 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 		pinCount = defaultPinRecentCount
 	}
 
-	budget := int(float64(c.BudgetTokensValue) * threshold)
+	budget := int(float64(c.BudgetTokens) * threshold)
 
 	originalTokens := lastInputTokens
 	if originalTokens <= 0 {
@@ -117,7 +117,7 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 	copy(compacted, messages)
 
 	rules := c.Rules
-	if len(rules) == 0 {
+	if rules == nil {
 		rules = []CompactionRule{FoldToolResults()}
 	}
 

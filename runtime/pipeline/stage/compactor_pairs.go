@@ -109,8 +109,8 @@ func toolResultKey(msg *types.Message, messages []types.Message) string {
 			}
 		}
 	}
-	// Fallback: key by name only (matches any call to the same tool)
-	return name + ":"
+	// Can't determine args — don't match to avoid false positives
+	return ""
 }
 
 // normalizeArgs produces a canonical string from tool call arguments

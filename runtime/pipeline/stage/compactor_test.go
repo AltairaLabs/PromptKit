@@ -34,8 +34,8 @@ func largeToolResult(name string, wordCount int) types.Message {
 
 func TestCompactor_NoOpUnderThreshold(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 10000,
-		Threshold:         0.70,
+		BudgetTokens: 10000,
+		Threshold:    0.70,
 	}
 
 	msgs := []types.Message{
@@ -53,9 +53,9 @@ func TestCompactor_NoOpUnderThreshold(t *testing.T) {
 
 func TestCompactor_FoldsOldToolResults(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 500, // very low budget to force compaction
-		Threshold:         0.70,
-		PinRecentCount:    4,
+		BudgetTokens:   500, // very low budget to force compaction
+		Threshold:      0.70,
+		PinRecentCount: 4,
 	}
 
 	msgs := []types.Message{
@@ -91,9 +91,9 @@ func TestCompactor_FoldsOldToolResults(t *testing.T) {
 
 func TestCompactor_PreservesSystemMessages(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 100, // very low to force compaction
-		Threshold:         0.50,
-		PinRecentCount:    2,
+		BudgetTokens:   100, // very low to force compaction
+		Threshold:      0.50,
+		PinRecentCount: 2,
 	}
 
 	msgs := []types.Message{
@@ -112,9 +112,9 @@ func TestCompactor_PreservesSystemMessages(t *testing.T) {
 
 func TestCompactor_PreservesErrors(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 100,
-		Threshold:         0.50,
-		PinRecentCount:    2,
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
 	}
 
 	msgs := []types.Message{
@@ -137,9 +137,9 @@ func TestCompactor_PreservesErrors(t *testing.T) {
 
 func TestCompactor_PreservesRecentMessages(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 200,
-		Threshold:         0.50,
-		PinRecentCount:    4,
+		BudgetTokens:   200,
+		Threshold:      0.50,
+		PinRecentCount: 4,
 	}
 
 	msgs := []types.Message{
@@ -168,9 +168,9 @@ func TestCompactor_PreservesRecentMessages(t *testing.T) {
 
 func TestCompactor_IdempotentOnAlreadyCompacted(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 200,
-		Threshold:         0.50,
-		PinRecentCount:    2,
+		BudgetTokens:   200,
+		Threshold:      0.50,
+		PinRecentCount: 2,
 	}
 
 	msgs := []types.Message{
@@ -193,9 +193,9 @@ func TestCompactor_IdempotentOnAlreadyCompacted(t *testing.T) {
 
 func TestCompactor_FoldsOldestFirst(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 2000,
-		Threshold:         0.50,
-		PinRecentCount:    2,
+		BudgetTokens:   2000,
+		Threshold:      0.50,
+		PinRecentCount: 2,
 	}
 
 	msgs := []types.Message{
@@ -223,7 +223,7 @@ func TestCompactor_FoldsOldestFirst(t *testing.T) {
 
 func TestCompactor_DisabledWhenBudgetZero(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 0, // disabled
+		BudgetTokens: 0, // disabled
 	}
 
 	msgs := []types.Message{
@@ -298,9 +298,9 @@ func TestFoldToolResult_ShortContent(t *testing.T) {
 
 func TestCompactor_LastInputTokensTriggersCompaction(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 10000,
-		Threshold:         0.70,
-		PinRecentCount:    2,
+		BudgetTokens:   10000,
+		Threshold:      0.70,
+		PinRecentCount: 2,
 	}
 
 	msgs := []types.Message{
@@ -322,9 +322,9 @@ func TestCompactor_LastInputTokensTriggersCompaction(t *testing.T) {
 
 func TestCompactor_LastInputTokensBelowThresholdSkips(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 10000,
-		Threshold:         0.70,
-		PinRecentCount:    2,
+		BudgetTokens:   10000,
+		Threshold:      0.70,
+		PinRecentCount: 2,
 	}
 
 	msgs := []types.Message{
@@ -341,9 +341,9 @@ func TestCompactor_LastInputTokensBelowThresholdSkips(t *testing.T) {
 
 func TestCompactor_CompactResultMetadata(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 500,
-		Threshold:         0.70,
-		PinRecentCount:    2,
+		BudgetTokens:   500,
+		Threshold:      0.70,
+		PinRecentCount: 2,
 	}
 
 	msgs := []types.Message{
@@ -363,8 +363,8 @@ func TestCompactor_CompactResultMetadata(t *testing.T) {
 
 func TestCompactor_NoOpResultMetadata(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 10000,
-		Threshold:         0.70,
+		BudgetTokens: 10000,
+		Threshold:    0.70,
 	}
 
 	msgs := []types.Message{
@@ -389,7 +389,7 @@ func (m *mockStrategy) Compact(msgs []types.Message, _ int) CompactResult {
 	m.called = true
 	return CompactResult{Messages: msgs, MessagesFolded: 42}
 }
-func (m *mockStrategy) BudgetTokens() int { return m.budget }
+func (m *mockStrategy) TokenBudget() int { return m.budget }
 
 func TestCompactionStrategy_CustomStrategy(t *testing.T) {
 	s := &mockStrategy{budget: 99999}
@@ -398,7 +398,7 @@ func TestCompactionStrategy_CustomStrategy(t *testing.T) {
 	result := s.Compact(msgs, 0)
 	assert.True(t, s.called)
 	assert.Equal(t, 42, result.MessagesFolded)
-	assert.Equal(t, 99999, s.BudgetTokens())
+	assert.Equal(t, 99999, s.TokenBudget())
 }
 
 func TestContextCompactor_ImplementsCompactionStrategy(t *testing.T) {
@@ -424,10 +424,10 @@ func (r *alwaysFoldRule) Fold(msg *types.Message, _ int, _ *CompactionContext) (
 
 func TestCompactor_CustomRules(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 100,
-		Threshold:         0.50,
-		PinRecentCount:    2,
-		Rules:             []CompactionRule{&alwaysFoldRule{name: "custom"}},
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
+		Rules:          []CompactionRule{&alwaysFoldRule{name: "custom"}},
 	}
 
 	msgs := []types.Message{
@@ -457,10 +457,10 @@ func TestCompactor_RuleFirstMatchWins(t *testing.T) {
 	rule2 := &trackingRule{name: "second", called: &called, canFold: true}
 
 	c := &ContextCompactor{
-		BudgetTokensValue: 100,
-		Threshold:         0.50,
-		PinRecentCount:    2,
-		Rules:             []CompactionRule{rule1, rule2},
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
+		Rules:          []CompactionRule{rule1, rule2},
 	}
 
 	msgs := []types.Message{
@@ -492,9 +492,9 @@ func (r *trackingRule) Fold(msg *types.Message, _ int, _ *CompactionContext) (st
 
 func TestCompactor_DefaultRuleWhenNoRulesSet(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 100,
-		Threshold:         0.50,
-		PinRecentCount:    2,
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
 		// Rules intentionally nil — should default to FoldToolResults()
 	}
 
@@ -534,10 +534,10 @@ func toolResultMsgWithID(id, name, content string) types.Message {
 
 func TestCollapsePairs_SupersededPairCollapsed(t *testing.T) {
 	c := &ContextCompactor{
-		BudgetTokensValue: 100,
-		Threshold:         0.50,
-		PinRecentCount:    2,
-		Rules:             []CompactionRule{CollapsePairs(), FoldToolResults()},
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
+		Rules:          []CompactionRule{CollapsePairs(), FoldToolResults()},
 	}
 
 	msgs := []types.Message{

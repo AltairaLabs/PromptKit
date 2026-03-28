@@ -453,7 +453,7 @@ func buildCompactionStrategy(cfg *Config) stage.CompactionStrategy {
 	}
 
 	compactor := &stage.ContextCompactor{
-		BudgetTokensValue: budgetTokens,
+		BudgetTokens: budgetTokens,
 	}
 
 	// User-provided rules replace the defaults
