@@ -88,7 +88,7 @@ for elem := range output {
 ```go
 config := stage.DefaultPipelineConfig().
     WithChannelBufferSize(32).              // Inter-stage channel buffer
-    WithExecutionTimeout(30 * time.Second). // Per-request timeout
+    WithIdleTimeout(60 * time.Second).      // Cancel after 60s of inactivity (default: 30s)
     WithGracefulShutdownTimeout(10 * time.Second). // Shutdown grace period
     WithMetrics(true).                      // Enable per-stage metrics
     WithTracing(true)                       // Enable distributed tracing
@@ -494,12 +494,14 @@ func TestPipeline(t *testing.T) {
 
 **Problem**: Pipeline executions timing out.
 
-**Solution**: Increase execution timeout:
+**Solution**: Increase the idle timeout (resets on each activity — provider call, tool execution, streaming chunk):
 
 ```go
 config := stage.DefaultPipelineConfig().
-    WithExecutionTimeout(120 * time.Second)  // Increase from default 30s
+    WithIdleTimeout(120 * time.Second)  // Increase from default 30s
 ```
+
+For a hard wall-clock limit, use `WithExecutionTimeout` (disabled by default).
 
 ### Issue: Backpressure
 

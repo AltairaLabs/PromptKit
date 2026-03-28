@@ -164,6 +164,25 @@ sdk.WithRecording(&sdk.RecordingConfig{
 Without `WithRecording`, the emitter's `MessageCreated` events strip binary data from content parts (keeping only metadata like MIMEType, SizeKB, dimensions). RecordingStages bypass the emitter and publish full binary data directly to the EventBus.
 :::
 
+### WithCompaction
+
+Control context compaction in tool loops. Compaction is **on by default** — the context compactor folds stale tool results between rounds to prevent context overflow. Pass `false` to disable.
+
+```go
+// Disable compaction (default: enabled)
+sdk.WithCompaction(false)
+```
+
+### WithMessageLog
+
+Enable per-round write-through persistence during tool loops. When set, messages are appended to the log after each LLM round for durability:
+
+```go
+sdk.WithMessageLog(myMessageLog)
+```
+
+The `MessageLog` interface is defined in `runtime/statestore`. `MemoryStore` implements it out of the box.
+
 ## Conversation Type
 
 ### Send

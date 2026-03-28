@@ -56,6 +56,7 @@ EventValidationFailed  EventType = "validation.failed"
 // Context & state
 EventContextBuilt          EventType = "context.built"
 EventTokenBudgetExceeded   EventType = "context.token_budget_exceeded"
+EventContextCompacted      EventType = "context.compacted"
 EventStateLoaded           EventType = "state.loaded"
 EventStateSaved            EventType = "state.saved"
 

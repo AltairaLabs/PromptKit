@@ -114,7 +114,8 @@ Executable pipeline of connected stages.
 ```go
 type PipelineConfig struct {
     ChannelBufferSize       int           // Default: 16
-    ExecutionTimeout        time.Duration // Default: 30s
+    ExecutionTimeout        time.Duration // Default: 0 (disabled)
+    IdleTimeout             time.Duration // Default: 30s (resets on activity)
     GracefulShutdownTimeout time.Duration // Default: 10s
     PriorityQueue           bool          // Enable priority scheduling
     Metrics                 bool          // Enable per-stage metrics
@@ -494,8 +495,9 @@ config := &stage.ProviderConfig{
 **Tool Policy**:
 ```go
 policy := &pipeline.ToolPolicy{
-    BlockedTools: []string{"dangerous_tool"},
-    ToolChoice:   "auto",  // "auto", "none", "required", or specific tool name
+    ToolChoice:  "auto",  // "auto", "none", "required", or specific tool name
+    MaxCostUSD:  1.00,    // Cost budget in USD (0 = unlimited)
+    Blocklist:   []string{"dangerous_tool"},
 }
 ```
 
@@ -790,12 +792,14 @@ Standard metadata keys used by built-in stages:
 
 ### Timeout Settings
 
-| Pipeline Type | Execution Timeout | Shutdown Timeout |
-|---------------|-------------------|------------------|
-| Simple chat | 30s | 5s |
-| Tool-heavy | 120s | 30s |
-| Voice (VAD) | 300s | 10s |
-| Voice (ASM) | 600s | 15s |
+The default timeout is an **idle timeout** (30s) that resets on each activity (provider call, tool execution, streaming chunk). The hard execution timeout is disabled by default.
+
+| Pipeline Type | Idle Timeout | Execution Timeout | Shutdown Timeout |
+|---------------|--------------|-------------------|------------------|
+| Simple chat | 30s (default) | 0 (disabled) | 5s |
+| Tool-heavy | 60s | 0 (disabled) | 30s |
+| Voice (VAD) | 300s | 0 (disabled) | 10s |
+| Voice (ASM) | 0 (disabled) | 0 (disabled) | 15s |
 
 ## Examples
 

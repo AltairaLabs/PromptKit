@@ -13,7 +13,7 @@ The system is built around an **EventBus** that supports pluggable persistence (
 
 ## Event Types
 
-Events are defined as `events.EventType` in the `runtime/events` package. There are 33 event types across 10 categories:
+Events are defined as `events.EventType` in the `runtime/events` package. There are 34 event types across 10 categories:
 
 ### Pipeline Events
 
@@ -68,6 +68,7 @@ EventValidationFailed  EventType = "validation.failed"
 ```go
 EventContextBuilt          EventType = "context.built"
 EventTokenBudgetExceeded   EventType = "context.token_budget_exceeded"
+EventContextCompacted      EventType = "context.compacted"
 EventStateLoaded           EventType = "state.loaded"
 EventStateSaved            EventType = "state.saved"
 ```
