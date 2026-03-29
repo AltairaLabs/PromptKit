@@ -6,10 +6,18 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// ToolsCalledHandler checks if specific tools were called.
-// Params: tool_names []string, optional min_calls int.
+// ToolsCalledHandler checks if specific tools were called successfully.
+//
+// By default, only counts tool calls that completed without error.
+// Use ignore_validation: true to also count calls that failed argument validation.
+//
+// Params:
+//   - tool_names/tools []string — required tool names
+//   - min_calls int — minimum calls per tool (default 1)
+//   - ignore_validation bool — count validation failures as successful (default false)
 type ToolsCalledHandler struct{}
 
 // Type returns the eval type identifier.
@@ -34,7 +42,8 @@ func (h *ToolsCalledHandler) Eval(
 	}
 
 	minCalls := extractInt(params, "min_calls", 1)
-	callCounts := buildCallCounts(evalCtx.ToolCalls)
+	ignoreValidation := extractBool(params, "ignore_validation")
+	callCounts := buildCallCounts(evalCtx.ToolCalls, ignoreValidation)
 
 	return h.checkToolCalls(toolNames, callCounts, minCalls)
 }
@@ -79,15 +88,31 @@ func (h *ToolsCalledHandler) checkToolCalls(
 	}, nil
 }
 
-// buildCallCounts counts how many times each tool was called.
+// buildCallCounts counts how many times each tool was called successfully.
+// A call is considered successful when it has no error, or when
+// ignoreValidation is true and the error is a validation failure.
 func buildCallCounts(
-	toolCalls []evals.ToolCallRecord,
+	toolCalls []evals.ToolCallRecord, ignoreValidation bool,
 ) map[string]int {
 	counts := make(map[string]int)
 	for i := range toolCalls {
+		if !shouldCountCall(&toolCalls[i], ignoreValidation) {
+			continue
+		}
 		counts[toolCalls[i].ToolName]++
 	}
 	return counts
+}
+
+// shouldCountCall determines whether a tool call should be counted as successful.
+func shouldCountCall(tc *evals.ToolCallRecord, ignoreValidation bool) bool {
+	if tc.Error == "" {
+		return true // no error = success
+	}
+	if ignoreValidation && tc.ErrorType == types.ToolErrorValidation {
+		return true // validation error but caller opted to ignore
+	}
+	return false
 }
 
 // extractInt extracts an int from params with a default value.

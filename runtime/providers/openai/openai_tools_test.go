@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -138,8 +139,19 @@ func TestOpenAIBuildTooling_SingleTool(t *testing.T) {
 		t.Errorf("Expected description 'Search for information', got '%s'", tool.Function.Description)
 	}
 
-	if string(tool.Function.Parameters) != string(schema) {
-		t.Errorf("Expected parameters %s, got %s", schema, tool.Function.Parameters)
+	// Strict mode injects additionalProperties:false, so compare parsed JSON
+	var gotParams, wantParams map[string]any
+	_ = json.Unmarshal(tool.Function.Parameters, &gotParams)
+	_ = json.Unmarshal(schema, &wantParams)
+	wantParams["additionalProperties"] = false // strict mode adds this
+	for k, v := range wantParams {
+		if fmt.Sprintf("%v", gotParams[k]) != fmt.Sprintf("%v", v) {
+			t.Errorf("Parameter %q: got %v, want %v", k, gotParams[k], v)
+		}
+	}
+
+	if !tool.Function.Strict {
+		t.Error("Expected Strict=true by default")
 	}
 }
 
@@ -977,11 +989,11 @@ func TestToolProvider_ConvertToolResultMessage_ContentIsSet(t *testing.T) {
 		Role: "tool",
 		// Content is intentionally empty - this is how the SDK creates tool result messages
 		ToolResult: &types.MessageToolResult{
-			ID:      "call_123",
-			Name:    "weather",
-			Parts:     []types.ContentPart{types.NewTextPart(`{"temperature": 73, "conditions": "sunny"}`)},
+			ID:    "call_123",
+			Name:  "weather",
+			Parts: []types.ContentPart{types.NewTextPart(`{"temperature": 73, "conditions": "sunny"}`)},
 
-			Error:   "",
+			Error: "",
 		},
 	}
 
@@ -1027,10 +1039,9 @@ func TestToolProvider_ConvertRequestMessages_ToolResultHasContent(t *testing.T) 
 				Role: "tool",
 				// Content is NOT set - only ToolResult has the data
 				ToolResult: &types.MessageToolResult{
-					ID:      "call_abc",
-					Name:    "weather",
-					Parts:     []types.ContentPart{types.NewTextPart(`{"temp": 75, "conditions": "partly cloudy"}`)},
-
+					ID:    "call_abc",
+					Name:  "weather",
+					Parts: []types.ContentPart{types.NewTextPart(`{"temp": 75, "conditions": "partly cloudy"}`)},
 				},
 			},
 		},

@@ -50,9 +50,10 @@ type MessageToolCall struct {
 // MessageToolResult represents the result of a tool execution in a Message.
 // When embedded in Message, the Message.Role should be "tool".
 type MessageToolResult struct {
-	ID    string `json:"id"`              // References the MessageToolCall.ID that triggered this result
-	Name  string `json:"name"`            // Tool name that was executed
-	Error string `json:"error,omitempty"` // Error message if tool execution failed
+	ID        string        `json:"id"`                   // References the MessageToolCall.ID that triggered this result
+	Name      string        `json:"name"`                 // Tool name that was executed
+	Error     string        `json:"error,omitempty"`      // Error message if tool execution failed
+	ErrorType ToolErrorType `json:"error_type,omitempty"` // Classification of failure reason
 
 	// Parts contains the multimodal result content (text, images, etc.).
 	Parts     []ContentPart `json:"parts,omitempty" yaml:"parts,omitempty"`
