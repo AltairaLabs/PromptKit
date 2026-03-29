@@ -77,18 +77,43 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 	strict := p.useStrictTools()
 	tools := make([]openAITool, len(descriptors))
 	for i, desc := range descriptors {
+		params := desc.InputSchema
+		if strict {
+			params = ensureAdditionalPropertiesFalse(params)
+		}
 		tools[i] = openAITool{
 			Type: "function",
 			Function: openAIToolFunction{
 				Name:        desc.Name,
 				Description: desc.Description,
-				Parameters:  desc.InputSchema,
+				Parameters:  params,
 				Strict:      strict,
 			},
 		}
 	}
 
 	return tools, nil
+}
+
+// ensureAdditionalPropertiesFalse injects "additionalProperties": false into a
+// JSON schema object if not already present. Required by OpenAI strict mode.
+func ensureAdditionalPropertiesFalse(schema json.RawMessage) json.RawMessage {
+	if len(schema) == 0 {
+		return schema
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(schema, &obj); err != nil {
+		return schema
+	}
+	if _, exists := obj["additionalProperties"]; exists {
+		return schema
+	}
+	obj["additionalProperties"] = false
+	result, err := json.Marshal(obj)
+	if err != nil {
+		return schema
+	}
+	return result
 }
 
 // useStrictTools returns whether tools should use strict schema mode.
