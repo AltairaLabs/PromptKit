@@ -228,11 +228,10 @@ func (p *Provider) convertSingleMessageToResponsesInput(msg *types.Message) []ma
 	// Multimodal tool results (images, audio) are reduced to text here.
 	// Use the Chat Completions API for full multimodal tool result support.
 	if msg.Role == roleToolResult && msg.ToolResult != nil {
-		// Transform call ID to Responses API format (must start with 'fc_')
-		callID := transformToResponsesCallID(msg.ToolResult.ID)
+		// call_id must match the call_id on the corresponding function_call input
 		return []map[string]any{{
 			"type":    "function_call_output",
-			"call_id": callID,
+			"call_id": msg.ToolResult.ID,
 			"output":  msg.ToolResult.GetTextContent(),
 		}}
 	}
@@ -257,19 +256,14 @@ func (p *Provider) convertSingleMessageToResponsesInput(msg *types.Message) []ma
 
 		// Add each tool call as a separate function_call item
 		for _, tc := range msg.ToolCalls {
-			// Parse the args JSON to get actual object
-			var args any
-			if err := json.Unmarshal(tc.Args, &args); err != nil {
-				args = string(tc.Args) // Fallback to string if not valid JSON
-			}
-			// Transform call ID to Responses API format (must start with 'fc_')
-			callID := transformToResponsesCallID(tc.ID)
+			// Responses API expects arguments as a JSON string, not object
+			fcID := transformToResponsesCallID(tc.ID)
 			items = append(items, map[string]any{
 				"type":      typeFunctionCall,
-				"id":        callID,
-				"call_id":   callID,
+				"id":        fcID,
+				"call_id":   tc.ID,
 				"name":      tc.Name,
-				"arguments": args,
+				"arguments": string(tc.Args),
 			})
 		}
 		return items
@@ -614,6 +608,7 @@ func (p *Provider) handleStreamEvent(
 	toolCalls []types.MessageToolCall,
 	usage *responsesUsage,
 	outChan chan<- providers.StreamChunk,
+	idMap itemIDMap,
 ) (newTokens int, newToolCalls []types.MessageToolCall, newUsage *responsesUsage) {
 	switch event.Type {
 	case eventTypeTextDelta:
@@ -621,10 +616,10 @@ func (p *Provider) handleStreamEvent(
 		return newTokens, toolCalls, nil
 
 	case eventTypeFuncArgsDelta:
-		return totalTokens, p.handleFuncArgsDelta(data, toolCalls), usage
+		return totalTokens, p.handleFuncArgsDelta(data, toolCalls, idMap), usage
 
 	case eventTypeOutputAdded:
-		return totalTokens, p.handleOutputAdded(data, toolCalls), usage
+		return totalTokens, p.handleOutputAdded(data, toolCalls, idMap), usage
 
 	case eventTypeCompleted:
 		usage = p.handleCompleted(data, sb.String(), toolCalls, totalTokens, outChan)
@@ -670,51 +665,73 @@ func (p *Provider) handleTextDelta(
 func (p *Provider) handleFuncArgsDelta(
 	data string,
 	toolCalls []types.MessageToolCall,
+	idMap itemIDMap,
 ) []types.MessageToolCall {
 	var delta struct {
 		CallID string `json:"call_id"`
+		ItemID string `json:"item_id"`
 		Delta  string `json:"delta"`
 	}
 	if err := json.Unmarshal([]byte(data), &delta); err != nil {
 		return toolCalls
 	}
 
-	for i := range toolCalls {
-		if toolCalls[i].ID == delta.CallID {
-			currentArgs := string(toolCalls[i].Args)
-			if currentArgs == "{}" || currentArgs == "" {
-				toolCalls[i].Args = json.RawMessage(delta.Delta)
-			} else {
-				toolCalls[i].Args = append(toolCalls[i].Args, []byte(delta.Delta)...)
-			}
-			return toolCalls
+	// Look up the tool call index from the ID map (matches item_id or call_id)
+	idx := -1
+	if delta.ItemID != "" {
+		if i, ok := idMap[delta.ItemID]; ok {
+			idx = i
+		}
+	}
+	if idx < 0 && delta.CallID != "" {
+		if i, ok := idMap[delta.CallID]; ok {
+			idx = i
 		}
 	}
 
-	// Tool call not yet seen — create it (shouldn't normally happen)
-	toolCalls = append(toolCalls, types.MessageToolCall{
-		ID:   delta.CallID,
-		Args: json.RawMessage(delta.Delta),
-	})
+	if idx >= 0 && idx < len(toolCalls) {
+		currentArgs := string(toolCalls[idx].Args)
+		if currentArgs == "{}" || currentArgs == "" {
+			toolCalls[idx].Args = json.RawMessage(delta.Delta)
+		} else {
+			toolCalls[idx].Args = append(toolCalls[idx].Args, []byte(delta.Delta)...)
+		}
+	}
+
 	return toolCalls
 }
 
+// itemIDMap tracks the mapping from Responses API item_id (fc_...) to the
+// index in the toolCalls slice, enabling delta events to find their tool call.
+type itemIDMap map[string]int
+
 // handleOutputAdded processes output item added events
-func (p *Provider) handleOutputAdded(data string, toolCalls []types.MessageToolCall) []types.MessageToolCall {
+func (p *Provider) handleOutputAdded(
+	data string, toolCalls []types.MessageToolCall, idMap itemIDMap,
+) []types.MessageToolCall {
 	var item struct {
 		Item struct {
 			Type   string `json:"type"`
+			ID     string `json:"id"`
 			CallID string `json:"call_id"`
 			Name   string `json:"name"`
 		} `json:"item"`
 	}
 	if err := json.Unmarshal([]byte(data), &item); err == nil {
 		if item.Item.Type == typeFunctionCall {
+			idx := len(toolCalls)
 			toolCalls = append(toolCalls, types.MessageToolCall{
 				ID:   item.Item.CallID,
 				Name: item.Item.Name,
 				Args: json.RawMessage(""), // Will be populated by delta events
 			})
+			// Map both id and call_id to this index for delta matching
+			if item.Item.ID != "" {
+				idMap[item.Item.ID] = idx
+			}
+			if item.Item.CallID != "" {
+				idMap[item.Item.CallID] = idx
+			}
 		}
 	}
 	return toolCalls
@@ -788,6 +805,7 @@ func (p *Provider) streamResponsesResponse(
 	totalTokens := 0
 	var accumulatedToolCalls []types.MessageToolCall
 	var usage *responsesUsage
+	idMap := make(itemIDMap)
 
 	for scanner.Scan() {
 		select {
@@ -828,7 +846,7 @@ func (p *Provider) streamResponsesResponse(
 
 		// Handle different event types
 		totalTokens, accumulatedToolCalls, usage = p.handleStreamEvent(
-			event, data, &sb, totalTokens, accumulatedToolCalls, usage, outChan,
+			event, data, &sb, totalTokens, accumulatedToolCalls, usage, outChan, idMap,
 		)
 
 		// Check if we should return (completed or error events signal this via usage being set and returned)
