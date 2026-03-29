@@ -79,7 +79,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 	for i, desc := range descriptors {
 		params := desc.InputSchema
 		if strict {
-			params = ensureAdditionalPropertiesFalse(params)
+			params = ensureStrictSchema(params)
 		}
 		tools[i] = openAITool{
 			Type: "function",
@@ -97,7 +97,10 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 
 // ensureAdditionalPropertiesFalse injects "additionalProperties": false into a
 // JSON schema object if not already present. Required by OpenAI strict mode.
-func ensureAdditionalPropertiesFalse(schema json.RawMessage) json.RawMessage {
+// ensureStrictSchema modifies a JSON schema for OpenAI strict mode:
+// - Sets additionalProperties: false on all object types (recursively)
+// - Ensures all properties are listed in required
+func ensureStrictSchema(schema json.RawMessage) json.RawMessage {
 	if len(schema) == 0 {
 		return schema
 	}
@@ -105,15 +108,46 @@ func ensureAdditionalPropertiesFalse(schema json.RawMessage) json.RawMessage {
 	if err := json.Unmarshal(schema, &obj); err != nil {
 		return schema
 	}
-	if _, exists := obj["additionalProperties"]; exists {
-		return schema
-	}
-	obj["additionalProperties"] = false
+
+	applyStrictToObject(obj)
+
 	result, err := json.Marshal(obj)
 	if err != nil {
 		return schema
 	}
 	return result
+}
+
+// applyStrictToObject recursively applies strict mode constraints to a schema object.
+func applyStrictToObject(obj map[string]any) {
+	if props, ok := obj["properties"].(map[string]any); ok {
+		obj["additionalProperties"] = false
+
+		// Require all properties
+		allKeys := make([]string, 0, len(props))
+		for k := range props {
+			allKeys = append(allKeys, k)
+		}
+		obj["required"] = allKeys
+
+		// Recurse into each property
+		for _, v := range props {
+			if propObj, ok := v.(map[string]any); ok {
+				applyStrictToObject(propObj)
+			}
+		}
+	} else if objType, _ := obj["type"].(string); objType == "object" {
+		// Bare object with no properties — add empty properties and
+		// additionalProperties:false for strict compatibility.
+		obj["properties"] = map[string]any{}
+		obj["additionalProperties"] = false
+		obj["required"] = []string{}
+	}
+
+	// Handle items in array types
+	if items, ok := obj["items"].(map[string]any); ok {
+		applyStrictToObject(items)
+	}
 }
 
 // useStrictTools returns whether tools should use strict schema mode.
