@@ -3,7 +3,6 @@ import type { ReactNode, ErrorInfo } from "react";
 import { Layout } from "@/components/Layout";
 import { SummaryCards } from "@/components/SummaryCards";
 import { RunProgress } from "@/components/RunProgress";
-import { ScenarioMatrix } from "@/components/ScenarioMatrix";
 import { RunDetail } from "@/components/RunDetail";
 import { DevToolsPanel } from "@/components/DevToolsPanel";
 import { useArenaEvents } from "@/hooks/useArenaEvents";
@@ -40,9 +39,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 
 export default function App() {
   const state = useArenaEvents();
-  const { startRun, getResults, getResult, loading } = useArenaAPI();
+  const { startRun, getResults, getResult, clearResults, loading } = useArenaAPI();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [devToolsMessage, setDevToolsMessage] = useState<Message | undefined>();
+  const [devToolsAllMessages, setDevToolsAllMessages] = useState<Message[] | undefined>();
   const [devToolsIndex, setDevToolsIndex] = useState<number | undefined>();
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -60,9 +60,10 @@ export default function App() {
   const liveRuns = Object.values(state.runs);
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
 
-  const handleSelectMessage = (index: number, message?: Message) => {
+  const handleSelectMessage = (index: number, message?: Message, allMsgs?: Message[]) => {
     setDevToolsIndex(index);
     setDevToolsMessage(message);
+    setDevToolsAllMessages(allMsgs);
     setDevToolsOpen(true);
   };
 
@@ -78,7 +79,7 @@ export default function App() {
       <Layout connected={state.connected} onStartRun={handleStartRun} loading={loading}>
         <div className={devToolsOpen ? "mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
           {selectedRunId ? (
-            <RunDetail runId={selectedRunId} onBack={() => setSelectedRunId(null)} onSelectMessage={handleSelectMessage} />
+            <RunDetail runId={selectedRunId} onBack={() => { setSelectedRunId(null); setDevToolsOpen(false); }} onSelectMessage={handleSelectMessage} />
           ) : (
             <div className="space-y-8">
               {startError && (
@@ -94,22 +95,48 @@ export default function App() {
               />
               <RunProgress runs={liveRuns} onSelectRun={setSelectedRunId} />
               {historicalResults.length > 0 && (
-                <HistoricalResults results={historicalResults} onSelectRun={setSelectedRunId} />
+                <HistoricalResults results={historicalResults} onSelectRun={setSelectedRunId} onClear={async () => {
+                  await clearResults();
+                  setHistoricalResults([]);
+                }} />
               )}
-              <ScenarioMatrix runs={liveRuns} onSelectRun={setSelectedRunId} />
             </div>
           )}
         </div>
-        <DevToolsPanel message={devToolsMessage} messageIndex={devToolsIndex} run={selectedRun} open={devToolsOpen} onClose={() => setDevToolsOpen(false)} />
+        <DevToolsPanel message={devToolsMessage} messageIndex={devToolsIndex} allMessages={devToolsAllMessages} run={selectedRun} open={devToolsOpen} onClose={() => setDevToolsOpen(false)} />
       </Layout>
     </ErrorBoundary>
   );
 }
 
-function HistoricalResults({ results, onSelectRun }: { results: RunResult[]; onSelectRun: (id: string) => void }) {
+function timeAgo(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
+function HistoricalResults({ results, onSelectRun, onClear }: { results: RunResult[]; onSelectRun: (id: string) => void; onClear: () => void }) {
+  const sorted = [...results].sort((a, b) =>
+    new Date(b.EndTime || b.StartTime).getTime() - new Date(a.EndTime || a.StartTime).getTime()
+  );
+
   return (
     <div className="space-y-3">
-      <h3 className="text-xs font-semibold text-slate-muted uppercase tracking-wider">Previous Runs</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold text-slate-muted uppercase tracking-wider">Previous Runs</h3>
+        <button
+          onClick={onClear}
+          className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-[#EF4444] hover:bg-red-100 transition-colors"
+        >
+          Clear all
+        </button>
+      </div>
       <div className="rounded-xl border border-mist bg-white shadow-sm overflow-hidden">
         <table className="w-full text-[13px]">
           <thead>
@@ -120,10 +147,11 @@ function HistoricalResults({ results, onSelectRun }: { results: RunResult[]; onS
               <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Result</th>
               <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Cost</th>
               <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Msgs</th>
+              <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-muted uppercase tracking-wider">When</th>
             </tr>
           </thead>
           <tbody>
-            {results.map((r) => {
+            {sorted.map((r) => {
               const passed = !r.Error;
               return (
                 <tr
@@ -145,6 +173,9 @@ function HistoricalResults({ results, onSelectRun }: { results: RunResult[]; onS
                   </td>
                   <td className="px-4 py-2.5 text-right text-slate-muted">
                     {r.Messages?.length ?? 0}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-slate-muted">
+                    {r.EndTime ? timeAgo(r.EndTime) : r.StartTime ? timeAgo(r.StartTime) : "—"}
                   </td>
                 </tr>
               );

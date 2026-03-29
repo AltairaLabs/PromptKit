@@ -126,6 +126,13 @@ func NewArenaStateStore() *ArenaStateStore {
 	}
 }
 
+// Clear removes all conversations from the store.
+func (s *ArenaStateStore) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.conversations = make(map[string]*ArenaConversationState)
+}
+
 // Save stores conversation state (implements Store interface).
 // Uses incremental cloning: only new messages (appended since the last Save)
 // are deep-cloned. Previously stored messages are already immutable snapshots

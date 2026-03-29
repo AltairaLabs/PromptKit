@@ -302,9 +302,8 @@ html:
 # Open in browser
 open out/report.html
 
-# Or serve via HTTP
-python -m http.server 8000
-# Navigate to http://localhost:8000/out/report.html
+# Or use the live web UI (loads existing results + supports starting new runs)
+promptarena serve --open
 ```
 
 ### Sections

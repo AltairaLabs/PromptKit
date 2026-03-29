@@ -23,6 +23,7 @@ promptarena [command] [flags]
 | `debug` | Debug configuration and prompt loading |
 | `prompt-debug` | Debug and test prompt generation |
 | `render` | Generate HTML report from existing results |
+| `serve` | Start the live web UI with SSE streaming and REST API |
 | `validate` | Validate configuration files |
 | `view` | View test results |
 | `export` | Export arena config as a PromptPack JSON file |
@@ -940,6 +941,84 @@ promptarena render archive/2024-01-15/index.json --output reports/jan-15-report.
 - Create reports with different formatting
 - Archive and view historical results
 - Share results without re-running tests
+
+---
+
+## `promptarena serve`
+
+Start a local web server with the Arena live UI. Streams run events to the browser via Server-Sent Events (SSE) and provides a REST API for starting runs, viewing results, and inspecting configuration.
+
+The web UI loads any existing results from the output directory on startup, so previous runs are immediately visible. New runs can be started from the browser and their progress streams in real time.
+
+### Usage
+
+```bash
+promptarena serve [config-path] [flags]
+```
+
+If `config-path` is a directory, looks for `config.arena.yaml` inside it. Defaults to the current directory.
+
+### Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `-p, --port` | int | `8080` | Port to serve on |
+| `-o, --open` | bool | `false` | Open browser automatically |
+
+### Examples
+
+```bash
+# Start the web UI for the current directory
+promptarena serve
+
+# Start for a specific scenario directory
+promptarena serve ./examples/guardrails-test
+
+# Use a custom port and auto-open the browser
+promptarena serve -p 3000 --open
+
+# With local schema validation (for development)
+PROMPTKIT_SCHEMA_SOURCE=local promptarena serve ./my-scenario
+```
+
+### REST API
+
+The server exposes these endpoints:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/events` | SSE stream of live run events |
+| `GET` | `/api/config` | Returns the loaded arena configuration |
+| `GET` | `/api/results` | Lists all completed run IDs |
+| `GET` | `/api/results/{id}` | Returns a single run result (same format as JSON output) |
+| `POST` | `/api/run` | Start a new run (accepts optional `providers`, `scenarios`, `regions` filters) |
+| `DELETE` | `/api/results` | Clear all results (deletes files from output directory) |
+
+### Starting a Run via API
+
+```bash
+# Start all scenarios with all providers
+curl -X POST http://localhost:8080/api/run
+
+# Start specific scenarios
+curl -X POST http://localhost:8080/api/run \
+  -H 'Content-Type: application/json' \
+  -d '{"scenarios": ["greeting"], "providers": ["openai"]}'
+```
+
+### Development Mode
+
+For frontend development with hot module replacement, run the Go backend and Vite dev server separately:
+
+```bash
+# Terminal 1: Go backend
+promptarena serve -p 8080
+
+# Terminal 2: Vite dev server (proxies /api to backend)
+cd tools/arena/web/frontend
+npm run dev
+# Open http://localhost:5173
+```
 
 ---
 

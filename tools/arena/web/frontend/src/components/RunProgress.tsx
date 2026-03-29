@@ -95,7 +95,10 @@ function RunCard({ run, expanded, onToggle, onViewDetails }: {
           </div>
         </div>
         <div className="flex items-center gap-3 text-xs">
-          <span className="text-slate-muted font-mono">T{run.turnIndex}</span>
+          <span className="text-slate-muted">{run.messages.length} msgs</span>
+          {(run.costs.inputTokens + run.costs.outputTokens) > 0 && (
+            <span className="text-slate-muted font-mono">{(run.costs.inputTokens + run.costs.outputTokens).toLocaleString()} tok</span>
+          )}
           {run.costs.totalCost > 0 && <span className="font-mono text-[#F59E0B]">${run.costs.totalCost.toFixed(4)}</span>}
           {run.status === "completed" && (
             <span className="rounded-full bg-emerald-50 text-[#10B981] px-2 py-0.5 text-[10px] font-semibold">Pass</span>

@@ -82,6 +82,7 @@ temp/
 .cache/
 .gocache/
 docs/local-backlog/
+docs/superpowers
 
 # Documentation (Astro)
 docs/dist/
