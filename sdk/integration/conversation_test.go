@@ -84,8 +84,15 @@ func TestConversation_EmitsEventsOnSend(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Hello")
 	require.NoError(t, err)
 
-	// Give async listeners a moment to process.
-	ec.waitForEvent(events.EventPipelineCompleted, 2*time.Second)
+	// Wait for all expected events — the bus dispatches via goroutines so
+	// delivery order to the collector is not guaranteed.
+	expected := []events.EventType{
+		events.EventPipelineStarted,
+		events.EventPipelineCompleted,
+		events.EventProviderCallStarted,
+		events.EventProviderCallCompleted,
+	}
+	ec.waitForEvents(expected, 2*time.Second)
 
 	assert.True(t, ec.hasType(events.EventPipelineStarted), "should emit pipeline.started")
 	assert.True(t, ec.hasType(events.EventPipelineCompleted), "should emit pipeline.completed")
