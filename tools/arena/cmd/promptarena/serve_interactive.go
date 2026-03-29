@@ -11,11 +11,17 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
+	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
+	"github.com/AltairaLabs/PromptKit/tools/arena/web"
 )
 
 const (
-	serverReadTimeout  = 30 * time.Second
-	serverWriteTimeout = 30 * time.Second
+	serverReadTimeout = 30 * time.Second
+	defaultServePort  = 8080
 )
 
 // serveAddr returns the listen address for the given port, binding to localhost only.
@@ -23,22 +29,20 @@ func serveAddr(port int) string {
 	return fmt.Sprintf("127.0.0.1:%d", port)
 }
 
-const (
-	defaultServePort = 8080 // Default HTTP port for serve command
-)
-
 var serveCmd = &cobra.Command{
-	Use:   "serve [directory]",
-	Short: "Serve the output directory via HTTP for viewing reports with audio playback",
-	Long: `Starts a local HTTP server to serve the output directory.
-This enables audio playback in HTML reports, which is blocked when opening
-files directly from the filesystem due to browser security restrictions.
+	Use:   "serve [config-path]",
+	Short: "Start the Arena web UI with live run streaming",
+	Long: `Starts a local web server with the Arena UI. Streams run events
+to the browser via SSE and provides a REST API for starting runs
+and viewing results.
+
+If config-path is a directory, looks for config.arena.yaml inside it.
 
 Examples:
-  promptarena serve              # Serve current directory on port 8080
-  promptarena serve out          # Serve the 'out' directory
-  promptarena serve -p 3000 out  # Serve on port 3000
-  promptarena serve --open out   # Serve and open browser automatically`,
+  promptarena serve                    # Load config.arena.yaml from current dir
+  promptarena serve ./my-scenario      # Load from specific directory
+  promptarena serve -p 3000            # Serve on port 3000
+  promptarena serve --open             # Open browser automatically`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runServe,
 }
@@ -55,27 +59,49 @@ func init() {
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
-	dir := "."
+	configPath := "."
 	if len(args) > 0 {
-		dir = args[0]
+		configPath = args[0]
 	}
 
-	// Resolve to absolute path
-	absDir, err := filepath.Abs(dir)
+	// Resolve config file path
+	absPath, err := filepath.Abs(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve path: %w", err)
 	}
+	if info, statErr := os.Stat(absPath); statErr == nil && info.IsDir() {
+		absPath = filepath.Join(absPath, "config.arena.yaml")
+	}
+	if _, statErr := os.Stat(absPath); statErr != nil {
+		return fmt.Errorf("config not found: %s", absPath)
+	}
 
-	// Check directory exists
-	info, err := os.Stat(absDir)
+	// Load config and create engine
+	cfg, err := config.LoadConfig(absPath)
 	if err != nil {
-		return fmt.Errorf("directory not found: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", absDir)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Find an available port if the default is in use
+	eng, err := engine.NewEngineFromConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to create engine: %w", err)
+	}
+
+	// Wire event bus
+	eventBus := events.NewEventBus()
+	eng.SetEventBus(eventBus, engine.WithMessageEvents())
+
+	// Create web adapter and subscribe to bus
+	adapter := web.NewEventAdapter()
+	adapter.Subscribe(eventBus)
+
+	// Get state store for results API
+	arenaStore, _ := eng.GetStateStore().(*statestore.ArenaStateStore)
+
+	// Create web server
+	srv := web.NewServer(adapter, eng, arenaStore)
+
+	// Check port availability
 	//nolint:noctx // Dev tool - context not needed for port check
 	listener, err := net.Listen("tcp", serveAddr(servePort))
 	if err != nil {
@@ -84,38 +110,27 @@ func runServe(cmd *cobra.Command, args []string) error {
 	actualPort := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
 
-	// Determine the report URL
-	reportPath := filepath.Join(absDir, "report.html")
-	reportURL := fmt.Sprintf("http://localhost:%d/report.html", actualPort)
-	if _, err := os.Stat(reportPath); os.IsNotExist(err) {
-		reportURL = fmt.Sprintf("http://localhost:%d/", actualPort)
-	}
-
-	fmt.Printf("Serving %s on http://localhost:%d\n", absDir, actualPort)
-	fmt.Printf("Report URL: %s\n", reportURL)
+	url := fmt.Sprintf("http://localhost:%d", actualPort)
+	fmt.Printf("Arena Web UI: %s\n", url)
+	fmt.Printf("Config: %s\n", absPath)
 	fmt.Println("Press Ctrl+C to stop")
 
-	// Open browser if requested
 	if serveOpen {
-		go openBrowser(reportURL)
+		go openBrowser(url)
 	}
 
-	// Create file server
-	// NOSONAR: Path traversal safe - absDir is validated absolute path from user-specified directory
-	fs := http.FileServer(http.Dir(absDir))
-	http.Handle("/", fs)
-
-	// Start server with timeouts, bound to localhost only
 	// NOSONAR: TLS not required - local development tool, binds to localhost only
-	srv := &http.Server{
-		Addr:         serveAddr(actualPort),
-		ReadTimeout:  serverReadTimeout,
-		WriteTimeout: serverWriteTimeout,
+	httpServer := &http.Server{
+		Addr:        serveAddr(actualPort),
+		Handler:     srv.Handler(),
+		ReadTimeout: serverReadTimeout,
+		// WriteTimeout intentionally omitted: SSE requires long-lived connections;
+		// a non-zero write timeout would kill active SSE streams.
 	}
-	return srv.ListenAndServe()
+	return httpServer.ListenAndServe()
 }
 
-// openBrowser opens the default browser to the given URL
+// openBrowser opens the default browser to the given URL.
 //
 //nolint:noctx // Dev tool - context not needed for opening browser
 func openBrowser(url string) {
