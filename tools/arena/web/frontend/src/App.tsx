@@ -25,11 +25,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     if (this.state.error) {
       return (
         <div className="min-h-screen bg-deep-space flex items-center justify-center p-8">
-          <div className="bg-onyx border border-error-red/30 rounded-xl p-8 max-w-lg w-full">
+          <div className="rounded-xl border border-error-red/20 bg-onyx p-8 max-w-lg w-full text-center">
             <h2 className="text-lg font-semibold text-error-red mb-2">Something went wrong</h2>
-            <p className="text-sm text-slate-muted mb-4">{this.state.error.message}</p>
+            <p className="text-sm text-slate-muted mb-6">{this.state.error.message}</p>
             <button
-              className="text-sm text-altair-blue hover:underline"
+              className="rounded-lg bg-altair-blue/10 border border-altair-blue/20 px-4 py-2 text-sm font-medium text-altair-blue hover:bg-altair-blue/20 transition-colors"
               onClick={() => this.setState({ error: null })}
             >
               Try again
@@ -55,8 +55,6 @@ export default function App() {
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
 
   const handleSelectMessage = (index: number) => {
-    // For completed run detail view, the message comes from RunResult
-    // DevTools will show what it can from the Message type
     setDevToolsIndex(index);
     setDevToolsOpen(true);
   };
@@ -76,43 +74,43 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-    <Layout connected={state.connected} onStartRun={handleStartRun} loading={loading}>
-      <div className={devToolsOpen ? "mr-[420px] transition-[margin]" : ""}>
-        {selectedRunId ? (
-          <RunDetail
-            runId={selectedRunId}
-            onBack={() => setSelectedRunId(null)}
-            onSelectMessage={handleSelectMessage}
-          />
-        ) : (
-          <div className="space-y-6">
-            {startError && (
-              <div className="rounded-lg bg-error-red/10 border border-error-red/30 px-4 py-3 text-sm text-error-red">
-                {startError}
-              </div>
-            )}
-            <SummaryCards
-              totalRuns={runs.length}
-              activeRuns={runs.filter((r) => r.status === "running").length}
-              completedRuns={runs.filter((r) => r.status !== "running").length}
-              failedRuns={runs.filter((r) => r.status === "failed").length}
-              totalCost={state.totalCost}
-              totalTokens={state.totalTokens}
+      <Layout connected={state.connected} onStartRun={handleStartRun} loading={loading}>
+        <div className={devToolsOpen ? "mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
+          {selectedRunId ? (
+            <RunDetail
+              runId={selectedRunId}
+              onBack={() => setSelectedRunId(null)}
+              onSelectMessage={handleSelectMessage}
             />
-            <RunProgress runs={runs} onSelectRun={setSelectedRunId} />
-            <ScenarioMatrix runs={runs} onSelectRun={setSelectedRunId} />
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="space-y-8">
+              {startError && (
+                <div className="rounded-xl bg-error-red/[0.08] border border-error-red/20 px-5 py-4 text-sm text-error-red">
+                  {startError}
+                </div>
+              )}
+              <SummaryCards
+                totalRuns={runs.length}
+                activeRuns={runs.filter((r) => r.status === "running").length}
+                completedRuns={runs.filter((r) => r.status !== "running").length}
+                failedRuns={runs.filter((r) => r.status === "failed").length}
+                totalCost={state.totalCost}
+                totalTokens={state.totalTokens}
+              />
+              <RunProgress runs={runs} onSelectRun={setSelectedRunId} />
+              <ScenarioMatrix runs={runs} onSelectRun={setSelectedRunId} />
+            </div>
+          )}
+        </div>
 
-      <DevToolsPanel
-        message={devToolsMessage}
-        messageIndex={devToolsIndex}
-        run={selectedRun}
-        open={devToolsOpen}
-        onClose={() => setDevToolsOpen(false)}
-      />
-    </Layout>
+        <DevToolsPanel
+          message={devToolsMessage}
+          messageIndex={devToolsIndex}
+          run={selectedRun}
+          open={devToolsOpen}
+          onClose={() => setDevToolsOpen(false)}
+        />
+      </Layout>
     </ErrorBoundary>
   );
 }
