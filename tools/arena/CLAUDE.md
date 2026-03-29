@@ -96,6 +96,55 @@ runOrch := e.evalOrchestrator.Clone()  // independent metadata per run
 
 The runner (immutable eval defs) is shared; metadata (workflow state, emitter) is per-run.
 
+### 6. Mock Provider with Tool Calls
+
+Mock providers (`type: mock`) support canned responses with real tool execution:
+
+- The mock provider simulates the **LLM** only — it decides what to say and which tools to call
+- Tools themselves execute for **real** via `tools.Executor` (InMemoryStore, workflow state machine, etc.)
+- Mock responses with `tool_calls` trigger real tool execution through the ProviderStage tool loop
+
+**Mock response file format** (`mock-responses.yaml`):
+```yaml
+scenarios:
+  my-scenario-name:        # MUST match scenario metadata.name, NOT spec.id
+    turns:
+      1:                    # Turn numbers account for multi-round tool loops
+        response: "I'll look that up"
+        tool_calls:         # Auto-sets type to "tool_calls"
+          - name: memory__recall
+            arguments:
+              query: "user preferences"
+      2: "Based on what I found..."  # Text response after tool result
+```
+
+**Critical**: Scenario keys in mock-responses.yaml must match the scenario's `metadata.name`, not `spec.id`. The mock repository looks up by metadata name.
+
+**Provider config** references the mock file:
+```yaml
+spec:
+  type: mock
+  additional_config:
+    mock_config: mock-responses.yaml   # Relative to arena config directory
+```
+
+### 7. Runtime Capabilities in Arena
+
+Capabilities like workflow and memory are declared in the arena config and auto-registered — no tool YAML files needed:
+
+```yaml
+spec:
+  workflow:     # Auto-registers workflow__transition tool + executor
+    version: 2
+    entry: intake
+    states: { ... }
+
+  memory:       # Auto-registers memory__recall/remember/list/forget + executor
+    enabled: true
+```
+
+The tools execute for real. Only the LLM's decision-making is mocked.
+
 ## Adding New Functionality
 
 - **New tool executor**: Implement `tools.Executor`, register in `initWorkflow()` or `BuildEngineComponents()`

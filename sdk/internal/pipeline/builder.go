@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/memory"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -155,6 +156,20 @@ type Config struct {
 	// When provided, ProviderStage will use hooks for provider call, chunk, and tool interception
 	HookRegistry *hooks.Registry
 
+	// MemoryRetriever for automatic memory RAG injection (optional).
+	// When set, a MemoryRetrievalStage is added before the provider stage.
+	MemoryRetriever memory.Retriever
+
+	// MemoryExtractor for automatic memory extraction (optional).
+	// When set, a MemoryExtractionStage is added after the provider stage.
+	MemoryExtractor memory.Extractor
+
+	// MemoryStore for memory persistence (required if Retriever or Extractor set).
+	MemoryStore memory.Store
+
+	// MemoryScope for memory isolation.
+	MemoryScope map[string]string
+
 	// ExecutionTimeout overrides the default pipeline execution timeout.
 	// When non-nil, the pointed-to duration is used instead of the default 30s.
 	// A zero value disables timeout entirely.
@@ -300,6 +315,12 @@ func collectPipelineStages(
 		stages = append(stages, stage.NewFrameRateLimitStage(*cfg.VideoStreamConfig))
 	}
 
+	// 4.8 Memory retrieval stage - inject relevant memories before provider
+	if cfg.MemoryRetriever != nil && cfg.MemoryStore != nil {
+		stages = append(stages, stage.NewMemoryRetrievalStage(
+			cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope))
+	}
+
 	// 5. Provider stage - LLM calls with streaming and tool support
 	providerStages, err := buildProviderStages(cfg)
 	if err != nil {
@@ -312,6 +333,12 @@ func collectPipelineStages(
 		outputCfg := *cfg.RecordingConfig
 		outputCfg.Position = stage.RecordingPositionOutput
 		stages = append(stages, stage.NewRecordingStage(cfg.RecordingEventBus, outputCfg))
+	}
+
+	// 5.7 Memory extraction stage - extract memories from conversation
+	if cfg.MemoryExtractor != nil && cfg.MemoryStore != nil {
+		stages = append(stages, stage.NewMemoryExtractionStage(
+			cfg.MemoryExtractor, cfg.MemoryStore, cfg.MemoryScope))
 	}
 
 	// 6. State store save stage - saves conversation state LAST

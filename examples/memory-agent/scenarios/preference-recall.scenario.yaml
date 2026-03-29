@@ -1,0 +1,27 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: preference-recall-scenario
+spec:
+  id: "preference-recall"
+  task_type: assistant
+  description: "Tests that the agent uses memory tools to store and recall user preferences"
+
+  turns:
+    - role: user
+      content: "I really prefer dark mode for everything. Can you remember that?"
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - "memory__remember"
+          message: "Agent should use memory__remember to store the dark mode preference"
+
+    - role: user
+      content: "What do you know about my preferences?"
+      assertions:
+        - type: tools_called
+          params:
+            tools:
+              - "memory__recall"
+          message: "Agent should use memory__recall to look up preferences"

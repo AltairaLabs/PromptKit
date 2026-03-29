@@ -1,0 +1,26 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: memory-agent-arena
+spec:
+  prompt_configs:
+    - id: assistant
+      file: prompts/memory-assistant.yaml
+
+  providers:
+    - file: providers/openai.provider.yaml
+
+  scenarios:
+    - file: scenarios/preference-recall.scenario.yaml
+    - file: scenarios/cross-turn-memory.scenario.yaml
+
+  memory:
+    enabled: true
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1500
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html"]

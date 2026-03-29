@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -874,6 +875,36 @@ func WithMessageLog(log statestore.MessageLog) Option {
 		c.messageLog = log
 		return nil
 	}
+}
+
+// WithMemory enables agentic memory — cross-session knowledge that persists
+// beyond a single conversation. The store provides persistence; scope keys
+// determine memory isolation (e.g., {"user_id": "x", "workspace_id": "y"}).
+//
+// Optional: pass extractor for automatic memory extraction from conversations,
+// and/or retriever for automatic RAG injection of relevant memories.
+func WithMemory(store memory.Store, scope map[string]string, opts ...MemoryOption) Option {
+	return func(c *config) error {
+		memoryCap := NewMemoryCapability(store, scope)
+		for _, opt := range opts {
+			opt(memoryCap)
+		}
+		c.capabilities = append(c.capabilities, memoryCap)
+		return nil
+	}
+}
+
+// MemoryOption configures the memory capability.
+type MemoryOption func(*MemoryCapability)
+
+// WithMemoryExtractor sets an extractor for automatic memory extraction.
+func WithMemoryExtractor(e memory.Extractor) MemoryOption {
+	return func(c *MemoryCapability) { c.extractor = e }
+}
+
+// WithMemoryRetriever sets a retriever for automatic RAG injection.
+func WithMemoryRetriever(r memory.Retriever) MemoryOption {
+	return func(c *MemoryCapability) { c.retriever = r }
 }
 
 // WithExecutionTimeout overrides the default pipeline execution timeout (30s).

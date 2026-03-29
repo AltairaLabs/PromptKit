@@ -425,6 +425,19 @@ func (c *Conversation) buildPipelineConfig(
 		CompactionRules:       c.config.compactionRules,
 	}
 
+	// Wire memory stages from MemoryCapability if present
+	for _, capItem := range c.capabilities {
+		mc, ok := capItem.(*MemoryCapability)
+		if !ok {
+			continue
+		}
+		pipelineCfg.MemoryStore = mc.store
+		pipelineCfg.MemoryScope = mc.scope
+		pipelineCfg.MemoryRetriever = mc.retriever
+		pipelineCfg.MemoryExtractor = mc.extractor
+		break
+	}
+
 	// Wire recording config if enabled
 	if c.config.recordingConfig != nil && c.config.eventBus != nil {
 		pipelineCfg.RecordingConfig = &stage.RecordingStageConfig{
