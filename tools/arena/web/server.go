@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,31 +36,37 @@ type Server struct {
 	adapter    *EventAdapter
 	engine     engineRunner
 	stateStore *statestore.ArenaStateStore
+	outputDir  string
 	mux        *http.ServeMux
 }
 
 // NewServer creates a new web server.
 // eng and store may be nil (for testing SSE in isolation).
-func NewServer(adapter *EventAdapter, eng *engine.Engine, store *statestore.ArenaStateStore) *Server {
+// outputDir is the path to the results directory (for DELETE /api/results).
+func NewServer(adapter *EventAdapter, eng *engine.Engine, store *statestore.ArenaStateStore, outputDir string) *Server {
 	var runner engineRunner
 	if eng != nil {
 		runner = eng
 	}
-	return newServerWithRunner(adapter, runner, store)
+	return newServerWithRunner(adapter, runner, store, outputDir)
 }
 
 // newServerWithRunner creates a Server using the engineRunner interface (used for testing).
-func newServerWithRunner(adapter *EventAdapter, runner engineRunner, store *statestore.ArenaStateStore) *Server {
+func newServerWithRunner(
+	adapter *EventAdapter, runner engineRunner, store *statestore.ArenaStateStore, outputDir string,
+) *Server {
 	s := &Server{
 		adapter:    adapter,
 		engine:     runner,
 		stateStore: store,
+		outputDir:  outputDir,
 		mux:        http.NewServeMux(),
 	}
 	s.mux.HandleFunc("GET /api/events", s.handleSSE)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
 	s.mux.HandleFunc("GET /api/results", s.handleListResults)
 	s.mux.HandleFunc("GET /api/results/{id}", s.handleGetResult)
+	s.mux.HandleFunc("DELETE /api/results", s.handleClearResults)
 	s.mux.HandleFunc("POST /api/run", s.handleStartRun)
 
 	// SPA fallback: serve embedded frontend
@@ -214,6 +222,41 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleClearResults deletes all result files from the output directory
+// and clears the in-memory state store.
+func (s *Server) handleClearResults(w http.ResponseWriter, _ *http.Request) {
+	if s.stateStore == nil {
+		http.Error(w, "no state store", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Clear in-memory state
+	s.stateStore.Clear()
+
+	// Delete result files from disk
+	deleted := 0
+	if s.outputDir != "" {
+		entries, err := os.ReadDir(s.outputDir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if strings.HasSuffix(name, ".json") {
+					_ = os.Remove(filepath.Join(s.outputDir, name))
+					deleted++
+				}
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"cleared": true,
+		"deleted": deleted,
+	})
 }
 
 // writeJSON writes a JSON response with the given status code.

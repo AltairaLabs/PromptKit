@@ -103,13 +103,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Get state store for results API
 	arenaStore, _ := eng.GetStateStore().(*statestore.ArenaStateStore)
 
+	// Resolve output directory
+	outDir := cfg.Defaults.Output.Dir
+	if outDir == "" {
+		outDir = "out"
+	}
+	if !filepath.IsAbs(outDir) {
+		outDir = filepath.Join(cfg.Defaults.ConfigDir, outDir)
+	}
+
 	// Load existing results from the output directory (if any)
 	if arenaStore != nil {
-		loadExistingResults(cfg, arenaStore)
+		loadExistingResults(outDir, arenaStore)
 	}
 
 	// Create web server
-	srv := web.NewServer(adapter, eng, arenaStore)
+	srv := web.NewServer(adapter, eng, arenaStore, outDir)
 
 	// Check port availability
 	//nolint:noctx // Dev tool - context not needed for port check
@@ -142,16 +151,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 // loadExistingResults loads previously completed run results from the output directory
 // into the state store so they're available via the REST API on startup.
-func loadExistingResults(cfg *config.Config, store *statestore.ArenaStateStore) {
-	outDir := cfg.Defaults.Output.Dir
-	if outDir == "" {
-		outDir = "out"
-	}
-	// Resolve relative to config directory
-	if !filepath.IsAbs(outDir) {
-		outDir = filepath.Join(cfg.Defaults.ConfigDir, outDir)
-	}
-
+func loadExistingResults(outDir string, store *statestore.ArenaStateStore) {
 	repo := jsonresults.NewJSONResultRepository(outDir)
 	results, err := repo.LoadResults()
 	if err != nil {

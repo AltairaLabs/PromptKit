@@ -10,7 +10,7 @@ import type { Message } from "@/types";
 interface RunDetailProps {
   runId: string;
   onBack: () => void;
-  onSelectMessage?: (index: number, message?: Message) => void;
+  onSelectMessage?: (index: number, message?: Message, allMessages?: Message[]) => void;
 }
 
 export function RunDetail({ runId, onBack, onSelectMessage }: RunDetailProps) {
@@ -90,7 +90,10 @@ export function RunDetail({ runId, onBack, onSelectMessage }: RunDetailProps) {
         <h3 className="text-xs font-semibold text-slate-muted uppercase tracking-wider mb-3">
           Conversation
         </h3>
-        <ConversationThread messages={result.Messages} onSelectMessage={onSelectMessage} />
+        <ConversationThread
+          messages={result.Messages}
+          onSelectMessage={(i, msg) => onSelectMessage?.(i, msg, result.Messages)}
+        />
       </div>
     </div>
   );

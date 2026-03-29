@@ -33,5 +33,10 @@ export function useArenaAPI() {
     return resp.json();
   }, []);
 
-  return { startRun, getResults, getResult, getConfig, loading };
+  const clearResults = useCallback(async () => {
+    const resp = await fetch("/api/results", { method: "DELETE" });
+    return resp.json();
+  }, []);
+
+  return { startRun, getResults, getResult, getConfig, clearResults, loading };
 }
