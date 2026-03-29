@@ -2890,7 +2890,7 @@
             var turn = e.target.closest('[data-devtools-turn]');
             if (!turn) return;
             // Don't intercept clicks on buttons, links, or other interactive elements
-            if (e.target.closest('button, a, .validation-badge, .inspect-btn')) return;
+            if (e.target.closest('button, a, .validation-badge, .inspect-btn, .tool-call-header, .tool-response-header')) return;
             var turnId = turn.getAttribute('data-devtools-turn');
             openDevTools(turnId);
         });
