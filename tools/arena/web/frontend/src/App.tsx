@@ -42,7 +42,7 @@ export default function App() {
   const state = useArenaEvents();
   const { startRun, getResults, getResult, loading } = useArenaAPI();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [devToolsMessage] = useState<Message | undefined>();
+  const [devToolsMessage, setDevToolsMessage] = useState<Message | undefined>();
   const [devToolsIndex, setDevToolsIndex] = useState<number | undefined>();
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -60,8 +60,9 @@ export default function App() {
   const liveRuns = Object.values(state.runs);
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
 
-  const handleSelectMessage = (index: number) => {
+  const handleSelectMessage = (index: number, message?: Message) => {
     setDevToolsIndex(index);
+    setDevToolsMessage(message);
     setDevToolsOpen(true);
   };
 

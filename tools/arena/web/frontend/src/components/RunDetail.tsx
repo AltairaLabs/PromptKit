@@ -5,10 +5,12 @@ import { AssertionsPanel } from "@/components/AssertionsPanel";
 import { useArenaAPI } from "@/hooks/useArenaAPI";
 import type { RunResult } from "@/types";
 
+import type { Message } from "@/types";
+
 interface RunDetailProps {
   runId: string;
   onBack: () => void;
-  onSelectMessage?: (index: number) => void;
+  onSelectMessage?: (index: number, message?: Message) => void;
 }
 
 export function RunDetail({ runId, onBack, onSelectMessage }: RunDetailProps) {
