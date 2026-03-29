@@ -79,6 +79,10 @@ func RunProviderContractTests(t *testing.T, config ProviderContractTests) {
 		t.Run("Contract_PredictWithTools_MultiTurn", func(t *testing.T) {
 			testPredictWithToolsMultiTurn(t, config.Provider)
 		})
+
+		t.Run("Contract_PredictStreamWithTools_ProducesToolCalls", func(t *testing.T) {
+			testPredictStreamWithToolsProducesToolCalls(t, config.Provider)
+		})
 	}
 
 	t.Run("Contract_Predict_ReturnsCostInfo", func(t *testing.T) {
@@ -707,4 +711,71 @@ func SkipIfNoCredentials(t *testing.T, provider Provider) {
 	if err != nil {
 		t.Skipf("Skipping test - API credentials not available or provider not accessible: %v", err)
 	}
+}
+
+// testPredictStreamWithToolsProducesToolCalls verifies that streaming tool
+// calls work — the model streams a tool call with valid args via
+// PredictStreamWithTools. This catches the class of bugs where streaming
+// delta events lose tool call args or IDs.
+func testPredictStreamWithToolsProducesToolCalls(t *testing.T, provider Provider) {
+	toolSupport, ok := provider.(ToolSupport)
+	if !ok {
+		t.Skip("Provider doesn't implement ToolSupport")
+		return
+	}
+
+	tools := buildWeatherTools(t, toolSupport)
+
+	ctx := context.Background()
+	req := PredictionRequest{
+		Messages: []types.Message{
+			{Role: "user", Content: "What is the weather in Tokyo?"},
+		},
+		MaxTokens:   contractToolMaxTokens,
+		Temperature: contractZeroTemperature,
+	}
+
+	stream, err := toolSupport.PredictStreamWithTools(ctx, req, tools, "required")
+	if err != nil {
+		t.Skipf("Skipping streaming tool test due to API error: %v", err)
+		return
+	}
+
+	var lastChunk *StreamChunk
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Skipf("Skipping streaming tool test due to chunk error: %v", chunk.Error)
+			return
+		}
+		lastChunk = &chunk
+	}
+
+	if lastChunk == nil {
+		t.Fatal("Stream returned no chunks")
+		return
+	}
+
+	if len(lastChunk.ToolCalls) == 0 {
+		t.Error("PredictStreamWithTools() returned no tool calls in final chunk")
+		return
+	}
+
+	tc := lastChunk.ToolCalls[0]
+	if tc.Name == "" {
+		t.Error("Streamed tool call has empty Name")
+	}
+	if tc.ID == "" {
+		t.Error("Streamed tool call has empty ID")
+	}
+	if len(tc.Args) == 0 || string(tc.Args) == "" || string(tc.Args) == "{}" {
+		t.Errorf("Streamed tool call has empty args: %q", string(tc.Args))
+	}
+
+	// Args should be valid JSON with a location field
+	var args map[string]any
+	if err := json.Unmarshal(tc.Args, &args); err != nil {
+		t.Errorf("Streamed tool call args not valid JSON: %v (raw: %s)", err, string(tc.Args))
+	}
+
+	t.Logf("Streaming tool call: id=%s name=%s args=%s", tc.ID, tc.Name, string(tc.Args))
 }

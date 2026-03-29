@@ -233,11 +233,15 @@ func (p *ToolProvider) buildClaudeMessageContent(
 	// Add tool calls if this is an assistant message
 	if msg.Role == roleAssistant && len(msg.ToolCalls) > 0 {
 		for _, toolCall := range msg.ToolCalls {
+			args := toolCall.Args
+			if len(args) == 0 || string(args) == "null" {
+				args = json.RawMessage("{}")
+			}
 			content = append(content, claudeToolUse{
 				Type:  "tool_use",
 				ID:    toolCall.ID,
 				Name:  toolCall.Name,
-				Input: toolCall.Args,
+				Input: args,
 			})
 		}
 	}
