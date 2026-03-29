@@ -347,6 +347,10 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 
 	for i := range req.Messages {
 		msg := &req.Messages[i]
+		// Skip system messages — they go in the top-level "system" parameter
+		if msg.Role == roleSystem {
+			continue
+		}
 		if msg.Role == "tool" {
 			pendingToolResults = append(pendingToolResults, processClaudeToolResult(*msg))
 			continue

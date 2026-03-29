@@ -374,6 +374,10 @@ func (p *ToolProvider) buildToolRequest(
 	var pendingToolResults []map[string]any
 
 	for i := range req.Messages {
+		// Skip system messages — they go in the systemInstruction parameter
+		if req.Messages[i].Role == roleSystem {
+			continue
+		}
 		if req.Messages[i].Role == "tool" {
 			pendingToolResults = append(pendingToolResults, processToolMessage(req.Messages[i]))
 			continue
