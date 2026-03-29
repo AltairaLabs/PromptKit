@@ -1010,6 +1010,7 @@ func (s *ProviderStage) preExecCheck(
 		errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
 		result := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
 		result.Error = errMsg
+		result.ErrorType = types.ToolErrorApproval
 		return hooks.Decision{}, toolCallResult{
 			message: types.NewToolResultMessage(result),
 		}, true
@@ -1027,6 +1028,7 @@ func (s *ProviderStage) preExecCheck(
 			)
 			hookResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
 			hookResult.Error = errMsg
+			hookResult.ErrorType = types.ToolErrorApproval
 			msg := types.NewToolResultMessage(hookResult)
 			if hookDecision.Metadata != nil {
 				msg.Meta = hookDecision.Metadata
@@ -1065,6 +1067,7 @@ func (s *ProviderStage) executeSingleToolCall(
 		}
 		errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
 		errResult.Error = err.Error()
+		errResult.ErrorType = classifyToolError(err)
 		return toolCallResult{
 			message: types.NewToolResultMessage(errResult),
 		}
@@ -1342,6 +1345,15 @@ func (s *ProviderStage) updateExcludedTools(
 
 // buildProviderTools constructs the tool descriptors sent to the provider.
 // Tools in the excluded set are omitted from the result.
+// classifyToolError determines the ToolErrorType from an execution error.
+func classifyToolError(err error) types.ToolErrorType {
+	var valErr *tools.ValidationError
+	if errors.As(err, &valErr) {
+		return types.ToolErrorValidation
+	}
+	return types.ToolErrorExecution
+}
+
 func (s *ProviderStage) buildProviderTools(
 	allowedTools []string, excluded map[string]bool,
 ) (providerTools interface{}, toolChoice string, err error) {

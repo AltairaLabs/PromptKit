@@ -131,6 +131,7 @@ func buildToolCallRecord(
 		}
 		if resultMsg.ToolResult != nil && resultMsg.ToolResult.Error != "" {
 			record.Error = resultMsg.ToolResult.Error
+			record.ErrorType = resultMsg.ToolResult.ErrorType
 		}
 	}
 	return record
