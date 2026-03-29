@@ -1,3 +1,4 @@
+// Package web provides the HTTP server and SSE event streaming for the Arena web UI.
 package web
 
 import (
