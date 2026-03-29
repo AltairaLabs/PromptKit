@@ -1,8 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ConversationThread } from "@/components/ConversationThread";
 import { AssertionsPanel } from "@/components/AssertionsPanel";
 import { useArenaAPI } from "@/hooks/useArenaAPI";
@@ -25,20 +22,20 @@ export function RunDetail({ runId, onBack, onSelectMessage }: RunDetailProps) {
 
   if (error) {
     return (
-      <Card className="bg-onyx border-white/10 p-6">
-        <p className="text-error-red">Failed to load run: {error}</p>
-        <Button variant="ghost" onClick={onBack} className="mt-4 text-altair-blue">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back
-        </Button>
-      </Card>
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6">
+        <p className="text-[#EF4444]">Failed to load run: {error}</p>
+        <button onClick={onBack} className="mt-4 flex items-center gap-2 text-sm text-[#2563EB] hover:underline">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </button>
+      </div>
     );
   }
 
   if (!result) {
     return (
-      <Card className="bg-onyx border-white/10 p-6 text-center">
+      <div className="rounded-xl border border-mist bg-white p-6 text-center shadow-sm">
         <p className="text-slate-muted">Loading run details...</p>
-      </Card>
+      </div>
     );
   }
 
@@ -47,20 +44,21 @@ export function RunDetail({ runId, onBack, onSelectMessage }: RunDetailProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" onClick={onBack} size="sm" className="text-altair-blue">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back
-        </Button>
-        <h2 className="text-lg font-semibold text-cloud-white">{result.ScenarioID}</h2>
-        <Badge className={result.Error
-          ? "bg-error-red/10 text-error-red"
-          : "bg-deploy-green/10 text-deploy-green"
+        <button onClick={onBack} className="flex items-center gap-2 text-sm text-[#2563EB] hover:underline">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </button>
+        <h2 className="text-lg font-semibold text-deep-space">{result.ScenarioID}</h2>
+        <span className={
+          result.Error
+            ? "rounded-full bg-red-50 border border-red-200 px-2.5 py-0.5 text-xs font-semibold text-[#EF4444]"
+            : "rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-[#10B981]"
         }>
           {result.Error ? "Failed" : "Passed"}
-        </Badge>
+        </span>
       </div>
 
       {/* Metadata grid */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
           { label: "Provider", value: result.ProviderID },
           { label: "Region", value: result.Region },
@@ -71,23 +69,23 @@ export function RunDetail({ runId, onBack, onSelectMessage }: RunDetailProps) {
           { label: "Turns", value: String(result.Messages.length) },
           { label: "Pack", value: result.PromptPack || "—" },
         ].map((m) => (
-          <Card key={m.label} className="bg-onyx border-white/10 p-3">
+          <div key={m.label} className="rounded-xl border border-mist bg-white p-3 shadow-sm">
             <div className="text-xs text-slate-muted uppercase tracking-wider">{m.label}</div>
-            <div className="text-sm font-mono text-cloud-white mt-1">{m.value}</div>
-          </Card>
+            <div className="text-sm font-mono text-deep-space mt-1">{m.value}</div>
+          </div>
         ))}
       </div>
 
       {result.Error && (
-        <Card className="bg-error-red/5 border-error-red/20 p-4">
-          <div className="text-sm text-error-red">{result.Error}</div>
-        </Card>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+          <div className="text-sm text-[#EF4444]">{result.Error}</div>
+        </div>
       )}
 
       <AssertionsPanel assertions={result.ConversationAssertions} />
 
       <div>
-        <h3 className="text-sm font-medium text-slate-muted uppercase tracking-wider mb-3">
+        <h3 className="text-xs font-semibold text-slate-muted uppercase tracking-wider mb-3">
           Conversation
         </h3>
         <ConversationThread messages={result.Messages} onSelectMessage={onSelectMessage} />

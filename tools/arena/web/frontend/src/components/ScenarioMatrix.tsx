@@ -1,4 +1,3 @@
-import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { ActiveRun } from "@/types";
 
@@ -11,26 +10,18 @@ export function ScenarioMatrix({ runs, onSelectRun }: ScenarioMatrixProps) {
   const completed = runs.filter((r) => r.status !== "running");
   if (completed.length === 0) return null;
 
-  // Group by scenario
   const groups = new Map<string, ActiveRun[]>();
   for (const run of completed) {
-    const existing = groups.get(run.scenario) || [];
-    existing.push(run);
-    groups.set(run.scenario, existing);
+    const arr = groups.get(run.scenario) || [];
+    arr.push(run);
+    groups.set(run.scenario, arr);
   }
 
   return (
-    <div className="space-y-6">
-      <h3 className="text-sm font-medium text-slate-muted uppercase tracking-wider">
-        Results Matrix
-      </h3>
+    <div className="space-y-4">
+      <h3 className="text-xs font-semibold text-slate-muted uppercase tracking-wider">Results Matrix</h3>
       {Array.from(groups.entries()).map(([scenario, scenarioRuns]) => (
-        <ScenarioGroup
-          key={scenario}
-          scenario={scenario}
-          runs={scenarioRuns}
-          onSelectRun={onSelectRun}
-        />
+        <ScenarioGroup key={scenario} scenario={scenario} runs={scenarioRuns} onSelectRun={onSelectRun} />
       ))}
     </div>
   );
@@ -41,74 +32,53 @@ function ScenarioGroup({ scenario, runs, onSelectRun }: {
   runs: ActiveRun[];
   onSelectRun?: (runId: string) => void;
 }) {
-  // Build matrix dimensions
   const providers = [...new Set(runs.map((r) => r.provider))].sort();
   const regions = [...new Set(runs.map((r) => r.region))].sort();
-
-  // Index runs by provider+region
   const index = new Map<string, ActiveRun>();
-  for (const run of runs) {
-    index.set(`${run.provider}:${run.region}`, run);
-  }
+  for (const run of runs) index.set(`${run.provider}:${run.region}`, run);
 
   return (
-    <Card className="bg-onyx border-white/10 overflow-hidden">
-      <div className="px-4 py-3 bg-gradient-to-r from-cosmic-violet/20 to-altair-blue/20 border-b border-white/10">
-        <span className="text-sm font-semibold text-cloud-white">{scenario}</span>
-        <span className="text-xs text-slate-muted ml-2">
-          {runs.length} run{runs.length !== 1 ? "s" : ""}
-        </span>
+    <div className="rounded-xl border border-mist bg-white shadow-sm overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-mist bg-[#F8FAFC]">
+        <span className="text-sm font-semibold text-deep-space">{scenario}</span>
+        <span className="text-xs text-slate-muted ml-2">{runs.length} run{runs.length !== 1 ? "s" : ""}</span>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-slate-muted uppercase tracking-wider bg-onyx">
-                Region
-              </th>
-              {providers.map((p) => (
-                <th key={p} className="px-3 py-2 text-center text-xs font-medium text-slate-muted uppercase tracking-wider bg-onyx">
-                  {p}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {regions.map((region) => (
-              <tr key={region} className="border-t border-white/5">
-                <td className="px-3 py-2 text-xs text-slate-muted">{region}</td>
-                {providers.map((provider) => {
-                  const run = index.get(`${provider}:${region}`);
-                  return (
-                    <td key={provider} className="px-3 py-2 text-center">
-                      {run ? (
-                        <button
-                          onClick={() => onSelectRun?.(run.runId)}
-                          className={cn(
-                            "inline-flex flex-col items-center gap-0.5 rounded-md px-3 py-2 min-w-[80px] transition-colors",
-                            run.status === "completed"
-                              ? "bg-deploy-green/10 hover:bg-deploy-green/20 text-deploy-green"
-                              : "bg-error-red/10 hover:bg-error-red/20 text-error-red"
-                          )}
-                        >
-                          <span className="text-xs font-semibold">
-                            {run.status === "completed" ? "✓ Pass" : "✗ Fail"}
-                          </span>
-                          <span className="text-[10px] font-mono opacity-70">
-                            ${run.costs.totalCost.toFixed(4)}
-                          </span>
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-muted/50">—</span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-mist">
+            <th className="px-3 py-2 text-left font-medium text-slate-muted uppercase tracking-wider" />
+            {providers.map((p) => (
+              <th key={p} className="px-3 py-2 text-center font-medium text-slate-muted">{p}</th>
             ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+          </tr>
+        </thead>
+        <tbody>
+          {regions.map((region) => (
+            <tr key={region} className="border-t border-mist/50 hover:bg-[#F8FAFC]">
+              <td className="px-3 py-2 text-slate-muted">{region}</td>
+              {providers.map((provider) => {
+                const run = index.get(`${provider}:${region}`);
+                if (!run) return <td key={provider} className="px-3 py-2 text-center text-slate-muted/30">—</td>;
+                const passed = run.status === "completed";
+                return (
+                  <td key={provider} className="px-3 py-2 text-center">
+                    <button
+                      onClick={() => onSelectRun?.(run.runId)}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
+                        passed ? "text-[#10B981] hover:bg-emerald-50" : "text-[#EF4444] hover:bg-red-50"
+                      )}
+                    >
+                      <span className={cn("h-1.5 w-1.5 rounded-full", passed ? "bg-[#10B981]" : "bg-[#EF4444]")} />
+                      {passed ? "Pass" : "Fail"}
+                    </button>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

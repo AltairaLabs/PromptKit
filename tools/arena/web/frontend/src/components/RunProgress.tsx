@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Activity, ChevronDown, ExternalLink } from "lucide-react";
+import { ChevronDown, ExternalLink, Activity } from "lucide-react";
 import type { ActiveRun, MessageCreatedData } from "@/types";
 
 interface RunProgressProps {
@@ -19,12 +19,12 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
 
   if (runs.length === 0) {
     return (
-      <div className="rounded-xl border border-white/[0.06] bg-onyx p-12 text-center">
-        <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-altair-blue/10 flex items-center justify-center">
-          <Activity className="h-6 w-6 text-altair-blue" />
+      <div className="rounded-xl border border-mist bg-white p-10 text-center shadow-sm">
+        <div className="mx-auto mb-3 h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center">
+          <Activity className="h-5 w-5 text-[#2563EB]" />
         </div>
-        <p className="text-sm text-slate-muted">No runs yet</p>
-        <p className="text-xs text-slate-muted/60 mt-1">Click "Start Run" to begin testing</p>
+        <p className="text-sm font-medium text-deep-space">No runs yet</p>
+        <p className="text-xs text-slate-muted mt-1">Click "Start Run" to begin testing</p>
       </div>
     );
   }
@@ -58,11 +58,9 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
 function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
     <div>
-      <div className="flex items-center gap-3 mb-3">
-        <h3 className="text-sm font-semibold bg-gradient-to-r from-[#3B82F6] via-[#06B6D4] to-[#8B5CF6] bg-clip-text text-transparent uppercase tracking-widest">
-          {title}
-        </h3>
-        <span className="text-xs font-mono text-slate-muted/60 bg-white/[0.04] rounded-full px-2 py-0.5">{count}</span>
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-xs font-semibold text-slate-muted uppercase tracking-wider">{title}</h3>
+        <span className="text-[10px] font-mono text-slate-muted bg-[#F1F5F9] rounded-full px-1.5 py-0.5">{count}</span>
       </div>
       <div className="space-y-2">{children}</div>
     </div>
@@ -78,46 +76,47 @@ function RunCard({ run, expanded, onToggle, onViewDetails }: {
   return (
     <div
       className={cn(
-        "rounded-xl border bg-onyx overflow-hidden transition-all cursor-pointer",
-        expanded ? "border-altair-blue/30" : "border-white/[0.06] hover:border-white/[0.12]"
+        "rounded-xl border bg-white shadow-sm overflow-hidden cursor-pointer transition-colors",
+        expanded ? "border-[#2563EB]/40" : "border-mist hover:border-[#2563EB]/20"
       )}
       onClick={onToggle}
     >
-      <div className="flex items-center justify-between px-5 py-4">
-        <div className="flex items-center gap-4">
-          <StatusIndicator status={run.status} />
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-3">
+          <span className={cn(
+            "h-2 w-2 rounded-full",
+            run.status === "running" && "bg-[#10B981] animate-pulse",
+            run.status === "completed" && "bg-[#10B981]",
+            run.status === "failed" && "bg-[#EF4444]",
+          )} />
           <div>
-            <div className="text-sm font-medium text-cloud-white">{run.scenario}</div>
-            <div className="text-xs text-slate-muted mt-0.5">
-              {run.provider}
-              <span className="text-white/20 mx-1.5">·</span>
-              {run.region}
-            </div>
+            <span className="text-sm font-medium text-deep-space">{run.scenario}</span>
+            <span className="text-xs text-slate-muted ml-2">{run.provider} · {run.region}</span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right">
-            <div className="text-xs font-mono text-slate-muted">Turn {run.turnIndex}</div>
-            {run.costs.totalCost > 0 && (
-              <div className="text-xs font-mono text-stellar-gold">${run.costs.totalCost.toFixed(4)}</div>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {onViewDetails && (
-              <button
-                className="flex items-center gap-1 rounded-lg border border-altair-blue/20 bg-altair-blue/[0.08] px-3 py-1.5 text-xs font-medium text-altair-blue hover:bg-altair-blue/[0.15] transition-colors"
-                onClick={(e) => { e.stopPropagation(); onViewDetails(); }}
-              >
-                Details <ExternalLink className="h-3 w-3" />
-              </button>
-            )}
-            <ChevronDown className={cn("h-4 w-4 text-slate-muted transition-transform", expanded && "rotate-180")} />
-          </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-slate-muted font-mono">T{run.turnIndex}</span>
+          {run.costs.totalCost > 0 && <span className="font-mono text-[#F59E0B]">${run.costs.totalCost.toFixed(4)}</span>}
+          {run.status === "completed" && (
+            <span className="rounded-full bg-emerald-50 text-[#10B981] px-2 py-0.5 text-[10px] font-semibold">Pass</span>
+          )}
+          {run.status === "failed" && (
+            <span className="rounded-full bg-red-50 text-[#EF4444] px-2 py-0.5 text-[10px] font-semibold">Fail</span>
+          )}
+          {onViewDetails && (
+            <button
+              className="text-[#2563EB] hover:underline flex items-center gap-1"
+              onClick={(e) => { e.stopPropagation(); onViewDetails(); }}
+            >
+              Details <ExternalLink className="h-3 w-3" />
+            </button>
+          )}
+          <ChevronDown className={cn("h-3.5 w-3.5 text-slate-muted transition-transform", expanded && "rotate-180")} />
         </div>
       </div>
       {expanded && run.messages.length > 0 && (
-        <div className="border-t border-white/[0.06] px-5 py-4 bg-deep-space/50">
-          <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-2">
+        <div className="border-t border-mist px-4 py-3 bg-[#F8FAFC]">
+          <div className="space-y-2 max-h-80 overflow-y-auto">
             {run.messages.map((msg, i) => (
               <MessagePreview key={i} msg={msg} />
             ))}
@@ -129,45 +128,24 @@ function RunCard({ run, expanded, onToggle, onViewDetails }: {
 }
 
 function MessagePreview({ msg }: { msg: MessageCreatedData }) {
-  const styles: Record<string, string> = {
-    user: "border-l-altair-blue bg-altair-blue/[0.06]",
-    assistant: "border-l-deploy-green bg-deploy-green/[0.06]",
-    system: "border-l-cosmic-violet bg-cosmic-violet/[0.06]",
-    tool: "border-l-stellar-gold bg-stellar-gold/[0.06]",
+  const border: Record<string, string> = {
+    user: "border-l-[#2563EB]",
+    assistant: "border-l-[#10B981]",
+    system: "border-l-[#8B5CF6]",
+    tool: "border-l-[#F59E0B]",
   };
-  const labelColors: Record<string, string> = {
-    user: "text-altair-blue",
-    assistant: "text-deploy-green",
-    system: "text-cosmic-violet",
-    tool: "text-stellar-gold",
+  const label: Record<string, string> = {
+    user: "text-[#2563EB]",
+    assistant: "text-[#10B981]",
+    system: "text-[#8B5CF6]",
+    tool: "text-[#F59E0B]",
   };
   return (
-    <div className={cn("rounded-lg border-l-[3px] px-4 py-3", styles[msg.role] || styles.system)}>
-      <span className={cn("text-[10px] font-bold uppercase tracking-widest", labelColors[msg.role] || labelColors.system)}>
-        {msg.role}
-      </span>
-      <p className="mt-1.5 text-sm text-cloud-white/90 leading-relaxed whitespace-pre-wrap">
-        {msg.content?.slice(0, 300)}
-        {(msg.content?.length ?? 0) > 300 ? <span className="text-slate-muted">...</span> : ""}
+    <div className={cn("rounded-lg border-l-[3px] bg-white px-3 py-2", border[msg.role] || border.system)}>
+      <span className={cn("text-[10px] font-bold uppercase tracking-wider", label[msg.role] || label.system)}>{msg.role}</span>
+      <p className="mt-1 text-sm text-deep-space/80 leading-relaxed whitespace-pre-wrap">
+        {msg.content?.slice(0, 200)}{(msg.content?.length ?? 0) > 200 ? "…" : ""}
       </p>
-    </div>
-  );
-}
-
-function StatusIndicator({ status }: { status: string }) {
-  return (
-    <div className={cn(
-      "h-9 w-9 rounded-lg flex items-center justify-center",
-      status === "running" && "bg-deploy-green/10",
-      status === "completed" && "bg-deploy-green/10",
-      status === "failed" && "bg-error-red/10",
-    )}>
-      <span className={cn(
-        "h-2.5 w-2.5 rounded-full",
-        status === "running" && "bg-deploy-green animate-pulse",
-        status === "completed" && "bg-deploy-green",
-        status === "failed" && "bg-error-red",
-      )} />
     </div>
   );
 }
