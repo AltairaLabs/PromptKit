@@ -9,8 +9,6 @@ spec:
 
   providers:
     - file: providers/openai.provider.yaml
-    - file: providers/claude.provider.yaml
-    - file: providers/gemini.provider.yaml
 
   scenarios:
     - file: scenarios/preference-recall.scenario.yaml
@@ -22,7 +20,7 @@ spec:
   defaults:
     temperature: 0.7
     max_tokens: 1500
-    concurrency: 1
+    concurrency: 3
     output:
       dir: out
       formats: ["json", "html"]

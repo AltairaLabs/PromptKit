@@ -379,33 +379,17 @@ func executeSimple(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan
 	fmt.Println("Starting execution...")
 	fmt.Println()
 
-	// Create TUI model to track execution (without displaying TUI)
-	model := tui.NewModel(params.ConfigFile, params.TotalRuns)
-	if arenaStore, ok := eng.GetStateStore().(*statestore.ArenaStateStore); ok {
-		model.SetStateStore(arenaStore)
-	}
-
 	eventBus := events.NewEventBus()
 	eng.SetEventBus(eventBus)
-	adapter := tui.NewEventAdapterWithModel(model)
-	adapter.Subscribe(eventBus)
 
 	runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
 
 	// Close event bus to drain pending events and stop worker goroutines.
-	// Must happen before building summary so the process can exit cleanly.
 	eventBus.Close()
 
-	if err != nil {
-		return nil, err
-	}
-
-	// Build and print summary after execution
-	summary := model.BuildSummary(params.OutDir, params.HTMLFile)
-	fmt.Println()
-	fmt.Println(tui.RenderSummaryCIMode(summary))
-
-	return runIDs, nil
+	// Return runIDs even on error — runs are in the state store and
+	// reports should be generated for whatever completed.
+	return runIDs, err
 }
 
 // displayRunInfo prints configuration and execution parameters.
