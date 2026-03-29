@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // --- Contains ---
@@ -507,6 +508,85 @@ func TestToolsCalledHandler_LegacyToolsParam(t *testing.T) {
 	}
 	if !(result.Score != nil && *result.Score >= 1.0) {
 		t.Fatalf("expected pass with legacy 'tools' param: %s", result.Explanation)
+	}
+}
+
+func TestToolsCalledHandler_SkipsErroredCalls(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "search", Error: "validation failed", ErrorType: types.ToolErrorValidation},
+		},
+	}
+	params := map[string]any{"tool_names": []any{"search"}}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score != nil && *result.Score >= 1.0 {
+		t.Fatal("expected fail: errored call should not count")
+	}
+}
+
+func TestToolsCalledHandler_IgnoreValidation(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "search", Error: "validation failed", ErrorType: types.ToolErrorValidation},
+		},
+	}
+	params := map[string]any{
+		"tool_names":        []any{"search"},
+		"ignore_validation": true,
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !(result.Score != nil && *result.Score >= 1.0) {
+		t.Fatalf("expected pass with ignore_validation: %s", result.Explanation)
+	}
+}
+
+func TestToolsCalledHandler_ExecutionErrorNotIgnored(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "search", Error: "timeout", ErrorType: types.ToolErrorExecution},
+		},
+	}
+	params := map[string]any{
+		"tool_names":        []any{"search"},
+		"ignore_validation": true, // only ignores validation, not execution
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score != nil && *result.Score >= 1.0 {
+		t.Fatal("expected fail: execution errors should not be ignored")
+	}
+}
+
+func TestToolsCalledHandler_MixedSuccessAndError(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "search"}, // success
+			{ToolName: "search", Error: "bad args", ErrorType: types.ToolErrorValidation}, // failed
+		},
+	}
+	params := map[string]any{"tool_names": []any{"search"}}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !(result.Score != nil && *result.Score >= 1.0) {
+		t.Fatalf("expected pass: one successful call should suffice: %s", result.Explanation)
 	}
 }
 
