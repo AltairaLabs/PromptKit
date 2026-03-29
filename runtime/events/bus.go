@@ -15,6 +15,7 @@ const (
 	DefaultEventBufferSize   = 1000
 	DefaultSubscriberTimeout = 5 * time.Second
 	dropLogRateLimit         = 100 // log every Nth drop to avoid spam
+	closeTimeout             = 10 * time.Second
 )
 
 // Listener is a function that handles events.
@@ -357,7 +358,20 @@ func (eb *EventBus) Close() {
 		close(eb.done)    // cancel orphaned invokeWithTimeout goroutines
 		close(eb.eventCh) // signal workers to drain and exit
 		if eb.started.Load() {
-			eb.wg.Wait()
+			// Wait for workers with a hard deadline. Workers may be blocked
+			// on slow listener timeouts — don't let that hang the process.
+			done := make(chan struct{})
+			go func() {
+				eb.wg.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+				// Workers drained cleanly.
+			case <-time.After(closeTimeout):
+				logger.Warn("event bus close timed out, abandoning remaining events",
+					"timeout", closeTimeout.String())
+			}
 		} else {
 			// Drain any buffered events that were published before Close
 			// when no workers were started.
