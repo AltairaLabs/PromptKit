@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { Activity, Play, Wifi, WifiOff } from "lucide-react";
+import { Play, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface LayoutProps {
@@ -15,7 +15,22 @@ export function Layout({ connected, onStartRun, loading, children }: LayoutProps
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[rgba(15,23,42,0.95)] backdrop-blur-[10px]">
         <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-6">
           <div className="flex items-center gap-3">
-            <Activity className="h-6 w-6 text-altair-blue" />
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" className="h-8 w-8">
+              <defs>
+                <linearGradient id="lg1" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#fff" stopOpacity="0.95"/>
+                  <stop offset="100%" stopColor="#e0d4ff" stopOpacity="0.9"/>
+                </linearGradient>
+                <linearGradient id="lg2" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#e0d4ff" stopOpacity="0.9"/>
+                  <stop offset="100%" stopColor="#c4b5fd" stopOpacity="0.85"/>
+                </linearGradient>
+              </defs>
+              <path d="M24 32 L48 64 L24 96" stroke="url(#lg1)" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+              <rect x="60" y="28" width="44" height="20" rx="4" fill="url(#lg1)"/>
+              <rect x="60" y="54" width="44" height="20" rx="4" fill="url(#lg2)"/>
+              <rect x="60" y="80" width="44" height="20" rx="4" fill="#c4b5fd" fillOpacity="0.85"/>
+            </svg>
             <span className="text-lg font-bold text-cloud-white">PromptArena</span>
           </div>
           <div className="flex items-center gap-4">
