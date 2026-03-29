@@ -166,6 +166,8 @@ func (a *EventAdapter) mapEvent(event *events.Event) *SSEEvent {
 		}
 	case events.CustomEventData:
 		sse.Data = data.Data
+	case *events.CustomEventData:
+		sse.Data = data.Data
 	default:
 		// For unhandled event data types, still send the event type/timestamp
 		sse.Data = nil

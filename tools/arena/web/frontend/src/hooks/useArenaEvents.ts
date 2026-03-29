@@ -44,11 +44,12 @@ function reducer(state: ArenaState, action: Action): ArenaState {
       return { ...state, connected: false };
 
     case "RUN_STARTED": {
+      const d = action.data || {} as ArenaRunStartedData;
       const run: ActiveRun = {
         runId: action.runId,
-        scenario: action.data.scenario,
-        provider: action.data.provider,
-        region: action.data.region,
+        scenario: d.scenario || "unknown",
+        provider: d.provider || "unknown",
+        region: d.region || "default",
         startTime: action.timestamp,
         turnIndex: 0,
         messages: [],
@@ -61,25 +62,27 @@ function reducer(state: ArenaState, action: Action): ArenaState {
     case "RUN_COMPLETED": {
       const existing = state.runs[action.runId];
       if (!existing) return state;
+      const cd = action.data || {} as ArenaRunCompletedData;
       return {
         ...state,
         runs: {
           ...state.runs,
-          [action.runId]: { ...existing, status: "completed", duration: action.data.duration },
+          [action.runId]: { ...existing, status: "completed", duration: cd.duration },
         },
         completedRunIds: [...state.completedRunIds, action.runId],
-        totalCost: state.totalCost + (action.data.cost || 0),
+        totalCost: state.totalCost + (cd.cost || 0),
       };
     }
 
     case "RUN_FAILED": {
       const existing = state.runs[action.runId];
       if (!existing) return state;
+      const fd = action.data || {} as ArenaRunFailedData;
       return {
         ...state,
         runs: {
           ...state.runs,
-          [action.runId]: { ...existing, status: "failed", error: action.data.error },
+          [action.runId]: { ...existing, status: "failed", error: fd.error },
         },
         completedRunIds: [...state.completedRunIds, action.runId],
       };
@@ -152,32 +155,36 @@ function reducer(state: ArenaState, action: Action): ArenaState {
 function mapSSEToAction(event: SSEEvent): Action | null {
   const runId = event.executionId || event.conversationId || "";
   const ts = event.timestamp;
+  const d = event.data as Record<string, unknown> | null | undefined;
+
+  // Skip events with no data payload — the reducer expects populated data
+  if (!d) return null;
 
   switch (event.type) {
     case "arena.run.started":
-      return { type: "RUN_STARTED", runId, data: event.data as ArenaRunStartedData, timestamp: ts };
+      return { type: "RUN_STARTED", runId, data: d as unknown as ArenaRunStartedData, timestamp: ts };
     case "arena.run.completed":
-      return { type: "RUN_COMPLETED", runId, data: event.data as ArenaRunCompletedData, timestamp: ts };
+      return { type: "RUN_COMPLETED", runId, data: d as unknown as ArenaRunCompletedData, timestamp: ts };
     case "arena.run.failed":
-      return { type: "RUN_FAILED", runId, data: event.data as ArenaRunFailedData, timestamp: ts };
+      return { type: "RUN_FAILED", runId, data: d as unknown as ArenaRunFailedData, timestamp: ts };
     case "arena.turn.started":
-      return { type: "TURN_STARTED", runId, data: event.data as ArenaTurnData, timestamp: ts };
+      return { type: "TURN_STARTED", runId, data: d as unknown as ArenaTurnData, timestamp: ts };
     case "arena.turn.completed":
     case "arena.turn.failed":
-      return { type: "TURN_COMPLETED", runId, data: event.data as ArenaTurnData, timestamp: ts };
+      return { type: "TURN_COMPLETED", runId, data: d as unknown as ArenaTurnData, timestamp: ts };
     case "message.created":
-      return { type: "MESSAGE_CREATED", runId, data: event.data as MessageCreatedData, timestamp: ts };
+      return { type: "MESSAGE_CREATED", runId, data: d as unknown as MessageCreatedData, timestamp: ts };
     case "message.updated":
-      return { type: "MESSAGE_UPDATED", runId, data: event.data as MessageUpdatedData, timestamp: ts };
+      return { type: "MESSAGE_UPDATED", runId, data: d as unknown as MessageUpdatedData, timestamp: ts };
     case "provider.call.completed":
-      return { type: "PROVIDER_CALL_COMPLETED", runId, data: event.data as ProviderCallData, timestamp: ts };
+      return { type: "PROVIDER_CALL_COMPLETED", runId, data: d as unknown as ProviderCallData, timestamp: ts };
     case "provider.call.failed":
       return {
         type: "LOG",
         entry: {
           timestamp: ts,
           level: "error",
-          message: `Provider call failed: ${(event.data as ProviderCallData)?.provider} — ${(event.data as ProviderCallData)?.error}`,
+          message: `Provider call failed: ${(d as ProviderCallData)?.provider} — ${(d as ProviderCallData)?.error}`,
           runId,
         },
       };
@@ -192,16 +199,23 @@ export function useArenaEvents() {
   useEffect(() => {
     const eventSource = new EventSource("/api/events");
 
-    eventSource.onopen = () => dispatch({ type: "CONNECTED" });
-    eventSource.onerror = () => dispatch({ type: "DISCONNECTED" });
+    eventSource.onopen = () => {
+      console.debug("[SSE] Connected");
+      dispatch({ type: "CONNECTED" });
+    };
+    eventSource.onerror = (err) => {
+      console.warn("[SSE] Error/disconnected", err);
+      dispatch({ type: "DISCONNECTED" });
+    };
 
     eventSource.onmessage = (e) => {
       try {
         const event: SSEEvent = JSON.parse(e.data);
+        console.debug("[SSE]", event.type, event.executionId, event.data);
         const action = mapSSEToAction(event);
         if (action) dispatch(action);
-      } catch {
-        // Ignore malformed events
+      } catch (err) {
+        console.warn("[SSE] Failed to parse event:", err, e.data);
       }
     };
 
