@@ -1231,8 +1231,17 @@
     "WorkflowState": {
       "type": "object",
       "description": "A single state in the workflow state machine. References a prompt task and declares event-driven transitions to other states.",
-      "required": ["prompt_task", "on_event"],
+      "required": ["prompt_task"],
       "additionalProperties": false,
+      "if": {
+        "not": {
+          "properties": { "terminal": { "const": true } },
+          "required": ["terminal"]
+        }
+      },
+      "then": {
+        "required": ["on_event"]
+      },
       "properties": {
         "prompt_task": {
           "type": "string",
@@ -1265,6 +1274,50 @@
           "type": "string",
           "description": "Skill filter for this workflow state. A path to a skill directory/file that scopes which skills are available in this state, or the literal 'none' to disable skills.",
           "examples": ["./skills/billing", "none"]
+        },
+        "terminal": {
+          "type": "boolean",
+          "description": "When true, marks this state as terminal. Terminal states do not require on_event and will reject any transition attempts."
+        },
+        "max_visits": {
+          "type": "integer",
+          "description": "Maximum number of times this state can be entered. When exceeded, the workflow redirects to on_max_visits if set, or returns an error.",
+          "minimum": 1
+        },
+        "on_max_visits": {
+          "type": "string",
+          "description": "Target state to redirect to when max_visits is exceeded. Must reference a valid state name.",
+          "examples": ["escalation", "fallback"]
+        },
+        "artifacts": {
+          "type": "object",
+          "description": "Named artifact slot declarations for this state. Artifacts are workflow-scoped: if two states declare the same name, they reference the same artifact.",
+          "additionalProperties": {
+            "$ref": "#/$defs/WorkflowArtifactDef"
+          }
+        }
+      }
+    },
+
+    "WorkflowArtifactDef": {
+      "type": "object",
+      "description": "Declares a named artifact slot on a workflow state. Artifacts are workflow-scoped and accessible as {{artifacts.<name>}}.",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "MIME type of the artifact (e.g., text/plain, application/json).",
+          "examples": ["text/plain", "application/json"]
+        },
+        "description": {
+          "type": "string",
+          "description": "What the artifact contains."
+        },
+        "mode": {
+          "type": "string",
+          "description": "How new values are applied: replace (default) or append.",
+          "enum": ["replace", "append"]
         }
       }
     },
