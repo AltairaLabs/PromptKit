@@ -621,7 +621,7 @@ func (p *Provider) handleStreamEvent(
 		return newTokens, toolCalls, nil
 
 	case eventTypeFuncArgsDelta:
-		return totalTokens, p.handleFuncArgsDelta(event, toolCalls), usage
+		return totalTokens, p.handleFuncArgsDelta(data, toolCalls), usage
 
 	case eventTypeOutputAdded:
 		return totalTokens, p.handleOutputAdded(data, toolCalls), usage
@@ -664,39 +664,38 @@ func (p *Provider) handleTextDelta(
 	return totalTokens
 }
 
-// handleFuncArgsDelta processes function call arguments delta events
-//
-//nolint:gocritic // hugeParam: event passed by value for simplicity
+// handleFuncArgsDelta processes function call arguments delta events.
+// The raw data is parsed because call_id is a top-level field in the SSE event,
+// not nested inside the delta field.
 func (p *Provider) handleFuncArgsDelta(
-	event responsesStreamEvent,
+	data string,
 	toolCalls []types.MessageToolCall,
 ) []types.MessageToolCall {
 	var delta struct {
 		CallID string `json:"call_id"`
 		Delta  string `json:"delta"`
 	}
-	if err := json.Unmarshal(event.Delta, &delta); err == nil {
-		found := false
-		for i := range toolCalls {
-			if toolCalls[i].ID == delta.CallID {
-				// Replace placeholder {} with actual content, or append to existing
-				currentArgs := string(toolCalls[i].Args)
-				if currentArgs == "{}" || currentArgs == "" {
-					toolCalls[i].Args = json.RawMessage(delta.Delta)
-				} else {
-					toolCalls[i].Args = append(toolCalls[i].Args, []byte(delta.Delta)...)
-				}
-				found = true
-				break
+	if err := json.Unmarshal([]byte(data), &delta); err != nil {
+		return toolCalls
+	}
+
+	for i := range toolCalls {
+		if toolCalls[i].ID == delta.CallID {
+			currentArgs := string(toolCalls[i].Args)
+			if currentArgs == "{}" || currentArgs == "" {
+				toolCalls[i].Args = json.RawMessage(delta.Delta)
+			} else {
+				toolCalls[i].Args = append(toolCalls[i].Args, []byte(delta.Delta)...)
 			}
-		}
-		if !found {
-			toolCalls = append(toolCalls, types.MessageToolCall{
-				ID:   delta.CallID,
-				Args: json.RawMessage(delta.Delta),
-			})
+			return toolCalls
 		}
 	}
+
+	// Tool call not yet seen — create it (shouldn't normally happen)
+	toolCalls = append(toolCalls, types.MessageToolCall{
+		ID:   delta.CallID,
+		Args: json.RawMessage(delta.Delta),
+	})
 	return toolCalls
 }
 
