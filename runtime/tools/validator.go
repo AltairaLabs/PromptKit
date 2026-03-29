@@ -59,7 +59,12 @@ func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.Ra
 		return fmt.Errorf("invalid input schema for tool %s: %w", descriptor.Name, err)
 	}
 
-	argsLoader := gojsonschema.NewBytesLoader(args)
+	// Treat nil/empty/null args as empty object for validation
+	validationArgs := args
+	if len(validationArgs) == 0 || string(validationArgs) == "null" {
+		validationArgs = json.RawMessage(`{}`)
+	}
+	argsLoader := gojsonschema.NewBytesLoader(validationArgs)
 	result, err := schema.Validate(argsLoader)
 	if err != nil {
 		return fmt.Errorf("validation error for tool %s: %w", descriptor.Name, err)
@@ -92,7 +97,12 @@ func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result jso
 		return fmt.Errorf("invalid output schema for tool %s: %w", descriptor.Name, err)
 	}
 
-	resultLoader := gojsonschema.NewBytesLoader(result)
+	// Treat nil/empty result as empty object for validation
+	validationData := result
+	if len(validationData) == 0 || string(validationData) == "null" {
+		validationData = json.RawMessage(`{}`)
+	}
+	resultLoader := gojsonschema.NewBytesLoader(validationData)
 	validationResult, err := schema.Validate(resultLoader)
 	if err != nil {
 		return fmt.Errorf("validation error for tool %s: %w", descriptor.Name, err)

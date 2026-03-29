@@ -180,5 +180,11 @@ func TestRegisterMemoryTools(t *testing.T) {
 		if tool.Namespace != "memory" {
 			t.Errorf("tool %q namespace = %q, want 'memory'", name, tool.Namespace)
 		}
+		if len(tool.InputSchema) == 0 {
+			t.Errorf("tool %q has empty InputSchema", name)
+		}
+		if len(tool.OutputSchema) == 0 {
+			t.Errorf("tool %q has empty OutputSchema", name)
+		}
 	}
 }
