@@ -9,6 +9,8 @@ spec:
 
   providers:
     - file: providers/openai.provider.yaml
+    - file: providers/claude.provider.yaml
+    - file: providers/gemini.provider.yaml
 
   scenarios:
     - file: scenarios/preference-recall.scenario.yaml

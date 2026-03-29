@@ -134,14 +134,20 @@ func runSimulations(cmd *cobra.Command) error {
 	// Display run information if not in CI mode
 	displayRunInfo(runParams, configFile)
 
-	// Execute the simulation runs
-	results, err := executeRuns(cfg, runParams)
-	if err != nil {
-		return err
+	// Execute the simulation runs.
+	// Always process results even when some runs fail — the report shows
+	// which scenarios passed and which failed. Only abort on setup errors
+	// (nil results means we couldn't start at all).
+	results, execErr := executeRuns(cfg, runParams)
+	if results == nil && execErr != nil {
+		return execErr
 	}
 
-	// Process and save results
-	return processResults(results, runParams, configFile)
+	// Process and save results (reports are always generated)
+	if reportErr := processResults(results, runParams, configFile); reportErr != nil {
+		return reportErr
+	}
+	return execErr
 }
 
 // executeRuns creates the engine and executes all simulation runs.
@@ -156,15 +162,22 @@ func executeRuns(cfg *config.Config, params *RunParameters) ([]engine.RunResult,
 
 	params.TotalRuns = len(plan.Combinations)
 
-	// Determine execution mode and run
+	// Determine execution mode and run.
+	// ExecuteRuns may return partial results with errors (e.g., some scenarios
+	// fail assertions). We still need to convert and report all results.
 	ctx := context.Background()
-	runIDs, err := executeWithMode(ctx, eng, plan, params)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute runs: %w", err)
-	}
+	runIDs, execErr := executeWithMode(ctx, eng, plan, params)
 
-	// Convert results from statestore format
-	return convertRunResults(ctx, eng, runIDs)
+	// Convert results from statestore format — always attempt even with errors,
+	// so that reports are generated for whatever did complete.
+	results, convertErr := convertRunResults(ctx, eng, runIDs)
+	if convertErr != nil && execErr != nil {
+		return results, fmt.Errorf("execution failed: %w; conversion also failed: %w", execErr, convertErr)
+	}
+	if convertErr != nil {
+		return results, convertErr
+	}
+	return results, execErr
 }
 
 // setupEngine creates and configures the engine with mock provider if needed.
@@ -334,6 +347,9 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 		// Still running, that's OK - user quit early
 	}
 
+	// Close event bus to drain pending events and stop worker goroutines.
+	eventBus.Close()
+
 	if execErr != nil {
 		return nil, execErr
 	}
@@ -375,6 +391,11 @@ func executeSimple(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan
 	adapter.Subscribe(eventBus)
 
 	runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
+
+	// Close event bus to drain pending events and stop worker goroutines.
+	// Must happen before building summary so the process can exit cleanly.
+	eventBus.Close()
+
 	if err != nil {
 		return nil, err
 	}
