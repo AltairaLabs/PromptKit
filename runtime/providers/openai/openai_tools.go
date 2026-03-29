@@ -52,6 +52,7 @@ type openAIToolFunction struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Parameters  json.RawMessage `json:"parameters"`
+	Strict      bool            `json:"strict,omitempty"`
 }
 
 type openAIToolCall struct {
@@ -65,12 +66,15 @@ type openAIFunctionCall struct {
 	Arguments string `json:"arguments"` // OpenAI returns this as a string, not RawMessage
 }
 
-// BuildTooling converts tool descriptors to OpenAI format
+// BuildTooling converts tool descriptors to OpenAI format.
+// By default, strict mode is enabled for reliable argument generation.
+// Set additional_config.strict_tools: false in provider config to disable.
 func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
 
+	strict := p.useStrictTools()
 	tools := make([]openAITool, len(descriptors))
 	for i, desc := range descriptors {
 		tools[i] = openAITool{
@@ -79,11 +83,24 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 				Name:        desc.Name,
 				Description: desc.Description,
 				Parameters:  desc.InputSchema,
+				Strict:      strict,
 			},
 		}
 	}
 
 	return tools, nil
+}
+
+// useStrictTools returns whether tools should use strict schema mode.
+// Defaults to true; override with additional_config.strict_tools: false.
+func (p *ToolProvider) useStrictTools() bool {
+	if p.additionalConfig == nil {
+		return true
+	}
+	if v, ok := p.additionalConfig["strict_tools"].(bool); ok {
+		return v
+	}
+	return true
 }
 
 // PredictWithTools performs a prediction request with tool support

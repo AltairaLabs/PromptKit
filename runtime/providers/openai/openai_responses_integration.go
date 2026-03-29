@@ -347,12 +347,16 @@ func (p *Provider) convertToolsToResponsesFormat(tools any) []any {
 
 	result := make([]any, len(openAITools))
 	for i, tool := range openAITools {
-		result[i] = map[string]any{
+		entry := map[string]any{
 			"type":        "function",
 			"name":        tool.Function.Name,
 			"description": tool.Function.Description,
 			"parameters":  tool.Function.Parameters,
 		}
+		if tool.Function.Strict {
+			entry["strict"] = true
+		}
+		result[i] = entry
 	}
 	return result
 }
