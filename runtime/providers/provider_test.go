@@ -613,3 +613,137 @@ func TestUnsupportedProviderError(t *testing.T) {
 		t.Errorf("Expected error message %q, got %q", expected, err.Error())
 	}
 }
+
+func TestNormalizeMessages_NoSystemMessages(t *testing.T) {
+	req := PredictionRequest{
+		System: "You are helpful.",
+		Messages: []types.Message{
+			{Role: "user", Content: "Hello"},
+			{Role: "assistant", Content: "Hi"},
+		},
+	}
+	req.NormalizeMessages()
+
+	if req.System != "You are helpful." {
+		t.Errorf("System should be unchanged, got %q", req.System)
+	}
+	if len(req.Messages) != 2 {
+		t.Errorf("Messages count should be 2, got %d", len(req.Messages))
+	}
+}
+
+func TestNormalizeMessages_MergesIntoEmptySystem(t *testing.T) {
+	req := PredictionRequest{
+		Messages: []types.Message{
+			{Role: "system", Content: "Summary of earlier turns."},
+			{Role: "user", Content: "Hello"},
+		},
+	}
+	req.NormalizeMessages()
+
+	if req.System != "Summary of earlier turns." {
+		t.Errorf("Expected system to be summary, got %q", req.System)
+	}
+	if len(req.Messages) != 1 || req.Messages[0].Role != "user" {
+		t.Errorf("Expected 1 user message, got %d messages", len(req.Messages))
+	}
+}
+
+func TestNormalizeMessages_MergesIntoExistingSystem(t *testing.T) {
+	req := PredictionRequest{
+		System: "You are helpful.",
+		Messages: []types.Message{
+			{Role: "system", Content: "[Summary]: User asked about weather."},
+			{Role: "user", Content: "What about today?"},
+		},
+	}
+	req.NormalizeMessages()
+
+	if req.System != "You are helpful.\n\n[Summary]: User asked about weather." {
+		t.Errorf("Unexpected merged system: %q", req.System)
+	}
+	if len(req.Messages) != 1 {
+		t.Errorf("Expected 1 message, got %d", len(req.Messages))
+	}
+}
+
+func TestNormalizeMessages_MultipleSystemMessages(t *testing.T) {
+	req := PredictionRequest{
+		System: "Base prompt.",
+		Messages: []types.Message{
+			{Role: "system", Content: "Summary 1."},
+			{Role: "user", Content: "Hi"},
+			{Role: "system", Content: "Summary 2."},
+			{Role: "assistant", Content: "Hello"},
+		},
+	}
+	req.NormalizeMessages()
+
+	if req.System != "Base prompt.\n\nSummary 1.\n\nSummary 2." {
+		t.Errorf("Unexpected merged system: %q", req.System)
+	}
+	if len(req.Messages) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(req.Messages))
+	}
+	if req.Messages[0].Role != "user" || req.Messages[1].Role != "assistant" {
+		t.Errorf("Message order not preserved: %v", req.Messages)
+	}
+}
+
+func TestNormalizeMessages_Idempotent(t *testing.T) {
+	req := PredictionRequest{
+		System: "Base.",
+		Messages: []types.Message{
+			{Role: "system", Content: "Extra."},
+			{Role: "user", Content: "Hi"},
+		},
+	}
+	req.NormalizeMessages()
+	first := req.System
+	firstMsgCount := len(req.Messages)
+
+	req.NormalizeMessages() // second call
+
+	if req.System != first {
+		t.Errorf("Second call changed System: %q vs %q", first, req.System)
+	}
+	if len(req.Messages) != firstMsgCount {
+		t.Errorf("Second call changed message count: %d vs %d", firstMsgCount, len(req.Messages))
+	}
+}
+
+func TestNormalizeMessages_EmptySystemContent(t *testing.T) {
+	req := PredictionRequest{
+		System: "Base.",
+		Messages: []types.Message{
+			{Role: "system", Content: ""},
+			{Role: "user", Content: "Hi"},
+		},
+	}
+	req.NormalizeMessages()
+
+	if req.System != "Base." {
+		t.Errorf("Empty system message should not be merged, got %q", req.System)
+	}
+	if len(req.Messages) != 1 {
+		t.Errorf("System message should still be removed, got %d messages", len(req.Messages))
+	}
+}
+
+func TestNormalizeMessages_UsesGetContent(t *testing.T) {
+	text := "Content from Parts."
+	req := PredictionRequest{
+		Messages: []types.Message{
+			{
+				Role:  "system",
+				Parts: []types.ContentPart{types.NewTextPart(text)},
+			},
+			{Role: "user", Content: "Hi"},
+		},
+	}
+	req.NormalizeMessages()
+
+	if req.System != text {
+		t.Errorf("Expected system from Parts, got %q", req.System)
+	}
+}

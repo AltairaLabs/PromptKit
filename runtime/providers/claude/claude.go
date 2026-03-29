@@ -24,7 +24,6 @@ const (
 	anthropicVersionKey   = "Anthropic-Version"
 	anthropicAPIHost      = "api.anthropic.com"
 	textDeltaType         = "text_delta"
-	roleSystem            = "system"
 	httpClientTimeout     = 60 * time.Second
 )
 
@@ -283,11 +282,6 @@ func (p *Provider) convertMessagesToClaudeFormat(messages []types.Message) []cla
 
 	for i := range messages {
 		msg := &messages[i]
-
-		// Skip system role messages - they should be in req.System parameter
-		if msg.Role == roleSystem {
-			continue
-		}
 
 		// Check if message has media content (images, audio, video)
 		if msg.HasMediaContent() {
