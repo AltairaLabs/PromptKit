@@ -14,10 +14,14 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// systemRole is the message role used for system instructions.
+const systemRole = "system"
 
 // ResponseFormatType defines the type of response format
 type ResponseFormatType string
@@ -54,6 +58,51 @@ type PredictionRequest struct {
 	Seed           *int            `json:"seed,omitempty"`
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
 	Metadata       map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
+}
+
+// NormalizeMessages extracts system-role messages from Messages, merges their
+// content into the System field, and removes them from Messages. This ensures
+// all providers receive system context through the dedicated System field
+// rather than as role entries that some providers silently drop.
+//
+// Ordering: existing System content first, then system-role message content
+// in original order, separated by double newlines.
+//
+// This method is idempotent — calling it on an already-normalized request
+// (no system-role messages in Messages) is a no-op.
+func (r *PredictionRequest) NormalizeMessages() {
+	var systemParts []string
+	hasSystemMessages := false
+
+	for i := range r.Messages {
+		if r.Messages[i].Role == systemRole {
+			hasSystemMessages = true
+			break
+		}
+	}
+
+	if !hasSystemMessages {
+		return
+	}
+
+	if r.System != "" {
+		systemParts = append(systemParts, r.System)
+	}
+
+	filtered := make([]types.Message, 0, len(r.Messages))
+	for i := range r.Messages {
+		if r.Messages[i].Role == systemRole {
+			content := r.Messages[i].GetContent()
+			if content != "" {
+				systemParts = append(systemParts, content)
+			}
+			continue
+		}
+		filtered = append(filtered, r.Messages[i])
+	}
+
+	r.System = strings.Join(systemParts, "\n\n")
+	r.Messages = filtered
 }
 
 // PredictionResponse represents a response from a predict provider

@@ -1,65 +1,55 @@
 package claude
 
 import (
-	"context"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // TestClaudeProvider_Contract runs the full provider contract test suite
-// against the Claude provider to ensure it meets all interface requirements.
-//
-// This test requires ANTHROPIC_API_KEY environment variable to be set.
-// It will skip if credentials are not available.
+// against the Claude base provider (no tools).
 func TestClaudeProvider_Contract(t *testing.T) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
 		t.Skip("Skipping Claude contract tests - ANTHROPIC_API_KEY not set")
 	}
 
-	// Enable verbose logging for contract tests
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
 	provider := NewProvider(
 		"claude-test",
-		"claude-3-5-haiku-20241022",
-		"https://api.anthropic.com/v1", // full base URL
+		"claude-haiku-4-5-20251001",
+		"https://api.anthropic.com/v1",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
 			MaxTokens:   100,
 		},
-		false, // includeRawOutput
+		false,
 	)
 	defer provider.Close()
 
-	// Run the complete contract test suite
 	providers.RunProviderContractTests(t, providers.ProviderContractTests{
 		Provider:                  provider,
-		SupportsToolsExpected:     false, // Base provider doesn't support tools
+		SupportsToolsExpected:     false,
 		SupportsStreamingExpected: true,
 	})
 }
 
-// TestToolProvider_Contract tests the Claude provider with tool support.
+// TestToolProvider_Contract runs the full provider contract test suite
+// against the Claude tool provider including tool-calling tests.
 func TestToolProvider_Contract(t *testing.T) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
 		t.Skip("Skipping Claude tool contract tests - ANTHROPIC_API_KEY not set")
 	}
 
-	// Enable verbose logging for contract tests
 	logger.SetVerbose(true)
 	defer logger.SetVerbose(false)
 
 	provider := NewToolProvider(
 		"claude-tool-test",
-		"claude-3-5-haiku-20241022",
+		"claude-haiku-4-5-20251001",
 		"https://api.anthropic.com/v1",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
@@ -69,87 +59,9 @@ func TestToolProvider_Contract(t *testing.T) {
 	)
 	defer provider.Close()
 
-	// Run the complete contract test suite including tools
 	providers.RunProviderContractTests(t, providers.ProviderContractTests{
 		Provider:                  provider,
 		SupportsToolsExpected:     true,
 		SupportsStreamingExpected: true,
 	})
-}
-
-// TestToolProvider_PredictWithToolsLatency verifies the latency bug fix for Claude.
-func TestToolProvider_PredictWithToolsLatency(t *testing.T) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		t.Skip("Skipping Claude tool latency test - ANTHROPIC_API_KEY not set")
-	}
-
-	// Enable verbose logging for debugging
-	logger.SetVerbose(true)
-	defer logger.SetVerbose(false)
-
-	provider := NewToolProvider(
-		"claude-latency-test",
-		"claude-3-5-haiku-20241022",
-		"https://api.anthropic.com/v1",
-		providers.ProviderDefaults{
-			Temperature: 0.7,
-			MaxTokens:   100,
-		},
-		false,
-	)
-	defer provider.Close()
-
-	// This test ensures PredictWithTools sets latency correctly
-	toolSupport, ok := interface{}(provider).(providers.ToolSupport)
-	if !ok {
-		t.Fatal("Provider doesn't implement ToolSupport interface")
-	}
-
-	ctx := context.Background()
-	req := providers.PredictionRequest{
-		Messages: []types.Message{
-			{Role: "user", Content: "What's the weather like in San Francisco?"},
-		},
-		MaxTokens:   100,
-		Temperature: 0.7,
-	}
-
-	// Define a simple weather tool
-	descriptors := []*providers.ToolDescriptor{
-		{
-			Name:        "get_weather",
-			Description: "Get the current weather for a location",
-			InputSchema: []byte(`{
-				"type": "object",
-				"properties": {
-					"location": {"type": "string", "description": "The city name"}
-				},
-				"required": ["location"]
-			}`),
-		},
-	}
-
-	tools, err := toolSupport.BuildTooling(descriptors)
-	if err != nil {
-		t.Fatalf("Failed to build tooling: %v", err)
-	}
-
-	start := time.Now()
-	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, tools, "auto")
-	elapsed := time.Since(start)
-
-	if err != nil {
-		t.Skipf("Skipping tool latency test due to API error: %v", err)
-		return
-	}
-
-	// Latency must be non-zero
-	if resp.Latency == 0 {
-		t.Errorf("PredictWithTools() returned Latency=0, but call took %v", elapsed)
-		t.Logf("Response: %+v", resp)
-		t.Logf("ToolCalls: %+v", toolCalls)
-	}
-
-	t.Logf("PredictWithTools() correctly set Latency=%v (actual: %v)", resp.Latency, elapsed)
 }

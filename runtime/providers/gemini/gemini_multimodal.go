@@ -16,7 +16,6 @@ import (
 const (
 	roleAssistant          = "assistant"
 	roleModel              = "model"
-	roleSystem             = "system"
 	finishReasonMaxTokens  = "MAX_TOKENS"
 	finishReasonSafety     = "SAFETY"
 	finishReasonRecitation = "RECITATION"
@@ -103,13 +102,7 @@ func convertMessagesToGemini(messages []types.Message, systemPrompt string) (con
 		}
 	}
 
-	// Convert each message, skipping system role messages
 	for i := range messages {
-		// Skip system role messages - they should be in systemPrompt parameter
-		if messages[i].Role == roleSystem {
-			continue
-		}
-
 		content, err := convertMessageToGemini(messages[i])
 		if err != nil {
 			return nil, nil, err

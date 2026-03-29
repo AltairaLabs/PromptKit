@@ -44,7 +44,7 @@ spec:
       closed:
         prompt_task: closed
         description: "Conversation complete"
-        on_event: {}
+        terminal: true
 
   defaults:
     temperature: 0.1

@@ -15,6 +15,7 @@ const (
 	DefaultEventBufferSize   = 1000
 	DefaultSubscriberTimeout = 5 * time.Second
 	dropLogRateLimit         = 100 // log every Nth drop to avoid spam
+	closeTimeout             = 10 * time.Second
 )
 
 // Listener is a function that handles events.
@@ -110,6 +111,9 @@ type EventBus struct {
 	// Protected by mu.
 	leakCount map[uint64]int
 
+	// done is closed by Close() to cancel orphaned invokeWithTimeout goroutines.
+	done chan struct{}
+
 	// Saved config for lazy worker startup.
 	workerPoolSize int
 }
@@ -136,6 +140,7 @@ func NewEventBus(opts ...BusOption) *EventBus {
 		subscriberTimeout: cfg.subscriberTimeout,
 		workerPoolSize:    cfg.workerPoolSize,
 		leakCount:         make(map[uint64]int),
+		done:              make(chan struct{}),
 	}
 
 	return eb
@@ -235,13 +240,15 @@ func (eb *EventBus) invokeWithTimeout(id uint64, listener Listener, event *Event
 		)
 	}
 
-	// Monitor for goroutine leak: exit after 2x timeout to avoid leaking this goroutine too.
+	// Monitor for goroutine leak: exit when listener completes, bus closes, or 2x timeout.
 	go func() {
 		leakTimer := time.NewTimer(timeout)
 		defer leakTimer.Stop()
 		select {
 		case <-done:
 			// Listener eventually completed.
+		case <-eb.done:
+			// Bus is closing, stop monitoring.
 		case <-leakTimer.C:
 			logger.Warn("event subscriber goroutine still running after 2x timeout",
 				"event_type", string(event.Type),
@@ -348,9 +355,23 @@ func (eb *EventBus) DroppedCount() int64 {
 // as closed and drains any buffered events.
 func (eb *EventBus) Close() {
 	if eb.closed.CompareAndSwap(false, true) {
-		close(eb.eventCh)
+		close(eb.done)    // cancel orphaned invokeWithTimeout goroutines
+		close(eb.eventCh) // signal workers to drain and exit
 		if eb.started.Load() {
-			eb.wg.Wait()
+			// Wait for workers with a hard deadline. Workers may be blocked
+			// on slow listener timeouts — don't let that hang the process.
+			done := make(chan struct{})
+			go func() {
+				eb.wg.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+				// Workers drained cleanly.
+			case <-time.After(closeTimeout):
+				logger.Warn("event bus close timed out, abandoning remaining events",
+					"timeout", closeTimeout.String())
+			}
 		} else {
 			// Drain any buffered events that were published before Close
 			// when no workers were started.

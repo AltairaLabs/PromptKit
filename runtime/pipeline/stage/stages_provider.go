@@ -470,6 +470,10 @@ func (s *ProviderStage) executeRound(
 		Metadata:       metadata,
 	}
 
+	// Normalize: merge any system-role messages from Messages into the System
+	// field so all providers receive system context through the dedicated field.
+	req.NormalizeMessages()
+
 	// Count tools for event emission
 	toolCount := 0
 	if providerTools != nil {
@@ -648,6 +652,10 @@ func (s *ProviderStage) executeStreamingRound(
 		Metadata:       params.metadata,
 		ResponseFormat: s.config.ResponseFormat,
 	}
+
+	// Normalize: merge any system-role messages from Messages into the System
+	// field so all providers receive system context through the dedicated field.
+	req.NormalizeMessages()
 
 	// Count tools for event emission
 	toolCount := 0
