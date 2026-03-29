@@ -174,6 +174,31 @@ func RegisterMemoryTools(registry *tools.Registry) {
 	}
 }
 
+// Common output schemas to avoid duplication.
+var (
+	memoriesOutputSchema = mustJSON(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"memories": map[string]any{"type": "array"},
+			"count":    map[string]any{"type": "integer"},
+		},
+	})
+	statusOutputSchema = mustJSON(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"status": map[string]any{"type": "string"},
+			"id":     map[string]any{"type": "string"},
+		},
+	})
+	forgetOutputSchema = mustJSON(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"status":    map[string]any{"type": "string"},
+			"memory_id": map[string]any{"type": "string"},
+		},
+	})
+)
+
 func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 	return []*tools.ToolDescriptor{
 		{
@@ -181,13 +206,7 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 			Namespace: "memory",
 			Description: "Search your memories for relevant information. " +
 				"Use this to recall facts, preferences, or context from previous conversations.",
-			OutputSchema: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"memories": map[string]any{"type": "array"},
-					"count":    map[string]any{"type": "integer"},
-				},
-			}),
+			OutputSchema: memoriesOutputSchema,
 			InputSchema: mustJSON(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -217,13 +236,7 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 			Namespace: "memory",
 			Description: "Store something in memory for future conversations. " +
 				"Use this to remember user preferences, important facts, or decisions.",
-			OutputSchema: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"status": map[string]any{"type": "string"},
-					"id":     map[string]any{"type": "string"},
-				},
-			}),
+			OutputSchema: statusOutputSchema,
 			InputSchema: mustJSON(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -248,16 +261,10 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 			}),
 		},
 		{
-			Name:        ListToolName,
-			Namespace:   "memory",
-			Description: "List stored memories, optionally filtered by type.",
-			OutputSchema: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"memories": map[string]any{"type": "array"},
-					"count":    map[string]any{"type": "integer"},
-				},
-			}),
+			Name:         ListToolName,
+			Namespace:    "memory",
+			Description:  "List stored memories, optionally filtered by type.",
+			OutputSchema: memoriesOutputSchema,
 			InputSchema: mustJSON(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -274,16 +281,10 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 			}),
 		},
 		{
-			Name:        ForgetToolName,
-			Namespace:   "memory",
-			Description: "Delete a specific memory by ID.",
-			OutputSchema: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"status":    map[string]any{"type": "string"},
-					"memory_id": map[string]any{"type": "string"},
-				},
-			}),
+			Name:         ForgetToolName,
+			Namespace:    "memory",
+			Description:  "Delete a specific memory by ID.",
+			OutputSchema: forgetOutputSchema,
 			InputSchema: mustJSON(map[string]any{
 				"type": "object",
 				"properties": map[string]any{
