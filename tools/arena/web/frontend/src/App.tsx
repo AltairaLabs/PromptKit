@@ -1,4 +1,4 @@
-import { useState, Component } from "react";
+import { useState, useEffect, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { Layout } from "@/components/Layout";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -8,7 +8,7 @@ import { RunDetail } from "@/components/RunDetail";
 import { DevToolsPanel } from "@/components/DevToolsPanel";
 import { useArenaEvents } from "@/hooks/useArenaEvents";
 import { useArenaAPI } from "@/hooks/useArenaAPI";
-import type { Message } from "@/types";
+import type { Message, RunResult } from "@/types";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -40,14 +40,24 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 
 export default function App() {
   const state = useArenaEvents();
-  const { startRun, loading } = useArenaAPI();
+  const { startRun, getResults, getResult, loading } = useArenaAPI();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [devToolsMessage] = useState<Message | undefined>();
   const [devToolsIndex, setDevToolsIndex] = useState<number | undefined>();
   const [devToolsOpen, setDevToolsOpen] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [historicalResults, setHistoricalResults] = useState<RunResult[]>([]);
 
-  const runs = Object.values(state.runs);
+  // Load existing results from the server on mount
+  useEffect(() => {
+    getResults().then(async (ids) => {
+      if (!ids || ids.length === 0) return;
+      const results = await Promise.all(ids.map((id) => getResult(id).catch(() => null)));
+      setHistoricalResults(results.filter((r): r is RunResult => r !== null));
+    }).catch(() => {});
+  }, [getResults, getResult]);
+
+  const liveRuns = Object.values(state.runs);
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
 
   const handleSelectMessage = (index: number) => {
@@ -74,20 +84,73 @@ export default function App() {
                 <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-[#EF4444]">{startError}</div>
               )}
               <SummaryCards
-                totalRuns={runs.length}
-                activeRuns={runs.filter((r) => r.status === "running").length}
-                completedRuns={runs.filter((r) => r.status !== "running").length}
-                failedRuns={runs.filter((r) => r.status === "failed").length}
-                totalCost={state.totalCost}
-                totalTokens={state.totalTokens}
+                totalRuns={liveRuns.length + historicalResults.length}
+                activeRuns={liveRuns.filter((r) => r.status === "running").length}
+                completedRuns={liveRuns.filter((r) => r.status !== "running").length + historicalResults.length}
+                failedRuns={liveRuns.filter((r) => r.status === "failed").length + historicalResults.filter((r) => !!r.Error).length}
+                totalCost={state.totalCost + historicalResults.reduce((sum, r) => sum + (r.Cost?.total_cost_usd || 0), 0)}
+                totalTokens={state.totalTokens + historicalResults.reduce((sum, r) => sum + (r.Cost?.input_tokens || 0) + (r.Cost?.output_tokens || 0), 0)}
               />
-              <RunProgress runs={runs} onSelectRun={setSelectedRunId} />
-              <ScenarioMatrix runs={runs} onSelectRun={setSelectedRunId} />
+              <RunProgress runs={liveRuns} onSelectRun={setSelectedRunId} />
+              {historicalResults.length > 0 && (
+                <HistoricalResults results={historicalResults} onSelectRun={setSelectedRunId} />
+              )}
+              <ScenarioMatrix runs={liveRuns} onSelectRun={setSelectedRunId} />
             </div>
           )}
         </div>
         <DevToolsPanel message={devToolsMessage} messageIndex={devToolsIndex} run={selectedRun} open={devToolsOpen} onClose={() => setDevToolsOpen(false)} />
       </Layout>
     </ErrorBoundary>
+  );
+}
+
+function HistoricalResults({ results, onSelectRun }: { results: RunResult[]; onSelectRun: (id: string) => void }) {
+  return (
+    <div className="space-y-3">
+      <h3 className="text-xs font-semibold text-slate-muted uppercase tracking-wider">Previous Runs</h3>
+      <div className="rounded-xl border border-mist bg-white shadow-sm overflow-hidden">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="border-b border-mist bg-[#F8FAFC]">
+              <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Scenario</th>
+              <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Provider</th>
+              <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Region</th>
+              <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Result</th>
+              <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Cost</th>
+              <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Msgs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.map((r) => {
+              const passed = !r.Error;
+              return (
+                <tr
+                  key={r.RunID}
+                  className="border-t border-mist/60 hover:bg-[#F8FAFC] cursor-pointer transition-colors"
+                  onClick={() => onSelectRun(r.RunID)}
+                >
+                  <td className="px-4 py-2.5 font-medium text-deep-space">{r.ScenarioID}</td>
+                  <td className="px-4 py-2.5 text-slate-muted">{r.ProviderID}</td>
+                  <td className="px-4 py-2.5 text-slate-muted">{r.Region}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold ${passed ? "text-[#10B981]" : "text-[#EF4444]"}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${passed ? "bg-[#10B981]" : "bg-[#EF4444]"}`} />
+                      {passed ? "Pass" : "Fail"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono text-slate-muted">
+                    ${r.Cost?.total_cost_usd?.toFixed(4) ?? "0.0000"}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-slate-muted">
+                    {r.Messages?.length ?? 0}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
