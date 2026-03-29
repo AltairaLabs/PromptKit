@@ -1,8 +1,30 @@
+import { Layout } from "@/components/Layout";
+import { SummaryCards } from "@/components/SummaryCards";
+import { RunProgress } from "@/components/RunProgress";
+import { useArenaEvents } from "@/hooks/useArenaEvents";
+import { useArenaAPI } from "@/hooks/useArenaAPI";
+
 export default function App() {
+  const state = useArenaEvents();
+  const { startRun, loading } = useArenaAPI();
+
+  const runs = Object.values(state.runs);
+  const activeRuns = runs.filter((r) => r.status === "running");
+  const completedRuns = runs.filter((r) => r.status !== "running");
+
   return (
-    <div className="min-h-screen bg-deep-space text-cloud-white">
-      <h1 className="text-2xl font-bold p-8">PromptArena</h1>
-      <p className="px-8 text-slate-muted">Web UI loading...</p>
-    </div>
+    <Layout connected={state.connected} onStartRun={() => startRun()} loading={loading}>
+      <div className="space-y-6">
+        <SummaryCards
+          totalRuns={runs.length}
+          activeRuns={activeRuns.length}
+          completedRuns={completedRuns.length}
+          failedRuns={runs.filter((r) => r.status === "failed").length}
+          totalCost={state.totalCost}
+          totalTokens={state.totalTokens}
+        />
+        <RunProgress runs={runs} />
+      </div>
+    </Layout>
   );
 }
