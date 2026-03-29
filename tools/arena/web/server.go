@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -58,6 +60,29 @@ func newServerWithRunner(adapter *EventAdapter, runner engineRunner, store *stat
 	s.mux.HandleFunc("GET /api/results", s.handleListResults)
 	s.mux.HandleFunc("GET /api/results/{id}", s.handleGetResult)
 	s.mux.HandleFunc("POST /api/run", s.handleStartRun)
+
+	// SPA fallback: serve embedded frontend
+	sub, subErr := fs.Sub(frontendFS, "frontend/dist")
+	if subErr == nil {
+		fileServer := http.FileServer(http.FS(sub))
+		s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// Try serving the exact file first
+			urlPath := r.URL.Path
+			if urlPath == "/" {
+				urlPath = "/index.html"
+			}
+			// Check if the file exists in the embedded FS
+			if f, openErr := sub.Open(path.Clean(strings.TrimPrefix(urlPath, "/"))); openErr == nil {
+				_ = f.Close()
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+			// SPA fallback: serve index.html for client-side routing
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+		})
+	}
+
 	return s
 }
 
