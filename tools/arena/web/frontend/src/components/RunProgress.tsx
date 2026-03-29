@@ -16,7 +16,6 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
 
   const toggleRun = (runId: string) => {
     setExpandedRun(expandedRun === runId ? null : runId);
-    onSelectRun?.(runId);
   };
 
   return (
@@ -50,6 +49,7 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
                 run={run}
                 expanded={expandedRun === run.runId}
                 onToggle={() => toggleRun(run.runId)}
+                onViewDetails={() => onSelectRun?.(run.runId)}
               />
             ))}
           </div>
@@ -68,11 +68,14 @@ function RunEntry({
   run,
   expanded,
   onToggle,
+  onViewDetails,
 }: {
   run: ActiveRun;
   expanded: boolean;
   onToggle: () => void;
+  onViewDetails?: () => void;
 }) {
+  const isDone = run.status !== "running";
   return (
     <Card
       className={cn(
@@ -111,6 +114,14 @@ function RunEntry({
             </Badge>
           )}
           <span className="text-xs text-slate-muted">{run.messages.length} msgs</span>
+          {isDone && onViewDetails && (
+            <button
+              className="text-xs text-altair-blue hover:underline"
+              onClick={(e) => { e.stopPropagation(); onViewDetails(); }}
+            >
+              View Details
+            </button>
+          )}
         </div>
       </div>
       {expanded && run.messages.length > 0 && (
