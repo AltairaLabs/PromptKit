@@ -22,6 +22,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: write
 
 env:
   GO_VERSION: '1.25.1'
@@ -65,18 +66,22 @@ jobs:
           FLAGS="$FLAGS --scenario ${{ inputs.scenarios }}"
         fi
 
-        # Run the matrix — capture exit code but don't fail yet
+        # Run the matrix with JSON and JUnit output
         set +e
-        ../../bin/promptarena run --config config.arena.yaml --ci $FLAGS 2>&1 | tee run.log
+        ../../bin/promptarena run --config config.arena.yaml --ci --formats json,junit $FLAGS 2>&1 | tee run.log
         RUN_EXIT=$?
         set -e
 
         # Count errors
         ERROR_COUNT=$(grep -c 'level=ERROR.*Turn execution failed' run.log || echo "0")
+        TOTAL=$(grep -oP 'Generated \K[0-9]+' run.log || echo "0")
+        PASSED=$((TOTAL - ERROR_COUNT))
         echo "error_count=$ERROR_COUNT" >> "$GITHUB_OUTPUT"
-        echo "Total errors: $ERROR_COUNT"
+        echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+        echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+        echo "Total: $TOTAL | Passed: $PASSED | Errors: $ERROR_COUNT"
 
-        # Generate matrix markdown
+        # Generate capability matrix markdown
         ./scripts/generate-matrix.sh
 
         # Render HTML report
@@ -87,7 +92,8 @@ jobs:
         echo "" >> "$GITHUB_STEP_SUMMARY"
         cat out/CAPABILITY_MATRIX.md >> "$GITHUB_STEP_SUMMARY"
         echo "" >> "$GITHUB_STEP_SUMMARY"
-        echo "**Errors: $ERROR_COUNT** (threshold: ${{ inputs.max_errors || '5' }})" >> "$GITHUB_STEP_SUMMARY"
+        echo "---" >> "$GITHUB_STEP_SUMMARY"
+        echo "**$PASSED / $TOTAL passed** | Errors: $ERROR_COUNT (threshold: ${{ inputs.max_errors || '5' }})" >> "$GITHUB_STEP_SUMMARY"
 
         # Determine pass/fail
         MAX_ERRORS="${{ inputs.max_errors || '5' }}"
@@ -97,7 +103,16 @@ jobs:
         fi
       id: matrix
 
-    - name: Upload Matrix Results
+    - name: Publish Test Results
+      if: always()
+      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      with:
+        name: Capability Matrix Results
+        path: examples/capability-matrix/out/junit.xml
+        reporter: java-junit
+        fail-on-error: false
+
+    - name: Upload Matrix Artifacts
       if: always()
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
@@ -106,34 +121,6 @@ jobs:
           examples/capability-matrix/out/CAPABILITY_MATRIX.md
           examples/capability-matrix/out/report.html
           examples/capability-matrix/out/index.json
+          examples/capability-matrix/out/junit.xml
           examples/capability-matrix/out/*.json
         retention-days: 30
-
-    - name: Upload Matrix Badge Data
-      if: always()
-      run: |
-        cd examples/capability-matrix
-        ERROR_COUNT=$(grep -c 'level=ERROR.*Turn execution failed' run.log || echo "0")
-        TOTAL=$(grep -oP 'Generated \K[0-9]+' run.log || echo "0")
-        PASSED=$((TOTAL - ERROR_COUNT))
-        MAX_ERRORS="${{ inputs.max_errors || '5' }}"
-
-        if [ "$ERROR_COUNT" -le "$MAX_ERRORS" ]; then
-          STATUS="passing"
-          COLOR="brightgreen"
-        else
-          STATUS="failing"
-          COLOR="red"
-        fi
-
-        # Create badge JSON for shields.io endpoint badge
-        mkdir -p ../../.github/badges
-        cat > ../../.github/badges/capability-matrix.json << BADGE
-        {
-          "schemaVersion": 1,
-          "label": "providers",
-          "message": "${PASSED}/${TOTAL} ${STATUS}",
-          "color": "${COLOR}"
-        }
-        BADGE
-        echo "Badge: ${PASSED}/${TOTAL} ${STATUS}"
