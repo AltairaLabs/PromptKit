@@ -17,7 +17,7 @@
     "astro": "^6.0.8",
     "astro-d2": "^0.10.0",
     "mermaid": "^11.12.3",
-    "starlight-theme-galaxy": "^0.7.0"
+    "starlight-theme-galaxy": "^0.8.0"
   },
   "devDependencies": {
     "linkinator": "^7.6.1",
