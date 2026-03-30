@@ -48,6 +48,41 @@ scenarios:
     turns:
       1: "I can hear someone speaking about a bridge. CAPABILITY_PASS"
 
+  streaming-tools:
+    defaultResponse: "I'll check the weather for you."
+    turns:
+      1:
+        tool_calls:
+          - name: "get_weather"
+            arguments:
+              location: "New York City"
+      2: "The weather in New York City is sunny and 72F. CAPABILITY_PASS"
+
+  streaming-vision:
+    defaultResponse: "I can see a colorful logo image. CAPABILITY_PASS"
+    turns:
+      1: "I can see a colorful logo image while streaming. CAPABILITY_PASS"
+
+  tools-vision:
+    defaultResponse: "I can see the image, let me analyze it."
+    turns:
+      1:
+        tool_calls:
+          - name: "analyze_image"
+            arguments:
+              description: "A colorful logo"
+      2: "Based on my analysis, this is a colorful logo. CAPABILITY_PASS"
+
+  streaming-tools-vision:
+    defaultResponse: "I can see the image, let me analyze it."
+    turns:
+      1:
+        tool_calls:
+          - name: "analyze_image"
+            arguments:
+              description: "A colorful logo"
+      2: "Based on my analysis while streaming, this is a colorful logo. CAPABILITY_PASS"
+
   video:
     defaultResponse: "I can see a video. CAPABILITY_PASS"
     turns:
