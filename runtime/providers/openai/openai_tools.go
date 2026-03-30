@@ -23,9 +23,12 @@ func NewToolProvider(
 	defaults providers.ProviderDefaults,
 	includeRawOutput bool,
 	additionalConfig map[string]any,
+	unsupportedParams []string,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithConfig(id, model, baseURL, defaults, includeRawOutput, additionalConfig),
+		Provider: NewProviderWithConfigAndUnsupportedParams(
+			id, model, baseURL, defaults, includeRawOutput, additionalConfig, unsupportedParams,
+		),
 	}
 }
 
@@ -34,10 +37,11 @@ func NewToolProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, additionalConfig map[string]any, cred providers.Credential,
 	platform string, platformConfig *providers.PlatformConfig,
+	unsupportedParams []string,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithCredentialAndConfig(
-			id, model, baseURL, defaults, includeRawOutput, cred, additionalConfig, platform, platformConfig,
+		Provider: NewProviderWithCredentialConfigAndUnsupportedParams(
+			id, model, baseURL, defaults, includeRawOutput, cred, additionalConfig, platform, platformConfig, unsupportedParams,
 		),
 	}
 }
@@ -239,9 +243,9 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 		"messages": messages,
 	}
 	// Add max tokens with the correct parameter name for the model type
-	addMaxTokensToRequest(openaiReq, p.model, maxTokens)
+	addMaxTokensToRequest(openaiReq, p.unsupportedParams, maxTokens)
 	// Add sampling parameters (temperature, top_p) if model supports them
-	addSamplingParamsToRequest(openaiReq, p.model, temperature, topP)
+	addSamplingParamsToRequest(openaiReq, p.unsupportedParams, temperature, topP)
 
 	if req.Seed != nil {
 		openaiReq["seed"] = *req.Seed
@@ -550,13 +554,13 @@ func init() {
 			return NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.AdditionalConfig, spec.Credential,
-				spec.Platform, spec.PlatformConfig,
+				spec.Platform, spec.PlatformConfig, spec.UnsupportedParams,
 			), nil
 		},
 		func(spec providers.ProviderSpec) (providers.Provider, error) {
 			return NewToolProvider(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
-				spec.IncludeRawOutput, spec.AdditionalConfig,
+				spec.IncludeRawOutput, spec.AdditionalConfig, spec.UnsupportedParams,
 			), nil
 		},
 	))

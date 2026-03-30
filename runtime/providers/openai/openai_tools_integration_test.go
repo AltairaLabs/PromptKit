@@ -249,7 +249,7 @@ func TestToolProviderCreation(t *testing.T) {
 
 		provider := NewToolProvider("test-id", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{
 			Temperature: 0.7,
-		}, true, nil)
+		}, true, nil, nil)
 
 		if provider.ID() != "test-id" {
 			t.Errorf("Expected ID 'test-id', got %q", provider.ID())

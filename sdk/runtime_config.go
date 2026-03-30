@@ -252,15 +252,16 @@ func createProviderFromConfig(p *pkgconfig.Provider) (providers.Provider, error)
 	}
 
 	spec := providers.ProviderSpec{
-		ID:               p.ID,
-		Type:             p.Type,
-		Model:            p.Model,
-		BaseURL:          p.BaseURL,
-		IncludeRawOutput: p.IncludeRawOutput,
-		AdditionalConfig: p.AdditionalConfig,
-		Credential:       cred,
-		Platform:         platform,
-		PlatformConfig:   platformCfg,
+		ID:                p.ID,
+		Type:              p.Type,
+		Model:             p.Model,
+		BaseURL:           p.BaseURL,
+		IncludeRawOutput:  p.IncludeRawOutput,
+		AdditionalConfig:  p.AdditionalConfig,
+		Credential:        cred,
+		Platform:          platform,
+		PlatformConfig:    platformCfg,
+		UnsupportedParams: p.UnsupportedParams,
 		Defaults: providers.ProviderDefaults{
 			Temperature: p.Defaults.Temperature,
 			TopP:        p.Defaults.TopP,

@@ -188,6 +188,7 @@ func createProvider(info *Info) (providers.Provider, error) {
 			defaults,
 			false,
 			nil,
+			nil,
 		), nil
 	case "anthropic":
 		return claude.NewToolProvider(

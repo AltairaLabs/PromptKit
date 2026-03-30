@@ -34,49 +34,62 @@ const (
 	defaultCachedCostPer1K = 0.00125
 )
 
+// oSeriesMinLen is the minimum length of an o-series model name (e.g. "o1").
+const oSeriesMinLen = 2
+
 // isOSeriesModel checks if a model is an OpenAI o-series reasoning model.
-// O-series models (o1, o3, o4, etc.) require max_completion_tokens instead of max_tokens.
+// O-series models (o1, o3, o4, etc.) don't support temperature, top_p, or max_tokens.
 func isOSeriesModel(model string) bool {
-	// Check for o-series model prefixes: o1, o3, o4, etc.
-	if len(model) >= 2 && model[0] == 'o' && model[1] >= '0' && model[1] <= '9' {
-		return true
+	if len(model) < oSeriesMinLen {
+		return false
+	}
+	return model[0] == 'o' && model[1] >= '0' && model[1] <= '9'
+}
+
+// hasUnsupportedParam checks if a parameter name is in the unsupported list.
+func hasUnsupportedParam(unsupported []string, param string) bool {
+	for _, p := range unsupported {
+		if p == param {
+			return true
+		}
 	}
 	return false
 }
 
 // addMaxTokensToRequest adds the appropriate max tokens parameter to the request.
-// O-series models use max_completion_tokens, others use max_tokens.
-func addMaxTokensToRequest(req map[string]interface{}, model string, maxTokens int) {
-	if isOSeriesModel(model) {
+// If "max_tokens" is in unsupportedParams, uses "max_completion_tokens" instead.
+func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []string, maxTokens int) {
+	if hasUnsupportedParam(unsupportedParams, "max_tokens") {
 		req["max_completion_tokens"] = maxTokens
 	} else {
 		req["max_tokens"] = maxTokens
 	}
 }
 
-// addSamplingParamsToRequest adds temperature and top_p to the request if the model supports them.
-// O-series models don't support temperature or top_p parameters.
-func addSamplingParamsToRequest(req map[string]interface{}, model string, temperature, topP float32) {
-	if isOSeriesModel(model) {
-		// O-series models don't support temperature or top_p
-		return
+// addSamplingParamsToRequest adds temperature and top_p to the request,
+// skipping any that are listed in unsupportedParams.
+func addSamplingParamsToRequest(req map[string]interface{}, unsupportedParams []string, temperature, topP float32) {
+	if !hasUnsupportedParam(unsupportedParams, "temperature") {
+		req["temperature"] = temperature
 	}
-	req["temperature"] = temperature
-	req["top_p"] = topP
+	if !hasUnsupportedParam(unsupportedParams, "top_p") {
+		req["top_p"] = topP
+	}
 }
 
 // OpenAIProvider implements the Provider interface for OpenAI
 type Provider struct {
 	providers.BaseProvider
-	model            string
-	baseURL          string
-	apiKey           string
-	credential       providers.Credential
-	defaults         providers.ProviderDefaults
-	apiMode          APIMode
-	additionalConfig map[string]any
-	platform         string
-	platformConfig   *providers.PlatformConfig
+	model             string
+	baseURL           string
+	apiKey            string
+	credential        providers.Credential
+	defaults          providers.ProviderDefaults
+	apiMode           APIMode
+	additionalConfig  map[string]any
+	platform          string
+	platformConfig    *providers.PlatformConfig
+	unsupportedParams []string
 }
 
 // NewProvider creates a new OpenAI provider
@@ -91,16 +104,34 @@ func NewProviderWithConfig(
 	includeRawOutput bool,
 	additionalConfig map[string]any,
 ) *Provider {
+	return NewProviderWithConfigAndUnsupportedParams(id, model, baseURL, defaults, includeRawOutput, additionalConfig, nil)
+}
+
+// NewProviderWithConfigAndUnsupportedParams creates a new OpenAI provider with additional configuration
+// and an explicit list of unsupported parameters. If unsupportedParams is nil and the model is an
+// o-series model, the unsupported params are auto-detected.
+func NewProviderWithConfigAndUnsupportedParams(
+	id, model, baseURL string,
+	defaults providers.ProviderDefaults,
+	includeRawOutput bool,
+	additionalConfig map[string]any,
+	unsupportedParams []string,
+) *Provider {
 	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN")
 
+	if len(unsupportedParams) == 0 && isOSeriesModel(model) {
+		unsupportedParams = []string{"temperature", "top_p", "max_tokens"}
+	}
+
 	return &Provider{
-		BaseProvider:     base,
-		model:            model,
-		baseURL:          baseURL,
-		apiKey:           apiKey,
-		defaults:         defaults,
-		apiMode:          getAPIMode(model, additionalConfig),
-		additionalConfig: additionalConfig,
+		BaseProvider:      base,
+		model:             model,
+		baseURL:           baseURL,
+		apiKey:            apiKey,
+		defaults:          defaults,
+		apiMode:           getAPIMode(model, additionalConfig),
+		additionalConfig:  additionalConfig,
+		unsupportedParams: unsupportedParams,
 	}
 }
 
@@ -121,19 +152,38 @@ func NewProviderWithCredentialAndConfig(
 	includeRawOutput bool, cred providers.Credential, additionalConfig map[string]any,
 	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
+	return NewProviderWithCredentialConfigAndUnsupportedParams(
+		id, model, baseURL, defaults, includeRawOutput, cred, additionalConfig, platform, platformConfig, nil,
+	)
+}
+
+// NewProviderWithCredentialConfigAndUnsupportedParams creates a new OpenAI provider with explicit
+// credential, config, and an unsupported params list. If unsupportedParams is nil and the model is
+// an o-series model, the unsupported params are auto-detected.
+func NewProviderWithCredentialConfigAndUnsupportedParams(
+	id, model, baseURL string, defaults providers.ProviderDefaults,
+	includeRawOutput bool, cred providers.Credential, additionalConfig map[string]any,
+	platform string, platformConfig *providers.PlatformConfig,
+	unsupportedParams []string,
+) *Provider {
 	base, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
 
+	if len(unsupportedParams) == 0 && isOSeriesModel(model) {
+		unsupportedParams = []string{"temperature", "top_p", "max_tokens"}
+	}
+
 	return &Provider{
-		BaseProvider:     base,
-		model:            model,
-		baseURL:          baseURL,
-		apiKey:           apiKey,
-		credential:       cred,
-		defaults:         defaults,
-		apiMode:          getAPIMode(model, additionalConfig),
-		additionalConfig: additionalConfig,
-		platform:         platform,
-		platformConfig:   platformConfig,
+		BaseProvider:      base,
+		model:             model,
+		baseURL:           baseURL,
+		apiKey:            apiKey,
+		credential:        cred,
+		defaults:          defaults,
+		apiMode:           getAPIMode(model, additionalConfig),
+		additionalConfig:  additionalConfig,
+		platform:          platform,
+		platformConfig:    platformConfig,
+		unsupportedParams: unsupportedParams,
 	}
 }
 
@@ -682,9 +732,9 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	}
 
 	// Add max tokens with the correct parameter name for the model type
-	addMaxTokensToRequest(openAIReq, p.model, maxTokens)
+	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
 	// Add sampling parameters (temperature, top_p) if model supports them
-	addSamplingParamsToRequest(openAIReq, p.model, temperature, topP)
+	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
 
 	if req.Seed != nil {
 		openAIReq["seed"] = *req.Seed
@@ -812,9 +862,9 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 	}
 
 	// Add max tokens with the correct parameter name for the model type
-	addMaxTokensToRequest(openAIReq, p.model, maxTokens)
+	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
 	// Add sampling parameters (temperature, top_p) if model supports them
-	addSamplingParamsToRequest(openAIReq, p.model, temperature, topP)
+	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
 	if req.Seed != nil {
 		openAIReq["seed"] = *req.Seed
 	}

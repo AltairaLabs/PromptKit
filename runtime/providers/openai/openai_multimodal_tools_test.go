@@ -234,7 +234,7 @@ func TestConvertToolResultContent_UnsupportedMediaSkipped(t *testing.T) {
 // TestConvertSingleMessageForTools_MultimodalToolResult verifies end-to-end conversion
 // of a tool result message with multimodal content through convertSingleMessageForTools.
 func TestConvertSingleMessageForTools_MultimodalToolResult(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	b64Data := "iVBORw0KGgoAAAANSUhEUg=="
 	msg := types.Message{
@@ -318,7 +318,7 @@ func TestResolveImageURL_Empty(t *testing.T) {
 
 // TestToolProvider_WithMultimodalMessages tests if tool calls work with multimodal messages
 func TestToolProvider_WithMultimodalMessages(t *testing.T) {
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Create a multimodal message with an image
 	imageURL := "https://example.com/chart.png"
@@ -396,7 +396,7 @@ func TestToolProvider_WithMultimodalMessages(t *testing.T) {
 
 // TestToolProvider_MultimodalToolSupport checks if the interface is implemented
 func TestToolProvider_MultimodalToolSupport(t *testing.T) {
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Check if it implements providers.MultimodalToolSupport interface
 	_, ok := interface{}(toolProvider).(providers.MultimodalToolSupport)
@@ -427,7 +427,7 @@ func TestOpenAIProvider_InheritsMultimodal(t *testing.T) {
 		t.Fatal("OpenAIProvider should implement providers.MultimodalSupport interface")
 	}
 
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Since ToolProvider embeds *Provider, it should inherit the interface
 	_, ok = interface{}(toolProvider).(providers.MultimodalSupport)
@@ -440,7 +440,7 @@ func TestOpenAIProvider_InheritsMultimodal(t *testing.T) {
 
 // TestToolProvider_BuildToolRequestWithLegacyMessage tests backward compatibility
 func TestToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Legacy text-only message
 	msg := types.Message{
@@ -472,7 +472,7 @@ func TestToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
 
 // TestToolProvider_BuildToolRequestWithTools tests message conversion with actual tools
 func TestToolProvider_BuildToolRequestWithTools(t *testing.T) {
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	imageURL := "https://example.com/chart.png"
 	msg := types.Message{
@@ -527,7 +527,7 @@ func TestToolProvider_BuildToolRequestWithTools(t *testing.T) {
 
 // TestToolProvider_BuildToolRequestWithToolCalls tests messages with tool call responses
 func TestToolProvider_BuildToolRequestWithToolCalls(t *testing.T) {
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Message with tool calls
 	assistantMsg := types.Message{
@@ -580,7 +580,7 @@ func TestToolProvider_BuildToolRequestWithToolCalls(t *testing.T) {
 
 // TestToolProvider_BuildToolRequestWithMultimodalAndToolResult tests complex scenario
 func TestToolProvider_BuildToolRequestWithMultimodalAndToolResult(t *testing.T) {
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	imageURL := "https://example.com/chart.png"
 
@@ -669,7 +669,7 @@ func TestToolProvider_BuildToolRequestWithMultimodalAndToolResult(t *testing.T) 
 
 // TestToolProvider_MultimodalValidation tests validation before tool calls
 func TestToolProvider_MultimodalValidation(t *testing.T) {
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Create unsupported media type (audio)
 	audioFile := "/path/to/audio.mp3"

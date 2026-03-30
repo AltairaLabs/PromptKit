@@ -679,3 +679,108 @@ func TestOpenAIHelpers_Integration(t *testing.T) {
 		}
 	})
 }
+
+func TestAddSamplingParamsToRequest(t *testing.T) {
+	tests := []struct {
+		name              string
+		unsupportedParams []string
+		temperature       float32
+		topP              float32
+		wantTemp          bool
+		wantTopP          bool
+	}{
+		{
+			name:              "no unsupported params — both sent",
+			unsupportedParams: nil,
+			temperature:       0.7,
+			topP:              0.9,
+			wantTemp:          true,
+			wantTopP:          true,
+		},
+		{
+			name:              "temperature unsupported — only top_p sent",
+			unsupportedParams: []string{"temperature"},
+			temperature:       0.7,
+			topP:              0.9,
+			wantTemp:          false,
+			wantTopP:          true,
+		},
+		{
+			name:              "top_p unsupported — only temperature sent",
+			unsupportedParams: []string{"top_p"},
+			temperature:       0.7,
+			topP:              0.9,
+			wantTemp:          true,
+			wantTopP:          false,
+		},
+		{
+			name:              "both unsupported — neither sent",
+			unsupportedParams: []string{"temperature", "top_p"},
+			temperature:       0.7,
+			topP:              0.9,
+			wantTemp:          false,
+			wantTopP:          false,
+		},
+		{
+			name:              "empty list — both sent",
+			unsupportedParams: []string{},
+			temperature:       0.7,
+			topP:              0.9,
+			wantTemp:          true,
+			wantTopP:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := make(map[string]interface{})
+			addSamplingParamsToRequest(req, tt.unsupportedParams, tt.temperature, tt.topP)
+
+			_, hasTemp := req["temperature"]
+			_, hasTopP := req["top_p"]
+
+			if hasTemp != tt.wantTemp {
+				t.Errorf("temperature present=%v, want %v", hasTemp, tt.wantTemp)
+			}
+			if hasTopP != tt.wantTopP {
+				t.Errorf("top_p present=%v, want %v", hasTopP, tt.wantTopP)
+			}
+		})
+	}
+}
+
+func TestAddMaxTokensToRequest(t *testing.T) {
+	tests := []struct {
+		name              string
+		unsupportedParams []string
+		maxTokens         int
+		wantKey           string
+	}{
+		{
+			name:              "no unsupported params — uses max_tokens",
+			unsupportedParams: nil,
+			maxTokens:         500,
+			wantKey:           "max_tokens",
+		},
+		{
+			name:              "max_tokens unsupported — uses max_completion_tokens",
+			unsupportedParams: []string{"max_tokens"},
+			maxTokens:         500,
+			wantKey:           "max_completion_tokens",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := make(map[string]interface{})
+			addMaxTokensToRequest(req, tt.unsupportedParams, tt.maxTokens)
+
+			if _, ok := req[tt.wantKey]; !ok {
+				t.Errorf("expected key %q in request, got keys: %v", tt.wantKey, req)
+			}
+			if req[tt.wantKey] != tt.maxTokens {
+				t.Errorf("%s = %v, want %d", tt.wantKey, req[tt.wantKey], tt.maxTokens)
+			}
+		})
+	}
+}

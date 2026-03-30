@@ -179,14 +179,12 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 		responsesReq["max_output_tokens"] = maxTokens
 	}
 
-	// Add sampling parameters (o-series models still don't support these in Responses API)
-	if !isOSeriesModel(p.model) {
-		if temperature > 0 {
-			responsesReq["temperature"] = temperature
-		}
-		if topP > 0 {
-			responsesReq["top_p"] = topP
-		}
+	// Add sampling parameters (some models, e.g. o-series, don't support these)
+	if !hasUnsupportedParam(p.unsupportedParams, "temperature") && temperature > 0 {
+		responsesReq["temperature"] = temperature
+	}
+	if !hasUnsupportedParam(p.unsupportedParams, "top_p") && topP > 0 {
+		responsesReq["top_p"] = topP
 	}
 
 	// Add tools if provided
