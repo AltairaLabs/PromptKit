@@ -16,7 +16,7 @@ spec:
   defaults:
     temperature: 0.1
     top_p: 1.0
-    max_tokens: 500
+    max_tokens: 50
   pricing:
     input_cost_per_1k: 0.005
     output_cost_per_1k: 0.025
