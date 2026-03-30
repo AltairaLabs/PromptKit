@@ -11,6 +11,10 @@ spec:
   required_capabilities:
     - tools
     - vision
+  providers:
+    - openai-gpt41-mini
+    - anthropic-sonnet4
+    - gemini-20-flash
 
   turns:
     - role: user
