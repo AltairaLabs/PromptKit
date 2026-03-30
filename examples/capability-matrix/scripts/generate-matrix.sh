@@ -78,13 +78,14 @@ PROVIDER_CONFIG='{
   },
   "Anthropic": {
     "providers": [
+      {"id": "anthropic-opus46", "name": "Claude Opus 4.6"},
+      {"id": "anthropic-sonnet46", "name": "Claude Sonnet 4.6"},
       {"id": "anthropic-opus45", "name": "Claude Opus 4.5"},
       {"id": "anthropic-sonnet45", "name": "Claude Sonnet 4.5"},
       {"id": "anthropic-haiku45", "name": "Claude Haiku 4.5"},
       {"id": "anthropic-opus41", "name": "Claude Opus 4.1"},
       {"id": "anthropic-opus4", "name": "Claude Opus 4"},
-      {"id": "anthropic-sonnet4", "name": "Claude Sonnet 4"},
-      {"id": "anthropic-sonnet37", "name": "Claude 3.7 Sonnet"}
+      {"id": "anthropic-sonnet4", "name": "Claude Sonnet 4"}
     ]
   },
   "Google": {

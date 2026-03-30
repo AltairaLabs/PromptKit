@@ -51,6 +51,12 @@ spec:
     # Anthropic Models
     # ==========================================================================
 
+    # Claude 4.6 family
+    - file: providers/anthropic-opus46.provider.yaml
+      group: text,streaming,vision,tools,json
+    - file: providers/anthropic-sonnet46.provider.yaml
+      group: text,streaming,vision,tools,json
+
     # Claude 4.5 family
     - file: providers/anthropic-opus45.provider.yaml
       group: text,streaming,vision,tools,json
@@ -65,10 +71,6 @@ spec:
     - file: providers/anthropic-opus4.provider.yaml
       group: text,streaming,vision,tools,json
     - file: providers/anthropic-sonnet4.provider.yaml
-      group: text,streaming,vision,tools,json
-
-    # Claude 3.x family
-    - file: providers/anthropic-sonnet37.provider.yaml
       group: text,streaming,vision,tools,json
 
     # ==========================================================================
