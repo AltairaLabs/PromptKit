@@ -48,7 +48,11 @@ build-tools: ## Build all CLI tools
 	@$(MAKE) build-packc  
 	@$(MAKE) build-inspect-state
 
-build-arena: ## Build promptarena CLI
+build-arena: ## Build promptarena CLI (includes frontend if node_modules present)
+	@if [ -d tools/arena/web/frontend/node_modules ]; then \
+		echo "Building Arena web frontend..."; \
+		cd tools/arena/web/frontend && npm run build; \
+	fi
 	@echo "Building promptarena..."
 	@LATEST_TAG=$$(git tag -l "tools/arena/v*" --sort=-v:refname | head -1 | sed 's|^tools/arena/||'); \
 	COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \

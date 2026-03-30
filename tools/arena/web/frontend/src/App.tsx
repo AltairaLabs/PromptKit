@@ -48,14 +48,15 @@ export default function App() {
   const [startError, setStartError] = useState<string | null>(null);
   const [historicalResults, setHistoricalResults] = useState<RunResult[]>([]);
 
-  // Load existing results from the server on mount
+  // Load results from the server on mount and when runs complete
+  const completedCount = state.completedRunIds.length;
   useEffect(() => {
     getResults().then(async (ids) => {
-      if (!ids || ids.length === 0) return;
+      if (!ids || ids.length === 0) { setHistoricalResults([]); return; }
       const results = await Promise.all(ids.map((id) => getResult(id).catch(() => null)));
       setHistoricalResults(results.filter((r): r is RunResult => r !== null));
     }).catch(() => {});
-  }, [getResults, getResult]);
+  }, [getResults, getResult, completedCount]);
 
   const liveRuns = Object.values(state.runs);
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
