@@ -12,14 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"context"
 	"log"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
-	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
-	jsonresults "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/web"
 )
@@ -114,7 +111,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Load existing results from the output directory (if any)
 	if arenaStore != nil {
-		loadExistingResults(outDir, arenaStore)
+		if n := web.LoadResultsIntoStore(outDir, arenaStore); n > 0 {
+			log.Printf("Loaded %d existing run result(s) from %s", n, outDir)
+		}
 	}
 
 	// Create web server
@@ -147,56 +146,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// a non-zero write timeout would kill active SSE streams.
 	}
 	return httpServer.ListenAndServe()
-}
-
-// loadExistingResults loads previously completed run results from the output directory
-// into the state store so they're available via the REST API on startup.
-func loadExistingResults(outDir string, store *statestore.ArenaStateStore) {
-	repo := jsonresults.NewJSONResultRepository(outDir)
-	results, err := repo.LoadResults()
-	if err != nil {
-		// No results to load — not an error, just nothing to show
-		return
-	}
-
-	ctx := context.Background()
-	loaded := 0
-	for i := range results {
-		r := &results[i]
-		// Save conversation state (messages)
-		convState := &runtimestore.ConversationState{
-			ID:       r.RunID,
-			Messages: r.Messages,
-			Metadata: make(map[string]interface{}),
-		}
-		if saveErr := store.Save(ctx, convState); saveErr != nil {
-			continue
-		}
-		// Save run metadata
-		meta := &statestore.RunMetadata{
-			RunID:                        r.RunID,
-			PromptPack:                   r.PromptPack,
-			Region:                       r.Region,
-			ScenarioID:                   r.ScenarioID,
-			ProviderID:                   r.ProviderID,
-			Params:                       r.Params,
-			Commit:                       r.Commit,
-			StartTime:                    r.StartTime,
-			EndTime:                      r.EndTime,
-			Duration:                     r.Duration,
-			Error:                        r.Error,
-			SelfPlay:                     r.SelfPlay,
-			PersonaID:                    r.PersonaID,
-			ConversationAssertionResults: r.ConversationAssertions.Results,
-		}
-		if saveErr := store.SaveMetadata(ctx, r.RunID, meta); saveErr != nil {
-			continue
-		}
-		loaded++
-	}
-	if loaded > 0 {
-		log.Printf("Loaded %d existing run result(s) from %s", loaded, outDir)
-	}
 }
 
 // openBrowser opens the default browser to the given URL.

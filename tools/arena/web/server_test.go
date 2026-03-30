@@ -484,3 +484,48 @@ func TestClearResultsNoStore(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
 	}
 }
+
+func TestLoadResultsIntoStore(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+
+	// Empty dir — should return 0
+	emptyDir := t.TempDir()
+	n := LoadResultsIntoStore(emptyDir, store)
+	if n != 0 {
+		t.Errorf("empty dir: got %d, want 0", n)
+	}
+
+	// Nonexistent dir — should return 0
+	n = LoadResultsIntoStore("/nonexistent/path", store)
+	if n != 0 {
+		t.Errorf("nonexistent dir: got %d, want 0", n)
+	}
+
+	// Dir with valid results
+	dir := t.TempDir()
+	idx := `{"run_ids":["run-1","run-2"]}`
+	run1 := `{"RunID":"run-1","ScenarioID":"s1","ProviderID":"p1","Region":"default","Messages":[{"role":"user","content":"hi"}],"Cost":{"total_cost_usd":0.01},"Duration":1000000000}`
+	run2 := `{"RunID":"run-2","ScenarioID":"s2","ProviderID":"p2","Region":"default","Messages":[],"Cost":{"total_cost_usd":0},"Duration":500000000,"Error":"boom"}`
+	_ = os.WriteFile(dir+"/index.json", []byte(idx), 0600)
+	_ = os.WriteFile(dir+"/run-1.json", []byte(run1), 0600)
+	_ = os.WriteFile(dir+"/run-2.json", []byte(run2), 0600)
+
+	n = LoadResultsIntoStore(dir, store)
+	if n != 2 {
+		t.Errorf("got %d loaded, want 2", n)
+	}
+
+	ctx := context.Background()
+	ids, _ := store.ListRunIDs(ctx)
+	if len(ids) != 2 {
+		t.Errorf("store has %d runs, want 2", len(ids))
+	}
+
+	result, err := store.GetResult(ctx, "run-1")
+	if err != nil {
+		t.Fatalf("GetResult run-1: %v", err)
+	}
+	if result.ScenarioID != "s1" {
+		t.Errorf("ScenarioID = %q, want s1", result.ScenarioID)
+	}
+}

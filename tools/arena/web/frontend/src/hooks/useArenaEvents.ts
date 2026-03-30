@@ -184,7 +184,7 @@ function mapSSEToAction(event: SSEEvent): Action | null {
         entry: {
           timestamp: ts,
           level: "error",
-          message: `Provider call failed: ${d.provider ?? "unknown"} — ${d.error ?? "unknown error"}`,
+          message: `Provider call failed: ${String(d.provider ?? "unknown")} — ${String(d.error ?? "unknown error")}`,
           runId,
         },
       };
