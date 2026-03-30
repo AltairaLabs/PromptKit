@@ -21,8 +21,8 @@ spec:
       group: text,streaming,vision,tools,json,audio
     - file: providers/openai-gpt51.provider.yaml
       group: text,streaming,vision,tools,json,audio
-    # gpt-5 base excluded: rejects temperature param (needs runtime fix like o-series)
-    # - file: providers/openai-gpt5.provider.yaml
+    - file: providers/openai-gpt5.provider.yaml
+      group: text,streaming,vision,tools,json,audio
     - file: providers/openai-gpt5-mini.provider.yaml
       group: text,streaming,vision,tools,json,audio
     - file: providers/openai-gpt5-nano.provider.yaml

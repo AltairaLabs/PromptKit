@@ -13,6 +13,9 @@ spec:
     - tools
     - json
     - audio
+  unsupported_params:
+    - temperature
+    - top_p
   defaults:
     temperature: 0.1
     max_tokens: 500
