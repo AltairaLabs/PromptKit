@@ -256,6 +256,15 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 		openaiReq["seed"] = *req.Seed
 	}
 
+	// Add modalities for audio models when audio content is present
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
+		openaiReq["modalities"] = []string{"text", "audio"}
+		openaiReq["audio"] = map[string]interface{}{
+			"voice":  "alloy",
+			"format": "wav",
+		}
+	}
+
 	// Add tools if provided
 	if tools != nil {
 		openaiReq["tools"] = tools

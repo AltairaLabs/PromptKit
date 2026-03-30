@@ -1075,3 +1075,55 @@ func TestToolProvider_ConvertRequestMessages_ToolResultHasContent(t *testing.T) 
 		t.Errorf("Expected tool result content, got '%s'", content)
 	}
 }
+
+// TestBuildToolRequest_AudioModalities verifies that buildToolRequest includes
+// modalities and audio config when the model is an audio model and the request
+// contains audio content. Regression test for #823.
+func TestBuildToolRequest_AudioModalities(t *testing.T) {
+	provider := NewToolProvider(
+		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 100},
+		false, nil, nil,
+	)
+	// Force completions API mode (audio models need it)
+	provider.apiMode = APIModeCompletions
+
+	audioData := types.MediaContent{MIMEType: "audio/flac"}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{
+				Role: "user",
+				Parts: []types.ContentPart{
+					types.NewTextPart("Transcribe this audio"),
+					{Type: types.ContentTypeAudio, Media: &audioData},
+				},
+			},
+		},
+	}
+
+	result := provider.buildToolRequest(req, nil, "")
+
+	// Must have modalities set
+	modalities, ok := result["modalities"]
+	if !ok {
+		t.Fatal("buildToolRequest missing 'modalities' for audio model with audio content")
+	}
+	mods, ok := modalities.([]string)
+	if !ok {
+		t.Fatalf("modalities is %T, want []string", modalities)
+	}
+	hasAudio := false
+	for _, m := range mods {
+		if m == "audio" {
+			hasAudio = true
+		}
+	}
+	if !hasAudio {
+		t.Errorf("modalities = %v, should contain 'audio'", mods)
+	}
+
+	// Must have audio output config
+	if _, ok := result["audio"]; !ok {
+		t.Error("buildToolRequest missing 'audio' output config for audio model")
+	}
+}
