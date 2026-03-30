@@ -260,11 +260,11 @@ function AssertionsTab({ message, allMessages }: { message?: Message; allMessage
               <span className="text-xs font-semibold font-mono text-[#89b4fa]">{String(ar.type || "")}</span>
               <span className="text-[10px] font-semibold" style={{ color }}>{icon} {label}</span>
             </div>
-            {ar.message && <div className="text-xs text-[#cdd6f4] mb-1">{String(ar.message)}</div>}
-            {config?.params && <CollapsibleSection title="Config"><JsonBlock data={config.params} /></CollapsibleSection>}
-            {details?.error && <div className="text-xs text-[#f38ba8]">{String(details.error)}</div>}
-            {details?.skip_reason && <div className="text-xs text-[#6c7086] italic">Skipped: {String(details.skip_reason)}</div>}
-            {details?.explanation && !arPassed && <div className="text-xs text-[#fab387]">{String(details.explanation)}</div>}
+            {ar.message ? <div className="text-xs text-[#cdd6f4] mb-1">{String(ar.message)}</div> : null}
+            {config?.params ? <CollapsibleSection title="Config"><JsonBlock data={config.params} /></CollapsibleSection> : null}
+            {details?.error ? <div className="text-xs text-[#f38ba8]">{String(details.error)}</div> : null}
+            {details?.skip_reason ? <div className="text-xs text-[#6c7086] italic">Skipped: {String(details.skip_reason)}</div> : null}
+            {details?.explanation && !arPassed ? <div className="text-xs text-[#fab387]">{String(details.explanation)}</div> : null}
             {details && <CollapsibleSection title="Results"><JsonBlock data={details} /></CollapsibleSection>}
           </div>
         );
