@@ -26,9 +26,11 @@ func NewToolProvider(
 	unsupportedParams []string,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithConfigAndUnsupportedParams(
-			id, model, baseURL, defaults, includeRawOutput, additionalConfig, unsupportedParams,
-		),
+		Provider: NewProviderFromConfig(&ProviderConfig{
+			ID: id, Model: model, BaseURL: baseURL, Defaults: defaults,
+			IncludeRawOutput: includeRawOutput, AdditionalConfig: additionalConfig,
+			UnsupportedParams: unsupportedParams,
+		}),
 	}
 }
 
@@ -40,9 +42,12 @@ func NewToolProviderWithCredential(
 	unsupportedParams []string,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithCredentialConfigAndUnsupportedParams(
-			id, model, baseURL, defaults, includeRawOutput, cred, additionalConfig, platform, platformConfig, unsupportedParams,
-		),
+		Provider: NewProviderFromConfig(&ProviderConfig{
+			ID: id, Model: model, BaseURL: baseURL, Defaults: defaults,
+			IncludeRawOutput: includeRawOutput, Credential: cred,
+			AdditionalConfig: additionalConfig, Platform: platform,
+			PlatformConfig: platformConfig, UnsupportedParams: unsupportedParams,
+		}),
 	}
 }
 

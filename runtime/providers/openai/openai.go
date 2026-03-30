@@ -104,35 +104,10 @@ func NewProviderWithConfig(
 	includeRawOutput bool,
 	additionalConfig map[string]any,
 ) *Provider {
-	return NewProviderWithConfigAndUnsupportedParams(id, model, baseURL, defaults, includeRawOutput, additionalConfig, nil)
-}
-
-// NewProviderWithConfigAndUnsupportedParams creates a new OpenAI provider with additional configuration
-// and an explicit list of unsupported parameters. If unsupportedParams is nil and the model is an
-// o-series model, the unsupported params are auto-detected.
-func NewProviderWithConfigAndUnsupportedParams(
-	id, model, baseURL string,
-	defaults providers.ProviderDefaults,
-	includeRawOutput bool,
-	additionalConfig map[string]any,
-	unsupportedParams []string,
-) *Provider {
-	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN")
-
-	if len(unsupportedParams) == 0 && isOSeriesModel(model) {
-		unsupportedParams = []string{"temperature", "top_p", "max_tokens"}
-	}
-
-	return &Provider{
-		BaseProvider:      base,
-		model:             model,
-		baseURL:           baseURL,
-		apiKey:            apiKey,
-		defaults:          defaults,
-		apiMode:           getAPIMode(model, additionalConfig),
-		additionalConfig:  additionalConfig,
-		unsupportedParams: unsupportedParams,
-	}
+	return NewProviderFromConfig(&ProviderConfig{
+		ID: id, Model: model, BaseURL: baseURL, Defaults: defaults,
+		IncludeRawOutput: includeRawOutput, AdditionalConfig: additionalConfig,
+	})
 }
 
 // NewProviderWithCredential creates a new OpenAI provider with explicit credential.
@@ -152,38 +127,59 @@ func NewProviderWithCredentialAndConfig(
 	includeRawOutput bool, cred providers.Credential, additionalConfig map[string]any,
 	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
-	return NewProviderWithCredentialConfigAndUnsupportedParams(
-		id, model, baseURL, defaults, includeRawOutput, cred, additionalConfig, platform, platformConfig, nil,
-	)
+	return NewProviderFromConfig(&ProviderConfig{
+		ID: id, Model: model, BaseURL: baseURL, Defaults: defaults,
+		IncludeRawOutput: includeRawOutput, Credential: cred,
+		AdditionalConfig: additionalConfig, Platform: platform, PlatformConfig: platformConfig,
+	})
 }
 
-// NewProviderWithCredentialConfigAndUnsupportedParams creates a new OpenAI provider with explicit
-// credential, config, and an unsupported params list. If unsupportedParams is nil and the model is
-// an o-series model, the unsupported params are auto-detected.
-func NewProviderWithCredentialConfigAndUnsupportedParams(
-	id, model, baseURL string, defaults providers.ProviderDefaults,
-	includeRawOutput bool, cred providers.Credential, additionalConfig map[string]any,
-	platform string, platformConfig *providers.PlatformConfig,
-	unsupportedParams []string,
-) *Provider {
-	base, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
+// ProviderConfig holds all configuration for creating an OpenAI provider.
+// Used by CreateProviderFromSpec and other callers that need full control.
+type ProviderConfig struct {
+	ID                string
+	Model             string
+	BaseURL           string
+	Defaults          providers.ProviderDefaults
+	IncludeRawOutput  bool
+	Credential        providers.Credential
+	AdditionalConfig  map[string]any
+	Platform          string
+	PlatformConfig    *providers.PlatformConfig
+	UnsupportedParams []string
+}
 
-	if len(unsupportedParams) == 0 && isOSeriesModel(model) {
-		unsupportedParams = []string{"temperature", "top_p", "max_tokens"}
+// NewProviderFromConfig creates a provider from a full config struct.
+func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
+	var base providers.BaseProvider
+	var apiKey string
+	if cfg.Credential != nil {
+		base, apiKey = providers.NewBaseProviderWithCredential(
+			cfg.ID, cfg.IncludeRawOutput, httpClientTimeout, cfg.Credential,
+		)
+	} else {
+		base, apiKey = providers.NewBaseProviderWithAPIKey(
+			cfg.ID, cfg.IncludeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN",
+		)
+	}
+
+	unsupported := cfg.UnsupportedParams
+	if len(unsupported) == 0 && isOSeriesModel(cfg.Model) {
+		unsupported = []string{"temperature", "top_p", "max_tokens"}
 	}
 
 	return &Provider{
 		BaseProvider:      base,
-		model:             model,
-		baseURL:           baseURL,
+		model:             cfg.Model,
+		baseURL:           cfg.BaseURL,
 		apiKey:            apiKey,
-		credential:        cred,
-		defaults:          defaults,
-		apiMode:           getAPIMode(model, additionalConfig),
-		additionalConfig:  additionalConfig,
-		platform:          platform,
-		platformConfig:    platformConfig,
-		unsupportedParams: unsupportedParams,
+		credential:        cfg.Credential,
+		defaults:          cfg.Defaults,
+		apiMode:           getAPIMode(cfg.Model, cfg.AdditionalConfig),
+		additionalConfig:  cfg.AdditionalConfig,
+		platform:          cfg.Platform,
+		platformConfig:    cfg.PlatformConfig,
+		unsupportedParams: unsupported,
 	}
 }
 
