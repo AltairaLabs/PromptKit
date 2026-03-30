@@ -9,7 +9,6 @@ spec:
   capabilities:
     - text
     - streaming
-    - tools
     - json
   defaults:
     temperature: 0.1

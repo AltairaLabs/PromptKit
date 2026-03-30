@@ -12,7 +12,6 @@ spec:
     - vision
     - tools
     - json
-    - audio
   unsupported_params:
     - temperature
     - top_p

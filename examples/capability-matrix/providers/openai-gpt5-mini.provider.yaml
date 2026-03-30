@@ -9,7 +9,6 @@ spec:
   capabilities:
     - text
     - streaming
-    - vision
     - tools
     - json
   unsupported_params:
