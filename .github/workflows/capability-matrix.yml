@@ -1,0 +1,139 @@
+name: Provider Capability Matrix
+
+on:
+  workflow_dispatch:
+    inputs:
+      providers:
+        description: 'Provider filter (comma-separated, empty = all)'
+        required: false
+        default: ''
+      scenarios:
+        description: 'Scenario filter (comma-separated, empty = all)'
+        required: false
+        default: ''
+      max_errors:
+        description: 'Maximum allowed errors before failing'
+        required: false
+        default: '5'
+  schedule:
+    # Weekly on Sunday at 06:00 UTC
+    - cron: '0 6 * * 0'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  GO_VERSION: '1.25.1'
+
+jobs:
+  capability-matrix:
+    name: Provider Capability Matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.0.0
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Build Arena
+      run: |
+        cd tools/arena && go build \
+          -o ../../bin/promptarena ./cmd/promptarena
+        echo "promptarena built"
+
+    - name: Run Capability Matrix
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        PROMPTKIT_SCHEMA_SOURCE: local
+      run: |
+        cd examples/capability-matrix
+
+        # Build provider/scenario flags
+        FLAGS=""
+        if [ -n "${{ inputs.providers }}" ]; then
+          FLAGS="$FLAGS --provider ${{ inputs.providers }}"
+        fi
+        if [ -n "${{ inputs.scenarios }}" ]; then
+          FLAGS="$FLAGS --scenario ${{ inputs.scenarios }}"
+        fi
+
+        # Run the matrix — capture exit code but don't fail yet
+        set +e
+        ../../bin/promptarena run --config config.arena.yaml --ci $FLAGS 2>&1 | tee run.log
+        RUN_EXIT=$?
+        set -e
+
+        # Count errors
+        ERROR_COUNT=$(grep -c 'level=ERROR.*Turn execution failed' run.log || echo "0")
+        echo "error_count=$ERROR_COUNT" >> "$GITHUB_OUTPUT"
+        echo "Total errors: $ERROR_COUNT"
+
+        # Generate matrix markdown
+        ./scripts/generate-matrix.sh
+
+        # Render HTML report
+        ../../bin/promptarena render out/index.json -o out/report.html || true
+
+        # Display matrix in job summary
+        echo "## Provider Capability Matrix" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        cat out/CAPABILITY_MATRIX.md >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "**Errors: $ERROR_COUNT** (threshold: ${{ inputs.max_errors || '5' }})" >> "$GITHUB_STEP_SUMMARY"
+
+        # Determine pass/fail
+        MAX_ERRORS="${{ inputs.max_errors || '5' }}"
+        if [ "$ERROR_COUNT" -gt "$MAX_ERRORS" ]; then
+          echo "::error::Capability matrix has $ERROR_COUNT errors (max allowed: $MAX_ERRORS)"
+          exit 1
+        fi
+      id: matrix
+
+    - name: Upload Matrix Results
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      with:
+        name: capability-matrix-results
+        path: |
+          examples/capability-matrix/out/CAPABILITY_MATRIX.md
+          examples/capability-matrix/out/report.html
+          examples/capability-matrix/out/index.json
+          examples/capability-matrix/out/*.json
+        retention-days: 30
+
+    - name: Upload Matrix Badge Data
+      if: always()
+      run: |
+        cd examples/capability-matrix
+        ERROR_COUNT=$(grep -c 'level=ERROR.*Turn execution failed' run.log || echo "0")
+        TOTAL=$(grep -oP 'Generated \K[0-9]+' run.log || echo "0")
+        PASSED=$((TOTAL - ERROR_COUNT))
+        MAX_ERRORS="${{ inputs.max_errors || '5' }}"
+
+        if [ "$ERROR_COUNT" -le "$MAX_ERRORS" ]; then
+          STATUS="passing"
+          COLOR="brightgreen"
+        else
+          STATUS="failing"
+          COLOR="red"
+        fi
+
+        # Create badge JSON for shields.io endpoint badge
+        mkdir -p ../../.github/badges
+        cat > ../../.github/badges/capability-matrix.json << BADGE
+        {
+          "schemaVersion": 1,
+          "label": "providers",
+          "message": "${PASSED}/${TOTAL} ${STATUS}",
+          "color": "${COLOR}"
+        }
+        BADGE
+        echo "Badge: ${PASSED}/${TOTAL} ${STATUS}"
