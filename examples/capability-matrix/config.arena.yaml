@@ -93,6 +93,12 @@ spec:
     # Google Gemini Models (uses v1beta API endpoint)
     # ==========================================================================
 
+    # Gemini 3.0 family
+    - file: providers/gemini-3-pro.provider.yaml
+      group: text,streaming,vision,tools,json,audio,video
+    - file: providers/gemini-3-flash.provider.yaml
+      group: text,streaming,vision,tools,json,audio,video
+
     # Gemini 2.5 family
     - file: providers/gemini-25-pro.provider.yaml
       group: text,streaming,vision,tools,json,audio,video

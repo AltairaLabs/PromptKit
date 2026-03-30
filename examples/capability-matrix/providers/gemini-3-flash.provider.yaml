@@ -5,7 +5,7 @@ metadata:
 spec:
   id: gemini-3-flash
   type: gemini
-  model: gemini-3.0-flash-preview
+  model: gemini-3-flash-preview
   capabilities:
     - text
     - streaming
