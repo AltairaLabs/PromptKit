@@ -1,15 +1,22 @@
+// Package web provides the HTTP server and SSE event streaming for the Arena web UI.
 package web
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
+	jsonresults "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -32,32 +39,61 @@ type Server struct {
 	adapter    *EventAdapter
 	engine     engineRunner
 	stateStore *statestore.ArenaStateStore
+	outputDir  string
 	mux        *http.ServeMux
 }
 
 // NewServer creates a new web server.
 // eng and store may be nil (for testing SSE in isolation).
-func NewServer(adapter *EventAdapter, eng *engine.Engine, store *statestore.ArenaStateStore) *Server {
+// outputDir is the path to the results directory (for DELETE /api/results).
+func NewServer(adapter *EventAdapter, eng *engine.Engine, store *statestore.ArenaStateStore, outputDir string) *Server {
 	var runner engineRunner
 	if eng != nil {
 		runner = eng
 	}
-	return newServerWithRunner(adapter, runner, store)
+	return newServerWithRunner(adapter, runner, store, outputDir)
 }
 
 // newServerWithRunner creates a Server using the engineRunner interface (used for testing).
-func newServerWithRunner(adapter *EventAdapter, runner engineRunner, store *statestore.ArenaStateStore) *Server {
+func newServerWithRunner(
+	adapter *EventAdapter, runner engineRunner, store *statestore.ArenaStateStore, outputDir string,
+) *Server {
 	s := &Server{
 		adapter:    adapter,
 		engine:     runner,
 		stateStore: store,
+		outputDir:  outputDir,
 		mux:        http.NewServeMux(),
 	}
 	s.mux.HandleFunc("GET /api/events", s.handleSSE)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
 	s.mux.HandleFunc("GET /api/results", s.handleListResults)
 	s.mux.HandleFunc("GET /api/results/{id}", s.handleGetResult)
+	s.mux.HandleFunc("DELETE /api/results", s.handleClearResults)
 	s.mux.HandleFunc("POST /api/run", s.handleStartRun)
+
+	// SPA fallback: serve embedded frontend
+	sub, subErr := fs.Sub(frontendFS, "frontend/dist")
+	if subErr == nil {
+		fileServer := http.FileServer(http.FS(sub))
+		s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// Try serving the exact file first
+			urlPath := r.URL.Path
+			if urlPath == "/" {
+				urlPath = "/index.html"
+			}
+			// Check if the file exists in the embedded FS
+			if f, openErr := sub.Open(path.Clean(strings.TrimPrefix(urlPath, "/"))); openErr == nil {
+				_ = f.Close()
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+			// SPA fallback: serve index.html for client-side routing
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+		})
+	}
+
 	return s
 }
 
@@ -189,6 +225,86 @@ func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// handleClearResults deletes all result files from the output directory
+// and clears the in-memory state store.
+func (s *Server) handleClearResults(w http.ResponseWriter, _ *http.Request) {
+	if s.stateStore == nil {
+		http.Error(w, "no state store", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Clear in-memory state
+	s.stateStore.Clear()
+
+	// Delete result files from disk
+	deleted := 0
+	if s.outputDir != "" {
+		entries, err := os.ReadDir(s.outputDir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if strings.HasSuffix(name, ".json") {
+					_ = os.Remove(filepath.Join(s.outputDir, name))
+					deleted++
+				}
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"cleared": true,
+		"deleted": deleted,
+	})
+}
+
+// LoadResultsIntoStore loads existing JSON run results from outDir into the state store.
+// Returns the number of results successfully loaded.
+func LoadResultsIntoStore(outDir string, store *statestore.ArenaStateStore) int {
+	repo := jsonresults.NewJSONResultRepository(outDir)
+	results, err := repo.LoadResults()
+	if err != nil {
+		return 0
+	}
+
+	ctx := context.Background()
+	loaded := 0
+	for i := range results {
+		r := &results[i]
+		convState := &runtimestore.ConversationState{
+			ID:       r.RunID,
+			Messages: r.Messages,
+			Metadata: make(map[string]interface{}),
+		}
+		if saveErr := store.Save(ctx, convState); saveErr != nil {
+			continue
+		}
+		meta := &statestore.RunMetadata{
+			RunID:                        r.RunID,
+			PromptPack:                   r.PromptPack,
+			Region:                       r.Region,
+			ScenarioID:                   r.ScenarioID,
+			ProviderID:                   r.ProviderID,
+			Params:                       r.Params,
+			Commit:                       r.Commit,
+			StartTime:                    r.StartTime,
+			EndTime:                      r.EndTime,
+			Duration:                     r.Duration,
+			Error:                        r.Error,
+			SelfPlay:                     r.SelfPlay,
+			PersonaID:                    r.PersonaID,
+			ConversationAssertionResults: r.ConversationAssertions.Results,
+		}
+		if saveErr := store.SaveMetadata(ctx, r.RunID, meta); saveErr != nil {
+			continue
+		}
+		loaded++
+	}
+	return loaded
 }
 
 // writeJSON writes a JSON response with the given status code.

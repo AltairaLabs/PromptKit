@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func (m *mockEngine) GetConfig() *config.Config {
 
 func TestSSEEndpoint(t *testing.T) {
 	adapter := NewEventAdapter()
-	srv := NewServer(adapter, nil, nil) // no engine or statestore needed for SSE test
+	srv := NewServer(adapter, nil, nil, "") // no engine or statestore needed for SSE test
 
 	// Start test server
 	ts := httptest.NewServer(srv.Handler())
@@ -98,7 +99,7 @@ func TestSSEEndpoint(t *testing.T) {
 func TestListResultsNilStore(t *testing.T) {
 	adapter := NewEventAdapter()
 	// nil store — should return empty JSON array
-	srv := NewServer(adapter, nil, nil)
+	srv := NewServer(adapter, nil, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -125,7 +126,7 @@ func TestListResultsNilStore(t *testing.T) {
 func TestListResultsEmpty(t *testing.T) {
 	adapter := NewEventAdapter()
 	store := statestore.NewArenaStateStore()
-	srv := NewServer(adapter, nil, store)
+	srv := NewServer(adapter, nil, store, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -152,7 +153,7 @@ func TestListResultsEmpty(t *testing.T) {
 func TestGetResultNotFound(t *testing.T) {
 	adapter := NewEventAdapter()
 	store := statestore.NewArenaStateStore()
-	srv := NewServer(adapter, nil, store)
+	srv := NewServer(adapter, nil, store, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -170,7 +171,7 @@ func TestGetResultNotFound(t *testing.T) {
 
 func TestStartRunNoEngine(t *testing.T) {
 	adapter := NewEventAdapter()
-	srv := NewServer(adapter, nil, nil)
+	srv := NewServer(adapter, nil, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -189,7 +190,7 @@ func TestStartRunNoEngine(t *testing.T) {
 func TestStartRunPlanError(t *testing.T) {
 	adapter := NewEventAdapter()
 	mock := &mockEngine{planErr: fmt.Errorf("invalid scenario")}
-	srv := newServerWithRunner(adapter, mock, nil)
+	srv := newServerWithRunner(adapter, mock, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -208,7 +209,7 @@ func TestStartRunPlanError(t *testing.T) {
 func TestStartRunNoCombinations(t *testing.T) {
 	adapter := NewEventAdapter()
 	mock := &mockEngine{plan: &engine.RunPlan{Combinations: nil}}
-	srv := newServerWithRunner(adapter, mock, nil)
+	srv := newServerWithRunner(adapter, mock, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -229,7 +230,7 @@ func TestStartRunSuccess(t *testing.T) {
 	mock := &mockEngine{plan: &engine.RunPlan{
 		Combinations: []engine.RunCombination{{ScenarioID: "greeting", ProviderID: "openai"}},
 	}}
-	srv := newServerWithRunner(adapter, mock, nil)
+	srv := newServerWithRunner(adapter, mock, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -257,7 +258,7 @@ func TestGetConfigWithEngine(t *testing.T) {
 	adapter := NewEventAdapter()
 	cfg := &config.Config{}
 	mock := &mockEngine{cfg: cfg}
-	srv := newServerWithRunner(adapter, mock, nil)
+	srv := newServerWithRunner(adapter, mock, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -275,7 +276,7 @@ func TestGetConfigWithEngine(t *testing.T) {
 
 func TestGetConfigNoEngine(t *testing.T) {
 	adapter := NewEventAdapter()
-	srv := NewServer(adapter, nil, nil)
+	srv := NewServer(adapter, nil, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -306,7 +307,7 @@ func TestListResultsWithData(t *testing.T) {
 		t.Fatalf("SaveMetadata: %v", err)
 	}
 
-	srv := NewServer(adapter, nil, store)
+	srv := NewServer(adapter, nil, store, "")
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -343,7 +344,7 @@ func TestGetResultFound(t *testing.T) {
 		t.Fatalf("SaveMetadata: %v", err)
 	}
 
-	srv := NewServer(adapter, nil, store)
+	srv := NewServer(adapter, nil, store, "")
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -368,7 +369,7 @@ func TestGetResultFound(t *testing.T) {
 
 func TestGetResultNoStore(t *testing.T) {
 	adapter := NewEventAdapter()
-	srv := NewServer(adapter, nil, nil)
+	srv := NewServer(adapter, nil, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -386,7 +387,7 @@ func TestGetResultNoStore(t *testing.T) {
 
 func TestSSEHeaders(t *testing.T) {
 	adapter := NewEventAdapter()
-	srv := NewServer(adapter, nil, nil)
+	srv := NewServer(adapter, nil, nil, "")
 
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -409,5 +410,122 @@ func TestSSEHeaders(t *testing.T) {
 	}
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
+	}
+}
+
+func TestClearResults(t *testing.T) {
+	adapter := NewEventAdapter()
+	store := statestore.NewArenaStateStore()
+
+	// Seed a run
+	ctx := context.Background()
+	_ = store.SaveMetadata(ctx, "run-clear", &statestore.RunMetadata{
+		RunID:      "run-clear",
+		ScenarioID: "test",
+		ProviderID: "mock",
+	})
+
+	// Create a temp dir with a JSON file
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(tmpDir+"/run-clear.json", []byte(`{}`), 0600)
+	_ = os.WriteFile(tmpDir+"/index.json", []byte(`{}`), 0600)
+
+	srv := NewServer(adapter, nil, store, tmpDir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Verify results exist
+	ids, _ := store.ListRunIDs(ctx)
+	if len(ids) != 1 {
+		t.Fatalf("expected 1 run before clear, got %d", len(ids))
+	}
+
+	// DELETE /api/results
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, ts.URL+"/api/results", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	// Verify state store is empty
+	ids, _ = store.ListRunIDs(ctx)
+	if len(ids) != 0 {
+		t.Errorf("expected 0 runs after clear, got %d", len(ids))
+	}
+
+	// Verify files are deleted
+	entries, _ := os.ReadDir(tmpDir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			t.Errorf("file %s should have been deleted", e.Name())
+		}
+	}
+}
+
+func TestClearResultsNoStore(t *testing.T) {
+	adapter := NewEventAdapter()
+	srv := NewServer(adapter, nil, nil, "")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodDelete, ts.URL+"/api/results", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
+	}
+}
+
+func TestLoadResultsIntoStore(t *testing.T) {
+	store := statestore.NewArenaStateStore()
+
+	// Empty dir — should return 0
+	emptyDir := t.TempDir()
+	n := LoadResultsIntoStore(emptyDir, store)
+	if n != 0 {
+		t.Errorf("empty dir: got %d, want 0", n)
+	}
+
+	// Nonexistent dir — should return 0
+	n = LoadResultsIntoStore("/nonexistent/path", store)
+	if n != 0 {
+		t.Errorf("nonexistent dir: got %d, want 0", n)
+	}
+
+	// Dir with valid results
+	dir := t.TempDir()
+	idx := `{"run_ids":["run-1","run-2"]}`
+	run1 := `{"RunID":"run-1","ScenarioID":"s1","ProviderID":"p1","Region":"default","Messages":[{"role":"user","content":"hi"}],"Cost":{"total_cost_usd":0.01},"Duration":1000000000}`
+	run2 := `{"RunID":"run-2","ScenarioID":"s2","ProviderID":"p2","Region":"default","Messages":[],"Cost":{"total_cost_usd":0},"Duration":500000000,"Error":"boom"}`
+	_ = os.WriteFile(dir+"/index.json", []byte(idx), 0600)
+	_ = os.WriteFile(dir+"/run-1.json", []byte(run1), 0600)
+	_ = os.WriteFile(dir+"/run-2.json", []byte(run2), 0600)
+
+	n = LoadResultsIntoStore(dir, store)
+	if n != 2 {
+		t.Errorf("got %d loaded, want 2", n)
+	}
+
+	ctx := context.Background()
+	ids, _ := store.ListRunIDs(ctx)
+	if len(ids) != 2 {
+		t.Errorf("store has %d runs, want 2", len(ids))
+	}
+
+	result, err := store.GetResult(ctx, "run-1")
+	if err != nil {
+		t.Fatalf("GetResult run-1: %v", err)
+	}
+	if result.ScenarioID != "s1" {
+		t.Errorf("ScenarioID = %q, want s1", result.ScenarioID)
 	}
 }

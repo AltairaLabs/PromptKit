@@ -16,12 +16,12 @@ func TestAdapter_RegisterAndBroadcast(t *testing.T) {
 	ch1 := adapter.Register()
 	ch2 := adapter.Register()
 
-	// Create a fake event
+	// Create a fake event — uses pointer receiver to match what EmitCustom sends
 	event := &events.Event{
 		Type:        events.EventType("arena.run.started"),
 		Timestamp:   time.Now(),
 		ExecutionID: "run-1",
-		Data: events.CustomEventData{
+		Data: &events.CustomEventData{
 			EventName: "run_started",
 			Data: map[string]interface{}{
 				"scenario": "greeting",
@@ -74,7 +74,7 @@ func TestAdapter_Unregister(t *testing.T) {
 	event := &events.Event{
 		Type:      events.EventType("arena.run.started"),
 		Timestamp: time.Now(),
-		Data: events.CustomEventData{
+		Data: &events.CustomEventData{
 			EventName: "run_started",
 			Data:      map[string]interface{}{},
 		},
@@ -182,7 +182,7 @@ func TestAdapter_Subscribe(t *testing.T) {
 	bus.Publish(&events.Event{
 		Type:      events.EventType("arena.run.started"),
 		Timestamp: time.Now(),
-		Data: events.CustomEventData{
+		Data: &events.CustomEventData{
 			EventName: "run_started",
 			Data:      map[string]interface{}{"scenario": "test"},
 		},
@@ -475,6 +475,54 @@ func TestAdapter_MapValidationEventPtr(t *testing.T) {
 	}
 }
 
+// TestAdapter_CustomEventDataPointer verifies that *CustomEventData (pointer,
+// which is what EmitCustom actually sends) produces populated data, not nil.
+// This was the root cause of the blank-screen bug: the adapter only matched
+// the value receiver, so arena events arrived with data:null in the browser.
+func TestAdapter_CustomEventDataPointer(t *testing.T) {
+	adapter := NewEventAdapter()
+	ch := adapter.Register()
+
+	// EmitCustom sends &CustomEventData{} — pointer receiver
+	adapter.HandleEvent(&events.Event{
+		Type:        events.EventType("arena.run.started"),
+		Timestamp:   time.Now(),
+		ExecutionID: "run-ptr",
+		Data: &events.CustomEventData{
+			EventName: "run_started",
+			Data: map[string]interface{}{
+				"scenario": "greeting",
+				"provider": "openai",
+				"region":   "default",
+			},
+		},
+	})
+
+	select {
+	case msg := <-ch:
+		var got SSEEvent
+		if err := json.Unmarshal(msg, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		// The critical assertion: data must NOT be nil
+		if got.Data == nil {
+			t.Fatal("data is nil — pointer CustomEventData not handled")
+		}
+		data, ok := got.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want map", got.Data)
+		}
+		if data["scenario"] != "greeting" {
+			t.Errorf("scenario = %v, want greeting", data["scenario"])
+		}
+		if data["provider"] != "openai" {
+			t.Errorf("provider = %v, want openai", data["provider"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out")
+	}
+}
+
 func TestAdapter_MapUnknownEventData(t *testing.T) {
 	adapter := NewEventAdapter()
 	ch := adapter.Register()
@@ -507,7 +555,7 @@ func TestAdapter_DropOnFullBuffer(t *testing.T) {
 	event := &events.Event{
 		Type:      events.EventType("arena.run.started"),
 		Timestamp: time.Now(),
-		Data: events.CustomEventData{
+		Data: &events.CustomEventData{
 			EventName: "test",
 			Data:      map[string]interface{}{},
 		},

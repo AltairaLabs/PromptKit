@@ -739,3 +739,40 @@ func TestBuildConversationAssertionsSummary(t *testing.T) {
 		}
 	})
 }
+
+func TestClear(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	// Add some data
+	state := &runtimestore.ConversationState{
+		ID:       "run-1",
+		Messages: []types.Message{{Role: "user", Content: "hello"}},
+		Metadata: map[string]interface{}{},
+	}
+	if err := store.Save(ctx, state); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.SaveMetadata(ctx, "run-1", &RunMetadata{RunID: "run-1", ScenarioID: "test"}); err != nil {
+		t.Fatalf("SaveMetadata: %v", err)
+	}
+
+	ids, _ := store.ListRunIDs(ctx)
+	if len(ids) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(ids))
+	}
+
+	// Clear and verify empty
+	store.Clear()
+
+	ids, _ = store.ListRunIDs(ctx)
+	if len(ids) != 0 {
+		t.Errorf("expected 0 runs after Clear, got %d", len(ids))
+	}
+
+	// Verify Load returns not found
+	_, err := store.Load(ctx, "run-1")
+	if err == nil {
+		t.Error("expected error loading cleared conversation")
+	}
+}

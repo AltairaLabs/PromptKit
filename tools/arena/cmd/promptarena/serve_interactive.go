@@ -12,6 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"log"
+
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
@@ -98,8 +100,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Get state store for results API
 	arenaStore, _ := eng.GetStateStore().(*statestore.ArenaStateStore)
 
+	// Resolve output directory
+	outDir := cfg.Defaults.Output.Dir
+	if outDir == "" {
+		outDir = "out"
+	}
+	if !filepath.IsAbs(outDir) {
+		outDir = filepath.Join(cfg.Defaults.ConfigDir, outDir)
+	}
+
+	// Load existing results from the output directory (if any)
+	if arenaStore != nil {
+		if n := web.LoadResultsIntoStore(outDir, arenaStore); n > 0 {
+			log.Printf("Loaded %d existing run result(s) from %s", n, outDir)
+		}
+	}
+
 	// Create web server
-	srv := web.NewServer(adapter, eng, arenaStore)
+	srv := web.NewServer(adapter, eng, arenaStore, outDir)
 
 	// Check port availability
 	//nolint:noctx // Dev tool - context not needed for port check
