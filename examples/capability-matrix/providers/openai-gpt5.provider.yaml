@@ -14,9 +14,9 @@ spec:
     - json
     - audio
   defaults:
-    temperature: 0.1
+    temperature: 0
     max_tokens: 500
-    top_p: 1.0
+    top_p: 0
   pricing:
     input_cost_per_1k: 0.005
     output_cost_per_1k: 0.015
