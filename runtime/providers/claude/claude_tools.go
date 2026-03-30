@@ -289,6 +289,11 @@ func addClaudeToolConfig(request map[string]interface{}, tools interface{}, tool
 		request["tool_choice"] = map[string]interface{}{"type": "auto"}
 	case "required", "any":
 		request["tool_choice"] = map[string]interface{}{"type": "any"}
+	case "none":
+		// Claude doesn't support tool_choice: "none" directly.
+		// Omit tool_choice to let the model decide not to use tools.
+		// The tools are still sent (so the model knows they exist) but
+		// no forced selection is applied.
 	default:
 		request["tool_choice"] = map[string]interface{}{
 			"type": "tool",

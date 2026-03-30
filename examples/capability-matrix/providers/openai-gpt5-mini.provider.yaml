@@ -12,6 +12,9 @@ spec:
     - vision
     - tools
     - json
+  unsupported_params:
+    - temperature
+    - top_p
   defaults:
     temperature: 0.1
     max_tokens: 500

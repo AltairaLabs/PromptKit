@@ -86,6 +86,10 @@ type ProviderSpec struct {
 	// PlatformConfig holds platform-specific configuration.
 	// Only set when Platform is non-empty.
 	PlatformConfig *PlatformConfig
+
+	// UnsupportedParams lists model parameters not supported by this provider model.
+	// For example, o-series OpenAI models don't support "temperature", "top_p", or "max_tokens".
+	UnsupportedParams []string
 }
 
 // Credential applies authentication to HTTP requests.

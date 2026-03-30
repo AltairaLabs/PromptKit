@@ -1102,6 +1102,9 @@ type Provider struct {
 	Platform         *PlatformConfig        `json:"platform,omitempty" yaml:"platform,omitempty"`
 	// Capabilities lists what this provider supports: text, streaming, vision, tools, json, audio, video, documents
 	Capabilities []string `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	// UnsupportedParams lists model parameters not supported by this provider model
+	// (e.g. "temperature", "top_p", "max_tokens").
+	UnsupportedParams []string `json:"unsupported_params,omitempty" yaml:"unsupported_params,omitempty"`
 }
 
 // CredentialConfig is an alias for credentials.CredentialConfig.

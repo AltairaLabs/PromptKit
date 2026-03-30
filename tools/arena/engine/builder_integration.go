@@ -204,15 +204,16 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 	}
 
 	spec := providers.ProviderSpec{
-		ID:               provider.ID,
-		Type:             provider.Type,
-		Model:            provider.Model,
-		BaseURL:          provider.BaseURL,
-		IncludeRawOutput: provider.IncludeRawOutput,
-		AdditionalConfig: provider.AdditionalConfig,
-		Credential:       cred,
-		Platform:         platform,
-		PlatformConfig:   platformConfig,
+		ID:                provider.ID,
+		Type:              provider.Type,
+		Model:             provider.Model,
+		BaseURL:           provider.BaseURL,
+		IncludeRawOutput:  provider.IncludeRawOutput,
+		AdditionalConfig:  provider.AdditionalConfig,
+		Credential:        cred,
+		Platform:          platform,
+		PlatformConfig:    platformConfig,
+		UnsupportedParams: provider.UnsupportedParams,
 		Defaults: providers.ProviderDefaults{
 			Temperature: provider.Defaults.Temperature,
 			TopP:        provider.Defaults.TopP,

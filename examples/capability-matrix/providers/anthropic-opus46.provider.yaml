@@ -1,25 +1,22 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: openai-gpt5
+  name: anthropic-opus46
 spec:
-  id: openai-gpt5
-  type: openai
-  model: gpt-5
+  id: anthropic-opus46
+  type: claude
+  model: claude-opus-4-6
   capabilities:
     - text
     - streaming
     - vision
     - tools
     - json
-    - audio
-  unsupported_params:
-    - temperature
-    - top_p
+    - documents
   defaults:
     temperature: 0.1
-    max_tokens: 500
     top_p: 1.0
+    max_tokens: 500
   pricing:
     input_cost_per_1k: 0.005
-    output_cost_per_1k: 0.015
+    output_cost_per_1k: 0.025

@@ -57,6 +57,7 @@ func TestToolProvider_Contract(t *testing.T) {
 		},
 		false,
 		nil,
+		nil,
 	)
 	defer provider.Close()
 

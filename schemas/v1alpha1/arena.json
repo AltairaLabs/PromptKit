@@ -1649,6 +1649,12 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "unsupported_params": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,

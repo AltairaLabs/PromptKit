@@ -1078,3 +1078,78 @@ func TestExtractContentParts(t *testing.T) {
 		}
 	})
 }
+
+// TestAddClaudeToolConfig_ToolChoice tests that all tool_choice values are
+// correctly mapped to Claude's API format. Regression test for the "Tool 'none'
+// not found" bug where tool_choice: "none" was sent as {"type":"tool","name":"none"}.
+func TestAddClaudeToolConfig_ToolChoice(t *testing.T) {
+	dummyTools := []map[string]interface{}{
+		{"name": "get_weather", "description": "Get weather"},
+	}
+
+	tests := []struct {
+		name       string
+		toolChoice string
+		wantKey    bool                   // expect tool_choice key in request
+		wantValue  map[string]interface{} // expected tool_choice value (nil if key should be absent)
+	}{
+		{
+			name:       "empty string — no tool_choice set",
+			toolChoice: "",
+			wantKey:    false,
+		},
+		{
+			name:       "auto",
+			toolChoice: "auto",
+			wantKey:    true,
+			wantValue:  map[string]interface{}{"type": "auto"},
+		},
+		{
+			name:       "required maps to any",
+			toolChoice: "required",
+			wantKey:    true,
+			wantValue:  map[string]interface{}{"type": "any"},
+		},
+		{
+			name:       "any",
+			toolChoice: "any",
+			wantKey:    true,
+			wantValue:  map[string]interface{}{"type": "any"},
+		},
+		{
+			name:       "none — must NOT send as tool name",
+			toolChoice: "none",
+			wantKey:    false, // "none" means don't use tools — omit tool_choice
+		},
+		{
+			name:       "specific tool name",
+			toolChoice: "get_weather",
+			wantKey:    true,
+			wantValue:  map[string]interface{}{"type": "tool", "name": "get_weather"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := make(map[string]interface{})
+			addClaudeToolConfig(request, dummyTools, tt.toolChoice)
+
+			got, exists := request["tool_choice"]
+			if !tt.wantKey {
+				if exists {
+					t.Errorf("tool_choice should not be set, but got %v", got)
+				}
+				return
+			}
+			if !exists {
+				t.Fatal("expected tool_choice to be set")
+			}
+
+			gotJSON, _ := json.Marshal(got)
+			wantJSON, _ := json.Marshal(tt.wantValue)
+			if string(gotJSON) != string(wantJSON) {
+				t.Errorf("tool_choice = %s, want %s", gotJSON, wantJSON)
+			}
+		})
+	}
+}

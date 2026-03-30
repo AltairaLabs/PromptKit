@@ -23,7 +23,7 @@ func TestNewToolProvider(t *testing.T) {
 		MaxTokens:   1000,
 	}
 
-	provider := NewToolProvider("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil)
+	provider := NewToolProvider("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, nil)
 
 	if provider == nil {
 		t.Fatal("Expected non-nil provider")
@@ -46,7 +46,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 
 	t.Run("with credential", func(t *testing.T) {
 		cred := &mockCredential{credType: "api_key"}
-		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, cred, "", nil)
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, cred, "", nil, nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -62,7 +62,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 	})
 
 	t.Run("with nil credential", func(t *testing.T) {
-		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, nil, "", nil)
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, nil, nil, "", nil, nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -71,7 +71,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 
 	t.Run("with additional config", func(t *testing.T) {
 		additionalConfig := map[string]any{"key": "value"}
-		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, additionalConfig, nil, "", nil)
+		provider := NewToolProviderWithCredential("test-openai", "gpt-4", "https://api.openai.com/v1", defaults, false, additionalConfig, nil, "", nil, nil)
 
 		if provider == nil {
 			t.Fatal("Expected non-nil provider")
@@ -84,7 +84,7 @@ func TestNewToolProviderWithCredential(t *testing.T) {
 // ============================================================================
 
 func TestOpenAIBuildTooling_Empty(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	tools, err := provider.BuildTooling(nil)
 	if err != nil {
@@ -97,7 +97,7 @@ func TestOpenAIBuildTooling_Empty(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_SingleTool(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
 	descriptors := []*providers.ToolDescriptor{
@@ -156,7 +156,7 @@ func TestOpenAIBuildTooling_SingleTool(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_MultipleTools(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	schema1 := json.RawMessage(`{"type": "object", "properties": {"query": {"type": "string"}}}`)
 	schema2 := json.RawMessage(`{"type": "object", "properties": {"code": {"type": "string"}}}`)
@@ -200,7 +200,7 @@ func TestOpenAIBuildTooling_MultipleTools(t *testing.T) {
 }
 
 func TestOpenAIBuildTooling_ComplexSchema(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	schema := json.RawMessage(`{
 		"type": "object",
@@ -258,7 +258,7 @@ func TestOpenAIBuildTooling_ComplexSchema(t *testing.T) {
 // ============================================================================
 
 func TestOpenAIParseToolResponse_NoToolCalls(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -303,7 +303,7 @@ func TestOpenAIParseToolResponse_NoToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -371,7 +371,7 @@ func TestOpenAIParseToolResponse_WithToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -436,7 +436,7 @@ func TestOpenAIParseToolResponse_MultipleToolCalls(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_InvalidJSON(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	responseJSON := `{invalid json`
 
@@ -447,7 +447,7 @@ func TestOpenAIParseToolResponse_InvalidJSON(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -479,7 +479,7 @@ func TestOpenAIParseToolResponse_MissingFields(t *testing.T) {
 }
 
 func TestOpenAIParseToolResponse_CachedTokens(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	responseJSON := `{
 		"id": "predictcmpl-123",
@@ -603,7 +603,7 @@ func TestOpenAIToolCallStructure(t *testing.T) {
 // ============================================================================
 
 func TestToolProvider_AddToolChoiceToRequest(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	tests := []struct {
 		name       string
@@ -735,6 +735,7 @@ func TestOpenAIToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				},
 				false,
 				nil,
+				nil,
 			)
 
 			req := providers.PredictionRequest{
@@ -770,7 +771,7 @@ func TestToolProvider_PredictStreamWithTools_BuildsRequestWithTools(t *testing.T
 	// We can't test the actual streaming without a mock server, but we can verify the method exists
 	// and has the correct signature
 
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Verify the provider implements the interface with PredictStreamWithTools
 	var _ providers.ToolSupport = provider
@@ -810,7 +811,7 @@ func TestToolProvider_PredictStreamWithTools_BuildsRequestWithTools(t *testing.T
 }
 
 func TestToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Verify it implements ToolSupport interface which now includes PredictStreamWithTools
 	var toolSupport providers.ToolSupport = provider
@@ -853,7 +854,7 @@ data: [DONE]
 
 	// Use Chat Completions API mode since mock returns that format
 	additionalConfig := map[string]any{"api_mode": "completions"}
-	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, additionalConfig)
+	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, additionalConfig, nil)
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
 	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
@@ -909,7 +910,7 @@ data: [DONE]
 
 	// Use Chat Completions API mode since mock returns that format
 	additionalConfig := map[string]any{"api_mode": "completions"}
-	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, additionalConfig)
+	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, additionalConfig, nil)
 
 	schema := json.RawMessage(`{"type": "object", "properties": {"q": {"type": "string"}}}`)
 	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
@@ -958,7 +959,7 @@ func TestToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", server.URL, providers.ProviderDefaults{}, false, nil, nil)
 
 	ctx := context.Background()
 	_, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
@@ -981,7 +982,7 @@ func TestToolProvider_ConvertToolResultMessage_ContentIsSet(t *testing.T) {
 	// This test verifies the bug fix: tool result messages must use ToolResult.Content
 	// as the message content, not the (empty) Message.Content field.
 
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	// Create a tool result message (as created by stages_provider.go executeToolCalls)
 	// Note: Message.Content is NOT set - only ToolResult.Content has the data
@@ -1024,7 +1025,7 @@ func TestToolProvider_ConvertToolResultMessage_ContentIsSet(t *testing.T) {
 // TestToolProvider_ConvertRequestMessages_ToolResultHasContent verifies that when building
 // messages for a request with tool results, the content is properly included.
 func TestToolProvider_ConvertRequestMessages_ToolResultHasContent(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil)
+	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
 
 	req := providers.PredictionRequest{
 		Messages: []types.Message{
