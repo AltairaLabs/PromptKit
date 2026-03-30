@@ -1,11 +1,11 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: anthropic-sonnet37
+  name: anthropic-sonnet46
 spec:
-  id: anthropic-sonnet37
+  id: anthropic-sonnet46
   type: claude
-  model: claude-3-7-sonnet-20250219
+  model: claude-sonnet-4-6
   capabilities:
     - text
     - streaming
