@@ -11,7 +11,7 @@ spec:
     - duplex
   defaults:
     temperature: 0.1
-    max_tokens: 50
+    max_tokens: 100
     top_p: 1.0
   pricing:
     # Audio tokens: ~$0.10 per minute input, ~$0.24 per minute output
