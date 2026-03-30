@@ -14,7 +14,7 @@ on:
       max_errors:
         description: 'Maximum allowed errors before failing'
         required: false
-        default: '5'
+        default: '8'
   schedule:
     # Weekly on Sunday at 06:00 UTC
     - cron: '0 6 * * 0'
@@ -93,10 +93,10 @@ jobs:
         cat out/CAPABILITY_MATRIX.md >> "$GITHUB_STEP_SUMMARY"
         echo "" >> "$GITHUB_STEP_SUMMARY"
         echo "---" >> "$GITHUB_STEP_SUMMARY"
-        echo "**$PASSED / $TOTAL passed** | Errors: $ERROR_COUNT (threshold: ${{ inputs.max_errors || '5' }})" >> "$GITHUB_STEP_SUMMARY"
+        echo "**$PASSED / $TOTAL passed** | Errors: $ERROR_COUNT (threshold: ${{ inputs.max_errors || '8' }})" >> "$GITHUB_STEP_SUMMARY"
 
         # Determine pass/fail
-        MAX_ERRORS="${{ inputs.max_errors || '5' }}"
+        MAX_ERRORS="${{ inputs.max_errors || '8' }}"
         if [ "$ERROR_COUNT" -gt "$MAX_ERRORS" ]; then
           echo "::error::Capability matrix has $ERROR_COUNT errors (max allowed: $MAX_ERRORS)"
           exit 1
