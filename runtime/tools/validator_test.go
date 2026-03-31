@@ -281,3 +281,113 @@ func TestSchemaValidatorWithSize_ZeroDefaults(t *testing.T) {
 	v := NewSchemaValidatorWithSize(0)
 	assert.Equal(t, DefaultMaxSchemaCacheSize, v.maxSize)
 }
+
+func TestCoerceArgs(t *testing.T) {
+	validator := NewSchemaValidator()
+
+	schema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"query": {"type": "string"},
+			"limit": {"type": "integer"},
+			"min_confidence": {"type": "number"},
+			"enabled": {"type": "boolean"},
+			"tags": {"type": "array", "items": {"type": "string"}}
+		}
+	}`)
+
+	descriptor := &ToolDescriptor{
+		Name:        "test-tool",
+		InputSchema: schema,
+	}
+
+	t.Run("coerces string to integer", func(t *testing.T) {
+		args := json.RawMessage(`{"query": "hello", "limit": "10"}`)
+		coerced, coercions, err := validator.CoerceArgs(descriptor, args)
+		require.NoError(t, err)
+		assert.NotEmpty(t, coercions)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		assert.Equal(t, float64(10), result["limit"]) // JSON numbers are float64
+	})
+
+	t.Run("coerces string to number", func(t *testing.T) {
+		args := json.RawMessage(`{"query": "hello", "min_confidence": "0.85"}`)
+		coerced, coercions, err := validator.CoerceArgs(descriptor, args)
+		require.NoError(t, err)
+		assert.NotEmpty(t, coercions)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		assert.Equal(t, 0.85, result["min_confidence"])
+	})
+
+	t.Run("coerces string to boolean", func(t *testing.T) {
+		args := json.RawMessage(`{"query": "hello", "enabled": "true"}`)
+		coerced, coercions, err := validator.CoerceArgs(descriptor, args)
+		require.NoError(t, err)
+		assert.NotEmpty(t, coercions)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		assert.Equal(t, true, result["enabled"])
+	})
+
+	t.Run("coerces false string to boolean", func(t *testing.T) {
+		args := json.RawMessage(`{"query": "hello", "enabled": "false"}`)
+		coerced, _, err := validator.CoerceArgs(descriptor, args)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		assert.Equal(t, false, result["enabled"])
+	})
+
+	t.Run("no coercion needed — passes through", func(t *testing.T) {
+		args := json.RawMessage(`{"query": "hello", "limit": 10, "min_confidence": 0.5, "enabled": true}`)
+		coerced, coercions, err := validator.CoerceArgs(descriptor, args)
+		require.NoError(t, err)
+		assert.Empty(t, coercions)
+		assert.Equal(t, args, coerced)
+	})
+
+	t.Run("coerces multiple fields at once", func(t *testing.T) {
+		args := json.RawMessage(`{"query": "hello", "limit": "5", "min_confidence": "0", "enabled": "true"}`)
+		coerced, coercions, err := validator.CoerceArgs(descriptor, args)
+		require.NoError(t, err)
+		assert.Len(t, coercions, 3)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		assert.Equal(t, float64(5), result["limit"])
+		assert.Equal(t, float64(0), result["min_confidence"])
+		assert.Equal(t, true, result["enabled"])
+	})
+
+	t.Run("leaves strings alone", func(t *testing.T) {
+		args := json.RawMessage(`{"query": "hello"}`)
+		coerced, coercions, err := validator.CoerceArgs(descriptor, args)
+		require.NoError(t, err)
+		assert.Empty(t, coercions)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		assert.Equal(t, "hello", result["query"])
+	})
+
+	t.Run("no schema — passes through", func(t *testing.T) {
+		noSchema := &ToolDescriptor{Name: "no-schema"}
+		args := json.RawMessage(`{"limit": "10"}`)
+		coerced, coercions, err := validator.CoerceArgs(noSchema, args)
+		require.NoError(t, err)
+		assert.Empty(t, coercions)
+		assert.Equal(t, args, coerced)
+	})
+
+	t.Run("invalid string for integer — returns error", func(t *testing.T) {
+		args := json.RawMessage(`{"limit": "not-a-number"}`)
+		_, _, err := validator.CoerceArgs(descriptor, args)
+		assert.Error(t, err)
+	})
+}
