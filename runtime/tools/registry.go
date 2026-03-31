@@ -381,6 +381,15 @@ func (r *Registry) Execute(
 		return nil, err
 	}
 
+	// Coerce string-encoded numbers/booleans to match schema types
+	coercedArgs, coercions, coerceErr := r.validator.CoerceArgs(tool, args)
+	if coerceErr != nil {
+		logger.Debug("tool argument coercion failed", "tool", toolName, "error", coerceErr)
+	} else if len(coercions) > 0 {
+		args = coercedArgs
+		logger.Debug("coerced tool arguments", "tool", toolName, "coercions", len(coercions))
+	}
+
 	// Validate arguments
 	if valErr := r.validator.ValidateArgs(tool, args); valErr != nil {
 		logger.Debug("tool argument validation failed",
@@ -484,6 +493,11 @@ func (r *Registry) ExecuteAsync(
 	tool, err := r.GetTool(toolName)
 	if err != nil {
 		return nil, err
+	}
+
+	// Coerce string-encoded numbers/booleans to match schema types
+	if coerced, _, coerceErr := r.validator.CoerceArgs(tool, args); coerceErr == nil && coerced != nil {
+		args = coerced
 	}
 
 	// Validate arguments

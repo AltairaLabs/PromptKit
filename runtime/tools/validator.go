@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -224,4 +225,76 @@ type Coercion struct {
 	Path string `json:"path"`
 	From any    `json:"from"`
 	To   any    `json:"to"`
+}
+
+// CoerceArgs coerces string-encoded values in tool arguments to match the
+// types declared in the tool's input schema. LLMs sometimes send numeric
+// or boolean values as strings (e.g., "10" instead of 10, "true" instead
+// of true). This normalises them before validation and execution.
+func (sv *SchemaValidator) CoerceArgs(
+	descriptor *ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, []Coercion, error) {
+	if len(descriptor.InputSchema) == 0 {
+		return args, nil, nil
+	}
+
+	// Parse the schema to get property types
+	var schema struct {
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(descriptor.InputSchema, &schema); err != nil {
+		return args, nil, nil // can't parse schema, skip coercion
+	}
+	if len(schema.Properties) == 0 {
+		return args, nil, nil
+	}
+
+	// Parse the args
+	var data map[string]any
+	if err := json.Unmarshal(args, &data); err != nil {
+		return args, nil, nil // can't parse args, skip coercion
+	}
+
+	var coercions []Coercion
+	for key, prop := range schema.Properties {
+		str, isString := data[key].(string)
+		if !isString {
+			continue
+		}
+		coerced, err := coerceStringValue(str, prop.Type)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cannot coerce %q=%q to %s: %w", key, str, prop.Type, err)
+		}
+		if coerced != nil {
+			data[key] = coerced
+			coercions = append(coercions, Coercion{Path: key, From: str, To: coerced})
+		}
+	}
+
+	if len(coercions) == 0 {
+		return args, nil, nil
+	}
+
+	coerced, err := json.Marshal(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot marshal coerced args: %w", err)
+	}
+	return coerced, coercions, nil
+}
+
+// coerceStringValue converts a string to the target JSON schema type.
+// Returns nil if no coercion is needed (e.g., target type is "string").
+func coerceStringValue(s, targetType string) (any, error) {
+	switch targetType {
+	case "integer":
+		return strconv.ParseInt(s, 10, 64)
+	case "number":
+		return strconv.ParseFloat(s, 64)
+	case "boolean":
+		return strconv.ParseBool(s)
+	default:
+		return nil, nil
+	}
 }
