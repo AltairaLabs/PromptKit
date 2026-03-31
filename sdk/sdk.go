@@ -241,9 +241,17 @@ func initConversation(
 	wireSkillsConfig(allCaps, cfg)
 	capCtx := newCapabilityContext(p, promptName, cfg)
 	for _, cap := range allCaps {
+		logger.Info("initializing capability", "capability", cap.Name())
 		if err := cap.Init(capCtx); err != nil {
 			return nil, nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
 		}
+	}
+	if len(allCaps) > 0 {
+		names := make([]string, len(allCaps))
+		for i, c := range allCaps {
+			names[i] = c.Name()
+		}
+		logger.Info("capabilities initialized", "capabilities", names, "count", len(allCaps))
 	}
 	conv.capabilities = allCaps
 

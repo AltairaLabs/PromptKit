@@ -378,9 +378,22 @@ func (c *Conversation) buildPipelineConfig(
 	// Register capability tools (includes A2A) — only on first build
 	if !c.capabilitiesRegistered {
 		for _, cap := range c.capabilities {
+			beforeCount := len(c.toolRegistry.List())
 			cap.RegisterTools(c.toolRegistry)
+			afterCount := len(c.toolRegistry.List())
+			registered := afterCount - beforeCount
+			if registered > 0 {
+				logger.Info("capability registered tools",
+					"capability", cap.Name(), "tools_registered", registered)
+			} else {
+				logger.Debug("capability registered no tools", "capability", cap.Name())
+			}
 		}
 		c.capabilitiesRegistered = true
+		allTools := c.toolRegistry.List()
+		if len(allTools) > 0 {
+			logger.Debug("all registered tools", "tools", allTools, "count", len(allTools))
+		}
 	}
 	toolRegistry := c.toolRegistry
 	c.handlersMu.Unlock()
@@ -1047,6 +1060,7 @@ func (c *Conversation) Close() error {
 
 	// Close capabilities
 	for _, cap := range c.capabilities {
+		logger.Debug("closing capability", "capability", cap.Name())
 		if err := cap.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close capability %q: %w", cap.Name(), err))
 		}

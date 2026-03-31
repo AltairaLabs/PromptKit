@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -51,14 +52,20 @@ func newCapabilityContext(p *pack.Pack, promptName string, cfg *config) Capabili
 func inferCapabilities(p *pack.Pack) []Capability {
 	var caps []Capability
 	if p.Workflow != nil {
+		logger.Debug("capability inferred from pack", "capability", "workflow")
 		caps = append(caps, NewWorkflowCapability())
 	}
 	if p.Agents != nil && len(p.Agents.Members) > 0 {
+		logger.Debug("capability inferred from pack", "capability", "a2a", "agents", len(p.Agents.Members))
 		caps = append(caps, NewA2ACapability())
 	}
 	if len(p.Skills) > 0 {
+		logger.Debug("capability inferred from pack", "capability", "skills", "sources", len(p.Skills))
 		sources := convertSkillSources(p.Skills)
 		caps = append(caps, NewSkillsCapability(sources))
+	}
+	if len(caps) == 0 {
+		logger.Debug("no capabilities inferred from pack")
 	}
 	return caps
 }
