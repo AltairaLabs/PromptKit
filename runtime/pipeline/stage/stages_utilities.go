@@ -236,17 +236,20 @@ type VariableProviderStage struct {
 
 // NewVariableProviderStageWithVars creates a variable provider stage with static variables and dynamic providers.
 // Static variables are injected first; dynamic providers can override them.
-func NewVariableProviderStageWithVars(staticVars map[string]string, providers []variables.Provider) *VariableProviderStage {
+func NewVariableProviderStageWithVars(
+	staticVars map[string]string,
+	variableProviders []variables.Provider,
+) *VariableProviderStage {
 	return &VariableProviderStage{
 		BaseStage:  NewBaseStage("variable_provider", StageTypeTransform),
 		staticVars: staticVars,
-		providers:  providers,
+		providers:  variableProviders,
 	}
 }
 
 // NewVariableProviderStage creates a variable provider stage.
-func NewVariableProviderStage(providers ...variables.Provider) *VariableProviderStage {
-	return NewVariableProviderStageWithVars(nil, providers)
+func NewVariableProviderStage(variableProviders ...variables.Provider) *VariableProviderStage {
+	return NewVariableProviderStageWithVars(nil, variableProviders)
 }
 
 // Process resolves variables from all providers and merges them into element metadata.
