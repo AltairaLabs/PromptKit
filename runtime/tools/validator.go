@@ -294,6 +294,18 @@ func coerceStringValue(s, targetType string) (any, error) {
 		return strconv.ParseFloat(s, 64)
 	case "boolean":
 		return strconv.ParseBool(s)
+	case "object":
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(s), &obj); err != nil {
+			return nil, err
+		}
+		return obj, nil
+	case "array":
+		var arr []any
+		if err := json.Unmarshal([]byte(s), &arr); err != nil {
+			return nil, err
+		}
+		return arr, nil
 	default:
 		return nil, nil
 	}
