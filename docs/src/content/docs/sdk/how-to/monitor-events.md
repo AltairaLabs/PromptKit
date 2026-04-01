@@ -53,6 +53,11 @@ EventValidationStarted EventType = "validation.started"
 EventValidationPassed  EventType = "validation.passed"
 EventValidationFailed  EventType = "validation.failed"
 
+// Prompt template rendering
+EventTemplateStarted  EventType = "prompt.template.started"
+EventTemplateRendered EventType = "prompt.template.rendered"
+EventTemplateFailed   EventType = "prompt.template.failed"
+
 // Context & state
 EventContextBuilt          EventType = "context.built"
 EventTokenBudgetExceeded   EventType = "context.token_budget_exceeded"
@@ -291,6 +296,45 @@ func (m *Metrics) Attach(conv *sdk.Conversation) {
         m.mu.Unlock()
     })
 }
+```
+
+## Debug Prompt Templates
+
+Monitor how system prompts are assembled from templates and variables:
+
+```go
+hooks.On(conv, events.EventTemplateRendered, func(e *events.Event) {
+    data := e.Data.(*events.TemplateRenderedData)
+    log.Printf("System prompt rendered: hash=%s vars=%d passes=%d",
+        data.PromptHash[:8], len(data.VariablesUsed), data.RenderPasses)
+    for k, v := range data.VariablesUsed {
+        log.Printf("  %s = %q", k, v)
+    }
+    if len(data.UnusedVariables) > 0 {
+        log.Printf("  unused: %v", data.UnusedVariables)
+    }
+})
+```
+
+The `TemplateRenderedData` includes:
+
+| Field | Description |
+|-------|-------------|
+| `TaskType` | Which prompt was rendered |
+| `SystemPrompt` | Final rendered system prompt text |
+| `PromptHash` | SHA-256 hash for deduplication/comparison |
+| `VariablesUsed` | Variables that were actually substituted (key→value) |
+| `UnusedVariables` | Variables available but not referenced in the template |
+| `FragmentsUsed` | Fragment names that contributed variables |
+| `RenderPasses` | Number of recursive substitution passes |
+
+To catch template errors (e.g., unresolved `{{placeholders}}`):
+
+```go
+hooks.On(conv, events.EventTemplateFailed, func(e *events.Event) {
+    data := e.Data.(*events.TemplateFailedData)
+    log.Printf("Template render failed: %s unresolved=%v", data.Error, data.UnresolvedPlaceholders)
+})
 ```
 
 ## Debug Mode
