@@ -93,8 +93,12 @@ func TestPromptAssemblyStage_NoRegistry(t *testing.T) {
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	// Should use default system prompt
-	assert.Equal(t, "You are a helpful AI assistant.", results[0].Metadata["system_prompt"])
+	// Should use default raw template (not rendered)
+	assert.Equal(t, "You are a helpful AI assistant.", results[0].Metadata["system_template"])
+	// system_prompt must NOT be set — that's TemplateStage's job
+	assert.Nil(t, results[0].Metadata["system_prompt"])
+	// variables must NOT be set — that's VariableProviderStage's job
+	assert.Nil(t, results[0].Metadata["variables"])
 }
 
 func TestPromptAssemblyStage_WithVariables(t *testing.T) {
@@ -125,9 +129,10 @@ func TestPromptAssemblyStage_EnrichesAllElements(t *testing.T) {
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 3)
-	// All elements should have system_prompt
+	// All elements should have system_template (raw, unrendered)
 	for _, elem := range results {
-		assert.Equal(t, "You are a helpful AI assistant.", elem.Metadata["system_prompt"])
+		assert.Equal(t, "You are a helpful AI assistant.", elem.Metadata["system_template"])
+		assert.Nil(t, elem.Metadata["system_prompt"])
 	}
 }
 
@@ -157,7 +162,7 @@ func TestPromptAssemblyStage_WithRegistry(t *testing.T) {
 	cfg := &prompt.Config{
 		Spec: prompt.Spec{
 			TaskType:       "chat",
-			SystemTemplate: "You are a test bot.",
+			SystemTemplate: "You are a {{role}} bot.",
 			Validators: []prompt.ValidatorConfig{
 				{
 					Type:    "banned_words",
@@ -178,7 +183,14 @@ func TestPromptAssemblyStage_WithRegistry(t *testing.T) {
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	assert.Equal(t, "You are a test bot.", results[0].Metadata["system_prompt"])
+	// Raw template — placeholders must NOT be resolved yet
+	assert.Equal(t, "You are a {{role}} bot.", results[0].Metadata["system_template"])
+	// system_prompt must NOT be set — that's TemplateStage's job
+	assert.Nil(t, results[0].Metadata["system_prompt"])
+	// variables must NOT be set — that's VariableProviderStage's job
+	assert.Nil(t, results[0].Metadata["variables"])
+	// template_default_vars should be set (even if empty map)
+	assert.NotNil(t, results[0].Metadata["template_default_vars"])
 	// Validator configs should be passed through
 	assert.NotNil(t, results[0].Metadata["validator_configs"])
 }
@@ -196,8 +208,9 @@ func TestPromptAssemblyStage_RegistryMissing(t *testing.T) {
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	// Should fall back to default system prompt
-	assert.Equal(t, "You are a helpful AI assistant.", results[0].Metadata["system_prompt"])
+	// Should fall back to default raw template
+	assert.Equal(t, "You are a helpful AI assistant.", results[0].Metadata["system_template"])
+	assert.Nil(t, results[0].Metadata["system_prompt"])
 }
 
 func TestPromptAssemblyStage_ExtractValidatorConfigs(t *testing.T) {

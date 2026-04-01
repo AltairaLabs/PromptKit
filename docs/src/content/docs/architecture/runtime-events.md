@@ -135,6 +135,30 @@ Guardrail hooks in the provider stage emit `validation.passed` or `validation.fa
 - `MonitorOnly` — whether the guardrail ran in monitor-only mode
 - `Score` — evaluation score (0.0–1.0)
 
+#### Prompt Template
+
+- `prompt.template.started` - Template rendering begins (includes raw template, variable count, model override)
+- `prompt.template.rendered` - Template rendering succeeds (includes rendered prompt, prompt hash, variables used/unused, fragments, render passes)
+- `prompt.template.failed` - Template rendering fails (includes error, unresolved placeholders)
+
+The `TemplateRenderedData` payload includes:
+
+- `TaskType` — which prompt was rendered
+- `SystemPrompt` — the final rendered system prompt
+- `PromptHash` — SHA-256 hash for deduplication/comparison
+- `VariablesUsed` — variables that were actually substituted (key→value)
+- `UnusedVariables` — variables available but not referenced in the template
+- `FragmentsUsed` — fragment names that contributed variables
+- `RenderPasses` — number of recursive substitution passes needed
+
+```go
+bus.Subscribe(events.EventTemplateRendered, func(e *events.Event) {
+    data := e.Data.(*events.TemplateRenderedData)
+    log.Printf("Prompt rendered: task=%s hash=%s vars_used=%d passes=%d",
+        data.TaskType, data.PromptHash[:8], len(data.VariablesUsed), data.RenderPasses)
+})
+```
+
 #### Context & State
 
 - `context.built` - Message context assembled (includes token counts)

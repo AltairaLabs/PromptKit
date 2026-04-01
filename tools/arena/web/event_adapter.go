@@ -164,6 +164,25 @@ func (a *EventAdapter) mapEvent(event *events.Event) *SSEEvent {
 			"monitorOnly":   data.MonitorOnly,
 			"score":         data.Score,
 		}
+	case *events.TemplateStartedData:
+		sse.Data = map[string]interface{}{
+			"taskType":      data.TaskType,
+			"variableCount": data.VariableCount,
+			"modelOverride": data.ModelOverride,
+		}
+	case *events.TemplateRenderedData:
+		sse.Data = map[string]interface{}{
+			"taskType":      data.TaskType,
+			"promptHash":    data.PromptHash,
+			"variablesUsed": data.VariablesUsed,
+			"renderPasses":  data.RenderPasses,
+		}
+	case *events.TemplateFailedData:
+		sse.Data = map[string]interface{}{
+			"taskType":   data.TaskType,
+			"error":      data.Error,
+			"unresolved": data.UnresolvedPlaceholders,
+		}
 	case events.CustomEventData:
 		sse.Data = data.Data
 	case *events.CustomEventData:

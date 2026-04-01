@@ -108,6 +108,13 @@ const (
 
 	// EventContextCompacted marks context compaction between tool-loop rounds.
 	EventContextCompacted EventType = "context.compacted"
+
+	// EventTemplateStarted marks the start of template rendering.
+	EventTemplateStarted EventType = "prompt.template.started"
+	// EventTemplateRendered marks successful template rendering.
+	EventTemplateRendered EventType = "prompt.template.rendered"
+	// EventTemplateFailed marks a template rendering failure.
+	EventTemplateFailed EventType = "prompt.template.failed"
 )
 
 // EventData is a marker interface for event payloads.
@@ -645,4 +652,33 @@ type ContextCompactionData struct {
 	CompactedTokens int `json:"compacted_tokens"`
 	MessagesFolded  int `json:"messages_folded"`
 	BudgetTokens    int `json:"budget_tokens"`
+}
+
+// TemplateStartedData is emitted before template rendering begins.
+type TemplateStartedData struct {
+	baseEventData
+	TaskType      string `json:"task_type"`
+	RawTemplate   string `json:"raw_template"`
+	VariableCount int    `json:"variable_count"`
+	ModelOverride string `json:"model_override,omitempty"`
+}
+
+// TemplateRenderedData is emitted after successful template rendering.
+type TemplateRenderedData struct {
+	baseEventData
+	TaskType        string            `json:"task_type"`
+	SystemPrompt    string            `json:"system_prompt"`
+	PromptHash      string            `json:"prompt_hash"`
+	VariablesUsed   map[string]string `json:"variables_used"`
+	UnusedVariables []string          `json:"unused_variables,omitempty"`
+	FragmentsUsed   []string          `json:"fragments_used,omitempty"`
+	RenderPasses    int               `json:"render_passes"`
+}
+
+// TemplateFailedData is emitted when template rendering fails.
+type TemplateFailedData struct {
+	baseEventData
+	TaskType               string   `json:"task_type"`
+	Error                  string   `json:"error"`
+	UnresolvedPlaceholders []string `json:"unresolved_placeholders,omitempty"`
 }

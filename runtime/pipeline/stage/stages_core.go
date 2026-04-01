@@ -35,32 +35,35 @@ func NewPromptAssemblyStage(
 	}
 }
 
-// Process loads and assembles the prompt, enriching elements with prompt data.
+// Process loads the prompt template and enriches elements with raw template metadata.
+// It does NOT render the template — that is TemplateStage's responsibility.
+// It does NOT set metadata["variables"] — that is VariableProviderStage's responsibility.
 //
 //nolint:lll // Channel signature cannot be shortened
 func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
 	defer close(output)
 
-	// Load and assemble prompt
-	assembled := s.assemblePrompt()
+	// Load raw template (no rendering)
+	tmpl := s.loadTemplate()
 
 	// Forward all elements with enriched metadata
 	for elem := range input {
-		// Enrich element with prompt metadata
-		if assembled != nil {
+		if tmpl != nil {
 			if elem.Metadata == nil {
 				elem.Metadata = make(map[string]interface{})
 			}
-			elem.Metadata["system_prompt"] = assembled.SystemPrompt
-			elem.Metadata["allowed_tools"] = assembled.AllowedTools
+			elem.Metadata["system_template"] = tmpl.RawTemplate
+			elem.Metadata["allowed_tools"] = tmpl.AllowedTools
 			elem.Metadata["base_variables"] = s.baseVariables
-			// Set variables for TemplateStage to use for substitution
-			// VariableProviderStage (if present) can override/extend these
-			elem.Metadata["variables"] = s.baseVariables
+			elem.Metadata["template_task_type"] = tmpl.TaskType
+			elem.Metadata["template_default_vars"] = tmpl.DefaultVars
+			elem.Metadata["template_required_vars"] = tmpl.RequiredVars
+			elem.Metadata["template_fragment_vars"] = tmpl.FragmentVars
+			elem.Metadata["template_model_override"] = tmpl.ModelOverride
 
 			// Store validator configs for dynamic validator stage
-			if len(assembled.Validators) > 0 {
-				validatorConfigs := s.extractValidatorConfigs(assembled.Validators)
+			if len(tmpl.Validators) > 0 {
+				validatorConfigs := s.extractValidatorConfigs(tmpl.Validators)
 				if len(validatorConfigs) > 0 {
 					elem.Metadata["validator_configs"] = validatorConfigs
 				}
@@ -78,33 +81,30 @@ func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamEl
 	return nil
 }
 
-func (s *PromptAssemblyStage) assemblePrompt() *prompt.AssembledPrompt {
+func (s *PromptAssemblyStage) loadTemplate() *prompt.Template {
+	defaultTemplate := &prompt.Template{
+		RawTemplate:  "You are a helpful AI assistant.",
+		AllowedTools: nil,
+		Validators:   nil,
+	}
+
 	if s.promptRegistry == nil {
 		logger.Warn("Using default system prompt, no prompt registry configured", "task_type", s.taskType)
-		return &prompt.AssembledPrompt{
-			SystemPrompt: "You are a helpful AI assistant.",
-			AllowedTools: nil,
-			Validators:   nil,
-		}
+		return defaultTemplate
 	}
 
-	assembled := s.promptRegistry.LoadWithVars(s.taskType, s.baseVariables, "")
-	if assembled == nil {
+	tmpl, err := s.promptRegistry.LoadTemplate(s.taskType, s.baseVariables, "")
+	if err != nil {
 		logger.Warn("Using default system prompt, no prompt found for task type", "task_type", s.taskType)
-		return &prompt.AssembledPrompt{
-			SystemPrompt: "You are a helpful AI assistant.",
-			AllowedTools: nil,
-			Validators:   nil,
-		}
+		return defaultTemplate
 	}
 
-	logger.Debug("Assembled prompt",
+	logger.Debug("Loaded prompt template",
 		"task_type", s.taskType,
-		"length", len(assembled.SystemPrompt),
-		"tools", len(assembled.AllowedTools),
+		"tools", len(tmpl.AllowedTools),
 		"base_vars", len(s.baseVariables))
 
-	return assembled
+	return tmpl
 }
 
 func (s *PromptAssemblyStage) extractValidatorConfigs(

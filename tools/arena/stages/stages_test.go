@@ -172,42 +172,6 @@ func TestMetadataInjectionStage_PreservesExistingMetadata(t *testing.T) {
 }
 
 // =============================================================================
-// VariableInjectionStage Tests
-// =============================================================================
-
-func TestVariableInjectionStage_InjectsVariables(t *testing.T) {
-	variables := map[string]string{
-		"name":   "John",
-		"domain": "tech",
-	}
-
-	s := NewVariableInjectionStage(variables)
-
-	inputs := []stage.StreamElement{
-		newTestMessageElement("user", "Test"),
-	}
-
-	results := runStage(t, s, inputs)
-
-	require.Len(t, results, 1)
-	assert.Equal(t, variables, results[0].Metadata["variables"])
-}
-
-func TestVariableInjectionStage_NilVariables(t *testing.T) {
-	s := NewVariableInjectionStage(nil)
-
-	inputs := []stage.StreamElement{
-		newTestMessageElement("user", "Test"),
-	}
-
-	results := runStage(t, s, inputs)
-
-	require.Len(t, results, 1)
-	// Should have nil variables in metadata
-	assert.Nil(t, results[0].Metadata["variables"])
-}
-
-// =============================================================================
 // TurnIndexStage Tests
 // =============================================================================
 

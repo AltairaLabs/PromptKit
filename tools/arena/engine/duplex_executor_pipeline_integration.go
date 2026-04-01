@@ -252,6 +252,7 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 		taskType = req.Scenario.TaskType
 	}
 	stages = append(stages,
+		stage.NewVariableProviderStageWithVars(mergedVars, nil),
 		stage.NewPromptAssemblyStage(de.promptRegistry, taskType, mergedVars),
 		// NOTE: ScenarioContextExtractionStage is NOT included in the duplex pipeline.
 		// It accumulates ALL elements before forwarding, which blocks the real-time

@@ -2,16 +2,19 @@ package stage
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/template"
 	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
@@ -117,31 +120,37 @@ func getKeys(m map[string]interface{}) []string {
 
 // TemplateStage substitutes {{variable}} placeholders in messages and metadata.
 //
-// This stage reads variables from the element's metadata["variables"] map and
-// replaces all occurrences of {{variable_name}} in:
-//   - metadata["system_prompt"] - the system prompt for the LLM
-//   - message.Content - the message text content
-//   - message.Parts[].Text - individual content parts
+// When metadata contains "system_template" (set by PromptAssemblyStage), this
+// stage is the single render point: it merges variable maps with the priority
+// template_default_vars < template_fragment_vars < variables, calls the
+// template.Renderer for recursive substitution, and emits lifecycle events.
 //
-// Variables are typically set by:
-//   - PromptAssemblyStage (from base_variables in config)
-//   - VariableProviderStage (from dynamic variable providers)
+// For backward compatibility, if "system_template" is absent but "system_prompt"
+// is present, the stage falls back to simple string replacement.
 //
-// Example:
+// In both paths the stage also substitutes variables in message content and parts.
 //
-//	Input: "Hello {{name}}, the topic is {{topic}}"
-//	Variables: {"name": "Alice", "topic": "AI"}
-//	Output: "Hello Alice, the topic is AI"
-//
-// This is a Transform stage: 1 input element → 1 output element
+// This is a Transform stage: 1 input element → 1 output element.
 type TemplateStage struct {
 	BaseStage
+	emitter  *events.Emitter
+	renderer *template.Renderer
 }
 
 // NewTemplateStage creates a template substitution stage.
 func NewTemplateStage() *TemplateStage {
 	return &TemplateStage{
 		BaseStage: NewBaseStage("template", StageTypeTransform),
+		renderer:  template.NewRenderer(),
+	}
+}
+
+// NewTemplateStageWithEmitter creates a template stage that emits lifecycle events.
+func NewTemplateStageWithEmitter(emitter *events.Emitter) *TemplateStage {
+	return &TemplateStage{
+		BaseStage: NewBaseStage("template", StageTypeTransform),
+		emitter:   emitter,
+		renderer:  template.NewRenderer(),
 	}
 }
 
@@ -154,9 +163,8 @@ func (s *TemplateStage) Process(
 	defer close(output)
 
 	for elem := range input {
-		s.substituteElement(&elem)
+		s.processElement(&elem)
 
-		// Forward element
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -167,23 +175,102 @@ func (s *TemplateStage) Process(
 	return nil
 }
 
-// substituteElement performs variable substitution on a single element.
-func (s *TemplateStage) substituteElement(elem *StreamElement) {
-	// Get variables from metadata if available
-	vars, ok := elem.Metadata["variables"].(map[string]string)
-	if !ok || vars == nil {
+// processElement performs variable substitution on a single element.
+func (s *TemplateStage) processElement(elem *StreamElement) {
+	if elem.Metadata == nil {
 		return
 	}
 
-	// Substitute in system prompt if present in metadata
+	// Build merged variable map: defaults < fragment vars < explicit vars
+	mergedVars := make(map[string]string)
+	if defaults, ok := elem.Metadata["template_default_vars"].(map[string]string); ok {
+		for k, v := range defaults {
+			mergedVars[k] = v
+		}
+	}
+	if fragmentVars, ok := elem.Metadata["template_fragment_vars"].(map[string]string); ok {
+		for k, v := range fragmentVars {
+			mergedVars[k] = v
+		}
+	}
+	if vars, ok := elem.Metadata["variables"].(map[string]string); ok {
+		for k, v := range vars {
+			mergedVars[k] = v
+		}
+	}
+
+	// New path: render system_template via Renderer
+	if rawTemplate, ok := elem.Metadata["system_template"].(string); ok {
+		s.renderSystemTemplate(elem, rawTemplate, mergedVars)
+	} else if _, ok := elem.Metadata["system_prompt"].(string); ok {
+		// Backward compat: substitute in existing system_prompt
+		s.substituteSystemPrompt(elem, mergedVars)
+	}
+
+	// Always substitute in message content
+	if elem.Message != nil {
+		s.substituteMessage(elem.Message, mergedVars)
+	}
+}
+
+// renderSystemTemplate renders the raw template using the full Renderer and emits events.
+func (s *TemplateStage) renderSystemTemplate(
+	elem *StreamElement, rawTemplate string, vars map[string]string,
+) {
+	taskType, _ := elem.Metadata["template_task_type"].(string)
+	modelOverride, _ := elem.Metadata["template_model_override"].(string)
+
+	if s.emitter != nil {
+		s.emitter.TemplateStarted(taskType, rawTemplate, len(vars), modelOverride)
+	}
+
+	result, err := s.renderer.RenderDetailed(rawTemplate, vars)
+	if err != nil {
+		logger.Error("Template rendering failed in pipeline", "task_type", taskType, "error", err)
+		if s.emitter != nil {
+			s.emitter.TemplateFailed(taskType, err.Error(), nil)
+		}
+		// Fall back to raw template so the pipeline doesn't break
+		elem.Metadata["system_prompt"] = rawTemplate
+		return
+	}
+
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(result.Text)))
+	elem.Metadata["system_prompt"] = result.Text
+
+	if s.emitter != nil {
+		fragmentNames := extractFragmentNames(elem)
+		s.emitter.TemplateRendered(&events.TemplateRenderedData{
+			TaskType:        taskType,
+			SystemPrompt:    result.Text,
+			PromptHash:      hash,
+			VariablesUsed:   result.UsedVars,
+			UnusedVariables: result.UnusedVars,
+			FragmentsUsed:   fragmentNames,
+			RenderPasses:    result.Passes,
+		})
+	}
+}
+
+// substituteSystemPrompt applies simple string replacement on system_prompt (backward compat).
+func (s *TemplateStage) substituteSystemPrompt(elem *StreamElement, vars map[string]string) {
 	if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok {
 		elem.Metadata["system_prompt"] = s.substituteVariables(systemPrompt, vars)
 	}
+}
 
-	// Substitute in message content if message element
-	if elem.Message != nil {
-		s.substituteMessage(elem.Message, vars)
+// extractFragmentNames returns sorted keys from the template_fragment_vars metadata.
+func extractFragmentNames(elem *StreamElement) []string {
+	fragmentVars, ok := elem.Metadata["template_fragment_vars"].(map[string]string)
+	if !ok {
+		return nil
 	}
+	names := make([]string, 0, len(fragmentVars))
+	for k := range fragmentVars {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // substituteMessage performs variable substitution on message content and parts.
@@ -230,15 +317,26 @@ func (s *TemplateStage) substituteVariables(text string, vars map[string]string)
 // This is a Transform stage: 1 input element → 1 output element (with enriched metadata)
 type VariableProviderStage struct {
 	BaseStage
-	providers []variables.Provider
+	staticVars map[string]string
+	providers  []variables.Provider
+}
+
+// NewVariableProviderStageWithVars creates a variable provider stage with static variables and dynamic providers.
+// Static variables are injected first; dynamic providers can override them.
+func NewVariableProviderStageWithVars(
+	staticVars map[string]string,
+	variableProviders []variables.Provider,
+) *VariableProviderStage {
+	return &VariableProviderStage{
+		BaseStage:  NewBaseStage("variable_provider", StageTypeTransform),
+		staticVars: staticVars,
+		providers:  variableProviders,
+	}
 }
 
 // NewVariableProviderStage creates a variable provider stage.
-func NewVariableProviderStage(providers ...variables.Provider) *VariableProviderStage {
-	return &VariableProviderStage{
-		BaseStage: NewBaseStage("variable_provider", StageTypeTransform),
-		providers: providers,
-	}
+func NewVariableProviderStage(variableProviders ...variables.Provider) *VariableProviderStage {
+	return NewVariableProviderStageWithVars(nil, variableProviders)
 }
 
 // Process resolves variables from all providers and merges them into element metadata.
@@ -249,8 +347,11 @@ func (s *VariableProviderStage) Process(
 ) error {
 	defer close(output)
 
-	// Resolve variables from all providers once
+	// Resolve variables: start with static vars, then dynamic providers override
 	allVars := make(map[string]string)
+	for k, v := range s.staticVars {
+		allVars[k] = v
+	}
 	for _, provider := range s.providers {
 		vars, err := provider.Provide(ctx)
 		if err != nil {
@@ -258,7 +359,7 @@ func (s *VariableProviderStage) Process(
 			return fmt.Errorf("variable provider %s failed: %w", provider.Name(), err)
 		}
 
-		// Merge (later providers override earlier ones)
+		// Merge (later providers override earlier ones, and all providers override static vars)
 		for k, v := range vars {
 			allVars[k] = v
 		}
@@ -278,8 +379,12 @@ func (s *VariableProviderStage) Process(
 			}
 			elem.Metadata["variables"] = existingVars
 		} else {
-			// Set new variables
-			elem.Metadata["variables"] = allVars
+			// Copy allVars to avoid sharing the same map across elements
+			elemVars := make(map[string]string, len(allVars))
+			for k, v := range allVars {
+				elemVars[k] = v
+			}
+			elem.Metadata["variables"] = elemVars
 		}
 
 		// Forward element

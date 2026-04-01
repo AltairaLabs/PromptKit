@@ -280,17 +280,19 @@ func collectPipelineStages(
 	// 1. State store load stage - loads conversation history FIRST
 	stages = appendStateStoreLoadStages(stages, cfg, stateStoreConfig, useRAGContext)
 
-	// 2. Variable provider stage - resolves dynamic variables
-	if len(cfg.VariableProviders) > 0 {
-		stages = append(stages, stage.NewVariableProviderStage(cfg.VariableProviders...))
-	}
-
-	// 3. Prompt assembly stage - loads prompt, sets system prompt and allowed tools
-	// 4. Template stage - prepares system prompt for provider
+	// 2. Variable provider stage - always present, handles static + dynamic vars
+	// 3. Prompt assembly stage - loads raw template (no rendering)
 	stages = append(stages,
+		stage.NewVariableProviderStageWithVars(cfg.Variables, cfg.VariableProviders),
 		stage.NewPromptAssemblyStage(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
-		stage.NewTemplateStage(),
 	)
+
+	// 4. Template stage - single render point, emits events
+	if cfg.EventEmitter != nil {
+		stages = append(stages, stage.NewTemplateStageWithEmitter(cfg.EventEmitter))
+	} else {
+		stages = append(stages, stage.NewTemplateStage())
+	}
 
 	// 4.1 Input recording stage - captures user input with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingEventBus != nil {

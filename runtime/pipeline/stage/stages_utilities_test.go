@@ -2,15 +2,18 @@ package stage
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
 
 func TestTemplateStage_SubstitutesVariables(t *testing.T) {
@@ -203,6 +206,224 @@ func TestTemplateStage_ContextCancellation(t *testing.T) {
 	err := stage.Process(ctx, input, output)
 	assert.Error(t, err)
 	assert.Equal(t, context.Canceled, err)
+}
+
+func TestTemplateStage_RendersFromSystemTemplate(t *testing.T) {
+	t.Run("renders system_template with merged variables", func(t *testing.T) {
+		stage := NewTemplateStage()
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		textContent := "User asks about {{topic}}"
+		elem := StreamElement{
+			Message: &types.Message{
+				Role:    "user",
+				Content: "Tell me about {{topic}}",
+				Parts:   []types.ContentPart{{Text: &textContent}},
+			},
+			Metadata: map[string]interface{}{
+				"system_template":       "You are {{role}}. Help with {{topic}}.",
+				"template_default_vars": map[string]string{"role": "a helper", "topic": "default-topic"},
+				"variables":             map[string]string{"topic": "AI"},
+			},
+		}
+		input <- elem
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		// variables override defaults for "topic", default "role" survives
+		assert.Equal(t, "You are a helper. Help with AI.", result.Metadata["system_prompt"])
+		// Message content is also substituted
+		assert.Equal(t, "Tell me about AI", result.Message.Content)
+		assert.Equal(t, "User asks about AI", *result.Message.Parts[0].Text)
+	})
+
+	t.Run("merges fragment vars between defaults and explicit vars", func(t *testing.T) {
+		stage := NewTemplateStage()
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		elem := StreamElement{
+			Metadata: map[string]interface{}{
+				"system_template":        "{{greeting}} {{name}}, role={{role}}",
+				"template_default_vars":  map[string]string{"greeting": "Hello", "name": "Default", "role": "default"},
+				"template_fragment_vars": map[string]string{"name": "Fragment", "role": "fragment-role"},
+				"variables":              map[string]string{"name": "Explicit"},
+			},
+		}
+		input <- elem
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		// Priority: variables > fragment_vars > default_vars
+		assert.Equal(t, "Hello Explicit, role=fragment-role", result.Metadata["system_prompt"])
+	})
+
+	t.Run("falls back to system_prompt for backward compat", func(t *testing.T) {
+		stage := NewTemplateStage()
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		elem := StreamElement{
+			Metadata: map[string]interface{}{
+				"system_prompt": "Hello {{name}}!",
+				"variables":     map[string]string{"name": "Alice"},
+			},
+		}
+		input <- elem
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		assert.Equal(t, "Hello Alice!", result.Metadata["system_prompt"])
+	})
+}
+
+func TestTemplateStage_WithEmitter(t *testing.T) {
+	t.Run("emits started and rendered events", func(t *testing.T) {
+		bus := events.NewEventBus()
+		defer bus.Close()
+		emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
+		stage := NewTemplateStageWithEmitter(emitter)
+
+		var mu sync.Mutex
+		var collected []*events.Event
+		bus.SubscribeAll(func(e *events.Event) {
+			mu.Lock()
+			collected = append(collected, e)
+			mu.Unlock()
+		})
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		elem := StreamElement{
+			Metadata: map[string]interface{}{
+				"system_template":        "Hello {{name}}!",
+				"template_task_type":     "greeting",
+				"variables":              map[string]string{"name": "World"},
+				"template_fragment_vars": map[string]string{"frag_key": "frag_val"},
+			},
+		}
+		input <- elem
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		assert.Equal(t, "Hello World!", result.Metadata["system_prompt"])
+
+		// Wait briefly for async event delivery
+		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			startedCount := 0
+			renderedCount := 0
+			for _, e := range collected {
+				if e.Type == events.EventTemplateStarted {
+					startedCount++
+				}
+				if e.Type == events.EventTemplateRendered {
+					renderedCount++
+				}
+			}
+			return startedCount >= 1 && renderedCount >= 1
+		}, 2*time.Second, 10*time.Millisecond, "expected started+rendered events")
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		// Check started event data
+		for _, e := range collected {
+			if e.Type == events.EventTemplateStarted {
+				data, ok := e.Data.(*events.TemplateStartedData)
+				require.True(t, ok)
+				assert.Equal(t, "greeting", data.TaskType)
+				assert.Equal(t, "Hello {{name}}!", data.RawTemplate)
+			}
+			if e.Type == events.EventTemplateRendered {
+				data, ok := e.Data.(*events.TemplateRenderedData)
+				require.True(t, ok)
+				assert.Equal(t, "greeting", data.TaskType)
+				assert.Equal(t, "Hello World!", data.SystemPrompt)
+				assert.NotEmpty(t, data.PromptHash)
+				assert.Equal(t, map[string]string{"name": "World"}, data.VariablesUsed)
+				assert.Equal(t, []string{"frag_key"}, data.FragmentsUsed)
+			}
+		}
+	})
+
+	t.Run("emits failed event on render error", func(t *testing.T) {
+		bus := events.NewEventBus()
+		defer bus.Close()
+		emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
+		stage := NewTemplateStageWithEmitter(emitter)
+
+		var mu sync.Mutex
+		var collected []*events.Event
+		bus.SubscribeAll(func(e *events.Event) {
+			mu.Lock()
+			collected = append(collected, e)
+			mu.Unlock()
+		})
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		// Template has {{missing}} that is not provided -> render error
+		elem := StreamElement{
+			Metadata: map[string]interface{}{
+				"system_template":    "Hello {{name}} and {{missing}}!",
+				"template_task_type": "broken",
+				"variables":          map[string]string{"name": "World"},
+			},
+		}
+		input <- elem
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		// Falls back to raw template on failure
+		assert.Equal(t, "Hello {{name}} and {{missing}}!", result.Metadata["system_prompt"])
+
+		// Wait for failed event
+		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			for _, e := range collected {
+				if e.Type == events.EventTemplateFailed {
+					return true
+				}
+			}
+			return false
+		}, 2*time.Second, 10*time.Millisecond, "expected failed event")
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		for _, e := range collected {
+			if e.Type == events.EventTemplateFailed {
+				data, ok := e.Data.(*events.TemplateFailedData)
+				require.True(t, ok)
+				assert.Equal(t, "broken", data.TaskType)
+				assert.Contains(t, data.Error, "unresolved")
+			}
+		}
+	})
 }
 
 func TestContextBuilderStage_PassThroughWhenUnderBudget(t *testing.T) {
@@ -1466,6 +1687,127 @@ func TestVariableProviderStage_ErrorHandling(t *testing.T) {
 		assert.NotNil(t, result.Metadata)
 		vars := result.Metadata["variables"].(map[string]string)
 		assert.Equal(t, "value", vars["key"])
+	})
+}
+
+func TestVariableProviderStage_WithStaticVars(t *testing.T) {
+	t.Run("injects static variables", func(t *testing.T) {
+		stage := NewVariableProviderStageWithVars(
+			map[string]string{"static_key": "static_value"},
+			nil,
+		)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		require.NotNil(t, result.Metadata)
+		vars := result.Metadata["variables"].(map[string]string)
+		assert.Equal(t, "static_value", vars["static_key"])
+	})
+
+	t.Run("providers override static vars", func(t *testing.T) {
+		mockProvider := &mockVariableProvider{
+			name: "test-provider",
+			vars: map[string]string{"shared_key": "dynamic_value"},
+		}
+
+		stage := NewVariableProviderStageWithVars(
+			map[string]string{"shared_key": "static_value", "static_only": "kept"},
+			[]variables.Provider{mockProvider},
+		)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		vars := result.Metadata["variables"].(map[string]string)
+		// Provider value wins over static
+		assert.Equal(t, "dynamic_value", vars["shared_key"])
+		// Static-only key is preserved
+		assert.Equal(t, "kept", vars["static_only"])
+	})
+
+	t.Run("merges with existing metadata variables", func(t *testing.T) {
+		stage := NewVariableProviderStageWithVars(
+			map[string]string{"static_key": "static_value"},
+			nil,
+		)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{
+			Metadata: map[string]interface{}{
+				"variables": map[string]string{"existing_key": "existing_value"},
+			},
+		}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		vars := result.Metadata["variables"].(map[string]string)
+		assert.Equal(t, "existing_value", vars["existing_key"])
+		assert.Equal(t, "static_value", vars["static_key"])
+	})
+
+	t.Run("nil static vars and nil providers", func(t *testing.T) {
+		stage := NewVariableProviderStageWithVars(nil, nil)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		require.NotNil(t, result.Metadata)
+		vars := result.Metadata["variables"].(map[string]string)
+		assert.Empty(t, vars)
+	})
+
+	t.Run("static vars do not share map across elements", func(t *testing.T) {
+		stage := NewVariableProviderStageWithVars(
+			map[string]string{"key": "value"},
+			nil,
+		)
+
+		input := make(chan StreamElement, 2)
+		output := make(chan StreamElement, 2)
+
+		input <- StreamElement{}
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		first := <-output
+		second := <-output
+
+		firstVars := first.Metadata["variables"].(map[string]string)
+		secondVars := second.Metadata["variables"].(map[string]string)
+
+		// Mutating first should not affect second
+		firstVars["injected"] = "mutation"
+		assert.NotEqual(t, "mutation", secondVars["injected"])
 	})
 }
 

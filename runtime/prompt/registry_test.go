@@ -446,6 +446,214 @@ func TestRegistry_ApplyModelOverrides(t *testing.T) {
 	}
 }
 
+func TestRegistry_LoadTemplate(t *testing.T) {
+	t.Run("returns raw template without rendering", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		cfg := &Config{
+			Spec: Spec{
+				TaskType:       "test-task",
+				SystemTemplate: "Hello {{name}}, you are {{role}}.",
+				Variables: []VariableMetadata{
+					{Name: "name", Required: true, Type: "string"},
+					{Name: "role", Required: false, Type: "string", Default: "assistant"},
+				},
+			},
+		}
+		repo.prompts["test-task"] = cfg
+
+		tmpl, err := reg.LoadTemplate("test-task", map[string]string{"name": "Alice"}, "")
+
+		require.NoError(t, err)
+		require.NotNil(t, tmpl)
+		// Raw template must contain placeholders — not rendered
+		assert.Equal(t, "Hello {{name}}, you are {{role}}.", tmpl.RawTemplate)
+		assert.Equal(t, "test-task", tmpl.TaskType)
+		// Default vars should be merged into DefaultVars
+		assert.Equal(t, "Alice", tmpl.DefaultVars["name"])
+		assert.Equal(t, "assistant", tmpl.DefaultVars["role"])
+	})
+
+	t.Run("applies model overrides to raw template", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		cfg := &Config{
+			Spec: Spec{
+				TaskType:       "test-task",
+				SystemTemplate: "base template {{var}}",
+				Variables: []VariableMetadata{
+					{Name: "var", Required: false, Type: "string", Default: "x"},
+				},
+				ModelOverrides: map[string]ModelOverride{
+					"gpt-4": {SystemTemplate: "gpt-4 template {{var}}"},
+				},
+			},
+		}
+		repo.prompts["test-task"] = cfg
+
+		tmpl, err := reg.LoadTemplate("test-task", map[string]string{}, "gpt-4")
+
+		require.NoError(t, err)
+		require.NotNil(t, tmpl)
+		assert.Equal(t, "gpt-4 template {{var}}", tmpl.RawTemplate)
+		assert.Equal(t, "gpt-4", tmpl.ModelOverride)
+	})
+
+	t.Run("returns empty ModelOverride when no override applied", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		cfg := &Config{
+			Spec: Spec{
+				TaskType:       "test-task",
+				SystemTemplate: "base template",
+			},
+		}
+		repo.prompts["test-task"] = cfg
+
+		tmpl, err := reg.LoadTemplate("test-task", map[string]string{}, "")
+
+		require.NoError(t, err)
+		require.NotNil(t, tmpl)
+		assert.Equal(t, "base template", tmpl.RawTemplate)
+		assert.Equal(t, "", tmpl.ModelOverride)
+	})
+
+	t.Run("returns error for missing config", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		tmpl, err := reg.LoadTemplate("nonexistent", map[string]string{}, "")
+
+		assert.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+
+	t.Run("includes fragment variables in DefaultVars", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		repo.fragments["my-fragment"] = &Fragment{
+			Content: "fragment content here",
+		}
+
+		cfg := &Config{
+			Spec: Spec{
+				TaskType:       "test-task",
+				SystemTemplate: "{{my-fragment}} and {{var}}",
+				Fragments: []FragmentRef{
+					{Name: "my-fragment", Required: true},
+				},
+				Variables: []VariableMetadata{
+					{Name: "var", Required: false, Type: "string", Default: "val"},
+				},
+			},
+		}
+		repo.prompts["test-task"] = cfg
+
+		tmpl, err := reg.LoadTemplate("test-task", map[string]string{}, "")
+
+		require.NoError(t, err)
+		require.NotNil(t, tmpl)
+		// Fragment vars should be present
+		assert.NotEmpty(t, tmpl.FragmentVars)
+		assert.Equal(t, "fragment content here", tmpl.FragmentVars["my-fragment"])
+	})
+
+	t.Run("includes required vars from config", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		cfg := &Config{
+			Spec: Spec{
+				TaskType:       "test-task",
+				SystemTemplate: "Hello {{name}}",
+				Variables: []VariableMetadata{
+					{Name: "name", Required: true, Type: "string"},
+					{Name: "opt", Required: false, Type: "string", Default: "default"},
+				},
+			},
+		}
+		repo.prompts["test-task"] = cfg
+
+		tmpl, err := reg.LoadTemplate("test-task", map[string]string{"name": "Bob"}, "")
+
+		require.NoError(t, err)
+		require.NotNil(t, tmpl)
+		assert.Equal(t, []string{"name"}, tmpl.RequiredVars)
+	})
+
+	t.Run("includes validators", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		enabled := true
+		cfg := &Config{
+			Spec: Spec{
+				TaskType:       "test-task",
+				SystemTemplate: "template",
+				Validators: []ValidatorConfig{
+					{Type: "content_safety", Params: map[string]interface{}{"level": "strict"}, Enabled: &enabled},
+				},
+			},
+		}
+		repo.prompts["test-task"] = cfg
+
+		tmpl, err := reg.LoadTemplate("test-task", map[string]string{}, "")
+
+		require.NoError(t, err)
+		require.NotNil(t, tmpl)
+		require.Len(t, tmpl.Validators, 1)
+		assert.Equal(t, "content_safety", tmpl.Validators[0].Type)
+	})
+
+	t.Run("includes allowed tools", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		cfg := &Config{
+			Spec: Spec{
+				TaskType:       "test-task",
+				SystemTemplate: "template",
+				AllowedTools:   []string{"tool_a", "tool_b"},
+			},
+		}
+		repo.prompts["test-task"] = cfg
+
+		tmpl, err := reg.LoadTemplate("test-task", map[string]string{}, "")
+
+		require.NoError(t, err)
+		require.NotNil(t, tmpl)
+		assert.Equal(t, []string{"tool_a", "tool_b"}, tmpl.AllowedTools)
+	})
+}
+
+func TestRegistry_LoadWithVars_UsesLoadTemplate(t *testing.T) {
+	t.Run("LoadWithVars still renders template correctly after refactor", func(t *testing.T) {
+		repo := newMockRepository()
+		reg := NewRegistryWithRepository(repo)
+
+		cfg := &Config{
+			Spec: Spec{
+				TaskType:       "test-task",
+				SystemTemplate: "Hello {{name}}!",
+				Variables: []VariableMetadata{
+					{Name: "name", Required: true, Type: "string"},
+				},
+			},
+		}
+		repo.prompts["test-task"] = cfg
+
+		assembled := reg.LoadWithVars("test-task", map[string]string{"name": "World"}, "")
+
+		require.NotNil(t, assembled)
+		assert.Equal(t, "Hello World!", assembled.SystemPrompt)
+		assert.Equal(t, "test-task", assembled.TaskType)
+	})
+}
+
 func TestRegistry_MergeVars(t *testing.T) {
 	reg := createTestRegistry()
 

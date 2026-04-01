@@ -51,6 +51,20 @@ type AssembledPrompt struct {
 	Validators   []ValidatorConfig `json:"validators,omitempty"`    // Validators to apply at runtime
 }
 
+// Template holds an unrendered prompt template with all metadata required
+// to render it later. This is the intermediate form produced by LoadTemplate,
+// consumed by the TemplateStage to perform deferred variable substitution.
+type Template struct {
+	TaskType      string            `json:"task_type"`
+	RawTemplate   string            `json:"raw_template"`
+	DefaultVars   map[string]string `json:"default_vars,omitempty"`
+	RequiredVars  []string          `json:"required_vars,omitempty"`
+	FragmentVars  map[string]string `json:"fragment_vars,omitempty"`
+	AllowedTools  []string          `json:"allowed_tools,omitempty"`
+	Validators    []ValidatorConfig `json:"validators,omitempty"`
+	ModelOverride string            `json:"model_override,omitempty"`
+}
+
 // UsesTools returns true if this prompt has tools configured
 func (ap *AssembledPrompt) UsesTools() bool {
 	return len(ap.AllowedTools) > 0
@@ -374,25 +388,80 @@ func (r *Registry) Load(activity string) *AssembledPrompt {
 	return r.LoadWithVars(activity, make(map[string]string), "")
 }
 
-// LoadWithVars loads a prompt with variable substitution and optional model override.
-func (r *Registry) LoadWithVars(activity string, vars map[string]string, model string) *AssembledPrompt {
+// LoadTemplate loads a prompt without rendering, returning the raw template and
+// all metadata needed to render it later. This is the preferred path for pipeline
+// stages that separate assembly from rendering (e.g. PromptAssemblyStage +
+// TemplateStage). The returned Template is safe to cache across requests.
+func (r *Registry) LoadTemplate(activity string, vars map[string]string, model string) (*Template, error) {
 	config, err := r.loadConfig(activity)
 	if err != nil {
 		logger.Error("Failed to load prompt config", "activity", activity, "error", err)
-		return nil
+		return nil, fmt.Errorf("failed to load prompt config for %q: %w", activity, err)
 	}
 
-	// Validate and merge variables
-	finalVars, err := r.prepareVariables(config, vars, activity)
+	// Validate required vars before merging
+	if err = r.validateRequiredVars(config, vars); err != nil {
+		logger.Error("Prompt missing required vars", "activity", activity, "error", err)
+		return nil, err
+	}
+
+	// Merge provided vars with defaults
+	mergedVars := r.mergeVars(config, vars)
+
+	// Assemble fragment vars if configured
+	var fragmentVars map[string]string
+	if len(config.Spec.Fragments) > 0 {
+		fragmentVars, err = r.assembleFragmentVars(config, mergedVars, activity)
+		if err != nil {
+			return nil, err
+		}
+		// Merge fragment vars into merged vars (so caller has a complete picture)
+		for k, v := range fragmentVars {
+			mergedVars[k] = v
+		}
+	}
+
+	// Apply model overrides to the raw template text
+	rawTemplate := r.applyModelOverrides(config, model)
+
+	// Collect required variable names
+	var requiredVars []string
+	for _, v := range config.Spec.Variables {
+		if v.Required {
+			requiredVars = append(requiredVars, v.Name)
+		}
+	}
+
+	// Determine the model override key that was actually applied
+	modelOverride := ""
+	if model != "" {
+		if _, exists := config.Spec.ModelOverrides[model]; exists {
+			modelOverride = model
+		}
+	}
+
+	return &Template{
+		TaskType:      config.Spec.TaskType,
+		RawTemplate:   rawTemplate,
+		DefaultVars:   mergedVars,
+		RequiredVars:  requiredVars,
+		FragmentVars:  fragmentVars,
+		AllowedTools:  config.Spec.AllowedTools,
+		Validators:    config.Spec.Validators,
+		ModelOverride: modelOverride,
+	}, nil
+}
+
+// LoadWithVars loads a prompt with variable substitution and optional model override.
+func (r *Registry) LoadWithVars(activity string, vars map[string]string, model string) *AssembledPrompt {
+	tmpl, err := r.LoadTemplate(activity, vars, model)
 	if err != nil {
 		return nil
 	}
 
-	// Get system template with model overrides applied
-	systemTemplate := r.applyModelOverrides(config, model)
-
-	// Render template and create assembled prompt
-	return r.renderAndAssemble(config, systemTemplate, finalVars, activity)
+	// Render the template using the merged vars (DefaultVars already contains
+	// fragment vars and defaults merged in by LoadTemplate).
+	return r.renderAndAssemble(tmpl, activity)
 }
 
 // prepareVariables validates required vars, merges with defaults, and assembles fragments
@@ -454,10 +523,10 @@ func (r *Registry) applyModelOverrides(config *Config, model string) string {
 	return systemTemplate
 }
 
-// renderAndAssemble renders the template and creates the final AssembledPrompt
-func (r *Registry) renderAndAssemble(config *Config, systemTemplate string, finalVars map[string]string, activity string) *AssembledPrompt {
-	// Render template with variables
-	assembledText, err := r.templateRenderer.Render(systemTemplate, finalVars)
+// renderAndAssemble renders a Template and creates the final AssembledPrompt.
+func (r *Registry) renderAndAssemble(tmpl *Template, activity string) *AssembledPrompt {
+	// Render template with merged vars (DefaultVars already includes fragment vars)
+	assembledText, err := r.templateRenderer.Render(tmpl.RawTemplate, tmpl.DefaultVars)
 	if err != nil {
 		logger.Error("Template rendering failed", "activity", activity, "error", err)
 		return nil
@@ -467,18 +536,18 @@ func (r *Registry) renderAndAssemble(config *Config, systemTemplate string, fina
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(assembledText)))
 
 	result := AssembledPrompt{
-		TaskType:     config.Spec.TaskType,
+		TaskType:     tmpl.TaskType,
 		SystemPrompt: assembledText,
-		AllowedTools: config.Spec.AllowedTools,
-		Validators:   config.Spec.Validators,
+		AllowedTools: tmpl.AllowedTools,
+		Validators:   tmpl.Validators,
 	}
 
 	// Debug logging (controlled by global log level via -v flag)
 	logger.Debug("Assembled prompt",
-		"task_type", config.Spec.TaskType,
+		"task_type", tmpl.TaskType,
 		"hash", hash[:8],
-		"tools", len(config.Spec.AllowedTools),
-		"validators", len(config.Spec.Validators))
+		"tools", len(tmpl.AllowedTools),
+		"validators", len(tmpl.Validators))
 
 	return &result
 }

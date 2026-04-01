@@ -13,6 +13,7 @@ package template
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -64,6 +65,82 @@ func (r *Renderer) Render(templateText string, vars map[string]string) (string, 
 	}
 
 	return result, nil
+}
+
+// RenderResult contains the rendered text and metadata about the rendering process.
+type RenderResult struct {
+	Text       string            // final rendered text
+	UsedVars   map[string]string // variables that were substituted
+	UnusedVars []string          // variables available but not referenced
+	Passes     int               // number of recursive passes performed
+}
+
+// RenderDetailed applies variable substitution and returns detailed rendering metadata.
+func (r *Renderer) RenderDetailed(templateText string, vars map[string]string) (*RenderResult, error) {
+	result, usedVars, passes := r.applyPasses(templateText, vars)
+
+	if err := r.checkUnresolved(result); err != nil {
+		return nil, err
+	}
+
+	return &RenderResult{
+		Text:       result,
+		UsedVars:   usedVars,
+		UnusedVars: unusedKeys(vars, usedVars),
+		Passes:     passes,
+	}, nil
+}
+
+// applyPasses performs up to maxPasses substitution passes and returns the result,
+// the set of variables that were used, and the number of passes that made changes.
+func (r *Renderer) applyPasses(text string, vars map[string]string) (
+	result string, usedVars map[string]string, passes int,
+) {
+	result = text
+	usedVars = make(map[string]string)
+	for range 10 {
+		snapshot := result
+		changed := false
+		for key, value := range vars {
+			placeholder := fmt.Sprintf("{{%s}}", key)
+			if strings.Contains(snapshot, placeholder) {
+				result = strings.ReplaceAll(result, placeholder, value)
+				usedVars[key] = value
+				changed = true
+			}
+		}
+		if !changed {
+			if passes == 0 {
+				passes = 1
+			}
+			break
+		}
+		passes++
+	}
+	return
+}
+
+// checkUnresolved returns an error if the text still contains unresolved placeholders.
+func (r *Renderer) checkUnresolved(text string) error {
+	if !strings.Contains(text, "{{") || !strings.Contains(text, "}}") {
+		return nil
+	}
+	if unresolved := r.findUnresolvedPlaceholders(text); len(unresolved) > 0 {
+		return fmt.Errorf("unresolved template placeholders: %v", unresolved)
+	}
+	return nil
+}
+
+// unusedKeys returns the keys present in all that are absent from used, sorted.
+func unusedKeys(all, used map[string]string) []string {
+	var unused []string
+	for key := range all {
+		if _, ok := used[key]; !ok {
+			unused = append(unused, key)
+		}
+	}
+	sort.Strings(unused)
+	return unused
 }
 
 // ValidateRequiredVars checks that all required variables are provided and non-empty.
