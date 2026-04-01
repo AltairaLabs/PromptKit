@@ -394,7 +394,7 @@ func TestEventBusSubscriberTimeoutSkipsSlowListener(t *testing.T) {
 
 	// Slow listener that blocks longer than the timeout.
 	bus.Subscribe(EventPipelineStarted, func(*Event) {
-		time.Sleep(5 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 	})
 
 	// Fast listener registered after the slow one.
@@ -487,7 +487,7 @@ func TestEventBusSubscriberTimeoutGlobalListener(t *testing.T) {
 
 	// Slow global listener.
 	bus.SubscribeAll(func(*Event) {
-		time.Sleep(5 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 	})
 
 	// Fast specific listener should still fire.
