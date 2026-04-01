@@ -788,3 +788,33 @@ func waitForWG(wg *sync.WaitGroup, timeout time.Duration) bool {
 		return false
 	}
 }
+
+// TestPublishConcurrentWithClose verifies that Publish does not panic or
+// race when called concurrently with Close. This reproduces the data race
+// in TestMetrics_ToolCallsTotal where a pipeline goroutine emits
+// PipelineCompleted while the test cleanup calls bus.Close().
+func TestPublishConcurrentWithClose(t *testing.T) {
+	// Run many iterations to reliably trigger the race between
+	// Publish's channel send and Close's channel close.
+	for i := 0; i < 1000; i++ {
+		bus := NewEventBus()
+		bus.SubscribeAll(func(_ *Event) {})
+
+		// Start multiple publishers — each creates its own events
+		// (mirrors real usage where Emitter.emit creates a new Event each call)
+		var wg sync.WaitGroup
+		for g := 0; g < 4; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < 50; j++ {
+					bus.Publish(&Event{Type: "test.event", Timestamp: time.Now()})
+				}
+			}()
+		}
+
+		// Close concurrently — must not panic or race
+		bus.Close()
+		wg.Wait()
+	}
+}

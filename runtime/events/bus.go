@@ -100,6 +100,7 @@ type EventBus struct {
 	nextID          atomic.Uint64
 	seq             atomic.Int64 // monotonic sequence counter for events
 
+	publishMu         sync.RWMutex // guards eventCh send (RLock) vs close (Lock)
 	eventCh           chan *Event
 	wg                sync.WaitGroup
 	closed            atomic.Bool
@@ -319,6 +320,10 @@ func (eb *EventBus) SubscribeAll(listener Listener) func() {
 // asynchronously in the dispatch worker (not in the caller's goroutine).
 // Returns false if the bus has been closed.
 func (eb *EventBus) Publish(event *Event) bool {
+	// RLock allows concurrent publishes but blocks during Close.
+	eb.publishMu.RLock()
+	defer eb.publishMu.RUnlock()
+
 	if eb.closed.Load() {
 		return false
 	}
@@ -355,8 +360,11 @@ func (eb *EventBus) DroppedCount() int64 {
 // as closed and drains any buffered events.
 func (eb *EventBus) Close() {
 	if eb.closed.CompareAndSwap(false, true) {
+		// Lock publishMu to ensure no Publish is mid-send before closing channels.
+		eb.publishMu.Lock()
 		close(eb.done)    // cancel orphaned invokeWithTimeout goroutines
 		close(eb.eventCh) // signal workers to drain and exit
+		eb.publishMu.Unlock()
 		if eb.started.Load() {
 			// Wait for workers with a hard deadline. Workers may be blocked
 			// on slow listener timeouts — don't let that hang the process.
