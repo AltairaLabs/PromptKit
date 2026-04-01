@@ -47,6 +47,9 @@ func TestEventDataStructs(t *testing.T) {
 	var _ EventData = &StateSavedData{}
 	var _ EventData = &StreamInterruptedData{}
 	var _ EventData = &CustomEventData{}
+	var _ EventData = &TemplateStartedData{}
+	var _ EventData = &TemplateRenderedData{}
+	var _ EventData = &TemplateFailedData{}
 }
 
 func TestEvent_Creation(t *testing.T) {

@@ -524,3 +524,27 @@ func (e *Emitter) ContextCompacted(round, originalTokens, compactedTokens, messa
 		BudgetTokens:    budgetTokens,
 	})
 }
+
+// TemplateStarted emits the prompt.template.started event.
+func (e *Emitter) TemplateStarted(taskType, rawTemplate string, variableCount int, modelOverride string) {
+	e.emit(EventTemplateStarted, &TemplateStartedData{
+		TaskType:      taskType,
+		RawTemplate:   rawTemplate,
+		VariableCount: variableCount,
+		ModelOverride: modelOverride,
+	})
+}
+
+// TemplateRendered emits the prompt.template.rendered event.
+func (e *Emitter) TemplateRendered(data *TemplateRenderedData) {
+	e.emit(EventTemplateRendered, data)
+}
+
+// TemplateFailed emits the prompt.template.failed event.
+func (e *Emitter) TemplateFailed(taskType, errMsg string, unresolved []string) {
+	e.emit(EventTemplateFailed, &TemplateFailedData{
+		TaskType:               taskType,
+		Error:                  errMsg,
+		UnresolvedPlaceholders: unresolved,
+	})
+}
