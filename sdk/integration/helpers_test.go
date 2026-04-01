@@ -233,12 +233,6 @@ func testMetricsSetup(t *testing.T) (*events.EventBus, *metrics.Collector, *prom
 	})
 	bus := events.NewEventBus()
 	t.Cleanup(func() {
-		// Allow pipeline background goroutines to emit final events
-		// before closing the bus. The pipeline's executeBackground emits
-		// PipelineCompleted after the output channel closes, so
-		// ExecuteSync may have returned while the goroutine is still
-		// running. Without this, bus.Close() races with the emit.
-		time.Sleep(50 * time.Millisecond)
 		bus.Close()
 	})
 
