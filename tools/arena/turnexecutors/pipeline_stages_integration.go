@@ -287,7 +287,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 	}
 
 	// 1. Variable and metadata injection stages
-	stages = append(stages, arenastages.NewVariableInjectionStage(mergedVars))
+	stages = append(stages, stage.NewVariableProviderStageWithVars(mergedVars, nil))
 	if len(req.Metadata) > 0 {
 		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
 	}
@@ -505,7 +505,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	}
 
 	// Variable injection
-	stages = append(stages, arenastages.NewVariableInjectionStage(mergedVars))
+	stages = append(stages, stage.NewVariableProviderStageWithVars(mergedVars, nil))
 	if len(req.Metadata) > 0 {
 		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
 	}
