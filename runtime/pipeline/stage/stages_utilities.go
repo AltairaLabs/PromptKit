@@ -230,15 +230,23 @@ func (s *TemplateStage) substituteVariables(text string, vars map[string]string)
 // This is a Transform stage: 1 input element → 1 output element (with enriched metadata)
 type VariableProviderStage struct {
 	BaseStage
-	providers []variables.Provider
+	staticVars map[string]string
+	providers  []variables.Provider
+}
+
+// NewVariableProviderStageWithVars creates a variable provider stage with static variables and dynamic providers.
+// Static variables are injected first; dynamic providers can override them.
+func NewVariableProviderStageWithVars(staticVars map[string]string, providers []variables.Provider) *VariableProviderStage {
+	return &VariableProviderStage{
+		BaseStage:  NewBaseStage("variable_provider", StageTypeTransform),
+		staticVars: staticVars,
+		providers:  providers,
+	}
 }
 
 // NewVariableProviderStage creates a variable provider stage.
 func NewVariableProviderStage(providers ...variables.Provider) *VariableProviderStage {
-	return &VariableProviderStage{
-		BaseStage: NewBaseStage("variable_provider", StageTypeTransform),
-		providers: providers,
-	}
+	return NewVariableProviderStageWithVars(nil, providers)
 }
 
 // Process resolves variables from all providers and merges them into element metadata.
@@ -249,8 +257,11 @@ func (s *VariableProviderStage) Process(
 ) error {
 	defer close(output)
 
-	// Resolve variables from all providers once
+	// Resolve variables: start with static vars, then dynamic providers override
 	allVars := make(map[string]string)
+	for k, v := range s.staticVars {
+		allVars[k] = v
+	}
 	for _, provider := range s.providers {
 		vars, err := provider.Provide(ctx)
 		if err != nil {
@@ -258,7 +269,7 @@ func (s *VariableProviderStage) Process(
 			return fmt.Errorf("variable provider %s failed: %w", provider.Name(), err)
 		}
 
-		// Merge (later providers override earlier ones)
+		// Merge (later providers override earlier ones, and all providers override static vars)
 		for k, v := range vars {
 			allVars[k] = v
 		}
@@ -278,8 +289,12 @@ func (s *VariableProviderStage) Process(
 			}
 			elem.Metadata["variables"] = existingVars
 		} else {
-			// Set new variables
-			elem.Metadata["variables"] = allVars
+			// Copy allVars to avoid sharing the same map across elements
+			elemVars := make(map[string]string, len(allVars))
+			for k, v := range allVars {
+				elemVars[k] = v
+			}
+			elem.Metadata["variables"] = elemVars
 		}
 
 		// Forward element

@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
 
 func TestTemplateStage_SubstitutesVariables(t *testing.T) {
@@ -1466,6 +1467,127 @@ func TestVariableProviderStage_ErrorHandling(t *testing.T) {
 		assert.NotNil(t, result.Metadata)
 		vars := result.Metadata["variables"].(map[string]string)
 		assert.Equal(t, "value", vars["key"])
+	})
+}
+
+func TestVariableProviderStage_WithStaticVars(t *testing.T) {
+	t.Run("injects static variables", func(t *testing.T) {
+		stage := NewVariableProviderStageWithVars(
+			map[string]string{"static_key": "static_value"},
+			nil,
+		)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		require.NotNil(t, result.Metadata)
+		vars := result.Metadata["variables"].(map[string]string)
+		assert.Equal(t, "static_value", vars["static_key"])
+	})
+
+	t.Run("providers override static vars", func(t *testing.T) {
+		mockProvider := &mockVariableProvider{
+			name: "test-provider",
+			vars: map[string]string{"shared_key": "dynamic_value"},
+		}
+
+		stage := NewVariableProviderStageWithVars(
+			map[string]string{"shared_key": "static_value", "static_only": "kept"},
+			[]variables.Provider{mockProvider},
+		)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		vars := result.Metadata["variables"].(map[string]string)
+		// Provider value wins over static
+		assert.Equal(t, "dynamic_value", vars["shared_key"])
+		// Static-only key is preserved
+		assert.Equal(t, "kept", vars["static_only"])
+	})
+
+	t.Run("merges with existing metadata variables", func(t *testing.T) {
+		stage := NewVariableProviderStageWithVars(
+			map[string]string{"static_key": "static_value"},
+			nil,
+		)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{
+			Metadata: map[string]interface{}{
+				"variables": map[string]string{"existing_key": "existing_value"},
+			},
+		}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		vars := result.Metadata["variables"].(map[string]string)
+		assert.Equal(t, "existing_value", vars["existing_key"])
+		assert.Equal(t, "static_value", vars["static_key"])
+	})
+
+	t.Run("nil static vars and nil providers", func(t *testing.T) {
+		stage := NewVariableProviderStageWithVars(nil, nil)
+
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 1)
+
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		result := <-output
+		require.NotNil(t, result.Metadata)
+		vars := result.Metadata["variables"].(map[string]string)
+		assert.Empty(t, vars)
+	})
+
+	t.Run("static vars do not share map across elements", func(t *testing.T) {
+		stage := NewVariableProviderStageWithVars(
+			map[string]string{"key": "value"},
+			nil,
+		)
+
+		input := make(chan StreamElement, 2)
+		output := make(chan StreamElement, 2)
+
+		input <- StreamElement{}
+		input <- StreamElement{}
+		close(input)
+
+		err := stage.Process(context.Background(), input, output)
+		require.NoError(t, err)
+
+		first := <-output
+		second := <-output
+
+		firstVars := first.Metadata["variables"].(map[string]string)
+		secondVars := second.Metadata["variables"].(map[string]string)
+
+		// Mutating first should not affect second
+		firstVars["injected"] = "mutation"
+		assert.NotEqual(t, "mutation", secondVars["injected"])
 	})
 }
 
