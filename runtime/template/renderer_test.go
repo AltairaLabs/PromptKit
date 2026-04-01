@@ -3,6 +3,9 @@ package template
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRenderer_BasicSubstitution(t *testing.T) {
@@ -530,6 +533,63 @@ func TestRenderer_MaxPassesExceeded(t *testing.T) {
 	if result2 != "final" {
 		t.Errorf("Expected 'final', got %q", result2)
 	}
+}
+
+func TestRenderer_RenderDetailed(t *testing.T) {
+	renderer := NewRenderer()
+
+	t.Run("tracks used and unused variables", func(t *testing.T) {
+		vars := map[string]string{
+			"name":   "Alice",
+			"unused": "ignored",
+		}
+		result, err := renderer.RenderDetailed("Hello {{name}}!", vars)
+		require.NoError(t, err)
+		assert.Equal(t, "Hello Alice!", result.Text)
+		assert.Equal(t, map[string]string{"name": "Alice"}, result.UsedVars)
+		assert.Equal(t, []string{"unused"}, result.UnusedVars)
+		assert.Equal(t, 1, result.Passes)
+	})
+
+	t.Run("counts recursive passes", func(t *testing.T) {
+		vars := map[string]string{
+			"greeting": "Hello {{name}}",
+			"name":     "Bob",
+		}
+		result, err := renderer.RenderDetailed("{{greeting}}!", vars)
+		require.NoError(t, err)
+		assert.Equal(t, "Hello Bob!", result.Text)
+		assert.Equal(t, 2, result.Passes)
+		assert.Contains(t, result.UsedVars, "greeting")
+		assert.Contains(t, result.UsedVars, "name")
+		assert.Empty(t, result.UnusedVars)
+	})
+
+	t.Run("returns error for unresolved placeholders", func(t *testing.T) {
+		vars := map[string]string{"name": "Alice"}
+		result, err := renderer.RenderDetailed("Hello {{name}}, {{missing}}!", vars)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unresolved")
+	})
+
+	t.Run("empty template returns empty result", func(t *testing.T) {
+		result, err := renderer.RenderDetailed("", map[string]string{"key": "val"})
+		require.NoError(t, err)
+		assert.Equal(t, "", result.Text)
+		assert.Empty(t, result.UsedVars)
+		assert.Equal(t, []string{"key"}, result.UnusedVars)
+		assert.Equal(t, 1, result.Passes)
+	})
+
+	t.Run("no variables needed", func(t *testing.T) {
+		result, err := renderer.RenderDetailed("Hello World!", map[string]string{})
+		require.NoError(t, err)
+		assert.Equal(t, "Hello World!", result.Text)
+		assert.Empty(t, result.UsedVars)
+		assert.Empty(t, result.UnusedVars)
+		assert.Equal(t, 1, result.Passes)
+	})
 }
 
 func TestNewRenderer(t *testing.T) {
