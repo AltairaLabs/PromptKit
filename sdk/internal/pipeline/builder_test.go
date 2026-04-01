@@ -843,6 +843,68 @@ func TestBuildStreamPipeline(t *testing.T) {
 	})
 }
 
+func TestCollectPipelineStagesVariableProvider(t *testing.T) {
+	t.Run("variable provider stage is present without providers", func(t *testing.T) {
+		// VariableProviderStage is always added (even with no providers) so that
+		// static cfg.Variables are injected into the element context.
+		registry := createTestRegistry("chat")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			Variables:      map[string]string{"env": "prod"},
+			// No VariableProviders — stage must still be present for static vars
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Hello!")
+
+		elem := stage.StreamElement{
+			Message:  &userMsg,
+			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+		}
+
+		result, err := pipe.ExecuteSync(context.Background(), elem)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+
+	t.Run("template stage uses emitter when event emitter is set", func(t *testing.T) {
+		registry := createTestRegistryWithTemplate("chat", "Hello {{user_name}}!")
+		mockProvider := mock.NewProvider("test-mock", "test-model", false)
+		bus := events.NewEventBus()
+		emitter := events.NewEmitter(bus, "", "session-1", "conv-1")
+
+		cfg := &Config{
+			PromptRegistry: registry,
+			TaskType:       "chat",
+			Provider:       mockProvider,
+			Variables:      map[string]string{"user_name": "Alice"},
+			EventEmitter:   emitter,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+
+		userMsg := types.Message{Role: "user"}
+		userMsg.AddTextPart("Hi!")
+
+		elem := stage.StreamElement{
+			Message:  &userMsg,
+			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+		}
+
+		result, err := pipe.ExecuteSync(context.Background(), elem)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+	})
+}
+
 func TestBuildWithHookRegistry(t *testing.T) {
 	t.Run("builds with hook registry", func(t *testing.T) {
 		registry := createTestRegistry("chat")
