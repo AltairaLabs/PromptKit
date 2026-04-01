@@ -390,4 +390,60 @@ func TestCoerceArgs(t *testing.T) {
 		_, _, err := validator.CoerceArgs(descriptor, args)
 		assert.Error(t, err)
 	})
+
+	// Extended schema with object and array types
+	extSchema := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"content": {"type": "string"},
+			"metadata": {"type": "object"},
+			"items": {"type": "array"}
+		}
+	}`)
+	extDescriptor := &ToolDescriptor{Name: "ext-tool", InputSchema: extSchema}
+
+	t.Run("coerces string to object", func(t *testing.T) {
+		args := json.RawMessage(`{"content": "hello", "metadata": "{}"}`)
+		coerced, coercions, err := validator.CoerceArgs(extDescriptor, args)
+		require.NoError(t, err)
+		assert.NotEmpty(t, coercions)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		meta, ok := result["metadata"].(map[string]interface{})
+		assert.True(t, ok, "metadata should be an object, got %T", result["metadata"])
+		assert.Empty(t, meta)
+	})
+
+	t.Run("coerces string to object with content", func(t *testing.T) {
+		args := json.RawMessage(`{"content": "hello", "metadata": "{\"key\": \"value\"}"}`)
+		coerced, coercions, err := validator.CoerceArgs(extDescriptor, args)
+		require.NoError(t, err)
+		assert.NotEmpty(t, coercions)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		meta, ok := result["metadata"].(map[string]interface{})
+		assert.True(t, ok)
+		assert.Equal(t, "value", meta["key"])
+	})
+
+	t.Run("coerces string to array", func(t *testing.T) {
+		args := json.RawMessage(`{"content": "hello", "items": "[1, 2, 3]"}`)
+		coerced, coercions, err := validator.CoerceArgs(extDescriptor, args)
+		require.NoError(t, err)
+		assert.NotEmpty(t, coercions)
+
+		var result map[string]interface{}
+		require.NoError(t, json.Unmarshal(coerced, &result))
+		items, ok := result["items"].([]interface{})
+		assert.True(t, ok, "items should be an array, got %T", result["items"])
+		assert.Len(t, items, 3)
+	})
+
+	t.Run("invalid JSON string for object — returns error", func(t *testing.T) {
+		args := json.RawMessage(`{"metadata": "not json"}`)
+		_, _, err := validator.CoerceArgs(extDescriptor, args)
+		assert.Error(t, err)
+	})
 }
