@@ -174,6 +174,6 @@ The large max size accommodates pack payloads, which can be substantial for proj
 
 ## See Also
 
-- [Protocol](../../reference/deploy/protocol) — JSON-RPC method specifications
-- [Adapter SDK](../../reference/deploy/adapter-sdk) — Build your own adapter
-- [State Management](state-management) — How state is persisted
+- [Protocol](/arena/reference/deploy/protocol/) — JSON-RPC method specifications
+- [Adapter SDK](/arena/reference/deploy/adapter-sdk/) — Build your own adapter
+- [State Management](/arena/explanation/deploy/state-management/) — How state is persisted

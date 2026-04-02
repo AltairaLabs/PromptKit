@@ -31,7 +31,7 @@ Users see results immediately and can stop generation if needed.
 
 ## Prerequisites
 
-Complete [Tutorial 1: Your First Conversation](01-first-conversation) or understand basic SDK usage.
+Complete [Tutorial 1: Your First Conversation](/sdk/tutorials/01-first-conversation/) or understand basic SDK usage.
 
 ## Basic Streaming
 
@@ -244,8 +244,8 @@ for chunk := range conv.Stream(ctx, "Tell me a long story") {
 
 ## Next Steps
 
-- **[Tutorial 3: Tools](03-tool-integration)** - Add function calling
-- **[Tutorial 4: Variables](04-state-management)** - Template variables
+- **[Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/)** - Add function calling
+- **[Tutorial 4: Variables](/sdk/tutorials/04-state-management/)** - Template variables
 
 ## Complete Example
 

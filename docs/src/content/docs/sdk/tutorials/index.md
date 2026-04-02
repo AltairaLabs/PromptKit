@@ -66,8 +66,8 @@ By completing these tutorials, you'll:
 
 ## Getting Help
 
-- Check the [How-To Guides](../how-to/) for specific tasks
-- See the [Reference Documentation](../reference/) for API details
+- Check the [How-To Guides](/sdk/how-to/) for specific tasks
+- See the [Reference Documentation](/sdk/reference/) for API details
 - Review [SDK Examples](/sdk/examples/) for complete applications
 
 Start with [Your First Conversation](01-first-conversation) →

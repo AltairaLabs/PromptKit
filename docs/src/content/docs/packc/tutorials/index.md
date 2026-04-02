@@ -58,8 +58,8 @@ Each tutorial includes:
 
 If you get stuck:
 
-- Check the [How-To Guides](../how-to/) for specific tasks
-- Review the [Reference Documentation](../reference/)
+- Check the [How-To Guides](/packc/how-to/) for specific tasks
+- Review the [Reference Documentation](/packc/reference/)
 - Ask in [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
 
 ## Next Steps

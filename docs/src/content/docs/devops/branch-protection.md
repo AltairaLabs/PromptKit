@@ -212,11 +212,11 @@ A: Your PR will be blocked. You'll need to sign the commits retroactively using 
 
 ## Related Documentation
 
-- [Contributing Guidelines](../../CONTRIBUTING.md)
-- [Release Process](release-process.md)
-- [CI/CD Pipelines](ci-cd-pipelines.md)
-- [Security Policy](../../SECURITY.md)
-- [Code of Conduct](../../CODE_OF_CONDUCT.md)
+- [Contributing Guidelines](/contributors/contributing/)
+- [Release Process](/devops/release-process/)
+- [CI/CD Pipelines](/devops/ci-cd-pipelines/)
+- [Security Policy](/contributors/contributing/)
+- [Code of Conduct](/contributors/contributing/)
 
 ## Updates to This Document
 

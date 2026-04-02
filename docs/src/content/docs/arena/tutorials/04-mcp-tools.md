@@ -13,7 +13,7 @@ Learn how to test LLMs that use Model Context Protocol (MCP) tools and function 
 
 ## Prerequisites
 
-- Completed [Tutorial 1-3](01-first-test)
+- Completed [Tutorial 1-3](/arena/tutorials/01-first-test/)
 - Understanding of function calling in LLMs
 - Node.js installed (for MCP servers)
 
@@ -570,9 +570,9 @@ mcp-memory-server --help
 You now know how to test LLMs with tool calling!
 
 **Continue learning:**
-- **[Tutorial 5: CI Integration](05-ci-integration)** - Automate tool testing in CI/CD
-- **[How-To: MCP Tools](../how-to/use-mock-providers)** - Advanced tool configuration
-- **[Runtime: Tools & MCP](../../runtime/reference/tools-mcp)** - Complete tool reference
+- **[Tutorial 5: CI Integration](/arena/tutorials/05-ci-integration/)** - Automate tool testing in CI/CD
+- **[How-To: MCP Tools](/arena/how-to/use-mock-providers/)** - Advanced tool configuration
+- **[Runtime: Tools & MCP](/runtime/reference/tools-mcp/)** - Complete tool reference
 
 **Try this:**
 - Create custom MCP tools

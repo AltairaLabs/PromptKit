@@ -46,8 +46,8 @@ promptarena run arena.yaml --provider openai,anthropic --format html
 ### Quick Links
 
 - **Schema**: [v1.1 JSON Schema](https://promptpack.org/schema/v1.1/promptpack.schema.json)
-- **Local Examples**: [`examples/`](../../examples/) directory in this repository
-- **Arena Guides**: [Writing Scenarios](./writing-scenarios) | [Assertions](./assertions) | [Self-Play](./selfplay)
+- **Local Examples**: [`examples/`](/arena/examples/) directory in this repository
+- **Arena Guides**: [Writing Scenarios](/arena/how-to/write-scenarios/) | [Assertions](/arena/reference/assertions/) | [Self-Play](/arena/how-to/write-scenarios/)
 - **Community**: [GitHub Discussions](https://github.com/altairalabs/promptpack-spec/discussions)
 
 ---
@@ -136,7 +136,7 @@ conversation_assertions:
   - type: tool_calls_with_args
 ```
 
-See the [Assertions Guide](./assertions) for complete documentation.
+See the [Assertions Guide](/arena/reference/assertions/) for complete documentation.
 
 ### 3. Workflow Testing
 
@@ -191,7 +191,7 @@ spec:
 - **`transitioned_to`** — Checks if a state was visited in the transition history
 - **`workflow_complete`** — Checks if the workflow reached a terminal state
 
-See the [Assertions Reference](./assertions#workflow-assertions) for full details.
+See the [Assertions Reference](/arena/reference/assertions/#workflow-assertions) for full details.
 
 ### 4. Multimodal Testing
 
@@ -227,7 +227,7 @@ turns:
           url: "path/to/document.pdf"
 ```
 
-See [`examples/arena-media-test/`](../../examples/arena-media-test/) and [`examples/document-analysis/`](../../examples/document-analysis/) for complete examples.
+See [`examples/arena-media-test/`](/arena/examples/arena-media-test/) and [`examples/document-analysis/`](/arena/examples/document-analysis/) for complete examples.
 
 ### 5. Mock Provider Support
 
@@ -243,7 +243,7 @@ spec:
   model: mock-model
 ```
 
-Configure responses in `providers/mock-responses.yaml`. See [Mock Provider Usage](../../examples/mcp-chatbot/MOCK_PROVIDER_USAGE).
+Configure responses in `providers/mock-responses.yaml`. See [Mock Provider Usage](/arena/how-to/use-mock-providers/).
 
 ### 6. Self-Play Testing
 
@@ -323,15 +323,15 @@ my-project/
 - **[GitHub Repository](https://github.com/altairalabs/promptpack-spec)** - Spec source and discussions
 
 ### PromptArena Guides
-- **[Writing Scenarios](./writing-scenarios)** - Create effective test cases
-- **[Assertions Reference](./assertions)** - Complete assertion documentation
-- **[Self-Play Testing](./selfplay)** - AI-driven testing with personas
-- **[MCP Integration](./mcp)** - Model Context Protocol servers
+- **[Writing Scenarios](/arena/how-to/write-scenarios/)** - Create effective test cases
+- **[Assertions Reference](/arena/reference/assertions/)** - Complete assertion documentation
+- **[Self-Play Testing](/arena/how-to/write-scenarios/)** - AI-driven testing with personas
+- **[MCP Integration](/arena/how-to/test-mcp-tools/)** - Model Context Protocol servers
 
 ### Examples
-- [`examples/customer-support/`](../../examples/customer-support/) - Basic support bot
-- [`examples/arena-media-test/`](../../examples/arena-media-test/) - Multimodal testing
-- [`examples/mcp-chatbot/`](../../examples/mcp-chatbot/) - MCP server integration
+- [`examples/customer-support/`](/arena/examples/customer-support/) - Basic support bot
+- [`examples/arena-media-test/`](/arena/examples/arena-media-test/) - Multimodal testing
+- [`examples/mcp-chatbot/`](/arena/examples/mcp-chatbot/) - MCP server integration
 
 ---
 

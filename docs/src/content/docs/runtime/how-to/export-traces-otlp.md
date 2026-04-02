@@ -261,7 +261,7 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 
 ## See Also
 
-- [Telemetry Reference](../reference/telemetry) — full API reference and attribute tables
-- [Prometheus Metrics](prometheus-metrics) — Prometheus-based monitoring
-- [SDK Observability](../../sdk/explanation/observability) — event system architecture
-- [Monitor Events](../../sdk/how-to/monitor-events) — SDK event hooks
+- [Telemetry Reference](/runtime/reference/telemetry/) — full API reference and attribute tables
+- [Prometheus Metrics](/runtime/how-to/prometheus-metrics/) — Prometheus-based monitoring
+- [SDK Observability](/sdk/explanation/observability/) — event system architecture
+- [Monitor Events](/sdk/how-to/monitor-events/) — SDK event hooks

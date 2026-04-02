@@ -24,7 +24,7 @@ In this tutorial, you'll learn to:
 
 ## Prerequisites
 
-- Completed [Tutorial: First Deployment](first-deployment)
+- Completed [Tutorial: First Deployment](/arena/tutorials/deploy/first-deployment/)
 - An installed deploy adapter
 - A compiled `.pack.json` file
 
@@ -253,6 +253,6 @@ Each environment is tracked independently. If you see unexpected state, check th
 
 Now that you understand multi-environment deployments, explore:
 
-- **[How-To: Configure Deploy](../../how-to/deploy/configure)** — Advanced configuration patterns
-- **[How-To: CI/CD Integration](../../how-to/deploy/ci-cd)** — Automate multi-environment deployments
-- **[Explanation: State Management](../../explanation/deploy/state-management)** — How state tracking works per environment
+- **[How-To: Configure Deploy](/arena/how-to/deploy/configure/)** — Advanced configuration patterns
+- **[How-To: CI/CD Integration](/arena/how-to/deploy/ci-cd/)** — Automate multi-environment deployments
+- **[Explanation: State Management](/arena/explanation/deploy/state-management/)** — How state tracking works per environment

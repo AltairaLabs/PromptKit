@@ -18,7 +18,7 @@ Automate pack compilation, validation, and deployment in CI/CD.
 
 ## Prerequisites
 
-- Completed [Tutorial 4: Pack Management](04-pack-management)
+- Completed [Tutorial 4: Pack Management](/packc/tutorials/04-pack-management/)
 - GitHub account
 - Git repository
 
@@ -387,9 +387,9 @@ environment:
 
 Congratulations! You've completed all PackC tutorials. Continue with:
 
-- **[PackC Explanation](../explanation/)** - Deep dive into pack concepts
-- **[SDK Integration](../../sdk/)** - Use packs in applications
-- **[Arena Testing](../../arena/)** - Test prompts interactively
+- **[PackC Explanation](/packc/explanation/)** - Deep dive into pack concepts
+- **[SDK Integration](/packc/sdk/)** - Use packs in applications
+- **[Arena Testing](/arena/)** - Test prompts interactively
 
 ## Summary
 

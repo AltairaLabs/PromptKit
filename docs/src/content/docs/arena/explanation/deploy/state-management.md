@@ -136,7 +136,7 @@ Each environment shares the same state file location. The environment name is re
 
 ## State and CI/CD
 
-In CI/CD environments, state is typically not persisted between workflow runs. See [CI/CD Integration](../../how-to/deploy/ci-cd) for strategies:
+In CI/CD environments, state is typically not persisted between workflow runs. See [CI/CD Integration](/arena/how-to/deploy/ci-cd/) for strategies:
 
 - Committing state to the repository
 - Using artifact storage
@@ -195,6 +195,6 @@ All mutating operations (deploy, apply, destroy, refresh, import) acquire the lo
 
 ## See Also
 
-- [Adapter Architecture](adapter-architecture) — How adapters use state
-- [Plan and Apply](../../how-to/deploy/plan-and-apply) — Deployment workflows
-- [CLI Commands](../../reference/deploy/cli-commands) — Status and destroy commands
+- [Adapter Architecture](/arena/explanation/deploy/adapter-architecture/) — How adapters use state
+- [Plan and Apply](/arena/how-to/deploy/plan-and-apply/) — Deployment workflows
+- [CLI Commands](/arena/reference/deploy/cli-commands/) — Status and destroy commands

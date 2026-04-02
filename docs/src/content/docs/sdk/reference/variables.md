@@ -358,6 +358,6 @@ conv.SetVar("greeting", "Hello")  // Static: greeting = "Hello"
 
 ## See Also
 
-- [Variable Providers Tutorial](../tutorials/09-variable-providers) - Getting started
-- [State Management](04-state-management) - Conversation state
-- [Template Variables](/runtime/explanation/templates) - Template syntax
+- [Variable Providers Tutorial](/sdk/tutorials/09-variable-providers/) - Getting started
+- [State Management](/sdk/tutorials/04-state-management/) - Conversation state
+- [Template Variables](/concepts/templates/) - Template syntax

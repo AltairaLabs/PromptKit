@@ -219,4 +219,4 @@ wg.Wait()
 ## See Also
 
 - [Observability](observability)
-- [API Reference](../reference/)
+- [API Reference](/sdk/reference/)

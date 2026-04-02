@@ -454,6 +454,6 @@ Templates provide:
 ## Related Documentation
 
 - [Prompts](prompts) - Prompt engineering basics
-- [Runtime Templates](../runtime/how-to/use-templates) - Implementation guide
-- [PackC Documentation](../packc/index) - Template packaging
-- [Template Reference](../runtime/reference/template) - API details
+- [Runtime Templates](/runtime/how-to/use-templates) - Implementation guide
+- [PackC Documentation](/packc/) - Template packaging
+- [Template Reference](/runtime/reference/template) - API details

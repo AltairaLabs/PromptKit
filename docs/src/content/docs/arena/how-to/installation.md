@@ -165,7 +165,7 @@ EOF
 
 - **[Write Your First Test Scenario](write-scenarios)** - Create test scenarios
 - **[Configure Providers](configure-providers)** - Set up LLM providers
-- **[Tutorial: First Test](../tutorials/01-first-test)** - Complete hands-on guide
+- **[Tutorial: First Test](/arena/tutorials/01-first-test/)** - Complete hands-on guide
 
 ## Troubleshooting
 

@@ -23,7 +23,7 @@ Some operations should require human approval:
 
 ## Prerequisites
 
-Complete [Tutorial 3: Tools](03-tool-integration) and understand tool registration.
+Complete [Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/) and understand tool registration.
 
 ## Step 1: Create HITL Pack
 
@@ -303,8 +303,8 @@ http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) {
 
 ## Next Steps
 
-- **[Tutorial 6: Media](06-media-storage)** - Working with images
-- **[How-To: Register Tools](../how-to/register-tools)** - Tool registration including async/HITL patterns
+- **[Tutorial 6: Media](/sdk/tutorials/06-media-storage/)** - Working with images
+- **[How-To: Register Tools](/sdk/how-to/register-tools/)** - Tool registration including async/HITL patterns
 
 ## Complete Example
 

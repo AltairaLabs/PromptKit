@@ -504,6 +504,6 @@ The CLI uses sequential integer IDs starting from 1. The adapter must include th
 
 ## See Also
 
-- [Adapter SDK](adapter-sdk) — Go SDK for implementing this protocol
-- [Adapter Architecture](../../explanation/deploy/adapter-architecture) — Design overview
-- [CLI Commands](cli-commands) — CLI that drives the protocol
+- [Adapter SDK](/arena/reference/deploy/adapter-sdk/) — Go SDK for implementing this protocol
+- [Adapter Architecture](/arena/explanation/deploy/adapter-architecture/) — Design overview
+- [CLI Commands](/arena/reference/deploy/cli-commands/) — CLI that drives the protocol

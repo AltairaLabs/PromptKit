@@ -415,8 +415,8 @@ promptarena run --verbose --scenario validator-test
 
 - **[Checks Reference](/reference/checks/)** -- All check types and parameters
 - **[Integrate CI/CD](integrate-ci-cd)** -- Automate validation in pipelines
-- **[Assertions Reference](../reference/assertions)** -- Assertion syntax and configuration
-- **[Guardrails Reference](../reference/validators)** -- Runtime policy enforcement
+- **[Assertions Reference](/arena/reference/assertions/)** -- Assertion syntax and configuration
+- **[Guardrails Reference](/arena/reference/validators/)** -- Runtime policy enforcement
 - **[Unified Check Model](/concepts/validation/)** -- How assertions, guardrails, and evals relate
 
 ## Examples

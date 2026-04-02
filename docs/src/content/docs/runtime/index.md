@@ -363,7 +363,7 @@ Leverage Go's type system:
 - **Quick Start**: [First Pipeline Tutorial](/runtime/tutorials/01-first-pipeline/)
 - **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
 - **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
-- **Contributing**: [Contribution Guide](/community/contributing/)
+- **Contributing**: [Contribution Guide](/contributors/contributing/)
 
 ---
 
@@ -371,4 +371,4 @@ Leverage Go's type system:
 
 - **SDK**: [Built on top of Runtime](/sdk/)
 - **Arena**: [Uses Runtime for testing](/arena/)
-- **Architecture**: [System Design](/concepts/architecture/)
+- **Architecture**: [System Design](/architecture/)

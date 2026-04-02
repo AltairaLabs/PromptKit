@@ -417,10 +417,10 @@ fmt.Printf("Loaded %d bytes\n", len(data))
 
 **See Also:**
 
-- [Storage Reference](storage) - MediaStorageService interface
-- [Providers Reference](providers#medialoader) - MediaLoader documentation
-- [How-To: Configure Media Storage](../../sdk/how-to/configure-media-storage) - Setup guide
-- [Explanation: Media Storage](../../sdk/explanation/media-storage) - Design and architecture
+- [Storage Reference](/runtime/reference/storage/) - MediaStorageService interface
+- [Providers Reference](/runtime/reference/providers#medialoader) - MediaLoader documentation
+- [How-To: Configure Media Storage](/runtime/sdk/how-to/configure-media-storage/) - Setup guide
+- [Explanation: Media Storage](/runtime/sdk/explanation/media-storage/) - Design and architecture
 
 ## Usage Examples
 
@@ -624,6 +624,6 @@ func CreateImageMessage(imageURL string) types.Message {
 
 ## See Also
 
-- [Pipeline Reference](pipeline) - Using types in pipelines
-- [Provider Reference](providers) - Provider-specific types
-- [Tools Reference](tools-mcp) - Tool-related types
+- [Pipeline Reference](/runtime/reference/pipeline/) - Using types in pipelines
+- [Provider Reference](/runtime/reference/providers/) - Provider-specific types
+- [Tools Reference](/runtime/reference/tools-mcp/) - Tool-related types

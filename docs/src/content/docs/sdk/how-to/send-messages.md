@@ -204,4 +204,4 @@ func main() {
 
 - [Open a Conversation](initialize)
 - [Register Tools](register-tools)
-- [Tutorial 2: Streaming](../tutorials/02-streaming-responses)
+- [Tutorial 2: Streaming](/sdk/tutorials/02-streaming-responses/)

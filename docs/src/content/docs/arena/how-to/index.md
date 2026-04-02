@@ -99,6 +99,6 @@ Automate LLM testing in GitHub Actions, GitLab CI, Jenkins, and other pipelines.
 
 Looking for something else?
 
-- **[Tutorials](../tutorials/)** - Step-by-step learning paths for beginners
-- **[Explanation](../explanation/)** - Understand concepts and design decisions
-- **[Reference](../reference/)** - Complete technical specifications and API docs
+- **[Tutorials](/arena/tutorials/)** - Step-by-step learning paths for beginners
+- **[Explanation](/arena/explanation/)** - Understand concepts and design decisions
+- **[Reference](/arena/reference/)** - Complete technical specifications and API docs

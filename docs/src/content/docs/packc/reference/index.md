@@ -73,6 +73,6 @@ PackC produces `.pack.json` files with this structure:
 
 ## See Also
 
-- [PackC How-To Guides](../how-to/) - Task-focused guides
-- [PackC Tutorials](../tutorials/) - Learn by building
-- [Pack Format Specification](../../sdk/explanation/promptpack-format)
+- [PackC How-To Guides](/packc/how-to/) - Task-focused guides
+- [PackC Tutorials](/packc/tutorials/) - Learn by building
+- [Pack Format Specification](/sdk/explanation/promptpack-format/)

@@ -24,10 +24,8 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 |-----------|-------------|-----------|
 | **Pipeline** | Stage-based execution engine | [pipeline.md](pipeline) |
 | **Providers** | LLM provider implementations | [providers.md](providers) |
-| **Tools** | Function calling and MCP integration | [tools.md](tools) |
-| **MCP** | Model Context Protocol support | [mcp.md](mcp) |
+| **Tools** | Function calling and MCP integration | [tools-mcp.md](tools-mcp) |
 | **State Store** | Conversation persistence | [statestore.md](statestore) |
-| **Validators** | Content validation | [validators.md](validators) |
 | **Types** | Core data structures | [types.md](types) |
 | **A2A** | Client, types, tool bridge, mock | [a2a.md](a2a) |
 | **Logging** | Structured logging with context | [logging.md](logging) |
@@ -271,12 +269,11 @@ for chunk := range streamChan {
 
 - [Pipeline Reference](pipeline) - Detailed pipeline API
 - [Provider Reference](providers) - Provider implementations
-- [Tools Reference](tools) - Tool registry and execution
-- [MCP Reference](mcp) - Model Context Protocol integration
+- [Tools & MCP Reference](tools-mcp) - Tool registry and execution
 - [Types Reference](types) - Core data structures
 
 ## Next Steps
 
-- [How-To Guides](../how-to/) - Task-focused guides
-- [Tutorials](../tutorials/) - Learn by building
-- [Explanation](../explanation/) - Architecture and concepts
+- [How-To Guides](/runtime/how-to/) - Task-focused guides
+- [Tutorials](/runtime/tutorials/) - Learn by building
+- [Explanation](/runtime/explanation/) - Architecture and concepts

@@ -356,10 +356,10 @@ uses: AltairaLabs/PromptKit/.github/actions/promptarena-action@main
 
 ## Related Documentation
 
-- [Arena CLI Reference](../arena/reference/) - Full CLI documentation
-- [Arena Configuration](../arena/reference/configuration) - arena.yaml format
-- [CI/CD Pipelines](./ci-cd-pipelines) - PromptKit CI/CD overview
-- [Testing Releases](./testing-releases) - Release testing guide
+- [Arena CLI Reference](/arena/reference/) - Full CLI documentation
+- [Arena Configuration](/arena/reference/config-schema/) - arena.yaml format
+- [CI/CD Pipelines](/devops/ci-cd-pipelines/) - PromptKit CI/CD overview
+- [Testing Releases](/devops/testing-releases/) - Release testing guide
 
 ---
 

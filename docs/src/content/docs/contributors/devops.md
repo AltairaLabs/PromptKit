@@ -8,26 +8,26 @@ This section contains documentation for maintainers and contributors about the p
 
 ## Quick References
 
-- [CI/CD Quick Reference](./ci-cd-quickref/) - Fast lookup for common CI/CD tasks
-- [Branch Protection Quick Reference](./branch-protection-quickref/) - Branch protection rules summary
-- [Testing Releases Quickstart](./testing-releases-quickstart/) - Quick guide to testing releases locally
+- [CI/CD Quick Reference](/devops/ci-cd-quickref/) - Fast lookup for common CI/CD tasks
+- [Branch Protection Quick Reference](/devops/branch-protection-quickref/) - Branch protection rules summary
+- [Testing Releases Quickstart](/devops/testing-releases-quickstart/) - Quick guide to testing releases locally
 
 ## CI/CD Pipelines
 
-- [CI/CD Pipelines Overview](./ci-cd-pipelines/) - Comprehensive guide to our automated workflows
-- [CI/CD Architecture Diagrams](./ci-cd-diagrams/) - Visual representation of our CI/CD system
+- [CI/CD Pipelines Overview](/devops/ci-cd-pipelines/) - Comprehensive guide to our automated workflows
+- [CI/CD Architecture Diagrams](/devops/ci-cd-diagrams/) - Visual representation of our CI/CD system
 
 ## Release Management
 
-- [Release Process](./release-process/) - Step-by-step release procedures
-- [Release Automation](./release-automation/) - Automated release workflows
-- [Testing Releases](./testing-releases/) - How to test releases before publishing
-- [GoReleaser Integration](./goreleaser-integration/) - GoReleaser configuration and usage
+- [Release Process](/devops/release-process/) - Step-by-step release procedures
+- [Release Automation](/devops/release-automation/) - Automated release workflows
+- [Testing Releases](/devops/testing-releases/) - How to test releases before publishing
+- [GoReleaser Integration](/devops/goreleaser-integration/) - GoReleaser configuration and usage
 
 ## Branch Protection
 
-- [Branch Protection Rules](./branch-protection/) - Detailed branch protection documentation
-- [Branch Protection Setup](./branch-protection-quickref/) - Quick reference for branch protection
+- [Branch Protection Rules](/devops/branch-protection/) - Detailed branch protection documentation
+- [Branch Protection Setup](/devops/branch-protection-quickref/) - Quick reference for branch protection
 
 ## For Maintainers
 
@@ -43,12 +43,12 @@ This documentation is primarily for project maintainers who need to:
 
 Contributors should be familiar with:
 
-- [CI/CD Pipelines](./ci-cd-pipelines/) - Understanding what checks run on PRs
-- [Branch Protection](./branch-protection/) - What rules apply to contributions
-- [Testing Releases](./testing-releases/) - How to test changes locally
+- [CI/CD Pipelines](/devops/ci-cd-pipelines/) - Understanding what checks run on PRs
+- [Branch Protection](/devops/branch-protection/) - What rules apply to contributions
+- [Testing Releases](/devops/testing-releases/) - How to test changes locally
 
 ## Getting Help
 
-- Check the [CI/CD Quick Reference](./ci-cd-quickref/) for common issues
+- Check the [CI/CD Quick Reference](/devops/ci-cd-quickref/) for common issues
 - Review existing GitHub Actions workflows in `.github/workflows/`
 - Ask maintainers in GitHub issues or discussions

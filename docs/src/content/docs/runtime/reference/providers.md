@@ -1400,10 +1400,10 @@ for chunk := range streamChan {
 ## See Also
 
 - [MediaLoader](#medialoader) - Unified media loading
-- [Pipeline Reference](pipeline) - Using providers in pipelines
-- [Tools Reference](tools) - Function calling
-- [Provider How-To](../how-to/configure-providers) - Configuration guide
-- [Provider Explanation](../explanation/provider-architecture) - Architecture details
+- [Pipeline Reference](/runtime/reference/pipeline/) - Using providers in pipelines
+- [Tools Reference](/runtime/reference/tools-mcp/) - Function calling
+- [Provider How-To](/runtime/how-to/setup-providers/) - Configuration guide
+- [Provider Explanation](/runtime/explanation/provider-system/) - Architecture details
 
 ## MediaLoader
 
@@ -1773,7 +1773,7 @@ manager, _ := sdk.NewConversationManager(
 
 ### See Also
 
-- [Storage Reference](storage) - Media storage backends
-- [Types Reference](types#mediacontent) - MediaContent structure
-- [How-To: Configure Media Storage](../../sdk/how-to/configure-media-storage) - Setup guide
-- [Explanation: Media Storage](../../sdk/explanation/media-storage) - Design and architecture
+- [Storage Reference](/runtime/reference/storage/) - Media storage backends
+- [Types Reference](/runtime/reference/types#mediacontent) - MediaContent structure
+- [How-To: Configure Media Storage](/runtime/sdk/how-to/configure-media-storage/) - Setup guide
+- [Explanation: Media Storage](/runtime/sdk/explanation/media-storage/) - Design and architecture

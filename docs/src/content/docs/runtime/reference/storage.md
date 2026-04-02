@@ -757,8 +757,8 @@ rm ./media/.dedup-index.json
 
 ## See Also
 
-- **[How-To: Configure Media Storage](../../sdk/how-to/configure-media-storage)** - Configuration guide
-- **[Types Reference](types#mediacontent)** - MediaContent structure
-- **[Providers Reference](providers#medialoader)** - MediaLoader for unified access
-- **[SDK Reference](../../sdk/reference/conversation-manager)** - WithMediaStorage option
-- **[Explanation: Media Storage](../../sdk/explanation/media-storage)** - Design and concepts
+- **[How-To: Configure Media Storage](/runtime/sdk/how-to/configure-media-storage/)** - Configuration guide
+- **[Types Reference](/runtime/reference/types#mediacontent)** - MediaContent structure
+- **[Providers Reference](/runtime/reference/providers#medialoader)** - MediaLoader for unified access
+- **[SDK Reference](/sdk/reference/conversation-manager/)** - WithMediaStorage option
+- **[Explanation: Media Storage](/runtime/sdk/explanation/media-storage/)** - Design and concepts

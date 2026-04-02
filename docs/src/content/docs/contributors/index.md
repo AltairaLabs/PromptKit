@@ -8,24 +8,24 @@ Thank you for your interest in contributing to PromptKit! This section provides 
 
 ## Getting Started
 
-- [Code of Conduct](./code-of-conduct/) - Community standards and expectations
-- [Contribution Guide](./contributing/) - How to contribute to the project
-- [Governance](./governance/) - Project structure and decision-making
-- [DevOps](./devops/) - CI/CD, releases, and infrastructure
+- [Code of Conduct](/contributors/code-of-conduct/) - Community standards and expectations
+- [Contribution Guide](/contributors/contributing/) - How to contribute to the project
+- [Governance](/contributors/governance/) - Project structure and decision-making
+- [DevOps](/contributors/devops/) - CI/CD, releases, and infrastructure
 
 ## Quick Links
 
 ### For New Contributors
 
-1. Read our [Code of Conduct](./code-of-conduct/)
-2. Review the [Contribution Guide](./contributing/)
+1. Read our [Code of Conduct](/contributors/code-of-conduct/)
+2. Review the [Contribution Guide](/contributors/contributing/)
 3. Check out [good first issues](https://github.com/AltairaLabs/PromptKit/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 4. Join discussions on GitHub
 
 ### For Maintainers
 
-- [DevOps Documentation](./devops/) - CI/CD pipelines, releases, branch protection
-- [Governance Model](./governance/) - Project structure and responsibilities
+- [DevOps Documentation](/contributors/devops/) - CI/CD pipelines, releases, branch protection
+- [Governance Model](/contributors/governance/) - Project structure and responsibilities
 
 ## Community
 
@@ -42,7 +42,7 @@ We welcome contributions from everyone! Whether you're fixing bugs, adding featu
 ## Questions?
 
 - Open a [GitHub issue](https://github.com/AltairaLabs/PromptKit/issues)
-- Check existing [documentation](/promptkit/)
+- Check existing [documentation](/)
 - Review closed issues and PRs
 
 ## License

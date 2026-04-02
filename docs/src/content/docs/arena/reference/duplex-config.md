@@ -401,7 +401,7 @@ Common configuration errors and solutions:
 
 ## See Also
 
-- [Tutorial: Duplex Voice Testing](../tutorials/06-duplex-testing) - Step-by-step guide
-- [Duplex Architecture](../explanation/duplex-architecture) - How duplex streaming works
-- [Assertions Reference](./assertions) - All assertion types
-- [CLI Commands Reference](./cli-commands) - Command-line options
+- [Tutorial: Duplex Voice Testing](/arena/tutorials/06-duplex-testing/) - Step-by-step guide
+- [Duplex Architecture](/arena/explanation/duplex-architecture/) - How duplex streaming works
+- [Assertions Reference](/arena/reference/assertions/) - All assertion types
+- [CLI Commands Reference](/arena/reference/cli-commands/) - Command-line options

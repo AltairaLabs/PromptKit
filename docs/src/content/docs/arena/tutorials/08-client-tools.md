@@ -12,8 +12,8 @@ Learn how to test tools that execute on the caller's device, including consent s
 
 ## Prerequisites
 
-- Completed [Tutorials 1-3](01-first-test)
-- Understanding of tool calling in LLMs (see [Tutorial 4](04-mcp-tools))
+- Completed [Tutorials 1-3](/arena/tutorials/01-first-test/)
+- Understanding of tool calling in LLMs (see [Tutorial 4](/arena/tutorials/04-mcp-tools/))
 
 ## What are Client-Side Tools?
 
@@ -237,5 +237,5 @@ For a complete working example, see the [`examples/client-tools/`](https://githu
 
 ## Next Steps
 
-- **[Tutorial 5: CI Integration](05-ci-integration)** -- automate client-tool tests in your CI/CD pipeline
-- **[Tutorial 4: MCP Tools](04-mcp-tools)** -- learn about server-side tool testing for comparison
+- **[Tutorial 5: CI Integration](/arena/tutorials/05-ci-integration/)** -- automate client-tool tests in your CI/CD pipeline
+- **[Tutorial 4: MCP Tools](/arena/tutorials/04-mcp-tools/)** -- learn about server-side tool testing for comparison

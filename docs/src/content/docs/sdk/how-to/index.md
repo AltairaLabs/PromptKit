@@ -141,6 +141,6 @@ hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
 
 ## See Also
 
-- **[Tutorials](../tutorials/)** - Step-by-step learning
-- **[Reference Documentation](../reference/)** - API reference
+- **[Tutorials](/sdk/tutorials/)** - Step-by-step learning
+- **[Reference Documentation](/sdk/reference/)** - API reference
 - **[Examples](/sdk/examples/)** - Working code examples

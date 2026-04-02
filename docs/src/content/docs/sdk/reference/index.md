@@ -459,6 +459,6 @@ import (
 
 ## See Also
 
-- [Tutorials](../tutorials/)
-- [How-To Guides](../how-to/)
+- [Tutorials](/sdk/tutorials/)
+- [How-To Guides](/sdk/how-to/)
 - [Examples](/sdk/examples/)

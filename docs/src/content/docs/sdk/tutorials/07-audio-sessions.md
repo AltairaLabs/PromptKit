@@ -15,7 +15,7 @@ Build voice-enabled conversations with real-time audio streaming.
 
 ## Prerequisites
 
-- Completed [Tutorial 1: First Conversation](01-first-conversation)
+- Completed [Tutorial 1: First Conversation](/sdk/tutorials/01-first-conversation/)
 - Basic understanding of audio streaming concepts
 - API keys for OpenAI or Google (for Gemini Live)
 
@@ -317,11 +317,11 @@ See the `sdk/examples/voice-interview/` directory for a complete working example
 
 ## What's Next
 
-- [Tutorial 8: TTS Integration](08-tts-integration) - Deep dive into TTS configuration
-- [Tutorial 9: Variable Providers](09-variable-providers) - Dynamic context injection
+- [Tutorial 8: TTS Integration](/sdk/tutorials/08-tts-integration/) - Deep dive into TTS configuration
+- [Tutorial 9: Variable Providers](/sdk/tutorials/09-variable-providers/) - Dynamic context injection
 
 ## See Also
 
-- [VADModeConfig Reference](../reference/audio) - Complete VAD configuration
-- [TTS Service Reference](../reference/tts) - TTS providers and options
+- [VADModeConfig Reference](/sdk/reference/audio/) - Complete VAD configuration
+- [TTS Service Reference](/sdk/reference/tts/) - TTS providers and options
 - [Voice Interview Example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/voice-interview)

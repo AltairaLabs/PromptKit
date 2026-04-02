@@ -111,6 +111,6 @@ EventPipelineCompleted
 
 ## See Also
 
-- [Tutorials](../tutorials/)
-- [How-To Guides](../how-to/)
-- [API Reference](../reference/)
+- [Tutorials](/sdk/tutorials/)
+- [How-To Guides](/sdk/how-to/)
+- [API Reference](/sdk/reference/)

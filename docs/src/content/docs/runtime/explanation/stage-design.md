@@ -572,6 +572,6 @@ Stage design provides:
 
 ## Related Topics
 
-- [Pipeline Architecture](pipeline-architecture) - How stages form pipelines
-- [State Management](state-management) - StateStore stages
-- [Stage Reference](../reference/pipeline) - Complete API
+- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How stages form pipelines
+- [State Management](/runtime/explanation/state-management/) - StateStore stages
+- [Stage Reference](/runtime/reference/pipeline/) - Complete API

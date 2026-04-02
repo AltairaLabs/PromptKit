@@ -12,7 +12,7 @@ Available Commands:
   config-inspect Inspect and validate prompt arena configuration
   debug          Debug configuration and prompt loading
   deploy         Deploy the arena pack to a target environment
-  export         Export arena config as a PromptPack JSON file
+  export         Export arena config as a compiled PromptPack
   generate       Generate scenario files from session data
   help           Help about any command
   init           Initialize a new Arena test project
@@ -20,7 +20,7 @@ Available Commands:
   prompt-debug   Debug and test prompt generation
   render         Generate HTML report from existing results
   run            Run conversation simulations
-  serve          Serve the output directory via HTTP for viewing reports with audio playback
+  serve          Start the Arena web UI with live run streaming
   skill          Manage AgentSkills.io skills
   templates      Manage PromptArena templates (list, fetch, render)
   validate       Validate configuration files against JSON schemas

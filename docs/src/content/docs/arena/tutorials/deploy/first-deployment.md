@@ -241,6 +241,6 @@ export AWS_REGION=us-west-2
 
 Now that you've deployed your first pack, you're ready to:
 
-- **[Tutorial: Multi-Environment](multi-environment)** — Deploy to dev, staging, and production
-- **[How-To: Plan and Apply](../../how-to/deploy/plan-and-apply)** — Learn advanced deployment workflows
-- **[Reference: CLI Commands](../../reference/deploy/cli-commands)** — Complete command documentation
+- **[Tutorial: Multi-Environment](/arena/tutorials/deploy/multi-environment/)** — Deploy to dev, staging, and production
+- **[How-To: Plan and Apply](/arena/how-to/deploy/plan-and-apply/)** — Learn advanced deployment workflows
+- **[Reference: CLI Commands](/arena/reference/deploy/cli-commands/)** — Complete command documentation

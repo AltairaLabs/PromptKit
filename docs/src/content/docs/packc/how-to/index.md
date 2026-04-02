@@ -46,6 +46,6 @@ Each how-to guide follows this structure:
 
 ## See Also
 
-- [Reference](../reference/) - Complete command documentation
-- [Tutorials](../tutorials/) - Step-by-step learning
-- [Explanation](../explanation/) - Understand packc design
+- [Reference](/packc/reference/) - Complete command documentation
+- [Tutorials](/packc/tutorials/) - Step-by-step learning
+- [Explanation](/packc/explanation/) - Understand packc design

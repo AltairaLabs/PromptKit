@@ -18,7 +18,7 @@ Learn to organize, version, and manage packs effectively.
 
 ## Prerequisites
 
-- Completed [Tutorial 3: Validation Workflows](03-validation-workflow)
+- Completed [Tutorial 3: Validation Workflows](/packc/tutorials/03-validation-workflow/)
 
 ## Step 1: Create Project Structure
 
@@ -374,9 +374,9 @@ echo "$(date): Deployed v1.0.0 to prod" >> deployments.log
 
 ## Next Steps
 
-- **[Tutorial 5: CI/CD Pipeline](05-ci-cd-pipeline)** - Automate everything
-- **[How-To: Organize Packs](../how-to/organize-packs)** - More organization strategies
-- **[Explanation: Pack Format](../explanation/pack-format)** - Understand pack structure
+- **[Tutorial 5: CI/CD Pipeline](/packc/tutorials/05-ci-cd-pipeline/)** - Automate everything
+- **[How-To: Organize Packs](/packc/how-to/organize-packs/)** - More organization strategies
+- **[Explanation: Pack Format](/packc/explanation/pack-format/)** - Understand pack structure
 
 ## Summary
 

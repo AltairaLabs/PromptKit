@@ -25,13 +25,11 @@ These guides show you how to accomplish specific tasks with the PromptKit Runtim
 
 ### Providers
 - [Setup Providers](setup-providers) - LLM provider configuration
-- [Switch Providers](switch-providers) - Multi-provider strategies
+- [Switch Providers](setup-providers) - Multi-provider strategies
 - [Monitor Costs](monitor-costs) - Cost tracking and optimization
 
 ### Tools & MCP
-- [Implement Tools](implement-tools) - Create custom tools
-- [Integrate MCP](integrate-mcp) - Connect MCP servers
-- [Validate Tools](validate-tools) - Tool argument validation
+- [Integrate MCP](integrate-mcp) - Connect MCP servers and create tools
 
 ### Observability
 - [Prometheus Metrics](prometheus-metrics) - Monitor with Prometheus and Grafana
@@ -44,8 +42,6 @@ These guides show you how to accomplish specific tasks with the PromptKit Runtim
 
 ### Advanced Topics
 - [Streaming Responses](streaming-responses) - Real-time output
-- [Custom Middleware](custom-middleware) - Extend pipeline behavior
-- [Performance Tuning](performance-tuning) - Optimize throughput
 
 ## Quick Reference
 
@@ -72,6 +68,6 @@ All guides include:
 
 ## See Also
 
-- [Reference](../reference/) - Complete API documentation
-- [Tutorials](../tutorials/) - Learn by building
-- [Explanation](../explanation/) - Architecture and concepts
+- [Reference](/runtime/reference/) - Complete API documentation
+- [Tutorials](/runtime/tutorials/) - Learn by building
+- [Explanation](/runtime/explanation/) - Architecture and concepts

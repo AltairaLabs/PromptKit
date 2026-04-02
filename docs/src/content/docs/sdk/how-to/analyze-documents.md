@@ -343,7 +343,7 @@ Run tests:
 promptarena run config.arena.yaml --scenario pdf-summary
 ```
 
-See the [Document Analysis Example](../../arena/examples/document-analysis) for a complete working example.
+See the [Document Analysis Example](/arena/examples/document-analysis/) for a complete working example.
 
 ## Limitations
 
@@ -355,7 +355,7 @@ See the [Document Analysis Example](../../arena/examples/document-analysis) for 
 
 ## See Also
 
-- [Multimodal Example](../examples/multimodal) - Images, audio, video
-- [Document Analysis Arena Example](../../arena/examples/document-analysis)
-- [Arena Scenario Format](../../arena/reference/scenario-format)
-- [SDK Reference](../reference/)
+- [Multimodal Example](/sdk/examples/multimodal/) - Images, audio, video
+- [Document Analysis Arena Example](/arena/examples/document-analysis/)
+- [Arena Scenario Format](/arena/reference/scenario-format/)
+- [SDK Reference](/sdk/reference/)

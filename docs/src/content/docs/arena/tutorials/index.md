@@ -73,9 +73,9 @@ Test bidirectional voice conversations with real-time audio streaming. Learn dup
 
 Looking for something else?
 
-- **[How-To Guides](../how-to/)** - Task-focused recipes for specific problems
-- **[Explanation](../explanation/)** - Conceptual understanding and design decisions
-- **[Reference](../reference/)** - Complete technical specifications
+- **[How-To Guides](/arena/how-to/)** - Task-focused recipes for specific problems
+- **[Explanation](/arena/explanation/)** - Conceptual understanding and design decisions
+- **[Reference](/arena/reference/)** - Complete technical specifications
 
 ## Prerequisites
 
@@ -90,8 +90,8 @@ Before starting, ensure you have:
 
 Stuck on a tutorial?
 
-1. Check the **[How-To Guides](../how-to/)** for specific solutions
-2. Review the **[Reference Documentation](../reference/)** for complete specs
+1. Check the **[How-To Guides](/arena/how-to/)** for specific solutions
+2. Review the **[Reference Documentation](/arena/reference/)** for complete specs
 3. Visit **[GitHub Discussions](https://github.com/altairalabs/promptkit/discussions)**
 4. Read the **[FAQ](#)** (coming soon)
 

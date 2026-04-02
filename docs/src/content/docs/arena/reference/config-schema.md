@@ -550,7 +550,7 @@ Optional variables use defaults if not provided.
 
 #### `validators`
 
-Array of runtime validators/guardrails. See [Validators Reference](./validators-reference) for full list.
+Array of runtime validators/guardrails. See [Validators Reference](/arena/reference/validators/) for full list.
 
 **Structure**:
 ```yaml
@@ -668,7 +668,7 @@ Array of conversation turns. Each turn is either a scripted user message, an ass
 
 #### `assertions`
 
-Array of checks to verify LLM behavior. See [Assertions Reference](./assertions-reference) for full list.
+Array of checks to verify LLM behavior. See [Assertions Reference](/arena/reference/assertions/) for full list.
 
 **Structure**:
 ```yaml
@@ -1289,8 +1289,8 @@ promptar ena run --config arena.yaml
 ### See Also
 
 - **[Session Recording Guide](/arena/how-to/session-recording/)** - Enable and use session recording
-- **[Assertions Reference](./assertions)** - All available assertion types
-- **[Replay Provider](./providers#replay-provider)** - Replay provider details
+- **[Assertions Reference](/arena/reference/assertions/)** - All available assertion types
+- **[Replay Provider](/arena/reference/config-schema/providers#replay-provider)** - Replay provider details
 
 ---
 
@@ -1350,9 +1350,9 @@ turns:
 
 ## Next Steps
 
-- **[Assertions Reference](./assertions-reference)** - All available assertions
-- **[Validators Reference](./validators-reference)** - All validators/guardrails
-- **[Output Formats](./output-formats)** - Result output details
+- **[Assertions Reference](/arena/reference/assertions/)** - All available assertions
+- **[Validators Reference](/arena/reference/validators/)** - All validators/guardrails
+- **[Output Formats](/arena/reference/output-formats/)** - Result output details
 
 ---
 

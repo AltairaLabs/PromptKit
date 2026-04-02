@@ -793,6 +793,6 @@ Key metrics to monitor:
 ---
 
 **Related Documentation**:
-- [Runtime Pipeline Architecture](./runtime-pipeline)
-- [Tool & MCP Integration Architecture](./runtime-tools-mcp)
-- [System Overview](./system-overview)
+- [Runtime Pipeline Architecture](/architecture/runtime-pipeline/)
+- [Tool & MCP Integration Architecture](/architecture/runtime-tools-mcp/)
+- [System Overview](/architecture/system-overview/)

@@ -386,6 +386,6 @@ func main() {
 ## See Also
 
 - [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics
-- [Tutorial 6: Observability](../tutorials/06-media-storage)
-- [Explanation: Observability](../explanation/observability)
+- [Tutorial 6: Observability](/sdk/tutorials/06-media-storage/)
+- [Explanation: Observability](/sdk/explanation/observability/)
 - [Arena Eval Framework](/arena/explanation/eval-framework/)

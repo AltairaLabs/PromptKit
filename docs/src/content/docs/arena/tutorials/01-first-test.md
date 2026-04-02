@@ -396,9 +396,9 @@ This is expected! Assertions validate quality. If one fails:
 Congratulations! You've run your first LLM test. 
 
 **Continue learning:**
-- **[Tutorial 2: Multi-Provider Testing](02-multi-provider)** - Test across OpenAI, Claude, and Gemini
-- **[Tutorial 3: Multi-Turn Conversations](03-multi-turn)** - Build complex dialog flows
-- **[How-To: Write Scenarios](../how-to/write-scenarios)** - Advanced scenario patterns
+- **[Tutorial 2: Multi-Provider Testing](/arena/tutorials/02-multi-provider/)** - Test across OpenAI, Claude, and Gemini
+- **[Tutorial 3: Multi-Turn Conversations](/arena/tutorials/03-multi-turn/)** - Build complex dialog flows
+- **[How-To: Write Scenarios](/arena/how-to/write-scenarios/)** - Advanced scenario patterns
 
 **Quick wins:**
 - Try different models: `gpt-4o`, `gpt-4o-mini`

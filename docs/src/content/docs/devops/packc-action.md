@@ -423,10 +423,10 @@ uses: AltairaLabs/PromptKit/.github/actions/packc-action@main
 
 ## Related Documentation
 
-- [PackC CLI Reference](../tools/packc) - Full CLI documentation
-- [Pack Format](../tools/pack-format) - Pack file specification
-- [CI/CD Pipelines](./ci-cd-pipelines) - PromptKit CI/CD overview
-- [PromptArena Action](./promptarena-action) - Run prompt tests in CI
+- [PackC CLI Reference](/packc/reference/) - Full CLI documentation
+- [Pack Format](/packc/explanation/pack-format/) - Pack file specification
+- [CI/CD Pipelines](/devops/ci-cd-pipelines/) - PromptKit CI/CD overview
+- [PromptArena Action](/devops/promptarena-action/) - Run prompt tests in CI
 
 ---
 

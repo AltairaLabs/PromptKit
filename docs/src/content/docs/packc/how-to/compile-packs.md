@@ -441,11 +441,11 @@ packc compile \
 ## Next Steps
 
 - [Validate Packs](validate-packs) - Ensure pack quality
-- [Organize Pack Files](organize-packs) - Structure your packs
-- [CI/CD Integration](ci-cd-integration) - Automate builds
+- [Organize Pack Files](/packc/how-to/organize-packs/) - Structure your packs
+- [CI/CD Integration](/packc/how-to/ci-cd-integration/) - Automate builds
 
 ## See Also
 
-- [compile command reference](../reference/compile)
-- [compile-prompt command reference](../reference/compile-prompt)
-- [Pack format explanation](../explanation/pack-format)
+- [compile command reference](/packc/reference/compile/)
+- [compile-prompt command reference](/packc/reference/compile-prompt/)
+- [Pack format explanation](/packc/explanation/pack-format/)

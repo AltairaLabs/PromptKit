@@ -315,6 +315,6 @@ diff <(packc inspect packs/app.dev.pack.json) \
 
 ## See Also
 
-- [compile](compile) - Compile packs
-- [validate](validate) - Validate packs
-- [How to Work with Packs](../how-to/work-with-packs)
+- [compile](/packc/reference/compile/) - Compile packs
+- [validate](/packc/reference/validate/) - Validate packs
+- [How to Compile Packs](/packc/how-to/compile-packs/)

@@ -642,8 +642,8 @@ graph TB
 ```
 
 The pipeline integrates with:
-- **Provider System**: For LLM interactions (see [Provider Architecture](./runtime-providers))
-- **Tool System**: For tool execution (see [Tool & MCP Architecture](./runtime-tools-mcp))
+- **Provider System**: For LLM interactions (see [Provider Architecture](/architecture/runtime-providers/))
+- **Tool System**: For tool execution (see [Tool & MCP Architecture](/architecture/runtime-tools-mcp/))
 - **State System**: For conversation persistence
 - **Validation System**: For response validation
 
@@ -659,6 +659,6 @@ The pipeline integrates with:
 ---
 
 **Related Documentation**:
-- [Provider System Architecture](./runtime-providers)
-- [Tool & MCP Integration Architecture](./runtime-tools-mcp)
-- [System Overview](./system-overview)
+- [Provider System Architecture](/architecture/runtime-providers/)
+- [Tool & MCP Integration Architecture](/architecture/runtime-tools-mcp/)
+- [System Overview](/architecture/system-overview/)

@@ -548,11 +548,11 @@ func isRetryableError(err error) bool {
 
 ## Next Steps
 
-- [Streaming Responses](streaming-responses) - Handle streams
-- [Monitor Costs](monitor-costs) - Track usage
-- [Setup Providers](setup-providers) - Provider config
+- [Streaming Responses](/runtime/how-to/streaming-responses/) - Handle streams
+- [Monitor Costs](/runtime/how-to/monitor-costs/) - Track usage
+- [Setup Providers](/runtime/how-to/setup-providers/) - Provider config
 
 ## See Also
 
-- [Pipeline Reference](../reference/pipeline) - Error details
-- [Providers Reference](../reference/providers) - Provider errors
+- [Pipeline Reference](/runtime/reference/pipeline/) - Error details
+- [Providers Reference](/runtime/reference/providers/) - Provider errors

@@ -29,9 +29,9 @@ These explanations help you understand *why* Runtime works the way it does. They
 - Contribute to Runtime development
 
 **Don't read these when you need to:**
-- Quickly complete a specific task → See [How-To Guides](../how-to/index)
-- Learn Runtime from scratch → See [Tutorials](../tutorials/index)
-- Look up API details → See [Reference](../reference/index)
+- Quickly complete a specific task → See [How-To Guides](/runtime/how-to/index/)
+- Learn Runtime from scratch → See [Tutorials](/runtime/tutorials/index/)
+- Look up API details → See [Reference](/runtime/reference/index/)
 
 ## Key Concepts
 
@@ -125,9 +125,9 @@ Audio Streaming Mode for native multimodal LLMs with real-time audio via WebSock
 
 ## Related Documentation
 
-- **[Reference](../reference/index)**: Complete API documentation
-- **[How-To Guides](../how-to/index)**: Task-focused guides
-- **[Tutorials](../tutorials/index)**: Step-by-step learning
+- **[Reference](/runtime/reference/index/)**: Complete API documentation
+- **[How-To Guides](/runtime/how-to/index/)**: Task-focused guides
+- **[Tutorials](/runtime/tutorials/index/)**: Step-by-step learning
 
 ## Contributing
 

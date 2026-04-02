@@ -307,7 +307,7 @@ compile-all:
 
 ## See Also
 
-- [compile-prompt](compile-prompt) - Compile single prompt
-- [validate](validate) - Validate pack file
-- [inspect](inspect) - Inspect pack contents
-- [How to Compile Packs](../how-to/compile-packs)
+- [compile-prompt](/packc/reference/compile-prompt/) - Compile single prompt
+- [validate](/packc/reference/validate/) - Validate pack file
+- [inspect](/packc/reference/inspect/) - Inspect pack contents
+- [How to Compile Packs](/packc/how-to/compile-packs/)

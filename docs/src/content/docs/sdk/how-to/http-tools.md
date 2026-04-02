@@ -241,5 +241,5 @@ executor.RequestMapper = &HMACRequestMapper{secretKey: os.Getenv("HMAC_SECRET")}
 ## See Also
 
 - [Register Tools](register-tools) - Basic tool registration
-- [HTTP Tool Mapping](../../runtime/how-to/http-tool-mapping) - YAML-based declarative mapping
+- [HTTP Tool Mapping](/runtime/how-to/http-tool-mapping/) - YAML-based declarative mapping
 - [Client-Side Tools](client-tools) - Tools that run on the client device

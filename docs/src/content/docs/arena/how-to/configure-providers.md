@@ -113,7 +113,7 @@ spec:
   # Note: llama3.2:3b does NOT support vision (only 11B/90B models do)
 ```
 
-When a scenario specifies `required_capabilities`, only providers with ALL listed capabilities will run that scenario. See [Write Scenarios](./write-scenarios) for details.
+When a scenario specifies `required_capabilities`, only providers with ALL listed capabilities will run that scenario. See [Write Scenarios](/arena/how-to/write-scenarios/) for details.
 
 ## Supported Providers
 
@@ -607,7 +607,7 @@ promptarena run --concurrency 1  # Sequential execution
 - **[Use Mock Providers](use-mock-providers)** - Test without API calls
 - **[Validate Outputs](validate-outputs)** - Add assertions
 - **[Integrate CI/CD](integrate-ci-cd)** - Automate testing
-- **[Config Reference](../reference/config-schema)** - Complete configuration options
+- **[Config Reference](/arena/reference/config-schema/)** - Complete configuration options
 
 ## Examples
 

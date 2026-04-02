@@ -954,10 +954,10 @@ PromptArena provides powerful validation tools that enable robust testing while 
 
 ## Further Reading
 
-- **[Testing Philosophy](testing-philosophy)** -- Core testing principles
-- **[Scenario Design](scenario-design)** -- Designing effective scenarios
-- **[Provider Comparison](provider-comparison)** -- Cross-provider testing
+- **[Testing Philosophy](/arena/explanation/testing-philosophy/)** -- Core testing principles
+- **[Scenario Design](/arena/explanation/scenario-design/)** -- Designing effective scenarios
+- **[Provider Comparison](/arena/explanation/provider-comparison/)** -- Cross-provider testing
 - **[Checks Reference](/reference/checks/)** -- All check types and parameters
-- **[Assertions Reference](../reference/assertions)** -- Assertion syntax and configuration
-- **[Guardrails Reference](../reference/validators)** -- Runtime policy enforcement
+- **[Assertions Reference](/arena/reference/assertions/)** -- Assertion syntax and configuration
+- **[Guardrails Reference](/arena/reference/validators/)** -- Runtime policy enforcement
 - **[Unified Check Model](/concepts/validation/)** -- How assertions, guardrails, and evals relate

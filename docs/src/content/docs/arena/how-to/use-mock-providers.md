@@ -355,7 +355,7 @@ scenarios:
 
 - **[Validate Outputs](validate-outputs)** - Add assertions to mock responses
 - **[Integrate CI/CD](integrate-ci-cd)** - Use mocks in pipelines
-- **[Tutorial: First Test](../tutorials/01-first-test)** - Complete walkthrough
+- **[Tutorial: First Test](/arena/tutorials/01-first-test/)** - Complete walkthrough
 
 ## Examples
 

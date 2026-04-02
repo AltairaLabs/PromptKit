@@ -43,6 +43,6 @@ Each explanation includes:
 
 ## See Also
 
-- [Reference](../reference/) - Command specifications
-- [How-To Guides](../how-to/) - Practical tasks
-- [Tutorials](../tutorials/) - Learning path
+- [Reference](/packc/reference/) - Command specifications
+- [How-To Guides](/packc/how-to/) - Practical tasks
+- [Tutorials](/packc/tutorials/) - Learning path

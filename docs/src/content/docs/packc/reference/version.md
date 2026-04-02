@@ -371,7 +371,7 @@ echo "Compiled with $(packc version)" >> packs/build-info.txt
 
 ## See Also
 
-- [compile command](compile) - Main compilation command
-- [inspect command](inspect) - View pack metadata including compiler version
-- [Installation Guide](../how-to/install) - Install packc
-- [SDK Compatibility](../../sdk/explanation/architecture) - SDK version requirements
+- [compile command](/packc/reference/compile/) - Main compilation command
+- [inspect command](/packc/reference/inspect/) - View pack metadata including compiler version
+- [Installation Guide](/packc/how-to/install/) - Install packc
+- [SDK Compatibility](/sdk/explanation/architecture/) - SDK version requirements

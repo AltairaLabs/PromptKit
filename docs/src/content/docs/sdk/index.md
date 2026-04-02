@@ -372,4 +372,4 @@ workflow:
 - **Arena**: [Test prompts before using them](/arena/)
 - **PackC**: [Compile prompts into packs](/packc/)
 - **Runtime**: [Extend the SDK with custom providers](/runtime/)
-- **Complete Workflow**: [See all tools together](/getting-started/complete-workflow/)
+- **Complete Workflow**: [See all tools together](/)

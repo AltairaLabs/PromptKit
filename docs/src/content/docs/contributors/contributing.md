@@ -89,7 +89,7 @@ make test
 make build
 ```
 
-See the [Pre-Commit Hooks](./pre-commit-hooks.md) guide for details on automated code quality checks.
+See the [Pre-Commit Hooks](/contributors/contributing/pre-commit-hooks.md/) guide for details on automated code quality checks.
 
 ### Project Structure
 
@@ -241,7 +241,7 @@ make coverage
 8. **Keep branch updated** - Rebase or merge with latest `main`
 9. **Squash merge** - Maintains clean commit history (preferred)
 
-**Note**: The `main` branch is protected. See the [DevOps documentation](./devops/) for details on branch protection and CI/CD pipelines.
+**Note**: The `main` branch is protected. See the [DevOps documentation](/contributors/devops/) for details on branch protection and CI/CD pipelines.
 
 ## Release Process
 

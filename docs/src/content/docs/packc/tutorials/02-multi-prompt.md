@@ -20,7 +20,7 @@ In this tutorial, you'll learn to:
 
 ## Prerequisites
 
-- Completed [Tutorial 1: Your First Pack](01-first-pack)
+- Completed [Tutorial 1: Your First Pack](/packc/tutorials/01-first-pack/)
 - packc installed
 - Basic understanding of prompt structure
 
@@ -445,9 +445,9 @@ prompts:
 
 Continue learning about pack management:
 
-- **[Tutorial 3: Validation Workflows](03-validation-workflow)** - Ensure pack quality
-- **[How-To: Organize Packs](../how-to/organize-packs)** - Structure your packs
-- **[Reference: Pack Format](../explanation/pack-format)** - Understanding pack structure
+- **[Tutorial 3: Validation Workflows](/packc/tutorials/03-validation-workflow/)** - Ensure pack quality
+- **[How-To: Organize Packs](/packc/how-to/organize-packs/)** - Structure your packs
+- **[Reference: Pack Format](/packc/explanation/pack-format/)** - Understanding pack structure
 
 ## Summary
 

@@ -412,15 +412,14 @@ docker run --rm --gpus all \
 - Multi-GPU tensor parallelism
 - High-throughput continuous batching
 
-See [Provider Reference](../reference/providers#vllm-provider) for full vLLM configuration options.
+See [Provider Reference](/runtime/reference/providers#vllm-provider) for full vLLM configuration options.
 
 ## Next Steps
 
-- [Configure Pipeline](configure-pipeline) - Build complete pipeline
-- [Monitor Costs](monitor-costs) - Track spending
-- [Switch Providers](switch-providers) - Multi-provider strategies
+- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - Build complete pipeline
+- [Monitor Costs](/runtime/how-to/monitor-costs/) - Track spending
 
 ## See Also
 
-- [Provider Reference](../reference/providers) - Complete API
-- [Provider Tutorial](../tutorials/02-provider-basics) - Step-by-step guide
+- [Provider Reference](/runtime/reference/providers/) - Complete API
+- [Provider Tutorial](/runtime/tutorials/01-first-pipeline/) - Step-by-step guide

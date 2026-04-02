@@ -361,5 +361,5 @@ export VOYAGE_API_KEY=...
 
 - [Open a Conversation](initialize) - Basic setup
 - [Manage Variables](manage-state) - Template variables
-- [Long Conversation Example](../../../sdk/examples/long-conversation/) - Full working demo
-- [Arena Context Management](../../arena/how-to/manage-context) - YAML configuration
+- [Long Conversation Example](/sdk/examples/long-conversation/) - Full working demo
+- [Arena Context Management](/arena/how-to/manage-context/) - YAML configuration

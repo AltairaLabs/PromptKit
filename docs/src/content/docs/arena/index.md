@@ -242,8 +242,8 @@ Real-world Arena testing scenarios:
 
 - [Customer Support Testing](/arena/examples/customer-support/) - Multi-turn support conversations
 - [MCP Chatbot Testing](/arena/examples/mcp-chatbot/) - Tool calling validation
-- [Guardrails Testing](/arena/examples/guardrails/) - Safety and compliance checks
-- [Multi-Provider Comparison](/arena/examples/multi-provider/) - Provider evaluation
+- [Guardrails Testing](/arena/examples/guardrails-test/) - Safety and compliance checks
+- [Multi-Provider Comparison](/arena/examples/customer-support-integrated/) - Provider evaluation
 
 ---
 
@@ -265,7 +265,7 @@ Real-world Arena testing scenarios:
 
 ## Getting Help
 
-- **Quick Start**: [Getting Started Guide](/getting-started/prompt-engineer/)
+- **Quick Start**: [First Test Tutorial](/arena/tutorials/01-first-test/)
 - **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
 - **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
 - **Examples**: [Arena Examples](/arena/examples/)
@@ -276,4 +276,4 @@ Real-world Arena testing scenarios:
 
 - **PackC**: [Compile tested prompts](/packc/) for production
 - **SDK**: [Use tested prompts in applications](/sdk/)
-- **Complete Workflow**: [See all tools together](/getting-started/complete-workflow/)
+- **Complete Workflow**: [See all tools together](/)

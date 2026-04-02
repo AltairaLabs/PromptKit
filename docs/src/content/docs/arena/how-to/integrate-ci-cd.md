@@ -525,9 +525,9 @@ promptarena run --mock-provider --ci
 
 ## Next Steps
 
-- **[Output Formats](../reference/output-formats)** - CI-friendly output formats
-- **[CLI Reference](../reference/cli-commands)** - Complete command options
-- **[Tutorial: CI Integration](../tutorials/05-ci-integration)** - Step-by-step CI setup
+- **[Output Formats](/arena/reference/output-formats/)** - CI-friendly output formats
+- **[CLI Reference](/arena/reference/cli-commands/)** - Complete command options
+- **[Tutorial: CI Integration](/arena/tutorials/05-ci-integration/)** - Step-by-step CI setup
 
 ## Examples
 

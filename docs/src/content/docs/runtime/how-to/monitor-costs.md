@@ -564,11 +564,11 @@ func main() {
 
 ## Next Steps
 
-- [Setup Providers](setup-providers) - Model selection
-- [Configure Pipeline](configure-pipeline) - Token limits
-- [Handle Errors](handle-errors) - Cost-aware retries
+- [Setup Providers](/runtime/how-to/setup-providers/) - Model selection
+- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - Token limits
+- [Handle Errors](/runtime/how-to/handle-errors/) - Cost-aware retries
 
 ## See Also
 
-- [Providers Reference](../reference/providers) - Pricing tables
-- [Pipeline Reference](../reference/pipeline) - Cost structures
+- [Providers Reference](/runtime/reference/providers/) - Pricing tables
+- [Pipeline Reference](/runtime/reference/pipeline/) - Cost structures

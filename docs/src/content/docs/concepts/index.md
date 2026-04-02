@@ -99,15 +99,15 @@ Some concepts are component-specific:
 
 **Concepts** explain *what* things are and *why* they exist.
 
-**[Reference](../runtime/reference/index)** shows *how* to use APIs.
+**[Reference](/runtime/reference/)** shows *how* to use APIs.
 
-**[How-To Guides](../runtime/how-to/index)** show *how* to accomplish tasks.
+**[How-To Guides](/runtime/how-to/)** show *how* to accomplish tasks.
 
-**[Tutorials](../runtime/tutorials/index)** provide *step-by-step* learning.
+**[Tutorials](/runtime/tutorials/)** provide *step-by-step* learning.
 
 ## Related Documentation
 
-- **[Getting Started](../guides/getting-started)**: Quick introduction to PromptKit
-- **[Architecture](../architecture/index)**: System design and structure
-- **[Glossary](../glossary)**: Term definitions
+- **[Getting Started](/)**: Quick introduction to PromptKit
+- **[Architecture](/architecture/index/)**: System design and structure
+- **[Glossary](/glossary/)**: Term definitions
 

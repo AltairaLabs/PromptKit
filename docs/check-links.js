@@ -17,7 +17,7 @@ try {
   
   const checker = new LinkChecker();
   const result = await checker.check({
-    path: 'http://localhost:4321/promptkit',
+    path: 'http://localhost:4321/',
     recurse: true,
     timeout: 10000,
   });
@@ -47,7 +47,7 @@ try {
   
   for (const [url, parents] of linksByUrl) {
     const entry = { url, parents: [...new Set(parents)] };
-    if (url.startsWith('http://localhost:4321') || url.startsWith('/')) {
+    if (url.startsWith('http://localhost:') || url.startsWith('/') || url.startsWith('https://promptkit.altairalabs.ai')) {
       internal.push(entry);
     } else {
       external.push(entry);
@@ -59,8 +59,7 @@ try {
   if (internal.length > 0) {
     console.log(`🔴 INTERNAL BROKEN LINKS (${internal.length}):\n`);
     
-    const displayCount = Math.min(50, internal.length);
-    for (let i = 0; i < displayCount; i++) {
+    for (let i = 0; i < internal.length; i++) {
       const { url, parents } = internal[i];
       console.log(`  [404] ${url}`);
       console.log(`      Found on ${parents.length} page(s):`);
@@ -71,9 +70,7 @@ try {
       console.log('');
     }
     
-    if (internal.length > 50) {
-      console.log(`... and ${internal.length - 50} more internal broken links\n`);
-    }
+    // All internal broken links shown above
   }
   
   if (external.length > 0) {

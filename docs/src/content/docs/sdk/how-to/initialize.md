@@ -160,4 +160,4 @@ func main() {
 
 - [Send Messages](send-messages)
 - [Register Tools](register-tools)
-- [Tutorial 1: First Conversation](../tutorials/01-first-conversation)
+- [Tutorial 1: First Conversation](/sdk/tutorials/01-first-conversation/)

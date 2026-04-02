@@ -1160,7 +1160,7 @@ promptarena run --provider openai,claude,gemini --format html
 
 ## Configuration File
 
-PromptArena uses a YAML configuration file (default: `config.arena.yaml`). See the [Configuration Reference](../promptarena/config-reference) for complete documentation.
+PromptArena uses a YAML configuration file (default: `config.arena.yaml`). See the [Configuration Reference](/arena/reference/config-schema/) for complete documentation.
 
 ### Basic Structure
 
@@ -2089,9 +2089,9 @@ promptarena prompt-debug --scenario scenarios/test.yaml
 
 ## Next Steps
 
-- **[PromptArena Getting Started](../promptarena/getting-started)** - First project walkthrough
-- **[Configuration Reference](../promptarena/config-reference)** - Complete config documentation
-- **[CI/CD Integration](../promptarena/ci-cd-integration)** - Running in pipelines
+- **[PromptArena Getting Started](/arena/tutorials/01-first-test/)** - First project walkthrough
+- **[Configuration Reference](/arena/reference/config-schema/)** - Complete config documentation
+- **[CI/CD Integration](/arena/how-to/integrate-ci-cd/)** - Running in pipelines
 
 ---
 

@@ -276,7 +276,7 @@ func main() {
 
 - **[Tutorial 2: Streaming](02-streaming-responses)** - Real-time responses
 - **[Tutorial 3: Tools](03-tool-integration)** - Add function calling
-- **[How-To: Send Messages](../how-to/send-messages)** - Advanced messaging
+- **[How-To: Send Messages](/sdk/how-to/send-messages/)** - Advanced messaging
 
 ## Complete Example
 

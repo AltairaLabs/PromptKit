@@ -308,9 +308,9 @@ cat prompts/greeting.yaml
 
 Now that you've compiled your first pack, you're ready to:
 
-- **[Tutorial 2: Multi-Prompt Packs](02-multi-prompt)** - Build packs with multiple prompts
-- **[How-To: Compile Packs](../how-to/compile-packs)** - Learn more compilation patterns
-- **[Reference: compile command](../reference/compile)** - Complete compile documentation
+- **[Tutorial 2: Multi-Prompt Packs](/packc/tutorials/02-multi-prompt/)** - Build packs with multiple prompts
+- **[How-To: Compile Packs](/packc/how-to/compile-packs/)** - Learn more compilation patterns
+- **[Reference: compile command](/packc/reference/compile/)** - Complete compile documentation
 
 ## Complete Code
 

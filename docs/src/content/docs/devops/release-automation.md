@@ -448,9 +448,9 @@ Potential enhancements:
 
 ## Related Documentation
 
-- [Release Process](./release-process.md) - Manual process (if automation fails)
-- [Testing Releases](./testing-releases-quickstart.md) - How to test safely
-- [CI/CD Pipelines](./ci-cd-pipelines.md) - All workflows
+- [Release Process](/devops/release-process/) - Manual process (if automation fails)
+- [Testing Releases](/devops/testing-releases-quickstart/) - How to test safely
+- [CI/CD Pipelines](/devops/ci-cd-pipelines/) - All workflows
 
 ---
 

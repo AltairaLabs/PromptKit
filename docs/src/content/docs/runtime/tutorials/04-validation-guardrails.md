@@ -24,7 +24,7 @@ A chatbot with content filtering and validation guardrails using the hooks syste
 
 ## Prerequisites
 
-- Completed [Tutorial 1](01-first-pipeline)
+- Completed [Tutorial 1](/runtime/tutorials/01-first-pipeline/)
 
 ## Step 1: Basic Guardrails
 
@@ -375,12 +375,12 @@ The `message` field sets a custom user-facing message when content is blocked. T
 
 ## Next Steps
 
-Continue to [Tutorial 5: Production Deployment](05-production-deployment) for production-ready patterns.
+Continue to [Tutorial 5: Production Deployment](/runtime/tutorials/05-production-deployment/) for production-ready patterns.
 
 ## See Also
 
 - [Checks Reference](/reference/checks/) -- All check types and parameters
 - [Unified Check Model](/concepts/validation/) -- How guardrails, assertions, and evals relate
 - [Guardrails Reference](/arena/reference/validators/) -- Guardrail configuration and behavior
-- [Hooks & Guardrails Reference](../reference/hooks) -- Runtime hook system API
-- [Handle Errors](../how-to/handle-errors) -- Error strategies
+- [Hooks & Guardrails Reference](/runtime/reference/hooks/) -- Runtime hook system API
+- [Handle Errors](/runtime/how-to/handle-errors/) -- Error strategies

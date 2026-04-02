@@ -163,5 +163,5 @@ This means images are processed after context management but before sending to t
 
 ## See Also
 
-- [Multimodal Example](../examples/multimodal)
+- [Multimodal Example](/sdk/examples/multimodal/)
 - [Send Messages](send-messages)

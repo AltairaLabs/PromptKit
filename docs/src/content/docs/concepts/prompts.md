@@ -348,5 +348,5 @@ Prompts are the foundation of LLM applications. Good prompts:
 
 - [Templates](templates) - Organizing prompts
 - [Validation](validation) - Content safety
-- [Runtime Templates](../runtime/how-to/use-templates) - Implementation
-- [PackC](../packc/index) - Prompt packaging
+- [Runtime Templates](/runtime/how-to/use-templates) - Implementation
+- [PackC](/packc/) - Prompt packaging

@@ -113,7 +113,7 @@ gh repo create PromptKit-release-test --private
 
 Once testing looks good:
 
-1. See **[release-process.md](./release-process.md)** for the complete step-by-step production release guide
+1. See **[release-process](/devops/release-process/)** for the complete step-by-step production release guide
 2. Use semantic versions: `v1.0.0`, `v1.0.1`, etc.
 3. Never use `test/` prefix for production releases
 

@@ -88,6 +88,6 @@ Start with [First Pipeline](01-first-pipeline) to build your first LLM applicati
 
 ## See Also
 
-- [Runtime Reference](../reference/index) - Complete API documentation
-- [Runtime How-To](../how-to/index) - Task-focused guides
-- [Runtime Explanation](../explanation/index) - Architecture concepts
+- [Runtime Reference](/runtime/reference/index/) - Complete API documentation
+- [Runtime How-To](/runtime/how-to/index/) - Task-focused guides
+- [Runtime Explanation](/runtime/explanation/index/) - Architecture concepts

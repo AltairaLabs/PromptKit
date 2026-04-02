@@ -11,7 +11,7 @@ Before starting a release:
 - [ ] All tests passing on main branch
 - [ ] Documentation is up to date
 - [ ] CHANGELOG is updated (if exists)
-- [ ] You have tested the release process (see [testing-releases-quickstart.md](./testing-releases-quickstart.md))
+- [ ] You have tested the release process (see [testing-releases-quickstart](/devops/testing-releases-quickstart/))
 - [ ] You understand Go proxy caching (versions are permanent!)
 
 ## Understanding Monorepo Releases
@@ -318,7 +318,7 @@ go install github.com/AltairaLabs/PromptKit/tools/packc@v1.0.0
 
 ## Full Changelog
 
-See [CHANGELOG.md](./CHANGELOG.md)
+See CHANGELOG
 EOF
 )"
 ```
@@ -502,16 +502,15 @@ Copy this for each release:
 
 ## Related Documentation
 
-- [Testing Releases](./testing-releases-quickstart.md) - How to test safely first
-- [CI/CD Pipelines](./ci-cd-pipelines.md) - Automated workflows
-- [Release Test Workflow](../../.github/workflows/release-test.yml) - Test automation
+- [Testing Releases](/devops/testing-releases-quickstart/) - How to test safely first
+- [CI/CD Pipelines](/devops/ci-cd-pipelines/) - Automated workflows
 
 ## Support
 
 For release issues:
 
 1. Check troubleshooting section above
-2. Review [testing releases guide](./testing-releases.md)
+2. Review [testing releases guide](/devops/testing-releases/)
 3. Create GitHub issue with `release` label
 4. Contact @maintainers for urgent issues
 
