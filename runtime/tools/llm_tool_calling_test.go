@@ -634,6 +634,158 @@ func TestLLMToolCalling_CombinedWeakPatterns(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Tests: Array element type coercion (arbitrary tool schemas)
+// ---------------------------------------------------------------------------
+
+// intArrayToolDescriptor — a tool with array of integers (user-defined, not capability)
+var intArrayToolDescriptor = &ToolDescriptor{
+	Name: "set_priorities",
+	InputSchema: json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"task_ids": {"type": "array", "items": {"type": "integer"}, "description": "Task IDs to prioritize."},
+			"labels": {"type": "array", "items": {"type": "string"}, "description": "Labels to apply."}
+		},
+		"required": ["task_ids"]
+	}`),
+}
+
+func TestLLMToolCalling_ArrayElementCoercion(t *testing.T) {
+	sv := NewSchemaValidator()
+
+	t.Run("string elements in integer array", func(t *testing.T) {
+		// LLM sends ["1", "2", "3"] instead of [1, 2, 3]
+		_, _, err := coerceAndValidate(t, sv, intArrayToolDescriptor,
+			`{"task_ids": ["1", "2", "3"]}`)
+		assert.NoError(t, err, "string elements in integer array should be coerced")
+	})
+
+	t.Run("mixed string and int in integer array", func(t *testing.T) {
+		_, _, err := coerceAndValidate(t, sv, intArrayToolDescriptor,
+			`{"task_ids": [1, "2", 3]}`)
+		assert.NoError(t, err, "mixed string/int elements should be coerced")
+	})
+
+	t.Run("string array elements stay as strings", func(t *testing.T) {
+		// String elements in a string array should not be touched
+		_, _, err := coerceAndValidate(t, sv, intArrayToolDescriptor,
+			`{"task_ids": [1, 2], "labels": ["urgent", "important"]}`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("null element in optional array", func(t *testing.T) {
+		// LLM sends [1, null, 3] — null element in array
+		_, _, err := coerceAndValidate(t, sv, intArrayToolDescriptor,
+			`{"task_ids": [1, null, 3]}`)
+		// This should fail — null is not a valid integer
+		assert.Error(t, err, "null element in integer array should fail validation")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Tests: Nested object patterns (arbitrary tool schemas)
+// ---------------------------------------------------------------------------
+
+var nestedToolDescriptor = &ToolDescriptor{
+	Name: "create_ticket",
+	InputSchema: json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"title": {"type": "string"},
+			"priority": {"type": "string", "enum": ["low", "medium", "high"]},
+			"assignee": {
+				"type": "object",
+				"properties": {
+					"name": {"type": "string"},
+					"email": {"type": "string"}
+				},
+				"required": ["name"]
+			},
+			"tags": {"type": "array", "items": {"type": "string"}}
+		},
+		"required": ["title"]
+	}`),
+}
+
+func TestLLMToolCalling_NestedObjects(t *testing.T) {
+	sv := NewSchemaValidator()
+
+	t.Run("correct nested object", func(t *testing.T) {
+		_, _, err := coerceAndValidate(t, sv, nestedToolDescriptor,
+			`{"title": "Bug report", "assignee": {"name": "Alice", "email": "alice@example.com"}}`)
+		assert.NoError(t, err)
+	})
+
+	t.Run("null optional nested object", func(t *testing.T) {
+		// LLM sends null for optional nested object
+		_, _, err := coerceAndValidate(t, sv, nestedToolDescriptor,
+			`{"title": "Bug report", "assignee": null, "tags": null, "priority": null}`)
+		assert.NoError(t, err, "null optional nested object should be stripped")
+	})
+
+	t.Run("string-encoded nested object", func(t *testing.T) {
+		// LLM sends nested object as a string
+		_, _, err := coerceAndValidate(t, sv, nestedToolDescriptor,
+			`{"title": "Bug report", "assignee": "{\"name\": \"Alice\"}"}`)
+		assert.NoError(t, err, "string-encoded object should be coerced to object")
+	})
+
+	t.Run("nested enum case mismatch not coerced", func(t *testing.T) {
+		// Enum inside nested object — CoerceArgs only handles top-level
+		// This is a known limitation but should at least not crash
+		_, _, err := coerceAndValidate(t, sv, nestedToolDescriptor,
+			`{"title": "Bug report", "priority": "High"}`)
+		assert.NoError(t, err, "top-level enum case should be coerced")
+	})
+
+	t.Run("empty string for optional enum with nested", func(t *testing.T) {
+		_, _, err := coerceAndValidate(t, sv, nestedToolDescriptor,
+			`{"title": "Bug report", "priority": "", "tags": null}`)
+		assert.NoError(t, err, "empty enum + null array should both be stripped")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Tests: additionalProperties:false (OpenAI strict mode schemas)
+// ---------------------------------------------------------------------------
+
+var strictToolDescriptor = &ToolDescriptor{
+	Name: "strict_tool",
+	InputSchema: json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"query": {"type": "string"},
+			"limit": {"type": "integer"}
+		},
+		"required": ["query", "limit"],
+		"additionalProperties": false
+	}`),
+}
+
+func TestLLMToolCalling_StrictSchemas(t *testing.T) {
+	sv := NewSchemaValidator()
+
+	t.Run("extra fields rejected in strict schema", func(t *testing.T) {
+		_, _, err := coerceAndValidate(t, sv, strictToolDescriptor,
+			`{"query": "test", "limit": 5, "extra": "field"}`)
+		assert.Error(t, err, "extra fields should be rejected with additionalProperties:false")
+	})
+
+	t.Run("null required field not stripped in strict schema", func(t *testing.T) {
+		// Both fields are required — null should NOT be stripped
+		_, _, err := coerceAndValidate(t, sv, strictToolDescriptor,
+			`{"query": "test", "limit": null}`)
+		assert.Error(t, err, "null required field should fail even with coercion")
+	})
+
+	t.Run("string coercion still works in strict schema", func(t *testing.T) {
+		_, _, err := coerceAndValidate(t, sv, strictToolDescriptor,
+			`{"query": "test", "limit": "5"}`)
+		assert.NoError(t, err, "string→int coercion should work in strict schemas")
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Tests: Edge cases that should still fail (guard rails)
 // ---------------------------------------------------------------------------
 

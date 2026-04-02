@@ -222,6 +222,31 @@ func (sv *SchemaValidator) CoerceResult(
 	return normalised, nil, nil
 }
 
+// coerceArrayElements coerces string elements in an array to the target item type.
+// Returns a new slice if any coercions were applied, nil otherwise.
+func coerceArrayElements(arr []any, itemType string) []any {
+	result := make([]any, len(arr))
+	changed := false
+	for i, elem := range arr {
+		str, ok := elem.(string)
+		if !ok {
+			result[i] = elem
+			continue
+		}
+		coerced, err := coerceStringValue(str, itemType)
+		if err != nil || coerced == nil {
+			result[i] = elem
+			continue
+		}
+		result[i] = coerced
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return result
+}
+
 // Coercion represents a type coercion that was performed.
 type Coercion struct {
 	Path string `json:"path"`
@@ -233,12 +258,19 @@ type Coercion struct {
 const (
 	schemaTypeString  = "string"
 	schemaTypeBoolean = "boolean"
+	schemaTypeArray   = "array"
 )
+
+// schemaItems holds the type of array elements.
+type schemaItems struct {
+	Type string `json:"type"`
+}
 
 // schemaProperty holds parsed schema metadata for a single property.
 type schemaProperty struct {
-	Type string   `json:"type"`
-	Enum []string `json:"enum,omitempty"`
+	Type  string      `json:"type"`
+	Enum  []string    `json:"enum,omitempty"`
+	Items schemaItems `json:"items,omitempty"`
 }
 
 // parsedSchema holds the parsed schema metadata needed for coercion.
@@ -352,6 +384,16 @@ func (sv *SchemaValidator) CoerceArgs(
 			case 1:
 				data[key] = true
 				coercions = append(coercions, Coercion{Path: key, From: num, To: true})
+			}
+		}
+
+		// Array element coercion: coerce string elements to match items.type.
+		isTypedArray := prop.Type == schemaTypeArray &&
+			prop.Items.Type != "" && prop.Items.Type != schemaTypeString
+		if arr, ok := val.([]any); ok && isTypedArray {
+			if coerced := coerceArrayElements(arr, prop.Items.Type); coerced != nil {
+				data[key] = coerced
+				coercions = append(coercions, Coercion{Path: key, From: "array elements", To: "coerced"})
 			}
 		}
 	}
