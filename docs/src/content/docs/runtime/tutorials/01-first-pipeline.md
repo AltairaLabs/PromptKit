@@ -349,10 +349,10 @@ go run main.go "Explain quantum computing in simple terms"
 
 ## Next Steps
 
-Continue to [Tutorial 2: Multi-Turn Conversations](02-multi-turn) to add conversation state and build a chatbot.
+Continue to [Tutorial 2: Multi-Turn Conversations](/runtime/tutorials/02-multi-turn/) to add conversation state and build a chatbot.
 
 ## See Also
 
-- [Configure Pipeline](../how-to/configure-pipeline) - More configuration options
-- [Setup Providers](../how-to/setup-providers) - Other LLM providers
-- [Pipeline Reference](../reference/pipeline) - Complete API
+- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - More configuration options
+- [Setup Providers](/runtime/how-to/setup-providers/) - Other LLM providers
+- [Pipeline Reference](/runtime/reference/pipeline/) - Complete API

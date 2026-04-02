@@ -400,7 +400,7 @@ This directory contains compiled prompt packs organized by environment.
 
 Run \`make build-all\` to compile all packs.
 
-See [build instructions](../docs/packc/how-to/compile-packs) for details.
+See [build instructions](/packc/how-to/compile-packs/) for details.
 EOF
 
 git add packs/.gitkeep packs/README.md
@@ -520,12 +520,10 @@ echo "Kept latest $KEEP_VERSIONS versions"
 
 ## Next Steps
 
-- [CI/CD Integration](ci-cd-integration) - Automate pack builds
-- [Validate Packs](validate-packs) - Quality assurance
-- [Pack Management Tutorial](../tutorials/04-pack-management)
+- [CI/CD Integration](/packc/how-to/ci-cd-integration/) - Automate pack builds
+- [Validate Packs](/packc/how-to/validate-packs/) - Quality assurance
+- [Pack Management Tutorial](/packc/tutorials/04-pack-management/)
 
 ## See Also
 
-- [Project structure guide](../../guides/project-structure)
-- [Version control best practices](../../guides/version-control)
-- [Pack format explanation](../explanation/pack-format)
+- [Pack format explanation](/packc/explanation/pack-format/)

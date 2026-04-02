@@ -566,6 +566,6 @@ PromptArena embodies these principles, providing a framework for robust, maintai
 
 ## Further Reading
 
-- **[Scenario Design Principles](scenario-design)** - How to structure effective test scenarios
-- **[Provider Comparison Guide](provider-comparison)** - Understanding provider differences
-- **[Validation Strategies](validation-strategies)** - Choosing the right assertions
+- **[Scenario Design Principles](/arena/explanation/scenario-design/)** - How to structure effective test scenarios
+- **[Provider Comparison Guide](/arena/explanation/provider-comparison/)** - Understanding provider differences
+- **[Validation Strategies](/arena/explanation/validation-strategies/)** - Choosing the right assertions

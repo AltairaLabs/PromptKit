@@ -11,9 +11,9 @@ These articles explain the "why" behind PackC's design and how it works internal
 
 ### Core Concepts
 
-- [**Pack Format**](pack-format) - Understanding the pack.json structure
-- [**Compilation Architecture**](compilation) - How PackC compiles prompts
-- [**Validation Strategy**](validation) - Pack validation approach
+- [**Pack Format**](/packc/explanation/pack-format/) - Understanding the pack.json structure
+- [**Compilation Architecture**](/packc/explanation/compilation/) - How PackC compiles prompts
+- [**Validation Strategy**](/packc/explanation/validation/) - Pack validation approach
 
 ## Purpose
 
@@ -43,6 +43,6 @@ Each explanation includes:
 
 ## See Also
 
-- [Reference](../reference/) - Command specifications
-- [How-To Guides](../how-to/) - Practical tasks
-- [Tutorials](../tutorials/) - Learning path
+- [Reference](/packc/reference/) - Command specifications
+- [How-To Guides](/packc/how-to/) - Practical tasks
+- [Tutorials](/packc/tutorials/) - Learning path

@@ -557,13 +557,12 @@ defer mcpRegistry.Close()
 
 ## Next Steps
 
-- [Setup Providers](setup-providers) - Configure specific providers
-- [Handle Errors](handle-errors) - Robust error handling
-- [Streaming Responses](streaming-responses) - Real-time output
-- [Create Custom Stages](create-custom-stages) - Build your own stages
+- [Setup Providers](/runtime/how-to/setup-providers/) - Configure specific providers
+- [Handle Errors](/runtime/how-to/handle-errors/) - Robust error handling
+- [Streaming Responses](/runtime/how-to/streaming-responses/) - Real-time output
 
 ## See Also
 
-- [Pipeline Reference](../reference/pipeline) - Complete API
-- [Pipeline Tutorial](../tutorials/01-first-pipeline) - Step-by-step guide
-- [Stage Design](../explanation/stage-design) - Architecture explanation
+- [Pipeline Reference](/runtime/reference/pipeline/) - Complete API
+- [Pipeline Tutorial](/runtime/tutorials/01-first-pipeline/) - Step-by-step guide
+- [Stage Design](/runtime/explanation/stage-design/) - Architecture explanation

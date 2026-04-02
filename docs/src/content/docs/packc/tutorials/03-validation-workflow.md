@@ -18,7 +18,7 @@ Build a workflow that ensures pack quality before deployment.
 
 ## Prerequisites
 
-- Completed [Tutorial 2: Multi-Prompt Packs](02-multi-prompt)
+- Completed [Tutorial 2: Multi-Prompt Packs](/packc/tutorials/02-multi-prompt/)
 - Git installed
 
 ## Step 1: Setup Project
@@ -313,9 +313,9 @@ packc validate pack.json 2>&1 | tee validation.log
 
 ## Next Steps
 
-- **[Tutorial 4: Pack Management](04-pack-management)** - Organize and version packs
-- **[How-To: Validate Packs](../how-to/validate-packs)** - More validation strategies
-- **[How-To: CI/CD Integration](../how-to/ci-cd-integration)** - Automate in CI/CD
+- **[Tutorial 4: Pack Management](/packc/tutorials/04-pack-management/)** - Organize and version packs
+- **[How-To: Validate Packs](/packc/how-to/validate-packs/)** - More validation strategies
+- **[How-To: CI/CD Integration](/packc/how-to/ci-cd-integration/)** - Automate in CI/CD
 
 ## Summary
 

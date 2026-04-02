@@ -378,9 +378,9 @@ git tag v1.0.0  # This triggers GoReleaser
 
 ## Related Documentation
 
-- [Release Automation](./release-automation.md) - Full release process
-- [Release Process](./release-process.md) - Manual release steps
-- [Testing Releases](./testing-releases.md) - How to test releases safely
+- [Release Automation](/devops/release-automation/) - Full release process
+- [Release Process](/devops/release-process/) - Manual release steps
+- [Testing Releases](/devops/testing-releases/) - How to test releases safely
 
 ---
 

@@ -13,7 +13,7 @@ Learn how to test complex multi-turn conversations that maintain context across 
 
 ## Prerequisites
 
-- Completed [Tutorial 1](01-first-test) and [Tutorial 2](02-multi-provider)
+- Completed [Tutorial 1](/arena/tutorials/01-first-test/) and [Tutorial 2](/arena/tutorials/02-multi-provider/)
 - Basic understanding of conversation design
 
 ## Why Multi-Turn Testing?
@@ -630,9 +630,9 @@ promptarena run --concurrency 1 --verbose
 You now know how to test complex multi-turn conversations!
 
 **Continue learning:**
-- **[Tutorial 4: MCP Tools](04-mcp-tools)** - Test tool/function calling in conversations
-- **[Tutorial 5: CI Integration](05-ci-integration)** - Automate conversation testing
-- **[How-To: Write Scenarios](../how-to/write-scenarios)** - Advanced patterns
+- **[Tutorial 4: MCP Tools](/arena/tutorials/04-mcp-tools/)** - Test tool/function calling in conversations
+- **[Tutorial 5: CI Integration](/arena/tutorials/05-ci-integration/)** - Automate conversation testing
+- **[How-To: Write Scenarios](/arena/how-to/write-scenarios/)** - Advanced patterns
 
 **Try this:**
 - Create a 10+ turn conversation test

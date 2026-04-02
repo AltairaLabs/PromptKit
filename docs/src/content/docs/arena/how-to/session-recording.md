@@ -411,5 +411,5 @@ Save recordings as artifacts for debugging failed tests:
 ## Next Steps
 
 - **[Duplex/Voice Testing](/arena/how-to/setup-voice-testing/)** - Set up voice conversation testing
-- **[Replay Provider](/arena/explanation/replay-provider/)** - Use recordings for deterministic replay
+- **[Replay Provider](/arena/explanation/session-recording/)** - Use recordings for deterministic replay
 - **[Configuration Schema](/arena/reference/config-schema/)** - Full configuration reference

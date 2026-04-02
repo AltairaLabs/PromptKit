@@ -430,11 +430,9 @@ response, err := client.CallTool(ctx, "read_file", args)
 
 ## Next Steps
 
-- [Implement Tools](implement-tools) - Create custom tools
-- [Validate Tools](validate-tools) - Tool validation
-- [Configure Pipeline](configure-pipeline) - Complete setup
+- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - Complete setup
 
 ## See Also
 
-- [MCP Reference](../reference/tools-mcp) - Complete API
-- [MCP Tutorial](../tutorials/03-mcp-integration) - Step-by-step guide
+- [MCP Reference](/runtime/reference/tools-mcp/) - Complete API
+- [MCP Tutorial](/runtime/tutorials/03-mcp-integration/) - Step-by-step guide

@@ -599,12 +599,7 @@ Send build notifications:
 
 ## Next Steps
 
-- [Organize Pack Files](organize-packs) - Structure your packs
-- [Deployment Guide](../../guides/deployment) - Deploy packs to production
-- [Monitor Builds](../../guides/monitoring) - Track build health
-
+- [Organize Pack Files](/packc/how-to/organize-packs/) - Structure your packs
 ## See Also
 
-- [CI/CD best practices](../../guides/ci-cd-best-practices)
-- [Deployment strategies](../../guides/deployment-strategies)
-- [Pack versioning](../explanation/versioning)
+- [Pack Format Explanation](/packc/explanation/pack-format/) - Pack structure and versioning

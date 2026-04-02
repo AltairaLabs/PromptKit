@@ -9,25 +9,25 @@ Complete technical specifications and reference materials for PromptArena.
 
 ## Quick Links
 
-### [CLI Commands](./cli-commands/)
+### [CLI Commands](/arena/reference/cli-commands/)
 Complete command-line interface reference with all flags and options.
 
-### [Configuration Schema](./config-schema/)
+### [Configuration Schema](/arena/reference/config-schema/)
 YAML configuration file structure and all available options.
 
-### [Assertions](./assertions/)
+### [Assertions](/arena/reference/assertions/)
 All available assertion types for validating LLM responses.
 
-### [Validators](./validators/)
+### [Validators](/arena/reference/validators/)
 Built-in validators for checking response quality and compliance.
 
-### [Scenario Format](./scenario-format/)
+### [Scenario Format](/arena/reference/scenario-format/)
 Test scenario file structure and specification.
 
-### [Output Formats](./output-formats/)
+### [Output Formats](/arena/reference/output-formats/)
 Report generation formats (HTML, JSON, JUnit, Markdown).
 
-### [Duplex Configuration](./duplex-config/)
+### [Duplex Configuration](/arena/reference/duplex-config/)
 Complete duplex streaming configuration for voice testing scenarios.
 
 ---
@@ -90,5 +90,5 @@ Arena reference documentation follows semantic versioning:
 
 - **How-To Guides**: [Task-oriented documentation](/arena/how-to/)
 - **Tutorials**: [Learning-oriented guides](/arena/tutorials/)
-- **Explanations**: [Conceptual documentation](/arena/explanation/)
+- **Explanations**: [Conceptual documentation](/arena/)
 - **Issues**: [GitHub Issues](https://github.com/AltairaLabs/PromptKit/issues)

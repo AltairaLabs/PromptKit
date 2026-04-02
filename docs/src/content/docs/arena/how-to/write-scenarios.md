@@ -420,16 +420,16 @@ scenarios/
 
 ## Examples
 
-See complete working examples in the [examples directory](../../examples/).
+See complete working examples in the [examples directory](/arena/examples/).
 
 ## Next Steps
 
-- **[Configure Providers](configure-providers)** - Set up LLM providers
-- **[Validate Outputs](validate-outputs)** - Use assertions and validators
-- **[Scenario Format Reference](../reference/scenario-format)** - Complete format specification
+- **[Configure Providers](/arena/how-to/configure-providers/)** - Set up LLM providers
+- **[Validate Outputs](/arena/how-to/validate-outputs/)** - Use assertions and validators
+- **[Scenario Format Reference](/arena/reference/scenario-format/)** - Complete format specification
 
 ## Related Documentation
 
-- **[Assertions Reference](../reference/assertions)** - All available assertion types
-- **[Validators Reference](../reference/validators)** - Custom validation logic
-- **[Tutorial: First Test](../tutorials/01-first-test)** - Step-by-step guide
+- **[Assertions Reference](/arena/reference/assertions/)** - All available assertion types
+- **[Validators Reference](/arena/reference/validators/)** - Custom validation logic
+- **[Tutorial: First Test](/arena/tutorials/01-first-test/)** - Step-by-step guide

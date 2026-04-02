@@ -428,10 +428,8 @@ Monitor pipeline health:
 
 ## Related Documentation
 
-- [Testing Releases](./testing-releases-quickstart.md) - Safe release testing
-- [Contributing Guide](../../CONTRIBUTING.md) - Development workflow
-- [Makefile](../../Makefile) - Local build commands
-- [SonarCloud Configuration](../../sonar-project.properties) - Quality settings
+- [Testing Releases](/devops/testing-releases-quickstart/) - Safe release testing
+- [Contributing Guide](/contributors/contributing/) - Development workflow
 
 ---
 

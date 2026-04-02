@@ -23,7 +23,7 @@ A production-ready API server with error handling, monitoring, cost tracking, an
 
 ## Prerequisites
 
-- Completed [Tutorial 1](01-first-pipeline)
+- Completed [Tutorial 1](/runtime/tutorials/01-first-pipeline/)
 - Multiple LLM API keys (OpenAI, Claude recommended)
 
 ## Production Architecture
@@ -431,9 +431,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 ## Next Steps
 
-Continue to [Tutorial 6: Advanced Patterns](06-advanced-patterns) for optimization techniques.
+Continue to [Tutorial 6: Advanced Patterns](/runtime/tutorials/06-advanced-patterns/) for optimization techniques.
 
 ## See Also
 
-- [Handle Errors](../how-to/handle-errors) - Error strategies
-- [Monitor Costs](../how-to/monitor-costs) - Cost tracking
+- [Handle Errors](/runtime/how-to/handle-errors/) - Error strategies
+- [Monitor Costs](/runtime/how-to/monitor-costs/) - Cost tracking

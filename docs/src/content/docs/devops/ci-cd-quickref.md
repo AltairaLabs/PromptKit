@@ -324,8 +324,8 @@ codecov.yml             # Coverage config (if used)
 
 ## Further Reading
 
-- [CI/CD Pipeline Documentation](./ci-cd-pipelines.md) - Detailed pipeline documentation
-- [Testing Releases](./testing-releases-quickstart.md) - Release workflow
+- [CI/CD Pipeline Documentation](/devops/ci-cd-pipelines/) - Detailed pipeline documentation
+- [Testing Releases](/devops/testing-releases-quickstart/) - Release workflow
 - [GitHub Actions Docs](https://docs.github.com/en/actions) - Official documentation
 - [SonarCloud Docs](https://docs.sonarcloud.io/) - Code quality analysis
 

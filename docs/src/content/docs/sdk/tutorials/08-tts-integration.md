@@ -14,7 +14,7 @@ Add text-to-speech capabilities to your conversations.
 
 ## Prerequisites
 
-- Completed [Tutorial 7: Audio Sessions](07-audio-sessions)
+- Completed [Tutorial 7: Audio Sessions](/sdk/tutorials/07-audio-sessions/)
 - API key for a TTS provider
 
 ## TTS Service Interface
@@ -302,9 +302,9 @@ Estimate costs before production deployment.
 
 ## What's Next
 
-- [Tutorial 9: Variable Providers](09-variable-providers) - Dynamic context injection
+- [Tutorial 9: Variable Providers](/sdk/tutorials/09-variable-providers/) - Dynamic context injection
 
 ## See Also
 
-- [TTS API Reference](../reference/tts) - Complete API documentation
-- [Audio Sessions Tutorial](07-audio-sessions) - Full voice integration
+- [TTS API Reference](/sdk/reference/tts/) - Complete API documentation
+- [Audio Sessions Tutorial](/sdk/tutorials/07-audio-sessions/) - Full voice integration

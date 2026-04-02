@@ -149,6 +149,6 @@ turns:
 
 ## See Also
 
-- [Tutorial 6: Duplex Voice Testing](../tutorials/06-duplex-testing) - Complete learning path
-- [Duplex Configuration Reference](../reference/duplex-config) - All configuration options
-- [Duplex Architecture](../explanation/duplex-architecture) - How duplex streaming works
+- [Tutorial 6: Duplex Voice Testing](/arena/tutorials/06-duplex-testing/) - Complete learning path
+- [Duplex Configuration Reference](/arena/reference/duplex-config/) - All configuration options
+- [Duplex Architecture](/arena/explanation/duplex-architecture/) - How duplex streaming works

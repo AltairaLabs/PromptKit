@@ -11,17 +11,17 @@ These tutorials build progressively. Start from the beginning if you're new to P
 
 ### Beginner
 
-1. [**Your First Pack**](01-first-pack) - Compile your first prompt pack (15 minutes)
-2. [**Multi-Prompt Packs**](02-multi-prompt) - Build packs with multiple prompts (20 minutes)
+1. [**Your First Pack**](/packc/tutorials/01-first-pack/) - Compile your first prompt pack (15 minutes)
+2. [**Multi-Prompt Packs**](/packc/tutorials/02-multi-prompt/) - Build packs with multiple prompts (20 minutes)
 
 ### Intermediate
 
-3. [**Validation Workflows**](03-validation-workflow) - Ensure pack quality (25 minutes)
-4. [**Pack Management**](04-pack-management) - Organize and version packs (30 minutes)
+3. [**Validation Workflows**](/packc/tutorials/03-validation-workflow/) - Ensure pack quality (25 minutes)
+4. [**Pack Management**](/packc/tutorials/04-pack-management/) - Organize and version packs (30 minutes)
 
 ### Advanced
 
-5. [**CI/CD Pipeline**](05-ci-cd-pipeline) - Automate pack builds (45 minutes)
+5. [**CI/CD Pipeline**](/packc/tutorials/05-ci-cd-pipeline/) - Automate pack builds (45 minutes)
 
 ## Prerequisites
 
@@ -58,10 +58,10 @@ Each tutorial includes:
 
 If you get stuck:
 
-- Check the [How-To Guides](../how-to/) for specific tasks
-- Review the [Reference Documentation](../reference/)
-- Ask in [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
+- Check the [How-To Guides](/packc/how-to/) for specific tasks
+- Review the [Reference Documentation](/packc/reference/)
+- Ask in [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/issues)
 
 ## Next Steps
 
-Start with [Tutorial 1: Your First Pack](01-first-pack) to compile your first prompt pack.
+Start with [Tutorial 1: Your First Pack](/packc/tutorials/01-first-pack/) to compile your first prompt pack.

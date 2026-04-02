@@ -7,15 +7,15 @@ Task-focused guides for accomplishing specific goals with PackC.
 
 ## Getting Started
 
-- [Install PackC](install) - Set up packc on your system
-- [Compile Your First Pack](compile-packs) - Basic compilation workflow
+- [Install PackC](/packc/how-to/install/) - Set up packc on your system
+- [Compile Your First Pack](/packc/how-to/compile-packs/) - Basic compilation workflow
 
 ## Common Tasks
 
-- [Compile Packs](compile-packs) - Compile prompts into production-ready packs
-- [Validate Packs](validate-packs) - Ensure pack correctness and quality
-- [Organize Pack Files](organize-packs) - Structure and manage pack files
-- [Integrate with CI/CD](ci-cd-integration) - Automate pack builds
+- [Compile Packs](/packc/how-to/compile-packs/) - Compile prompts into production-ready packs
+- [Validate Packs](/packc/how-to/validate-packs/) - Ensure pack correctness and quality
+- [Organize Pack Files](/packc/how-to/organize-packs/) - Structure and manage pack files
+- [Integrate with CI/CD](/packc/how-to/ci-cd-integration/) - Automate pack builds
 
 ## By Use Case
 
@@ -46,6 +46,6 @@ Each how-to guide follows this structure:
 
 ## See Also
 
-- [Reference](../reference/) - Complete command documentation
-- [Tutorials](../tutorials/) - Step-by-step learning
-- [Explanation](../explanation/) - Understand packc design
+- [Reference](/packc/reference/) - Complete command documentation
+- [Tutorials](/packc/tutorials/) - Step-by-step learning
+- [Explanation](/packc/explanation/) - Understand packc design

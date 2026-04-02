@@ -337,7 +337,7 @@ telemetry.SetupPropagation()
 
 ## See Also
 
-- [How-To: Export Traces with OTLP](../how-to/export-traces-otlp) — end-to-end setup guide
-- [How-To: Prometheus Metrics](../how-to/prometheus-metrics) — Prometheus-based monitoring
-- [Logging Reference](logging) — structured logging
-- [SDK Observability](../../sdk/explanation/observability) — event system overview
+- [How-To: Export Traces with OTLP](/runtime/how-to/export-traces-otlp/) — end-to-end setup guide
+- [How-To: Prometheus Metrics](/runtime/how-to/prometheus-metrics/) — Prometheus-based monitoring
+- [Logging Reference](/runtime/reference/logging/) — structured logging
+- [SDK Observability](/sdk/explanation/observability/) — event system overview

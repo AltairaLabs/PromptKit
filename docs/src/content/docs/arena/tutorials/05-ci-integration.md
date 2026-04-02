@@ -14,7 +14,7 @@ Learn how to integrate PromptArena testing into your CI/CD pipeline for automate
 
 ## Prerequisites
 
-- Completed [Tutorials 1-4](01-first-test)
+- Completed [Tutorials 1-4](/arena/tutorials/01-first-test/)
 - GitHub repository
 - Basic CI/CD knowledge
 
@@ -660,9 +660,9 @@ echo "Key length: ${#OPENAI_API_KEY}"
 Congratulations! You've completed all Arena tutorials.
 
 **What's next:**
-- **[Arena How-To Guides](../how-to/)** - Practical recipes
-- **[Arena Reference](../reference/)** - Complete API docs
-- **[SDK Tutorials](../../sdk/tutorials/)** - Integrate Arena with your app
+- **[Arena How-To Guides](/arena/how-to/)** - Practical recipes
+- **[Arena Reference](/arena/reference/)** - Complete API docs
+- **[SDK Tutorials](/arena/tutorials/)** - Integrate Arena with your app
 
 **Advanced topics:**
 - Set up trend analysis

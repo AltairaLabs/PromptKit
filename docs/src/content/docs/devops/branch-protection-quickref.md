@@ -148,10 +148,10 @@ For critical production issues:
 
 ## 📚 More Information
 
-- Full guide: [branch-protection.md](branch-protection.md)
-- Contributing: [CONTRIBUTING.md](../../CONTRIBUTING.md)
-- Release process: [release-process.md](release-process.md)
-- CI/CD pipelines: [ci-cd-pipelines.md](ci-cd-pipelines.md)
+- Full guide: [branch-protection](/devops/branch-protection/)
+- Contributing: [Contributing Guidelines](/contributors/contributing/)
+- Release process: [release-process](/devops/release-process/)
+- CI/CD pipelines: [ci-cd-pipelines](/devops/ci-cd-pipelines/)
 
 ## 💡 Tips
 

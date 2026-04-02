@@ -29,7 +29,7 @@ Speak in {{language}}.
 
 ## Prerequisites
 
-Complete [Tutorial 1](01-first-conversation) and understand basic SDK usage.
+Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/) and understand basic SDK usage.
 
 ## Step 1: Create a Template Pack
 
@@ -232,8 +232,8 @@ fmt.Println(user2)  // "Bob"
 
 ## Next Steps
 
-- **[Tutorial 5: HITL](05-custom-pipelines)** - Approval workflows
-- **[How-To: Manage State](../how-to/manage-state)** - Advanced state
+- **[Tutorial 5: HITL](/sdk/tutorials/05-custom-pipelines/)** - Approval workflows
+- **[How-To: Manage State](/sdk/how-to/manage-state/)** - Advanced state
 
 ## Complete Example
 

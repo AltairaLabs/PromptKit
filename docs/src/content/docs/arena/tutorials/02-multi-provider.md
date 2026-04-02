@@ -12,7 +12,7 @@ Learn how to test the same scenario across multiple LLM providers and compare th
 
 ## Prerequisites
 
-- Completed [Tutorial 1: Your First Test](01-first-test)
+- Completed [Tutorial 1: Your First Test](/arena/tutorials/01-first-test/)
 - API keys for providers you want to test (at least 2)
 
 ## Why Multi-Provider Testing?
@@ -514,9 +514,9 @@ promptarena run --provider openai-mini
 You now know how to test across multiple providers!
 
 **Continue learning:**
-- **[Tutorial 3: Multi-Turn Conversations](03-multi-turn)** - Build complex dialog flows
-- **[Tutorial 4: MCP Tools](04-mcp-tools)** - Test tool/function calling
-- **[How-To: Configure Providers](../how-to/configure-providers)** - Advanced provider setup
+- **[Tutorial 3: Multi-Turn Conversations](/arena/tutorials/03-multi-turn/)** - Build complex dialog flows
+- **[Tutorial 4: MCP Tools](/arena/tutorials/04-mcp-tools/)** - Test tool/function calling
+- **[How-To: Configure Providers](/arena/how-to/configure-providers/)** - Advanced provider setup
 
 **Try this:**
 - Add more providers (Azure OpenAI, Groq, etc.)

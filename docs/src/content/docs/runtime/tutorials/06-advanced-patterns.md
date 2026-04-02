@@ -586,12 +586,12 @@ You've completed the Runtime tutorial series! You now know how to build producti
 
 ## Next Steps
 
-- Explore [Runtime Reference](../reference/index) for complete API documentation
-- Read [Runtime Explanation](../explanation/index) for architectural concepts
-- Check [Runtime How-To](../how-to/index) for specific tasks
+- Explore [Runtime Reference](/runtime/reference/) for complete API documentation
+- Read [Runtime Explanation](/runtime/explanation/) for architectural concepts
+- Check [Runtime How-To](/runtime/how-to/) for specific tasks
 
 ## See Also
 
-- [Pipeline Reference](../reference/pipeline) - Complete API
-- [Handle Errors](../how-to/handle-errors) - Error strategies
-- [Monitor Costs](../how-to/monitor-costs) - Cost optimization
+- [Pipeline Reference](/runtime/reference/pipeline/) - Complete API
+- [Handle Errors](/runtime/how-to/handle-errors/) - Error strategies
+- [Monitor Costs](/runtime/how-to/monitor-costs/) - Cost optimization

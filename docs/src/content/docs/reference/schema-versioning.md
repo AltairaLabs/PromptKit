@@ -309,4 +309,4 @@ If validation fails after updating schemas:
 
 - [Schema Validation](/reference/schema-validation/) - Using schemas for validation
 - [Configuration Reference](/arena/reference/config-schema/) - Arena config structure
-- [CI/CD Integration](/arena/how-to/ci-cd-integration/) - Automating validation
+- [CI/CD Integration](/arena/how-to/integrate-ci-cd/) - Automating validation

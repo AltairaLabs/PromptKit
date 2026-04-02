@@ -22,7 +22,7 @@ A chatbot that maintains conversation context across multiple exchanges.
 
 ## Prerequisites
 
-- Completed [Tutorial 1](01-first-pipeline)
+- Completed [Tutorial 1](/runtime/tutorials/01-first-pipeline/)
 - Redis (optional, for persistent state)
 
 ## Step 1: Install Redis (Optional)
@@ -532,9 +532,9 @@ redis-cli ping  # Should return PONG
 
 ## Next Steps
 
-Continue to [Tutorial 3: MCP Integration](03-mcp-integration) to add external tools to your chatbot.
+Continue to [Tutorial 3: MCP Integration](/runtime/tutorials/03-mcp-integration/) to add external tools to your chatbot.
 
 ## See Also
 
-- [Manage State](../how-to/manage-state) - Advanced state management
-- [StateStore Reference](../reference/statestore) - Complete API
+- [Manage State](/runtime/how-to/manage-state/) - Advanced state management
+- [StateStore Reference](/runtime/reference/statestore/) - Complete API

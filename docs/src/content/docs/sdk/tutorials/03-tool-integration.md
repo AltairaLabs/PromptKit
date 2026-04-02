@@ -31,7 +31,7 @@ LLM: It's currently 18°C and partly cloudy in Paris.
 
 ## Prerequisites
 
-Complete [Tutorial 1](01-first-conversation) and understand basic SDK usage.
+Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/) and understand basic SDK usage.
 
 ## Step 1: Create a Pack with Tools
 
@@ -264,9 +264,9 @@ conv.OnTools(map[string]sdk.ToolHandler{
 
 ## Next Steps
 
-- **[Tutorial 4: Variables](04-state-management)** - Template variables
-- **[Tutorial 5: HITL](05-custom-pipelines)** - Approval workflows
-- **[How-To: Register Tools](../how-to/register-tools)** - Advanced patterns
+- **[Tutorial 4: Variables](/sdk/tutorials/04-state-management/)** - Template variables
+- **[Tutorial 5: HITL](/sdk/tutorials/05-custom-pipelines/)** - Approval workflows
+- **[How-To: Register Tools](/sdk/how-to/register-tools/)** - Advanced patterns
 
 ## Complete Example
 

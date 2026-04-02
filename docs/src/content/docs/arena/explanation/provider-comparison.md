@@ -775,7 +775,7 @@ PromptArena makes cross-provider testing straightforward, enabling data-driven p
 
 ## Further Reading
 
-- **[Testing Philosophy](testing-philosophy)** - Core testing principles
-- **[Validation Strategies](validation-strategies)** - Assertion design
-- **[How-To: Configure Providers](../how-to/configure-providers)** - Provider setup
-- **[Tutorial: Multi-Provider Testing](../tutorials/02-multi-provider)** - Hands-on guide
+- **[Testing Philosophy](/arena/explanation/testing-philosophy/)** - Core testing principles
+- **[Validation Strategies](/arena/explanation/validation-strategies/)** - Assertion design
+- **[How-To: Configure Providers](/arena/how-to/configure-providers/)** - Provider setup
+- **[Tutorial: Multi-Provider Testing](/arena/tutorials/02-multi-provider/)** - Hands-on guide

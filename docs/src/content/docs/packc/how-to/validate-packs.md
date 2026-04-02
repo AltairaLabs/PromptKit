@@ -450,12 +450,11 @@ cat validation-report.txt
 
 ## Next Steps
 
-- [Organize Pack Files](organize-packs) - Structure your packs
-- [CI/CD Integration](ci-cd-integration) - Automate validation
-- [Inspect Packs](../reference/inspect) - View pack details
+- [Organize Pack Files](/packc/how-to/organize-packs/) - Structure your packs
+- [CI/CD Integration](/packc/how-to/ci-cd-integration/) - Automate validation
+- [Inspect Packs](/packc/reference/inspect/) - View pack details
 
 ## See Also
 
-- [validate command reference](../reference/validate)
-- [Pack format explanation](../explanation/pack-format)
-- [Quality assurance](../../guides/quality-assurance)
+- [validate command reference](/packc/reference/validate/)
+- [Pack format explanation](/packc/explanation/pack-format/)

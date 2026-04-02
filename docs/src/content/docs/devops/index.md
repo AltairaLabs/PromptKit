@@ -10,36 +10,36 @@ This directory contains operational and release management documentation for Pro
 
 ### Repository Management
 
-- **[branch-protection.md](./branch-protection.md)** - Complete branch protection rules and configuration guide
-- **[branch-protection-quickref.md](./branch-protection-quickref.md)** - Quick reference for working with protected branches
+- **[branch-protection](/devops/branch-protection/)** - Complete branch protection rules and configuration guide
+- **[branch-protection-quickref](/devops/branch-protection-quickref/)** - Quick reference for working with protected branches
 
 ### CI/CD & Pipelines
 
-- **[ci-cd-pipelines.md](./ci-cd-pipelines.md)** - Complete documentation of all GitHub Actions workflows
+- **[ci-cd-pipelines](/devops/ci-cd-pipelines/)** - Complete documentation of all GitHub Actions workflows
   - CI Pipeline - Automated testing, linting, and quality checks
   - Documentation Pipeline - GitHub Pages deployment
   - Release Test Pipeline - Safe release workflow validation
-- **[ci-cd-quickref.md](./ci-cd-quickref.md)** - Quick reference for common CI/CD commands and tasks
-- **[ci-cd-diagrams.md](./ci-cd-diagrams.md)** - Visual diagrams of pipeline architecture and flows
+- **[ci-cd-quickref](/devops/ci-cd-quickref/)** - Quick reference for common CI/CD commands and tasks
+- **[ci-cd-diagrams](/devops/ci-cd-diagrams/)** - Visual diagrams of pipeline architecture and flows
 
 ### GitHub Actions
 
-- **[promptarena-action.md](./promptarena-action.md)** - PromptArena GitHub Action for CI/CD integration
+- **[promptarena-action](/devops/promptarena-action/)** - PromptArena GitHub Action for CI/CD integration
   - Run prompt tests in GitHub workflows
   - Native test reporting integration
   - Multi-platform support
-- **[packc-action.md](./packc-action.md)** - PackC GitHub Action for CI/CD integration
+- **[packc-action](/devops/packc-action/)** - PackC GitHub Action for CI/CD integration
   - Compile prompt packs in GitHub workflows
   - Publish to OCI registries (GHCR, Docker Hub, ECR)
   - Supply chain security with Cosign signing
 
 ### Release Management
 
-- **[release-automation.md](./release-automation.md)** - ⭐ **Start here!** Automated release tools (local script + GitHub Actions)
-- **[goreleaser-integration.md](./goreleaser-integration.md)** - Binary builds and GitHub releases with GoReleaser
-- **[release-process.md](./release-process.md)** - Manual step-by-step guide (if automation fails)
-- **[testing-releases-quickstart.md](./testing-releases-quickstart.md)** - Quick reference for safely testing the release process
-- **[testing-releases.md](./testing-releases.md)** - Complete guide to testing releases without polluting git history
+- **[release-automation](/devops/release-automation/)** - ⭐ **Start here!** Automated release tools (local script + GitHub Actions)
+- **[goreleaser-integration](/devops/goreleaser-integration/)** - Binary builds and GitHub releases with GoReleaser
+- **[release-process](/devops/release-process/)** - Manual step-by-step guide (if automation fails)
+- **[testing-releases-quickstart](/devops/testing-releases-quickstart/)** - Quick reference for safely testing the release process
+- **[testing-releases](/devops/testing-releases/)** - Complete guide to testing releases without polluting git history
 
 ### Scripts
 
@@ -78,9 +78,9 @@ gh workflow run release.yml -f version=v1.0.0
 
 ### Creating a Real Release (Manual)
 
-1. Review [testing-releases-quickstart.md](./testing-releases-quickstart.md) first
+1. Review [testing-releases-quickstart](/devops/testing-releases-quickstart/) first
 2. Test thoroughly in a separate repository
-3. Follow the [release-process.md](./release-process.md) step-by-step guide
+3. Follow the [release-process](/devops/release-process/) step-by-step guide
 
 ## For Maintainers
 
@@ -89,4 +89,4 @@ This documentation is primarily for:
 - Contributors working on CI/CD improvements
 - Anyone needing to understand the release workflow
 
-For general development documentation, see [/docs/guides/](../guides/).
+For general development documentation, see [contributors guide](/contributors/).

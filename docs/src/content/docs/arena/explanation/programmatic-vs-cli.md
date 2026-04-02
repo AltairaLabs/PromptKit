@@ -384,7 +384,7 @@ go run experiments/ablation-study.go
 
 ## See Also
 
-- [Tutorial: Programmatic Usage](../tutorials/07-programmatic-usage)
-- [How-To: Use as Go Library](../how-to/use-as-go-library)
-- [Reference: CLI Commands](../reference/cli-commands)
-- [Reference: API Reference](../reference/api-reference)
+- [Tutorial: Programmatic Usage](/arena/tutorials/07-programmatic-usage/)
+- [How-To: Use as Go Library](/arena/how-to/use-as-go-library/)
+- [Reference: CLI Commands](/arena/reference/cli-commands/)
+- [Reference: API Reference](/arena/reference/api-reference/)

@@ -22,16 +22,14 @@ The PromptKit Runtime provides the core execution engine for LLM interactions. I
 
 | Component | Description | Reference |
 |-----------|-------------|-----------|
-| **Pipeline** | Stage-based execution engine | [pipeline.md](pipeline) |
-| **Providers** | LLM provider implementations | [providers.md](providers) |
-| **Tools** | Function calling and MCP integration | [tools.md](tools) |
-| **MCP** | Model Context Protocol support | [mcp.md](mcp) |
-| **State Store** | Conversation persistence | [statestore.md](statestore) |
-| **Validators** | Content validation | [validators.md](validators) |
-| **Types** | Core data structures | [types.md](types) |
-| **A2A** | Client, types, tool bridge, mock | [a2a.md](a2a) |
-| **Logging** | Structured logging with context | [logging.md](logging) |
-| **Telemetry** | OpenTelemetry trace export | [telemetry.md](telemetry) |
+| **Pipeline** | Stage-based execution engine | [pipeline.md](/runtime/reference/pipeline/) |
+| **Providers** | LLM provider implementations | [providers.md](/runtime/reference/providers/) |
+| **Tools** | Function calling and MCP integration | [tools-mcp.md](/runtime/reference/tools-mcp/) |
+| **State Store** | Conversation persistence | [statestore.md](/runtime/reference/statestore/) |
+| **Types** | Core data structures | [types.md](/runtime/reference/types/) |
+| **A2A** | Client, types, tool bridge, mock | [a2a.md](/runtime/reference/a2a/) |
+| **Logging** | Structured logging with context | [logging.md](/runtime/reference/logging/) |
+| **Telemetry** | OpenTelemetry trace export | [telemetry.md](/runtime/reference/telemetry/) |
 
 ### Import Paths
 
@@ -269,14 +267,13 @@ for chunk := range streamChan {
 
 ## See Also
 
-- [Pipeline Reference](pipeline) - Detailed pipeline API
-- [Provider Reference](providers) - Provider implementations
-- [Tools Reference](tools) - Tool registry and execution
-- [MCP Reference](mcp) - Model Context Protocol integration
-- [Types Reference](types) - Core data structures
+- [Pipeline Reference](/runtime/reference/pipeline/) - Detailed pipeline API
+- [Provider Reference](/runtime/reference/providers/) - Provider implementations
+- [Tools & MCP Reference](/runtime/reference/tools-mcp/) - Tool registry and execution
+- [Types Reference](/runtime/reference/types/) - Core data structures
 
 ## Next Steps
 
-- [How-To Guides](../how-to/) - Task-focused guides
-- [Tutorials](../tutorials/) - Learn by building
-- [Explanation](../explanation/) - Architecture and concepts
+- [How-To Guides](/runtime/how-to/) - Task-focused guides
+- [Tutorials](/runtime/tutorials/) - Learn by building
+- [Explanation](/runtime/explanation/) - Architecture and concepts

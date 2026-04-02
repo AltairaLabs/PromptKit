@@ -104,7 +104,7 @@ promptarena completion zsh > ~/.zsh/completions/_promptarena
 promptarena completion fish > ~/.config/fish/completions/promptarena.fish
 ```
 
-See [Configure Shell Completions](shell-completions) for detailed setup instructions.
+See [Configure Shell Completions](/arena/how-to/shell-completions/) for detailed setup instructions.
 
 ## Create Your First Project
 
@@ -163,9 +163,9 @@ EOF
 
 ## Next Steps
 
-- **[Write Your First Test Scenario](write-scenarios)** - Create test scenarios
-- **[Configure Providers](configure-providers)** - Set up LLM providers
-- **[Tutorial: First Test](../tutorials/01-first-test)** - Complete hands-on guide
+- **[Write Your First Test Scenario](/arena/how-to/write-scenarios/)** - Create test scenarios
+- **[Configure Providers](/arena/how-to/configure-providers/)** - Set up LLM providers
+- **[Tutorial: First Test](/arena/tutorials/01-first-test/)** - Complete hands-on guide
 
 ## Troubleshooting
 

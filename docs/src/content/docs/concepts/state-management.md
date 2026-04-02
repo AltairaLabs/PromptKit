@@ -395,7 +395,7 @@ State management provides:
 
 ## Related Documentation
 
-- [State Management Explanation](../runtime/explanation/state-management) - Architecture details
-- [Manage State How-To](../runtime/how-to/manage-state) - Implementation guide
-- [Multi-turn Tutorial](../runtime/tutorials/02-multi-turn) - Step-by-step guide
-- [StateStore Reference](../runtime/reference/statestore) - API documentation
+- [State Management Explanation](/runtime/explanation/state-management) - Architecture details
+- [Manage State How-To](/runtime/how-to/manage-state) - Implementation guide
+- [Multi-turn Tutorial](/runtime/tutorials/02-multi-turn) - Step-by-step guide
+- [StateStore Reference](/runtime/reference/statestore) - API documentation

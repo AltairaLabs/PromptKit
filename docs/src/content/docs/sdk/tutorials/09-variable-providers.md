@@ -14,7 +14,7 @@ Inject dynamic context into prompts with variable providers.
 
 ## Prerequisites
 
-- Completed [Tutorial 1: First Conversation](01-first-conversation)
+- Completed [Tutorial 1: First Conversation](/sdk/tutorials/01-first-conversation/)
 - Understanding of template variables
 
 ## What Are Variable Providers?
@@ -378,11 +378,11 @@ func TestRAGProvider(t *testing.T) {
 
 You've completed the SDK tutorials! Explore:
 
-- [How-To Guides](../how-to/) - Task-specific guides
-- [API Reference](../reference/) - Complete API documentation
+- [How-To Guides](/sdk/how-to/) - Task-specific guides
+- [API Reference](/sdk/reference/) - Complete API documentation
 - [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples) - Working code examples
 
 ## See Also
 
-- [Variable Providers Reference](../reference/variables) - Complete API
-- [State Management Tutorial](04-state-management) - Conversation state
+- [Variable Providers Reference](/sdk/reference/variables/) - Complete API
+- [State Management Tutorial](/sdk/tutorials/04-state-management/) - Conversation state

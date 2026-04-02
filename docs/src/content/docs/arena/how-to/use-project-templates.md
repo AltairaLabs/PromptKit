@@ -351,12 +351,12 @@ echo "OPENAI_API_KEY=sk-your-actual-key" > .env
 
 ## Next Steps
 
-- **[Write Test Scenarios](write-scenarios)** - Customize your test scenarios
-- **[Configure Providers](configure-providers)** - Set up additional providers
-- **[Tutorial: First Test](../tutorials/01-first-test)** - Complete walkthrough
+- **[Write Test Scenarios](/arena/how-to/write-scenarios/)** - Customize your test scenarios
+- **[Configure Providers](/arena/how-to/configure-providers/)** - Set up additional providers
+- **[Tutorial: First Test](/arena/tutorials/01-first-test/)** - Complete walkthrough
 
 ## Related Documentation
 
-- **[CLI Reference](../reference/cli-commands)** - All `promptarena` commands
-- **[Configuration Schema](../reference/config-schema)** - Full schema documentation
-- **[Examples](../../examples/)** - Real-world project examples
+- **[CLI Reference](/arena/reference/cli-commands/)** - All `promptarena` commands
+- **[Configuration Schema](/arena/reference/config-schema/)** - Full schema documentation
+- **[Examples](/arena/examples/)** - Real-world project examples

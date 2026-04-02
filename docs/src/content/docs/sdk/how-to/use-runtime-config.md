@@ -146,7 +146,7 @@ This keeps environment-specific settings out of your code and lets you change be
 
 ## See Also
 
-- [Exec Tools](/sdk/reference/exec-tools/) -- configure external process tools
-- [Exec Hooks](/sdk/reference/exec-hooks/) -- configure pipeline hooks
+- [Exec Tools](/sdk/how-to/exec-tools/) -- configure external process tools
+- [Exec Hooks](/sdk/how-to/exec-hooks/) -- configure pipeline hooks
 - [RuntimeConfig Reference](/sdk/reference/runtime-config/) -- full schema documentation
 - [Configure MCP Servers](/sdk/how-to/configure-mcp/) -- MCP server builder pattern

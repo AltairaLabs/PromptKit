@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://promptkit.altairalabs.ai/sitemap-index.xml

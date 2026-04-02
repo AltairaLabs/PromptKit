@@ -246,5 +246,5 @@ spec:
 
 ## See Also
 
-- [Register Tools](../how-to/integrate-mcp) - MCP tool integration
-- [HTTP Tools SDK](../../sdk/how-to/http-tools) - Programmatic HTTP tools with custom auth
+- [Register Tools](/runtime/how-to/integrate-mcp/) - MCP tool integration
+- [HTTP Tools SDK](/sdk/how-to/http-tools/) - Programmatic HTTP tools with custom auth

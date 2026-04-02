@@ -882,8 +882,8 @@ pipeline := stage.NewPipelineBuilder().
 
 ## See Also
 
-- [Stage Design](../explanation/stage-design) - Stage architecture
-- [Pipeline Architecture](../explanation/pipeline-architecture) - How pipelines work
-- [Configure Pipeline](../how-to/configure-pipeline) - Configuration guide
-- [Provider Reference](providers) - LLM providers
-- [Types Reference](types) - Data structures
+- [Stage Design](/runtime/explanation/stage-design/) - Stage architecture
+- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How pipelines work
+- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - Configuration guide
+- [Provider Reference](/runtime/reference/providers/) - LLM providers
+- [Types Reference](/runtime/reference/types/) - Data structures

@@ -11,7 +11,7 @@ Transform your arena.yaml configuration or individual prompt files into optimize
 
 ## Prerequisites
 
-- packc installed ([installation guide](install))
+- packc installed ([installation guide](/packc/how-to/install/))
 - Prompt configuration files (arena.yaml or individual .yaml files)
 - Basic understanding of pack structure
 
@@ -440,12 +440,12 @@ packc compile \
 
 ## Next Steps
 
-- [Validate Packs](validate-packs) - Ensure pack quality
-- [Organize Pack Files](organize-packs) - Structure your packs
-- [CI/CD Integration](ci-cd-integration) - Automate builds
+- [Validate Packs](/packc/how-to/validate-packs/) - Ensure pack quality
+- [Organize Pack Files](/packc/how-to/organize-packs/) - Structure your packs
+- [CI/CD Integration](/packc/how-to/ci-cd-integration/) - Automate builds
 
 ## See Also
 
-- [compile command reference](../reference/compile)
-- [compile-prompt command reference](../reference/compile-prompt)
-- [Pack format explanation](../explanation/pack-format)
+- [compile command reference](/packc/reference/compile/)
+- [compile-prompt command reference](/packc/reference/compile-prompt/)
+- [Pack format explanation](/packc/explanation/pack-format/)

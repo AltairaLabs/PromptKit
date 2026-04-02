@@ -23,7 +23,7 @@ Observability helps you:
 
 ## Prerequisites
 
-Complete [Tutorial 1](01-first-conversation) and understand basic SDK usage.
+Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/) and understand basic SDK usage.
 
 ## Basic Event Subscription
 
@@ -174,8 +174,8 @@ func enableDebug(conv *sdk.Conversation) {
 
 ## Next Steps
 
-- **[How-To: Monitor Events](../how-to/monitor-events)** - Advanced monitoring
-- **[Explanation: Observability](../explanation/observability)** - Architecture deep-dive
+- **[How-To: Monitor Events](/sdk/how-to/monitor-events/)** - Advanced monitoring
+- **[Explanation: Observability](/sdk/explanation/observability/)** - Architecture deep-dive
 
 ## Complete Example
 

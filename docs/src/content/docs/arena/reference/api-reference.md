@@ -542,6 +542,6 @@ for _, runID := range runIDs {
 
 ## See Also
 
-- [Tutorial: Programmatic Usage](../tutorials/07-programmatic-usage)
-- [How-To: Use as Go Library](../how-to/use-as-go-library)
+- [Tutorial: Programmatic Usage](/arena/tutorials/07-programmatic-usage/)
+- [How-To: Use as Go Library](/arena/how-to/use-as-go-library/)
 - [Example Code](https://github.com/AltairaLabs/PromptKit/tree/main/examples/programmatic-arena)

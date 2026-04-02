@@ -252,6 +252,6 @@ packc validate packs/app.pack.json > validation-report.txt 2>&1
 
 ## See Also
 
-- [compile](compile) - Compile packs
-- [inspect](inspect) - Inspect pack contents
-- [How to Validate Packs](../how-to/validate-packs)
+- [compile](/packc/reference/compile/) - Compile packs
+- [inspect](/packc/reference/inspect/) - Inspect pack contents
+- [How to Validate Packs](/packc/how-to/validate-packs/)

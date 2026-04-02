@@ -12,12 +12,12 @@ These explanations help you understand *why* Runtime works the way it does. They
 ## Topics
 
 ### Architecture
-- [Pipeline Architecture](pipeline-architecture) - How the stage-based streaming pipeline works
-- [Provider System](provider-system) - LLM provider abstraction and implementation
+- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How the stage-based streaming pipeline works
+- [Provider System](/runtime/explanation/provider-system/) - LLM provider abstraction and implementation
 
 ### Integration
-- [Stage Design](stage-design) - Composable stage patterns
-- [State Management](state-management) - Conversation history and persistence
+- [Stage Design](/runtime/explanation/stage-design/) - Composable stage patterns
+- [State Management](/runtime/explanation/state-management/) - Conversation history and persistence
 
 ## When to Read These
 
@@ -29,9 +29,9 @@ These explanations help you understand *why* Runtime works the way it does. They
 - Contribute to Runtime development
 
 **Don't read these when you need to:**
-- Quickly complete a specific task → See [How-To Guides](../how-to/index)
-- Learn Runtime from scratch → See [Tutorials](../tutorials/index)
-- Look up API details → See [Reference](../reference/index)
+- Quickly complete a specific task → See [How-To Guides](/runtime/how-to/index/)
+- Learn Runtime from scratch → See [Tutorials](/runtime/tutorials/index/)
+- Look up API details → See [Reference](/runtime/reference/index/)
 
 ## Key Concepts
 
@@ -125,9 +125,9 @@ Audio Streaming Mode for native multimodal LLMs with real-time audio via WebSock
 
 ## Related Documentation
 
-- **[Reference](../reference/index)**: Complete API documentation
-- **[How-To Guides](../how-to/index)**: Task-focused guides
-- **[Tutorials](../tutorials/index)**: Step-by-step learning
+- **[Reference](/runtime/reference/index/)**: Complete API documentation
+- **[How-To Guides](/runtime/how-to/index/)**: Task-focused guides
+- **[Tutorials](/runtime/tutorials/index/)**: Step-by-step learning
 
 ## Contributing
 

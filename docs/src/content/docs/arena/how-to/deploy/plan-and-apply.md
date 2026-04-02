@@ -8,7 +8,7 @@ Preview deployment changes, apply them, check status, and tear down resources.
 
 ## Prerequisites
 
-- Deploy section configured in arena.yaml (see [Configure Deploy](configure))
+- Deploy section configured in arena.yaml (see [Configure Deploy](/arena/how-to/deploy/configure/))
 - A compiled `.pack.json` file
 - An installed adapter
 
@@ -274,7 +274,7 @@ If plan shows all resources as NO_CHANGE, the pack and config haven't changed si
 
 ## See Also
 
-- [Configure Deploy](configure) — Set up arena.yaml
-- [CI/CD Integration](ci-cd) — Automate plan and apply
-- [CLI Commands](../../reference/deploy/cli-commands) — Complete flag reference
-- [State Management](../../explanation/deploy/state-management) — How state tracking works
+- [Configure Deploy](/arena/how-to/deploy/configure/) — Set up arena.yaml
+- [CI/CD Integration](/arena/how-to/deploy/ci-cd/) — Automate plan and apply
+- [CLI Commands](/arena/reference/deploy/cli-commands/) — Complete flag reference
+- [State Management](/arena/explanation/deploy/state-management/) — How state tracking works

@@ -22,7 +22,7 @@ A chatbot that can read and manipulate files using MCP filesystem tools.
 
 ## Prerequisites
 
-- Completed [Tutorial 2](02-multi-turn)
+- Completed [Tutorial 2](/runtime/tutorials/02-multi-turn/)
 - Node.js (for MCP servers)
 
 ## Step 1: Install MCP Filesystem Server
@@ -398,9 +398,9 @@ func main() {
 
 ## Next Steps
 
-Continue to [Tutorial 4: Validation & Guardrails](04-validation-guardrails) to add content safety.
+Continue to [Tutorial 4: Validation & Guardrails](/runtime/tutorials/04-validation-guardrails/) to add content safety.
 
 ## See Also
 
-- [Integrate MCP](../how-to/integrate-mcp) - More MCP patterns
-- [Tools & MCP Reference](../reference/tools-mcp) - Complete API
+- [Integrate MCP](/runtime/how-to/integrate-mcp/) - More MCP patterns
+- [Tools & MCP Reference](/runtime/reference/tools-mcp/) - Complete API

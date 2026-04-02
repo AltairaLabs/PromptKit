@@ -604,11 +604,11 @@ func handleStreamRequest(w http.ResponseWriter, r *http.Request, pipe *pipeline.
 
 ## Next Steps
 
-- [Handle Errors](handle-errors) - Error strategies
-- [Monitor Costs](monitor-costs) - Track usage
-- [Configure Pipeline](configure-pipeline) - Complete setup
+- [Handle Errors](/runtime/how-to/handle-errors/) - Error strategies
+- [Monitor Costs](/runtime/how-to/monitor-costs/) - Track usage
+- [Configure Pipeline](/runtime/how-to/configure-pipeline/) - Complete setup
 
 ## See Also
 
-- [Pipeline Reference](../reference/pipeline) - Stream API
-- [Providers Reference](../reference/providers) - Streaming support
+- [Pipeline Reference](/runtime/reference/pipeline/) - Stream API
+- [Providers Reference](/runtime/reference/providers/) - Streaming support

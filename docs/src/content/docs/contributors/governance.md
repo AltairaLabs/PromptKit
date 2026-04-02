@@ -6,7 +6,7 @@ sidebar:
 
 ## Overview
 
-PromptKit is an open source project developed by [AltairaLabs](https://altairalabs.ai) and is committed to building a welcoming and diverse community. This document describes the governance structure and processes for the PromptKit project.
+PromptKit is an open source project developed by [AltairaLabs](https://www.altairalabs.ai) and is committed to building a welcoming and diverse community. This document describes the governance structure and processes for the PromptKit project.
 
 ## Project Goals
 
@@ -95,8 +95,8 @@ These require broader discussion and consensus among maintainers.
 
 ### Getting Started
 
-1. Read the [Contributing Guide](./contributing/)
-2. Review the [Code of Conduct](./code-of-conduct/)
+1. Read the [Contributing Guide](/contributors/contributing/)
+2. Review the [Code of Conduct](/contributors/code-of-conduct/)
 3. Check existing issues and discussions
 4. Start with small contributions to familiarize yourself with the project
 
@@ -144,7 +144,7 @@ Maintainers may step down at any time. When stepping down:
 
 ## Code of Conduct Enforcement
 
-The maintainers are responsible for enforcing the [Code of Conduct](./code-of-conduct/). This includes:
+The maintainers are responsible for enforcing the [Code of Conduct](/contributors/code-of-conduct/). This includes:
 
 - Responding to reports of misconduct
 - Investigating violations

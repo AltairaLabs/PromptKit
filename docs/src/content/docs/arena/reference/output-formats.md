@@ -40,7 +40,7 @@ Arena automatically creates a `media/` directory to store large media content (i
 - **Metadata**: Each media file has a `.meta` sidecar with context
 - **Location**: `{output_dir}/media/run-{timestamp}/`
 
-See: [Media Storage Documentation](../../sdk/how-to/configure-media-storage) for details.
+See: [Media Storage Documentation](/sdk/how-to/) for details.
 
 ## Configuration
 
@@ -730,9 +730,9 @@ jq '.results | group_by(.provider) | map({provider: .[0].provider, cost: map(.co
 
 ## Next Steps
 
-- **[CI/CD Integration](./ci-cd-integration)** - Running in pipelines
-- **[Configuration Reference](./config-reference)** - Output configuration
-- **[Best Practices](./best-practices)** - Production tips
+- **[CI/CD Integration](/arena/how-to/integrate-ci-cd/)** - Running in pipelines
+- **[Configuration Reference](/arena/reference/config-schema/)** - Output configuration
+- **[Best Practices](/arena/how-to/validate-outputs/)** - Production tips
 
 ---
 

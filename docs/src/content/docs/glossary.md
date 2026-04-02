@@ -179,5 +179,5 @@ A protocol providing full-duplex communication over a single TCP connection. Use
 
 ## See Also
 
-- [Concepts](concepts/) - Detailed explanations of PromptKit concepts
-- [Architecture](architecture/) - System design and component relationships
+- [Concepts](/concepts/) - Detailed explanations of PromptKit concepts
+- [Architecture](/architecture/) - System design and component relationships

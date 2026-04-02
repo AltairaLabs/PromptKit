@@ -5,7 +5,7 @@ sidebar:
   order: 7
 ---
 
-Connect to remote [A2A](https://google.github.io/A2A/) agents so the LLM can delegate tasks to them. The SDK discovers the agent's skills at startup and registers each skill as a tool.
+Connect to remote [A2A](https://a2a-protocol.org) agents so the LLM can delegate tasks to them. The SDK discovers the agent's skills at startup and registers each skill as a tool.
 
 ---
 

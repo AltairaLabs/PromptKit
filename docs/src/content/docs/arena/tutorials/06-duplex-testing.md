@@ -13,7 +13,7 @@ Learn to test bidirectional voice conversations with real-time audio streaming.
 
 ## Prerequisites
 
-- Completed [Tutorial 1: Your First Test](01-first-test)
+- Completed [Tutorial 1: Your First Test](/arena/tutorials/01-first-test/)
 - A Gemini API key (duplex streaming requires Gemini Live API)
 - Optional: OpenAI API key (for TTS in self-play mode)
 
@@ -435,12 +435,12 @@ duplex-test/
 
 ## Next Steps
 
-- [Multi-Provider Testing](02-multi-provider) - Test across providers
-- [CI/CD Integration](05-ci-integration) - Automate voice tests
-- [Duplex Reference](../reference/duplex-config) - Full configuration options
+- [Multi-Provider Testing](/arena/tutorials/02-multi-provider/) - Test across providers
+- [CI/CD Integration](/arena/tutorials/05-ci-integration/) - Automate voice tests
+- [Duplex Reference](/arena/reference/duplex-config/) - Full configuration options
 
 ## See Also
 
-- [Arena CLI Reference](../reference/cli-commands) - Command options
-- [Assertions Reference](../reference/assertions) - All assertion types
-- [Validators Reference](../reference/validators) - Output validation
+- [Arena CLI Reference](/arena/reference/cli-commands/) - Command options
+- [Assertions Reference](/arena/reference/assertions/) - All assertion types
+- [Validators Reference](/arena/reference/validators/) - Output validation

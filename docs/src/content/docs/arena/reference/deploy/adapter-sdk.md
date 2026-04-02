@@ -553,6 +553,6 @@ promptarena deploy plan
 
 ## See Also
 
-- [Protocol](protocol) — JSON-RPC wire protocol details
-- [Adapter Architecture](../../explanation/deploy/adapter-architecture) — Design concepts
-- [CLI Commands](cli-commands) — CLI usage
+- [Protocol](/arena/reference/deploy/protocol/) — JSON-RPC wire protocol details
+- [Adapter Architecture](/arena/explanation/deploy/adapter-architecture/) — Design concepts
+- [CLI Commands](/arena/reference/deploy/cli-commands/) — CLI usage

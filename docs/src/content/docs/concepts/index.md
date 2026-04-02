@@ -12,28 +12,28 @@ These concepts are building blocks used throughout PromptKit. Understanding them
 
 ## Available Concepts
 
-### [Prompts](prompts)
+### [Prompts](/concepts/prompts/)
 Learn about prompts, prompt engineering, and how PromptKit handles prompts across components.
 
-### [Templates](templates)
+### [Templates](/concepts/templates/)
 Understand template systems, variable substitution, and template management with PackC.
 
-### [Providers](providers)
+### [Providers](/concepts/providers/)
 Learn about LLM providers, how PromptKit abstracts them, and multi-provider strategies.
 
-### [Validation](validation)
+### [Validation](/concepts/validation/)
 Understand content validation, guardrails, and safety measures across the platform.
 
-### [State Management](state-management)
+### [State Management](/concepts/state-management/)
 Learn about conversation state, session management, and persistence strategies.
 
-### [Tools & MCP](tools-mcp)
+### [Tools & MCP](/concepts/tools-mcp/)
 Understand function calling, tool integration, and the Model Context Protocol.
 
-### [A2A (Agent-to-Agent)](a2a)
+### [A2A (Agent-to-Agent)](/concepts/a2a/)
 Learn about the Agent-to-Agent protocol for inter-agent communication, task lifecycle, and discovery.
 
-### [Skills](skills)
+### [Skills](/concepts/skills/)
 Demand-driven knowledge and instruction loading using the AgentSkills.io standard, with progressive disclosure and three-level tool scoping.
 
 ## How Concepts Work Together
@@ -82,32 +82,32 @@ Some concepts are component-specific:
 ## Learning Path
 
 **If you're new to PromptKit:**
-1. Start with [Prompts](prompts) - The foundation
-2. Read [Providers](providers) - How LLMs work
-3. Explore [Templates](templates) - Organizing prompts
-4. Learn [State Management](state-management) - Multi-turn conversations
+1. Start with [Prompts](/concepts/prompts/) - The foundation
+2. Read [Providers](/concepts/providers/) - How LLMs work
+3. Explore [Templates](/concepts/templates/) - Organizing prompts
+4. Learn [State Management](/concepts/state-management/) - Multi-turn conversations
 
 **If you're building production apps:**
-1. [Validation](validation) - Safety and guardrails
-2. [State Management](state-management) - Scalable conversations
-3. [Tools & MCP](tools-mcp) - Extended capabilities
-4. [Skills](skills) - Demand-driven knowledge loading
-5. [A2A](a2a) - Multi-agent communication
-6. [Providers](providers) - Multi-provider strategies
+1. [Validation](/concepts/validation/) - Safety and guardrails
+2. [State Management](/concepts/state-management/) - Scalable conversations
+3. [Tools & MCP](/concepts/tools-mcp/) - Extended capabilities
+4. [Skills](/concepts/skills/) - Demand-driven knowledge loading
+5. [A2A](/concepts/a2a/) - Multi-agent communication
+6. [Providers](/concepts/providers/) - Multi-provider strategies
 
 ## Relationship to Other Documentation
 
 **Concepts** explain *what* things are and *why* they exist.
 
-**[Reference](../runtime/reference/index)** shows *how* to use APIs.
+**[Reference](/runtime/reference/)** shows *how* to use APIs.
 
-**[How-To Guides](../runtime/how-to/index)** show *how* to accomplish tasks.
+**[How-To Guides](/runtime/how-to/)** show *how* to accomplish tasks.
 
-**[Tutorials](../runtime/tutorials/index)** provide *step-by-step* learning.
+**[Tutorials](/runtime/tutorials/)** provide *step-by-step* learning.
 
 ## Related Documentation
 
-- **[Getting Started](../guides/getting-started)**: Quick introduction to PromptKit
-- **[Architecture](../architecture/index)**: System design and structure
-- **[Glossary](../glossary)**: Term definitions
+- **[Getting Started](/)**: Quick introduction to PromptKit
+- **[Architecture](/architecture/index/)**: System design and structure
+- **[Glossary](/glossary/)**: Term definitions
 

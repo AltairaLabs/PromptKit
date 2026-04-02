@@ -280,11 +280,11 @@ go install github.com/AltairaLabs/PromptKit/tools/packc@latest
 
 ## Next Steps
 
-- [Compile Your First Pack](compile-packs)
-- [Validate Packs](validate-packs)
-- [First Pack Tutorial](../tutorials/01-first-pack)
+- [Compile Your First Pack](/packc/how-to/compile-packs/)
+- [Validate Packs](/packc/how-to/validate-packs/)
+- [First Pack Tutorial](/packc/tutorials/01-first-pack/)
 
 ## See Also
 
-- [version command](../reference/version) - Check packc version
-- [System Requirements](../../getting-started/installation) - Complete system setup
+- [version command](/packc/reference/version/) - Check packc version
+- [PackC Documentation](/packc/) - Main PackC overview

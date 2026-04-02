@@ -162,5 +162,5 @@ func main() {
 
 ## See Also
 
-- [Open a Conversation](initialize)
-- [Tutorial 4: Variables](../tutorials/04-state-management)
+- [Open a Conversation](/sdk/how-to/initialize/)
+- [Tutorial 4: Variables](/sdk/tutorials/04-state-management/)

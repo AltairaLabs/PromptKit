@@ -996,7 +996,7 @@ graph TD
 ---
 
 **Related Documentation**:
-- [Runtime Pipeline Architecture](./runtime-pipeline)
-- [Provider System Architecture](./runtime-providers)
-- [System Overview](./system-overview)
+- [Runtime Pipeline Architecture](/architecture/runtime-pipeline/)
+- [Provider System Architecture](/architecture/runtime-providers/)
+- [System Overview](/architecture/system-overview/)
 - [MCP Specification](https://modelcontextprotocol.org/)

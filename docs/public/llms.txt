@@ -1,0 +1,87 @@
+# PromptKit
+
+> Professional LLM development framework for Go. Build, test, and deploy production-ready LLM applications.
+
+PromptKit is an open-source Go framework for building LLM-powered applications. It provides a modular runtime for LLM provider integration, a prompt testing framework (Arena), an SDK for application developers, and CLI tools for prompt pack management.
+
+## Key Components
+
+- **Arena (PromptArena)**: Prompt testing and evaluation framework with multi-provider support, scenario-based testing, assertions, guardrails, self-play, workflow testing, and CI/CD integration.
+- **SDK**: Developer-facing API for building LLM applications — `Open()`, `Send()`, streaming, tool integration, state management, variable providers, and event-driven observability.
+- **Runtime**: Core engine — LLM provider adapters (OpenAI, Anthropic Claude, Google Gemini, Ollama, vLLM), pipeline stages, tool execution, workflow state machine, memory, MCP integration, and event bus.
+- **PackC**: CLI tool for compiling, validating, and managing PromptPack files (prompt configurations with templates, variables, tools, and validators).
+
+## Documentation
+
+- [Arena Overview](https://promptkit.altairalabs.ai/arena/)
+- [SDK Overview](https://promptkit.altairalabs.ai/sdk/)
+- [Runtime Overview](https://promptkit.altairalabs.ai/runtime/)
+- [PackC Overview](https://promptkit.altairalabs.ai/packc/)
+- [Architecture](https://promptkit.altairalabs.ai/architecture/)
+- [Concepts](https://promptkit.altairalabs.ai/concepts/)
+
+## Arena — Prompt Testing
+
+- [Tutorial: First Test](https://promptkit.altairalabs.ai/arena/tutorials/01-first-test/)
+- [Tutorial: Multi-Provider](https://promptkit.altairalabs.ai/arena/tutorials/02-multi-provider/)
+- [Tutorial: Multi-Turn](https://promptkit.altairalabs.ai/arena/tutorials/03-multi-turn/)
+- [Tutorial: MCP Tools](https://promptkit.altairalabs.ai/arena/tutorials/04-mcp-tools/)
+- [Tutorial: CI Integration](https://promptkit.altairalabs.ai/arena/tutorials/05-ci-integration/)
+- [How-To: Write Scenarios](https://promptkit.altairalabs.ai/arena/how-to/write-scenarios/)
+- [How-To: Configure Providers](https://promptkit.altairalabs.ai/arena/how-to/configure-providers/)
+- [How-To: Validate Outputs](https://promptkit.altairalabs.ai/arena/how-to/validate-outputs/)
+- [Reference: Config Schema](https://promptkit.altairalabs.ai/arena/reference/config-schema/)
+- [Reference: Scenario Format](https://promptkit.altairalabs.ai/arena/reference/scenario-format/)
+- [Reference: CLI Commands](https://promptkit.altairalabs.ai/arena/reference/cli-commands/)
+- [Reference: Assertions](https://promptkit.altairalabs.ai/arena/reference/assertions/)
+- [Reference: Validators](https://promptkit.altairalabs.ai/arena/reference/validators/)
+- [Explanation: Eval Framework](https://promptkit.altairalabs.ai/arena/explanation/eval-framework/)
+- [Explanation: Session Recording](https://promptkit.altairalabs.ai/arena/explanation/session-recording/)
+
+## SDK — Application Development
+
+- [Tutorial: First Conversation](https://promptkit.altairalabs.ai/sdk/tutorials/01-first-conversation/)
+- [Tutorial: Streaming](https://promptkit.altairalabs.ai/sdk/tutorials/02-streaming-responses/)
+- [Tutorial: Tool Integration](https://promptkit.altairalabs.ai/sdk/tutorials/03-tool-integration/)
+- [Tutorial: State Management](https://promptkit.altairalabs.ai/sdk/tutorials/04-state-management/)
+- [Tutorial: Variable Providers](https://promptkit.altairalabs.ai/sdk/tutorials/09-variable-providers/)
+- [How-To: Initialize](https://promptkit.altairalabs.ai/sdk/how-to/initialize/)
+- [How-To: Send Messages](https://promptkit.altairalabs.ai/sdk/how-to/send-messages/)
+- [How-To: Register Tools](https://promptkit.altairalabs.ai/sdk/how-to/register-tools/)
+- [How-To: Monitor Events](https://promptkit.altairalabs.ai/sdk/how-to/monitor-events/)
+- [How-To: Manage State](https://promptkit.altairalabs.ai/sdk/how-to/manage-state/)
+- [Reference: Variables](https://promptkit.altairalabs.ai/sdk/reference/variables/)
+- [Reference: Conversation Manager](https://promptkit.altairalabs.ai/sdk/reference/conversation-manager/)
+- [Explanation: Architecture](https://promptkit.altairalabs.ai/sdk/explanation/architecture/)
+- [Explanation: Observability](https://promptkit.altairalabs.ai/sdk/explanation/observability/)
+
+## Runtime — Core Engine
+
+- [How-To: Setup Providers](https://promptkit.altairalabs.ai/runtime/how-to/setup-providers/)
+- [How-To: Configure Pipeline](https://promptkit.altairalabs.ai/runtime/how-to/configure-pipeline/)
+- [How-To: Integrate MCP](https://promptkit.altairalabs.ai/runtime/how-to/integrate-mcp/)
+- [How-To: Manage State](https://promptkit.altairalabs.ai/runtime/how-to/manage-state/)
+- [How-To: Streaming Responses](https://promptkit.altairalabs.ai/runtime/how-to/streaming-responses/)
+- [Reference: Providers](https://promptkit.altairalabs.ai/runtime/reference/providers/)
+- [Reference: Tools & MCP](https://promptkit.altairalabs.ai/runtime/reference/tools-mcp/)
+- [Reference: Pipeline](https://promptkit.altairalabs.ai/runtime/reference/pipeline/)
+- [Reference: State Store](https://promptkit.altairalabs.ai/runtime/reference/statestore/)
+- [Reference: Hooks](https://promptkit.altairalabs.ai/runtime/reference/hooks/)
+- [Reference: Metrics](https://promptkit.altairalabs.ai/runtime/reference/metrics/)
+- [Architecture: Event System](https://promptkit.altairalabs.ai/architecture/runtime-events/)
+- [Architecture: Pipeline](https://promptkit.altairalabs.ai/architecture/runtime-pipeline/)
+
+## Concepts
+
+- [Prompts](https://promptkit.altairalabs.ai/concepts/prompts/)
+- [Templates](https://promptkit.altairalabs.ai/concepts/templates/)
+- [Providers](https://promptkit.altairalabs.ai/concepts/providers/)
+- [Validation](https://promptkit.altairalabs.ai/concepts/validation/)
+- [Agent-to-Agent (A2A)](https://promptkit.altairalabs.ai/concepts/a2a/)
+- [Glossary](https://promptkit.altairalabs.ai/glossary/)
+
+## Source Code
+
+- GitHub: https://github.com/AltairaLabs/PromptKit
+- License: Apache 2.0
+- Language: Go

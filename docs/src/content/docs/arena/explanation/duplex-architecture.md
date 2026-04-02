@@ -310,6 +310,6 @@ Provider turn detection can trigger mid-utterance with natural speech pauses. Bu
 
 ## See Also
 
-- [Tutorial: Duplex Voice Testing](../tutorials/06-duplex-testing) - Hands-on guide
-- [Duplex Configuration Reference](../reference/duplex-config) - Full config options
-- [Testing Philosophy](testing-philosophy) - Core testing principles
+- [Tutorial: Duplex Voice Testing](/arena/tutorials/06-duplex-testing/) - Hands-on guide
+- [Duplex Configuration Reference](/arena/reference/duplex-config/) - Full config options
+- [Testing Philosophy](/arena/explanation/testing-philosophy/) - Core testing principles

@@ -352,4 +352,4 @@ spec:
 - [Use RuntimeConfig](/sdk/how-to/use-runtime-config/) -- configure the runtime via YAML
 - [Hooks Reference](/runtime/reference/hooks/) -- full runtime hook API
 - [Validation Concepts](/concepts/validation/) -- how hooks fit into the validation pipeline
-- [Exec Protocol Reference](/runtime/reference/exec-protocol/) -- detailed subprocess protocol specification
+- [Exec Protocol Reference](/sdk/reference/exec-protocol/) -- detailed subprocess protocol specification

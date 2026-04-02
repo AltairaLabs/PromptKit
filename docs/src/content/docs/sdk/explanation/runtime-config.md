@@ -79,6 +79,6 @@ Timeouts provide a final safety layer. Every exec binding can specify a timeout,
 
 ## See Also
 
-- [How-To: Use RuntimeConfig](../how-to/use-runtime-config) -- practical guide to loading and applying RuntimeConfig
+- [How-To: Use RuntimeConfig](/sdk/how-to/use-runtime-config/) -- practical guide to loading and applying RuntimeConfig
 - RuntimeConfig Reference -- field-by-field documentation of the RuntimeConfig schema
 - Exec Protocol Reference -- specification for the subprocess communication protocol
