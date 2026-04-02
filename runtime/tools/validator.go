@@ -4,7 +4,9 @@ import (
 	"container/list"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/xeipuuv/gojsonschema"
@@ -220,6 +222,31 @@ func (sv *SchemaValidator) CoerceResult(
 	return normalised, nil, nil
 }
 
+// coerceArrayElements coerces string elements in an array to the target item type.
+// Returns a new slice if any coercions were applied, nil otherwise.
+func coerceArrayElements(arr []any, itemType string) []any {
+	result := make([]any, len(arr))
+	changed := false
+	for i, elem := range arr {
+		str, ok := elem.(string)
+		if !ok {
+			result[i] = elem
+			continue
+		}
+		coerced, err := coerceStringValue(str, itemType)
+		if err != nil || coerced == nil {
+			result[i] = elem
+			continue
+		}
+		result[i] = coerced
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return result
+}
+
 // Coercion represents a type coercion that was performed.
 type Coercion struct {
 	Path string `json:"path"`
@@ -227,10 +254,45 @@ type Coercion struct {
 	To   any    `json:"to"`
 }
 
-// CoerceArgs coerces string-encoded values in tool arguments to match the
-// types declared in the tool's input schema. LLMs sometimes send numeric
-// or boolean values as strings (e.g., "10" instead of 10, "true" instead
-// of true). This normalises them before validation and execution.
+// JSON Schema type names used in coercion logic.
+const (
+	schemaTypeString  = "string"
+	schemaTypeBoolean = "boolean"
+	schemaTypeArray   = "array"
+)
+
+// schemaItems holds the type of array elements.
+type schemaItems struct {
+	Type string `json:"type"`
+}
+
+// schemaProperty holds parsed schema metadata for a single property.
+type schemaProperty struct {
+	Type  string      `json:"type"`
+	Enum  []string    `json:"enum,omitempty"`
+	Items schemaItems `json:"items,omitempty"`
+}
+
+// parsedSchema holds the parsed schema metadata needed for coercion.
+type parsedSchema struct {
+	Properties map[string]schemaProperty `json:"properties"`
+	Required   []string                  `json:"required"`
+}
+
+// CoerceArgs normalises LLM tool arguments to match the types declared in the
+// tool's input schema. Weak LLMs produce a variety of non-conformant output:
+//
+//   - null for optional fields (Ollama, Llama)
+//   - empty strings for non-string optional fields (GPT-3.5, small models)
+//   - string-encoded numbers/booleans ("10", "true", "0.8")
+//   - bare strings instead of arrays ("preference" instead of ["preference"])
+//   - wrong enum case ("escalate" instead of "Escalate")
+//   - whitespace around enum values ("Escalate ")
+//   - "yes"/"no" for booleans, integer 1/0 for booleans
+//   - "5.0" string for integer fields
+//
+// All normalisation happens here, before ValidateArgs, keeping the schema
+// validator strict and tool executors simple.
 func (sv *SchemaValidator) CoerceArgs(
 	descriptor *ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, []Coercion, error) {
@@ -238,38 +300,101 @@ func (sv *SchemaValidator) CoerceArgs(
 		return args, nil, nil
 	}
 
-	// Parse the schema to get property types
-	var schema struct {
-		Properties map[string]struct {
-			Type string `json:"type"`
-		} `json:"properties"`
-	}
+	var schema parsedSchema
 	if err := json.Unmarshal(descriptor.InputSchema, &schema); err != nil {
-		return args, nil, nil // can't parse schema, skip coercion
+		return args, nil, nil
 	}
 	if len(schema.Properties) == 0 {
 		return args, nil, nil
 	}
 
-	// Parse the args
 	var data map[string]any
 	if err := json.Unmarshal(args, &data); err != nil {
-		return args, nil, nil // can't parse args, skip coercion
+		return args, nil, nil
+	}
+
+	requiredSet := make(map[string]bool, len(schema.Required))
+	for _, r := range schema.Required {
+		requiredSet[r] = true
 	}
 
 	var coercions []Coercion
+
+	// Phase 1: strip nulls and empty strings from non-required fields.
 	for key, prop := range schema.Properties {
-		str, isString := data[key].(string)
-		if !isString {
+		val, exists := data[key]
+		if !exists {
 			continue
 		}
-		coerced, err := coerceStringValue(str, prop.Type)
-		if err != nil {
-			return nil, nil, fmt.Errorf("cannot coerce %q=%q to %s: %w", key, str, prop.Type, err)
+
+		// Strip null from non-required fields.
+		if val == nil && !requiredSet[key] {
+			delete(data, key)
+			coercions = append(coercions, Coercion{Path: key, From: nil, To: "<stripped>"})
+			continue
 		}
-		if coerced != nil {
-			data[key] = coerced
-			coercions = append(coercions, Coercion{Path: key, From: str, To: coerced})
+
+		// Strip empty strings from non-required fields when the empty string
+		// is not a valid value: non-string types, or string types with an enum constraint.
+		if str, ok := val.(string); ok && str == "" && !requiredSet[key] {
+			if prop.Type != schemaTypeString || len(prop.Enum) > 0 {
+				delete(data, key)
+				coercions = append(coercions, Coercion{Path: key, From: "", To: "<stripped>"})
+				continue
+			}
+		}
+	}
+
+	// Phase 2: type coercion for remaining fields.
+	for key, prop := range schema.Properties {
+		val, exists := data[key]
+		if !exists {
+			continue
+		}
+
+		// String value coercion (string → target type).
+		if str, ok := val.(string); ok {
+			coerced, err := coerceStringValue(str, prop.Type)
+			if err != nil {
+				return nil, nil, fmt.Errorf("cannot coerce %q=%q to %s: %w", key, str, prop.Type, err)
+			}
+			if coerced != nil {
+				data[key] = coerced
+				coercions = append(coercions, Coercion{Path: key, From: str, To: coerced})
+			}
+
+			// Enum case/whitespace normalisation for string fields.
+			if prop.Type == schemaTypeString && len(prop.Enum) > 0 {
+				// Re-read: coercion above returns nil for string→string, so val is unchanged.
+				current, _ := data[key].(string)
+				if normalized, ok := normalizeEnum(current, prop.Enum); ok {
+					data[key] = normalized
+					coercions = append(coercions, Coercion{Path: key, From: current, To: normalized})
+				}
+			}
+			continue
+		}
+
+		// Non-string coercion: number → boolean (LLMs send 1/0 for booleans).
+		if num, ok := val.(float64); ok && prop.Type == schemaTypeBoolean {
+			switch num {
+			case 0:
+				data[key] = false
+				coercions = append(coercions, Coercion{Path: key, From: num, To: false})
+			case 1:
+				data[key] = true
+				coercions = append(coercions, Coercion{Path: key, From: num, To: true})
+			}
+		}
+
+		// Array element coercion: coerce string elements to match items.type.
+		isTypedArray := prop.Type == schemaTypeArray &&
+			prop.Items.Type != "" && prop.Items.Type != schemaTypeString
+		if arr, ok := val.([]any); ok && isTypedArray {
+			if coerced := coerceArrayElements(arr, prop.Items.Type); coerced != nil {
+				data[key] = coerced
+				coercions = append(coercions, Coercion{Path: key, From: "array elements", To: "coerced"})
+			}
 		}
 	}
 
@@ -284,16 +409,68 @@ func (sv *SchemaValidator) CoerceArgs(
 	return coerced, coercions, nil
 }
 
+// normalizeEnum tries to match a value against enum entries with whitespace
+// trimming and case-insensitive fallback. Returns the canonical enum value
+// and true if a match was found that differs from the input.
+func normalizeEnum(val string, enum []string) (string, bool) {
+	trimmed := strings.TrimSpace(val)
+
+	// Exact match after trimming.
+	for _, e := range enum {
+		if trimmed == e {
+			if trimmed != val {
+				return trimmed, true // whitespace was stripped
+			}
+			return "", false // already correct
+		}
+	}
+
+	// Case-insensitive match.
+	var match string
+	matchCount := 0
+	for _, e := range enum {
+		if strings.EqualFold(e, trimmed) {
+			match = e
+			matchCount++
+		}
+	}
+	if matchCount == 1 {
+		return match, true
+	}
+
+	return "", false // no match or ambiguous
+}
+
 // coerceStringValue converts a string to the target JSON schema type.
 // Returns nil if no coercion is needed (e.g., target type is "string").
 func coerceStringValue(s, targetType string) (any, error) {
 	switch targetType {
 	case "integer":
-		return strconv.ParseInt(s, 10, 64)
+		if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return v, nil
+		}
+		// Fall back: "5.0" → parse as float, truncate if no fractional part.
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			if f == math.Trunc(f) {
+				return int64(f), nil
+			}
+		}
+		return nil, fmt.Errorf("cannot parse %q as integer", s)
 	case "number":
 		return strconv.ParseFloat(s, 64)
 	case "boolean":
-		return strconv.ParseBool(s)
+		// strconv.ParseBool handles "true", "false", "1", "0", "t", "f".
+		if v, err := strconv.ParseBool(s); err == nil {
+			return v, nil
+		}
+		// Extended: "yes"/"no" (case-insensitive).
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "yes":
+			return true, nil
+		case "no":
+			return false, nil
+		}
+		return nil, fmt.Errorf("cannot parse %q as boolean", s)
 	case "object":
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(s), &obj); err != nil {
@@ -302,10 +479,11 @@ func coerceStringValue(s, targetType string) (any, error) {
 		return obj, nil
 	case "array":
 		var arr []any
-		if err := json.Unmarshal([]byte(s), &arr); err != nil {
-			return nil, err
+		if err := json.Unmarshal([]byte(s), &arr); err == nil {
+			return arr, nil
 		}
-		return arr, nil
+		// Bare string → single-element array.
+		return []any{s}, nil
 	default:
 		return nil, nil
 	}
