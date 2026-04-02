@@ -89,7 +89,7 @@ make test
 make build
 ```
 
-See the [Pre-Commit Hooks](/contributors/contributing/pre-commit-hooks.md/) guide for details on automated code quality checks.
+See the [Pre-Commit Hooks](/contributors/pre-commit-hooks/) guide for details on automated code quality checks.
 
 ### Project Structure
 

@@ -287,6 +287,6 @@ See the state management options above. Without persisting state, each CI run tr
 
 ## See Also
 
-- [Plan and Apply](plan-and-apply) — Manual deployment workflows
-- [Configure Deploy](configure) — arena.yaml setup
+- [Plan and Apply](/arena/how-to/deploy/plan-and-apply/) — Manual deployment workflows
+- [Configure Deploy](/arena/how-to/deploy/configure/) — arena.yaml setup
 - [State Management](/arena/explanation/deploy/state-management/) — Understanding deploy state

@@ -202,6 +202,6 @@ func main() {
 
 ## See Also
 
-- [Open a Conversation](initialize)
-- [Register Tools](register-tools)
+- [Open a Conversation](/sdk/how-to/initialize/)
+- [Register Tools](/sdk/how-to/register-tools/)
 - [Tutorial 2: Streaming](/sdk/tutorials/02-streaming-responses/)

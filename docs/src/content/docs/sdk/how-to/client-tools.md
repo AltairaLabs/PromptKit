@@ -211,5 +211,5 @@ When the handler returns `[]types.ContentPart`, the SDK automatically constructs
 
 ## See Also
 
-- [Register Tools](register-tools)
-- [Send Messages](send-messages)
+- [Register Tools](/sdk/how-to/register-tools/)
+- [Send Messages](/sdk/how-to/send-messages/)

@@ -107,7 +107,7 @@ type Event struct {
 4. Pipeline completion emits `EventPipelineCompleted`
 5. Failures emit `EventProviderCallFailed` / `EventPipelineFailed`
 
-The EventBus supports pluggable persistence via `EventStore` and fan-out to multiple listeners. See [Observability](observability) for the full event architecture.
+The EventBus supports pluggable persistence via `EventStore` and fan-out to multiple listeners. See [Observability](/sdk/explanation/observability/) for the full event architecture.
 
 ### Evals
 
@@ -218,5 +218,5 @@ wg.Wait()
 
 ## See Also
 
-- [Observability](observability)
+- [Observability](/sdk/explanation/observability/)
 - [API Reference](/sdk/reference/)

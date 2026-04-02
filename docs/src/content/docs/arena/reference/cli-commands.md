@@ -635,7 +635,7 @@ promptarena deploy status
 promptarena deploy destroy --env staging
 ```
 
-For the complete deploy command reference, see [Deploy: CLI Commands](deploy/cli-commands/).
+For the complete deploy command reference, see [Deploy: CLI Commands](/arena/reference/deploy/cli-commands/).
 
 ---
 

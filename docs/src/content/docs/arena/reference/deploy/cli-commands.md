@@ -374,4 +374,4 @@ deploy:
 
 - [Configure Deploy](/arena/how-to/deploy/configure/) — Configuration guide
 - [Plan and Apply](/arena/how-to/deploy/plan-and-apply/) — Deployment workflows
-- [Protocol](protocol) — JSON-RPC method details
+- [Protocol](/arena/reference/deploy/protocol/) — JSON-RPC method details

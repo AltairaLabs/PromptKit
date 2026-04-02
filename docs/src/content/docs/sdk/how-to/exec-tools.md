@@ -199,7 +199,7 @@ The runtime handles subprocess lifecycle, timeout enforcement, and JSON marshall
 
 ## See Also
 
-- [Register Tools](register-tools) -- programmatic tool registration in Go
-- [HTTP Tools](http-tools) -- bind tools to HTTP APIs
-- [Use RuntimeConfig](use-runtime-config) -- RuntimeConfig reference
-- [Exec Hooks](exec-hooks) -- lifecycle hooks using external processes
+- [Register Tools](/sdk/how-to/register-tools/) -- programmatic tool registration in Go
+- [HTTP Tools](/sdk/how-to/http-tools/) -- bind tools to HTTP APIs
+- [Use RuntimeConfig](/sdk/how-to/use-runtime-config/) -- RuntimeConfig reference
+- [Exec Hooks](/sdk/how-to/exec-hooks/) -- lifecycle hooks using external processes

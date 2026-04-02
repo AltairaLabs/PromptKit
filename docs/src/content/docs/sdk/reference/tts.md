@@ -294,5 +294,5 @@ reader, _ := service.Synthesize(ctx, text, config)
 ## See Also
 
 - [TTS Tutorial](/sdk/tutorials/08-tts-integration/) - Getting started
-- [Audio Reference](audio) - Audio session API
-- [VAD Mode](audio#vadmodeconfig) - Voice activity detection
+- [Audio Reference](/sdk/reference/audio/) - Audio session API
+- [VAD Mode](/sdk/reference/audio/#vadmodeconfig) - Voice activity detection

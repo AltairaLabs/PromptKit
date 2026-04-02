@@ -215,5 +215,5 @@ promptarena __complete run --scenario ""
 
 ## See Also
 
-- [Install PromptArena](installation) - Installation options
+- [Install PromptArena](/arena/how-to/installation/) - Installation options
 - [CLI Commands Reference](/arena/reference/cli-commands) - Full command documentation

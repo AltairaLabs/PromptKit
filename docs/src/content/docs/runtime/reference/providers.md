@@ -1775,5 +1775,5 @@ manager, _ := sdk.NewConversationManager(
 
 - [Storage Reference](/runtime/reference/storage/) - Media storage backends
 - [Types Reference](/runtime/reference/types#mediacontent) - MediaContent structure
-- [How-To: Configure Media Storage](/runtime/sdk/how-to/configure-media-storage/) - Setup guide
-- [Explanation: Media Storage](/runtime/sdk/explanation/media-storage/) - Design and architecture
+- [How-To: Configure Media Storage](/sdk/how-to/) - Setup guide
+- [Explanation: Media Storage](/sdk/explanation/) - Design and architecture

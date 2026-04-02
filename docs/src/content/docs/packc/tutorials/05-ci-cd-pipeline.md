@@ -388,7 +388,7 @@ environment:
 Congratulations! You've completed all PackC tutorials. Continue with:
 
 - **[PackC Explanation](/packc/explanation/)** - Deep dive into pack concepts
-- **[SDK Integration](/packc/sdk/)** - Use packs in applications
+- **[SDK Integration](/sdk/)** - Use packs in applications
 - **[Arena Testing](/arena/)** - Test prompts interactively
 
 ## Summary

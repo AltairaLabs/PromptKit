@@ -410,4 +410,4 @@ echo "✓ All prompts compiled successfully"
 - [compile command](/packc/reference/compile/) - Compile all prompts from arena.yaml
 - [validate command](/packc/reference/validate/) - Validate compiled packs
 - [inspect command](/packc/reference/inspect/) - Inspect pack contents
-- [Pack Format](/packc/sdk/explanation/promptpack-format/) - Pack structure details
+- [Pack Format](/packc/explanation/pack-format/) - Pack structure details

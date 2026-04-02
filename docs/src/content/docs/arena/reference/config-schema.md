@@ -1290,7 +1290,7 @@ promptar ena run --config arena.yaml
 
 - **[Session Recording Guide](/arena/how-to/session-recording/)** - Enable and use session recording
 - **[Assertions Reference](/arena/reference/assertions/)** - All available assertion types
-- **[Replay Provider](/arena/reference/config-schema/providers#replay-provider)** - Replay provider details
+- **[Replay Provider](/arena/reference/config-schema/#replay-provider)** - Replay provider details
 
 ---
 

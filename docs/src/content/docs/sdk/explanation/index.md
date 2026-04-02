@@ -7,8 +7,8 @@ Deep-dive documentation explaining SDK architecture and design.
 
 ## Architecture
 
-- **[SDK Architecture](architecture)** - Pack-first design and components
-- **[Observability](observability)** - Event system and monitoring
+- **[SDK Architecture](/sdk/explanation/architecture/)** - Pack-first design and components
+- **[Observability](/sdk/explanation/observability/)** - Event system and monitoring
 
 ## Design Philosophy
 

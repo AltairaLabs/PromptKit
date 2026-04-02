@@ -237,5 +237,5 @@ var (
 ## See Also
 
 - [Audio Sessions Tutorial](/sdk/tutorials/07-audio-sessions/) - Getting started
-- [TTS Reference](tts) - Text-to-speech API
+- [TTS Reference](/sdk/reference/tts/) - Text-to-speech API
 - [Pipeline Reference](/runtime/reference/pipeline) - Stage documentation

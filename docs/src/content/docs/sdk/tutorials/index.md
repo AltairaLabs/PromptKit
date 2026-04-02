@@ -11,42 +11,42 @@ Follow these tutorials in order for a structured learning experience:
 
 ### Getting Started
 
-1. **[Your First Conversation](01-first-conversation)**  
+1. **[Your First Conversation](/sdk/tutorials/01-first-conversation/)**  
    Build a chatbot in 5 lines of code. Learn `sdk.Open()` and basic message sending.
 
-2. **[Streaming Responses](02-streaming-responses)**  
+2. **[Streaming Responses](/sdk/tutorials/02-streaming-responses/)**  
    Implement real-time streaming with `conv.Stream()`. Display incremental results.
 
 ### Building Features
 
-3. **[Tool Integration](03-tool-integration)**  
+3. **[Tool Integration](/sdk/tutorials/03-tool-integration/)**  
    Add function calling with `OnTool()`. Register handlers and build a weather assistant.
 
-4. **[Variables and Templates](04-state-management)**  
+4. **[Variables and Templates](/sdk/tutorials/04-state-management/)**  
    Use `SetVar()`/`GetVar()` for template variables. Manage conversation context.
 
 ### Advanced Topics
 
-5. **[Human-in-the-Loop](05-custom-pipelines)**
+5. **[Human-in-the-Loop](/sdk/tutorials/05-custom-pipelines/)**
    Implement approval workflows with `OnToolAsync()`. Build safe AI agents.
 
-6. **[Working with Media](06-media-storage)**
+6. **[Working with Media](/sdk/tutorials/06-media-storage/)**
    Handle images and multimodal content. Optimize memory with storage.
 
 ### Voice & Audio
 
-7. **[Audio Sessions](07-audio-sessions)**
+7. **[Audio Sessions](/sdk/tutorials/07-audio-sessions/)**
    Build voice-enabled conversations with VAD and ASM modes. Real-time audio streaming.
 
-8. **[TTS Integration](08-tts-integration)**
+8. **[TTS Integration](/sdk/tutorials/08-tts-integration/)**
    Add text-to-speech to responses. Configure voices, formats, and providers.
 
-9. **[Variable Providers](09-variable-providers)**
+9. **[Variable Providers](/sdk/tutorials/09-variable-providers/)**
    Inject dynamic context with RAG, database lookups, and session state.
 
 ### A2A
 
-10. **[A2A Server](10-a2a-server)**
+10. **[A2A Server](/sdk/tutorials/10-a2a-server/)**
     Expose a PromptKit conversation as an A2A-compliant agent server.
 
 ## Prerequisites
@@ -70,4 +70,4 @@ By completing these tutorials, you'll:
 - See the [Reference Documentation](/sdk/reference/) for API details
 - Review [SDK Examples](/sdk/examples/) for complete applications
 
-Start with [Your First Conversation](01-first-conversation) →
+Start with [Your First Conversation](/sdk/tutorials/01-first-conversation/) →

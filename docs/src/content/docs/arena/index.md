@@ -101,7 +101,7 @@ Focused guides for specific Arena tasks:
 - [Configure Providers](/arena/how-to/configure-providers/) - Provider setup
 - [Use Mock Providers](/arena/how-to/use-mock-providers/) - Test without API calls
 - [Validate Outputs](/arena/how-to/validate-outputs/) - Assertion strategies
-- [Customize Reports](/arena/how-to/customize-reports/) - Report formatting
+- [Customize Reports](/arena/reference/output-formats/) - Report formatting
 - [Integrate CI/CD](/arena/how-to/integrate-ci-cd/) - GitHub Actions, GitLab CI
 - [Session Recording](/arena/how-to/session-recording/) - Capture and replay sessions
 
@@ -266,7 +266,7 @@ Real-world Arena testing scenarios:
 ## Getting Help
 
 - **Quick Start**: [First Test Tutorial](/arena/tutorials/01-first-test/)
-- **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
+- **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/issues)
 - **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
 - **Examples**: [Arena Examples](/arena/examples/)
 

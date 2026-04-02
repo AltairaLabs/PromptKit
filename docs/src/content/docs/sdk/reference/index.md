@@ -441,21 +441,21 @@ import (
 
 ### Audio & Voice
 
-- **[Audio API](audio)** - VAD mode, ASM mode, turn detection, audio streaming
-- **[TTS API](tts)** - Text-to-speech services, voices, formats, providers
-- **[Streaming Package](streaming)** - Bidirectional streaming utilities, response collection, audio streaming
+- **[Audio API](/sdk/reference/audio/)** - VAD mode, ASM mode, turn detection, audio streaming
+- **[TTS API](/sdk/reference/tts/)** - Text-to-speech services, voices, formats, providers
+- **[Streaming Package](/sdk/reference/streaming/)** - Bidirectional streaming utilities, response collection, audio streaming
 
 ### Dynamic Variables
 
-- **[Variable Providers](variables)** - Dynamic variable resolution, built-in providers, custom providers
+- **[Variable Providers](/sdk/reference/variables/)** - Dynamic variable resolution, built-in providers, custom providers
 
 ### A2A Server
 
-- **[A2A Server](a2a-server)** - A2AServer, A2ATaskStore, A2AConversationOpener
+- **[A2A Server](/sdk/reference/a2a-server/)** - A2AServer, A2ATaskStore, A2AConversationOpener
 
 ### Related
 
-- **[ConversationManager](conversation-manager)** - Legacy conversation management
+- **[ConversationManager](/sdk/reference/conversation-manager/)** - Legacy conversation management
 
 ## See Also
 

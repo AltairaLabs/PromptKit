@@ -151,7 +151,7 @@ conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
 ))
 ```
 
-See [HTTP Tools](http-tools) for the full builder API.
+See [HTTP Tools](/sdk/how-to/http-tools/) for the full builder API.
 
 ## Custom Executors
 
@@ -287,7 +287,7 @@ func main() {
 
 ## See Also
 
-- [HTTP Tools](http-tools) — builder API for HTTP tool handlers
-- [Exec Tools](exec-tools) — bind tools to external subprocesses (Python, Node.js, etc.)
-- [Client-Side Tools](client-tools) — tools that run on the caller's device
+- [HTTP Tools](/sdk/how-to/http-tools/) — builder API for HTTP tool handlers
+- [Exec Tools](/sdk/how-to/exec-tools/) — bind tools to external subprocesses (Python, Node.js, etc.)
+- [Client-Side Tools](/sdk/how-to/client-tools/) — tools that run on the caller's device
 - [Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/) — step-by-step walkthrough

@@ -10,25 +10,25 @@ Progressive learning path for building LLM applications with Runtime.
 Follow these tutorials in sequence to build expertise:
 
 ### 1. Getting Started
-- [First Pipeline](01-first-pipeline) - Build your first LLM application (15 min)
+- [First Pipeline](/runtime/tutorials/01-first-pipeline/) - Build your first LLM application (15 min)
 
 ### 2. Conversations
-- [Multi-Turn Conversations](02-multi-turn) - Add conversation state and memory (20 min)
+- [Multi-Turn Conversations](/runtime/tutorials/02-multi-turn/) - Add conversation state and memory (20 min)
 
 ### 3. Tools & Integration
-- [MCP Integration](03-mcp-integration) - Connect external tools via MCP (30 min)
+- [MCP Integration](/runtime/tutorials/03-mcp-integration/) - Connect external tools via MCP (30 min)
 
 ### 4. Safety & Validation
-- [Validation & Guardrails](04-validation-guardrails) - Add content safety checks (20 min)
+- [Validation & Guardrails](/runtime/tutorials/04-validation-guardrails/) - Add content safety checks (20 min)
 
 ### 5. Production Ready
-- [Production Deployment](05-production-deployment) - Build production-ready apps (40 min)
+- [Production Deployment](/runtime/tutorials/05-production-deployment/) - Build production-ready apps (40 min)
 
 ### 6. Advanced Topics
-- [Advanced Patterns](06-advanced-patterns) - Optimization and advanced techniques (30 min)
+- [Advanced Patterns](/runtime/tutorials/06-advanced-patterns/) - Optimization and advanced techniques (30 min)
 
 ### 7. A2A
-- [A2A Client](07-a2a-client) - Discover agents and send messages (10 min)
+- [A2A Client](/runtime/tutorials/07-a2a-client/) - Discover agents and send messages (10 min)
 
 ## What You'll Learn
 
@@ -84,7 +84,7 @@ Follow these tutorials in sequence to build expertise:
 
 ## Next Steps
 
-Start with [First Pipeline](01-first-pipeline) to build your first LLM application.
+Start with [First Pipeline](/runtime/tutorials/01-first-pipeline/) to build your first LLM application.
 
 ## See Also
 

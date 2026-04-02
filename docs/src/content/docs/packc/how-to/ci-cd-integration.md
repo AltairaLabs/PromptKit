@@ -599,7 +599,7 @@ Send build notifications:
 
 ## Next Steps
 
-- [Organize Pack Files](organize-packs) - Structure your packs
+- [Organize Pack Files](/packc/how-to/organize-packs/) - Structure your packs
 ## See Also
 
 - [Pack Format Explanation](/packc/explanation/pack-format/) - Pack structure and versioning

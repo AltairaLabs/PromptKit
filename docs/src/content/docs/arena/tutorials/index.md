@@ -12,7 +12,7 @@ Work through these tutorials in order for the best learning experience:
 ### Beginner
 
 <div class="code-example" markdown="1">
-**[Tutorial 1: Your First Test](01-first-test)**
+**[Tutorial 1: Your First Test](/arena/tutorials/01-first-test/)**
 
 Install PromptArena, write your first test scenario, configure a provider, and run tests. Perfect starting point for newcomers.
 
@@ -22,7 +22,7 @@ Install PromptArena, write your first test scenario, configure a provider, and r
 ### Intermediate
 
 <div class="code-example" markdown="1">
-**[Tutorial 2: Multi-Provider Testing](02-multi-provider)**
+**[Tutorial 2: Multi-Provider Testing](/arena/tutorials/02-multi-provider/)**
 
 Test the same scenario across OpenAI, Claude, and Gemini. Learn to compare providers and optimize for cost vs. quality.
 
@@ -30,7 +30,7 @@ Test the same scenario across OpenAI, Claude, and Gemini. Learn to compare provi
 </div>
 
 <div class="code-example" markdown="1">
-**[Tutorial 3: Multi-Turn Conversations](03-multi-turn)**
+**[Tutorial 3: Multi-Turn Conversations](/arena/tutorials/03-multi-turn/)**
 
 Build complex conversation flows with context retention. Test customer support dialogs, information gathering, and conversation branching.
 
@@ -40,7 +40,7 @@ Build complex conversation flows with context retention. Test customer support d
 ### Advanced
 
 <div class="code-example" markdown="1">
-**[Tutorial 4: Testing MCP Tools](04-mcp-tools)**
+**[Tutorial 4: Testing MCP Tools](/arena/tutorials/04-mcp-tools/)**
 
 Test LLMs that use Model Context Protocol tools for database queries, API calls, and system interactions.
 
@@ -48,7 +48,7 @@ Test LLMs that use Model Context Protocol tools for database queries, API calls,
 </div>
 
 <div class="code-example" markdown="1">
-**[Tutorial 5: CI/CD Integration](05-ci-integration)**
+**[Tutorial 5: CI/CD Integration](/arena/tutorials/05-ci-integration/)**
 
 Integrate Arena into GitHub Actions, GitLab CI, and other pipelines. Set up quality gates and deployment automation.
 
@@ -56,7 +56,7 @@ Integrate Arena into GitHub Actions, GitLab CI, and other pipelines. Set up qual
 </div>
 
 <div class="code-example" markdown="1">
-**[Tutorial 6: Duplex Voice Testing](06-duplex-testing)**
+**[Tutorial 6: Duplex Voice Testing](/arena/tutorials/06-duplex-testing/)**
 
 Test bidirectional voice conversations with real-time audio streaming. Learn duplex mode, turn detection, and self-play with TTS.
 
@@ -74,7 +74,7 @@ Test bidirectional voice conversations with real-time audio streaming. Learn dup
 Looking for something else?
 
 - **[How-To Guides](/arena/how-to/)** - Task-focused recipes for specific problems
-- **[Explanation](/arena/explanation/)** - Conceptual understanding and design decisions
+- **[Explanation](/arena/)** - Conceptual understanding and design decisions
 - **[Reference](/arena/reference/)** - Complete technical specifications
 
 ## Prerequisites
@@ -92,7 +92,7 @@ Stuck on a tutorial?
 
 1. Check the **[How-To Guides](/arena/how-to/)** for specific solutions
 2. Review the **[Reference Documentation](/arena/reference/)** for complete specs
-3. Visit **[GitHub Discussions](https://github.com/altairalabs/promptkit/discussions)**
+3. Visit **[GitHub Discussions](https://github.com/AltairaLabs/PromptKit/issues)**
 4. Read the **[FAQ](#)** (coming soon)
 
 ## What You'll Build
@@ -106,4 +106,4 @@ By completing all tutorials, you'll have:
 - ✅ Automated CI/CD pipeline
 - ✅ Voice/duplex streaming tests
 
-Ready to get started? **[Begin with Tutorial 1 →](01-first-test)**
+Ready to get started? **[Begin with Tutorial 1 →](/arena/tutorials/01-first-test/)**

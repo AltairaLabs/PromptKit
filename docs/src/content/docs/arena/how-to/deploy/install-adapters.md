@@ -155,6 +155,6 @@ promptarena deploy adapter install agentcore
 
 ## See Also
 
-- [Configure Deploy](configure) — Set up arena.yaml after installing an adapter
+- [Configure Deploy](/arena/how-to/deploy/configure/) — Set up arena.yaml after installing an adapter
 - [CLI Commands](/arena/reference/deploy/cli-commands/) — Complete adapter command reference
 - [Adapter SDK](/arena/reference/deploy/adapter-sdk/) — Build your own adapter

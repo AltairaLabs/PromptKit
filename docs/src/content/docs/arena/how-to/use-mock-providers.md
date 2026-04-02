@@ -353,8 +353,8 @@ scenarios:
 
 ## Next Steps
 
-- **[Validate Outputs](validate-outputs)** - Add assertions to mock responses
-- **[Integrate CI/CD](integrate-ci-cd)** - Use mocks in pipelines
+- **[Validate Outputs](/arena/how-to/validate-outputs/)** - Add assertions to mock responses
+- **[Integrate CI/CD](/arena/how-to/integrate-ci-cd/)** - Use mocks in pipelines
 - **[Tutorial: First Test](/arena/tutorials/01-first-test/)** - Complete walkthrough
 
 ## Examples

@@ -12,12 +12,12 @@ These explanations help you understand *why* Runtime works the way it does. They
 ## Topics
 
 ### Architecture
-- [Pipeline Architecture](pipeline-architecture) - How the stage-based streaming pipeline works
-- [Provider System](provider-system) - LLM provider abstraction and implementation
+- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How the stage-based streaming pipeline works
+- [Provider System](/runtime/explanation/provider-system/) - LLM provider abstraction and implementation
 
 ### Integration
-- [Stage Design](stage-design) - Composable stage patterns
-- [State Management](state-management) - Conversation history and persistence
+- [Stage Design](/runtime/explanation/stage-design/) - Composable stage patterns
+- [State Management](/runtime/explanation/state-management/) - Conversation history and persistence
 
 ## When to Read These
 

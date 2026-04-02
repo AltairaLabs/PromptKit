@@ -604,9 +604,9 @@ promptarena run --concurrency 1  # Sequential execution
 
 ## Next Steps
 
-- **[Use Mock Providers](use-mock-providers)** - Test without API calls
-- **[Validate Outputs](validate-outputs)** - Add assertions
-- **[Integrate CI/CD](integrate-ci-cd)** - Automate testing
+- **[Use Mock Providers](/arena/how-to/use-mock-providers/)** - Test without API calls
+- **[Validate Outputs](/arena/how-to/validate-outputs/)** - Add assertions
+- **[Integrate CI/CD](/arena/how-to/integrate-ci-cd/)** - Automate testing
 - **[Config Reference](/arena/reference/config-schema/)** - Complete configuration options
 
 ## Examples

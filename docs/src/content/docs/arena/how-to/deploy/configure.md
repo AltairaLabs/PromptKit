@@ -8,7 +8,7 @@ Set up the deploy section in arena.yaml to target a cloud provider.
 
 ## Prerequisites
 
-- An adapter installed (see [Install Adapters](install-adapters))
+- An adapter installed (see [Install Adapters](/arena/how-to/deploy/install-adapters/))
 - An existing arena.yaml file
 
 ## Basic Configuration
@@ -196,6 +196,6 @@ promptarena deploy adapter install agentcore
 
 ## See Also
 
-- [Install Adapters](install-adapters) — Install the adapter before configuring
-- [Plan and Apply](plan-and-apply) — Use your configuration to deploy
-- [Multi-Environment Tutorial](/arena/how-to/tutorials/deploy/02-multi-environment/) — Step-by-step environment setup
+- [Install Adapters](/arena/how-to/deploy/install-adapters/) — Install the adapter before configuring
+- [Plan and Apply](/arena/how-to/deploy/plan-and-apply/) — Use your configuration to deploy
+- [Multi-Environment Tutorial](/arena/tutorials/deploy/multi-environment/) — Step-by-step environment setup

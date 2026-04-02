@@ -248,13 +248,13 @@ Working examples are available in the `sdk/examples/` directory:
 - **[tools](/sdk/examples/tools/)** - Tool registration and execution
 - **[streaming](/sdk/examples/streaming/)** - Real-time response streaming
 - **[hitl](/sdk/examples/hitl/)** - Human-in-the-loop approval workflows
-- **[workflow-external](/sdk/examples/workflow-external/)** - External orchestration via HTTP
+- **[workflow-external](/sdk/tutorials/)** - External orchestration via HTTP
 
 ---
 
 ## Getting Help
 
-- **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/discussions)
+- **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/issues)
 - **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
 - **Examples**: [SDK Examples](/sdk/examples/)
 

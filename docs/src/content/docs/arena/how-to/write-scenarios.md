@@ -424,8 +424,8 @@ See complete working examples in the [examples directory](/arena/examples/).
 
 ## Next Steps
 
-- **[Configure Providers](configure-providers)** - Set up LLM providers
-- **[Validate Outputs](validate-outputs)** - Use assertions and validators
+- **[Configure Providers](/arena/how-to/configure-providers/)** - Set up LLM providers
+- **[Validate Outputs](/arena/how-to/validate-outputs/)** - Use assertions and validators
 - **[Scenario Format Reference](/arena/reference/scenario-format/)** - Complete format specification
 
 ## Related Documentation

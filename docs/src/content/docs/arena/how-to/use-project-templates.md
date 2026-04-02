@@ -351,8 +351,8 @@ echo "OPENAI_API_KEY=sk-your-actual-key" > .env
 
 ## Next Steps
 
-- **[Write Test Scenarios](write-scenarios)** - Customize your test scenarios
-- **[Configure Providers](configure-providers)** - Set up additional providers
+- **[Write Test Scenarios](/arena/how-to/write-scenarios/)** - Customize your test scenarios
+- **[Configure Providers](/arena/how-to/configure-providers/)** - Set up additional providers
 - **[Tutorial: First Test](/arena/tutorials/01-first-test/)** - Complete walkthrough
 
 ## Related Documentation

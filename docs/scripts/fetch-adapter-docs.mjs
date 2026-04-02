@@ -141,9 +141,10 @@ function buildAdapterConfig(name, repo, extraFiles = {}) {
     repo,
     fileMap: { ...standardFiles, ...extraFiles },
     slugMap: { ...slugMap, ...Object.fromEntries(
-      Object.entries(extraFiles).map(([src]) => {
-        const slug = path.basename(src, ".md");
-        return [slug, slug];
+      Object.entries(extraFiles).map(([src, mapping]) => {
+        const srcSlug = path.basename(src, ".md");
+        const targetSlug = path.basename(mapping.target, ".md");
+        return [srcSlug, targetSlug];
       }),
     )},
     absoluteInternalMap,
@@ -192,6 +193,26 @@ DEPLOY_LINK_MAP["/deploy/adapters/agentcore/"] =
   "/arena/explanation/deploy/agentcore/overview/";
 DEPLOY_LINK_MAP["/deploy/adapters/omnia/"] =
   "/arena/explanation/deploy/omnia/overview/";
+
+// Arena deploy configure page — upstream adapter may reference /arena/how-to/configure or /how-to/configure.
+DEPLOY_LINK_MAP["/arena/how-to/configure/"] = "/arena/how-to/deploy/configure/";
+DEPLOY_LINK_MAP["/how-to/configure/"] = "/arena/how-to/deploy/configure/";
+
+// Agentcore adapter internal cross-reference links.
+// Both /arena/-prefixed and unprefixed variants are needed because the upstream
+// adapter docs may use either form depending on the page.
+DEPLOY_LINK_MAP["/tutorials/deploy/agentcore/01-first-deployment/"] =
+  "/arena/tutorials/deploy/agentcore/first-deployment/";
+DEPLOY_LINK_MAP["/tutorials/deploy/agentcore/02-multi-agent/"] =
+  "/arena/tutorials/deploy/agentcore/multi-agent/";
+DEPLOY_LINK_MAP["/arena/tutorials/deploy/agentcore/01-first-deployment/"] =
+  "/arena/tutorials/deploy/agentcore/first-deployment/";
+DEPLOY_LINK_MAP["/arena/tutorials/deploy/agentcore/02-multi-agent/"] =
+  "/arena/tutorials/deploy/agentcore/multi-agent/";
+DEPLOY_LINK_MAP["/arena/reference/deploy/agentcore/environment-variables/"] =
+  "/arena/reference/deploy/agentcore/env-vars/";
+DEPLOY_LINK_MAP["/reference/deploy/agentcore/environment-variables/"] =
+  "/arena/reference/deploy/agentcore/env-vars/";
 
 // ---------------------------------------------------------------------------
 // Shared utilities
@@ -288,8 +309,9 @@ function rewriteLinks(content, adapter) {
         return match;
       }
 
-      // Handle relative links — rewrite slug part
+      // Handle relative links — rewrite slug part or convert to absolute
       if (!url.startsWith("/")) {
+        let matched = false;
         for (const [oldSlug, newSlug] of Object.entries(adapter.slugMap)) {
           const patterns = [
             `../${oldSlug}/`,
@@ -305,19 +327,63 @@ function rewriteLinks(content, adapter) {
                 ? "../"
                 : url.startsWith("./")
                   ? "./"
-                  : "";
-              const suffix = url.endsWith("/") ? "/" : "";
-              return `[${text}](${prefix}${newSlug}${suffix})`;
+                  : "../";
+              matched = true;
+              // Always add trailing slash so the link resolves as a sibling directory.
+              return `[${text}](${prefix}${newSlug}/)`;
             }
+          }
+        }
+        if (!matched) {
+          // Unmatched relative link — try multiple strategies to resolve it.
+          const cleanUrl = url.replace(/^\.\.?\//, "");
+
+          // Strategy 1: Look up in DEPLOY_LINK_MAP (handles known path rewrites).
+          const deployUrl = `/${cleanUrl}${cleanUrl.endsWith("/") ? "" : "/"}`;
+          if (DEPLOY_LINK_MAP[deployUrl]) {
+            return `[${text}](${DEPLOY_LINK_MAP[deployUrl]})`;
+          }
+
+          // Strategy 2: Multi-segment path where last segment is a known slug.
+          // e.g. "tutorials/01-first-deployment" → "/arena/tutorials/deploy/adapter/first-deployment/"
+          const segments = cleanUrl.replace(/\/$/, "").split("/");
+          const lastSegment = segments[segments.length - 1];
+          const newSlugForLast = adapter.slugMap[lastSegment];
+          if (segments.length >= 2 && ADAPTER_SECTIONS.includes(segments[0]) && newSlugForLast) {
+            const arenaUrl = `/arena/${segments[0]}/deploy/${adapter.name}/${newSlugForLast}/`;
+            return `[${text}](${arenaUrl})`;
+          }
+
+          // Strategy 3: Bare slug that matches a known slugMap value.
+          const bareSlug = cleanUrl.replace(/\/$/, "");
+          const knownNewSlugs = new Set(Object.values(adapter.slugMap));
+          if (knownNewSlugs.has(bareSlug)) {
+            const prefix = url.startsWith("../") ? "../" : url.startsWith("./") ? "./" : "../";
+            return `[${text}](${prefix}${bareSlug}/)`;
+          }
+
+          // Strategy 4: Section link without slug mapping.
+          if (segments.length >= 1 && ADAPTER_SECTIONS.includes(segments[0])) {
+            const arenaUrl = `/arena/${segments[0]}/deploy/${adapter.name}/${segments.slice(1).join("/")}/`;
+            return `[${text}](${arenaUrl})`;
           }
         }
         return match;
       }
 
-      // Handle absolute /deploy/ links → new arena paths
+      // Handle absolute /deploy/ links → new arena paths (exact match).
       for (const [oldPath, newPath] of Object.entries(DEPLOY_LINK_MAP)) {
         if (url === oldPath) {
           return `[${text}](${newPath})`;
+        }
+      }
+
+      // Handle absolute /deploy/ links with fragments (e.g. /arena/how-to/configure#anchor).
+      for (const [oldPath, newPath] of Object.entries(DEPLOY_LINK_MAP)) {
+        const base = oldPath.replace(/\/$/, "");
+        if (url.startsWith(base) && (url.length === base.length || url[base.length] === "#" || url[base.length] === "/")) {
+          const fragment = url.slice(base.length);
+          return `[${text}](${newPath}${fragment})`;
         }
       }
 

@@ -542,5 +542,5 @@ Providers are:
 - [Provider System Explanation](/runtime/explanation/provider-system) - Architecture details
 - [Provider Reference](/runtime/reference/providers) - API documentation
 - [Cloud Provider Examples](/arena/examples/) - Bedrock, Vertex, Azure examples
-- [Multi-Provider Fallback](/runtime/how-to/fallback-providers) - Implementation guide
+- [Multi-Provider Fallback](/runtime/how-to/setup-providers/) - Implementation guide
 - [Cost Monitoring](/runtime/how-to/monitor-costs) - Track expenses

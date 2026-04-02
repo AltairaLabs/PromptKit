@@ -189,5 +189,4 @@ All methods are thread-safe for concurrent use.
 
 ## See Also
 
-- [Response](response)
-- [Reference Index](index)
+- [Reference Index](/sdk/reference/)

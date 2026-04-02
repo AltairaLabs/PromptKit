@@ -419,8 +419,8 @@ fmt.Printf("Loaded %d bytes\n", len(data))
 
 - [Storage Reference](/runtime/reference/storage/) - MediaStorageService interface
 - [Providers Reference](/runtime/reference/providers#medialoader) - MediaLoader documentation
-- [How-To: Configure Media Storage](/runtime/sdk/how-to/configure-media-storage/) - Setup guide
-- [Explanation: Media Storage](/runtime/sdk/explanation/media-storage/) - Design and architecture
+- [How-To: Configure Media Storage](/sdk/how-to/) - Setup guide
+- [Explanation: Media Storage](/sdk/explanation/) - Design and architecture
 
 ## Usage Examples
 

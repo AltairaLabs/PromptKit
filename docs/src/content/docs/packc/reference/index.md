@@ -11,11 +11,11 @@ PackC is the official compiler for PromptKit packs. It transforms YAML prompt co
 
 ## Commands
 
-- **[compile](compile)** - Compile all prompts from arena.yaml into a pack
-- **[compile-prompt](compile-prompt)** - Compile a single prompt to pack format
-- **[validate](validate)** - Validate a pack file
-- **[inspect](inspect)** - Display pack information and structure
-- **[version](version)** - Show packc version
+- **[compile](/packc/reference/compile/)** - Compile all prompts from arena.yaml into a pack
+- **[compile-prompt](/packc/reference/compile-prompt/)** - Compile a single prompt to pack format
+- **[validate](/packc/reference/validate/)** - Validate a pack file
+- **[inspect](/packc/reference/inspect/)** - Display pack information and structure
+- **[version](/packc/reference/version/)** - Show packc version
 
 ## Quick Reference
 
@@ -75,4 +75,4 @@ PackC produces `.pack.json` files with this structure:
 
 - [PackC How-To Guides](/packc/how-to/) - Task-focused guides
 - [PackC Tutorials](/packc/tutorials/) - Learn by building
-- [Pack Format Specification](/sdk/explanation/promptpack-format/)
+- [Pack Format Specification](/packc/explanation/pack-format/)

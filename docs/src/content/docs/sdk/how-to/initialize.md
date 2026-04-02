@@ -158,6 +158,6 @@ func main() {
 
 ## See Also
 
-- [Send Messages](send-messages)
-- [Register Tools](register-tools)
+- [Send Messages](/sdk/how-to/send-messages/)
+- [Register Tools](/sdk/how-to/register-tools/)
 - [Tutorial 1: First Conversation](/sdk/tutorials/01-first-conversation/)
