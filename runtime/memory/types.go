@@ -25,6 +25,50 @@ type Memory struct {
 	ExpiresAt  *time.Time        `json:"expires_at,omitempty"`
 }
 
+// Provenance indicates how a memory was created.
+// Downstream systems (PII redaction, audit, retention) use this to apply
+// context-appropriate policies. Stored in Memory.Metadata[MetaKeyProvenance].
+type Provenance string
+
+const (
+	// MetaKeyProvenance is the well-known Metadata key for provenance.
+	MetaKeyProvenance = "provenance"
+
+	// ProvenanceUserRequested — user explicitly asked the agent to remember this.
+	ProvenanceUserRequested Provenance = "user_requested"
+
+	// ProvenanceAgentExtracted — the agent/pipeline extracted this from
+	// conversation without an explicit user request (safe default).
+	ProvenanceAgentExtracted Provenance = "agent_extracted"
+
+	// ProvenanceSystemGenerated — created by system logic, not from user content.
+	ProvenanceSystemGenerated Provenance = "system_generated"
+
+	// ProvenanceOperatorCurated — manually created/edited by an operator.
+	ProvenanceOperatorCurated Provenance = "operator_curated"
+)
+
+// SetProvenance sets the provenance metadata on a Memory, initializing
+// the Metadata map if nil. This always overwrites any existing provenance
+// value to prevent callers from spoofing provenance.
+func (m *Memory) SetProvenance(p Provenance) {
+	if m.Metadata == nil {
+		m.Metadata = map[string]any{}
+	}
+	m.Metadata[MetaKeyProvenance] = string(p)
+}
+
+// GetProvenance returns the provenance from metadata, or empty string if unset.
+func (m *Memory) GetProvenance() Provenance {
+	if m.Metadata == nil {
+		return ""
+	}
+	if v, ok := m.Metadata[MetaKeyProvenance].(string); ok {
+		return Provenance(v)
+	}
+	return ""
+}
+
 // RetrieveOptions configures a memory retrieval query.
 type RetrieveOptions struct {
 	Types         []string // Filter by memory type (empty = all)
