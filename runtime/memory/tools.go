@@ -109,6 +109,8 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 		Metadata:   a.Metadata,
 		Scope:      e.scope,
 	}
+	// Always set provenance — overwrites any LLM-provided value.
+	m.SetProvenance(ProvenanceUserRequested)
 
 	if err := e.store.Save(ctx, m); err != nil {
 		return nil, fmt.Errorf("memory remember: %w", err)

@@ -57,15 +57,26 @@ function getDownloadUrl(version: string, assetName: string): string {
   return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${version}/${assetName}`;
 }
 
+/**
+ * Build GitHub API headers, including auth token when available.
+ * Unauthenticated requests are limited to 60/hr; authenticated get 5,000/hr.
+ */
+function githubHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github.v3+json',
+    'User-Agent': 'promptarena-action',
+  };
+  const token = process.env.GITHUB_TOKEN;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 async function getLatestVersion(): Promise<string> {
   const response = await fetch(
     `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`,
-    {
-      headers: {
-        Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'promptarena-action',
-      },
-    }
+    { headers: githubHeaders() }
   );
 
   if (!response.ok) {

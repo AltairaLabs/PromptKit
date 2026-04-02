@@ -94,7 +94,8 @@ function parseCompileOutput(output, inputs) {
     // Extract pack file path from output
     // Example: "✓ Pack compiled successfully: my-pack.pack.json"
     let packFile = inputs.output || '';
-    const packFileMatch = output.match(/Pack compiled successfully[:\s]+([^\s]+\.pack\.json)/i);
+    const packFileRegex = /Pack compiled successfully:?\s*([^\s]+\.pack\.json)/i;
+    const packFileMatch = packFileRegex.exec(output);
     if (packFileMatch) {
         packFile = packFileMatch[1];
     }
@@ -109,32 +110,37 @@ function parseCompileOutput(output, inputs) {
     // Extract pack ID
     // Example: "Compiling 3 prompts into pack 'my-pack'..."
     let packId = inputs.packId || '';
-    const packIdMatch = output.match(/into pack ['"]?([^'"]+)['"]?/i);
+    const packIdRegex = /into pack ['"]?([^'"]+)['"]?/i;
+    const packIdMatch = packIdRegex.exec(output);
     if (packIdMatch) {
         packId = packIdMatch[1];
     }
     // Extract prompts count
     // Example: "Compiling 3 prompts into pack"
     let prompts = 0;
-    const promptsMatch = output.match(/Compiling (\d+) prompts?/i);
+    const promptsRegex = /Compiling (\d+) prompts?/i;
+    const promptsMatch = promptsRegex.exec(output);
     if (promptsMatch) {
-        prompts = parseInt(promptsMatch[1], 10);
+        prompts = Number.parseInt(promptsMatch[1], 10);
     }
     // Extract tools count
     // Example: "Including 2 tool definitions in pack"
     let tools = 0;
-    const toolsMatch = output.match(/Including (\d+) tool/i);
+    const toolsRegex = /Including (\d+) tool/i;
+    const toolsMatch = toolsRegex.exec(output);
     if (toolsMatch) {
-        tools = parseInt(toolsMatch[1], 10);
+        tools = Number.parseInt(toolsMatch[1], 10);
     }
     // Also try to parse from "Contains X prompts" line
-    const containsPromptsMatch = output.match(/Contains (\d+) prompts?/i);
+    const containsPromptsRegex = /Contains (\d+) prompts?/i;
+    const containsPromptsMatch = containsPromptsRegex.exec(output);
     if (containsPromptsMatch && prompts === 0) {
-        prompts = parseInt(containsPromptsMatch[1], 10);
+        prompts = Number.parseInt(containsPromptsMatch[1], 10);
     }
-    const containsToolsMatch = output.match(/Contains (\d+) tools?/i);
+    const containsToolsRegex = /Contains (\d+) tools?/i;
+    const containsToolsMatch = containsToolsRegex.exec(output);
     if (containsToolsMatch && tools === 0) {
-        tools = parseInt(containsToolsMatch[1], 10);
+        tools = Number.parseInt(containsToolsMatch[1], 10);
     }
     return {
         packFile,
@@ -286,13 +292,23 @@ function getPlatformInfo() {
     }
     return { os: osName, arch: archName, orasOs, orasArch };
 }
+/**
+ * Build GitHub API headers, including auth token when available.
+ * Unauthenticated requests are limited to 60/hr; authenticated get 5,000/hr.
+ */
+function githubHeaders() {
+    const headers = {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'packc-action',
+    };
+    const token = process.env.GITHUB_TOKEN;
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+}
 async function getLatestPromptKitVersion() {
-    const response = await fetch(`https://api.github.com/repos/${PROMPTKIT_REPO_OWNER}/${PROMPTKIT_REPO_NAME}/releases/latest`, {
-        headers: {
-            Accept: 'application/vnd.github.v3+json',
-            'User-Agent': 'packc-action',
-        },
-    });
+    const response = await fetch(`https://api.github.com/repos/${PROMPTKIT_REPO_OWNER}/${PROMPTKIT_REPO_NAME}/releases/latest`, { headers: githubHeaders() });
     if (!response.ok) {
         throw new Error(`Failed to fetch latest release: ${response.statusText}`);
     }
@@ -300,12 +316,7 @@ async function getLatestPromptKitVersion() {
     return release.tag_name;
 }
 async function getLatestOrasVersion() {
-    const response = await fetch(`https://api.github.com/repos/${ORAS_REPO_OWNER}/${ORAS_REPO_NAME}/releases/latest`, {
-        headers: {
-            Accept: 'application/vnd.github.v3+json',
-            'User-Agent': 'packc-action',
-        },
-    });
+    const response = await fetch(`https://api.github.com/repos/${ORAS_REPO_OWNER}/${ORAS_REPO_NAME}/releases/latest`, { headers: githubHeaders() });
     if (!response.ok) {
         throw new Error(`Failed to fetch latest ORAS release: ${response.statusText}`);
     }
@@ -313,12 +324,7 @@ async function getLatestOrasVersion() {
     return release.tag_name;
 }
 async function getLatestCosignVersion() {
-    const response = await fetch(`https://api.github.com/repos/${COSIGN_REPO_OWNER}/${COSIGN_REPO_NAME}/releases/latest`, {
-        headers: {
-            Accept: 'application/vnd.github.v3+json',
-            'User-Agent': 'packc-action',
-        },
-    });
+    const response = await fetch(`https://api.github.com/repos/${COSIGN_REPO_OWNER}/${COSIGN_REPO_NAME}/releases/latest`, { headers: githubHeaders() });
     if (!response.ok) {
         throw new Error(`Failed to fetch latest Cosign release: ${response.statusText}`);
     }
@@ -617,7 +623,7 @@ async function run() {
         }
     }
 }
-run();
+void run();
 //# sourceMappingURL=main.js.map
 
 /***/ }),
@@ -845,12 +851,14 @@ async function tagImage(source, target) {
 function parseDigest(output) {
     // Look for sha256 digest in output
     // Pattern: sha256:abc123...
-    const digestMatch = output.match(/sha256:[a-f0-9]{64}/i);
+    const digestRegex = /sha256:[a-f0-9]{64}/i;
+    const digestMatch = digestRegex.exec(output);
     if (digestMatch) {
         return digestMatch[0];
     }
     // Alternative pattern: @sha256:...
-    const altMatch = output.match(/@(sha256:[a-f0-9]{64})/i);
+    const altRegex = /@(sha256:[a-f0-9]{64})/i;
+    const altMatch = altRegex.exec(output);
     if (altMatch) {
         return altMatch[1];
     }
@@ -981,7 +989,8 @@ function parseSignatureRef(output, imageRef) {
     // Cosign creates a signature at: <image>:<tag>.sig or <image>-<digest>.sig
     // Try to find it in the output
     // Pattern 1: Look for "Signature written to" or similar
-    const sigMatch = output.match(/signature.*?(sha256:[a-f0-9]{64})/i);
+    const sigRegex = /signature.*?(sha256:[a-f0-9]{64})/i;
+    const sigMatch = sigRegex.exec(output);
     if (sigMatch) {
         return sigMatch[1];
     }

@@ -135,6 +135,10 @@ func (s *MemoryExtractionStage) extractAndSave(ctx context.Context, messages []t
 		if m.Scope == nil {
 			m.Scope = s.scope
 		}
+		// Set provenance if the extractor didn't already set it.
+		if m.GetProvenance() == "" {
+			m.SetProvenance(memory.ProvenanceAgentExtracted)
+		}
 		if saveErr := s.store.Save(ctx, m); saveErr != nil {
 			logger.Error("Memory save failed", "id", m.ID, "error", saveErr)
 		}
