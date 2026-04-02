@@ -97,7 +97,7 @@ jobs:
         head -5 coverage.out
     
     - name: Publish Test Results  
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: Test Results
@@ -216,7 +216,7 @@ jobs:
         gotestsum --junitfile test-results/integration.xml --format testname -- -race -v -count=1 -coverpkg=github.com/AltairaLabs/PromptKit/sdk/... -coverprofile=sdk-integration-coverage.out ./sdk/integration/...
 
     - name: Publish Integration Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: SDK Integration Tests
@@ -448,7 +448,7 @@ jobs:
         echo "- **arena-eval-test-reports**" >> $GITHUB_STEP_SUMMARY
     
     - name: Publish Customer Support Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: Arena - Customer Support
@@ -457,7 +457,7 @@ jobs:
         fail-on-error: true
     
     - name: Publish Multimodal Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: Arena - Multimodal Basics
@@ -466,7 +466,7 @@ jobs:
         fail-on-error: true
     
     - name: Publish Variables Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: Arena - Variables Demo
@@ -499,7 +499,7 @@ jobs:
         retention-days: 5
     
     - name: Publish LLM Judge Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: Arena - LLM Judge
@@ -516,7 +516,7 @@ jobs:
         retention-days: 5
     
     - name: Publish Guardrails Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: Arena - Guardrails Test
@@ -533,7 +533,7 @@ jobs:
         retention-days: 5
     
     - name: Publish Eval Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: Arena - Eval Test
@@ -550,7 +550,7 @@ jobs:
         retention-days: 5
 
     - name: Publish Assertions Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: Arena - Assertions Test
@@ -713,7 +713,7 @@ jobs:
         retention-days: 5
 
     - name: Publish Test Results
-      uses: dorny/test-reporter@3d76b34a4535afbd0600d347b09a6ee5deb3ed7f # v2.6.0
+      uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       if: always()
       with:
         name: ${{ matrix.action }} Unit Tests
