@@ -87,13 +87,23 @@ function getAssetName(version, platformInfo) {
 function getDownloadUrl(version, assetName) {
     return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${version}/${assetName}`;
 }
+/**
+ * Build GitHub API headers, including auth token when available.
+ * Unauthenticated requests are limited to 60/hr; authenticated get 5,000/hr.
+ */
+function githubHeaders() {
+    const headers = {
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'promptarena-action',
+    };
+    const token = process.env.GITHUB_TOKEN;
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+}
 async function getLatestVersion() {
-    const response = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`, {
-        headers: {
-            Accept: 'application/vnd.github.v3+json',
-            'User-Agent': 'promptarena-action',
-        },
-    });
+    const response = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`, { headers: githubHeaders() });
     if (!response.ok) {
         throw new Error(`Failed to fetch latest release: ${response.statusText}`);
     }
@@ -268,7 +278,7 @@ async function run() {
         }
     }
 }
-run();
+void run();
 //# sourceMappingURL=main.js.map
 
 /***/ }),
@@ -505,38 +515,40 @@ const core = __importStar(__nccwpck_require__(7484));
 const exec = __importStar(__nccwpck_require__(5236));
 const path = __importStar(__nccwpck_require__(6760));
 async function runPromptArena(inputs) {
-    const args = ['run'];
-    // Required config file
-    args.push('--config', inputs.configFile);
-    // CI mode for non-interactive output
-    args.push('--ci');
-    // Output formats - always include json and junit for parsing
+    // Initialize args with required options
     const formats = ['json', 'junit'];
-    args.push('--format', formats.join(','));
-    // Output directory
-    args.push('--out', inputs.outputDir);
+    const args = [
+        'run',
+        '--config', inputs.configFile,
+        '--ci',
+        '--format', formats.join(','),
+        '--out', inputs.outputDir,
+    ];
     // Optional JUnit output path
     if (inputs.junitOutput) {
         args.push('--junit-file', inputs.junitOutput);
     }
     // Optional filters
     if (inputs.scenarios) {
-        const scenarioList = inputs.scenarios.split(',').map((s) => s.trim());
-        for (const scenario of scenarioList) {
-            args.push('--scenario', scenario);
-        }
+        const scenarioArgs = inputs.scenarios
+            .split(',')
+            .map((s) => s.trim())
+            .flatMap((scenario) => ['--scenario', scenario]);
+        args.push(...scenarioArgs);
     }
     if (inputs.providers) {
-        const providerList = inputs.providers.split(',').map((p) => p.trim());
-        for (const provider of providerList) {
-            args.push('--provider', provider);
-        }
+        const providerArgs = inputs.providers
+            .split(',')
+            .map((p) => p.trim())
+            .flatMap((provider) => ['--provider', provider]);
+        args.push(...providerArgs);
     }
     if (inputs.regions) {
-        const regionList = inputs.regions.split(',').map((r) => r.trim());
-        for (const region of regionList) {
-            args.push('--region', region);
-        }
+        const regionArgs = inputs.regions
+            .split(',')
+            .map((r) => r.trim())
+            .flatMap((region) => ['--region', region]);
+        args.push(...regionArgs);
     }
     core.info(`Running: promptarena ${args.join(' ')}`);
     let stdout = '';
