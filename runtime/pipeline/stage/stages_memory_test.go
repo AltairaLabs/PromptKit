@@ -98,10 +98,78 @@ func TestMemoryExtractionStage_ExtractsAndSaves(t *testing.T) {
 
 	<-output // consume
 
-	// Verify memory was saved
+	// Verify memory was saved with provenance
 	saved, _ := store.List(context.Background(), scope, memory.ListOptions{})
 	if len(saved) != 1 {
-		t.Errorf("expected 1 saved memory, got %d", len(saved))
+		t.Fatalf("expected 1 saved memory, got %d", len(saved))
+	}
+	if saved[0].GetProvenance() != memory.ProvenanceAgentExtracted {
+		t.Errorf("provenance = %q, want %q", saved[0].GetProvenance(), memory.ProvenanceAgentExtracted)
+	}
+}
+
+func TestMemoryExtractionStage_PreservesExtractorProvenance(t *testing.T) {
+	// If the extractor already sets provenance, extractAndSave should not overwrite it
+	ext := &mockExtractor{
+		extracted: []*memory.Memory{
+			{Type: "fact", Content: "Operator-curated knowledge",
+				Metadata: map[string]any{memory.MetaKeyProvenance: string(memory.ProvenanceOperatorCurated)}},
+		},
+	}
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"user_id": "test"}
+	s := NewMemoryExtractionStage(ext, store, scope)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	msgs := []types.Message{{Role: "user", Content: "test"}}
+	input <- StreamElement{Metadata: map[string]any{"messages": msgs}}
+	close(input)
+
+	err := s.Process(context.Background(), input, output)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	<-output
+
+	saved, _ := store.List(context.Background(), scope, memory.ListOptions{})
+	if len(saved) != 1 {
+		t.Fatalf("expected 1 saved memory, got %d", len(saved))
+	}
+	// Extractor's provenance should be preserved
+	if saved[0].GetProvenance() != memory.ProvenanceOperatorCurated {
+		t.Errorf("provenance = %q, want %q (should not be overwritten)",
+			saved[0].GetProvenance(), memory.ProvenanceOperatorCurated)
+	}
+}
+
+func TestMemoryExtractionStage_NoMessagesSkipsExtraction(t *testing.T) {
+	ext := &mockExtractor{
+		extracted: []*memory.Memory{
+			{Type: "fact", Content: "should not be saved"},
+		},
+	}
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"user_id": "test"}
+	s := NewMemoryExtractionStage(ext, store, scope)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// No messages in metadata
+	input <- StreamElement{Metadata: map[string]any{}}
+	close(input)
+
+	err := s.Process(context.Background(), input, output)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	<-output
+
+	saved, _ := store.List(context.Background(), scope, memory.ListOptions{})
+	if len(saved) != 0 {
+		t.Errorf("expected 0 memories without messages, got %d", len(saved))
 	}
 }
 
