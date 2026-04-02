@@ -6,7 +6,7 @@ sidebar:
 
 ## Overview
 
-PromptKit is an open source project developed by [AltairaLabs](https://altairalabs.ai) and is committed to building a welcoming and diverse community. This document describes the governance structure and processes for the PromptKit project.
+PromptKit is an open source project developed by [AltairaLabs](https://www.altairalabs.ai) and is committed to building a welcoming and diverse community. This document describes the governance structure and processes for the PromptKit project.
 
 ## Project Goals
 
