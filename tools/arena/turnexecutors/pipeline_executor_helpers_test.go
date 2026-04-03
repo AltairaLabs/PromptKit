@@ -592,7 +592,7 @@ func TestCreateEmbeddingProvider(t *testing.T) {
 	})
 }
 
-// mockMultimodalProvider implements providers.MultimodalSupport for testing
+// mockMultimodalProvider implements providers.MultimodalCapabilityProvider for testing
 type mockMultimodalProvider struct {
 	mockNonMockProvider
 	caps providers.MultimodalCapabilities
@@ -600,14 +600,6 @@ type mockMultimodalProvider struct {
 
 func (m *mockMultimodalProvider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	return m.caps
-}
-
-func (m *mockMultimodalProvider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	return providers.PredictionResponse{}, nil
-}
-
-func (m *mockMultimodalProvider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-	return nil, nil
 }
 
 func TestBuildMediaConvertConfig(t *testing.T) {

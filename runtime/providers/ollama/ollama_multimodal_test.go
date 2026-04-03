@@ -1,10 +1,6 @@
 package ollama
 
 import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -215,60 +211,6 @@ func TestProvider_ConvertImagePartToOllama_MissingMedia(t *testing.T) {
 	}
 }
 
-func TestProvider_PredictMultimodal(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("Failed to decode request: %v", err)
-		}
-
-		resp := map[string]any{
-			"choices": []map[string]any{
-				{"message": map[string]any{"content": "I see a cat in the image."}},
-			},
-			"usage": map[string]any{"prompt_tokens": 50, "completion_tokens": 10},
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Fatalf("Failed to encode response: %v", err)
-		}
-	}))
-	defer server.Close()
-
-	provider := NewProvider("test", "llava:13b", server.URL,
-		providers.ProviderDefaults{MaxTokens: 1000}, false, nil)
-
-	text := "What's in this image?"
-	imageURL := "https://example.com/cat.jpg"
-
-	resp, err := provider.PredictMultimodal(context.Background(), providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role: "user",
-				Parts: []types.ContentPart{
-					{Type: types.ContentTypeText, Text: &text},
-					{
-						Type: types.ContentTypeImage,
-						Media: &types.MediaContent{
-							URL:      &imageURL,
-							MIMEType: types.MIMETypeImageJPEG,
-						},
-					},
-				},
-			},
-		},
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-
-	if resp.Content != "I see a cat in the image." {
-		t.Errorf("Expected content about cat, got '%s'", resp.Content)
-	}
-}
-
 func TestProvider_ConvertMessagesToOllama(t *testing.T) {
 	provider := NewProvider("test", "llama2", "http://localhost:11434",
 		providers.ProviderDefaults{}, false, nil)
@@ -299,72 +241,6 @@ func TestProvider_ConvertMessagesToOllama(t *testing.T) {
 
 	if messages[0].Content != "You are a helpful assistant." {
 		t.Errorf("System content mismatch")
-	}
-}
-
-func TestToolProvider_PredictMultimodalWithTools(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]any{
-			"choices": []map[string]any{
-				{
-					"message": map[string]any{
-						"content": "",
-						"tool_calls": []map[string]any{
-							{
-								"id":       "call_1",
-								"type":     "function",
-								"function": map[string]any{"name": "analyze_image", "arguments": "{}"},
-							},
-						},
-					},
-				},
-			},
-			"usage": map[string]any{"prompt_tokens": 50, "completion_tokens": 10},
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Fatalf("Failed to encode response: %v", err)
-		}
-	}))
-	defer server.Close()
-
-	provider := NewToolProvider("test", "llava:13b", server.URL,
-		providers.ProviderDefaults{MaxTokens: 1000}, false, nil)
-
-	tools, _ := provider.BuildTooling([]*providers.ToolDescriptor{
-		{Name: "analyze_image", Description: "Analyze image", InputSchema: json.RawMessage(`{}`)},
-	})
-
-	text := "Analyze this image"
-	imageURL := "https://example.com/image.jpg"
-
-	_, toolCalls, err := provider.PredictMultimodalWithTools(
-		context.Background(),
-		providers.PredictionRequest{
-			Messages: []types.Message{
-				{
-					Role: "user",
-					Parts: []types.ContentPart{
-						{Type: types.ContentTypeText, Text: &text},
-						{Type: types.ContentTypeImage, Media: &types.MediaContent{
-							URL:      &imageURL,
-							MIMEType: types.MIMETypeImageJPEG,
-						}},
-					},
-				},
-			},
-		},
-		tools,
-		"auto",
-	)
-
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-
-	if len(toolCalls) != 1 {
-		t.Errorf("Expected 1 tool call, got %d", len(toolCalls))
 	}
 }
 
@@ -442,102 +318,6 @@ func TestProvider_ConvertMessageToOllama_EmptyTextPart(t *testing.T) {
 	// Empty text part should be skipped, so only 1 part (image)
 	if len(parts) != 1 {
 		t.Errorf("Expected 1 part (empty text skipped), got %d", len(parts))
-	}
-}
-
-func TestProvider_PredictMultimodalStream(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("Streaming not supported")
-		}
-
-		chunks := []string{
-			`{"choices":[{"delta":{"content":"I "}}]}`,
-			`{"choices":[{"delta":{"content":"see a cat"}}]}`,
-			`{"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":50,"completion_tokens":5}}`,
-		}
-
-		for _, chunk := range chunks {
-			_, _ = w.Write([]byte("data: " + chunk + "\n\n"))
-			flusher.Flush()
-		}
-		_, _ = w.Write([]byte("data: [DONE]\n\n"))
-		flusher.Flush()
-	}))
-	defer server.Close()
-
-	provider := NewProvider("test", "llava:13b", server.URL,
-		providers.ProviderDefaults{MaxTokens: 1000}, false, nil)
-
-	text := "What's in this image?"
-	imageURL := "https://example.com/cat.jpg"
-
-	ch, err := provider.PredictMultimodalStream(context.Background(), providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role: "user",
-				Parts: []types.ContentPart{
-					{Type: types.ContentTypeText, Text: &text},
-					{
-						Type: types.ContentTypeImage,
-						Media: &types.MediaContent{
-							URL:      &imageURL,
-							MIMEType: types.MIMETypeImageJPEG,
-						},
-					},
-				},
-			},
-		},
-	})
-
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-
-	var lastContent string
-	for chunk := range ch {
-		if chunk.Content != "" {
-			lastContent = chunk.Content
-		}
-	}
-
-	if lastContent != "I see a cat" {
-		t.Errorf("Expected 'I see a cat', got '%s'", lastContent)
-	}
-}
-
-func TestProvider_PredictMultimodalStream_Error(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"error": "Internal server error"}`))
-	}))
-	defer server.Close()
-
-	provider := NewProvider("test", "llava:13b", server.URL,
-		providers.ProviderDefaults{MaxTokens: 100}, false, nil)
-
-	text := "What's in this image?"
-	imageURL := "https://example.com/image.jpg"
-
-	_, err := provider.PredictMultimodalStream(context.Background(), providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role: "user",
-				Parts: []types.ContentPart{
-					{Type: types.ContentTypeText, Text: &text},
-					{Type: types.ContentTypeImage, Media: &types.MediaContent{
-						URL:      &imageURL,
-						MIMEType: types.MIMETypeImageJPEG,
-					}},
-				},
-			},
-		},
-	})
-
-	if err == nil {
-		t.Error("Expected error for server error")
 	}
 }
 

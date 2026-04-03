@@ -27,7 +27,7 @@ func (m *mockProvider) CalculateCost(inputTokens, outputTokens, cachedTokens int
 	return types.CostInfo{}
 }
 
-// mockMultimodalProvider implements MultimodalSupport
+// mockMultimodalProvider implements MultimodalCapabilityProvider
 type mockMultimodalProvider struct {
 	mockProvider
 	capabilities MultimodalCapabilities
@@ -35,14 +35,6 @@ type mockMultimodalProvider struct {
 
 func (m *mockMultimodalProvider) GetMultimodalCapabilities() MultimodalCapabilities {
 	return m.capabilities
-}
-
-func (m *mockMultimodalProvider) PredictMultimodal(ctx context.Context, req PredictionRequest) (PredictionResponse, error) {
-	return PredictionResponse{}, nil
-}
-
-func (m *mockMultimodalProvider) PredictMultimodalStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error) {
-	return nil, nil
 }
 
 func TestSupportsMultimodal(t *testing.T) {
@@ -625,7 +617,7 @@ func TestValidateMultimodalRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateMultimodalRequest(mockProvider, tt.req)
+			err := ValidateMultimodalRequest(mockProvider, &tt.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateMultimodalRequest() error = %v, wantErr %v", err, tt.wantErr)
 			}

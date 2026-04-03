@@ -394,50 +394,6 @@ func TestToolProvider_WithMultimodalMessages(t *testing.T) {
 	t.Logf("Content type: %T", content)
 }
 
-// TestToolProvider_MultimodalToolSupport checks if the interface is implemented
-func TestToolProvider_MultimodalToolSupport(t *testing.T) {
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
-
-	// Check if it implements providers.MultimodalToolSupport interface
-	_, ok := interface{}(toolProvider).(providers.MultimodalToolSupport)
-	if !ok {
-		t.Error("ToolProvider should implement providers.MultimodalToolSupport interface")
-		t.Log("    Missing: PredictMultimodalWithTools() method")
-	} else {
-		t.Log("✓ ToolProvider implements providers.MultimodalToolSupport interface")
-	}
-
-	// Check if it at least implements providers.MultimodalSupport
-	_, ok = interface{}(toolProvider).(providers.MultimodalSupport)
-	if ok {
-		t.Log("✓ ToolProvider implements providers.MultimodalSupport interface")
-		t.Log("    This means it inherits GetMultimodalCapabilities(), PredictMultimodal(), PredictMultimodalStream()")
-	} else {
-		t.Log("⚠️  ToolProvider does NOT implement providers.MultimodalSupport interface")
-	}
-}
-
-// TestOpenAIProvider_InheritsMultimodal verifies base provider has multimodal support
-func TestOpenAIProvider_InheritsMultimodal(t *testing.T) {
-	baseProvider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
-
-	// Check if base provider implements providers.MultimodalSupport
-	_, ok := interface{}(baseProvider).(providers.MultimodalSupport)
-	if !ok {
-		t.Fatal("OpenAIProvider should implement providers.MultimodalSupport interface")
-	}
-
-	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
-
-	// Since ToolProvider embeds *Provider, it should inherit the interface
-	_, ok = interface{}(toolProvider).(providers.MultimodalSupport)
-	if !ok {
-		t.Fatal("ToolProvider should inherit providers.MultimodalSupport from OpenAIProvider")
-	}
-
-	t.Log("✓ ToolProvider inherits providers.MultimodalSupport from OpenAIProvider")
-}
-
 // TestToolProvider_BuildToolRequestWithLegacyMessage tests backward compatibility
 func TestToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
 	toolProvider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)

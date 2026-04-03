@@ -30,46 +30,6 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 	}
 }
 
-// PredictMultimodal performs a predict request with multimodal content
-func (p *Provider) PredictMultimodal(
-	ctx context.Context,
-	req providers.PredictionRequest,
-) (providers.PredictionResponse, error) {
-	// Validate that messages are compatible with Ollama's capabilities
-	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return providers.PredictionResponse{}, err
-	}
-
-	// Convert messages to Ollama format (handles both legacy and multimodal)
-	messages, err := p.convertMessagesToOllama(req)
-	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
-	// Use the existing Predict implementation but with converted messages
-	return p.predictWithMessages(ctx, req, messages)
-}
-
-// PredictMultimodalStream performs a streaming predict request with multimodal content
-func (p *Provider) PredictMultimodalStream(
-	ctx context.Context,
-	req providers.PredictionRequest,
-) (<-chan providers.StreamChunk, error) {
-	// Validate that messages are compatible with Ollama's capabilities
-	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return nil, err
-	}
-
-	// Convert messages to Ollama format (handles both legacy and multimodal)
-	messages, err := p.convertMessagesToOllama(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
-	// Use the existing PredictStream implementation but with converted messages
-	return p.predictStreamWithMessages(ctx, req, messages)
-}
-
 // convertMessagesToOllama converts PromptKit messages to Ollama format
 // Handles both legacy text-only and new multimodal messages
 func (p *Provider) convertMessagesToOllama(req providers.PredictionRequest) ([]ollamaMessage, error) {
@@ -179,23 +139,4 @@ func (p *Provider) convertImagePartToOllama(part types.ContentPart) (map[string]
 	imagePart["image_url"] = imageURL
 
 	return imagePart, nil
-}
-
-// PredictMultimodalWithTools implements providers.MultimodalToolSupport interface for ToolProvider
-// This allows combining multimodal content (images) with tool calls in a single request
-func (p *ToolProvider) PredictMultimodalWithTools(
-	ctx context.Context,
-	req providers.PredictionRequest,
-	tools any,
-	toolChoice string,
-) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	// Validate that all messages are compatible with Ollama's capabilities
-	for i := range req.Messages {
-		if err := providers.ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
-			return providers.PredictionResponse{}, nil, err
-		}
-	}
-
-	// Use the existing PredictWithTools which now handles multimodal via updated buildToolRequest
-	return p.PredictWithTools(ctx, req, tools, toolChoice)
 }

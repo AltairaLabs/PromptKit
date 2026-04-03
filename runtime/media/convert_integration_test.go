@@ -202,7 +202,7 @@ func TestGetMediaData_InvalidBase64(t *testing.T) {
 	}
 }
 
-// mockMultimodalProvider implements providers.MultimodalSupport for testing
+// mockMultimodalProvider implements providers.MultimodalCapabilityProvider for testing
 type mockMultimodalProvider struct {
 	audioFormats []string
 	imageFormats []string

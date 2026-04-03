@@ -142,29 +142,6 @@ func TestBedrock_PredictWithTools(t *testing.T) {
 	}
 }
 
-func TestBedrock_PredictMultimodal(t *testing.T) {
-	provider := bedrockTestProvider(t)
-	ctx := context.Background()
-
-	// Text-only multimodal request — validates the multimodal code path without needing an image
-	resp, err := provider.PredictMultimodal(ctx, providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role:    "user",
-				Content: "Say hello in one word.",
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("PredictMultimodal failed: %v", err)
-	}
-
-	if resp.Content == "" {
-		t.Fatal("expected non-empty response content")
-	}
-	t.Logf("Response: %s", resp.Content)
-}
-
 func TestBedrock_PredictStream_Fallback(t *testing.T) {
 	provider := bedrockTestProvider(t)
 	ctx := context.Background()

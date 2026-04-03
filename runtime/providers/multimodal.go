@@ -1,8 +1,6 @@
 package providers
 
 import (
-	"context"
-
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -32,40 +30,21 @@ const (
 	ImageDetailAuto ImageDetail = "auto" // Provider chooses automatically
 )
 
-// MultimodalSupport interface for providers that support multimodal inputs
-type MultimodalSupport interface {
-	Provider // Extends the base Provider interface
-
-	// GetMultimodalCapabilities returns what types of multimodal content this provider supports
+// MultimodalCapabilityProvider is implemented by providers that support multimodal content.
+type MultimodalCapabilityProvider interface {
 	GetMultimodalCapabilities() MultimodalCapabilities
-
-	// PredictMultimodal performs a predict request with multimodal message content
-	// Messages in the request can contain Parts with images, audio, or video
-	PredictMultimodal(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
-
-	// PredictMultimodalStream performs a streaming predict request with multimodal content
-	PredictMultimodalStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
-}
-
-// MultimodalToolSupport interface for providers that support both multimodal and tools
-type MultimodalToolSupport interface {
-	MultimodalSupport // Extends multimodal support
-	ToolSupport       // Extends tool support
-
-	// PredictMultimodalWithTools performs a predict request with both multimodal content and tools
-	PredictMultimodalWithTools(ctx context.Context, req PredictionRequest, tools interface{}, toolChoice string) (PredictionResponse, []types.MessageToolCall, error)
 }
 
 // SupportsMultimodal checks if a provider implements multimodal support
 func SupportsMultimodal(p Provider) bool {
-	_, ok := p.(MultimodalSupport)
+	_, ok := p.(MultimodalCapabilityProvider)
 	return ok
 }
 
-// GetMultimodalProvider safely casts a provider to MultimodalSupport
+// GetMultimodalProvider safely casts a provider to MultimodalCapabilityProvider
 // Returns nil if the provider doesn't support multimodal
-func GetMultimodalProvider(p Provider) MultimodalSupport {
-	if mp, ok := p.(MultimodalSupport); ok {
+func GetMultimodalProvider(p Provider) MultimodalCapabilityProvider {
+	if mp, ok := p.(MultimodalCapabilityProvider); ok {
 		return mp
 	}
 	return nil
@@ -245,7 +224,7 @@ func (e *UnsupportedContentError) Error() string {
 
 // ValidateMultimodalRequest validates all messages in a predict request for multimodal compatibility
 // This is a helper function to reduce duplication across provider implementations
-func ValidateMultimodalRequest(p MultimodalSupport, req PredictionRequest) error {
+func ValidateMultimodalRequest(p Provider, req *PredictionRequest) error {
 	for i := range req.Messages {
 		if err := ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
 			return err
