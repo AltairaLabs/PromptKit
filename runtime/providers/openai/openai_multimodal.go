@@ -46,40 +46,6 @@ func isAudioModel(model string) bool {
 	return model == "gpt-4o-audio-preview" || model == "gpt-4o-mini-audio-preview"
 }
 
-// PredictMultimodal performs a predict request with multimodal content
-func (p *Provider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	// Validate that messages are compatible with OpenAI's capabilities
-	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return providers.PredictionResponse{}, err
-	}
-
-	// Convert messages to OpenAI format (handles both legacy and multimodal)
-	messages, err := p.convertMessagesToOpenAI(req)
-	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
-	// Use the existing Predict implementation but with converted messages
-	return p.predictWithMessages(ctx, req, messages)
-}
-
-// PredictMultimodalStream performs a streaming predict request with multimodal content
-func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-	// Validate that messages are compatible with OpenAI's capabilities
-	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return nil, err
-	}
-
-	// Convert messages to OpenAI format (handles both legacy and multimodal)
-	messages, err := p.convertMessagesToOpenAI(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert messages: %w", err)
-	}
-
-	// Use the existing PredictStream implementation but with converted messages
-	return p.predictStreamWithMessages(ctx, req, messages)
-}
-
 // convertMessagesToOpenAI converts PromptKit messages to OpenAI format
 // Handles both legacy text-only and new multimodal messages
 func (p *Provider) convertMessagesToOpenAI(req providers.PredictionRequest) ([]openAIMessage, error) {
@@ -263,18 +229,4 @@ func requestContainsAudio(req *providers.PredictionRequest) bool {
 		}
 	}
 	return false
-}
-
-// PredictMultimodalWithTools implements providers.MultimodalToolSupport interface for ToolProvider
-// This allows combining multimodal content (images) with tool calls in a single request
-func (p *ToolProvider) PredictMultimodalWithTools(ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	// Validate that all messages are compatible with OpenAI's capabilities
-	for i := range req.Messages {
-		if err := providers.ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
-			return providers.PredictionResponse{}, nil, err
-		}
-	}
-
-	// Use the existing PredictWithTools which now handles multimodal via updated buildToolRequest
-	return p.PredictWithTools(ctx, req, tools, toolChoice)
 }

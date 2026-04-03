@@ -58,24 +58,17 @@ type ToolSupport interface {
 }
 ```
 
-### MultimodalSupport
+### MultimodalCapabilityProvider
 
-Providers that support images, audio, or video inputs implement `MultimodalSupport`:
+Providers that support images, audio, or video inputs implement `MultimodalCapabilityProvider`:
 
 ```go
-type MultimodalSupport interface {
-    Provider
-    
-    // Get supported multimodal capabilities
+type MultimodalCapabilityProvider interface {
     GetMultimodalCapabilities() MultimodalCapabilities
-    
-    // Execute with multimodal content
-    PredictMultimodal(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
-    
-    // Stream with multimodal content
-    PredictMultimodalStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
 }
 ```
+
+Multimodal content is handled transparently through the standard `Predict()` and `PredictStream()` methods — messages with `Parts` containing media content are automatically converted to the provider's native format.
 
 ### ContextWindowProvider (Optional)
 
@@ -122,7 +115,7 @@ type MultimodalCapabilities struct {
 func SupportsMultimodal(p Provider) bool
 
 // Get multimodal provider (returns nil if not supported)
-func GetMultimodalProvider(p Provider) MultimodalSupport
+func GetMultimodalProvider(p Provider) MultimodalCapabilityProvider
 
 // Check specific media type support
 func HasImageSupport(p Provider) bool
@@ -145,7 +138,7 @@ if providers.HasImageSupport(provider) {
     fmt.Printf("Max image size: %d MB\n", caps.MaxImageSizeMB)
 }
 
-// Send multimodal request
+// Send multimodal request — uses standard Predict(), not a separate method
 req := providers.PredictionRequest{
     System: "You are a helpful assistant.",
     Messages: []types.Message{
@@ -166,48 +159,7 @@ req := providers.PredictionRequest{
     },
 }
 
-if mp := providers.GetMultimodalProvider(provider); mp != nil {
-    resp, err := mp.PredictMultimodal(ctx, req)
-}
-```
-
-### MultimodalToolSupport
-
-Providers that support both multimodal content and function calling implement `MultimodalToolSupport`:
-
-```go
-type MultimodalToolSupport interface {
-    MultimodalSupport
-    ToolSupport
-    
-    // Execute with both multimodal content and tools
-    PredictMultimodalWithTools(
-        ctx context.Context,
-        req PredictionRequest,
-        tools interface{},
-        toolChoice string,
-    ) (PredictionResponse, []types.MessageToolCall, error)
-}
-```
-
-**Usage Example**:
-
-```go
-// Use images with tool calls
-tools, _ := provider.BuildTooling(toolDescriptors)
-
-resp, toolCalls, err := provider.PredictMultimodalWithTools(
-    ctx,
-    multimodalRequest,
-    tools,
-    "auto",
-)
-
-// Response contains both text and any tool calls
-fmt.Println(resp.Content)
-for _, call := range toolCalls {
-    fmt.Printf("Tool called: %s\n", call.Name)
-}
+resp, err := provider.Predict(ctx, req)
 ```
 
 ## Request/Response Types

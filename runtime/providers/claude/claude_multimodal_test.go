@@ -1,9 +1,6 @@
 package claude
 
 import (
-	"context"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -531,60 +528,6 @@ func TestClaudeProvider_MixedMultimodal(t *testing.T) {
 	}
 }
 
-func TestClaudeProvider_ParseClaudeResponse(t *testing.T) {
-	// Test valid response
-	validJSON := `{
-		"id": "msg_123",
-		"type": "message",
-		"role": "assistant",
-		"content": [{"type": "text", "text": "Hello!"}],
-		"model": "claude-3-5-sonnet-20241022",
-		"stop_reason": "end_turn",
-		"usage": {
-			"input_tokens": 10,
-			"output_tokens": 5
-		}
-	}`
-
-	resp, err := parseClaudeResponse([]byte(validJSON))
-	if err != nil {
-		t.Fatalf("Failed to parse valid response: %v", err)
-	}
-
-	if len(resp.Content) == 0 {
-		t.Error("Expected content in response")
-	}
-
-	// Test error response
-	errorJSON := `{
-		"type": "error",
-		"error": {
-			"type": "invalid_request_error",
-			"message": "Invalid API key"
-		}
-	}`
-
-	_, err = parseClaudeResponse([]byte(errorJSON))
-	if err == nil {
-		t.Error("Expected error for error response, got nil")
-	}
-
-	// Test empty content response
-	emptyJSON := `{
-		"id": "msg_456",
-		"type": "message",
-		"role": "assistant",
-		"content": [],
-		"model": "claude-3-5-sonnet-20241022",
-		"usage": {"input_tokens": 10, "output_tokens": 0}
-	}`
-
-	_, err = parseClaudeResponse([]byte(emptyJSON))
-	if err == nil {
-		t.Error("Expected error for empty content, got nil")
-	}
-}
-
 func TestClaudeProvider_BuildClaudeMessage(t *testing.T) {
 	provider := NewProvider(
 		"test-claude",
@@ -669,25 +612,6 @@ func TestClaudeProvider_ConvertPartsToClaudeBlocks(t *testing.T) {
 	}
 }
 
-func TestClaudeProvider_StreamResponseMultimodal(t *testing.T) {
-	// This test verifies that streamResponseMultimodal calls the base streamResponse
-	// We can't fully test streaming without HTTP mocking, but we can verify the method exists
-	// and handles closed channels correctly
-	provider := NewProvider(
-		"test-claude",
-		"claude-3-5-sonnet-20241022",
-		"https://api.anthropic.com/v1",
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	// Verify the provider has the streamResponseMultimodal method
-	// by checking it compiles and doesn't panic on nil inputs (defensive test)
-	if provider == nil {
-		t.Fatal("Provider should not be nil")
-	}
-}
-
 func TestClaudeProvider_ConvertImagePartToClaude_FilePath(t *testing.T) {
 	provider := NewProvider(
 		"test-claude",
@@ -754,270 +678,6 @@ func TestClaudeProvider_ConvertSystemMessage(t *testing.T) {
 	}
 }
 
-func TestClaudeProvider_PredictMultimodal_ValidationError(t *testing.T) {
-	provider := NewProvider(
-		"test-claude",
-		"claude-3-5-sonnet-20241022",
-		"https://api.anthropic.com/v1",
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	// Test with unsupported audio format
-	req := providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role: "user",
-				Parts: []types.ContentPart{
-					types.NewAudioPartFromData("audiodata", types.MIMETypeAudioMP3),
-				},
-			},
-		},
-	}
-
-	_, err := provider.PredictMultimodal(context.Background(), req)
-	if err == nil {
-		t.Error("Expected validation error for unsupported audio format")
-	}
-}
-
-func TestClaudeProvider_PredictMultimodalStream_ValidationError(t *testing.T) {
-	provider := NewProvider(
-		"test-claude",
-		"claude-3-5-sonnet-20241022",
-		"https://api.anthropic.com/v1",
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	// Test with unsupported video format
-	req := providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role: "user",
-				Parts: []types.ContentPart{
-					types.NewVideoPartFromData("videodata", types.MIMETypeVideoMP4),
-				},
-			},
-		},
-	}
-
-	_, err := provider.PredictMultimodalStream(context.Background(), req)
-	if err == nil {
-		t.Error("Expected validation error for unsupported video format")
-	}
-}
-
-func TestClaudeProvider_PredictWithContentsMultimodal_HTTPErrors(t *testing.T) {
-	tests := []struct {
-		name        string
-		setupServer func() *httptest.Server
-		expectError string
-	}{
-		{
-			name: "HTTP request creation error - invalid URL",
-			setupServer: func() *httptest.Server {
-				// Server won't be used, invalid URL will cause error during request creation
-				return nil
-			},
-			expectError: "failed to create request",
-		},
-		{
-			name: "HTTP connection error",
-			setupServer: func() *httptest.Server {
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-				}))
-				server.Close() // Close immediately to cause connection error
-				return server
-			},
-			expectError: "failed to send request",
-		},
-		{
-			name: "Non-200 status code",
-			setupServer: func() *httptest.Server {
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusBadRequest)
-					w.Write([]byte(`{"error": {"type": "invalid_request_error", "message": "Bad request"}}`))
-				}))
-			},
-			expectError: "claude api error (status 400)",
-		},
-		{
-			name: "Empty response content",
-			setupServer: func() *httptest.Server {
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-					w.Write([]byte(`{"id": "msg_123", "type": "message", "role": "assistant", "content": [], "usage": {"input_tokens": 10, "output_tokens": 0}}`))
-				}))
-			},
-			expectError: "no content in response",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var provider *Provider
-
-			if tt.name == "HTTP request creation error - invalid URL" {
-				// Use invalid URL with control characters to trigger request creation error
-				provider = NewProvider(
-					"test-claude",
-					"claude-3-5-sonnet-20241022",
-					"http://\x7f/invalid", // Invalid URL with control character
-					providers.ProviderDefaults{},
-					false,
-				)
-			} else {
-				server := tt.setupServer()
-				if server != nil {
-					defer server.Close()
-				}
-
-				baseURL := "http://localhost:0" // Will fail if server is closed
-				if server != nil {
-					baseURL = server.URL
-				}
-
-				provider = NewProvider(
-					"test-claude",
-					"claude-3-5-sonnet-20241022",
-					baseURL,
-					providers.ProviderDefaults{},
-					false,
-				)
-			}
-
-			req := providers.PredictionRequest{
-				Messages: []types.Message{
-					{
-						Role:    "user",
-						Content: "Hello",
-					},
-				},
-			}
-
-			_, err := provider.PredictMultimodal(context.Background(), req)
-			if err == nil {
-				t.Errorf("Expected error containing '%s', got nil", tt.expectError)
-				return
-			}
-
-			if !strings.Contains(err.Error(), tt.expectError) {
-				t.Errorf("Expected error containing '%s', got: %v", tt.expectError, err)
-			}
-		})
-	}
-}
-
-func TestClaudeProvider_PredictStreamWithContentsMultimodal_HTTPErrors(t *testing.T) {
-	tests := []struct {
-		name        string
-		setupServer func() *httptest.Server
-		expectError string
-	}{
-		{
-			name: "HTTP connection error",
-			setupServer: func() *httptest.Server {
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-				}))
-				server.Close() // Close immediately to cause connection error
-				return server
-			},
-			expectError: "failed to send request",
-		},
-		{
-			name: "Non-200 status code",
-			setupServer: func() *httptest.Server {
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusUnauthorized)
-					w.Write([]byte(`{"error": {"type": "authentication_error", "message": "Invalid API key"}}`))
-				}))
-			},
-			expectError: "claude api error (status 401)",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := tt.setupServer()
-			if server != nil && tt.name != "HTTP connection error" {
-				defer server.Close()
-			}
-
-			baseURL := "http://localhost:0"
-			if server != nil {
-				baseURL = server.URL
-			}
-
-			provider := NewProvider(
-				"test-claude",
-				"claude-3-5-sonnet-20241022",
-				baseURL,
-				providers.ProviderDefaults{},
-				false,
-			)
-
-			req := providers.PredictionRequest{
-				Messages: []types.Message{
-					{
-						Role:    "user",
-						Content: "Hello",
-					},
-				},
-			}
-
-			_, err := provider.PredictMultimodalStream(context.Background(), req)
-			if err == nil {
-				t.Errorf("Expected error containing '%s', got nil", tt.expectError)
-				return
-			}
-
-			if !strings.Contains(err.Error(), tt.expectError) {
-				t.Errorf("Expected error containing '%s', got: %v", tt.expectError, err)
-			}
-		})
-	}
-}
-
-func TestClaudeProvider_PredictWithContentsMultimodal_ReadBodyError(t *testing.T) {
-	// Test error reading response body
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", "100") // Claim 100 bytes
-		w.WriteHeader(http.StatusOK)
-		// Send nothing, causing a read error
-	}))
-	defer server.Close()
-
-	provider := NewProvider(
-		"test-claude",
-		"claude-3-5-sonnet-20241022",
-		server.URL,
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	req := providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role:    "user",
-				Content: "Hello",
-			},
-		},
-	}
-
-	resp, err := provider.PredictMultimodal(context.Background(), req)
-	// May get read error or unmarshal error depending on what was read
-	if err == nil {
-		t.Error("Expected error reading or parsing response")
-	}
-	// Latency should still be populated even on error
-	if resp.Latency == 0 {
-		t.Error("Expected latency to be set even on error")
-	}
-}
-
 func TestClaudeProvider_BuildClaudeMessage_MarshalError(t *testing.T) {
 	provider := NewProvider(
 		"test-claude",
@@ -1068,87 +728,57 @@ func TestClaudeProvider_ConvertMessagesToClaudeMultimodal_ConversionError(t *tes
 	}
 }
 
-func TestClaudeProvider_StreamResponseMultimodal_CloseBody(t *testing.T) {
-	// Test that streamResponseMultimodal properly closes the response body
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		// Send a simple SSE event
-		w.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\n"))
-		w.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
-	}))
-	defer server.Close()
-
-	provider := NewProvider(
-		"test-claude",
-		"claude-3-5-sonnet-20241022",
-		server.URL,
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	req := providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role:    "user",
-				Content: "Hello",
-			},
-		},
-	}
-
-	streamChan, err := provider.PredictMultimodalStream(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Unexpected error starting stream: %v", err)
-	}
-
-	// Drain the channel
-	for range streamChan {
-		// Just consume the chunks
-	}
-
-	// If we get here without hanging, the body was properly closed
+func testClaudeProvider() *Provider {
+	return NewProvider("test", "claude-3-5-sonnet-20241022", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
 }
 
-func TestClaudeProvider_ParseClaudeResponse_InvalidJSON(t *testing.T) {
-	invalidJSON := []byte(`{"id": "msg_123", "type": "message", invalid json`)
-
-	_, err := parseClaudeResponse(invalidJSON)
+func TestConvertDocumentPartToClaude_NilMedia(t *testing.T) {
+	provider := testClaudeProvider()
+	part := types.ContentPart{Type: types.ContentTypeDocument}
+	_, err := provider.convertDocumentPartToClaude(part)
 	if err == nil {
-		t.Error("Expected unmarshal error for invalid JSON")
-	}
-
-	if !strings.Contains(err.Error(), "failed to unmarshal response") {
-		t.Errorf("Expected unmarshal error, got: %v", err)
+		t.Error("expected error for nil media")
 	}
 }
 
-func TestClaudeProvider_PredictWithContentsMultimodal_MarshalError(t *testing.T) {
-	provider := NewProvider(
-		"test-claude",
-		"claude-3-5-sonnet-20241022",
-		"https://api.anthropic.com/v1",
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	// This test is tricky because we need to create a message that converts successfully
-	// but then fails during JSON marshal. In practice, this is very rare.
-	// We'll test the code path indirectly through the validation error tests.
-
-	// For now, verify that normal messages marshal correctly
-	req := providers.PredictionRequest{
-		Messages: []types.Message{
-			{
-				Role:    "user",
-				Content: "Hello",
-			},
+func TestConvertDocumentPartToClaude_UnsupportedType(t *testing.T) {
+	provider := testClaudeProvider()
+	part := types.ContentPart{
+		Type: types.ContentTypeDocument,
+		Media: &types.MediaContent{
+			MIMEType: "application/msword",
 		},
 	}
+	_, err := provider.convertDocumentPartToClaude(part)
+	if err == nil {
+		t.Error("expected error for non-PDF document")
+	}
+	if !strings.Contains(err.Error(), "only supports PDF") {
+		t.Errorf("error should mention PDF, got: %v", err)
+	}
+}
 
-	// This will fail at HTTP stage, but validates that marshal works
-	_, err := provider.PredictMultimodal(context.Background(), req)
-	// We expect an HTTP error, not a marshal error
-	if err != nil && strings.Contains(err.Error(), "failed to marshal request") {
-		t.Errorf("Unexpected marshal error for valid request: %v", err)
+func TestConvertDocumentPartToClaude_PDF(t *testing.T) {
+	provider := testClaudeProvider()
+	data := "ZmFrZS1wZGYtZGF0YQ==" // base64 of "fake-pdf-data"
+	part := types.ContentPart{
+		Type: types.ContentTypeDocument,
+		Media: &types.MediaContent{
+			MIMEType: types.MIMETypePDF,
+			Data:     &data,
+		},
+	}
+	block, err := provider.convertDocumentPartToClaude(part)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if block.Type != "document" {
+		t.Errorf("block type = %q, want 'document'", block.Type)
+	}
+	if block.Source.Type != "base64" {
+		t.Errorf("source type = %q, want 'base64'", block.Source.Type)
+	}
+	if block.Source.MediaType != types.MIMETypePDF {
+		t.Errorf("media type = %q, want %q", block.Source.MediaType, types.MIMETypePDF)
 	}
 }

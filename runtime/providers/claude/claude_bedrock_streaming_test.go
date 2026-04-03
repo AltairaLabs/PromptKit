@@ -173,45 +173,6 @@ func TestBedrockPredictStreamWithTools(t *testing.T) {
 	}
 }
 
-func TestBedrockPredictMultimodalStream(t *testing.T) {
-	events := []string{
-		`{"type":"message_start","message":{"usage":{"input_tokens":12}}}`,
-		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Image "}}`,
-		`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"analysis"}}`,
-		`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}`,
-		`{"type":"message_stop"}`,
-	}
-
-	provider := newBedrockStreamingTestProvider(t, buildBedrockStream(t, events))
-
-	req := providers.PredictionRequest{
-		Messages:  []types.Message{{Role: "user", Content: "describe image"}},
-		MaxTokens: 100,
-	}
-
-	ch, err := provider.PredictMultimodalStream(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var chunks []providers.StreamChunk
-	for chunk := range ch {
-		chunks = append(chunks, chunk)
-	}
-
-	if len(chunks) < 2 {
-		t.Fatalf("expected at least 2 chunks, got %d", len(chunks))
-	}
-
-	lastChunk := chunks[len(chunks)-1]
-	if lastChunk.FinishReason == nil || *lastChunk.FinishReason != "end_turn" {
-		t.Errorf("expected finish reason 'end_turn', got %v", lastChunk.FinishReason)
-	}
-	if lastChunk.Content != "Image analysis" {
-		t.Errorf("expected content 'Image analysis', got %q", lastChunk.Content)
-	}
-}
-
 func TestBedrockStreamHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -184,8 +184,8 @@ type providerCaps struct {
 func getProviderCapabilities(provider providers.Provider) *providerCaps {
 	caps := &providerCaps{}
 
-	// Check if provider implements MultimodalSupport
-	if ms, ok := provider.(providers.MultimodalSupport); ok {
+	// Check if provider implements MultimodalCapabilityProvider
+	if ms, ok := provider.(providers.MultimodalCapabilityProvider); ok {
 		mc := ms.GetMultimodalCapabilities()
 		caps.audioFormats = mc.AudioFormats
 		caps.imageFormats = mc.ImageFormats

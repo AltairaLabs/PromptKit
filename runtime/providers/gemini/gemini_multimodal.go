@@ -66,32 +66,6 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 	}
 }
 
-// PredictMultimodal performs a predict request with multimodal content.
-// This validates multimodal content against Gemini's capabilities before making the request.
-// For callers that don't need validation, use Predict directly.
-func (p *Provider) PredictMultimodal(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	// Validate that messages are compatible with Gemini's capabilities
-	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return providers.PredictionResponse{}, err
-	}
-
-	// Delegate to the standard Predict method which now handles multimodal content
-	return p.Predict(ctx, req)
-}
-
-// PredictMultimodalStream performs a streaming predict request with multimodal content.
-// This validates multimodal content against Gemini's capabilities before making the request.
-// For callers that don't need validation, use PredictStream directly.
-func (p *Provider) PredictMultimodalStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-	// Validate that messages are compatible with Gemini's capabilities
-	if err := providers.ValidateMultimodalRequest(p, req); err != nil {
-		return nil, err
-	}
-
-	// Delegate to the standard PredictStream method which now handles multimodal content
-	return p.PredictStream(ctx, req)
-}
-
 // convertMessagesToGemini converts PromptKit messages to Gemini format
 // Handles both legacy text-only and new multimodal messages
 func convertMessagesToGemini(messages []types.Message, systemPrompt string) (contents []geminiContent, systemInstruction *geminiContent, err error) {

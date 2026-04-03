@@ -2,7 +2,6 @@
 package vllm
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -23,41 +22,6 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		ImageFormats:   []string{"image/jpeg", "image/png", "image/gif", "image/webp"},
 		MaxImageSizeMB: vLLMMaxImageSizeMB,
 	}
-}
-
-// PredictMultimodal sends a multimodal prediction request to vLLM
-// vLLM supports vision models via OpenAI-compatible API with image_url format
-//
-//nolint:gocritic // req size matches MultimodalProvider interface
-func (p *Provider) PredictMultimodal(
-	ctx context.Context,
-	req providers.PredictionRequest,
-) (providers.PredictionResponse, error) {
-	// Convert messages to vLLM format with image support
-	messages, err := p.prepareMultimodalMessages(req)
-	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to prepare multimodal messages: %w", err)
-	}
-
-	// Delegate to the common prediction implementation
-	return p.predictWithMessages(ctx, req, messages)
-}
-
-// PredictMultimodalStream sends a streaming multimodal prediction request to vLLM
-//
-//nolint:gocritic // req size matches MultimodalProvider interface
-func (p *Provider) PredictMultimodalStream(
-	ctx context.Context,
-	req providers.PredictionRequest,
-) (<-chan providers.StreamChunk, error) {
-	// Convert messages to vLLM format with image support
-	messages, err := p.prepareMultimodalMessages(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare multimodal messages: %w", err)
-	}
-
-	// Delegate to the common streaming implementation
-	return p.predictStreamWithMessages(ctx, req, messages)
 }
 
 // prepareMultimodalMessages converts prediction request messages to vLLM format with image support
