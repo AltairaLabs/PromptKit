@@ -1,11 +1,15 @@
 package credentials
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBedrockEndpoint(t *testing.T) {
@@ -168,4 +172,104 @@ func TestURIEncodePath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAWSCredential_Apply(t *testing.T) {
+	cred := &AWSCredential{
+		cfg: aws.Config{
+			Region: "us-east-1",
+			Credentials: aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+				return aws.Credentials{
+					AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+					SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+				}, nil
+			}),
+		},
+		region: "us-east-1",
+	}
+
+	body := `{"messages":[{"role":"user","content":"hello"}]}`
+	req, err := http.NewRequest("POST", "https://bedrock-runtime.us-east-1.amazonaws.com/model/test/invoke", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	err = cred.Apply(context.Background(), req)
+	require.NoError(t, err)
+
+	// Verify SigV4 headers are set
+	auth := req.Header.Get("Authorization")
+	assert.True(t, strings.HasPrefix(auth, "AWS4-HMAC-SHA256"), "Authorization should start with AWS4-HMAC-SHA256")
+	assert.Contains(t, auth, "Credential=AKIAIOSFODNN7EXAMPLE/")
+	assert.Contains(t, auth, "/us-east-1/bedrock/aws4_request")
+
+	assert.NotEmpty(t, req.Header.Get("X-Amz-Date"))
+	assert.NotEmpty(t, req.Header.Get("X-Amz-Content-Sha256"))
+	// No session token — security token header should be absent
+	assert.Empty(t, req.Header.Get("X-Amz-Security-Token"))
+}
+
+func TestAWSCredential_Type(t *testing.T) {
+	cred := &AWSCredential{region: "us-west-2"}
+	assert.Equal(t, "aws", cred.Type())
+}
+
+func TestAWSCredential_Region(t *testing.T) {
+	cred := &AWSCredential{region: "eu-west-1"}
+	assert.Equal(t, "eu-west-1", cred.Region())
+}
+
+func TestAWSCredential_Apply_WithSessionToken(t *testing.T) {
+	cred := &AWSCredential{
+		cfg: aws.Config{
+			Region: "us-east-1",
+			Credentials: aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+				return aws.Credentials{
+					AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+					SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+					SessionToken:    "FwoGZXIvYXdzEBYaDH1234567890",
+				}, nil
+			}),
+		},
+		region: "us-east-1",
+	}
+
+	req, err := http.NewRequest("POST", "https://bedrock-runtime.us-east-1.amazonaws.com/model/test/invoke", strings.NewReader("{}"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	err = cred.Apply(context.Background(), req)
+	require.NoError(t, err)
+
+	assert.Equal(t, "FwoGZXIvYXdzEBYaDH1234567890", req.Header.Get("X-Amz-Security-Token"))
+	assert.NotEmpty(t, req.Header.Get("Authorization"))
+}
+
+func TestAWSCredential_Apply_CredentialError(t *testing.T) {
+	cred := &AWSCredential{
+		cfg: aws.Config{
+			Region: "us-east-1",
+			Credentials: aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+				return aws.Credentials{}, fmt.Errorf("no credentials available")
+			}),
+		},
+		region: "us-east-1",
+	}
+
+	req, err := http.NewRequest("POST", "https://bedrock-runtime.us-east-1.amazonaws.com/model/test/invoke", strings.NewReader("{}"))
+	require.NoError(t, err)
+
+	err = cred.Apply(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to retrieve AWS credentials")
+	assert.Contains(t, err.Error(), "no credentials available")
+}
+
+func TestAWSCredential_Config(t *testing.T) {
+	cfg := aws.Config{
+		Region: "ap-southeast-1",
+	}
+	cred := &AWSCredential{cfg: cfg, region: "ap-southeast-1"}
+
+	got := cred.Config()
+	assert.Equal(t, "ap-southeast-1", got.Region)
 }
