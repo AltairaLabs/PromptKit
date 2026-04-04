@@ -27,7 +27,7 @@ func TestDuplexIntegration_SystemPrompt(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-3.1-flash-live-preview",
+		"gemini-2.5-flash-native-audio-latest",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -47,6 +47,9 @@ func TestDuplexIntegration_SystemPrompt(t *testing.T) {
 			Encoding:   "pcm_linear16",
 		},
 		SystemInstruction: "You are Nova, a helpful voice assistant. Always introduce yourself by name.",
+		Metadata: map[string]interface{}{
+			"response_modalities": []string{"AUDIO"},
+		},
 	}
 
 	t.Log("Creating stream session...")
@@ -92,7 +95,7 @@ func TestDuplexIntegration_SystemPrompt(t *testing.T) {
 				t.Errorf("Chunk had error: %v", chunk.Error)
 			}
 
-			// Accumulate response from deltas
+			// Accumulate response from deltas (transcription arrives as delta)
 			if chunk.Delta != "" {
 				response += chunk.Delta
 			}
@@ -124,7 +127,7 @@ done:
 		t.Error("Did not receive a complete response")
 	}
 
-	// Verify system instruction was applied - response should mention "Nova"
+	// Verify we got a non-empty response (transcription of audio response)
 	t.Logf("Final response: %s", response)
 	if response == "" {
 		t.Error("Response was empty")
@@ -152,7 +155,7 @@ func TestDuplexIntegration_AudioThenEndInput(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-3.1-flash-live-preview",
+		"gemini-2.5-flash-native-audio-latest",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -170,9 +173,8 @@ func TestDuplexIntegration_AudioThenEndInput(t *testing.T) {
 			BitDepth:   16,
 			Encoding:   "pcm_linear16",
 		},
-		// Explicitly request TEXT responses (not AUDIO)
 		Metadata: map[string]interface{}{
-			"response_modalities": []string{"TEXT"},
+			"response_modalities": []string{"AUDIO"},
 		},
 	}
 
@@ -221,7 +223,7 @@ func TestDuplexIntegration_AudioThenEndInput(t *testing.T) {
 			if !ok {
 				goto done
 			}
-			// Accumulate from delta, not Content (Content may be overwritten)
+			// Accumulate from delta (transcription arrives as delta)
 			if chunk.Delta != "" {
 				response += chunk.Delta
 			}
@@ -267,7 +269,7 @@ func TestDuplexIntegration_MultiTurn(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-3.1-flash-live-preview",
+		"gemini-2.5-flash-native-audio-latest",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -286,6 +288,9 @@ func TestDuplexIntegration_MultiTurn(t *testing.T) {
 			Encoding:   "pcm_linear16",
 		},
 		SystemInstruction: "You are a helpful assistant. Keep responses brief.",
+		Metadata: map[string]interface{}{
+			"response_modalities": []string{"AUDIO"},
+		},
 	}
 
 	session, err := provider.CreateStreamSession(ctx, req)
@@ -319,7 +324,10 @@ func TestDuplexIntegration_MultiTurn(t *testing.T) {
 				if !ok {
 					return response
 				}
-				response = chunk.Content
+				// Accumulate delta (transcription arrives as delta)
+				if chunk.Delta != "" {
+					response += chunk.Delta
+				}
 				if chunk.FinishReason != nil {
 					return response
 				}
@@ -341,8 +349,8 @@ func TestDuplexIntegration_MultiTurn(t *testing.T) {
 	}
 }
 
-// TestDuplexIntegration_ResponseModalities verifies TEXT modality works
-func TestDuplexIntegration_ResponseModalities(t *testing.T) {
+// TestDuplexIntegration_AudioModality verifies AUDIO modality works
+func TestDuplexIntegration_AudioModality(t *testing.T) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		t.Skip("GEMINI_API_KEY not set")
@@ -350,7 +358,7 @@ func TestDuplexIntegration_ResponseModalities(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-3.1-flash-live-preview",
+		"gemini-2.5-flash-native-audio-latest",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -369,7 +377,7 @@ func TestDuplexIntegration_ResponseModalities(t *testing.T) {
 			Encoding:   "pcm_linear16",
 		},
 		Metadata: map[string]interface{}{
-			"response_modalities": []string{"TEXT"},
+			"response_modalities": []string{"AUDIO"},
 		},
 	}
 
@@ -384,7 +392,7 @@ func TestDuplexIntegration_ResponseModalities(t *testing.T) {
 		t.Fatalf("Failed to send text: %v", err)
 	}
 
-	// Verify we get text response
+	// Verify we get response via delta (transcription) or audio
 	var response string
 	timeout := time.After(15 * time.Second)
 
@@ -394,7 +402,10 @@ func TestDuplexIntegration_ResponseModalities(t *testing.T) {
 			if !ok {
 				goto done
 			}
-			response = chunk.Content
+			// Accumulate from delta (output transcription)
+			if chunk.Delta != "" {
+				response += chunk.Delta
+			}
 			if chunk.FinishReason != nil {
 				goto done
 			}
@@ -405,7 +416,7 @@ func TestDuplexIntegration_ResponseModalities(t *testing.T) {
 
 done:
 	if response == "" {
-		t.Error("Expected text response but got empty")
+		t.Error("Expected response but got empty")
 	}
-	t.Logf("Text response: %s", response)
+	t.Logf("Response: %s", response)
 }

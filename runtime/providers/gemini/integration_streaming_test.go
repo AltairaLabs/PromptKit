@@ -28,7 +28,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 	}
 
 	// Create provider
-	provider := NewProvider("gemini", "gemini-3.1-flash-live-preview", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
+	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-latest", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
 		Temperature: 0.7,
 	}, false)
 
@@ -54,6 +54,9 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 	// Create stream session
 	req := providers.StreamingInputConfig{
 		Config: config,
+		Metadata: map[string]interface{}{
+			"response_modalities": []string{"AUDIO"},
+		},
 	}
 
 	session, err := provider.CreateStreamSession(ctx, &req)
@@ -62,6 +65,9 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "API key not valid") || strings.Contains(errMsg, "websocket: close 1007") {
 			t.Skipf("Skipping test: API key does not have Gemini Live API access. The Live API is in preview and requires special enablement. Visit https://ai.google.dev/ to request access. Error: %v", err)
+		}
+		if strings.Contains(errMsg, "1011") || strings.Contains(errMsg, "internal server error") {
+			t.Skipf("Skipping: model returned internal server error (may be temporarily unavailable). Error: %v", err)
 		}
 		t.Fatalf("failed to create session: %v", err)
 	}
@@ -147,7 +153,7 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-3.1-flash-live-preview", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-latest", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -163,6 +169,9 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 
 	req := providers.StreamingInputConfig{
 		Config: config,
+		Metadata: map[string]interface{}{
+			"response_modalities": []string{"AUDIO"},
+		},
 	}
 
 	session, err := provider.CreateStreamSession(ctx, &req)
@@ -220,7 +229,7 @@ func TestStreamingIntegration_ErrorHandling(t *testing.T) {
 			// Create provider with test API key
 			provider := &Provider{
 				BaseProvider: providers.BaseProvider{},
-				model:        "gemini-3.1-flash-live-preview",
+				model:        "gemini-2.5-flash-native-audio-latest",
 				baseURL:      "https://generativelanguage.googleapis.com/v1beta",
 				apiKey:       tt.apiKey,
 			}
@@ -261,7 +270,7 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-3.1-flash-live-preview", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-latest", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -277,6 +286,9 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 
 	req := providers.StreamingInputConfig{
 		Config: config,
+		Metadata: map[string]interface{}{
+			"response_modalities": []string{"AUDIO"},
+		},
 	}
 
 	start := time.Now()
@@ -286,6 +298,9 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "API key not valid") || strings.Contains(errMsg, "websocket: close 1007") {
 			t.Skipf("Skipping test: API key does not have Gemini Live API access. Error: %v", err)
+		}
+		if strings.Contains(errMsg, "1011") || strings.Contains(errMsg, "internal server error") {
+			t.Skipf("Skipping: model returned internal server error (may be temporarily unavailable). Error: %v", err)
 		}
 		t.Fatalf("failed to create session: %v", err)
 	}
