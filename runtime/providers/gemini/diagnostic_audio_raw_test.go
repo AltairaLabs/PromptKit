@@ -105,23 +105,20 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 			fmt.Printf("Content: %q\n", chunk.Content)
 			fmt.Printf("Delta: %q\n", chunk.Delta)
 
-			// Check for audio in MediaDelta (first-class field)
-			if chunk.MediaDelta != nil {
+			// Check for audio in MediaData (raw bytes)
+			if chunk.MediaData != nil {
 				hasAudioData = true
 				fmt.Println("🎵🎵🎵 AUDIO DATA FOUND! 🎵🎵🎵")
-				fmt.Printf("   MIME Type: %s\n", chunk.MediaDelta.MIMEType)
-				if chunk.MediaDelta.Data != nil {
-					audioData := *chunk.MediaDelta.Data
-					fmt.Printf("   Data length: %d bytes\n", len(audioData))
-					if len(audioData) > 0 {
-						fmt.Printf("   First 50 chars: %q\n", audioData[:min(50, len(audioData))])
-					}
+				fmt.Printf("   MIME Type: %s\n", chunk.MediaData.MIMEType)
+				fmt.Printf("   Data length: %d bytes\n", len(chunk.MediaData.Data))
+				if len(chunk.MediaData.Data) > 0 {
+					fmt.Printf("   First 50 bytes: %x\n", chunk.MediaData.Data[:min(50, len(chunk.MediaData.Data))])
 				}
-				if chunk.MediaDelta.Channels != nil {
-					fmt.Printf("   Channels: %d\n", *chunk.MediaDelta.Channels)
+				if chunk.MediaData.Channels != 0 {
+					fmt.Printf("   Channels: %d\n", chunk.MediaData.Channels)
 				}
-				if chunk.MediaDelta.BitRate != nil {
-					fmt.Printf("   Sample Rate: %d Hz\n", *chunk.MediaDelta.BitRate)
+				if chunk.MediaData.SampleRate != 0 {
+					fmt.Printf("   Sample Rate: %d Hz\n", chunk.MediaData.SampleRate)
 				}
 			}
 

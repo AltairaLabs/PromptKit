@@ -10,7 +10,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -406,11 +405,10 @@ func TestDiagnostics(t *testing.T) {
 
 	// Step 7: Send a test chunk with end_of_stream
 	audioData := []byte{1, 2, 3, 4, 5}
-	audioStr := string(audioData)
 	err = session.SendChunk(ctx, &providers.StreamChunk{
-		MediaDelta: &types.MediaContent{
-			MIMEType: types.MIMETypeAudioWAV,
-			Data:     &audioStr,
+		MediaData: &providers.StreamMediaData{
+			MIMEType: "audio/wav",
+			Data:     audioData,
 		},
 		Metadata: map[string]interface{}{
 			"end_of_stream": true,

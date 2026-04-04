@@ -55,7 +55,7 @@ type UnarySession interface {
 type DuplexSession interface {
 	BaseSession
 
-	// SendChunk sends a chunk to the session (populate MediaDelta for media, Content for text).
+	// SendChunk sends a chunk to the session (populate MediaData for media, Content for text).
 	// This method is thread-safe and can be called from multiple goroutines.
 	SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
 

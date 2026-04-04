@@ -65,5 +65,5 @@ func TestStreamChunk_MediaDataField(t *testing.T) {
 	}
 	assert.NotNil(t, chunk.MediaData)
 	assert.Equal(t, "audio/pcm", chunk.MediaData.MIMEType)
-	assert.Nil(t, chunk.MediaDelta)
+	assert.Equal(t, "hello", chunk.Delta)
 }

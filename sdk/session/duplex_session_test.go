@@ -588,11 +588,11 @@ func TestSendChunk_EdgeCases(t *testing.T) {
 			PipelineBuilder: testPipelineBuilder})
 		require.NoError(t, err)
 
-		// Empty chunk with no Content, Delta, or MediaDelta
+		// Empty chunk with no Content, Delta, or MediaData
 		err = session.SendChunk(ctx, &providers.StreamChunk{})
 		// Note: The mock provider might accept empty chunks, so we just check that it doesn't crash
 		if err != nil {
-			assert.Contains(t, err.Error(), "chunk must contain either MediaDelta or Content/Delta")
+			assert.Contains(t, err.Error(), "chunk must contain either MediaData or Content/Delta")
 		}
 	})
 
@@ -626,7 +626,7 @@ func TestSendChunk_EdgeCases(t *testing.T) {
 	// Audio format settings should be configured at session creation time.
 
 	// NOTE: "sends media chunk with nil data" test removed
-	// Stage-based pipeline correctly skips MediaDelta with nil Data
+	// Stage-based pipeline correctly skips MediaData with nil Data
 	// since empty audio chunks don't need to be forwarded to the provider.
 
 	t.Run("returns error when session closed", func(t *testing.T) {

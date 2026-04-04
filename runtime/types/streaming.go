@@ -248,8 +248,8 @@ func (cr *ChunkReader) NextChunk(ctx context.Context) (*MediaChunk, error) {
 //
 //	writer := NewChunkWriter(speakerOutput)
 //	for chunk := range session.Response() {
-//	    if chunk.MediaDelta != nil {
-//	        err := writer.WriteChunk(chunk.MediaDelta)
+//	    if chunk.MediaData != nil {
+//	        err := writer.WriteChunk(&MediaChunk{Data: chunk.MediaData.Data})
 //	        if err != nil {
 //	            return err
 //	        }
