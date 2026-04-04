@@ -78,14 +78,13 @@ func TestAudioFlowThroughPipeline(t *testing.T) {
 
 	// Generate test audio data
 	audioData := generateTestAudioData(1600) // 100ms at 16kHz mono
-	audioStr := string(audioData)
 
 	// Create audio chunk with EndOfStream to signal end of turn input
 	// This allows the DuplexProviderStage to start processing immediately
 	chunk := &providers.StreamChunk{
-		MediaDelta: &types.MediaContent{
-			MIMEType: types.MIMETypeAudioWAV,
-			Data:     &audioStr,
+		MediaData: &providers.StreamMediaData{
+			MIMEType: "audio/pcm",
+			Data:     audioData,
 		},
 		Metadata: map[string]interface{}{
 			"end_of_stream": true, // Signal end of input turn
@@ -205,12 +204,11 @@ func TestMultipleAudioChunksFlow(t *testing.T) {
 		audioData := generateTestAudioData(320)
 		// Mark each chunk with its index
 		audioData[0] = byte(i)
-		audioStr := string(audioData)
 
 		chunk := &providers.StreamChunk{
-			MediaDelta: &types.MediaContent{
-				MIMEType: types.MIMETypeAudioWAV,
-				Data:     &audioStr,
+			MediaData: &providers.StreamMediaData{
+				MIMEType: "audio/pcm",
+				Data:     audioData,
 			},
 		}
 		// Signal end of stream on last chunk
@@ -261,13 +259,12 @@ func TestAudioDataIntegrity(t *testing.T) {
 		// Create a recognizable pattern
 		audioData[i] = byte((i * 7) % 256)
 	}
-	audioStr := string(audioData)
 
 	// Send chunk with end_of_stream to allow pipeline to process
 	err := session.SendChunk(ctx, &providers.StreamChunk{
-		MediaDelta: &types.MediaContent{
-			MIMEType: types.MIMETypeAudioWAV,
-			Data:     &audioStr,
+		MediaData: &providers.StreamMediaData{
+			MIMEType: "audio/pcm",
+			Data:     audioData,
 		},
 		Metadata: map[string]interface{}{
 			"end_of_stream": true,

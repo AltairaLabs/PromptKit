@@ -106,11 +106,10 @@ func TestBidirectionalSession_SendChunk(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		mediaData := "audio data"
 		chunk := &providers.StreamChunk{
-			MediaDelta: &types.MediaContent{
-				MIMEType: types.MIMETypeAudioWAV,
-				Data:     &mediaData,
+			MediaData: &providers.StreamMediaData{
+				MIMEType: "audio/pcm",
+				Data:     []byte("audio data"),
 			},
 		}
 
@@ -121,7 +120,7 @@ func TestBidirectionalSession_SendChunk(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		require.Len(t, provider.GetSession().GetChunks(), 1)
-		assert.Equal(t, []byte(mediaData), provider.GetSession().GetChunks()[0].Data)
+		assert.Equal(t, []byte("audio data"), provider.GetSession().GetChunks()[0].Data)
 	})
 
 	t.Run("sends text chunk", func(t *testing.T) {
@@ -348,11 +347,10 @@ func TestBidirectionalSession_AllMethods(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test SendChunk
-		mediaData := "audio"
 		err = session.SendChunk(context.Background(), &providers.StreamChunk{
-			MediaDelta: &types.MediaContent{
-				MIMEType: types.MIMETypeAudioWAV,
-				Data:     &mediaData,
+			MediaData: &providers.StreamMediaData{
+				MIMEType: "audio/pcm",
+				Data:     []byte("audio"),
 			},
 		})
 		require.NoError(t, err)
@@ -1109,4 +1107,146 @@ func (m *mockErrorStore) Fork(ctx context.Context, sourceID, targetID string) er
 		return m.forkErr
 	}
 	return nil
+}
+
+// TestSubmitToolResults verifies that SubmitToolResults sends tool responses
+// back into the pipeline and returns an error on a closed session.
+func TestSubmitToolResults(t *testing.T) {
+	ctx := context.Background()
+
+	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
+	session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
+		Provider:        provider,
+		Config:          &providers.StreamingInputConfig{},
+		PipelineBuilder: testPipelineBuilder,
+	})
+	require.NoError(t, err)
+
+	// Start the pipeline by sending a text chunk first
+	err = session.SendChunk(ctx, &providers.StreamChunk{Content: "hello"})
+	require.NoError(t, err)
+
+	// SubmitToolResults on an open session should succeed (non-blocking on buffered channel)
+	responses := []providers.ToolResponse{
+		{ToolCallID: "call-1", Result: "result-1"},
+	}
+	err = session.SubmitToolResults(ctx, responses)
+	require.NoError(t, err)
+
+	// SubmitToolResults on a closed session should return an error
+	require.NoError(t, session.Close())
+	err = session.SubmitToolResults(ctx, responses)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "closed")
+}
+
+// TestApplyVideoMetadata verifies that applyVideoMetadata correctly populates
+// VideoData fields from a metadata map.
+func TestApplyVideoMetadata(t *testing.T) {
+	video := &stage.VideoData{}
+	ts := time.Now()
+	metadata := map[string]any{
+		"width":        1920,
+		"height":       1080,
+		"timestamp":    ts,
+		"is_key_frame": true,
+		"frame_num":    int64(42),
+	}
+	applyVideoMetadata(video, metadata)
+	assert.Equal(t, 1920, video.Width)
+	assert.Equal(t, 1080, video.Height)
+	assert.Equal(t, ts, video.Timestamp)
+	assert.True(t, video.IsKeyFrame)
+	assert.Equal(t, int64(42), video.FrameNum)
+
+	// nil metadata is a no-op
+	video2 := &stage.VideoData{}
+	applyVideoMetadata(video2, nil)
+	assert.Zero(t, video2.Width)
+}
+
+// TestApplyImageMetadata verifies that applyImageMetadata correctly populates
+// ImageData fields from a metadata map.
+func TestApplyImageMetadata(t *testing.T) {
+	image := &stage.ImageData{}
+	ts := time.Now()
+	metadata := map[string]any{
+		"width":     640,
+		"height":    480,
+		"timestamp": ts,
+		"frame_num": int64(7),
+	}
+	applyImageMetadata(image, metadata)
+	assert.Equal(t, 640, image.Width)
+	assert.Equal(t, 480, image.Height)
+	assert.Equal(t, ts, image.Timestamp)
+	assert.Equal(t, int64(7), image.FrameNum)
+
+	// nil metadata is a no-op
+	image2 := &stage.ImageData{}
+	applyImageMetadata(image2, nil)
+	assert.Zero(t, image2.Width)
+}
+
+// TestConvertMediaDataVideoWithMetadata verifies that convertMediaData correctly
+// handles video MIME types and applies supplementary metadata.
+func TestConvertMediaDataVideoWithMetadata(t *testing.T) {
+	elem := &stage.StreamElement{
+		Metadata: make(map[string]interface{}),
+	}
+	chunk := &providers.StreamChunk{
+		MediaData: &providers.StreamMediaData{
+			Data:       []byte("video-bytes"),
+			MIMEType:   "video/h264",
+			Width:      1280,
+			Height:     720,
+			FrameRate:  30.0,
+			IsKeyFrame: true,
+			FrameNum:   int64(5),
+		},
+		Metadata: map[string]any{
+			"width":        1280,
+			"height":       720,
+			"is_key_frame": true,
+			"frame_num":    int64(5),
+		},
+	}
+	convertMediaData(elem, chunk)
+	require.NotNil(t, elem.Video)
+	assert.Equal(t, []byte("video-bytes"), elem.Video.Data)
+	assert.Equal(t, "video/h264", elem.Video.MIMEType)
+	assert.Equal(t, 1280, elem.Video.Width)
+	assert.Equal(t, 720, elem.Video.Height)
+	assert.True(t, elem.Video.IsKeyFrame)
+	assert.Equal(t, int64(5), elem.Video.FrameNum)
+	assert.Equal(t, stage.PriorityHigh, elem.Priority)
+}
+
+// TestConvertMediaDataImageWithMetadata verifies that convertMediaData correctly
+// handles image MIME types and applies supplementary metadata.
+func TestConvertMediaDataImageWithMetadata(t *testing.T) {
+	elem := &stage.StreamElement{
+		Metadata: make(map[string]interface{}),
+	}
+	chunk := &providers.StreamChunk{
+		MediaData: &providers.StreamMediaData{
+			Data:     []byte("img-bytes"),
+			MIMEType: "image/jpeg",
+			Width:    320,
+			Height:   240,
+			FrameNum: int64(3),
+		},
+		Metadata: map[string]any{
+			"width":     320,
+			"height":    240,
+			"frame_num": int64(3),
+		},
+	}
+	convertMediaData(elem, chunk)
+	require.NotNil(t, elem.Image)
+	assert.Equal(t, []byte("img-bytes"), elem.Image.Data)
+	assert.Equal(t, "image/jpeg", elem.Image.MIMEType)
+	assert.Equal(t, 320, elem.Image.Width)
+	assert.Equal(t, 240, elem.Image.Height)
+	assert.Equal(t, int64(3), elem.Image.FrameNum)
 }
