@@ -417,11 +417,10 @@ func (ah *AudioHandler) captureAndStreamAudio(ctx context.Context) error {
 			audioBytes := int16ToBytes(in)
 
 			// Create audio chunk
-			audioData := string(audioBytes)
 			chunk := &providers.StreamChunk{
-				MediaDelta: &types.MediaContent{
+				MediaData: &providers.StreamMediaData{
 					MIMEType: "audio/pcm",
-					Data:     &audioData,
+					Data:     audioBytes,
 				},
 			}
 
@@ -474,8 +473,8 @@ func (ah *AudioHandler) processResponses(ctx context.Context) {
 				}
 
 				// Handle audio response
-				if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-					audioData := []byte(*chunk.MediaDelta.Data)
+				if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+					audioData := chunk.MediaData.Data
 					select {
 					case ah.audioQueue <- audioData:
 					case <-ctx.Done():
@@ -550,8 +549,8 @@ func (ah *AudioHandler) processResponsesWithTools(ctx context.Context) {
 				}
 
 				// Handle audio
-				if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-					audioData := []byte(*chunk.MediaDelta.Data)
+				if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+					audioData := chunk.MediaData.Data
 					select {
 					case ah.audioQueue <- audioData:
 					case <-ctx.Done():
