@@ -38,7 +38,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 	// Create provider
 	provider := NewProvider(
 		"gemini-demo",
-		"gemini-2.0-flash-exp",
+		"gemini-2.5-flash-native-audio-latest",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -239,7 +239,7 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-demo",
-		"gemini-2.0-flash-exp",
+		"gemini-2.5-flash-native-audio-latest",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
