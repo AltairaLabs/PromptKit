@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/base64"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
@@ -130,7 +131,17 @@ func chunkToEvent(c StreamChunk) a2aserver.StreamEvent {
 	case ChunkText:
 		return a2aserver.StreamEvent{Kind: a2aserver.EventText, Text: c.Text}
 	case ChunkMedia:
-		return a2aserver.StreamEvent{Kind: a2aserver.EventMedia, Media: c.Media}
+		if c.Media == nil {
+			return a2aserver.StreamEvent{Kind: a2aserver.EventMedia}
+		}
+		b64 := base64.StdEncoding.EncodeToString(c.Media.Data)
+		return a2aserver.StreamEvent{
+			Kind: a2aserver.EventMedia,
+			Media: &types.MediaContent{
+				Data:     &b64,
+				MIMEType: c.Media.MIMEType,
+			},
+		}
 	case ChunkToolCall:
 		return a2aserver.StreamEvent{Kind: a2aserver.EventToolCall}
 	case ChunkClientTool:

@@ -16,6 +16,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -32,7 +33,7 @@ type Chunk struct {
 	ToolCall *types.MessageToolCall
 
 	// Media content (for ChunkMedia type)
-	Media *types.MediaContent
+	Media *providers.StreamMediaData
 
 	// Error (if any occurred)
 	Error error

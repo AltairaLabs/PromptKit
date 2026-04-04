@@ -336,9 +336,9 @@ func TestStreamingWithMultipleChunks(t *testing.T) {
 		},
 		{
 			Content: "Final",
-			MediaDelta: &types.MediaContent{
+			MediaData: &providers.StreamMediaData{
 				MIMEType: "audio/pcm",
-				Data:     strPtr("base64data"),
+				Data:     []byte("rawdata"),
 			},
 			FinishReason: &finishReason,
 		},
