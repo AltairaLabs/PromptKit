@@ -186,7 +186,7 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 2. Loop forever:
    - Read audio frame (100ms chunks = 1600 samples)
    - Convert int16 samples to bytes (PCM16)
-   - Create StreamChunk with MediaDelta
+   - Create StreamChunk with MediaData
    - Call conv.SendChunk(ctx, chunk)
    - Visual feedback: █ for audio, ░ for silence
 ```
@@ -201,7 +201,7 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 1. Loop forever:
    - Call conv.Response() to get response channel
    - For each chunk from channel:
-     - If MediaDelta: queue audio for playback
+     - If MediaData: queue audio for playback
      - If Delta (text): print to console
      - If FinishReason: complete, get next response
 ```
@@ -230,7 +230,7 @@ Microphone Input (16kHz PCM16)
         ↓
   [Audio Capture]
         ↓
-  StreamChunk { MediaDelta: audio bytes }
+  StreamChunk { MediaData: audio bytes }
         ↓
   conv.SendChunk(ctx, chunk)
         ↓
@@ -238,7 +238,7 @@ Microphone Input (16kHz PCM16)
         ↓
   Response Channel ← Gemini Live API
         ↓
-  StreamChunk { MediaDelta: audio bytes, Delta: text }
+  StreamChunk { MediaData: audio bytes, Delta: text }
         ↓
   [Response Processor]
         ↓
