@@ -17,16 +17,16 @@ import (
 // Mock STT service
 // =============================================================================
 
-// helperMockSTTService implements stt.Service with a configurable transcribeFunc.
-type helperMockSTTService struct {
+// mockSTTService implements stt.Service with a configurable transcribeFunc.
+type mockSTTService struct {
 	transcribeFunc func(ctx context.Context, audio []byte, config stt.TranscriptionConfig) (string, error)
 }
 
-func (m *helperMockSTTService) Name() string { return "mock-stt" }
-func (m *helperMockSTTService) SupportedFormats() []string {
+func (m *mockSTTService) Name() string { return "mock-stt" }
+func (m *mockSTTService) SupportedFormats() []string {
 	return []string{"pcm", "wav"}
 }
-func (m *helperMockSTTService) Transcribe(ctx context.Context, audioData []byte, config stt.TranscriptionConfig) (string, error) {
+func (m *mockSTTService) Transcribe(ctx context.Context, audioData []byte, config stt.TranscriptionConfig) (string, error) {
 	if m.transcribeFunc != nil {
 		return m.transcribeFunc(ctx, audioData, config)
 	}
@@ -37,32 +37,32 @@ func (m *helperMockSTTService) Transcribe(ctx context.Context, audioData []byte,
 // Mock TTS service
 // =============================================================================
 
-// helperMockTTSService implements tts.Service with a configurable synthesizeFunc.
-type helperMockTTSService struct {
+// mockTTSService implements tts.Service with a configurable synthesizeFunc.
+type mockTTSService struct {
 	synthesizeFunc func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error)
 }
 
-func (m *helperMockTTSService) Name() string { return "mock-tts" }
-func (m *helperMockTTSService) SupportedVoices() []tts.Voice {
+func (m *mockTTSService) Name() string { return "mock-tts" }
+func (m *mockTTSService) SupportedVoices() []tts.Voice {
 	return []tts.Voice{{ID: "test", Name: "Test Voice"}}
 }
-func (m *helperMockTTSService) SupportedFormats() []tts.AudioFormat {
+func (m *mockTTSService) SupportedFormats() []tts.AudioFormat {
 	return []tts.AudioFormat{tts.FormatPCM16}
 }
-func (m *helperMockTTSService) Synthesize(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+func (m *mockTTSService) Synthesize(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
 	if m.synthesizeFunc != nil {
 		return m.synthesizeFunc(ctx, text, config)
 	}
-	return io.NopCloser(strings.NewReader(helperGenerateTestPCM(100))), nil
+	return io.NopCloser(strings.NewReader(generateTestPCM(100))), nil
 }
 
 // =============================================================================
 // Mock VAD analyzer
 // =============================================================================
 
-// helperMockVADAnalyzer implements audio.VADAnalyzer, playing back a predefined
+// mockVADAnalyzer implements audio.VADAnalyzer, playing back a predefined
 // state sequence. An optional analyzeFunc overrides the default probability logic.
-type helperMockVADAnalyzer struct {
+type mockVADAnalyzer struct {
 	states        []audio.VADState
 	currentIdx    int
 	currentState  audio.VADState
@@ -70,9 +70,9 @@ type helperMockVADAnalyzer struct {
 	analyzeFunc   func(ctx context.Context, audioData []byte) (float64, error)
 }
 
-func (m *helperMockVADAnalyzer) Name() string { return "mock-vad" }
+func (m *mockVADAnalyzer) Name() string { return "mock-vad" }
 
-func (m *helperMockVADAnalyzer) Analyze(ctx context.Context, audioData []byte) (float64, error) {
+func (m *mockVADAnalyzer) Analyze(ctx context.Context, audioData []byte) (float64, error) {
 	if m.analyzeFunc != nil {
 		return m.analyzeFunc(ctx, audioData)
 	}
@@ -97,18 +97,18 @@ func (m *helperMockVADAnalyzer) Analyze(ctx context.Context, audioData []byte) (
 	}
 }
 
-func (m *helperMockVADAnalyzer) State() audio.VADState {
+func (m *mockVADAnalyzer) State() audio.VADState {
 	return m.currentState
 }
 
-func (m *helperMockVADAnalyzer) OnStateChange() <-chan audio.VADEvent {
+func (m *mockVADAnalyzer) OnStateChange() <-chan audio.VADEvent {
 	if m.stateChangeCh == nil {
 		m.stateChangeCh = make(chan audio.VADEvent, 10)
 	}
 	return m.stateChangeCh
 }
 
-func (m *helperMockVADAnalyzer) Reset() {
+func (m *mockVADAnalyzer) Reset() {
 	m.currentIdx = 0
 	m.currentState = audio.VADStateQuiet
 }
@@ -117,31 +117,31 @@ func (m *helperMockVADAnalyzer) Reset() {
 // Mock turn detector
 // =============================================================================
 
-// helperMockTurnDetector implements audio.TurnDetector with configurable behavior.
-type helperMockTurnDetector struct {
+// mockTurnDetector implements audio.TurnDetector with configurable behavior.
+type mockTurnDetector struct {
 	isUserSpeakingVal bool
 	processAudioFunc  func(ctx context.Context, audio []byte) (bool, error)
 	resetCalled       bool
 }
 
-func (m *helperMockTurnDetector) Name() string { return "mock-turn-detector" }
+func (m *mockTurnDetector) Name() string { return "mock-turn-detector" }
 
-func (m *helperMockTurnDetector) ProcessAudio(ctx context.Context, audioData []byte) (bool, error) {
+func (m *mockTurnDetector) ProcessAudio(ctx context.Context, audioData []byte) (bool, error) {
 	if m.processAudioFunc != nil {
 		return m.processAudioFunc(ctx, audioData)
 	}
 	return false, nil
 }
 
-func (m *helperMockTurnDetector) ProcessVADState(_ context.Context, _ audio.VADState) (bool, error) {
+func (m *mockTurnDetector) ProcessVADState(_ context.Context, _ audio.VADState) (bool, error) {
 	return false, nil
 }
 
-func (m *helperMockTurnDetector) IsUserSpeaking() bool {
+func (m *mockTurnDetector) IsUserSpeaking() bool {
 	return m.isUserSpeakingVal
 }
 
-func (m *helperMockTurnDetector) Reset() {
+func (m *mockTurnDetector) Reset() {
 	m.resetCalled = true
 }
 
@@ -149,12 +149,12 @@ func (m *helperMockTurnDetector) Reset() {
 // errorReader — io.Reader that always returns an error
 // =============================================================================
 
-// helperErrorReader is a reader that always returns an error on Read.
-type helperErrorReader struct {
+// errorReader is a reader that always returns an error on Read.
+type errorReader struct {
 	err error
 }
 
-func (r *helperErrorReader) Read(_ []byte) (int, error) {
+func (r *errorReader) Read(_ []byte) (int, error) {
 	return 0, r.err
 }
 
@@ -162,8 +162,8 @@ func (r *helperErrorReader) Read(_ []byte) (int, error) {
 // PCM generation helpers
 // =============================================================================
 
-// helperGenerateTestPCM generates test PCM data as a string of the given length.
-func helperGenerateTestPCM(length int) string {
+// generateTestPCM generates test PCM data as a string of the given length.
+func generateTestPCM(length int) string {
 	data := make([]byte, length)
 	for i := range data {
 		data[i] = byte(i % 256)
@@ -171,8 +171,8 @@ func helperGenerateTestPCM(length int) string {
 	return string(data)
 }
 
-// helperGenerateTestPCMAudio generates test PCM audio as a byte slice of the given length.
-func helperGenerateTestPCMAudio(length int) []byte {
+// generateTestPCMAudio generates test PCM audio as a byte slice of the given length.
+func generateTestPCMAudio(length int) []byte {
 	data := make([]byte, length)
 	for i := range data {
 		data[i] = byte(i % 256)
@@ -184,10 +184,10 @@ func helperGenerateTestPCMAudio(length int) []byte {
 // Stage execution helper
 // =============================================================================
 
-// helperRunStage sends inputs through a stage's Process, collects all output
+// runStage sends inputs through a stage's Process, collects all output
 // elements, and returns them. It waits up to timeout for each element and
 // terminates once the output channel is closed or the timeout elapses.
-func helperRunStage(t *testing.T, s stage.Stage, inputs []stage.StreamElement, timeout time.Duration) []stage.StreamElement {
+func runStage(t *testing.T, s stage.Stage, inputs []stage.StreamElement, timeout time.Duration) []stage.StreamElement {
 	t.Helper()
 
 	input := make(chan stage.StreamElement, len(inputs))
@@ -225,8 +225,8 @@ func helperRunStage(t *testing.T, s stage.Stage, inputs []stage.StreamElement, t
 // StreamElement construction helpers
 // =============================================================================
 
-// helperMakeAudioElement constructs a StreamElement carrying PCM16 audio.
-func helperMakeAudioElement(samples []byte, sampleRate int) stage.StreamElement {
+// makeAudioElement constructs a StreamElement carrying PCM16 audio.
+func makeAudioElement(samples []byte, sampleRate int) stage.StreamElement {
 	return stage.StreamElement{
 		Audio: &stage.AudioData{
 			Samples:    samples,
@@ -237,13 +237,13 @@ func helperMakeAudioElement(samples []byte, sampleRate int) stage.StreamElement 
 	}
 }
 
-// helperMakeTextElement constructs a StreamElement carrying a text string.
-func helperMakeTextElement(text string) stage.StreamElement {
+// makeTextElement constructs a StreamElement carrying a text string.
+func makeTextElement(text string) stage.StreamElement {
 	s := text
 	return stage.StreamElement{Text: &s}
 }
 
-// helperMakeEndOfStreamElement constructs an end-of-stream StreamElement.
-func helperMakeEndOfStreamElement() stage.StreamElement {
+// makeEndOfStreamElement constructs an end-of-stream StreamElement.
+func makeEndOfStreamElement() stage.StreamElement {
 	return stage.NewEndOfStreamElement()
 }
