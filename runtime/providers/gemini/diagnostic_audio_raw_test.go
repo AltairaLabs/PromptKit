@@ -33,7 +33,7 @@ func TestDiagnostic_AudioModalityRawMessages(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-diagnostic",
-		"gemini-2.5-flash-native-audio-latest",
+		"gemini-2.5-flash-native-audio-preview-12-2025",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,

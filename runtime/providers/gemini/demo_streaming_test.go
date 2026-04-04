@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 	// Create provider
 	provider := NewProvider(
 		"gemini-demo",
-		"gemini-3.1-flash-live-preview",
+		"gemini-2.5-flash-native-audio-preview-12-2025",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -56,11 +57,19 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 
 	req := providers.StreamingInputConfig{
 		Config: config,
+		Metadata: map[string]interface{}{
+			"response_modalities": []string{"AUDIO"},
+			"vad_disabled":        true,
+		},
 	}
 
 	fmt.Println("📡 Step 1: Establishing WebSocket connection to Gemini Live API...")
 	session, err := provider.CreateStreamSession(ctx, &req)
 	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "1011") || strings.Contains(errMsg, "internal server error") {
+			t.Skipf("Skipping: model returned internal server error (may be temporarily unavailable). Error: %v", err)
+		}
 		t.Fatalf("❌ Failed to create session: %v", err)
 	}
 	defer session.Close()
@@ -81,7 +90,12 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 
 		for chunk := range session.Response() {
 			chunkCount++
-			fullResponse += chunk.Content
+			// Accumulate delta (output transcription) and Content
+			if chunk.Delta != "" {
+				fullResponse += chunk.Delta
+			} else if chunk.Content != "" {
+				fullResponse += chunk.Content
+			}
 			receivedChunks = true
 
 			// Check for audio in MediaData (raw bytes)
@@ -91,7 +105,9 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 					chunkCount, chunk.MediaData.MIMEType, len(chunk.MediaData.Data))
 			}
 
-			if chunk.Content != "" {
+			if chunk.Delta != "" {
+				fmt.Printf("📥 [Chunk %d] Received TEXT (transcription): %q\n", chunkCount, chunk.Delta)
+			} else if chunk.Content != "" {
 				fmt.Printf("📥 [Chunk %d] Received TEXT: %q\n", chunkCount, chunk.Content)
 			}
 
@@ -149,6 +165,13 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 		time.Sleep(50 * time.Millisecond) // Simulate real-time streaming
 	}
 	fmt.Println("   ✅ All audio chunks sent!")
+	fmt.Println()
+
+	// Signal end of audio input (VAD disabled — explicit turn control)
+	fmt.Println("🔚 Step 3b: Signaling end of audio input (activityEnd)...")
+	geminiSession := session.(*StreamSession)
+	geminiSession.EndInput()
+	fmt.Println("   ✅ activityEnd sent!")
 	fmt.Println()
 
 	// Send a text prompt to get a response
