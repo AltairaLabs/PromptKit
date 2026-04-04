@@ -23,10 +23,11 @@ const (
 
 // Configuration constants
 const (
-	responseChannelSize = 10
-	heartbeatInterval   = 30 * time.Second
-	setupTimeout        = 10 * time.Second
-	tokensPerThousand   = 1000.0
+	responseChannelSize     = 10
+	heartbeatInterval       = 30 * time.Second
+	setupTimeout            = 10 * time.Second
+	tokensPerThousand       = 1000.0
+	realtimeAudioSampleRate = 24000 // OpenAI Realtime API output audio sample rate (Hz)
 )
 
 // Ensure RealtimeSession implements StreamInputSession
@@ -561,13 +562,18 @@ func (s *RealtimeSession) handleTextDone(e *ResponseTextDoneEvent) {
 }
 
 func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
-	// Keep audio as base64 - that's the expected format for MediaDelta.Data
-	// (DuplexProviderStage and downstream stages expect base64)
-	audioDataBase64 := e.Delta
+	rawBytes, err := base64.StdEncoding.DecodeString(e.Delta)
+	if err != nil {
+		logger.Warn("failed to decode base64 audio from OpenAI Realtime", "error", err)
+		return
+	}
+
 	s.responseCh <- providers.StreamChunk{
-		MediaDelta: &types.MediaContent{
-			Data:     &audioDataBase64,
-			MIMEType: "audio/pcm",
+		MediaData: &providers.StreamMediaData{
+			Data:       rawBytes,
+			MIMEType:   "audio/pcm",
+			SampleRate: realtimeAudioSampleRate,
+			Channels:   1,
 		},
 		Metadata: map[string]interface{}{
 			"item_id":       e.ItemID,
