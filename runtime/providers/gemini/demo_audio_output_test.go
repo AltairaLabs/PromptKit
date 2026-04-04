@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,7 +74,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 	if err != nil {
 		// If audio output is not supported, the API will reject with "invalid argument"
 		errMsg := err.Error()
-		if contains(errMsg, "invalid argument") || contains(errMsg, "1007") {
+		if strings.Contains(errMsg, "invalid argument") || strings.Contains(errMsg, "1007") {
 			t.Skipf("⚠️  Skipping: Audio output not yet supported by Gemini Live API. Error: %v", err)
 		}
 		t.Fatalf("❌ Failed to create session: %v", err)
@@ -272,7 +273,7 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 	if err != nil {
 		// If audio output is not supported, the API will reject with "invalid argument"
 		errMsg := err.Error()
-		if contains(errMsg, "invalid argument") || contains(errMsg, "1007") {
+		if strings.Contains(errMsg, "invalid argument") || strings.Contains(errMsg, "1007") {
 			t.Skipf("⚠️  Skipping: Audio output not yet supported by Gemini Live API. Error: %v", err)
 		}
 		t.Fatalf("❌ Failed to create session: %v", err)

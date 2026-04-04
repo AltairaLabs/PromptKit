@@ -220,9 +220,9 @@ func TestStreamingIntegration_ErrorHandling(t *testing.T) {
 			// Create provider with test API key
 			provider := &Provider{
 				BaseProvider: providers.BaseProvider{},
-				Model:        "gemini-2.0-flash-exp",
-				BaseURL:      "https://generativelanguage.googleapis.com/v1beta",
-				ApiKey:       tt.apiKey,
+				model:        "gemini-2.0-flash-exp",
+				baseURL:      "https://generativelanguage.googleapis.com/v1beta",
+				apiKey:       tt.apiKey,
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
