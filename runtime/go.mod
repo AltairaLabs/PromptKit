@@ -2,6 +2,8 @@ module github.com/AltairaLabs/PromptKit/runtime
 
 go 1.25.1
 
+retract v1.4.0 // Published prematurely; missing StreamMediaData changes and breaking MediaDelta removal
+
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
