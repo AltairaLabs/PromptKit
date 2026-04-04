@@ -143,9 +143,9 @@ func main() {
 
     // Send audio chunk
     chunk := &providers.StreamChunk{
-        MediaDelta: &types.MediaContent{
+        MediaData: &providers.StreamMediaData{
+            Data:     pcmBytes, // Raw PCM16 bytes (24kHz mono)
             MIMEType: "audio/pcm",
-            Data:     &audioData, // PCM16 bytes as string
         },
     }
     conv.SendChunk(ctx, chunk)
@@ -156,8 +156,8 @@ func main() {
     // Receive streaming response
     respCh, _ := conv.Response()
     for chunk := range respCh {
-        if chunk.MediaDelta != nil {
-            // Play audio
+        if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+            // Play audio (raw PCM bytes in chunk.MediaData.Data)
         }
         if chunk.Delta != "" {
             // Print text

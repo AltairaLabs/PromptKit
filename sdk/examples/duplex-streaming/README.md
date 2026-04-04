@@ -77,11 +77,10 @@ The example supports three modes:
 conv, err := sdk.OpenDuplex("./duplex.pack.json", "assistant")
 
 // Send audio chunk
-audioData := string(pcmBytes) // PCM16 audio data
 chunk := &providers.StreamChunk{
-    MediaDelta: &types.MediaContent{
-        MIMEType: types.MIMETypeAudioWAV,
-        Data:     &audioData,
+    MediaData: &providers.StreamMediaData{
+        Data:     pcmBytes, // Raw PCM16 bytes
+        MIMEType: "audio/pcm",
     },
 }
 conv.SendChunk(ctx, chunk)
