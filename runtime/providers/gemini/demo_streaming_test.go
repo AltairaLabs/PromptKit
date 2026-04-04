@@ -36,7 +36,7 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 	// Create provider
 	provider := NewProvider(
 		"gemini-demo",
-		"gemini-2.5-flash-native-audio-latest",
+		"gemini-2.5-flash-native-audio-preview-12-2025",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -59,6 +59,7 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 		Config: config,
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"},
+			"vad_disabled":        true,
 		},
 	}
 
@@ -164,6 +165,13 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 		time.Sleep(50 * time.Millisecond) // Simulate real-time streaming
 	}
 	fmt.Println("   ✅ All audio chunks sent!")
+	fmt.Println()
+
+	// Signal end of audio input (VAD disabled — explicit turn control)
+	fmt.Println("🔚 Step 3b: Signaling end of audio input (activityEnd)...")
+	geminiSession := session.(*StreamSession)
+	geminiSession.EndInput()
+	fmt.Println("   ✅ activityEnd sent!")
 	fmt.Println()
 
 	// Send a text prompt to get a response

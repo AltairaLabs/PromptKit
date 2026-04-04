@@ -27,7 +27,7 @@ func TestDuplexIntegration_SystemPrompt(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.5-flash-native-audio-latest",
+		"gemini-2.5-flash-native-audio-preview-12-2025",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -155,7 +155,7 @@ func TestDuplexIntegration_AudioThenEndInput(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.5-flash-native-audio-latest",
+		"gemini-2.5-flash-native-audio-preview-12-2025",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -175,6 +175,7 @@ func TestDuplexIntegration_AudioThenEndInput(t *testing.T) {
 		},
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"},
+			"vad_disabled":        true, // Use explicit turn control (activityStart/activityEnd)
 		},
 	}
 
@@ -269,7 +270,7 @@ func TestDuplexIntegration_MultiTurn(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.5-flash-native-audio-latest",
+		"gemini-2.5-flash-native-audio-preview-12-2025",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -290,6 +291,7 @@ func TestDuplexIntegration_MultiTurn(t *testing.T) {
 		SystemInstruction: "You are a helpful assistant. Keep responses brief.",
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"},
+			"vad_disabled":        true,
 		},
 	}
 
@@ -358,7 +360,7 @@ func TestDuplexIntegration_AudioModality(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.5-flash-native-audio-latest",
+		"gemini-2.5-flash-native-audio-preview-12-2025",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -378,6 +380,7 @@ func TestDuplexIntegration_AudioModality(t *testing.T) {
 		},
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"},
+			"vad_disabled":        true,
 		},
 	}
 

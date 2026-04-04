@@ -28,7 +28,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 	}
 
 	// Create provider
-	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-latest", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
+	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-preview-12-2025", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
 		Temperature: 0.7,
 	}, false)
 
@@ -56,6 +56,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 		Config: config,
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"},
+			"vad_disabled":        true,
 		},
 	}
 
@@ -111,7 +112,11 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	t.Log("Audio sent, waiting for responses...")
+	// Signal end of input to trigger response (VAD disabled — explicit turn control)
+	geminiSession := session.(*StreamSession)
+	geminiSession.EndInput()
+
+	t.Log("Audio sent + EndInput called, waiting for responses...")
 
 	// Wait for responses or timeout
 	select {
@@ -153,7 +158,7 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-latest", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-preview-12-2025", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -171,6 +176,7 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		Config: config,
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"},
+			"vad_disabled":        true,
 		},
 	}
 
@@ -180,6 +186,9 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "API key not valid") || strings.Contains(errMsg, "websocket: close 1007") {
 			t.Skipf("Skipping test: API key does not have Gemini Live API access. Error: %v", err)
+		}
+		if strings.Contains(errMsg, "1011") || strings.Contains(errMsg, "internal server error") {
+			t.Skipf("Skipping: model returned internal server error (may be temporarily unavailable). Error: %v", err)
 		}
 		t.Fatalf("failed to create session: %v", err)
 	}
@@ -196,11 +205,15 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		}
 	}
 
+	// Signal end of input to trigger response (VAD disabled — explicit turn control)
+	geminiSession := session.(*StreamSession)
+	geminiSession.EndInput()
+
 	// Wait briefly for response
 	select {
 	case <-session.Response():
 		t.Log("Received audio response")
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Log("No audio response within timeout")
 	}
 }
@@ -229,7 +242,7 @@ func TestStreamingIntegration_ErrorHandling(t *testing.T) {
 			// Create provider with test API key
 			provider := &Provider{
 				BaseProvider: providers.BaseProvider{},
-				model:        "gemini-2.5-flash-native-audio-latest",
+				model:        "gemini-2.5-flash-native-audio-preview-12-2025",
 				baseURL:      "https://generativelanguage.googleapis.com/v1beta",
 				apiKey:       tt.apiKey,
 			}
@@ -270,7 +283,7 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-latest", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-preview-12-2025", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -288,6 +301,7 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		Config: config,
 		Metadata: map[string]interface{}{
 			"response_modalities": []string{"AUDIO"},
+			"vad_disabled":        true,
 		},
 	}
 
