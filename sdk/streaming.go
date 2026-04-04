@@ -26,7 +26,7 @@ type StreamChunk struct {
 	ToolCall *types.MessageToolCall
 
 	// Media content (for ChunkMedia type)
-	Media *types.MediaContent
+	Media *providers.StreamMediaData
 
 	// ClientTool contains a pending client tool request (for ChunkClientTool type).
 	// The caller should fulfill it via SendToolResult/RejectClientTool, then call ResumeStream.
@@ -332,9 +332,9 @@ func (c *Conversation) emitStreamChunk(
 		sendChunk(ctx, outCh, StreamChunk{Type: ChunkText, Text: chunk.Delta})
 	}
 
-	// Emit media delta
-	if chunk.MediaDelta != nil {
-		sendChunk(ctx, outCh, StreamChunk{Type: ChunkMedia, Media: chunk.MediaDelta})
+	// Emit media data
+	if chunk.MediaData != nil {
+		sendChunk(ctx, outCh, StreamChunk{Type: ChunkMedia, Media: chunk.MediaData})
 	}
 
 	// Emit new tool calls

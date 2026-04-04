@@ -316,20 +316,20 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 
 		// Handle audio/media data
 		if part.InlineData != nil {
-			// The data is base64 encoded PCM audio from Gemini
-			// Use MediaDelta for first-class media content
-			response.MediaDelta = &types.MediaContent{
-				Data:     &part.InlineData.Data, // Already base64 encoded
-				MIMEType: part.InlineData.MimeType,
-			}
-
-			// Add audio-specific metadata if this is audio
-			if strings.HasPrefix(part.InlineData.MimeType, "audio/") {
-				// Gemini uses 16kHz mono audio
-				channels := 1
-				sampleRate := 16000
-				response.MediaDelta.Channels = &channels
-				response.MediaDelta.BitRate = &sampleRate // Store sample rate in BitRate field
+			// Decode base64 at source — downstream receives raw bytes
+			rawBytes, decodeErr := base64.StdEncoding.DecodeString(part.InlineData.Data)
+			if decodeErr != nil {
+				logger.Warn("failed to decode base64 media from Gemini", "error", decodeErr)
+			} else {
+				media := &providers.StreamMediaData{
+					Data:     rawBytes,
+					MIMEType: part.InlineData.MimeType,
+				}
+				if strings.HasPrefix(part.InlineData.MimeType, "audio/") {
+					media.SampleRate = 16000
+					media.Channels = 1
+				}
+				response.MediaData = media
 			}
 		}
 	}

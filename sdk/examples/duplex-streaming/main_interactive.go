@@ -270,11 +270,10 @@ func (ah *AudioHandler) captureAndStreamAudio(ctx context.Context) error {
 
 			// Stream audio continuously to the model
 			// Gemini ASM can handle continuous bidirectional audio
-			audioData := string(audioBytes)
 			chunk := &providers.StreamChunk{
-				MediaDelta: &types.MediaContent{
-					MIMEType: types.MIMETypeAudioWAV,
-					Data:     &audioData,
+				MediaData: &providers.StreamMediaData{
+					MIMEType: "audio/pcm",
+					Data:     audioBytes,
 				},
 			}
 
@@ -332,11 +331,10 @@ func (ah *AudioHandler) processResponses(ctx context.Context) {
 				}
 
 				// Handle audio response
-				if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
+				if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
 					// Queue audio for playback
-					audioData := []byte(*chunk.MediaDelta.Data)
 					select {
-					case ah.audioQueue <- audioData:
+					case ah.audioQueue <- chunk.MediaData.Data:
 					case <-ctx.Done():
 						return
 					}

@@ -243,21 +243,13 @@ func (s *duplexSession) SendFrame(ctx context.Context, frame *ImageFrame) error 
 		return fmt.Errorf("frame data is required")
 	}
 
-	// TODO: This copies []byte to string on every frame, which is expensive for
-	// high-frequency video. Consider using unsafe.String or redesigning MediaContent
-	// to accept []byte directly. This is API-breaking so deferred for a future release.
-	dataStr := string(frame.Data)
-
 	chunk := &providers.StreamChunk{
-		MediaDelta: &types.MediaContent{
+		MediaData: &providers.StreamMediaData{
+			Data:     frame.Data,
 			MIMEType: frame.MIMEType,
-			Data:     &dataStr,
-		},
-		Metadata: map[string]any{
-			"width":     frame.Width,
-			"height":    frame.Height,
-			"timestamp": frame.Timestamp,
-			"frame_num": frame.FrameNum,
+			Width:    frame.Width,
+			Height:   frame.Height,
+			FrameNum: frame.FrameNum,
 		},
 	}
 	return s.SendChunk(ctx, chunk)
@@ -277,20 +269,14 @@ func (s *duplexSession) SendVideoChunk(ctx context.Context, vchunk *VideoChunk) 
 		return fmt.Errorf("video chunk data is required")
 	}
 
-	// Convert chunk data to string for MediaContent
-	dataStr := string(vchunk.Data)
-
 	chunk := &providers.StreamChunk{
-		MediaDelta: &types.MediaContent{
-			MIMEType: vchunk.MIMEType,
-			Data:     &dataStr,
-		},
-		Metadata: map[string]any{
-			"width":        vchunk.Width,
-			"height":       vchunk.Height,
-			"timestamp":    vchunk.Timestamp,
-			"frame_num":    int64(vchunk.ChunkIndex),
-			"is_key_frame": vchunk.IsKeyFrame,
+		MediaData: &providers.StreamMediaData{
+			Data:       vchunk.Data,
+			MIMEType:   vchunk.MIMEType,
+			Width:      vchunk.Width,
+			Height:     vchunk.Height,
+			FrameNum:   int64(vchunk.ChunkIndex),
+			IsKeyFrame: vchunk.IsKeyFrame,
 		},
 	}
 	return s.SendChunk(ctx, chunk)
@@ -645,20 +631,25 @@ func applyImageMetadata(image *stage.ImageData, metadata map[string]any) {
 	}
 }
 
-// convertMediaDelta converts a chunk's MediaDelta to the appropriate stage element field.
-func convertMediaDelta(elem *stage.StreamElement, chunk *providers.StreamChunk) {
-	if chunk.MediaDelta == nil || chunk.MediaDelta.Data == nil {
+// convertMediaData converts a chunk's MediaData to the appropriate stage element field.
+func convertMediaData(elem *stage.StreamElement, chunk *providers.StreamChunk) {
+	if chunk.MediaData == nil || len(chunk.MediaData.Data) == 0 {
 		return
 	}
 
-	mimeType := chunk.MediaDelta.MIMEType
-	mediaData := []byte(*chunk.MediaDelta.Data)
+	mimeType := chunk.MediaData.MIMEType
+	mediaData := chunk.MediaData.Data // already []byte, no copy
 
 	switch {
 	case strings.HasPrefix(mimeType, "video/"):
 		elem.Video = &stage.VideoData{
-			Data:     mediaData,
-			MIMEType: mimeType,
+			Data:       mediaData,
+			MIMEType:   mimeType,
+			Width:      chunk.MediaData.Width,
+			Height:     chunk.MediaData.Height,
+			FrameRate:  chunk.MediaData.FrameRate,
+			IsKeyFrame: chunk.MediaData.IsKeyFrame,
+			FrameNum:   chunk.MediaData.FrameNum,
 		}
 		elem.Priority = stage.PriorityHigh
 		applyVideoMetadata(elem.Video, chunk.Metadata)
@@ -667,15 +658,26 @@ func convertMediaDelta(elem *stage.StreamElement, chunk *providers.StreamChunk) 
 		elem.Image = &stage.ImageData{
 			Data:     mediaData,
 			MIMEType: mimeType,
+			Width:    chunk.MediaData.Width,
+			Height:   chunk.MediaData.Height,
+			FrameNum: chunk.MediaData.FrameNum,
 		}
 		applyImageMetadata(elem.Image, chunk.Metadata)
 
 	default:
 		// Audio handling (default for backwards compatibility)
-		const defaultSampleRate = 16000 // Default for speech
+		sampleRate := chunk.MediaData.SampleRate
+		if sampleRate == 0 {
+			sampleRate = 16000
+		}
+		channels := chunk.MediaData.Channels
+		if channels == 0 {
+			channels = 1
+		}
 		elem.Audio = &stage.AudioData{
 			Samples:    mediaData,
-			SampleRate: defaultSampleRate,
+			SampleRate: sampleRate,
+			Channels:   channels,
 			Format:     stage.AudioFormatPCM16,
 		}
 	}
@@ -689,7 +691,7 @@ func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElemen
 		Metadata: make(map[string]interface{}),
 	}
 
-	convertMediaDelta(&elem, chunk)
+	convertMediaData(&elem, chunk)
 
 	// Convert text content
 	if chunk.Delta != "" {
@@ -717,12 +719,13 @@ func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElemen
 func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk {
 	chunk := providers.StreamChunk{}
 
-	// Convert audio data from Audio to MediaDelta
+	// Convert audio data from Audio to MediaData
 	if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
-		audioStr := string(elem.Audio.Samples)
-		chunk.MediaDelta = &types.MediaContent{
-			MIMEType: types.MIMETypeAudioWAV,
-			Data:     &audioStr,
+		chunk.MediaData = &providers.StreamMediaData{
+			Data:       elem.Audio.Samples,
+			MIMEType:   "audio/pcm",
+			SampleRate: elem.Audio.SampleRate,
+			Channels:   elem.Audio.Channels,
 		}
 	}
 

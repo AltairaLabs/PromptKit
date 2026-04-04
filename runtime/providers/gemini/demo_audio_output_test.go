@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 	// Create provider
 	provider := NewProvider(
 		"gemini-demo",
-		"gemini-2.0-flash-exp",
+		"gemini-2.5-flash-native-audio-latest",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -73,7 +74,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 	if err != nil {
 		// If audio output is not supported, the API will reject with "invalid argument"
 		errMsg := err.Error()
-		if contains(errMsg, "invalid argument") || contains(errMsg, "1007") {
+		if strings.Contains(errMsg, "invalid argument") || strings.Contains(errMsg, "1007") {
 			t.Skipf("⚠️  Skipping: Audio output not yet supported by Gemini Live API. Error: %v", err)
 		}
 		t.Fatalf("❌ Failed to create session: %v", err)
@@ -107,20 +108,19 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 				fmt.Printf("📝 [Text Chunk %d] %q\n", textChunks, chunk.Content)
 			}
 
-			// Check for AUDIO content (first-class MediaDelta field)
-			if chunk.MediaDelta != nil {
+			// Check for AUDIO content (raw bytes in MediaData)
+			if chunk.MediaData != nil {
 				audioChunks++
-				audioData := *chunk.MediaDelta.Data // Base64 string
-				totalAudioBytes += len(audioData)
-				fmt.Printf("🎵 [Audio Chunk %d] mime=%s, size=%d bytes (base64)\n",
-					audioChunks, chunk.MediaDelta.MIMEType, len(audioData))
+				totalAudioBytes += len(chunk.MediaData.Data)
+				fmt.Printf("🎵 [Audio Chunk %d] mime=%s, size=%d bytes (raw)\n",
+					audioChunks, chunk.MediaData.MIMEType, len(chunk.MediaData.Data))
 
 				// Show audio metadata if available
-				if chunk.MediaDelta.Channels != nil {
-					fmt.Printf("   Channels: %d\n", *chunk.MediaDelta.Channels)
+				if chunk.MediaData.Channels != 0 {
+					fmt.Printf("   Channels: %d\n", chunk.MediaData.Channels)
 				}
-				if chunk.MediaDelta.BitRate != nil {
-					fmt.Printf("   Sample Rate: %d Hz\n", *chunk.MediaDelta.BitRate)
+				if chunk.MediaData.SampleRate != 0 {
+					fmt.Printf("   Sample Rate: %d Hz\n", chunk.MediaData.SampleRate)
 				}
 			}
 
@@ -143,7 +143,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 		fmt.Println(separator)
 		fmt.Printf("📝 Text chunks received: %d\n", textChunks)
 		fmt.Printf("🎵 Audio chunks received: %d\n", audioChunks)
-		fmt.Printf("📏 Total audio data: %d bytes (base64)\n", totalAudioBytes)
+		fmt.Printf("📏 Total audio data: %d bytes (raw)\n", totalAudioBytes)
 
 		if fullTextResponse != "" {
 			fmt.Println("\n📝 Complete Text Response:")
@@ -152,7 +152,7 @@ func TestStreamingDemo_AudioAndTextOutput(t *testing.T) {
 
 		if audioChunks > 0 {
 			fmt.Println("\n🎵 Audio Response: Received PCM audio data")
-			fmt.Println("   (Audio data is base64-encoded PCM, ready to decode and play)")
+			fmt.Println("   (Audio data is raw PCM, ready to play)")
 		}
 		fmt.Println(separator)
 	}()
@@ -239,7 +239,7 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-demo",
-		"gemini-2.0-flash-exp",
+		"gemini-2.5-flash-native-audio-latest",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -273,7 +273,7 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 	if err != nil {
 		// If audio output is not supported, the API will reject with "invalid argument"
 		errMsg := err.Error()
-		if contains(errMsg, "invalid argument") || contains(errMsg, "1007") {
+		if strings.Contains(errMsg, "invalid argument") || strings.Contains(errMsg, "1007") {
 			t.Skipf("⚠️  Skipping: Audio output not yet supported by Gemini Live API. Error: %v", err)
 		}
 		t.Fatalf("❌ Failed to create session: %v", err)
@@ -298,12 +298,11 @@ func TestStreamingDemo_AudioOutputOnly(t *testing.T) {
 				fmt.Printf("📝 [Unexpected Text] %q\n", chunk.Content)
 			}
 
-			// Check for AUDIO (first-class MediaDelta field)
-			if chunk.MediaDelta != nil {
+			// Check for AUDIO (raw bytes in MediaData)
+			if chunk.MediaData != nil {
 				audioChunks++
-				audioData := *chunk.MediaDelta.Data // Base64 string
 				fmt.Printf("🎵 [Audio Chunk %d] mime=%s, size=%d bytes\n",
-					audioChunks, chunk.MediaDelta.MIMEType, len(audioData))
+					audioChunks, chunk.MediaData.MIMEType, len(chunk.MediaData.Data))
 			}
 
 			if chunk.FinishReason != nil {

@@ -953,39 +953,40 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	}
 
 	// Accumulate media content for this turn
-	// MediaDelta.Data is base64-encoded, so decode it to raw bytes for accumulation
-	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-		rawBytes, err := base64.StdEncoding.DecodeString(*chunk.MediaDelta.Data)
-		if err != nil {
-			logger.Warn("DuplexProviderStage: failed to decode base64 audio chunk", "error", err)
-		} else {
-			s.accumulatedMedia = append(s.accumulatedMedia, rawBytes...)
+	// MediaData.Data is already raw bytes — providers decode base64 at source
+	if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+		rawBytes := chunk.MediaData.Data
+		s.accumulatedMedia = append(s.accumulatedMedia, rawBytes...)
 
-			// Emit audio.output event for session recording
-			if s.emitter != nil {
-				// Gemini outputs at 24kHz, mono, 16-bit
-				const outputSampleRate = 24000
-				const outputChannels = 1
-				const bytesPerSample = 2
-				durationMs := int64(len(rawBytes)) * 1000 / outputSampleRate / outputChannels / bytesPerSample
-
-				s.emitter.AudioOutput(&events.AudioOutputData{
-					ChunkIndex: s.outputChunkIndex,
-					Payload: events.BinaryPayload{
-						InlineData: rawBytes,
-						MIMEType:   mimeTypeAudioPCM,
-						Size:       int64(len(rawBytes)),
-					},
-					Metadata: events.AudioMetadata{
-						SampleRate: outputSampleRate,
-						Channels:   outputChannels,
-						Encoding:   "pcm_linear16",
-						DurationMs: durationMs,
-					},
-					GeneratedFrom: "model",
-				})
-				s.outputChunkIndex++
+		// Emit audio.output event for session recording
+		if s.emitter != nil {
+			outputSampleRate := 24000
+			if chunk.MediaData.SampleRate > 0 {
+				outputSampleRate = chunk.MediaData.SampleRate
 			}
+			outputChannels := 1
+			if chunk.MediaData.Channels > 0 {
+				outputChannels = chunk.MediaData.Channels
+			}
+			const bytesPerSample = 2
+			durationMs := int64(len(rawBytes)) * 1000 / int64(outputSampleRate) / int64(outputChannels) / bytesPerSample
+
+			s.emitter.AudioOutput(&events.AudioOutputData{
+				ChunkIndex: s.outputChunkIndex,
+				Payload: events.BinaryPayload{
+					InlineData: rawBytes,
+					MIMEType:   mimeTypeAudioPCM,
+					Size:       int64(len(rawBytes)),
+				},
+				Metadata: events.AudioMetadata{
+					SampleRate: outputSampleRate,
+					Channels:   outputChannels,
+					Encoding:   "pcm_linear16",
+					DurationMs: durationMs,
+				},
+				GeneratedFrom: "model",
+			})
+			s.outputChunkIndex++
 		}
 	}
 
@@ -1100,11 +1101,19 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 	}
 
 	// Add audio if present (for real-time playback)
-	if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
-		audioData := []byte(*chunk.MediaDelta.Data)
+	if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+		sampleRate := chunk.MediaData.SampleRate
+		if sampleRate == 0 {
+			sampleRate = 24000
+		}
+		channels := chunk.MediaData.Channels
+		if channels == 0 {
+			channels = 1
+		}
 		elem.Audio = &AudioData{
-			Samples:    audioData,
-			SampleRate: 24000, // Default - could be extracted from metadata
+			Samples:    chunk.MediaData.Data,
+			SampleRate: sampleRate,
+			Channels:   channels,
 			Format:     AudioFormatPCM16,
 		}
 	}

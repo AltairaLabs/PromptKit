@@ -7,6 +7,32 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// StreamMediaData carries raw media bytes for streaming.
+// Data is always raw bytes, never base64. Providers decode at source.
+//
+// This type maps to pipeline-internal types at the StreamChunk/StreamElement boundary:
+//   - stage.AudioData: SampleRate, Channels
+//   - stage.ImageData: Width, Height, FrameNum
+//   - stage.VideoData: Width, Height, FrameRate, IsKeyFrame, FrameNum
+type StreamMediaData struct {
+	// Common fields
+	Data     []byte // Raw media bytes (PCM audio, JPEG frame, H.264 chunk, etc.)
+	MIMEType string // e.g., "audio/pcm", "image/jpeg", "video/h264"
+
+	// Audio metadata
+	SampleRate int // Sample rate in Hz (e.g., 16000, 24000). 0 if not audio.
+	Channels   int // Channel count (1=mono, 2=stereo). 0 if not audio.
+
+	// Visual metadata (image and video)
+	Width  int // Pixels. 0 if unknown or not visual.
+	Height int // Pixels. 0 if unknown or not visual.
+
+	// Video/image streaming metadata
+	FrameRate  float64 // FPS. 0 if not video.
+	IsKeyFrame bool    // True if this is a key frame (video only).
+	FrameNum   int64   // Sequence number for ordering frames/chunks.
+}
+
 // DefaultStreamBufferSize is the default buffer size for streaming channels.
 // A buffer of 32 prevents the streaming goroutine from blocking on every send
 // when the consumer is slow, while keeping memory usage reasonable.
@@ -28,9 +54,9 @@ type StreamChunk struct {
 	// Delta is the new content in this chunk
 	Delta string `json:"delta"`
 
-	// MediaDelta contains new media content in this chunk (audio, video, images)
-	// Uses the same MediaContent type as non-streaming messages for API consistency.
-	MediaDelta *types.MediaContent `json:"media_delta,omitempty"`
+	// MediaData contains raw streaming media bytes (audio, video, images).
+	// Data is always raw bytes, never base64. Providers decode at source.
+	MediaData *StreamMediaData `json:"-"`
 
 	// TokenCount is the total number of tokens so far
 	TokenCount int `json:"token_count"`

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a"
 )
@@ -78,14 +79,21 @@ func TestChunkToEvent_Text(t *testing.T) {
 }
 
 func TestChunkToEvent_Media(t *testing.T) {
-	fakeData := "ZmFrZQ=="
-	media := &types.MediaContent{MIMEType: "image/png", Data: &fakeData}
+	rawBytes := []byte("fake")
+	media := &providers.StreamMediaData{MIMEType: "image/png", Data: rawBytes}
 	evt := chunkToEvent(StreamChunk{Type: ChunkMedia, Media: media})
 	if evt.Kind != a2aserver.EventMedia {
 		t.Errorf("expected EventMedia, got %v", evt.Kind)
 	}
-	if evt.Media != media {
-		t.Error("expected media to be passed through")
+	if evt.Media == nil {
+		t.Fatal("expected media to be set")
+	}
+	if evt.Media.MIMEType != "image/png" {
+		t.Errorf("expected MIMEType %q, got %q", "image/png", evt.Media.MIMEType)
+	}
+	expectedB64 := "ZmFrZQ=="
+	if evt.Media.Data == nil || *evt.Media.Data != expectedB64 {
+		t.Errorf("expected base64 data %q, got %v", expectedB64, evt.Media.Data)
 	}
 }
 
@@ -317,7 +325,9 @@ type a2aTestResult struct{}
 func (r *a2aTestResult) HasPendingTools() bool                                 { return false }
 func (r *a2aTestResult) HasPendingClientTools() bool                           { return false }
 func (r *a2aTestResult) PendingClientTools() []a2aserver.PendingClientToolInfo { return nil }
-func (r *a2aTestResult) Parts() []types.ContentPart                            { return []types.ContentPart{types.NewTextPart("mock response")} }
-func (r *a2aTestResult) Text() string                                          { return "mock response" }
+func (r *a2aTestResult) Parts() []types.ContentPart {
+	return []types.ContentPart{types.NewTextPart("mock response")}
+}
+func (r *a2aTestResult) Text() string { return "mock response" }
 
 func a2aTextPtr(s string) *string { return &s }

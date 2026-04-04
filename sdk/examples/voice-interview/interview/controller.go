@@ -4,13 +4,11 @@ package interview
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
 	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/audio"
 	"github.com/AltairaLabs/PromptKit/sdk/examples/voice-interview/video"
@@ -212,11 +210,10 @@ func (c *Controller) runAudioStreaming() {
 				fmt.Printf("[%s] First audio chunk from mic: %d bytes\n", modeStr, len(audioData))
 			}
 			// Stream audio to the pipeline (works for both ASM and VAD modes)
-			audioDataStr := string(audioData)
 			chunk := &providers.StreamChunk{
-				MediaDelta: &types.MediaContent{
-					MIMEType: types.MIMETypeAudioWAV,
-					Data:     &audioDataStr,
+				MediaData: &providers.StreamMediaData{
+					MIMEType: "audio/pcm",
+					Data:     audioData,
 				},
 			}
 
@@ -315,14 +312,10 @@ func (c *Controller) handleResponseStream(respCh <-chan providers.StreamChunk) {
 			}
 
 			// Handle audio response
-			if chunk.MediaDelta != nil && chunk.MediaDelta.Data != nil {
+			if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
 				audioChunkCount++
-				// Decode base64 audio data from Gemini
-				audioData, err := base64.StdEncoding.DecodeString(*chunk.MediaDelta.Data)
-				if err != nil {
-					fmt.Printf("[RESPONSE ERROR] Failed to decode audio: %v\n", err)
-					continue
-				}
+				// Audio data is already raw bytes (decoded at source by provider)
+				audioData := chunk.MediaData.Data
 				c.emitEvent(EventAudioReceived, len(audioData))
 
 				if audioChunkCount == 1 {
@@ -417,9 +410,9 @@ func (c *Controller) processWebcamFrames() {
 
 			// Send frame to Gemini
 			chunk := &providers.StreamChunk{
-				MediaDelta: &types.MediaContent{
-					MIMEType: types.MIMETypeImageJPEG,
-					Data:     &frame.Base64,
+				MediaData: &providers.StreamMediaData{
+					MIMEType: "image/jpeg",
+					Data:     frame.Data,
 				},
 			}
 
@@ -462,9 +455,9 @@ func (c *Controller) sendWebcamFrame() {
 	}
 
 	chunk := &providers.StreamChunk{
-		MediaDelta: &types.MediaContent{
-			MIMEType: types.MIMETypeImageJPEG,
-			Data:     &frame.Base64,
+		MediaData: &providers.StreamMediaData{
+			MIMEType: "image/jpeg",
+			Data:     frame.Data,
 		},
 	}
 

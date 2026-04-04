@@ -218,7 +218,7 @@ func TestDuplexStateStore_BuildResultFromStateStore(t *testing.T) {
 // from the assistant is properly captured in the state store in duplex mode.
 //
 // TDD test - defines expected behavior:
-// 1. When the provider returns media responses (MediaDelta with audio/video)
+// 1. When the provider returns media responses (MediaData with audio/video)
 // 2. Then the assistant message in state store should have media content parts
 // 3. This should work the same as non-duplex mode response streaming
 //
@@ -326,12 +326,12 @@ func TestDuplexStateStore_MediaOutputCaptured(t *testing.T) {
 }
 
 // TestDuplexStateStore_PipelineCapturesMediaFromProvider verifies that when
-// the provider returns media (audio/video) via MediaDelta in StreamChunk,
+// the provider returns media (audio/video) via MediaData in StreamChunk,
 // it is properly converted to a Message with media parts and saved to state store.
 //
 // This is the TDD test for the actual fix needed in DuplexProviderStage.chunkToElement
 func TestDuplexStateStore_PipelineCapturesMediaFromProvider(t *testing.T) {
-	// Setup: Create a mock provider that returns audio in MediaDelta
+	// Setup: Create a mock provider that returns audio in MediaData
 	mockProvider := mock.NewStreamingProvider("test-mock", "mock-model", false)
 	mockProvider.WithAutoRespond("") // Will be configured after session creation
 
@@ -403,12 +403,12 @@ func TestDuplexStateStore_PipelineCapturesMediaFromProvider(t *testing.T) {
 	t.Logf("Result.MediaOutputs: %d", len(result.MediaOutputs))
 
 	// Currently this test documents the expected behavior:
-	// When the provider returns media in MediaDelta, it should be captured.
+	// When the provider returns media in MediaData, it should be captured.
 	// The mock provider doesn't currently return audio, so this test passes
 	// but serves as documentation of expected behavior.
 	//
 	// TODO: When implementing audio response support in the mock:
-	// 1. Configure mock to return audio in MediaDelta
+	// 1. Configure mock to return audio in MediaData
 	// 2. Verify assistant message has audio content parts
 	// 3. Verify MediaOutputs contains the audio
 }

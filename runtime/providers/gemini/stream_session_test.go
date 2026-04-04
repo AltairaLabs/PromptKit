@@ -333,34 +333,30 @@ func TestGeminiStreamSession_ReceiveAudioResponse(t *testing.T) {
 	// Receive response with audio
 	select {
 	case chunk := <-session.Response():
-		// Verify MediaDelta is populated
-		if chunk.MediaDelta == nil {
-			t.Fatal("Expected MediaDelta to be populated")
+		// Verify MediaData is populated (raw bytes, decoded from base64 at source)
+		if chunk.MediaData == nil {
+			t.Fatal("Expected MediaData to be populated")
 		}
 
-		if chunk.MediaDelta.MIMEType != "audio/pcm" {
-			t.Errorf("Expected MIMEType 'audio/pcm', got '%s'", chunk.MediaDelta.MIMEType)
+		if chunk.MediaData.MIMEType != "audio/pcm" {
+			t.Errorf("Expected MIMEType 'audio/pcm', got '%s'", chunk.MediaData.MIMEType)
 		}
 
-		if chunk.MediaDelta.Data == nil {
+		if len(chunk.MediaData.Data) == 0 {
 			t.Fatal("Expected Data to be populated")
 		}
 
-		if *chunk.MediaDelta.Data != "SGVsbG8gV29ybGQ=" {
-			t.Errorf("Expected base64 data 'SGVsbG8gV29ybGQ=', got '%s'", *chunk.MediaDelta.Data)
+		if string(chunk.MediaData.Data) != "Hello World" {
+			t.Errorf("Expected decoded data 'Hello World', got '%s'", string(chunk.MediaData.Data))
 		}
 
 		// Verify audio metadata is populated
-		if chunk.MediaDelta.Channels == nil {
-			t.Error("Expected Channels to be populated")
-		} else if *chunk.MediaDelta.Channels != 1 {
-			t.Errorf("Expected Channels to be 1, got %d", *chunk.MediaDelta.Channels)
+		if chunk.MediaData.Channels != 1 {
+			t.Errorf("Expected Channels to be 1, got %d", chunk.MediaData.Channels)
 		}
 
-		if chunk.MediaDelta.BitRate == nil {
-			t.Error("Expected BitRate (sample rate) to be populated")
-		} else if *chunk.MediaDelta.BitRate != 16000 {
-			t.Errorf("Expected BitRate to be 16000, got %d", *chunk.MediaDelta.BitRate)
+		if chunk.MediaData.SampleRate != 16000 {
+			t.Errorf("Expected SampleRate to be 16000, got %d", chunk.MediaData.SampleRate)
 		}
 
 		// Verify finish reason
@@ -429,12 +425,13 @@ func TestGeminiStreamSession_ReceiveMixedResponse(t *testing.T) {
 			t.Errorf("Expected text 'Here is your audio:', got '%s'", chunk.Content)
 		}
 
-		if chunk.MediaDelta == nil {
-			t.Fatal("Expected MediaDelta to be populated")
+		if chunk.MediaData == nil {
+			t.Fatal("Expected MediaData to be populated")
 		}
 
-		if *chunk.MediaDelta.Data != "YXVkaW8=" {
-			t.Errorf("Expected audio data 'YXVkaW8=', got '%s'", *chunk.MediaDelta.Data)
+		// "YXVkaW8=" is base64 for "audio" - producer decodes at source
+		if string(chunk.MediaData.Data) != "audio" {
+			t.Errorf("Expected decoded audio data 'audio', got '%s'", string(chunk.MediaData.Data))
 		}
 
 		// Verify finish reason is nil (not complete)

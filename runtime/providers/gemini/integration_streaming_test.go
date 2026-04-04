@@ -28,7 +28,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 	}
 
 	// Create provider
-	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
+	provider := NewProvider("gemini", "gemini-3.1-flash-live-preview", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
 		Temperature: 0.7,
 	}, false)
 
@@ -147,7 +147,7 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-3.1-flash-live-preview", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -220,9 +220,9 @@ func TestStreamingIntegration_ErrorHandling(t *testing.T) {
 			// Create provider with test API key
 			provider := &Provider{
 				BaseProvider: providers.BaseProvider{},
-				Model:        "gemini-2.0-flash-exp",
-				BaseURL:      "https://generativelanguage.googleapis.com/v1beta",
-				ApiKey:       tt.apiKey,
+				model:        "gemini-3.1-flash-live-preview",
+				baseURL:      "https://generativelanguage.googleapis.com/v1beta",
+				apiKey:       tt.apiKey,
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -261,7 +261,7 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-2.0-flash-exp", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-3.1-flash-live-preview", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

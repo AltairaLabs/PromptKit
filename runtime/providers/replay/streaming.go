@@ -336,11 +336,10 @@ func (s *StreamSession) sendAudioParts(msg arenaMessage) {
 			continue
 		}
 
-		audioStr := string(audioData)
 		if !s.safeSend(&providers.StreamChunk{
-			MediaDelta: &types.MediaContent{
+			MediaData: &providers.StreamMediaData{
+				Data:     audioData,
 				MIMEType: part.Media.MIMEType,
-				Data:     &audioStr,
 			},
 		}) {
 			return // Session closed, stop sending

@@ -35,7 +35,7 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 	// Create provider
 	provider := NewProvider(
 		"gemini-demo",
-		"gemini-2.0-flash-exp",
+		"gemini-3.1-flash-live-preview",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{Temperature: 0.7},
 		false,
@@ -84,12 +84,11 @@ func TestStreamingDemo_RealAPI(t *testing.T) {
 			fullResponse += chunk.Content
 			receivedChunks = true
 
-			// Check for audio in MediaDelta (first-class field)
-			if chunk.MediaDelta != nil {
+			// Check for audio in MediaData (raw bytes)
+			if chunk.MediaData != nil {
 				audioChunks++
-				audioData := *chunk.MediaDelta.Data // Base64 string
-				fmt.Printf("🎵 [Chunk %d] Received AUDIO: mime=%s, size=%d bytes (base64)\n",
-					chunkCount, chunk.MediaDelta.MIMEType, len(audioData))
+				fmt.Printf("🎵 [Chunk %d] Received AUDIO: mime=%s, size=%d bytes (raw)\n",
+					chunkCount, chunk.MediaData.MIMEType, len(chunk.MediaData.Data))
 			}
 
 			if chunk.Content != "" {

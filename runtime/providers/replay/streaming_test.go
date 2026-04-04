@@ -506,8 +506,8 @@ func TestStreamSession_AudioParts(t *testing.T) {
 	// Should receive audio chunk
 	select {
 	case chunk := <-session.Response():
-		if chunk.MediaDelta == nil {
-			t.Error("expected media delta")
+		if chunk.MediaData == nil {
+			t.Error("expected media data")
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Error("timeout waiting for audio")
@@ -559,8 +559,8 @@ func TestStreamSession_AudioFromFile(t *testing.T) {
 	// Should receive audio chunk
 	select {
 	case chunk := <-session.Response():
-		if chunk.MediaDelta == nil {
-			t.Error("expected media delta from file")
+		if chunk.MediaData == nil {
+			t.Error("expected media data from file")
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Error("timeout waiting for audio")
