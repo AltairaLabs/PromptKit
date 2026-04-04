@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -900,36 +901,102 @@ func (s *ProviderStage) processStreamChunks(
 	return content, toolCalls, costInfo, nil
 }
 
-// emitChunkElement creates and emits a streaming element for a chunk.
+// emitChunkElement creates and emits streaming element(s) for a chunk.
+// Handles both text (Delta) and media (MediaData) content.
 func (s *ProviderStage) emitChunkElement(
 	ctx context.Context,
 	chunk *providers.StreamChunk,
 	metadata map[string]interface{},
 	output chan<- StreamElement,
 ) error {
-	if chunk.Delta == "" {
-		return nil
+	// Emit text element if present
+	if chunk.Delta != "" {
+		elem := NewTextElement(chunk.Delta)
+		elem.Timestamp = timeNow()
+		elem.Priority = PriorityNormal
+
+		for k, v := range metadata {
+			elem.Metadata[k] = v
+		}
+
+		elem.Metadata["token_count"] = chunk.TokenCount
+		if chunk.FinishReason != nil {
+			elem.Metadata["finish_reason"] = *chunk.FinishReason
+		}
+
+		select {
+		case output <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
-	elem := NewTextElement(chunk.Delta)
-	elem.Timestamp = timeNow()
-	elem.Priority = PriorityNormal
+	// Emit media element if present
+	if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+		elem := StreamMediaToElement(chunk.MediaData)
 
-	for k, v := range metadata {
-		elem.Metadata[k] = v
+		for k, v := range metadata {
+			elem.Metadata[k] = v
+		}
+
+		select {
+		case output <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
-	elem.Metadata["token_count"] = chunk.TokenCount
-	if chunk.FinishReason != nil {
-		elem.Metadata["finish_reason"] = *chunk.FinishReason
+	return nil
+}
+
+// StreamMediaToElement converts a StreamMediaData to a StreamElement.
+// Routes by MIME type: audio/* → AudioData, video/* → VideoData, image/* → ImageData.
+func StreamMediaToElement(media *providers.StreamMediaData) StreamElement {
+	elem := StreamElement{
+		Metadata:  make(map[string]interface{}),
+		Timestamp: timeNow(),
 	}
 
-	select {
-	case output <- elem:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	switch {
+	case strings.HasPrefix(media.MIMEType, "audio/"):
+		sampleRate := media.SampleRate
+		if sampleRate == 0 {
+			sampleRate = 16000
+		}
+		channels := media.Channels
+		if channels == 0 {
+			channels = 1
+		}
+		elem.Audio = &AudioData{
+			Samples:    media.Data,
+			SampleRate: sampleRate,
+			Channels:   channels,
+			Format:     AudioFormatPCM16,
+		}
+
+	case strings.HasPrefix(media.MIMEType, "video/"):
+		elem.Video = &VideoData{
+			Data:       media.Data,
+			MIMEType:   media.MIMEType,
+			Width:      media.Width,
+			Height:     media.Height,
+			FrameRate:  media.FrameRate,
+			IsKeyFrame: media.IsKeyFrame,
+			FrameNum:   media.FrameNum,
+		}
+		elem.Priority = PriorityHigh
+
+	case strings.HasPrefix(media.MIMEType, "image/"):
+		elem.Image = &ImageData{
+			Data:     media.Data,
+			MIMEType: media.MIMEType,
+			Width:    media.Width,
+			Height:   media.Height,
+			FrameNum: media.FrameNum,
+		}
 	}
+
+	return elem
 }
 
 // toolCallResult holds the outcome of a single tool call execution,
