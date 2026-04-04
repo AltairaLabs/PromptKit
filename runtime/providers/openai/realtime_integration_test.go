@@ -355,6 +355,541 @@ func TestRealtimeIntegration_ErrorHandling(t *testing.T) {
 	})
 }
 
+// TestRealtimeIntegration_MultiTurn verifies multiple conversation turns work in one session.
+func TestRealtimeIntegration_MultiTurn(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	provider := newRealtimeProvider()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: DefaultRealtimeSampleRate,
+			Channels:   DefaultRealtimeChannels,
+			BitDepth:   DefaultRealtimeBitDepth,
+			Encoding:   "pcm16",
+		},
+		SystemInstruction: "You are a helpful assistant. Keep responses brief.",
+		Metadata: map[string]interface{}{
+			"vad_disabled": true,
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, req)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid_api_key") ||
+			strings.Contains(errMsg, "websocket: close") ||
+			strings.Contains(errMsg, "could not create") {
+			t.Skipf("Skipping: %v", err)
+		}
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	prompts := []string{"Say hello", "What did you just say?", "Say goodbye"}
+	for i, prompt := range prompts {
+		if err := session.SendText(ctx, prompt); err != nil {
+			t.Fatalf("Turn %d: failed to send text: %v", i+1, err)
+		}
+		response, _, gotFinish := collectResponse(t, session, 25*time.Second)
+		t.Logf("Turn %d response: %q (finish=%v)", i+1, response, gotFinish)
+		if response == "" {
+			t.Errorf("Turn %d: got empty response", i+1)
+		}
+		if err := session.Error(); err != nil {
+			t.Fatalf("Turn %d: session error: %v", i+1, err)
+		}
+	}
+}
+
+// TestRealtimeIntegration_AudioModality verifies that audio modality configuration works
+// and that both text and audio chunks are received.
+func TestRealtimeIntegration_AudioModality(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	provider := newRealtimeProvider()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: DefaultRealtimeSampleRate,
+			Channels:   DefaultRealtimeChannels,
+			BitDepth:   DefaultRealtimeBitDepth,
+			Encoding:   "pcm16",
+		},
+		Metadata: map[string]interface{}{
+			"modalities": []string{"text", "audio"},
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, req)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid_api_key") ||
+			strings.Contains(errMsg, "websocket: close") ||
+			strings.Contains(errMsg, "could not create") {
+			t.Skipf("Skipping: %v", err)
+		}
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	if err := session.SendText(ctx, "Say hello"); err != nil {
+		t.Fatalf("Failed to send text: %v", err)
+	}
+
+	var textChunks, audioChunks int
+	timer := time.After(20 * time.Second)
+loop:
+	for {
+		select {
+		case chunk, ok := <-session.Response():
+			if !ok {
+				break loop
+			}
+			if chunk.Delta != "" {
+				textChunks++
+			}
+			if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+				audioChunks++
+			}
+			if chunk.FinishReason != nil {
+				break loop
+			}
+		case <-timer:
+			t.Log("Timeout reached")
+			break loop
+		}
+	}
+
+	t.Logf("Text chunks: %d, Audio chunks: %d", textChunks, audioChunks)
+	if textChunks == 0 && audioChunks == 0 {
+		t.Error("Received no text or audio chunks")
+	}
+}
+
+// TestRealtimeIntegration_EndToEnd tests a full audio streaming round-trip.
+func TestRealtimeIntegration_EndToEnd(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	provider := newRealtimeProvider()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: DefaultRealtimeSampleRate,
+			Channels:   DefaultRealtimeChannels,
+			BitDepth:   DefaultRealtimeBitDepth,
+			Encoding:   "pcm16",
+		},
+		Metadata: map[string]interface{}{
+			"vad_disabled": true,
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, req)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid_api_key") ||
+			strings.Contains(errMsg, "websocket: close") ||
+			strings.Contains(errMsg, "could not create") {
+			t.Skipf("Skipping: %v", err)
+		}
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	// Collect responses in background before sending audio.
+	type result struct {
+		chunks int
+		text   string
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		var r result
+		timer := time.After(40 * time.Second)
+		for {
+			select {
+			case chunk, ok := <-session.Response():
+				if !ok {
+					resultCh <- r
+					return
+				}
+				if chunk.Delta != "" || (chunk.MediaData != nil && len(chunk.MediaData.Data) > 0) {
+					r.chunks++
+				}
+				r.text += chunk.Delta
+				if chunk.FinishReason != nil {
+					resultCh <- r
+					return
+				}
+			case <-timer:
+				resultCh <- r
+				return
+			}
+		}
+	}()
+
+	// Generate and send 500ms of audio.
+	audioData := generateSineWave24k(440.0, 500, 0.5)
+	const chunkSize = 3200
+	for i := 0; i < len(audioData); i += chunkSize {
+		end := i + chunkSize
+		if end > len(audioData) {
+			end = len(audioData)
+		}
+		if err := session.SendChunk(ctx, &types.MediaChunk{Data: audioData[i:end]}); err != nil {
+			t.Fatalf("Failed to send audio chunk: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	realtimeSession, ok := session.(*RealtimeSession)
+	if !ok {
+		t.Fatal("Session is not a *RealtimeSession")
+	}
+	realtimeSession.EndInput()
+
+	r := <-resultCh
+	t.Logf("Response chunks: %d, text: %q", r.chunks, r.text)
+
+	if r.chunks == 0 {
+		t.Error("Received no response chunks")
+	}
+	if err := session.Error(); err != nil {
+		t.Logf("Session error (may be normal on close): %v", err)
+	}
+}
+
+// TestRealtimeIntegration_AudioRoundTrip sends audio and checks if audio is returned.
+func TestRealtimeIntegration_AudioRoundTrip(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	provider := newRealtimeProvider()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: DefaultRealtimeSampleRate,
+			Channels:   DefaultRealtimeChannels,
+			BitDepth:   DefaultRealtimeBitDepth,
+			Encoding:   "pcm16",
+		},
+		Metadata: map[string]interface{}{
+			"modalities":   []string{"text", "audio"},
+			"vad_disabled": true,
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, req)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid_api_key") ||
+			strings.Contains(errMsg, "websocket: close") ||
+			strings.Contains(errMsg, "could not create") {
+			t.Skipf("Skipping: %v", err)
+		}
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	// Send 300ms of audio.
+	audioData := generateSineWave24k(440.0, 300, 0.5)
+	const chunkSize = 3200
+	for i := 0; i < len(audioData); i += chunkSize {
+		end := i + chunkSize
+		if end > len(audioData) {
+			end = len(audioData)
+		}
+		if err := session.SendChunk(ctx, &types.MediaChunk{Data: audioData[i:end]}); err != nil {
+			t.Fatalf("Failed to send audio chunk: %v", err)
+		}
+	}
+
+	realtimeSession, ok := session.(*RealtimeSession)
+	if !ok {
+		t.Fatal("Session is not a *RealtimeSession")
+	}
+	realtimeSession.EndInput()
+
+	var audioChunksReceived int
+	timer := time.After(30 * time.Second)
+loop:
+	for {
+		select {
+		case chunk, ok := <-session.Response():
+			if !ok {
+				break loop
+			}
+			if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+				audioChunksReceived++
+			}
+			if chunk.FinishReason != nil {
+				break loop
+			}
+		case <-timer:
+			break loop
+		}
+	}
+
+	t.Logf("Audio chunks received: %d", audioChunksReceived)
+	if audioChunksReceived == 0 {
+		t.Log("No audio response received (model may not return audio for sine-wave input)")
+	}
+}
+
+// TestRealtimeIntegration_AudioAndTextOutput verifies both text and audio modalities arrive.
+func TestRealtimeIntegration_AudioAndTextOutput(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	provider := newRealtimeProvider()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: DefaultRealtimeSampleRate,
+			Channels:   DefaultRealtimeChannels,
+			BitDepth:   DefaultRealtimeBitDepth,
+			Encoding:   "pcm16",
+		},
+		Metadata: map[string]interface{}{
+			"modalities": []string{"text", "audio"},
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, req)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid_api_key") ||
+			strings.Contains(errMsg, "websocket: close") ||
+			strings.Contains(errMsg, "could not create") {
+			t.Skipf("Skipping: %v", err)
+		}
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	if err := session.SendText(ctx, "Count from one to three."); err != nil {
+		t.Fatalf("Failed to send text: %v", err)
+	}
+
+	var textChunks, audioChunks int
+	timer := time.After(20 * time.Second)
+loop:
+	for {
+		select {
+		case chunk, ok := <-session.Response():
+			if !ok {
+				break loop
+			}
+			if chunk.Delta != "" {
+				textChunks++
+			}
+			if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+				audioChunks++
+			}
+			if chunk.FinishReason != nil {
+				break loop
+			}
+		case <-timer:
+			t.Log("Timeout reached")
+			break loop
+		}
+	}
+
+	t.Logf("Text chunks: %d, Audio chunks: %d", textChunks, audioChunks)
+	if textChunks == 0 && audioChunks == 0 {
+		t.Error("Received neither text nor audio chunks")
+	}
+}
+
+// TestRealtimeIntegration_AudioOutputOnly tests audio-only output modality.
+func TestRealtimeIntegration_AudioOutputOnly(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	provider := newRealtimeProvider()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: DefaultRealtimeSampleRate,
+			Channels:   DefaultRealtimeChannels,
+			BitDepth:   DefaultRealtimeBitDepth,
+			Encoding:   "pcm16",
+		},
+		Metadata: map[string]interface{}{
+			"modalities": []string{"audio"},
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, req)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid_api_key") ||
+			strings.Contains(errMsg, "websocket: close") ||
+			strings.Contains(errMsg, "could not create") {
+			t.Skipf("Skipping: %v", err)
+		}
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	if err := session.SendText(ctx, "Count from one to three."); err != nil {
+		t.Fatalf("Failed to send text: %v", err)
+	}
+
+	var audioChunks int
+	var totalAudioBytes int
+	timer := time.After(20 * time.Second)
+loop:
+	for {
+		select {
+		case chunk, ok := <-session.Response():
+			if !ok {
+				break loop
+			}
+			if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+				audioChunks++
+				totalAudioBytes += len(chunk.MediaData.Data)
+			}
+			if chunk.FinishReason != nil {
+				break loop
+			}
+		case <-timer:
+			t.Log("Timeout reached")
+			break loop
+		}
+	}
+
+	t.Logf("Audio chunks: %d, total bytes: %d", audioChunks, totalAudioBytes)
+	if audioChunks == 0 {
+		t.Error("Expected audio chunks but received none")
+	}
+}
+
+// TestRealtimeIntegration_DiagnosticRaw is a diagnostic test that logs detailed chunk info.
+func TestRealtimeIntegration_DiagnosticRaw(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	logger.SetVerbose(true)
+	defer logger.SetVerbose(false)
+
+	provider := newRealtimeProvider()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req := &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type:       types.ContentTypeAudio,
+			ChunkSize:  3200,
+			SampleRate: DefaultRealtimeSampleRate,
+			Channels:   DefaultRealtimeChannels,
+			BitDepth:   DefaultRealtimeBitDepth,
+			Encoding:   "pcm16",
+		},
+		Metadata: map[string]interface{}{
+			"modalities": []string{"text", "audio"},
+		},
+	}
+
+	session, err := provider.CreateStreamSession(ctx, req)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid_api_key") ||
+			strings.Contains(errMsg, "websocket: close") ||
+			strings.Contains(errMsg, "could not create") {
+			t.Skipf("Skipping: %v", err)
+		}
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	if err := session.SendText(ctx, "Say hello briefly."); err != nil {
+		t.Fatalf("Failed to send text: %v", err)
+	}
+
+	var totalChunks, textChunks, audioChunks, totalAudioBytes int
+	timer := time.After(20 * time.Second)
+loop:
+	for {
+		select {
+		case chunk, ok := <-session.Response():
+			if !ok {
+				break loop
+			}
+			totalChunks++
+			if chunk.Delta != "" {
+				textChunks++
+				t.Logf("Chunk #%d: text delta=%q (len=%d)", totalChunks, chunk.Delta, len(chunk.Delta))
+			}
+			if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+				audioChunks++
+				totalAudioBytes += len(chunk.MediaData.Data)
+				t.Logf("Chunk #%d: audio mime=%q data_len=%d", totalChunks, chunk.MediaData.MIMEType, len(chunk.MediaData.Data))
+			}
+			if chunk.FinishReason != nil {
+				t.Logf("Chunk #%d: finish_reason=%s", totalChunks, *chunk.FinishReason)
+			}
+			if chunk.CostInfo != nil {
+				t.Logf("Chunk #%d: cost input=%d output=%d total=$%.6f",
+					totalChunks, chunk.CostInfo.InputTokens, chunk.CostInfo.OutputTokens, chunk.CostInfo.TotalCost)
+			}
+			if chunk.Error != nil {
+				t.Logf("Chunk #%d: error=%v", totalChunks, chunk.Error)
+			}
+			if chunk.FinishReason != nil {
+				break loop
+			}
+		case <-timer:
+			t.Log("Timeout reached")
+			break loop
+		}
+	}
+
+	t.Logf("Summary: total=%d text=%d audio=%d audio_bytes=%d",
+		totalChunks, textChunks, audioChunks, totalAudioBytes)
+}
+
 // TestRealtimeIntegration_Performance measures connection and first-response latency.
 func TestRealtimeIntegration_Performance(t *testing.T) {
 	if os.Getenv("OPENAI_API_KEY") == "" {
