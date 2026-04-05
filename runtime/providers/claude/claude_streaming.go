@@ -88,39 +88,38 @@ func (p *Provider) PredictStream(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Make HTTP request
+	// Each retry re-constructs the HTTP request with fresh headers
+	// (auth tokens may have rotated between attempts) and a fresh body
+	// reader. The request factory is called once per attempt by the
+	// retry driver.
 	url := p.messagesURL()
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+		httpReq.Header.Set("Accept", "text/event-stream")
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		return httpReq, nil
 	}
 
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	// Apply authentication
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-	}
-
-	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	if err := providers.CheckHTTPError(resp, url); err != nil {
-		return nil, err
-	}
-
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	idleBody := providers.NewIdleTimeoutReader(resp.Body, p.StreamIdleTimeout())
-	scanner := providers.NewSSEScanner(idleBody)
-
-	go p.streamResponse(ctx, idleBody, scanner, outChan)
-
-	return outChan, nil
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:       p.StreamRetryPolicy(),
+		Budget:       p.StreamRetryBudget(),
+		ProviderName: p.ID(),
+		Host:         providers.HostFromURL(url),
+		IdleTimeout:  p.StreamIdleTimeout(),
+		RequestFn:    requestFn,
+		Client:       p.GetStreamingHTTPClient(),
+	}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
+		scanner := providers.NewSSEScanner(idleBody)
+		p.streamResponse(ctx, idleBody, scanner, outChan)
+	})
 }
 
 // processClaudeContentDeltaInternal handles content_block_delta events with pre-parsed delta

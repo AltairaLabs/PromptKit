@@ -569,35 +569,7 @@ func (p *Provider) predictStreamWithResponses(
 		return httpReq, nil
 	}
 
-	// Acquire a concurrent-stream slot before any HTTP work. A nil
-	// semaphore is a no-op; a saturated semaphore blocks until the
-	// caller's ctx is done, at which point we return the ctx error
-	// and the rejection counter is emitted by AcquireStreamSlot.
-	if acqErr := p.AcquireStreamSlot(ctx); acqErr != nil {
-		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
-	}
-	slotReleased := false
-	defer func() {
-		if !slotReleased {
-			p.ReleaseStreamSlot()
-		}
-	}()
-
-	metrics := providers.DefaultStreamMetrics()
-	metrics.StreamsInFlightInc(p.ID())
-	metrics.ProviderCallsInFlightInc(p.ID())
-	// Release the in-flight counters if we fail before spawning the
-	// stream goroutine. On success the goroutine owns the decrement via
-	// its deferred release below.
-	released := false
-	defer func() {
-		if !released {
-			metrics.StreamsInFlightDec(p.ID())
-			metrics.ProviderCallsInFlightDec(p.ID())
-		}
-	}()
-
-	result, err := providers.OpenStreamWithRetryRequest(ctx, &providers.StreamRetryRequest{
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
 		Policy:       p.StreamRetryPolicy(),
 		Budget:       p.StreamRetryBudget(),
 		ProviderName: p.ID(),
@@ -605,25 +577,7 @@ func (p *Provider) predictStreamWithResponses(
 		IdleTimeout:  p.StreamIdleTimeout(),
 		RequestFn:    requestFn,
 		Client:       p.GetStreamingHTTPClient(),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	released = true
-	slotReleased = true
-	providerID := p.ID()
-	go func() {
-		defer func() {
-			metrics.StreamsInFlightDec(providerID)
-			metrics.ProviderCallsInFlightDec(providerID)
-			p.ReleaseStreamSlot()
-		}()
-		p.streamResponsesResponse(ctx, result.Body, outChan)
-	}()
-
-	return outChan, nil
+	}, p.streamResponsesResponse)
 }
 
 // sendFinalChunk sends the final stream chunk with accumulated content
