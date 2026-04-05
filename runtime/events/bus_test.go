@@ -818,3 +818,92 @@ func TestPublishConcurrentWithClose(t *testing.T) {
 		wg.Wait()
 	}
 }
+
+// --- Environment variable configuration (AltairaLabs/PromptKit#853) ---
+
+func TestNewEventBus_EnvVarDefaults(t *testing.T) {
+	// Not t.Parallel — t.Setenv requires a serial test.
+	t.Setenv(EnvEventBusBufferSize, "2500")
+	t.Setenv(EnvEventBusWorkerPoolSize, "25")
+	t.Setenv(EnvEventBusSubscriberTimeout, "12s")
+
+	bus := NewEventBus()
+	defer bus.Close()
+
+	if got := cap(bus.eventCh); got != 2500 {
+		t.Errorf("buffer size = %d, want 2500 from env", got)
+	}
+	if got := bus.workerPoolSize; got != 25 {
+		t.Errorf("worker pool size = %d, want 25 from env", got)
+	}
+	if got := bus.subscriberTimeout; got != 12*time.Second {
+		t.Errorf("subscriber timeout = %v, want 12s from env", got)
+	}
+}
+
+func TestNewEventBus_ExplicitOptionsOverrideEnv(t *testing.T) {
+	// Explicit BusOption arguments must win over env vars so tests and
+	// programmatic callers retain deterministic behavior regardless of
+	// the operator's environment.
+	t.Setenv(EnvEventBusBufferSize, "9999")
+	t.Setenv(EnvEventBusWorkerPoolSize, "99")
+
+	bus := NewEventBus(
+		WithEventBufferSize(50),
+		WithWorkerPoolSize(3),
+	)
+	defer bus.Close()
+
+	if got := cap(bus.eventCh); got != 50 {
+		t.Errorf("buffer size = %d, want 50 from explicit option (env was 9999)", got)
+	}
+	if got := bus.workerPoolSize; got != 3 {
+		t.Errorf("worker pool size = %d, want 3 from explicit option (env was 99)", got)
+	}
+}
+
+func TestNewEventBus_InvalidEnvVarsFallBackToDefaults(t *testing.T) {
+	// Malformed or non-positive env vars must be ignored so a typo in
+	// the operator's config cannot silently turn the event bus off.
+	t.Setenv(EnvEventBusBufferSize, "not-a-number")
+	t.Setenv(EnvEventBusWorkerPoolSize, "-5")
+	t.Setenv(EnvEventBusSubscriberTimeout, "garbage")
+
+	bus := NewEventBus()
+	defer bus.Close()
+
+	if got := cap(bus.eventCh); got != DefaultEventBufferSize {
+		t.Errorf("buffer size = %d, want default %d after invalid env", got, DefaultEventBufferSize)
+	}
+	if got := bus.workerPoolSize; got != DefaultWorkerPoolSize {
+		t.Errorf("worker pool size = %d, want default %d after invalid env", got, DefaultWorkerPoolSize)
+	}
+	if got := bus.subscriberTimeout; got != DefaultSubscriberTimeout {
+		t.Errorf("subscriber timeout = %v, want default %v after invalid env", got, DefaultSubscriberTimeout)
+	}
+}
+
+func TestNewEventBus_UnsetEnvVarsUseDefaults(t *testing.T) {
+	// Unset/empty env vars (the common case for existing deployments)
+	// must preserve the package defaults exactly — this is the
+	// backwards-compat guarantee that makes the env-var path safe to
+	// ship. envDefaultBusConfig treats empty-string the same as unset,
+	// so t.Setenv("") is sufficient isolation without needing
+	// os.Unsetenv (which doesn't restore the parent environment).
+	t.Setenv(EnvEventBusBufferSize, "")
+	t.Setenv(EnvEventBusWorkerPoolSize, "")
+	t.Setenv(EnvEventBusSubscriberTimeout, "")
+
+	bus := NewEventBus()
+	defer bus.Close()
+
+	if got := cap(bus.eventCh); got != DefaultEventBufferSize {
+		t.Errorf("buffer size = %d, want default %d with unset env", got, DefaultEventBufferSize)
+	}
+	if got := bus.workerPoolSize; got != DefaultWorkerPoolSize {
+		t.Errorf("worker pool size = %d, want default %d with unset env", got, DefaultWorkerPoolSize)
+	}
+	if got := bus.subscriberTimeout; got != DefaultSubscriberTimeout {
+		t.Errorf("subscriber timeout = %v, want default %v with unset env", got, DefaultSubscriberTimeout)
+	}
+}
