@@ -49,9 +49,13 @@ type failureMode struct {
 	// response headers, before any SSE data is written. This simulates
 	// the h2 stream reset we saw on gpt-5-pro.
 	preFirstChunkRate float64
-	// midStreamRate is the probability that a request will succeed
-	// with the first few chunks, then have its connection hijacked.
-	// Tests whether retry correctly refuses to re-emit partial content.
+	// midStreamRate is the probability that a request will have the
+	// connection hijacked mid-SSE-frame — one complete delta chunk is
+	// delivered (flushed), then a partial second chunk without the
+	// trailing blank line, then abrupt close. This produces a scanner
+	// error on the client side AFTER the first content chunk has been
+	// forwarded downstream, testing whether retry correctly refuses
+	// to fire (and thus cannot re-emit partial content).
 	midStreamRate float64
 	// firstChunkDelay is a fixed delay applied before the first SSE
 	// data event is written. Simulates reasoning-model initial latency.
@@ -135,13 +139,7 @@ func (f *fakeOpenAI) handle(w http.ResponseWriter, _ *http.Request) {
 	cum += mode.midStreamRate
 	if bucket < cum {
 		f.midStreamKills.Add(1)
-		writeChunks(w, 2) // first two deltas, then die
-		if hj, ok := w.(http.Hijacker); ok {
-			conn, _, err := hj.Hijack()
-			if err == nil {
-				_ = conn.Close()
-			}
-		}
+		writeMidStreamKill(w)
 		return
 	}
 
@@ -157,6 +155,62 @@ func (f *fakeOpenAI) handle(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeChunks(w, 3)
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
+}
+
+// writeMidStreamKill simulates a real mid-stream failure: write one
+// complete SSE event (including trailing blank line, so the retry
+// driver's peekFirstSSEEvent is satisfied and returns its buffered
+// bytes to the stream consumer), then write the prefix of a second
+// event WITHOUT closing the frame, then hijack the connection.
+//
+// The downstream SSE scanner sees the first event cleanly, delivers
+// its content to the caller via a StreamChunk, then blocks reading
+// the second event, sees partial bytes, and hits an unexpected EOF
+// when the connection closes. That error propagates as a terminal
+// StreamChunk with Error set.
+//
+// Critically, this is the failure mode Phase 1 must NOT retry on —
+// by the time the failure happens, content has been forwarded
+// downstream and a retry would cause double-emission.
+func writeMidStreamKill(w http.ResponseWriter) {
+	flusher, _ := w.(http.Flusher)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	// One complete delta event — satisfies the retry driver's peek
+	// and becomes the first content StreamChunk seen by the caller.
+	first := map[string]any{
+		"id":      "chatcmpl-loadtest",
+		"object":  "chat.completion.chunk",
+		"created": 1,
+		"model":   "gpt-4o",
+		"choices": []map[string]any{{
+			"index":         0,
+			"delta":         map[string]any{"content": "chunk-0 "},
+			"finish_reason": nil,
+		}},
+	}
+	b, _ := json.Marshal(first)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	// Partial second delta with NO trailing newline — the scanner will
+	// hit EOF mid-frame when we hijack+close below.
+	_, _ = io.WriteString(w, `data: {"id":"chatcmpl-loadtest","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"par`)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	if hj, ok := w.(http.Hijacker); ok {
+		if conn, _, hErr := hj.Hijack(); hErr == nil {
+			_ = conn.Close()
+		}
+	}
 }
 
 // writeChunks emits n delta chunks plus a final stop-reason chunk.
@@ -526,6 +580,159 @@ func TestStreamRetryLoad_SemaphoreBackPressure(t *testing.T) {
 		t.Error("expected some back-pressure evidence (rejections or failures)")
 	}
 	assertInFlightGaugesZero(t, reg, "loadtest")
+}
+
+// Scenario: mid-stream failure invariant. The critical safety property
+// of Phase 1 retry is that retry MUST NOT fire once a content chunk
+// has been forwarded downstream. Violation would cause double-emission
+// of content (corrupting tool-call arg accumulation, reasoning
+// buffers, etc.) — the worst kind of bug because it's silent.
+//
+// This scenario drives N concurrent requests against a fake upstream
+// that delivers one complete SSE event (satisfying the pre-first-chunk
+// peek) then hijacks the connection mid-frame. The expected behavior:
+//
+//  1. The retry driver's peek returns successfully with the first
+//     event — retry loop exits, result is handed to the stream
+//     goroutine.
+//  2. The stream goroutine's SSE scanner reads and emits the first
+//     delta chunk to the caller.
+//  3. Continued reads hit unexpected EOF mid-frame; scanner returns
+//     an error which the provider surfaces as a terminal StreamChunk
+//     with Error set.
+//  4. Retry driver is already out of scope; the error propagates to
+//     the caller without any retry attempt being recorded.
+//
+// The invariant this scenario enforces:
+//
+//   - Total server hits equals N (no retries attempted)
+//   - stream_retries_total is zero across all outcomes
+//   - Every caller sees at least one delta content chunk (the first)
+//   - Every caller sees a terminal error (stream did not complete
+//     normally)
+//   - Total content fragments across all callers == N (exactly one
+//     per caller, no duplication)
+//   - In-flight gauges return to zero (stream goroutines cleaned up)
+//
+// If this scenario ever starts failing, the safety property of Phase 1
+// has regressed and retry is double-emitting content.
+func TestStreamRetryLoad_MidStreamFailureInvariant(t *testing.T) {
+	_, reg := installTestMetrics(t)
+	fake := newFakeOpenAI()
+	defer fake.Close()
+	fake.setMode(failureMode{midStreamRate: 1.0})
+
+	// Retry enabled with a generous policy to prove it does NOT fire
+	// for mid-stream failures even when allowed. If Phase 1's window
+	// enforcement is broken, this test will see either more than N
+	// server hits or retry counter increments.
+	p := buildProvider(fake.URL(), providerOpts{
+		policy: providers.StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  3,
+			InitialDelay: 5 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+		},
+		budget: providers.NewRetryBudget(100, 100),
+	})
+
+	const N = 20
+	type capture struct {
+		deltaCount int
+		sawError   bool
+		content    string
+	}
+	results := make([]capture, N)
+
+	var wg sync.WaitGroup
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			ch, err := p.PredictStream(ctx, providers.PredictionRequest{
+				Messages: []types.Message{{Role: "user", Content: "test"}},
+			})
+			if err != nil {
+				// A request failing before any channel is returned
+				// would indicate the initial HTTP dial failed; not
+				// what we're testing here. Record as an error seen.
+				results[idx] = capture{sawError: true}
+				return
+			}
+			var cap capture
+			for chunk := range ch {
+				if chunk.Error != nil {
+					cap.sawError = true
+				}
+				if chunk.Delta != "" {
+					cap.deltaCount++
+					cap.content += chunk.Delta
+				}
+			}
+			results[idx] = cap
+		}(i)
+	}
+	wg.Wait()
+
+	// Invariant 1: server saw exactly N requests — no retries fired.
+	if got := fake.totalRequests.Load(); got != N {
+		t.Errorf("invariant violated: expected exactly %d server hits "+
+			"(retry must NOT fire after first chunk), got %d", N, got)
+	}
+
+	// Invariant 2: retry counter should have zero increments for all
+	// outcomes. Phase 1's window enforcement must keep the retry
+	// driver from ever running its loop for these failures.
+	for _, outcome := range []string{"failed", "exhausted", "budget_exhausted", "success"} {
+		if got := labeledCounter(reg, "loadtest_stream_retries_total", "loadtest", "outcome", outcome); got != 0 {
+			t.Errorf("invariant violated: stream_retries_total{outcome=%q} = %v, "+
+				"expected 0 for mid-stream failures", outcome, got)
+		}
+	}
+
+	// Invariant 3: every caller sees at least one delta and a terminal
+	// error. If deltaCount is 0, the first-chunk delivery path is
+	// broken; if sawError is false, the caller got silent truncation
+	// (almost as bad as double-emission).
+	for i, r := range results {
+		if r.deltaCount == 0 {
+			t.Errorf("stream %d: expected at least 1 delta, got 0 (content=%q)",
+				i, r.content)
+		}
+		if !r.sawError {
+			t.Errorf("stream %d: expected terminal error after mid-stream kill, got none",
+				i)
+		}
+	}
+
+	// Invariant 4: total delta count across all callers equals N.
+	// The fake sends exactly one complete delta per request, so N
+	// successful first-chunk deliveries should yield N total deltas.
+	// More than N would indicate retry re-emitted content. Less
+	// than N would indicate some streams lost even their first chunk.
+	var totalDeltas int
+	for _, r := range results {
+		totalDeltas += r.deltaCount
+	}
+	if totalDeltas != N {
+		t.Errorf("invariant violated: total delta count = %d, expected %d "+
+			"(mismatch would indicate content duplication or lost first chunks)",
+			totalDeltas, N)
+	}
+
+	// Invariant 5: in-flight gauges return to zero.
+	assertInFlightGaugesZero(t, reg, "loadtest")
+
+	// Server-side sanity: every request was routed through the
+	// mid-stream kill path, not any other mode.
+	if got := fake.midStreamKills.Load(); got != N {
+		t.Errorf("expected %d mid-stream kills, got %d", N, got)
+	}
+
+	t.Logf("invariant validated: %d streams, %d deltas, %d mid-stream kills, 0 retries",
+		N, totalDeltas, fake.midStreamKills.Load())
 }
 
 // labeledCounter reads a counter matching both provider and an
