@@ -1093,6 +1093,260 @@ func runScaleRampTier(t *testing.T, p *Provider, fake *fakeOpenAI, concurrency i
 	}
 }
 
+// firstChunkMix describes one scenario in the first-chunk latency
+// validation test. Each mix exercises a different distribution of
+// failure modes so we can quantify:
+//
+//  1. How much Phase 1 pre-first-chunk retry actually catches (the
+//     `retries_total{outcome="success"}` counter).
+//  2. How much leaks through the mid-stream window — the fraction of
+//     failures Phase 1 cannot recover by design, and therefore the
+//     ceiling on what Phase 4 (dedup-aware resume) could hypothetically
+//     add. This is the load-bearing measurement for #864.
+//  3. Whether the `stream_first_chunk_latency_seconds` histogram has
+//     usable signal for realistic reasoning-model latencies, or whether
+//     the bucket boundaries need retuning.
+type firstChunkMix struct {
+	name          string
+	mode          failureMode
+	totalRequests int
+	concurrency   int
+}
+
+type firstChunkResult struct {
+	mix              firstChunkMix
+	ok               int64
+	failed           int64
+	serverTotal      int64
+	serverPreKills   int64
+	serverMidKills   int64
+	serverSuccesses  int64
+	retriesSuccess   float64 // retries_total{outcome="success"}
+	retriesFailed    float64 // retries_total{outcome="failed"}
+	retriesExhausted float64 // retries_total{outcome="exhausted"}
+	histCount        uint64
+	histSum          float64
+}
+
+// histAvgSeconds returns the mean first-chunk latency in seconds
+// (sum/count), or 0 if no observations were recorded.
+func (r firstChunkResult) histAvgSeconds() float64 {
+	if r.histCount == 0 {
+		return 0
+	}
+	return r.histSum / float64(r.histCount)
+}
+
+// catchRate returns the fraction of *failure-class* requests that
+// Phase 1 retry successfully recovered. A failure-class request is one
+// the fake server injected a failure into (pre-first-chunk kill or
+// mid-stream kill). Pre-first-chunk kills are recoverable by Phase 1;
+// mid-stream kills are not. The catch rate tells us what fraction of
+// real-world failures Phase 1 could rescue under this mix.
+//
+// Returns (caught, leaked, catchRateFrac).
+func (r firstChunkResult) catchRate() (caught, leaked int64, rate float64) {
+	caught = int64(r.retriesSuccess)
+	leaked = r.serverMidKills // mid-stream kills always leak by design
+	total := caught + leaked
+	if total == 0 {
+		return 0, 0, 0
+	}
+	return caught, leaked, float64(caught) / float64(total)
+}
+
+// TestStreamRetryLoad_FirstChunkLatencyValidation runs several
+// failure-mode mixes through the retry stack and measures the Phase 1
+// catch rate, the mid-stream leak rate, and the
+// `stream_first_chunk_latency_seconds` histogram distribution. The
+// primary output is the per-mix table logged at the end — that table
+// is the data #864 needs to decide whether Phase 4 dedup-aware resume
+// is worth building.
+//
+// Run with:
+//
+//	go test -tags=loadtest -timeout=5m -v \
+//	    -run TestStreamRetryLoad_FirstChunkLatencyValidation ./runtime/providers/openai/
+func TestStreamRetryLoad_FirstChunkLatencyValidation(t *testing.T) {
+	mixes := []firstChunkMix{
+		{
+			name:          "healthy-fast",
+			mode:          failureMode{},
+			totalRequests: 500,
+			concurrency:   100,
+		},
+		{
+			name:          "healthy-slow-reasoning",
+			mode:          failureMode{firstChunkDelay: 300 * time.Millisecond},
+			totalRequests: 200,
+			concurrency:   50,
+		},
+		{
+			name:          "pre-first-chunk-10pct",
+			mode:          failureMode{preFirstChunkRate: 0.10},
+			totalRequests: 500,
+			concurrency:   100,
+		},
+		{
+			name:          "mid-stream-10pct",
+			mode:          failureMode{midStreamRate: 0.10},
+			totalRequests: 500,
+			concurrency:   100,
+		},
+		{
+			name:          "mixed-5pre-5mid",
+			mode:          failureMode{preFirstChunkRate: 0.05, midStreamRate: 0.05},
+			totalRequests: 500,
+			concurrency:   100,
+		},
+	}
+
+	var results []firstChunkResult
+	for _, mix := range mixes {
+		results = append(results, runFirstChunkMix(t, mix))
+	}
+
+	// --- Per-mix assertions ---
+	for _, r := range results {
+		switch r.mix.name {
+		case "healthy-fast", "healthy-slow-reasoning":
+			// Histogram should have one observation per successful
+			// request, and the mean should track the injected
+			// firstChunkDelay (0 for fast, ~300ms for slow).
+			if r.histCount != uint64(r.ok) {
+				t.Errorf("%s: histogram count=%d, want %d (= ok count)", r.mix.name, r.histCount, r.ok)
+			}
+			if r.retriesSuccess != 0 || r.retriesFailed != 0 {
+				t.Errorf("%s: expected zero retries on healthy mix, got success=%.0f failed=%.0f",
+					r.mix.name, r.retriesSuccess, r.retriesFailed)
+			}
+		case "mid-stream-10pct":
+			// Phase 1 safety invariant: mid-stream failures must NOT
+			// trigger retries. If this counter is nonzero we'd be at
+			// risk of double-emitting content downstream. Covered by
+			// #869's invariant test too, but re-checked here under a
+			// different load shape.
+			if r.retriesSuccess != 0 || r.retriesFailed != 0 {
+				t.Errorf("%s: Phase 1 safety invariant violated — retries fired on mid-stream failures "+
+					"(success=%.0f failed=%.0f)", r.mix.name, r.retriesSuccess, r.retriesFailed)
+			}
+		case "pre-first-chunk-10pct":
+			// Phase 1 should catch most of these. We can't assert
+			// exact counts because the deterministic bucket rotation
+			// inside the fake may cause a request to hit pre-first
+			// kill twice in a row (both attempts), but the common
+			// case is one retry → success.
+			if r.retriesSuccess == 0 {
+				t.Errorf("%s: expected Phase 1 to catch some pre-first-chunk failures, got 0",
+					r.mix.name)
+			}
+		}
+	}
+
+	// --- Report ---
+	t.Log("")
+	t.Log("=== FIRST-CHUNK LATENCY MIX RESULTS ===")
+	t.Logf("%-25s | %4s | %4s | %7s | %7s | %10s | %10s | %12s | %10s",
+		"mix", "ok", "fail", "srv-pre", "srv-mid", "retry-ok", "retry-fail", "hist(n,avg)", "catch%")
+	t.Log("--------------------------+------+------+---------+---------+------------+------------+--------------+-----------")
+	for _, r := range results {
+		caught, leaked, rate := r.catchRate()
+		ratePct := "n/a"
+		if caught+leaked > 0 {
+			ratePct = fmt.Sprintf("%5.1f%%", rate*100)
+		}
+		t.Logf("%-25s | %4d | %4d | %7d | %7d | %10.0f | %10.0f | %5d %6.3fs | %10s",
+			r.mix.name, r.ok, r.failed,
+			r.serverPreKills, r.serverMidKills,
+			r.retriesSuccess, r.retriesFailed,
+			r.histCount, r.histAvgSeconds(),
+			ratePct,
+		)
+	}
+	t.Log("")
+	t.Log("catch% = retries_success / (retries_success + mid_stream_kills)")
+	t.Log("       = Phase 1 recovery rate out of failures that occurred in this mix")
+	t.Log("       = ceiling for Phase 4 (dedup resume) is 100% - catch%")
+	t.Log("")
+}
+
+// runFirstChunkMix runs a single mix end-to-end with fresh metrics,
+// fresh fake server, and fresh provider. Returns the collected
+// measurements.
+func runFirstChunkMix(t *testing.T, mix firstChunkMix) firstChunkResult {
+	t.Helper()
+
+	// Fresh metrics per mix so counters and histograms are scoped to
+	// this mix only.
+	providers.ResetDefaultStreamMetrics()
+	reg := prometheus.NewRegistry()
+	_ = providers.RegisterDefaultStreamMetrics(reg, "loadtest", nil)
+	t.Cleanup(providers.ResetDefaultStreamMetrics)
+
+	fake := newFakeOpenAI()
+	defer fake.Close()
+	fake.setMode(mix.mode)
+
+	p := buildProvider(fake.URL(), providerOpts{
+		policy: providers.StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 50 * time.Millisecond,
+			MaxDelay:     500 * time.Millisecond,
+		},
+	})
+
+	succ, fail := driveRequests(t, p, mix.totalRequests, mix.concurrency, 10*time.Second)
+
+	histCount, histSum := readHistogramSummary(reg, "loadtest_stream_first_chunk_latency_seconds", "loadtest")
+
+	return firstChunkResult{
+		mix:              mix,
+		ok:               succ,
+		failed:           fail,
+		serverTotal:      fake.totalRequests.Load(),
+		serverPreKills:   fake.preFirstKills.Load(),
+		serverMidKills:   fake.midStreamKills.Load(),
+		serverSuccesses:  fake.successes.Load(),
+		retriesSuccess:   labeledCounter(reg, "loadtest_stream_retries_total", "loadtest", "outcome", "success"),
+		retriesFailed:    labeledCounter(reg, "loadtest_stream_retries_total", "loadtest", "outcome", "failed"),
+		retriesExhausted: labeledCounter(reg, "loadtest_stream_retries_total", "loadtest", "outcome", "exhausted"),
+		histCount:        histCount,
+		histSum:          histSum,
+	}
+}
+
+// readHistogramSummary extracts the total sample count and sum from a
+// histogram for the given provider label. Returns (0, 0) if the
+// histogram has no samples or is absent. The mean is sum/count when
+// count > 0.
+func readHistogramSummary(reg *prometheus.Registry, metricName, providerID string) (count uint64, sum float64) {
+	mfs, _ := reg.Gather()
+	for _, mf := range mfs {
+		if mf.GetName() != metricName {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			var providerMatches bool
+			for _, lp := range m.GetLabel() {
+				if lp.GetName() == "provider" && lp.GetValue() == providerID {
+					providerMatches = true
+				}
+			}
+			if !providerMatches {
+				continue
+			}
+			h := m.GetHistogram()
+			if h == nil {
+				continue
+			}
+			count += h.GetSampleCount()
+			sum += h.GetSampleSum()
+		}
+	}
+	return count, sum
+}
+
 // labeledCounter reads a counter matching both provider and an
 // additional label (typically outcome or reason).
 func labeledCounter(reg *prometheus.Registry, metricName, providerID, labelKey, labelVal string) float64 {
