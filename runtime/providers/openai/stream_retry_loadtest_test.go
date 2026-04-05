@@ -72,12 +72,33 @@ type fakeOpenAI struct {
 	server *httptest.Server
 	mu     sync.RWMutex
 	mode   failureMode
+	herd   *herdState
 	// counters of what the fake actually did, for diagnostics
 	totalRequests  atomic.Int64
 	preFirstKills  atomic.Int64
 	midStreamKills atomic.Int64
 	status503s     atomic.Int64
 	successes      atomic.Int64
+}
+
+// herdState coordinates a synchronized thundering-herd kill across N
+// in-flight requests. When armed, the fake's handler sends response
+// headers, registers the request as camped at the barrier, then blocks
+// on `release`. The test waits for `allReady` (all N targets have
+// arrived), then closes `release` to kill every connection
+// simultaneously — producing the *synchronized* failure race the retry
+// budget was designed to contain.
+//
+// Unlike the existing AllPreFirstChunkFail scenario, which kills
+// connections as requests arrive sequentially, this exercises the
+// concurrent-contention path on RetryBudget.TryAcquire: all N retry
+// attempts fire at the same instant, race for the burst tokens, and
+// the rest must fail fast.
+type herdState struct {
+	target   int
+	arrived  atomic.Int32
+	allReady chan struct{} // closed when arrived reaches target
+	release  chan struct{} // closed to trigger the synchronized kill
 }
 
 func newFakeOpenAI() *fakeOpenAI {
@@ -101,11 +122,72 @@ func (f *fakeOpenAI) getMode() failureMode {
 	return f.mode
 }
 
+// armHerd installs a synchronized-kill barrier scoped to the next
+// `target` requests. Returns the barrier so the caller can wait for
+// assembly and trigger the kill. Calling armHerd while another herd
+// is active panics — there is no use case for overlapping herds.
+func (f *fakeOpenAI) armHerd(target int) *herdState {
+	s := &herdState{
+		target:   target,
+		allReady: make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+	f.mu.Lock()
+	if f.herd != nil {
+		f.mu.Unlock()
+		panic("armHerd called while another herd is still active")
+	}
+	f.herd = s
+	f.mu.Unlock()
+	return s
+}
+
+// disarmHerd clears the barrier so subsequent requests flow through
+// the normal handler path. Safe to call after `release` has been
+// closed and initial waiters have exited.
+func (f *fakeOpenAI) disarmHerd() {
+	f.mu.Lock()
+	f.herd = nil
+	f.mu.Unlock()
+}
+
+func (f *fakeOpenAI) getHerd() *herdState {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.herd
+}
+
 // handle serves a single request. It uses a deterministic rotation
 // keyed on the request count rather than true randomness so test runs
 // are reproducible for the same mode distribution.
 func (f *fakeOpenAI) handle(w http.ResponseWriter, _ *http.Request) {
 	n := f.totalRequests.Add(1)
+
+	// Herd barrier: if armed, send headers and camp the request on
+	// the barrier until the test releases every waiter at once. This
+	// produces the synchronized thundering-herd failure that
+	// exercises concurrent RetryBudget.TryAcquire contention. Takes
+	// precedence over failureMode so a herd can be set up against an
+	// otherwise healthy fake.
+	if h := f.getHerd(); h != nil {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		if arrived := h.arrived.Add(1); arrived == int32(h.target) {
+			close(h.allReady)
+		}
+		<-h.release
+		f.preFirstKills.Add(1)
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				_ = conn.Close()
+			}
+		}
+		return
+	}
+
 	mode := f.getMode()
 
 	// Bucket the request into one of the failure modes by mapping its
@@ -1091,6 +1173,164 @@ func runScaleRampTier(t *testing.T, p *Provider, fake *fakeOpenAI, concurrency i
 		latencyP50:        p50,
 		latencyP99:        p99,
 	}
+}
+
+// TestStreamRetryLoad_HerdKillSynchronization validates Phase 2's
+// anti-amplification behaviour under true concurrent contention on
+// RetryBudget.TryAcquire. Closes out the last open scenario in #867.
+//
+// The existing AllPreFirstChunkFail scenario kills each connection as
+// the request arrives, so by the time N clients are failing they are
+// failing *sequentially* — TryAcquire calls don't race. That weakly
+// validates the budget's containment guarantee but leaves the
+// concurrent case (the failure mode the budget was actually designed
+// for: one h2 connection reset killing all N streams it multiplexes
+// at the same instant) unexercised.
+//
+// This scenario installs a "herd barrier" in the fake: N clients all
+// hit the server, camp at the barrier, and only get killed when the
+// test closes the release channel. Every client's read loop unblocks
+// in the same instant, every retry's budget check fires in the same
+// instant, and the burst tokens serialize under concurrent contention.
+//
+// Invariants asserted:
+//
+//  1. Server saw exactly N initial requests (the herd) plus at most
+//     ~burst retries — the budget must cap retry amplification under
+//     synchronized load the same way it does under sequential load.
+//  2. A small number of retries (roughly equal to burst) succeed —
+//     the ones that won the token race.
+//  3. The rest fail with `budget_exhausted` — fail-fast, not queued.
+//  4. In-flight gauges return to zero — no leaked streams from the
+//     thundering-herd moment.
+func TestStreamRetryLoad_HerdKillSynchronization(t *testing.T) {
+	_, reg := installTestMetrics(t)
+	fake := newFakeOpenAI()
+	defer fake.Close()
+
+	// Budget: rate=1/s burst=5. Tight enough that most of 100 concurrent
+	// retries must fail fast. Semaphore is generous so it isn't the
+	// limiter.
+	const (
+		herdSize    = 100
+		budgetBurst = 5
+	)
+	budget := providers.NewRetryBudget(1, budgetBurst)
+	p := buildProvider(fake.URL(), providerOpts{
+		policy: providers.StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+		},
+		budget:    budget,
+		semaphore: providers.NewStreamSemaphore(200),
+	})
+
+	herd := fake.armHerd(herdSize)
+
+	// Launch all herdSize clients. They will all camp at the barrier
+	// in the fake's handler, blocking on `release`.
+	var succ, fail atomic.Int64
+	var wg sync.WaitGroup
+	for i := 0; i < herdSize; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			ch, err := p.PredictStream(ctx, providers.PredictionRequest{
+				Messages: []types.Message{{Role: "user", Content: "go"}},
+			})
+			if err != nil {
+				fail.Add(1)
+				return
+			}
+			if drainStream(ch) != nil {
+				fail.Add(1)
+			} else {
+				succ.Add(1)
+			}
+		}()
+	}
+
+	// Wait until every herd member has assembled at the barrier. This
+	// guarantees the upcoming kill is truly synchronized — if we fired
+	// release too early, stragglers would miss it and pass through the
+	// normal handler path.
+	select {
+	case <-herd.allReady:
+	case <-time.After(5 * time.Second):
+		t.Fatal("herd did not assemble within 5s")
+	}
+
+	// Disarm BEFORE releasing: the already-camped handlers are holding
+	// a local reference to `herd`, so their blocked read on
+	// herd.release is unaffected by disarm. But any request arriving
+	// *after* this point (the retries that win the budget token race)
+	// must see getHerd() == nil so they go through the success path.
+	// If we disarmed after releasing, retries would arrive while the
+	// barrier was still installed, read the already-closed release
+	// channel, and get killed too.
+	fake.disarmHerd()
+
+	// Thundering-herd moment: every blocked handler unblocks, hijacks
+	// its connection, closes it. Every client's read loop sees
+	// unexpected EOF. Every retry decision fires at once, racing on
+	// the same budget token bucket.
+	close(herd.release)
+
+	wg.Wait()
+
+	// --- Assertions ---
+	totalServerHits := fake.totalRequests.Load()
+	preKills := fake.preFirstKills.Load()
+	budgetExhausted := labeledCounter(reg, "loadtest_stream_retries_total", "loadtest", "outcome", "budget_exhausted")
+	retriesSuccess := labeledCounter(reg, "loadtest_stream_retries_total", "loadtest", "outcome", "success")
+	retriesFailed := labeledCounter(reg, "loadtest_stream_retries_total", "loadtest", "outcome", "failed")
+
+	t.Logf("results: herd=%d ok=%d fail=%d | server: total=%d preKills=%d",
+		herdSize, succ.Load(), fail.Load(), totalServerHits, preKills)
+	t.Logf("retries: success=%.0f failed=%.0f budget_exhausted=%.0f",
+		retriesSuccess, retriesFailed, budgetExhausted)
+
+	// Invariant 1: server saw the initial herd plus at most ~burst
+	// retries. Without the budget we'd see ~2× herd hits because every
+	// client would retry up to MaxAttempts. The budget must contain
+	// the amplification even under synchronized contention.
+	//
+	// Upper bound: herdSize + budgetBurst + small slack for any token
+	// refill during the retry backoff window (10–50 ms at rate=1/s is
+	// a fractional token, so the floor of that window's refill is 0
+	// but we add 2 for scheduler jitter).
+	maxExpectedHits := herdSize + budgetBurst + 2
+	if totalServerHits > int64(maxExpectedHits) {
+		t.Errorf("budget failed to contain synchronized retry amplification: "+
+			"server saw %d hits for %d clients (expected ≤ %d with burst=%d)",
+			totalServerHits, herdSize, maxExpectedHits, budgetBurst)
+	}
+
+	// Invariant 2: at least one retry must have won the token race.
+	// If this is 0 the test isn't exercising the contention path we
+	// care about — either the herd failed to assemble or the budget
+	// was too tight.
+	if retriesSuccess < 1 {
+		t.Errorf("expected at least one retry to win the budget token race, got %.0f",
+			retriesSuccess)
+	}
+
+	// Invariant 3: most retry attempts must fail fast via the budget.
+	// With burst=5 and herdSize=100, ~95 retries should hit the empty
+	// bucket. Assert a generous lower bound to tolerate token refill.
+	if budgetExhausted < 50 {
+		t.Errorf("expected most retries to fail fast via budget_exhausted, got %.0f",
+			budgetExhausted)
+	}
+
+	// Invariant 4: the in-flight gauges must return to zero — the
+	// synchronized kill must not leave any stream goroutines wedged
+	// on a half-closed channel.
+	assertInFlightGaugesZero(t, reg, "loadtest")
 }
 
 // firstChunkMix describes one scenario in the first-chunk latency
