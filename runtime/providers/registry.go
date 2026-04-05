@@ -105,6 +105,12 @@ type ProviderSpec struct {
 	// back to DefaultStreamIdleTimeout. Pre-parsed from
 	// config.Provider.StreamIdleTimeout by the arena loader.
 	StreamIdleTimeout time.Duration
+
+	// StreamRetry configures bounded retry for streaming requests that
+	// fail in the pre-first-chunk window. Zero value (disabled) leaves
+	// the provider with no streaming retry. Pre-parsed from
+	// config.Provider.StreamRetry by the arena loader.
+	StreamRetry StreamRetryPolicy
 }
 
 // Credential applies authentication to HTTP requests.
@@ -128,6 +134,13 @@ type PlatformConfig = credentials.PlatformConfig
 type timeoutConfigurable interface {
 	SetHTTPTimeout(time.Duration)
 	SetStreamIdleTimeout(time.Duration)
+}
+
+// streamRetryConfigurable is implemented by any provider that embeds
+// *BaseProvider. CreateProviderFromSpec uses this to apply the streaming
+// retry policy from the spec after the factory runs.
+type streamRetryConfigurable interface {
+	SetStreamRetryPolicy(StreamRetryPolicy)
 }
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
@@ -177,6 +190,13 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		if spec.StreamIdleTimeout > 0 {
 			tc.SetStreamIdleTimeout(spec.StreamIdleTimeout)
 		}
+	}
+
+	// Apply the streaming retry policy. The zero value is "disabled", so
+	// providers that opt in via config get the new behavior while all
+	// others are unchanged.
+	if src, ok := provider.(streamRetryConfigurable); ok && spec.StreamRetry.Enabled {
+		src.SetStreamRetryPolicy(spec.StreamRetry)
 	}
 
 	return provider, nil

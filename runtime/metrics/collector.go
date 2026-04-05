@@ -31,6 +31,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
 // Status constants for metric labels.
@@ -163,6 +164,12 @@ func NewCollector(opts CollectorOpts) *Collector {
 
 	if !opts.DisablePipelineMetrics {
 		c.registerPipelineMetrics()
+		// Register the process-wide streaming metrics into the same
+		// registry. Safe to call multiple times; only the first call
+		// for a given registerer takes effect. These metrics are
+		// updated directly at the source (not via events) so they
+		// remain accurate when the event bus drops under load.
+		providers.RegisterDefaultStreamMetrics(registerer, ns, opts.ConstLabels)
 	}
 
 	return c

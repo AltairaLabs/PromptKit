@@ -1119,6 +1119,36 @@ type Provider struct {
 	// affected. Empty falls back to providers.DefaultStreamIdleTimeout
 	// (30s). Go duration string, e.g. "60s", "2m".
 	StreamIdleTimeout string `json:"stream_idle_timeout,omitempty" yaml:"stream_idle_timeout,omitempty"`
+	// StreamRetry configures bounded retry for streaming requests that fail
+	// before any content chunk has been forwarded downstream (the
+	// "pre-first-chunk window"). Targets transient HTTP/2 stream resets and
+	// initial-connection errors without risking duplicate content emission.
+	// Disabled by default. See docs/local-backlog/STREAMING_RETRY_AT_SCALE.md.
+	StreamRetry *StreamRetryConfig `json:"stream_retry,omitempty" yaml:"stream_retry,omitempty"`
+}
+
+// StreamRetryConfig configures pre-first-chunk streaming retry behavior for
+// a provider. See docs/local-backlog/STREAMING_RETRY_AT_SCALE.md for design.
+type StreamRetryConfig struct {
+	// Enabled turns the retry loop on. Defaults to false — streaming retry
+	// changes latency/billing semantics and must be opt-in per provider.
+	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	// MaxAttempts is the total number of attempts including the initial
+	// request. A value of 2 means "initial request plus at most one retry".
+	// Values <1 are treated as 1 (no retry). Empty falls back to 2.
+	MaxAttempts int `json:"max_attempts,omitempty" yaml:"max_attempts,omitempty"`
+	// InitialDelay is the base delay before the first retry. Subsequent
+	// retries use exponential backoff with full jitter up to MaxDelay. Go
+	// duration string. Empty falls back to "250ms".
+	InitialDelay string `json:"initial_delay,omitempty" yaml:"initial_delay,omitempty"`
+	// MaxDelay caps the per-attempt backoff delay. Go duration string.
+	// Empty falls back to "2s".
+	MaxDelay string `json:"max_delay,omitempty" yaml:"max_delay,omitempty"`
+	// RetryWindow controls which point in the stream lifecycle is still
+	// eligible for retry. "pre_first_chunk" (the only currently supported
+	// value) retries only if no content chunk has been forwarded yet.
+	// Future values may be gated on deduplication support.
+	RetryWindow string `json:"retry_window,omitempty" yaml:"retry_window,omitempty"`
 }
 
 // CredentialConfig is an alias for credentials.CredentialConfig.

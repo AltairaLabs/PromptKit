@@ -552,31 +552,59 @@ func (p *Provider) predictStreamWithResponses(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Make HTTP request
+	// Build request factory for OpenStreamWithRetry. Each retry rebuilds
+	// the HTTP request so that headers (especially auth) are reapplied
+	// cleanly and a fresh body reader is used.
 	url := p.baseURL + responsesAPIPath
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		httpReq.Header.Set("Accept", "text/event-stream")
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		return httpReq, nil
 	}
 
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("Accept", "text/event-stream")
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-	}
+	metrics := providers.DefaultStreamMetrics()
+	metrics.StreamsInFlightInc(p.ID())
+	metrics.ProviderCallsInFlightInc(p.ID())
+	// Release the in-flight counters if we fail before spawning the
+	// stream goroutine. On success the goroutine owns the decrement via
+	// its deferred release below.
+	released := false
+	defer func() {
+		if !released {
+			metrics.StreamsInFlightDec(p.ID())
+			metrics.ProviderCallsInFlightDec(p.ID())
+		}
+	}()
 
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
+	result, err := providers.OpenStreamWithRetry(
+		ctx,
+		p.StreamRetryPolicy(),
+		p.ID(),
+		p.StreamIdleTimeout(),
+		requestFn,
+		p.GetStreamingHTTPClient(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp, url); err != nil {
-		_ = resp.Body.Close()
-		return nil, err
-	}
-
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	go p.streamResponsesResponse(ctx, resp.Body, outChan)
+	released = true
+	providerID := p.ID()
+	go func() {
+		defer func() {
+			metrics.StreamsInFlightDec(providerID)
+			metrics.ProviderCallsInFlightDec(providerID)
+		}()
+		p.streamResponsesResponse(ctx, result.Body, outChan)
+	}()
 
 	return outChan, nil
 }
