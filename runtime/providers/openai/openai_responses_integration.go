@@ -200,6 +200,14 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 		responsesReq["text"] = p.convertResponseFormatToResponses(req.ResponseFormat)
 	}
 
+	// Add reasoning.effort when configured. Reasoning models (o-series,
+	// gpt-5-pro) default to effort=high on OpenAI's side, which on simple
+	// prompts can burn tens of seconds on internal reasoning. Callers set
+	// this via additional_config.reasoning_effort to control it.
+	if p.reasoningEffort != "" {
+		responsesReq["reasoning"] = map[string]any{"effort": p.reasoningEffort}
+	}
+
 	return responsesReq
 }
 

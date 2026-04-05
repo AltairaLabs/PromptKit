@@ -90,6 +90,11 @@ type Provider struct {
 	platform          string
 	platformConfig    *providers.PlatformConfig
 	unsupportedParams []string
+	// reasoningEffort, when non-empty, is sent as reasoning.effort in
+	// Responses API requests. Accepted values: "minimal", "low", "medium",
+	// "high". Empty means do not emit the field and let OpenAI apply its
+	// model-specific default. Configured via additional_config.reasoning_effort.
+	reasoningEffort string
 }
 
 // NewProvider creates a new OpenAI provider
@@ -180,6 +185,29 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		platform:          cfg.Platform,
 		platformConfig:    cfg.PlatformConfig,
 		unsupportedParams: unsupported,
+		reasoningEffort:   getReasoningEffort(cfg.AdditionalConfig),
+	}
+}
+
+// getReasoningEffort resolves the reasoning.effort setting for the OpenAI
+// Responses API from additional_config. Returns "" when the key is missing,
+// empty, or an unrecognized value, causing the request to omit the field and
+// fall back to OpenAI's per-model default.
+func getReasoningEffort(additionalConfig map[string]any) string {
+	if additionalConfig == nil {
+		return ""
+	}
+	raw, ok := additionalConfig["reasoning_effort"].(string)
+	if !ok {
+		return ""
+	}
+	switch strings.ToLower(raw) {
+	case "minimal", "low", "medium", "high":
+		return strings.ToLower(raw)
+	default:
+		logger.Warn("openai: ignoring unrecognized reasoning_effort",
+			"value", raw, "accepted", "minimal|low|medium|high")
+		return ""
 	}
 }
 
