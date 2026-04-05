@@ -127,6 +127,20 @@ type ProviderSpec struct {
 	// via SetStreamSemaphore on providers that implement the
 	// streamConcurrencyConfigurable interface.
 	StreamMaxConcurrent int
+
+	// HTTPTransport configures the per-provider HTTP connection pool.
+	// Zero-valued fields fall back to package-level defaults
+	// (DefaultMaxConnsPerHost, etc.). Applied via SetHTTPTransport on
+	// providers that implement the httpTransportConfigurable interface,
+	// replacing the default pooled transport the factory constructed.
+	//
+	// See AltairaLabs/PromptKit#873 for motivation: at higher concurrency
+	// than the repo was originally sized for, the hardcoded
+	// MaxConnsPerHost: 100 becomes the wall before PromptKit's own
+	// machinery does. Raising this (paired with operator awareness of
+	// the upstream's SETTINGS_MAX_CONCURRENT_STREAMS) is the primary
+	// lever on realistic single-process concurrent-stream capacity.
+	HTTPTransport HTTPTransportOptions
 }
 
 // Credential applies authentication to HTTP requests.
@@ -168,6 +182,15 @@ type streamRetryConfigurable interface {
 // neither.
 type streamConcurrencyConfigurable interface {
 	SetStreamSemaphore(*StreamSemaphore)
+}
+
+// httpTransportConfigurable is implemented by any provider that embeds
+// *BaseProvider. CreateProviderFromSpec uses this to replace the default
+// pooled transport with one built from spec.HTTPTransport after the
+// provider factory has run. The swap preserves the OpenTelemetry
+// instrumentation wrapper so trace propagation is not lost.
+type httpTransportConfigurable interface {
+	SetHTTPTransport(http.RoundTripper)
 }
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
@@ -237,6 +260,22 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	// versa. A non-positive limit is a no-op (unlimited default).
 	if scc, ok := provider.(streamConcurrencyConfigurable); ok && spec.StreamMaxConcurrent > 0 {
 		scc.SetStreamSemaphore(NewStreamSemaphore(spec.StreamMaxConcurrent))
+	}
+
+	// Replace the HTTP transport with a pooled-and-instrumented one
+	// built from spec.HTTPTransport. Done unconditionally (not gated
+	// on operator overrides) so the conn-tracking wrapper is always
+	// in play — the http_conns_in_use gauge needs to be populated
+	// whether the operator has tuned pool config or not. Zero-valued
+	// options in spec.HTTPTransport fall back to package defaults, so
+	// the replacement is functionally equivalent to the factory's
+	// original transport when no overrides are set, with the added
+	// conn-tracking layer.
+	if htc, ok := provider.(httpTransportConfigurable); ok {
+		base := NewPooledTransportWithOptions(spec.HTTPTransport)
+		rt := NewInstrumentedTransport(base)
+		rt = newConnTrackingTransport(rt, DefaultStreamMetrics())
+		htc.SetHTTPTransport(rt)
 	}
 
 	return provider, nil

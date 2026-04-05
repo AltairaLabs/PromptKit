@@ -207,6 +207,7 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 	streamIdleTimeout := parseProviderDuration(provider.ID, "stream_idle_timeout", provider.StreamIdleTimeout)
 	streamRetry := buildStreamRetryPolicy(provider.ID, provider.StreamRetry)
 	streamRetryBudget := buildStreamRetryBudget(provider.StreamRetry)
+	httpTransport := buildHTTPTransportOptions(provider.ID, provider.HTTPTransport)
 
 	spec := providers.ProviderSpec{
 		ID:                  provider.ID,
@@ -224,6 +225,7 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		StreamRetry:         streamRetry,
 		StreamRetryBudget:   streamRetryBudget,
 		StreamMaxConcurrent: provider.StreamMaxConcurrent,
+		HTTPTransport:       httpTransport,
 		Defaults: providers.ProviderDefaults{
 			Temperature: provider.Defaults.Temperature,
 			TopP:        provider.Defaults.TopP,
@@ -275,6 +277,23 @@ func buildStreamRetryBudget(cfg *config.StreamRetryConfig) *providers.RetryBudge
 		return nil
 	}
 	return providers.NewRetryBudget(cfg.Budget.RatePerSec, cfg.Budget.Burst)
+}
+
+// buildHTTPTransportOptions translates an HTTPTransportConfig from arena
+// config into providers.HTTPTransportOptions. A nil config yields the
+// zero value, which the runtime interprets as "use package defaults".
+// Malformed idle_conn_timeout values are logged and ignored so the
+// provider falls back to the built-in default rather than failing hard
+// on a single typo.
+func buildHTTPTransportOptions(providerID string, cfg *config.HTTPTransportConfig) providers.HTTPTransportOptions {
+	if cfg == nil {
+		return providers.HTTPTransportOptions{}
+	}
+	return providers.HTTPTransportOptions{
+		MaxConnsPerHost:     cfg.MaxConnsPerHost,
+		MaxIdleConnsPerHost: cfg.MaxIdleConnsPerHost,
+		IdleConnTimeout:     parseProviderDuration(providerID, "http_transport.idle_conn_timeout", cfg.IdleConnTimeout),
+	}
 }
 
 // parseProviderDuration parses a Go duration string from a provider config

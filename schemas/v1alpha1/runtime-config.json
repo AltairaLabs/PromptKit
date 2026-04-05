@@ -183,6 +183,21 @@
         "timeout_ms"
       ]
     },
+    "HTTPTransportConfig": {
+      "properties": {
+        "max_conns_per_host": {
+          "type": "integer"
+        },
+        "max_idle_conns_per_host": {
+          "type": "integer"
+        },
+        "idle_conn_timeout": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "LoggingConfigSpec": {
       "properties": {
         "defaultLevel": {
@@ -511,6 +526,9 @@
         },
         "stream_max_concurrent": {
           "type": "integer"
+        },
+        "http_transport": {
+          "$ref": "#/$defs/HTTPTransportConfig"
         }
       },
       "additionalProperties": false,
