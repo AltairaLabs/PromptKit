@@ -1,14 +1,12 @@
 package providers
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -42,6 +40,13 @@ type StreamRetryRequest struct {
 	IdleTimeout  time.Duration
 	RequestFn    func(ctx context.Context) (*http.Request, error)
 	Client       *http.Client
+	// FrameDetector identifies the first complete protocol frame on
+	// the response body so the retry driver knows when the stream is
+	// "established" and retry must not fire. Nil defaults to
+	// SSEFrameDetector — set to NDJSONFrameDetector for Ollama,
+	// JSONArrayFrameDetector for Gemini, or any custom FrameDetector
+	// implementation for new protocols.
+	FrameDetector FrameDetector
 }
 
 // OpenStreamWithRetry executes requestFn and peeks the first SSE data event
@@ -111,7 +116,7 @@ func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*
 		}
 
 		resp, doErr := req.Client.Do(httpReq)
-		result, retry, classifyErr := classifyStreamAttempt(resp, doErr, req.IdleTimeout)
+		result, retry, classifyErr := classifyStreamAttempt(resp, doErr, req.IdleTimeout, req.FrameDetector)
 		if result != nil {
 			result.Attempts = attempt + 1
 			metrics.ObserveFirstChunkLatency(req.ProviderName, time.Since(start))
@@ -172,13 +177,15 @@ func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*
 // whether the attempt was a success (return non-nil result), a retryable
 // failure (return retry=true), or a terminal failure.
 //
-// On success, the response body is wrapped so the peeked first SSE event
-// is replayed to downstream consumers. On any non-terminal failure the
-// body is closed before returning so connections are not leaked.
+// On success, the response body is wrapped so the peeked first frame
+// (SSE event, NDJSON line, JSON-array element, ...) is replayed to
+// downstream consumers. On any non-terminal failure the body is closed
+// before returning so connections are not leaked.
 func classifyStreamAttempt(
 	resp *http.Response,
 	doErr error,
 	idleTimeout time.Duration,
+	detector FrameDetector,
 ) (result *StreamRetryResult, retry bool, err error) {
 	if doErr != nil {
 		return nil, IsRetryableStreamError(doErr), doErr
@@ -195,10 +202,22 @@ func classifyStreamAttempt(
 		return nil, IsRetryableStreamStatus(resp.StatusCode), httpErr
 	}
 
-	// Peek the first SSE data event. If this fails we treat it as a
+	// Wrap the response body with an idle-timeout reader for the peek
+	// phase so stalled connections don't block here indefinitely. The
+	// NopCloser prevents the IdleTimeoutReader from closing the body
+	// when it goes out of scope — the consumer owns the body's close.
+	var peekReader io.Reader = resp.Body
+	if idleTimeout > 0 {
+		peekReader = NewIdleTimeoutReader(io.NopCloser(resp.Body), idleTimeout)
+	}
+
+	// Peek the first protocol frame. If this fails we treat it as a
 	// retryable mid-stream error because by definition no content has
 	// been surfaced to the caller.
-	buffered, peekErr := peekFirstSSEEvent(resp.Body, idleTimeout)
+	if detector == nil {
+		detector = defaultFrameDetector()
+	}
+	buffered, peekErr := detector.PeekFirstFrame(peekReader)
 	if peekErr != nil {
 		_ = resp.Body.Close()
 		return nil, IsRetryableStreamError(peekErr), peekErr
@@ -209,93 +228,6 @@ func classifyStreamAttempt(
 		rest:   resp.Body,
 	}
 	return &StreamRetryResult{Response: resp, Body: wrapped}, false, nil
-}
-
-// peekFirstSSEEvent reads from r until it has seen at least one complete
-// SSE data event terminated by a blank line, then returns the bytes read.
-// The returned slice contains exactly what was consumed from r, suitable
-// for replay via a composite reader.
-//
-// The read is bounded by idleTimeout using an IdleTimeoutReader, so a
-// stalled connection does not block this function indefinitely. A zero
-// idleTimeout disables the idle guard (inherit caller deadline only).
-//
-// This function does not interpret the SSE payload — it only looks for
-// the structural framing ("data: ..." line followed by a blank line) that
-// all SSE producers emit. This is deliberately more forgiving than
-// bufio.Scanner to handle provider-specific keepalives and comments.
-func peekFirstSSEEvent(body io.Reader, idleTimeout time.Duration) ([]byte, error) {
-	reader := body
-	if idleTimeout > 0 {
-		reader = NewIdleTimeoutReader(io.NopCloser(body), idleTimeout)
-	}
-	br := bufio.NewReader(reader)
-	var buf bytes.Buffer
-	sawData := false
-	for {
-		line, err := br.ReadString('\n')
-		if line != "" {
-			buf.WriteString(line)
-			if done, drainErr := processSSELine(br, &buf, line, &sawData); done {
-				return buf.Bytes(), drainErr
-			}
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) && buf.Len() > 0 && sawData {
-				// Stream closed cleanly right after the first event
-				// with no trailing blank line. Treat as a complete
-				// peek so downstream can decide what to do.
-				return buf.Bytes(), nil
-			}
-			return nil, err
-		}
-	}
-}
-
-// processSSELine classifies a single SSE framing line and, when the end of
-// the first event is reached, drains any lookahead the bufio.Reader has
-// pre-buffered so downstream reads resume contiguously. Returns done=true
-// exactly when the first event boundary has been observed.
-func processSSELine(br *bufio.Reader, buf *bytes.Buffer, line string, sawData *bool) (done bool, err error) {
-	trimmed := strings.TrimRight(line, "\r\n")
-	if strings.HasPrefix(trimmed, "data: ") || trimmed == "data:" {
-		*sawData = true
-		return false, nil
-	}
-	if trimmed == "" && *sawData {
-		// Blank line after a data: line terminates the event.
-		// bufio.Reader may have already read ahead past our boundary;
-		// drain those bytes into the replay slice so downstream
-		// readers see a contiguous stream.
-		if drainErr := drainBufferedInto(br, buf); drainErr != nil {
-			return true, drainErr
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
-// drainBufferedInto copies any bytes sitting in the bufio.Reader's internal
-// buffer (but not yet surfaced to callers) into dst. This is needed because
-// bufio.Reader reads ahead from the underlying source, so bytes that arrived
-// after our peek boundary would otherwise be silently lost when we stop
-// using the bufio.Reader and read from the underlying source directly.
-func drainBufferedInto(br *bufio.Reader, dst *bytes.Buffer) error {
-	n := br.Buffered()
-	if n == 0 {
-		return nil
-	}
-	remaining, peekErr := br.Peek(n)
-	if peekErr != nil {
-		return peekErr
-	}
-	dst.Write(remaining)
-	// Discard the bytes from the bufio reader so the underlying source
-	// is logically at the same position as the end of our buffer.
-	if _, discardErr := br.Discard(n); discardErr != nil {
-		return discardErr
-	}
-	return nil
 }
 
 // replayReadCloser concatenates a bytes.Reader holding already-consumed

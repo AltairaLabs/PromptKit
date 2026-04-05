@@ -40,30 +40,32 @@ func (p *Provider) PredictStream(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Make HTTP request
+	// Gemini's streamGenerateContent endpoint returns a JSON array
+	// ([{...},{...},...]) parsed incrementally by json.Decoder in
+	// streamResponse. The retry driver's JSONArrayFrameDetector reads
+	// past the opening '[' and the first complete element so
+	// peekFirstFrame can confirm the stream is "live" before handing
+	// ownership to the consumer goroutine.
 	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.baseURL, p.model, p.apiKey)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		return httpReq, nil
 	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	if err := providers.CheckHTTPError(resp, logger.RedactSensitiveData(url)); err != nil {
-		return nil, err
-	}
-
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-
-	go p.streamResponse(ctx, resp.Body, outChan)
-
-	return outChan, nil
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:        p.StreamRetryPolicy(),
+		Budget:        p.StreamRetryBudget(),
+		ProviderName:  p.ID(),
+		Host:          providers.HostFromURL(url),
+		IdleTimeout:   p.StreamIdleTimeout(),
+		RequestFn:     requestFn,
+		Client:        p.GetStreamingHTTPClient(),
+		FrameDetector: providers.JSONArrayFrameDetector{},
+	}, p.streamResponse)
 }
 
 // processGeminiStreamChunk processes a single chunk from the Gemini stream

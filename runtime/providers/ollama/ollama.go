@@ -629,31 +629,30 @@ func (p *Provider) predictStreamWithMessages(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Make HTTP request - Ollama doesn't require Authorization header
+	// Ollama in PromptKit uses the OpenAI-compatible
+	// /v1/chat/completions endpoint which speaks SSE, so the default
+	// FrameDetector (SSE) applies — no override needed.
 	url := p.baseURL + ollamaChatCompletionsPath
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		httpReq.Header.Set("Accept", "text/event-stream")
+		// Ollama doesn't require Authorization header.
+		return httpReq, nil
 	}
 
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	if err := providers.CheckHTTPError(resp, url); err != nil {
-		return nil, err
-	}
-
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-
-	go p.streamResponse(ctx, resp.Body, outChan)
-
-	return outChan, nil
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:       p.StreamRetryPolicy(),
+		Budget:       p.StreamRetryBudget(),
+		ProviderName: p.ID(),
+		Host:         providers.HostFromURL(url),
+		IdleTimeout:  p.StreamIdleTimeout(),
+		RequestFn:    requestFn,
+		Client:       p.GetStreamingHTTPClient(),
+	}, p.streamResponse)
 }
 
 // SupportsStreaming is provided by BaseProvider (returns true)
