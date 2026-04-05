@@ -4,9 +4,22 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
+
+// HostFromURL extracts just the host portion (without scheme or path)
+// from a URL string, intended for use as a Prometheus label on
+// streaming metrics. Returns an empty string on parse error — callers
+// treat empty-host labels as "unknown host" rather than failing.
+func HostFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Host
+}
 
 // Default values for StreamRetryPolicy. Kept small on purpose: streaming retry
 // targets transient h2 stream resets, not generic 5xx storms, and the wrong

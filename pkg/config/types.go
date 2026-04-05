@@ -1149,6 +1149,25 @@ type StreamRetryConfig struct {
 	// value) retries only if no content chunk has been forwarded yet.
 	// Future values may be gated on deduplication support.
 	RetryWindow string `json:"retry_window,omitempty" yaml:"retry_window,omitempty"`
+	// Budget configures a token bucket that rate-limits retry attempts
+	// across all in-flight requests on this provider. Protects against
+	// thundering-herd reconnects when a single upstream connection reset
+	// kills many streams simultaneously. When nil, retries are unbounded
+	// (Phase 1 behavior).
+	Budget *StreamRetryBudgetConfig `json:"budget,omitempty" yaml:"budget,omitempty"`
+}
+
+// StreamRetryBudgetConfig configures the token bucket that gates retry
+// attempts to prevent thundering-herd reconnects under upstream degradation.
+// Only retries consume tokens; the initial attempt of each request is
+// always allowed through.
+type StreamRetryBudgetConfig struct {
+	// RatePerSec is the sustained token refill rate. Empty or non-positive
+	// disables the budget (unbounded retries).
+	RatePerSec float64 `json:"rate_per_sec,omitempty" yaml:"rate_per_sec,omitempty"`
+	// Burst is the maximum number of tokens that can accumulate. Empty
+	// or non-positive disables the budget.
+	Burst int `json:"burst,omitempty" yaml:"burst,omitempty"`
 }
 
 // CredentialConfig is an alias for credentials.CredentialConfig.

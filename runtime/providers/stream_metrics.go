@@ -24,10 +24,11 @@ var streamFirstChunkBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 1
 // This lets provider code unconditionally call s.StreamsInFlightInc(...)
 // without guarding on whether metrics are configured.
 type StreamMetrics struct {
-	streamsInFlight         *prometheus.GaugeVec
-	providerCallsInFlight   *prometheus.GaugeVec
-	streamFirstChunkLatency *prometheus.HistogramVec
-	streamRetriesTotal      *prometheus.CounterVec
+	streamsInFlight            *prometheus.GaugeVec
+	providerCallsInFlight      *prometheus.GaugeVec
+	streamFirstChunkLatency    *prometheus.HistogramVec
+	streamRetriesTotal         *prometheus.CounterVec
+	streamRetryBudgetAvailable *prometheus.GaugeVec
 }
 
 // NewStreamMetrics creates and registers the Phase 1 streaming metrics
@@ -72,12 +73,21 @@ func NewStreamMetrics(
 			Help:        "Total streaming retry attempts, labeled by outcome (success, failed, budget_exhausted).",
 			ConstLabels: constLabels,
 		}, []string{"provider", "outcome"}),
+		streamRetryBudgetAvailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "stream_retry_budget_available",
+			Help: "Current tokens available in the streaming retry budget, per (provider, host). " +
+				"Early-warning signal for upstream degradation — a provider whose budget is " +
+				"trending toward zero is about to start failing retries.",
+			ConstLabels: constLabels,
+		}, []string{"provider", "host"}),
 	}
 	registerer.MustRegister(
 		m.streamsInFlight,
 		m.providerCallsInFlight,
 		m.streamFirstChunkLatency,
 		m.streamRetriesTotal,
+		m.streamRetryBudgetAvailable,
 	)
 	return m
 }
@@ -129,13 +139,32 @@ func (m *StreamMetrics) ObserveFirstChunkLatency(provider string, d time.Duratio
 
 // RetryAttempt records one streaming retry attempt with an outcome label.
 // Outcome values: "success" (attempt that produced a usable stream),
-// "failed" (retryable transient failure that will be retried), or
-// "exhausted" (last attempt failed, no more retries). Nil-safe.
+// "failed" (retryable transient failure that will be retried), "exhausted"
+// (last attempt failed, no more retries), or "budget_exhausted" (retry
+// was rejected because the per-provider retry budget had no tokens).
+// Nil-safe.
 func (m *StreamMetrics) RetryAttempt(provider, outcome string) {
 	if m == nil {
 		return
 	}
 	m.streamRetriesTotal.WithLabelValues(provider, outcome).Inc()
+}
+
+// ObserveRetryBudgetAvailable samples the current token count of a retry
+// budget and publishes it to the stream_retry_budget_available gauge.
+// Intended to be called whenever a retry attempts to acquire a token —
+// the gauge then reflects the budget state at the moment of highest
+// interest (right before a retry decision).
+//
+// A nil budget publishes 0, which is intentional: it lets operators
+// distinguish "no budget configured" (gauge absent) from "budget fully
+// drained" (gauge at 0) by gauge presence rather than value. Nil-safe
+// on the receiver.
+func (m *StreamMetrics) ObserveRetryBudgetAvailable(provider, host string, budget *RetryBudget) {
+	if m == nil || budget == nil {
+		return
+	}
+	m.streamRetryBudgetAvailable.WithLabelValues(provider, host).Set(budget.Available())
 }
 
 // Package-level default instance. Hosts register it by calling

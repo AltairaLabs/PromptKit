@@ -206,6 +206,7 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 	requestTimeout := parseProviderDuration(provider.ID, "request_timeout", provider.RequestTimeout)
 	streamIdleTimeout := parseProviderDuration(provider.ID, "stream_idle_timeout", provider.StreamIdleTimeout)
 	streamRetry := buildStreamRetryPolicy(provider.ID, provider.StreamRetry)
+	streamRetryBudget := buildStreamRetryBudget(provider.StreamRetry)
 
 	spec := providers.ProviderSpec{
 		ID:                provider.ID,
@@ -221,6 +222,7 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		RequestTimeout:    requestTimeout,
 		StreamIdleTimeout: streamIdleTimeout,
 		StreamRetry:       streamRetry,
+		StreamRetryBudget: streamRetryBudget,
 		Defaults: providers.ProviderDefaults{
 			Temperature: provider.Defaults.Temperature,
 			TopP:        provider.Defaults.TopP,
@@ -261,6 +263,17 @@ func buildStreamRetryPolicy(providerID string, cfg *config.StreamRetryConfig) pr
 		policy.Window = providers.StreamRetryWindowPreFirstChunk
 	}
 	return policy
+}
+
+// buildStreamRetryBudget constructs a per-provider retry budget from the
+// arena config's stream_retry.budget block. Returns nil when the config
+// is absent, disabled, or missing required fields — the caller treats
+// nil as "unbounded retries" (Phase 1 behavior).
+func buildStreamRetryBudget(cfg *config.StreamRetryConfig) *providers.RetryBudget {
+	if cfg == nil || !cfg.Enabled || cfg.Budget == nil {
+		return nil
+	}
+	return providers.NewRetryBudget(cfg.Budget.RatePerSec, cfg.Budget.Burst)
 }
 
 // parseProviderDuration parses a Go duration string from a provider config

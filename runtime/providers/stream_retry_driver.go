@@ -31,6 +31,19 @@ type StreamRetryResult struct {
 	Attempts int
 }
 
+// StreamRetryRequest bundles the dependencies for a streaming retry
+// attempt. This exists so OpenStreamWithRetryRequest can grow new
+// parameters (budget, host label, etc.) without breaking every call site.
+type StreamRetryRequest struct {
+	Policy       StreamRetryPolicy
+	Budget       *RetryBudget // nil means unbounded retries
+	ProviderName string
+	Host         string // metric label; may be empty
+	IdleTimeout  time.Duration
+	RequestFn    func(ctx context.Context) (*http.Request, error)
+	Client       *http.Client
+}
+
 // OpenStreamWithRetry executes requestFn and peeks the first SSE data event
 // on the response body. If Do() returns a retryable error, or the response
 // status is retryable, or the body fails to produce a first SSE event
@@ -46,7 +59,8 @@ type StreamRetryResult struct {
 // on success the body is still wrapped to replay the peeked bytes, but no
 // retry is performed.
 //
-//nolint:gocognit // Retry loop with classification, backoff, and metric emission
+// Thin wrapper over OpenStreamWithRetryRequest for callers that don't need
+// the budget or host-label parameters.
 func OpenStreamWithRetry(
 	ctx context.Context,
 	policy StreamRetryPolicy,
@@ -55,30 +69,51 @@ func OpenStreamWithRetry(
 	requestFn func(ctx context.Context) (*http.Request, error),
 	client *http.Client,
 ) (*StreamRetryResult, error) {
-	maxAttempts := policy.Attempts()
+	return OpenStreamWithRetryRequest(ctx, &StreamRetryRequest{
+		Policy:       policy,
+		ProviderName: providerName,
+		IdleTimeout:  idleTimeout,
+		RequestFn:    requestFn,
+		Client:       client,
+	})
+}
+
+// OpenStreamWithRetryRequest is the full-featured form of OpenStreamWithRetry
+// that accepts a budget and host label. Retries beyond the initial attempt
+// must acquire a token from req.Budget (if non-nil) before re-dialing; an
+// empty budget causes the function to return the last error immediately
+// (fail-fast) rather than waiting for token refill.
+//
+//nolint:gocognit // Retry loop with classification, backoff, budget, and metric emission
+func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*StreamRetryResult, error) {
+	maxAttempts := req.Policy.Attempts()
 	metrics := DefaultStreamMetrics()
 	start := time.Now()
 	var lastErr error
+
+	// Publish initial budget state so operators see the metric even when
+	// no retries have happened yet. For nil budgets this is a no-op.
+	metrics.ObserveRetryBudgetAvailable(req.ProviderName, req.Host, req.Budget)
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		req, err := requestFn(ctx)
+		httpReq, err := req.RequestFn(ctx)
 		if err != nil {
 			// Request construction errors are never retried — they
 			// indicate a caller bug, not a transient failure.
 			return nil, err
 		}
 
-		resp, doErr := client.Do(req)
-		result, retry, classifyErr := classifyStreamAttempt(resp, doErr, idleTimeout)
+		resp, doErr := req.Client.Do(httpReq)
+		result, retry, classifyErr := classifyStreamAttempt(resp, doErr, req.IdleTimeout)
 		if result != nil {
 			result.Attempts = attempt + 1
-			metrics.ObserveFirstChunkLatency(providerName, time.Since(start))
+			metrics.ObserveFirstChunkLatency(req.ProviderName, time.Since(start))
 			if attempt > 0 {
-				metrics.RetryAttempt(providerName, "success")
+				metrics.RetryAttempt(req.ProviderName, "success")
 			}
 			return result, nil
 		}
@@ -86,15 +121,34 @@ func OpenStreamWithRetry(
 		lastErr = classifyErr
 		if !retry || attempt >= maxAttempts-1 {
 			if attempt >= maxAttempts-1 && retry {
-				metrics.RetryAttempt(providerName, "exhausted")
+				metrics.RetryAttempt(req.ProviderName, "exhausted")
 			}
 			break
 		}
 
-		metrics.RetryAttempt(providerName, "failed")
-		delay := policy.BackoffFor(attempt)
+		// Before we commit to a retry, take a token from the budget.
+		// Empty budget = fail fast. This is the load-bearing line of
+		// Phase 2: when an upstream connection reset kills 100 streams
+		// at once, the budget ensures only ~burst of them re-dial and
+		// the rest fail fast with the original error, preserving the
+		// upstream's remaining capacity for the retries that win the
+		// race.
+		if !req.Budget.TryAcquire() {
+			metrics.RetryAttempt(req.ProviderName, "budget_exhausted")
+			metrics.ObserveRetryBudgetAvailable(req.ProviderName, req.Host, req.Budget)
+			logger.Warn("streaming retry budget exhausted, failing fast",
+				"provider", req.ProviderName,
+				"host", req.Host,
+				"error", classifyErr,
+			)
+			break
+		}
+		metrics.ObserveRetryBudgetAvailable(req.ProviderName, req.Host, req.Budget)
+
+		metrics.RetryAttempt(req.ProviderName, "failed")
+		delay := req.Policy.BackoffFor(attempt)
 		logger.Warn("retrying streaming request (pre-first-chunk)",
-			"provider", providerName,
+			"provider", req.ProviderName,
 			"attempt", attempt+1,
 			"max_attempts", maxAttempts,
 			"delay", delay.String(),

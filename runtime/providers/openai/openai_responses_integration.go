@@ -583,14 +583,15 @@ func (p *Provider) predictStreamWithResponses(
 		}
 	}()
 
-	result, err := providers.OpenStreamWithRetry(
-		ctx,
-		p.StreamRetryPolicy(),
-		p.ID(),
-		p.StreamIdleTimeout(),
-		requestFn,
-		p.GetStreamingHTTPClient(),
-	)
+	result, err := providers.OpenStreamWithRetryRequest(ctx, &providers.StreamRetryRequest{
+		Policy:       p.StreamRetryPolicy(),
+		Budget:       p.StreamRetryBudget(),
+		ProviderName: p.ID(),
+		Host:         providers.HostFromURL(url),
+		IdleTimeout:  p.StreamIdleTimeout(),
+		RequestFn:    requestFn,
+		Client:       p.GetStreamingHTTPClient(),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
