@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -733,6 +734,273 @@ func TestStreamRetryLoad_MidStreamFailureInvariant(t *testing.T) {
 
 	t.Logf("invariant validated: %d streams, %d deltas, %d mid-stream kills, 0 retries",
 		N, totalDeltas, fake.midStreamKills.Load())
+}
+
+// --- Scale ramp scenario ---
+//
+// The scale ramp runs the healthy streaming path at increasing
+// concurrency tiers and measures the resource cost at each tier. Its
+// purpose is to validate (or refute) the "scale horizons" claims in
+// docs/local-backlog/STREAMING_RETRY_AT_SCALE.md, which were napkin
+// math when the design was drafted. The other load-test scenarios
+// top out at 500 concurrent streams, so nothing in the existing
+// suite actually exercises the 1k+ target that the design was sized
+// for.
+//
+// At each tier we record:
+//   - goroutine delta vs. the test's baseline (real stream
+//     bookkeeping + HTTP keep-alive workers)
+//   - heap-in-use delta via runtime.MemStats
+//   - GC pause counts during the tier (forced GC at boundaries so
+//     we only count pauses caused by our workload)
+//   - wall-time throughput (requests/sec sustained)
+//   - per-request latency p50 and p99
+//   - success rate
+//
+// The scenario logs a formatted table at the end so the results can
+// be copied into the design doc. It does NOT enforce strict
+// invariants at each tier — the point is to surface whatever
+// actually happens, not to fail the test when reality diverges from
+// a napkin-math prediction. A divergence is diagnostic, not a bug.
+//
+// Run with:
+//
+//	go test -tags=loadtest -race -timeout=5m -v \
+//	    -run TestStreamRetryLoad_ScaleRamp \
+//	    ./runtime/providers/openai/
+//
+// -race is expensive at this scale; omit it if you want to measure
+// uncontended throughput (the race detector roughly halves throughput
+// but surfaces data races that would otherwise only appear in
+// production).
+
+// scaleRampTier is one row of the ramp report — one concurrency
+// level's measured behavior.
+type scaleRampTier struct {
+	concurrency       int
+	totalRequests     int
+	successes         int64
+	failures          int64
+	wallTime          time.Duration
+	requestsPerSec    float64
+	goroutinesBefore  int
+	goroutinesPeak    int
+	goroutinesAfter   int
+	heapInuseBeforeMB float64
+	heapInusePeakMB   float64
+	gcPauseCount      uint32
+	gcPauseTotalMs    float64
+	latencyP50        time.Duration
+	latencyP99        time.Duration
+}
+
+func TestStreamRetryLoad_ScaleRamp(t *testing.T) {
+	// Tiers chosen to bracket the design doc's "1k target":
+	//   100   — sanity-check baseline
+	//   500   — matches existing scenarios' top concurrency
+	//   1000  — the design doc's stated target
+	//   2000  — past target, should still work per doc
+	//   3000  — user-requested "what if I'd picked this" point
+	//   5000  — halfway to the doc's "10k binds on h2" claim
+	//
+	// 10000 and beyond are excluded by default to keep CI time
+	// bounded (each tier runs 2× concurrency requests, so 10k tier
+	// dispatches 20k requests). Operators who want to push further
+	// can change the slice and re-run manually.
+	tiers := []int{100, 500, 1000, 2000, 3000, 5000}
+
+	_, _ = installTestMetrics(t)
+	fake := newFakeOpenAI()
+	defer fake.Close()
+
+	// Provider: healthy upstream, retry enabled, no budget, no
+	// semaphore. We want to stress the goroutine/gauge/channel
+	// machinery, not the back-pressure paths (those are covered by
+	// other scenarios).
+	p := buildProvider(fake.URL(), providerOpts{
+		policy: providers.StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 50 * time.Millisecond,
+			MaxDelay:     500 * time.Millisecond,
+		},
+	})
+
+	var results []scaleRampTier
+	for _, c := range tiers {
+		result := runScaleRampTier(t, p, fake, c)
+		results = append(results, result)
+
+		// Cool-down between tiers: force GC and sleep briefly so
+		// the next tier starts from a clean goroutine/heap baseline.
+		runtime.GC()
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Print a table that can be copied into the design doc.
+	t.Log("")
+	t.Log("=== SCALE RAMP RESULTS ===")
+	t.Log("concurrency | reqs  | ok   | fail | wall(s) | rps    | goroutines (before/peak/after) | heap(MB) before→peak | gcPauses | p50    | p99")
+	t.Log("------------+-------+------+------+---------+--------+--------------------------------+----------------------+----------+--------+--------")
+	for _, r := range results {
+		t.Logf("%11d | %5d | %4d | %4d | %7.2f | %6.0f | %5d / %5d / %5d            | %8.1f → %7.1f    | %8d | %6v | %6v",
+			r.concurrency, r.totalRequests, r.successes, r.failures,
+			r.wallTime.Seconds(), r.requestsPerSec,
+			r.goroutinesBefore, r.goroutinesPeak, r.goroutinesAfter,
+			r.heapInuseBeforeMB, r.heapInusePeakMB,
+			r.gcPauseCount,
+			r.latencyP50.Round(time.Millisecond),
+			r.latencyP99.Round(time.Millisecond),
+		)
+	}
+	t.Log("")
+}
+
+// runScaleRampTier runs a single concurrency tier end-to-end and
+// returns the measured resource cost. 2× concurrency is used for
+// total request count so each worker processes ~2 requests on
+// average — enough to exercise goroutine teardown/recreation
+// without inflating wall time.
+func runScaleRampTier(t *testing.T, p *Provider, fake *fakeOpenAI, concurrency int) scaleRampTier {
+	t.Helper()
+	totalRequests := concurrency * 2
+
+	// Reset the fake's counters so per-tier server-side observations
+	// are independent.
+	fake.totalRequests.Store(0)
+	fake.successes.Store(0)
+
+	// Baseline: force GC and snapshot runtime state before we start
+	// dispatching.
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+	goroutinesBefore := runtime.NumGoroutine()
+	var memBefore runtime.MemStats
+	runtime.ReadMemStats(&memBefore)
+	gcPausesBefore := memBefore.NumGC
+	gcPauseTotalBefore := memBefore.PauseTotalNs
+
+	// Peak goroutine tracking: a single background sampler that
+	// polls runtime.NumGoroutine at 10ms intervals and remembers the
+	// maximum seen between start and stop. Sampling rather than
+	// peak-per-request keeps overhead negligible.
+	var peakGoroutines atomic.Int32
+	peakGoroutines.Store(int32(goroutinesBefore))
+	var peakHeapInuse atomic.Uint64
+	peakHeapInuse.Store(memBefore.HeapInuse)
+	samplerStop := make(chan struct{})
+	samplerDone := make(chan struct{})
+	go func() {
+		defer close(samplerDone)
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-samplerStop:
+				return
+			case <-ticker.C:
+				if g := int32(runtime.NumGoroutine()); g > peakGoroutines.Load() {
+					peakGoroutines.Store(g)
+				}
+				var ms runtime.MemStats
+				runtime.ReadMemStats(&ms)
+				if ms.HeapInuse > peakHeapInuse.Load() {
+					peakHeapInuse.Store(ms.HeapInuse)
+				}
+			}
+		}
+	}()
+
+	// Collect per-request latencies so we can compute p50/p99 at
+	// the end.
+	latencies := make([]time.Duration, 0, totalRequests)
+	var latenciesMu sync.Mutex
+
+	// Drive the requests. Each worker pulls work items from a buffered
+	// channel; all requests are queued up front, then workers start.
+	work := make(chan struct{}, totalRequests)
+	for i := 0; i < totalRequests; i++ {
+		work <- struct{}{}
+	}
+	close(work)
+
+	var succ, fail atomic.Int64
+	var wg sync.WaitGroup
+	start := time.Now()
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range work {
+				reqStart := time.Now()
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				ch, err := p.PredictStream(ctx, providers.PredictionRequest{
+					Messages: []types.Message{{Role: "user", Content: "go"}},
+				})
+				if err != nil {
+					fail.Add(1)
+					cancel()
+					continue
+				}
+				streamErr := drainStream(ch)
+				cancel()
+				elapsed := time.Since(reqStart)
+				if streamErr != nil {
+					fail.Add(1)
+				} else {
+					succ.Add(1)
+					latenciesMu.Lock()
+					latencies = append(latencies, elapsed)
+					latenciesMu.Unlock()
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	wallTime := time.Since(start)
+
+	close(samplerStop)
+	<-samplerDone
+
+	// Post-state snapshot.
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
+	goroutinesAfter := runtime.NumGoroutine()
+	var memAfter runtime.MemStats
+	runtime.ReadMemStats(&memAfter)
+	gcPauseCount := memAfter.NumGC - gcPausesBefore
+	gcPauseTotalNs := memAfter.PauseTotalNs - gcPauseTotalBefore
+
+	// Sort latencies to extract percentiles.
+	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	var p50, p99 time.Duration
+	if n := len(latencies); n > 0 {
+		p50 = latencies[n*50/100]
+		if idx := n * 99 / 100; idx < n {
+			p99 = latencies[idx]
+		} else {
+			p99 = latencies[n-1]
+		}
+	}
+
+	const bytesPerMB = 1024.0 * 1024.0
+	return scaleRampTier{
+		concurrency:       concurrency,
+		totalRequests:     totalRequests,
+		successes:         succ.Load(),
+		failures:          fail.Load(),
+		wallTime:          wallTime,
+		requestsPerSec:    float64(totalRequests) / wallTime.Seconds(),
+		goroutinesBefore:  goroutinesBefore,
+		goroutinesPeak:    int(peakGoroutines.Load()),
+		goroutinesAfter:   goroutinesAfter,
+		heapInuseBeforeMB: float64(memBefore.HeapInuse) / bytesPerMB,
+		heapInusePeakMB:   float64(peakHeapInuse.Load()) / bytesPerMB,
+		gcPauseCount:      gcPauseCount,
+		gcPauseTotalMs:    float64(gcPauseTotalNs) / 1e6,
+		latencyP50:        p50,
+		latencyP99:        p99,
+	}
 }
 
 // labeledCounter reads a counter matching both provider and an
