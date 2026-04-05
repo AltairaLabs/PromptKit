@@ -18,6 +18,10 @@ import (
 const (
 	roleUser        = "user"
 	providerNameLog = "Gemini-Tools"
+
+	// providerMetaThoughtSignature is the MessageToolCall.ProviderMetadata key
+	// used to round-trip Gemini 3's opaque thoughtSignature on tool-call parts.
+	providerMetaThoughtSignature = "gemini.thought_signature"
 )
 
 // ToolProvider extends GeminiProvider with tool support
@@ -70,6 +74,13 @@ type geminiToolPart struct {
 	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
 	Text             string                  `json:"text,omitempty"`
+	// ThoughtSignature is an opaque, base64-encoded signature that Gemini 3
+	// emits alongside a functionCall part. When the conversation history is
+	// replayed to Gemini on a later turn, the signature must be included
+	// verbatim on the same part or the request is rejected with:
+	//   "Function call is missing a thought_signature in functionCall parts".
+	// See https://ai.google.dev/gemini-api/docs/thought-signatures
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
 // Tool-specific response structures that include function calls
@@ -279,12 +290,18 @@ func buildMessageParts(msg types.Message, pendingToolResults []map[string]any) [
 			if err := json.Unmarshal(toolCall.Args, &args); err != nil {
 				args = string(toolCall.Args)
 			}
-			parts = append(parts, map[string]any{
+			partMap := map[string]any{
 				"functionCall": map[string]any{
 					"name": toolCall.Name,
 					"args": args,
 				},
-			})
+			}
+			// Replay Gemini 3's thoughtSignature verbatim. Gemini 2.x ignores
+			// unknown part fields, so emitting it unconditionally is safe.
+			if sig := toolCall.ProviderMetadata[providerMetaThoughtSignature]; sig != "" {
+				partMap["thoughtSignature"] = sig
+			}
+			parts = append(parts, partMap)
 		}
 	}
 
@@ -498,6 +515,13 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 				// Marshal can't fail for map[string]any
 				argsBytes, _ := json.Marshal(part.FunctionCall.Args)
 				toolCall.Args = json.RawMessage(argsBytes)
+			}
+			// Preserve Gemini 3's thoughtSignature so it can be replayed on the
+			// next turn. Without this, Gemini 3 rejects the request.
+			if part.ThoughtSignature != "" {
+				toolCall.ProviderMetadata = map[string]string{
+					providerMetaThoughtSignature: part.ThoughtSignature,
+				}
 			}
 			toolCalls = append(toolCalls, toolCall)
 		}

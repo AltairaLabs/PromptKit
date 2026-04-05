@@ -95,6 +95,10 @@ type geminiPart struct {
 	Text         string              `json:"text,omitempty"`
 	InlineData   *geminiInlineData   `json:"inlineData,omitempty"`
 	FunctionCall *geminiPartFuncCall `json:"functionCall,omitempty"`
+	// ThoughtSignature is Gemini 3's opaque signature that accompanies a
+	// functionCall part. It must be replayed verbatim on subsequent turns
+	// or Gemini 3 rejects the request. See gemini_tools.go for round-trip.
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
 // geminiPartFuncCall represents a function call in a streaming response part

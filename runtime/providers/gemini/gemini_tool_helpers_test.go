@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -416,4 +417,123 @@ func TestGeminiToolHelpers_Integration(t *testing.T) {
 			t.Error("Expected tool_config to be set")
 		}
 	})
+}
+
+// TestBuildMessageParts_ThoughtSignatureRoundTrip verifies that Gemini 3's
+// opaque thoughtSignature, captured on an inbound tool-call part, is replayed
+// verbatim on the same part when the conversation history is serialized back
+// to the Gemini API. Without this, Gemini 3 rejects follow-up requests with:
+//
+//	"Function call is missing a thought_signature in functionCall parts".
+func TestBuildMessageParts_ThoughtSignatureRoundTrip(t *testing.T) {
+	const sig = "CpQCAdHtim//eFEosgdaIKSUFynLIA1Y3O+5yKnnzRmeUlMvFlCAB7lBGHVf8"
+	msg := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{
+				ID:   "call_1",
+				Name: "get_weather",
+				Args: json.RawMessage(`{"location": "NYC"}`),
+				ProviderMetadata: map[string]string{
+					"gemini.thought_signature": sig,
+				},
+			},
+		},
+	}
+
+	parts := buildMessageParts(msg, nil)
+	if len(parts) == 0 {
+		t.Fatal("expected at least one part")
+	}
+
+	// Find the part that carries the functionCall
+	var toolPart map[string]any
+	for _, p := range parts {
+		if pm, ok := p.(map[string]any); ok {
+			if _, hasFC := pm["functionCall"]; hasFC {
+				toolPart = pm
+				break
+			}
+		}
+	}
+	if toolPart == nil {
+		t.Fatalf("no functionCall part in output: %+v", parts)
+	}
+
+	gotSig, _ := toolPart["thoughtSignature"].(string)
+	if gotSig != sig {
+		t.Errorf("thoughtSignature = %q, want %q", gotSig, sig)
+	}
+
+	// Sanity: functionCall content is still intact.
+	fc, ok := toolPart["functionCall"].(map[string]any)
+	if !ok {
+		t.Fatalf("functionCall wrong shape: %T", toolPart["functionCall"])
+	}
+	if fc["name"] != "get_weather" {
+		t.Errorf("functionCall.name = %v, want get_weather", fc["name"])
+	}
+}
+
+// TestBuildMessageParts_NoThoughtSignature verifies that when a tool call has
+// no ProviderMetadata (e.g. from a non-Gemini provider or pre-upgrade history),
+// buildMessageParts does not emit an empty thoughtSignature field.
+func TestBuildMessageParts_NoThoughtSignature(t *testing.T) {
+	msg := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{
+				ID:   "call_1",
+				Name: "get_weather",
+				Args: json.RawMessage(`{"location": "NYC"}`),
+			},
+		},
+	}
+
+	parts := buildMessageParts(msg, nil)
+	for _, p := range parts {
+		if pm, ok := p.(map[string]any); ok {
+			if _, hasFC := pm["functionCall"]; hasFC {
+				if _, hasSig := pm["thoughtSignature"]; hasSig {
+					t.Errorf("unexpected thoughtSignature emitted when metadata is absent: %+v", pm)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("no functionCall part in output")
+}
+
+// TestParseToolResponse_CapturesThoughtSignature verifies the non-streaming
+// inbound parse stashes Gemini 3's thoughtSignature in MessageToolCall.ProviderMetadata.
+func TestParseToolResponse_CapturesThoughtSignature(t *testing.T) {
+	const sig = "CpQCAdHtim//eFEosgdaIKSUFynLIA1Y3O+5yKnnzRmeUlMvFlCAB7lBGHVf8"
+	respJSON := `{
+  "candidates": [{
+    "content": {
+      "role": "model",
+      "parts": [{
+        "functionCall": {"name": "get_weather", "args": {"location": "NYC"}},
+        "thoughtSignature": "` + sig + `"
+      }]
+    },
+    "finishReason": "STOP",
+    "index": 0
+  }]
+}`
+
+	provider := NewProvider("test", "gemini-3-flash-preview", "", providers.ProviderDefaults{}, false)
+	toolProvider := &ToolProvider{Provider: provider}
+
+	_, toolCalls, err := toolProvider.parseToolResponse([]byte(respJSON), providers.PredictionResponse{})
+	if err != nil {
+		t.Fatalf("parseToolResponse failed: %v", err)
+	}
+	if len(toolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(toolCalls))
+	}
+	gotSig := toolCalls[0].ProviderMetadata["gemini.thought_signature"]
+	if gotSig != sig {
+		t.Errorf("captured thoughtSignature = %q, want %q", gotSig, sig)
+	}
 }

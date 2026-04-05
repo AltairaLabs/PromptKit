@@ -107,6 +107,13 @@ func (p *Provider) processGeminiStreamChunk(
 			if part.FunctionCall.Args != nil {
 				toolCall.Args = part.FunctionCall.Args
 			}
+			// Preserve Gemini 3's thoughtSignature so it can be replayed on
+			// the next turn. Without this, Gemini 3 rejects the request.
+			if part.ThoughtSignature != "" {
+				toolCall.ProviderMetadata = map[string]string{
+					providerMetaThoughtSignature: part.ThoughtSignature,
+				}
+			}
 			toolCalls = append(toolCalls, toolCall)
 		}
 	}
