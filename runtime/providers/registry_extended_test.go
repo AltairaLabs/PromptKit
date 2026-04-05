@@ -4,9 +4,112 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// timeoutAwareProvider embeds BaseProvider so it gains SetHTTPTimeout and
+// SetStreamIdleTimeout via method promotion, satisfying the
+// timeoutConfigurable interface used by CreateProviderFromSpec.
+type timeoutAwareProvider struct {
+	*BaseProvider
+}
+
+func (t *timeoutAwareProvider) Model() string { return testModelName }
+func (t *timeoutAwareProvider) CalculateCost(_, _, _ int) types.CostInfo {
+	return types.CostInfo{}
+}
+func (t *timeoutAwareProvider) Predict(_ context.Context, _ PredictionRequest) (PredictionResponse, error) {
+	return PredictionResponse{}, nil
+}
+func (t *timeoutAwareProvider) PredictStream(_ context.Context, _ PredictionRequest) (<-chan StreamChunk, error) {
+	return nil, nil
+}
+
+// TestCreateProviderFromSpec_AppliesTimeouts verifies that the registry
+// entry point uniformly applies RequestTimeout and StreamIdleTimeout to
+// any provider that embeds BaseProvider (via the timeoutConfigurable
+// interface), so individual provider factories do not have to thread the
+// durations through by hand.
+func TestCreateProviderFromSpec_AppliesTimeouts(t *testing.T) {
+	const typeName = "test-timeout-provider"
+
+	originalFactory := providerFactories[typeName]
+	t.Cleanup(func() {
+		if originalFactory != nil {
+			providerFactories[typeName] = originalFactory
+		} else {
+			delete(providerFactories, typeName)
+		}
+	})
+
+	RegisterProviderFactory(typeName, func(spec ProviderSpec) (Provider, error) {
+		base := NewBaseProvider(spec.ID, false, &http.Client{
+			Timeout:   httputil.DefaultProviderTimeout,
+			Transport: NewInstrumentedTransport(NewPooledTransport()),
+		})
+		return &timeoutAwareProvider{BaseProvider: &base}, nil
+	})
+
+	t.Run("applies both timeouts when set", func(t *testing.T) {
+		prov, err := CreateProviderFromSpec(ProviderSpec{
+			ID:                "t",
+			Type:              typeName,
+			RequestTimeout:    3 * time.Minute,
+			StreamIdleTimeout: 90 * time.Second,
+		})
+		if err != nil {
+			t.Fatalf("CreateProviderFromSpec returned error: %v", err)
+		}
+		tp := prov.(*timeoutAwareProvider)
+		if got := tp.GetHTTPClient().Timeout; got != 3*time.Minute {
+			t.Errorf("request client timeout = %v, want 3m", got)
+		}
+		if got := tp.GetStreamingHTTPClient().Timeout; got != 0 {
+			t.Errorf("streaming client timeout = %v, want 0 (no wall-clock cap)", got)
+		}
+		if got := tp.StreamIdleTimeout(); got != 90*time.Second {
+			t.Errorf("StreamIdleTimeout() = %v, want 90s", got)
+		}
+	})
+
+	t.Run("leaves defaults when both zero", func(t *testing.T) {
+		prov, err := CreateProviderFromSpec(ProviderSpec{
+			ID:   "t2",
+			Type: typeName,
+		})
+		if err != nil {
+			t.Fatalf("CreateProviderFromSpec returned error: %v", err)
+		}
+		tp := prov.(*timeoutAwareProvider)
+		if got := tp.GetHTTPClient().Timeout; got != httputil.DefaultProviderTimeout {
+			t.Errorf("request client timeout = %v, want default %v", got, httputil.DefaultProviderTimeout)
+		}
+		if got := tp.StreamIdleTimeout(); got != DefaultStreamIdleTimeout {
+			t.Errorf("StreamIdleTimeout() = %v, want default %v", got, DefaultStreamIdleTimeout)
+		}
+	})
+
+	t.Run("applies only the set timeout when the other is zero", func(t *testing.T) {
+		prov, err := CreateProviderFromSpec(ProviderSpec{
+			ID:             "t3",
+			Type:           typeName,
+			RequestTimeout: 2 * time.Minute,
+		})
+		if err != nil {
+			t.Fatalf("CreateProviderFromSpec returned error: %v", err)
+		}
+		tp := prov.(*timeoutAwareProvider)
+		if got := tp.GetHTTPClient().Timeout; got != 2*time.Minute {
+			t.Errorf("request client timeout = %v, want 2m", got)
+		}
+		if got := tp.StreamIdleTimeout(); got != DefaultStreamIdleTimeout {
+			t.Errorf("StreamIdleTimeout() = %v, want default when unset", got)
+		}
+	})
+}
 
 const testModelName = "test-model"
 

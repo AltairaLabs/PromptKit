@@ -200,6 +200,14 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 		responsesReq["text"] = p.convertResponseFormatToResponses(req.ResponseFormat)
 	}
 
+	// Add reasoning.effort when configured. Reasoning models (o-series,
+	// gpt-5-pro) default to effort=high on OpenAI's side, which on simple
+	// prompts can burn tens of seconds on internal reasoning. Callers set
+	// this via additional_config.reasoning_effort to control it.
+	if p.reasoningEffort != "" {
+		responsesReq["reasoning"] = map[string]any{"effort": p.reasoningEffort}
+	}
+
 	return responsesReq
 }
 
@@ -557,7 +565,7 @@ func (p *Provider) predictStreamWithResponses(
 		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -794,8 +802,10 @@ func (p *Provider) streamResponsesResponse(
 		_ = body.Close()
 	}()
 
-	// Wrap body with idle timeout detection to guard against stalled streams
-	idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+	// Wrap body with idle timeout detection to guard against stalled streams.
+	// Duration is configured on the BaseProvider via SetStreamIdleTimeout and
+	// falls back to providers.DefaultStreamIdleTimeout when unset.
+	idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
 	defer idleBody.Close()
 
 	scanner := bufio.NewScanner(idleBody)

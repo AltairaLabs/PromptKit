@@ -340,7 +340,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

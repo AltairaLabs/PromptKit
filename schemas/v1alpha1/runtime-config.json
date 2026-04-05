@@ -499,6 +499,12 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "request_timeout": {
+          "type": "string"
+        },
+        "stream_idle_timeout": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

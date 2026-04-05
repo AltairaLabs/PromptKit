@@ -579,7 +579,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		if err != nil {
 			return nil, err
 		}
-		idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
 		outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 		go p.streamResponse(ctx, idleBody, scanner, outChan)
 		return outChan, nil
@@ -602,7 +602,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -614,7 +614,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	}
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	idleBody := providers.NewIdleTimeoutReader(resp.Body, providers.DefaultStreamIdleTimeout)
+	idleBody := providers.NewIdleTimeoutReader(resp.Body, p.StreamIdleTimeout())
 	scanner := providers.NewSSEScanner(idleBody)
 	go p.streamResponse(ctx, idleBody, scanner, outChan)
 

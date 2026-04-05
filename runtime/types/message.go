@@ -45,6 +45,13 @@ type MessageToolCall struct {
 	ID   string          `json:"id"`   // Unique identifier for this tool call
 	Name string          `json:"name"` // Name of the tool to invoke
 	Args json.RawMessage `json:"args"` // JSON-encoded tool arguments
+
+	// ProviderMetadata carries opaque provider-specific fields that must be
+	// round-tripped back to the provider on subsequent turns. Keys are
+	// namespaced by provider (e.g. "gemini.thought_signature"). This is
+	// required for providers like Gemini 3 that emit signed tool-call
+	// parts which must be replayed verbatim to pass server-side validation.
+	ProviderMetadata map[string]string `json:"provider_metadata,omitempty"`
 }
 
 // MessageToolResult represents the result of a tool execution in a Message.

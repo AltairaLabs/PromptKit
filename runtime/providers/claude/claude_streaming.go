@@ -77,7 +77,7 @@ func (p *Provider) PredictStream(
 		if err != nil {
 			return nil, err
 		}
-		idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
 		outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 		go p.streamResponse(ctx, idleBody, scanner, outChan)
 		return outChan, nil
@@ -105,7 +105,7 @@ func (p *Provider) PredictStream(
 	}
 
 	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -115,7 +115,7 @@ func (p *Provider) PredictStream(
 	}
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	idleBody := providers.NewIdleTimeoutReader(resp.Body, providers.DefaultStreamIdleTimeout)
+	idleBody := providers.NewIdleTimeoutReader(resp.Body, p.StreamIdleTimeout())
 	scanner := providers.NewSSEScanner(idleBody)
 
 	go p.streamResponse(ctx, idleBody, scanner, outChan)

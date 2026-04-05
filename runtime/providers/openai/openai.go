@@ -90,6 +90,11 @@ type Provider struct {
 	platform          string
 	platformConfig    *providers.PlatformConfig
 	unsupportedParams []string
+	// reasoningEffort, when non-empty, is sent as reasoning.effort in
+	// Responses API requests. Accepted values: "minimal", "low", "medium",
+	// "high". Empty means do not emit the field and let OpenAI apply its
+	// model-specific default. Configured via additional_config.reasoning_effort.
+	reasoningEffort string
 }
 
 // NewProvider creates a new OpenAI provider
@@ -180,6 +185,29 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		platform:          cfg.Platform,
 		platformConfig:    cfg.PlatformConfig,
 		unsupportedParams: unsupported,
+		reasoningEffort:   getReasoningEffort(cfg.AdditionalConfig),
+	}
+}
+
+// getReasoningEffort resolves the reasoning.effort setting for the OpenAI
+// Responses API from additional_config. Returns "" when the key is missing,
+// empty, or an unrecognized value, causing the request to omit the field and
+// fall back to OpenAI's per-model default.
+func getReasoningEffort(additionalConfig map[string]any) string {
+	if additionalConfig == nil {
+		return ""
+	}
+	raw, ok := additionalConfig["reasoning_effort"].(string)
+	if !ok {
+		return ""
+	}
+	switch strings.ToLower(raw) {
+	case "minimal", "low", "medium", "high":
+		return strings.ToLower(raw)
+	default:
+		logger.Warn("openai: ignoring unrecognized reasoning_effort",
+			"value", raw, "accepted", "minimal|low|medium|high")
+		return ""
 	}
 }
 
@@ -510,8 +538,9 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 	}()
 
-	// Wrap body with idle timeout detection to guard against stalled streams
-	idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+	// Wrap body with idle timeout detection to guard against stalled streams.
+	// Duration is configured on the BaseProvider via SetStreamIdleTimeout.
+	idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
 	defer idleBody.Close()
 
 	scanner := providers.NewSSEScanner(idleBody)
@@ -847,13 +876,14 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		},
 	}
 
-	// Add modalities for audio models when audio content is present
+	// Add modalities for audio models when audio content is present.
+	// When stream=true, OpenAI chat/completions only supports "pcm16" for audio.format;
+	// "wav"/"mp3" are valid only for non-streaming requests.
 	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
 		openAIReq["modalities"] = []string{"text", "audio"}
-		// Audio models require audio output configuration
 		openAIReq["audio"] = map[string]interface{}{
 			"voice":  "alloy",
-			"format": "wav",
+			"format": "pcm16",
 		}
 	}
 
@@ -887,7 +917,7 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 	}
 
 	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

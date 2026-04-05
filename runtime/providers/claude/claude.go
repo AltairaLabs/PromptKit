@@ -151,7 +151,7 @@ func (p *Provider) makeBedrockStreamingRequest(
 		return nil, nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to send request: %w", err)
 	}
