@@ -14,6 +14,21 @@ import (
 // exactly the workload this histogram exists to observe.
 var streamFirstChunkBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300}
 
+// streamErrorChunksForwardedBuckets partitions the "chunks forwarded
+// before error" histogram. The critical boundary is 0 vs 1: zero
+// chunks means Phase 1 pre-first-chunk retry could have caught the
+// failure (and the caller saw no content), whereas one or more means
+// the stream leaked through the safe-retry window and content has
+// already been emitted downstream — the regime where only Phase 4
+// dedup-aware resume can help. The upper tail covers full reasoning
+// responses that can run into tens of thousands of chunks.
+//
+// See AltairaLabs/PromptKit#864: this histogram is the load-bearing
+// measurement for deciding whether Phase 4 is worth building.
+var streamErrorChunksForwardedBuckets = []float64{
+	0, 1, 5, 20, 100, 500, 2000, 10000,
+}
+
 // StreamMetrics holds the direct-update Prometheus metrics for streaming
 // provider calls. These are updated inline at the source (not via the
 // event bus) so that burst-load drops on the event bus cannot corrupt
@@ -27,6 +42,7 @@ type StreamMetrics struct {
 	streamsInFlight             *prometheus.GaugeVec
 	providerCallsInFlight       *prometheus.GaugeVec
 	streamFirstChunkLatency     *prometheus.HistogramVec
+	streamErrorChunksForwarded  *prometheus.HistogramVec
 	streamRetriesTotal          *prometheus.CounterVec
 	streamRetryBudgetAvailable  *prometheus.GaugeVec
 	streamConcurrencyRejections *prometheus.CounterVec
@@ -67,6 +83,22 @@ func NewStreamMetrics(
 			Help: "Time from request dispatch to first SSE data event observed, " +
 				"per provider. Includes any pre-first-chunk retries.",
 			Buckets:     streamFirstChunkBuckets,
+			ConstLabels: constLabels,
+		}, []string{"provider"}),
+		streamErrorChunksForwarded: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "stream_error_chunks_forwarded",
+			Help: "Number of content chunks forwarded downstream before a stream " +
+				"terminated with an error, per provider. Observed once per failed " +
+				"stream on the terminal error chunk. The bucket at 0 counts errors " +
+				"that reached the consumer with no content already emitted (a regime " +
+				"Phase 1 pre-first-chunk retry could cover if the classifier recognized " +
+				"the error as retryable); buckets at 1 and above count mid-stream " +
+				"failures that leaked past the safe-retry window and would require " +
+				"Phase 4 dedup-aware resume to recover (see AltairaLabs/PromptKit#864). " +
+				"This histogram is the load-bearing measurement for deciding whether " +
+				"Phase 4 is worth building.",
+			Buckets:     streamErrorChunksForwardedBuckets,
 			ConstLabels: constLabels,
 		}, []string{"provider"}),
 		streamRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -110,12 +142,25 @@ func NewStreamMetrics(
 		m.streamsInFlight,
 		m.providerCallsInFlight,
 		m.streamFirstChunkLatency,
+		m.streamErrorChunksForwarded,
 		m.streamRetriesTotal,
 		m.streamRetryBudgetAvailable,
 		m.streamConcurrencyRejections,
 		m.httpConnsInUse,
 	)
 	return m
+}
+
+// ObserveStreamErrorChunksForwarded records how many content chunks were
+// forwarded downstream before a streaming request terminated with an
+// error. Called exactly once per errored stream by the RunStreamingRequest
+// relay goroutine, with the count of non-empty content chunks observed
+// prior to the terminal error chunk. Nil-safe.
+func (m *StreamMetrics) ObserveStreamErrorChunksForwarded(provider string, chunks int) {
+	if m == nil {
+		return
+	}
+	m.streamErrorChunksForwarded.WithLabelValues(provider).Observe(float64(chunks))
 }
 
 // HTTPConnsInUseInc increments the in-use HTTP connection gauge for a

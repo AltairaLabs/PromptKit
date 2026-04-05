@@ -487,22 +487,89 @@ func (b *BaseProvider) RunStreamingRequest(
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
+	// Two-channel pipeline so we can instrument every stream at a single
+	// point rather than threading bookkeeping through every provider's
+	// stream consumer:
+	//
+	//   body → consumer → innerChan → relay → outChan → caller
+	//
+	// The relay goroutine counts content chunks and observes the
+	// stream_error_chunks_forwarded histogram on the terminal error
+	// chunk. This is the load-bearing measurement for the Phase 4
+	// dedup-resume decision (see AltairaLabs/PromptKit#864): a
+	// distribution concentrated at 0 means Phase 1 pre-first-chunk
+	// retry is catching everything that matters; mass at ≥1 means
+	// mid-stream failures are leaking through the safe-retry window
+	// and Phase 4 would be worth building.
+	innerChan := make(chan StreamChunk, DefaultStreamBufferSize)
 	outChan := make(chan StreamChunk, DefaultStreamBufferSize)
+
 	// From this point on, ownership of the acquired slot and gauge
-	// increments transfers to the stream goroutine's defer below. We
-	// flip the flags so the outer defers are no-ops on the success path.
+	// increments transfers to the goroutines' defers below. Flip the
+	// flags so the outer defers are no-ops on the success path.
 	released = true
 	slotReleased = true
+
+	// Consumer goroutine: drives the body through the provider-specific
+	// parser into innerChan, then closes innerChan. Releases the
+	// concurrent-stream semaphore the moment the upstream body is
+	// fully drained so a slow caller does not hold an upstream slot.
+	go func() {
+		defer b.ReleaseStreamSlot()
+		consumer(ctx, result.Body, innerChan)
+	}()
+
+	// Relay goroutine: observes instrumentation while forwarding every
+	// chunk from innerChan to outChan. The in-flight gauges are
+	// decremented here (not in the consumer) so they reflect the
+	// caller's view of stream lifetime: "stream is in flight until
+	// outChan is closed". The terminal close of outChan is the last
+	// step, signaling the caller that the stream is fully delivered.
 	go func() {
 		defer func() {
+			close(outChan)
 			metrics.StreamsInFlightDec(providerID)
 			metrics.ProviderCallsInFlightDec(providerID)
-			b.ReleaseStreamSlot()
 		}()
-		consumer(ctx, result.Body, outChan)
+		var contentChunks int
+		for chunk := range innerChan {
+			// A chunk "forwarded content" if it delivered any user-
+			// visible payload: text delta, media data, or tool call
+			// arguments. Finish-reason-only chunks and the terminal
+			// error chunk itself do not count toward the pre-error
+			// content count — only payload that the downstream
+			// consumer has already committed to.
+			if chunkForwardedContent(&chunk) {
+				contentChunks++
+			}
+			if chunk.Error != nil {
+				metrics.ObserveStreamErrorChunksForwarded(providerID, contentChunks)
+			}
+			outChan <- chunk
+		}
 	}()
 
 	return outChan, nil
+}
+
+// chunkForwardedContent reports whether a StreamChunk delivered any
+// user-visible payload downstream. Only payload-bearing chunks count
+// toward the "chunks forwarded before error" histogram; pure
+// finish-reason chunks and error terminals do not. Takes a pointer
+// rather than a value because StreamChunk is large (multiple string
+// and slice fields) and this function is called once per chunk in
+// the relay hot path.
+func chunkForwardedContent(chunk *StreamChunk) bool {
+	if chunk.Delta != "" {
+		return true
+	}
+	if chunk.MediaData != nil {
+		return true
+	}
+	if len(chunk.ToolCalls) > 0 {
+		return true
+	}
+	return false
 }
 
 // HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.
