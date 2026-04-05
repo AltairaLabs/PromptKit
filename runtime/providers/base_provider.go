@@ -95,6 +95,7 @@ type BaseProvider struct {
 	client                *http.Client // request/response calls
 	streamingClient       *http.Client // SSE streams; Timeout: 0
 	streamIdleTimeout     time.Duration
+	streamRetryPolicy     StreamRetryPolicy
 	rateLimiter           *rate.Limiter
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
@@ -264,6 +265,18 @@ func (b *BaseProvider) SetStreamIdleTimeout(d time.Duration) {
 		return
 	}
 	b.streamIdleTimeout = d
+}
+
+// StreamRetryPolicy returns the configured streaming-retry policy. The zero
+// value (retry disabled) is the default — callers must opt in via config.
+func (b *BaseProvider) StreamRetryPolicy() StreamRetryPolicy {
+	return b.streamRetryPolicy
+}
+
+// SetStreamRetryPolicy configures bounded retry behavior for the
+// pre-first-chunk streaming window. See StreamRetryPolicy for details.
+func (b *BaseProvider) SetStreamRetryPolicy(policy StreamRetryPolicy) {
+	b.streamRetryPolicy = policy
 }
 
 // HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.

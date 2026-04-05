@@ -1661,6 +1661,9 @@
         },
         "stream_idle_timeout": {
           "type": "string"
+        },
+        "stream_retry": {
+          "$ref": "#/$defs/StreamRetryConfig"
         }
       },
       "additionalProperties": false,
@@ -2119,6 +2122,27 @@
       "required": [
         "type"
       ]
+    },
+    "StreamRetryConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "max_attempts": {
+          "type": "integer"
+        },
+        "initial_delay": {
+          "type": "string"
+        },
+        "max_delay": {
+          "type": "string"
+        },
+        "retry_window": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "TTSConfig": {
       "properties": {

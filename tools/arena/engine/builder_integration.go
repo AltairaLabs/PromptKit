@@ -205,6 +205,7 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 
 	requestTimeout := parseProviderDuration(provider.ID, "request_timeout", provider.RequestTimeout)
 	streamIdleTimeout := parseProviderDuration(provider.ID, "stream_idle_timeout", provider.StreamIdleTimeout)
+	streamRetry := buildStreamRetryPolicy(provider.ID, provider.StreamRetry)
 
 	spec := providers.ProviderSpec{
 		ID:                provider.ID,
@@ -219,6 +220,7 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		UnsupportedParams: provider.UnsupportedParams,
 		RequestTimeout:    requestTimeout,
 		StreamIdleTimeout: streamIdleTimeout,
+		StreamRetry:       streamRetry,
 		Defaults: providers.ProviderDefaults{
 			Temperature: provider.Defaults.Temperature,
 			TopP:        provider.Defaults.TopP,
@@ -230,6 +232,35 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		},
 	}
 	return providers.CreateProviderFromSpec(spec)
+}
+
+// buildStreamRetryPolicy translates a StreamRetryConfig from arena config
+// into a providers.StreamRetryPolicy. Nil or disabled config returns the
+// zero policy (retry off). Malformed durations are logged and skipped so
+// the provider falls back to the built-in defaults for that field.
+func buildStreamRetryPolicy(providerID string, cfg *config.StreamRetryConfig) providers.StreamRetryPolicy {
+	if cfg == nil || !cfg.Enabled {
+		return providers.StreamRetryPolicy{}
+	}
+	policy := providers.StreamRetryPolicy{
+		Enabled:     true,
+		MaxAttempts: cfg.MaxAttempts,
+	}
+	if cfg.InitialDelay != "" {
+		policy.InitialDelay = parseProviderDuration(providerID, "stream_retry.initial_delay", cfg.InitialDelay)
+	}
+	if cfg.MaxDelay != "" {
+		policy.MaxDelay = parseProviderDuration(providerID, "stream_retry.max_delay", cfg.MaxDelay)
+	}
+	switch cfg.RetryWindow {
+	case "", string(providers.StreamRetryWindowPreFirstChunk):
+		policy.Window = providers.StreamRetryWindowPreFirstChunk
+	default:
+		logger.Warn("arena: unknown stream_retry.retry_window, defaulting to pre_first_chunk",
+			"provider", providerID, "value", cfg.RetryWindow)
+		policy.Window = providers.StreamRetryWindowPreFirstChunk
+	}
+	return policy
 }
 
 // parseProviderDuration parses a Go duration string from a provider config
