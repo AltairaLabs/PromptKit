@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 )
@@ -90,6 +91,20 @@ type ProviderSpec struct {
 	// UnsupportedParams lists model parameters not supported by this provider model.
 	// For example, o-series OpenAI models don't support "temperature", "top_p", or "max_tokens".
 	UnsupportedParams []string
+
+	// RequestTimeout caps the wall-clock duration of request/response HTTP
+	// calls (Predict, embeddings). Zero falls back to
+	// httputil.DefaultProviderTimeout. Does not apply to SSE streaming
+	// calls, which are unbounded by wall-clock and governed by
+	// StreamIdleTimeout + context cancellation. Pre-parsed from
+	// config.Provider.RequestTimeout by the arena loader.
+	RequestTimeout time.Duration
+
+	// StreamIdleTimeout bounds how long an SSE streaming body may remain
+	// silent before it is aborted; timer resets on every byte. Zero falls
+	// back to DefaultStreamIdleTimeout. Pre-parsed from
+	// config.Provider.StreamIdleTimeout by the arena loader.
+	StreamIdleTimeout time.Duration
 }
 
 // Credential applies authentication to HTTP requests.
@@ -104,6 +119,16 @@ type Credential interface {
 
 // PlatformConfig is an alias for credentials.PlatformConfig.
 type PlatformConfig = credentials.PlatformConfig
+
+// timeoutConfigurable is implemented by any provider that embeds
+// *BaseProvider (or BaseProvider by value and is returned as a pointer).
+// CreateProviderFromSpec uses this to apply RequestTimeout and
+// StreamIdleTimeout uniformly after the provider factory runs, so each
+// factory does not have to thread the durations through by hand.
+type timeoutConfigurable interface {
+	SetHTTPTimeout(time.Duration)
+	SetStreamIdleTimeout(time.Duration)
+}
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
 // Returns an error if the provider type is unsupported.
@@ -138,7 +163,23 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		return nil, &UnsupportedProviderError{ProviderType: spec.Type}
 	}
 
-	return factory(spec)
+	provider, err := factory(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply configured timeouts. Zero values leave the defaults in place
+	// (BaseProvider's constructor-time defaults / DefaultStreamIdleTimeout).
+	if tc, ok := provider.(timeoutConfigurable); ok {
+		if spec.RequestTimeout > 0 {
+			tc.SetHTTPTimeout(spec.RequestTimeout)
+		}
+		if spec.StreamIdleTimeout > 0 {
+			tc.SetStreamIdleTimeout(spec.StreamIdleTimeout)
+		}
+	}
+
+	return provider, nil
 }
 
 // UnsupportedProviderError is returned when a provider type is not recognized

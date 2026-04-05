@@ -1105,6 +1105,20 @@ type Provider struct {
 	// UnsupportedParams lists model parameters not supported by this provider model
 	// (e.g. "temperature", "top_p", "max_tokens").
 	UnsupportedParams []string `json:"unsupported_params,omitempty" yaml:"unsupported_params,omitempty"`
+	// RequestTimeout caps the wall-clock duration of request/response HTTP
+	// calls (Predict, embeddings, etc.) via http.Client.Timeout. Does NOT
+	// apply to SSE streaming calls, which are unbounded by wall-clock and
+	// governed only by StreamIdleTimeout and context cancellation. Empty
+	// falls back to the provider's default (typically 60s). Go duration
+	// string, e.g. "2m", "90s".
+	RequestTimeout string `json:"request_timeout,omitempty" yaml:"request_timeout,omitempty"`
+	// StreamIdleTimeout bounds how long an SSE streaming body may remain
+	// silent (no bytes) between reads before the stream is aborted. The
+	// timer resets on every byte received, so legitimately long-running
+	// streams (e.g. hours-long sessions delivering sparse output) are not
+	// affected. Empty falls back to providers.DefaultStreamIdleTimeout
+	// (30s). Go duration string, e.g. "60s", "2m".
+	StreamIdleTimeout string `json:"stream_idle_timeout,omitempty" yaml:"stream_idle_timeout,omitempty"`
 }
 
 // CredentialConfig is an alias for credentials.CredentialConfig.

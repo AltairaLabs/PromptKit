@@ -2,6 +2,7 @@ package engine
 
 import (
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -12,6 +13,35 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/stretchr/testify/require"
 )
+
+// TestParseProviderDuration covers the duration string parser used by the
+// arena loader to translate config.Provider.RequestTimeout and
+// config.Provider.StreamIdleTimeout into time.Duration values for
+// providers.ProviderSpec. Invalid or non-positive input must log and yield
+// zero so the provider falls back to its built-in default.
+func TestParseProviderDuration(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  time.Duration
+	}{
+		{"empty string returns zero", "", 0},
+		{"valid seconds", "90s", 90 * time.Second},
+		{"valid minutes", "3m", 3 * time.Minute},
+		{"valid compound", "1m30s", 90 * time.Second},
+		{"valid hours", "2h", 2 * time.Hour},
+		{"malformed", "garbage", 0},
+		{"missing unit", "90", 0},
+		{"zero duration", "0s", 0},
+		{"negative duration", "-5s", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseProviderDuration("test-provider", "request_timeout", tt.value)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
 
 func TestCreateProviderImpl_MockProvider(t *testing.T) {
 	providerCfg := &config.Provider{

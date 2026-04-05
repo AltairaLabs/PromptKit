@@ -237,7 +237,7 @@ func (p *Provider) PredictStreamWithTools(
 	}
 
 	// Send request
-	httpResp, err := p.GetHTTPClient().Do(httpReq)
+	httpResp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

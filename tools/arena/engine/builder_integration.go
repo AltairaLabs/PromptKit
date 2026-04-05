@@ -203,6 +203,9 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		return nil, fmt.Errorf("failed to resolve credentials for provider %s: %w", provider.ID, err)
 	}
 
+	requestTimeout := parseProviderDuration(provider.ID, "request_timeout", provider.RequestTimeout)
+	streamIdleTimeout := parseProviderDuration(provider.ID, "stream_idle_timeout", provider.StreamIdleTimeout)
+
 	spec := providers.ProviderSpec{
 		ID:                provider.ID,
 		Type:              provider.Type,
@@ -214,6 +217,8 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		Platform:          platform,
 		PlatformConfig:    platformConfig,
 		UnsupportedParams: provider.UnsupportedParams,
+		RequestTimeout:    requestTimeout,
+		StreamIdleTimeout: streamIdleTimeout,
 		Defaults: providers.ProviderDefaults{
 			Temperature: provider.Defaults.Temperature,
 			TopP:        provider.Defaults.TopP,
@@ -225,6 +230,28 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		},
 	}
 	return providers.CreateProviderFromSpec(spec)
+}
+
+// parseProviderDuration parses a Go duration string from a provider config
+// field. Empty string yields zero duration (the caller's default applies).
+// Malformed input or non-positive values log a warning and yield zero so
+// the provider falls back to its built-in default rather than failing hard.
+func parseProviderDuration(providerID, field, value string) time.Duration {
+	if value == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		logger.Warn("arena: ignoring invalid provider duration, using default",
+			"provider", providerID, "field", field, "value", value, "error", err)
+		return 0
+	}
+	if d <= 0 {
+		logger.Warn("arena: ignoring non-positive provider duration, using default",
+			"provider", providerID, "field", field, "value", value)
+		return 0
+	}
+	return d
 }
 
 // discoverAndRegisterMCPTools discovers tools from MCP servers and registers them in the tool registry.

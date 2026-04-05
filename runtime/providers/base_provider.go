@@ -81,23 +81,51 @@ func NewInstrumentedTransport(base http.RoundTripper) http.RoundTripper {
 
 // BaseProvider provides common functionality shared across all provider implementations.
 // It should be embedded in concrete provider structs to avoid code duplication.
+//
+// It carries two distinct HTTP clients: `client` for request/response calls
+// (Predict, embeddings, etc.) which honors the configured request timeout, and
+// `streamingClient` for long-lived SSE streams (PredictStream*) which has
+// Timeout=0 so the client does not impose a wall-clock cap on streams.
+// Liveness for streams is bounded separately by the IdleTimeoutReader
+// wrapping the response body (see StreamIdleTimeout) and by context
+// cancellation from the caller's deadline.
 type BaseProvider struct {
 	id                    string
 	includeRawOutput      bool
-	client                *http.Client
+	client                *http.Client // request/response calls
+	streamingClient       *http.Client // SSE streams; Timeout: 0
+	streamIdleTimeout     time.Duration
 	rateLimiter           *rate.Limiter
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
 }
 
-// NewBaseProvider creates a new BaseProvider with common fields
+// NewBaseProvider creates a new BaseProvider with common fields. A companion
+// streaming client is auto-derived from the given client's transport with
+// Timeout=0 so SSE call sites can use GetStreamingHTTPClient() without any
+// extra wiring.
 func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) BaseProvider {
 	return BaseProvider{
 		id:                    id,
 		includeRawOutput:      includeRawOutput,
 		client:                client,
+		streamingClient:       newStreamingClient(client),
 		retryPolicy:           DefaultRetryPolicy(),
 		maxRequestPayloadSize: DefaultMaxPayloadSize,
+	}
+}
+
+// newStreamingClient builds a companion http.Client for SSE streams that
+// shares the given client's transport but imposes no wall-clock Timeout.
+// Returns nil when client is nil so tests that construct a zero-value
+// BaseProvider still behave.
+func newStreamingClient(client *http.Client) *http.Client {
+	if client == nil {
+		return nil
+	}
+	return &http.Client{
+		Timeout:   0,
+		Transport: client.Transport,
 	}
 }
 
@@ -178,13 +206,29 @@ func (b *BaseProvider) SupportsStreaming() bool {
 	return true
 }
 
-// GetHTTPClient returns the underlying HTTP client for provider-specific use
+// GetHTTPClient returns the underlying HTTP client for request/response
+// calls. This client has a finite Timeout (the request_timeout) and MUST
+// NOT be used for SSE streaming — use GetStreamingHTTPClient for that.
 func (b *BaseProvider) GetHTTPClient() *http.Client {
 	return b.client
 }
 
-// SetHTTPTimeout replaces the HTTP client with a new one that uses the given
-// timeout while preserving the existing transport configuration.
+// GetStreamingHTTPClient returns a dedicated HTTP client for SSE streaming
+// calls. It shares the non-streaming client's transport but has Timeout=0
+// so long-lived streams are not killed by a wall-clock cap. When no
+// dedicated streaming client is configured it falls back to the regular
+// client so callers never receive nil.
+func (b *BaseProvider) GetStreamingHTTPClient() *http.Client {
+	if b.streamingClient != nil {
+		return b.streamingClient
+	}
+	return b.client
+}
+
+// SetHTTPTimeout replaces the request/response HTTP client with a new one
+// that uses the given timeout while preserving the existing transport
+// configuration. Does not affect the streaming client, which remains at
+// Timeout=0 by design.
 func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 	var transport http.RoundTripper
 	if b.client != nil {
@@ -194,6 +238,32 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 		Timeout:   timeout,
 		Transport: transport,
 	}
+	// Keep the streaming client's transport in sync with the new client so
+	// both share connection pooling.
+	if b.streamingClient != nil {
+		b.streamingClient.Transport = transport
+	} else if transport != nil {
+		b.streamingClient = &http.Client{Timeout: 0, Transport: transport}
+	}
+}
+
+// StreamIdleTimeout returns the configured SSE body idle timeout or the
+// package default (DefaultStreamIdleTimeout) when none is set.
+func (b *BaseProvider) StreamIdleTimeout() time.Duration {
+	if b.streamIdleTimeout > 0 {
+		return b.streamIdleTimeout
+	}
+	return DefaultStreamIdleTimeout
+}
+
+// SetStreamIdleTimeout configures the SSE body idle timeout. A zero or
+// negative value resets to DefaultStreamIdleTimeout.
+func (b *BaseProvider) SetStreamIdleTimeout(d time.Duration) {
+	if d <= 0 {
+		b.streamIdleTimeout = 0
+		return
+	}
+	b.streamIdleTimeout = d
 }
 
 // HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.

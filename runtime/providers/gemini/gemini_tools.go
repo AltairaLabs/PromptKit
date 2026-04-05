@@ -627,7 +627,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

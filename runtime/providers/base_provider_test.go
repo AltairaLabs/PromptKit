@@ -279,6 +279,99 @@ func TestBaseProvider_SetHTTPTimeout_NilClient(t *testing.T) {
 	}
 }
 
+// TestBaseProvider_StreamingClientHasZeroTimeout verifies that every
+// BaseProvider instance carries a companion *http.Client dedicated to SSE
+// streaming with Timeout=0 (no wall-clock cap), so long-lived streams are
+// not killed by the non-streaming client's request timeout.
+func TestBaseProvider_StreamingClientHasZeroTimeout(t *testing.T) {
+	t.Run("NewBaseProvider with concrete client", func(t *testing.T) {
+		client := &http.Client{Timeout: 60 * time.Second, Transport: NewInstrumentedTransport(NewPooledTransport())}
+		base := NewBaseProvider("test", false, client)
+
+		sc := base.GetStreamingHTTPClient()
+		if sc == nil {
+			t.Fatal("GetStreamingHTTPClient returned nil")
+		}
+		if sc.Timeout != 0 {
+			t.Errorf("streaming client Timeout = %v, want 0", sc.Timeout)
+		}
+		if sc == base.GetHTTPClient() {
+			t.Error("streaming client must be a distinct instance from the non-streaming client")
+		}
+		if sc.Transport != client.Transport {
+			t.Error("streaming client must share the non-streaming client's transport")
+		}
+	})
+
+	t.Run("NewBaseProviderWithAPIKey", func(t *testing.T) {
+		base, _ := NewBaseProviderWithAPIKey("test", false, "NONEXISTENT_KEY1", "NONEXISTENT_KEY2")
+		sc := base.GetStreamingHTTPClient()
+		if sc == nil {
+			t.Fatal("GetStreamingHTTPClient returned nil")
+		}
+		if sc.Timeout != 0 {
+			t.Errorf("streaming client Timeout = %v, want 0", sc.Timeout)
+		}
+		if base.GetHTTPClient().Timeout != httputil.DefaultProviderTimeout {
+			t.Errorf("non-streaming client Timeout = %v, want %v",
+				base.GetHTTPClient().Timeout, httputil.DefaultProviderTimeout)
+		}
+	})
+
+	t.Run("NewBaseProviderWithCredential", func(t *testing.T) {
+		cred := &mockCredential{credType: "api_key", key: "sk-test"}
+		base, _ := NewBaseProviderWithCredential("test", false, 90*time.Second, cred)
+		sc := base.GetStreamingHTTPClient()
+		if sc == nil {
+			t.Fatal("GetStreamingHTTPClient returned nil")
+		}
+		if sc.Timeout != 0 {
+			t.Errorf("streaming client Timeout = %v, want 0", sc.Timeout)
+		}
+		if base.GetHTTPClient().Timeout != 90*time.Second {
+			t.Errorf("non-streaming client Timeout = %v, want 90s",
+				base.GetHTTPClient().Timeout)
+		}
+	})
+}
+
+// TestBaseProvider_StreamIdleTimeout verifies the stream idle timeout
+// accessor and setter. Default (zero stored value) must fall back to
+// providers.DefaultStreamIdleTimeout; explicit values are honored.
+func TestBaseProvider_StreamIdleTimeout(t *testing.T) {
+	t.Run("default falls back", func(t *testing.T) {
+		base := NewBaseProvider("test", false, &http.Client{})
+		if got := base.StreamIdleTimeout(); got != DefaultStreamIdleTimeout {
+			t.Errorf("StreamIdleTimeout() = %v, want %v (default)", got, DefaultStreamIdleTimeout)
+		}
+	})
+
+	t.Run("explicit value is honored", func(t *testing.T) {
+		base := NewBaseProvider("test", false, &http.Client{})
+		base.SetStreamIdleTimeout(90 * time.Second)
+		if got := base.StreamIdleTimeout(); got != 90*time.Second {
+			t.Errorf("StreamIdleTimeout() = %v, want 90s", got)
+		}
+	})
+
+	t.Run("zero setter resets to default", func(t *testing.T) {
+		base := NewBaseProvider("test", false, &http.Client{})
+		base.SetStreamIdleTimeout(90 * time.Second)
+		base.SetStreamIdleTimeout(0)
+		if got := base.StreamIdleTimeout(); got != DefaultStreamIdleTimeout {
+			t.Errorf("StreamIdleTimeout() = %v, want default after reset to 0", got)
+		}
+	})
+
+	t.Run("negative setter resets to default", func(t *testing.T) {
+		base := NewBaseProvider("test", false, &http.Client{})
+		base.SetStreamIdleTimeout(-1 * time.Second)
+		if got := base.StreamIdleTimeout(); got != DefaultStreamIdleTimeout {
+			t.Errorf("StreamIdleTimeout() = %v, want default for negative input", got)
+		}
+	})
+}
+
 func TestReadResponseBody(t *testing.T) {
 	data := []byte("hello world")
 	result, err := ReadResponseBody(bytes.NewReader(data))

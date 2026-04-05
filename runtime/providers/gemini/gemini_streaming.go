@@ -50,7 +50,7 @@ func (p *Provider) PredictStream(
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -156,8 +156,9 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		_ = body.Close()
 	}()
 
-	// Wrap body with idle timeout detection to guard against stalled streams
-	idleBody := providers.NewIdleTimeoutReader(body, providers.DefaultStreamIdleTimeout)
+	// Wrap body with idle timeout detection to guard against stalled streams.
+	// Duration is configured on the BaseProvider via SetStreamIdleTimeout.
+	idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
 	defer idleBody.Close()
 
 	dec := json.NewDecoder(idleBody)

@@ -550,7 +550,7 @@ func (p *ToolProvider) predictStreamWithCompletions(
 	httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := p.GetHTTPClient().Do(httpReq)
+	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
