@@ -2,6 +2,8 @@
 package events
 
 import (
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +19,72 @@ const (
 	dropLogRateLimit         = 100 // log every Nth drop to avoid spam
 	closeTimeout             = 10 * time.Second
 )
+
+// Environment variable names for operator-level event bus tuning. These
+// are read by NewEventBus when an option is not supplied, so existing
+// call sites (arena, SDK, examples) pick up operator config without any
+// code changes.
+//
+// See AltairaLabs/PromptKit#853: the capability-matrix run dropped 201
+// events due to worker-pool throughput saturation under bursty load.
+// Operators can raise these values to match their expected concurrency
+// without a code change.
+const (
+	// EnvEventBusBufferSize overrides DefaultEventBufferSize. Invalid
+	// or non-positive values are ignored and the default is used.
+	EnvEventBusBufferSize = "PROMPTKIT_EVENT_BUS_BUFFER_SIZE"
+	// EnvEventBusWorkerPoolSize overrides DefaultWorkerPoolSize.
+	// Invalid or non-positive values are ignored.
+	EnvEventBusWorkerPoolSize = "PROMPTKIT_EVENT_BUS_WORKER_POOL_SIZE"
+	// EnvEventBusSubscriberTimeout overrides DefaultSubscriberTimeout.
+	// Value is a Go duration string (e.g. "10s", "2m"). Invalid or
+	// non-positive values are ignored.
+	EnvEventBusSubscriberTimeout = "PROMPTKIT_EVENT_BUS_SUBSCRIBER_TIMEOUT"
+)
+
+// envDefaultBusConfig returns a busConfig seeded from environment
+// variables, falling back to the package defaults when a variable is
+// unset, malformed, or non-positive. Malformed values log a warning
+// once per NewEventBus call so operators see their typos without
+// spamming logs for every event.
+func envDefaultBusConfig() *busConfig {
+	cfg := &busConfig{
+		workerPoolSize:    DefaultWorkerPoolSize,
+		eventBufferSize:   DefaultEventBufferSize,
+		subscriberTimeout: DefaultSubscriberTimeout,
+	}
+	if v := os.Getenv(EnvEventBusBufferSize); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.eventBufferSize = n
+		} else {
+			logger.Warn("ignoring invalid event bus buffer size from env",
+				"env", EnvEventBusBufferSize,
+				"value", v,
+			)
+		}
+	}
+	if v := os.Getenv(EnvEventBusWorkerPoolSize); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.workerPoolSize = n
+		} else {
+			logger.Warn("ignoring invalid event bus worker pool size from env",
+				"env", EnvEventBusWorkerPoolSize,
+				"value", v,
+			)
+		}
+	}
+	if v := os.Getenv(EnvEventBusSubscriberTimeout); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.subscriberTimeout = d
+		} else {
+			logger.Warn("ignoring invalid event bus subscriber timeout from env",
+				"env", EnvEventBusSubscriberTimeout,
+				"value", v,
+			)
+		}
+	}
+	return cfg
+}
 
 // Listener is a function that handles events.
 type Listener func(*Event)
@@ -120,17 +188,26 @@ type EventBus struct {
 }
 
 // NewEventBus creates a new event bus with a worker pool.
-// Options can be provided to configure pool size and buffer capacity.
-// The zero-argument form uses sensible defaults and is fully backward-compatible.
+//
+// Configuration precedence (highest first):
+//
+//  1. Explicit options passed as BusOption arguments (WithWorkerPoolSize,
+//     WithEventBufferSize, WithSubscriberTimeout). Tests and programmatic
+//     callers that want deterministic behavior should use these.
+//  2. Environment variables (PROMPTKIT_EVENT_BUS_BUFFER_SIZE,
+//     PROMPTKIT_EVENT_BUS_WORKER_POOL_SIZE,
+//     PROMPTKIT_EVENT_BUS_SUBSCRIBER_TIMEOUT). Invalid values are logged
+//     and ignored. This is the operator knob for tuning without code
+//     changes — see AltairaLabs/PromptKit#853.
+//  3. Package defaults (DefaultEventBufferSize etc.).
+//
+// The zero-argument form reads env vars and falls back to defaults, so
+// existing call sites pick up operator configuration automatically.
 //
 // Workers are started lazily: goroutines are only spawned when the first
 // subscriber is added via Subscribe or SubscribeAll.
 func NewEventBus(opts ...BusOption) *EventBus {
-	cfg := &busConfig{
-		workerPoolSize:    DefaultWorkerPoolSize,
-		eventBufferSize:   DefaultEventBufferSize,
-		subscriberTimeout: DefaultSubscriberTimeout,
-	}
+	cfg := envDefaultBusConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
