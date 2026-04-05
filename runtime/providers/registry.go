@@ -119,6 +119,14 @@ type ProviderSpec struct {
 	// arena loader. Each provider instance gets its own budget so one
 	// misbehaving model cannot starve retry capacity for others.
 	StreamRetryBudget *RetryBudget
+
+	// StreamMaxConcurrent caps the number of concurrent streaming
+	// requests the provider will have in flight. Zero means unlimited
+	// (backwards-compatible default). Pre-parsed from
+	// config.Provider.StreamMaxConcurrent by the arena loader. Applied
+	// via SetStreamSemaphore on providers that implement the
+	// streamConcurrencyConfigurable interface.
+	StreamMaxConcurrent int
 }
 
 // Credential applies authentication to HTTP requests.
@@ -150,6 +158,16 @@ type timeoutConfigurable interface {
 type streamRetryConfigurable interface {
 	SetStreamRetryPolicy(StreamRetryPolicy)
 	SetStreamRetryBudget(*RetryBudget)
+}
+
+// streamConcurrencyConfigurable is implemented by any provider that
+// embeds *BaseProvider. CreateProviderFromSpec uses this to install a
+// concurrent-stream semaphore from spec.StreamMaxConcurrent. Independent
+// of streamRetryConfigurable because back-pressure on concurrency is
+// orthogonal to retry behavior — a provider may want one, both, or
+// neither.
+type streamConcurrencyConfigurable interface {
+	SetStreamSemaphore(*StreamSemaphore)
 }
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
@@ -212,6 +230,13 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		if spec.StreamRetryBudget != nil {
 			src.SetStreamRetryBudget(spec.StreamRetryBudget)
 		}
+	}
+
+	// Apply the concurrent-stream semaphore. Independent of retry: a
+	// provider may want concurrency bounds without retry, or vice
+	// versa. A non-positive limit is a no-op (unlimited default).
+	if scc, ok := provider.(streamConcurrencyConfigurable); ok && spec.StreamMaxConcurrent > 0 {
+		scc.SetStreamSemaphore(NewStreamSemaphore(spec.StreamMaxConcurrent))
 	}
 
 	return provider, nil

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -97,6 +98,7 @@ type BaseProvider struct {
 	streamIdleTimeout     time.Duration
 	streamRetryPolicy     StreamRetryPolicy
 	streamRetryBudget     *RetryBudget
+	streamSemaphore       *StreamSemaphore
 	rateLimiter           *rate.Limiter
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
@@ -291,6 +293,50 @@ func (b *BaseProvider) StreamRetryBudget() *RetryBudget {
 // restores unbounded-retry behavior.
 func (b *BaseProvider) SetStreamRetryBudget(budget *RetryBudget) {
 	b.streamRetryBudget = budget
+}
+
+// StreamSemaphore returns the concurrent-stream semaphore. A nil return
+// means unlimited concurrency (backwards-compatible default).
+func (b *BaseProvider) StreamSemaphore() *StreamSemaphore {
+	return b.streamSemaphore
+}
+
+// SetStreamSemaphore installs a semaphore that caps concurrent streaming
+// requests. Passing nil (or a zero-limit semaphore) restores unlimited
+// concurrency.
+func (b *BaseProvider) SetStreamSemaphore(sem *StreamSemaphore) {
+	b.streamSemaphore = sem
+}
+
+// AcquireStreamSlot blocks on the configured concurrent-stream semaphore
+// until a slot is available or the context is done. Returns nil on
+// successful acquire (caller MUST call b.ReleaseStreamSlot exactly once)
+// or the context error on cancellation/deadline. Classifies the
+// rejection reason and records it on the
+// promptkit_stream_concurrency_rejections_total counter so operators
+// can see saturation.
+//
+// Nil semaphore is a no-op — returns nil without blocking or emitting
+// metrics, so callers can invoke this unconditionally.
+func (b *BaseProvider) AcquireStreamSlot(ctx context.Context) error {
+	if b.streamSemaphore == nil {
+		return nil
+	}
+	if err := b.streamSemaphore.Acquire(ctx); err != nil {
+		reason := "context_canceled"
+		if errors.Is(err, context.DeadlineExceeded) {
+			reason = "deadline_exceeded"
+		}
+		DefaultStreamMetrics().ConcurrencyRejected(b.id, reason)
+		return err
+	}
+	return nil
+}
+
+// ReleaseStreamSlot returns a slot to the concurrent-stream semaphore.
+// Nil-safe; must be paired with a successful AcquireStreamSlot.
+func (b *BaseProvider) ReleaseStreamSlot() {
+	b.streamSemaphore.Release()
 }
 
 // HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.

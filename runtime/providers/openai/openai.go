@@ -918,6 +918,18 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		return httpReq, nil
 	}
 
+	// Acquire a concurrent-stream slot before any HTTP work. See the
+	// Responses API path for rationale — same pattern, same semantics.
+	if acqErr := p.AcquireStreamSlot(ctx); acqErr != nil {
+		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
+	}
+	slotReleased := false
+	defer func() {
+		if !slotReleased {
+			p.ReleaseStreamSlot()
+		}
+	}()
+
 	metrics := providers.DefaultStreamMetrics()
 	metrics.StreamsInFlightInc(p.ID())
 	metrics.ProviderCallsInFlightInc(p.ID())
@@ -944,11 +956,13 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 	released = true
+	slotReleased = true
 	providerID := p.ID()
 	go func() {
 		defer func() {
 			metrics.StreamsInFlightDec(providerID)
 			metrics.ProviderCallsInFlightDec(providerID)
+			p.ReleaseStreamSlot()
 		}()
 		p.streamResponse(ctx, result.Body, outChan)
 	}()

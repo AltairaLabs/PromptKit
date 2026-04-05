@@ -569,6 +569,20 @@ func (p *Provider) predictStreamWithResponses(
 		return httpReq, nil
 	}
 
+	// Acquire a concurrent-stream slot before any HTTP work. A nil
+	// semaphore is a no-op; a saturated semaphore blocks until the
+	// caller's ctx is done, at which point we return the ctx error
+	// and the rejection counter is emitted by AcquireStreamSlot.
+	if acqErr := p.AcquireStreamSlot(ctx); acqErr != nil {
+		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
+	}
+	slotReleased := false
+	defer func() {
+		if !slotReleased {
+			p.ReleaseStreamSlot()
+		}
+	}()
+
 	metrics := providers.DefaultStreamMetrics()
 	metrics.StreamsInFlightInc(p.ID())
 	metrics.ProviderCallsInFlightInc(p.ID())
@@ -598,11 +612,13 @@ func (p *Provider) predictStreamWithResponses(
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
 	released = true
+	slotReleased = true
 	providerID := p.ID()
 	go func() {
 		defer func() {
 			metrics.StreamsInFlightDec(providerID)
 			metrics.ProviderCallsInFlightDec(providerID)
+			p.ReleaseStreamSlot()
 		}()
 		p.streamResponsesResponse(ctx, result.Body, outChan)
 	}()

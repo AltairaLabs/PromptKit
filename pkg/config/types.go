@@ -1125,6 +1125,12 @@ type Provider struct {
 	// initial-connection errors without risking duplicate content emission.
 	// Disabled by default. See docs/local-backlog/STREAMING_RETRY_AT_SCALE.md.
 	StreamRetry *StreamRetryConfig `json:"stream_retry,omitempty" yaml:"stream_retry,omitempty"`
+	// StreamMaxConcurrent caps the number of concurrent streaming requests
+	// the provider will have in flight at any time. Requests beyond the
+	// limit block on the caller's context — a short deadline acts as
+	// fail-fast, a long one queues. Zero or negative means unlimited
+	// (current default). Reduces goroutine/timer explosion under load.
+	StreamMaxConcurrent int `json:"stream_max_concurrent,omitempty" yaml:"stream_max_concurrent,omitempty"`
 }
 
 // StreamRetryConfig configures pre-first-chunk streaming retry behavior for
