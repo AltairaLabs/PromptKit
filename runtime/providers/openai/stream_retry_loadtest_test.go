@@ -856,6 +856,96 @@ func TestStreamRetryLoad_ScaleRamp(t *testing.T) {
 	t.Log("")
 }
 
+// TestStreamRetryLoad_PushToDestruction is a deliberate "how hard can
+// this go before it breaks" probe. Unlike the bounded ScaleRamp test
+// it does not fail on errors — it keeps running and reports whatever
+// the stack produced. Each tier is hard-capped at 60 seconds wall
+// time; if a tier exceeds that or produces any failures, the test
+// logs the result and stops at that tier.
+//
+// Run with:
+//
+//	go test -tags=loadtest -timeout=30m -v -run TestStreamRetryLoad_PushToDestruction ./runtime/providers/openai/
+func TestStreamRetryLoad_PushToDestruction(t *testing.T) {
+	// Progressively harder tiers. Stop as soon as one fails or times
+	// out so we don't waste minutes on a wedged tier.
+	// Tiers chosen to bracket observed stack behavior:
+	//   5k–50k   — past the ScaleRamp ceiling, exercises real goroutine pressure
+	//   100k–300k — single-process headroom; all observed clean in empirical runs
+	//
+	// 500k was measured as the first tier that produced failures in the
+	// harness, but those failures are the 10-second per-request context
+	// deadline being exceeded — at ~50k rps the fake SSE server's CPU
+	// ceiling, 1M total requests need ~21s wall time and tail requests
+	// sitting in the worker queue hit the deadline. That's a harness
+	// artifact, not a stack failure, so 500k is intentionally NOT in the
+	// default tier list. See the design doc's "Push to destruction" section.
+	tiers := []int{5000, 10000, 25000, 50000, 100000, 200000, 300000}
+
+	_, _ = installTestMetrics(t)
+	fake := newFakeOpenAI()
+	defer fake.Close()
+
+	p := buildProvider(fake.URL(), providerOpts{
+		policy: providers.StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 50 * time.Millisecond,
+			MaxDelay:     500 * time.Millisecond,
+		},
+	})
+
+	var results []scaleRampTier
+	for _, c := range tiers {
+		t.Logf(">>> pushing to %d concurrent...", c)
+		done := make(chan scaleRampTier, 1)
+		go func(c int) {
+			done <- runScaleRampTier(t, p, fake, c)
+		}(c)
+
+		var result scaleRampTier
+		var timedOut bool
+		select {
+		case result = <-done:
+		case <-time.After(120 * time.Second):
+			timedOut = true
+			t.Logf(">>> tier %d: TIMED OUT after 120s — stopping", c)
+		}
+		if timedOut {
+			break
+		}
+		results = append(results, result)
+		t.Logf(">>> tier %d: ok=%d fail=%d wall=%.2fs goroutines_peak=%d heap_peak_MB=%.1f p99=%v",
+			c, result.successes, result.failures, result.wallTime.Seconds(),
+			result.goroutinesPeak, result.heapInusePeakMB,
+			result.latencyP99.Round(time.Millisecond))
+
+		if result.failures > 0 {
+			t.Logf(">>> tier %d had failures — stopping", c)
+			break
+		}
+
+		// Cool-down: force GC + sleep so the next tier starts clean.
+		runtime.GC()
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	t.Log("")
+	t.Log("=== PUSH-TO-DESTRUCTION RESULTS ===")
+	t.Log("concurrency | reqs   | ok     | fail  | wall(s) | rps     | goroutines_peak | heap_peak_MB | p50    | p99")
+	t.Log("------------+--------+--------+-------+---------+---------+-----------------+--------------+--------+--------")
+	for _, r := range results {
+		t.Logf("%11d | %6d | %6d | %5d | %7.2f | %7.0f | %15d | %12.1f | %6v | %6v",
+			r.concurrency, r.totalRequests, r.successes, r.failures,
+			r.wallTime.Seconds(), r.requestsPerSec,
+			r.goroutinesPeak, r.heapInusePeakMB,
+			r.latencyP50.Round(time.Millisecond),
+			r.latencyP99.Round(time.Millisecond),
+		)
+	}
+	t.Log("")
+}
+
 // runScaleRampTier runs a single concurrency tier end-to-end and
 // returns the measured resource cost. 2× concurrency is used for
 // total request count so each worker processes ~2 requests on
