@@ -24,11 +24,12 @@ var streamFirstChunkBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 1
 // This lets provider code unconditionally call s.StreamsInFlightInc(...)
 // without guarding on whether metrics are configured.
 type StreamMetrics struct {
-	streamsInFlight            *prometheus.GaugeVec
-	providerCallsInFlight      *prometheus.GaugeVec
-	streamFirstChunkLatency    *prometheus.HistogramVec
-	streamRetriesTotal         *prometheus.CounterVec
-	streamRetryBudgetAvailable *prometheus.GaugeVec
+	streamsInFlight             *prometheus.GaugeVec
+	providerCallsInFlight       *prometheus.GaugeVec
+	streamFirstChunkLatency     *prometheus.HistogramVec
+	streamRetriesTotal          *prometheus.CounterVec
+	streamRetryBudgetAvailable  *prometheus.GaugeVec
+	streamConcurrencyRejections *prometheus.CounterVec
 }
 
 // NewStreamMetrics creates and registers the Phase 1 streaming metrics
@@ -81,6 +82,15 @@ func NewStreamMetrics(
 				"trending toward zero is about to start failing retries.",
 			ConstLabels: constLabels,
 		}, []string{"provider", "host"}),
+		streamConcurrencyRejections: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "stream_concurrency_rejections_total",
+			Help: "Streaming requests rejected by the per-provider concurrency " +
+				"semaphore, labeled by reason (context_canceled, deadline_exceeded). " +
+				"A healthy signal that back-pressure is working; sustained spikes " +
+				"indicate the semaphore limit is undersized or upstream is saturated.",
+			ConstLabels: constLabels,
+		}, []string{"provider", "reason"}),
 	}
 	registerer.MustRegister(
 		m.streamsInFlight,
@@ -88,6 +98,7 @@ func NewStreamMetrics(
 		m.streamFirstChunkLatency,
 		m.streamRetriesTotal,
 		m.streamRetryBudgetAvailable,
+		m.streamConcurrencyRejections,
 	)
 	return m
 }
@@ -148,6 +159,18 @@ func (m *StreamMetrics) RetryAttempt(provider, outcome string) {
 		return
 	}
 	m.streamRetriesTotal.WithLabelValues(provider, outcome).Inc()
+}
+
+// ConcurrencyRejected records one streaming request rejected by the
+// per-provider concurrency semaphore. Reason distinguishes between
+// caller-initiated cancellation ("context_canceled") and deadline
+// timeout ("deadline_exceeded"); sustained spikes in either indicate
+// the semaphore limit is undersized or upstream is saturated. Nil-safe.
+func (m *StreamMetrics) ConcurrencyRejected(provider, reason string) {
+	if m == nil {
+		return
+	}
+	m.streamConcurrencyRejections.WithLabelValues(provider, reason).Inc()
 }
 
 // ObserveRetryBudgetAvailable samples the current token count of a retry

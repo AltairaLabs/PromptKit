@@ -1664,6 +1664,9 @@
         },
         "stream_retry": {
           "$ref": "#/$defs/StreamRetryConfig"
+        },
+        "stream_max_concurrent": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,
