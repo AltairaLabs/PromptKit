@@ -445,34 +445,70 @@ func (p *Provider) predictStreamWithMessages(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Make HTTP request
+	// Build a request factory that each retry attempt can re-invoke
+	// with fresh headers and a fresh body reader.
 	url := p.baseURL + vllmChatCompletionsPath
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		httpReq.Header.Set("Accept", "text/event-stream")
+		if p.apiKey != "" {
+			httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+		}
+		return httpReq, nil
 	}
 
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	// Add optional authentication
-	if p.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	// Acquire a concurrent-stream slot before any HTTP work. Nil
+	// semaphore is a no-op; saturation blocks until caller's ctx fires.
+	if acqErr := p.AcquireStreamSlot(ctx); acqErr != nil {
+		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
 	}
+	slotReleased := false
+	defer func() {
+		if !slotReleased {
+			p.ReleaseStreamSlot()
+		}
+	}()
 
-	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
+	metrics := providers.DefaultStreamMetrics()
+	metrics.StreamsInFlightInc(p.ID())
+	metrics.ProviderCallsInFlightInc(p.ID())
+	released := false
+	defer func() {
+		if !released {
+			metrics.StreamsInFlightDec(p.ID())
+			metrics.ProviderCallsInFlightDec(p.ID())
+		}
+	}()
+
+	result, err := providers.OpenStreamWithRetryRequest(ctx, &providers.StreamRetryRequest{
+		Policy:       p.StreamRetryPolicy(),
+		Budget:       p.StreamRetryBudget(),
+		ProviderName: p.ID(),
+		Host:         providers.HostFromURL(url),
+		IdleTimeout:  p.StreamIdleTimeout(),
+		RequestFn:    requestFn,
+		Client:       p.GetStreamingHTTPClient(),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp, url); err != nil {
-		return nil, err
-	}
-
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-
-	go p.streamResponse(ctx, resp.Body, outChan)
+	released = true
+	slotReleased = true
+	providerID := p.ID()
+	go func() {
+		defer func() {
+			metrics.StreamsInFlightDec(providerID)
+			metrics.ProviderCallsInFlightDec(providerID)
+			p.ReleaseStreamSlot()
+		}()
+		p.streamResponse(ctx, result.Body, outChan)
+	}()
 
 	return outChan, nil
 }
