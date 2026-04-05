@@ -1131,6 +1131,43 @@ type Provider struct {
 	// fail-fast, a long one queues. Zero or negative means unlimited
 	// (current default). Reduces goroutine/timer explosion under load.
 	StreamMaxConcurrent int `json:"stream_max_concurrent,omitempty" yaml:"stream_max_concurrent,omitempty"`
+	// HTTPTransport configures the per-provider HTTP connection pool.
+	// Lets operators raise MaxConnsPerHost and related limits above the
+	// single-process defaults when scaling up concurrent streams per
+	// upstream. Note that raising MaxConnsPerHost alone is not sufficient
+	// if the upstream advertises a low SETTINGS_MAX_CONCURRENT_STREAMS
+	// (RFC 7540 §6.5.2) — the effective ceiling is
+	// MaxConnsPerHost × SETTINGS_MAX_CONCURRENT_STREAMS per upstream.
+	// See AltairaLabs/PromptKit#873.
+	HTTPTransport *HTTPTransportConfig `json:"http_transport,omitempty" yaml:"http_transport,omitempty"`
+}
+
+// HTTPTransportConfig configures the per-provider HTTP connection pool
+// used for both request/response and streaming calls. Empty or zero
+// fields fall back to the runtime's built-in defaults
+// (providers.DefaultMaxConnsPerHost etc.), so operators only need to
+// set the values they want to override.
+//
+// See AltairaLabs/PromptKit#873 for motivation. The
+// promptkit_http_conns_in_use gauge is the operational signal for
+// tuning these values.
+type HTTPTransportConfig struct {
+	// MaxConnsPerHost caps the total TCP connections the transport may
+	// open to any single upstream host (in-use + idle). Zero or negative
+	// falls back to providers.DefaultMaxConnsPerHost (100). Raising this
+	// increases the realistic concurrent-stream ceiling per upstream,
+	// at the cost of ephemeral port and file-descriptor usage.
+	MaxConnsPerHost int `json:"max_conns_per_host,omitempty" yaml:"max_conns_per_host,omitempty"`
+	// MaxIdleConnsPerHost caps idle keep-alive connections retained per
+	// host for reuse. Zero or negative falls back to
+	// providers.DefaultMaxIdleConnsPerHost (100). Usually tracked to
+	// MaxConnsPerHost so the whole pool is reusable.
+	MaxIdleConnsPerHost int `json:"max_idle_conns_per_host,omitempty" yaml:"max_idle_conns_per_host,omitempty"`
+	// IdleConnTimeout is how long an idle keep-alive connection lingers
+	// before being closed. Empty falls back to
+	// providers.DefaultIdleConnTimeout (90s). Go duration string, e.g.
+	// "60s", "5m".
+	IdleConnTimeout string `json:"idle_conn_timeout,omitempty" yaml:"idle_conn_timeout,omitempty"`
 }
 
 // StreamRetryConfig configures pre-first-chunk streaming retry behavior for

@@ -50,9 +50,61 @@ const (
 	bytesPerMB = 1024 * 1024
 )
 
-// NewPooledTransport creates an *http.Transport configured with connection
-// pooling settings suitable for high-throughput provider communication.
+// HTTPTransportOptions configures the connection pool for a pooled
+// HTTP transport. Zero values fall back to the package-level defaults
+// (DefaultMaxConnsPerHost, DefaultMaxIdleConnsPerHost, DefaultIdleConnTimeout)
+// so callers can set only the fields they want to override.
+//
+// These are the single-process h2 pool controls that bound how many
+// concurrent streams a provider can multiplex to a single upstream
+// host. See AltairaLabs/PromptKit#873 for background: in combination
+// with the upstream's advertised SETTINGS_MAX_CONCURRENT_STREAMS
+// (RFC 7540 §6.5.2), MaxConnsPerHost is the wall that determines the
+// realistic steady-state ceiling for concurrent streams per process.
+type HTTPTransportOptions struct {
+	// MaxConnsPerHost caps the total TCP connections the transport may
+	// open to any single host (in-use + idle). Zero uses
+	// DefaultMaxConnsPerHost. Raising this lets more h2 connections
+	// multiplex streams in parallel, at the cost of ephemeral port /
+	// file-descriptor usage on the client side.
+	MaxConnsPerHost int
+	// MaxIdleConnsPerHost caps the number of idle keep-alive
+	// connections the transport will retain per host for reuse. Zero
+	// uses DefaultMaxIdleConnsPerHost. Usually tracked to
+	// MaxConnsPerHost to keep the whole pool reusable.
+	MaxIdleConnsPerHost int
+	// IdleConnTimeout is how long an idle keep-alive connection lingers
+	// before being closed. Zero uses DefaultIdleConnTimeout. Longer
+	// timeouts favor reuse; shorter ones release memory and FD slots
+	// faster.
+	IdleConnTimeout time.Duration
+}
+
+// NewPooledTransport creates an *http.Transport configured with default
+// connection pooling settings suitable for high-throughput provider
+// communication. Equivalent to NewPooledTransportWithOptions(HTTPTransportOptions{}).
 func NewPooledTransport() *http.Transport {
+	return NewPooledTransportWithOptions(HTTPTransportOptions{})
+}
+
+// NewPooledTransportWithOptions creates an *http.Transport with the given
+// pool configuration. Zero-valued fields in opts fall back to the
+// package-level defaults. The resulting transport is otherwise identical
+// to NewPooledTransport (same TLS minimum version, same dial timeouts,
+// same HTTP/2 upgrade policy).
+func NewPooledTransportWithOptions(opts HTTPTransportOptions) *http.Transport {
+	maxConns := opts.MaxConnsPerHost
+	if maxConns <= 0 {
+		maxConns = DefaultMaxConnsPerHost
+	}
+	maxIdle := opts.MaxIdleConnsPerHost
+	if maxIdle <= 0 {
+		maxIdle = DefaultMaxIdleConnsPerHost
+	}
+	idleTimeout := opts.IdleConnTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = DefaultIdleConnTimeout
+	}
 	return &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   DefaultDialTimeout,
@@ -60,9 +112,9 @@ func NewPooledTransport() *http.Transport {
 		}).DialContext,
 		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
 		MaxIdleConns:        DefaultMaxIdleConns,
-		MaxIdleConnsPerHost: DefaultMaxIdleConnsPerHost,
-		MaxConnsPerHost:     DefaultMaxConnsPerHost,
-		IdleConnTimeout:     DefaultIdleConnTimeout,
+		MaxIdleConnsPerHost: maxIdle,
+		MaxConnsPerHost:     maxConns,
+		IdleConnTimeout:     idleTimeout,
 		TLSHandshakeTimeout: DefaultTLSHandshakeTimeout,
 		ForceAttemptHTTP2:   true,
 	}
@@ -248,6 +300,38 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 		b.streamingClient.Transport = transport
 	} else if transport != nil {
 		b.streamingClient = &http.Client{Timeout: 0, Transport: transport}
+	}
+}
+
+// SetHTTPTransport replaces the RoundTripper on both the regular and
+// streaming HTTP clients so the provider routes every outbound request
+// through the supplied transport. Both clients share the transport so
+// connection pooling is effective across request/response and streaming
+// traffic to the same upstream.
+//
+// This is the hook CreateProviderFromSpec uses to apply per-provider
+// connection pool config (see ProviderSpec.HTTPTransport and
+// AltairaLabs/PromptKit#873). Provider factories are not aware of this
+// plumbing — they create their client with the default pooled transport
+// and the spec wiring replaces it after construction when the operator
+// has configured overrides.
+//
+// A nil transport resets both clients to Go's http.DefaultTransport via
+// the http.Client zero-value behavior. Passing nil is not the typical
+// use case; callers should build a transport via
+// NewPooledTransportWithOptions and wrap it with NewInstrumentedTransport
+// so the OpenTelemetry span wiring is preserved.
+func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
+	if b.client != nil {
+		b.client.Transport = rt
+	}
+	if b.streamingClient != nil {
+		b.streamingClient.Transport = rt
+	} else if rt != nil {
+		// Tests and edge cases may construct a BaseProvider without a
+		// streaming client. Materialize one here so streaming callers
+		// also pick up the new transport.
+		b.streamingClient = &http.Client{Timeout: 0, Transport: rt}
 	}
 }
 

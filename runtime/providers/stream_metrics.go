@@ -30,6 +30,7 @@ type StreamMetrics struct {
 	streamRetriesTotal          *prometheus.CounterVec
 	streamRetryBudgetAvailable  *prometheus.GaugeVec
 	streamConcurrencyRejections *prometheus.CounterVec
+	httpConnsInUse              *prometheus.GaugeVec
 }
 
 // NewStreamMetrics creates and registers the Phase 1 streaming metrics
@@ -91,6 +92,19 @@ func NewStreamMetrics(
 				"indicate the semaphore limit is undersized or upstream is saturated.",
 			ConstLabels: constLabels,
 		}, []string{"provider", "reason"}),
+		httpConnsInUse: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "http_conns_in_use",
+			Help: "HTTP requests currently holding a connection slot to each upstream host. " +
+				"With HTTP/2 multiplexing, multiple requests may share one TCP connection, so " +
+				"this is an upper bound on physical connections in use rather than an exact " +
+				"count. Operationally this is the pool-pressure signal for tuning " +
+				"MaxConnsPerHost (see AltairaLabs/PromptKit#873): when this gauge approaches " +
+				"the configured MaxConnsPerHost × upstream SETTINGS_MAX_CONCURRENT_STREAMS, " +
+				"the transport is pool-saturated and new streams will serialize behind in-use " +
+				"connections.",
+			ConstLabels: constLabels,
+		}, []string{"host"}),
 	}
 	registerer.MustRegister(
 		m.streamsInFlight,
@@ -99,8 +113,30 @@ func NewStreamMetrics(
 		m.streamRetriesTotal,
 		m.streamRetryBudgetAvailable,
 		m.streamConcurrencyRejections,
+		m.httpConnsInUse,
 	)
 	return m
+}
+
+// HTTPConnsInUseInc increments the in-use HTTP connection gauge for a
+// host. Called by the conn-tracking transport wrapper at the start of
+// each RoundTrip. Nil-safe.
+func (m *StreamMetrics) HTTPConnsInUseInc(host string) {
+	if m == nil {
+		return
+	}
+	m.httpConnsInUse.WithLabelValues(host).Inc()
+}
+
+// HTTPConnsInUseDec decrements the in-use HTTP connection gauge for a
+// host. Called by the conn-tracking transport wrapper when a request's
+// response body is closed (or when the RoundTrip errored before
+// returning a body). Nil-safe.
+func (m *StreamMetrics) HTTPConnsInUseDec(host string) {
+	if m == nil {
+		return
+	}
+	m.httpConnsInUse.WithLabelValues(host).Dec()
 }
 
 // StreamsInFlightInc increments the in-flight stream gauge for a provider.
