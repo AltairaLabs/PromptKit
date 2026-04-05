@@ -96,6 +96,7 @@ type BaseProvider struct {
 	streamingClient       *http.Client // SSE streams; Timeout: 0
 	streamIdleTimeout     time.Duration
 	streamRetryPolicy     StreamRetryPolicy
+	streamRetryBudget     *RetryBudget
 	rateLimiter           *rate.Limiter
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
@@ -277,6 +278,19 @@ func (b *BaseProvider) StreamRetryPolicy() StreamRetryPolicy {
 // pre-first-chunk streaming window. See StreamRetryPolicy for details.
 func (b *BaseProvider) SetStreamRetryPolicy(policy StreamRetryPolicy) {
 	b.streamRetryPolicy = policy
+}
+
+// StreamRetryBudget returns the per-provider retry budget. A nil return
+// means retries are unbounded (only MaxAttempts caps them).
+func (b *BaseProvider) StreamRetryBudget() *RetryBudget {
+	return b.streamRetryBudget
+}
+
+// SetStreamRetryBudget installs a token bucket that rate-limits retry
+// attempts across all in-flight requests on this provider. Passing nil
+// restores unbounded-retry behavior.
+func (b *BaseProvider) SetStreamRetryBudget(budget *RetryBudget) {
+	b.streamRetryBudget = budget
 }
 
 // HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.

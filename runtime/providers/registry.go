@@ -111,6 +111,14 @@ type ProviderSpec struct {
 	// the provider with no streaming retry. Pre-parsed from
 	// config.Provider.StreamRetry by the arena loader.
 	StreamRetry StreamRetryPolicy
+
+	// StreamRetryBudget is a pre-constructed token bucket that
+	// rate-limits retry attempts across all in-flight requests on this
+	// provider. Nil means "unbounded retries" (only MaxAttempts caps
+	// them). Pre-parsed from config.Provider.StreamRetry.Budget by the
+	// arena loader. Each provider instance gets its own budget so one
+	// misbehaving model cannot starve retry capacity for others.
+	StreamRetryBudget *RetryBudget
 }
 
 // Credential applies authentication to HTTP requests.
@@ -138,9 +146,10 @@ type timeoutConfigurable interface {
 
 // streamRetryConfigurable is implemented by any provider that embeds
 // *BaseProvider. CreateProviderFromSpec uses this to apply the streaming
-// retry policy from the spec after the factory runs.
+// retry policy (and its budget) from the spec after the factory runs.
 type streamRetryConfigurable interface {
 	SetStreamRetryPolicy(StreamRetryPolicy)
+	SetStreamRetryBudget(*RetryBudget)
 }
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
@@ -192,11 +201,19 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		}
 	}
 
-	// Apply the streaming retry policy. The zero value is "disabled", so
-	// providers that opt in via config get the new behavior while all
-	// others are unchanged.
-	if src, ok := provider.(streamRetryConfigurable); ok && spec.StreamRetry.Enabled {
-		src.SetStreamRetryPolicy(spec.StreamRetry)
+	// Apply the streaming retry policy and its (optional) budget. The
+	// zero policy is "disabled", so providers that opt in via config get
+	// the new behavior while all others are unchanged. The budget is
+	// applied independently: a provider may have retry enabled without a
+	// budget (unbounded retries) or — perversely — a budget without
+	// retry enabled (the budget is then unused but harmless).
+	if src, ok := provider.(streamRetryConfigurable); ok {
+		if spec.StreamRetry.Enabled {
+			src.SetStreamRetryPolicy(spec.StreamRetry)
+		}
+		if spec.StreamRetryBudget != nil {
+			src.SetStreamRetryBudget(spec.StreamRetryBudget)
+		}
 	}
 
 	return provider, nil

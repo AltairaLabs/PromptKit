@@ -536,6 +536,154 @@ func TestOpenStreamWithRetry_ContextCancelStopsRetry(t *testing.T) {
 	}
 }
 
+// --- Budget integration (Phase 2) ---
+
+// When the budget is empty, a retryable failure must not trigger a retry —
+// the call should fail fast with the original error. This is the
+// load-bearing guarantee of the budget: during an upstream storm we burn
+// attempts on the healthy traffic, not on re-dial amplification.
+func TestOpenStreamWithRetryRequest_BudgetExhaustedFailsFast(t *testing.T) {
+	t.Parallel()
+	var attempts int32
+	srv := streamTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	defer srv.Close()
+
+	// Pre-drained budget: burst 1, immediately consume it.
+	budget := NewRetryBudget(0.001, 1)
+	if !budget.TryAcquire() {
+		t.Fatal("pre-drain failed to acquire the single token")
+	}
+
+	_, err := OpenStreamWithRetryRequest(context.Background(), &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  5,
+			InitialDelay: 1 * time.Millisecond,
+			MaxDelay:     5 * time.Millisecond,
+		},
+		Budget:       budget,
+		ProviderName: "test",
+		IdleTimeout:  time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, "GET", srv.URL, http.NoBody)
+		},
+		Client: srv.Client(),
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	// Only 1 server hit expected: the initial attempt, then budget
+	// blocks retry and we return immediately.
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Errorf("expected 1 hit (budget should block retry), got %d", got)
+	}
+}
+
+// With a healthy budget, retries proceed normally — same behavior as
+// Phase 1 (nil budget) but routing through the Phase 2 TryAcquire path.
+func TestOpenStreamWithRetryRequest_BudgetAllowsRetry(t *testing.T) {
+	t.Parallel()
+	var attempts int32
+	srv := streamTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: ok\n\n")
+	})
+	defer srv.Close()
+
+	budget := NewRetryBudget(100, 10)
+
+	result, err := OpenStreamWithRetryRequest(context.Background(), &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  3,
+			InitialDelay: 1 * time.Millisecond,
+			MaxDelay:     5 * time.Millisecond,
+		},
+		Budget:       budget,
+		ProviderName: "test",
+		Host:         "localhost",
+		IdleTimeout:  time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, "GET", srv.URL, http.NoBody)
+		},
+		Client: srv.Client(),
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	defer result.Body.Close()
+
+	if got := atomic.LoadInt32(&attempts); got != 2 {
+		t.Errorf("expected 2 hits, got %d", got)
+	}
+	// Budget should have been decremented by 1 (the retry).
+	if avail := budget.Available(); avail > 9.5 { // allow minor refill
+		t.Errorf("budget should be decremented, got Available() = %v", avail)
+	}
+}
+
+// A nil budget must preserve Phase 1 semantics exactly — unbounded
+// retries up to MaxAttempts. This is the backwards-compat guarantee.
+func TestOpenStreamWithRetryRequest_NilBudgetIsUnbounded(t *testing.T) {
+	t.Parallel()
+	var attempts int32
+	srv := streamTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	defer srv.Close()
+
+	_, err := OpenStreamWithRetryRequest(context.Background(), &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  3,
+			InitialDelay: 1 * time.Millisecond,
+			MaxDelay:     5 * time.Millisecond,
+		},
+		Budget:       nil, // explicit
+		ProviderName: "test",
+		IdleTimeout:  time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, "GET", srv.URL, http.NoBody)
+		},
+		Client: srv.Client(),
+	})
+	if err == nil {
+		t.Fatal("expected error after retries exhausted")
+	}
+	// All 3 attempts should land — nil budget = unbounded.
+	if got := atomic.LoadInt32(&attempts); got != 3 {
+		t.Errorf("expected 3 hits with nil budget, got %d", got)
+	}
+}
+
+// --- Host label ---
+
+func TestHostFromURL(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"https://api.openai.com/v1/chat/completions":           "api.openai.com",
+		"http://localhost:8080/responses":                      "localhost:8080",
+		"https://generativelanguage.googleapis.com/v1beta/...": "generativelanguage.googleapis.com",
+		"":                 "",
+		"not a url at all": "",
+		"://broken":        "",
+	}
+	for input, want := range cases {
+		if got := HostFromURL(input); got != want {
+			t.Errorf("HostFromURL(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 // Verify that the error message from a non-retryable HTTP status bubbles
 // up with a helpful snippet of the body so operators can debug.
 func TestOpenStreamWithRetry_ErrorIncludesStatusAndBody(t *testing.T) {

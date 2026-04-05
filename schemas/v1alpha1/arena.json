@@ -2123,6 +2123,18 @@
         "type"
       ]
     },
+    "StreamRetryBudgetConfig": {
+      "properties": {
+        "rate_per_sec": {
+          "type": "number"
+        },
+        "burst": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "StreamRetryConfig": {
       "properties": {
         "enabled": {
@@ -2139,6 +2151,9 @@
         },
         "retry_window": {
           "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/StreamRetryBudgetConfig"
         }
       },
       "additionalProperties": false,

@@ -904,31 +904,54 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIPredictCompletionsPath, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	url := p.baseURL + openAIPredictCompletionsPath
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		httpReq.Header.Set("Accept", "text/event-stream")
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		return httpReq, nil
 	}
 
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("Accept", "text/event-stream")
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-	}
+	metrics := providers.DefaultStreamMetrics()
+	metrics.StreamsInFlightInc(p.ID())
+	metrics.ProviderCallsInFlightInc(p.ID())
+	released := false
+	defer func() {
+		if !released {
+			metrics.StreamsInFlightDec(p.ID())
+			metrics.ProviderCallsInFlightDec(p.ID())
+		}
+	}()
 
-	//nolint:bodyclose // body is closed in streamResponse goroutine
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
+	result, err := providers.OpenStreamWithRetryRequest(ctx, &providers.StreamRetryRequest{
+		Policy:       p.StreamRetryPolicy(),
+		Budget:       p.StreamRetryBudget(),
+		ProviderName: p.ID(),
+		Host:         providers.HostFromURL(url),
+		IdleTimeout:  p.StreamIdleTimeout(),
+		RequestFn:    requestFn,
+		Client:       p.GetStreamingHTTPClient(),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	if err := providers.CheckHTTPError(resp, p.baseURL+openAIPredictCompletionsPath); err != nil {
-		return nil, err
-	}
-
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-
-	go p.streamResponse(ctx, resp.Body, outChan)
+	released = true
+	providerID := p.ID()
+	go func() {
+		defer func() {
+			metrics.StreamsInFlightDec(providerID)
+			metrics.ProviderCallsInFlightDec(providerID)
+		}()
+		p.streamResponse(ctx, result.Body, outChan)
+	}()
 
 	return outChan, nil
 }
