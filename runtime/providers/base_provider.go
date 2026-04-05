@@ -339,6 +339,88 @@ func (b *BaseProvider) ReleaseStreamSlot() {
 	b.streamSemaphore.Release()
 }
 
+// StreamConsumer is called on the success path of RunStreamingRequest
+// inside a dedicated goroutine. It receives the (possibly retry-replayed)
+// response body and the output channel; it must fully drain the body
+// and close outChan when done. Typical implementations wrap body in an
+// IdleTimeoutReader + SSEScanner (or equivalent) and run the provider's
+// existing stream parser.
+type StreamConsumer func(ctx context.Context, body io.ReadCloser, outChan chan<- StreamChunk)
+
+// RunStreamingRequest is the single entry point every streaming-capable
+// provider should delegate through. It composes the three layers of
+// back-pressure (semaphore, budget, retry) with in-flight gauge
+// bookkeeping and the "release on all exit paths" defer pattern into
+// one helper, so individual provider streaming functions don't have to
+// re-implement the same ~60 lines of acquire/release/metric scaffolding.
+//
+// The caller constructs the retry request (policy/budget/host/request
+// factory/etc.) and provides a consumer that knows how to parse the
+// provider-specific stream framing. On success, this function:
+//
+//  1. Acquires a concurrent-stream slot (blocks on ctx; nil semaphore
+//     is a no-op).
+//  2. Increments streams_in_flight and provider_calls_in_flight gauges.
+//  3. Delegates to OpenStreamWithRetryRequest with the given req.
+//  4. Spawns a goroutine that invokes the consumer on the result body
+//     and, on consumer return, decrements the gauges and releases the
+//     semaphore slot.
+//
+// On any error path before the goroutine is spawned, all acquired
+// resources are released correctly via the deferred cleanup flags.
+//
+// Callers must set req.ProviderName to b.ID() — this is not done
+// automatically to avoid hiding the coupling.
+func (b *BaseProvider) RunStreamingRequest(
+	ctx context.Context,
+	req *StreamRetryRequest,
+	consumer StreamConsumer,
+) (<-chan StreamChunk, error) {
+	if acqErr := b.AcquireStreamSlot(ctx); acqErr != nil {
+		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
+	}
+	slotReleased := false
+	defer func() {
+		if !slotReleased {
+			b.ReleaseStreamSlot()
+		}
+	}()
+
+	metrics := DefaultStreamMetrics()
+	providerID := b.id
+	metrics.StreamsInFlightInc(providerID)
+	metrics.ProviderCallsInFlightInc(providerID)
+	released := false
+	defer func() {
+		if !released {
+			metrics.StreamsInFlightDec(providerID)
+			metrics.ProviderCallsInFlightDec(providerID)
+		}
+	}()
+
+	result, err := OpenStreamWithRetryRequest(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	outChan := make(chan StreamChunk, DefaultStreamBufferSize)
+	// From this point on, ownership of the acquired slot and gauge
+	// increments transfers to the stream goroutine's defer below. We
+	// flip the flags so the outer defers are no-ops on the success path.
+	released = true
+	slotReleased = true
+	go func() {
+		defer func() {
+			metrics.StreamsInFlightDec(providerID)
+			metrics.ProviderCallsInFlightDec(providerID)
+			b.ReleaseStreamSlot()
+		}()
+		consumer(ctx, result.Body, outChan)
+	}()
+
+	return outChan, nil
+}
+
 // HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.
 func (b *BaseProvider) HTTPTimeout() time.Duration {
 	if b.client == nil {

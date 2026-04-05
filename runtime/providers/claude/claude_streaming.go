@@ -88,9 +88,10 @@ func (p *Provider) PredictStream(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Build the request factory for OpenStreamWithRetryRequest so each
-	// retry attempt re-constructs the request with fresh headers (auth
-	// tokens may have rotated between attempts) and a fresh body reader.
+	// Each retry re-constructs the HTTP request with fresh headers
+	// (auth tokens may have rotated between attempts) and a fresh body
+	// reader. The request factory is called once per attempt by the
+	// retry driver.
 	url := p.messagesURL()
 	requestFn := func(ctx context.Context) (*http.Request, error) {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
@@ -106,31 +107,7 @@ func (p *Provider) PredictStream(
 		return httpReq, nil
 	}
 
-	// Acquire a concurrent-stream slot before any HTTP work. Nil
-	// semaphore is a no-op; saturation blocks until the caller's ctx
-	// fires, classified as a rejection in the metric at that point.
-	if acqErr := p.AcquireStreamSlot(ctx); acqErr != nil {
-		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
-	}
-	slotReleased := false
-	defer func() {
-		if !slotReleased {
-			p.ReleaseStreamSlot()
-		}
-	}()
-
-	metrics := providers.DefaultStreamMetrics()
-	metrics.StreamsInFlightInc(p.ID())
-	metrics.ProviderCallsInFlightInc(p.ID())
-	released := false
-	defer func() {
-		if !released {
-			metrics.StreamsInFlightDec(p.ID())
-			metrics.ProviderCallsInFlightDec(p.ID())
-		}
-	}()
-
-	result, err := providers.OpenStreamWithRetryRequest(ctx, &providers.StreamRetryRequest{
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
 		Policy:       p.StreamRetryPolicy(),
 		Budget:       p.StreamRetryBudget(),
 		ProviderName: p.ID(),
@@ -138,27 +115,11 @@ func (p *Provider) PredictStream(
 		IdleTimeout:  p.StreamIdleTimeout(),
 		RequestFn:    requestFn,
 		Client:       p.GetStreamingHTTPClient(),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	released = true
-	slotReleased = true
-	providerID := p.ID()
-	idleBody := providers.NewIdleTimeoutReader(result.Body, p.StreamIdleTimeout())
-	scanner := providers.NewSSEScanner(idleBody)
-	go func() {
-		defer func() {
-			metrics.StreamsInFlightDec(providerID)
-			metrics.ProviderCallsInFlightDec(providerID)
-			p.ReleaseStreamSlot()
-		}()
+	}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
+		scanner := providers.NewSSEScanner(idleBody)
 		p.streamResponse(ctx, idleBody, scanner, outChan)
-	}()
-
-	return outChan, nil
+	})
 }
 
 // processClaudeContentDeltaInternal handles content_block_delta events with pre-parsed delta

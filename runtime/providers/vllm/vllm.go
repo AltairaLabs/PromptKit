@@ -445,8 +445,9 @@ func (p *Provider) predictStreamWithMessages(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Build a request factory that each retry attempt can re-invoke
-	// with fresh headers and a fresh body reader.
+	// Each retry re-constructs the HTTP request with fresh headers and
+	// a fresh body reader. The factory is called once per attempt by
+	// the retry driver.
 	url := p.baseURL + vllmChatCompletionsPath
 	requestFn := func(ctx context.Context) (*http.Request, error) {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
@@ -461,30 +462,7 @@ func (p *Provider) predictStreamWithMessages(
 		return httpReq, nil
 	}
 
-	// Acquire a concurrent-stream slot before any HTTP work. Nil
-	// semaphore is a no-op; saturation blocks until caller's ctx fires.
-	if acqErr := p.AcquireStreamSlot(ctx); acqErr != nil {
-		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
-	}
-	slotReleased := false
-	defer func() {
-		if !slotReleased {
-			p.ReleaseStreamSlot()
-		}
-	}()
-
-	metrics := providers.DefaultStreamMetrics()
-	metrics.StreamsInFlightInc(p.ID())
-	metrics.ProviderCallsInFlightInc(p.ID())
-	released := false
-	defer func() {
-		if !released {
-			metrics.StreamsInFlightDec(p.ID())
-			metrics.ProviderCallsInFlightDec(p.ID())
-		}
-	}()
-
-	result, err := providers.OpenStreamWithRetryRequest(ctx, &providers.StreamRetryRequest{
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
 		Policy:       p.StreamRetryPolicy(),
 		Budget:       p.StreamRetryBudget(),
 		ProviderName: p.ID(),
@@ -492,25 +470,7 @@ func (p *Provider) predictStreamWithMessages(
 		IdleTimeout:  p.StreamIdleTimeout(),
 		RequestFn:    requestFn,
 		Client:       p.GetStreamingHTTPClient(),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	released = true
-	slotReleased = true
-	providerID := p.ID()
-	go func() {
-		defer func() {
-			metrics.StreamsInFlightDec(providerID)
-			metrics.ProviderCallsInFlightDec(providerID)
-			p.ReleaseStreamSlot()
-		}()
-		p.streamResponse(ctx, result.Body, outChan)
-	}()
-
-	return outChan, nil
+	}, p.streamResponse)
 }
 
 // streamResponse reads SSE stream from vLLM and sends chunks
