@@ -528,6 +528,12 @@ func (p *ToolProvider) predictStreamWithCompletions(
 		"include_usage": true,
 	}
 
+	// When streaming, OpenAI chat/completions only accepts "pcm16" for audio.format.
+	// buildToolRequest defaults to "wav" (valid for non-streaming); override here.
+	if audio, ok := openaiReq["audio"].(map[string]interface{}); ok {
+		audio["format"] = "pcm16"
+	}
+
 	reqBody, err := json.Marshal(openaiReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)

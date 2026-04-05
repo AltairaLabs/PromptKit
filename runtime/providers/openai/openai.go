@@ -847,13 +847,14 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		},
 	}
 
-	// Add modalities for audio models when audio content is present
+	// Add modalities for audio models when audio content is present.
+	// When stream=true, OpenAI chat/completions only supports "pcm16" for audio.format;
+	// "wav"/"mp3" are valid only for non-streaming requests.
 	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
 		openAIReq["modalities"] = []string{"text", "audio"}
-		// Audio models require audio output configuration
 		openAIReq["audio"] = map[string]interface{}{
 			"voice":  "alloy",
-			"format": "wav",
+			"format": "pcm16",
 		}
 	}
 

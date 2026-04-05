@@ -1122,8 +1122,70 @@ func TestBuildToolRequest_AudioModalities(t *testing.T) {
 		t.Errorf("modalities = %v, should contain 'audio'", mods)
 	}
 
-	// Must have audio output config
-	if _, ok := result["audio"]; !ok {
+	// Must have audio output config with "wav" (non-streaming default)
+	audioCfg, ok := result["audio"].(map[string]interface{})
+	if !ok {
 		t.Error("buildToolRequest missing 'audio' output config for audio model")
+	} else if format, _ := audioCfg["format"].(string); format != "wav" {
+		t.Errorf("non-streaming tool request audio.format = %q, want wav", format)
+	}
+}
+
+// TestPredictStreamWithTools_AudioFormat_PCM16 verifies that the tools streaming
+// path overrides buildToolRequest's default "wav" audio format to "pcm16", which
+// is required by OpenAI when stream=true.
+// Regression test for capability-matrix nightly failure on openai-gpt4o-audio
+// and openai-gpt4o-mini-audio.
+func TestPredictStreamWithTools_AudioFormat_PCM16(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"}, nil,
+	)
+
+	audioB64 := "AA=="
+	audioMedia := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{
+				Role: "user",
+				Parts: []types.ContentPart{
+					types.NewTextPart("Transcribe"),
+					{Type: types.ContentTypeAudio, Media: &audioMedia},
+				},
+			},
+		},
+	}
+
+	stream, err := provider.PredictStreamWithTools(context.Background(), req, nil, "")
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools failed: %v", err)
+	}
+	for range stream { //nolint:revive // drain
+	}
+
+	if stream, _ := capturedReq["stream"].(bool); !stream {
+		t.Errorf("expected stream=true in request, got: %v", capturedReq["stream"])
+	}
+	audioCfg, ok := capturedReq["audio"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected audio config in streaming tool request, got: %v", capturedReq)
+	}
+	if format, _ := audioCfg["format"].(string); format != "pcm16" {
+		t.Errorf("streaming tool-request audio.format = %q, want pcm16", format)
 	}
 }

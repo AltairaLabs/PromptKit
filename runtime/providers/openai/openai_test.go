@@ -1325,3 +1325,105 @@ func TestConvertOpenAIPart_ThinkingMissingField(t *testing.T) {
 		t.Errorf("expected nil when thinking field is missing, got %+v", cp)
 	}
 }
+
+// TestPredictStream_AudioFormat_PCM16 verifies that streaming audio requests
+// use audio.format=pcm16 (required by OpenAI when stream=true) instead of wav.
+// Regression: capability matrix failed with
+//
+//	"Unsupported value: 'audio.format' does not support 'wav' when stream=true"
+func TestPredictStream_AudioFormat_PCM16(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	audioB64 := "AA=="
+	audioMedia := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{
+				Role: "user",
+				Parts: []types.ContentPart{
+					types.NewTextPart("Transcribe"),
+					{Type: types.ContentTypeAudio, Media: &audioMedia},
+				},
+			},
+		},
+	}
+
+	streamChan, err := provider.PredictStream(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PredictStream failed: %v", err)
+	}
+	for range streamChan { //nolint:revive // drain
+	}
+
+	audioCfg, ok := capturedReq["audio"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected audio config in streaming request, got: %v", capturedReq)
+	}
+	if format, _ := audioCfg["format"].(string); format != "pcm16" {
+		t.Errorf("streaming audio.format = %q, want pcm16", format)
+	}
+}
+
+// TestPredict_AudioFormat_WAV confirms the non-streaming path still uses "wav".
+// (OpenAI's non-streaming chat/completions accepts wav/mp3 but rejects pcm16.)
+func TestPredict_AudioFormat_WAV(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	audioB64 := "AA=="
+	audioMedia := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{
+			{
+				Role: "user",
+				Parts: []types.ContentPart{
+					types.NewTextPart("Transcribe"),
+					{Type: types.ContentTypeAudio, Media: &audioMedia},
+				},
+			},
+		},
+	}
+
+	if _, err := provider.Predict(context.Background(), req); err != nil {
+		t.Fatalf("Predict failed: %v", err)
+	}
+
+	audioCfg, ok := capturedReq["audio"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected audio config in non-streaming request, got: %v", capturedReq)
+	}
+	if format, _ := audioCfg["format"].(string); format != "wav" {
+		t.Errorf("non-streaming audio.format = %q, want wav", format)
+	}
+}
