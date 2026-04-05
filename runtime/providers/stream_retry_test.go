@@ -170,7 +170,7 @@ func TestIsRetryableStreamStatus(t *testing.T) {
 func TestPeekFirstSSEEvent_ContainsFirstEvent(t *testing.T) {
 	t.Parallel()
 	input := "data: hello\n\ndata: world\n\n"
-	got, err := peekFirstSSEEvent(strings.NewReader(input), 0)
+	got, err := (SSEFrameDetector{}).PeekFirstFrame(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestPeekFirstSSEEvent_WithComments(t *testing.T) {
 	// SSE comments (: lines) and keepalives must pass through to the peek
 	// buffer so replay produces byte-identical output for downstream parsers.
 	input := ": keepalive\ndata: first\n\ndata: second\n\n"
-	got, err := peekFirstSSEEvent(strings.NewReader(input), 0)
+	got, err := (SSEFrameDetector{}).PeekFirstFrame(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestPeekFirstSSEEvent_StopsAtBoundary(t *testing.T) {
 	// A source that yields one byte per Read. bufio cannot pre-buffer
 	// ahead of our manual reads beyond the requested size.
 	slow := &byteReader{data: []byte("data: hello\n\ndata: world\n\n")}
-	got, err := peekFirstSSEEvent(slow, 0)
+	got, err := (SSEFrameDetector{}).PeekFirstFrame(slow)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestPeekFirstSSEEvent_EOFAfterFirstEvent(t *testing.T) {
 	// Stream closes right after the first event with no trailing blank
 	// line — should still be treated as a successful peek.
 	input := "data: only\n"
-	got, err := peekFirstSSEEvent(strings.NewReader(input), 0)
+	got, err := (SSEFrameDetector{}).PeekFirstFrame(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestPeekFirstSSEEvent_EOFAfterFirstEvent(t *testing.T) {
 
 func TestPeekFirstSSEEvent_EmptyStream(t *testing.T) {
 	t.Parallel()
-	_, err := peekFirstSSEEvent(strings.NewReader(""), 0)
+	_, err := (SSEFrameDetector{}).PeekFirstFrame(strings.NewReader(""))
 	if err == nil {
 		t.Fatal("empty stream should return an error")
 	}
