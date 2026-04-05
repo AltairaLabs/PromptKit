@@ -86,6 +86,9 @@ func OpenStreamWithRetry(
 //
 //nolint:gocognit // Retry loop with classification, backoff, budget, and metric emission
 func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*StreamRetryResult, error) {
+	if req == nil {
+		return nil, errors.New("providers: OpenStreamWithRetryRequest called with nil request")
+	}
 	maxAttempts := req.Policy.Attempts()
 	metrics := DefaultStreamMetrics()
 	start := time.Now()

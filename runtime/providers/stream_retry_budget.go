@@ -64,9 +64,9 @@ func (b *RetryBudget) TryAcquire() bool {
 
 // Available returns the current number of tokens in the bucket. Intended
 // for the promptkit_stream_retry_budget_available gauge. A nil budget
-// returns math-infinity-ish sentinel: since there is no concept of
-// "available" for unlimited buckets, we return the burst capacity so
-// gauges still report a meaningful finite number.
+// returns 0; callers in the hot path also skip publishing the gauge for
+// nil budgets (see StreamMetrics.ObserveRetryBudgetAvailable), so the
+// return value is only observable in tests.
 //
 // Note: rate.Limiter.Tokens reflects state at the time of the call; it
 // may drift between TryAcquire and Available under concurrent load.
