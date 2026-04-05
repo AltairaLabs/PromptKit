@@ -156,7 +156,11 @@ func TestRetryBudget_AvailableDecreasesOnAcquire(t *testing.T) {
 		b.TryAcquire()
 	}
 	after := b.Available()
-	if after > initial-4 { // allow some tolerance for refill
-		t.Errorf("Available() after 5 acquires = %v, expected significantly less than %v", after, initial)
+	// At 0.001 tokens/sec the refill during 5 microsecond-scale acquires
+	// is effectively zero, so the decrement should be very close to 5.
+	// Tolerance of 0.1 allows for scheduling jitter without letting a
+	// broken implementation (no decrement) slip through.
+	if delta := initial - after; delta < 4.9 || delta > 5.1 {
+		t.Errorf("Available() after 5 acquires: delta = %v, want ~5 (±0.1)", delta)
 	}
 }

@@ -201,16 +201,14 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		}
 	}
 
-	// Apply the streaming retry policy and its (optional) budget. The
-	// zero policy is "disabled", so providers that opt in via config get
-	// the new behavior while all others are unchanged. The budget is
-	// applied independently: a provider may have retry enabled without a
-	// budget (unbounded retries) or — perversely — a budget without
-	// retry enabled (the budget is then unused but harmless).
-	if src, ok := provider.(streamRetryConfigurable); ok {
-		if spec.StreamRetry.Enabled {
-			src.SetStreamRetryPolicy(spec.StreamRetry)
-		}
+	// Apply the streaming retry policy and its (optional) budget. Both
+	// are only applied when StreamRetry.Enabled is true — a budget
+	// without retry enabled would be silently ignored at request time,
+	// and allocating one anyway wastes tokens that would never be
+	// consulted. Gating both together makes the configuration
+	// self-consistent.
+	if src, ok := provider.(streamRetryConfigurable); ok && spec.StreamRetry.Enabled {
+		src.SetStreamRetryPolicy(spec.StreamRetry)
 		if spec.StreamRetryBudget != nil {
 			src.SetStreamRetryBudget(spec.StreamRetryBudget)
 		}
