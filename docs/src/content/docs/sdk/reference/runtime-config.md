@@ -71,6 +71,11 @@ Validation requires `type` and `model` on every entry.
 | `capabilities` | string[] | no | Declared provider capabilities: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`. |
 | `include_raw_output` | bool | no | Include raw API request/response in output for debugging. |
 | `additional_config` | map[string]any | no | Provider-specific configuration not covered by other fields. |
+| `request_timeout` | string | no | Wall-clock timeout for non-streaming HTTP calls (Predict, embeddings). Go duration string, e.g. `"60s"`, `"2m"`. Does not apply to streaming. |
+| `stream_idle_timeout` | string | no | Max silence between bytes on a streaming body before the stream is aborted. Timer resets on every byte received. Default: `"30s"`. |
+| `stream_retry` | object | no | Streaming retry configuration. See [stream_retry](#stream_retry). |
+| `stream_max_concurrent` | int | no | Max concurrent streaming requests in flight. Requests beyond the limit block on the caller's context. `0` = unlimited (default). |
+| `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
 
 #### credential
 
@@ -119,6 +124,36 @@ Configures hyperscaler hosting platforms (Bedrock, Vertex, Azure) that provide m
 | `project` | string | Cloud project ID. Required for Vertex. |
 | `endpoint` | string | Custom endpoint URL override. |
 | `additional_config` | map[string]any | Platform-specific settings. |
+
+#### stream_retry
+
+Bounded retry for streaming requests. By default, retry only fires in the pre-first-chunk window (before any content has been forwarded to the caller), which is safe and invisible. Setting `retry_window: always` enables mid-stream retry: on failure after content has been forwarded, a `Reset` signal is emitted so consumers discard accumulated state, then the full request is retried from scratch. Mid-stream retry costs additional tokens because the provider generates a new response.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | bool | Turn the retry loop on. Default: `false`. |
+| `max_attempts` | int | Total attempts including the initial request. `2` = one retry. Default: `2`. |
+| `initial_delay` | string | Base backoff before the first retry. Go duration string. Default: `"250ms"`. |
+| `max_delay` | string | Maximum per-attempt backoff. Go duration string. Default: `"2s"`. |
+| `retry_window` | string | `"pre_first_chunk"` (default, safe) or `"always"` (mid-stream reset retry, costs tokens). |
+| `budget` | object | Token bucket that gates retry attempts to prevent thundering-herd reconnects. See below. |
+
+**stream_retry.budget:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rate_per_sec` | float | Sustained token refill rate. |
+| `burst` | int | Maximum tokens that can accumulate. |
+
+#### http_transport
+
+Per-provider HTTP connection pool tuning. Controls how many TCP connections the provider opens to its upstream and how long idle connections linger. The effective concurrent-stream ceiling per upstream is `max_conns_per_host` multiplied by the upstream's HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` (typically 100-256).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `max_conns_per_host` | int | Max TCP connections to any single host (in-use + idle). Default: `100`. |
+| `max_idle_conns_per_host` | int | Max idle keep-alive connections retained per host. Default: `100`. |
+| `idle_conn_timeout` | string | How long idle connections linger before being closed. Go duration string. Default: `"90s"`. |
 
 ---
 
@@ -294,6 +329,19 @@ spec:
       pricing:
         input_cost_per_1k: 0.003
         output_cost_per_1k: 0.015
+      request_timeout: "60s"
+      stream_idle_timeout: "30s"
+      stream_retry:
+        enabled: true
+        max_attempts: 2
+        retry_window: pre_first_chunk  # or "always" for mid-stream reset retry
+        budget:
+          rate_per_sec: 5
+          burst: 10
+      stream_max_concurrent: 100
+      http_transport:
+        max_conns_per_host: 200
+        max_idle_conns_per_host: 200
 
     - id: embeddings
       type: voyageai

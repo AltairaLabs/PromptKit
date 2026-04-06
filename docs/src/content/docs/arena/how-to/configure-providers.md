@@ -362,6 +362,62 @@ spec:
     guided_choice: ["yes", "no", "maybe"]
 ```
 
+## Streaming and Reliability
+
+Provider configs support streaming retry, concurrency limits, and connection pool tuning. These are all optional and default to safe values.
+
+### Streaming Retry
+
+Recover from transient HTTP/2 stream resets without failing the test:
+
+```yaml
+spec:
+  type: openai
+  model: gpt-5-pro
+  stream_retry:
+    enabled: true
+    max_attempts: 2           # initial + 1 retry
+    retry_window: pre_first_chunk  # safe default
+    budget:
+      rate_per_sec: 5
+      burst: 10
+```
+
+Set `retry_window: always` to also retry mid-stream failures (the response is discarded and re-requested from scratch, costing additional tokens):
+
+```yaml
+  stream_retry:
+    enabled: true
+    retry_window: always      # costs tokens on mid-stream retry
+```
+
+### Concurrency and Timeouts
+
+```yaml
+spec:
+  type: openai
+  model: gpt-4o
+  request_timeout: "60s"          # non-streaming call timeout
+  stream_idle_timeout: "30s"      # abort if stream goes silent
+  stream_max_concurrent: 50       # max parallel streams (0 = unlimited)
+```
+
+### Connection Pool
+
+Raise `max_conns_per_host` when running high-concurrency test suites against a single provider:
+
+```yaml
+spec:
+  type: openai
+  model: gpt-4o
+  http_transport:
+    max_conns_per_host: 250       # default: 100
+    max_idle_conns_per_host: 250
+    idle_conn_timeout: "90s"
+```
+
+The effective concurrent-stream ceiling is `max_conns_per_host` multiplied by the upstream's HTTP/2 max concurrent streams setting (typically 100-256). The `promptkit_http_conns_in_use` Prometheus gauge tracks pool pressure.
+
 ## Arena Configuration
 
 Reference providers in your `arena.yaml`:
