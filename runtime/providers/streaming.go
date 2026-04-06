@@ -75,6 +75,15 @@ type StreamChunk struct {
 	// When true, clients should clear any buffered audio and prepare for a new response
 	Interrupted bool `json:"interrupted,omitempty"`
 
+	// Reset signals that the stream is being retried from scratch after a
+	// mid-stream failure. Consumers must discard all accumulated state
+	// (content, tool calls, cost info) and treat subsequent chunks as a
+	// fresh response. Only emitted when the provider's retry_window is
+	// set to "always" and a mid-stream error triggered a full retry.
+	// The retry costs tokens because the provider generates a new
+	// response from scratch — this is why the default is off.
+	Reset bool `json:"reset,omitempty"`
+
 	// Error is set if an error occurred during streaming
 	Error error `json:"error,omitempty"`
 

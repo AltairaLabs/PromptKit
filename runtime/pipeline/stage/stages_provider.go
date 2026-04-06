@@ -862,6 +862,17 @@ func (s *ProviderStage) processStreamChunks(
 	for chunk := range streamChan {
 		ResetIdleFromContext(ctx)
 
+		// Reset signal: the retry driver failed mid-stream and is
+		// retrying from scratch. Discard all accumulated state so the
+		// caller sees only the retry's response, not a mashup of the
+		// failed attempt and the retry.
+		if chunk.Reset {
+			content = ""
+			toolCalls = nil
+			costInfo = nil
+			continue
+		}
+
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
 			return "", nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)

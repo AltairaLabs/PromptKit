@@ -31,16 +31,21 @@ const (
 )
 
 // StreamRetryWindow enumerates the points at which a streaming request may
-// still be retried. Only pre-first-chunk retry is supported today; the type
-// is an enum so that future modes (e.g. dedup-aware mid-stream resume) can
-// be added without silently changing behavior.
+// still be retried.
 type StreamRetryWindow string
 
 const (
 	// StreamRetryWindowPreFirstChunk retries only while no content chunk
-	// has been forwarded downstream. This is the only safe mode without a
-	// deduplication mechanism.
+	// has been forwarded downstream. This is the safe default that avoids
+	// any content duplication.
 	StreamRetryWindowPreFirstChunk StreamRetryWindow = "pre_first_chunk"
+	// StreamRetryWindowAlways retries on any stream failure, including
+	// after content has been forwarded. On mid-stream failure the relay
+	// emits a StreamChunk with Reset=true so consumers discard
+	// accumulated state, then retries the full request from scratch.
+	// The retry produces a new response (LLMs are non-deterministic)
+	// and costs additional tokens. Off by default.
+	StreamRetryWindowAlways StreamRetryWindow = "always"
 )
 
 // StreamRetryPolicy governs bounded retry behavior for streaming requests
