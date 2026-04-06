@@ -17,6 +17,17 @@ const finishReasonComplete = "complete"
 // audioPCMMime is the MIME type for PCM audio used by Gemini Live API.
 const audioPCMMime = "audio/pcm"
 
+// defaultOutputSampleRate is the default output sample rate for Gemini native audio models (24kHz).
+const defaultOutputSampleRate = 24000
+
+// outputSampleRate returns the configured output sample rate, defaulting to 24kHz.
+func (s *StreamSession) outputSampleRate() int {
+	if s.config.OutputSampleRate > 0 {
+		return s.config.OutputSampleRate
+	}
+	return defaultOutputSampleRate
+}
+
 // sliceContains checks if a string slice contains a value
 func sliceContains(slice []string, val string) bool {
 	for _, s := range slice {
@@ -326,7 +337,7 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 					MIMEType: part.InlineData.MimeType,
 				}
 				if strings.HasPrefix(part.InlineData.MimeType, "audio/") {
-					media.SampleRate = 24000 // Gemini native audio models output 24kHz
+					media.SampleRate = s.outputSampleRate()
 					media.Channels = 1
 				}
 				response.MediaData = media

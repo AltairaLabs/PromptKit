@@ -371,6 +371,52 @@ func TestGeminiStreamSession_ReceiveAudioResponse(t *testing.T) {
 	}
 }
 
+func TestGeminiStreamSession_CustomOutputSampleRate(t *testing.T) {
+	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		_, _, _ = conn.ReadMessage()
+
+		setupResponse := ServerMessage{SetupComplete: &SetupComplete{}}
+		setupData, _ := json.Marshal(setupResponse)
+		_ = conn.WriteMessage(websocket.TextMessage, setupData)
+
+		audioData := "SGVsbG8=" // Base64 encoded "Hello"
+		response := ServerMessage{
+			ServerContent: &ServerContent{
+				ModelTurn: &ModelTurn{
+					Parts: []Part{{InlineData: &InlineData{MimeType: "audio/pcm", Data: audioData}}},
+				},
+				TurnComplete: true,
+			},
+		}
+		data, _ := json.Marshal(response)
+		_ = conn.WriteMessage(websocket.TextMessage, data)
+		_, _, _ = conn.ReadMessage()
+	})
+	defer server.Close()
+
+	session, err := NewStreamSession(context.Background(), server.URL(), "test-key", &StreamSessionConfig{
+		Model:              "gemini-2.5-flash-native-audio-latest",
+		ResponseModalities: []string{"AUDIO"},
+		OutputSampleRate:   48000,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	select {
+	case chunk := <-session.Response():
+		if chunk.MediaData == nil {
+			t.Fatal("Expected MediaData")
+		}
+		if chunk.MediaData.SampleRate != 48000 {
+			t.Errorf("Expected SampleRate 48000, got %d", chunk.MediaData.SampleRate)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timeout waiting for response")
+	}
+}
+
 func TestGeminiStreamSession_ReceiveMixedResponse(t *testing.T) {
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		// First read setup message

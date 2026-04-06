@@ -30,11 +30,10 @@ const (
 
 // Configuration constants
 const (
-	responseChannelSize     = 10
-	heartbeatInterval       = 30 * time.Second
-	setupTimeout            = 10 * time.Second
-	tokensPerThousand       = 1000.0
-	realtimeAudioSampleRate = 24000 // OpenAI Realtime API output audio sample rate (Hz)
+	responseChannelSize = 10
+	heartbeatInterval   = 30 * time.Second
+	setupTimeout        = 10 * time.Second
+	tokensPerThousand   = 1000.0
 )
 
 // Ensure RealtimeSession implements StreamInputSession
@@ -606,6 +605,14 @@ func (s *RealtimeSession) handleTextDone(e *ResponseTextDoneEvent) {
 	}
 }
 
+// outputSampleRate returns the configured output sample rate, defaulting to 24kHz.
+func (s *RealtimeSession) outputSampleRate() int {
+	if s.config.OutputSampleRate > 0 {
+		return s.config.OutputSampleRate
+	}
+	return DefaultRealtimeSampleRate
+}
+
 func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 	rawBytes, err := base64.StdEncoding.DecodeString(e.Delta)
 	if err != nil {
@@ -617,7 +624,7 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 		MediaData: &providers.StreamMediaData{
 			Data:       rawBytes,
 			MIMEType:   "audio/pcm",
-			SampleRate: realtimeAudioSampleRate,
+			SampleRate: s.outputSampleRate(),
 			Channels:   1,
 		},
 		Metadata: map[string]interface{}{
