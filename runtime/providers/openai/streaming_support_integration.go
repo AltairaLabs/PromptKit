@@ -132,3 +132,14 @@ func (s *realtimeSessionBookkeeping) Close() error {
 	s.releaseOnce.Do(s.release)
 	return s.StreamInputSession.Close()
 }
+
+// EndInput forwards to the underlying session if it implements
+// EndInputter. This is critical for pre-recorded audio where the
+// pipeline must explicitly signal end-of-turn to trigger a response.
+// Without this, the bookkeeping wrapper hides EndInput() from
+// DuplexProviderStage's type assertion.
+func (s *realtimeSessionBookkeeping) EndInput() {
+	if ei, ok := s.StreamInputSession.(interface{ EndInput() }); ok {
+		ei.EndInput()
+	}
+}

@@ -47,6 +47,8 @@ type StreamMetrics struct {
 	streamRetryBudgetAvailable  *prometheus.GaugeVec
 	streamConcurrencyRejections *prometheus.CounterVec
 	httpConnsInUse              *prometheus.GaugeVec
+	pipelineStageElements       *prometheus.CounterVec
+	pipelineStageAudioBytes     *prometheus.CounterVec
 }
 
 // NewStreamMetrics creates and registers the Phase 1 streaming metrics
@@ -124,6 +126,23 @@ func NewStreamMetrics(
 				"indicate the semaphore limit is undersized or upstream is saturated.",
 			ConstLabels: constLabels,
 		}, []string{"provider", "reason"}),
+		pipelineStageElements: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "pipeline_stage_elements_total",
+			Help: "Total elements processed by each pipeline stage. " +
+				"Labeled by stage name so operators can see exactly where element " +
+				"flow stops in a multi-stage pipeline.",
+			ConstLabels: constLabels,
+		}, []string{"stage"}),
+		pipelineStageAudioBytes: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "pipeline_stage_audio_bytes_total",
+			Help: "Total audio bytes processed by each pipeline stage. " +
+				"Tracks raw PCM audio volume through the pipeline. A stage that " +
+				"shows zero audio bytes while its predecessor shows nonzero " +
+				"indicates the stage is dropping or not forwarding audio elements.",
+			ConstLabels: constLabels,
+		}, []string{"stage"}),
 		httpConnsInUse: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "http_conns_in_use",
@@ -147,6 +166,8 @@ func NewStreamMetrics(
 		m.streamRetryBudgetAvailable,
 		m.streamConcurrencyRejections,
 		m.httpConnsInUse,
+		m.pipelineStageElements,
+		m.pipelineStageAudioBytes,
 	)
 	return m
 }
@@ -269,6 +290,26 @@ func (m *StreamMetrics) ObserveRetryBudgetAvailable(provider, host string, budge
 		return
 	}
 	m.streamRetryBudgetAvailable.WithLabelValues(provider, host).Set(budget.Available())
+}
+
+// PipelineStageElementInc increments the element counter for a pipeline
+// stage. Called by the pipeline runner after each element flows through
+// a stage's output channel. Nil-safe.
+func (m *StreamMetrics) PipelineStageElementInc(stage string) {
+	if m == nil {
+		return
+	}
+	m.pipelineStageElements.WithLabelValues(stage).Inc()
+}
+
+// PipelineStageAudioBytesAdd adds to the audio byte counter for a
+// pipeline stage. Called with the raw PCM byte count of each audio
+// element that flows through the stage. Nil-safe.
+func (m *StreamMetrics) PipelineStageAudioBytesAdd(stage string, bytes int) {
+	if m == nil {
+		return
+	}
+	m.pipelineStageAudioBytes.WithLabelValues(stage).Add(float64(bytes))
 }
 
 // Package-level default instance. Hosts register it by calling

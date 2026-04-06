@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -311,6 +312,11 @@ func (p *StreamPipeline) runStage(
 	// Note: We don't close output here because the stage's Process() method
 	// is responsible for closing it according to the Stage interface contract.
 
+	// Wrap input with Prometheus metrics so operators can see element and
+	// audio-byte flow per stage. The wrapper is a zero-overhead passthrough
+	// when DefaultStreamMetrics() returns nil (no host has registered).
+	instrumentedInput := instrumentStageInput(stage.Name(), input)
+
 	// Emit stage started event
 	start := time.Now()
 	if p.eventEmitter != nil {
@@ -318,7 +324,7 @@ func (p *StreamPipeline) runStage(
 	}
 
 	// Run the stage
-	err := stage.Process(ctx, input, output)
+	err := stage.Process(ctx, instrumentedInput, output)
 	duration := time.Since(start)
 
 	// Emit stage completed/failed event
@@ -341,6 +347,28 @@ func (p *StreamPipeline) runStage(
 			"stage", stage.Name(), "type", stage.Type(),
 			"duration", duration)
 	}
+}
+
+// instrumentStageInput wraps an input channel with Prometheus counters
+// that track element count and audio bytes flowing INTO a stage. Returns
+// the original channel unchanged when no metrics are registered.
+func instrumentStageInput(stageName string, input <-chan StreamElement) <-chan StreamElement {
+	metrics := providers.DefaultStreamMetrics()
+	if metrics == nil {
+		return input
+	}
+	instrumented := make(chan StreamElement, cap(input))
+	go func() {
+		defer close(instrumented)
+		for elem := range input {
+			metrics.PipelineStageElementInc(stageName)
+			if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
+				metrics.PipelineStageAudioBytesAdd(stageName, len(elem.Audio.Samples))
+			}
+			instrumented <- elem
+		}
+	}()
+	return instrumented
 }
 
 // collectOutput collects output from all leaf stages into the pipeline output

@@ -452,11 +452,12 @@ func (s *RealtimeSession) EndInput() {
 		return
 	}
 
-	// If VAD is disabled (nil), manually trigger response
-	if s.config.TurnDetection == nil {
-		if err := s.TriggerResponse(nil); err != nil {
-			logger.Error("OpenAI Realtime: EndInput failed to trigger response", "error", err)
-		}
+	// Always trigger a response after committing. With server_vad,
+	// pre-recorded audio files lack trailing silence so VAD may never
+	// detect end-of-speech. TriggerResponse forces the model to
+	// process the committed buffer immediately.
+	if err := s.TriggerResponse(nil); err != nil {
+		logger.Error("OpenAI Realtime: EndInput failed to trigger response", "error", err)
 	}
 }
 

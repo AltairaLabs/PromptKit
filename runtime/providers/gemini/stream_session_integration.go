@@ -38,9 +38,6 @@ const (
 // Configuration constants
 const (
 	responseChannelSize = 10
-	silenceFrameSize    = 16000
-	silenceFrameCount   = 8
-	silenceFrameDelayMS = 50
 	tokensPerThousand   = 1000.0
 
 	// Reconnection constants
@@ -525,45 +522,23 @@ func (s *StreamSession) isVADDisabled() bool {
 // EndInput implements the EndInputter interface expected by DuplexProviderStage.
 // It signals that the user's input turn is complete and the model should respond.
 //
-// Behavior depends on VAD configuration:
-// - If VAD is disabled: sends activityEnd signal for explicit turn control
-// - If VAD is enabled: sends silence frames to trigger VAD end-of-speech detection
+// Always sends activityEnd — this is the explicit "your turn" signal that
+// works regardless of VAD configuration. Pre-recorded audio files (the
+// arena/testing use case) have no trailing silence, so relying on VAD
+// silence detection is unreliable and slow. In a real conversation with
+// a live mic, EndInput is never called — VAD handles turn-taking
+// naturally through the user's actual silence.
 func (s *StreamSession) EndInput() {
 	logger.Debug("Gemini StreamSession: EndInput called", "vad_disabled", s.isVADDisabled())
 
-	// When VAD is disabled, use explicit turn signaling
-	if s.isVADDisabled() {
-		if err := s.sendActivityEnd(); err != nil {
-			logger.Error("Gemini StreamSession: EndInput failed to send activityEnd", "error", err)
-		}
-		// Reset for next turn
-		s.mu.Lock()
-		s.activityStartSent = false
-		s.mu.Unlock()
-		return
+	if err := s.sendActivityEnd(); err != nil {
+		logger.Error("Gemini StreamSession: EndInput failed to send activityEnd", "error", err)
 	}
 
-	// When VAD is enabled, send silence frames to help VAD detect end of speech.
-	// This mimics the natural trailing silence at the end of human speech.
-	// Gemini's ASM mode will detect this silence and trigger the model response.
-	//
-	// silenceFrameSize bytes = 500ms of silence at 16kHz 16-bit mono (16000 samples * 1 byte per sample)
-	// We send 4 seconds total of silence to ensure VAD detection
-	silentChunk := make([]byte, silenceFrameSize)
-	for i := 0; i < silenceFrameCount; i++ {
-		chunk := &types.MediaChunk{
-			Data:      silentChunk,
-			Timestamp: time.Now(),
-		}
-		if err := s.SendChunk(s.ctx, chunk); err != nil {
-			logger.Error("Gemini StreamSession: EndInput failed to send silence", "error", err, "chunkIdx", i)
-			break
-		}
-		// Small delay between chunks to spread them out
-		time.Sleep(silenceFrameDelayMS * time.Millisecond)
-	}
-
-	logger.Debug("Gemini StreamSession: EndInput silence frames sent, waiting for VAD")
+	// Reset for next turn
+	s.mu.Lock()
+	s.activityStartSent = false
+	s.mu.Unlock()
 }
 
 // Response returns the channel for receiving responses

@@ -212,12 +212,13 @@ func TestRealtimeIntegration_AudioThenEndInput(t *testing.T) {
 	}
 	t.Log("All audio chunks sent, calling EndInput()")
 
-	// Type-assert to access EndInput (and CommitAudioBuffer + TriggerResponse).
-	realtimeSession, ok := session.(*RealtimeSession)
+	// Use EndInputter interface — the session may be wrapped in bookkeeping.
+	type endInputter interface{ EndInput() }
+	ei, ok := session.(endInputter)
 	if !ok {
-		t.Fatal("Session is not a *RealtimeSession")
+		t.Fatal("Session does not implement EndInput()")
 	}
-	realtimeSession.EndInput()
+	ei.EndInput()
 
 	response, costInfo, gotFinish := collectResponse(t, session, 25*time.Second)
 
@@ -563,11 +564,11 @@ func TestRealtimeIntegration_EndToEnd(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	realtimeSession, ok := session.(*RealtimeSession)
-	if !ok {
-		t.Fatal("Session is not a *RealtimeSession")
+	if ei, ok := session.(interface{ EndInput() }); ok {
+		ei.EndInput()
+	} else {
+		t.Fatal("Session does not implement EndInput()")
 	}
-	realtimeSession.EndInput()
 
 	r := <-resultCh
 	t.Logf("Response chunks: %d, text: %q", r.chunks, r.text)
@@ -631,11 +632,11 @@ func TestRealtimeIntegration_AudioRoundTrip(t *testing.T) {
 		}
 	}
 
-	realtimeSession, ok := session.(*RealtimeSession)
-	if !ok {
-		t.Fatal("Session is not a *RealtimeSession")
+	if ei, ok := session.(interface{ EndInput() }); ok {
+		ei.EndInput()
+	} else {
+		t.Fatal("Session does not implement EndInput()")
 	}
-	realtimeSession.EndInput()
 
 	var audioChunksReceived int
 	timer := time.After(30 * time.Second)

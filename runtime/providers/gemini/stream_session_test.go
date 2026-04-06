@@ -1159,18 +1159,6 @@ func TestStreamSessionConstants(t *testing.T) {
 		t.Errorf("Expected responseChannelSize = 10, got %d", responseChannelSize)
 	}
 
-	if silenceFrameSize != 16000 {
-		t.Errorf("Expected silenceFrameSize = 16000, got %d", silenceFrameSize)
-	}
-
-	if silenceFrameCount != 8 {
-		t.Errorf("Expected silenceFrameCount = 8, got %d", silenceFrameCount)
-	}
-
-	if silenceFrameDelayMS != 50 {
-		t.Errorf("Expected silenceFrameDelayMS = 50, got %d", silenceFrameDelayMS)
-	}
-
 	if tokensPerThousand != 1000.0 {
 		t.Errorf("Expected tokensPerThousand = 1000.0, got %f", tokensPerThousand)
 	}
