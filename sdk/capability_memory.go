@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -38,7 +39,17 @@ func (c *MemoryCapability) Init(_ CapabilityContext) error { return nil }
 
 // RegisterTools implements Capability. Registers the memory executor and
 // tool descriptors, plus any custom tools from ToolProvider stores.
+//
+// When scope["user_id"] is empty (anonymous user), tools are NOT
+// registered — the LLM simply doesn't see memory as an option. This
+// prevents confusing backend errors when the memory store rejects
+// operations without a user_id. See AltairaLabs/PromptKit#852.
 func (c *MemoryCapability) RegisterTools(registry *tools.Registry) {
+	if c.scope["user_id"] == "" {
+		logger.Debug("memory tools skipped: scope has no user_id (anonymous user)")
+		return
+	}
+
 	exec := memory.NewExecutor(c.store, c.scope)
 	registry.RegisterExecutor(exec)
 	memory.RegisterMemoryTools(registry)

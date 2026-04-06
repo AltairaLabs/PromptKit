@@ -398,6 +398,20 @@ func (s *RealtimeSession) Response() <-chan providers.StreamChunk {
 	return s.responseCh
 }
 
+// Config returns the session configuration. Callers can use this to
+// create a new session with the same settings after a connection loss:
+//
+//	if errors.Is(session.Error(), openai.ErrConnectionLost) {
+//	    newSession, _ := openai.NewRealtimeSession(ctx, apiKey, session.Config())
+//	}
+//
+// Note: server-side conversation state is lost on reconnection —
+// this only preserves the client-side configuration.
+func (s *RealtimeSession) Config() *RealtimeSessionConfig {
+	cfg := s.config
+	return &cfg
+}
+
 // Done returns a channel that's closed when the session ends.
 func (s *RealtimeSession) Done() <-chan struct{} {
 	return s.ctx.Done()
