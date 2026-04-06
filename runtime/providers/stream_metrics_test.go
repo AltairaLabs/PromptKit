@@ -183,4 +183,29 @@ func TestDefaultStreamMetrics_NilWhenUnregistered(t *testing.T) {
 	}
 	// Methods on the nil instance must still be safe.
 	DefaultStreamMetrics().StreamsInFlightInc("p")
+	DefaultStreamMetrics().PipelineStageElementInc("s")
+	DefaultStreamMetrics().PipelineStageAudioBytesAdd("s", 100)
+}
+
+func TestStreamMetrics_PipelineStageCounters(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := NewStreamMetrics(reg, "test", nil)
+
+	m.PipelineStageElementInc("resample")
+	m.PipelineStageElementInc("resample")
+	m.PipelineStageElementInc("provider")
+	m.PipelineStageAudioBytesAdd("resample", 640)
+	m.PipelineStageAudioBytesAdd("resample", 640)
+	m.PipelineStageAudioBytesAdd("provider", 960)
+
+	if got := testutil.ToFloat64(m.pipelineStageElements.WithLabelValues("resample")); got != 2 {
+		t.Errorf("resample elements = %v, want 2", got)
+	}
+	if got := testutil.ToFloat64(m.pipelineStageElements.WithLabelValues("provider")); got != 1 {
+		t.Errorf("provider elements = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.pipelineStageAudioBytes.WithLabelValues("resample")); got != 1280 {
+		t.Errorf("resample audio bytes = %v, want 1280", got)
+	}
 }
