@@ -260,6 +260,8 @@ func buildStreamRetryPolicy(providerID string, cfg *config.StreamRetryConfig) pr
 	switch cfg.RetryWindow {
 	case "", string(providers.StreamRetryWindowPreFirstChunk):
 		policy.Window = providers.StreamRetryWindowPreFirstChunk
+	case string(providers.StreamRetryWindowAlways):
+		policy.Window = providers.StreamRetryWindowAlways
 	default:
 		logger.Warn("arena: unknown stream_retry.retry_window, defaulting to pre_first_chunk",
 			"provider", providerID, "value", cfg.RetryWindow)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -326,4 +327,402 @@ func histogramSample(reg *prometheus.Registry, metricName, provider string) (cou
 		}
 	}
 	return count, sum
+}
+
+// --- Mid-stream reset retry (retry_window: always) ---
+
+// TestRunStreamingRequest_MidStreamResetRetry exercises the full reset
+// path: consumer emits content, then errors → relay emits Reset →
+// retry opens a new stream → caller sees Reset + fresh content.
+func TestRunStreamingRequest_MidStreamResetRetry(t *testing.T) {
+	ResetDefaultStreamMetrics()
+	t.Cleanup(ResetDefaultStreamMetrics)
+	reg := prometheus.NewRegistry()
+	_ = RegisterDefaultStreamMetrics(reg, "test", nil)
+
+	var attempt atomic.Int32
+	b := NewBaseProvider("test", false, &http.Client{
+		Transport: &fixedResponseRoundTripper{
+			body: "data: {}\n\ndata: [DONE]\n\n",
+		},
+	})
+
+	budget := NewRetryBudget(10, 5)
+	b.SetStreamRetryPolicy(StreamRetryPolicy{
+		Enabled:      true,
+		MaxAttempts:  2,
+		InitialDelay: 10 * time.Millisecond,
+		MaxDelay:     50 * time.Millisecond,
+		Window:       StreamRetryWindowAlways,
+	})
+	b.SetStreamRetryBudget(budget)
+
+	ctx := context.Background()
+	req := &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+			Window:       StreamRetryWindowAlways,
+		},
+		Budget:       budget,
+		ProviderName: "test",
+		IdleTimeout:  5 * time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, "POST", "http://test.invalid/x", http.NoBody)
+		},
+		Client: b.GetStreamingHTTPClient(),
+	}
+
+	consumer := func(_ context.Context, body io.ReadCloser, out chan<- StreamChunk) {
+		defer close(out)
+		defer func() { _ = body.Close() }()
+		n := attempt.Add(1)
+		if n == 1 {
+			// First attempt: emit content then error.
+			out <- StreamChunk{Delta: "hello ", Content: "hello "}
+			out <- StreamChunk{Delta: "world", Content: "hello world"}
+			out <- StreamChunk{Error: errors.New("mid-stream kill"), FinishReason: stringPtr("error")}
+		} else {
+			// Retry: clean response.
+			out <- StreamChunk{Delta: "fresh ", Content: "fresh "}
+			out <- StreamChunk{Delta: "response", Content: "fresh response"}
+			out <- StreamChunk{FinishReason: stringPtr("stop"), Content: "fresh response"}
+		}
+	}
+
+	ch, err := b.RunStreamingRequest(ctx, req, consumer)
+	if err != nil {
+		t.Fatalf("RunStreamingRequest: %v", err)
+	}
+
+	var got []StreamChunk
+	for c := range ch {
+		got = append(got, c)
+	}
+
+	// Expect: [hello delta, world delta, Reset, fresh delta, response delta, finish]
+	if len(got) < 4 {
+		t.Fatalf("expected at least 4 chunks (content + reset + retry content), got %d", len(got))
+	}
+
+	// Find the Reset chunk.
+	resetIdx := -1
+	for i, c := range got {
+		if c.Reset {
+			resetIdx = i
+			break
+		}
+	}
+	if resetIdx == -1 {
+		t.Fatal("expected a Reset chunk in the stream")
+	}
+
+	// Content before Reset should be from the failed attempt.
+	if got[0].Delta != "hello " {
+		t.Errorf("first chunk delta = %q, want %q", got[0].Delta, "hello ")
+	}
+
+	// Content after Reset should be from the retry.
+	afterReset := got[resetIdx+1:]
+	if len(afterReset) == 0 {
+		t.Fatal("no chunks after Reset")
+	}
+	if afterReset[0].Delta != "fresh " {
+		t.Errorf("first retry chunk delta = %q, want %q", afterReset[0].Delta, "fresh ")
+	}
+
+	// The last chunk should be a clean finish, not an error.
+	last := got[len(got)-1]
+	if last.Error != nil {
+		t.Errorf("final chunk has error: %v (retry should have succeeded)", last.Error)
+	}
+	if last.FinishReason == nil || *last.FinishReason != "stop" {
+		t.Errorf("final chunk finish_reason = %v, want 'stop'", last.FinishReason)
+	}
+
+	// Verify the mid_stream_reset metric was recorded.
+	resets := labeledCounterFromReg(reg, "test_stream_retries_total", "test", "outcome", "mid_stream_reset")
+	if resets != 1 {
+		t.Errorf("mid_stream_reset retries = %v, want 1", resets)
+	}
+}
+
+// TestRunStreamingRequest_MidStreamRetryDisabledByDefault confirms that
+// with default config (retry_window: pre_first_chunk), a mid-stream
+// error does NOT trigger reset+retry — the error propagates as-is.
+func TestRunStreamingRequest_MidStreamRetryDisabledByDefault(t *testing.T) {
+	ResetDefaultStreamMetrics()
+	t.Cleanup(ResetDefaultStreamMetrics)
+	reg := prometheus.NewRegistry()
+	_ = RegisterDefaultStreamMetrics(reg, "test", nil)
+
+	b := NewBaseProvider("test", false, &http.Client{
+		Transport: &fixedResponseRoundTripper{
+			body: "data: {}\n\ndata: [DONE]\n\n",
+		},
+	})
+
+	ctx := context.Background()
+	req := &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+			Window:       StreamRetryWindowPreFirstChunk, // default
+		},
+		ProviderName: "test",
+		IdleTimeout:  5 * time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, "POST", "http://test.invalid/x", http.NoBody)
+		},
+		Client: b.GetStreamingHTTPClient(),
+	}
+
+	consumer := func(_ context.Context, body io.ReadCloser, out chan<- StreamChunk) {
+		defer close(out)
+		defer func() { _ = body.Close() }()
+		out <- StreamChunk{Delta: "partial"}
+		out <- StreamChunk{Error: errors.New("mid-stream fail")}
+	}
+
+	ch, err := b.RunStreamingRequest(ctx, req, consumer)
+	if err != nil {
+		t.Fatalf("RunStreamingRequest: %v", err)
+	}
+
+	var sawReset, sawError bool
+	for c := range ch {
+		if c.Reset {
+			sawReset = true
+		}
+		if c.Error != nil {
+			sawError = true
+		}
+	}
+	if sawReset {
+		t.Error("Reset chunk emitted with pre_first_chunk window — mid-stream retry should be disabled")
+	}
+	if !sawError {
+		t.Error("expected error chunk to propagate with pre_first_chunk window")
+	}
+}
+
+// TestRunStreamingRequest_MidStreamRetryBudgetExhausted confirms that
+// even with retry_window: always, an empty budget prevents the reset
+// retry and the error propagates.
+func TestRunStreamingRequest_MidStreamRetryBudgetExhausted(t *testing.T) {
+	ResetDefaultStreamMetrics()
+	t.Cleanup(ResetDefaultStreamMetrics)
+	_ = RegisterDefaultStreamMetrics(prometheus.NewRegistry(), "test", nil)
+
+	b := NewBaseProvider("test", false, &http.Client{
+		Transport: &fixedResponseRoundTripper{
+			body: "data: {}\n\ndata: [DONE]\n\n",
+		},
+	})
+
+	// Budget with burst=1: one token available. Drain it before the test
+	// so the mid-stream retry path finds the budget empty.
+	budget := NewRetryBudget(0.001, 1) // near-zero refill rate
+	budget.TryAcquire()                // drain the single token
+
+	ctx := context.Background()
+	req := &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+			Window:       StreamRetryWindowAlways,
+		},
+		Budget:       budget,
+		ProviderName: "test",
+		IdleTimeout:  5 * time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, "POST", "http://test.invalid/x", http.NoBody)
+		},
+		Client: b.GetStreamingHTTPClient(),
+	}
+
+	consumer := func(_ context.Context, body io.ReadCloser, out chan<- StreamChunk) {
+		defer close(out)
+		defer func() { _ = body.Close() }()
+		out <- StreamChunk{Delta: "partial"}
+		out <- StreamChunk{Error: errors.New("mid-stream fail")}
+	}
+
+	ch, err := b.RunStreamingRequest(ctx, req, consumer)
+	if err != nil {
+		t.Fatalf("RunStreamingRequest: %v", err)
+	}
+
+	var sawReset bool
+	for c := range ch {
+		if c.Reset {
+			sawReset = true
+		}
+	}
+	if sawReset {
+		t.Error("Reset chunk emitted with exhausted budget — should have failed fast")
+	}
+}
+
+// TestRunStreamingRequest_MidStreamRetryFailsToReopen confirms that
+// when the retry itself fails to open a new stream (e.g. upstream is
+// down), the caller gets an error chunk after the Reset rather than
+// hanging indefinitely.
+func TestRunStreamingRequest_MidStreamRetryFailsToReopen(t *testing.T) {
+	ResetDefaultStreamMetrics()
+	t.Cleanup(ResetDefaultStreamMetrics)
+	_ = RegisterDefaultStreamMetrics(prometheus.NewRegistry(), "test", nil)
+
+	var attempt atomic.Int32
+	b := NewBaseProvider("test", false, &http.Client{
+		Transport: &fixedResponseRoundTripper{
+			body: "data: {}\n\ndata: [DONE]\n\n",
+		},
+	})
+	budget := NewRetryBudget(10, 5)
+
+	ctx := context.Background()
+	req := &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  1, // no pre-first-chunk retry on the re-open
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+			Window:       StreamRetryWindowAlways,
+		},
+		Budget:       budget,
+		ProviderName: "test",
+		IdleTimeout:  5 * time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			n := attempt.Add(1)
+			if n >= 2 {
+				// Second call (the retry's re-open) fails.
+				return nil, errors.New("connection refused")
+			}
+			return http.NewRequestWithContext(ctx, "POST", "http://test.invalid/x", http.NoBody)
+		},
+		Client: b.GetStreamingHTTPClient(),
+	}
+
+	consumer := func(_ context.Context, body io.ReadCloser, out chan<- StreamChunk) {
+		defer close(out)
+		defer func() { _ = body.Close() }()
+		out <- StreamChunk{Delta: "partial content"}
+		out <- StreamChunk{Error: errors.New("stream died")}
+	}
+
+	ch, err := b.RunStreamingRequest(ctx, req, consumer)
+	if err != nil {
+		t.Fatalf("RunStreamingRequest: %v", err)
+	}
+
+	var sawReset, sawError bool
+	for c := range ch {
+		if c.Reset {
+			sawReset = true
+		}
+		if c.Error != nil {
+			sawError = true
+		}
+	}
+	if !sawReset {
+		t.Error("expected Reset before the retry error")
+	}
+	if !sawError {
+		t.Error("expected error chunk when retry fails to re-open")
+	}
+}
+
+// TestRunStreamingRequest_MidStreamRetryCleanClose confirms that a
+// stream that closes cleanly (no error) does not trigger mid-stream
+// retry — the relay just exits.
+func TestRunStreamingRequest_MidStreamRetryCleanClose(t *testing.T) {
+	ResetDefaultStreamMetrics()
+	t.Cleanup(ResetDefaultStreamMetrics)
+	_ = RegisterDefaultStreamMetrics(prometheus.NewRegistry(), "test", nil)
+
+	b := NewBaseProvider("test", false, &http.Client{
+		Transport: &fixedResponseRoundTripper{
+			body: "data: {}\n\ndata: [DONE]\n\n",
+		},
+	})
+
+	ctx := context.Background()
+	req := &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+			Window:       StreamRetryWindowAlways,
+		},
+		Budget:       NewRetryBudget(10, 5),
+		ProviderName: "test",
+		IdleTimeout:  5 * time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, "POST", "http://test.invalid/x", http.NoBody)
+		},
+		Client: b.GetStreamingHTTPClient(),
+	}
+
+	consumer := func(_ context.Context, body io.ReadCloser, out chan<- StreamChunk) {
+		defer close(out)
+		defer func() { _ = body.Close() }()
+		out <- StreamChunk{Delta: "complete "}
+		out <- StreamChunk{Delta: "response"}
+		out <- StreamChunk{FinishReason: stringPtr("stop")}
+	}
+
+	ch, err := b.RunStreamingRequest(ctx, req, consumer)
+	if err != nil {
+		t.Fatalf("RunStreamingRequest: %v", err)
+	}
+
+	var sawReset bool
+	var chunks int
+	for c := range ch {
+		chunks++
+		if c.Reset {
+			sawReset = true
+		}
+	}
+	if sawReset {
+		t.Error("clean stream should not emit Reset")
+	}
+	if chunks != 3 {
+		t.Errorf("expected 3 chunks, got %d", chunks)
+	}
+}
+
+// labeledCounterFromReg reads a counter matching provider and outcome
+// labels from a registry. Like labeledCounter in the loadtest file but
+// accessible from this test file.
+func labeledCounterFromReg(reg *prometheus.Registry, metricName, provider, labelKey, labelVal string) float64 {
+	mfs, _ := reg.Gather()
+	for _, mf := range mfs {
+		if mf.GetName() != metricName {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			var providerMatches, labelMatches bool
+			for _, lp := range m.GetLabel() {
+				if lp.GetName() == "provider" && lp.GetValue() == provider {
+					providerMatches = true
+				}
+				if lp.GetName() == labelKey && lp.GetValue() == labelVal {
+					labelMatches = true
+				}
+			}
+			if providerMatches && labelMatches {
+				return m.GetCounter().GetValue()
+			}
+		}
+	}
+	return 0
 }

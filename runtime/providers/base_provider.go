@@ -525,31 +525,111 @@ func (b *BaseProvider) RunStreamingRequest(
 	// caller's view of stream lifetime: "stream is in flight until
 	// outChan is closed". The terminal close of outChan is the last
 	// step, signaling the caller that the stream is fully delivered.
+	//
+	// When retry_window is "always" and a mid-stream error occurs
+	// after content has been forwarded, the relay emits a Reset chunk,
+	// opens a new stream via the retry driver, and continues relaying
+	// from the fresh consumer — the caller sees Reset followed by the
+	// new response as if the first attempt never happened.
 	go func() {
 		defer func() {
 			close(outChan)
 			metrics.StreamsInFlightDec(providerID)
 			metrics.ProviderCallsInFlightDec(providerID)
 		}()
-		var contentChunks int
-		for chunk := range innerChan {
-			// A chunk "forwarded content" if it delivered any user-
-			// visible payload: text delta, media data, or tool call
-			// arguments. Finish-reason-only chunks and the terminal
-			// error chunk itself do not count toward the pre-error
-			// content count — only payload that the downstream
-			// consumer has already committed to.
-			if chunkForwardedContent(&chunk) {
-				contentChunks++
-			}
-			if chunk.Error != nil {
-				metrics.ObserveStreamErrorChunksForwarded(providerID, contentChunks)
-			}
-			outChan <- chunk
-		}
+		b.relayStream(ctx, req, consumer, innerChan, outChan, metrics, providerID)
 	}()
 
 	return outChan, nil
+}
+
+// relayStream is the inner loop of the relay goroutine. It forwards
+// chunks from innerChan to outChan, counting content chunks and
+// recording the error-chunks histogram. When retry_window is "always"
+// and a mid-stream error arrives after content was forwarded, it emits
+// a Reset chunk, opens a fresh stream, and loops — giving the caller
+// a clean second attempt. The budget gates the retry to prevent storms.
+func (b *BaseProvider) relayStream(
+	ctx context.Context,
+	req *StreamRetryRequest,
+	consumer StreamConsumer,
+	innerChan <-chan StreamChunk,
+	outChan chan<- StreamChunk,
+	metrics *StreamMetrics,
+	providerID string,
+) {
+	canMidStreamRetry := req.Policy.Enabled &&
+		req.Policy.Window == StreamRetryWindowAlways
+
+	contentChunks := forwardChunks(innerChan, outChan, metrics, providerID)
+	if contentChunks < 0 {
+		return // stream completed cleanly (no error)
+	}
+
+	// Mid-stream retry: if the policy allows it, content was
+	// forwarded (so Phase 1 couldn't catch this), and the budget
+	// has a token, emit Reset and retry from scratch.
+	if canMidStreamRetry && contentChunks > 0 && req.Budget.TryAcquire() {
+		midStreamRetry(ctx, req, consumer, outChan, metrics, providerID)
+	}
+}
+
+// forwardChunks relays chunks from src to dst, counting content
+// chunks and recording error-histogram observations. Returns -1 when
+// the source closes cleanly (no error), or the non-negative content
+// count when a terminal error chunk has been forwarded.
+func forwardChunks(
+	src <-chan StreamChunk, dst chan<- StreamChunk,
+	metrics *StreamMetrics, providerID string,
+) int {
+	var contentChunks int
+	for chunk := range src {
+		if chunkForwardedContent(&chunk) {
+			contentChunks++
+		}
+		if chunk.Error != nil {
+			metrics.ObserveStreamErrorChunksForwarded(providerID, contentChunks)
+			dst <- chunk
+			return contentChunks
+		}
+		dst <- chunk
+	}
+	return -1 // clean close
+}
+
+// midStreamRetry handles the retry-after-reset path: emits a Reset
+// chunk, opens a fresh stream through the retry driver, and relays
+// the new consumer's output into outChan. If the retry itself fails
+// to open, a terminal error chunk is emitted instead.
+func midStreamRetry(
+	ctx context.Context,
+	req *StreamRetryRequest,
+	consumer StreamConsumer,
+	outChan chan<- StreamChunk,
+	metrics *StreamMetrics,
+	providerID string,
+) {
+	metrics.RetryAttempt(providerID, "mid_stream_reset")
+	logger.Warn("mid-stream failure, emitting reset and retrying",
+		"provider", providerID,
+	)
+	outChan <- StreamChunk{Reset: true}
+
+	retryResult, retryErr := OpenStreamWithRetryRequest(ctx, req)
+	if retryErr != nil {
+		outChan <- StreamChunk{
+			Error:        fmt.Errorf("mid-stream retry failed: %w", retryErr),
+			FinishReason: StringPtr("error"),
+		}
+		return
+	}
+
+	retryChan := make(chan StreamChunk, DefaultStreamBufferSize)
+	go func() {
+		consumer(ctx, retryResult.Body, retryChan)
+	}()
+
+	forwardChunks(retryChan, outChan, metrics, providerID)
 }
 
 // chunkForwardedContent reports whether a StreamChunk delivered any
