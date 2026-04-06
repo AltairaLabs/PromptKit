@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -569,20 +570,40 @@ func (p *ToolProvider) PredictStreamWithTools(
 	// Add streaming flag
 	claudeReq["stream"] = true
 
-	// Bedrock: use binary event-stream format
+	// Bedrock: use binary event-stream format, wired through
+	// RunStreamingRequest for retry, budget, semaphore, and metrics.
 	if p.isBedrock() {
 		reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request: %w", err)
 		}
-		body, scanner, err := p.makeBedrockStreamingRequest(ctx, reqBody)
-		if err != nil {
-			return nil, err
+		url := p.messagesStreamURL()
+		requestFn := func(ctx context.Context) (*http.Request, error) {
+			httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+			if reqErr != nil {
+				return nil, fmt.Errorf("failed to create request: %w", reqErr)
+			}
+			httpReq.Header.Set(contentTypeHeader, applicationJSON)
+			httpReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
+			if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+				return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+			}
+			return httpReq, nil
 		}
-		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
-		outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-		go p.streamResponse(ctx, idleBody, scanner, outChan)
-		return outChan, nil
+		return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+			Policy:        p.StreamRetryPolicy(),
+			Budget:        p.StreamRetryBudget(),
+			ProviderName:  p.ID(),
+			Host:          providers.HostFromURL(url),
+			IdleTimeout:   p.StreamIdleTimeout(),
+			RequestFn:     requestFn,
+			Client:        p.GetStreamingHTTPClient(),
+			FrameDetector: providers.BedrockEventStreamFrameDetector{},
+		}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+			idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
+			scanner := providers.NewBedrockEventScanner(idleBody)
+			p.streamResponse(ctx, idleBody, scanner, outChan)
+		})
 	}
 
 	requestBytes, err := json.Marshal(claudeReq)
