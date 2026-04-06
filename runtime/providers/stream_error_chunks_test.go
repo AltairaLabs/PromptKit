@@ -570,6 +570,136 @@ func TestRunStreamingRequest_MidStreamRetryBudgetExhausted(t *testing.T) {
 	}
 }
 
+// TestRunStreamingRequest_MidStreamRetryFailsToReopen confirms that
+// when the retry itself fails to open a new stream (e.g. upstream is
+// down), the caller gets an error chunk after the Reset rather than
+// hanging indefinitely.
+func TestRunStreamingRequest_MidStreamRetryFailsToReopen(t *testing.T) {
+	ResetDefaultStreamMetrics()
+	t.Cleanup(ResetDefaultStreamMetrics)
+	_ = RegisterDefaultStreamMetrics(prometheus.NewRegistry(), "test", nil)
+
+	var attempt atomic.Int32
+	b := NewBaseProvider("test", false, &http.Client{
+		Transport: &fixedResponseRoundTripper{
+			body: "data: {}\n\ndata: [DONE]\n\n",
+		},
+	})
+	budget := NewRetryBudget(10, 5)
+
+	ctx := context.Background()
+	req := &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  1, // no pre-first-chunk retry on the re-open
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+			Window:       StreamRetryWindowAlways,
+		},
+		Budget:       budget,
+		ProviderName: "test",
+		IdleTimeout:  5 * time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			n := attempt.Add(1)
+			if n >= 2 {
+				// Second call (the retry's re-open) fails.
+				return nil, errors.New("connection refused")
+			}
+			return http.NewRequestWithContext(ctx, "POST", "http://test.invalid/x", http.NoBody)
+		},
+		Client: b.GetStreamingHTTPClient(),
+	}
+
+	consumer := func(_ context.Context, body io.ReadCloser, out chan<- StreamChunk) {
+		defer close(out)
+		defer func() { _ = body.Close() }()
+		out <- StreamChunk{Delta: "partial content"}
+		out <- StreamChunk{Error: errors.New("stream died")}
+	}
+
+	ch, err := b.RunStreamingRequest(ctx, req, consumer)
+	if err != nil {
+		t.Fatalf("RunStreamingRequest: %v", err)
+	}
+
+	var sawReset, sawError bool
+	for c := range ch {
+		if c.Reset {
+			sawReset = true
+		}
+		if c.Error != nil {
+			sawError = true
+		}
+	}
+	if !sawReset {
+		t.Error("expected Reset before the retry error")
+	}
+	if !sawError {
+		t.Error("expected error chunk when retry fails to re-open")
+	}
+}
+
+// TestRunStreamingRequest_MidStreamRetryCleanClose confirms that a
+// stream that closes cleanly (no error) does not trigger mid-stream
+// retry — the relay just exits.
+func TestRunStreamingRequest_MidStreamRetryCleanClose(t *testing.T) {
+	ResetDefaultStreamMetrics()
+	t.Cleanup(ResetDefaultStreamMetrics)
+	_ = RegisterDefaultStreamMetrics(prometheus.NewRegistry(), "test", nil)
+
+	b := NewBaseProvider("test", false, &http.Client{
+		Transport: &fixedResponseRoundTripper{
+			body: "data: {}\n\ndata: [DONE]\n\n",
+		},
+	})
+
+	ctx := context.Background()
+	req := &StreamRetryRequest{
+		Policy: StreamRetryPolicy{
+			Enabled:      true,
+			MaxAttempts:  2,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     50 * time.Millisecond,
+			Window:       StreamRetryWindowAlways,
+		},
+		Budget:       NewRetryBudget(10, 5),
+		ProviderName: "test",
+		IdleTimeout:  5 * time.Second,
+		RequestFn: func(ctx context.Context) (*http.Request, error) {
+			return http.NewRequestWithContext(ctx, "POST", "http://test.invalid/x", http.NoBody)
+		},
+		Client: b.GetStreamingHTTPClient(),
+	}
+
+	consumer := func(_ context.Context, body io.ReadCloser, out chan<- StreamChunk) {
+		defer close(out)
+		defer func() { _ = body.Close() }()
+		out <- StreamChunk{Delta: "complete "}
+		out <- StreamChunk{Delta: "response"}
+		out <- StreamChunk{FinishReason: stringPtr("stop")}
+	}
+
+	ch, err := b.RunStreamingRequest(ctx, req, consumer)
+	if err != nil {
+		t.Fatalf("RunStreamingRequest: %v", err)
+	}
+
+	var sawReset bool
+	var chunks int
+	for c := range ch {
+		chunks++
+		if c.Reset {
+			sawReset = true
+		}
+	}
+	if sawReset {
+		t.Error("clean stream should not emit Reset")
+	}
+	if chunks != 3 {
+		t.Errorf("expected 3 chunks, got %d", chunks)
+	}
+}
+
 // labeledCounterFromReg reads a counter matching provider and outcome
 // labels from a registry. Like labeledCounter in the loadtest file but
 // accessible from this test file.
