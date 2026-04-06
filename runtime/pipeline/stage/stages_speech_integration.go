@@ -397,6 +397,10 @@ type STTStageConfig struct {
 
 	// MinAudioBytes is minimum audio size to transcribe
 	MinAudioBytes int
+
+	// Retry configures bounded retry on transient transcription errors.
+	// Zero value uses stt.DefaultRetryConfig (3 attempts, 250ms initial).
+	Retry stt.RetryConfig
 }
 
 // DefaultSTTStageConfig returns sensible defaults.
@@ -405,6 +409,7 @@ func DefaultSTTStageConfig() STTStageConfig {
 		Language:      "en",
 		SkipEmpty:     true,
 		MinAudioBytes: defaultMinAudioBytes,
+		Retry:         stt.DefaultRetryConfig(),
 	}
 }
 
@@ -452,13 +457,13 @@ func (s *STTStage) Process(
 			continue
 		}
 
-		// Transcribe
-		text, err := s.service.Transcribe(ctx, elem.Audio.Samples, stt.TranscriptionConfig{
+		// Transcribe (with retry on transient errors)
+		text, err := stt.TranscribeWithRetry(ctx, s.service, elem.Audio.Samples, stt.TranscriptionConfig{
 			Format:     stt.FormatPCM,
 			SampleRate: elem.Audio.SampleRate,
 			Channels:   elem.Audio.Channels,
 			Language:   s.config.Language,
-		})
+		}, s.config.Retry)
 		if err != nil {
 			logger.Error("STTStage: transcription failed", "error", err)
 			elem.Error = err
@@ -513,6 +518,10 @@ type TTSStageWithInterruptionConfig struct {
 
 	// MinTextLength is minimum text length to synthesize
 	MinTextLength int
+
+	// Retry configures bounded retry on transient synthesis errors.
+	// Zero value uses tts.DefaultRetryConfig (3 attempts, 250ms initial).
+	Retry tts.RetryConfig
 }
 
 // DefaultTTSStageWithInterruptionConfig returns sensible defaults.
@@ -522,6 +531,7 @@ func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig {
 		Speed:         1.0,
 		SkipEmpty:     true,
 		MinTextLength: 1,
+		Retry:         tts.DefaultRetryConfig(),
 	}
 }
 
@@ -658,11 +668,11 @@ func (s *TTSStageWithInterruption) performSynthesis(
 	elem *StreamElement,
 	output chan<- StreamElement,
 ) ([]byte, error) {
-	reader, err := s.service.Synthesize(ctx, text, tts.SynthesisConfig{
+	reader, err := tts.SynthesizeWithRetry(ctx, s.service, text, tts.SynthesisConfig{
 		Voice:  s.config.Voice,
 		Speed:  s.config.Speed,
 		Format: tts.FormatPCM16,
-	})
+	}, s.config.Retry)
 	if err != nil {
 		return nil, s.handleSynthesisError(ctx, err, elem, output)
 	}
