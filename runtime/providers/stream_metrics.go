@@ -313,6 +313,22 @@ func (m *StreamMetrics) PipelineStageAudioBytesAdd(stage string, bytes int) {
 }
 
 // Package-level default instance. Hosts register it by calling
+// PipelineStageElementsVec returns the raw counter vec for testing.
+func (m *StreamMetrics) PipelineStageElementsVec() *prometheus.CounterVec {
+	if m == nil {
+		return nil
+	}
+	return m.pipelineStageElements
+}
+
+// PipelineStageAudioBytesVec returns the raw counter vec for testing.
+func (m *StreamMetrics) PipelineStageAudioBytesVec() *prometheus.CounterVec {
+	if m == nil {
+		return nil
+	}
+	return m.pipelineStageAudioBytes
+}
+
 // RegisterDefaultStreamMetrics during startup; all provider code reads
 // via DefaultStreamMetrics() unconditionally.
 var (
