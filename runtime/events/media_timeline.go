@@ -149,9 +149,12 @@ func (mt *MediaTimeline) extractAudioSegments(eventType EventType, _ TrackType) 
 		segments = append(segments, segment)
 	}
 
-	// Sort by chunk index for proper ordering
+	// Sort by event index (recording order) rather than chunk index.
+	// Chunk index resets to 0 on each conversation turn, so sorting by
+	// it interleaves audio from different turns. Event index is
+	// monotonically increasing across the whole session.
 	sort.Slice(segments, func(i, j int) bool {
-		return segments[i].ChunkIndex < segments[j].ChunkIndex
+		return segments[i].EventIndex < segments[j].EventIndex
 	})
 
 	return segments

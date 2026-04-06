@@ -326,7 +326,7 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 					MIMEType: part.InlineData.MimeType,
 				}
 				if strings.HasPrefix(part.InlineData.MimeType, "audio/") {
-					media.SampleRate = 16000
+					media.SampleRate = 24000 // Gemini native audio models output 24kHz
 					media.Channels = 1
 				}
 				response.MediaData = media

@@ -355,8 +355,8 @@ func TestGeminiStreamSession_ReceiveAudioResponse(t *testing.T) {
 			t.Errorf("Expected Channels to be 1, got %d", chunk.MediaData.Channels)
 		}
 
-		if chunk.MediaData.SampleRate != 16000 {
-			t.Errorf("Expected SampleRate to be 16000, got %d", chunk.MediaData.SampleRate)
+		if chunk.MediaData.SampleRate != 24000 {
+			t.Errorf("Expected SampleRate to be 24000, got %d", chunk.MediaData.SampleRate)
 		}
 
 		// Verify finish reason
