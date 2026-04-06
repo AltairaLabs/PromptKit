@@ -348,6 +348,12 @@ func (c *Conn) heartbeatLoop(ctx context.Context, interval time.Duration) {
 			return
 		case <-ticker.C:
 			if !c.sendPing() {
+				// Ping failed — the connection is dead or stalled.
+				// Close the underlying WebSocket so ReceiveLoop
+				// unblocks with an error and the session terminates
+				// instead of silently going stale.
+				c.cfg.Logger.Warn("heartbeat ping failed, closing connection")
+				_ = c.Close()
 				return
 			}
 		}

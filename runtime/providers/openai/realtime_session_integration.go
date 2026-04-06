@@ -16,6 +16,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// ErrConnectionLost is the error type emitted on the Response channel
+// when the WebSocket connection drops mid-session (network failure,
+// heartbeat timeout, server-initiated close with a non-graceful code).
+// Callers can check for this with errors.Is to distinguish recoverable
+// connection loss from clean session termination or server-side errors.
+var ErrConnectionLost = errors.New("websocket connection lost")
+
 // Common error messages
 const (
 	errSessionClosed = "session is closed"
@@ -461,11 +468,34 @@ func (s *RealtimeSession) receiveLoop() {
 			return
 		case err := <-errCh:
 			if err != nil && !errors.Is(err, context.Canceled) {
-				logger.Error("OpenAI Realtime: receive loop error", "error", err)
+				connErr := fmt.Errorf("%w: %w", ErrConnectionLost, err)
+				logger.Error("OpenAI Realtime: connection lost", "error", err)
+
+				// Emit a terminal error chunk so callers reading
+				// Response() learn the session died with a
+				// distinguishable error type. errors.Is(chunk.Error,
+				// ErrConnectionLost) returns true.
+				reason := "error"
 				select {
-				case s.errCh <- err:
+				case s.responseCh <- providers.StreamChunk{
+					Error:        connErr,
+					FinishReason: &reason,
+				}:
 				default:
 				}
+
+				// Propagate to errCh for callers using Error().
+				select {
+				case s.errCh <- connErr:
+				default:
+				}
+
+				// Cancel the session context so Done() fires.
+				// Callers watching Done() + Error() now have a
+				// complete signal: Done fired, Error returns
+				// ErrConnectionLost, Response channel has the
+				// terminal chunk.
+				s.cancel()
 			} else {
 				logger.Debug("OpenAI Realtime: WebSocket receive loop ended", "error", err)
 			}
