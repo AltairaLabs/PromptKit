@@ -75,12 +75,25 @@ func (s *CartesiaService) SynthesizeStream(
 }
 
 // readStreamResponses reads audio chunks from the WebSocket connection.
+// Closes the connection when the context is canceled so ReadJSON
+// unblocks immediately instead of hanging indefinitely on a stale
+// connection. Sets a read deadline on each iteration so a silent
+// server doesn't block forever.
 func (s *CartesiaService) readStreamResponses(
 	ctx context.Context, conn *websocket.Conn, chunks chan<- AudioChunk,
 ) {
 	defer close(chunks)
 	defer conn.Close()
 
+	// Close the WebSocket when the context is canceled so ReadJSON
+	// unblocks immediately. Without this, a stale connection holds
+	// the goroutine forever.
+	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+
+	const readTimeout = 30 * time.Second
 	index := 0
 
 	for {
@@ -89,10 +102,20 @@ func (s *CartesiaService) readStreamResponses(
 			return
 		}
 
+		// Set a read deadline so a silent server doesn't block forever.
+		_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
+
 		var resp cartesiaWSResponse
 		if err := conn.ReadJSON(&resp); err != nil {
+			if ctx.Err() != nil {
+				// Context canceled — the close goroutine above killed
+				// the connection. Don't report as an error.
+				return
+			}
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-				chunks <- AudioChunk{Error: err}
+				chunks <- AudioChunk{Error: NewSynthesisError(
+					"cartesia", "", "websocket read failed", err, true,
+				)}
 			}
 			return
 		}
