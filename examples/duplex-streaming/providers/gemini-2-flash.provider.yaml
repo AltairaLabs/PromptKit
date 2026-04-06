@@ -11,7 +11,7 @@ metadata:
 spec:
   id: gemini-2-flash
   type: gemini
-  model: gemini-2.5-flash
+  model: gemini-2.5-flash-native-audio-latest
 
   # Provider defaults
   defaults:
