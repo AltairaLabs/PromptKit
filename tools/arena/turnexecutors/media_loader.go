@@ -380,8 +380,6 @@ func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 	}
 
 	part := types.NewAudioPartFromData(data, mimeType)
-	// Preserve file path for HTML report display
-	part.Media.FilePath = &filePath
 	return part, nil
 }
 
