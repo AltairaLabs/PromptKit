@@ -223,10 +223,116 @@ func TestJSONArrayFrameDetector_Name(t *testing.T) {
 
 func TestFrameDetector_InterfaceCompliance(t *testing.T) {
 	t.Parallel()
-	// Compile-time check that each concrete type implements the
-	// interface. A failure here would fail the build, not the test,
-	// but having them listed as assertions documents the intent.
 	var _ FrameDetector = SSEFrameDetector{}
 	var _ FrameDetector = NDJSONFrameDetector{}
 	var _ FrameDetector = JSONArrayFrameDetector{}
+	var _ FrameDetector = BedrockEventStreamFrameDetector{}
+}
+
+// --- Bedrock event-stream ---
+
+func TestBedrockEventStreamFrameDetector_Name(t *testing.T) {
+	t.Parallel()
+	if got := (BedrockEventStreamFrameDetector{}).Name(); got != "bedrock-eventstream" {
+		t.Errorf("Name() = %q, want %q", got, "bedrock-eventstream")
+	}
+}
+
+// buildEventStreamMessage creates a raw AWS binary event-stream message
+// from a payload. Minimal implementation: only sets total_length and
+// headers_length (0 headers), fills prelude CRC and message CRC with
+// zeroes (the frame detector doesn't validate CRCs — the AWS SDK
+// decoder handles that).
+func buildEventStreamMessage(payload []byte) []byte {
+	// Total length = 12 (prelude) + 0 (headers) + len(payload) + 4 (message CRC)
+	totalLen := uint32(12 + len(payload) + 4)
+	msg := make([]byte, totalLen)
+	// 4 bytes: total length (big-endian)
+	msg[0] = byte(totalLen >> 24)
+	msg[1] = byte(totalLen >> 16)
+	msg[2] = byte(totalLen >> 8)
+	msg[3] = byte(totalLen)
+	// 4 bytes: headers length (0)
+	// 4 bytes: prelude CRC (0 — not validated by detector)
+	// payload
+	copy(msg[12:], payload)
+	// 4 bytes: message CRC (0 — not validated by detector)
+	return msg
+}
+
+func TestBedrockEventStreamFrameDetector_SingleMessage(t *testing.T) {
+	t.Parallel()
+	payload := []byte(`{"bytes":"aGVsbG8="}`)
+	msg := buildEventStreamMessage(payload)
+
+	got, err := (BedrockEventStreamFrameDetector{}).PeekFirstFrame(
+		strings.NewReader(string(msg)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != len(msg) {
+		t.Errorf("peeked %d bytes, want %d", len(got), len(msg))
+	}
+}
+
+func TestBedrockEventStreamFrameDetector_TwoMessages(t *testing.T) {
+	t.Parallel()
+	msg1 := buildEventStreamMessage([]byte(`{"bytes":"Zmlyc3Q="}`))
+	msg2 := buildEventStreamMessage([]byte(`{"bytes":"c2Vjb25k"}`))
+	combined := append(msg1, msg2...)
+
+	got, err := (BedrockEventStreamFrameDetector{}).PeekFirstFrame(
+		strings.NewReader(string(combined)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should return exactly the first message, not both.
+	if len(got) != len(msg1) {
+		t.Errorf("peeked %d bytes, want %d (first message only)", len(got), len(msg1))
+	}
+}
+
+func TestBedrockEventStreamFrameDetector_EmptyStream(t *testing.T) {
+	t.Parallel()
+	_, err := (BedrockEventStreamFrameDetector{}).PeekFirstFrame(
+		strings.NewReader(""),
+	)
+	if err == nil {
+		t.Fatal("empty stream should return an error")
+	}
+}
+
+func TestBedrockEventStreamFrameDetector_TruncatedPrelude(t *testing.T) {
+	t.Parallel()
+	// Only 2 bytes — not enough for the 4-byte length prefix.
+	_, err := (BedrockEventStreamFrameDetector{}).PeekFirstFrame(
+		strings.NewReader("\x00\x00"),
+	)
+	if err == nil {
+		t.Fatal("truncated prelude should return an error")
+	}
+}
+
+func TestBedrockEventStreamFrameDetector_TruncatedBody(t *testing.T) {
+	t.Parallel()
+	// Length says 100 bytes total but we only provide the 4-byte prefix.
+	_, err := (BedrockEventStreamFrameDetector{}).PeekFirstFrame(
+		strings.NewReader("\x00\x00\x00\x64"),
+	)
+	if err == nil {
+		t.Fatal("truncated body should return an error")
+	}
+}
+
+func TestBedrockEventStreamFrameDetector_TooSmallLength(t *testing.T) {
+	t.Parallel()
+	// Length = 4 is below the minimum 16-byte message size.
+	_, err := (BedrockEventStreamFrameDetector{}).PeekFirstFrame(
+		strings.NewReader("\x00\x00\x00\x04"),
+	)
+	if err == nil {
+		t.Fatal("too-small message length should return an error")
+	}
 }

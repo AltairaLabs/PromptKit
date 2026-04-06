@@ -323,6 +323,58 @@ func isJSONWhitespace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
 
+// --- AWS Bedrock event-stream ---
+
+// BedrockEventStreamFrameDetector reads one complete AWS binary
+// event-stream message. The format is:
+//
+//	[4-byte total_length BE][4-byte headers_length BE][4-byte prelude_crc]
+//	[headers...][payload...][4-byte message_crc]
+//
+// The detector reads the 4-byte total_length prefix, then reads
+// exactly (total_length - 4) more bytes to complete the message.
+// This gives the retry driver one full binary frame for replay,
+// confirming the stream is "live" before handing it to the consumer.
+//
+// Used by the Claude provider when running on AWS Bedrock
+// (Content-Type: application/vnd.amazon.eventstream).
+type BedrockEventStreamFrameDetector struct{}
+
+// Name implements FrameDetector.
+func (BedrockEventStreamFrameDetector) Name() string { return "bedrock-eventstream" }
+
+// PeekFirstFrame reads one complete event-stream message from r and
+// returns the raw bytes. The reader must be positioned at the start
+// of a message boundary.
+func (BedrockEventStreamFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, error) {
+	// Read the 4-byte total message length (big-endian uint32).
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
+		return nil, fmt.Errorf("bedrock eventstream: reading message length: %w", err)
+	}
+	totalLen := uint32(lenBuf[0])<<24 | uint32(lenBuf[1])<<16 | uint32(lenBuf[2])<<8 | uint32(lenBuf[3])
+
+	// Sanity: messages must be at least 16 bytes (12-byte prelude + 4-byte CRC).
+	const minMessageSize = 16
+	if totalLen < minMessageSize {
+		return nil, fmt.Errorf("bedrock eventstream: message length %d too small (min %d)", totalLen, minMessageSize)
+	}
+
+	// Cap at a reasonable max to guard against corrupted length fields.
+	const maxMessageSize = 16 * 1024 * 1024 // 16 MB
+	if totalLen > maxMessageSize {
+		return nil, fmt.Errorf("bedrock eventstream: message length %d exceeds max %d", totalLen, maxMessageSize)
+	}
+
+	// Allocate and fill the complete message (including the length prefix).
+	msg := make([]byte, totalLen)
+	copy(msg[:4], lenBuf[:])
+	if _, err := io.ReadFull(r, msg[4:]); err != nil {
+		return nil, fmt.Errorf("bedrock eventstream: reading message body: %w", err)
+	}
+	return msg, nil
+}
+
 // --- Shared helpers ---
 
 // drainBufferedInto copies any bytes sitting in the bufio.Reader's
