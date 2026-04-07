@@ -312,6 +312,10 @@ test-ci-examples: build-arena ## Test all CI pipeline examples with mock data
 		"variables-demo:mock-config.yaml:" \
 		"assertions-test:mock-responses.yaml:" \
 		"guardrails-test:mock-responses.yaml:" \
+		"document-analysis:mock-responses.yaml:" \
+	); \
+	MOCK_CONFIG_EXAMPLES=( \
+		"arena-media-test:config.arena-mock.yaml" \
 	); \
 	for example_config in "$${EXAMPLES[@]}"; do \
 		IFS=':' read -r example mock_file scenario_name <<< "$$example_config"; \
@@ -346,10 +350,34 @@ test-ci-examples: build-arena ## Test all CI pipeline examples with mock data
 		fi; \
 		echo ""; \
 	done; \
+	for mock_entry in "$${MOCK_CONFIG_EXAMPLES[@]}"; do \
+		IFS=':' read -r example config_file <<< "$$mock_entry"; \
+		echo "═══════════════════════════════════════════════════════"; \
+		echo "Testing example: $$example (mock config)"; \
+		echo "═══════════════════════════════════════════════════════"; \
+		echo ""; \
+		echo "→ Running with mock-only config: $$config_file"; \
+		TMPFILE=$$(mktemp); \
+		cd "examples/$$example" && PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --config "$$config_file" --ci --formats json > "$$TMPFILE" 2>&1; \
+		EXIT_CODE=$$?; \
+		cd ../..; \
+		head -50 "$$TMPFILE"; \
+		rm -f "$$TMPFILE"; \
+		if [ $$EXIT_CODE -eq 0 ]; then \
+			echo ""; \
+			echo "✓ Example $$example completed"; \
+		else \
+			echo ""; \
+			echo "✗ Example $$example failed (exit code: $$EXIT_CODE)"; \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+		echo ""; \
+	done; \
+	TOTAL=$$(($${#EXAMPLES[@]} + $${#MOCK_CONFIG_EXAMPLES[@]})); \
 	echo "═══════════════════════════════════════════════════════"; \
 	if [ $$FAILED -eq 0 ]; then \
 		echo "✅ ALL CI EXAMPLES PASSED"; \
-		echo "All $${#EXAMPLES[@]} CI pipeline examples work with mock data!"; \
+		echo "All $$TOTAL CI pipeline examples work with mock data!"; \
 	else \
 		echo "❌ $$FAILED CI example(s) failed"; \
 		exit 1; \

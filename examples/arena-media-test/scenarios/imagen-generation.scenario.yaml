@@ -14,7 +14,7 @@ spec:
   - role: user
     parts:
     - type: text
-      text: Generate an image of a sunset over mountains
+      text: Generate a simple red circle on a white background
     assertions:
     - type: content_includes
       params:
@@ -28,7 +28,7 @@ spec:
   - role: user
     parts:
     - type: text
-      text: Generate an image of a peaceful lake
+      text: Generate a blue square on a yellow background
     assertions:
     - type: image_format
       params:
