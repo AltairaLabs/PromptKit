@@ -109,6 +109,23 @@ func TestRealtimeConstants(t *testing.T) {
 	}
 }
 
+func TestRealtimeSession_OutputSampleRate(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		s := &RealtimeSession{config: DefaultRealtimeSessionConfig()}
+		if got := s.outputSampleRate(); got != 24000 {
+			t.Errorf("expected default 24000, got %d", got)
+		}
+	})
+	t.Run("custom", func(t *testing.T) {
+		cfg := DefaultRealtimeSessionConfig()
+		cfg.OutputSampleRate = 48000
+		s := &RealtimeSession{config: cfg}
+		if got := s.outputSampleRate(); got != 48000 {
+			t.Errorf("expected 48000, got %d", got)
+		}
+	})
+}
+
 func TestRealtimeSessionConfig_Modalities(t *testing.T) {
 	tests := []struct {
 		name       string

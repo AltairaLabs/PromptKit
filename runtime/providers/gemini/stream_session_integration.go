@@ -118,6 +118,10 @@ type StreamSessionConfig struct {
 	// OpenAPI schema subset supported by Gemini.
 	Tools []ToolDefinition
 
+	// OutputSampleRate is the sample rate in Hz for audio output from the model.
+	// Default: 24000 (Gemini native audio models output 24kHz).
+	OutputSampleRate int
+
 	// AutoReconnect enables automatic reconnection on unexpected connection drops.
 	// When enabled, the session will attempt to reconnect and continue receiving
 	// responses. Note: conversation context may be lost on reconnection.

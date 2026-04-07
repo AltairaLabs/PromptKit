@@ -65,6 +65,10 @@ type RealtimeSessionConfig struct {
 	// Tools defines available functions for the session.
 	Tools []RealtimeToolDefinition
 
+	// OutputSampleRate is the sample rate in Hz for output audio.
+	// Default: 24000 (OpenAI Realtime API outputs 24kHz PCM).
+	OutputSampleRate int
+
 	// Temperature controls randomness (0.6-1.2, default 0.8).
 	Temperature float64
 
