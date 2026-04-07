@@ -2,6 +2,7 @@ go 1.25.1
 
 use (
 	./benchmarks
+	./benchmarks/frameworks/promptkit/round1
 	./examples/a2a-auth-test
 	./examples/a2a-demo
 	./examples/programmatic-arena
