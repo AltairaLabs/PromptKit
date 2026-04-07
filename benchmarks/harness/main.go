@@ -43,6 +43,8 @@ func main() {
 	var agg *Aggregator
 	var err error
 
+	benchStart := time.Now()
+
 	switch *round {
 	case "round1":
 		cfg := StreamingConfig{
@@ -72,12 +74,18 @@ func main() {
 		log.Fatalf("unknown round: %s", *round)
 	}
 
+	wallClock := time.Since(benchStart)
+
 	if err != nil {
 		log.Fatalf("benchmark failed: %v", err)
 	}
 
 	summary := agg.Summarize()
 	summary.Concurrency = *concurrency
+	summary.WallClock = wallClock
+	if wallClock > 0 {
+		summary.Throughput = float64(summary.Count-summary.Errors) / wallClock.Seconds()
+	}
 
 	var resources ResourceSnapshot
 	if sampler != nil {
