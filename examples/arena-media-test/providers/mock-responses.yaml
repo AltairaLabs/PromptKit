@@ -55,7 +55,7 @@ scenarios:
   audio-transcription:
     turns:
       1:
-        text: "This is a WAV audio file containing a test signal. Format: WAV, duration: 30 seconds, channels: 2."
+        text: "Audio transcription result: This is a WAV audio file containing a test signal. Format: WAV, duration: 30 seconds, channels: 2."
         parts:
           - type: text
             text: "This is a WAV audio file containing a test signal. Format: WAV, duration: 30 seconds, channels: 2."
@@ -221,10 +221,10 @@ scenarios:
             metadata:
               format: "JPEG"
       3:
-        text: "The combination of text and visual elements from local and remote sources creates a rich multimodal message."
+        text: "The combination of text, image, and audio elements from local and remote sources creates a rich multimodal message."
         parts:
           - type: text
-            text: "The combination of text and visual elements from local and remote sources creates a rich multimodal message."
+            text: "The combination of text, image, and audio elements from local and remote sources creates a rich multimodal message."
           - type: image
             image_url:
               url: "mock://local-image.png"
@@ -235,6 +235,34 @@ scenarios:
               url: "https://picsum.photos/200/300"
             metadata:
               format: "JPEG"
+
+  # Imagen generation mock responses
+  imagen-generation:
+    turns:
+      1:
+        text: "Generated image of a simple red circle on a white background."
+        parts:
+          - type: text
+            text: "Generated image of a simple red circle on a white background."
+          - type: image
+            image_url:
+              url: "mock://generated-circle.png"
+            metadata:
+              format: "PNG"
+              width: 1024
+              height: 1024
+      2:
+        text: "Generated image of a blue square on a yellow background."
+        parts:
+          - type: text
+            text: "Generated image of a blue square on a yellow background."
+          - type: image
+            image_url:
+              url: "mock://generated-square.png"
+            metadata:
+              format: "PNG"
+              width: 1024
+              height: 1024
 
   # Image from URL (will use default since URLs may vary)
   image-from-url:
