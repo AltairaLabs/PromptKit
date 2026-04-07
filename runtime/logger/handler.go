@@ -43,24 +43,16 @@ func (h *ContextHandler) Enabled(ctx context.Context, level slog.Level) bool {
 //
 //nolint:gocritic // slog.Record is passed by value per slog.Handler interface contract
 func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Create a new record with additional capacity for context fields
-	newRecord := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
-
-	// Add common fields first (lowest priority, can be overridden)
+	// Add common fields and context fields directly to the passed record.
+	// slog passes records by value, so this is safe and avoids allocating
+	// a new Record with slog.NewRecord (which allocates an internal attr slice).
+	// Note: attrs added here appear after the caller's attrs in iteration order.
 	for _, attr := range h.commonFields {
-		newRecord.AddAttrs(attr)
+		r.AddAttrs(attr)
 	}
+	h.addContextFields(ctx, &r)
 
-	// Extract and add context fields
-	h.addContextFields(ctx, &newRecord)
-
-	// Add original attributes (highest priority)
-	r.Attrs(func(a slog.Attr) bool {
-		newRecord.AddAttrs(a)
-		return true
-	})
-
-	return h.inner.Handle(ctx, newRecord)
+	return h.inner.Handle(ctx, r)
 }
 
 // addContextFields extracts all known context keys and adds them as attributes.
@@ -131,29 +123,17 @@ func (h *ModuleHandler) Handle(ctx context.Context, r slog.Record) error {
 		return nil
 	}
 
-	// Create a new record with additional capacity for context fields
-	newRecord := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
-
-	// Add common fields first (lowest priority, can be overridden)
+	// Add fields directly to the passed record (value copy, safe to mutate)
+	// to avoid allocating a new Record with slog.NewRecord.
 	for _, attr := range h.commonFields {
-		newRecord.AddAttrs(attr)
+		r.AddAttrs(attr)
 	}
-
-	// Add module name
 	if module != "" {
-		newRecord.AddAttrs(slog.String("logger", module))
+		r.AddAttrs(slog.String("logger", module))
 	}
+	h.addContextFields(ctx, &r)
 
-	// Extract and add context fields
-	h.addContextFields(ctx, &newRecord)
-
-	// Add original attributes (highest priority)
-	r.Attrs(func(a slog.Attr) bool {
-		newRecord.AddAttrs(a)
-		return true
-	})
-
-	return h.inner.Handle(ctx, newRecord)
+	return h.inner.Handle(ctx, r)
 }
 
 // WithAttrs returns a new handler with the given attributes added.
