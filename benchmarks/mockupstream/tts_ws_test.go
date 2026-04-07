@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -89,6 +90,94 @@ func TestTTSWebSocket_StreamsAudio(t *testing.T) {
 	// ~32000 bytes total (1 sec of 16kHz 16-bit mono)
 	if totalBytes < 30000 {
 		t.Errorf("expected at least 30000 bytes total, got %d", totalBytes)
+	}
+	if !sawDone {
+		t.Error("expected JSON {\"type\":\"done\"} message, not received")
+	}
+}
+
+// TestTTSWebSocket_PipecatProtocol verifies that the server auto-detects the
+// Pipecat/Cartesia request format and responds with base64-encoded JSON chunks
+// instead of raw binary frames.
+func TestTTSWebSocket_PipecatProtocol(t *testing.T) {
+	cfg := TTSProfile{
+		FirstByteDelay:  0,
+		ChunkSize:       1024,
+		InterChunkDelay: 0,
+	}
+
+	srv := httptest.NewServer(NewTTSHandler(cfg))
+	defer srv.Close()
+
+	conn := ttsDialer(t, srv)
+	defer conn.Close()
+
+	// Send a Pipecat/Cartesia-style request.
+	req := map[string]any{
+		"transcript": "Hello from Pipecat",
+		"voice": map[string]string{
+			"mode": "id",
+			"id":   "test-voice",
+		},
+		"output_format": map[string]any{
+			"container":   "raw",
+			"encoding":    "pcm_s16le",
+			"sample_rate": 24000,
+		},
+	}
+	data, _ := json.Marshal(req)
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		t.Fatalf("write Pipecat synthesis request: %v", err)
+	}
+
+	var chunkCount int
+	var totalDecoded int
+	var sawDone bool
+
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for {
+		msgType, msg, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		// All messages must be text (JSON) — no raw binary in Pipecat mode.
+		if msgType == websocket.BinaryMessage {
+			t.Error("unexpected raw binary frame in Pipecat protocol mode")
+			continue
+		}
+		var event struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal(msg, &event); err != nil {
+			t.Errorf("failed to parse text message: %v — raw: %s", err, msg)
+			continue
+		}
+		switch event.Type {
+		case "chunk":
+			decoded, err := base64.StdEncoding.DecodeString(event.Data)
+			if err != nil {
+				t.Errorf("base64 decode failed: %v", err)
+				continue
+			}
+			if len(decoded) != cfg.ChunkSize {
+				t.Errorf("decoded chunk size: got %d, want %d", len(decoded), cfg.ChunkSize)
+			}
+			chunkCount++
+			totalDecoded += len(decoded)
+		case "done":
+			sawDone = true
+		}
+		if sawDone {
+			break
+		}
+	}
+
+	if chunkCount < 2 {
+		t.Errorf("expected multiple chunks, got %d", chunkCount)
+	}
+	if totalDecoded < 30000 {
+		t.Errorf("expected at least 30000 decoded bytes, got %d", totalDecoded)
 	}
 	if !sawDone {
 		t.Error("expected JSON {\"type\":\"done\"} message, not received")

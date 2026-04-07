@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -13,22 +14,41 @@ var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(_ *http.Request) bool { return true },
 }
 
-// synthRequest is the minimal Cartesia-compatible synthesis request.
+// synthRequest parses synthesis requests from both the simple protocol
+// ({"text":"...","voice_id":"..."}) and the Pipecat/Cartesia protocol
+// ({"transcript":"...","voice":{"mode":"id","id":"..."},...}).
 type synthRequest struct {
+	// Simple protocol fields.
 	Text    string `json:"text"`
 	VoiceID string `json:"voice_id"`
+
+	// Pipecat/Cartesia protocol fields.
+	Transcript string `json:"transcript"`
+	Voice      struct {
+		ID string `json:"id"`
+	} `json:"voice"`
+}
+
+// isPipecatProtocol returns true when the request uses the Pipecat/Cartesia
+// format (transcript field populated rather than text).
+func (r *synthRequest) isPipecatProtocol() bool {
+	return r.Transcript != "" || (r.Text == "" && r.VoiceID == "")
 }
 
 // NewTTSHandler returns an http.Handler that simulates a Cartesia-compatible
 // TTS WebSocket endpoint at /tts/ws.
 //
-// Protocol:
-//  1. Upgrade HTTP to WebSocket.
-//  2. Read one JSON synthesis request.
-//  3. Wait cfg.FirstByteDelay.
-//  4. Send binary audio chunks of cfg.ChunkSize bytes until ~32000 bytes total,
-//     with cfg.InterChunkDelay between each chunk.
-//  5. Send JSON {"type":"done"}.
+// Two wire protocols are supported:
+//
+// Simple protocol (used by the PromptKit round1 server and test harness):
+//   - Request:  {"text":"...","voice_id":"..."}
+//   - Response: raw binary audio frames, then JSON {"type":"done"}
+//
+// Pipecat/Cartesia protocol (used by Pipecat's CartesiaTTSService):
+//   - Request:  {"transcript":"...","voice":{"mode":"id","id":"..."},...}
+//   - Response: JSON {"type":"chunk","data":"<base64>"}, then {"type":"done"}
+//
+// The handler auto-detects which protocol is in use from the request shape.
 func NewTTSHandler(cfg TTSProfile) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tts/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +68,8 @@ func NewTTSHandler(cfg TTSProfile) http.Handler {
 			return
 		}
 
+		pipecatMode := req.isPipecatProtocol()
+
 		// Apply first-byte delay.
 		if cfg.FirstByteDelay > 0 {
 			time.Sleep(cfg.FirstByteDelay)
@@ -60,8 +82,20 @@ func NewTTSHandler(cfg TTSProfile) http.Handler {
 		chunk := make([]byte, cfg.ChunkSize)
 		numChunks := (targetBytes + cfg.ChunkSize - 1) / cfg.ChunkSize
 		for i := 0; i < numChunks; i++ {
-			if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
-				return
+			if pipecatMode {
+				// Pipecat expects JSON {"type":"chunk","data":"<base64>"}.
+				encoded := base64.StdEncoding.EncodeToString(chunk)
+				chunkMsg, _ := json.Marshal(map[string]string{
+					"type": "chunk",
+					"data": encoded,
+				})
+				if err := conn.WriteMessage(websocket.TextMessage, chunkMsg); err != nil {
+					return
+				}
+			} else {
+				if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
+					return
+				}
 			}
 			if cfg.InterChunkDelay > 0 && i < numChunks-1 {
 				time.Sleep(cfg.InterChunkDelay)

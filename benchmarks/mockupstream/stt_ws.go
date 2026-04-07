@@ -37,9 +37,12 @@ func newTranscriptEvent(isFinal bool, text string) sttTranscriptEvent {
 }
 
 // NewSTTHandler returns an http.Handler that implements a Deepgram-compatible
-// STT WebSocket server at /v1/listen.
+// STT WebSocket server at /v1/listen. It accepts connections with any path
+// or query parameters (e.g. auth tokens appended by the Deepgram SDK).
 func NewSTTHandler(cfg STTProfile) http.Handler {
 	mux := http.NewServeMux()
+	// Use the catch-all pattern so that query-parameter-decorated URLs like
+	// /v1/listen?encoding=linear16&... are also matched.
 	mux.HandleFunc("/v1/listen", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := wsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -49,8 +52,17 @@ func NewSTTHandler(cfg STTProfile) http.Handler {
 
 		// closeStream signals the read loop received a CloseStream message.
 		closeStream := make(chan struct{})
+		// finalize signals that a Finalize message was received — send a final
+		// transcript immediately without closing the connection.
+		finalize := make(chan struct{}, 1)
 
-		// Read loop: consume binary audio frames; watch for CloseStream JSON.
+		// Read loop: consume binary audio frames; watch for control JSON messages.
+		//
+		// Supported message types:
+		//   CloseStream  – end the session (existing behaviour)
+		//   KeepAlive    – silently ignored (sent periodically by the Deepgram SDK)
+		//   Finalize     – trigger an immediate final transcript without closing
+		//   <unknown>    – silently ignored
 		go func() {
 			defer close(closeStream)
 			for {
@@ -62,8 +74,17 @@ func NewSTTHandler(cfg STTProfile) http.Handler {
 					var cmd struct {
 						Type string `json:"type"`
 					}
-					if json.Unmarshal(msg, &cmd) == nil && cmd.Type == "CloseStream" {
-						return
+					if json.Unmarshal(msg, &cmd) == nil {
+						switch cmd.Type {
+						case "CloseStream":
+							return
+						case "Finalize":
+							select {
+							case finalize <- struct{}{}:
+							default:
+							}
+							// "KeepAlive" and all other types are silently ignored.
+						}
 					}
 				}
 				// Binary audio frames are accepted and discarded.
@@ -84,6 +105,16 @@ func NewSTTHandler(cfg STTProfile) http.Handler {
 				// the client sees at least one interim before the final.
 				streamClosed = true
 				closeStream = nil // prevent double-select on closed channel
+
+			case <-finalize:
+				// Finalize: send a final transcript immediately but keep the
+				// connection open (the client may send more audio afterwards).
+				time.Sleep(cfg.FinalDelay)
+				finalEvent := newTranscriptEvent(true, "final transcript")
+				finalData, _ := json.Marshal(finalEvent)
+				if err := conn.WriteMessage(websocket.TextMessage, finalData); err != nil {
+					return
+				}
 
 			case <-ticker.C:
 				// Simulate processing delay before emitting interim result.
