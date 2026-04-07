@@ -1,15 +1,16 @@
 go 1.25.1
 
 use (
+	./benchmarks
 	./examples/a2a-auth-test
 	./examples/a2a-demo
 	./examples/programmatic-arena
-	./sdk/examples/sdk-evals
-	./sdk/examples/sdk-http-auth
 	./examples/workflow-support/sdk-example
 	./pkg
 	./runtime
 	./sdk
+	./sdk/examples/sdk-evals
+	./sdk/examples/sdk-http-auth
 	./server/a2a
 	./tools/arena
 	./tools/inspect-state

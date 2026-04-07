@@ -147,3 +147,8 @@ examples/*/test-out/
 
 # SDK E2E test results
 sdk/e2e-results/
+
+# Benchmark results
+benchmarks/results/*.json
+benchmarks/results/*.csv
+benchmarks/results/*.md
