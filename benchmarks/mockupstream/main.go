@@ -32,6 +32,8 @@ func main() {
 
 	openaiMux := http.NewServeMux()
 	openaiMux.Handle("/v1/chat/completions", NewOpenAIHandler(profile.OpenAI))
+	openaiMux.Handle("/v1/audio/transcriptions", NewOpenAISTTHandler(profile.STT))
+	openaiMux.Handle("/v1/audio/speech", NewOpenAITTSHandler(profile.TTS))
 
 	// STT and TTS use catch-all handlers so SDKs (Deepgram, Cartesia) that
 	// append query params or construct paths from base_url still match.
