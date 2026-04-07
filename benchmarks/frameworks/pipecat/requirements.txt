@@ -1,0 +1,1 @@
+pipecat-ai[deepgram,openai,cartesia,websocket]==0.0.72
