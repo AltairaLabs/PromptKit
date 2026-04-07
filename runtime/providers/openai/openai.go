@@ -17,6 +17,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// doneBytes is the SSE [DONE] sentinel compared with bytes.Equal to
+// avoid string allocation on every chunk.
+var doneBytes = []byte("[DONE]")
+
 // HTTP constants
 const (
 	openAIPredictCompletionsPath = "/chat/completions"
@@ -561,8 +565,8 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		default:
 		}
 
-		data := scanner.Data()
-		if data == "[DONE]" {
+		rawData := scanner.DataBytes()
+		if bytes.Equal(rawData, doneBytes) {
 			outChan <- providers.StreamChunk{
 				Content:      sb.String(),
 				ToolCalls:    accumulatedToolCalls,
@@ -572,8 +576,9 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 			return
 		}
 
+		// Use DataBytes() to avoid string→[]byte allocation in Unmarshal.
 		var chunk openAIStreamChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		if err := json.Unmarshal(rawData, &chunk); err != nil {
 			continue // Skip malformed chunks
 		}
 
@@ -596,9 +601,10 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		if choice.Delta.Content != "" {
 			sb.WriteString(choice.Delta.Content)
 			totalTokens++
+			contentSnapshot := sb.String()
 
 			outChan <- providers.StreamChunk{
-				Content:     sb.String(),
+				Content:     contentSnapshot,
 				Delta:       choice.Delta.Content,
 				ToolCalls:   accumulatedToolCalls,
 				TokenCount:  totalTokens,

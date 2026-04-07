@@ -285,13 +285,18 @@ func (d *ImageData) EnsureLoaded(ctx context.Context, store storage.MediaStorage
 	return d.Data, nil
 }
 
+// defaultMetadataCapacity is the initial map capacity for StreamElement metadata.
+// Sized for the typical streaming metadata fields (token_count, finish_reason,
+// provider info, timestamps) to avoid map growth during hot-path emission.
+const defaultMetadataCapacity = 4
+
 // NewTextElement creates a new StreamElement with text content.
 func NewTextElement(text string) StreamElement {
 	return StreamElement{
 		Text:      &text,
 		Timestamp: time.Now(),
 		Priority:  PriorityNormal,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]interface{}, defaultMetadataCapacity), // pre-sized for typical streaming metadata
 	}
 }
 
@@ -301,7 +306,7 @@ func NewMessageElement(msg *types.Message) StreamElement {
 		Message:   msg,
 		Timestamp: time.Now(),
 		Priority:  PriorityNormal,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]interface{}, defaultMetadataCapacity),
 	}
 }
 
@@ -310,8 +315,8 @@ func NewAudioElement(audio *AudioData) StreamElement {
 	return StreamElement{
 		Audio:     audio,
 		Timestamp: time.Now(),
-		Priority:  PriorityHigh, // Audio typically needs high priority
-		Metadata:  make(map[string]interface{}),
+		Priority:  PriorityHigh,
+		Metadata:  make(map[string]interface{}, defaultMetadataCapacity),
 	}
 }
 
@@ -320,8 +325,8 @@ func NewVideoElement(video *VideoData) StreamElement {
 	return StreamElement{
 		Video:     video,
 		Timestamp: time.Now(),
-		Priority:  PriorityHigh, // Video typically needs high priority
-		Metadata:  make(map[string]interface{}),
+		Priority:  PriorityHigh,
+		Metadata:  make(map[string]interface{}, defaultMetadataCapacity),
 	}
 }
 

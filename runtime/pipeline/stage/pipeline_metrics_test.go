@@ -10,9 +10,7 @@ import (
 )
 
 func TestInstrumentStageInput_CountsElements(t *testing.T) {
-	t.Parallel()
-
-	// Install metrics so instrumentStageInput activates.
+	// NOT parallel: both tests mutate the global DefaultStreamMetrics.
 	providers.ResetDefaultStreamMetrics()
 	t.Cleanup(providers.ResetDefaultStreamMetrics)
 	reg := prometheus.NewRegistry()
@@ -46,9 +44,7 @@ func TestInstrumentStageInput_CountsElements(t *testing.T) {
 }
 
 func TestInstrumentStageInput_NilMetricsPassthrough(t *testing.T) {
-	t.Parallel()
-
-	// No metrics registered — should return the original channel.
+	// NOT parallel: both tests mutate the global DefaultStreamMetrics.
 	providers.ResetDefaultStreamMetrics()
 	t.Cleanup(providers.ResetDefaultStreamMetrics)
 

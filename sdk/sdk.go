@@ -306,14 +306,36 @@ func applyOptions(promptName string, opts []Option) (*config, error) {
 	return cfg, nil
 }
 
+// packCache caches loaded+validated packs by absolute path. The *pack.Pack
+// returned by pack.Load is immutable after construction, so sharing across
+// goroutines is safe. This eliminates per-request file I/O, JSON parsing,
+// and JSON schema compilation — the #1 CPU bottleneck under high concurrency.
+var packCache sync.Map // map[string]*pack.Pack
+
 // loadAndValidatePack loads the pack and validates the prompt exists.
+// Packs are cached by absolute path so repeated Open() calls for the
+// same pack file skip disk I/O and schema validation.
 func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, *pack.Prompt, error) {
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve pack path: %w", err)
 	}
 
-	// Build load options
+	// Check cache first.
+	if cached, ok := packCache.Load(absPath); ok {
+		p := cached.(*pack.Pack)
+		prompt, ok := p.Prompts[promptName]
+		if !ok {
+			available := make([]string, 0, len(p.Prompts))
+			for name := range p.Prompts {
+				available = append(available, name)
+			}
+			return nil, nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
+		}
+		return p, prompt, nil
+	}
+
+	// Cache miss — load from disk and validate.
 	loadOpts := pack.LoadOptions{
 		SkipSchemaValidation: cfg.skipSchemaValidation,
 	}
@@ -322,6 +344,10 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load pack: %w", err)
 	}
+
+	// Store in cache. If another goroutine raced us, that's fine —
+	// both loaded the same file and the result is identical.
+	packCache.Store(absPath, p)
 
 	prompt, ok := p.Prompts[promptName]
 	if !ok {
