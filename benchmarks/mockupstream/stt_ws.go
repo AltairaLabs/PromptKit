@@ -8,12 +8,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// wsUpgrader is a shared WebSocket upgrader that accepts all origins.
-// It is declared here so that all WebSocket handlers in this package can use it.
-var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(_ *http.Request) bool { return true },
-}
-
 // sttTranscriptEvent mirrors the Deepgram Results message format.
 type sttTranscriptEvent struct {
 	Type    string     `json:"type"`
