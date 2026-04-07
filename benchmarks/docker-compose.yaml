@@ -1,0 +1,104 @@
+services:
+  mockupstream:
+    build:
+      context: ..
+      dockerfile: benchmarks/mockupstream/Dockerfile
+    ports:
+      - "8081:8081"
+      - "8082:8082"
+      - "8083:8083"
+    volumes:
+      - ./profiles:/profiles:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  promptkit-round1:
+    build:
+      context: ..
+      dockerfile: benchmarks/frameworks/promptkit/round1/Dockerfile
+    ports:
+      - "8090:8090"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
+      - OPENAI_BASE_URL=http://mockupstream:8081/v1
+    depends_on:
+      mockupstream:
+        condition: service_healthy
+    profiles:
+      - round1
+
+  langchain:
+    build:
+      context: ..
+      dockerfile: benchmarks/frameworks/langchain/Dockerfile
+    ports:
+      - "8091:8091"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
+      - OPENAI_BASE_URL=http://mockupstream:8081/v1
+    depends_on:
+      mockupstream:
+        condition: service_healthy
+    profiles:
+      - round1
+
+  promptkit-round2:
+    build:
+      context: ..
+      dockerfile: benchmarks/frameworks/promptkit/round1/Dockerfile
+    ports:
+      - "8090:8090"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
+      - OPENAI_BASE_URL=http://mockupstream:8081/v1
+      - STT_URL=ws://mockupstream:8082/stt
+      - TTS_URL=ws://mockupstream:8083/tts
+    depends_on:
+      mockupstream:
+        condition: service_healthy
+    profiles:
+      - round2
+
+  pipecat:
+    build:
+      context: ..
+      dockerfile: benchmarks/frameworks/pipecat/Dockerfile
+    ports:
+      - "8092:8092"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
+      - OPENAI_BASE_URL=http://mockupstream:8081/v1
+      - STT_URL=ws://mockupstream:8082/stt
+      - TTS_URL=ws://mockupstream:8083/tts
+    depends_on:
+      mockupstream:
+        condition: service_healthy
+    profiles:
+      - round2
+
+  benchmark-round1:
+    build:
+      context: ..
+      dockerfile: benchmarks/harness/Dockerfile
+    volumes:
+      - ./results:/results
+    depends_on:
+      - promptkit-round1
+      - langchain
+    profiles:
+      - round1
+
+  benchmark-round2:
+    build:
+      context: ..
+      dockerfile: benchmarks/harness/Dockerfile
+    volumes:
+      - ./results:/results
+    depends_on:
+      - promptkit-round2
+      - pipecat
+    profiles:
+      - round2

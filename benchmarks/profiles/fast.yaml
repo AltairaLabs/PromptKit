@@ -1,0 +1,12 @@
+openai:
+  chunk_count: 10
+  inter_chunk_delay: 10ms
+  first_chunk_delay: 10ms
+stt:
+  transcription_delay: 10ms
+  interim_interval: 10ms
+  final_delay: 10ms
+tts:
+  first_byte_delay: 10ms
+  chunk_size: 4096
+  inter_chunk_delay: 10ms
