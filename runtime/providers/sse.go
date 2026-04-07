@@ -17,7 +17,9 @@ type StreamScanner interface {
 // SSEScanner scans Server-Sent Events (SSE) streams
 type SSEScanner struct {
 	scanner *bufio.Scanner
-	data    string
+	data    string // lazy: only materialized on first Data() call per Scan
+	rawData []byte // zero-copy reference into scanner buffer, valid until next Scan
+	hasData bool   // whether data has been materialized from rawData
 	err     error
 }
 
@@ -43,7 +45,9 @@ func (s *SSEScanner) Scan() bool {
 		if bytes.HasPrefix(line, []byte("data:")) {
 			payload := bytes.TrimPrefix(line, []byte("data:"))
 			payload = bytes.TrimPrefix(payload, []byte(" "))
-			s.data = string(payload)
+			s.rawData = payload // valid until next Scan call
+			s.hasData = false   // reset lazy string
+			s.data = ""
 			return true
 		}
 	}
@@ -52,9 +56,22 @@ func (s *SSEScanner) Scan() bool {
 	return false
 }
 
-// Data returns the current event data
+// Data returns the current event data as a string.
+// The string is lazily allocated on first call per Scan to avoid
+// unnecessary heap allocations when only DataBytes is needed.
 func (s *SSEScanner) Data() string {
+	if !s.hasData {
+		s.data = string(s.rawData)
+		s.hasData = true
+	}
 	return s.data
+}
+
+// DataBytes returns the current event data as a byte slice.
+// The returned slice is only valid until the next call to Scan.
+// Use this to avoid the string→[]byte conversion in json.Unmarshal.
+func (s *SSEScanner) DataBytes() []byte {
+	return s.rawData
 }
 
 // Err returns any scanning error
