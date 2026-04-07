@@ -70,6 +70,21 @@ func main() {
 		log.Printf("round2: %s @ %d concurrent, %d sessions", *framework, *concurrency, *requests)
 		agg, err = RunVoiceBenchmark(ctx, cfg)
 
+	case "round2-pipecat":
+		cfg := PipecatVoiceConfig{
+			TargetURL:      *targetURL,
+			Concurrency:    *concurrency,
+			Sessions:       *requests,
+			AudioFrames:    50,
+			FrameSize:      640,
+			FrameInterval:  20 * time.Millisecond,
+			SessionTimeout: *timeout,
+			SampleRate:     16000,
+			NumChannels:    1,
+		}
+		log.Printf("round2-pipecat: %s @ %d concurrent, %d sessions", *framework, *concurrency, *requests)
+		agg, err = RunPipecatVoiceBenchmark(ctx, cfg)
+
 	default:
 		log.Fatalf("unknown round: %s", *round)
 	}

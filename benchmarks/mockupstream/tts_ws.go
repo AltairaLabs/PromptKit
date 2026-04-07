@@ -50,8 +50,7 @@ func (r *synthRequest) isPipecatProtocol() bool {
 //
 // The handler auto-detects which protocol is in use from the request shape.
 func NewTTSHandler(cfg TTSProfile) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/tts/ws", func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := wsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -70,6 +69,20 @@ func NewTTSHandler(cfg TTSProfile) http.Handler {
 
 		pipecatMode := req.isPipecatProtocol()
 
+		// Extract context_id for Pipecat protocol (Cartesia sends it, expects it back).
+		var contextID string
+		if pipecatMode {
+			var raw map[string]any
+			if json.Unmarshal(msg, &raw) == nil {
+				if cid, ok := raw["context_id"].(string); ok {
+					contextID = cid
+				}
+			}
+			if contextID == "" {
+				contextID = "bench-ctx-1"
+			}
+		}
+
 		// Apply first-byte delay.
 		if cfg.FirstByteDelay > 0 {
 			time.Sleep(cfg.FirstByteDelay)
@@ -83,11 +96,12 @@ func NewTTSHandler(cfg TTSProfile) http.Handler {
 		numChunks := (targetBytes + cfg.ChunkSize - 1) / cfg.ChunkSize
 		for i := 0; i < numChunks; i++ {
 			if pipecatMode {
-				// Pipecat expects JSON {"type":"chunk","data":"<base64>"}.
+				// Pipecat expects JSON {"type":"chunk","data":"<base64>","context_id":"..."}.
 				encoded := base64.StdEncoding.EncodeToString(chunk)
-				chunkMsg, _ := json.Marshal(map[string]string{
-					"type": "chunk",
-					"data": encoded,
+				chunkMsg, _ := json.Marshal(map[string]any{
+					"type":       "chunk",
+					"data":       encoded,
+					"context_id": contextID,
 				})
 				if err := conn.WriteMessage(websocket.TextMessage, chunkMsg); err != nil {
 					return
@@ -103,8 +117,7 @@ func NewTTSHandler(cfg TTSProfile) http.Handler {
 		}
 
 		// Send done message.
-		done, _ := json.Marshal(map[string]string{"type": "done"})
-		conn.WriteMessage(websocket.TextMessage, done) //nolint:errcheck
+		doneMsg, _ := json.Marshal(map[string]any{"type": "done", "context_id": contextID})
+		conn.WriteMessage(websocket.TextMessage, doneMsg) //nolint:errcheck
 	})
-	return mux
 }

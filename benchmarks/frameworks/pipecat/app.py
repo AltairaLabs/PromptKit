@@ -1,114 +1,102 @@
-"""Python asyncio voice pipeline benchmark endpoint.
+"""Pipecat voice pipeline benchmark server.
 
-Coordinates STT -> LLM -> TTS using Python asyncio, matching the same
-WebSocket protocol as the PromptKit round2 server. This measures Python's
-async runtime overhead for voice pipeline coordination — the same work
-Pipecat does internally, without framework-specific transport overhead.
+Uses the real Pipecat framework with FastAPIWebsocketTransport for
+multi-client support. Each WebSocket connection gets its own pipeline:
+DeepgramSTTService -> OpenAILLMService -> CartesiaTTSService.
 
-Same protocol, same pipeline logic, different language runtime.
+All services pointed at mock upstream servers. The benchmark harness
+connects using Pipecat's native protobuf wire format (AudioRawFrame).
 """
 
 import asyncio
-import json
 import os
 
-import aiohttp
-import websockets.client
 from fastapi import FastAPI, WebSocket
+
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.serializers.protobuf import ProtobufFrameSerializer
+from pipecat.transports.websocket.fastapi import (
+    FastAPIWebsocketParams,
+    FastAPIWebsocketTransport,
+)
+
+STT_URL = os.environ.get("STT_URL", "ws://localhost:8082/v1/listen")
+LLM_URL = os.environ.get("OPENAI_BASE_URL", "http://localhost:8081/v1")
+TTS_URL = os.environ.get("TTS_URL", "ws://localhost:8083/tts/ws")
+PORT = int(os.environ.get("PORT", "8092"))
 
 app = FastAPI()
 
-LLM_URL = os.environ.get("OPENAI_BASE_URL", "http://localhost:8081/v1")
-STT_URL = os.environ.get("STT_URL", "ws://localhost:8082/v1/listen")
-TTS_URL = os.environ.get("TTS_URL", "ws://localhost:8083/tts/ws")
+
+async def run_pipeline_for_client(websocket: WebSocket):
+    """Create and run a full Pipecat pipeline for a single client connection."""
+    transport = FastAPIWebsocketTransport(
+        websocket=websocket,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_in_sample_rate=16000,
+            audio_out_sample_rate=24000,
+            serializer=ProtobufFrameSerializer(),
+        ),
+    )
+
+    # Deepgram SDK appends /v1/listen internally, so base_url should be just the host
+    stt_base = STT_URL.replace("/v1/listen", "")
+    stt = DeepgramSTTService(
+        api_key="fake-key",
+        base_url=stt_base,
+    )
+
+    llm = OpenAILLMService(
+        api_key="fake-key",
+        base_url=LLM_URL,
+        settings=OpenAILLMService.Settings(model="gpt-4o"),
+    )
+
+    tts = CartesiaTTSService(
+        api_key="fake-key",
+        url=TTS_URL,
+        settings=CartesiaTTSService.Settings(voice="benchmark-voice"),
+    )
+
+    context = OpenAILLMContext(
+        messages=[{"role": "system", "content": "You are a helpful assistant."}],
+    )
+    context_aggregator = llm.create_context_aggregator(context)
+
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            stt,
+            context_aggregator.user(),
+            llm,
+            tts,
+            transport.output(),
+            context_aggregator.assistant(),
+        ]
+    )
+
+    task = PipelineTask(
+        pipeline,
+        params=PipelineParams(allow_interruptions=True),
+    )
+    runner = PipelineRunner()
+
+    await task.queue_frames([context_aggregator.user().get_context_frame()])
+    await runner.run(task)
 
 
-@app.websocket("/")
-async def voice_session(ws: WebSocket):
-    await ws.accept()
-
-    # Phase 1: Collect audio frames from client
-    audio_frames = []
-    while True:
-        msg = await ws.receive()
-        if msg.get("bytes"):
-            audio_frames.append(msg["bytes"])
-        elif msg.get("text"):
-            data = json.loads(msg["text"])
-            if data.get("type") == "end_audio":
-                break
-
-    # Phase 2: Send audio to STT, get transcript
-    transcript = await call_stt(audio_frames)
-
-    # Phase 3: Send transcript to LLM, get streamed response
-    llm_text = await call_llm(transcript)
-
-    # Phase 4: Send text to TTS, relay audio back to client
-    await call_tts_and_relay(ws, llm_text)
-
-    # Signal done
-    await ws.send_json({"type": "done"})
-
-
-async def call_stt(audio_frames: list[bytes]) -> str:
-    async with websockets.client.connect(STT_URL) as conn:
-        for frame in audio_frames:
-            await conn.send(frame)
-        await conn.send(json.dumps({"type": "CloseStream"}))
-
-        async for msg in conn:
-            evt = json.loads(msg)
-            if (
-                evt.get("type") == "Results"
-                and evt.get("is_final")
-                and evt.get("channel", {}).get("alternatives")
-            ):
-                return evt["channel"]["alternatives"][0]["transcript"]
-
-    return ""
-
-
-async def call_llm(prompt: str) -> str:
-    body = {
-        "model": "gpt-4o",
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": True,
-    }
-    chunks = []
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{LLM_URL}/chat/completions",
-            json=body,
-            headers={"Content-Type": "application/json"},
-        ) as resp:
-            async for line in resp.content:
-                line = line.decode().strip()
-                if not line.startswith("data: "):
-                    continue
-                payload = line[6:]
-                if payload == "[DONE]":
-                    break
-                chunk = json.loads(payload)
-                if chunk.get("choices") and chunk["choices"][0].get("delta", {}).get(
-                    "content"
-                ):
-                    chunks.append(chunk["choices"][0]["delta"]["content"])
-
-    return "".join(chunks)
-
-
-async def call_tts_and_relay(ws: WebSocket, text: str):
-    async with websockets.client.connect(TTS_URL) as conn:
-        await conn.send(json.dumps({"text": text, "voice_id": "benchmark"}))
-
-        async for msg in conn:
-            if isinstance(msg, bytes):
-                await ws.send_bytes(msg)
-            else:
-                evt = json.loads(msg)
-                if evt.get("type") == "done":
-                    break
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    await run_pipeline_for_client(websocket)
 
 
 @app.get("/health")
@@ -119,5 +107,5 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.environ.get("PORT", "8092"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    print(f"Pipecat server listening on 0.0.0.0:{PORT}", flush=True)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

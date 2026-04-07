@@ -33,15 +33,14 @@ func main() {
 	openaiMux := http.NewServeMux()
 	openaiMux.Handle("/v1/chat/completions", NewOpenAIHandler(profile.OpenAI))
 
-	sttMux := http.NewServeMux()
-	sttMux.Handle("/v1/listen", NewSTTHandler(profile.STT))
-
-	ttsMux := http.NewServeMux()
-	ttsMux.Handle("/tts/ws", NewTTSHandler(profile.TTS))
+	// STT and TTS use catch-all handlers so SDKs (Deepgram, Cartesia) that
+	// append query params or construct paths from base_url still match.
+	sttHandler := NewSTTHandler(profile.STT)
+	ttsHandler := NewTTSHandler(profile.TTS)
 
 	go serve("openai-sse", *openaiPort, openaiMux)
-	go serve("stt-ws", *sttPort, sttMux)
-	go serve("tts-ws", *ttsPort, ttsMux)
+	go serve("stt-ws", *sttPort, sttHandler)
+	go serve("tts-ws", *ttsPort, ttsHandler)
 
 	log.Printf("mock upstream ready: openai=:%d stt=:%d tts=:%d", *openaiPort, *sttPort, *ttsPort)
 

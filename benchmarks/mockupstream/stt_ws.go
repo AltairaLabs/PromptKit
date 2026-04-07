@@ -40,10 +40,7 @@ func newTranscriptEvent(isFinal bool, text string) sttTranscriptEvent {
 // STT WebSocket server at /v1/listen. It accepts connections with any path
 // or query parameters (e.g. auth tokens appended by the Deepgram SDK).
 func NewSTTHandler(cfg STTProfile) http.Handler {
-	mux := http.NewServeMux()
-	// Use the catch-all pattern so that query-parameter-decorated URLs like
-	// /v1/listen?encoding=linear16&... are also matched.
-	mux.HandleFunc("/v1/listen", func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := wsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -135,5 +132,4 @@ func NewSTTHandler(cfg STTProfile) http.Handler {
 			}
 		}
 	})
-	return mux
 }
