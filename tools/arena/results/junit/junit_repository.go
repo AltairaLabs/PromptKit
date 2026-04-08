@@ -215,6 +215,13 @@ func (r *JUnitResultRepository) addSystemOut(testCase *JUnitTestCase, result *en
 
 // addErrorOrFailure determines and adds error or failure status to the test case
 func (r *JUnitResultRepository) addErrorOrFailure(testCase *JUnitTestCase, result *engine.RunResult) {
+	if result.Skipped {
+		testCase.Skipped = &JUnitSkipped{
+			Message: result.SkipReason,
+		}
+		return
+	}
+
 	if result.Error != "" {
 		// Execution error
 		testCase.Error = &JUnitError{

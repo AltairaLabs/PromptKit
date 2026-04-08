@@ -88,6 +88,8 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 		EndTime:    arenaState.RunMetadata.EndTime,
 		Duration:   arenaState.RunMetadata.Duration,
 		Error:      arenaState.RunMetadata.Error,
+		Skipped:    arenaState.RunMetadata.Skipped,
+		SkipReason: arenaState.RunMetadata.SkipReason,
 		SelfPlay:   arenaState.RunMetadata.SelfPlay,
 		PersonaID:  arenaState.RunMetadata.PersonaID,
 

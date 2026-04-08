@@ -41,6 +41,33 @@ func TestConversationExecutor_HandleTurnExecutionError(t *testing.T) {
 	require.Equal(t, "failed", result.Error)
 }
 
+func TestConversationExecutor_HandleTurnExecutionError_TransientSkipped(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	req := ConversationRequest{
+		Scenario: &config.Scenario{},
+	}
+	transientErr := &providers.ProviderHTTPError{StatusCode: 503, URL: "https://api.example.com/v1/chat", Body: "service unavailable", Provider: "test"}
+	result := ce.handleTurnExecutionError(context.Background(), &req, transientErr, 0, config.TurnDefinition{Role: "user"})
+
+	require.True(t, result.Skipped, "transient error should mark result as skipped")
+	require.False(t, result.Failed, "transient error should not mark result as failed")
+	require.Empty(t, result.Error, "transient error should not set Error field")
+	require.Contains(t, result.SkipReason, "503")
+}
+
+func TestConversationExecutor_HandleTurnExecutionError_NonTransientFails(t *testing.T) {
+	ce := &DefaultConversationExecutor{}
+	req := ConversationRequest{
+		Scenario: &config.Scenario{},
+	}
+	result := ce.handleTurnExecutionError(context.Background(), &req, errors.New("validation failed"), 0, config.TurnDefinition{Role: "user"})
+
+	require.True(t, result.Failed, "non-transient error should mark result as failed")
+	require.False(t, result.Skipped, "non-transient error should not mark result as skipped")
+	require.Equal(t, "validation failed", result.Error)
+	require.Empty(t, result.SkipReason)
+}
+
 func TestBuildConversationContext_IncludesExtras(t *testing.T) {
 	cfg := &config.Config{
 		ProviderGroups: map[string]string{"prov1": "judge"},

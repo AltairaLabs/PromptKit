@@ -67,6 +67,8 @@ type RunMetadata struct {
 	EndTime    time.Time              `json:"end_time"`
 	Duration   time.Duration          `json:"duration"`
 	Error      string                 `json:"error,omitempty"`
+	Skipped    bool                   `json:"skipped,omitempty"`
+	SkipReason string                 `json:"skip_reason,omitempty"`
 
 	// Self-play metadata
 	SelfPlay      bool              `json:"self_play,omitempty"`
@@ -829,6 +831,8 @@ type RunResult struct {
 	EndTime      time.Time               `json:"EndTime"`
 	Duration     time.Duration           `json:"Duration"`
 	Error        string                  `json:"Error"`
+	Skipped      bool                    `json:"Skipped,omitempty"`
+	SkipReason   string                  `json:"SkipReason,omitempty"`
 	SelfPlay     bool                    `json:"SelfPlay"`
 	PersonaID    string                  `json:"PersonaID"`
 	MediaOutputs []MediaOutput           `json:"MediaOutputs"` // Media produced during the run
