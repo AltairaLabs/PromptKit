@@ -330,8 +330,8 @@ jobs:
         RPS=$(echo "$RESULT" | grep -oP '[\d.]+(?= req/s)')
         echo "Measured throughput: ${RPS} req/s"
 
-        # Floor TBD — first run establishes the baseline
-        FLOOR=100
+        # CI runners produce ~1640 rps. Floor at 80% to allow variance.
+        FLOOR=1300
         if [ "$(echo "$RPS < $FLOOR" | bc -l)" = "1" ]; then
           echo "::error::Performance regression detected: ${RPS} req/s < ${FLOOR} req/s floor"
           exit 1
