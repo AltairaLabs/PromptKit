@@ -7,15 +7,17 @@ Follows the documented stream_async pattern from Strands docs.
 import json
 import os
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
-from strands import Agent
+from strands import Agent, tool
 from strands.models.openai import OpenAIModel
 
 app = FastAPI()
 
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://localhost:8081/v1")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "sk-bench-fake")
+TOOL_URL = os.environ.get("TOOL_URL", "http://localhost:8085")
 
 
 def make_model():
@@ -54,6 +56,42 @@ async def chat_completions(request: Request):
         }
 
     agent = Agent(model=make_model(), callback_handler=None)
+
+    async def generate():
+        async for event in agent.stream_async(user_content):
+            if "data" in event:
+                data = {
+                    "choices": [{
+                        "delta": {"content": event["data"]},
+                        "finish_reason": None,
+                    }]
+                }
+                yield f"data: {json.dumps(data)}\n\n"
+        stop = {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        yield f"data: {json.dumps(stop)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@tool
+def lookup_order(order_id: str) -> dict:
+    """Look up an order by ID."""
+    resp = httpx.post(f"{TOOL_URL}/tool", json={"order_id": order_id})
+    return resp.json()
+
+
+@app.post("/v1/chat/completions/tools")
+async def chat_completions_tools(request: Request):
+    body = await request.json()
+    messages = body.get("messages", [])
+
+    if not messages:
+        return {"error": "no messages"}
+
+    user_content = messages[-1]["content"]
+
+    agent = Agent(model=make_model(), tools=[lookup_order], callback_handler=None)
 
     async def generate():
         async for event in agent.stream_async(user_content):

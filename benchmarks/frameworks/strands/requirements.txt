@@ -1,3 +1,4 @@
 strands-agents[openai]==1.34.1
 fastapi==0.115.12
 uvicorn==0.34.2
+httpx==0.28.1

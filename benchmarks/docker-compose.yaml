@@ -64,6 +64,22 @@ services:
     profiles:
       - round1
 
+  strands:
+    build:
+      context: ..
+      dockerfile: benchmarks/frameworks/strands/Dockerfile
+    ports:
+      - "8093:8093"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
+      - OPENAI_BASE_URL=http://mockupstream:8081/v1
+      - TOOL_URL=http://mockupstream:8085
+    depends_on:
+      mockupstream:
+        condition: service_healthy
+    profiles:
+      - round1
+
   promptkit-round2:
     build:
       context: ..

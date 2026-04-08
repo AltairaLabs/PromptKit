@@ -7,9 +7,9 @@ help: ## Show this help
 
 all: round1 round1-tools round2 ## Run all rounds
 
-round1: ## Run Round 1: LLM streaming (PromptKit vs LangChain vs Vercel AI SDK)
+round1: ## Run Round 1: LLM streaming (PromptKit vs LangChain vs Vercel AI SDK vs Strands)
 	@echo "=== Round 1: LLM Streaming ==="
-	docker compose --profile round1 up --build -d mockupstream promptkit-round1 langchain vercelai
+	docker compose --profile round1 up --build -d mockupstream promptkit-round1 langchain vercelai strands
 	@echo "Waiting for services..."
 	@sleep 3
 	@for tier in $(TIERS); do \
@@ -28,6 +28,11 @@ round1: ## Run Round 1: LLM streaming (PromptKit vs LangChain vs Vercel AI SDK)
 			--round round1 --target http://vercelai:8092 \
 			--framework vercelai --concurrency $$tier \
 			--requests $$(( $$tier * 10 )) --output /results; \
+		echo "--- Strands @ $$tier concurrent ---"; \
+		docker compose --profile round1 run --rm benchmark-round1 \
+			--round round1 --target http://strands:8093 \
+			--framework strands --concurrency $$tier \
+			--requests $$(( $$tier * 10 )) --output /results; \
 	done
 	docker compose --profile round1 down
 
@@ -35,7 +40,7 @@ TOOL_TIERS := 100 250 500 1000 2000
 
 round1-tools: ## Run Round 1 with tool-calling: cost comparison
 	@echo "=== Round 1: Tool-Calling Cost Comparison ==="
-	docker compose --profile round1 up --build -d mockupstream promptkit-round1 langchain vercelai
+	docker compose --profile round1 up --build -d mockupstream promptkit-round1 langchain vercelai strands
 	@echo "Waiting for services..."
 	@sleep 5
 	@for tier in $(TOOL_TIERS); do \
@@ -56,6 +61,12 @@ round1-tools: ## Run Round 1 with tool-calling: cost comparison
 			--round round1 --target http://vercelai:8092 \
 			--path /v1/chat/completions/tools \
 			--framework vercelai --concurrency $$tier \
+			--requests $$(( $$tier * 10 )) --output /results; \
+		echo "--- Strands @ $$tier concurrent (tools) ---"; \
+		docker compose --profile round1 run --rm benchmark-round1 \
+			--round round1 --target http://strands:8093 \
+			--path /v1/chat/completions/tools \
+			--framework strands --concurrency $$tier \
 			--requests $$(( $$tier * 10 )) --output /results; \
 	done
 	docker compose --profile round1 down
