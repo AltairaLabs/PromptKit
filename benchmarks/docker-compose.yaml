@@ -45,6 +45,21 @@ services:
     profiles:
       - round1
 
+  vercelai:
+    build:
+      context: ..
+      dockerfile: benchmarks/frameworks/vercelai/Dockerfile
+    ports:
+      - "8092:8092"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
+      - OPENAI_BASE_URL=http://mockupstream:8081/v1
+    depends_on:
+      mockupstream:
+        condition: service_healthy
+    profiles:
+      - round1
+
   promptkit-round2:
     build:
       context: ..
@@ -88,6 +103,7 @@ services:
     depends_on:
       - promptkit-round1
       - langchain
+      - vercelai
     profiles:
       - round1
 
