@@ -284,6 +284,60 @@ jobs:
     - name: Build runtime components
       run: make build
   
+  perf-regression:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+      with:
+        go-version: '1.25.1'
+
+    - name: Build benchmark binaries
+      run: |
+        go build -C benchmarks -o ../bin/mockupstream ./mockupstream/
+        go build -C benchmarks -o ../bin/harness ./harness/
+        go build -o bin/bench-promptkit ./benchmarks/frameworks/promptkit/round1/
+
+    - name: Run performance benchmark
+      run: |
+        # Start mock upstream with fast profile
+        bin/mockupstream --profile benchmarks/profiles/fast.yaml &
+        sleep 1
+
+        # Start PromptKit benchmark server
+        OPENAI_BASE_URL=http://localhost:8081/v1 OPENAI_API_KEY=bench \
+          bin/bench-promptkit --pack benchmarks/frameworks/promptkit/round1/chat.pack.json &
+        sleep 1
+
+        # Verify services are up
+        curl -sf http://localhost:8081/health > /dev/null
+        curl -sf http://localhost:8090/health > /dev/null
+
+        # Run benchmark: 500 concurrent, 5000 requests
+        RESULT=$(bin/harness --round round1 --target http://localhost:8090 \
+          --framework promptkit --concurrency 500 --requests 5000 \
+          --output /tmp/bench-results 2>&1)
+
+        echo "$RESULT"
+
+        # Extract throughput and assert floor
+        RPS=$(echo "$RESULT" | grep -oP '[\d.]+(?= req/s)')
+        echo "Measured throughput: ${RPS} req/s"
+
+        # Floor TBD — first run establishes the baseline
+        FLOOR=100
+        if [ "$(echo "$RPS < $FLOOR" | bc -l)" = "1" ]; then
+          echo "::error::Performance regression detected: ${RPS} req/s < ${FLOOR} req/s floor"
+          exit 1
+        fi
+        echo "✓ Performance check passed: ${RPS} req/s >= ${FLOOR} req/s floor"
+
   validate-examples:
     name: Validate Example Configs
     runs-on: ubuntu-latest
