@@ -25,7 +25,12 @@ import (
 const (
 	DefaultMaxIdleConns        = 1000
 	DefaultMaxIdleConnsPerHost = 100
-	DefaultMaxConnsPerHost     = 100
+	// DefaultMaxConnsPerHost is the default cap on total TCP connections
+	// per upstream host. Zero means unlimited, matching Go's stdlib
+	// http.Transport default. Real LLM providers enforce rate limits
+	// server-side; a client-side connection cap adds a hidden throughput
+	// ceiling that's hard to debug (see #916).
+	DefaultMaxConnsPerHost     = 0
 	DefaultIdleConnTimeout     = 90 * time.Second
 	DefaultTLSHandshakeTimeout = 10 * time.Second
 	DefaultDialTimeout         = 30 * time.Second
@@ -51,9 +56,9 @@ const (
 )
 
 // HTTPTransportOptions configures the connection pool for a pooled
-// HTTP transport. Zero values fall back to the package-level defaults
-// (DefaultMaxConnsPerHost, DefaultMaxIdleConnsPerHost, DefaultIdleConnTimeout)
-// so callers can set only the fields they want to override.
+// HTTP transport. Zero values mean unlimited for connection counts
+// (matching Go's http.Transport) and fall back to DefaultIdleConnTimeout
+// for the timeout. Negative values fall back to package-level defaults.
 //
 // These are the single-process h2 pool controls that bound how many
 // concurrent streams a provider can multiplex to a single upstream
@@ -63,10 +68,9 @@ const (
 // realistic steady-state ceiling for concurrent streams per process.
 type HTTPTransportOptions struct {
 	// MaxConnsPerHost caps the total TCP connections the transport may
-	// open to any single host (in-use + idle). Zero uses
-	// DefaultMaxConnsPerHost. Raising this lets more h2 connections
-	// multiplex streams in parallel, at the cost of ephemeral port /
-	// file-descriptor usage on the client side.
+	// open to any single host (in-use + idle). Zero means unlimited
+	// (matching Go's http.Transport default). Negative values fall
+	// back to DefaultMaxConnsPerHost.
 	MaxConnsPerHost int
 	// MaxIdleConnsPerHost caps the number of idle keep-alive
 	// connections the transport will retain per host for reuse. Zero
@@ -94,7 +98,7 @@ func NewPooledTransport() *http.Transport {
 // same HTTP/2 upgrade policy).
 func NewPooledTransportWithOptions(opts HTTPTransportOptions) *http.Transport {
 	maxConns := opts.MaxConnsPerHost
-	if maxConns <= 0 {
+	if maxConns < 0 {
 		maxConns = DefaultMaxConnsPerHost
 	}
 	maxIdle := opts.MaxIdleConnsPerHost
