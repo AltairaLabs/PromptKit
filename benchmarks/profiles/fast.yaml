@@ -10,3 +10,5 @@ tts:
   first_byte_delay: 10ms
   chunk_size: 4096
   inter_chunk_delay: 10ms
+tool:
+  execution_delay: 10ms

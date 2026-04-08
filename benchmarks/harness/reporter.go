@@ -119,3 +119,73 @@ func WriteCSV(report BenchmarkReport, path string) error {
 	w.Flush()
 	return w.Error()
 }
+
+// c6g.xlarge reference instance for cost calculations.
+const (
+	refInstanceName   = "c6g.xlarge"
+	refInstanceCPUPct = 400.0  // 4 vCPUs = 400%
+	refInstanceRAMMB  = 8192.0 // 8 GB
+	refInstanceCostHr = 0.136  // USD on-demand
+)
+
+// CostSummary holds derived cost metrics for one framework/tier result.
+type CostSummary struct {
+	InstancesPerBox   int     `json:"instances_per_box"`
+	AggregateRPS      float64 `json:"aggregate_rps"`
+	CostPerMillionReq float64 `json:"cost_per_million_requests"`
+}
+
+// ComputeCost derives how many instances fit on the reference instance
+// and the resulting cost per million requests.
+func ComputeCost(rps float64, peakRSSMB float64, avgCPUPct float64) CostSummary {
+	if rps <= 0 || peakRSSMB <= 0 || avgCPUPct <= 0 {
+		return CostSummary{}
+	}
+
+	byRAM := int(refInstanceRAMMB / peakRSSMB)
+	byCPU := int(refInstanceCPUPct / avgCPUPct)
+
+	instances := byRAM
+	if byCPU < instances {
+		instances = byCPU
+	}
+	if instances < 1 {
+		instances = 1
+	}
+
+	aggRPS := float64(instances) * rps
+	costPerMillion := (refInstanceCostHr / aggRPS) * (1_000_000.0 / 3600.0)
+
+	return CostSummary{
+		InstancesPerBox:   instances,
+		AggregateRPS:      aggRPS,
+		CostPerMillionReq: costPerMillion,
+	}
+}
+
+// RenderCostMarkdown returns a Markdown cost comparison table.
+func RenderCostMarkdown(report BenchmarkReport) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "## Cost Summary (%s: %d vCPU, %.0f GB, $%.3f/hr)\n\n",
+		refInstanceName, int(refInstanceCPUPct/100), refInstanceRAMMB/1024, refInstanceCostHr)
+
+	fmt.Fprintln(&b, "| Framework | Concurrent | rps | Peak RSS | Avg CPU | Instances/box | Agg rps | $/M reqs |")
+	fmt.Fprintln(&b, "|-----------|------------|-----|----------|---------|---------------|---------|----------|")
+
+	for _, r := range report.Results {
+		cost := ComputeCost(r.Summary.Throughput, r.Resources.PeakRSSMB, r.Resources.AvgCPUPct)
+		fmt.Fprintf(&b, "| %s | %d | %.0f | %.0f MB | %.1f%% | %d | %.0f | $%.2f |\n",
+			r.Framework,
+			r.Concurrency,
+			r.Summary.Throughput,
+			r.Resources.PeakRSSMB,
+			r.Resources.AvgCPUPct,
+			cost.InstancesPerBox,
+			cost.AggregateRPS,
+			cost.CostPerMillionReq,
+		)
+	}
+
+	return b.String()
+}

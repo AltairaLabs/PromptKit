@@ -9,9 +9,45 @@ import (
 )
 
 // chatRequest is the subset of an OpenAI chat completion request body we care
-// about: only the stream flag needs to be inspected.
+// about: stream flag and messages (to detect tool-call round-trips).
 type chatRequest struct {
-	Stream bool `json:"stream"`
+	Messages []chatMsg `json:"messages"`
+	Stream   bool      `json:"stream"`
+}
+
+// chatMsg captures just the role of each message in the request.
+type chatMsg struct {
+	Role string `json:"role"`
+}
+
+// toolCallResponse is a non-streaming response that requests tool execution.
+type toolCallResponse struct {
+	ID      string           `json:"id"`
+	Object  string           `json:"object"`
+	Choices []toolCallChoice `json:"choices"`
+}
+
+type toolCallChoice struct {
+	Index        int         `json:"index"`
+	Message      toolCallMsg `json:"message"`
+	FinishReason string      `json:"finish_reason"`
+}
+
+type toolCallMsg struct {
+	Role      string     `json:"role"`
+	Content   *string    `json:"content"`
+	ToolCalls []toolCall `json:"tool_calls"`
+}
+
+type toolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function toolCallFunc `json:"function"`
+}
+
+type toolCallFunc struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // chunkChoice is a single choice inside a streaming chunk.
@@ -81,11 +117,24 @@ func NewOpenAIHandler(cfg OpenAIProfile) http.Handler {
 			return
 		}
 
-		if req.Stream {
-			handleStream(w, cfg)
-		} else {
-			handleNonStream(w, cfg)
+		// Second round (tool result present) → normal completion
+		if hasToolResult(req.Messages) {
+			if req.Stream {
+				handleStream(w, cfg)
+			} else {
+				handleNonStream(w, cfg)
+			}
+			return
 		}
+
+		// First round, non-streaming → tool_calls response
+		if !req.Stream {
+			handleToolCallResponse(w)
+			return
+		}
+
+		// First round, streaming → normal stream (backwards compatible)
+		handleStream(w, cfg)
 	})
 }
 
@@ -151,6 +200,46 @@ func handleStream(w http.ResponseWriter, cfg OpenAIProfile) {
 func writeSSEChunk(w http.ResponseWriter, v any) {
 	data, _ := json.Marshal(v)
 	fmt.Fprintf(w, "data: %s\n\n", data)
+}
+
+// hasToolResult returns true if any message in the request has role "tool",
+// indicating the client has already executed a tool call and is sending results.
+func hasToolResult(msgs []chatMsg) bool {
+	for _, m := range msgs {
+		if m.Role == "tool" {
+			return true
+		}
+	}
+	return false
+}
+
+// handleToolCallResponse writes a non-streaming JSON response that requests
+// the client to execute a tool call (lookup_order).
+func handleToolCallResponse(w http.ResponseWriter) {
+	resp := toolCallResponse{
+		ID:     "chatcmpl-bench-tool",
+		Object: "chat.completion",
+		Choices: []toolCallChoice{{
+			Index: 0,
+			Message: toolCallMsg{
+				Role:    "assistant",
+				Content: nil,
+				ToolCalls: []toolCall{{
+					ID:   "call_bench_1",
+					Type: "function",
+					Function: toolCallFunc{
+						Name:      "lookup_order",
+						Arguments: `{"order_id":"12345"}`,
+					},
+				}},
+			},
+			FinishReason: "tool_calls",
+		}},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp) //nolint:errcheck
 }
 
 // handleNonStream writes a single JSON response whose content is the

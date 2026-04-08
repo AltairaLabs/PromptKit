@@ -156,3 +156,47 @@ func TestReporter_CSV(t *testing.T) {
 		t.Error("expected 'baseline' in CSV output")
 	}
 }
+
+func TestComputeCost(t *testing.T) {
+	t.Parallel()
+
+	// 100 rps, 100MB RSS, 50% CPU
+	// By RAM: 8192/100 = 81 instances
+	// By CPU: 400/50 = 8 instances (limiting)
+	// Agg rps: 8 * 100 = 800
+	// Cost: (0.136/800) * (1e6/3600) = $0.0472
+	cost := ComputeCost(100, 100, 50)
+	if cost.InstancesPerBox != 8 {
+		t.Errorf("instances = %d, want 8", cost.InstancesPerBox)
+	}
+	if cost.AggregateRPS != 800 {
+		t.Errorf("agg rps = %.0f, want 800", cost.AggregateRPS)
+	}
+	if cost.CostPerMillionReq < 0.04 || cost.CostPerMillionReq > 0.05 {
+		t.Errorf("cost = $%.4f, want ~$0.047", cost.CostPerMillionReq)
+	}
+}
+
+func TestComputeCost_ZeroValues(t *testing.T) {
+	t.Parallel()
+	cost := ComputeCost(0, 0, 0)
+	if cost.InstancesPerBox != 0 {
+		t.Errorf("instances = %d, want 0 for zero input", cost.InstancesPerBox)
+	}
+}
+
+func TestComputeCost_RAMLimited(t *testing.T) {
+	t.Parallel()
+
+	// 500 rps, 2048MB RSS, 10% CPU
+	// By RAM: 8192/2048 = 4 instances (limiting)
+	// By CPU: 400/10 = 40 instances
+	// Agg rps: 4 * 500 = 2000
+	cost := ComputeCost(500, 2048, 10)
+	if cost.InstancesPerBox != 4 {
+		t.Errorf("instances = %d, want 4 (RAM limited)", cost.InstancesPerBox)
+	}
+	if cost.AggregateRPS != 2000 {
+		t.Errorf("agg rps = %.0f, want 2000", cost.AggregateRPS)
+	}
+}

@@ -22,6 +22,7 @@ func main() {
 	requests := flag.Int("requests", 1000, "total requests (round1) or sessions (round2)")
 	timeout := flag.Duration("timeout", 30*time.Second, "per-request timeout")
 	outputDir := flag.String("output", "results", "output directory for results")
+	path := flag.String("path", "/v1/chat/completions", "endpoint path to POST to")
 	profile := flag.String("profile", "default", "profile name (for reporting)")
 	frameworkPID := flag.Int("framework-pid", 0, "PID of framework process to monitor (0 = skip)")
 	flag.Parse()
@@ -49,6 +50,7 @@ func main() {
 	case "round1":
 		cfg := StreamingConfig{
 			TargetURL:   *targetURL,
+			Path:        *path,
 			Concurrency: *concurrency,
 			Requests:    *requests,
 			Timeout:     *timeout,
@@ -136,5 +138,8 @@ func main() {
 	}
 
 	fmt.Println(RenderMarkdown(report))
+	if resources.PeakRSSMB > 0 {
+		fmt.Println(RenderCostMarkdown(report))
+	}
 	log.Printf("results written to %s and %s", jsonPath, csvPath)
 }

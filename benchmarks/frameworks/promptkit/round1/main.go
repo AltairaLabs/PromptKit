@@ -3,10 +3,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -69,6 +71,11 @@ func main() {
 		baseURL = "https://api.openai.com/v1"
 	}
 
+	toolURL := os.Getenv("TOOL_URL")
+	if toolURL == "" {
+		toolURL = "http://localhost:8085"
+	}
+
 	// Build an OpenAI provider pointing at the mock upstream.
 	p := openai.NewProvider(
 		"openai",
@@ -122,6 +129,61 @@ func main() {
 		} else {
 			handleUnary(ctx, w, conv, userMsg)
 		}
+	})
+
+	mux.HandleFunc("/v1/chat/completions/tools", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		userMsg := ""
+		for i := len(req.Messages) - 1; i >= 0; i-- {
+			if req.Messages[i].Role == "user" {
+				userMsg = req.Messages[i].Content
+				break
+			}
+		}
+		if userMsg == "" && len(req.Messages) > 0 {
+			userMsg = req.Messages[len(req.Messages)-1].Content
+		}
+
+		conv, err := sdk.Open(*packPath, "chat", sdk.WithProvider(p))
+		if err != nil {
+			http.Error(w, "failed to open conversation: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer conv.Close()
+
+		conv.OnTool("lookup_order", func(args map[string]any) (any, error) {
+			payload, err := json.Marshal(args)
+			if err != nil {
+				return nil, fmt.Errorf("marshal tool args: %w", err)
+			}
+			resp, err := http.Post(toolURL+"/tool", "application/json", bytes.NewReader(payload))
+			if err != nil {
+				return nil, fmt.Errorf("tool call failed: %w", err)
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, fmt.Errorf("read tool response: %w", err)
+			}
+			var result any
+			if err := json.Unmarshal(body, &result); err != nil {
+				return string(body), nil
+			}
+			return result, nil
+		})
+
+		ctx := r.Context()
+		handleStream(ctx, w, conv, userMsg)
 	})
 
 	addr := fmt.Sprintf(":%d", *port)

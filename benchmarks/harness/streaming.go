@@ -15,6 +15,7 @@ import (
 // StreamingConfig holds parameters for a streaming benchmark run.
 type StreamingConfig struct {
 	TargetURL   string
+	Path        string // endpoint path, e.g. "/v1/chat/completions"
 	Concurrency int
 	Requests    int
 	Timeout     time.Duration
@@ -75,7 +76,7 @@ func doStreamRequest(ctx context.Context, client *http.Client, cfg StreamingConf
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		cfg.TargetURL+"/v1/chat/completions", bytes.NewReader(body))
+		cfg.TargetURL+cfg.Path, bytes.NewReader(body))
 	if err != nil {
 		return RequestResult{Error: fmt.Errorf("new request: %w", err)}
 	}

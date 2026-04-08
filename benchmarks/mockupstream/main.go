@@ -31,6 +31,10 @@ func main() {
 	}
 
 	openaiMux := http.NewServeMux()
+	openaiMux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	})
 	openaiMux.Handle("/v1/chat/completions", NewOpenAIHandler(profile.OpenAI))
 	openaiMux.Handle("/v1/audio/transcriptions", NewOpenAISTTHandler(profile.STT))
 	openaiMux.Handle("/v1/audio/speech", NewOpenAITTSHandler(profile.TTS))
@@ -39,12 +43,14 @@ func main() {
 	// append query params or construct paths from base_url still match.
 	sttHandler := NewSTTHandler(profile.STT)
 	ttsHandler := NewTTSHandler(profile.TTS)
+	toolHandler := NewToolHandler(profile.Tool)
 
 	go serve("openai-sse", *openaiPort, openaiMux)
 	go serve("stt-ws", *sttPort, sttHandler)
 	go serve("tts-ws", *ttsPort, ttsHandler)
+	go serve("tool", 8085, toolHandler)
 
-	log.Printf("mock upstream ready: openai=:%d stt=:%d tts=:%d", *openaiPort, *sttPort, *ttsPort)
+	log.Printf("mock upstream ready: openai=:%d stt=:%d tts=:%d tool=:8085", *openaiPort, *sttPort, *ttsPort)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
