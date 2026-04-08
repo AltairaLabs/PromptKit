@@ -726,7 +726,7 @@ func (b *BaseProvider) DoAndReadResponse(
 	resp, err := b.client.Do(req)
 	if err != nil {
 		predictResp.Latency = time.Since(start)
-		return nil, 0, fmt.Errorf("failed to send request: %w", err)
+		return nil, 0, &ProviderTransportError{Cause: err, Provider: b.id}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -745,7 +745,11 @@ func CheckHTTPError(resp *http.Response, url string) error {
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		body := ReadErrorBody(resp.Body)
-		return fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
+		return &ProviderHTTPError{
+			StatusCode: resp.StatusCode,
+			URL:        url,
+			Body:       string(body),
+		}
 	}
 	return nil
 }

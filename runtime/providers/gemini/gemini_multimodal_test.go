@@ -590,7 +590,7 @@ func TestPredictWithContents_HTTPErrors(t *testing.T) {
 				server.Close() // Close immediately to cause connection error
 				return server
 			},
-			wantErrMsg: "failed to send request",
+			wantErrMsg: "provider transport error",
 		},
 	}
 

@@ -146,6 +146,11 @@ func IsRetryableStreamError(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	// Structured error types — preferred path.
+	if IsTransient(err) {
+		return true
+	}
+	// Legacy fallback for errors not yet wrapped in structured types.
 	if isRetryableError(err) {
 		return true
 	}
