@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       { source: "/v1/chat/completions", destination: "/api/chat" },
+      { source: "/v1/chat/completions/tools", destination: "/api/chat-tools" },
       { source: "/health", destination: "/api/health" },
     ];
   },
