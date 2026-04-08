@@ -20,3 +20,6 @@ spec:
   additional_config:
     # Audio models require Chat Completions API (not Responses API)
     api_mode: completions
+  stream_retry:
+    enabled: true
+    max_attempts: 3

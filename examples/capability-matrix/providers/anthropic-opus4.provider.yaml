@@ -20,3 +20,6 @@ spec:
   pricing:
     input_cost_per_1k: 0.015
     output_cost_per_1k: 0.075
+  stream_retry:
+    enabled: true
+    max_attempts: 3
