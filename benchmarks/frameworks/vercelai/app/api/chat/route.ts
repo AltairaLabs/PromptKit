@@ -46,7 +46,7 @@ export async function POST(req: Request) {
   }
 
   // Streaming: emit OpenAI-compatible SSE
-  const result = streamText({
+  const result = await streamText({
     model: openai("gpt-4o"),
     prompt: userContent,
   });
@@ -55,18 +55,22 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      for await (const chunk of (await result).textStream) {
-        const data = JSON.stringify({
-          choices: [{ delta: { content: chunk }, finish_reason: null }],
+      try {
+        for await (const chunk of result.textStream) {
+          const data = JSON.stringify({
+            choices: [{ delta: { content: chunk }, finish_reason: null }],
+          });
+          controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+        }
+        const stop = JSON.stringify({
+          choices: [{ delta: {}, finish_reason: "stop" }],
         });
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${stop}\n\n`));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      } catch (err) {
+        controller.error(err);
       }
-      const stop = JSON.stringify({
-        choices: [{ delta: {}, finish_reason: "stop" }],
-      });
-      controller.enqueue(encoder.encode(`data: ${stop}\n\n`));
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
     },
   });
 
