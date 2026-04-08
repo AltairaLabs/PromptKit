@@ -56,6 +56,23 @@ func TestNewPooledTransportWithOptions_Overrides(t *testing.T) {
 	}
 }
 
+func TestNewPooledTransportWithOptions_ZeroMaxConnsPerHostMeansUnlimited(t *testing.T) {
+	t.Parallel()
+	// MaxConnsPerHost=0 must be passed through as-is (unlimited),
+	// matching Go's http.Transport behavior. This is the default.
+	tr := NewPooledTransportWithOptions(HTTPTransportOptions{
+		MaxConnsPerHost: 0,
+	})
+	if tr.MaxConnsPerHost != 0 {
+		t.Errorf("MaxConnsPerHost = %d, want 0 (unlimited)", tr.MaxConnsPerHost)
+	}
+	// MaxIdleConnsPerHost=0 still falls back to default (0 idle conns
+	// would disable connection reuse, which is never useful).
+	if tr.MaxIdleConnsPerHost != DefaultMaxIdleConnsPerHost {
+		t.Errorf("MaxIdleConnsPerHost = %d, want %d", tr.MaxIdleConnsPerHost, DefaultMaxIdleConnsPerHost)
+	}
+}
+
 func TestNewPooledTransportWithOptions_NegativeValuesFallBack(t *testing.T) {
 	t.Parallel()
 	// Arena config parsers clamp to zero on malformed input, but a

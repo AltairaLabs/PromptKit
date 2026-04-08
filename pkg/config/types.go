@@ -1153,10 +1153,9 @@ type Provider struct {
 // tuning these values.
 type HTTPTransportConfig struct {
 	// MaxConnsPerHost caps the total TCP connections the transport may
-	// open to any single upstream host (in-use + idle). Zero or negative
-	// falls back to providers.DefaultMaxConnsPerHost (100). Raising this
-	// increases the realistic concurrent-stream ceiling per upstream,
-	// at the cost of ephemeral port and file-descriptor usage.
+	// open to any single upstream host (in-use + idle). Zero means
+	// unlimited (the default, matching Go's http.Transport). Set a
+	// positive value to cap connections for backends that need it.
 	MaxConnsPerHost int `json:"max_conns_per_host,omitempty" yaml:"max_conns_per_host,omitempty"`
 	// MaxIdleConnsPerHost caps idle keep-alive connections retained per
 	// host for reuse. Zero or negative falls back to
