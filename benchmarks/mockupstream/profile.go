@@ -13,6 +13,7 @@ type Profile struct {
 	OpenAI OpenAIProfile `yaml:"openai"`
 	STT    STTProfile    `yaml:"stt"`
 	TTS    TTSProfile    `yaml:"tts"`
+	Tool   ToolProfile   `yaml:"tool"`
 }
 
 // OpenAIProfile configures the mock OpenAI SSE chat completion server.
@@ -36,6 +37,11 @@ type TTSProfile struct {
 	InterChunkDelay time.Duration `yaml:"inter_chunk_delay"`
 }
 
+// ToolProfile configures the mock tool execution endpoint.
+type ToolProfile struct {
+	ExecutionDelay time.Duration `yaml:"execution_delay"`
+}
+
 // DefaultProfile returns sensible default latencies suitable for local testing.
 func DefaultProfile() Profile {
 	return Profile{
@@ -53,6 +59,9 @@ func DefaultProfile() Profile {
 			FirstByteDelay:  60 * time.Millisecond,
 			ChunkSize:       4096,
 			InterChunkDelay: 30 * time.Millisecond,
+		},
+		Tool: ToolProfile{
+			ExecutionDelay: 500 * time.Millisecond,
 		},
 	}
 }
