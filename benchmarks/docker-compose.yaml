@@ -7,6 +7,7 @@ services:
       - "8081:8081"
       - "8082:8082"
       - "8083:8083"
+      - "8085:8085"
     volumes:
       - ./profiles:/profiles:ro
     healthcheck:
@@ -24,6 +25,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
       - OPENAI_BASE_URL=http://mockupstream:8081/v1
+      - TOOL_URL=http://mockupstream:8085
     depends_on:
       mockupstream:
         condition: service_healthy
@@ -39,6 +41,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
       - OPENAI_BASE_URL=http://mockupstream:8081/v1
+      - TOOL_URL=http://mockupstream:8085
     depends_on:
       mockupstream:
         condition: service_healthy
@@ -54,6 +57,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-benchmark}
       - OPENAI_BASE_URL=http://mockupstream:8081/v1
+      - TOOL_URL=http://mockupstream:8085
     depends_on:
       mockupstream:
         condition: service_healthy
