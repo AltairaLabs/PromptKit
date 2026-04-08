@@ -176,7 +176,9 @@ func TestOpenAISSE_NonStreamRequest(t *testing.T) {
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
-	resp := postJSON(t, srv, `{"model":"gpt-4","stream":false,"messages":[]}`)
+	// Include a tool role message so the handler treats this as a second-round
+	// request and returns a normal non-streaming completion (not a tool_calls response).
+	resp := postJSON(t, srv, `{"model":"gpt-4","stream":false,"messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"c1","content":"{}"}]}`)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -209,5 +211,93 @@ func TestOpenAISSE_NonStreamRequest(t *testing.T) {
 	}
 	if result.Choices[0].FinishReason != "stop" {
 		t.Errorf("expected finish_reason 'stop', got %q", result.Choices[0].FinishReason)
+	}
+}
+
+// TestOpenAISSE_ToolCallResponse verifies that a non-streaming request without
+// tool results returns a tool_calls response.
+func TestOpenAISSE_ToolCallResponse(t *testing.T) {
+	cfg := OpenAIProfile{
+		ChunkCount:      10,
+		InterChunkDelay: time.Millisecond,
+		FirstChunkDelay: time.Millisecond,
+	}
+	handler := NewOpenAIHandler(cfg)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp := postJSON(t, srv, `{"messages":[{"role":"user","content":"check order 12345"}],"stream":false}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(result.Choices) != 1 {
+		t.Fatalf("choices = %d, want 1", len(result.Choices))
+	}
+	if len(result.Choices[0].Message.ToolCalls) != 1 {
+		t.Fatalf("tool_calls = %d, want 1", len(result.Choices[0].Message.ToolCalls))
+	}
+	tc := result.Choices[0].Message.ToolCalls[0]
+	if tc.Function.Name != "lookup_order" {
+		t.Errorf("function name = %q, want lookup_order", tc.Function.Name)
+	}
+	if result.Choices[0].FinishReason != "tool_calls" {
+		t.Errorf("finish_reason = %q, want tool_calls", result.Choices[0].FinishReason)
+	}
+}
+
+// TestOpenAISSE_ToolResultStreams verifies that a streaming request with tool
+// results produces normal streaming output (second-round completion).
+func TestOpenAISSE_ToolResultStreams(t *testing.T) {
+	cfg := OpenAIProfile{
+		ChunkCount:      5,
+		InterChunkDelay: time.Millisecond,
+		FirstChunkDelay: time.Millisecond,
+	}
+	handler := NewOpenAIHandler(cfg)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	body := `{"messages":[{"role":"user","content":"check order"},{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup_order","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"{}"}],"stream":true}`
+	resp := postJSON(t, srv, body)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	chunks := 0
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") && line != "data: [DONE]" {
+			chunks++
+		}
+	}
+
+	// 5 content chunks + 1 stop chunk = 6
+	if chunks != 6 {
+		t.Errorf("chunks = %d, want 6 (5 content + 1 stop)", chunks)
 	}
 }
