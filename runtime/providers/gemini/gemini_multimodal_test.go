@@ -641,7 +641,7 @@ func TestPredictStreamWithContents_HTTPErrors(t *testing.T) {
 				server.Close()
 				return server
 			},
-			wantErrMsg: "failed to send request",
+			wantErrMsg: "provider transport error",
 		},
 		{
 			name: "API error status",

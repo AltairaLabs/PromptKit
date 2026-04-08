@@ -621,8 +621,8 @@ func TestParseBedrockHTTPError_StructuredMessage(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "bedrock error") {
-		t.Errorf("error should be prefixed with 'bedrock error', got: %s", errMsg)
+	if !strings.Contains(errMsg, "bedrock") {
+		t.Errorf("error should contain 'bedrock', got: %s", errMsg)
 	}
 	if !strings.Contains(errMsg, "on-demand throughput") {
 		t.Errorf("error should contain the original message, got: %s", errMsg)

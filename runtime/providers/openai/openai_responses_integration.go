@@ -444,7 +444,7 @@ func (p *Provider) predictWithResponses(
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		predictResp.Latency = time.Since(start)
-		return predictResp, nil, fmt.Errorf("failed to send request: %w", err)
+		return predictResp, nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 	defer resp.Body.Close()
 
@@ -462,8 +462,10 @@ func (p *Provider) predictWithResponses(
 		if p.platform != "" {
 			return predictResp, nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
 		}
-		return predictResp, nil, fmt.Errorf("API request to %s failed with status %d: %s",
-			url, resp.StatusCode, string(respBody))
+		return predictResp, nil, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: url,
+			Body: string(respBody), Provider: p.ID(),
+		}
 	}
 
 	// Parse response

@@ -575,7 +575,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 	resp, err := p.GetHTTPClient().Do(req)
 	if err != nil {
 		logger.APIResponse(providerNameLog, 0, "", err)
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 	defer resp.Body.Close()
 
@@ -592,8 +592,10 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 		if p.platform != "" {
 			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBytes)
 		}
-		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
-			logger.RedactSensitiveData(url), resp.StatusCode, string(respBytes))
+		return nil, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: logger.RedactSensitiveData(url),
+			Body: string(respBytes), Provider: p.ID(),
+		}
 	}
 
 	return respBytes, nil
@@ -629,7 +631,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -638,8 +640,10 @@ func (p *ToolProvider) PredictStreamWithTools(
 		if p.platform != "" {
 			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
 		}
-		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
-			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
+		return nil, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: logger.RedactSensitiveData(url),
+			Body: string(body), Provider: p.ID(),
+		}
 	}
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)

@@ -14,14 +14,21 @@ func TestParsePlatformHTTPError_BedrockJSON(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "bedrock error") {
-		t.Errorf("expected 'bedrock error' prefix, got: %s", errMsg)
+	if !strings.Contains(errMsg, "bedrock") {
+		t.Errorf("expected 'bedrock' in error, got: %s", errMsg)
 	}
-	if !strings.Contains(errMsg, "HTTP 400") {
-		t.Errorf("expected HTTP status code in message, got: %s", errMsg)
+	if !strings.Contains(errMsg, "400") {
+		t.Errorf("expected status code in message, got: %s", errMsg)
 	}
 	if !strings.Contains(errMsg, "on-demand throughput") {
 		t.Errorf("expected extracted message, got: %s", errMsg)
+	}
+	var httpErr *ProviderHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatal("expected ProviderHTTPError, got different type")
+	}
+	if httpErr.StatusCode != 400 {
+		t.Errorf("expected StatusCode 400, got %d", httpErr.StatusCode)
 	}
 }
 
@@ -43,11 +50,15 @@ func TestParsePlatformHTTPError_EmptyPlatform(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "API error") {
-		t.Errorf("expected generic 'API error' prefix for empty platform, got: %s", errMsg)
+	if !strings.Contains(errMsg, "403") {
+		t.Errorf("expected status code in message, got: %s", errMsg)
 	}
-	if !strings.Contains(errMsg, "HTTP 403") {
-		t.Errorf("expected HTTP status code, got: %s", errMsg)
+	var httpErr *ProviderHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatal("expected ProviderHTTPError")
+	}
+	if httpErr.StatusCode != 403 {
+		t.Errorf("expected StatusCode 403, got %d", httpErr.StatusCode)
 	}
 }
 
@@ -58,11 +69,18 @@ func TestParsePlatformHTTPError_AzurePlatform(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "azure error") {
-		t.Errorf("expected 'azure error' prefix, got: %s", errMsg)
+	if !strings.Contains(errMsg, "azure") {
+		t.Errorf("expected 'azure' in error, got: %s", errMsg)
 	}
 	if !strings.Contains(errMsg, "Rate limit exceeded") {
 		t.Errorf("expected extracted message, got: %s", errMsg)
+	}
+	var httpErr *ProviderHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatal("expected ProviderHTTPError")
+	}
+	if httpErr.StatusCode != 429 {
+		t.Errorf("expected StatusCode 429, got %d", httpErr.StatusCode)
 	}
 }
 
@@ -86,6 +104,13 @@ func TestParsePlatformHTTPError_EmptyMessage(t *testing.T) {
 	// Empty message should fall back to raw body
 	if !strings.Contains(err.Error(), `{"message":""}`) {
 		t.Errorf("expected raw body fallback for empty message, got: %s", err.Error())
+	}
+	var httpErr *ProviderHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatal("expected ProviderHTTPError")
+	}
+	if httpErr.StatusCode != 500 {
+		t.Errorf("expected StatusCode 500, got %d", httpErr.StatusCode)
 	}
 }
 

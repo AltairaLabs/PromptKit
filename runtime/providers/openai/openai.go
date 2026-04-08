@@ -816,8 +816,10 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		if p.platform != "" {
 			return predictResp, providers.ParsePlatformHTTPError(p.platform, statusCode, respBody)
 		}
-		return predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
-			p.baseURL+openAIPredictCompletionsPath, statusCode, string(respBody))
+		return predictResp, &providers.ProviderHTTPError{
+			StatusCode: statusCode, URL: p.baseURL + openAIPredictCompletionsPath,
+			Body: string(respBody), Provider: p.ID(),
+		}
 	}
 
 	var openAIResp openAIResponse

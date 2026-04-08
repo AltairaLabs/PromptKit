@@ -157,7 +157,7 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("embedding API error (status %d): %s", resp.StatusCode, string(body))
+		return nil, &ProviderHTTPError{StatusCode: resp.StatusCode, URL: cfg.URL, Body: string(body), Provider: b.ProviderID}
 	}
 
 	return body, nil
