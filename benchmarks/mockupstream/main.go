@@ -31,6 +31,10 @@ func main() {
 	}
 
 	openaiMux := http.NewServeMux()
+	openaiMux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	})
 	openaiMux.Handle("/v1/chat/completions", NewOpenAIHandler(profile.OpenAI))
 	openaiMux.Handle("/v1/audio/transcriptions", NewOpenAISTTHandler(profile.STT))
 	openaiMux.Handle("/v1/audio/speech", NewOpenAITTSHandler(profile.TTS))
