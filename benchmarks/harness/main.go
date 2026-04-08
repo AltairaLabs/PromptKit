@@ -136,5 +136,8 @@ func main() {
 	}
 
 	fmt.Println(RenderMarkdown(report))
+	if resources.PeakRSSMB > 0 {
+		fmt.Println(RenderCostMarkdown(report))
+	}
 	log.Printf("results written to %s and %s", jsonPath, csvPath)
 }
