@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start -p ${PORT:-8092}"
+    "start": "next start -p 8092"
   },
   "dependencies": {
     "ai": "^4.3",
