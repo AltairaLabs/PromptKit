@@ -7,9 +7,9 @@ help: ## Show this help
 
 all: round1 round2 ## Run both rounds
 
-round1: ## Run Round 1: LLM streaming (PromptKit vs LangChain)
+round1: ## Run Round 1: LLM streaming (PromptKit vs LangChain vs Vercel AI SDK)
 	@echo "=== Round 1: LLM Streaming ==="
-	docker compose --profile round1 up --build -d mockupstream promptkit-round1 langchain
+	docker compose --profile round1 up --build -d mockupstream promptkit-round1 langchain vercelai
 	@echo "Waiting for services..."
 	@sleep 3
 	@for tier in $(TIERS); do \
@@ -22,6 +22,11 @@ round1: ## Run Round 1: LLM streaming (PromptKit vs LangChain)
 		docker compose --profile round1 run --rm benchmark-round1 \
 			--round round1 --target http://langchain:8091 \
 			--framework langchain --concurrency $$tier \
+			--requests $$(( $$tier * 10 )) --output /results; \
+		echo "--- VercelAI @ $$tier concurrent ---"; \
+		docker compose --profile round1 run --rm benchmark-round1 \
+			--round round1 --target http://vercelai:8092 \
+			--framework vercelai --concurrency $$tier \
 			--requests $$(( $$tier * 10 )) --output /results; \
 	done
 	docker compose --profile round1 down
