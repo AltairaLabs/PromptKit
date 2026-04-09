@@ -291,6 +291,26 @@ func applyAudioModalities(openAIReq map[string]interface{}, additionalConfig map
 	}
 }
 
+// enrichRequest applies common request fields: audio modalities, max tokens,
+// sampling parameters, seed, and response format. Both predictWithMessages
+// and predictStreamWithMessages call this after constructing the base request map.
+func (p *Provider) enrichRequest(
+	openAIReq map[string]interface{}, req *providers.PredictionRequest, audioFmtFallback string,
+) {
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(req) {
+		applyAudioModalities(openAIReq, p.additionalConfig, audioFmtFallback)
+	}
+	temperature, topP, maxTokens := p.applyRequestDefaults(*req)
+	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
+	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
+	if req.Seed != nil {
+		openAIReq["seed"] = *req.Seed
+	}
+	if req.ResponseFormat != nil {
+		openAIReq["response_format"] = p.convertResponseFormat(req.ResponseFormat)
+	}
+}
+
 // applyAuth applies authentication to an HTTP request.
 func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 	if p.credential != nil {
@@ -819,33 +839,11 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 
 	start := time.Now()
 
-	// Apply provider defaults for zero values
-	temperature, topP, maxTokens := p.applyRequestDefaults(req)
-
-	// Create request as a map for flexibility with o-series models
 	openAIReq := map[string]interface{}{
 		"model":    p.model,
 		"messages": messages,
 	}
-
-	// Apply audio output modalities from additional_config for audio models.
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		applyAudioModalities(openAIReq, p.additionalConfig, "wav")
-	}
-
-	// Add max tokens with the correct parameter name for the model type
-	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
-	// Add sampling parameters (temperature, top_p) if model supports them
-	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
-
-	if req.Seed != nil {
-		openAIReq["seed"] = *req.Seed
-	}
-
-	// Add response format if specified
-	if req.ResponseFormat != nil {
-		openAIReq["response_format"] = p.convertResponseFormat(req.ResponseFormat)
-	}
+	p.enrichRequest(openAIReq, &req, "wav")
 
 	reqBody, err := json.Marshal(openAIReq)
 	if err != nil {
@@ -942,10 +940,6 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		Model:    p.model,
 	})
 
-	// Apply provider defaults for zero values
-	temperature, topP, maxTokens := p.applyRequestDefaults(req)
-
-	// Create streaming request
 	openAIReq := map[string]interface{}{
 		"model":    p.model,
 		"messages": messages,
@@ -954,24 +948,8 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 			"include_usage": true,
 		},
 	}
-
-	// Apply audio output modalities from additional_config for audio models.
 	// When stream=true, OpenAI only supports "pcm16" for audio.format.
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		applyAudioModalities(openAIReq, p.additionalConfig, "pcm16")
-	}
-
-	// Add max tokens with the correct parameter name for the model type
-	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
-	// Add sampling parameters (temperature, top_p) if model supports them
-	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
-	if req.Seed != nil {
-		openAIReq["seed"] = *req.Seed
-	}
-	// Add response format if specified
-	if req.ResponseFormat != nil {
-		openAIReq["response_format"] = p.convertResponseFormat(req.ResponseFormat)
-	}
+	p.enrichRequest(openAIReq, &req, "pcm16")
 
 	reqBody, err := json.Marshal(openAIReq)
 	if err != nil {
