@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,9 +41,14 @@ func (e *ProviderTransportError) Unwrap() error {
 
 // IsTransient returns true if err represents a transient provider failure
 // (retryable HTTP status or connection-level error). Uses errors.As to
-// traverse wrapped error chains.
+// traverse wrapped error chains. Context cancellation and deadline errors
+// are never transient — they represent deliberate caller action.
 func IsTransient(err error) bool {
 	if err == nil {
+		return false
+	}
+	// Context cancellation/deadline is never transient.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	var httpErr *ProviderHTTPError

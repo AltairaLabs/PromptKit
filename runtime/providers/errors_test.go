@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -211,6 +212,26 @@ func TestIsTransient_TransportError(t *testing.T) {
 	err := &ProviderTransportError{Cause: errors.New("connection reset")}
 	if !IsTransient(err) {
 		t.Error("IsTransient(ProviderTransportError) = false, want true")
+	}
+}
+
+func TestIsTransient_ContextErrorsNeverTransient(t *testing.T) {
+	t.Parallel()
+	// Context cancellation wrapped in ProviderTransportError must NOT be transient.
+	cancelErr := &ProviderTransportError{Cause: context.Canceled, Provider: "test"}
+	if IsTransient(cancelErr) {
+		t.Error("IsTransient(context.Canceled wrapped in ProviderTransportError) = true, want false")
+	}
+
+	deadlineErr := &ProviderTransportError{Cause: context.DeadlineExceeded, Provider: "test"}
+	if IsTransient(deadlineErr) {
+		t.Error("IsTransient(context.DeadlineExceeded wrapped in ProviderTransportError) = true, want false")
+	}
+
+	// Double-wrapped should also not be transient.
+	doubleWrapped := fmt.Errorf("failed to send request: %w", deadlineErr)
+	if IsTransient(doubleWrapped) {
+		t.Error("IsTransient(double-wrapped DeadlineExceeded) = true, want false")
 	}
 }
 

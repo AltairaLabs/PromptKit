@@ -3,6 +3,7 @@ package providers_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -237,7 +238,7 @@ func TestStreamContextCancellation(t *testing.T) {
 	gotCancellation := false
 	for chunk := range stream {
 		if chunk.Error != nil {
-			if chunk.Error == context.DeadlineExceeded || chunk.FinishReason != nil && *chunk.FinishReason == "cancelled" {
+			if errors.Is(chunk.Error, context.DeadlineExceeded) || chunk.FinishReason != nil && *chunk.FinishReason == "cancelled" {
 				gotCancellation = true
 			}
 		}
