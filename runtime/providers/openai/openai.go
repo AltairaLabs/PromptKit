@@ -215,6 +215,77 @@ func getReasoningEffort(additionalConfig map[string]any) string {
 	}
 }
 
+// getAudioModalities returns the output modalities for audio models from
+// additional_config. Returns nil when not configured — the caller decides
+// whether to apply a default.
+//
+// Provider YAML example:
+//
+//	additional_config:
+//	  modalities: ["text", "audio"]
+//	  voice: alloy
+//	  audio_format: pcm16
+func getAudioModalities(additionalConfig map[string]any) []string {
+	if additionalConfig == nil {
+		return nil
+	}
+	raw, ok := additionalConfig["modalities"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+// defaultAudioVoice is the default voice for OpenAI audio output.
+const defaultAudioVoice = "alloy"
+
+// getAudioVoice returns the voice setting from additional_config.
+// Defaults to "alloy" when not configured.
+func getAudioVoice(additionalConfig map[string]any) string {
+	if additionalConfig == nil {
+		return defaultAudioVoice
+	}
+	if v, ok := additionalConfig["voice"].(string); ok && v != "" {
+		return v
+	}
+	return defaultAudioVoice
+}
+
+// getAudioOutputFormat returns the audio output format from additional_config.
+// Defaults to the provided fallback when not configured.
+func getAudioOutputFormat(additionalConfig map[string]any, fallback string) string {
+	if additionalConfig == nil {
+		return fallback
+	}
+	if v, ok := additionalConfig["audio_format"].(string); ok && v != "" {
+		return v
+	}
+	return fallback
+}
+
+// hasModality returns true if the modalities slice contains the given value.
+func hasModality(modalities []string, target string) bool {
+	for _, m := range modalities {
+		if strings.EqualFold(m, target) {
+			return true
+		}
+	}
+	return false
+}
+
 // applyAuth applies authentication to an HTTP request.
 func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 	if p.credential != nil {
@@ -752,13 +823,18 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		"messages": messages,
 	}
 
-	// Add modalities for audio models when audio content is present
+	// Apply audio output modalities from additional_config for audio models.
 	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		openAIReq["modalities"] = []string{"text", "audio"}
-		// Audio models require audio output configuration
-		openAIReq["audio"] = map[string]interface{}{
-			"voice":  "alloy",
-			"format": "wav",
+		modalities := getAudioModalities(p.additionalConfig)
+		if modalities == nil {
+			modalities = []string{"text"}
+		}
+		openAIReq["modalities"] = modalities
+		if hasModality(modalities, "audio") {
+			openAIReq["audio"] = map[string]interface{}{
+				"voice":  getAudioVoice(p.additionalConfig),
+				"format": getAudioOutputFormat(p.additionalConfig, "wav"),
+			}
 		}
 	}
 
@@ -884,14 +960,19 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		},
 	}
 
-	// Add modalities for audio models when audio content is present.
-	// When stream=true, OpenAI chat/completions only supports "pcm16" for audio.format;
-	// "wav"/"mp3" are valid only for non-streaming requests.
+	// Apply audio output modalities from additional_config for audio models.
+	// When stream=true, OpenAI only supports "pcm16" for audio.format.
 	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		openAIReq["modalities"] = []string{"text", "audio"}
-		openAIReq["audio"] = map[string]interface{}{
-			"voice":  "alloy",
-			"format": "pcm16",
+		modalities := getAudioModalities(p.additionalConfig)
+		if modalities == nil {
+			modalities = []string{"text"}
+		}
+		openAIReq["modalities"] = modalities
+		if hasModality(modalities, "audio") {
+			openAIReq["audio"] = map[string]interface{}{
+				"voice":  getAudioVoice(p.additionalConfig),
+				"format": getAudioOutputFormat(p.additionalConfig, "pcm16"),
+			}
 		}
 	}
 

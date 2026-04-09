@@ -1349,7 +1349,7 @@ func TestPredictStream_AudioFormat_PCM16(t *testing.T) {
 	provider := NewProviderWithConfig(
 		"test", "gpt-4o-audio-preview", server.URL,
 		providers.ProviderDefaults{}, false,
-		map[string]any{"api_mode": "completions"},
+		map[string]any{"api_mode": "completions", "modalities": []any{"text", "audio"}},
 	)
 
 	audioB64 := "AA=="
@@ -1398,7 +1398,7 @@ func TestPredict_AudioFormat_WAV(t *testing.T) {
 	provider := NewProviderWithConfig(
 		"test", "gpt-4o-audio-preview", server.URL,
 		providers.ProviderDefaults{}, false,
-		map[string]any{"api_mode": "completions"},
+		map[string]any{"api_mode": "completions", "modalities": []any{"text", "audio"}},
 	)
 
 	audioB64 := "AA=="

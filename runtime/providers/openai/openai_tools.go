@@ -256,12 +256,18 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 		openaiReq["seed"] = *req.Seed
 	}
 
-	// Add modalities for audio models when audio content is present
+	// Apply audio output modalities from additional_config for audio models.
 	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		openaiReq["modalities"] = []string{"text", "audio"}
-		openaiReq["audio"] = map[string]interface{}{
-			"voice":  "alloy",
-			"format": "wav",
+		modalities := getAudioModalities(p.additionalConfig)
+		if modalities == nil {
+			modalities = []string{"text"}
+		}
+		openaiReq["modalities"] = modalities
+		if hasModality(modalities, "audio") {
+			openaiReq["audio"] = map[string]interface{}{
+				"voice":  getAudioVoice(p.additionalConfig),
+				"format": getAudioOutputFormat(p.additionalConfig, "wav"),
+			}
 		}
 	}
 
