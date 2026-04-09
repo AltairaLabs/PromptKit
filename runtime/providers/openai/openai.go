@@ -215,6 +215,102 @@ func getReasoningEffort(additionalConfig map[string]any) string {
 	}
 }
 
+// getAudioModalities returns the output modalities for audio models from
+// additional_config. Returns nil when not configured — the caller decides
+// whether to apply a default.
+//
+// Provider YAML example:
+//
+//	additional_config:
+//	  modalities: ["text", "audio"]
+//	  voice: alloy
+//	  audio_format: pcm16
+func getAudioModalities(additionalConfig map[string]any) []string {
+	if additionalConfig == nil {
+		return nil
+	}
+	raw, ok := additionalConfig["modalities"]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+// defaultAudioVoice is the default voice for OpenAI audio output.
+const defaultAudioVoice = "alloy"
+
+// getStringConfigOrDefault returns the value of key from additionalConfig if
+// it is a non-empty string, otherwise returns fallback.
+func getStringConfigOrDefault(additionalConfig map[string]any, key, fallback string) string {
+	if additionalConfig == nil {
+		return fallback
+	}
+	if v, ok := additionalConfig[key].(string); ok && v != "" {
+		return v
+	}
+	return fallback
+}
+
+// hasModality returns true if the modalities slice contains the given value.
+func hasModality(modalities []string, target string) bool {
+	for _, m := range modalities {
+		if strings.EqualFold(m, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// applyAudioModalities sets the "modalities" and optional "audio" fields on
+// an OpenAI request map. formatFallback is used when additional_config does
+// not specify audio_format (e.g. "wav" for non-streaming, "pcm16" for streaming).
+func applyAudioModalities(openAIReq map[string]interface{}, additionalConfig map[string]any, formatFallback string) {
+	modalities := getAudioModalities(additionalConfig)
+	if modalities == nil {
+		modalities = []string{"text"}
+	}
+	openAIReq["modalities"] = modalities
+	if hasModality(modalities, "audio") {
+		openAIReq["audio"] = map[string]interface{}{
+			"voice":  getStringConfigOrDefault(additionalConfig, "voice", defaultAudioVoice),
+			"format": getStringConfigOrDefault(additionalConfig, "audio_format", formatFallback),
+		}
+	}
+}
+
+// enrichRequest applies common request fields: audio modalities, max tokens,
+// sampling parameters, seed, and response format. Both predictWithMessages
+// and predictStreamWithMessages call this after constructing the base request map.
+func (p *Provider) enrichRequest(
+	openAIReq map[string]interface{}, req *providers.PredictionRequest, audioFmtFallback string,
+) {
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(req) {
+		applyAudioModalities(openAIReq, p.additionalConfig, audioFmtFallback)
+	}
+	temperature, topP, maxTokens := p.applyRequestDefaults(*req)
+	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
+	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
+	if req.Seed != nil {
+		openAIReq["seed"] = *req.Seed
+	}
+	if req.ResponseFormat != nil {
+		openAIReq["response_format"] = p.convertResponseFormat(req.ResponseFormat)
+	}
+}
+
 // applyAuth applies authentication to an HTTP request.
 func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 	if p.credential != nil {
@@ -743,38 +839,11 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 
 	start := time.Now()
 
-	// Apply provider defaults for zero values
-	temperature, topP, maxTokens := p.applyRequestDefaults(req)
-
-	// Create request as a map for flexibility with o-series models
 	openAIReq := map[string]interface{}{
 		"model":    p.model,
 		"messages": messages,
 	}
-
-	// Add modalities for audio models when audio content is present
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		openAIReq["modalities"] = []string{"text", "audio"}
-		// Audio models require audio output configuration
-		openAIReq["audio"] = map[string]interface{}{
-			"voice":  "alloy",
-			"format": "wav",
-		}
-	}
-
-	// Add max tokens with the correct parameter name for the model type
-	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
-	// Add sampling parameters (temperature, top_p) if model supports them
-	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
-
-	if req.Seed != nil {
-		openAIReq["seed"] = *req.Seed
-	}
-
-	// Add response format if specified
-	if req.ResponseFormat != nil {
-		openAIReq["response_format"] = p.convertResponseFormat(req.ResponseFormat)
-	}
+	p.enrichRequest(openAIReq, &req, "wav")
 
 	reqBody, err := json.Marshal(openAIReq)
 	if err != nil {
@@ -871,10 +940,6 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		Model:    p.model,
 	})
 
-	// Apply provider defaults for zero values
-	temperature, topP, maxTokens := p.applyRequestDefaults(req)
-
-	// Create streaming request
 	openAIReq := map[string]interface{}{
 		"model":    p.model,
 		"messages": messages,
@@ -883,29 +948,8 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 			"include_usage": true,
 		},
 	}
-
-	// Add modalities for audio models when audio content is present.
-	// When stream=true, OpenAI chat/completions only supports "pcm16" for audio.format;
-	// "wav"/"mp3" are valid only for non-streaming requests.
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		openAIReq["modalities"] = []string{"text", "audio"}
-		openAIReq["audio"] = map[string]interface{}{
-			"voice":  "alloy",
-			"format": "pcm16",
-		}
-	}
-
-	// Add max tokens with the correct parameter name for the model type
-	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
-	// Add sampling parameters (temperature, top_p) if model supports them
-	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
-	if req.Seed != nil {
-		openAIReq["seed"] = *req.Seed
-	}
-	// Add response format if specified
-	if req.ResponseFormat != nil {
-		openAIReq["response_format"] = p.convertResponseFormat(req.ResponseFormat)
-	}
+	// When stream=true, OpenAI only supports "pcm16" for audio.format.
+	p.enrichRequest(openAIReq, &req, "pcm16")
 
 	reqBody, err := json.Marshal(openAIReq)
 	if err != nil {

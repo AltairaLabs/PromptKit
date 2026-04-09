@@ -1087,6 +1087,12 @@ func TestBuildToolRequest_AudioModalities(t *testing.T) {
 	)
 	// Force completions API mode (audio models need it)
 	provider.apiMode = APIModeCompletions
+	// Opt in to audio output via additional_config
+	provider.additionalConfig = map[string]any{
+		"modalities":   []any{"text", "audio"},
+		"voice":        "alloy",
+		"audio_format": "wav",
+	}
 
 	audioData := types.MediaContent{MIMEType: "audio/flac"}
 	req := providers.PredictionRequest{
@@ -1154,7 +1160,7 @@ func TestPredictStreamWithTools_AudioFormat_PCM16(t *testing.T) {
 	provider := NewToolProvider(
 		"test", "gpt-4o-audio-preview", server.URL,
 		providers.ProviderDefaults{}, false,
-		map[string]any{"api_mode": "completions"}, nil,
+		map[string]any{"api_mode": "completions", "modalities": []any{"text", "audio"}}, nil,
 	)
 
 	audioB64 := "AA=="

@@ -1349,7 +1349,7 @@ func TestPredictStream_AudioFormat_PCM16(t *testing.T) {
 	provider := NewProviderWithConfig(
 		"test", "gpt-4o-audio-preview", server.URL,
 		providers.ProviderDefaults{}, false,
-		map[string]any{"api_mode": "completions"},
+		map[string]any{"api_mode": "completions", "modalities": []any{"text", "audio"}},
 	)
 
 	audioB64 := "AA=="
@@ -1398,7 +1398,7 @@ func TestPredict_AudioFormat_WAV(t *testing.T) {
 	provider := NewProviderWithConfig(
 		"test", "gpt-4o-audio-preview", server.URL,
 		providers.ProviderDefaults{}, false,
-		map[string]any{"api_mode": "completions"},
+		map[string]any{"api_mode": "completions", "modalities": []any{"text", "audio"}},
 	)
 
 	audioB64 := "AA=="
@@ -1425,5 +1425,244 @@ func TestPredict_AudioFormat_WAV(t *testing.T) {
 	}
 	if format, _ := audioCfg["format"].(string); format != "wav" {
 		t.Errorf("non-streaming audio.format = %q, want wav", format)
+	}
+}
+
+// TestPredict_AudioModel_NoModalitiesConfig verifies that when an audio model
+// has no "modalities" in additional_config, we default to ["text"] and omit
+// the "audio" output config block.
+func TestPredict_AudioModel_NoModalitiesConfig(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"}, // no "modalities" key
+	)
+
+	audioB64 := "AA=="
+	audioMedia := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Transcribe"),
+				{Type: types.ContentTypeAudio, Media: &audioMedia},
+			},
+		}},
+	}
+
+	if _, err := provider.Predict(context.Background(), req); err != nil {
+		t.Fatalf("Predict failed: %v", err)
+	}
+
+	mods, ok := capturedReq["modalities"].([]any)
+	if !ok {
+		t.Fatalf("expected modalities in request, got: %v", capturedReq)
+	}
+	if len(mods) != 1 || mods[0] != "text" {
+		t.Errorf("modalities = %v, want [text]", mods)
+	}
+	if _, hasAudio := capturedReq["audio"]; hasAudio {
+		t.Error("expected no audio config when modalities omit audio")
+	}
+}
+
+// TestPredictStream_AudioModel_NoModalitiesConfig is the streaming counterpart.
+func TestPredictStream_AudioModel_NoModalitiesConfig(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"}, // no "modalities" key
+	)
+
+	audioB64 := "AA=="
+	audioMedia := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Transcribe"),
+				{Type: types.ContentTypeAudio, Media: &audioMedia},
+			},
+		}},
+	}
+
+	streamChan, err := provider.PredictStream(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PredictStream failed: %v", err)
+	}
+	for range streamChan { //nolint:revive // drain
+	}
+
+	mods, ok := capturedReq["modalities"].([]any)
+	if !ok {
+		t.Fatalf("expected modalities in request, got: %v", capturedReq)
+	}
+	if len(mods) != 1 || mods[0] != "text" {
+		t.Errorf("modalities = %v, want [text]", mods)
+	}
+	if _, hasAudio := capturedReq["audio"]; hasAudio {
+		t.Error("expected no audio config when modalities omit audio")
+	}
+}
+
+func TestApplyAudioModalities(t *testing.T) {
+	tests := []struct {
+		name           string
+		config         map[string]any
+		fallback       string
+		wantMods       []any
+		wantAudioBlock bool
+		wantVoice      string
+		wantFormat     string
+	}{
+		{
+			name:           "nil modalities defaults to text only",
+			config:         nil,
+			fallback:       "wav",
+			wantMods:       []any{"text"},
+			wantAudioBlock: false,
+		},
+		{
+			name:           "text+audio includes audio block",
+			config:         map[string]any{"modalities": []any{"text", "audio"}, "voice": "nova", "audio_format": "mp3"},
+			fallback:       "wav",
+			wantMods:       []any{"text", "audio"},
+			wantAudioBlock: true,
+			wantVoice:      "nova",
+			wantFormat:     "mp3",
+		},
+		{
+			name:           "text+audio uses fallback format",
+			config:         map[string]any{"modalities": []any{"text", "audio"}},
+			fallback:       "pcm16",
+			wantMods:       []any{"text", "audio"},
+			wantAudioBlock: true,
+			wantVoice:      "alloy",
+			wantFormat:     "pcm16",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := map[string]interface{}{}
+			applyAudioModalities(req, tt.config, tt.fallback)
+
+			mods, ok := req["modalities"].([]string)
+			if !ok {
+				t.Fatalf("modalities not set or wrong type")
+			}
+			if len(mods) != len(tt.wantMods) {
+				t.Fatalf("modalities = %v, want %v", mods, tt.wantMods)
+			}
+
+			audioCfg, hasAudio := req["audio"].(map[string]interface{})
+			if hasAudio != tt.wantAudioBlock {
+				t.Fatalf("audio block present = %v, want %v", hasAudio, tt.wantAudioBlock)
+			}
+			if tt.wantAudioBlock {
+				if audioCfg["voice"] != tt.wantVoice {
+					t.Errorf("voice = %v, want %v", audioCfg["voice"], tt.wantVoice)
+				}
+				if audioCfg["format"] != tt.wantFormat {
+					t.Errorf("format = %v, want %v", audioCfg["format"], tt.wantFormat)
+				}
+			}
+		})
+	}
+}
+
+func TestGetAudioModalities(t *testing.T) {
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   []string
+	}{
+		{"nil config", nil, nil},
+		{"missing key", map[string]any{}, nil},
+		{"[]string value", map[string]any{"modalities": []string{"text", "audio"}}, []string{"text", "audio"}},
+		{"[]interface{} value", map[string]any{"modalities": []interface{}{"text", "audio"}}, []string{"text", "audio"}},
+		{"wrong type", map[string]any{"modalities": "text"}, nil},
+		{"[]interface{} with non-strings", map[string]any{"modalities": []interface{}{"text", 42}}, []string{"text"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getAudioModalities(tt.config)
+			if len(got) != len(tt.want) {
+				t.Fatalf("getAudioModalities() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("getAudioModalities()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGetStringConfigOrDefault(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   map[string]any
+		key      string
+		fallback string
+		want     string
+	}{
+		{"nil config", nil, "voice", "alloy", "alloy"},
+		{"missing key", map[string]any{}, "voice", "alloy", "alloy"},
+		{"empty string", map[string]any{"voice": ""}, "voice", "alloy", "alloy"},
+		{"custom value", map[string]any{"voice": "nova"}, "voice", "alloy", "nova"},
+		{"audio_format fallback", map[string]any{}, "audio_format", "pcm16", "pcm16"},
+		{"audio_format custom", map[string]any{"audio_format": "mp3"}, "audio_format", "wav", "mp3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := getStringConfigOrDefault(tt.config, tt.key, tt.fallback); got != tt.want {
+				t.Errorf("getStringConfigOrDefault() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasModality(t *testing.T) {
+	tests := []struct {
+		name       string
+		modalities []string
+		target     string
+		want       bool
+	}{
+		{"found exact", []string{"text", "audio"}, "audio", true},
+		{"found case-insensitive", []string{"Text", "Audio"}, "audio", true},
+		{"not found", []string{"text"}, "audio", false},
+		{"empty slice", nil, "audio", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasModality(tt.modalities, tt.target); got != tt.want {
+				t.Errorf("hasModality() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
