@@ -1119,17 +1119,17 @@ func TestOpenAIProvider_AudioModelConvertMessage(t *testing.T) {
 }
 
 func TestOpenAIProvider_AudioModelWithResponsesAPI(t *testing.T) {
-	// Audio model with Responses API should NOT support audio
+	// Audio model with Responses API should support audio (via streaming events)
 	provider := NewProviderWithConfig(
 		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
 		providers.ProviderDefaults{}, false,
-		map[string]any{"api_mode": "responses"}, // Not completions
+		map[string]any{"api_mode": "responses"},
 	)
 
 	caps := provider.GetMultimodalCapabilities()
 
-	if caps.SupportsAudio {
-		t.Error("Expected audio model with Responses API not to support audio")
+	if !caps.SupportsAudio {
+		t.Error("Expected audio model with Responses API to support audio")
 	}
 }
 
@@ -1213,6 +1213,29 @@ func TestOpenAIProvider_APIMode_Configuration(t *testing.T) {
 			actualMode := string(provider.apiMode)
 			if actualMode != tt.expectedAPIMode {
 				t.Errorf("expected API mode %q, got %q", tt.expectedAPIMode, actualMode)
+			}
+		})
+	}
+}
+
+func TestAudioFormatToMIME(t *testing.T) {
+	tests := []struct {
+		format string
+		want   string
+	}{
+		{"wav", types.MIMETypeAudioWAV},
+		{"mp3", types.MIMETypeAudioMP3},
+		{"pcm16", "audio/pcm"},
+		{"aac", "audio/aac"},
+		{"flac", "audio/flac"},
+		{"opus", "audio/opus"},
+		{"unknown", "application/octet-stream"},
+		{"", "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			if got := audioFormatToMIME(tt.format); got != tt.want {
+				t.Errorf("audioFormatToMIME(%q) = %q, want %q", tt.format, got, tt.want)
 			}
 		})
 	}

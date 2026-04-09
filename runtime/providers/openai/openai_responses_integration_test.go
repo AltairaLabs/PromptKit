@@ -1,6 +1,10 @@
 package openai
 
 import (
+	"bytes"
+	"encoding/base64"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -120,5 +124,118 @@ func TestGetReasoningEffort_DirectParsing(t *testing.T) {
 				t.Errorf("getReasoningEffort(%v) = %q, want %q", tt.cfg, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHandleStreamEvent_AudioDelta(t *testing.T) {
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", "http://localhost",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "responses"},
+	)
+
+	outChan := make(chan providers.StreamChunk, 10)
+	var sb strings.Builder
+	idMap := make(itemIDMap)
+
+	audioB64 := base64.StdEncoding.EncodeToString([]byte("raw-pcm-bytes"))
+	data := fmt.Sprintf(`{"type":"response.audio.delta","delta":"%s"}`, audioB64)
+
+	tokens, tc, usage := provider.handleStreamEvent(
+		responsesStreamEvent{Type: "response.audio.delta"},
+		data, &sb, 0, nil, nil, outChan, idMap,
+	)
+
+	if tokens != 0 {
+		t.Errorf("tokens = %d, want 0", tokens)
+	}
+	if tc != nil {
+		t.Errorf("unexpected tool calls")
+	}
+	if usage != nil {
+		t.Errorf("unexpected usage")
+	}
+
+	select {
+	case chunk := <-outChan:
+		if chunk.MediaData == nil {
+			t.Fatal("expected MediaData in chunk")
+		}
+		if !bytes.Equal(chunk.MediaData.Data, []byte("raw-pcm-bytes")) {
+			t.Errorf("MediaData.Data mismatch")
+		}
+		if chunk.MediaData.MIMEType != "audio/pcm" {
+			t.Errorf("MIMEType = %q, want audio/pcm", chunk.MediaData.MIMEType)
+		}
+	default:
+		t.Fatal("no chunk emitted for audio delta")
+	}
+}
+
+func TestHandleStreamEvent_AudioTranscriptDelta(t *testing.T) {
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", "http://localhost",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "responses"},
+	)
+
+	outChan := make(chan providers.StreamChunk, 10)
+	var sb strings.Builder
+	idMap := make(itemIDMap)
+
+	data := `{"type":"response.audio_transcript.delta","delta":"Hello "}`
+
+	tokens, _, _ := provider.handleStreamEvent(
+		responsesStreamEvent{Type: "response.audio_transcript.delta"},
+		data, &sb, 0, nil, nil, outChan, idMap,
+	)
+
+	if tokens != 1 {
+		t.Errorf("tokens = %d, want 1", tokens)
+	}
+
+	select {
+	case chunk := <-outChan:
+		if chunk.Delta != "Hello " {
+			t.Errorf("Delta = %q, want %q", chunk.Delta, "Hello ")
+		}
+		if chunk.Content != "Hello " {
+			t.Errorf("Content = %q, want accumulated text", chunk.Content)
+		}
+	default:
+		t.Fatal("no chunk emitted for transcript delta")
+	}
+}
+
+func TestHandleStreamEvent_AudioDone(t *testing.T) {
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", "http://localhost",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "responses"},
+	)
+
+	outChan := make(chan providers.StreamChunk, 10)
+	var sb strings.Builder
+	idMap := make(itemIDMap)
+
+	data := `{"type":"response.audio.done"}`
+
+	tokens, tc, usage := provider.handleStreamEvent(
+		responsesStreamEvent{Type: "response.audio.done"},
+		data, &sb, 5, nil, nil, outChan, idMap,
+	)
+
+	if tokens != 5 {
+		t.Errorf("tokens = %d, want 5 (unchanged)", tokens)
+	}
+	if tc != nil || usage != nil {
+		t.Error("unexpected side effects")
+	}
+
+	select {
+	case <-outChan:
+		t.Fatal("unexpected chunk emitted for audio done")
+	default:
+		// expected — no chunk
 	}
 }

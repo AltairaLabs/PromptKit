@@ -2,7 +2,9 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -1664,5 +1666,127 @@ func TestHasModality(t *testing.T) {
 				t.Errorf("hasModality() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPredict_AudioResponse_WithTranscript(t *testing.T) {
+	audioB64 := base64.StdEncoding.EncodeToString([]byte("fake-wav-data"))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := fmt.Sprintf(`{
+			"choices":[{
+				"index":0,
+				"message":{
+					"role":"assistant",
+					"content":null,
+					"audio":{
+						"id":"audio_123",
+						"data":"%s",
+						"transcript":"Hello, how can I help you?",
+						"expires_at":1700000000
+					}
+				},
+				"finish_reason":"stop"
+			}],
+			"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
+		}`, audioB64)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions", "modalities": []any{"text", "audio"}, "audio_format": "wav"},
+	)
+
+	audioB64Input := "AA=="
+	audioInput := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64Input}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("What is this audio?"),
+				{Type: types.ContentTypeAudio, Media: &audioInput},
+			},
+		}},
+	}
+
+	resp, err := provider.Predict(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Predict failed: %v", err)
+	}
+
+	if resp.Content != "Hello, how can I help you?" {
+		t.Errorf("Content = %q, want transcript", resp.Content)
+	}
+
+	if len(resp.Parts) < 2 {
+		t.Fatalf("expected at least 2 parts, got %d", len(resp.Parts))
+	}
+
+	var foundText, foundAudio bool
+	for _, p := range resp.Parts {
+		switch p.Type {
+		case types.ContentTypeText:
+			if p.Text != nil && *p.Text == "Hello, how can I help you?" {
+				foundText = true
+			}
+		case types.ContentTypeAudio:
+			if p.Media != nil && p.Media.Data != nil && *p.Media.Data == audioB64 {
+				foundAudio = true
+			}
+		}
+	}
+	if !foundText {
+		t.Error("expected a text part with the transcript")
+	}
+	if !foundAudio {
+		t.Error("expected an audio part with base64 data")
+	}
+}
+
+func TestPredict_AudioResponse_TextContentOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"choices":[{
+				"index":0,
+				"message":{"role":"assistant","content":"The audio says hello."},
+				"finish_reason":"stop"
+			}],
+			"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
+		}`))
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+
+	audioB64Input := "AA=="
+	audioInput := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64Input}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("What is this audio?"),
+				{Type: types.ContentTypeAudio, Media: &audioInput},
+			},
+		}},
+	}
+
+	resp, err := provider.Predict(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Predict failed: %v", err)
+	}
+
+	if resp.Content != "The audio says hello." {
+		t.Errorf("Content = %q, want text response", resp.Content)
+	}
+	if len(resp.Parts) != 1 || resp.Parts[0].Type != types.ContentTypeText {
+		t.Errorf("expected 1 text part, got %v", resp.Parts)
 	}
 }

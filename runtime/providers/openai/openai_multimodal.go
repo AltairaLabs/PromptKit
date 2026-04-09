@@ -8,6 +8,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const audioPCM16Format = "pcm16"
+
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	caps := providers.MultimodalCapabilities{
@@ -27,8 +29,9 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxVideoSizeMB: 0,
 	}
 
-	// Audio models (gpt-4o-audio-preview) support audio input when using Chat Completions API
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) {
+	// Audio models (gpt-4o-audio-preview) support audio input via both APIs:
+	// Chat Completions (non-streaming + streaming) and Responses API (streaming events).
+	if isAudioModel(p.model) {
 		caps.SupportsAudio = true
 		caps.AudioFormats = []string{
 			types.MIMETypeAudioWAV,
@@ -216,6 +219,27 @@ func getAudioFormat(mimeType string) string {
 		return "mp3"
 	default:
 		return ""
+	}
+}
+
+// audioFormatToMIME maps an OpenAI audio format string (from the audio.format
+// request parameter or response) to a MIME type.
+func audioFormatToMIME(format string) string {
+	switch format {
+	case "wav":
+		return types.MIMETypeAudioWAV
+	case "mp3":
+		return types.MIMETypeAudioMP3
+	case audioPCM16Format:
+		return "audio/pcm"
+	case "aac":
+		return "audio/aac"
+	case "flac":
+		return "audio/flac"
+	case "opus":
+		return "audio/opus"
+	default:
+		return "application/octet-stream"
 	}
 }
 
