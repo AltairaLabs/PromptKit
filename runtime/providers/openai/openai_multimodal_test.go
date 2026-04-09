@@ -1119,17 +1119,17 @@ func TestOpenAIProvider_AudioModelConvertMessage(t *testing.T) {
 }
 
 func TestOpenAIProvider_AudioModelWithResponsesAPI(t *testing.T) {
-	// Audio model with Responses API should NOT support audio
+	// Audio model with Responses API should support audio (via streaming events)
 	provider := NewProviderWithConfig(
 		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
 		providers.ProviderDefaults{}, false,
-		map[string]any{"api_mode": "responses"}, // Not completions
+		map[string]any{"api_mode": "responses"},
 	)
 
 	caps := provider.GetMultimodalCapabilities()
 
-	if caps.SupportsAudio {
-		t.Error("Expected audio model with Responses API not to support audio")
+	if !caps.SupportsAudio {
+		t.Error("Expected audio model with Responses API to support audio")
 	}
 }
 

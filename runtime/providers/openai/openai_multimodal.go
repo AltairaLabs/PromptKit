@@ -29,8 +29,9 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxVideoSizeMB: 0,
 	}
 
-	// Audio models (gpt-4o-audio-preview) support audio input when using Chat Completions API
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) {
+	// Audio models (gpt-4o-audio-preview) support audio input via both APIs:
+	// Chat Completions (non-streaming + streaming) and Responses API (streaming events).
+	if isAudioModel(p.model) {
 		caps.SupportsAudio = true
 		caps.AudioFormats = []string{
 			types.MIMETypeAudioWAV,
