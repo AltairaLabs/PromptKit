@@ -1427,3 +1427,93 @@ func TestPredict_AudioFormat_WAV(t *testing.T) {
 		t.Errorf("non-streaming audio.format = %q, want wav", format)
 	}
 }
+
+func TestGetAudioModalities(t *testing.T) {
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   []string
+	}{
+		{"nil config", nil, nil},
+		{"missing key", map[string]any{}, nil},
+		{"[]string value", map[string]any{"modalities": []string{"text", "audio"}}, []string{"text", "audio"}},
+		{"[]interface{} value", map[string]any{"modalities": []interface{}{"text", "audio"}}, []string{"text", "audio"}},
+		{"wrong type", map[string]any{"modalities": "text"}, nil},
+		{"[]interface{} with non-strings", map[string]any{"modalities": []interface{}{"text", 42}}, []string{"text"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getAudioModalities(tt.config)
+			if len(got) != len(tt.want) {
+				t.Fatalf("getAudioModalities() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("getAudioModalities()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGetAudioVoice(t *testing.T) {
+	tests := []struct {
+		name   string
+		config map[string]any
+		want   string
+	}{
+		{"nil config", nil, "alloy"},
+		{"missing key", map[string]any{}, "alloy"},
+		{"empty string", map[string]any{"voice": ""}, "alloy"},
+		{"custom voice", map[string]any{"voice": "nova"}, "nova"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := getAudioVoice(tt.config); got != tt.want {
+				t.Errorf("getAudioVoice() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAudioOutputFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   map[string]any
+		fallback string
+		want     string
+	}{
+		{"nil config", nil, "wav", "wav"},
+		{"missing key", map[string]any{}, "pcm16", "pcm16"},
+		{"empty string", map[string]any{"audio_format": ""}, "wav", "wav"},
+		{"custom format", map[string]any{"audio_format": "mp3"}, "wav", "mp3"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := getAudioOutputFormat(tt.config, tt.fallback); got != tt.want {
+				t.Errorf("getAudioOutputFormat() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHasModality(t *testing.T) {
+	tests := []struct {
+		name       string
+		modalities []string
+		target     string
+		want       bool
+	}{
+		{"found exact", []string{"text", "audio"}, "audio", true},
+		{"found case-insensitive", []string{"Text", "Audio"}, "audio", true},
+		{"not found", []string{"text"}, "audio", false},
+		{"empty slice", nil, "audio", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasModality(tt.modalities, tt.target); got != tt.want {
+				t.Errorf("hasModality() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
