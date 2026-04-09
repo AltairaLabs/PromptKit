@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,6 +31,12 @@ const (
 	eventTypeOutputAdded   = "response.output_item.added"
 	eventTypeCompleted     = "response.completed"
 	eventTypeError         = "error"
+
+	// Audio event types for Responses API streaming
+	eventTypeAudioDelta      = "response.audio.delta"
+	eventTypeAudioDone       = "response.audio.done"
+	eventTypeAudioTransDelta = "response.audio_transcript.delta"
+	eventTypeAudioTransDone  = "response.audio_transcript.done"
 
 	// Common string constants
 	toolChoiceAuto        = "auto"
@@ -635,6 +642,20 @@ func (p *Provider) handleStreamEvent(
 	case eventTypeError:
 		p.handleErrorEvent(data, sb.String(), toolCalls, outChan)
 		return totalTokens, toolCalls, usage
+
+	case eventTypeAudioDelta:
+		p.handleAudioDelta(data, outChan)
+		return totalTokens, toolCalls, usage
+
+	case eventTypeAudioDone:
+		return totalTokens, toolCalls, usage
+
+	case eventTypeAudioTransDelta:
+		newTokens = p.handleAudioTranscriptDelta(data, sb, totalTokens, toolCalls, outChan)
+		return newTokens, toolCalls, usage
+
+	case eventTypeAudioTransDone:
+		return totalTokens, toolCalls, usage
 	}
 
 	return totalTokens, toolCalls, usage
@@ -662,6 +683,54 @@ func (p *Provider) handleTextDelta(
 			TokenCount:  totalTokens,
 			DeltaTokens: 1,
 		}
+	}
+	return totalTokens
+}
+
+// handleAudioDelta processes audio delta events, decoding base64 PCM data and
+// emitting it as a StreamChunk with MediaData.
+func (p *Provider) handleAudioDelta(data string, outChan chan<- providers.StreamChunk) {
+	var delta struct {
+		Delta string `json:"delta"`
+	}
+	if err := json.Unmarshal([]byte(data), &delta); err != nil || delta.Delta == "" {
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(delta.Delta)
+	if err != nil {
+		return
+	}
+	outChan <- providers.StreamChunk{
+		MediaData: &providers.StreamMediaData{
+			Data:     raw,
+			MIMEType: "audio/pcm",
+		},
+	}
+}
+
+// handleAudioTranscriptDelta processes audio transcript delta events, emitting
+// transcript text as regular text deltas.
+func (p *Provider) handleAudioTranscriptDelta(
+	data string,
+	sb *strings.Builder,
+	totalTokens int,
+	toolCalls []types.MessageToolCall,
+	outChan chan<- providers.StreamChunk,
+) int {
+	var delta struct {
+		Delta string `json:"delta"`
+	}
+	if err := json.Unmarshal([]byte(data), &delta); err != nil || delta.Delta == "" {
+		return totalTokens
+	}
+	sb.WriteString(delta.Delta)
+	totalTokens++
+	outChan <- providers.StreamChunk{
+		Content:     sb.String(),
+		Delta:       delta.Delta,
+		ToolCalls:   toolCalls,
+		TokenCount:  totalTokens,
+		DeltaTokens: 1,
 	}
 	return totalTokens
 }
