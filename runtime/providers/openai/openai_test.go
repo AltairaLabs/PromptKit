@@ -1428,6 +1428,107 @@ func TestPredict_AudioFormat_WAV(t *testing.T) {
 	}
 }
 
+// TestPredict_AudioModel_NoModalitiesConfig verifies that when an audio model
+// has no "modalities" in additional_config, we default to ["text"] and omit
+// the "audio" output config block.
+func TestPredict_AudioModel_NoModalitiesConfig(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"}, // no "modalities" key
+	)
+
+	audioB64 := "AA=="
+	audioMedia := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Transcribe"),
+				{Type: types.ContentTypeAudio, Media: &audioMedia},
+			},
+		}},
+	}
+
+	if _, err := provider.Predict(context.Background(), req); err != nil {
+		t.Fatalf("Predict failed: %v", err)
+	}
+
+	mods, ok := capturedReq["modalities"].([]any)
+	if !ok {
+		t.Fatalf("expected modalities in request, got: %v", capturedReq)
+	}
+	if len(mods) != 1 || mods[0] != "text" {
+		t.Errorf("modalities = %v, want [text]", mods)
+	}
+	if _, hasAudio := capturedReq["audio"]; hasAudio {
+		t.Error("expected no audio config when modalities omit audio")
+	}
+}
+
+// TestPredictStream_AudioModel_NoModalitiesConfig is the streaming counterpart.
+func TestPredictStream_AudioModel_NoModalitiesConfig(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"}, // no "modalities" key
+	)
+
+	audioB64 := "AA=="
+	audioMedia := types.MediaContent{MIMEType: "audio/wav", Data: &audioB64}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Transcribe"),
+				{Type: types.ContentTypeAudio, Media: &audioMedia},
+			},
+		}},
+	}
+
+	streamChan, err := provider.PredictStream(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PredictStream failed: %v", err)
+	}
+	for range streamChan { //nolint:revive // drain
+	}
+
+	mods, ok := capturedReq["modalities"].([]any)
+	if !ok {
+		t.Fatalf("expected modalities in request, got: %v", capturedReq)
+	}
+	if len(mods) != 1 || mods[0] != "text" {
+		t.Errorf("modalities = %v, want [text]", mods)
+	}
+	if _, hasAudio := capturedReq["audio"]; hasAudio {
+		t.Error("expected no audio config when modalities omit audio")
+	}
+}
+
 func TestGetAudioModalities(t *testing.T) {
 	tests := []struct {
 		name   string
