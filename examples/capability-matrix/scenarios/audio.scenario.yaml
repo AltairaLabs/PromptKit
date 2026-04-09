@@ -22,9 +22,10 @@ spec:
           text: "Listen to this audio and transcribe or describe what is being said. End your response with CAPABILITY_PASS."
         - type: audio
           media:
-            # Google Cloud Speech API sample - speaker describing Brooklyn Bridge
-            url: "https://storage.googleapis.com/cloud-samples-data/speech/brooklyn_bridge.flac"
-            mime_type: "audio/flac"
+            # Google Cloud Speech API sample - speaker describing Brooklyn Bridge (WAV)
+            # Using WAV to avoid ffmpeg dependency for FLAC→WAV conversion in CI
+            url: "https://storage.googleapis.com/cloud-samples-data/speech/brooklyn_bridge.wav"
+            mime_type: "audio/wav"
       assertions:
         - type: content_includes
           message: "Response should include CAPABILITY_PASS"
