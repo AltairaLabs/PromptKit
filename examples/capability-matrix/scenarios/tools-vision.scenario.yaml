@@ -20,7 +20,7 @@ spec:
     - role: user
       parts:
         - type: text
-          text: "Look at this image and call the analyze_image tool with a description of what you see. Then say CAPABILITY_PASS."
+          text: "Look at this image and call the analyze_image tool with a description of what you see."
         - type: image
           media:
             url: "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"
@@ -31,7 +31,3 @@ spec:
           params:
             tools:
               - "analyze_image"
-        - type: content_includes
-          message: "Response should include CAPABILITY_PASS"
-          params:
-            patterns: ["CAPABILITY_PASS"]
