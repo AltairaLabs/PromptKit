@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1151,5 +1152,57 @@ func TestAddClaudeToolConfig_ToolChoice(t *testing.T) {
 				t.Errorf("tool_choice = %s, want %s", gotJSON, wantJSON)
 			}
 		})
+	}
+}
+
+func TestClaudeToolProvider_PredictStreamWithTools_Retries503(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := atomic.AddInt32(&attempts, 1)
+		if attempt == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error": {"type": "overloaded_error", "message": "overloaded"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		_, _ = w.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider("test", "claude-sonnet-4-20250514", server.URL, providers.ProviderDefaults{}, false)
+	provider.SetStreamRetryPolicy(providers.StreamRetryPolicy{
+		Enabled:     true,
+		MaxAttempts: 3,
+	})
+
+	stream, err := provider.PredictStreamWithTools(
+		context.Background(),
+		providers.PredictionRequest{
+			Messages: []types.Message{{Role: "user", Content: "test"}},
+		}, nil, "auto",
+	)
+	if err != nil {
+		t.Fatalf("Expected retry to succeed, got: %v", err)
+	}
+
+	var lastChunk providers.StreamChunk
+	for chunk := range stream {
+		lastChunk = chunk
+	}
+	if lastChunk.Content == "" {
+		t.Error("Expected content from retried stream")
+	}
+	if atomic.LoadInt32(&attempts) < 2 {
+		t.Errorf("Expected at least 2 attempts, got %d", attempts)
 	}
 }

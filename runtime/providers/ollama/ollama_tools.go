@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -322,6 +323,12 @@ func (p *ToolProvider) PredictStreamWithTools(
 	tools any,
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
+	// Enrich context with provider and model info for logging
+	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
+		Provider: p.ID(),
+		Model:    p.model,
+	})
+
 	// Build Ollama request with tools (same as non-streaming)
 	ollamaReq := p.buildToolRequest(req, tools, toolChoice)
 
@@ -334,32 +341,30 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Make HTTP request
+	// Ollama in PromptKit uses the OpenAI-compatible
+	// /v1/chat/completions endpoint which speaks SSE, so the default
+	// FrameDetector (SSE) applies — no override needed.
 	url := p.baseURL + ollamaChatCompletionsPath
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		httpReq.Header.Set("Accept", "text/event-stream")
+		// Ollama doesn't require Authorization header.
+		return httpReq, nil
 	}
 
-	// Ollama doesn't require Authorization header
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
-	}
-
-	if err := providers.CheckHTTPError(resp, url); err != nil {
-		_ = resp.Body.Close()
-		return nil, err
-	}
-
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-
-	go p.streamResponse(ctx, resp.Body, outChan)
-
-	return outChan, nil
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:       p.StreamRetryPolicy(),
+		Budget:       p.StreamRetryBudget(),
+		ProviderName: p.ID(),
+		Host:         providers.HostFromURL(url),
+		IdleTimeout:  p.StreamIdleTimeout(),
+		RequestFn:    requestFn,
+		Client:       p.GetStreamingHTTPClient(),
+	}, p.streamResponse)
 }
 
 //nolint:gochecknoinits // Factory registration requires init

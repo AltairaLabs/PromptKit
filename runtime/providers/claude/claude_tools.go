@@ -613,38 +613,36 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := p.messagesURL()
-
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set(apiKeyHeader, p.apiKey)
-	httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body := providers.ReadErrorBody(resp.Body)
-		_ = resp.Body.Close()
-		return nil, &providers.ProviderHTTPError{
-			StatusCode: resp.StatusCode, URL: url,
-			Body: string(body), Provider: p.ID(),
+	// Direct API: wire through RunStreamingRequest so retries, budget,
+	// semaphore, and metrics all work the same as the Bedrock path.
+	url := p.messagesStreamURL()
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+		httpReq.Header.Set("Accept", "text/event-stream")
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		return httpReq, nil
 	}
 
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	idleBody := providers.NewIdleTimeoutReader(resp.Body, p.StreamIdleTimeout())
-	scanner := providers.NewSSEScanner(idleBody)
-	go p.streamResponse(ctx, idleBody, scanner, outChan)
-
-	return outChan, nil
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:       p.StreamRetryPolicy(),
+		Budget:       p.StreamRetryBudget(),
+		ProviderName: p.ID(),
+		Host:         providers.HostFromURL(url),
+		IdleTimeout:  p.StreamIdleTimeout(),
+		RequestFn:    requestFn,
+		Client:       p.GetStreamingHTTPClient(),
+	}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
+		scanner := providers.NewSSEScanner(idleBody)
+		p.streamResponse(ctx, idleBody, scanner, outChan)
+	})
 }
 
 //nolint:gochecknoinits // Factory registration requires init

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -538,6 +539,52 @@ func TestGeminiToolProvider_PredictStreamWithTools_HTTPError(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("Expected error for HTTP 500")
+	}
+}
+
+func TestGeminiToolProvider_PredictStreamWithTools_Retries503(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := atomic.AddInt32(&attempts, 1)
+		if attempt == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error": {"code": 503, "message": "overloaded"}}`))
+			return
+		}
+		// Second attempt succeeds with a valid Gemini JSON array response
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"candidates":[{"content":{"parts":[{"text":"hello"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}]`))
+	}))
+	defer server.Close()
+
+	geminiProvider := NewProvider("test", "gemini-2.0-flash", server.URL, providers.ProviderDefaults{}, false)
+	geminiProvider.SetStreamRetryPolicy(providers.StreamRetryPolicy{
+		Enabled:     true,
+		MaxAttempts: 3,
+	})
+	provider := &ToolProvider{Provider: geminiProvider}
+
+	ctx := context.Background()
+	stream, err := provider.PredictStreamWithTools(ctx, providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "test"}},
+	}, nil, "auto")
+
+	if err != nil {
+		t.Fatalf("Expected retry to succeed, got error: %v", err)
+	}
+
+	// Drain the stream
+	var lastChunk providers.StreamChunk
+	for chunk := range stream {
+		lastChunk = chunk
+	}
+
+	if lastChunk.Content == "" {
+		t.Error("Expected content from retried stream")
+	}
+
+	if atomic.LoadInt32(&attempts) < 2 {
+		t.Errorf("Expected at least 2 attempts (1 fail + 1 success), got %d", attempts)
 	}
 }
 
