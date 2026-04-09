@@ -47,8 +47,9 @@ spec:
     # GPT-4o Audio models - Require audio in input/output, audio-only capability
     - file: providers/openai-gpt4o-audio.provider.yaml
       group: audio
-    - file: providers/openai-gpt4o-mini-audio.provider.yaml
-      group: audio
+    # gpt-4o-mini-audio-preview removed: model refuses audio input despite the
+    # model name (responds "I'm unable to process audio"). Confirmed via
+    # integration test — audio tokens are counted but model declines to process.
 
     # o-series reasoning models (use max_completion_tokens, no temperature/top_p)
     - file: providers/openai-o1.provider.yaml

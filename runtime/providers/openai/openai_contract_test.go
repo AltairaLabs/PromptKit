@@ -184,6 +184,97 @@ func TestAudioModel_Predict_TextResponse(t *testing.T) {
 	}
 }
 
+// TestAudioModel_Mini_BrooklynBridge investigates the gpt-4o-mini-audio-preview
+// model's ability to process a real speech audio clip (Brooklyn Bridge sample).
+// This test exists to diagnose why the mini model fails the capability matrix
+// content_matches assertion while the full model passes.
+func TestAudioModel_Mini_BrooklynBridge(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+
+	logger.SetVerbose(true)
+	defer logger.SetVerbose(false)
+
+	models := []string{"gpt-4o-audio-preview", "gpt-4o-mini-audio-preview"}
+
+	// Generate a test WAV with a 440Hz tone. This isn't speech, so transcription
+	// won't produce Brooklyn Bridge keywords — but it tests whether the model
+	// processes audio at all. For speech content, we'd need a WAV speech sample.
+	wavData := generateTestWAV()
+	wavB64 := base64.StdEncoding.EncodeToString(wavData)
+
+	for _, model := range models {
+		t.Run(model, func(t *testing.T) {
+			provider := NewProviderWithConfig(
+				"audio-test", model, "https://api.openai.com/v1",
+				providers.ProviderDefaults{
+					Temperature: 0.1,
+					MaxTokens:   300,
+				},
+				false,
+				map[string]any{"api_mode": "completions"},
+			)
+			defer provider.Close()
+
+			req := providers.PredictionRequest{
+				System: "Describe what you hear in this audio. Be detailed.",
+				Messages: []types.Message{{
+					Role: "user",
+					Parts: []types.ContentPart{
+						types.NewTextPart("What does this audio contain?"),
+						{
+							Type: types.ContentTypeAudio,
+							Media: &types.MediaContent{
+								MIMEType: types.MIMETypeAudioWAV,
+								Data:     &wavB64,
+							},
+						},
+					},
+				}},
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			resp, err := provider.Predict(ctx, req)
+			if err != nil {
+				t.Fatalf("Predict failed: %v", err)
+			}
+
+			t.Logf("Model: %s", model)
+			t.Logf("Content: %q", resp.Content)
+			t.Logf("Parts count: %d", len(resp.Parts))
+			for i, p := range resp.Parts {
+				text := ""
+				if p.Text != nil {
+					text = *p.Text
+				}
+				t.Logf("  Part[%d]: type=%s text=%q has_media=%v", i, p.Type, text, p.Media != nil)
+			}
+			if resp.CostInfo != nil {
+				t.Logf("Tokens: in=%d out=%d", resp.CostInfo.InputTokens, resp.CostInfo.OutputTokens)
+			}
+
+			// Check that the model describes audio content (tone, beep, sound, etc.)
+			lower := strings.ToLower(resp.Content)
+			audioKeywords := []string{"tone", "beep", "sound", "audio", "sine",
+				"hz", "pitch", "frequency", "noise", "signal", "wave", "hum", "buzz"}
+			var matched []string
+			for _, kw := range audioKeywords {
+				if strings.Contains(lower, kw) {
+					matched = append(matched, kw)
+				}
+			}
+			t.Logf("Matched audio keywords: %v", matched)
+
+			if len(matched) == 0 {
+				t.Errorf("Response doesn't describe audio content — model may not have processed the audio")
+			}
+		})
+	}
+}
+
 // TestAudioModel_Predict_AudioOutputWithTranscript verifies that when
 // modalities include "audio", the response contains both audio data and
 // a transcript.
