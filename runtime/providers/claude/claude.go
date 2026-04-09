@@ -153,7 +153,7 @@ func (p *Provider) makeBedrockStreamingRequest(
 
 	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -405,7 +405,7 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		predictResp.Latency = time.Since(start)
-		return nil, predictResp, fmt.Errorf("failed to send request: %w", err)
+		return nil, predictResp, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 	defer resp.Body.Close()
 
@@ -428,8 +428,10 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 		if p.isBedrock() {
 			return nil, predictResp, parseBedrockHTTPError(resp.StatusCode, respBody)
 		}
-		return nil, predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
-			url, resp.StatusCode, string(respBody))
+		return nil, predictResp, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: url,
+			Body: string(respBody), Provider: p.ID(),
+		}
 	}
 
 	// Bedrock can return HTTP 200 with an error in the body (e.g. UnknownOperationException)

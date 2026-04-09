@@ -550,9 +550,10 @@ func (p *Provider) predictWithMessages(
 	if statusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
-		return predictResp, fmt.Errorf(
-			"ollama API request to %s failed with status %d: %s", url, statusCode, string(respBody),
-		)
+		return predictResp, &providers.ProviderHTTPError{
+			StatusCode: statusCode, URL: url,
+			Body: string(respBody), Provider: p.ID(),
+		}
 	}
 
 	var ollamaResp ollamaResponse

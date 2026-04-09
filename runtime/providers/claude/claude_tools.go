@@ -532,7 +532,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 	defer resp.Body.Close()
 
@@ -545,8 +545,10 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		if p.isBedrock() {
 			return nil, parseBedrockHTTPError(resp.StatusCode, respBody)
 		}
-		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
-			url, resp.StatusCode, string(respBody))
+		return nil, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: url,
+			Body: string(respBody), Provider: p.ID(),
+		}
 	}
 
 	// Check for Bedrock body errors (e.g. UnknownOperationException on HTTP 200)
@@ -625,13 +627,16 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		body := providers.ReadErrorBody(resp.Body)
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("API request to %s failed with status %d: %s", url, resp.StatusCode, string(body))
+		return nil, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: url,
+			Body: string(body), Provider: p.ID(),
+		}
 	}
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)

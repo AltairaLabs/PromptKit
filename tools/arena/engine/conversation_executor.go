@@ -462,15 +462,27 @@ func (ce *DefaultConversationExecutor) executeScriptedTurn(ctx context.Context, 
 func (ce *DefaultConversationExecutor) handleTurnExecutionError(
 	ctx context.Context, req *ConversationRequest, err error, turnIdx int, scenarioTurn config.TurnDefinition,
 ) *ConversationResult {
-	logger.Error("Turn execution failed",
-		"turn", turnIdx,
-		"role", scenarioTurn.Role,
-		"streaming", req.Scenario.ShouldStreamTurn(turnIdx),
-		"error", err)
-
 	result := ce.buildResultFromStateStore(ctx, req)
-	result.Failed = true
-	result.Error = err.Error()
+
+	if providers.IsTransient(err) {
+		logger.Warn("Turn skipped (transient provider error)",
+			"turn", turnIdx,
+			"role", scenarioTurn.Role,
+			"error", err)
+		result.Failed = false
+		result.Error = ""
+		result.Skipped = true
+		result.SkipReason = err.Error()
+	} else {
+		logger.Error("Turn execution failed",
+			"turn", turnIdx,
+			"role", scenarioTurn.Role,
+			"streaming", req.Scenario.ShouldStreamTurn(turnIdx),
+			"error", err)
+		result.Failed = true
+		result.Error = err.Error()
+	}
+
 	return result
 }
 

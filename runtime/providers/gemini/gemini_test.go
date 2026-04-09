@@ -746,7 +746,7 @@ func TestPredictStream_InvalidURL(t *testing.T) {
 	}
 
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "failed to create request") && !strings.Contains(errMsg, "failed to send request") {
+	if !strings.Contains(errMsg, "failed to create request") && !strings.Contains(errMsg, "provider transport error") {
 		t.Errorf("expected request creation/send error, got: %v", err)
 	}
 }

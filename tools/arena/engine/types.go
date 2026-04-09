@@ -51,6 +51,8 @@ type RunResult struct {
 	EndTime    time.Time               `json:"EndTime"`
 	Duration   time.Duration           `json:"Duration"`
 	Error      string                  `json:"Error"`
+	Skipped    bool                    `json:"Skipped,omitempty"`
+	SkipReason string                  `json:"SkipReason,omitempty"`
 	SelfPlay   bool                    `json:"SelfPlay"`
 	PersonaID  string                  `json:"PersonaID"`
 

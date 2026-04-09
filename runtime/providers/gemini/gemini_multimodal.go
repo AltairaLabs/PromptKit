@@ -233,8 +233,10 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 		if p.platform != "" {
 			return predictResp, providers.ParsePlatformHTTPError(p.platform, statusCode, respBody)
 		}
-		return predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
-			logger.RedactSensitiveData(url), statusCode, string(respBody))
+		return predictResp, &providers.ProviderHTTPError{
+			StatusCode: statusCode, URL: logger.RedactSensitiveData(url),
+			Body: string(respBody), Provider: p.ID(),
+		}
 	}
 
 	// Parse and validate response
@@ -342,7 +344,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 
 	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -351,8 +353,10 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 		if p.platform != "" {
 			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
 		}
-		return nil, fmt.Errorf("API request to %s failed with status %d: %s",
-			logger.RedactSensitiveData(url), resp.StatusCode, string(body))
+		return nil, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: logger.RedactSensitiveData(url),
+			Body: string(body), Provider: p.ID(),
+		}
 	}
 
 	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)

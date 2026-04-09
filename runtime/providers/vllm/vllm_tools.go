@@ -140,12 +140,14 @@ func (p *Provider) PredictWithTools( // NOSONAR
 
 	// Check for HTTP errors
 	if httpResp.StatusCode != http.StatusOK {
+		url := p.baseURL + "/v1/chat/completions"
+		body := string(respBody)
 		var apiErr vllmErrorResponse
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
-			return providers.PredictionResponse{}, nil, fmt.Errorf("vLLM API error: %s", apiErr.Error.Message)
+			body = apiErr.Error.Message
 		}
 		return providers.PredictionResponse{}, nil,
-			fmt.Errorf("vLLM API error: HTTP %d: %s", httpResp.StatusCode, string(respBody))
+			&providers.ProviderHTTPError{StatusCode: httpResp.StatusCode, URL: url, Body: body, Provider: p.ID()}
 	}
 
 	// Parse response
@@ -246,11 +248,13 @@ func (p *Provider) PredictStreamWithTools(
 	if httpResp.StatusCode != http.StatusOK {
 		defer httpResp.Body.Close()
 		respBody, _ := io.ReadAll(httpResp.Body)
+		url := p.baseURL + "/v1/chat/completions"
+		body := string(respBody)
 		var apiErr vllmErrorResponse
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
-			return nil, fmt.Errorf("vLLM API error: %s", apiErr.Error.Message)
+			body = apiErr.Error.Message
 		}
-		return nil, fmt.Errorf("vLLM API error: HTTP %d: %s", httpResp.StatusCode, string(respBody))
+		return nil, &providers.ProviderHTTPError{StatusCode: httpResp.StatusCode, URL: url, Body: body, Provider: p.ID()}
 	}
 
 	// Create output channel

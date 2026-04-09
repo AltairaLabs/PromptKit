@@ -375,7 +375,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	if err != nil {
 		logger.APIResponse("Gemini", 0, "", err)
 		predictResp.Latency = time.Since(start)
-		return nil, predictResp, fmt.Errorf("failed to send request: %w", err)
+		return nil, predictResp, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 	defer resp.Body.Close()
 
@@ -395,8 +395,10 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 		if p.platform != "" {
 			return nil, predictResp, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
 		}
-		return nil, predictResp, fmt.Errorf("API request to %s failed with status %d: %s",
-			logger.RedactSensitiveData(url), resp.StatusCode, string(respBody))
+		return nil, predictResp, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: logger.RedactSensitiveData(url),
+			Body: string(respBody), Provider: p.ID(),
+		}
 	}
 
 	return respBody, predictResp, nil

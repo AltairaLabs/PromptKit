@@ -552,7 +552,7 @@ func (p *ToolProvider) predictStreamWithCompletions(
 
 	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
 
 	if err := providers.CheckHTTPError(resp, url); err != nil {

@@ -108,4 +108,7 @@ type ConversationResult struct {
 	// Error handling
 	Error  string `json:"error,omitempty"`  // Error message if execution failed
 	Failed bool   `json:"failed,omitempty"` // Whether execution failed (but partial results may be available)
+
+	Skipped    bool   `json:"skipped,omitempty"`     // Whether execution was skipped due to transient provider error
+	SkipReason string `json:"skip_reason,omitempty"` // Reason for skipping
 }

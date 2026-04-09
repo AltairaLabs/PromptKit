@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -116,7 +115,9 @@ func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*
 		}
 
 		resp, doErr := req.Client.Do(httpReq)
-		result, retry, classifyErr := classifyStreamAttempt(resp, doErr, req.IdleTimeout, req.FrameDetector)
+		result, retry, classifyErr := classifyStreamAttempt(
+			resp, doErr, req.IdleTimeout, req.FrameDetector, req.ProviderName, req.Host,
+		)
 		if result != nil {
 			result.Attempts = attempt + 1
 			metrics.ObserveFirstChunkLatency(req.ProviderName, time.Since(start))
@@ -186,20 +187,25 @@ func classifyStreamAttempt(
 	doErr error,
 	idleTimeout time.Duration,
 	detector FrameDetector,
+	providerName string,
+	url string,
 ) (result *StreamRetryResult, retry bool, err error) {
 	if doErr != nil {
-		return nil, IsRetryableStreamError(doErr), doErr
+		transportErr := &ProviderTransportError{Cause: doErr, Provider: providerName}
+		return nil, IsTransient(transportErr), transportErr
 	}
 
 	// Non-200 responses: close the body and decide based on status.
 	if resp.StatusCode != http.StatusOK {
 		defer func() { _ = resp.Body.Close() }()
 		body := ReadErrorBody(resp.Body)
-		httpErr := fmt.Errorf(
-			"API request failed with status %d: %s",
-			resp.StatusCode, string(body),
-		)
-		return nil, IsRetryableStreamStatus(resp.StatusCode), httpErr
+		httpErr := &ProviderHTTPError{
+			StatusCode: resp.StatusCode,
+			URL:        url,
+			Body:       string(body),
+			Provider:   providerName,
+		}
+		return nil, IsTransient(httpErr), httpErr
 	}
 
 	// Wrap the response body with an idle-timeout reader for the peek
@@ -220,7 +226,8 @@ func classifyStreamAttempt(
 	buffered, peekErr := detector.PeekFirstFrame(peekReader)
 	if peekErr != nil {
 		_ = resp.Body.Close()
-		return nil, IsRetryableStreamError(peekErr), peekErr
+		transportErr := &ProviderTransportError{Cause: peekErr, Provider: providerName}
+		return nil, IsTransient(transportErr), transportErr
 	}
 
 	wrapped := &replayReadCloser{
