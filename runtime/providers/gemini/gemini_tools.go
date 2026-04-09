@@ -622,34 +622,25 @@ func (p *ToolProvider) PredictStreamWithTools(
 		p.baseURL, p.model, p.apiKey,
 	)
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body := providers.ReadErrorBody(resp.Body)
-		_ = resp.Body.Close()
-		if p.platform != "" {
-			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
-		return nil, &providers.ProviderHTTPError{
-			StatusCode: resp.StatusCode, URL: logger.RedactSensitiveData(url),
-			Body: string(body), Provider: p.ID(),
-		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		return httpReq, nil
 	}
 
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-	go p.streamResponse(ctx, resp.Body, outChan)
-
-	return outChan, nil
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:        p.StreamRetryPolicy(),
+		Budget:        p.StreamRetryBudget(),
+		ProviderName:  p.ID(),
+		Host:          providers.HostFromURL(url),
+		IdleTimeout:   p.StreamIdleTimeout(),
+		RequestFn:     requestFn,
+		Client:        p.GetStreamingHTTPClient(),
+		FrameDetector: providers.JSONArrayFrameDetector{},
+	}, p.streamResponse)
 }
 
 // Ensure ToolProvider implements StreamInputSupport by forwarding to embedded Provider

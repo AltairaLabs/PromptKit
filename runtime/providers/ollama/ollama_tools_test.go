@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -621,5 +622,53 @@ func TestToolProvider_PredictStreamWithTools_Error(t *testing.T) {
 
 	if err == nil {
 		t.Error("Expected error for server error")
+	}
+}
+
+func TestToolProvider_PredictStreamWithTools_Retries503(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := atomic.AddInt32(&attempts, 1)
+		if attempt == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error": "overloaded"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		_, _ = w.Write([]byte("data: " + `{"choices":[{"delta":{"content":"hello"},"finish_reason":null}]}` + "\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("data: " + `{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}` + "\n\n"))
+		flusher.Flush()
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	provider := NewToolProvider("test", "llama3", server.URL+"/api", providers.ProviderDefaults{}, false, nil)
+	provider.SetStreamRetryPolicy(providers.StreamRetryPolicy{
+		Enabled:     true,
+		MaxAttempts: 3,
+	})
+
+	stream, err := provider.PredictStreamWithTools(
+		context.Background(),
+		providers.PredictionRequest{
+			Messages: []types.Message{{Role: "user", Content: "test"}},
+		}, nil, "auto",
+	)
+	if err != nil {
+		t.Fatalf("Expected retry to succeed, got: %v", err)
+	}
+
+	var lastChunk providers.StreamChunk
+	for chunk := range stream {
+		lastChunk = chunk
+	}
+	if lastChunk.Content == "" {
+		t.Error("Expected content from retried stream")
+	}
+	if atomic.LoadInt32(&attempts) < 2 {
+		t.Errorf("Expected at least 2 attempts, got %d", attempts)
 	}
 }
