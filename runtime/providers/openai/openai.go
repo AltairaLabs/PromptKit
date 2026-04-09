@@ -1001,4 +1001,13 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 	}, p.streamResponse)
 }
 
-// SupportsStreaming is provided by BaseProvider (returns true)
+// SupportsStreaming returns false for audio models on the Completions API
+// because the Chat Completions streaming delta does not include audio data.
+// Audio models only support non-streaming responses (Predict) or the Realtime
+// API for bidirectional audio.
+func (p *Provider) SupportsStreaming() bool {
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) {
+		return false
+	}
+	return true
+}

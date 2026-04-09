@@ -881,13 +881,37 @@ func TestExtractContentString(t *testing.T) {
 }
 
 func TestSupportsStreaming(t *testing.T) {
-	provider := &Provider{
-		BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
-	}
+	t.Run("regular model supports streaming", func(t *testing.T) {
+		provider := &Provider{
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
+			model:        "gpt-4o",
+		}
+		if !provider.SupportsStreaming() {
+			t.Error("Expected regular model to support streaming")
+		}
+	})
 
-	if !provider.SupportsStreaming() {
-		t.Error("Expected OpenAI provider to support streaming")
-	}
+	t.Run("audio model on completions does not support streaming", func(t *testing.T) {
+		provider := &Provider{
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
+			model:        "gpt-4o-audio-preview",
+			apiMode:      APIModeCompletions,
+		}
+		if provider.SupportsStreaming() {
+			t.Error("Expected audio model on completions to not support streaming")
+		}
+	})
+
+	t.Run("audio model on responses supports streaming", func(t *testing.T) {
+		provider := &Provider{
+			BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
+			model:        "gpt-4o-audio-preview",
+			apiMode:      APIModeResponses,
+		}
+		if !provider.SupportsStreaming() {
+			t.Error("Expected audio model on responses to support streaming")
+		}
+	})
 }
 
 func TestOpenAIProvider_Model(t *testing.T) {
