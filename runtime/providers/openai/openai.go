@@ -252,25 +252,13 @@ func getAudioModalities(additionalConfig map[string]any) []string {
 // defaultAudioVoice is the default voice for OpenAI audio output.
 const defaultAudioVoice = "alloy"
 
-// getAudioVoice returns the voice setting from additional_config.
-// Defaults to "alloy" when not configured.
-func getAudioVoice(additionalConfig map[string]any) string {
-	if additionalConfig == nil {
-		return defaultAudioVoice
-	}
-	if v, ok := additionalConfig["voice"].(string); ok && v != "" {
-		return v
-	}
-	return defaultAudioVoice
-}
-
-// getAudioOutputFormat returns the audio output format from additional_config.
-// Defaults to the provided fallback when not configured.
-func getAudioOutputFormat(additionalConfig map[string]any, fallback string) string {
+// getStringConfigOrDefault returns the value of key from additionalConfig if
+// it is a non-empty string, otherwise returns fallback.
+func getStringConfigOrDefault(additionalConfig map[string]any, key, fallback string) string {
 	if additionalConfig == nil {
 		return fallback
 	}
-	if v, ok := additionalConfig["audio_format"].(string); ok && v != "" {
+	if v, ok := additionalConfig[key].(string); ok && v != "" {
 		return v
 	}
 	return fallback
@@ -297,8 +285,8 @@ func applyAudioModalities(openAIReq map[string]interface{}, additionalConfig map
 	openAIReq["modalities"] = modalities
 	if hasModality(modalities, "audio") {
 		openAIReq["audio"] = map[string]interface{}{
-			"voice":  getAudioVoice(additionalConfig),
-			"format": getAudioOutputFormat(additionalConfig, formatFallback),
+			"voice":  getStringConfigOrDefault(additionalConfig, "voice", defaultAudioVoice),
+			"format": getStringConfigOrDefault(additionalConfig, "audio_format", formatFallback),
 		}
 	}
 }

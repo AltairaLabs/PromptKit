@@ -1622,42 +1622,25 @@ func TestGetAudioModalities(t *testing.T) {
 	}
 }
 
-func TestGetAudioVoice(t *testing.T) {
-	tests := []struct {
-		name   string
-		config map[string]any
-		want   string
-	}{
-		{"nil config", nil, "alloy"},
-		{"missing key", map[string]any{}, "alloy"},
-		{"empty string", map[string]any{"voice": ""}, "alloy"},
-		{"custom voice", map[string]any{"voice": "nova"}, "nova"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := getAudioVoice(tt.config); got != tt.want {
-				t.Errorf("getAudioVoice() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGetAudioOutputFormat(t *testing.T) {
+func TestGetStringConfigOrDefault(t *testing.T) {
 	tests := []struct {
 		name     string
 		config   map[string]any
+		key      string
 		fallback string
 		want     string
 	}{
-		{"nil config", nil, "wav", "wav"},
-		{"missing key", map[string]any{}, "pcm16", "pcm16"},
-		{"empty string", map[string]any{"audio_format": ""}, "wav", "wav"},
-		{"custom format", map[string]any{"audio_format": "mp3"}, "wav", "mp3"},
+		{"nil config", nil, "voice", "alloy", "alloy"},
+		{"missing key", map[string]any{}, "voice", "alloy", "alloy"},
+		{"empty string", map[string]any{"voice": ""}, "voice", "alloy", "alloy"},
+		{"custom value", map[string]any{"voice": "nova"}, "voice", "alloy", "nova"},
+		{"audio_format fallback", map[string]any{}, "audio_format", "pcm16", "pcm16"},
+		{"audio_format custom", map[string]any{"audio_format": "mp3"}, "audio_format", "wav", "mp3"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := getAudioOutputFormat(tt.config, tt.fallback); got != tt.want {
-				t.Errorf("getAudioOutputFormat() = %q, want %q", got, tt.want)
+			if got := getStringConfigOrDefault(tt.config, tt.key, tt.fallback); got != tt.want {
+				t.Errorf("getStringConfigOrDefault() = %q, want %q", got, tt.want)
 			}
 		})
 	}
