@@ -352,9 +352,17 @@ type openAIJSONSchema struct {
 	Strict bool        `json:"strict,omitempty"`
 }
 
+type openAIAudioResponse struct {
+	ID         string `json:"id"`
+	Data       string `json:"data"`
+	Transcript string `json:"transcript"`
+	ExpiresAt  int64  `json:"expires_at"`
+}
+
 type openAIMessage struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"` // Can be string or []interface{} for multimodal
+	Role    string               `json:"role"`
+	Content interface{}          `json:"content"` // Can be string or []interface{} for multimodal
+	Audio   *openAIAudioResponse `json:"audio,omitempty"`
 }
 
 type openAIResponse struct {
@@ -922,9 +930,21 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 
 	// Extract content - can be string or array of content parts
 	content := extractContentString(openAIResp.Choices[0].Message.Content)
+	parts := extractContentParts(openAIResp.Choices[0].Message.Content)
+
+	if audio := openAIResp.Choices[0].Message.Audio; audio != nil {
+		if audio.Transcript != "" {
+			content = audio.Transcript
+			parts = append(parts, types.NewTextPart(audio.Transcript))
+		}
+		if audio.Data != "" {
+			audioFormat := getStringConfigOrDefault(p.additionalConfig, "audio_format", "wav")
+			parts = append(parts, types.NewAudioPartFromData(audio.Data, audioFormatToMIME(audioFormat)))
+		}
+	}
 
 	predictResp.Content = content
-	predictResp.Parts = extractContentParts(openAIResp.Choices[0].Message.Content)
+	predictResp.Parts = parts
 	predictResp.CostInfo = &costBreakdown
 	predictResp.Latency = latency
 	predictResp.Raw = respBody

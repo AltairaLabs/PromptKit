@@ -8,6 +8,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const audioPCM16Format = "pcm16"
+
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	caps := providers.MultimodalCapabilities{
@@ -216,6 +218,27 @@ func getAudioFormat(mimeType string) string {
 		return "mp3"
 	default:
 		return ""
+	}
+}
+
+// audioFormatToMIME maps an OpenAI audio format string (from the audio.format
+// request parameter or response) to a MIME type.
+func audioFormatToMIME(format string) string {
+	switch format {
+	case "wav":
+		return types.MIMETypeAudioWAV
+	case "mp3":
+		return types.MIMETypeAudioMP3
+	case audioPCM16Format:
+		return "audio/pcm"
+	case "aac":
+		return "audio/aac"
+	case "flac":
+		return "audio/flac"
+	case "opus":
+		return "audio/opus"
+	default:
+		return "application/octet-stream"
 	}
 }
 

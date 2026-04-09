@@ -1217,3 +1217,26 @@ func TestOpenAIProvider_APIMode_Configuration(t *testing.T) {
 		})
 	}
 }
+
+func TestAudioFormatToMIME(t *testing.T) {
+	tests := []struct {
+		format string
+		want   string
+	}{
+		{"wav", types.MIMETypeAudioWAV},
+		{"mp3", types.MIMETypeAudioMP3},
+		{"pcm16", "audio/pcm"},
+		{"aac", "audio/aac"},
+		{"flac", "audio/flac"},
+		{"opus", "audio/opus"},
+		{"unknown", "application/octet-stream"},
+		{"", "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			if got := audioFormatToMIME(tt.format); got != tt.want {
+				t.Errorf("audioFormatToMIME(%q) = %q, want %q", tt.format, got, tt.want)
+			}
+		})
+	}
+}

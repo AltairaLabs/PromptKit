@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1193,5 +1194,51 @@ func TestPredictStreamWithTools_AudioFormat_PCM16(t *testing.T) {
 	}
 	if format, _ := audioCfg["format"].(string); format != "pcm16" {
 		t.Errorf("streaming tool-request audio.format = %q, want pcm16", format)
+	}
+}
+
+func TestParseToolResponse_AudioResponse(t *testing.T) {
+	audioB64 := base64.StdEncoding.EncodeToString([]byte("fake-wav-data"))
+	respJSON := fmt.Sprintf(`{
+		"choices":[{
+			"message":{
+				"role":"assistant",
+				"content":null,
+				"audio":{
+					"id":"audio_456",
+					"data":"%s",
+					"transcript":"Tool response with audio",
+					"expires_at":1700000000
+				}
+			}
+		}],
+		"usage":{"prompt_tokens":10,"completion_tokens":5}
+	}`, audioB64)
+
+	provider := NewToolProvider(
+		"test", "gpt-4o-audio-preview", "http://localhost",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions", "audio_format": "wav"}, nil,
+	)
+
+	resp, toolCalls, err := provider.parseToolResponse([]byte(respJSON))
+	if err != nil {
+		t.Fatalf("parseToolResponse failed: %v", err)
+	}
+	if len(toolCalls) != 0 {
+		t.Errorf("expected no tool calls, got %d", len(toolCalls))
+	}
+	if resp.Content != "Tool response with audio" {
+		t.Errorf("Content = %q, want transcript", resp.Content)
+	}
+
+	var foundAudio bool
+	for _, p := range resp.Parts {
+		if p.Type == types.ContentTypeAudio && p.Media != nil && p.Media.Data != nil && *p.Media.Data == audioB64 {
+			foundAudio = true
+		}
+	}
+	if !foundAudio {
+		t.Error("expected an audio part in response")
 	}
 }

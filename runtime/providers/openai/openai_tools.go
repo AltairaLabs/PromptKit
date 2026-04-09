@@ -429,8 +429,9 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 	var openaiResp struct {
 		Choices []struct {
 			Message struct {
-				Content   string           `json:"content"`
-				ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+				Content   string               `json:"content"`
+				Audio     *openAIAudioResponse `json:"audio,omitempty"`
+				ToolCalls []openAIToolCall     `json:"tool_calls,omitempty"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
@@ -465,6 +466,17 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 		Content:  choice.Message.Content,
 		CostInfo: &costBreakdown,
 		Raw:      respBytes,
+	}
+
+	if audio := choice.Message.Audio; audio != nil {
+		if audio.Transcript != "" {
+			resp.Content = audio.Transcript
+			resp.Parts = append(resp.Parts, types.NewTextPart(audio.Transcript))
+		}
+		if audio.Data != "" {
+			audioFormat := getStringConfigOrDefault(p.additionalConfig, "audio_format", "wav")
+			resp.Parts = append(resp.Parts, types.NewAudioPartFromData(audio.Data, audioFormatToMIME(audioFormat)))
+		}
 	}
 
 	// Extract tool calls
