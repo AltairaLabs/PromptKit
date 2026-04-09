@@ -1529,6 +1529,71 @@ func TestPredictStream_AudioModel_NoModalitiesConfig(t *testing.T) {
 	}
 }
 
+func TestApplyAudioModalities(t *testing.T) {
+	tests := []struct {
+		name           string
+		config         map[string]any
+		fallback       string
+		wantMods       []any
+		wantAudioBlock bool
+		wantVoice      string
+		wantFormat     string
+	}{
+		{
+			name:           "nil modalities defaults to text only",
+			config:         nil,
+			fallback:       "wav",
+			wantMods:       []any{"text"},
+			wantAudioBlock: false,
+		},
+		{
+			name:           "text+audio includes audio block",
+			config:         map[string]any{"modalities": []any{"text", "audio"}, "voice": "nova", "audio_format": "mp3"},
+			fallback:       "wav",
+			wantMods:       []any{"text", "audio"},
+			wantAudioBlock: true,
+			wantVoice:      "nova",
+			wantFormat:     "mp3",
+		},
+		{
+			name:           "text+audio uses fallback format",
+			config:         map[string]any{"modalities": []any{"text", "audio"}},
+			fallback:       "pcm16",
+			wantMods:       []any{"text", "audio"},
+			wantAudioBlock: true,
+			wantVoice:      "alloy",
+			wantFormat:     "pcm16",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := map[string]interface{}{}
+			applyAudioModalities(req, tt.config, tt.fallback)
+
+			mods, ok := req["modalities"].([]string)
+			if !ok {
+				t.Fatalf("modalities not set or wrong type")
+			}
+			if len(mods) != len(tt.wantMods) {
+				t.Fatalf("modalities = %v, want %v", mods, tt.wantMods)
+			}
+
+			audioCfg, hasAudio := req["audio"].(map[string]interface{})
+			if hasAudio != tt.wantAudioBlock {
+				t.Fatalf("audio block present = %v, want %v", hasAudio, tt.wantAudioBlock)
+			}
+			if tt.wantAudioBlock {
+				if audioCfg["voice"] != tt.wantVoice {
+					t.Errorf("voice = %v, want %v", audioCfg["voice"], tt.wantVoice)
+				}
+				if audioCfg["format"] != tt.wantFormat {
+					t.Errorf("format = %v, want %v", audioCfg["format"], tt.wantFormat)
+				}
+			}
+		})
+	}
+}
+
 func TestGetAudioModalities(t *testing.T) {
 	tests := []struct {
 		name   string

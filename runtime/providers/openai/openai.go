@@ -286,6 +286,23 @@ func hasModality(modalities []string, target string) bool {
 	return false
 }
 
+// applyAudioModalities sets the "modalities" and optional "audio" fields on
+// an OpenAI request map. formatFallback is used when additional_config does
+// not specify audio_format (e.g. "wav" for non-streaming, "pcm16" for streaming).
+func applyAudioModalities(openAIReq map[string]interface{}, additionalConfig map[string]any, formatFallback string) {
+	modalities := getAudioModalities(additionalConfig)
+	if modalities == nil {
+		modalities = []string{"text"}
+	}
+	openAIReq["modalities"] = modalities
+	if hasModality(modalities, "audio") {
+		openAIReq["audio"] = map[string]interface{}{
+			"voice":  getAudioVoice(additionalConfig),
+			"format": getAudioOutputFormat(additionalConfig, formatFallback),
+		}
+	}
+}
+
 // applyAuth applies authentication to an HTTP request.
 func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 	if p.credential != nil {
@@ -825,17 +842,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 
 	// Apply audio output modalities from additional_config for audio models.
 	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		modalities := getAudioModalities(p.additionalConfig)
-		if modalities == nil {
-			modalities = []string{"text"}
-		}
-		openAIReq["modalities"] = modalities
-		if hasModality(modalities, "audio") {
-			openAIReq["audio"] = map[string]interface{}{
-				"voice":  getAudioVoice(p.additionalConfig),
-				"format": getAudioOutputFormat(p.additionalConfig, "wav"),
-			}
-		}
+		applyAudioModalities(openAIReq, p.additionalConfig, "wav")
 	}
 
 	// Add max tokens with the correct parameter name for the model type
@@ -963,17 +970,7 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 	// Apply audio output modalities from additional_config for audio models.
 	// When stream=true, OpenAI only supports "pcm16" for audio.format.
 	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
-		modalities := getAudioModalities(p.additionalConfig)
-		if modalities == nil {
-			modalities = []string{"text"}
-		}
-		openAIReq["modalities"] = modalities
-		if hasModality(modalities, "audio") {
-			openAIReq["audio"] = map[string]interface{}{
-				"voice":  getAudioVoice(p.additionalConfig),
-				"format": getAudioOutputFormat(p.additionalConfig, "pcm16"),
-			}
-		}
+		applyAudioModalities(openAIReq, p.additionalConfig, "pcm16")
 	}
 
 	// Add max tokens with the correct parameter name for the model type
