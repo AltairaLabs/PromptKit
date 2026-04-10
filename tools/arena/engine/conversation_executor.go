@@ -686,6 +686,7 @@ func providerSpecFromConfig(p *config.Provider, overrideModel string) providers.
 		Type:             p.Type,
 		Model:            model,
 		BaseURL:          p.BaseURL,
+		Headers:          p.Headers,
 		IncludeRawOutput: p.IncludeRawOutput,
 		AdditionalConfig: p.AdditionalConfig,
 		Defaults: providers.ProviderDefaults{
