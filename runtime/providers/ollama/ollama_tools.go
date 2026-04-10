@@ -309,11 +309,42 @@ func (p *ToolProvider) parseToolResponse(
 // makeRequest makes an HTTP request to the Ollama API
 func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, error) {
 	url := p.baseURL + ollamaChatCompletionsPath
-	headers := providers.RequestHeaders{
-		contentTypeHeader: applicationJSON,
-		// Ollama doesn't require Authorization header
+
+	reqBytes, marshalErr := json.Marshal(request)
+	if marshalErr != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", marshalErr)
 	}
-	return p.MakeJSONRequest(ctx, url, request, headers, "Ollama")
+
+	httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBytes))
+	if reqErr != nil {
+		return nil, fmt.Errorf("failed to create request: %w", reqErr)
+	}
+
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	// Ollama doesn't require Authorization header.
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+	}
+
+	resp, doErr := p.GetHTTPClient().Do(httpReq)
+	if doErr != nil {
+		return nil, fmt.Errorf("failed to send request: %w", doErr)
+	}
+	defer resp.Body.Close()
+
+	respBytes, readErr := providers.ReadResponseBody(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read response: %w", readErr)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: url,
+			Body: string(respBytes), Provider: p.ID(),
+		}
+	}
+
+	return respBytes, nil
 }
 
 // PredictStreamWithTools performs a streaming predict request with tool support
@@ -353,6 +384,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		httpReq.Header.Set("Accept", "text/event-stream")
 		// Ollama doesn't require Authorization header.
+		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+			return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+		}
 		return httpReq, nil
 	}
 
