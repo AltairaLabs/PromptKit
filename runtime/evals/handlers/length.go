@@ -180,3 +180,41 @@ func (h *MaxLengthHandler) EvalPartial(
 		Explanation: fmt.Sprintf("stream length %d, max %d", actual, maxLen),
 	}, nil
 }
+
+// ValidateParams checks that at least one of the canonical or aliased
+// max-length keys is set to a positive integer. Called at guardrail
+// hook construction and at eval preflight so invalid pack validators
+// fail loudly at load time instead of at request time.
+func (h *MaxLengthHandler) ValidateParams(params map[string]any) error {
+	maxLen := extractInt(params, "max", 0)
+	if maxLen == 0 {
+		maxLen = extractInt(params, "max_characters", 0)
+	}
+	if maxLen == 0 {
+		maxLen = extractInt(params, "max_chars", 0)
+	}
+	if maxLen <= 0 {
+		return fmt.Errorf(
+			"%s requires one of 'max', 'max_characters', or 'max_chars' to be a positive integer",
+			h.Type())
+	}
+	return nil
+}
+
+// ValidateParams checks that at least one of the canonical or aliased
+// min-length keys is set to a positive integer.
+func (h *MinLengthHandler) ValidateParams(params map[string]any) error {
+	minLen := extractInt(params, "min", 0)
+	if minLen == 0 {
+		minLen = extractInt(params, "min_characters", 0)
+	}
+	if minLen == 0 {
+		minLen = extractInt(params, "min_chars", 0)
+	}
+	if minLen <= 0 {
+		return fmt.Errorf(
+			"%s requires one of 'min', 'min_characters', or 'min_chars' to be a positive integer",
+			h.Type())
+	}
+	return nil
+}

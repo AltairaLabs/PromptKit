@@ -32,6 +32,29 @@ type StreamableEvalHandler interface {
 	EvalPartial(ctx context.Context, content string, params map[string]any) (*EvalResult, error)
 }
 
+// ParamValidator is an optional interface for EvalTypeHandler implementations
+// that have required or strictly-typed params. Handlers without required
+// params need not implement it.
+//
+// ValidateParams is called at two points:
+//  1. Guardrail hook construction in runtime/hooks/guardrails/factory.go,
+//     so pack validators with unusable params are surfaced at SDK load
+//     time instead of silently failing every turn.
+//  2. runtime/evals/validate.go:ValidateEvalTypes, so Arena's fail-fast
+//     build-time check and the SDK's warn-and-skip middleware both see
+//     param errors the same way.
+//
+// Params passed to ValidateParams have already been normalised via
+// ApplyDefaults and NormalizeParams, so implementations should check
+// for canonical key names only.
+type ParamValidator interface {
+	// ValidateParams returns nil if params are usable by this handler,
+	// or an error describing what is missing or wrong. The error message
+	// should be self-contained — it is logged and/or surfaced in a
+	// ValidateEvalTypes result without a wrapping prefix.
+	ValidateParams(params map[string]any) error
+}
+
 // EvalTypeRegistry provides thread-safe registration and lookup of
 // EvalTypeHandler implementations by type name.
 type EvalTypeRegistry struct {

@@ -107,3 +107,14 @@ func extractValidatorType(params map[string]any) string {
 	v, _ := params["validator"].(string)
 	return v
 }
+
+// ValidateParams checks that the required 'validator_type' (or alias
+// 'validator') param is set to a non-empty string.
+func (h *GuardrailTriggeredHandler) ValidateParams(params map[string]any) error {
+	if extractValidatorType(params) == "" {
+		return fmt.Errorf(
+			"%s requires a non-empty 'validator_type' (or 'validator') string param",
+			h.Type())
+	}
+	return nil
+}
