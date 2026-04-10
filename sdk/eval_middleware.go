@@ -163,6 +163,19 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 	}
 	defs = filteredDefs
 
+	// Clone the runner so per-conversation wiring (emitter, hooks) never
+	// mutates a user-supplied or otherwise shared instance. Mirrors the
+	// Arena EvalOrchestrator.Clone() pattern and makes repeated Open()
+	// calls safe when the same base runner is passed via WithEvalRunner.
+	runner = runner.Clone()
+
+	// Attach any hooks configured via WithEvalHook to the cloned runner.
+	// Hooks that were already attached to the base runner are copied
+	// into the clone by Clone() itself.
+	for _, h := range conv.config.evalHooks {
+		runner.AddHook(h)
+	}
+
 	// Build emitter from event bus (nil-safe), populating session ID if available.
 	emitter := conv.newEmitter(conv.config.eventBus)
 

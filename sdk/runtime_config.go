@@ -43,6 +43,16 @@ func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook) {
 			c.toolHooks = append(c.toolHooks, hooks.NewExecToolHook(cfg))
 		case "session":
 			c.sessionHooks = append(c.sessionHooks, hooks.NewExecSessionHook(cfg))
+		case "eval":
+			// Eval hooks are observational and have no phases or modes,
+			// so we only forward the fields that ExecEvalHook uses.
+			c.evalHooks = append(c.evalHooks, evals.NewExecEvalHook(&evals.ExecEvalHookConfig{
+				Name:      name,
+				Command:   binding.Command,
+				Args:      binding.Args,
+				Env:       binding.Env,
+				TimeoutMs: binding.TimeoutMs,
+			}))
 		}
 	}
 }

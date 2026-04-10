@@ -515,6 +515,25 @@ func TestApplyExecHooks_SessionHook(t *testing.T) {
 	assert.Equal(t, "audit_logger", c.sessionHooks[0].Name())
 }
 
+func TestApplyExecHooks_EvalHook(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Hooks: map[string]*pkgconfig.ExecHook{
+			"metrics_sink": {
+				ExecBinding: pkgconfig.ExecBinding{
+					Command:   "./hooks/push-metrics.sh",
+					TimeoutMs: 2000,
+				},
+				Hook: "eval",
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	assert.Len(t, c.evalHooks, 1, "eval hook should be appended to config.evalHooks")
+	assert.Equal(t, "metrics_sink", c.evalHooks[0].Name())
+}
+
 func TestApplyExecHooks_NilBinding(t *testing.T) {
 	spec := &pkgconfig.RuntimeConfigSpec{
 		Hooks: map[string]*pkgconfig.ExecHook{

@@ -153,6 +153,7 @@ type config struct {
 	// Eval configuration
 	evalRunner         *evals.EvalRunner
 	evalRegistry       *evals.EvalTypeRegistry
+	evalHooks          []evals.EvalHook
 	judgeProvider      handlers.JudgeProvider
 	metricRecorder     evals.MetricRecorder
 	evalGroups         []string
@@ -2144,6 +2145,34 @@ func WithEvalRunner(r *evals.EvalRunner) Option {
 func WithEvalRegistry(r *evals.EvalTypeRegistry) Option {
 	return func(c *config) error {
 		c.evalRegistry = r
+		return nil
+	}
+}
+
+// WithEvalHook registers an observer that is invoked once per eval result
+// the runner produces. Hooks run in registration order before the
+// eval.completed / eval.failed event is emitted, and may mutate the
+// result in place (e.g. to redact explanations, annotate details, or
+// push the result to an external system).
+//
+// Hooks are panic-safe: a misbehaving hook is logged and skipped; it
+// cannot crash the eval runner or the surrounding conversation.
+//
+// Multiple calls accumulate. Hooks registered via this option are
+// applied to the runner created or supplied via WithEvalRunner.
+//
+// Example:
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithEvalHook(myMetricsHook),
+//	    sdk.WithEvalHook(myRedactionHook),
+//	)
+func WithEvalHook(h evals.EvalHook) Option {
+	return func(c *config) error {
+		if h == nil {
+			return fmt.Errorf("WithEvalHook: hook must not be nil")
+		}
+		c.evalHooks = append(c.evalHooks, h)
 		return nil
 	}
 }

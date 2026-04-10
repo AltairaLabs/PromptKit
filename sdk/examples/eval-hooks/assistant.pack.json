@@ -1,0 +1,46 @@
+{
+  "$schema": "https://promptpack.org/schema/v1.2/promptpack.schema.json",
+  "id": "eval-hooks-demo",
+  "name": "Eval Hooks Demo",
+  "version": "1.0.0",
+  "description": "Demonstrates SDK eval hooks by shelling out to a bash script per result.",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant. Respond in valid JSON with a \"response\" field."
+    }
+  },
+  "evals": [
+    {
+      "id": "json_format",
+      "type": "json_valid",
+      "trigger": "every_turn",
+      "description": "Assistant must return valid JSON"
+    },
+    {
+      "id": "mentions_response_key",
+      "type": "contains",
+      "trigger": "every_turn",
+      "description": "Output must contain the response key",
+      "params": {
+        "patterns": ["response"]
+      }
+    },
+    {
+      "id": "no_apologies",
+      "type": "regex",
+      "trigger": "every_turn",
+      "description": "Flag unnecessary apologies",
+      "params": {
+        "pattern": "(?i)i('m| am) sorry",
+        "expect_match": false
+      }
+    }
+  ]
+}

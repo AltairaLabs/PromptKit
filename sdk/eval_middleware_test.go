@@ -138,8 +138,140 @@ func TestNewEvalMiddleware_WithExplicitRunner(t *testing.T) {
 	if mw == nil {
 		t.Fatal("expected non-nil middleware")
 	}
-	if mw.runner != runner {
-		t.Error("expected explicit runner to be used")
+	// The middleware clones the user-supplied runner so per-conversation
+	// wiring (emitter, hooks) never mutates shared state. Registry
+	// equivalence is covered by TestEvalRunner_Clone in the runtime
+	// package; here we only assert that the middleware runner is not
+	// the exact same instance as the user-supplied source.
+	if mw.runner == runner {
+		t.Error("middleware should clone the user-supplied runner, not reuse it")
+	}
+}
+
+// countingEvalHook records how many results it observed.
+type countingEvalHook struct {
+	mu    sync.Mutex
+	count int
+	names []string
+}
+
+func (c *countingEvalHook) Name() string { return "counting" }
+
+func (c *countingEvalHook) OnEvalResult(
+	_ context.Context, def *evals.EvalDef, _ *evals.EvalContext, _ *evals.EvalResult,
+) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.count++
+	c.names = append(c.names, def.ID)
+}
+
+func TestWithEvalHook_NilRejected(t *testing.T) {
+	var cfg config
+	err := WithEvalHook(nil)(&cfg)
+	if err == nil {
+		t.Fatal("expected error when registering nil hook")
+	}
+}
+
+func TestWithEvalHook_AccumulatesMultipleHooks(t *testing.T) {
+	var cfg config
+	h1 := &countingEvalHook{}
+	h2 := &countingEvalHook{}
+	if err := WithEvalHook(h1)(&cfg); err != nil {
+		t.Fatalf("WithEvalHook h1: %v", err)
+	}
+	if err := WithEvalHook(h2)(&cfg); err != nil {
+		t.Fatalf("WithEvalHook h2: %v", err)
+	}
+	if len(cfg.evalHooks) != 2 {
+		t.Errorf("expected 2 hooks, got %d", len(cfg.evalHooks))
+	}
+}
+
+func TestEvalMiddleware_DoesNotMutateSharedRunner(t *testing.T) {
+	// Regression: a user-supplied runner passed via WithEvalRunner must not
+	// accumulate hooks across multiple Open() calls. Two conversations built
+	// from the same runner + WithEvalHook should each see exactly one hook
+	// invocation per eval, not two.
+	registry := evals.NewEvalTypeRegistry()
+	sharedRunner := evals.NewEvalRunner(registry)
+	hook := &countingEvalHook{}
+
+	makeConv := func() *Conversation {
+		return &Conversation{
+			config: &config{
+				evalRunner: sharedRunner,
+				evalHooks:  []evals.EvalHook{hook},
+			},
+			pack: &pack.Pack{
+				Evals: []evals.EvalDef{
+					{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
+						Params: map[string]any{"substring": "hi"}},
+				},
+			},
+			prompt: &pack.Prompt{},
+		}
+	}
+
+	mw1 := newEvalMiddleware(makeConv())
+	mw2 := newEvalMiddleware(makeConv())
+	if mw1 == nil || mw2 == nil {
+		t.Fatal("middleware should not be nil")
+	}
+
+	evalCtx := &evals.EvalContext{CurrentOutput: "hi", SessionID: "s"}
+	_ = mw1.runner.RunTurnEvals(context.Background(), mw1.defs, evalCtx)
+
+	if hook.count != 1 {
+		t.Errorf("first conversation: expected 1 hook invocation, got %d", hook.count)
+	}
+
+	// Running evals through the second conversation should also produce
+	// exactly one invocation — not one plus whatever the shared runner
+	// accumulated.
+	hook.count = 0
+	_ = mw2.runner.RunTurnEvals(context.Background(), mw2.defs, evalCtx)
+	if hook.count != 1 {
+		t.Errorf("second conversation: expected 1 hook invocation, got %d "+
+			"(shared runner was mutated across Open() calls)", hook.count)
+	}
+}
+
+func TestEvalMiddleware_AttachesEvalHooksToRunner(t *testing.T) {
+	registry := evals.NewEvalTypeRegistry()
+	runner := evals.NewEvalRunner(registry)
+	hook := &countingEvalHook{}
+
+	conv := &Conversation{
+		config: &config{
+			evalRunner: runner,
+			evalHooks:  []evals.EvalHook{hook},
+		},
+		pack: &pack.Pack{
+			Evals: []evals.EvalDef{
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
+					Params: map[string]any{"substring": "hi"}},
+			},
+		},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	if mw == nil {
+		t.Fatal("expected non-nil middleware")
+	}
+
+	// Drive the runner directly with a synthetic context to prove the
+	// hook is invoked through the middleware's runner wiring.
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "hi there",
+		SessionID:     "s1",
+	}
+	_ = mw.runner.RunTurnEvals(context.Background(), mw.defs, evalCtx)
+
+	if hook.count != 1 {
+		t.Errorf("expected hook to observe 1 result, got %d", hook.count)
 	}
 }
 

@@ -105,7 +105,8 @@
           "enum": [
             "provider",
             "tool",
-            "session"
+            "session",
+            "eval"
           ],
           "title": "Hook",
           "description": "Hook interface type"

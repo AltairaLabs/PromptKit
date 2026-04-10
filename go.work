@@ -12,6 +12,7 @@ use (
 	./pkg
 	./runtime
 	./sdk
+	./sdk/examples/eval-hooks
 	./sdk/examples/sdk-evals
 	./sdk/examples/sdk-http-auth
 	./server/a2a
