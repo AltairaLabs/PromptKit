@@ -120,6 +120,7 @@ sdk/examples/**/*
 !sdk/examples/**/*.json
 !sdk/examples/**/*.yaml
 !sdk/examples/**/*.py
+!sdk/examples/**/*.sh
 !sdk/examples/**/go.mod
 !sdk/examples/**/go.sum
 !sdk/examples/**/

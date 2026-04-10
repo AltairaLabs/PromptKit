@@ -590,7 +590,8 @@ func TestRunTurnEvals_NilScoreLoggedSafely(t *testing.T) {
 
 func TestEvalRunner_Clone(t *testing.T) {
 	reg := NewEvalTypeRegistry()
-	r := NewEvalRunner(reg, WithTimeout(5*time.Second))
+	hook := &recordingHook{name: "base"}
+	r := NewEvalRunner(reg, WithTimeout(5*time.Second), WithEvalHook(hook))
 
 	bus := events.NewEventBus()
 	defer bus.Close()
@@ -605,6 +606,18 @@ func TestEvalRunner_Clone(t *testing.T) {
 	}
 	if clone.emitter != nil {
 		t.Error("clone should have nil emitter")
+	}
+	if len(clone.hooks) != 1 {
+		t.Fatalf("clone should copy hooks, got %d", len(clone.hooks))
+	}
+
+	// Appending a hook to the clone must not mutate the source.
+	clone.AddHook(&recordingHook{name: "extra"})
+	if len(r.hooks) != 1 {
+		t.Errorf("source runner should still have 1 hook, got %d", len(r.hooks))
+	}
+	if len(clone.hooks) != 2 {
+		t.Errorf("clone should now have 2 hooks, got %d", len(clone.hooks))
 	}
 }
 

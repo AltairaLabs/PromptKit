@@ -76,9 +76,11 @@ type ExecBinding struct {
 // ExecHook defines an external process hook bound to a pipeline lifecycle event.
 type ExecHook struct {
 	ExecBinding `yaml:",inline"`
-	// Hook identifies the hook interface: "provider", "tool", or "session".
+	// Hook identifies the hook interface: "provider", "tool", "session", or "eval".
+	// "eval" hooks are observational and ignore Phases / Mode — they run
+	// once per eval result, fire-and-forget.
 	//nolint:lll // jsonschema tags require single line
-	Hook string `yaml:"hook" json:"hook" jsonschema:"enum=provider,enum=tool,enum=session,title=Hook,description=Hook interface type"`
+	Hook string `yaml:"hook" json:"hook" jsonschema:"enum=provider,enum=tool,enum=session,enum=eval,title=Hook,description=Hook interface type"`
 	// Phases lists the hook phases to intercept (e.g. before_call, after_call).
 	//nolint:lll // jsonschema tags require single line
 	Phases []string `yaml:"phases,omitempty" json:"phases,omitempty" jsonschema:"title=Phases,description=Hook phases to intercept"`

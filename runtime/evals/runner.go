@@ -18,6 +18,7 @@ type EvalRunner struct {
 	registry *EvalTypeRegistry
 	timeout  time.Duration
 	emitter  *events.Emitter // optional — emits eval.completed/failed events
+	hooks    []EvalHook      // optional — observers invoked per result
 }
 
 // RunnerOption configures an EvalRunner.
@@ -33,17 +34,45 @@ func WithEmitter(e *events.Emitter) RunnerOption {
 	return func(r *EvalRunner) { r.emitter = e }
 }
 
-// Clone creates a copy of the runner with the same registry and timeout but no emitter.
+// WithEvalHook registers an EvalHook that observes every eval result the
+// runner produces. Multiple hooks may be registered; they are invoked in
+// registration order, before the result is emitted on the event bus.
+func WithEvalHook(h EvalHook) RunnerOption {
+	return func(r *EvalRunner) { r.hooks = append(r.hooks, h) }
+}
+
+// Clone creates a copy of the runner with the same registry, timeout, and
+// hooks but a nil emitter. Use this when you need a per-caller runner that
+// can be mutated (SetEmitter, AddHook) without affecting a shared base.
+//
+// Hooks are copied into a new slice so appending to the clone does not
+// mutate the source. The emitter is intentionally dropped — callers are
+// expected to wire a fresh emitter per-use.
 func (r *EvalRunner) Clone() *EvalRunner {
-	return &EvalRunner{
+	clone := &EvalRunner{
 		registry: r.registry,
 		timeout:  r.timeout,
 	}
+	if len(r.hooks) > 0 {
+		clone.hooks = make([]EvalHook, len(r.hooks))
+		copy(clone.hooks, r.hooks)
+	}
+	return clone
 }
 
 // SetEmitter sets (or clears) the event emitter. Must be called before running evals.
 func (r *EvalRunner) SetEmitter(e *events.Emitter) {
 	r.emitter = e
+}
+
+// AddHook appends an EvalHook to the runner. Intended to be called during
+// setup, before evals start running — there is no locking. Nil hooks are
+// silently ignored.
+func (r *EvalRunner) AddHook(h EvalHook) {
+	if h == nil {
+		return
+	}
+	r.hooks = append(r.hooks, h)
 }
 
 // NewEvalRunner creates an EvalRunner with the given registry and options.
@@ -149,6 +178,7 @@ func (r *EvalRunner) runEvals(
 		if result != nil {
 			result.SessionID = evalCtx.SessionID
 			result.TurnIndex = evalCtx.TurnIndex
+			r.runHooks(ctx, &defs[i], evalCtx, result)
 			r.emitResult(result)
 			results = append(results, *result)
 		}
@@ -273,6 +303,32 @@ func (r *EvalRunner) executeHandler(
 		"score", scoreVal, "duration_ms", durationMs,
 	)
 	return result
+}
+
+// runHooks invokes each registered EvalHook with panic recovery. A hook
+// that panics is logged and skipped so a misbehaving hook cannot crash
+// the eval runner or the surrounding pipeline.
+func (r *EvalRunner) runHooks(
+	ctx context.Context, def *EvalDef, evalCtx *EvalContext, result *EvalResult,
+) {
+	for _, h := range r.hooks {
+		r.invokeHook(ctx, h, def, evalCtx, result)
+	}
+}
+
+// invokeHook runs a single hook with panic recovery. Factored out so the
+// deferred recover is scoped to one hook — a panicking hook does not
+// prevent subsequent hooks from running.
+func (r *EvalRunner) invokeHook(
+	ctx context.Context, h EvalHook, def *EvalDef, evalCtx *EvalContext, result *EvalResult,
+) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			logger.Warn("evals: eval hook panic recovered",
+				"hook", h.Name(), "eval_id", def.ID, "panic", rec)
+		}
+	}()
+	h.OnEvalResult(ctx, def, evalCtx, result)
 }
 
 // emitResult publishes eval.completed or eval.failed via the emitter (if set).
