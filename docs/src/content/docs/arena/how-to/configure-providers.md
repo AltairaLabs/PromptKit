@@ -362,6 +362,108 @@ spec:
     guided_choice: ["yes", "no", "maybe"]
 ```
 
+## OpenAI-Compatible Gateways
+
+Many third-party services expose an OpenAI-compatible API: **OpenRouter**, **Groq**, **Together AI**, **Fireworks AI**, **LiteLLM**, and self-hosted proxies. You can point the built-in `openai` provider at any of them with `base_url` and (optionally) `headers`.
+
+The `headers` field injects custom HTTP headers into every request this provider sends. It's a top-level field on the provider spec. Header values are plain strings — use the `credential` field for secrets. If a custom header collides with a built-in header the provider sets itself (e.g. `Authorization`, `Content-Type`), the request fails fast with an error.
+
+### OpenRouter
+
+OpenRouter routes requests across hundreds of models through a single OpenAI-compatible endpoint. Its documentation recommends setting `HTTP-Referer` and `X-Title` for app attribution and leaderboard ranking:
+
+```yaml
+# providers/openrouter.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openrouter-claude
+  labels:
+    gateway: openrouter
+
+spec:
+  type: openai
+  model: anthropic/claude-sonnet-4-20250514
+  base_url: https://openrouter.ai/api/v1
+
+  headers:
+    HTTP-Referer: https://myapp.com
+    X-Title: My App
+
+  credential:
+    credential_env: OPENROUTER_API_KEY
+
+  defaults:
+    temperature: 0.6
+    max_tokens: 2000
+```
+
+Then export your key:
+
+```bash
+export OPENROUTER_API_KEY="sk-or-v1-..."
+```
+
+OpenRouter accepts any model identifier from its catalog: `openai/gpt-4o-mini`, `anthropic/claude-sonnet-4-20250514`, `meta-llama/llama-3.3-70b-instruct`, etc.
+
+### Groq
+
+Groq offers ultra-fast inference for open-source models:
+
+```yaml
+# providers/groq.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: groq-llama
+spec:
+  type: openai
+  model: llama-3.3-70b-versatile
+  base_url: https://api.groq.com/openai/v1
+  credential:
+    credential_env: GROQ_API_KEY
+```
+
+No custom headers needed — Groq's OpenAI-compatible endpoint works with `base_url` alone.
+
+### Together AI
+
+```yaml
+# providers/together.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: together-llama
+spec:
+  type: openai
+  model: meta-llama/Llama-3.3-70B-Instruct-Turbo
+  base_url: https://api.together.xyz/v1
+  credential:
+    credential_env: TOGETHER_API_KEY
+```
+
+### Self-Hosted LiteLLM Proxy
+
+If you run [LiteLLM](https://github.com/BerriAI/litellm) as an on-prem gateway, point PromptArena at it and use a custom auth header if your proxy is secured internally:
+
+```yaml
+# providers/litellm.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: litellm-internal
+spec:
+  type: openai
+  model: gpt-4o-mini      # whatever LiteLLM routes this name to
+  base_url: http://litellm.internal:4000
+  headers:
+    X-Internal-Auth: shared-gateway-token
+```
+
+### How It Works
+
+Any provider can declare `headers`, not just OpenAI-compatible gateways. The headers are applied after the provider sets its own built-in headers (auth, content type, etc.), so collision detection kicks in before any bytes leave the client. If you need to override a built-in header — don't. Use the `credential` field for auth instead.
+
 ## Streaming and Reliability
 
 Provider configs support streaming retry, concurrency limits, and connection pool tuning. These are all optional and default to safe values.
