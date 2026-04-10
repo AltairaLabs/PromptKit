@@ -22,7 +22,14 @@ func (h *testEvalHandler) Type() string { return h.typeName }
 func (h *testEvalHandler) Eval(
 	_ context.Context, _ *evals.EvalContext, _ map[string]any,
 ) (*evals.EvalResult, error) {
-	return h.result, nil
+	// Return a copy so concurrent turn dispatches don't race on the
+	// shared result pointer stored on the handler (the EvalRunner
+	// writes EvalID/Type/DurationMs back onto the returned pointer).
+	if h.result == nil {
+		return &evals.EvalResult{}, nil
+	}
+	cp := *h.result
+	return &cp, nil
 }
 
 func TestE2E_EvalMiddleware_DispatchesTurnEvalsAndEmitsEvents(t *testing.T) {
