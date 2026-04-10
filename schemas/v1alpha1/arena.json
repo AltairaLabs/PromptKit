@@ -1635,6 +1635,12 @@
         "base_url": {
           "type": "string"
         },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
         "rate_limit": {
           "$ref": "#/$defs/RateLimit"
         },
