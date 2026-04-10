@@ -25,14 +25,20 @@ func writeValidatePackFixture(t *testing.T, pack map[string]any) string {
 }
 
 // baseValidPack returns a minimal promptpack with one prompt and no
-// validators or evals. Callers can mutate the returned map before
-// passing to writeValidatePackFixture.
+// validators or evals. The shape matches the promptpack spec's
+// required top-level fields so the fixture passes strict schema
+// validation (ValidatePack's default). Callers can mutate the returned
+// map before passing to writeValidatePackFixture.
 func baseValidPack() map[string]any {
 	return map[string]any{
 		"id":          "validate-pack-test",
 		"name":        "Validate Pack Test",
 		"version":     "1.0.0",
 		"description": "ValidatePack test fixture",
+		"template_engine": map[string]any{
+			"version": "v1",
+			"syntax":  "{{variable}}",
+		},
 		"prompts": map[string]any{
 			"default": map[string]any{
 				"id":              "default",
@@ -247,11 +253,12 @@ func TestPackIssue_String(t *testing.T) {
 }
 
 func TestValidatePack_SchemaValidationError(t *testing.T) {
-	// Malformed pack — missing required top-level "prompts" field.
-	// pack.Parse returns "pack contains no prompts" which ValidatePack
-	// surfaces as an error, not a PackIssue (consistent with the
-	// contract: structural failures are errors, semantic problems are
-	// issues).
+	// Malformed pack — missing required top-level fields
+	// ("name", "version", "template_engine", "prompts"). With strict
+	// schema validation on by default, this fails at the schema layer;
+	// ValidatePack surfaces the failure as an error, not a PackIssue
+	// (consistent with the contract: structural/schema failures are
+	// errors, semantic problems are issues).
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"id": "bad"}`), 0o600))
@@ -259,4 +266,54 @@ func TestValidatePack_SchemaValidationError(t *testing.T) {
 	issues, err := sdk.ValidatePack(path)
 	require.Error(t, err, "structural failure must be returned as error, not as issues")
 	assert.Nil(t, issues)
+}
+
+// TestValidatePack_StrictSchemaRejectsNonSpecFields pins the strict
+// default: a validator declaring a field the promptpack spec forbids
+// (additionalProperties:false) is returned as a load-time error, not as
+// a PackIssue. This is the schema-level guarantee — the same one that
+// would catch the issue #933 class of struct drift if someone added
+// "monitor" back to pack.Validator.
+func TestValidatePack_StrictSchemaRejectsNonSpecFields(t *testing.T) {
+	p := baseValidPack()
+	prompts := p["prompts"].(map[string]any)
+	def := prompts["default"].(map[string]any)
+	def["validators"] = []any{
+		map[string]any{
+			"type":    "max_length",
+			"enabled": true,
+			"params":  map[string]any{"max_characters": 2000},
+			"monitor": true, // forbidden by additionalProperties:false
+		},
+	}
+	path := writeValidatePackFixture(t, p)
+
+	issues, err := sdk.ValidatePack(path)
+	require.Error(t, err, "strict schema validation must reject non-spec validator fields")
+	assert.Nil(t, issues, "schema failures must be returned as error, not issues")
+}
+
+// TestValidatePack_SkipSchemaAllowsNonSpecFields confirms the opt-out.
+// With WithSkipSchemaValidation, strict schema is bypassed; handler-level
+// validation still runs on the declared validators. The forbidden
+// "monitor" field is ignored at load time (it's not in the Go struct),
+// and the validator itself is semantically valid, so no issues are
+// reported.
+func TestValidatePack_SkipSchemaAllowsNonSpecFields(t *testing.T) {
+	p := baseValidPack()
+	prompts := p["prompts"].(map[string]any)
+	def := prompts["default"].(map[string]any)
+	def["validators"] = []any{
+		map[string]any{
+			"type":    "max_length",
+			"enabled": true,
+			"params":  map[string]any{"max_characters": 2000},
+			"monitor": true, // forbidden by schema, ignored at unmarshal
+		},
+	}
+	path := writeValidatePackFixture(t, p)
+
+	issues, err := sdk.ValidatePack(path, sdk.WithSkipSchemaValidation())
+	require.NoError(t, err, "schema check must be bypassed with WithSkipSchemaValidation")
+	assert.Empty(t, issues, "semantically valid validator produces no issues")
 }

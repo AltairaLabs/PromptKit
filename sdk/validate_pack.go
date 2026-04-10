@@ -53,27 +53,44 @@ func (p PackIssue) String() string {
 }
 
 // ValidatePack loads the pack at path and reports any semantic issues —
-// unknown validator/eval types, missing required params, etc. — that
-// would cause Open() to warn-and-skip them or Arena to fail fast.
+// unknown validator/eval types, missing required params — that would
+// cause Open() to warn-and-skip them or Arena to fail fast.
+//
+// By default, ValidatePack runs strict promptpack JSON schema validation
+// against the embedded schema. A pack that fails schema validation (for
+// example, a validator declaring a forbidden field like "monitor") is
+// returned as a non-nil error — not as PackIssues — because the file
+// itself is non-spec. Pass WithSkipSchemaValidation to bypass this and
+// check only handler-level issues.
 //
 // Returns (nil, nil) if the pack is fully valid.
-// Returns (nil, err) if the pack file is missing, unreadable, or fails
-// structural parsing (e.g. missing required top-level fields) — these
-// are considered fatal and distinct from semantic issues.
+// Returns (nil, err) if the pack file is missing, unreadable, fails
+// JSON parse, or fails schema validation (when strict). These are
+// considered fatal and distinct from semantic issues.
 // Returns (issues, nil) if the pack loads cleanly but has semantic
-// problems the caller should address.
-//
-// Schema validation is intentionally skipped — ValidatePack focuses on
-// handler-level semantics (what convertPackValidatorsToHooks and
-// filterInvalidEvalDefs would warn-and-skip at Open() time). Schema
-// conformance is an orthogonal check most CI pipelines already run
-// separately.
+// problems (unknown validator/eval types, missing required params)
+// the caller should address.
 //
 // This is a pre-flight check for CI gates and operator tools. It runs
-// the same handler-level param validation the SDK runs internally
-// during Open(), exposed as a standalone function.
-func ValidatePack(path string) ([]PackIssue, error) {
-	loaded, err := pack.Load(path, pack.LoadOptions{SkipSchemaValidation: true})
+// the same handler-level validation the SDK runs internally during
+// Open(), exposed as a standalone function.
+//
+// ValidatePack accepts the same Option values as Open(), but only
+// consults WithSkipSchemaValidation — every other option is ignored.
+func ValidatePack(path string, opts ...Option) ([]PackIssue, error) {
+	cfg := &config{}
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(cfg); err != nil {
+			return nil, fmt.Errorf("apply option: %w", err)
+		}
+	}
+
+	loaded, err := pack.Load(path, pack.LoadOptions{
+		SkipSchemaValidation: cfg.skipSchemaValidation,
+	})
 	if err != nil {
 		return nil, err
 	}
