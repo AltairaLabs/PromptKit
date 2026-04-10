@@ -94,17 +94,42 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 }
 
 // ValidateEvalTypes checks that every EvalDef's Type has a registered handler
-// in the given registry. Returns a list of human-readable error strings for
-// any unknown types. This is safe to call from any package that has access
-// to both the defs and the registry.
+// in the given registry, AND — when the handler implements ParamValidator —
+// that its params are usable by the handler. Returns a list of human-readable
+// error strings for any type-lookup or param-validation failures.
+//
+// Params are normalised (ApplyDefaults + NormalizeParams) before calling
+// ValidateParams, so handlers only need to check canonical key names.
+//
+// Callers:
+//   - tools/arena/engine/builder_integration.go treats any returned errors as fatal.
+//   - sdk/eval_middleware.go uses this to warn-and-skip bad defs.
+//   - sdk/evaluate.go exposes it as a public preflight.
 func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
 	logger.Debug("evals: validating eval types", "def_count", len(defs), "registered_types", registry.Types())
 	var errs []string
 	for i := range defs {
-		if defs[i].Type != "" && !registry.Has(defs[i].Type) {
+		def := &defs[i]
+		if def.Type == "" {
+			continue
+		}
+		handler, err := registry.Get(def.Type)
+		if err != nil {
 			errs = append(errs, fmt.Sprintf(
 				"eval %q: unknown type %q (registered types: %v)",
-				defs[i].ID, defs[i].Type, registry.Types(),
+				def.ID, def.Type, registry.Types(),
+			))
+			continue
+		}
+		pv, ok := handler.(ParamValidator)
+		if !ok {
+			continue
+		}
+		normalized := ApplyDefaults(def.Type, def.Params)
+		normalized = NormalizeParams(def.Type, normalized)
+		if perr := pv.ValidateParams(normalized); perr != nil {
+			errs = append(errs, fmt.Sprintf(
+				"eval %q: %s", def.ID, perr.Error(),
 			))
 		}
 	}
