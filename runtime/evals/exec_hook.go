@@ -16,6 +16,12 @@ import (
 // of an ExecEvalHook may run before it is killed and the result abandoned.
 const DefaultExecEvalHookTimeout = 5 * time.Second
 
+// execEvalHookWaitDelay bounds how long cmd.Wait() will block on I/O
+// after the context expires. Set above zero so an orphaned grandchild
+// inheriting our Stderr pipe cannot hang the hook indefinitely after
+// SIGKILL — e.g. a bash wrapper whose `sleep` child survives the kill.
+const execEvalHookWaitDelay = 500 * time.Millisecond
+
 // ExecEvalHookConfig configures an ExecEvalHook. It is the eval-side
 // analog of hooks.ExecHookConfig: a command to spawn, its arguments
 // and environment, and a per-call timeout.
@@ -91,6 +97,9 @@ func (h *ExecEvalHook) OnEvalResult(
 
 	cmd := exec.CommandContext(execCtx, h.command, h.args...) //#nosec G204 -- command from trusted runtime config
 	cmd.Stdin = bytes.NewReader(payload)
+
+	// See execEvalHookWaitDelay for why this is set.
+	cmd.WaitDelay = execEvalHookWaitDelay
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
