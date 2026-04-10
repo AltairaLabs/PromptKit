@@ -86,6 +86,9 @@ func (p *Provider) PredictStream(
 			if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
 				return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 			}
+			if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+				return nil, hdrErr
+			}
 			return httpReq, nil
 		}
 		return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
@@ -124,6 +127,9 @@ func (p *Provider) PredictStream(
 		httpReq.Header.Set("Accept", "text/event-stream")
 		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+			return nil, hdrErr
 		}
 		return httpReq, nil
 	}

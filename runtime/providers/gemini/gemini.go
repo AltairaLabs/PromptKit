@@ -371,6 +371,10 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return nil, predictResp, hdrErr
+	}
+
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		logger.APIResponse("Gemini", 0, "", err)

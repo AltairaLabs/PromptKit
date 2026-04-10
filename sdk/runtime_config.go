@@ -256,6 +256,7 @@ func createProviderFromConfig(p *pkgconfig.Provider) (providers.Provider, error)
 		Type:              p.Type,
 		Model:             p.Model,
 		BaseURL:           p.BaseURL,
+		Headers:           p.Headers,
 		IncludeRawOutput:  p.IncludeRawOutput,
 		AdditionalConfig:  p.AdditionalConfig,
 		Credential:        cred,

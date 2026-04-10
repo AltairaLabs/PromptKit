@@ -556,6 +556,9 @@ func (p *ToolProvider) predictStreamWithCompletions(
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 		httpReq.Header.Set("Accept", "text/event-stream")
+		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+			return nil, hdrErr
+		}
 		return httpReq, nil
 	}
 

@@ -497,6 +497,24 @@ func (p *ToolProvider) parseToolResponse(
 	return *predictResp, toolCalls, nil
 }
 
+// applyToolRequestHeaders sets content-type, anthropic auth, and custom
+// headers on req. Uses Bedrock SigV4 signing when isBedrock, otherwise the
+// direct-API x-api-key + anthropic-version headers. Centralizing this keeps
+// the caller functions below cognitive-complexity limits and ensures every
+// request path goes through the same custom-header collision check.
+func (p *ToolProvider) applyToolRequestHeaders(ctx context.Context, req *http.Request) error {
+	req.Header.Set(contentTypeHeader, applicationJSON)
+	if p.isBedrock() {
+		if err := p.applyAuth(ctx, req); err != nil {
+			return fmt.Errorf("failed to apply authentication: %w", err)
+		}
+	} else {
+		req.Header.Set(apiKeyHeader, p.apiKey)
+		req.Header.Set(anthropicVersionKey, anthropicVersionValue)
+	}
+	return p.ApplyCustomHeaders(req)
+}
+
 func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
 	url := p.messagesURL()
 
@@ -519,15 +537,8 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	if p.isBedrock() {
-		// Bedrock uses SigV4 signing via applyAuth — no API key or version header
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-		}
-	} else {
-		httpReq.Header.Set(apiKeyHeader, p.apiKey)
-		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+	if hdrErr := p.applyToolRequestHeaders(ctx, httpReq); hdrErr != nil {
+		return nil, hdrErr
 	}
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
@@ -575,61 +586,53 @@ func (p *ToolProvider) PredictStreamWithTools(
 	// Bedrock: use binary event-stream format, wired through
 	// RunStreamingRequest for retry, budget, semaphore, and metrics.
 	if p.isBedrock() {
-		reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request: %w", err)
-		}
-		url := p.messagesStreamURL()
-		requestFn := func(ctx context.Context) (*http.Request, error) {
-			httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-			if reqErr != nil {
-				return nil, fmt.Errorf("failed to create request: %w", reqErr)
-			}
-			httpReq.Header.Set(contentTypeHeader, applicationJSON)
-			httpReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
-			if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-				return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-			}
-			return httpReq, nil
-		}
-		return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
-			Policy:        p.StreamRetryPolicy(),
-			Budget:        p.StreamRetryBudget(),
-			ProviderName:  p.ID(),
-			Host:          providers.HostFromURL(url),
-			IdleTimeout:   p.StreamIdleTimeout(),
-			RequestFn:     requestFn,
-			Client:        p.GetStreamingHTTPClient(),
-			FrameDetector: providers.BedrockEventStreamFrameDetector{},
-		}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
-			idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
-			scanner := providers.NewBedrockEventScanner(idleBody)
-			p.streamResponse(ctx, idleBody, scanner, outChan)
-		})
+		return p.streamBedrockToolRequest(ctx, claudeReq)
 	}
 
+	return p.streamDirectToolRequest(ctx, claudeReq)
+}
+
+// streamBedrockToolRequest handles the Bedrock tool-calling streaming path.
+// Extracted from PredictStreamWithTools to keep that function under the
+// cognitive-complexity threshold.
+func (p *ToolProvider) streamBedrockToolRequest(
+	ctx context.Context,
+	claudeReq map[string]interface{},
+) (<-chan providers.StreamChunk, error) {
+	reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	url := p.messagesStreamURL()
+	requestFn := p.buildBedrockStreamingRequestFn(url, reqBody)
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:        p.StreamRetryPolicy(),
+		Budget:        p.StreamRetryBudget(),
+		ProviderName:  p.ID(),
+		Host:          providers.HostFromURL(url),
+		IdleTimeout:   p.StreamIdleTimeout(),
+		RequestFn:     requestFn,
+		Client:        p.GetStreamingHTTPClient(),
+		FrameDetector: providers.BedrockEventStreamFrameDetector{},
+	}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
+		scanner := providers.NewBedrockEventScanner(idleBody)
+		p.streamResponse(ctx, idleBody, scanner, outChan)
+	})
+}
+
+// streamDirectToolRequest handles the direct Anthropic API tool-calling
+// streaming path.
+func (p *ToolProvider) streamDirectToolRequest(
+	ctx context.Context,
+	claudeReq map[string]interface{},
+) (<-chan providers.StreamChunk, error) {
 	requestBytes, err := json.Marshal(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
-
-	// Direct API: wire through RunStreamingRequest so retries, budget,
-	// semaphore, and metrics all work the same as the Bedrock path.
 	url := p.messagesStreamURL()
-	requestFn := func(ctx context.Context) (*http.Request, error) {
-		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
-		if reqErr != nil {
-			return nil, fmt.Errorf("failed to create request: %w", reqErr)
-		}
-		httpReq.Header.Set(contentTypeHeader, applicationJSON)
-		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
-		httpReq.Header.Set("Accept", "text/event-stream")
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-		}
-		return httpReq, nil
-	}
-
+	requestFn := p.buildDirectStreamingRequestFn(url, requestBytes)
 	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
 		Policy:       p.StreamRetryPolicy(),
 		Budget:       p.StreamRetryBudget(),
@@ -643,6 +646,44 @@ func (p *ToolProvider) PredictStreamWithTools(
 		scanner := providers.NewSSEScanner(idleBody)
 		p.streamResponse(ctx, idleBody, scanner, outChan)
 	})
+}
+
+// buildBedrockStreamingRequestFn returns a RequestFn for the Bedrock
+// tool-calling streaming path. Headers (content type, SigV4 auth, custom
+// headers) are applied via applyToolRequestHeaders to share the same
+// centralized header logic as the non-streaming path.
+func (p *ToolProvider) buildBedrockStreamingRequestFn(
+	url string, reqBody []byte,
+) func(context.Context) (*http.Request, error) {
+	return func(ctx context.Context) (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		httpReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
+		if err := p.applyToolRequestHeaders(ctx, httpReq); err != nil {
+			return nil, err
+		}
+		return httpReq, nil
+	}
+}
+
+// buildDirectStreamingRequestFn returns a RequestFn for the direct Anthropic
+// API tool-calling streaming path.
+func (p *ToolProvider) buildDirectStreamingRequestFn(
+	url string, reqBody []byte,
+) func(context.Context) (*http.Request, error) {
+	return func(ctx context.Context) (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		httpReq.Header.Set("Accept", "text/event-stream")
+		if err := p.applyToolRequestHeaders(ctx, httpReq); err != nil {
+			return nil, err
+		}
+		return httpReq, nil
+	}
 }
 
 //nolint:gochecknoinits // Factory registration requires init

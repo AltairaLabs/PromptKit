@@ -68,10 +68,13 @@ func (r *Registry) Close() error {
 
 // ProviderSpec holds the configuration needed to create a provider instance
 type ProviderSpec struct {
-	ID               string
-	Type             string
-	Model            string
-	BaseURL          string
+	ID      string
+	Type    string
+	Model   string
+	BaseURL string
+	// Headers contains custom HTTP headers to include in every request.
+	// Applied after built-in provider headers; collisions cause an error.
+	Headers          map[string]string
 	Defaults         ProviderDefaults
 	IncludeRawOutput bool
 	AdditionalConfig map[string]interface{} // Flexible key-value pairs for provider-specific configuration
@@ -193,6 +196,18 @@ type httpTransportConfigurable interface {
 	SetHTTPTransport(http.RoundTripper)
 }
 
+// headersConfigurable is implemented by any provider that embeds
+// *BaseProvider. CreateProviderFromSpec uses this to apply custom HTTP
+// headers from spec.Headers after the factory runs. Custom headers are
+// applied to every outgoing request and checked for collisions with
+// built-in provider headers at request time.
+//
+// NOSONAR: name intentionally matches the existing *Configurable pattern
+// for post-construction wiring interfaces (timeoutConfigurable etc.)
+type headersConfigurable interface {
+	SetCustomHeaders(map[string]string)
+}
+
 // CreateProviderFromSpec creates a provider implementation from a spec.
 // Returns an error if the provider type is unsupported.
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
@@ -276,6 +291,13 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		rt := NewInstrumentedTransport(base)
 		rt = newConnTrackingTransport(rt, DefaultStreamMetrics())
 		htc.SetHTTPTransport(rt)
+	}
+
+	// Apply custom HTTP headers for gateway compatibility (OpenRouter,
+	// LiteLLM, etc.). Only applied when headers are configured — an
+	// empty map is a no-op at request time.
+	if hc, ok := provider.(headersConfigurable); ok && len(spec.Headers) > 0 {
+		hc.SetCustomHeaders(spec.Headers)
 	}
 
 	return provider, nil

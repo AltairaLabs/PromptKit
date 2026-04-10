@@ -1088,10 +1088,17 @@ type ProviderConfigK8s struct {
 
 // Provider defines API connection and defaults
 type Provider struct {
-	ID               string                 `json:"id,omitempty" yaml:"id,omitempty"`
-	Type             string                 `json:"type" yaml:"type"`
-	Model            string                 `json:"model" yaml:"model"`
-	BaseURL          string                 `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+	ID      string `json:"id,omitempty" yaml:"id,omitempty"`
+	Type    string `json:"type" yaml:"type"`
+	Model   string `json:"model" yaml:"model"`
+	BaseURL string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+	// Headers specifies custom HTTP headers to include in every request to
+	// this provider. Useful for OpenAI-compatible gateways (OpenRouter,
+	// LiteLLM, etc.) that require app attribution or custom auth headers.
+	// Values are plain strings — use the credentials field for secrets.
+	// Collisions with built-in provider headers (Authorization, Content-Type,
+	// etc.) are rejected at request time.
+	Headers          map[string]string      `json:"headers,omitempty" yaml:"headers,omitempty"`
 	RateLimit        RateLimit              `json:"rate_limit,omitempty" yaml:"rate_limit,omitempty"`
 	Defaults         ProviderDefaults       `json:"defaults,omitempty" yaml:"defaults,omitempty"`
 	Pricing          Pricing                `json:"pricing,omitempty" yaml:"pricing,omitempty"`

@@ -706,6 +706,16 @@ spec:
   # Optional: API endpoint override
   base_url: https://api.openai.com/v1
 
+  # Optional: Custom HTTP headers injected into every request.
+  # Useful for OpenAI-compatible gateways (OpenRouter, LiteLLM, etc.)
+  # that require app attribution or custom auth headers. Values are
+  # plain strings — use the credential field for secrets. Collisions
+  # with built-in headers (Authorization, Content-Type, etc.) are
+  # rejected at request time with an error.
+  headers:
+    HTTP-Referer: https://myapp.com
+    X-Title: My App
+
   # Optional: Credential configuration
   credential:
     api_key: ""                     # Direct API key (not recommended)

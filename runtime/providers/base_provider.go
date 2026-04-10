@@ -158,6 +158,7 @@ type BaseProvider struct {
 	rateLimiter           *rate.Limiter
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
+	customHeaders         map[string]string
 }
 
 // NewBaseProvider creates a new BaseProvider with common fields. A companion
@@ -337,6 +338,29 @@ func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
 		// also pick up the new transport.
 		b.streamingClient = &http.Client{Timeout: 0, Transport: rt}
 	}
+}
+
+// SetCustomHeaders stores custom HTTP headers that will be applied to
+// every outgoing request via ApplyCustomHeaders. Intended for
+// OpenAI-compatible gateway headers (e.g. OpenRouter's HTTP-Referer,
+// X-Title). Called by CreateProviderFromSpec after factory construction.
+func (b *BaseProvider) SetCustomHeaders(headers map[string]string) {
+	b.customHeaders = headers
+}
+
+// ApplyCustomHeaders applies stored custom headers to the HTTP request.
+// Must be called AFTER the provider sets its own built-in headers
+// (Authorization, Content-Type, etc.). Returns an error if any custom
+// header collides with a header already set on the request
+// (case-insensitive per HTTP spec).
+func (b *BaseProvider) ApplyCustomHeaders(req *http.Request) error {
+	for key, value := range b.customHeaders {
+		if req.Header.Get(key) != "" {
+			return fmt.Errorf("custom header %q collides with built-in header set by provider", key)
+		}
+		req.Header.Set(key, value)
+	}
+	return nil
 }
 
 // StreamIdleTimeout returns the configured SSE body idle timeout or the
