@@ -26,6 +26,13 @@ func WithMonitorOnly() GuardrailOption {
 
 // NewGuardrailHookFromRegistry creates a guardrail ProviderHook using the eval registry.
 // Any registered eval handler (including aliases) can be used as a guardrail.
+//
+// If the handler implements evals.ParamValidator, the params are normalised
+// (ApplyDefaults + NormalizeParams) and passed to ValidateParams before the
+// hook is constructed. This surfaces invalid pack validators at SDK load
+// time instead of silently failing every turn — handlers for which params
+// are unusable return an error here, and the SDK's warn-and-skip loop in
+// convertPackValidatorsToHooks logs and drops them.
 func NewGuardrailHookFromRegistry(
 	typeName string, params map[string]any, registry *evals.EvalTypeRegistry,
 	opts ...GuardrailOption,
@@ -33,6 +40,17 @@ func NewGuardrailHookFromRegistry(
 	handler, err := registry.Get(typeName)
 	if err != nil {
 		return nil, fmt.Errorf("unknown guardrail type: %q", typeName)
+	}
+
+	// Normalise params the same way adapter.AfterCall does before passing
+	// to ValidateParams, so handlers only need to check canonical key names.
+	normalized := evals.ApplyDefaults(typeName, params)
+	normalized = evals.NormalizeParams(typeName, normalized)
+
+	if pv, ok := handler.(evals.ParamValidator); ok {
+		if verr := pv.ValidateParams(normalized); verr != nil {
+			return nil, fmt.Errorf("guardrail %q: %w", typeName, verr)
+		}
 	}
 
 	direction := directionOutput
