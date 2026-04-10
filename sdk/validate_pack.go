@@ -56,11 +56,12 @@ func (p PackIssue) String() string {
 // unknown validator/eval types, missing required params — that would
 // cause Open() to warn-and-skip them or Arena to fail fast.
 //
-// By default, ValidatePack runs strict promptpack JSON schema validation
-// against the embedded schema. A pack that fails schema validation (for
-// example, a validator declaring a forbidden field like "monitor") is
-// returned as a non-nil error — not as PackIssues — because the file
-// itself is non-spec. Pass WithSkipSchemaValidation to bypass this and
+// When skipSchemaValidation is false (the default for callers who pass
+// the zero value), ValidatePack runs strict promptpack JSON schema
+// validation against the embedded schema. A pack that fails schema
+// validation (for example, a validator declaring a forbidden field like
+// "monitor") is returned as a non-nil error — not as PackIssues —
+// because the file itself is non-spec. Pass true to bypass this and
 // check only handler-level issues.
 //
 // Returns (nil, nil) if the pack is fully valid.
@@ -74,22 +75,9 @@ func (p PackIssue) String() string {
 // This is a pre-flight check for CI gates and operator tools. It runs
 // the same handler-level validation the SDK runs internally during
 // Open(), exposed as a standalone function.
-//
-// ValidatePack accepts the same Option values as Open(), but only
-// consults WithSkipSchemaValidation — every other option is ignored.
-func ValidatePack(path string, opts ...Option) ([]PackIssue, error) {
-	cfg := &config{}
-	for _, opt := range opts {
-		if opt == nil {
-			continue
-		}
-		if err := opt(cfg); err != nil {
-			return nil, fmt.Errorf("apply option: %w", err)
-		}
-	}
-
+func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error) {
 	loaded, err := pack.Load(path, pack.LoadOptions{
-		SkipSchemaValidation: cfg.skipSchemaValidation,
+		SkipSchemaValidation: skipSchemaValidation,
 	})
 	if err != nil {
 		return nil, err

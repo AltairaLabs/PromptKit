@@ -55,7 +55,7 @@ func TestValidatePack_ValidPackReturnsNoIssues(t *testing.T) {
 	pack := baseValidPack()
 	path := writeValidatePackFixture(t, pack)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.NoError(t, err)
 	assert.Empty(t, issues, "a valid pack must produce no issues")
 }
@@ -73,7 +73,7 @@ func TestValidatePack_ValidPackWithGoodValidator(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, pack)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.NoError(t, err)
 	assert.Empty(t, issues)
 }
@@ -91,7 +91,7 @@ func TestValidatePack_ReportsUnknownValidatorType(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, pack)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.NoError(t, err)
 	require.Len(t, issues, 1)
 	assert.Equal(t, "validator", issues[0].Kind)
@@ -113,7 +113,7 @@ func TestValidatePack_ReportsMissingValidatorParams(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, pack)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.NoError(t, err)
 	require.Len(t, issues, 1)
 	assert.Equal(t, "validator", issues[0].Kind)
@@ -136,7 +136,7 @@ func TestValidatePack_SkipsDisabledValidator(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, pack)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.NoError(t, err)
 	assert.Empty(t, issues, "disabled validators must not produce issues")
 }
@@ -154,7 +154,7 @@ func TestValidatePack_ReportsUnknownEvalType(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, pack)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.NoError(t, err)
 	require.Len(t, issues, 1)
 	assert.Equal(t, "eval", issues[0].Kind)
@@ -176,7 +176,7 @@ func TestValidatePack_ReportsMissingEvalParams(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, pack)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.NoError(t, err)
 	require.Len(t, issues, 1)
 	assert.Equal(t, "eval", issues[0].Kind)
@@ -197,13 +197,13 @@ func TestValidatePack_MultipleIssues(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, pack)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.NoError(t, err)
 	assert.Len(t, issues, 3, "must report all three issues")
 }
 
 func TestValidatePack_FileNotFound(t *testing.T) {
-	issues, err := sdk.ValidatePack("/nonexistent/path/pack.json")
+	issues, err := sdk.ValidatePack("/nonexistent/path/pack.json", false)
 	require.Error(t, err)
 	assert.Nil(t, issues)
 }
@@ -263,7 +263,7 @@ func TestValidatePack_SchemaValidationError(t *testing.T) {
 	path := filepath.Join(dir, "bad.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"id": "bad"}`), 0o600))
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.Error(t, err, "structural failure must be returned as error, not as issues")
 	assert.Nil(t, issues)
 }
@@ -288,13 +288,13 @@ func TestValidatePack_StrictSchemaRejectsNonSpecFields(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, p)
 
-	issues, err := sdk.ValidatePack(path)
+	issues, err := sdk.ValidatePack(path, false)
 	require.Error(t, err, "strict schema validation must reject non-spec validator fields")
 	assert.Nil(t, issues, "schema failures must be returned as error, not issues")
 }
 
 // TestValidatePack_SkipSchemaAllowsNonSpecFields confirms the opt-out.
-// With WithSkipSchemaValidation, strict schema is bypassed; handler-level
+// With skipSchemaValidation=true, strict schema is bypassed; handler-level
 // validation still runs on the declared validators. The forbidden
 // "monitor" field is ignored at load time (it's not in the Go struct),
 // and the validator itself is semantically valid, so no issues are
@@ -313,7 +313,7 @@ func TestValidatePack_SkipSchemaAllowsNonSpecFields(t *testing.T) {
 	}
 	path := writeValidatePackFixture(t, p)
 
-	issues, err := sdk.ValidatePack(path, sdk.WithSkipSchemaValidation())
-	require.NoError(t, err, "schema check must be bypassed with WithSkipSchemaValidation")
+	issues, err := sdk.ValidatePack(path, true)
+	require.NoError(t, err, "schema check must be bypassed with skipSchemaValidation=true")
 	assert.Empty(t, issues, "semantically valid validator produces no issues")
 }
