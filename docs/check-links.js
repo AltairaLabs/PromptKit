@@ -30,16 +30,20 @@ const server = spawn(
 
 // Wait until the preview server reports it's listening on the expected
 // port — if astro falls back to a different port (because ours is taken),
-// fail fast rather than silently crawling the wrong content.
-const readyRegex = new RegExp(`Local\\s+http://localhost:${port}/`);
-const fallbackRegex = /Local\s+http:\/\/localhost:(\d+)\//;
+// fail fast rather than silently crawling the wrong content. Astro emits
+// its "ready" line with ANSI color codes in both CI and local shells, so
+// strip those before matching.
+const stripAnsi = (s) => s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+const readyRegex = new RegExp(`http://localhost:${port}/`);
+const fallbackRegex = /http:\/\/localhost:(\d+)\//;
 let ready = false;
 let fallbackPort;
 
 const readyPromise = new Promise((resolve, reject) => {
   const onData = (chunk) => {
-    const text = chunk.toString();
-    process.stdout.write(text);
+    const raw = chunk.toString();
+    process.stdout.write(raw);
+    const text = stripAnsi(raw);
     if (readyRegex.test(text)) {
       ready = true;
       resolve();
