@@ -264,6 +264,6 @@ which node
 
 ## Learn More
 
-- [MCP Integration Guide](../../docs/mcp-integration.md) - Full MCP documentation
-- [Tool Calling Guide](../../docs/tool-calling.md) - How tool execution works
+- [Testing MCP tools in Arena](https://promptkit.altairalabs.ai/arena/how-to/test-mcp-tools/) - Full MCP documentation
+- [Tools & MCP concept overview](https://promptkit.altairalabs.ai/concepts/tools-mcp/) - How tool execution works
 - [Official MCP Servers](https://github.com/modelcontextprotocol/servers) - More MCP servers to try

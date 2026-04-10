@@ -1,7 +1,8 @@
 # Resilience Testing Example
 
-Comprehensive example demonstrating 25+ assertion types from the
-[Dynamic Context & Tool-Using LLM Testing Proposal](../../docs/local-backlog/DYNAMIC_CONTEXT_TOOL_TESTING_PROPOSAL.md).
+Comprehensive example demonstrating 25+ assertion types. See the full
+[Arena assertions reference](https://promptkit.altairalabs.ai/arena/reference/assertions/)
+for the complete list of supported assertion types.
 
 ## Scenarios
 

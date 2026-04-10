@@ -340,9 +340,8 @@ Use mock provider in automated tests:
 
 ## Related Documentation
 
-- [MediaConfig Specification](../../docs/guides/multimodal-support.md)
-- [PromptArena User Guide](../../docs/guides/arena-user-guide.md)
-- [Provider Configuration](../../docs/guides/provider-configuration.md)
+- [Configure LLM providers](https://promptkit.altairalabs.ai/arena/how-to/configure-providers/) - Including multimodal-capable providers
+- [Arena tutorials](https://promptkit.altairalabs.ai/arena/tutorials/01-first-test/) - Step-by-step Arena usage
 - [Mock Provider Usage](../assertions-test/MOCK_PROVIDER_USAGE.md)
 
 ## Related Examples

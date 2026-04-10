@@ -8,12 +8,6 @@ All examples use the **Pipeline architecture** - audio, TTS, VAD, and other feat
 
 ## Available Examples
 
-### 🎙️ [streaming-tts](./streaming-tts/)
-Demonstrates streaming text-to-speech through the Pipeline.
-- Streaming LLM responses
-- TTS middleware converting text to audio
-- Real-time audio generation during streaming
-
 ### 🗣️ [voice-chat](./voice-chat/)
 Demonstrates voice conversation through the Pipeline.
 - VAD (Voice Activity Detection)
