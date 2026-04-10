@@ -151,6 +151,10 @@ func (p *Provider) makeBedrockStreamingRequest(
 		return nil, nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return nil, nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+	}
+
 	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
@@ -394,6 +398,11 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
 		predictResp.Latency = time.Since(start)
 		return nil, predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
+
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("apply custom headers: %w", hdrErr)
 	}
 
 	logger.APIRequest("Claude", "POST", url, map[string]string{

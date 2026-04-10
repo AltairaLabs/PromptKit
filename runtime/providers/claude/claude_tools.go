@@ -530,6 +530,10 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 	}
 
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+	}
+
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
@@ -590,6 +594,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 			if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
 				return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 			}
+			if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+				return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+			}
 			return httpReq, nil
 		}
 		return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
@@ -626,6 +633,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 		httpReq.Header.Set("Accept", "text/event-stream")
 		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+			return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
 		}
 		return httpReq, nil
 	}
