@@ -1,19 +1,55 @@
 package sdk_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/sdk"
 )
+
+// syncBuffer is a mutex-guarded bytes.Buffer. Needed because the SDK's
+// global logger is shared across pipeline goroutines which keep emitting
+// log records concurrently with the test reading the captured output.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// captureValidatorLogs redirects the global logger to a concurrency-safe
+// buffer for the duration of a test. Local to this file because
+// eval_middleware_test.go's captureLogs lives in package sdk and this file
+// is in sdk_test.
+func captureValidatorLogs(t *testing.T) *syncBuffer {
+	t.Helper()
+	buf := &syncBuffer{}
+	h := slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	logger.SetLogger(slog.New(h))
+	return buf
+}
 
 // Regression coverage for https://github.com/AltairaLabs/PromptKit/issues/933.
 //
@@ -88,6 +124,8 @@ func openWithMockResponse(t *testing.T, packPath, cannedResponse string) *sdk.Co
 // regression for #933. A short assistant response must flow through a
 // max_length validator with a generous cap untouched.
 func TestIssue933_MaxLengthValidatorDoesNotBlockShortResponse(t *testing.T) {
+	logs := captureValidatorLogs(t)
+
 	const cannedResponse = "Hi there, this is a short reply." // 32 chars
 	packPath := writeTestPack(t, buildTestPackWithMaxLength(t, 2000, true))
 	conv := openWithMockResponse(t, packPath, cannedResponse)
@@ -103,6 +141,15 @@ func TestIssue933_MaxLengthValidatorDoesNotBlockShortResponse(t *testing.T) {
 		"response must not be replaced with DefaultBlockedMessage (issue #933)")
 	assert.NotContains(t, got, "blocked",
 		"response must not mention being blocked (issue #933 regression)")
+
+	// Structural assertion: without this, the content-equality check above
+	// is a tautology — if the validator hook is silently dropped by
+	// convertPackValidatorsToHooks (e.g. because params unmarshal to nil
+	// from a struct-tag regression), a short response still passes through
+	// unchanged for the wrong reason. Pinning the absence of the skip
+	// warning proves the hook was actually registered.
+	assert.NotContains(t, logs.String(), "Skipping unusable pack validator",
+		"validator must be registered, not silently skipped (regression for #933)")
 }
 
 // TestValidatorEnforcesOnRealViolation verifies that fail_on_violation:true
