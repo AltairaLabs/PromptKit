@@ -163,28 +163,42 @@ func TestMakeRawRequest_AppliesCustomHeaders(t *testing.T) {
 // between a custom header and a caller-supplied header aborts the
 // request before any retry attempts — the caller gets the failure
 // immediately instead of burning retry budget on a deterministic
-// client-side error.
+// client-side error. Also exercises the case-insensitive path
+// (content-type vs Content-Type) so the http.Header lookup used inside
+// MakeRawRequest is covered.
 func TestMakeRawRequest_CustomHeaderCollision(t *testing.T) {
-	var attempts int32
-	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&attempts, 1)
-	}))
-	defer server.Close()
-
-	bp := NewBaseProvider("test", false, &http.Client{})
-	bp.SetCustomHeaders(map[string]string{
-		"Content-Type": "text/plain",
-	})
-
-	_, err := bp.MakeJSONRequest(context.Background(), server.URL, map[string]any{"ok": true},
-		RequestHeaders{"Content-Type": "application/json"}, "TestProvider")
-	if err == nil {
-		t.Fatal("expected collision error, got nil")
+	cases := []struct {
+		name      string
+		customKey string
+		callerKey string
+	}{
+		{"exact match", "Content-Type", "Content-Type"},
+		{"case insensitive", "content-type", "Content-Type"},
 	}
-	if !strings.Contains(err.Error(), "custom header") {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if atomic.LoadInt32(&attempts) != 0 {
-		t.Errorf("expected 0 HTTP attempts on collision, got %d", atomic.LoadInt32(&attempts))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts int32
+			server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+				atomic.AddInt32(&attempts, 1)
+			}))
+			defer server.Close()
+
+			bp := NewBaseProvider("test", false, &http.Client{})
+			bp.SetCustomHeaders(map[string]string{
+				tc.customKey: "text/plain",
+			})
+
+			_, err := bp.MakeJSONRequest(context.Background(), server.URL, map[string]any{"ok": true},
+				RequestHeaders{tc.callerKey: "application/json"}, "TestProvider")
+			if err == nil {
+				t.Fatal("expected collision error, got nil")
+			}
+			if !strings.Contains(err.Error(), "custom header") {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if atomic.LoadInt32(&attempts) != 0 {
+				t.Errorf("expected 0 HTTP attempts on collision, got %d", atomic.LoadInt32(&attempts))
+			}
+		})
 	}
 }

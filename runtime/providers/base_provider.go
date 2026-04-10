@@ -840,11 +840,11 @@ func (b *BaseProvider) MakeJSONRequest(
 // network errors) according to the provider's RetryPolicy.
 //
 // Any provider-level custom headers configured via SetCustomHeaders are
-// applied to every attempt after the caller's headers, with a
+// merged into the outgoing request headers up front, with a
 // case-insensitive collision check against the built-in headers the
-// caller passed. Collisions are deterministic client-side errors so they
-// are verified once up front before the retry loop starts — a colliding
-// header configuration should fail fast, not burn retry budget.
+// caller passed. Collisions are deterministic client-side errors so
+// they fail fast before the retry loop runs — a misconfigured gateway
+// header should not burn retry budget.
 func (b *BaseProvider) MakeRawRequest(
 	ctx context.Context,
 	url string,
@@ -852,9 +852,33 @@ func (b *BaseProvider) MakeRawRequest(
 	headers RequestHeaders,
 	providerName string,
 ) ([]byte, error) {
+	// Merge custom headers into the effective header set. http.Header
+	// gives us case-insensitive lookup so we don't have to re-implement
+	// the collision check that ApplyCustomHeaders already does.
+	effectiveHeaders := headers
+	if len(b.customHeaders) > 0 {
+		merged := http.Header{}
+		for k, v := range headers {
+			merged.Set(k, v)
+		}
+		for k, v := range b.customHeaders {
+			if merged.Get(k) != "" {
+				return nil, fmt.Errorf("custom header %q collides with built-in header set by provider", k)
+			}
+			merged.Set(k, v)
+		}
+		flat := make(RequestHeaders, len(merged))
+		for k, vs := range merged {
+			if len(vs) > 0 {
+				flat[k] = vs[0]
+			}
+		}
+		effectiveHeaders = flat
+	}
+
 	// Log the request once (mask sensitive headers for logging).
 	logHeaders := make(map[string]string)
-	for k, v := range headers {
+	for k, v := range effectiveHeaders {
 		if k == "Authorization" || k == "x-api-key" {
 			logHeaders[k] = "***"
 		} else {
@@ -866,23 +890,6 @@ func (b *BaseProvider) MakeRawRequest(
 	// Validate payload size before sending the request.
 	if err := b.checkPayloadSize(body, providerName); err != nil {
 		return nil, err
-	}
-
-	// Pre-flight custom-header collision check so a misconfigured gateway
-	// header fails fast and doesn't consume retry attempts. Uses an empty
-	// probe request seeded with the caller's headers so the same
-	// case-insensitive logic in ApplyCustomHeaders is reused.
-	if len(b.customHeaders) > 0 {
-		probe, probeErr := http.NewRequestWithContext(ctx, "POST", url, http.NoBody)
-		if probeErr != nil {
-			return nil, fmt.Errorf("failed to build custom-header probe: %w", probeErr)
-		}
-		for key, value := range headers {
-			probe.Header.Set(key, value)
-		}
-		if err := b.ApplyCustomHeaders(probe); err != nil {
-			return nil, err
-		}
 	}
 
 	// Wait for rate limiter before making the HTTP call
@@ -897,14 +904,8 @@ func (b *BaseProvider) MakeRawRequest(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
-		for key, value := range headers {
+		for key, value := range effectiveHeaders {
 			req.Header.Set(key, value)
-		}
-		if err := b.ApplyCustomHeaders(req); err != nil {
-			// Unreachable in practice — the pre-flight check above
-			// would have already returned this error. Kept as a
-			// safety net in case customHeaders mutates concurrently.
-			return nil, err
 		}
 		return b.client.Do(req)
 	}
