@@ -1,37 +1,103 @@
 #!/usr/bin/env node
 import { LinkChecker } from 'linkinator';
 import { spawn } from 'child_process';
+import { once } from 'events';
 
-// Start preview server
-console.log('🚀 Starting preview server...');
-const server = spawn('npm', ['run', 'preview'], { 
-  detached: true,
-  stdio: 'ignore'
+// In CI we only want to catch broken *internal* links — the kind we can
+// actually fix. External URLs flake for reasons out of our control (rate
+// limiting, temporary outages, auth gates) and turn the docs job red for
+// no useful signal. Set CHECK_LINKS_INCLUDE_EXTERNAL=1 to get the full
+// crawl locally.
+const includeExternal = process.env.CHECK_LINKS_INCLUDE_EXTERNAL === '1';
+
+// Explicitly pick a port and pass it to astro preview so we always crawl
+// OUR built dist and never accidentally crawl whatever happens to be
+// listening on astro's default port (e.g. another dev server the user
+// has running locally). CI gets a clean host so this is a no-op there,
+// but it makes local runs robust.
+const port = Number(process.env.CHECK_LINKS_PORT ?? '4321');
+const baseURL = `http://localhost:${port}/`;
+
+console.log(`🚀 Starting preview server on port ${port}...`);
+const server = spawn(
+  'npx',
+  ['astro', 'preview', '--port', String(port)],
+  {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  },
+);
+
+// Wait until the preview server reports it's listening on the expected
+// port — if astro falls back to a different port (because ours is taken),
+// fail fast rather than silently crawling the wrong content.
+const readyRegex = new RegExp(`Local\\s+http://localhost:${port}/`);
+const fallbackRegex = /Local\s+http:\/\/localhost:(\d+)\//;
+let ready = false;
+let fallbackPort;
+
+const readyPromise = new Promise((resolve, reject) => {
+  const onData = (chunk) => {
+    const text = chunk.toString();
+    process.stdout.write(text);
+    if (readyRegex.test(text)) {
+      ready = true;
+      resolve();
+      return;
+    }
+    const match = text.match(fallbackRegex);
+    if (match && match[1] !== String(port)) {
+      fallbackPort = match[1];
+      reject(
+        new Error(
+          `astro preview fell back to port ${fallbackPort} because ${port} is busy. ` +
+          `Set CHECK_LINKS_PORT to a free port or stop the process using ${port}.`,
+        ),
+      );
+    }
+  };
+  server.stdout.on('data', onData);
+  server.stderr.on('data', onData);
+  once(server, 'exit').then(() => {
+    if (!ready) {
+      reject(new Error('astro preview exited before becoming ready'));
+    }
+  });
+  // Safety net — reject if the server never reports ready.
+  setTimeout(() => {
+    if (!ready) {
+      reject(new Error(`astro preview did not become ready on port ${port} within 30s`));
+    }
+  }, 30_000);
 });
 
-// Wait for server to be ready
-await new Promise(resolve => setTimeout(resolve, 4000));
-
 try {
-  console.log('🔍 Checking all links...\n');
-  
+  await readyPromise;
+  console.log(`🔍 Checking ${includeExternal ? 'all' : 'internal-only'} links...\n`);
+
   const checker = new LinkChecker();
   const result = await checker.check({
-    path: 'http://localhost:4321/',
+    path: baseURL,
     recurse: true,
     timeout: 10000,
+    // linkSkip accepts a regex string; skip any absolute URL that isn't
+    // on localhost or the production docs domain. Relative links are
+    // resolved to localhost by the time linkinator checks them, so this
+    // correctly skips only real third-party URLs.
+    linkSkip: includeExternal
+      ? undefined
+      : '^https?://(?!localhost|127\\.0\\.0\\.1|promptkit\\.altairalabs\\.ai).+',
   });
 
   console.log(`\n📊 Total links checked: ${result.links.length}\n`);
 
-  // Just filter broken links - keep it simple
-  const brokenLinks = result.links.filter(link => link.state === 'BROKEN');
-  
+  const brokenLinks = result.links.filter((link) => link.state === 'BROKEN');
+
   if (brokenLinks.length === 0) {
     console.log('✅ No broken links found!');
     process.exit(0);
   }
-  
+
   // Group by broken URL
   const linksByUrl = new Map();
   for (const link of brokenLinks) {
@@ -40,53 +106,53 @@ try {
     }
     linksByUrl.get(link.url).push(link.parent);
   }
-  
+
   // Separate internal and external
   const internal = [];
   const external = [];
-  
+
   for (const [url, parents] of linksByUrl) {
     const entry = { url, parents: [...new Set(parents)] };
-    if (url.startsWith('http://localhost:') || url.startsWith('/') || url.startsWith('https://promptkit.altairalabs.ai')) {
+    if (
+      url.startsWith(baseURL) ||
+      url.startsWith('http://localhost:') ||
+      url.startsWith('/') ||
+      url.startsWith('https://promptkit.altairalabs.ai')
+    ) {
       internal.push(entry);
     } else {
       external.push(entry);
     }
   }
-  
+
   console.log(`❌ Found ${brokenLinks.length} broken links (${linksByUrl.size} unique URLs)\n`);
-  
+
   if (internal.length > 0) {
     console.log(`🔴 INTERNAL BROKEN LINKS (${internal.length}):\n`);
-    
-    for (let i = 0; i < internal.length; i++) {
-      const { url, parents } = internal[i];
+    for (const { url, parents } of internal) {
       console.log(`  [404] ${url}`);
       console.log(`      Found on ${parents.length} page(s):`);
-      parents.slice(0, 3).forEach(p => console.log(`        - ${p}`));
+      parents.slice(0, 3).forEach((p) => console.log(`        - ${p}`));
       if (parents.length > 3) {
         console.log(`        ... and ${parents.length - 3} more`);
       }
       console.log('');
     }
-    
-    // All internal broken links shown above
   }
-  
+
   if (external.length > 0) {
     console.log(`\n🌐 EXTERNAL BROKEN LINKS (${external.length}):\n`);
-    
     for (const { url, parents } of external) {
       console.log(`  [404] ${url}`);
       console.log(`      Found on ${parents.length} page(s):`);
-      parents.slice(0, 3).forEach(p => console.log(`        - ${p}`));
+      parents.slice(0, 3).forEach((p) => console.log(`        - ${p}`));
       if (parents.length > 3) {
         console.log(`        ... and ${parents.length - 3} more`);
       }
       console.log('');
     }
   }
-  
+
   process.exit(1);
 } catch (error) {
   console.error('Error:', error.message);

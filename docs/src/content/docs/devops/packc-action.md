@@ -260,7 +260,7 @@ username: ${{ secrets.DOCKERHUB_USERNAME }}
 password: ${{ secrets.DOCKERHUB_TOKEN }}
 ```
 
-Create an access token at: https://hub.docker.com/settings/security
+Create an access token via [Docker Hub account settings](https://docs.docker.com/security/for-developers/access-tokens/).
 
 ### AWS ECR
 

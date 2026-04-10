@@ -76,7 +76,7 @@ func setLoggerOnce(l *slog.Logger) {
 // The packPath can be:
 //   - Absolute path: "/path/to/assistant.pack.json"
 //   - Relative path: "./packs/assistant.pack.json"
-//   - URL: "https://example.com/packs/assistant.pack.json" (future)
+//   - Remote URL pointing at a .pack.json (future)
 //
 // The promptName must match a prompt ID defined in the pack's "prompts" section.
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {

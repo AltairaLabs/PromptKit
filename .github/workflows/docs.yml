@@ -6,11 +6,7 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'docs/package.json'
-      - 'docs/package-lock.json'
-      - 'docs/astro.config.*'
-      - 'docs/tsconfig.json'
-      - 'docs/src/content.config.ts'
+      - 'docs/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
     inputs:
@@ -86,7 +82,11 @@ jobs:
         env:
           NODE_ENV: production
           GH_TOKEN: ${{ github.token }}
-      
+
+      - name: Check for broken links
+        working-directory: docs
+        run: npm run check-links
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
         with:

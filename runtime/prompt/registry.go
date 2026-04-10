@@ -15,9 +15,8 @@
 // # Architecture
 //
 // For system architecture and design patterns, see:
-//   - Architecture overview: https://github.com/AltairaAI/promptkit-wip/blob/main/docs/architecture.md
-//   - Prompt assembly pipeline: https://github.com/AltairaAI/promptkit-wip/blob/main/docs/prompt-assembly.md
-//   - Repository pattern: https://github.com/AltairaAI/promptkit-wip/blob/main/docs/persistence-layer-proposal.md
+//   - Runtime pipeline: https://promptkit.altairalabs.ai/architecture/runtime-pipeline/
+//   - System overview: https://promptkit.altairalabs.ai/architecture/system-overview/
 //
 // # Usage
 //
