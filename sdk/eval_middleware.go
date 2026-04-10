@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -10,6 +11,91 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// filterInvalidEvalDefs removes eval defs whose type is unregistered or
+// whose params are unusable by their handler. Each removed def is logged
+// as a warning. Returns the filtered slice (never nil).
+//
+// This runs at middleware creation time, so the EvalRunner never sees
+// bad defs at dispatch time. Mirrors the validator warn-and-skip loop in
+// sdk.go:convertPackValidatorsToHooks.
+func filterInvalidEvalDefs(defs []evals.EvalDef, registry *evals.EvalTypeRegistry) []evals.EvalDef {
+	if len(defs) == 0 {
+		return defs
+	}
+	errs := evals.ValidateEvalTypes(defs, registry)
+	if len(errs) == 0 {
+		return defs
+	}
+
+	// ValidateEvalTypes formats each error as: eval "<id>": <reason>
+	badIDs := make(map[string]string, len(errs))
+	for _, e := range errs {
+		id, reason := parseEvalValidationError(e)
+		if id != "" {
+			badIDs[id] = reason
+			logger.Warn("Skipping unusable pack eval", "id", id, "reason", reason)
+		}
+	}
+
+	filtered := make([]evals.EvalDef, 0, len(defs))
+	for i := range defs {
+		if _, bad := badIDs[defs[i].ID]; bad {
+			continue
+		}
+		filtered = append(filtered, defs[i])
+	}
+	return filtered
+}
+
+// resolveRunnerAndFilter returns the EvalRunner to use (creating one if
+// necessary) and the eval defs filtered for type/param validity.
+//
+// Behavior:
+//   - No explicit runner: build one from the configured (or default)
+//     registry and filter defs against it.
+//   - Explicit runner + explicit registry: trust the caller's runner, but
+//     filter against the explicit registry.
+//   - Explicit runner only: trust the caller and skip filtering (we
+//     cannot inspect the runner's internal registry).
+func resolveRunnerAndFilter(
+	cfg *config, defs []evals.EvalDef,
+) (*evals.EvalRunner, []evals.EvalDef) {
+	if runner := cfg.evalRunner; runner != nil {
+		if reg := cfg.evalRegistry; reg != nil {
+			return runner, filterInvalidEvalDefs(defs, reg)
+		}
+		return runner, defs
+	}
+	registry := cfg.evalRegistry
+	if registry == nil {
+		registry = evals.NewEvalTypeRegistry()
+	}
+	filtered := filterInvalidEvalDefs(defs, registry)
+	if len(filtered) == 0 {
+		return nil, filtered
+	}
+	return evals.NewEvalRunner(registry), filtered
+}
+
+// parseEvalValidationError extracts id and reason from an error produced
+// by evals.ValidateEvalTypes. The format is: eval "<id>": <reason>.
+// If the format doesn't match, the whole string is returned as reason
+// and id is empty.
+func parseEvalValidationError(s string) (id, reason string) {
+	const prefix = `eval "`
+	if !strings.HasPrefix(s, prefix) {
+		return "", s
+	}
+	rest := s[len(prefix):]
+	end := strings.Index(rest, `":`)
+	if end < 0 {
+		return "", s
+	}
+	id = rest[:end]
+	reason = strings.TrimSpace(rest[end+2:])
+	return id, reason
+}
 
 // DefaultMaxConcurrentEvals is the default maximum number of concurrent eval goroutines.
 const DefaultMaxConcurrentEvals = 10
@@ -70,15 +156,12 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		return nil
 	}
 
-	// Get or create runner
-	runner := conv.config.evalRunner
-	if runner == nil {
-		registry := conv.config.evalRegistry
-		if registry == nil {
-			registry = evals.NewEvalTypeRegistry()
-		}
-		runner = evals.NewEvalRunner(registry)
+	runner, filteredDefs := resolveRunnerAndFilter(conv.config, defs)
+	if len(filteredDefs) == 0 {
+		logger.Debug("evals: middleware skipped, all defs filtered", "reason", "no valid defs")
+		return nil
 	}
+	defs = filteredDefs
 
 	// Build emitter from event bus (nil-safe), populating session ID if available.
 	emitter := conv.newEmitter(conv.config.eventBus)
