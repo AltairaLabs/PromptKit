@@ -8,6 +8,7 @@
 
 ARENA_OUTPUT="docs/src/content/docs/arena/examples"
 SDK_OUTPUT="docs/src/content/docs/sdk/examples"
+LINK_REWRITER="scripts/rewrite-example-links.mjs"
 
 # Clean up existing example directories
 rm -rf "$ARENA_OUTPUT"
@@ -45,8 +46,21 @@ sidebar:
 ---
 
 EOF
-            # Append original content (skip first H1 heading since Starlight uses frontmatter title)
-            sed '1{/^# /d}' "$readme_path" | sed '1{/^$/d}' >> "$output_file"
+            # Append original content (skip the first H1 heading since Starlight renders the
+            # title from frontmatter) and rewrite repo-relative links to absolute GitHub URLs
+            # so they stay valid once the README is served from the docs host. See
+            # rewrite-example-links.mjs for the rationale.
+            #
+            # awk is used instead of sed here because the previous `sed '1{/^# /d}'` syntax
+            # only works on GNU sed — on BSD sed (macOS) it errors out, the pipeline swallows
+            # the error, and the example pages end up with only frontmatter, which masks
+            # broken-link failures locally that still fire in CI.
+            example_rel_dir="${example_dir%/}"
+            awk '
+              !emitted && /^$/ { next }
+              !emitted && /^# / { emitted = 1; next }
+              { emitted = 1; print }
+            ' "$readme_path" | node "$LINK_REWRITER" "$example_rel_dir" >> "$output_file"
 
             echo "  Processed: $dirname"
         fi
@@ -67,7 +81,11 @@ sidebar:
 ---
 
 EOF
-        sed '1{/^# /d}' "$source_dir/README.md" | sed '1{/^$/d}' >> "$output_file"
+        awk '
+          !emitted && /^$/ { next }
+          !emitted && /^# / { emitted = 1; next }
+          { emitted = 1; print }
+        ' "$source_dir/README.md" | node "$LINK_REWRITER" "$source_dir" >> "$output_file"
         echo "  Processed: ${title} index"
     fi
 }
