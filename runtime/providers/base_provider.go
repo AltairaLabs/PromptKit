@@ -838,6 +838,13 @@ func (b *BaseProvider) MakeJSONRequest(
 // MakeRawRequest performs an HTTP POST request with pre-marshaled body.
 // It automatically retries on transient errors (429, 502, 503, 504 and
 // network errors) according to the provider's RetryPolicy.
+//
+// Any provider-level custom headers configured via SetCustomHeaders are
+// applied to every attempt after the caller's headers, with a
+// case-insensitive collision check against the built-in headers the
+// caller passed. Collisions are deterministic client-side errors so they
+// are verified once up front before the retry loop starts — a colliding
+// header configuration should fail fast, not burn retry budget.
 func (b *BaseProvider) MakeRawRequest(
 	ctx context.Context,
 	url string,
@@ -861,6 +868,23 @@ func (b *BaseProvider) MakeRawRequest(
 		return nil, err
 	}
 
+	// Pre-flight custom-header collision check so a misconfigured gateway
+	// header fails fast and doesn't consume retry attempts. Uses an empty
+	// probe request seeded with the caller's headers so the same
+	// case-insensitive logic in ApplyCustomHeaders is reused.
+	if len(b.customHeaders) > 0 {
+		probe, probeErr := http.NewRequestWithContext(ctx, "POST", url, http.NoBody)
+		if probeErr != nil {
+			return nil, fmt.Errorf("failed to build custom-header probe: %w", probeErr)
+		}
+		for key, value := range headers {
+			probe.Header.Set(key, value)
+		}
+		if err := b.ApplyCustomHeaders(probe); err != nil {
+			return nil, err
+		}
+	}
+
 	// Wait for rate limiter before making the HTTP call
 	if waitErr := b.WaitForRateLimit(ctx); waitErr != nil {
 		return nil, fmt.Errorf("rate limit wait: %w", waitErr)
@@ -875,6 +899,12 @@ func (b *BaseProvider) MakeRawRequest(
 		}
 		for key, value := range headers {
 			req.Header.Set(key, value)
+		}
+		if err := b.ApplyCustomHeaders(req); err != nil {
+			// Unreachable in practice — the pre-flight check above
+			// would have already returned this error. Kept as a
+			// safety net in case customHeaders mutates concurrently.
+			return nil, err
 		}
 		return b.client.Do(req)
 	}
