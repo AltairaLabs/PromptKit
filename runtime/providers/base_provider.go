@@ -355,7 +355,7 @@ func (b *BaseProvider) SetCustomHeaders(headers map[string]string) {
 // (case-insensitive per HTTP spec).
 func (b *BaseProvider) ApplyCustomHeaders(req *http.Request) error {
 	for key, value := range b.customHeaders {
-		if existing := req.Header.Get(key); existing != "" {
+		if req.Header.Get(key) != "" {
 			return fmt.Errorf("custom header %q collides with built-in header set by provider", key)
 		}
 		req.Header.Set(key, value)

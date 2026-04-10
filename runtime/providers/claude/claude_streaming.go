@@ -87,7 +87,7 @@ func (p *Provider) PredictStream(
 				return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 			}
 			if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-				return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+				return nil, hdrErr
 			}
 			return httpReq, nil
 		}
@@ -129,7 +129,7 @@ func (p *Provider) PredictStream(
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-			return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+			return nil, hdrErr
 		}
 		return httpReq, nil
 	}

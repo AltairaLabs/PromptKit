@@ -539,7 +539,7 @@ func (p *Provider) predictWithMessages(
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-		return predictResp, fmt.Errorf("apply custom headers: %w", hdrErr)
+		return predictResp, hdrErr
 	}
 
 	logger.APIRequest("Ollama", "POST", url, map[string]string{
@@ -647,7 +647,7 @@ func (p *Provider) predictStreamWithMessages(
 		httpReq.Header.Set("Accept", "text/event-stream")
 		// Ollama doesn't require Authorization header.
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-			return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+			return nil, hdrErr
 		}
 		return httpReq, nil
 	}

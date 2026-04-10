@@ -323,7 +323,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 	// Ollama doesn't require Authorization header.
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-		return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+		return nil, hdrErr
 	}
 
 	resp, doErr := p.GetHTTPClient().Do(httpReq)
@@ -385,7 +385,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		httpReq.Header.Set("Accept", "text/event-stream")
 		// Ollama doesn't require Authorization header.
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-			return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+			return nil, hdrErr
 		}
 		return httpReq, nil
 	}

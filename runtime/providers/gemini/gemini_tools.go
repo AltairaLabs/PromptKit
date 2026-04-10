@@ -573,7 +573,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 	req.Header.Set(contentTypeHeader, applicationJSON)
 
 	if hdrErr := p.ApplyCustomHeaders(req); hdrErr != nil {
-		return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+		return nil, hdrErr
 	}
 
 	resp, err := p.GetHTTPClient().Do(req)
@@ -633,7 +633,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-			return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+			return nil, hdrErr
 		}
 		return httpReq, nil
 	}

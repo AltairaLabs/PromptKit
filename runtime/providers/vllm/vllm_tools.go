@@ -125,7 +125,7 @@ func (p *Provider) PredictWithTools( // NOSONAR
 		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-		return providers.PredictionResponse{}, nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+		return providers.PredictionResponse{}, nil, hdrErr
 	}
 
 	// Send request
@@ -241,7 +241,7 @@ func (p *Provider) PredictStreamWithTools(
 		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-		return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+		return nil, hdrErr
 	}
 
 	// Send request

@@ -201,6 +201,9 @@ type httpTransportConfigurable interface {
 // headers from spec.Headers after the factory runs. Custom headers are
 // applied to every outgoing request and checked for collisions with
 // built-in provider headers at request time.
+//
+// NOSONAR: name intentionally matches the existing *Configurable pattern
+// for post-construction wiring interfaces (timeoutConfigurable etc.)
 type headersConfigurable interface {
 	SetCustomHeaders(map[string]string)
 }

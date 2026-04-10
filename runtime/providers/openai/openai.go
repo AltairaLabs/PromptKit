@@ -877,7 +877,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-		return predictResp, fmt.Errorf("apply custom headers: %w", hdrErr)
+		return predictResp, hdrErr
 	}
 
 	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIPredictCompletionsPath, map[string]string{
@@ -991,7 +991,7 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-			return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+			return nil, hdrErr
 		}
 		return httpReq, nil
 	}

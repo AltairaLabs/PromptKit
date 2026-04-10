@@ -359,7 +359,7 @@ func (p *Provider) predictWithMessages(
 	}
 
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-		return predictResp, fmt.Errorf("apply custom headers: %w", hdrErr)
+		return predictResp, hdrErr
 	}
 
 	logger.APIRequest("vLLM", "POST", url, map[string]string{
@@ -464,7 +464,7 @@ func (p *Provider) predictStreamWithMessages(
 			httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-			return nil, fmt.Errorf("apply custom headers: %w", hdrErr)
+			return nil, hdrErr
 		}
 		return httpReq, nil
 	}
