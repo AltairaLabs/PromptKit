@@ -84,13 +84,14 @@ try {
     path: baseURL,
     recurse: true,
     timeout: 10000,
-    // linkSkip accepts a regex string; skip any absolute URL that isn't
-    // on localhost or the production docs domain. Relative links are
-    // resolved to localhost by the time linkinator checks them, so this
-    // correctly skips only real third-party URLs.
-    linkSkip: includeExternal
+    // linksToSkip takes an array of regex strings; matching URLs are not
+    // fetched. Skip any absolute URL that isn't on localhost or the
+    // production docs domain — relative links have already been resolved
+    // to localhost by the time linkinator checks them, so this correctly
+    // skips only real third-party URLs.
+    linksToSkip: includeExternal
       ? undefined
-      : '^https?://(?!localhost|127\\.0\\.0\\.1|promptkit\\.altairalabs\\.ai).+',
+      : ['^https?://(?!localhost|127\\.0\\.0\\.1|promptkit\\.altairalabs\\.ai).+'],
   });
 
   console.log(`\n📊 Total links checked: ${result.links.length}\n`);
