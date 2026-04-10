@@ -3,6 +3,7 @@ package pack
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,4 +85,74 @@ func TestValidatorMarshalRoundTrip(t *testing.T) {
 	require.NotNil(t, round.FailOnViolation)
 	assert.Equal(t, *original.FailOnViolation, *round.FailOnViolation)
 	assert.Equal(t, original.Params, round.Params)
+}
+
+// TestValidatorJSONRejectsForbiddenFields proves that the embedded
+// promptpack schema (loaded by ValidateAgainstSchema) rejects validator
+// JSON containing fields the spec forbids via additionalProperties:false.
+// This is the outer guarantee that the SDK never reaches struct unmarshal
+// for a non-spec pack.
+func TestValidatorJSONRejectsForbiddenFields(t *testing.T) {
+	cases := []struct {
+		name    string
+		extra   string
+		wantErr string
+	}{
+		{
+			name:    "monitor field forbidden",
+			extra:   `"monitor": true`,
+			wantErr: "monitor",
+		},
+		{
+			name:    "config field forbidden",
+			extra:   `"config": {"foo": "bar"}`,
+			wantErr: "config",
+		},
+		{
+			name:    "message field forbidden",
+			extra:   `"message": "custom"`,
+			wantErr: "message",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			packJSON := []byte(`{
+				"id": "test-pack",
+				"name": "Test Pack",
+				"version": "1.0.0",
+				"description": "test",
+				"prompts": {
+					"default": {
+						"id": "default",
+						"name": "Default",
+						"description": "test prompt",
+						"version": "1.0.0",
+						"system_template": "hi",
+						"validators": [
+							{"type": "max_length", "enabled": true, ` + tc.extra + `}
+						]
+					}
+				}
+			}`)
+
+			err := ValidateAgainstSchema(packJSON)
+			require.Error(t, err, "schema must reject validator with forbidden field %q", tc.extra)
+
+			var schemaErr *SchemaValidationError
+			require.ErrorAs(t, err, &schemaErr)
+			// At least one error must mention the forbidden field or
+			// flag it as an unknown/additional property.
+			found := false
+			for _, e := range schemaErr.Errors {
+				if strings.Contains(e, tc.wantErr) || strings.Contains(e, "additional property") {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found,
+				"expected schema error to reference %q or additionalProperties; got %v",
+				tc.wantErr, schemaErr.Errors)
+		})
+	}
 }
