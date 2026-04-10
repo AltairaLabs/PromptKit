@@ -58,3 +58,13 @@ func (h *WorkflowStateIsHandler) Eval(
 		Details:     map[string]any{"expected": expected, "actual": actual},
 	}, nil
 }
+
+// ValidateParams checks that the required 'state' param is set to a
+// non-empty string.
+func (h *WorkflowStateIsHandler) ValidateParams(params map[string]any) error {
+	state, _ := params["state"].(string)
+	if state == "" {
+		return fmt.Errorf("%s requires a non-empty 'state' string param", h.Type())
+	}
+	return nil
+}

@@ -1,18 +1,78 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
+
+// captureLogs redirects the global logger to a buffer for the duration
+// of a test. Not goroutine-safe across parallel tests.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	h := slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	logger.SetLogger(slog.New(h))
+	return buf
+}
+
+func TestFilterInvalidEvalDefs_UnknownType(t *testing.T) {
+	logs := captureLogs(t)
+
+	reg := evals.NewEvalTypeRegistry()
+	defs := []evals.EvalDef{
+		{ID: "good", Type: "max_length", Trigger: evals.TriggerEveryTurn, Params: map[string]any{"max": 100}},
+		{ID: "bad", Type: "nonexistent_type", Trigger: evals.TriggerEveryTurn},
+	}
+
+	filtered := filterInvalidEvalDefs(defs, reg)
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "good", filtered[0].ID)
+
+	logOut := logs.String()
+	assert.Contains(t, logOut, "Skipping unusable pack eval")
+	assert.Contains(t, logOut, "bad")
+}
+
+func TestFilterInvalidEvalDefs_MissingRequiredParam(t *testing.T) {
+	logs := captureLogs(t)
+
+	reg := evals.NewEvalTypeRegistry()
+	defs := []evals.EvalDef{
+		{ID: "good", Type: "max_length", Trigger: evals.TriggerEveryTurn, Params: map[string]any{"max_characters": 100}},
+		{ID: "bad", Type: "max_length", Trigger: evals.TriggerEveryTurn, Params: map[string]any{}},
+	}
+
+	filtered := filterInvalidEvalDefs(defs, reg)
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "good", filtered[0].ID)
+	assert.Contains(t, logs.String(), "Skipping unusable pack eval")
+}
+
+func TestFilterInvalidEvalDefs_AllValid(t *testing.T) {
+	_ = captureLogs(t)
+
+	reg := evals.NewEvalTypeRegistry()
+	defs := []evals.EvalDef{
+		{ID: "a", Type: "max_length", Trigger: evals.TriggerEveryTurn, Params: map[string]any{"max": 100}},
+		{ID: "b", Type: "min_length", Trigger: evals.TriggerEveryTurn, Params: map[string]any{"min": 1}},
+	}
+	filtered := filterInvalidEvalDefs(defs, reg)
+	assert.Len(t, filtered, 2)
+}
 
 func TestNewEvalMiddleware_DisabledReturnsNil(t *testing.T) {
 	conv := &Conversation{
@@ -103,8 +163,8 @@ func TestEvalMiddleware_ResolvesPackAndPromptEvals(t *testing.T) {
 		},
 		prompt: &pack.Prompt{
 			Evals: []evals.EvalDef{
-				{ID: "b", Type: "regex_override", Trigger: evals.TriggerEveryTurn}, // Override
-				{ID: "c", Type: "length", Trigger: evals.TriggerOnSessionComplete},
+				{ID: "b", Type: "json_valid", Trigger: evals.TriggerEveryTurn}, // Override
+				{ID: "c", Type: "contains", Trigger: evals.TriggerOnSessionComplete},
 			},
 		},
 	}
@@ -121,8 +181,8 @@ func TestEvalMiddleware_ResolvesPackAndPromptEvals(t *testing.T) {
 	if mw.defs[0].ID != "a" {
 		t.Errorf("expected first def ID 'a', got %q", mw.defs[0].ID)
 	}
-	if mw.defs[1].Type != "regex_override" {
-		t.Errorf("expected second def type 'regex_override', got %q", mw.defs[1].Type)
+	if mw.defs[1].Type != "json_valid" {
+		t.Errorf("expected second def type 'json_valid', got %q", mw.defs[1].Type)
 	}
 	if mw.defs[2].ID != "c" {
 		t.Errorf("expected third def ID 'c', got %q", mw.defs[2].ID)

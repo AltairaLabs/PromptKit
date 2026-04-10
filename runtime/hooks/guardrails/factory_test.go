@@ -2,13 +2,55 @@ package guardrails
 
 import (
 	"context"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default handlers
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+func TestNewGuardrailHookRejectsMissingRequiredParams(t *testing.T) {
+	reg := evals.NewEvalTypeRegistry()
+
+	// max_length with no params — the handler's ParamValidator must reject.
+	_, err := NewGuardrailHookFromRegistry("max_length", map[string]any{}, reg)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "max",
+		"error should name the missing key")
+}
+
+func TestNewGuardrailHookAcceptsValidParams(t *testing.T) {
+	reg := evals.NewEvalTypeRegistry()
+
+	hook, err := NewGuardrailHookFromRegistry(
+		"max_length", map[string]any{"max_characters": 2000}, reg,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, hook)
+}
+
+func TestNewGuardrailHookAcceptsHandlersWithoutRequiredParams(t *testing.T) {
+	reg := evals.NewEvalTypeRegistry()
+
+	// banned_words maps to content_excludes, which has no required params
+	// (patterns is optional). Must succeed even with empty params.
+	hook, err := NewGuardrailHookFromRegistry("banned_words", map[string]any{}, reg)
+	require.NoError(t, err)
+	require.NotNil(t, hook)
+}
+
+func TestNewGuardrailHookStillRejectsUnknownType(t *testing.T) {
+	reg := evals.NewEvalTypeRegistry()
+
+	_, err := NewGuardrailHookFromRegistry("nonexistent", map[string]any{}, reg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown guardrail type")
+}
 
 func TestNewGuardrailHook_AllTypes(t *testing.T) {
 	tests := []struct {
@@ -17,7 +59,7 @@ func TestNewGuardrailHook_AllTypes(t *testing.T) {
 	}{
 		{"banned_words", map[string]any{"words": []any{"bad"}}},
 		{"length", map[string]any{"max_characters": 100}},
-		{"max_length", map[string]any{"max_tokens": 50}},
+		{"max_length", map[string]any{"max_characters": 200, "max_tokens": 50}},
 		{"max_sentences", map[string]any{"max_sentences": 3}},
 		{"required_fields", map[string]any{"required_fields": []any{"name"}}},
 		{"content_excludes", map[string]any{"patterns": []any{"bad"}}},

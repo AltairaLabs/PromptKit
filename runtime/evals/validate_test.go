@@ -1,10 +1,14 @@
 package evals
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
-)
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 func TestValidateEvals(t *testing.T) {
 	tests := []struct {
@@ -476,4 +480,64 @@ func TestValidateEvals_DisabledEvalStillValidated(t *testing.T) {
 	if len(errs) != 1 {
 		t.Errorf("disabled eval should still be validated, got %d errors", len(errs))
 	}
+}
+
+// paramCheckStubHandler is a test-only handler that implements both
+// EvalTypeHandler and ParamValidator. It requires a "foo" param for
+// stub_requires_foo; stub_no_req accepts anything.
+type paramCheckStubHandler struct{ typeName string }
+
+func (s *paramCheckStubHandler) Type() string { return s.typeName }
+
+func (s *paramCheckStubHandler) Eval(_ context.Context, _ *EvalContext, _ map[string]any) (*EvalResult, error) {
+	return &EvalResult{Type: s.typeName}, nil
+}
+
+func (s *paramCheckStubHandler) ValidateParams(params map[string]any) error {
+	if s.typeName != "stub_requires_foo" {
+		return nil
+	}
+	if _, ok := params["foo"]; !ok {
+		return fmt.Errorf("missing required 'foo' param")
+	}
+	return nil
+}
+
+func TestValidateEvalTypesChecksParams(t *testing.T) {
+	reg := NewEmptyEvalTypeRegistry()
+	reg.Register(&paramCheckStubHandler{typeName: "stub_requires_foo"})
+	reg.Register(&paramCheckStubHandler{typeName: "stub_no_req"})
+
+	t.Run("missing required param surfaces as error", func(t *testing.T) {
+		defs := []EvalDef{
+			{ID: "eval-1", Type: "stub_requires_foo", Params: map[string]any{}},
+		}
+		errs := ValidateEvalTypes(defs, reg)
+		require.Len(t, errs, 1)
+		assert.Contains(t, errs[0], `eval "eval-1"`)
+		assert.Contains(t, strings.ToLower(errs[0]), "foo")
+	})
+
+	t.Run("valid params produce no errors", func(t *testing.T) {
+		defs := []EvalDef{
+			{ID: "eval-2", Type: "stub_requires_foo", Params: map[string]any{"foo": "bar"}},
+		}
+		assert.Empty(t, ValidateEvalTypes(defs, reg))
+	})
+
+	t.Run("unknown type still surfaces as error", func(t *testing.T) {
+		defs := []EvalDef{
+			{ID: "eval-3", Type: "unregistered", Params: map[string]any{}},
+		}
+		errs := ValidateEvalTypes(defs, reg)
+		require.Len(t, errs, 1)
+		assert.Contains(t, errs[0], "unknown type")
+	})
+
+	t.Run("handler without ParamValidator accepts any params", func(t *testing.T) {
+		defs := []EvalDef{
+			{ID: "eval-4", Type: "stub_no_req", Params: map[string]any{"anything": "goes"}},
+		}
+		assert.Empty(t, ValidateEvalTypes(defs, reg))
+	})
 }
