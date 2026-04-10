@@ -2,7 +2,11 @@ package providers
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -118,5 +122,83 @@ func TestCreateProviderFromSpec_AppliesHeaders(t *testing.T) {
 	}
 	if got := req.Header.Get("X-Custom"); got != "value" {
 		t.Errorf("X-Custom = %q, want %q", got, "value")
+	}
+}
+
+// TestMakeRawRequest_AppliesCustomHeaders verifies that providers going
+// through the shared MakeRawRequest / MakeJSONRequest helpers pick up
+// custom headers automatically, without each provider having to wire
+// ApplyCustomHeaders into its request construction manually. This is the
+// path used by Ollama's ToolProvider.
+func TestMakeRawRequest_AppliesCustomHeaders(t *testing.T) {
+	var receivedHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer server.Close()
+
+	bp := NewBaseProvider("test", false, &http.Client{})
+	bp.SetCustomHeaders(map[string]string{
+		"X-Title":      "My App",
+		"HTTP-Referer": "https://myapp.com",
+	})
+
+	_, err := bp.MakeJSONRequest(context.Background(), server.URL, map[string]any{"ok": true},
+		RequestHeaders{"Content-Type": "application/json"}, "TestProvider")
+	if err != nil {
+		t.Fatalf("MakeJSONRequest: %v", err)
+	}
+
+	if got := receivedHeaders.Get("X-Title"); got != "My App" {
+		t.Errorf("X-Title = %q, want %q", got, "My App")
+	}
+	if got := receivedHeaders.Get("HTTP-Referer"); got != "https://myapp.com" {
+		t.Errorf("HTTP-Referer = %q, want %q", got, "https://myapp.com")
+	}
+}
+
+// TestMakeRawRequest_CustomHeaderCollision verifies that a collision
+// between a custom header and a caller-supplied header aborts the
+// request before any retry attempts — the caller gets the failure
+// immediately instead of burning retry budget on a deterministic
+// client-side error. Also exercises the case-insensitive path
+// (content-type vs Content-Type) so the http.Header lookup used inside
+// MakeRawRequest is covered.
+func TestMakeRawRequest_CustomHeaderCollision(t *testing.T) {
+	cases := []struct {
+		name      string
+		customKey string
+		callerKey string
+	}{
+		{"exact match", "Content-Type", "Content-Type"},
+		{"case insensitive", "content-type", "Content-Type"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts int32
+			server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+				atomic.AddInt32(&attempts, 1)
+			}))
+			defer server.Close()
+
+			bp := NewBaseProvider("test", false, &http.Client{})
+			bp.SetCustomHeaders(map[string]string{
+				tc.customKey: "text/plain",
+			})
+
+			_, err := bp.MakeJSONRequest(context.Background(), server.URL, map[string]any{"ok": true},
+				RequestHeaders{tc.callerKey: "application/json"}, "TestProvider")
+			if err == nil {
+				t.Fatal("expected collision error, got nil")
+			}
+			if !strings.Contains(err.Error(), "custom header") {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if atomic.LoadInt32(&attempts) != 0 {
+				t.Errorf("expected 0 HTTP attempts on collision, got %d", atomic.LoadInt32(&attempts))
+			}
+		})
 	}
 }
