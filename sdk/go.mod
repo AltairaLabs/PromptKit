@@ -3,9 +3,9 @@ module github.com/AltairaLabs/PromptKit/sdk
 go 1.25.1
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg v0.0.0
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
-	github.com/AltairaLabs/PromptKit/server/a2a v0.0.0
+	github.com/AltairaLabs/PromptKit/pkg v1.4.2
+	github.com/AltairaLabs/PromptKit/runtime v1.4.2
+	github.com/AltairaLabs/PromptKit/server/a2a v1.4.2
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260225232044-f1d8282acd02
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -123,7 +123,3 @@ require (
 )
 
 replace github.com/AltairaLabs/PromptKit/pkg => ../pkg
-
-replace github.com/AltairaLabs/PromptKit/runtime => ../runtime
-
-replace github.com/AltairaLabs/PromptKit/server/a2a => ../server/a2a
