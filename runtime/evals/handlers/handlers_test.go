@@ -590,6 +590,69 @@ func TestToolsCalledHandler_MixedSuccessAndError(t *testing.T) {
 	}
 }
 
+func TestToolsCalledHandler_RequireArgs_Pass(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "lookup_order", Arguments: map[string]any{"order_id": "1023"}},
+		},
+	}
+	params := map[string]any{
+		"tools":        []any{"lookup_order"},
+		"require_args": true,
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !(result.Score != nil && *result.Score >= 1.0) {
+		t.Fatalf("expected pass: tool has non-empty args: %s", result.Explanation)
+	}
+}
+
+func TestToolsCalledHandler_RequireArgs_FailEmpty(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "lookup_order", Arguments: nil},
+		},
+	}
+	params := map[string]any{
+		"tools":        []any{"lookup_order"},
+		"require_args": true,
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score != nil && *result.Score >= 1.0 {
+		t.Fatal("expected fail: tool has nil args with require_args=true")
+	}
+}
+
+func TestToolsCalledHandler_RequireArgs_DefaultFalse(t *testing.T) {
+	// Without require_args, nil args should still count as called
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "lookup_order", Arguments: nil},
+		},
+	}
+	params := map[string]any{
+		"tools": []any{"lookup_order"},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !(result.Score != nil && *result.Score >= 1.0) {
+		t.Fatalf("expected pass: require_args defaults to false: %s", result.Explanation)
+	}
+}
+
 // --- ToolsNotCalled ---
 
 func TestToolsNotCalledHandler_Type(t *testing.T) {

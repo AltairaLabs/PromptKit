@@ -18,6 +18,7 @@ import (
 //   - tool_names/tools []string — required tool names
 //   - min_calls int — minimum calls per tool (default 1)
 //   - ignore_validation bool — count validation failures as successful (default false)
+//   - require_args bool — only count calls with non-empty arguments (default false)
 type ToolsCalledHandler struct{}
 
 // Type returns the eval type identifier.
@@ -43,7 +44,8 @@ func (h *ToolsCalledHandler) Eval(
 
 	minCalls := extractInt(params, "min_calls", 1)
 	ignoreValidation := extractBool(params, "ignore_validation")
-	callCounts := buildCallCounts(evalCtx.ToolCalls, ignoreValidation)
+	requireArgs := extractBool(params, "require_args")
+	callCounts := buildCallCounts(evalCtx.ToolCalls, ignoreValidation, requireArgs)
 
 	return h.checkToolCalls(toolNames, callCounts, minCalls)
 }
@@ -91,12 +93,13 @@ func (h *ToolsCalledHandler) checkToolCalls(
 // buildCallCounts counts how many times each tool was called successfully.
 // A call is considered successful when it has no error, or when
 // ignoreValidation is true and the error is a validation failure.
+// When requireArgs is true, calls with nil/empty arguments are not counted.
 func buildCallCounts(
-	toolCalls []evals.ToolCallRecord, ignoreValidation bool,
+	toolCalls []evals.ToolCallRecord, ignoreValidation, requireArgs bool,
 ) map[string]int {
 	counts := make(map[string]int)
 	for i := range toolCalls {
-		if !shouldCountCall(&toolCalls[i], ignoreValidation) {
+		if !shouldCountCall(&toolCalls[i], ignoreValidation, requireArgs) {
 			continue
 		}
 		counts[toolCalls[i].ToolName]++
@@ -105,14 +108,14 @@ func buildCallCounts(
 }
 
 // shouldCountCall determines whether a tool call should be counted as successful.
-func shouldCountCall(tc *evals.ToolCallRecord, ignoreValidation bool) bool {
-	if tc.Error == "" {
-		return true // no error = success
+func shouldCountCall(tc *evals.ToolCallRecord, ignoreValidation, requireArgs bool) bool {
+	if tc.Error != "" && (!ignoreValidation || tc.ErrorType != types.ToolErrorValidation) {
+		return false
 	}
-	if ignoreValidation && tc.ErrorType == types.ToolErrorValidation {
-		return true // validation error but caller opted to ignore
+	if requireArgs && len(tc.Arguments) == 0 {
+		return false
 	}
-	return false
+	return true
 }
 
 // extractInt extracts an int from params with a default value.

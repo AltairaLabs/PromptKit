@@ -22,7 +22,8 @@ spec:
       content: "Call the get_weather function for New York City and tell me the result."
       assertions:
         - type: tools_called
-          message: "Should call the get_weather tool"
+          message: "Should call the get_weather tool with arguments"
           params:
             tools:
               - "get_weather"
+            require_args: true
