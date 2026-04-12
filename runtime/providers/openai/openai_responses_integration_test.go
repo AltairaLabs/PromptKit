@@ -2,8 +2,11 @@ package openai
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -239,3 +242,135 @@ func TestHandleStreamEvent_AudioDone(t *testing.T) {
 		// expected — no chunk
 	}
 }
+
+// --- #940 regression tests: tool call argument accumulation ---
+
+func TestHandleFuncArgsDelta_IDMatching(t *testing.T) {
+	p := &Provider{}
+
+	outputAddedData := `{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_abc123","call_id":"call_xyz789","name":"lookup_order","arguments":"","status":"in_progress"}}`
+
+	idMap := make(itemIDMap)
+	toolCalls := p.handleOutputAdded(outputAddedData, nil, idMap)
+
+	if len(toolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(toolCalls))
+	}
+	if toolCalls[0].Name != "lookup_order" {
+		t.Errorf("name = %q, want lookup_order", toolCalls[0].Name)
+	}
+
+	// Verify all three IDs are mapped
+	if _, ok := idMap["fc_abc123"]; !ok {
+		t.Error("idMap missing fc_abc123 (item.id)")
+	}
+	if _, ok := idMap["call_xyz789"]; !ok {
+		t.Error("idMap missing call_xyz789 (item.call_id)")
+	}
+	if _, ok := idMap["idx:0"]; !ok {
+		t.Error("idMap missing idx:0 (output_index)")
+	}
+
+	// Delta using item_id
+	delta1 := `{"type":"response.function_call_arguments.delta","item_id":"fc_abc123","output_index":0,"delta":"{\"order_id\":"}`
+	toolCalls = p.handleFuncArgsDelta(delta1, toolCalls, idMap)
+
+	delta2 := `{"type":"response.function_call_arguments.delta","item_id":"fc_abc123","output_index":0,"delta":"\"1023\"}"}`
+	toolCalls = p.handleFuncArgsDelta(delta2, toolCalls, idMap)
+
+	expected := `{"order_id":"1023"}`
+	if string(toolCalls[0].Args) != expected {
+		t.Errorf("args = %q, want %q", string(toolCalls[0].Args), expected)
+	}
+}
+
+func TestHandleFuncArgsDelta_OutputIndexOnly(t *testing.T) {
+	// Reproduce #940: delta events may only have output_index, not item_id or call_id.
+	p := &Provider{}
+
+	idMap := make(itemIDMap)
+	toolCalls := p.handleOutputAdded(
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_abc123","call_id":"call_xyz789","name":"lookup_order"}}`,
+		nil, idMap,
+	)
+
+	// Delta with output_index but NO item_id or call_id
+	deltaData := `{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"order_id\":\"1023\"}"}`
+	toolCalls = p.handleFuncArgsDelta(deltaData, toolCalls, idMap)
+
+	expected := `{"order_id":"1023"}`
+	if string(toolCalls[0].Args) != expected {
+		t.Errorf("output_index-only delta: args = %q, want %q", string(toolCalls[0].Args), expected)
+	}
+}
+
+func TestHandleFuncArgsDelta_CallIDFallback(t *testing.T) {
+	p := &Provider{}
+
+	idMap := make(itemIDMap)
+	toolCalls := p.handleOutputAdded(
+		`{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_abc","call_id":"call_xyz","name":"get_weather"}}`,
+		nil, idMap,
+	)
+
+	deltaData := `{"type":"response.function_call_arguments.delta","call_id":"call_xyz","delta":"{\"city\":\"London\"}"}`
+	toolCalls = p.handleFuncArgsDelta(deltaData, toolCalls, idMap)
+
+	if string(toolCalls[0].Args) != `{"city":"London"}` {
+		t.Errorf("call_id fallback: args = %q", string(toolCalls[0].Args))
+	}
+}
+
+func TestStreamResponsesResponse_ToolCallAccumulation(t *testing.T) {
+	sseStream := strings.Join([]string{
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_abc123","call_id":"call_xyz789","name":"lookup_order","arguments":"","status":"in_progress"}}`,
+		``,
+		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_abc123","output_index":0,"delta":"{\"order_id\":"}`,
+		``,
+		`data: {"type":"response.function_call_arguments.delta","item_id":"fc_abc123","output_index":0,"delta":"\"1023\"}"}`,
+		``,
+		`data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"function_call","id":"fc_abc123","call_id":"call_xyz789","name":"lookup_order","arguments":"{\"order_id\":\"1023\"}","status":"completed"}],"usage":{"input_tokens":10,"output_tokens":5}}}`,
+		``,
+	}, "\n")
+
+	p := &Provider{}
+	body := io.NopCloser(strings.NewReader(sseStream))
+	ctx := context.Background()
+	outChan := make(chan providers.StreamChunk, 10)
+
+	go p.streamResponsesResponse(ctx, body, outChan)
+
+	var chunks []providers.StreamChunk
+	for chunk := range outChan {
+		chunks = append(chunks, chunk)
+	}
+
+	var toolCallChunk *providers.StreamChunk
+	for i := range chunks {
+		if len(chunks[i].ToolCalls) > 0 {
+			toolCallChunk = &chunks[i]
+			break
+		}
+	}
+
+	if toolCallChunk == nil {
+		t.Fatal("no chunk with tool calls found")
+	}
+	if len(toolCallChunk.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(toolCallChunk.ToolCalls))
+	}
+
+	tc := toolCallChunk.ToolCalls[0]
+	if tc.Name != "lookup_order" {
+		t.Errorf("name = %q, want lookup_order", tc.Name)
+	}
+
+	expectedArgs := `{"order_id":"1023"}`
+	if string(tc.Args) != expectedArgs {
+		t.Errorf("args = %q, want %q", string(tc.Args), expectedArgs)
+	}
+}
+
+// Ensure unused imports are referenced
+var _ = json.Marshal
+var _ = context.Background
