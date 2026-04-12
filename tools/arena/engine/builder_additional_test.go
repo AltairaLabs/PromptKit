@@ -271,7 +271,7 @@ func TestNewConversationExecutor_WithSelfPlay(t *testing.T) {
 	providerRegistry := providers.NewRegistry()
 	providerRegistry.Register(mock.NewProvider("mock-assistant", "mock-model", false))
 
-	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry, nil)
+	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry, nil, "")
 	require.NoError(t, err)
 	require.NotNil(t, executor)
 	require.NotNil(t, adapterReg)
@@ -393,7 +393,7 @@ func TestNewConversationExecutor_WithoutSelfPlay(t *testing.T) {
 	// Empty provider registry (no self-play, so not used)
 	providerRegistry := providers.NewRegistry()
 
-	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry, nil)
+	executor, adapterReg, err := newConversationExecutor(cfg, nil, nil, nil, providerRegistry, nil, "")
 	require.NoError(t, err)
 	require.NotNil(t, executor)
 	require.NotNil(t, adapterReg)
@@ -468,20 +468,59 @@ func TestDiscoverAndRegisterSkillTools_FromConfig(t *testing.T) {
 	}
 
 	registry := tools.NewRegistry()
-	exec, err := discoverAndRegisterSkillTools(cfg, registry)
+	exec, preloadedInstructions, err := discoverAndRegisterSkillTools(cfg, registry)
 	require.NoError(t, err)
 	require.NotNil(t, exec)
 
 	allTools := registry.GetTools()
 	assert.Contains(t, allTools, "skill__activate")
 	assert.Contains(t, allTools, "skill__deactivate")
+
+	// skill__activate descriptor must embed the available-skills index so the
+	// LLM can discover which skills exist (issue #954).
+	activateDesc := registry.Get("skill__activate")
+	require.NotNil(t, activateDesc)
+	assert.Contains(t, activateDesc.Description, "Available skills:",
+		"skill__activate description should embed the skills index")
+	assert.Contains(t, activateDesc.Description, "test-skill: A test skill")
+
+	// Skill has no preload: true, so preloaded instructions should be empty.
+	assert.Empty(t, preloadedInstructions)
+}
+
+func TestDiscoverAndRegisterSkillTools_PreloadedInstructions(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skills", "memory-protocol")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: memory-protocol\ndescription: Memory rules\n---\nMUST call memory__recall first.\n"),
+		0o600,
+	))
+
+	cfg := &config.Config{
+		LoadedSkillSources: []prompt.SkillSourceConfig{
+			{Path: filepath.Join(dir, "skills", "memory-protocol"), Preload: true},
+		},
+	}
+
+	registry := tools.NewRegistry()
+	_, preloadedInstructions, err := discoverAndRegisterSkillTools(cfg, registry)
+	require.NoError(t, err)
+
+	// Preloaded skill instructions must be returned so they can be injected
+	// into the system prompt (issue #953).
+	assert.Contains(t, preloadedInstructions, "# Active Skills")
+	assert.Contains(t, preloadedInstructions, "memory-protocol")
+	assert.Contains(t, preloadedInstructions, "MUST call memory__recall first.")
 }
 
 func TestDiscoverAndRegisterSkillTools_EmptyConfig(t *testing.T) {
 	cfg := &config.Config{}
 	registry := tools.NewRegistry()
-	exec, err := discoverAndRegisterSkillTools(cfg, registry)
+	exec, preloadedInstructions, err := discoverAndRegisterSkillTools(cfg, registry)
 	require.NoError(t, err)
 	assert.Nil(t, exec)
+	assert.Empty(t, preloadedInstructions)
 	assert.Empty(t, registry.GetTools())
 }

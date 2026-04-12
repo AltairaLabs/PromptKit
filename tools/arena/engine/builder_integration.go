@@ -131,9 +131,12 @@ func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
 		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to start A2A agents: %w", a2aErr)
 	}
 
-	// Discover and register skill tools (if pack has skills configured)
+	// Discover and register skill tools (if pack has skills configured).
+	// preloadedSkillInstructions are appended to the system prompt by the
+	// conversation executor so preload: true skills are active from turn 1.
 	var skillErr error
-	skillExec, skillErr = discoverAndRegisterSkillTools(cfg, toolRegistry)
+	var preloadedSkillInstructions string
+	skillExec, preloadedSkillInstructions, skillErr = discoverAndRegisterSkillTools(cfg, toolRegistry)
 	if skillErr != nil {
 		if a2aCleanupFn != nil {
 			a2aCleanupFn()
@@ -154,7 +157,8 @@ func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
 
 	// Build conversation executor (engine-specific, stays here)
 	conversationExecutor, adapterRegistry, err := newConversationExecutor(
-		cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry, evalOrchestrator)
+		cfg, toolRegistry, promptRegistry, mediaStorage, providerRegistry, evalOrchestrator,
+		preloadedSkillInstructions)
 	if err != nil {
 		if a2aCleanupFn != nil {
 			a2aCleanupFn()
@@ -588,9 +592,11 @@ func newConversationExecutor(
 	mediaStorage storage.MediaStorageService,
 	providerRegistry *providers.Registry,
 	evalOrchestrator *EvalOrchestrator,
+	preloadedSkillInstructions string,
 ) (ConversationExecutor, *adapters.Registry, error) {
 	// Build turn executors (always needed, even without self-play)
 	pipelineExecutor := turnexecutors.NewPipelineExecutor(toolRegistry, mediaStorage)
+	pipelineExecutor.SetPreloadedSkillInstructions(preloadedSkillInstructions)
 	scriptedExecutor := turnexecutors.NewScriptedExecutor(pipelineExecutor)
 
 	// Build self-play components if enabled
@@ -781,9 +787,15 @@ func buildStateStore(cfg *config.Config) (runtimestore.Store, error) {
 
 // discoverAndRegisterSkillTools discovers skills from the arena config and registers
 // skill tool descriptors and executor in the tool registry.
-func discoverAndRegisterSkillTools(cfg *config.Config, toolRegistry *tools.Registry) (*skills.Executor, error) {
+//
+// Returns the executor and the preloaded-skill instructions block that should be
+// appended to the system prompt so skills marked preload: true are active from
+// turn 1 without the model having to call skill__activate.
+func discoverAndRegisterSkillTools(
+	cfg *config.Config, toolRegistry *tools.Registry,
+) (*skills.Executor, string, error) {
 	if len(cfg.LoadedSkillSources) == 0 {
-		return nil, nil
+		return nil, "", nil
 	}
 
 	// Convert config skill sources to runtime SkillSource
@@ -801,25 +813,50 @@ func discoverAndRegisterSkillTools(cfg *config.Config, toolRegistry *tools.Regis
 	// Discover skills
 	reg := skills.NewRegistry()
 	if err := reg.Discover(sources); err != nil {
-		return nil, fmt.Errorf("skills discovery: %w", err)
+		return nil, "", fmt.Errorf("skills discovery: %w", err)
 	}
 
 	// Create executor (no selector, no pack tool ceiling in arena)
 	executor := skills.NewExecutor(skills.ExecutorConfig{Registry: reg, ConfigDir: cfg.ConfigDir})
 
-	// Register tool descriptors + executor
-	_ = toolRegistry.Register(skills.BuildSkillActivateDescriptor())
+	// Register tool descriptors + executor. The skill__activate descriptor
+	// embeds the available-skills index so the LLM can discover which skills
+	// exist and choose which to activate.
+	_ = toolRegistry.Register(skills.BuildSkillActivateDescriptorWithIndex(executor.SkillIndex("")))
 	_ = toolRegistry.Register(skills.BuildSkillDeactivateDescriptor())
 	_ = toolRegistry.Register(skills.BuildSkillReadResourceDescriptor())
 	toolRegistry.RegisterExecutor(skills.NewToolExecutor(executor))
 
-	// Preload skills marked with preload: true
-	for _, sk := range reg.PreloadedSkills() {
+	// Preload skills marked with preload: true. Activating registers their
+	// tools in the registry; instructions are threaded into the system prompt
+	// via the returned preloadedInstructions block.
+	preloaded := reg.PreloadedSkills()
+	preloadedInstructions := buildPreloadedSkillInstructions(preloaded)
+	for _, sk := range preloaded {
 		_, _, _ = executor.Activate(sk.Name)
 	}
 
-	logger.Info("Discovered skills", "count", len(reg.List()))
-	return executor, nil
+	logger.Info("Discovered skills", "count", len(reg.List()), "preloaded", len(preloaded))
+	return executor, preloadedInstructions, nil
+}
+
+// buildPreloadedSkillInstructions formats preloaded skill instructions into a
+// single block to append to the system prompt.
+func buildPreloadedSkillInstructions(preloaded []*skills.Skill) string {
+	if len(preloaded) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n# Active Skills\n\nThe following skills are active for this conversation. ")
+	sb.WriteString("Follow their instructions.\n")
+	for _, sk := range preloaded {
+		sb.WriteString("\n## ")
+		sb.WriteString(sk.Name)
+		sb.WriteString("\n\n")
+		sb.WriteString(sk.Instructions)
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 // a2aInitTimeout is the timeout for discovering and registering A2A agent tools.
