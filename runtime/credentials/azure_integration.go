@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,17 @@ import (
 
 // tokenRefreshBuffer is the time before token expiration to trigger a refresh.
 const tokenRefreshBuffer = 5 * time.Minute
+
+// DefaultAzureAPIVersion is the default Azure OpenAI API version used when
+// platform.additional_config.api_version is not set.
+const DefaultAzureAPIVersion = "2024-12-01-preview"
+
+// AzureOpenAIEndpoint returns the base URL for an Azure OpenAI deployment.
+// The returned URL does NOT include the API path (/chat/completions) or
+// api-version query param — the provider appends those per-request.
+func AzureOpenAIEndpoint(endpoint, deployment string) string {
+	return strings.TrimRight(endpoint, "/") + "/openai/deployments/" + deployment
+}
 
 // AzureCredential implements Azure AD token-based authentication for Azure AI services.
 type AzureCredential struct {

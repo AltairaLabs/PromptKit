@@ -155,6 +155,43 @@ func TestAzureCredential_TokenRefresh(t *testing.T) {
 	assert.Equal(t, 2, mock.getCalls())
 }
 
+func TestAzureOpenAIEndpoint(t *testing.T) {
+	tests := []struct {
+		name       string
+		endpoint   string
+		deployment string
+		expected   string
+	}{
+		{
+			name:       "default api version",
+			endpoint:   "https://my-resource.openai.azure.com",
+			deployment: "gpt-4o",
+			expected:   "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+		},
+		{
+			name:       "trailing slash stripped",
+			endpoint:   "https://my-resource.openai.azure.com/",
+			deployment: "gpt-4o",
+			expected:   "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AzureOpenAIEndpoint(tt.endpoint, tt.deployment)
+			if got != tt.expected {
+				t.Errorf("AzureOpenAIEndpoint(%q, %q) = %q, want %q",
+					tt.endpoint, tt.deployment, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestDefaultAzureAPIVersion(t *testing.T) {
+	if DefaultAzureAPIVersion == "" {
+		t.Error("DefaultAzureAPIVersion must not be empty")
+	}
+}
+
 func TestAzureCredential_ConcurrentAccess(t *testing.T) {
 	mock := &mockAzureTokenCredential{
 		token: azcore.AccessToken{
