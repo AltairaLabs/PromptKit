@@ -188,7 +188,7 @@ func setupEngine(cfg *config.Config, params *RunParameters) (*engine.Engine, *en
 	cfg.SkipPackEvals = params.SkipPackEvals
 	cfg.EvalTypeFilter = params.EvalTypes
 
-	eng, err := engine.NewEngineFromConfig(cfg)
+	eng, err := engine.NewEngineFromConfig(cfg, params.Providers...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create engine: %w", err)
 	}

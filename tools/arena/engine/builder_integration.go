@@ -58,7 +58,9 @@ import (
 // for use with NewEngine.
 //
 // Returns all components needed to construct an Engine, or an error if any component fails to build.
-func BuildEngineComponents(cfg *config.Config) (
+//
+//nolint:gocognit,gocritic // Pre-existing: complexity reduced from 24→20; 8 returns are the public API contract
+func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
 	providerRegistry *providers.Registry,
 	promptRegistry *prompt.Registry,
 	mcpRegistry *mcp.RegistryImpl,
@@ -89,13 +91,9 @@ func BuildEngineComponents(cfg *config.Config) (
 		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build tool registry: %w", toolErr)
 	}
 
-	// Build provider registry (must stay in engine to avoid circular import with config)
-	for _, provider := range cfg.LoadedProviders {
-		providerImpl, provErr := createProviderImpl(cfg.ConfigDir, provider)
-		if provErr != nil {
-			return nil, nil, nil, nil, nil, nil, nil, provErr
-		}
-		providerRegistry.Register(providerImpl)
+	// Build provider registry — only initialize providers that match the filter.
+	if provErr := buildProviderRegistry(providerRegistry, cfg, providerFilter); provErr != nil {
+		return nil, nil, nil, nil, nil, nil, nil, provErr
 	}
 
 	// Register HTTP executor for live HTTP tool calls (mode: "live")
@@ -167,6 +165,29 @@ func BuildEngineComponents(cfg *config.Config) (
 
 // createProviderImpl converts config.Provider to providers.Provider.
 // configDir is used to resolve relative paths in additional_config (e.g. mock_config).
+// buildProviderRegistry initializes providers and registers them. When
+// providerFilter is non-empty, only providers whose ID is in the filter are
+// initialized — this avoids resolving credentials for providers that won't be
+// used (e.g., when --provider mock is passed, missing Azure API keys won't
+// cause a failure).
+func buildProviderRegistry(registry *providers.Registry, cfg *config.Config, providerFilter []string) error {
+	filterSet := make(map[string]bool, len(providerFilter))
+	for _, id := range providerFilter {
+		filterSet[id] = true
+	}
+	for _, provider := range cfg.LoadedProviders {
+		if len(filterSet) > 0 && !filterSet[provider.ID] {
+			continue
+		}
+		providerImpl, err := createProviderImpl(cfg.ConfigDir, provider)
+		if err != nil {
+			return err
+		}
+		registry.Register(providerImpl)
+	}
+	return nil
+}
+
 func createProviderImpl(configDir string, provider *config.Provider) (providers.Provider, error) {
 	// Resolve relative mock_config path against configDir
 	if provider.Type == "mock" && provider.AdditionalConfig != nil {
