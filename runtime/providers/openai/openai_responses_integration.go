@@ -432,7 +432,7 @@ func (p *Provider) predictWithResponses(
 	}
 
 	// Make HTTP request
-	url := p.baseURL + responsesAPIPath
+	url := p.responsesURL()
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
 		return predictResp, nil, fmt.Errorf("failed to create request: %w", err)
@@ -564,7 +564,7 @@ func (p *Provider) predictStreamWithResponses(
 	// Build request factory for OpenStreamWithRetry. Each retry rebuilds
 	// the HTTP request so that headers (especially auth) are reapplied
 	// cleanly and a fresh body reader is used.
-	url := p.baseURL + responsesAPIPath
+	url := p.responsesURL()
 	requestFn := func(ctx context.Context) (*http.Request, error) {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 		if reqErr != nil {

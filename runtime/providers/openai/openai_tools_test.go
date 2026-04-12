@@ -1295,3 +1295,34 @@ func TestToolProvider_PredictStreamWithTools_Retries503(t *testing.T) {
 		t.Errorf("Expected at least 2 attempts, got %d", attempts)
 	}
 }
+
+func TestToolProvider_MakeRequest_UsesApplyAuth(t *testing.T) {
+	var capturedHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hi"}}]}`))
+	}))
+	defer server.Close()
+
+	cred := &mockCredential{credType: "azure"}
+	provider := NewToolProviderWithCredential(
+		"test", "gpt-4o", server.URL, providers.ProviderDefaults{Temperature: 0.7},
+		false, map[string]any{"api_mode": "completions"}, cred, "azure", nil, nil,
+	)
+
+	resp, _, err := provider.PredictWithTools(
+		context.Background(),
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hello"}}},
+		nil, "",
+	)
+	_ = resp
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	authHeader := capturedHeaders.Get("Authorization")
+	if authHeader != "Bearer mock-token" {
+		t.Errorf("tool provider should use applyAuth (credential) not hardcoded apiKey, got %q", authHeader)
+	}
+}

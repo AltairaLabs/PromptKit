@@ -324,15 +324,15 @@ func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
-const azurePlatform = "azure" //nolint:unused // wired in upcoming Azure URL integration
+const azurePlatform = "azure"
 
 // isAzure returns true if this provider is hosted on Azure OpenAI.
-func (p *Provider) isAzure() bool { //nolint:unused // wired in upcoming Azure URL integration
+func (p *Provider) isAzure() bool {
 	return p.platform == azurePlatform
 }
 
 // azureAPIVersion returns the api-version query parameter for Azure OpenAI.
-func (p *Provider) azureAPIVersion() string { //nolint:unused // wired in upcoming Azure URL integration
+func (p *Provider) azureAPIVersion() string {
 	if p.platformConfig != nil {
 		if v, ok := p.platformConfig.AdditionalConfig["api_version"].(string); ok && v != "" {
 			return v
@@ -344,7 +344,7 @@ func (p *Provider) azureAPIVersion() string { //nolint:unused // wired in upcomi
 // chatCompletionsURL returns the Chat Completions API endpoint.
 // For Azure: {baseURL}/chat/completions?api-version={version}
 // For standard OpenAI: {baseURL}/chat/completions
-func (p *Provider) chatCompletionsURL() string { //nolint:unused // wired in upcoming Azure URL integration
+func (p *Provider) chatCompletionsURL() string {
 	url := p.baseURL + openAIPredictCompletionsPath
 	if p.isAzure() {
 		url += "?api-version=" + p.azureAPIVersion()
@@ -355,7 +355,7 @@ func (p *Provider) chatCompletionsURL() string { //nolint:unused // wired in upc
 // responsesURL returns the Responses API endpoint.
 // Azure OpenAI does not support the Responses API, so this falls back
 // to the Chat Completions endpoint.
-func (p *Provider) responsesURL() string { //nolint:unused // wired in upcoming Azure URL integration
+func (p *Provider) responsesURL() string {
 	if p.isAzure() {
 		return p.chatCompletionsURL()
 	}
@@ -906,7 +906,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 	}
 
 	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+openAIPredictCompletionsPath, bytes.NewReader(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.chatCompletionsURL(), bytes.NewReader(reqBody))
 	if err != nil {
 		return predictResp, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -919,7 +919,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		return predictResp, hdrErr
 	}
 
-	logger.APIRequest("OpenAI", "POST", p.baseURL+openAIPredictCompletionsPath, map[string]string{
+	logger.APIRequest("OpenAI", "POST", p.chatCompletionsURL(), map[string]string{
 		contentTypeHeader:   applicationJSON,
 		authorizationHeader: "***",
 	}, openAIReq)
@@ -936,7 +936,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 			return predictResp, providers.ParsePlatformHTTPError(p.platform, statusCode, respBody)
 		}
 		return predictResp, &providers.ProviderHTTPError{
-			StatusCode: statusCode, URL: p.baseURL + openAIPredictCompletionsPath,
+			StatusCode: statusCode, URL: p.chatCompletionsURL(),
 			Body: string(respBody), Provider: p.ID(),
 		}
 	}
@@ -1018,7 +1018,7 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := p.baseURL + openAIPredictCompletionsPath
+	url := p.chatCompletionsURL()
 	requestFn := func(ctx context.Context) (*http.Request, error) {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 		if reqErr != nil {

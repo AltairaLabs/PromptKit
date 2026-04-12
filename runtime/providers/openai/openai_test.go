@@ -100,7 +100,8 @@ type mockCredential struct {
 }
 
 func (m *mockCredential) Type() string { return m.credType }
-func (m *mockCredential) Apply(_ context.Context, _ *http.Request) error {
+func (m *mockCredential) Apply(_ context.Context, req *http.Request) error {
+	req.Header.Set("Authorization", "Bearer mock-token")
 	return nil
 }
 
