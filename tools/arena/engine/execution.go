@@ -388,9 +388,12 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Prepare workflow scenarios: shallow-copy to avoid mutating the shared
 	// scenario, then set TaskType from state machine and wire metadata.
-	// Register per-run memory scope if memory is enabled
+	// Register per-run memory scope and seed memories if configured
 	if e.memoryStore != nil {
-		e.registerMemoryForRun(combo.ScenarioID, runID)
+		scope := e.registerMemoryForRun(combo.ScenarioID, runID)
+		if err := e.seedMemoriesForRun(scenario, scope); err != nil {
+			return saveError(fmt.Sprintf("failed to seed memories: %v", err))
+		}
 	}
 
 	var workflowOrch *EvalOrchestrator
