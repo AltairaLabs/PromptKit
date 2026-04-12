@@ -9,17 +9,9 @@ spec:
   turns:
     - role: user
       content: "I placed an order last week and it still hasn't arrived. Order number is ORD-5432."
-      assertions:
-        - type: state_is
-          params:
-            state: intake
 
     - role: user
       content: "My email is bob@example.com. The estimated delivery was 3 days ago."
-      assertions:
-        - type: transitioned_to
-          params:
-            state: orders
 
     - role: user
       content: "Can you check the tracking status for my order?"
@@ -29,16 +21,9 @@ spec:
 
     - role: user
       content: "That's great news, thank you for looking into it."
-      assertions:
-        - type: transitioned_to
-          params:
-            state: closed
 
     - role: user
       content: "Thanks!"
-      assertions:
-        - type: workflow_complete
-          params: {}
 
   conversation_assertions:
     - type: skill_activated

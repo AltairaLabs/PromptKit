@@ -20,6 +20,9 @@ spec:
     - file: scenarios/billing-flow.scenario.yaml
     - file: scenarios/orders-flow.scenario.yaml
 
+  skills:
+    - path: skills/
+
   workflow:
     version: 1
     entry: intake
@@ -34,16 +37,19 @@ spec:
       billing:
         prompt_task: billing
         description: "Billing specialist handling"
+        skills: "skills/billing/*"
         on_event:
           Resolve: closed
       orders:
         prompt_task: orders
         description: "Orders specialist handling"
+        skills: "skills/orders/*"
         on_event:
           Resolve: closed
       closed:
         prompt_task: closed
         description: "Conversation complete"
+        skills: none
         terminal: true
 
   defaults:
