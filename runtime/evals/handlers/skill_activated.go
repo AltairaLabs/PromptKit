@@ -62,11 +62,15 @@ func (h *SkillActivatedHandler) Eval(
 	}, nil
 }
 
-// countSkillCalls counts skill activations from skill__activate tool calls.
+// countSkillCalls counts successful skill activations from skill__activate tool calls.
+// Tool calls that returned an error (e.g., filtered by state) are not counted.
 func countSkillCalls(toolCalls []evals.ToolCallRecord) map[string]int {
 	counts := make(map[string]int)
 	for _, tc := range toolCalls {
 		if tc.ToolName != skillActivateToolName {
+			continue
+		}
+		if tc.Error != "" {
 			continue
 		}
 		if tc.Arguments == nil {

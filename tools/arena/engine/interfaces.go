@@ -81,6 +81,10 @@ type ConversationRequest struct {
 	// PostTurnHook is called after each turn completes. Used by the workflow
 	// engine to commit deferred transitions after the pipeline finishes.
 	PostTurnHook func() error
+
+	// ContextEnricher is called before each turn to enrich the pipeline context.
+	// Used to inject per-run state (e.g., skill filters) into context for tool execution.
+	ContextEnricher func(ctx context.Context) context.Context
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena

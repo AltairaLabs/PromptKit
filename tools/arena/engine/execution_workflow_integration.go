@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -40,6 +41,11 @@ func (e *Engine) initWorkflow() error {
 
 	e.workflowSpec = spec
 	e.workflowTransExec = transExec
+
+	// Wire skill filtering so transitions update skill availability
+	if e.skillExecutor != nil {
+		transExec.skillFilterer = e.skillExecutor
+	}
 
 	return nil
 }
@@ -173,6 +179,22 @@ func (e *Engine) buildEntryStateMeta(stateName string) map[string]interface{} {
 		}
 	}
 	return ws
+}
+
+// wireWorkflowHooks sets up per-turn hooks for workflow scenarios:
+// PostTurnHook commits deferred transitions, ContextEnricher injects
+// the per-run skill filter into context for the next turn's tool execution.
+func (e *Engine) wireWorkflowHooks(req *ConversationRequest, runID string) {
+	req.PostTurnHook = func() error {
+		return e.workflowTransExec.CommitPendingTransition(runID)
+	}
+	req.ContextEnricher = func(ctx context.Context) context.Context {
+		filter := e.workflowTransExec.SkillFilter(runID)
+		if filter != "" {
+			return skills.WithSkillFilter(ctx, filter)
+		}
+		return ctx
+	}
 }
 
 // setMeta sets a key on a message's Meta map, initializing if needed.

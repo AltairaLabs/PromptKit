@@ -16,8 +16,7 @@ Demonstrates how to combine **workflow states** with **directory-based skill fil
 
 ```
 workflow-skills/
-├── workflow-skills.pack.json       # Pack with workflow + skills config
-├── config.arena.yaml               # Arena test configuration
+├── config.arena.yaml               # Arena test configuration (declares skills)
 ├── mock-responses.yaml             # Deterministic mock responses
 ├── providers/
 │   └── mock-provider.yaml
@@ -49,8 +48,8 @@ intake ──RouteBilling──→ billing ──Resolve──→ closed
 ```
 
 - **intake**: All skills available (no `skills` filter)
-- **billing**: Only `skills/billing/` skills (pci-compliance, refund-processing)
-- **orders**: Only `skills/orders/` skills (order-troubleshooting)
+- **billing**: Only `skills/billing/*` skills (pci-compliance, refund-processing)
+- **orders**: Only `skills/orders/*` skills (order-troubleshooting)
 - **closed**: No skills (`skills: none`)
 
 ## Three-Level Tool Scoping

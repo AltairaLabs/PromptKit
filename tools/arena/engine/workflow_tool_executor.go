@@ -12,6 +12,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
+// SkillFilterer controls which skills are available based on workflow state.
+type SkillFilterer interface {
+	SetFilter(glob string) []string
+}
+
 type workflowScenarioIDKey struct{}
 
 // withWorkflowScenarioID stores the workflow scenario ID in context for per-run dispatch.
@@ -32,6 +37,7 @@ type workflowRunState struct {
 	transExec   *workflow.TransitionExecutor
 	scenario    *config.Scenario
 	transitions []map[string]any
+	skillFilter string // current skill glob filter for this run
 }
 
 // workflowTransitionExecutor routes workflow__transition tool calls to per-run
@@ -39,10 +45,11 @@ type workflowRunState struct {
 // RegisterRun. The executor defers ProcessEvent until CommitPendingTransition
 // is called after the turn/pipeline completes.
 type workflowTransitionExecutor struct {
-	mu       sync.Mutex
-	wfSpec   *workflow.Spec
-	registry *tools.Registry
-	runs     map[string]*workflowRunState // keyed by scenario ID
+	mu            sync.Mutex
+	wfSpec        *workflow.Spec
+	registry      *tools.Registry
+	runs          map[string]*workflowRunState // keyed by scenario ID
+	skillFilterer SkillFilterer
 }
 
 func newWorkflowTransitionExecutor(
@@ -129,6 +136,9 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(runID string) error
 			run.scenario.TaskType = newState.PromptTask
 		}
 		run.transExec.RegisterForState(e.registry, newState)
+
+		// Store skill filter for this run (applied via context, not globally)
+		run.skillFilter = newState.Skills
 	}
 
 	return nil
@@ -150,6 +160,16 @@ func (e *workflowTransitionExecutor) RunMetadata(runID string) map[string]any {
 	defer e.mu.Unlock()
 	run := e.runs[runID]
 	return buildRunMetadata(run)
+}
+
+// SkillFilter returns the current skill filter for a specific run.
+func (e *workflowTransitionExecutor) SkillFilter(runID string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if run := e.runs[runID]; run != nil {
+		return run.skillFilter
+	}
+	return ""
 }
 
 // UnregisterRun removes a completed run's state to prevent unbounded map growth.

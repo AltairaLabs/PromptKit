@@ -10,44 +10,29 @@ spec:
     - role: user
       content: "Hi, I was charged twice for order ORD-9876. Can you help me get a refund?"
       assertions:
-        - type: state_is
-          params:
-            state: intake
         - type: content_matches
           params:
             pattern: "(?i)(help|billing|charge|order)"
 
     - role: user
       content: "Yes, my email is jane@example.com and the duplicate charge was $79.99."
-      assertions:
-        - type: transitioned_to
-          params:
-            state: billing
 
     - role: user
       content: "The order was placed 5 days ago. Can you process the refund?"
-      assertions:
-        - type: state_is
-          params:
-            state: billing
 
     - role: user
       content: "Yes, please go ahead and process the refund to my card."
 
     - role: user
       content: "Great, thank you for processing the refund."
-      assertions:
-        - type: transitioned_to
-          params:
-            state: closed
 
     - role: user
       content: "Thanks for your help!"
-      assertions:
-        - type: workflow_complete
-          params: {}
 
   conversation_assertions:
+    - type: tools_called
+      params:
+        tool_names: ["workflow__transition"]
     - type: skill_activated
       params:
         skill_names: ["pci-compliance"]

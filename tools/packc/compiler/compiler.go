@@ -176,6 +176,10 @@ func buildCompileOptions(cfg *config.Config) ([]prompt.CompileOption, error) {
 		opts = append(opts, prompt.WithAgents(agentsConfig))
 	}
 
+	if skillsConfig := parseSkillsFromConfig(cfg); len(skillsConfig) > 0 {
+		opts = append(opts, prompt.WithSkills(skillsConfig))
+	}
+
 	return opts, nil
 }
 

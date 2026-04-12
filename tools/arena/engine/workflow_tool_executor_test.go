@@ -215,3 +215,124 @@ func TestRegisterTransitionTool_TerminalState(t *testing.T) {
 	tool := registry.Get(workflow.TransitionToolName)
 	assert.Nil(t, tool)
 }
+
+type mockSkillFilterer struct {
+	lastFilter string
+}
+
+func (m *mockSkillFilterer) SetFilter(glob string) []string {
+	m.lastFilter = glob
+	return nil
+}
+
+func TestWorkflowTransitionExecutor_Name(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+	assert.Equal(t, workflow.TransitionExecutorMode, exec.Name())
+}
+
+func TestWorkflowTransitionExecutor_StateMachine(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	// No run registered
+	assert.Nil(t, exec.StateMachine("nonexistent"))
+
+	scenario := &config.Scenario{ID: "test"}
+	exec.RegisterRun("test", scenario)
+	sm := exec.StateMachine("test")
+	assert.NotNil(t, sm)
+	assert.Equal(t, "intake", sm.CurrentState())
+}
+
+func TestWorkflowTransitionExecutor_UnregisterRun(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	scenario := &config.Scenario{ID: "test"}
+	exec.RegisterRun("test", scenario)
+	assert.NotNil(t, exec.RunMetadata("test"))
+
+	exec.UnregisterRun("test")
+	assert.Nil(t, exec.RunMetadata("test"))
+}
+
+func TestWorkflowRunMetadataProvider(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	scenario := &config.Scenario{ID: "test"}
+	exec.RegisterRun("test", scenario)
+
+	provider := &workflowRunMetadataProvider{exec: exec, scenarioID: "test"}
+	meta := provider.WorkflowMetadata()
+	assert.Equal(t, "intake", meta["workflow_current_state"])
+}
+
+func TestCommitPendingTransition_SetsSkillFilter(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "intake",
+		States: map[string]*workflow.State{
+			"intake": {
+				PromptTask: "intake",
+				OnEvent:    map[string]string{"RouteBilling": "billing"},
+			},
+			"billing": {
+				PromptTask: "billing",
+				Skills:     "skills/billing/*",
+			},
+		},
+	}
+
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	exec.RegisterRun("run1", scenario)
+
+	// Execute a transition
+	args, _ := json.Marshal(map[string]string{"event": "RouteBilling"})
+	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "run1"), nil, args)
+	require.NoError(t, err)
+
+	// Commit should store the skill filter on the per-run state
+	err = exec.CommitPendingTransition("run1")
+	require.NoError(t, err)
+	assert.Equal(t, "skills/billing/*", exec.SkillFilter("run1"))
+}
+
+func TestCommitPendingTransition_NilSkillFilterer(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "intake",
+		States: map[string]*workflow.State{
+			"intake": {
+				PromptTask: "intake",
+				OnEvent:    map[string]string{"RouteBilling": "billing"},
+			},
+			"billing": {
+				PromptTask: "billing",
+				Skills:     "skills/billing/*",
+			},
+		},
+	}
+
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+	// No skillFilterer set — should not panic
+
+	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	exec.RegisterRun("run1", scenario)
+
+	args, _ := json.Marshal(map[string]string{"event": "RouteBilling"})
+	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "run1"), nil, args)
+	require.NoError(t, err)
+
+	err = exec.CommitPendingTransition("run1")
+	require.NoError(t, err)
+}

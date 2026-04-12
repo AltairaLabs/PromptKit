@@ -310,12 +310,39 @@
         "trials": {
           "type": "integer",
           "description": "Number of times to run this scenario for statistical evaluation"
+        },
+        "seed_memories": {
+          "items": {
+            "$ref": "#/$defs/SeedMemoryEntry"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "description"
+      ]
+    },
+    "SeedMemoryEntry": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "content"
       ]
     },
     "TTSConfig": {

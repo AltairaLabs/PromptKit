@@ -1,11 +1,29 @@
 package skills
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 )
+
+type skillFilterKey struct{}
+
+// WithSkillFilter returns a context with the given skill filter glob pattern.
+// The ToolExecutor reads this to apply per-run filtering in concurrent scenarios.
+func WithSkillFilter(ctx context.Context, filter string) context.Context {
+	return context.WithValue(ctx, skillFilterKey{}, filter)
+}
+
+// SkillFilterFromContext returns the skill filter from context, or "" if not set.
+func SkillFilterFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(skillFilterKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
 
 // Executor manages the skill activation lifecycle and provides
 // functions that implement the skill__ namespaced tools.
@@ -16,6 +34,8 @@ type Executor struct {
 	packTools []string          // all tools declared in the pack (the ceiling)
 	packSet   map[string]bool   // pre-built set from packTools for O(1) membership checks
 	maxActive int               // max concurrent active skills (0 = unlimited)
+	filter    string            // glob pattern restricting activatable skills
+	configDir string            // base directory for computing relative skill paths
 	mu        sync.RWMutex
 }
 
@@ -25,6 +45,7 @@ type ExecutorConfig struct {
 	Selector  SkillSelector // nil = ModelDrivenSelector
 	PackTools []string      // all tools declared in the pack
 	MaxActive int           // 0 = unlimited
+	ConfigDir string        // base directory for computing relative skill paths in filters
 }
 
 // NewExecutor creates a new Executor from the given configuration.
@@ -47,6 +68,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		packTools: cfg.PackTools,
 		packSet:   packSet,
 		maxActive: cfg.MaxActive,
+		configDir: cfg.ConfigDir,
 	}
 }
 
@@ -55,6 +77,12 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 // If the skill is already active, it returns the instructions again (idempotent).
 // Returns error if skill not found or at max active limit.
 func (e *Executor) Activate(name string) (instructions string, addedTools []string, retErr error) {
+	return e.ActivateWithFilter(name, e.filter)
+}
+
+// ActivateWithFilter is like Activate but applies the given filter instead of the
+// executor's default filter. This supports per-run filtering in concurrent scenarios.
+func (e *Executor) ActivateWithFilter(name, filter string) (instructions string, addedTools []string, retErr error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -62,6 +90,20 @@ func (e *Executor) Activate(name string) (instructions string, addedTools []stri
 	if s, ok := e.active[name]; ok {
 		tools := e.intersectPackTools(s.AllowedTools)
 		return s.Instructions, tools, nil
+	}
+
+	// Load skill to get its path for filter check.
+	skill, loadErr := e.registry.Load(name)
+	if loadErr != nil {
+		return "", nil, fmt.Errorf("activating skill %q: %w", name, loadErr)
+	}
+
+	// Check filter.
+	if !e.matchesFilterWith(skill, filter) {
+		return "", nil, fmt.Errorf(
+			"skill %q is not available in the current state (filter: %q)",
+			name, filter,
+		)
 	}
 
 	// Check max active limit.
@@ -72,16 +114,48 @@ func (e *Executor) Activate(name string) (instructions string, addedTools []stri
 		)
 	}
 
-	// Load the skill from the registry.
-	skill, loadErr := e.registry.Load(name)
-	if loadErr != nil {
-		return "", nil, fmt.Errorf("activating skill %q: %w", name, loadErr)
-	}
-
 	tools := e.intersectPackTools(skill.AllowedTools)
 	e.active[name] = skill
 
 	return skill.Instructions, tools, nil
+}
+
+// SetFilter sets a glob pattern that restricts which skills can be activated.
+// Empty string means all skills are available. "none" (case-insensitive) disables all.
+// Returns names of skills that were deactivated because they no longer match.
+func (e *Executor) SetFilter(glob string) []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.filter = glob
+
+	var deactivated []string
+	for name, skill := range e.active {
+		if !e.matchesFilterWith(skill, glob) {
+			delete(e.active, name)
+			deactivated = append(deactivated, name)
+		}
+	}
+	return deactivated
+}
+
+// matchesFilterWith checks whether a skill's relative path matches the given filter.
+// Must be called with e.mu held.
+func (e *Executor) matchesFilterWith(skill *Skill, filter string) bool {
+	if filter == "" {
+		return true
+	}
+	if strings.EqualFold(filter, "none") {
+		return false
+	}
+	relPath := skill.Path
+	if e.configDir != "" {
+		if rel, err := filepath.Rel(e.configDir, skill.Path); err == nil {
+			relPath = rel
+		}
+	}
+	matched, _ := filepath.Match(filter, relPath)
+	return matched
 }
 
 // Deactivate removes a skill from the active set.

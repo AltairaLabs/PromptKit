@@ -1,69 +1,75 @@
 # Mock responses for the workflow-skills example.
-# Responses are keyed by scenario ID and turn number.
-# tool_calls simulate LLM-initiated workflow transitions and skill activations.
-# Skill activation and tool usage are in separate turns to match realistic agent behavior.
+#
+# Turn numbering: The mock provider counts turns by assistant messages in the
+# conversation + tool result adjustments. Within a single user turn, the
+# provider stage loops: tool call → tool result → next call. Each loop
+# iteration increments the detected turn number. So a user turn that triggers
+# a tool call consumes TWO mock turn numbers (one for the tool call, one for
+# the text response after the tool result).
+#
+# Billing flow:
+#   User turn 1 → mock turn 1 (text)
+#   User turn 2 → mock turn 2 (RouteBilling tool call) → mock turn 3 (text after tool result)
+#   User turn 3 → mock turn 4 (skill__activate tool call) → mock turn 5 (text after tool result)
+#   User turn 4 → mock turn 6 (text)
+#   User turn 5 → mock turn 7 (Resolve tool call) → mock turn 8 (text after tool result)
+#   User turn 6 → mock turn 9 (text)
 
 scenarios:
   billing-flow:
     turns:
-      1: "Hello! I'm sorry to hear about the duplicate charge on order ORD-9876. I can see this is a billing issue — let me connect you with our billing specialist who can review the charges and process a refund. Could you confirm your email address so I can pull up your account?"
+      1: "Hello! I'm sorry to hear about the duplicate charge on order ORD-9876. I can see this is a billing issue. Could you confirm your email address so I can pull up your account?"
       2:
-        response: "Thank you, Jane. I'm transferring you to our billing team now for a detailed review of the duplicate charge."
+        response: "Thank you, Jane. I'm transferring you to our billing team now."
         tool_calls:
           - name: workflow__transition
             arguments:
               event: RouteBilling
-              context: "Customer reports duplicate charge of $79.99 on order ORD-9876. Email: jane@example.com."
-      3:
-        response: "Hi Jane, I'm the billing specialist. Let me activate our PCI compliance procedures to securely review your account and process the refund."
+              context: "Customer reports duplicate charge of $79.99 on order ORD-9876."
+      3: "Hi Jane, I'm the billing specialist. Let me activate our PCI compliance procedures."
+      4:
+        response: "Activating PCI compliance to securely review your account."
         tool_calls:
           - name: skill__activate
             arguments:
               name: pci-compliance
-      4:
-        response: "I've reviewed your account following PCI compliance procedures and confirmed the duplicate charge of $79.99 on order ORD-9876. I'm processing the refund now to the card ending in 4242."
-        tool_calls:
-          - name: refund
-            arguments:
-              order_id: "ORD-9876"
-              amount: 79.99
-              reason: "Duplicate charge"
-      5:
-        response: "The refund of $79.99 has been processed successfully. You should see it reflected on your statement within 3-5 business days. Let me close out this case."
+      5: "I've reviewed your account following PCI compliance procedures and confirmed the duplicate charge of $79.99 on order ORD-9876. I'm processing the refund now."
+      6: "Yes, the refund of $79.99 has been processed. You should see it within 3-5 business days."
+      7:
+        response: "Great, let me close out this case."
         tool_calls:
           - name: workflow__transition
             arguments:
               event: Resolve
-              context: "Refund of $79.99 processed for duplicate charge on order ORD-9876. Card ending 4242, 3-5 business days."
-      6: "You're welcome, Jane! To summarize: we identified and refunded the duplicate charge of $79.99 on order ORD-9876. The refund should appear within 3-5 business days. Thank you for your patience, and don't hesitate to reach out if you need anything else."
+              context: "Refund processed for duplicate charge on ORD-9876."
+      8: "Case closed. Thank you for your patience!"
+      9: "You're welcome, Jane! Don't hesitate to reach out if you need anything else."
 
   orders-flow:
     turns:
-      1: "Hello! I'm sorry to hear your order hasn't arrived yet. Let me help you track down order ORD-5432. Could you share your email address so I can look up the full order details?"
+      1: "Hello! I'm sorry to hear your order hasn't arrived yet. Could you share your email so I can look up the details?"
       2:
-        response: "Thank you, Bob. Since this is a delivery issue, let me connect you with our orders specialist who can investigate the shipping status in detail."
+        response: "Thank you, Bob. Let me connect you with our orders specialist."
         tool_calls:
           - name: workflow__transition
             arguments:
               event: RouteOrders
-              context: "Customer reports order ORD-5432 not received. Estimated delivery was 3 days ago. Email: bob@example.com."
-      3:
-        response: "Hi Bob, I'm the orders specialist. Let me activate our order troubleshooting tools so I can investigate the shipping status of your order."
+              context: "Customer reports order ORD-5432 not received."
+      3: "Hi Bob, I'm the orders specialist. Let me activate our order troubleshooting tools."
+      4:
+        response: "Activating order troubleshooting to investigate your shipment."
         tool_calls:
           - name: skill__activate
             arguments:
               name: order-troubleshooting
-      4:
-        response: "I've looked up your order. Order ORD-5432 shipped via Express on Monday and the tracking shows it's currently at your local distribution center. It looks like there was a weather delay — the updated delivery estimate is tomorrow by end of day."
-        tool_calls:
-          - name: search_orders
-            arguments:
-              query: "bob@example.com"
-      5:
-        response: "Glad I could help clarify the status. Your order is on its way and should arrive tomorrow. Let me close out this case."
+      5: "I've looked up your order. ORD-5432 shipped via Express and is at your local distribution center. Updated delivery is tomorrow."
+      6: "The latest tracking shows it left the center this morning. Should arrive by end of day tomorrow."
+      7:
+        response: "Glad I could help. Let me close out this case."
         tool_calls:
           - name: workflow__transition
             arguments:
               event: Resolve
-              context: "Order ORD-5432 delayed due to weather. Updated delivery: tomorrow. Customer informed."
-      6: "You're welcome, Bob! To summarize: order ORD-5432 was delayed due to weather and is now expected to arrive tomorrow. If it doesn't arrive, reach out and we'll take care of it. Thank you for contacting ShopCo support!"
+              context: "Order ORD-5432 delayed, updated delivery tomorrow."
+      8: "Case closed. Your order should arrive tomorrow!"
+      9: "You're welcome, Bob! If it doesn't arrive, reach out and we'll take care of it."

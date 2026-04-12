@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -1291,4 +1292,93 @@ func containsSubstring(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestSkillSourceConfig_UnmarshalYAML_String(t *testing.T) {
+	var s SkillSourceConfig
+	err := yaml.Unmarshal([]byte(`"skills/billing"`), &s)
+	require.NoError(t, err)
+	assert.Equal(t, "skills/billing", s.Path)
+	assert.Equal(t, "skills/billing", s.EffectiveDir())
+}
+
+func TestSkillSourceConfig_UnmarshalYAML_Object(t *testing.T) {
+	var s SkillSourceConfig
+	err := yaml.Unmarshal([]byte("path: skills/billing\npreload: true\n"), &s)
+	require.NoError(t, err)
+	assert.Equal(t, "skills/billing", s.Path)
+	assert.True(t, s.Preload)
+}
+
+func TestSkillSourceConfig_UnmarshalYAML_Inline(t *testing.T) {
+	var s SkillSourceConfig
+	err := yaml.Unmarshal([]byte("name: my-skill\ndescription: A skill\ninstructions: Do stuff\n"), &s)
+	require.NoError(t, err)
+	assert.Equal(t, "my-skill", s.Name)
+	assert.Equal(t, "A skill", s.Description)
+	assert.Equal(t, "Do stuff", s.Instructions)
+}
+
+func TestSkillSourceConfig_UnmarshalJSON_String(t *testing.T) {
+	var s SkillSourceConfig
+	err := json.Unmarshal([]byte(`"skills/billing"`), &s)
+	require.NoError(t, err)
+	assert.Equal(t, "skills/billing", s.Path)
+}
+
+func TestSkillSourceConfig_UnmarshalJSON_Object(t *testing.T) {
+	var s SkillSourceConfig
+	err := json.Unmarshal([]byte(`{"path":"skills/billing","preload":true}`), &s)
+	require.NoError(t, err)
+	assert.Equal(t, "skills/billing", s.Path)
+	assert.True(t, s.Preload)
+}
+
+func TestSkillSourceConfig_UnmarshalYAML_ArrayInPack(t *testing.T) {
+	yamlData := `skills:
+  - skills/
+  - path: skills/brand-voice
+    preload: true
+  - name: inline-skill
+    description: A skill
+    instructions: Do stuff
+`
+	type wrapper struct {
+		Skills []SkillSourceConfig `yaml:"skills"`
+	}
+	var w wrapper
+	err := yaml.Unmarshal([]byte(yamlData), &w)
+	require.NoError(t, err)
+	require.Len(t, w.Skills, 3)
+	assert.Equal(t, "skills/", w.Skills[0].Path)
+	assert.Equal(t, "skills/brand-voice", w.Skills[1].Path)
+	assert.True(t, w.Skills[1].Preload)
+	assert.Equal(t, "inline-skill", w.Skills[2].Name)
+}
+
+func TestCompileFromRegistryWithOptions_Skills(t *testing.T) {
+	repo := newMockRepository()
+	cfg := &Config{
+		Metadata: metav1.ObjectMeta{Name: "test"},
+		Spec:     Spec{TaskType: "chat", SystemTemplate: "Hello"},
+	}
+	repo.prompts["chat"] = cfg
+
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("chat", cfg)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	compiler := NewPackCompilerWithDeps(registry, mockTimeProvider{fixedTime: fixedTime}, newMockFileWriter())
+
+	skills := []SkillSourceConfig{
+		{Path: "skills/billing"},
+		{Name: "inline", Description: "desc", Instructions: "inst"},
+	}
+	pack, err := compiler.CompileFromRegistryWithOptions(
+		"test-pack", "1.0.0", nil, nil, WithSkills(skills),
+	)
+	require.NoError(t, err)
+	require.Len(t, pack.Skills, 2)
+	assert.Equal(t, "skills/billing", pack.Skills[0].Path)
+	assert.Equal(t, "inline", pack.Skills[1].Name)
 }

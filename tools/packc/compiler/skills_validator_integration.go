@@ -163,6 +163,11 @@ func validateWorkflowStateSkills(wf *prompt.WorkflowConfig, packDir string) []st
 			continue
 		}
 
+		// Skip glob patterns — they're runtime filters, not directory paths.
+		if strings.ContainsAny(state.Skills, "*?[") {
+			continue
+		}
+
 		if err := validatePathContainment(state.Skills, packDir); err != nil {
 			errs = append(errs, fmt.Sprintf("workflow state %q: %v", name, err))
 			continue

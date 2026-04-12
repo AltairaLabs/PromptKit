@@ -231,6 +231,9 @@ func LoadConfig(filename string) (*Config, error) {
 	if err := cfg.mergeToolSpecs(); err != nil {
 		return nil, err
 	}
+	if err := cfg.loadSkills(filename); err != nil {
+		return nil, err
+	}
 
 	// Load self-play resources if enabled
 	if cfg.SelfPlay != nil && cfg.SelfPlay.IsEnabled() {
@@ -462,6 +465,49 @@ func (c *Config) loadTools(configPath string) error {
 			FilePath: ref.File,
 			Data:     data,
 		})
+	}
+	return nil
+}
+
+// loadSkills resolves skill source paths and validates containment.
+func (c *Config) loadSkills(configPath string) error {
+	if len(c.Skills) == 0 {
+		return nil
+	}
+
+	configDir := filepath.Dir(configPath)
+
+	for _, src := range c.Skills {
+		dir := src.EffectiveDir()
+		if dir == "" {
+			// Inline skill — pass through as-is.
+			c.LoadedSkillSources = append(c.LoadedSkillSources, src)
+			continue
+		}
+
+		// Resolve relative path.
+		absDir := dir
+		if !filepath.IsAbs(absDir) {
+			absDir = filepath.Join(configDir, absDir)
+		}
+		absDir = filepath.Clean(absDir)
+
+		// Validate path containment.
+		cleanBase := filepath.Clean(configDir)
+		if absDir != cleanBase && !strings.HasPrefix(absDir, cleanBase+string(filepath.Separator)) {
+			return fmt.Errorf("skills: path traversal detected: %q resolves outside config directory %q", dir, configDir)
+		}
+
+		// Verify directory exists.
+		info, err := os.Stat(absDir)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("skills: directory %q does not exist (resolved to %q)", dir, absDir)
+		}
+
+		resolved := src
+		resolved.Dir = ""
+		resolved.Path = absDir
+		c.LoadedSkillSources = append(c.LoadedSkillSources, resolved)
 	}
 	return nil
 }
