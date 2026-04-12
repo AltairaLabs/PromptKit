@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	credentials "github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -321,6 +322,44 @@ func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 		req.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
 	}
 	return nil
+}
+
+const azurePlatform = "azure" //nolint:unused // wired in upcoming Azure URL integration
+
+// isAzure returns true if this provider is hosted on Azure OpenAI.
+func (p *Provider) isAzure() bool { //nolint:unused // wired in upcoming Azure URL integration
+	return p.platform == azurePlatform
+}
+
+// azureAPIVersion returns the api-version query parameter for Azure OpenAI.
+func (p *Provider) azureAPIVersion() string { //nolint:unused // wired in upcoming Azure URL integration
+	if p.platformConfig != nil {
+		if v, ok := p.platformConfig.AdditionalConfig["api_version"].(string); ok && v != "" {
+			return v
+		}
+	}
+	return credentials.DefaultAzureAPIVersion
+}
+
+// chatCompletionsURL returns the Chat Completions API endpoint.
+// For Azure: {baseURL}/chat/completions?api-version={version}
+// For standard OpenAI: {baseURL}/chat/completions
+func (p *Provider) chatCompletionsURL() string { //nolint:unused // wired in upcoming Azure URL integration
+	url := p.baseURL + openAIPredictCompletionsPath
+	if p.isAzure() {
+		url += "?api-version=" + p.azureAPIVersion()
+	}
+	return url
+}
+
+// responsesURL returns the Responses API endpoint.
+// Azure OpenAI does not support the Responses API, so this falls back
+// to the Chat Completions endpoint.
+func (p *Provider) responsesURL() string { //nolint:unused // wired in upcoming Azure URL integration
+	if p.isAzure() {
+		return p.chatCompletionsURL()
+	}
+	return p.baseURL + responsesAPIPath
 }
 
 // Model returns the model name/identifier used by this provider.

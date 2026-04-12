@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	credentials "github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -1813,4 +1814,89 @@ func TestPredict_AudioResponse_TextContentOnly(t *testing.T) {
 	if len(resp.Parts) != 1 || resp.Parts[0].Type != types.ContentTypeText {
 		t.Errorf("expected 1 text part, got %v", resp.Parts)
 	}
+}
+
+func TestOpenAI_IsAzure(t *testing.T) {
+	tests := []struct {
+		platform string
+		expected bool
+	}{
+		{"azure", true},
+		{"bedrock", false},
+		{"", false},
+		{"vertex", false},
+	}
+	for _, tt := range tests {
+		p := &Provider{platform: tt.platform}
+		if got := p.isAzure(); got != tt.expected {
+			t.Errorf("platform=%q: isAzure() = %v, want %v", tt.platform, got, tt.expected)
+		}
+	}
+}
+
+func TestOpenAI_ChatCompletionsURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider *Provider
+		expected string
+	}{
+		{
+			name:     "standard openai",
+			provider: &Provider{baseURL: "https://api.openai.com/v1"},
+			expected: "https://api.openai.com/v1/chat/completions",
+		},
+		{
+			name: "azure with default api version",
+			provider: &Provider{
+				baseURL:  "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+				platform: "azure",
+			},
+			expected: "https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=" + credentials.DefaultAzureAPIVersion,
+		},
+		{
+			name: "azure with custom api version",
+			provider: &Provider{
+				baseURL:  "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+				platform: "azure",
+				platformConfig: &providers.PlatformConfig{
+					AdditionalConfig: map[string]interface{}{
+						"api_version": "2024-06-01",
+					},
+				},
+			},
+			expected: "https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-06-01",
+		},
+		{
+			name:     "custom base_url (gateway)",
+			provider: &Provider{baseURL: "https://litellm.internal:4000/v1"},
+			expected: "https://litellm.internal:4000/v1/chat/completions",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.provider.chatCompletionsURL()
+			if got != tt.expected {
+				t.Errorf("chatCompletionsURL() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestOpenAI_ResponsesURL(t *testing.T) {
+	t.Run("standard openai", func(t *testing.T) {
+		p := &Provider{baseURL: "https://api.openai.com/v1"}
+		if got := p.responsesURL(); got != "https://api.openai.com/v1/responses" {
+			t.Errorf("responsesURL() = %q, want standard path", got)
+		}
+	})
+	t.Run("azure falls back to chat completions", func(t *testing.T) {
+		p := &Provider{
+			baseURL:  "https://r.openai.azure.com/openai/deployments/gpt-4o",
+			platform: "azure",
+		}
+		expected := "https://r.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=" + credentials.DefaultAzureAPIVersion
+		if got := p.responsesURL(); got != expected {
+			t.Errorf("responsesURL() = %q, want %q", got, expected)
+		}
+	})
 }
