@@ -26,6 +26,9 @@ spec:
       content: "Thanks!"
 
   conversation_assertions:
+    - type: tools_called
+      params:
+        tool_names: ["workflow__transition"]
     - type: skill_activated
       params:
         skill_names: ["order-troubleshooting"]

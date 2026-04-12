@@ -805,7 +805,7 @@ func discoverAndRegisterSkillTools(cfg *config.Config, toolRegistry *tools.Regis
 	}
 
 	// Create executor (no selector, no pack tool ceiling in arena)
-	executor := skills.NewExecutor(skills.ExecutorConfig{Registry: reg})
+	executor := skills.NewExecutor(skills.ExecutorConfig{Registry: reg, ConfigDir: cfg.ConfigDir})
 
 	// Register tool descriptors + executor
 	_ = toolRegistry.Register(skills.BuildSkillActivateDescriptor())
