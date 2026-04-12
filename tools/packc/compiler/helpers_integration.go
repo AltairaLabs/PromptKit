@@ -166,8 +166,8 @@ func parseSkillsFromConfig(cfg *config.Config) []prompt.SkillSourceConfig {
 	result := make([]prompt.SkillSourceConfig, len(cfg.LoadedSkillSources))
 	for i, src := range cfg.LoadedSkillSources {
 		result[i] = src
-		// Convert absolute paths back to relative for pack portability.
-		if dir := src.EffectiveDir(); dir != "" && filepath.IsAbs(dir) && cfg.ConfigDir != "" {
+		// Convert paths back to relative (to config dir) for pack portability.
+		if dir := src.EffectiveDir(); dir != "" && cfg.ConfigDir != "" {
 			if rel, err := filepath.Rel(cfg.ConfigDir, dir); err == nil {
 				result[i].Dir = ""
 				result[i].Path = rel
