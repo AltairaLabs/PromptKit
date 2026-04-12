@@ -614,6 +614,18 @@ type Scenario struct {
 	// Trials is the number of times to execute this scenario for statistical evaluation.
 	// When > 1, assertion results are aggregated across trials using pass rates and flakiness scores.
 	Trials int `json:"trials,omitempty" yaml:"trials,omitempty" jsonschema:"description=Number of times to run this scenario for statistical evaluation"` //nolint:lll
+	// SeedMemories pre-populates the memory store before the first turn.
+	// Uses the same fields as memory__remember: content (required), type, confidence, metadata.
+	SeedMemories []SeedMemoryEntry `json:"seed_memories,omitempty" yaml:"seed_memories,omitempty"`
+}
+
+// SeedMemoryEntry defines a memory to pre-populate before scenario execution.
+// Fields match the memory__remember tool arguments.
+type SeedMemoryEntry struct {
+	Content    string         `json:"content" yaml:"content"`
+	Type       string         `json:"type,omitempty" yaml:"type,omitempty"`
+	Confidence float64        `json:"confidence,omitempty" yaml:"confidence,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
 // ShouldStreamTurn returns whether streaming should be used for a specific turn.
