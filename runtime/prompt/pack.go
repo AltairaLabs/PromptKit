@@ -131,6 +131,42 @@ func (s *SkillSourceConfig) EffectiveDir() string {
 	return s.Path
 }
 
+// UnmarshalYAML supports bare string shorthand: "skills/" → {Path: "skills/"}.
+func (s *SkillSourceConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var str string
+	if err := unmarshal(&str); err == nil {
+		s.Path = str
+		return nil
+	}
+	// Fall back to struct unmarshaling (use alias to avoid recursion).
+	type alias SkillSourceConfig
+	var a alias
+	if err := unmarshal(&a); err != nil {
+		return err
+	}
+	*s = SkillSourceConfig(a)
+	return nil
+}
+
+// UnmarshalJSON supports bare string shorthand: "skills/" → {Path: "skills/"}.
+func (s *SkillSourceConfig) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		var str string
+		if err := json.Unmarshal(data, &str); err != nil {
+			return err
+		}
+		s.Path = str
+		return nil
+	}
+	type alias SkillSourceConfig
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*s = SkillSourceConfig(a)
+	return nil
+}
+
 // PackTool represents a tool definition in the pack (per PromptPack spec Section 9)
 // Tools are defined at pack level and referenced by prompts via the tools array
 type PackTool struct {
