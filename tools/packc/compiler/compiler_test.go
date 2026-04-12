@@ -375,6 +375,49 @@ func TestSanitizePackID(t *testing.T) {
 	}
 }
 
+func TestCompile_IncludesSkills(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	dir := t.TempDir()
+
+	writeFixture(t, dir, "prompts/chat.yaml", minimalPromptYAML)
+
+	// Create skill directory with a SKILL.md
+	skillDir := filepath.Join(dir, "skills", "test-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(
+		"---\nname: test-skill\ndescription: Test\n---\nInstructions.\n",
+	), 0o600))
+
+	arenaConfig := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test
+spec:
+  prompt_configs:
+    - id: greeting
+      file: prompts/chat.yaml
+  providers: []
+  skills:
+    - path: skills/
+  defaults:
+    concurrency: 1
+`
+	configFile := writeFixture(t, dir, "config.arena.yaml", arenaConfig)
+
+	result, err := Compile(configFile,
+		WithPackID("skills-pack"),
+		WithCompilerVersion("test-v1"),
+		WithSkipSchemaValidation(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result.Pack)
+
+	assert.Equal(t, "skills-pack", result.Pack.ID)
+	require.Len(t, result.Pack.Skills, 1)
+	// Path should be relative (converted back from absolute)
+	assert.Equal(t, "skills", result.Pack.Skills[0].EffectiveDir())
+}
+
 func TestCompileOptions(t *testing.T) {
 	t.Run("WithPackID sets pack ID", func(t *testing.T) {
 		var opts compileOptions

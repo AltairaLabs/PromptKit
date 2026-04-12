@@ -156,6 +156,27 @@ func parseAgentsFromConfig(cfg *config.Config) (*prompt.AgentsConfig, error) {
 	return &ag, nil
 }
 
+// parseSkillsFromConfig returns skill source configs from the loaded arena config.
+// Paths are converted back to relative (relative to config dir) for portability.
+func parseSkillsFromConfig(cfg *config.Config) []prompt.SkillSourceConfig {
+	if len(cfg.LoadedSkillSources) == 0 {
+		return nil
+	}
+
+	result := make([]prompt.SkillSourceConfig, len(cfg.LoadedSkillSources))
+	for i, src := range cfg.LoadedSkillSources {
+		result[i] = src
+		// Convert absolute paths back to relative for pack portability.
+		if dir := src.EffectiveDir(); dir != "" && filepath.IsAbs(dir) && cfg.ConfigDir != "" {
+			if rel, err := filepath.Rel(cfg.ConfigDir, dir); err == nil {
+				result[i].Dir = ""
+				result[i].Path = rel
+			}
+		}
+	}
+	return result
+}
+
 // runSkillValidation validates skill configurations in a pack, returning errors and warnings.
 func runSkillValidation(pack *prompt.Pack, dir string) (fatalErrors, warnings []string) {
 	fatalErrors = ValidateSkillErrors(pack, dir)
