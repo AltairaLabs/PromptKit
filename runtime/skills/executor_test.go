@@ -384,6 +384,137 @@ func TestActiveToolsDeduplicates(t *testing.T) {
 	}
 }
 
+// createSkillTree creates a temp directory structure:
+//
+//	<root>/skills/billing/pci/SKILL.md (name: pci)
+//	<root>/skills/orders/tracking/SKILL.md (name: tracking)
+//
+// Returns the root directory and the skills/ path.
+func createSkillTree(t *testing.T) (root string, skillsDir string) {
+	t.Helper()
+	root = t.TempDir()
+	skillsDir = filepath.Join(root, "skills")
+
+	billingDir := filepath.Join(skillsDir, "billing", "pci")
+	if err := os.MkdirAll(billingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(billingDir, "SKILL.md"),
+		[]byte("---\nname: pci\ndescription: PCI compliance\n---\nPCI instructions.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ordersDir := filepath.Join(skillsDir, "orders", "tracking")
+	if err := os.MkdirAll(ordersDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ordersDir, "SKILL.md"),
+		[]byte("---\nname: tracking\ndescription: Order tracking\n---\nTracking instructions.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	return root, skillsDir
+}
+
+func TestExecutor_SetFilter_AllowsMatchingSkills(t *testing.T) {
+	root, skillsDir := createSkillTree(t)
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: skillsDir}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	exec := NewExecutor(ExecutorConfig{Registry: reg, ConfigDir: root})
+	exec.SetFilter("skills/billing/*")
+
+	_, _, err := exec.Activate("pci")
+	if err != nil {
+		t.Errorf("expected pci to be allowed, got error: %v", err)
+	}
+
+	_, _, err = exec.Activate("tracking")
+	if err == nil {
+		t.Error("expected tracking to be blocked by filter")
+	} else if !strings.Contains(err.Error(), "not available") {
+		t.Errorf("error should mention 'not available': %v", err)
+	}
+}
+
+func TestExecutor_SetFilter_NoneDisablesAll(t *testing.T) {
+	root, skillsDir := createSkillTree(t)
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: skillsDir}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	exec := NewExecutor(ExecutorConfig{Registry: reg, ConfigDir: root})
+	exec.SetFilter("none")
+
+	_, _, err := exec.Activate("pci")
+	if err == nil {
+		t.Error("expected pci to be blocked when filter is 'none'")
+	}
+}
+
+func TestExecutor_SetFilter_EmptyAllowsAll(t *testing.T) {
+	root, skillsDir := createSkillTree(t)
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: skillsDir}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	exec := NewExecutor(ExecutorConfig{Registry: reg, ConfigDir: root})
+	exec.SetFilter("")
+
+	_, _, err := exec.Activate("pci")
+	if err != nil {
+		t.Errorf("expected pci to be allowed with empty filter, got: %v", err)
+	}
+	_, _, err = exec.Activate("tracking")
+	if err != nil {
+		t.Errorf("expected tracking to be allowed with empty filter, got: %v", err)
+	}
+}
+
+func TestExecutor_SetFilter_DeactivatesNonMatching(t *testing.T) {
+	root, skillsDir := createSkillTree(t)
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: skillsDir}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	exec := NewExecutor(ExecutorConfig{Registry: reg, ConfigDir: root})
+
+	// Activate both with no filter.
+	_, _, err := exec.Activate("pci")
+	if err != nil {
+		t.Fatalf("Activate pci failed: %v", err)
+	}
+	_, _, err = exec.Activate("tracking")
+	if err != nil {
+		t.Fatalf("Activate tracking failed: %v", err)
+	}
+
+	// Filter to billing only.
+	deactivated := exec.SetFilter("skills/billing/*")
+
+	foundTracking := false
+	foundPCI := false
+	for _, name := range deactivated {
+		if name == "tracking" {
+			foundTracking = true
+		}
+		if name == "pci" {
+			foundPCI = true
+		}
+	}
+	if !foundTracking {
+		t.Error("expected 'tracking' in deactivated list")
+	}
+	if foundPCI {
+		t.Error("'pci' should not be in deactivated list")
+	}
+}
+
 func TestNewExecutorDefaultsToModelDrivenSelector(t *testing.T) {
 	reg := NewRegistry()
 	exec := NewExecutor(ExecutorConfig{Registry: reg})
