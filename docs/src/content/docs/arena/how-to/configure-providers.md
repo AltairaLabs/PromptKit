@@ -189,6 +189,8 @@ Authentication uses the `GOOGLE_API_KEY` environment variable automatically.
 
 ### Azure OpenAI
 
+Azure OpenAI uses `type: openai` with Azure platform authentication. The provider auto-derives the deployment URL from `platform.endpoint` and `model`:
+
 ```yaml
 # providers/azure-openai.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -199,17 +201,38 @@ metadata:
     provider: azure-openai
 
 spec:
-  type: azure-openai
+  type: openai
   model: gpt-4o
 
-  base_url: https://your-resource.openai.azure.com
+  platform:
+    type: azure
+    endpoint: https://your-resource.openai.azure.com
+    additional_config:
+      api_version: "2024-12-01-preview"   # optional, this is the default
 
   defaults:
     temperature: 0.6
     max_tokens: 2000
 ```
 
-Authentication uses the `AZURE_OPENAI_API_KEY` environment variable automatically.
+Authentication uses the Azure Default Credential chain automatically (Managed Identity in AKS/Azure VMs, Azure CLI, or environment variables `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`).
+
+For API key auth instead of Azure AD, use the credential field:
+
+```yaml
+spec:
+  type: openai
+  model: gpt-4o
+  platform:
+    type: azure
+    endpoint: https://your-resource.openai.azure.com
+  credential:
+    credential_env: AZURE_OPENAI_API_KEY
+```
+
+:::note
+Azure OpenAI uses the Chat Completions API. The OpenAI Responses API is not available on Azure deployments — the provider automatically falls back to Completions mode.
+:::
 
 ### Ollama (Local)
 
