@@ -41,6 +41,11 @@ func (e *Engine) initWorkflow() error {
 	e.workflowSpec = spec
 	e.workflowTransExec = transExec
 
+	// Wire skill filtering so transitions update skill availability
+	if e.skillExecutor != nil {
+		transExec.skillFilterer = e.skillExecutor
+	}
+
 	return nil
 }
 

@@ -12,6 +12,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
 
+// SkillFilterer controls which skills are available based on workflow state.
+type SkillFilterer interface {
+	SetFilter(glob string) []string
+}
+
 type workflowScenarioIDKey struct{}
 
 // withWorkflowScenarioID stores the workflow scenario ID in context for per-run dispatch.
@@ -39,10 +44,11 @@ type workflowRunState struct {
 // RegisterRun. The executor defers ProcessEvent until CommitPendingTransition
 // is called after the turn/pipeline completes.
 type workflowTransitionExecutor struct {
-	mu       sync.Mutex
-	wfSpec   *workflow.Spec
-	registry *tools.Registry
-	runs     map[string]*workflowRunState // keyed by scenario ID
+	mu            sync.Mutex
+	wfSpec        *workflow.Spec
+	registry      *tools.Registry
+	runs          map[string]*workflowRunState // keyed by scenario ID
+	skillFilterer SkillFilterer
 }
 
 func newWorkflowTransitionExecutor(
@@ -129,6 +135,11 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(runID string) error
 			run.scenario.TaskType = newState.PromptTask
 		}
 		run.transExec.RegisterForState(e.registry, newState)
+
+		// Update skill filter for the new state
+		if e.skillFilterer != nil {
+			e.skillFilterer.SetFilter(newState.Skills)
+		}
 	}
 
 	return nil

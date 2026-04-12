@@ -83,7 +83,7 @@ func TestBuildEngineComponents_MinimalConfig(t *testing.T) {
 		},
 	}
 
-	providerReg, promptReg, mcpReg, convExec, adapterReg, a2aCleanup, _, err := BuildEngineComponents(cfg, nil)
+	providerReg, promptReg, mcpReg, convExec, adapterReg, a2aCleanup, _, _, err := BuildEngineComponents(cfg, nil)
 	require.NoError(t, err)
 	require.NotNil(t, providerReg)
 	require.Nil(t, promptReg)
@@ -379,7 +379,7 @@ func TestBuildEngineComponents_UnknownEvalTypeError(t *testing.T) {
 		},
 	}
 
-	_, _, _, _, _, _, _, err := BuildEngineComponents(cfg, nil)
+	_, _, _, _, _, _, _, _, err := BuildEngineComponents(cfg, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to build pack eval hook")
 	require.Contains(t, err.Error(), "unknown eval types")
@@ -429,13 +429,13 @@ func TestBuildEngineComponents_ProviderFilterSkipsCredentialResolution(t *testin
 	}
 
 	t.Run("without filter fails on missing credential", func(t *testing.T) {
-		_, _, _, _, _, _, _, err := BuildEngineComponents(cfg, nil)
+		_, _, _, _, _, _, _, _, err := BuildEngineComponents(cfg, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "TOTALLY_NONEXISTENT_API_KEY_FOR_TEST_938")
 	})
 
 	t.Run("filter to mock-ok skips azure credential resolution", func(t *testing.T) {
-		providerReg, _, _, _, _, _, _, err := BuildEngineComponents(cfg, []string{"mock-ok"})
+		providerReg, _, _, _, _, _, _, _, err := BuildEngineComponents(cfg, []string{"mock-ok"})
 		require.NoError(t, err)
 		require.NotNil(t, providerReg)
 
@@ -446,7 +446,7 @@ func TestBuildEngineComponents_ProviderFilterSkipsCredentialResolution(t *testin
 	})
 
 	t.Run("empty filter initializes all providers", func(t *testing.T) {
-		_, _, _, _, _, _, _, err := BuildEngineComponents(cfg, []string{})
+		_, _, _, _, _, _, _, _, err := BuildEngineComponents(cfg, []string{})
 		require.Error(t, err, "empty filter should behave like no filter")
 	})
 }
@@ -468,8 +468,9 @@ func TestDiscoverAndRegisterSkillTools_FromConfig(t *testing.T) {
 	}
 
 	registry := tools.NewRegistry()
-	err := discoverAndRegisterSkillTools(cfg, registry)
+	exec, err := discoverAndRegisterSkillTools(cfg, registry)
 	require.NoError(t, err)
+	require.NotNil(t, exec)
 
 	allTools := registry.GetTools()
 	assert.Contains(t, allTools, "skill__activate")
@@ -479,7 +480,8 @@ func TestDiscoverAndRegisterSkillTools_FromConfig(t *testing.T) {
 func TestDiscoverAndRegisterSkillTools_EmptyConfig(t *testing.T) {
 	cfg := &config.Config{}
 	registry := tools.NewRegistry()
-	err := discoverAndRegisterSkillTools(cfg, registry)
+	exec, err := discoverAndRegisterSkillTools(cfg, registry)
 	require.NoError(t, err)
+	assert.Nil(t, exec)
 	assert.Empty(t, registry.GetTools())
 }
