@@ -126,6 +126,38 @@ Every eval that runs produces a Prometheus metric. If the eval definition includ
 | `range` | No | Value range hint (`min`, `max`) — used for documentation, not enforced |
 | `labels` | No | Static labels added to this metric (pack-author defined) |
 
+### Metric Name Prefixing
+
+Eval metric names are automatically prefixed with `{namespace}_eval_` to distinguish them from pipeline metrics. If the name already starts with that prefix, it is not doubled.
+
+```yaml
+# With namespace "omnia":
+
+# This metric name:
+metric:
+  name: response_quality
+# Becomes: omnia_eval_response_quality
+
+# This metric name already has the prefix:
+metric:
+  name: omnia_eval_custom_metric
+# Stays:  omnia_eval_custom_metric (not re-prefixed)
+```
+
+The namespace is set via `CollectorOpts.Namespace` — defaults to `"promptkit"` for standalone usage, but host applications typically override it (e.g., `"omnia"` for Omnia).
+
+Pipeline metrics use the namespace directly (`{namespace}_pipeline_duration_seconds`), without the `_eval` infix. This makes it straightforward to write PromQL queries that target eval metrics specifically:
+
+```promql
+# All eval metrics for a namespace
+{__name__=~"omnia_eval_.*"}
+
+# All pipeline metrics
+{__name__=~"omnia_(?!eval_).*"}
+```
+
+When no `metric` field is defined on an eval, a default gauge is auto-generated using the eval's `id` as the name (e.g., eval `"latency-check"` becomes `{ns}_eval_latency-check`).
+
 ### Eval Metric Types
 
 | Type | Prometheus Type | Behavior | Typical Use |
