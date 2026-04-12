@@ -28,8 +28,9 @@ import (
 // PipelineExecutor executes conversations through the pipeline architecture.
 // It handles both non-streaming and streaming execution, including multi-round tool calls.
 type PipelineExecutor struct {
-	toolRegistry *tools.Registry
-	mediaStorage storage.MediaStorageService // Media storage service for externalization
+	toolRegistry               *tools.Registry
+	mediaStorage               storage.MediaStorageService // Media storage service for externalization
+	preloadedSkillInstructions string                      // Appended to system_prompt when non-empty
 }
 
 // NewPipelineExecutor creates a new pipeline executor with the specified tool registry and media storage.
@@ -39,6 +40,13 @@ func NewPipelineExecutor(toolRegistry *tools.Registry, mediaStorage storage.Medi
 		toolRegistry: toolRegistry,
 		mediaStorage: mediaStorage,
 	}
+}
+
+// SetPreloadedSkillInstructions sets the preloaded-skill instructions block that
+// will be appended to the system prompt for every turn. Passing an empty string
+// disables the stage.
+func (e *PipelineExecutor) SetPreloadedSkillInstructions(instructions string) {
+	e.preloadedSkillInstructions = instructions
 }
 
 // buildBaseVariables creates base variables map from request
@@ -298,6 +306,13 @@ func (e *PipelineExecutor) buildStagePipeline(
 		arenastages.NewScenarioContextExtractionStage(req.Scenario),
 		stage.NewTemplateStage(),
 	)
+
+	// 4b. Append preloaded skill instructions to system_prompt so skills
+	// marked preload: true are active from turn 1 without requiring the
+	// model to call skill__activate.
+	if e.preloadedSkillInstructions != "" {
+		stages = append(stages, arenastages.NewSkillInstructionStage(e.preloadedSkillInstructions))
+	}
 
 	// 4a. Mock scenario context (for mock providers only)
 	if isMockProvider(req.Provider) {
