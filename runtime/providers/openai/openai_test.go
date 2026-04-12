@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	credentials "github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -99,7 +100,8 @@ type mockCredential struct {
 }
 
 func (m *mockCredential) Type() string { return m.credType }
-func (m *mockCredential) Apply(_ context.Context, _ *http.Request) error {
+func (m *mockCredential) Apply(_ context.Context, req *http.Request) error {
+	req.Header.Set("Authorization", "Bearer mock-token")
 	return nil
 }
 
@@ -1813,4 +1815,141 @@ func TestPredict_AudioResponse_TextContentOnly(t *testing.T) {
 	if len(resp.Parts) != 1 || resp.Parts[0].Type != types.ContentTypeText {
 		t.Errorf("expected 1 text part, got %v", resp.Parts)
 	}
+}
+
+func TestOpenAI_IsAzure(t *testing.T) {
+	tests := []struct {
+		platform string
+		expected bool
+	}{
+		{"azure", true},
+		{"bedrock", false},
+		{"", false},
+		{"vertex", false},
+	}
+	for _, tt := range tests {
+		p := &Provider{platform: tt.platform}
+		if got := p.isAzure(); got != tt.expected {
+			t.Errorf("platform=%q: isAzure() = %v, want %v", tt.platform, got, tt.expected)
+		}
+	}
+}
+
+func TestOpenAI_ChatCompletionsURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider *Provider
+		expected string
+	}{
+		{
+			name:     "standard openai",
+			provider: &Provider{baseURL: "https://api.openai.com/v1"},
+			expected: "https://api.openai.com/v1/chat/completions",
+		},
+		{
+			name: "azure with default api version",
+			provider: &Provider{
+				baseURL:  "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+				platform: "azure",
+			},
+			expected: "https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=" + credentials.DefaultAzureAPIVersion,
+		},
+		{
+			name: "azure with custom api version",
+			provider: &Provider{
+				baseURL:  "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
+				platform: "azure",
+				platformConfig: &providers.PlatformConfig{
+					AdditionalConfig: map[string]interface{}{
+						"api_version": "2024-06-01",
+					},
+				},
+			},
+			expected: "https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-06-01",
+		},
+		{
+			name:     "custom base_url (gateway)",
+			provider: &Provider{baseURL: "https://litellm.internal:4000/v1"},
+			expected: "https://litellm.internal:4000/v1/chat/completions",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.provider.chatCompletionsURL()
+			if got != tt.expected {
+				t.Errorf("chatCompletionsURL() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestOpenAI_AzureBaseURLAutoDerive(t *testing.T) {
+	t.Run("derives base_url from platform endpoint and model", func(t *testing.T) {
+		cred := &mockCredential{credType: "azure"}
+		pc := &providers.PlatformConfig{
+			Type:     "azure",
+			Endpoint: "https://my-resource.openai.azure.com",
+		}
+		provider := NewProviderWithCredential(
+			"test", "gpt-4o", "", // empty base_url
+			providers.ProviderDefaults{Temperature: 0.7},
+			false, cred, "azure", pc,
+		)
+		expected := "https://my-resource.openai.azure.com/openai/deployments/gpt-4o"
+		if provider.baseURL != expected {
+			t.Errorf("baseURL = %q, want %q", provider.baseURL, expected)
+		}
+	})
+
+	t.Run("explicit base_url takes precedence", func(t *testing.T) {
+		cred := &mockCredential{credType: "azure"}
+		pc := &providers.PlatformConfig{
+			Type:     "azure",
+			Endpoint: "https://my-resource.openai.azure.com",
+		}
+		provider := NewProviderWithCredential(
+			"test", "gpt-4o", "https://custom.example.com/v1",
+			providers.ProviderDefaults{Temperature: 0.7},
+			false, cred, "azure", pc,
+		)
+		if provider.baseURL != "https://custom.example.com/v1" {
+			t.Errorf("baseURL = %q, want explicit override", provider.baseURL)
+		}
+	})
+}
+
+func TestOpenAI_AzureForcesCompletionsMode(t *testing.T) {
+	cred := &mockCredential{credType: "azure"}
+	pc := &providers.PlatformConfig{
+		Type:     "azure",
+		Endpoint: "https://my-resource.openai.azure.com",
+	}
+	// gpt-4.1 would normally get APIModeResponses
+	provider := NewProviderWithCredential(
+		"test", "gpt-4.1", "",
+		providers.ProviderDefaults{Temperature: 0.7},
+		false, cred, "azure", pc,
+	)
+	if provider.apiMode != APIModeCompletions {
+		t.Errorf("apiMode = %v, want APIModeCompletions for Azure", provider.apiMode)
+	}
+}
+
+func TestOpenAI_ResponsesURL(t *testing.T) {
+	t.Run("standard openai", func(t *testing.T) {
+		p := &Provider{baseURL: "https://api.openai.com/v1"}
+		if got := p.responsesURL(); got != "https://api.openai.com/v1/responses" {
+			t.Errorf("responsesURL() = %q, want standard path", got)
+		}
+	})
+	t.Run("azure falls back to chat completions", func(t *testing.T) {
+		p := &Provider{
+			baseURL:  "https://r.openai.azure.com/openai/deployments/gpt-4o",
+			platform: "azure",
+		}
+		expected := "https://r.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=" + credentials.DefaultAzureAPIVersion
+		if got := p.responsesURL(); got != expected {
+			t.Errorf("responsesURL() = %q, want %q", got, expected)
+		}
+	})
 }

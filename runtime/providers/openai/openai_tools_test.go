@@ -4,16 +4,26 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// failingCredential is a credential that always returns an error.
+type failingCredential struct{}
+
+func (f *failingCredential) Type() string { return "failing" }
+func (f *failingCredential) Apply(_ context.Context, _ *http.Request) error {
+	return fmt.Errorf("credential expired")
+}
 
 // ============================================================================
 // NewToolProvider Tests
@@ -1293,5 +1303,116 @@ func TestToolProvider_PredictStreamWithTools_Retries503(t *testing.T) {
 	}
 	if atomic.LoadInt32(&attempts) < 2 {
 		t.Errorf("Expected at least 2 attempts, got %d", attempts)
+	}
+}
+
+func TestToolProvider_MakeRequest_UsesApplyAuth(t *testing.T) {
+	var capturedHeaders http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hi"}}]}`))
+	}))
+	defer server.Close()
+
+	cred := &mockCredential{credType: "azure"}
+	provider := NewToolProviderWithCredential(
+		"test", "gpt-4o", server.URL, providers.ProviderDefaults{Temperature: 0.7},
+		false, map[string]any{"api_mode": "completions"}, cred, "azure", nil, nil,
+	)
+
+	resp, _, err := provider.PredictWithTools(
+		context.Background(),
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hello"}}},
+		nil, "",
+	)
+	_ = resp
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	authHeader := capturedHeaders.Get("Authorization")
+	if authHeader != "Bearer mock-token" {
+		t.Errorf("tool provider should use applyAuth (credential) not hardcoded apiKey, got %q", authHeader)
+	}
+}
+
+func TestToolProvider_MakeRequest_CredentialPath_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer server.Close()
+
+	cred := &mockCredential{credType: "azure"}
+	provider := NewToolProviderWithCredential(
+		"test", "gpt-4o", server.URL, providers.ProviderDefaults{Temperature: 0.7},
+		false, map[string]any{"api_mode": "completions"}, cred, "", nil, nil,
+	)
+
+	_, _, err := provider.PredictWithTools(
+		context.Background(),
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hello"}}},
+		nil, "",
+	)
+	if err == nil {
+		t.Fatal("expected error for 429 response")
+	}
+	var httpErr *providers.ProviderHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("expected ProviderHTTPError, got %T: %v", err, err)
+	}
+	if httpErr.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", httpErr.StatusCode)
+	}
+}
+
+func TestToolProvider_MakeRequest_CredentialPath_PlatformError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"message":"service unavailable"}`))
+	}))
+	defer server.Close()
+
+	cred := &mockCredential{credType: "azure"}
+	provider := NewToolProviderWithCredential(
+		"test", "gpt-4o", server.URL, providers.ProviderDefaults{Temperature: 0.7},
+		false, map[string]any{"api_mode": "completions"}, cred, "azure", nil, nil,
+	)
+
+	_, _, err := provider.PredictWithTools(
+		context.Background(),
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hello"}}},
+		nil, "",
+	)
+	if err == nil {
+		t.Fatal("expected error for 503 response")
+	}
+	var httpErr *providers.ProviderHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("expected ProviderHTTPError, got %T: %v", err, err)
+	}
+	if httpErr.URL != "azure" {
+		t.Errorf("URL = %q, want platform name 'azure'", httpErr.URL)
+	}
+}
+
+func TestToolProvider_MakeRequest_CredentialPath_AuthError(t *testing.T) {
+	cred := &failingCredential{}
+	provider := NewToolProviderWithCredential(
+		"test", "gpt-4o", "http://localhost:1", providers.ProviderDefaults{Temperature: 0.7},
+		false, map[string]any{"api_mode": "completions"}, cred, "", nil, nil,
+	)
+
+	_, _, err := provider.PredictWithTools(
+		context.Background(),
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hello"}}},
+		nil, "",
+	)
+	if err == nil {
+		t.Fatal("expected auth error")
+	}
+	if !strings.Contains(err.Error(), "apply authentication") {
+		t.Errorf("error = %q, want auth failure message", err.Error())
 	}
 }

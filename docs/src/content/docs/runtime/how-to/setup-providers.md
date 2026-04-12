@@ -244,13 +244,45 @@ result, err := provider.Predict(ctx, req)
 
 ### Azure OpenAI
 
+Use `NewProviderWithCredential` with the Azure platform and an `AzureCredential`:
+
 ```go
-provider := openai.NewProvider(
+import "github.com/AltairaLabs/PromptKit/runtime/credentials"
+
+cred, err := credentials.NewAzureCredential(ctx, "https://your-resource.openai.azure.com")
+if err != nil {
+    log.Fatal(err)
+}
+
+provider := openai.NewProviderWithCredential(
     "azure-openai",
-    "gpt-4",
-    "https://your-resource.openai.azure.com/openai/deployments/your-deployment",
+    "gpt-4o",
+    "",  // auto-derived from endpoint + model
     defaults,
     false,
+    cred,
+    "azure",
+    &providers.PlatformConfig{
+        Type:     "azure",
+        Endpoint: "https://your-resource.openai.azure.com",
+    },
+)
+```
+
+The provider auto-derives the deployment URL (`{endpoint}/openai/deployments/{model}`) and appends `?api-version=...` to requests. Azure AD auth (Managed Identity, CLI, env vars) is handled by `AzureCredential`.
+
+For API key auth, use a simple credential instead:
+
+```go
+provider := openai.NewProviderWithCredential(
+    "azure-openai",
+    "gpt-4o",
+    credentials.AzureOpenAIEndpoint("https://your-resource.openai.azure.com", "gpt-4o"),
+    defaults,
+    false,
+    credentials.NewAPIKeyCredential(os.Getenv("AZURE_OPENAI_API_KEY"), credentials.WithHeaderName("api-key"), credentials.WithPrefix("")),
+    "azure",
+    nil,
 )
 ```
 

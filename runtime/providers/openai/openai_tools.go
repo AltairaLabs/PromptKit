@@ -494,7 +494,43 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 
 // makeRequest makes an HTTP request to the OpenAI API
 func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
-	url := p.baseURL + openAIPredictCompletionsPath
+	url := p.chatCompletionsURL()
+	if p.credential != nil {
+		reqBytes, err := json.Marshal(request)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBytes))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+			return nil, hdrErr
+		}
+		resp, doErr := p.GetHTTPClient().Do(httpReq)
+		if doErr != nil {
+			return nil, &providers.ProviderTransportError{Cause: doErr, Provider: p.ID()}
+		}
+		defer resp.Body.Close()
+		body, readErr := providers.ReadResponseBody(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read response: %w", readErr)
+		}
+		if resp.StatusCode != http.StatusOK {
+			if p.platform != "" {
+				return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
+			}
+			return nil, &providers.ProviderHTTPError{
+				StatusCode: resp.StatusCode, URL: url,
+				Body: string(body), Provider: p.ID(),
+			}
+		}
+		return body, nil
+	}
 	headers := providers.RequestHeaders{
 		contentTypeHeader:   applicationJSON,
 		authorizationHeader: bearerPrefix + p.apiKey,
@@ -547,14 +583,16 @@ func (p *ToolProvider) predictStreamWithCompletions(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := p.baseURL + openAIPredictCompletionsPath
+	url := p.chatCompletionsURL()
 	requestFn := func(ctx context.Context) (*http.Request, error) {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 		if reqErr != nil {
 			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
-		httpReq.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
 		httpReq.Header.Set("Accept", "text/event-stream")
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 			return nil, hdrErr
