@@ -776,17 +776,16 @@ func buildStateStore(cfg *config.Config) (runtimestore.Store, error) {
 	}
 }
 
-// discoverAndRegisterSkillTools discovers skills from the loaded pack and registers
+// discoverAndRegisterSkillTools discovers skills from the arena config and registers
 // skill tool descriptors and executor in the tool registry.
 func discoverAndRegisterSkillTools(cfg *config.Config, toolRegistry *tools.Registry) error {
-	pack := cfg.LoadedPack
-	if pack == nil || len(pack.Skills) == 0 {
+	if len(cfg.LoadedSkillSources) == 0 {
 		return nil
 	}
 
-	// Convert pack skill configs to runtime SkillSource
-	sources := make([]skills.SkillSource, len(pack.Skills))
-	for i, s := range pack.Skills {
+	// Convert config skill sources to runtime SkillSource
+	sources := make([]skills.SkillSource, len(cfg.LoadedSkillSources))
+	for i, s := range cfg.LoadedSkillSources {
 		sources[i] = skills.SkillSource{
 			Dir:          s.EffectiveDir(),
 			Name:         s.Name,

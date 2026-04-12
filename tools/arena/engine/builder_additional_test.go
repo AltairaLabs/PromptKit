@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -446,4 +449,37 @@ func TestBuildEngineComponents_ProviderFilterSkipsCredentialResolution(t *testin
 		_, _, _, _, _, _, _, err := BuildEngineComponents(cfg, []string{})
 		require.Error(t, err, "empty filter should behave like no filter")
 	})
+}
+
+func TestDiscoverAndRegisterSkillTools_FromConfig(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skills", "test-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: test-skill\ndescription: A test skill\n---\nTest instructions.\n"),
+		0o600,
+	))
+
+	cfg := &config.Config{
+		LoadedSkillSources: []prompt.SkillSourceConfig{
+			{Path: filepath.Join(dir, "skills")},
+		},
+	}
+
+	registry := tools.NewRegistry()
+	err := discoverAndRegisterSkillTools(cfg, registry)
+	require.NoError(t, err)
+
+	allTools := registry.GetTools()
+	assert.Contains(t, allTools, "skill__activate")
+	assert.Contains(t, allTools, "skill__deactivate")
+}
+
+func TestDiscoverAndRegisterSkillTools_EmptyConfig(t *testing.T) {
+	cfg := &config.Config{}
+	registry := tools.NewRegistry()
+	err := discoverAndRegisterSkillTools(cfg, registry)
+	require.NoError(t, err)
+	assert.Empty(t, registry.GetTools())
 }
