@@ -744,15 +744,17 @@ func (p *Provider) handleFuncArgsDelta(
 	idMap itemIDMap,
 ) []types.MessageToolCall {
 	var delta struct {
-		CallID string `json:"call_id"`
-		ItemID string `json:"item_id"`
-		Delta  string `json:"delta"`
+		CallID      string `json:"call_id"`
+		ItemID      string `json:"item_id"`
+		OutputIndex *int   `json:"output_index"`
+		Delta       string `json:"delta"`
 	}
 	if err := json.Unmarshal([]byte(data), &delta); err != nil {
 		return toolCalls
 	}
 
-	// Look up the tool call index from the ID map (matches item_id or call_id)
+	// Look up the tool call index: try item_id, then call_id, then output_index.
+	// The Responses API may send only output_index in delta events.
 	idx := -1
 	if delta.ItemID != "" {
 		if i, ok := idMap[delta.ItemID]; ok {
@@ -761,6 +763,11 @@ func (p *Provider) handleFuncArgsDelta(
 	}
 	if idx < 0 && delta.CallID != "" {
 		if i, ok := idMap[delta.CallID]; ok {
+			idx = i
+		}
+	}
+	if idx < 0 && delta.OutputIndex != nil {
+		if i, ok := idMap[outputIndexKey(*delta.OutputIndex)]; ok {
 			idx = i
 		}
 	}
@@ -779,14 +786,21 @@ func (p *Provider) handleFuncArgsDelta(
 
 // itemIDMap tracks the mapping from Responses API item_id (fc_...) to the
 // index in the toolCalls slice, enabling delta events to find their tool call.
+// Also maps output_index (as "idx:N") for delta events that lack item_id/call_id.
 type itemIDMap map[string]int
+
+// outputIndexKey returns the idMap key for an output_index value.
+func outputIndexKey(idx int) string {
+	return fmt.Sprintf("idx:%d", idx)
+}
 
 // handleOutputAdded processes output item added events
 func (p *Provider) handleOutputAdded(
 	data string, toolCalls []types.MessageToolCall, idMap itemIDMap,
 ) []types.MessageToolCall {
 	var item struct {
-		Item struct {
+		OutputIndex *int `json:"output_index"`
+		Item        struct {
 			Type   string `json:"type"`
 			ID     string `json:"id"`
 			CallID string `json:"call_id"`
@@ -801,12 +815,16 @@ func (p *Provider) handleOutputAdded(
 				Name: item.Item.Name,
 				Args: json.RawMessage(""), // Will be populated by delta events
 			})
-			// Map both id and call_id to this index for delta matching
+			// Map id, call_id, and output_index to this index for delta matching.
+			// Delta events may use any of these to reference the tool call.
 			if item.Item.ID != "" {
 				idMap[item.Item.ID] = idx
 			}
 			if item.Item.CallID != "" {
 				idMap[item.Item.CallID] = idx
+			}
+			if item.OutputIndex != nil {
+				idMap[outputIndexKey(*item.OutputIndex)] = idx
 			}
 		}
 	}
