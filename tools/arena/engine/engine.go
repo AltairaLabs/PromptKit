@@ -125,10 +125,12 @@ func NewEngineFromConfigFile(configPath string) (*Engine, error) {
 
 // NewEngineFromConfig creates a new Engine from a pre-loaded configuration.
 // This allows CLI or programmatic callers to modify the config before engine creation.
-func NewEngineFromConfig(cfg *config.Config) (*Engine, error) {
+// providerFilter limits which providers have credentials resolved; nil or empty
+// means all providers are initialized.
+func NewEngineFromConfig(cfg *config.Config, providerFilter ...string) (*Engine, error) {
 	// Build registries and executors from the config
 	providerRegistry, promptRegistry, mcpRegistry, convExecutor,
-		adapterRegistry, a2aCleanup, toolRegistry, err := BuildEngineComponents(cfg)
+		adapterRegistry, a2aCleanup, toolRegistry, err := BuildEngineComponents(cfg, providerFilter)
 	if err != nil {
 		return nil, err
 	}

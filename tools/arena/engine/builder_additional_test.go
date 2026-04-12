@@ -80,7 +80,7 @@ func TestBuildEngineComponents_MinimalConfig(t *testing.T) {
 		},
 	}
 
-	providerReg, promptReg, mcpReg, convExec, adapterReg, a2aCleanup, _, err := BuildEngineComponents(cfg)
+	providerReg, promptReg, mcpReg, convExec, adapterReg, a2aCleanup, _, err := BuildEngineComponents(cfg, nil)
 	require.NoError(t, err)
 	require.NotNil(t, providerReg)
 	require.Nil(t, promptReg)
@@ -376,7 +376,7 @@ func TestBuildEngineComponents_UnknownEvalTypeError(t *testing.T) {
 		},
 	}
 
-	_, _, _, _, _, _, _, err := BuildEngineComponents(cfg)
+	_, _, _, _, _, _, _, err := BuildEngineComponents(cfg, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to build pack eval hook")
 	require.Contains(t, err.Error(), "unknown eval types")
@@ -400,4 +400,50 @@ func TestNewConversationExecutor_WithoutSelfPlay(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, composite.GetDefaultExecutor())
 	require.NotNil(t, composite.GetDuplexExecutor())
+}
+
+func TestBuildEngineComponents_ProviderFilterSkipsCredentialResolution(t *testing.T) {
+	cfg := &config.Config{
+		LoadedProviders: map[string]*config.Provider{
+			"mock-ok": {
+				ID:    "mock-ok",
+				Type:  "mock",
+				Model: "mock-model",
+				Defaults: config.ProviderDefaults{
+					Temperature: 0.1,
+					MaxTokens:   128,
+				},
+			},
+			"azure-missing-creds": {
+				ID:    "azure-missing-creds",
+				Type:  "openai",
+				Model: "gpt-4o",
+				Credential: &config.CredentialConfig{
+					CredentialEnv: "TOTALLY_NONEXISTENT_API_KEY_FOR_TEST_938",
+				},
+			},
+		},
+	}
+
+	t.Run("without filter fails on missing credential", func(t *testing.T) {
+		_, _, _, _, _, _, _, err := BuildEngineComponents(cfg, nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "TOTALLY_NONEXISTENT_API_KEY_FOR_TEST_938")
+	})
+
+	t.Run("filter to mock-ok skips azure credential resolution", func(t *testing.T) {
+		providerReg, _, _, _, _, _, _, err := BuildEngineComponents(cfg, []string{"mock-ok"})
+		require.NoError(t, err)
+		require.NotNil(t, providerReg)
+
+		// Only mock-ok should be registered
+		providers := providerReg.List()
+		require.Len(t, providers, 1)
+		require.Contains(t, providers, "mock-ok")
+	})
+
+	t.Run("empty filter initializes all providers", func(t *testing.T) {
+		_, _, _, _, _, _, _, err := BuildEngineComponents(cfg, []string{})
+		require.Error(t, err, "empty filter should behave like no filter")
+	})
 }
