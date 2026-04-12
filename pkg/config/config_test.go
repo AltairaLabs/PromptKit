@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -1523,4 +1526,51 @@ func TestLoadPackFile_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for nonexistent pack file")
 	}
+}
+
+func TestLoadConfig_Skills(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	dir := t.TempDir()
+
+	// Create a skills directory with a SKILL.md
+	skillDir := filepath.Join(dir, "skills", "test-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: test-skill\ndescription: A test skill\n---\nInstructions here.\n"), 0o600))
+
+	configContent := "apiVersion: promptkit.altairalabs.ai/v1alpha1\nkind: Arena\nmetadata:\n  name: test\nspec:\n  providers: []\n  skills:\n    - path: skills/\n  defaults:\n    concurrency: 1\n"
+	configPath := filepath.Join(dir, "config.arena.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Len(t, cfg.LoadedSkillSources, 1)
+	assert.Equal(t, filepath.Join(dir, "skills"), cfg.LoadedSkillSources[0].EffectiveDir())
+}
+
+func TestLoadConfig_SkillsInline(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	dir := t.TempDir()
+
+	configContent := "apiVersion: promptkit.altairalabs.ai/v1alpha1\nkind: Arena\nmetadata:\n  name: test\nspec:\n  providers: []\n  skills:\n    - name: inline-skill\n      description: An inline skill\n      instructions: Do the thing\n  defaults:\n    concurrency: 1\n"
+	configPath := filepath.Join(dir, "config.arena.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.Len(t, cfg.LoadedSkillSources, 1)
+	assert.Equal(t, "inline-skill", cfg.LoadedSkillSources[0].Name)
+	assert.Equal(t, "Do the thing", cfg.LoadedSkillSources[0].Instructions)
+}
+
+func TestLoadConfig_SkillsPathTraversal(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	dir := t.TempDir()
+
+	configContent := "apiVersion: promptkit.altairalabs.ai/v1alpha1\nkind: Arena\nmetadata:\n  name: test\nspec:\n  providers: []\n  skills:\n    - path: ../../../etc/passwd\n  defaults:\n    concurrency: 1\n"
+	configPath := filepath.Join(dir, "config.arena.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
+
+	_, err := LoadConfig(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "path traversal")
 }

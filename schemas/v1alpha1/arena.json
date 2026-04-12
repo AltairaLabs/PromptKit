@@ -373,6 +373,12 @@
           },
           "type": "array"
         },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/SkillSourceConfig"
+          },
+          "type": "array"
+        },
         "pack_evals": {
           "items": {
             "$ref": "#/$defs/EvalDef"
@@ -1984,6 +1990,12 @@
         "trials": {
           "type": "integer",
           "description": "Number of times to run this scenario for statistical evaluation"
+        },
+        "seed_memories": {
+          "items": {
+            "$ref": "#/$defs/SeedMemoryEntry"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -2002,6 +2014,27 @@
       "type": "object",
       "required": [
         "file"
+      ]
+    },
+    "SeedMemoryEntry": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "content"
       ]
     },
     "SelfPlayConfig": {
@@ -2050,6 +2083,30 @@
         "id",
         "provider"
       ]
+    },
+    "SkillSourceConfig": {
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "preload": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "Spec": {
       "properties": {
