@@ -76,6 +76,25 @@ func TestSkillActivatedHandler_MinCalls(t *testing.T) {
 	}
 }
 
+func TestSkillActivatedHandler_IgnoresFailedCalls(t *testing.T) {
+	h := &SkillActivatedHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "skill__activate", Arguments: map[string]any{"name": "billing"}, Error: "skill \"billing\" is not available in the current state (filter: \"skills/orders/*\")"},
+		},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, map[string]any{
+		"skill_names": []any{"billing"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score != nil && *result.Score >= 1.0 {
+		t.Fatal("expected fail: failed tool call should not count as activation")
+	}
+}
+
 // --- SkillNotActivated ---
 
 func TestSkillNotActivatedHandler_Type(t *testing.T) {

@@ -91,6 +91,9 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 	for turnIdx, scenarioTurn := range req.Scenario.Turns {
 		// Enrich context with turn information
 		turnCtx := logger.WithTurnID(ctx, fmt.Sprintf("turn-%d", turnIdx))
+		if req.ContextEnricher != nil {
+			turnCtx = req.ContextEnricher(turnCtx)
+		}
 
 		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
 		ce.debugOnUserTurnAssertions(scenarioTurn, turnIdx)

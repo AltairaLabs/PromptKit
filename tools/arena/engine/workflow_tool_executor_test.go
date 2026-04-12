@@ -292,9 +292,6 @@ func TestCommitPendingTransition_SetsSkillFilter(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	mock := &mockSkillFilterer{}
-	exec.skillFilterer = mock
-
 	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
 	exec.RegisterRun("run1", scenario)
 
@@ -303,10 +300,10 @@ func TestCommitPendingTransition_SetsSkillFilter(t *testing.T) {
 	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "run1"), nil, args)
 	require.NoError(t, err)
 
-	// Commit should call SetFilter with the new state's Skills glob
+	// Commit should store the skill filter on the per-run state
 	err = exec.CommitPendingTransition("run1")
 	require.NoError(t, err)
-	assert.Equal(t, "skills/billing/*", mock.lastFilter)
+	assert.Equal(t, "skills/billing/*", exec.SkillFilter("run1"))
 }
 
 func TestCommitPendingTransition_NilSkillFilterer(t *testing.T) {

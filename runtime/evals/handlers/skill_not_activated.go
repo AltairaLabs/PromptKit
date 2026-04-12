@@ -32,6 +32,9 @@ func (h *SkillNotActivatedHandler) Eval(
 		if tc.ToolName != skillActivateToolName {
 			continue
 		}
+		if tc.Error != "" {
+			continue
+		}
 		if tc.Arguments == nil {
 			continue
 		}

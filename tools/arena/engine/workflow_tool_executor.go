@@ -37,6 +37,7 @@ type workflowRunState struct {
 	transExec   *workflow.TransitionExecutor
 	scenario    *config.Scenario
 	transitions []map[string]any
+	skillFilter string // current skill glob filter for this run
 }
 
 // workflowTransitionExecutor routes workflow__transition tool calls to per-run
@@ -136,10 +137,8 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(runID string) error
 		}
 		run.transExec.RegisterForState(e.registry, newState)
 
-		// Update skill filter for the new state
-		if e.skillFilterer != nil {
-			e.skillFilterer.SetFilter(newState.Skills)
-		}
+		// Store skill filter for this run (applied via context, not globally)
+		run.skillFilter = newState.Skills
 	}
 
 	return nil
@@ -161,6 +160,16 @@ func (e *workflowTransitionExecutor) RunMetadata(runID string) map[string]any {
 	defer e.mu.Unlock()
 	run := e.runs[runID]
 	return buildRunMetadata(run)
+}
+
+// SkillFilter returns the current skill filter for a specific run.
+func (e *workflowTransitionExecutor) SkillFilter(runID string) string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if run := e.runs[runID]; run != nil {
+		return run.skillFilter
+	}
+	return ""
 }
 
 // UnregisterRun removes a completed run's state to prevent unbounded map growth.

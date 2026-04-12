@@ -142,11 +142,11 @@ func (e *ToolExecutor) Name() string { return SkillExecutorName }
 
 // Execute dispatches a skill tool call to the appropriate executor method.
 func (e *ToolExecutor) Execute(
-	_ context.Context, tool *tools.ToolDescriptor, args json.RawMessage,
+	ctx context.Context, tool *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
 	switch tool.Name {
 	case SkillActivateTool:
-		return e.executeActivate(args)
+		return e.executeActivate(ctx, args)
 	case SkillDeactivateTool:
 		return e.executeDeactivate(args)
 	case SkillReadResourceTool:
@@ -156,7 +156,7 @@ func (e *ToolExecutor) Execute(
 	}
 }
 
-func (e *ToolExecutor) executeActivate(args json.RawMessage) (json.RawMessage, error) {
+func (e *ToolExecutor) executeActivate(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
 	var params struct {
 		Name string `json:"name"`
 	}
@@ -164,7 +164,9 @@ func (e *ToolExecutor) executeActivate(args json.RawMessage) (json.RawMessage, e
 		return nil, fmt.Errorf("parsing activate args: %w", err)
 	}
 
-	instructions, addedTools, err := e.executor.Activate(params.Name)
+	// Use per-run filter from context if available, otherwise fall back to executor's default.
+	filter := SkillFilterFromContext(ctx)
+	instructions, addedTools, err := e.executor.ActivateWithFilter(params.Name, filter)
 	if err != nil {
 		return nil, err
 	}
