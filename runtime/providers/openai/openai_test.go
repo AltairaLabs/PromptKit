@@ -1883,6 +1883,58 @@ func TestOpenAI_ChatCompletionsURL(t *testing.T) {
 	}
 }
 
+func TestOpenAI_AzureBaseURLAutoDerive(t *testing.T) {
+	t.Run("derives base_url from platform endpoint and model", func(t *testing.T) {
+		cred := &mockCredential{credType: "azure"}
+		pc := &providers.PlatformConfig{
+			Type:     "azure",
+			Endpoint: "https://my-resource.openai.azure.com",
+		}
+		provider := NewProviderWithCredential(
+			"test", "gpt-4o", "", // empty base_url
+			providers.ProviderDefaults{Temperature: 0.7},
+			false, cred, "azure", pc,
+		)
+		expected := "https://my-resource.openai.azure.com/openai/deployments/gpt-4o"
+		if provider.baseURL != expected {
+			t.Errorf("baseURL = %q, want %q", provider.baseURL, expected)
+		}
+	})
+
+	t.Run("explicit base_url takes precedence", func(t *testing.T) {
+		cred := &mockCredential{credType: "azure"}
+		pc := &providers.PlatformConfig{
+			Type:     "azure",
+			Endpoint: "https://my-resource.openai.azure.com",
+		}
+		provider := NewProviderWithCredential(
+			"test", "gpt-4o", "https://custom.example.com/v1",
+			providers.ProviderDefaults{Temperature: 0.7},
+			false, cred, "azure", pc,
+		)
+		if provider.baseURL != "https://custom.example.com/v1" {
+			t.Errorf("baseURL = %q, want explicit override", provider.baseURL)
+		}
+	})
+}
+
+func TestOpenAI_AzureForcesCompletionsMode(t *testing.T) {
+	cred := &mockCredential{credType: "azure"}
+	pc := &providers.PlatformConfig{
+		Type:     "azure",
+		Endpoint: "https://my-resource.openai.azure.com",
+	}
+	// gpt-4.1 would normally get APIModeResponses
+	provider := NewProviderWithCredential(
+		"test", "gpt-4.1", "",
+		providers.ProviderDefaults{Temperature: 0.7},
+		false, cred, "azure", pc,
+	)
+	if provider.apiMode != APIModeCompletions {
+		t.Errorf("apiMode = %v, want APIModeCompletions for Azure", provider.apiMode)
+	}
+}
+
 func TestOpenAI_ResponsesURL(t *testing.T) {
 	t.Run("standard openai", func(t *testing.T) {
 		p := &Provider{baseURL: "https://api.openai.com/v1"}

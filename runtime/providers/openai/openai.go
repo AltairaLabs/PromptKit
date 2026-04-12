@@ -178,10 +178,15 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		unsupported = []string{"temperature", "top_p", "max_tokens"}
 	}
 
-	return &Provider{
+	baseURL := cfg.BaseURL
+	if baseURL == "" && cfg.Platform == azurePlatform && cfg.PlatformConfig != nil && cfg.PlatformConfig.Endpoint != "" {
+		baseURL = credentials.AzureOpenAIEndpoint(cfg.PlatformConfig.Endpoint, cfg.Model)
+	}
+
+	p := &Provider{
 		BaseProvider:      base,
 		model:             cfg.Model,
-		baseURL:           cfg.BaseURL,
+		baseURL:           baseURL,
 		apiKey:            apiKey,
 		credential:        cfg.Credential,
 		defaults:          cfg.Defaults,
@@ -192,6 +197,11 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		unsupportedParams: unsupported,
 		reasoningEffort:   getReasoningEffort(cfg.AdditionalConfig),
 	}
+	// Azure OpenAI doesn't support the Responses API.
+	if p.isAzure() {
+		p.apiMode = APIModeCompletions
+	}
+	return p
 }
 
 // getReasoningEffort resolves the reasoning.effort setting for the OpenAI
