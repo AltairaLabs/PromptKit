@@ -1355,3 +1355,30 @@ func TestSkillSourceConfig_UnmarshalYAML_ArrayInPack(t *testing.T) {
 	assert.True(t, w.Skills[1].Preload)
 	assert.Equal(t, "inline-skill", w.Skills[2].Name)
 }
+
+func TestCompileFromRegistryWithOptions_Skills(t *testing.T) {
+	repo := newMockRepository()
+	cfg := &Config{
+		Metadata: metav1.ObjectMeta{Name: "test"},
+		Spec:     Spec{TaskType: "chat", SystemTemplate: "Hello"},
+	}
+	repo.prompts["chat"] = cfg
+
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("chat", cfg)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	compiler := NewPackCompilerWithDeps(registry, mockTimeProvider{fixedTime: fixedTime}, newMockFileWriter())
+
+	skills := []SkillSourceConfig{
+		{Path: "skills/billing"},
+		{Name: "inline", Description: "desc", Instructions: "inst"},
+	}
+	pack, err := compiler.CompileFromRegistryWithOptions(
+		"test-pack", "1.0.0", nil, nil, WithSkills(skills),
+	)
+	require.NoError(t, err)
+	require.Len(t, pack.Skills, 2)
+	assert.Equal(t, "skills/billing", pack.Skills[0].Path)
+	assert.Equal(t, "inline", pack.Skills[1].Name)
+}

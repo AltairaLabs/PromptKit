@@ -201,6 +201,7 @@ type CompileOption func(*compileOptions)
 type compileOptions struct {
 	workflow *workflow.Spec
 	agents   *AgentsConfig
+	skills   []SkillSourceConfig
 }
 
 // WithWorkflow sets the workflow config on the compiled pack.
@@ -211,6 +212,11 @@ func WithWorkflow(w *workflow.Spec) CompileOption {
 // WithAgents sets the agents config on the compiled pack.
 func WithAgents(a *AgentsConfig) CompileOption {
 	return func(o *compileOptions) { o.agents = a }
+}
+
+// WithSkills sets the skills config on the compiled pack.
+func WithSkills(s []SkillSourceConfig) CompileOption {
+	return func(o *compileOptions) { o.skills = s }
 }
 
 // PackPrompt represents a single prompt configuration within a pack
@@ -494,6 +500,9 @@ func (pc *PackCompiler) CompileFromRegistryWithOptions(
 	}
 	if copts.agents != nil {
 		pack.Agents = copts.agents
+	}
+	if copts.skills != nil {
+		pack.Skills = copts.skills
 	}
 
 	return pack, nil
