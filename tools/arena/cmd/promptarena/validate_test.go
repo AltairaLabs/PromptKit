@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -393,5 +394,87 @@ spec:
 	err := runValidate(validateCmd, []string{testFile})
 	if err != nil {
 		t.Logf("Validation error (may be expected): %v", err)
+	}
+}
+
+func TestPerformBusinessLogicValidation_InvalidAssertionType(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	scenarioFile := filepath.Join(tmpDir, "scenario.yaml")
+	scenarioContent := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: bad-assertions
+spec:
+  turns:
+    - role: user
+      content: "Test"
+      assertions:
+        - type: substring_present
+          params:
+            patterns: ["hello"]
+`)
+	if err := os.WriteFile(scenarioFile, scenarioContent, 0600); err != nil {
+		t.Fatalf("Failed to create scenario file: %v", err)
+	}
+
+	arenaFile := filepath.Join(tmpDir, "arena.yaml")
+	arenaContent := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test
+spec:
+  scenarios:
+    - file: scenario.yaml
+`)
+	if err := os.WriteFile(arenaFile, arenaContent, 0600); err != nil {
+		t.Fatalf("Failed to create arena file: %v", err)
+	}
+
+	err := performBusinessLogicValidation(arenaFile)
+	if err == nil {
+		t.Error("Expected error for unknown assertion type 'substring_present'")
+	} else if !strings.Contains(err.Error(), "unknown assertion type") {
+		t.Errorf("Expected 'unknown assertion type' error, got: %v", err)
+	}
+}
+
+func TestPerformBusinessLogicValidation_ValidAssertionType(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	scenarioFile := filepath.Join(tmpDir, "scenario.yaml")
+	scenarioContent := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: good-assertions
+spec:
+  turns:
+    - role: user
+      content: "Test"
+      assertions:
+        - type: contains
+          params:
+            patterns: ["hello"]
+`)
+	if err := os.WriteFile(scenarioFile, scenarioContent, 0600); err != nil {
+		t.Fatalf("Failed to create scenario file: %v", err)
+	}
+
+	arenaFile := filepath.Join(tmpDir, "arena.yaml")
+	arenaContent := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test
+spec:
+  scenarios:
+    - file: scenario.yaml
+`)
+	if err := os.WriteFile(arenaFile, arenaContent, 0600); err != nil {
+		t.Fatalf("Failed to create arena file: %v", err)
+	}
+
+	err := performBusinessLogicValidation(arenaFile)
+	if err != nil {
+		t.Errorf("Expected no error for valid assertion type, got: %v", err)
 	}
 }

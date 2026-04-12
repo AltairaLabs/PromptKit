@@ -9,6 +9,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register built-in eval handlers
+	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 )
 
 var validateCmd = &cobra.Command{
@@ -132,6 +135,20 @@ func performBusinessLogicValidation(filePath string) error {
 		}
 	} else {
 		fmt.Println("✅ Business logic validation passed")
+	}
+
+	// Validate assertion types against the eval handler registry
+	if len(cfg.LoadedScenarios) > 0 {
+		registry := evals.NewEvalTypeRegistry()
+		typeErrs := assertions.ValidateAssertionTypes(cfg.LoadedScenarios, registry)
+		if len(typeErrs) > 0 {
+			fmt.Printf("\n❌ Unknown assertion types (%d):\n", len(typeErrs))
+			for _, e := range typeErrs {
+				fmt.Printf("  - %s\n", e)
+			}
+			return fmt.Errorf("found %d unknown assertion type(s)", len(typeErrs))
+		}
+		fmt.Println("✅ Assertion type validation passed")
 	}
 
 	return nil
