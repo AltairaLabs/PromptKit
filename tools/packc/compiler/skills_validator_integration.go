@@ -35,7 +35,10 @@ func validatePathContainment(rawPath, baseDir string) error {
 func ValidateSkillErrors(pack *prompt.Pack, packDir string) []string {
 	var errs []string
 
-	seen := make(map[string]bool)
+	// seen maps skill name -> canonical location ("" for inline, else abs skill dir).
+	// Duplicates are allowed when they resolve to the same location; this mirrors
+	// the runtime registry, which uses such "duplicates" to upgrade the preload flag.
+	seen := make(map[string]string)
 
 	for i := range pack.Skills {
 		src := &pack.Skills[i]
@@ -83,7 +86,7 @@ func ValidateSkills(pack *prompt.Pack, packDir string) []string {
 }
 
 // validateSkillDirectory validates a directory-based skill source.
-func validateSkillDirectory(dir, packDir string, idx int, seen map[string]bool) []string {
+func validateSkillDirectory(dir, packDir string, idx int, seen map[string]string) []string {
 	var errs []string
 
 	if err := validatePathContainment(dir, packDir); err != nil {
@@ -116,10 +119,11 @@ func validateSkillDirectory(dir, packDir string, idx int, seen map[string]bool) 
 			return nil
 		}
 
-		if seen[meta.Name] {
+		skillDir := filepath.Dir(path)
+		if prev, exists := seen[meta.Name]; exists && prev != skillDir {
 			errs = append(errs, fmt.Sprintf("skills[%d]: duplicate skill name %q", idx, meta.Name))
 		}
-		seen[meta.Name] = true
+		seen[meta.Name] = skillDir
 
 		return nil
 	})
@@ -131,7 +135,7 @@ func validateSkillDirectory(dir, packDir string, idx int, seen map[string]bool) 
 }
 
 // validateInlineSkill validates an inline skill definition.
-func validateInlineSkill(src *prompt.SkillSourceConfig, idx int, seen map[string]bool) []string {
+func validateInlineSkill(src *prompt.SkillSourceConfig, idx int, seen map[string]string) []string {
 	var errs []string
 
 	if src.Name == "" {
@@ -145,10 +149,10 @@ func validateInlineSkill(src *prompt.SkillSourceConfig, idx int, seen map[string
 	}
 
 	if src.Name != "" {
-		if seen[src.Name] {
+		if _, exists := seen[src.Name]; exists {
 			errs = append(errs, fmt.Sprintf("skills[%d]: duplicate skill name %q", idx, src.Name))
 		}
-		seen[src.Name] = true
+		seen[src.Name] = ""
 	}
 
 	return errs

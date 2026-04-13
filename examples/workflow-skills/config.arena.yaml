@@ -21,16 +21,15 @@ spec:
     - file: scenarios/orders-flow.scenario.yaml
 
   skills:
-    # brand-voice is preloaded — its instructions are injected into the
+    # Load everything under skills/ as on-demand. The LLM can discover these
+    # from the skill__activate tool description (which includes the
+    # available-skills index) and activate them when needed.
+    - path: skills/
+    # Upgrade brand-voice to preload — its instructions are injected into the
     # system prompt from turn 1 without requiring skill__activate.
+    # Later entries can upgrade the preload flag but cannot change path/metadata.
     - path: skills/brand-voice
       preload: true
-    # Remaining skills are on-demand — the LLM can discover them from the
-    # skill__activate tool description (which includes the available-skills
-    # index) and activate them when needed.
-    - path: skills/billing
-    - path: skills/orders
-    - path: skills/escalation
 
   workflow:
     version: 1
