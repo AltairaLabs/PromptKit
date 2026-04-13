@@ -331,6 +331,48 @@ func TestEnsureSkillsCapability_SkipsWhenNoDirs(t *testing.T) {
 	assert.Empty(t, caps)
 }
 
+// TestWithSkillSource verifies the option appends a SkillSource (with MountAs)
+// to skillSources, and ensureSkillsCapability picks it up alongside skillsDirs.
+func TestWithSkillSource(t *testing.T) {
+	cfg := &config{}
+	opt := WithSkillSource(skills.SkillSource{
+		Dir:     "/external",
+		MountAs: "skills/billing",
+		Preload: true,
+	})
+	require.NoError(t, opt(cfg))
+
+	require.Len(t, cfg.skillSources, 1)
+	assert.Equal(t, "/external", cfg.skillSources[0].Dir)
+	assert.Equal(t, "skills/billing", cfg.skillSources[0].MountAs)
+	assert.True(t, cfg.skillSources[0].Preload)
+
+	// ensureSkillsCapability should add a SkillsCapability when only
+	// skillSources is set (skillsDirs empty).
+	caps := ensureSkillsCapability(nil, cfg)
+	require.Len(t, caps, 1)
+	assert.Equal(t, "skills", caps[0].Name())
+}
+
+// TestEnsureSkillsCapability_CombinesDirsAndSources checks that both
+// skillsDirs (legacy convenience) and skillSources contribute to the
+// resulting capability.
+func TestEnsureSkillsCapability_CombinesDirsAndSources(t *testing.T) {
+	cfg := &config{
+		skillsDirs:   []string{"/a", "/b"},
+		skillSources: []skills.SkillSource{{Dir: "/c", MountAs: "skills"}},
+	}
+	caps := ensureSkillsCapability(nil, cfg)
+	require.Len(t, caps, 1)
+	sc, ok := caps[0].(*SkillsCapability)
+	require.True(t, ok)
+	require.Len(t, sc.sources, 3)
+	assert.Equal(t, "/a", sc.sources[0].Dir)
+	assert.Equal(t, "/b", sc.sources[1].Dir)
+	assert.Equal(t, "/c", sc.sources[2].Dir)
+	assert.Equal(t, "skills", sc.sources[2].MountAs)
+}
+
 func TestWireSkillsConfig(t *testing.T) {
 	selector := skills.NewModelDrivenSelector()
 	cfg := &config{

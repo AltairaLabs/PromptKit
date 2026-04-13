@@ -26,9 +26,16 @@ type Registry struct {
 
 type registeredSkill struct {
 	metadata SkillMetadata
-	path     string // filesystem path to skill directory (empty for inline)
-	inline   *Skill // non-nil for inline skills
-	preload  bool
+	// realPath is the filesystem path to the skill directory (empty for inline).
+	// Used for all IO: ParseSkillFile, ReadResource, path-containment checks.
+	realPath string
+	// virtualPath is the path presented to consumers (Skill.Path), workflow
+	// glob filters, and ListForDir. Equals realPath unless the source had
+	// MountAs set, in which case it's MountAs + the relative subpath under
+	// the source dir. Empty for inline skills.
+	virtualPath string
+	inline      *Skill // non-nil for inline skills
+	preload     bool
 }
 
 // NewRegistry creates a new empty skill registry.
@@ -47,7 +54,10 @@ func (r *Registry) Discover(sources []SkillSource) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, src := range sources {
+	for i, src := range sources {
+		if err := validateSkillSource(&src); err != nil {
+			return fmt.Errorf("skills[%d]: %w", i, err)
+		}
 		if dir := src.EffectiveDir(); dir != "" {
 			resolved, err := r.resolveSource(&src)
 			if err != nil {
@@ -58,6 +68,25 @@ func (r *Registry) Discover(sources []SkillSource) error {
 			}
 		} else if src.Name != "" {
 			r.registerInline(src)
+		}
+	}
+	return nil
+}
+
+// validateSkillSource enforces structural rules on a SkillSource before discovery.
+func validateSkillSource(src *SkillSource) error {
+	if src.MountAs == "" {
+		return nil
+	}
+	if src.EffectiveDir() == "" {
+		return fmt.Errorf("MountAs is only valid for directory-based sources, not inline")
+	}
+	if strings.ContainsAny(src.MountAs, "*?[") {
+		return fmt.Errorf("MountAs must be a literal directory prefix, not a glob: %q", src.MountAs)
+	}
+	for _, segment := range strings.Split(filepath.ToSlash(src.MountAs), "/") {
+		if segment == ".." {
+			return fmt.Errorf("MountAs must not contain '..' segments: %q", src.MountAs)
 		}
 	}
 	return nil
@@ -78,7 +107,7 @@ func (r *Registry) resolveSource(src *SkillSource) (SkillSource, error) {
 	if err != nil {
 		return SkillSource{}, fmt.Errorf("resolving skill reference %s: %w", dir, err)
 	}
-	return SkillSource{Dir: resolved, Preload: src.Preload}, nil
+	return SkillSource{Dir: resolved, Preload: src.Preload, MountAs: src.MountAs}, nil
 }
 
 // discoverDirectory walks a directory looking for SKILL.md files and registers each skill found.
@@ -103,6 +132,7 @@ func (r *Registry) discoverDirectory(src SkillSource) error {
 		}
 
 		skillDir := filepath.Dir(path)
+		virtualPath := computeVirtualPath(absDir, skillDir, src.MountAs)
 		if existing, exists := r.skills[meta.Name]; exists {
 			if src.Preload && !existing.preload {
 				existing.preload = true
@@ -114,12 +144,27 @@ func (r *Registry) discoverDirectory(src SkillSource) error {
 		}
 
 		r.skills[meta.Name] = &registeredSkill{
-			metadata: *meta,
-			path:     skillDir,
-			preload:  src.Preload,
+			metadata:    *meta,
+			realPath:    skillDir,
+			virtualPath: virtualPath,
+			preload:     src.Preload,
 		}
 		return nil
 	})
+}
+
+// computeVirtualPath returns the path that consumers see for a discovered skill.
+// When mountAs is empty, it equals the real on-disk path. When mountAs is set,
+// the skill's subdirectory under sourceDir is preserved under the mountAs prefix.
+func computeVirtualPath(sourceDir, skillDir, mountAs string) string {
+	if mountAs == "" {
+		return skillDir
+	}
+	rel, err := filepath.Rel(sourceDir, skillDir)
+	if err != nil || rel == "." {
+		return mountAs
+	}
+	return filepath.Join(mountAs, rel)
 }
 
 // registerInline registers an inline skill source directly.
@@ -165,8 +210,11 @@ func (r *Registry) List() []SkillMetadata {
 	return result
 }
 
-// ListForDir returns metadata for skills whose path is under the given directory.
-// If dir is empty, returns all skills. Results are sorted by name.
+// ListForDir returns metadata for skills whose virtual path is under the given
+// directory. If dir is empty, returns all skills. Results are sorted by name.
+//
+// Matching uses the virtual path (i.e. honoring MountAs), which is what the
+// workflow filter and consumers see. Inline skills are skipped.
 func (r *Registry) ListForDir(dir string) []SkillMetadata {
 	if dir == "" {
 		return r.List()
@@ -183,10 +231,10 @@ func (r *Registry) ListForDir(dir string) []SkillMetadata {
 
 	var result []SkillMetadata
 	for _, rs := range r.skills {
-		if rs.path == "" {
+		if rs.virtualPath == "" {
 			continue
 		}
-		absPath, err := filepath.Abs(rs.path)
+		absPath, err := filepath.Abs(rs.virtualPath)
 		if err != nil {
 			continue
 		}
@@ -215,12 +263,12 @@ func (r *Registry) Load(name string) (*Skill, error) {
 		return rs.inline, nil
 	}
 
-	skillPath := filepath.Join(rs.path, skillMDFile)
+	skillPath := filepath.Join(rs.realPath, skillMDFile)
 	skill, err := ParseSkillFile(skillPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading skill %q: %w", name, err)
 	}
-	skill.Path = rs.path
+	skill.Path = rs.virtualPath
 	return skill, nil
 }
 
@@ -235,12 +283,14 @@ func (r *Registry) ReadResource(name, resourcePath string) ([]byte, error) {
 		return nil, fmt.Errorf("skill %q not found", name)
 	}
 
-	if rs.path == "" {
+	if rs.realPath == "" {
 		return nil, fmt.Errorf("skill %q is inline and has no directory", name)
 	}
 
-	// Resolve the skill directory to its canonical absolute path.
-	baseDir, err := filepath.EvalSymlinks(rs.path)
+	// Resolve the skill directory to its canonical absolute path. ReadResource
+	// always uses the real on-disk path — MountAs only affects display and
+	// glob matching, never IO or path-containment checks.
+	baseDir, err := filepath.EvalSymlinks(rs.realPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolving skill directory: %w", err)
 	}
@@ -295,13 +345,13 @@ func (r *Registry) PreloadedSkills() []*Skill {
 			result = append(result, rs.inline)
 			continue
 		}
-		skillPath := filepath.Join(rs.path, skillMDFile)
+		skillPath := filepath.Join(rs.realPath, skillMDFile)
 		skill, err := ParseSkillFile(skillPath)
 		if err != nil {
 			logger.Error("skills: failed to preload skill", "skill", name, "error", err)
 			continue
 		}
-		skill.Path = rs.path
+		skill.Path = rs.virtualPath
 		result = append(result, skill)
 	}
 	sort.Slice(result, func(i, j int) bool {

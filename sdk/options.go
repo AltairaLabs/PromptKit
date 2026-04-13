@@ -171,6 +171,7 @@ type config struct {
 
 	// Skills configuration
 	skillsDirs      []string
+	skillSources    []skills.SkillSource
 	skillSelector   skills.SkillSelector
 	maxActiveSkills int
 
@@ -2251,6 +2252,34 @@ func WithMetricRecorder(r evals.MetricRecorder) Option {
 func WithSkillsDir(dir string) Option {
 	return func(c *config) error {
 		c.skillsDirs = append(c.skillsDirs, dir)
+		return nil
+	}
+}
+
+// WithSkillSource registers a [skills.SkillSource] verbatim. Use this when you
+// need fields beyond a plain directory path — most commonly MountAs to present
+// skills to the workflow filter under a virtual prefix:
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "chat",
+//	    sdk.WithSkillSource(skills.SkillSource{
+//	        Dir:     "./agentskills",
+//	        MountAs: "skills",
+//	        Preload: false,
+//	    }),
+//	)
+//
+// Multiple sources can be registered by calling this option multiple times,
+// and freely mixed with [WithSkillsDir]. When a skill name is discovered by
+// more than one source the first source wins for path/metadata; the Preload
+// flag is OR-combined across sources (a later source can upgrade preload from
+// false to true but not vice versa).
+//
+// MountAs is rejected on inline sources (where Name is set instead of Dir).
+//
+//nolint:gocritic // SkillSource is a public config struct; pass by value for API ergonomics.
+func WithSkillSource(src skills.SkillSource) Option {
+	return func(c *config) error {
+		c.skillSources = append(c.skillSources, src)
 		return nil
 	}
 }

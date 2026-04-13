@@ -35,6 +35,22 @@ type SkillSource struct {
 	Description  string `yaml:"description,omitempty" json:"description,omitempty"`
 	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 
+	// MountAs, when set on a directory-based source, presents discovered
+	// skills to the registry, workflow filters, and consumers as if they
+	// lived under this virtual directory prefix instead of their real
+	// on-disk location. Read operations (ReadResource, ParseSkillFile)
+	// continue to use the real path — MountAs only affects display and
+	// glob matching.
+	//
+	// Subdirectory structure under the source dir is preserved: a skill
+	// at /foo/agentskills/billing/payments/SKILL.md discovered with
+	// Dir: "/foo/agentskills" and MountAs: "skills" is exposed as
+	// virtual path "skills/billing/payments".
+	//
+	// MountAs is ignored for inline sources (Name set, Dir empty) and
+	// rejected by the packc validator if set on one.
+	MountAs string `yaml:"mount_as,omitempty" json:"mount_as,omitempty"`
+
 	// Options
 	Preload bool `yaml:"preload,omitempty" json:"preload,omitempty"`
 }
