@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
@@ -98,7 +99,15 @@ func (e *workflowTransitionExecutor) Execute(
 // CommitPendingTransition commits the deferred transition for a run.
 // Called after the turn/pipeline completes. Updates scenario TaskType and
 // re-registers the transition tool for the new state's events.
-func (e *workflowTransitionExecutor) CommitPendingTransition(runID string) error {
+//
+// When emitter is non-nil, emits workflow observability events:
+// workflow.transitioned on every commit, workflow.max_visits_exceeded when
+// the transition redirected or a max-visits cap terminated the workflow,
+// workflow.budget_exhausted when a budget limit tripped, and
+// workflow.completed when the new state is terminal.
+func (e *workflowTransitionExecutor) CommitPendingTransition(
+	runID string, emitter *events.Emitter,
+) error {
 	e.mu.Lock()
 	run := e.runs[runID]
 	e.mu.Unlock()
@@ -107,8 +116,10 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(runID string) error
 		return nil
 	}
 
+	pending := run.transExec.Pending()
 	tr, err := run.transExec.CommitPending()
 	if err != nil {
+		e.emitWorkflowError(run, emitter, pending.Event, err)
 		return fmt.Errorf("transition commit failed: %w", err)
 	}
 	if tr == nil {
@@ -129,6 +140,28 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(runID string) error
 	run.transitions = append(run.transitions, transitionRecord)
 	logger.Info("workflow state transition", "from", tr.From, "to", tr.To,
 		"event", tr.Event, "redirected", tr.Redirected)
+
+	// Emit transition observability events before mutating state below, so
+	// listeners see the transition and any max_visits redirect in order.
+	if emitter != nil {
+		if tr.Redirected {
+			emitter.WorkflowMaxVisitsExceeded(&events.WorkflowMaxVisitsExceededData{
+				FromState:      tr.From,
+				OriginalTarget: tr.OriginalTarget,
+				Event:          tr.Event,
+				VisitCount:     run.transExec.StateMachine().Context().VisitCounts[tr.OriginalTarget],
+				MaxVisits:      maxVisitsForWorkflowState(e.wfSpec, tr.OriginalTarget),
+				RedirectedTo:   tr.To,
+				Terminated:     false,
+			})
+		}
+		emitter.WorkflowTransitioned(tr.From, tr.To, tr.Event, "")
+		if newState := e.wfSpec.States[tr.To]; newState != nil &&
+			(newState.Terminal || len(newState.OnEvent) == 0) {
+			emitter.WorkflowCompleted(
+				tr.To, run.transExec.StateMachine().Context().TransitionCount())
+		}
+	}
 
 	// Update scenario TaskType and re-register tool for the new state
 	if newState := e.wfSpec.States[tr.To]; newState != nil {

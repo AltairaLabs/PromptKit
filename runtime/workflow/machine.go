@@ -118,8 +118,13 @@ func (sm *StateMachine) ProcessEvent(event string) (*TransitionResult, error) {
 			if targetState.OnMaxVisits != "" {
 				target = targetState.OnMaxVisits
 			} else {
-				return nil, fmt.Errorf("%w: state %q visited %d times (max %d)",
-					ErrMaxVisitsExceeded, originalTarget, visits, targetState.MaxVisits)
+				return nil, &MaxVisitsExceededError{
+					FromState:      fromState,
+					OriginalTarget: originalTarget,
+					Event:          event,
+					VisitCount:     visits,
+					MaxVisits:      targetState.MaxVisits,
+				}
 			}
 		}
 	}
@@ -245,18 +250,30 @@ func (sm *StateMachine) checkBudgetLocked() error {
 	}
 	budget := sm.budget
 	if budget.MaxTotalVisits > 0 && sm.context.TotalVisits() >= budget.MaxTotalVisits {
-		return fmt.Errorf("%w: total visits %d reached limit %d",
-			ErrBudgetExhausted, sm.context.TotalVisits(), budget.MaxTotalVisits)
+		return &BudgetExhaustedError{
+			Limit:        BudgetLimitTotalVisits,
+			Current:      sm.context.TotalVisits(),
+			Max:          budget.MaxTotalVisits,
+			CurrentState: sm.context.CurrentState,
+		}
 	}
 	if budget.MaxToolCalls > 0 && sm.context.TotalToolCalls >= budget.MaxToolCalls {
-		return fmt.Errorf("%w: tool calls %d reached limit %d",
-			ErrBudgetExhausted, sm.context.TotalToolCalls, budget.MaxToolCalls)
+		return &BudgetExhaustedError{
+			Limit:        BudgetLimitToolCalls,
+			Current:      sm.context.TotalToolCalls,
+			Max:          budget.MaxToolCalls,
+			CurrentState: sm.context.CurrentState,
+		}
 	}
 	if budget.MaxWallTimeSec > 0 {
 		elapsed := sm.now().Sub(sm.context.StartedAt)
 		if int(elapsed.Seconds()) >= budget.MaxWallTimeSec {
-			return fmt.Errorf("%w: wall time %ds reached limit %ds",
-				ErrBudgetExhausted, int(elapsed.Seconds()), budget.MaxWallTimeSec)
+			return &BudgetExhaustedError{
+				Limit:        BudgetLimitWallTimeSec,
+				Current:      int(elapsed.Seconds()),
+				Max:          budget.MaxWallTimeSec,
+				CurrentState: sm.context.CurrentState,
+			}
 		}
 	}
 	return nil

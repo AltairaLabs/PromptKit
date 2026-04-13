@@ -255,21 +255,37 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 	if wc.closed {
 		return nil, ErrWorkflowClosed
 	}
-	if wc.transExec != nil {
-		if pending := wc.transExec.Pending(); pending != nil {
-			contextSummary := pending.ContextSummary
-			result, commitErr := wc.transExec.CommitPending()
-			if commitErr != nil {
-				return resp, commitErr
-			}
-			if result != nil {
-				if _, transErr := wc.applyTransition(result, contextSummary); transErr != nil {
-					return resp, transErr
-				}
-			}
-		}
+	if err := wc.commitDeferredTransition(); err != nil {
+		return resp, err
 	}
 	return resp, nil
+}
+
+// commitDeferredTransition commits any pending transition recorded by the
+// workflow__transition tool during the just-completed Send. Errors from
+// ProcessEvent are routed through emitWorkflowError before being returned
+// so observability events fire even when the transition aborts. Caller
+// must hold wc.mu.
+func (wc *WorkflowConversation) commitDeferredTransition() error {
+	if wc.transExec == nil {
+		return nil
+	}
+	pending := wc.transExec.Pending()
+	if pending == nil {
+		return nil
+	}
+	contextSummary := pending.ContextSummary
+	result, commitErr := wc.transExec.CommitPending()
+	if commitErr != nil {
+		wc.emitWorkflowError(pending.Event, commitErr)
+		return commitErr
+	}
+	if result != nil {
+		if _, transErr := wc.applyTransition(result, contextSummary); transErr != nil {
+			return transErr
+		}
+	}
+	return nil
 }
 
 // Transition processes an event and moves to the next state.
@@ -365,13 +381,9 @@ func (wc *WorkflowConversation) applyTransition(
 		wc.persistWorkflowContext()
 	}
 
-	// Emit transition event
-	if wc.emitter != nil {
-		wc.emitter.WorkflowTransitioned(result.From, toState, result.Event, promptName)
-		if wc.machine.IsTerminal() {
-			wc.emitter.WorkflowCompleted(toState, wc.machine.Context().TransitionCount())
-		}
-	}
+	// Emit transition events (transitioned, max_visits_exceeded if this was
+	// a redirect, and completed if the new state is terminal).
+	wc.emitTransitionEvents(result, toState, promptName)
 
 	return toState, nil
 }
@@ -554,3 +566,5 @@ func convertWorkflowSpec(sdkSpec *pack.WorkflowSpec) *workflow.Spec {
 		Engine:  sdkSpec.Engine,
 	}
 }
+
+// emitTransitionEvents and maxVisitsForState live in sdk/workflow_events.go.

@@ -1,0 +1,36 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: loop-hits-max-visits
+spec:
+  id: loop-hits-max-visits
+  task_type: research
+  description: "Agent keeps emitting More; max_visits=3 forces redirect to summarise"
+  turns:
+    # Iteration 1: research → research on More.
+    - role: user
+      content: "Please research something."
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["workflow__transition"]
+
+    # Iterations 2–4: LLM keeps emitting More. After 3 visits the runtime
+    # redirects transparently to `summarize` (see log line with
+    # redirected=true). Assertions are intentionally light here — the
+    # interesting signal is in the log and in the emitted
+    # workflow.max_visits_exceeded event.
+    - role: user
+      content: "more"
+
+    - role: user
+      content: "more"
+
+    - role: user
+      content: "more"
+
+    - role: user
+      content: "summary please"
+
+    - role: user
+      content: "thanks"

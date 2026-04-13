@@ -100,6 +100,13 @@ const (
 	EventWorkflowTransitioned EventType = "workflow.transitioned"
 	// EventWorkflowCompleted marks a workflow reaching a terminal state.
 	EventWorkflowCompleted EventType = "workflow.completed"
+	// EventWorkflowMaxVisitsExceeded marks a state hitting its max_visits
+	// cap. Fires whether the workflow redirected to on_max_visits (successful
+	// transition) or terminated for lack of a fallback.
+	EventWorkflowMaxVisitsExceeded EventType = "workflow.max_visits_exceeded"
+	// EventWorkflowBudgetExhausted marks a workflow-level budget being
+	// reached (max_total_visits, max_tool_calls, or max_wall_time_sec).
+	EventWorkflowBudgetExhausted EventType = "workflow.budget_exhausted"
 
 	// EventClientToolRequest marks a client-mode tool request awaiting caller fulfillment.
 	EventClientToolRequest EventType = "tool.client.request"
@@ -641,6 +648,52 @@ type WorkflowCompletedData struct {
 	// FinalState is the terminal state the workflow reached.
 	FinalState string `json:"final_state"`
 	// TransitionCount is the total number of transitions that occurred.
+	TransitionCount int `json:"transition_count"`
+}
+
+// WorkflowMaxVisitsExceededData contains data for the
+// workflow.max_visits_exceeded event. Emitted when the state machine attempts
+// to enter a state whose max_visits cap has already been reached.
+type WorkflowMaxVisitsExceededData struct {
+	baseEventData
+	// FromState is the state we were about to leave.
+	FromState string `json:"from_state"`
+	// OriginalTarget is the state the transition originally targeted
+	// (before the redirect).
+	OriginalTarget string `json:"original_target"`
+	// Event is the transition event that triggered the attempt.
+	Event string `json:"event"`
+	// VisitCount is how many times OriginalTarget had been entered prior
+	// to this attempt.
+	VisitCount int `json:"visit_count"`
+	// MaxVisits is the declared limit on OriginalTarget.
+	MaxVisits int `json:"max_visits"`
+	// RedirectedTo is the state the machine entered instead, when
+	// OriginalTarget had an on_max_visits fallback. Empty when the
+	// workflow terminated for lack of a fallback.
+	RedirectedTo string `json:"redirected_to,omitempty"`
+	// Terminated is true when no on_max_visits fallback was configured
+	// and the workflow stopped.
+	Terminated bool `json:"terminated"`
+}
+
+// WorkflowBudgetExhaustedData contains data for the
+// workflow.budget_exhausted event. Emitted when a workflow-level budget
+// (max_total_visits, max_tool_calls, max_wall_time_sec) is reached.
+type WorkflowBudgetExhaustedData struct {
+	baseEventData
+	// Limit identifies which budget tripped: "max_total_visits",
+	// "max_tool_calls", or "max_wall_time_sec".
+	Limit string `json:"limit"`
+	// Current is the observed value at the time of exhaustion.
+	Current int `json:"current"`
+	// Max is the configured limit.
+	Max int `json:"max"`
+	// CurrentState is the state the workflow was in when the budget
+	// tripped (the attempted transition did not complete).
+	CurrentState string `json:"current_state"`
+	// TransitionCount is the number of transitions that had occurred
+	// before exhaustion.
 	TransitionCount int `json:"transition_count"`
 }
 

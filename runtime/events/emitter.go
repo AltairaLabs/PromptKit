@@ -513,6 +513,18 @@ func (e *Emitter) WorkflowCompleted(finalState string, transitionCount int) {
 	})
 }
 
+// WorkflowMaxVisitsExceeded emits the workflow.max_visits_exceeded event.
+// redirectedTo is empty and terminated is true when the workflow stopped for
+// lack of an on_max_visits fallback.
+func (e *Emitter) WorkflowMaxVisitsExceeded(data *WorkflowMaxVisitsExceededData) {
+	e.emit(EventWorkflowMaxVisitsExceeded, data)
+}
+
+// WorkflowBudgetExhausted emits the workflow.budget_exhausted event.
+func (e *Emitter) WorkflowBudgetExhausted(data *WorkflowBudgetExhaustedData) {
+	e.emit(EventWorkflowBudgetExhausted, data)
+}
+
 // ContextCompacted emits the context.compacted event when the compactor
 // folds stale tool results between tool-loop rounds.
 func (e *Emitter) ContextCompacted(round, originalTokens, compactedTokens, messagesFolded, budgetTokens int) {

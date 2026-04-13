@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -38,6 +39,12 @@ func (e *Engine) initWorkflow() error {
 	if entryState := spec.States[spec.Entry]; entryState != nil {
 		registerTransitionTool(e.toolRegistry, entryState)
 	}
+
+	// Register the per-run artifact executor + workflow__set_artifact tool when
+	// any state declares artifacts. The executor dispatches to the per-run
+	// state machine via the shared transExec run map.
+	e.toolRegistry.RegisterExecutor(&workflowArtifactExecutor{transExec: transExec})
+	workflow.RegisterArtifactTool(e.toolRegistry, spec)
 
 	e.workflowSpec = spec
 	e.workflowTransExec = transExec
@@ -186,7 +193,11 @@ func (e *Engine) buildEntryStateMeta(stateName string) map[string]interface{} {
 // the per-run skill filter into context for the next turn's tool execution.
 func (e *Engine) wireWorkflowHooks(req *ConversationRequest, runID string) {
 	req.PostTurnHook = func() error {
-		return e.workflowTransExec.CommitPendingTransition(runID)
+		var emitter *events.Emitter
+		if req.EventBus != nil {
+			emitter = events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
+		}
+		return e.workflowTransExec.CommitPendingTransition(runID, emitter)
 	}
 	req.ContextEnricher = func(ctx context.Context) context.Context {
 		filter := e.workflowTransExec.SkillFilter(runID)
