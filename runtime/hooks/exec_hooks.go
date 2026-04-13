@@ -5,14 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox/direct"
 )
 
 const defaultExecHookTimeout = 10 * time.Second
 
 // ExecHookConfig holds the configuration for creating exec-based hooks.
+//
+// Sandbox, when non-nil, controls how the hook subprocess is launched.
+// When nil, the exec hooks fall back to the built-in direct sandbox
+// which matches the historical behavior: exec.CommandContext(Command,
+// Args...) in-process with the local environment. SDK consumers that
+// want their hooks to run elsewhere — in a sidecar, a disposable
+// container, a managed cloud sandbox — construct a Sandbox
+// implementation and pass it here.
 type ExecHookConfig struct {
 	Name      string
 	Command   string
@@ -21,6 +30,7 @@ type ExecHookConfig struct {
 	TimeoutMs int
 	Phases    []string
 	Mode      string // "filter" | "observe"
+	Sandbox   sandbox.Sandbox
 }
 
 // execHookRequest is the JSON payload sent to an exec hook subprocess on stdin.
@@ -50,6 +60,7 @@ type execHookBase struct {
 	timeoutMs int
 	phases    map[string]bool
 	mode      string
+	sandbox   sandbox.Sandbox
 }
 
 func newExecHookBase(cfg *ExecHookConfig) execHookBase {
@@ -61,6 +72,10 @@ func newExecHookBase(cfg *ExecHookConfig) execHookBase {
 	if mode == "" {
 		mode = "filter"
 	}
+	sb := cfg.Sandbox
+	if sb == nil {
+		sb = direct.New(direct.ModeName)
+	}
 	return execHookBase{
 		name:      cfg.Name,
 		command:   cfg.Command,
@@ -69,6 +84,7 @@ func newExecHookBase(cfg *ExecHookConfig) execHookBase {
 		timeoutMs: cfg.TimeoutMs,
 		phases:    phases,
 		mode:      mode,
+		sandbox:   sb,
 	}
 }
 
@@ -87,27 +103,22 @@ func (b *execHookBase) isObserve() bool {
 	return b.mode == "observe"
 }
 
+// runProcess delegates subprocess execution to the configured Sandbox.
+// It preserves the previous signature so the filter/observe helpers
+// below don't change. The timeout is applied by the sandbox (it's in
+// the Request); the inbound ctx still carries cancellation.
 func (b *execHookBase) runProcess(ctx context.Context, stdin []byte) (stdout, stderr []byte, err error) {
-	cmd := exec.CommandContext(ctx, b.command, b.args...) //#nosec G204 -- command from trusted config
-	cmd.Stdin = bytes.NewReader(stdin)
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
-
-	if len(b.env) > 0 {
-		cmd.Env = os.Environ()
-		for _, name := range b.env {
-			if val, ok := os.LookupEnv(name); ok {
-				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", name, val))
-			}
-		}
+	resp, spawnErr := b.sandbox.Spawn(ctx, sandbox.Request{
+		Command: b.command,
+		Args:    b.args,
+		Env:     b.env,
+		Stdin:   stdin,
+		Timeout: b.timeout(),
+	})
+	if spawnErr != nil {
+		return resp.Stdout, resp.Stderr, spawnErr
 	}
-
-	if err := cmd.Run(); err != nil {
-		return stdoutBuf.Bytes(), stderrBuf.Bytes(), err
-	}
-	return stdoutBuf.Bytes(), stderrBuf.Bytes(), nil
+	return resp.Stdout, resp.Stderr, resp.Err
 }
 
 // execFilter runs the hook subprocess and returns a Decision based on its response.

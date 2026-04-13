@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
@@ -1136,6 +1137,34 @@ func WithProviderHook(h hooks.ProviderHook) Option {
 	return func(c *config) error {
 		c.providerHooks = append(c.providerHooks, h)
 		return nil
+	}
+}
+
+// WithSandboxFactory registers a sandbox factory for the given mode name.
+// The factory is added to the process-wide sandbox registry, where it
+// becomes available for RuntimeConfig-based hook configuration (the
+// spec.sandboxes block looks factories up by their mode name).
+//
+// Use this when a deployment uses a declarative RuntimeConfig and the
+// sandbox backend is implemented outside PromptKit core — for example a
+// k8s sidecar, a docker wrapper, or a bespoke cloud-sandbox adapter.
+// Construct your factory in the consumer's package and wire it up at
+// SDK open time:
+//
+//	conv, _ := sdk.Open("./pack.json", "chat",
+//	    sdk.WithSandboxFactory("k8s_sidecar", k8ssidecar.Factory),
+//	)
+//
+// Callers who don't use RuntimeConfig can instead construct a Sandbox
+// directly and set it on ExecHookConfig.Sandbox before passing to
+// NewExec*Hook — that path doesn't touch any registry.
+//
+// Duplicate registration for a given mode returns an error (as with
+// sandbox.RegisterFactory). If a deployment legitimately needs to
+// overwrite an existing factory, use sandbox.ReplaceFactory directly.
+func WithSandboxFactory(mode string, factory sandbox.Factory) Option {
+	return func(_ *config) error {
+		return sandbox.RegisterFactory(mode, factory)
 	}
 }
 
