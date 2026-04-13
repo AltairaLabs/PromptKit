@@ -81,9 +81,28 @@ Hooks are the right tool for **cross-cutting concerns** — observability, safet
 
 If you find yourself writing "if this tool, then that hook," the logic probably belongs in the tool or the pipeline stage, not in a hook.
 
+## Operational rules of thumb
+
+These are not strict requirements; they reflect what tends to go wrong when hooks are written carelessly.
+
+**Order hooks fast-to-slow.** Decision-based hooks short-circuit on the first `Deny`, so cheap checks should run first — they protect expensive ones from running on requests that were already going to be rejected.
+
+```go
+sdk.WithProviderHook(guardrails.NewLengthHook(1000, 250)),     // O(1)
+sdk.WithProviderHook(guardrails.NewBannedWordsHook(banned)),    // O(n*w)
+sdk.WithProviderHook(customExpensiveHook),                      // slow
+```
+
+**Prefer streaming guardrails when latency matters.** A `ChunkInterceptor` can abort a streaming response mid-flight, saving generation cost when the model produces something you'd reject anyway. The built-in `BannedWordsHook` and `LengthHook` already do this; `MaxSentencesHook` and `RequiredFieldsHook` need the full response and don't.
+
+**Keep hooks stateless when you can.** Stateless hooks are trivially safe under concurrent use across conversations. Stateful hooks (e.g. a streaming buffer per response) must scope their state to one conversation or synchronise it explicitly. The runtime does not isolate hook state for you.
+
+**Don't panic in a hook.** Eval hooks are wrapped in `recover()` per hook, but provider/tool/session hooks are not — a panic crashes the request. If your hook can fail, return `Deny` (or, for SessionHook, an error) instead.
+
 ## See also
 
 - [Hooks Reference](/runtime/reference/hooks/) — interface signatures, registration, built-in guardrails
+- [Custom Hooks How-To](/sdk/how-to/custom-hooks/) — implement each hook type in Go
 - [Exec Hooks How-To](/sdk/how-to/exec-hooks/) — subprocess-backed hooks in any language
 - [Exec Protocol Reference](/sdk/reference/exec-protocol/) — stdin/stdout wire format
 - [RuntimeConfig](/sdk/how-to/use-runtime-config/) — declarative hook configuration via YAML

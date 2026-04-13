@@ -1,23 +1,22 @@
 ---
-title: Hooks & Guardrails
+title: Hooks
 sidebar:
   order: 5
 ---
-Extensible hook system for intercepting LLM calls, tool execution, and session lifecycle.
+Reference for the four hook interfaces PromptKit exposes for intercepting LLM calls, tool execution, session lifecycle, and eval results — plus the built-in guardrails that ship on top of them.
 
-:::note[Migration]
-The `runtime/validators` package has been removed. All validation is now handled through **hooks** in the `runtime/hooks` package, with built-in guardrails in `runtime/hooks/guardrails`. Pack YAML `validators:` sections are automatically converted to guardrail hooks at runtime.
-:::
+For *how* to write a hook, see [Custom Hooks](/sdk/how-to/custom-hooks/) and [Exec Hooks](/sdk/how-to/exec-hooks/).
+For *when* to reach for which hook type, see [The Hook System](/sdk/explanation/hooks/).
 
-## Overview
+## Hook types
 
-Hooks provide interception points throughout the PromptKit pipeline:
-
-- **ProviderHook** — intercept LLM calls (before/after), with optional streaming chunk interception
-- **ToolHook** — intercept tool execution (before/after)
-- **SessionHook** — track session lifecycle (start, update, end)
-- **EvalHook** — observe (and optionally mutate) eval results as they are produced
-- **Built-in guardrails** — content safety hooks (banned words, length, sentences, required fields)
+| Type | Fires | Decision shape | Built-in implementations |
+|---|---|---|---|
+| [`ProviderHook`](#providerhook) | Before/after each LLM call | `Decision` (allow / deny / enforced) | Guardrails: banned-words, length, sentences, required-fields |
+| [`ChunkInterceptor`](#chunkinterceptor) | Each streaming chunk | `Decision` | Same guardrails when they implement streaming |
+| [`ToolHook`](#toolhook) | Before/after each tool call | `Decision` | None — bring your own |
+| [`SessionHook`](#sessionhook) | Session start, each turn, session end | `error` (nil = ok) | None |
+| [`EvalHook`](#evalhook) | Each eval result, before emission | none — direct mutation only | None |
 
 ## Core Interfaces
 
@@ -364,142 +363,6 @@ Monitor-only guardrails evaluate content and emit events, but never modify the r
 
 The guardrail still returns an `Enforced` decision (so the pipeline continues), and violations are recorded in `message.Validations` and emitted as `validation.failed` events with `MonitorOnly: true`.
 
-## Custom Hooks
-
-### Custom ProviderHook
-
-```go
-type PIIHook struct{}
-
-func (h *PIIHook) Name() string { return "pii_filter" }
-
-func (h *PIIHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
-    return hooks.Allow // No input filtering in this example
-}
-
-func (h *PIIHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    content := resp.Message.Content()
-    if containsSSN(content) {
-        return hooks.Deny("response contains SSN")
-    }
-    return hooks.Allow
-}
-```
-
-### Custom ProviderHook with ChunkInterceptor
-
-```go
-type StreamingPIIHook struct {
-    buffer strings.Builder
-}
-
-func (h *StreamingPIIHook) Name() string { return "streaming_pii" }
-
-func (h *StreamingPIIHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
-    h.buffer.Reset()
-    return hooks.Allow
-}
-
-func (h *StreamingPIIHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    return hooks.Allow
-}
-
-// Implement ChunkInterceptor for streaming checks
-func (h *StreamingPIIHook) OnChunk(ctx context.Context, chunk *providers.StreamChunk) hooks.Decision {
-    h.buffer.WriteString(chunk.Content)
-    if containsSSN(h.buffer.String()) {
-        return hooks.Deny("streaming content contains SSN")
-    }
-    return hooks.Allow
-}
-```
-
-### Custom ToolHook
-
-```go
-type AuditToolHook struct {
-    logger *slog.Logger
-}
-
-func (h *AuditToolHook) Name() string { return "audit_tools" }
-
-func (h *AuditToolHook) BeforeExecution(ctx context.Context, req hooks.ToolRequest) hooks.Decision {
-    h.logger.Info("tool called", "name", req.Name, "callID", req.CallID)
-    return hooks.Allow
-}
-
-func (h *AuditToolHook) AfterExecution(ctx context.Context, req hooks.ToolRequest, resp hooks.ToolResponse) hooks.Decision {
-    if resp.Error != "" {
-        h.logger.Error("tool failed", "name", req.Name, "error", resp.Error)
-    }
-    return hooks.Allow
-}
-```
-
-### Custom SessionHook
-
-```go
-type SessionLogger struct {
-    logger *slog.Logger
-}
-
-func (h *SessionLogger) Name() string { return "session_logger" }
-
-func (h *SessionLogger) OnSessionStart(ctx context.Context, e hooks.SessionEvent) error {
-    h.logger.Info("session started", "session_id", e.SessionID, "conv_id", e.ConversationID)
-    return nil
-}
-
-func (h *SessionLogger) OnSessionUpdate(ctx context.Context, e hooks.SessionEvent) error {
-    h.logger.Info("turn complete", "session_id", e.SessionID, "turn", e.TurnIndex)
-    return nil
-}
-
-func (h *SessionLogger) OnSessionEnd(ctx context.Context, e hooks.SessionEvent) error {
-    h.logger.Info("session ended", "session_id", e.SessionID, "turns", e.TurnIndex+1)
-    return nil
-}
-```
-
-Registered via `sdk.WithSessionHook(&SessionLogger{logger: slog.Default()})`. Returning a non-nil error causes the runtime to surface it to the caller; hooks that only observe should always return `nil`.
-
-### Custom EvalHook
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/evals"
-
-type MetricsEvalHook struct {
-    exporter MetricExporter
-}
-
-func (h *MetricsEvalHook) Name() string { return "metrics_exporter" }
-
-func (h *MetricsEvalHook) OnEvalResult(
-    ctx context.Context,
-    def *evals.EvalDef,
-    _ *evals.EvalContext,
-    result *evals.EvalResult,
-) {
-    h.exporter.Record(ctx, def.ID, result.Score, result.DurationMs)
-}
-```
-
-An eval hook that mutates the result (e.g. redacting PII from `Explanation`):
-
-```go
-type RedactingEvalHook struct{}
-
-func (h *RedactingEvalHook) Name() string { return "redact_explanations" }
-
-func (h *RedactingEvalHook) OnEvalResult(
-    _ context.Context, _ *evals.EvalDef, _ *evals.EvalContext, result *evals.EvalResult,
-) {
-    result.Explanation = ssnPattern.ReplaceAllString(result.Explanation, "[REDACTED]")
-}
-```
-
-Registered via `sdk.WithEvalHook(&MetricsEvalHook{exporter: exp})`.
-
 ## Execution Order
 
 1. **BeforeCall** hooks run before the LLM request (first deny aborts the call)
@@ -510,102 +373,33 @@ Registered via `sdk.WithEvalHook(&MetricsEvalHook{exporter: exp})`.
 6. **Session hooks** run at session boundaries (start, after each turn, end)
 7. **EvalHooks** run after each eval result is computed, before emission on the event bus
 
-## Best Practices
-
-### 1. Put Fast Hooks First
-
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithProviderHook(guardrails.NewLengthHook(1000, 250)),      // Fast O(1)
-    sdk.WithProviderHook(guardrails.NewBannedWordsHook(banned)),     // O(n*w)
-    sdk.WithProviderHook(customExpensiveHook),                       // Slow
-)
-```
-
-### 2. Use Streaming Hooks for Early Abort
-
-Hooks that implement `ChunkInterceptor` can abort a streaming response mid-flight, saving API costs:
-
-```go
-// BannedWordsHook and LengthHook both support streaming
-// MaxSentencesHook and RequiredFieldsHook require the full response
-```
-
-### 3. Handle HookDeniedError
-
-```go
-resp, err := conv.Send(ctx, "Hello")
-if err != nil {
-    var hookErr *hooks.HookDeniedError
-    if errors.As(err, &hookErr) {
-        log.Printf("Policy violation: %s", hookErr.Reason)
-        // Return a safe fallback response to the user
-    }
-}
-```
-
-### 4. Keep Hooks Stateless When Possible
-
-Stateless hooks are safe for concurrent use. If your hook must maintain state (e.g., a streaming buffer), ensure it is scoped to a single conversation or protected by synchronization.
-
-## Package Import
+## Package import
 
 ```go
 import (
     "github.com/AltairaLabs/PromptKit/runtime/hooks"
     "github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
+    "github.com/AltairaLabs/PromptKit/runtime/evals" // for EvalHook
 )
 ```
 
-## External Exec Hooks
+## Exec adapters
 
-Hooks can be implemented as external subprocesses in any language using the exec protocol. Configure them in RuntimeConfig:
+External-subprocess implementations of each hook type, configured via RuntimeConfig YAML. See [Exec Hooks](/sdk/how-to/exec-hooks/) for the full how-to and [Exec Protocol](/sdk/reference/exec-protocol/) for the wire format.
 
-```yaml
-spec:
-  hooks:
-    pii_redactor:
-      command: ./hooks/pii-redactor
-      hook: provider
-      phases: [before_call, after_call]
-      mode: filter
-      timeout_ms: 3000
+| Adapter | Implements | Modes |
+|---|---|---|
+| `ExecProviderHook` | `ProviderHook` | `filter`, `observe` |
+| `ExecToolHook` | `ToolHook` | `filter`, `observe` |
+| `ExecSessionHook` | `SessionHook` | `filter` only (observe is a no-op) |
+| `ExecEvalHook` | `EvalHook` | always fire-and-forget — `mode`/`phases` ignored |
 
-    audit_logger:
-      command: ./hooks/audit-logger
-      hook: session
-      phases: [session_start, session_update, session_end]
-      mode: observe
+## See also
 
-    eval_metrics:
-      command: ./hooks/eval-metrics
-      hook: eval
-      timeout_ms: 5000
-```
-
-Four adapters bridge external processes to the hook interfaces:
-
-| Adapter | Implements | Description |
-|---------|-----------|-------------|
-| `ExecProviderHook` | `ProviderHook` | External provider interception |
-| `ExecToolHook` | `ToolHook` | External tool interception |
-| `ExecSessionHook` | `SessionHook` | External session tracking |
-| `ExecEvalHook` | `EvalHook` | External eval-result processing (fire-and-forget) |
-
-**Modes** (provider, tool, session only):
-- **filter** — Fail-closed. Process failure = deny. Can block the pipeline.
-- **observe** — Fire-and-forget. Process failure is swallowed. Pipeline always continues.
-
-**Eval exec hooks** are always fire-and-forget — `mode` and `phases` are ignored for `hook: eval`, since evals have no allow/deny semantics. Subprocess errors and timeouts are logged and discarded; the eval pipeline continues regardless.
-
-See [Exec Hooks](/sdk/how-to/exec-hooks/) for the full how-to guide and [Exec Protocol](/sdk/reference/exec-protocol/) for the wire format.
-
-## See Also
-
-- [Checks Reference](/reference/checks/) -- All check types, parameters, and extensibility details
-- [Unified Check Model](/concepts/validation/) -- How guardrails, assertions, and evals relate
-- [Guardrails Reference](/arena/reference/validators/) -- Guardrail configuration and behavior
-- [Pipeline Reference](/runtime/reference/pipeline/) -- Stage and pipeline interfaces
-- [Validation Tutorial](/runtime/tutorials/04-validation-guardrails/) -- Step-by-step guide
-- [Exec Hooks](/sdk/how-to/exec-hooks/) -- External hooks in any language
-- [Exec Protocol](/sdk/reference/exec-protocol/) -- Wire protocol reference
+- [Custom Hooks](/sdk/how-to/custom-hooks/) — write a Go hook of any type
+- [Exec Hooks](/sdk/how-to/exec-hooks/) — write a hook as a subprocess in any language
+- [The Hook System](/sdk/explanation/hooks/) — mental model and design rationale
+- [Exec Protocol](/sdk/reference/exec-protocol/) — wire format for exec adapters
+- [Checks Reference](/reference/checks/) — guardrail/assertion/eval check types
+- [Unified Check Model](/concepts/validation/) — how guardrails, assertions, and evals relate
+- [Pipeline Reference](/runtime/reference/pipeline/) — stage and pipeline interfaces

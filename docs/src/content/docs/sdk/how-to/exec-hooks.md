@@ -417,9 +417,10 @@ spec:
 
 ---
 
-## See Also
+## See also
 
-- [Use RuntimeConfig](/sdk/how-to/use-runtime-config/) -- configure the runtime via YAML
+- [Custom Hooks](/sdk/how-to/custom-hooks/) -- the same hook types implemented in Go
+- [The Hook System](/sdk/explanation/hooks/) -- when to choose exec vs Go, mental model
 - [Hooks Reference](/runtime/reference/hooks/) -- full runtime hook API
-- [Validation Concepts](/concepts/validation/) -- how hooks fit into the validation pipeline
+- [Use RuntimeConfig](/sdk/how-to/use-runtime-config/) -- configure the runtime via YAML
 - [Exec Protocol Reference](/sdk/reference/exec-protocol/) -- detailed subprocess protocol specification
