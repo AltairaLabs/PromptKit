@@ -466,3 +466,76 @@ func TestResolveRefIntegration(t *testing.T) {
 		t.Errorf("ResolveRef() = %q, want %q", gotPath, wantPath)
 	}
 }
+
+// TestDiscoverPreloadUpgrade verifies that a later SkillSource with preload=true
+// upgrades the preload flag on a skill already registered by an earlier broader source.
+// This supports the common pattern of `path: skills/` followed by per-directory
+// entries that mark specific skills as preload.
+func TestDiscoverPreloadUpgrade(t *testing.T) {
+	root := t.TempDir()
+	brandDir := filepath.Join(root, "brand-voice")
+	otherDir := filepath.Join(root, "other")
+	writeTestSkill(t, brandDir, "brand-voice", "Brand voice", "Brand instructions")
+	writeTestSkill(t, otherDir, "other", "Other", "Other instructions")
+
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{
+		{Dir: root},                    // registers both with preload=false
+		{Dir: brandDir, Preload: true}, // upgrades brand-voice to preload=true
+	})
+	if err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	preloaded := reg.PreloadedSkills()
+	if len(preloaded) != 1 {
+		t.Fatalf("expected 1 preloaded skill, got %d", len(preloaded))
+	}
+	if preloaded[0].Name != "brand-voice" {
+		t.Errorf("expected 'brand-voice' to be preloaded, got %q", preloaded[0].Name)
+	}
+
+	// All skills still registered.
+	if len(reg.List()) != 2 {
+		t.Errorf("expected 2 total skills, got %d", len(reg.List()))
+	}
+}
+
+// TestDiscoverInlinePreloadUpgrade verifies the same upgrade semantics for inline sources.
+func TestDiscoverInlinePreloadUpgrade(t *testing.T) {
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{
+		{Name: "s", Description: "d", Instructions: "i"},                // preload=false
+		{Name: "s", Description: "d", Instructions: "i", Preload: true}, // upgrades
+	})
+	if err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	preloaded := reg.PreloadedSkills()
+	if len(preloaded) != 1 || preloaded[0].Name != "s" {
+		t.Fatalf("expected s to be preloaded, got %+v", preloaded)
+	}
+}
+
+// TestDiscoverPreloadNotDowngraded verifies that a later source with preload=false
+// does NOT downgrade a skill already registered with preload=true.
+func TestDiscoverPreloadNotDowngraded(t *testing.T) {
+	root := t.TempDir()
+	brandDir := filepath.Join(root, "brand-voice")
+	writeTestSkill(t, brandDir, "brand-voice", "Brand voice", "Brand instructions")
+
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{
+		{Dir: brandDir, Preload: true}, // preload=true
+		{Dir: root},                    // would re-register with preload=false; must NOT downgrade
+	})
+	if err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	preloaded := reg.PreloadedSkills()
+	if len(preloaded) != 1 {
+		t.Fatalf("expected 1 preloaded skill, got %d", len(preloaded))
+	}
+}

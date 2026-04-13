@@ -39,7 +39,10 @@ func NewRegistry() *Registry {
 }
 
 // Discover scans skill sources and registers all found skills.
-// Sources are processed in order — later sources do NOT override earlier ones (first wins).
+// Sources are processed in order: the first source to register a skill name wins
+// for path/metadata, but a later source may upgrade the preload flag from false to true.
+// This supports the common pattern of a broad `path: skills/` entry followed by
+// narrower per-directory entries that mark specific skills as preload.
 func (r *Registry) Discover(sources []SkillSource) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -100,8 +103,13 @@ func (r *Registry) discoverDirectory(src SkillSource) error {
 		}
 
 		skillDir := filepath.Dir(path)
-		if _, exists := r.skills[meta.Name]; exists {
-			logger.Warn("skills: duplicate skill ignored (already registered)", "skill", meta.Name)
+		if existing, exists := r.skills[meta.Name]; exists {
+			if src.Preload && !existing.preload {
+				existing.preload = true
+				logger.Debug("skills: upgrading preload flag from duplicate source", "skill", meta.Name)
+			} else {
+				logger.Debug("skills: duplicate skill ignored (already registered)", "skill", meta.Name)
+			}
 			return nil
 		}
 
@@ -117,8 +125,13 @@ func (r *Registry) discoverDirectory(src SkillSource) error {
 // registerInline registers an inline skill source directly.
 // Must be called with r.mu held.
 func (r *Registry) registerInline(src SkillSource) {
-	if _, exists := r.skills[src.Name]; exists {
-		logger.Warn("skills: duplicate skill ignored (already registered)", "skill", src.Name)
+	if existing, exists := r.skills[src.Name]; exists {
+		if src.Preload && !existing.preload {
+			existing.preload = true
+			logger.Debug("skills: upgrading preload flag from duplicate inline source", "skill", src.Name)
+		} else {
+			logger.Debug("skills: duplicate skill ignored (already registered)", "skill", src.Name)
+		}
 		return
 	}
 
