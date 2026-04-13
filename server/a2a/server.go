@@ -503,8 +503,8 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, req *
 	}
 
 	taskID := generateID()
-	if _, err := s.taskStore.Create(taskID, contextID); err != nil {
-		log.Printf("a2a: failed to create task for context %s: %v", contextID, err)
+	if _, createErr := s.taskStore.Create(taskID, contextID); createErr != nil {
+		log.Printf("a2a: failed to create task for context %s: %v", contextID, createErr)
 		writeRPCError(w, req.ID, -32000, "internal server error")
 		return
 	}
