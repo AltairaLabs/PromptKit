@@ -171,6 +171,7 @@ type config struct {
 
 	// Skills configuration
 	skillsDirs      []string
+	skillSources    []skills.SkillSource
 	skillSelector   skills.SkillSelector
 	maxActiveSkills int
 
@@ -2241,9 +2242,14 @@ func WithMetricRecorder(r evals.MetricRecorder) Option {
 	}
 }
 
-// WithSkillsDir adds a directory-based skill source.
-// Skills are discovered by scanning for SKILL.md files in the directory.
-// Multiple directories can be added by calling this option multiple times.
+// WithSkillsDir adds a directory-based skill source. The runtime walks the
+// directory for SKILL.md files and registers each one found. Call multiple
+// times to register skills from multiple directories — sources are processed
+// in order and the first source to register a given skill name wins.
+//
+// This is a thin convenience over [WithSkillSource] for the common case of a
+// plain directory with no MountAs. For virtual-path mounting, preloading, or
+// inline skill definitions, use [WithSkillSource] directly.
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "chat",
 //	    sdk.WithSkillsDir("./skills"),
@@ -2251,6 +2257,43 @@ func WithMetricRecorder(r evals.MetricRecorder) Option {
 func WithSkillsDir(dir string) Option {
 	return func(c *config) error {
 		c.skillsDirs = append(c.skillsDirs, dir)
+		return nil
+	}
+}
+
+// WithSkillSource registers a [skills.SkillSource] verbatim. Use this when
+// you need anything beyond a plain directory path — most commonly:
+//
+//   - MountAs, to present skills to the workflow filter under a virtual
+//     prefix without moving the files. A skill at "./agentskills/billing/pci"
+//     mounted as "skills" appears at virtual path "skills/billing/pci", so a
+//     workflow state with `skills: "skills/*"` will match it. ReadResource
+//     still uses the real on-disk path; MountAs only affects display and
+//     glob matching.
+//   - Preload, to inject the skill's instructions into the system prompt at
+//     session start instead of waiting for the model to call skill__activate.
+//   - Inline skills, where Name + Description + Instructions are provided
+//     directly instead of being read from a SKILL.md file.
+//
+// Multiple sources can be registered by calling this option multiple times
+// and freely mixed with [WithSkillsDir]. When a skill name is discovered by
+// more than one source the first source wins for path/metadata; the Preload
+// flag is OR-combined (a later source can upgrade preload from false to true
+// but not vice versa). MountAs is rejected on inline sources, on glob
+// patterns, and on values containing ".." segments.
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "chat",
+//	    sdk.WithSkillSource(skills.SkillSource{
+//	        Dir:     "./agentskills",
+//	        MountAs: "skills",
+//	        Preload: false,
+//	    }),
+//	)
+//
+//nolint:gocritic // SkillSource is a public config struct; pass by value for API ergonomics.
+func WithSkillSource(src skills.SkillSource) Option {
+	return func(c *config) error {
+		c.skillSources = append(c.skillSources, src)
 		return nil
 	}
 }

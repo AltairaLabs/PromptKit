@@ -518,6 +518,116 @@ func TestDiscoverInlinePreloadUpgrade(t *testing.T) {
 	}
 }
 
+// TestDiscoverMountAs verifies that MountAs presents skills under a virtual prefix
+// while preserving subdirectory structure under the source dir.
+func TestDiscoverMountAs(t *testing.T) {
+	source := t.TempDir()
+	writeTestSkill(t, filepath.Join(source, "billing"), "payments", "Payment processing", "Pay instructions")
+	writeTestSkill(t, filepath.Join(source, "orders"), "fulfillment", "Order fulfillment", "Fulfillment instructions")
+
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{{Dir: source, MountAs: "skills"}})
+	if err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	pay, err := reg.Load("payments")
+	if err != nil {
+		t.Fatalf("Load(payments): %v", err)
+	}
+	if got, want := pay.Path, filepath.Join("skills", "billing", "payments"); got != want {
+		t.Errorf("payments.Path = %q, want %q (virtual path under MountAs prefix)", got, want)
+	}
+
+	ful, err := reg.Load("fulfillment")
+	if err != nil {
+		t.Fatalf("Load(fulfillment): %v", err)
+	}
+	if got, want := ful.Path, filepath.Join("skills", "orders", "fulfillment"); got != want {
+		t.Errorf("fulfillment.Path = %q, want %q", got, want)
+	}
+}
+
+// TestDiscoverMountAsReadResource verifies that ReadResource still uses the real
+// on-disk path even when MountAs is set, so files can actually be read.
+func TestDiscoverMountAsReadResource(t *testing.T) {
+	source := t.TempDir()
+	skillDir := writeTestSkill(t, filepath.Join(source, "billing"), "payments", "Payment processing", "Pay instructions")
+
+	const markerName = "marker.txt"
+	const markerBody = "marker contents"
+	if err := os.WriteFile(filepath.Join(skillDir, markerName), []byte(markerBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: source, MountAs: "skills"}}); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	got, err := reg.ReadResource("payments", markerName)
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if string(got) != markerBody {
+		t.Errorf("ReadResource body = %q, want %q", got, markerBody)
+	}
+}
+
+// TestDiscoverMountAsDoesNotEscape ensures MountAs cannot be used to bypass
+// path-containment in ReadResource: even if the virtual path looks like
+// "/etc", reads are still scoped to the real source dir.
+func TestDiscoverMountAsDoesNotEscape(t *testing.T) {
+	source := t.TempDir()
+	writeTestSkill(t, source, "rogue", "Rogue", "Rogue instructions")
+
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: source, MountAs: "/etc"}}); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	if _, err := reg.ReadResource("rogue", "../../../../etc/passwd"); err == nil {
+		t.Error("ReadResource should reject path traversal even with arbitrary MountAs")
+	}
+}
+
+// TestDiscoverMountAsRejectedOnInline asserts that setting MountAs on an inline
+// skill source (Name set, no Dir) returns a validation error from Discover.
+func TestDiscoverMountAsRejectedOnInline(t *testing.T) {
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{
+		{Name: "inline-with-mount", Description: "x", Instructions: "y", MountAs: "skills"},
+	})
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+}
+
+// TestDiscoverMountAsRejectsGlob asserts that MountAs containing glob metacharacters
+// is rejected — MountAs is a literal directory prefix.
+func TestDiscoverMountAsRejectsGlob(t *testing.T) {
+	source := t.TempDir()
+	writeTestSkill(t, source, "alpha", "Alpha", "Alpha")
+
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{{Dir: source, MountAs: "skills/*/billing"}})
+	if err == nil {
+		t.Fatal("expected validation error for glob in MountAs, got nil")
+	}
+}
+
+// TestDiscoverMountAsRejectsParent asserts MountAs with .. segments is rejected.
+func TestDiscoverMountAsRejectsParent(t *testing.T) {
+	source := t.TempDir()
+	writeTestSkill(t, source, "alpha", "Alpha", "Alpha")
+
+	reg := NewRegistry()
+	err := reg.Discover([]SkillSource{{Dir: source, MountAs: "skills/../../escape"}})
+	if err == nil {
+		t.Fatal("expected validation error for .. in MountAs, got nil")
+	}
+}
+
 // TestDiscoverPreloadNotDowngraded verifies that a later source with preload=false
 // does NOT downgrade a skill already registered with preload=true.
 func TestDiscoverPreloadNotDowngraded(t *testing.T) {

@@ -416,6 +416,35 @@ func createSkillTree(t *testing.T) (root string, skillsDir string) {
 	return root, skillsDir
 }
 
+// TestExecutor_SetFilter_MatchesMountAsVirtualPath verifies that a workflow
+// filter glob matches against the MountAs-virtual path, not the real disk path.
+// A skill at <root>/external/pci mounted as "skills/billing" should match
+// the workflow filter "skills/billing/*".
+func TestExecutor_SetFilter_MatchesMountAsVirtualPath(t *testing.T) {
+	root := t.TempDir()
+	external := filepath.Join(root, "external")
+	pciDir := filepath.Join(external, "pci")
+	if err := os.MkdirAll(pciDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pciDir, "SKILL.md"),
+		[]byte("---\nname: pci\ndescription: PCI\n---\nPCI instructions.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: external, MountAs: "skills/billing"}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	exec := NewExecutor(ExecutorConfig{Registry: reg, ConfigDir: root})
+	exec.SetFilter("skills/billing/*")
+
+	if _, _, err := exec.Activate("pci"); err != nil {
+		t.Errorf("expected pci to match virtual-path glob, got error: %v", err)
+	}
+}
+
 func TestExecutor_SetFilter_AllowsMatchingSkills(t *testing.T) {
 	root, skillsDir := createSkillTree(t)
 	reg := NewRegistry()

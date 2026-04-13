@@ -853,10 +853,10 @@ func ensureA2ACapability(caps []Capability, cfg *config) []Capability {
 	return append(caps, NewA2ACapability())
 }
 
-// ensureSkillsCapability adds a SkillsCapability if config has skills dirs
+// ensureSkillsCapability adds a SkillsCapability if config has skill sources
 // but no SkillsCapability was already inferred or explicit.
 func ensureSkillsCapability(caps []Capability, cfg *config) []Capability {
-	if len(cfg.skillsDirs) == 0 {
+	if len(cfg.skillsDirs) == 0 && len(cfg.skillSources) == 0 {
 		return caps
 	}
 	for _, cap := range caps {
@@ -864,10 +864,11 @@ func ensureSkillsCapability(caps []Capability, cfg *config) []Capability {
 			return caps
 		}
 	}
-	var sources []skills.SkillSource
+	sources := make([]skills.SkillSource, 0, len(cfg.skillsDirs)+len(cfg.skillSources))
 	for _, dir := range cfg.skillsDirs {
 		sources = append(sources, skills.SkillSource{Dir: dir})
 	}
+	sources = append(sources, cfg.skillSources...)
 	return append(caps, NewSkillsCapability(sources))
 }
 
