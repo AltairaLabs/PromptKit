@@ -1,0 +1,33 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: loop-converges
+spec:
+  id: loop-converges
+  task_type: research
+  description: "Agent loop converges in 3 iterations, summarises, completes"
+  turns:
+    # Iteration 1: user kicks off research; LLM emits set_artifact + More.
+    - role: user
+      content: "Please research the PromptKit hook system and summarise."
+      assertions:
+        - type: tools_called
+          params:
+            tool_names: ["workflow__set_artifact", "workflow__transition"]
+
+    # Remaining turns drive the loop — each one triggers one LLM pass that
+    # may or may not emit tool calls depending on where we are in the loop.
+    # We keep assertions out of these: the interesting output is in the log
+    # and in the HTML report (state transitions, artifact accumulation,
+    # workflow.completed event).
+    - role: user
+      content: "continue"
+
+    - role: user
+      content: "wrap up when ready"
+
+    - role: user
+      content: "summary please"
+
+    - role: user
+      content: "thanks"

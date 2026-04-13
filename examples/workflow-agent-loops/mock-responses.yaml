@@ -1,0 +1,140 @@
+# Mock LLM responses for the agent-loops example.
+#
+# Each numbered turn here is one LLM response. Within a single scenario
+# turn (user message → agent reply), the ProviderStage tool loop may
+# consume multiple responses: one that emits tool calls, and a follow-up
+# text response after the tool results come back.
+#
+# Numbers below are the LLM-response index (not the scenario turn).
+
+scenarios:
+  loop-converges:
+    turns:
+      # Pipeline turn 1: user asks → LLM does a research step (iteration 1 → 2)
+      1:
+        response: "Gathering the first piece of information."
+        tool_calls:
+          - name: workflow__set_artifact
+            arguments:
+              name: findings
+              value: "Note 1: The library exposes a hook registry with four interface types."
+          - name: workflow__transition
+            arguments:
+              event: More
+              context: "Recorded note 1"
+      2: "Noted: the hook registry has four interface types. Continuing."
+
+      # Pipeline turn 2: user prompts next iteration (2 → 3)
+      3:
+        response: "Gathering a second piece of information."
+        tool_calls:
+          - name: workflow__set_artifact
+            arguments:
+              name: findings
+              value: "Note 2: EvalHook differs from the others: purely observational, may mutate result in place."
+          - name: workflow__transition
+            arguments:
+              event: More
+              context: "Recorded note 2"
+      4: "Added note 2. One more iteration should cover it."
+
+      # Pipeline turn 3: user prompts final iteration → LLM emits Done
+      5:
+        response: "I have what I need — moving to summarise."
+        tool_calls:
+          - name: workflow__set_artifact
+            arguments:
+              name: findings
+              value: "Note 3: Hooks are registered via sdk.WithProviderHook / WithToolHook / WithSessionHook / WithEvalHook."
+          - name: workflow__transition
+            arguments:
+              event: Done
+              context: "Recorded note 3 and leaving research"
+      6: "Done. Handing off to the summariser."
+
+      # Pipeline turn 4: summarise state. LLM reads findings and emits Complete.
+      7:
+        response: "Summary prepared; marking complete."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: Complete
+              context: "Summary written based on the three notes"
+      8: "PromptKit exposes four hook interfaces (Provider, Tool, Session, Eval), registered via the matching sdk.With*Hook options; EvalHook is observational and can mutate its result in place."
+
+      # Pipeline turn 5: done state confirmation.
+      9: "All done — the final summary is above. Let me know if you need anything else."
+
+  loop-hits-max-visits:
+    turns:
+      # Pipeline turn 1: research iteration 1 → 2
+      1:
+        response: "Iteration 1 — gathering a note."
+        tool_calls:
+          - name: workflow__set_artifact
+            arguments:
+              name: findings
+              value: "Note 1"
+          - name: workflow__transition
+            arguments:
+              event: More
+              context: "it 1"
+      2: "Iteration 1 complete."
+
+      # Pipeline turn 2: research iteration 2 → 3
+      3:
+        response: "Iteration 2 — gathering a note."
+        tool_calls:
+          - name: workflow__set_artifact
+            arguments:
+              name: findings
+              value: "Note 2"
+          - name: workflow__transition
+            arguments:
+              event: More
+              context: "it 2"
+      4: "Iteration 2 complete."
+
+      # Pipeline turn 3: research iteration 3 (at cap)
+      5:
+        response: "Iteration 3 — gathering a note."
+        tool_calls:
+          - name: workflow__set_artifact
+            arguments:
+              name: findings
+              value: "Note 3"
+          - name: workflow__transition
+            arguments:
+              event: More
+              context: "it 3"
+      6: "Iteration 3 complete."
+
+      # Pipeline turn 4: LLM attempts a 4th iteration. max_visits (3) has been
+      # reached on `research`, so the runtime redirects to `summarize`
+      # regardless of what the LLM chose. A workflow.max_visits_exceeded event
+      # fires.
+      7:
+        response: "Iteration 4 — gathering a note."
+        tool_calls:
+          - name: workflow__set_artifact
+            arguments:
+              name: findings
+              value: "Note 4"
+          - name: workflow__transition
+            arguments:
+              event: More
+              context: "it 4 — will be redirected"
+      8: "Redirected to summariser by the workflow engine after hitting the iteration cap."
+
+      # Pipeline turn 5: summarise state. LLM emits Complete.
+      9:
+        response: "Summarising with whatever findings accumulated before the cap."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: Complete
+              context: "Cap-driven summary"
+      10: "After three research iterations, the workflow engine stopped further attempts and produced this summary."
+
+      # Pipeline turn 6: done confirmation.
+      11: "Workflow complete — the iteration cap successfully bounded the loop."

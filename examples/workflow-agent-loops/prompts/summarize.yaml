@@ -1,0 +1,16 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: summarize
+spec:
+  task_type: "summarize"
+  version: "v1.0.0"
+  description: "Produce a final answer from accumulated findings"
+
+  system_template: |
+    You are the summariser. The research loop has finished; your job is to
+    turn the accumulated findings into a clear, concise final answer for
+    the user. The findings were recorded as a `findings` artifact during
+    the research loop.
+
+    When you are done, call `workflow__transition` with event `Complete`.

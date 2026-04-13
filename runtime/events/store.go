@@ -202,8 +202,10 @@ var eventDataRegistry = map[string]eventDataFactory{
 	"*events.StreamInterruptedData":   func() EventData { return &StreamInterruptedData{} },
 
 	// Workflow events
-	"*events.WorkflowTransitionedData": func() EventData { return &WorkflowTransitionedData{} },
-	"*events.WorkflowCompletedData":    func() EventData { return &WorkflowCompletedData{} },
+	"*events.WorkflowTransitionedData":      func() EventData { return &WorkflowTransitionedData{} },
+	"*events.WorkflowCompletedData":         func() EventData { return &WorkflowCompletedData{} },
+	"*events.WorkflowMaxVisitsExceededData": func() EventData { return &WorkflowMaxVisitsExceededData{} },
+	"*events.WorkflowBudgetExhaustedData":   func() EventData { return &WorkflowBudgetExhaustedData{} },
 }
 
 // deserializeEventData attempts to deserialize event data based on the type name.

@@ -10,6 +10,7 @@ import (
 func (wc *WorkflowConversation) transitionInternal(event, contextSummary string) (string, error) {
 	result, err := wc.machine.ProcessEvent(event)
 	if err != nil {
+		wc.emitWorkflowError(event, err)
 		return "", err
 	}
 	return wc.applyTransition(result, contextSummary)

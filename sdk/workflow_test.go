@@ -1298,3 +1298,282 @@ func TestPersistWorkflowContext_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, state.Metadata["workflow"])
 }
+
+// TestCommitDeferredTransition_NoTransExec is a no-op when the workflow
+// conversation has no transition executor wired up.
+func TestCommitDeferredTransition_NoTransExec(t *testing.T) {
+	wc := &WorkflowConversation{}
+	require.NoError(t, wc.commitDeferredTransition())
+}
+
+// TestCommitDeferredTransition_NoPending is a no-op when there is no
+// pending transition to commit.
+func TestCommitDeferredTransition_NoPending(t *testing.T) {
+	spec := &workflow.Spec{Version: 1, Entry: "a", States: map[string]*workflow.State{
+		"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+		"b": {PromptTask: "t"},
+	}}
+	machine := workflow.NewStateMachine(spec)
+	wc := &WorkflowConversation{
+		machine:   machine,
+		transExec: workflow.NewTransitionExecutor(machine, spec),
+	}
+	require.NoError(t, wc.commitDeferredTransition())
+}
+
+// TestCommitDeferredTransition_FiresErrorEvent verifies that a deferred
+// commit returning an error routes through emitWorkflowError to fire the
+// matching observability event. The state machine is pre-seeded so the very
+// first commit hits max_visits and never tries to call applyTransition.
+func TestCommitDeferredTransition_FiresErrorEvent(t *testing.T) {
+	bus := events.NewEventBus()
+	gotEvent := make(chan *events.Event, 1)
+	bus.Subscribe(events.EventWorkflowMaxVisitsExceeded, func(e *events.Event) { gotEvent <- e })
+
+	spec := &workflow.Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*workflow.State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t", MaxVisits: 1},
+		},
+	}
+	// Pre-seed the context so b is at its visit cap before the test transition.
+	machine := workflow.NewStateMachineFromContext(spec, &workflow.Context{
+		CurrentState: "a",
+		VisitCounts:  map[string]int{"a": 1, "b": 1},
+	})
+	transExec := workflow.NewTransitionExecutor(machine, spec)
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		emitter:      events.NewEmitter(bus, "", "", ""),
+		transExec:    transExec,
+	}
+
+	args, _ := json.Marshal(map[string]string{"event": "Go"})
+	_, err := transExec.Execute(context.Background(), nil, args)
+	require.NoError(t, err)
+	commitErr := wc.commitDeferredTransition()
+	require.Error(t, commitErr, "Go into b should fail because visit cap is reached")
+
+	select {
+	case e := <-gotEvent:
+		data := e.Data.(*events.WorkflowMaxVisitsExceededData)
+		assert.Equal(t, "b", data.OriginalTarget)
+		assert.True(t, data.Terminated)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected workflow.max_visits_exceeded event")
+	}
+}
+
+// TestEmitTransitionEvents_All verifies emitTransitionEvents fires the
+// expected combination of workflow.transitioned, workflow.max_visits_exceeded
+// (on redirect), and workflow.completed (on terminal entry).
+func TestEmitTransitionEvents_All(t *testing.T) {
+	bus := events.NewEventBus()
+	seen := make(map[events.EventType]int)
+	var mu sync.Mutex
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		seen[e.Type]++
+		mu.Unlock()
+	})
+
+	spec := &workflow.Spec{
+		Version: 2,
+		Entry:   "loop",
+		States: map[string]*workflow.State{
+			"loop": {PromptTask: "loop", MaxVisits: 1, OnMaxVisits: "exit",
+				OnEvent: map[string]string{"Again": "loop"}},
+			"exit": {PromptTask: "exit"}, // terminal: no OnEvent
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		emitter:      events.NewEmitter(bus, "", "", ""),
+	}
+
+	// Plain transition (not redirected, not terminal).
+	wc.emitTransitionEvents(&workflow.TransitionResult{
+		From: "loop", To: "loop", Event: "Again",
+	}, "loop", "loop")
+
+	// Drive the machine into a terminal state so IsTerminal returns true.
+	wc.machine = workflow.NewStateMachineFromContext(spec, &workflow.Context{
+		CurrentState: "exit",
+		VisitCounts:  map[string]int{"loop": 1, "exit": 1},
+	})
+
+	// Redirected + terminal transition.
+	wc.emitTransitionEvents(&workflow.TransitionResult{
+		From: "loop", To: "exit", Event: "Again",
+		Redirected: true, OriginalTarget: "loop",
+	}, "exit", "exit")
+
+	// Allow async delivery to land.
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		got := seen[events.EventWorkflowTransitioned] +
+			seen[events.EventWorkflowMaxVisitsExceeded] +
+			seen[events.EventWorkflowCompleted]
+		mu.Unlock()
+		if got >= 4 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 2, seen[events.EventWorkflowTransitioned], "two transitioned events")
+	assert.Equal(t, 1, seen[events.EventWorkflowMaxVisitsExceeded], "one redirect event")
+	assert.Equal(t, 1, seen[events.EventWorkflowCompleted], "one completed event")
+}
+
+// TestEmitTransitionEvents_NilEmitterNoOp verifies the helper short-circuits
+// safely when no emitter is configured.
+func TestEmitTransitionEvents_NilEmitterNoOp(t *testing.T) {
+	wc := &WorkflowConversation{}
+	wc.emitTransitionEvents(&workflow.TransitionResult{}, "x", "x") // no panic
+}
+
+// TestMaxVisitsForState verifies the lookup helper.
+func TestMaxVisitsForState(t *testing.T) {
+	assert.Equal(t, 0, maxVisitsForState(nil, "x"))
+	spec := &workflow.Spec{States: map[string]*workflow.State{
+		"a": {MaxVisits: 5},
+	}}
+	assert.Equal(t, 5, maxVisitsForState(spec, "a"))
+	assert.Equal(t, 0, maxVisitsForState(spec, "missing"))
+}
+
+// TestEmitWorkflowError_MaxVisits verifies emitWorkflowError fires
+// workflow.max_visits_exceeded when handed a *MaxVisitsExceededError.
+func TestEmitWorkflowError_MaxVisits(t *testing.T) {
+	bus := events.NewEventBus()
+
+	var received *events.Event
+	var mu sync.Mutex
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	bus.Subscribe(events.EventWorkflowMaxVisitsExceeded, func(e *events.Event) {
+		mu.Lock()
+		received = e
+		mu.Unlock()
+		wg.Done()
+	})
+
+	spec := &workflow.Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*workflow.State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t", MaxVisits: 1, OnEvent: map[string]string{"Back": "a"}},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		emitter:      events.NewEmitter(bus, "", "", ""),
+	}
+
+	err := &workflow.MaxVisitsExceededError{
+		FromState:      "a",
+		OriginalTarget: "b",
+		Event:          "Go",
+		VisitCount:     1,
+		MaxVisits:      1,
+	}
+	wc.emitWorkflowError("Go", err)
+
+	waitWithTimeout(t, wg, 200*time.Millisecond, "workflow.max_visits_exceeded")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotNil(t, received)
+	data, ok := received.Data.(*events.WorkflowMaxVisitsExceededData)
+	require.True(t, ok, "unexpected data type: %T", received.Data)
+	assert.Equal(t, "b", data.OriginalTarget)
+	assert.Equal(t, 1, data.MaxVisits)
+	assert.True(t, data.Terminated)
+}
+
+// TestEmitWorkflowError_Budget verifies emitWorkflowError fires
+// workflow.budget_exhausted when handed a *BudgetExhaustedError.
+func TestEmitWorkflowError_Budget(t *testing.T) {
+	bus := events.NewEventBus()
+
+	var received *events.Event
+	var mu sync.Mutex
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	bus.Subscribe(events.EventWorkflowBudgetExhausted, func(e *events.Event) {
+		mu.Lock()
+		received = e
+		mu.Unlock()
+		wg.Done()
+	})
+
+	spec := &workflow.Spec{Version: 2, Entry: "a", States: map[string]*workflow.State{
+		"a": {PromptTask: "t"},
+	}}
+	machine := workflow.NewStateMachine(spec)
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		emitter:      events.NewEmitter(bus, "", "", ""),
+	}
+
+	err := &workflow.BudgetExhaustedError{
+		Limit:        workflow.BudgetLimitToolCalls,
+		Current:      10,
+		Max:          10,
+		CurrentState: "a",
+	}
+	wc.emitWorkflowError("", err)
+
+	waitWithTimeout(t, wg, 200*time.Millisecond, "workflow.budget_exhausted")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotNil(t, received)
+	data, ok := received.Data.(*events.WorkflowBudgetExhaustedData)
+	require.True(t, ok)
+	assert.Equal(t, workflow.BudgetLimitToolCalls, data.Limit)
+	assert.Equal(t, 10, data.Max)
+}
+
+// TestEmitWorkflowError_NilSafe verifies the helper is a no-op when either
+// the emitter or the error is nil, or when the error doesn't match a known
+// workflow type.
+func TestEmitWorkflowError_NilSafe(t *testing.T) {
+	wc := &WorkflowConversation{}
+	wc.emitWorkflowError("", nil)             // no emitter, no error
+	wc.emitWorkflowError("", fmt.Errorf("x")) // no emitter, arbitrary error
+	bus := events.NewEventBus()
+	wc.emitter = events.NewEmitter(bus, "", "", "")
+	wc.emitWorkflowError("", nil)             // nil error is ignored
+	wc.emitWorkflowError("", fmt.Errorf("x")) // unmatched error is ignored
+}
+
+// waitWithTimeout blocks on wg with a deadline. Fails the test if the
+// deadline expires before wg counts down to zero.
+func waitWithTimeout(t *testing.T, wg *sync.WaitGroup, d time.Duration, label string) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		t.Fatalf("timed out waiting for %s", label)
+	}
+}

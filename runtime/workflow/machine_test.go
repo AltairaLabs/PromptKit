@@ -682,6 +682,122 @@ func TestBudget_MaxTotalVisitsExhausted(t *testing.T) {
 	}
 }
 
+// TestMaxVisitsExceededError_ErrorString verifies the Error message format.
+func TestMaxVisitsExceededError_ErrorString(t *testing.T) {
+	e := &MaxVisitsExceededError{
+		OriginalTarget: "research",
+		VisitCount:     3,
+		MaxVisits:      3,
+	}
+	got := e.Error()
+	want := `max visits exceeded: state "research" visited 3 times (max 3)`
+	if got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+	if !errors.Is(e, ErrMaxVisitsExceeded) {
+		t.Error("errors.Is should match ErrMaxVisitsExceeded via Unwrap")
+	}
+}
+
+// TestBudgetExhaustedError_ErrorString verifies the Error message format.
+func TestBudgetExhaustedError_ErrorString(t *testing.T) {
+	e := &BudgetExhaustedError{
+		Limit:   BudgetLimitToolCalls,
+		Current: 10,
+		Max:     10,
+	}
+	got := e.Error()
+	want := "workflow budget exhausted: max_tool_calls 10 reached limit 10"
+	if got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+	if !errors.Is(e, ErrBudgetExhausted) {
+		t.Error("errors.Is should match ErrBudgetExhausted via Unwrap")
+	}
+}
+
+// TestBudget_ReturnsStructuredError verifies that ErrBudgetExhausted is
+// returned as a *BudgetExhaustedError carrying the tripped limit name, the
+// current/max values, and the state the workflow was in. Callers (SDK,
+// Arena) use these fields to populate observability events.
+func TestBudget_ReturnsStructuredError(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t", OnEvent: map[string]string{"Back": "a"}},
+		},
+		Engine: map[string]any{
+			"budget": map[string]any{"max_total_visits": 3},
+		},
+	}
+	sm := NewStateMachine(spec)
+	_, _ = sm.ProcessEvent("Go")
+	_, _ = sm.ProcessEvent("Back")
+	_, err := sm.ProcessEvent("Go")
+
+	var bErr *BudgetExhaustedError
+	if !errors.As(err, &bErr) {
+		t.Fatalf("expected *BudgetExhaustedError, got %T: %v", err, err)
+	}
+	if bErr.Limit != BudgetLimitTotalVisits {
+		t.Errorf("Limit = %q, want %q", bErr.Limit, BudgetLimitTotalVisits)
+	}
+	if bErr.Max != 3 {
+		t.Errorf("Max = %d, want 3", bErr.Max)
+	}
+	if bErr.Current < 3 {
+		t.Errorf("Current = %d, want >= 3", bErr.Current)
+	}
+	if bErr.CurrentState == "" {
+		t.Error("CurrentState should be populated")
+	}
+}
+
+// TestMaxVisits_ReturnsStructuredError verifies that when a state's
+// max_visits cap is reached without an on_max_visits fallback, the error
+// is a *MaxVisitsExceededError carrying the originating state, target, event,
+// visit count, and declared max.
+func TestMaxVisits_ReturnsStructuredError(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t", MaxVisits: 1, OnEvent: map[string]string{"Back": "a"}},
+		},
+	}
+	sm := NewStateMachine(spec)
+	if _, err := sm.ProcessEvent("Go"); err != nil {
+		t.Fatalf("ProcessEvent(Go): %v", err)
+	}
+	if _, err := sm.ProcessEvent("Back"); err != nil {
+		t.Fatalf("ProcessEvent(Back): %v", err)
+	}
+	_, err := sm.ProcessEvent("Go")
+
+	var mvErr *MaxVisitsExceededError
+	if !errors.As(err, &mvErr) {
+		t.Fatalf("expected *MaxVisitsExceededError, got %T: %v", err, err)
+	}
+	if mvErr.OriginalTarget != "b" {
+		t.Errorf("OriginalTarget = %q, want \"b\"", mvErr.OriginalTarget)
+	}
+	if mvErr.FromState != "a" {
+		t.Errorf("FromState = %q, want \"a\"", mvErr.FromState)
+	}
+	if mvErr.Event != "Go" {
+		t.Errorf("Event = %q, want \"Go\"", mvErr.Event)
+	}
+	if mvErr.MaxVisits != 1 {
+		t.Errorf("MaxVisits = %d, want 1", mvErr.MaxVisits)
+	}
+	if mvErr.VisitCount < 1 {
+		t.Errorf("VisitCount = %d, want >= 1", mvErr.VisitCount)
+	}
+}
+
 func TestBudget_MaxToolCallsExhausted(t *testing.T) {
 	spec := &Spec{
 		Version: 2,

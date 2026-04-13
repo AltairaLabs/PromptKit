@@ -14,12 +14,73 @@ import (
 // Sentinel errors for workflow execution.
 var (
 	// ErrMaxVisitsExceeded is returned when a state's max_visits limit is reached
-	// and no on_max_visits fallback is configured.
+	// and no on_max_visits fallback is configured. The concrete error returned
+	// is typically a *MaxVisitsExceededError wrapping this sentinel; callers
+	// wanting structured details should use errors.As.
 	ErrMaxVisitsExceeded = errors.New("max visits exceeded")
 
-	// ErrBudgetExhausted is returned when a workflow-level budget limit is reached.
+	// ErrBudgetExhausted is returned when a workflow-level budget limit is
+	// reached. The concrete error returned is typically a *BudgetExhaustedError
+	// wrapping this sentinel; callers wanting structured details should use
+	// errors.As.
 	ErrBudgetExhausted = errors.New("workflow budget exhausted")
 )
+
+// MaxVisitsExceededError is the structured error returned from ProcessEvent
+// when a state has reached its max_visits cap and no on_max_visits fallback
+// is configured. It wraps ErrMaxVisitsExceeded so errors.Is still matches.
+type MaxVisitsExceededError struct {
+	// FromState is the state the transition was leaving.
+	FromState string
+	// OriginalTarget is the state whose max_visits was reached.
+	OriginalTarget string
+	// Event is the transition event that triggered the attempt.
+	Event string
+	// VisitCount is the number of times OriginalTarget had already been entered.
+	VisitCount int
+	// MaxVisits is the declared limit on OriginalTarget.
+	MaxVisits int
+}
+
+// Error returns a human-readable description.
+func (e *MaxVisitsExceededError) Error() string {
+	return fmt.Sprintf("%s: state %q visited %d times (max %d)",
+		ErrMaxVisitsExceeded.Error(), e.OriginalTarget, e.VisitCount, e.MaxVisits)
+}
+
+// Unwrap returns the sentinel for errors.Is.
+func (e *MaxVisitsExceededError) Unwrap() error { return ErrMaxVisitsExceeded }
+
+// Budget limit names, used by BudgetExhaustedError.Limit.
+const (
+	BudgetLimitTotalVisits = "max_total_visits"
+	BudgetLimitToolCalls   = "max_tool_calls"
+	BudgetLimitWallTimeSec = "max_wall_time_sec"
+)
+
+// BudgetExhaustedError is the structured error returned from ProcessEvent
+// when a workflow-level budget is reached. It wraps ErrBudgetExhausted so
+// errors.Is still matches.
+type BudgetExhaustedError struct {
+	// Limit is one of BudgetLimitTotalVisits, BudgetLimitToolCalls,
+	// BudgetLimitWallTimeSec.
+	Limit string
+	// Current is the observed value at the time the limit was hit.
+	Current int
+	// Max is the configured limit.
+	Max int
+	// CurrentState is the state the workflow was in when the budget tripped.
+	CurrentState string
+}
+
+// Error returns a human-readable description.
+func (e *BudgetExhaustedError) Error() string {
+	return fmt.Sprintf("%s: %s %d reached limit %d",
+		ErrBudgetExhausted.Error(), e.Limit, e.Current, e.Max)
+}
+
+// Unwrap returns the sentinel for errors.Is.
+func (e *BudgetExhaustedError) Unwrap() error { return ErrBudgetExhausted }
 
 // Budget defines workflow-level resource limits from the engine block.
 type Budget struct {

@@ -1,0 +1,12 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: done
+spec:
+  task_type: "done"
+  version: "v1.0.0"
+  description: "Workflow complete"
+
+  system_template: |
+    The workflow is complete. Confirm to the user that their question has
+    been answered.
