@@ -85,13 +85,17 @@ try {
     recurse: true,
     timeout: 10000,
     // linksToSkip takes an array of regex strings; matching URLs are not
-    // fetched. Skip any absolute URL that isn't on localhost or the
-    // production docs domain — relative links have already been resolved
-    // to localhost by the time linkinator checks them, so this correctly
-    // skips only real third-party URLs.
+    // fetched. Skip any absolute URL that isn't on localhost — relative
+    // links have already been resolved to localhost by the time linkinator
+    // checks them, so this correctly skips real third-party URLs as well as
+    // the production docs domain. Production URLs are deliberately excluded
+    // because Starlight emits <link rel="canonical"> and og:url tags that
+    // point at the prod URL of every page; for any new page in a PR that
+    // URL 404s until the PR is merged and deployed, which would otherwise
+    // make the link check fail on every PR that adds a new page.
     linksToSkip: includeExternal
       ? undefined
-      : ['^https?://(?!localhost|127\\.0\\.0\\.1|promptkit\\.altairalabs\\.ai).+'],
+      : ['^https?://(?!localhost|127\\.0\\.0\\.1).+'],
   });
 
   console.log(`\n📊 Total links checked: ${result.links.length}\n`);
@@ -121,8 +125,7 @@ try {
     if (
       url.startsWith(baseURL) ||
       url.startsWith('http://localhost:') ||
-      url.startsWith('/') ||
-      url.startsWith('https://promptkit.altairalabs.ai')
+      url.startsWith('/')
     ) {
       internal.push(entry);
     } else {
