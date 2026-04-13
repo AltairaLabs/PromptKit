@@ -16,6 +16,7 @@ Hooks provide interception points throughout the PromptKit pipeline:
 - **ProviderHook** — intercept LLM calls (before/after), with optional streaming chunk interception
 - **ToolHook** — intercept tool execution (before/after)
 - **SessionHook** — track session lifecycle (start, update, end)
+- **EvalHook** — observe (and optionally mutate) eval results as they are produced
 - **Built-in guardrails** — content safety hooks (banned words, length, sentences, required fields)
 
 ## Core Interfaces
@@ -67,9 +68,36 @@ type SessionHook interface {
 }
 ```
 
+### EvalHook
+
+Observes eval results as they are produced by the eval runner. Unlike the hooks above, `EvalHook` is purely **observational** — evals compute scores and do not gate execution, so there is no allow/deny semantics. Hooks fire once per executed eval, after the handler runs, and before the result is emitted as an event.
+
+```go
+type EvalHook interface {
+    Name() string
+    OnEvalResult(
+        ctx context.Context,
+        def *EvalDef,
+        evalCtx *EvalContext,
+        result *EvalResult,
+    )
+}
+```
+
+Hooks **may mutate `result` in place** — for example, to redact sensitive content from `Explanation`, annotate `Details`, or attach tracing metadata. The mutated result is what the runner returns and emits on the event bus.
+
+Typical uses:
+- Push results to external systems (metrics, tracing, logs)
+- Redact or enrich result fields
+- Fan out to a subprocess for custom scoring pipelines
+
+Lives in `github.com/AltairaLabs/PromptKit/runtime/evals` alongside the eval types (`EvalDef`, `EvalContext`, `EvalResult`).
+
+**Panic safety.** Each hook invocation is wrapped in `recover()` scoped to that hook. A panicking hook is logged and skipped; subsequent hooks still run and the eval result is still emitted.
+
 ## Decision Type
 
-All hook methods return a `Decision`:
+Provider, chunk, and tool hooks return a `Decision`:
 
 ```go
 type Decision struct {
@@ -98,6 +126,8 @@ Built-in guardrail hooks return `Enforced` decisions instead of `Deny`. When a g
 3. The violation is recorded in `message.Validations` and emitted as a `validation.failed` event
 
 This means guardrails are **non-fatal** — they fix the content and let the pipeline proceed, rather than returning an error to the caller. Custom hooks can choose either behavior.
+
+`SessionHook` returns plain Go `error` values (denial semantics via error, no enforcement mode). `EvalHook` returns nothing — it is observational; side effects and result mutation are the only outputs.
 
 ## Request & Response Types
 
@@ -180,11 +210,13 @@ if errors.As(err, &hookErr) {
 
 :::note
 Built-in guardrail hooks return `Enforced` decisions, not `Deny`. They modify content in-place and the pipeline continues — no `HookDeniedError` is returned. You only need to handle `HookDeniedError` for custom hooks that use `hooks.Deny()`.
+
+`SessionHook` errors are not wrapped in `HookDeniedError` — they propagate as the plain Go error you returned. `EvalHook` never produces an error at all.
 :::
 
 ## Registry
 
-The `Registry` collects and executes hooks in order:
+The `Registry` collects and executes provider, tool, and session hooks in order:
 
 ```go
 reg := hooks.NewRegistry(
@@ -210,6 +242,25 @@ The registry automatically detects `ProviderHook` implementations that also sati
 | `RunSessionEnd` | Run all session hooks' `OnSessionEnd` |
 
 Multiple hooks execute in registration order. The first `Deny` short-circuits — subsequent hooks are not called.
+
+`EvalHook` uses a separate registration path on the eval runner (not `hooks.Registry`), since eval hooks have different semantics (observational, no short-circuit):
+
+```go
+runner := evals.NewEvalRunner(reg,
+    evals.WithEvalHook(myEvalHook),
+    evals.WithEvalHook(myRedactor),
+)
+```
+
+Or from the SDK:
+
+```go
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithEvalHook(myEvalHook),
+)
+```
+
+Eval hooks execute in registration order; **every hook runs** for every eval result (no short-circuit), and a panicking hook does not block the rest.
 
 ## Built-in Guardrail Hooks
 
@@ -385,6 +436,70 @@ func (h *AuditToolHook) AfterExecution(ctx context.Context, req hooks.ToolReques
 }
 ```
 
+### Custom SessionHook
+
+```go
+type SessionLogger struct {
+    logger *slog.Logger
+}
+
+func (h *SessionLogger) Name() string { return "session_logger" }
+
+func (h *SessionLogger) OnSessionStart(ctx context.Context, e hooks.SessionEvent) error {
+    h.logger.Info("session started", "session_id", e.SessionID, "conv_id", e.ConversationID)
+    return nil
+}
+
+func (h *SessionLogger) OnSessionUpdate(ctx context.Context, e hooks.SessionEvent) error {
+    h.logger.Info("turn complete", "session_id", e.SessionID, "turn", e.TurnIndex)
+    return nil
+}
+
+func (h *SessionLogger) OnSessionEnd(ctx context.Context, e hooks.SessionEvent) error {
+    h.logger.Info("session ended", "session_id", e.SessionID, "turns", e.TurnIndex+1)
+    return nil
+}
+```
+
+Registered via `sdk.WithSessionHook(&SessionLogger{logger: slog.Default()})`. Returning a non-nil error causes the runtime to surface it to the caller; hooks that only observe should always return `nil`.
+
+### Custom EvalHook
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/evals"
+
+type MetricsEvalHook struct {
+    exporter MetricExporter
+}
+
+func (h *MetricsEvalHook) Name() string { return "metrics_exporter" }
+
+func (h *MetricsEvalHook) OnEvalResult(
+    ctx context.Context,
+    def *evals.EvalDef,
+    _ *evals.EvalContext,
+    result *evals.EvalResult,
+) {
+    h.exporter.Record(ctx, def.ID, result.Score, result.DurationMs)
+}
+```
+
+An eval hook that mutates the result (e.g. redacting PII from `Explanation`):
+
+```go
+type RedactingEvalHook struct{}
+
+func (h *RedactingEvalHook) Name() string { return "redact_explanations" }
+
+func (h *RedactingEvalHook) OnEvalResult(
+    _ context.Context, _ *evals.EvalDef, _ *evals.EvalContext, result *evals.EvalResult,
+) {
+    result.Explanation = ssnPattern.ReplaceAllString(result.Explanation, "[REDACTED]")
+}
+```
+
+Registered via `sdk.WithEvalHook(&MetricsEvalHook{exporter: exp})`.
+
 ## Execution Order
 
 1. **BeforeCall** hooks run before the LLM request (first deny aborts the call)
@@ -393,6 +508,7 @@ func (h *AuditToolHook) AfterExecution(ctx context.Context, req hooks.ToolReques
 4. **BeforeExecution** tool hooks run before each tool call
 5. **AfterExecution** tool hooks run after each tool call
 6. **Session hooks** run at session boundaries (start, after each turn, end)
+7. **EvalHooks** run after each eval result is computed, before emission on the event bus
 
 ## Best Practices
 
@@ -460,19 +576,27 @@ spec:
       hook: session
       phases: [session_start, session_update, session_end]
       mode: observe
+
+    eval_metrics:
+      command: ./hooks/eval-metrics
+      hook: eval
+      timeout_ms: 5000
 ```
 
-Three adapters bridge external processes to the hook interfaces:
+Four adapters bridge external processes to the hook interfaces:
 
 | Adapter | Implements | Description |
 |---------|-----------|-------------|
 | `ExecProviderHook` | `ProviderHook` | External provider interception |
 | `ExecToolHook` | `ToolHook` | External tool interception |
 | `ExecSessionHook` | `SessionHook` | External session tracking |
+| `ExecEvalHook` | `EvalHook` | External eval-result processing (fire-and-forget) |
 
-**Modes:**
+**Modes** (provider, tool, session only):
 - **filter** — Fail-closed. Process failure = deny. Can block the pipeline.
 - **observe** — Fire-and-forget. Process failure is swallowed. Pipeline always continues.
+
+**Eval exec hooks** are always fire-and-forget — `mode` and `phases` are ignored for `hook: eval`, since evals have no allow/deny semantics. Subprocess errors and timeouts are logged and discarded; the eval pipeline continues regardless.
 
 See [Exec Hooks](/sdk/how-to/exec-hooks/) for the full how-to guide and [Exec Protocol](/sdk/reference/exec-protocol/) for the wire format.
 

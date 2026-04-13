@@ -30,7 +30,7 @@ The runtime starts `./hooks/pii-redactor` before each provider call, sends the r
 
 ## Hook Types
 
-There are three hook types, each receiving a different payload on stdin.
+There are four hook types, each receiving a different payload on stdin.
 
 ### Provider Hooks
 
@@ -59,6 +59,14 @@ Observe session lifecycle events.
 | `session_start` | A new session begins |
 | `session_update` | The session state changes |
 | `session_end` | The session ends |
+
+### Eval Hooks
+
+Observe eval results as they are produced by the runner. Eval hooks are **always fire-and-forget** — `mode` and `phases` are ignored; the subprocess never gates execution.
+
+| Phase | When it fires |
+|-------|---------------|
+| (implicit) | Once per executed eval, after the handler runs, before the result is emitted |
 
 ---
 
@@ -200,6 +208,28 @@ The runtime starts the subprocess, writes a JSON object to stdin, and reads a JS
 {"ack": true}
 ```
 
+### Eval Hook
+
+The eval runner writes the raw `EvalResult` JSON to the subprocess's stdin. Stdout is ignored — this is strictly fire-and-forget.
+
+**stdin:**
+
+```json
+{
+  "eval_id": "assertion_1_tool_called",
+  "type": "assertion",
+  "score": 1.0,
+  "passed": true,
+  "duration_ms": 3,
+  "explanation": "tool 'lookup_order' was called",
+  "details": {"tool_name": "lookup_order"}
+}
+```
+
+**stdout:** discarded.
+
+Errors, non-zero exits, and timeouts are logged via the runtime logger but never propagate to the eval pipeline. Missing stdout, empty stdout, or any other I/O anomaly is not an error.
+
 ---
 
 ## Examples
@@ -270,6 +300,40 @@ with open("/var/log/promptkit-audit.jsonl", "a") as f:
 json.dump({"ack": True}, sys.stdout)
 ```
 
+### Metrics Exporter (Eval / Fire-and-forget)
+
+Push every eval result to an external metrics backend without blocking the eval pipeline.
+
+```yaml
+spec:
+  hooks:
+    eval_metrics:
+      command: python3
+      args: [./hooks/eval-metrics.py]
+      hook: eval
+      timeout_ms: 5000
+```
+
+```python
+#!/usr/bin/env python3
+import json, sys, urllib.request
+
+result = json.load(sys.stdin)
+payload = {
+    "eval_id": result["eval_id"],
+    "score": result.get("score", 0.0),
+    "passed": result.get("passed", False),
+    "duration_ms": result.get("duration_ms", 0),
+}
+
+req = urllib.request.Request(
+    "https://metrics.internal/evals",
+    data=json.dumps(payload).encode(),
+    headers={"Content-Type": "application/json"},
+)
+urllib.request.urlopen(req, timeout=2)  # stdout is ignored
+```
+
 ### Query Allowlist (Tool / Filter)
 
 Only permit pre-approved SQL queries to run.
@@ -334,16 +398,22 @@ spec:
       hook: session
       phases: [session_start, session_update, session_end]
       mode: observe
+
+    eval_metrics:
+      command: python3
+      args: [./hooks/eval-metrics.py]
+      hook: eval
+      timeout_ms: 5000
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `command` | Yes | Path to the executable or interpreter |
 | `args` | No | Additional arguments passed to the command |
-| `hook` | Yes | Hook type: `provider`, `tool`, or `session` |
-| `phases` | Yes | List of phases this hook fires on |
-| `mode` | Yes | `filter` (fail-closed) or `observe` (fire-and-forget) |
-| `timeout_ms` | No | Subprocess timeout in milliseconds (filter mode only) |
+| `hook` | Yes | Hook type: `provider`, `tool`, `session`, or `eval` |
+| `phases` | Yes (ignored for `eval`) | List of phases this hook fires on |
+| `mode` | Yes (ignored for `eval`) | `filter` (fail-closed) or `observe` (fire-and-forget) |
+| `timeout_ms` | No | Subprocess timeout in milliseconds |
 
 ---
 
