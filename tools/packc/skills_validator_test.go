@@ -95,6 +95,26 @@ func TestValidateSkillErrors_DuplicateNames(t *testing.T) {
 	assert.Contains(t, errs[0], "duplicate skill name")
 }
 
+// TestValidateSkillErrors_DuplicateSameSkillAllowed verifies that the broad
+// "path: skills/" + narrower "path: skills/brand-voice" pattern is not flagged
+// as a duplicate — both entries resolve to the same underlying skill directory,
+// which the runtime registry uses to upgrade the preload flag.
+func TestValidateSkillErrors_DuplicateSameSkillAllowed(t *testing.T) {
+	tmpDir := t.TempDir()
+	writeSkillMD(t, filepath.Join(tmpDir, "skills", "brand-voice"), "brand-voice", "Brand voice")
+
+	pack := &prompt.Pack{
+		Skills: []prompt.SkillSourceConfig{
+			{Dir: "skills"},
+			{Dir: "skills/brand-voice", Preload: true},
+		},
+		Prompts: map[string]*prompt.PackPrompt{"p": {ID: "p"}},
+	}
+
+	errs := ValidateSkillErrors(pack, tmpDir)
+	assert.Empty(t, errs, "broad+narrow pattern resolving to same SKILL.md should not error")
+}
+
 func TestValidateSkillErrors_InlineComplete(t *testing.T) {
 	pack := &prompt.Pack{
 		Skills: []prompt.SkillSourceConfig{
