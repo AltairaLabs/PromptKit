@@ -18,9 +18,7 @@ For *when* to reach for which hook type, see [The Hook System](/sdk/explanation/
 | [`SessionHook`](#sessionhook) | Session start, each turn, session end | `error` (nil = ok) | None |
 | [`EvalHook`](#evalhook) | Each eval result, before emission | none — direct mutation only | None |
 
-## Core Interfaces
-
-### ProviderHook
+## ProviderHook
 
 Intercepts LLM provider calls. This is the primary hook for content validation and guardrails.
 
@@ -32,7 +30,7 @@ type ProviderHook interface {
 }
 ```
 
-### ChunkInterceptor
+## ChunkInterceptor
 
 An opt-in streaming extension for `ProviderHook`. Hooks that also implement `ChunkInterceptor` can inspect each streaming chunk in real time:
 
@@ -42,7 +40,7 @@ type ChunkInterceptor interface {
 }
 ```
 
-### ToolHook
+## ToolHook
 
 Intercepts LLM-initiated tool calls:
 
@@ -54,7 +52,7 @@ type ToolHook interface {
 }
 ```
 
-### SessionHook
+## SessionHook
 
 Tracks session lifecycle events:
 
@@ -67,7 +65,7 @@ type SessionHook interface {
 }
 ```
 
-### EvalHook
+## EvalHook
 
 Observes eval results as they are produced by the eval runner. Unlike the hooks above, `EvalHook` is purely **observational** — evals compute scores and do not gate execution, so there is no allow/deny semantics. Hooks fire once per executed eval, after the handler runs, and before the result is emitted as an event.
 
