@@ -276,10 +276,43 @@ type EvalResult struct {
 
 Eval handlers produce scores only. Use `result.IsPassed()` to derive pass/fail from the score (true when score is nil or ≥ 1.0). The `Passed` field is deprecated for standalone evals — it is only set explicitly by `AssertionEvalHandler` and `GuardrailEvalHandler` wrappers.
 
+## Observing Results with EvalHook
+
+Register an `EvalHook` to observe (or mutate) each eval result as it's produced. Useful for:
+
+- Pushing results to external metrics/tracing systems.
+- Redacting sensitive content from `Explanation` or `Details` before results propagate.
+- Fanning out to a subprocess via `ExecEvalHook` (configured in `RuntimeConfig`).
+
+```go
+type MetricsHook struct {
+    exporter MetricExporter
+}
+
+func (h *MetricsHook) Name() string { return "metrics_exporter" }
+
+func (h *MetricsHook) OnEvalResult(
+    ctx context.Context,
+    def *evals.EvalDef,
+    _ *evals.EvalContext,
+    result *evals.EvalResult,
+) {
+    h.exporter.Record(ctx, def.ID, result.Score, result.DurationMs)
+}
+
+conv, _ := sdk.Open("./app.pack.json", "chat",
+    sdk.WithEvalHook(&MetricsHook{exporter: exp}),
+)
+```
+
+Eval hooks are observational by contract — they cannot gate execution. Every registered hook runs for every eval result, in registration order, with per-hook panic recovery. See [Hooks Explanation](/sdk/explanation/hooks/) for the full mental model and [Hooks Reference](/runtime/reference/hooks/#evalhook) for the interface details.
+
 ## See Also
 
 - [Metrics Reference](/runtime/reference/metrics/) -- Complete catalog of all emitted metrics
 - [Checks Reference](/reference/checks/) -- All check types and parameters
 - [Unified Check Model](/concepts/validation/) -- How evals, assertions, and guardrails relate
 - [Eval Framework](/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
+- [Hooks Reference](/runtime/reference/hooks/#evalhook) -- `EvalHook` and `ExecEvalHook` API
+- [Exec Hooks How-To](/sdk/how-to/exec-hooks/) -- subprocess-backed eval hooks in any language
 - [Monitor Events](/sdk/how-to/monitor-events/) -- Event-based observability
