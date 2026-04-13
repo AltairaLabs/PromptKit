@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
-	"os/exec"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox/direct"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
@@ -16,15 +15,10 @@ import (
 // of an ExecEvalHook may run before it is killed and the result abandoned.
 const DefaultExecEvalHookTimeout = 5 * time.Second
 
-// execEvalHookWaitDelay bounds how long cmd.Wait() will block on I/O
-// after the context expires. Set above zero so an orphaned grandchild
-// inheriting our Stderr pipe cannot hang the hook indefinitely after
-// SIGKILL — e.g. a bash wrapper whose `sleep` child survives the kill.
-const execEvalHookWaitDelay = 500 * time.Millisecond
-
 // ExecEvalHookConfig configures an ExecEvalHook. It is the eval-side
 // analog of hooks.ExecHookConfig: a command to spawn, its arguments
-// and environment, and a per-call timeout.
+// and environment, a per-call timeout, and an optional Sandbox that
+// controls how the subprocess is actually launched.
 type ExecEvalHookConfig struct {
 	// Name is a stable identifier used in logs.
 	Name string
@@ -39,6 +33,10 @@ type ExecEvalHookConfig struct {
 	// TimeoutMs is the per-invocation timeout in milliseconds. Zero
 	// means use DefaultExecEvalHookTimeout.
 	TimeoutMs int
+	// Sandbox, when non-nil, overrides the default direct-exec sandbox.
+	// Use this to run eval hooks in a container, a sidecar, or a custom
+	// backend; see runtime/hooks/sandbox for the interface.
+	Sandbox sandbox.Sandbox
 }
 
 // ExecEvalHook is an EvalHook that spawns an external process per eval
@@ -55,19 +53,27 @@ type ExecEvalHook struct {
 	args      []string
 	env       []string
 	timeoutMs int
+	sandbox   sandbox.Sandbox
 }
 
 // Compile-time interface check.
 var _ EvalHook = (*ExecEvalHook)(nil)
 
 // NewExecEvalHook constructs an ExecEvalHook from the given config.
+// When cfg.Sandbox is nil the hook falls back to the built-in direct
+// sandbox, which matches the historical local-exec behavior.
 func NewExecEvalHook(cfg *ExecEvalHookConfig) *ExecEvalHook {
+	sb := cfg.Sandbox
+	if sb == nil {
+		sb = direct.New(direct.ModeName)
+	}
 	return &ExecEvalHook{
 		name:      cfg.Name,
 		command:   cfg.Command,
 		args:      cfg.Args,
 		env:       cfg.Env,
 		timeoutMs: cfg.TimeoutMs,
+		sandbox:   sb,
 	}
 }
 
@@ -92,33 +98,27 @@ func (h *ExecEvalHook) OnEvalResult(
 	if timeout <= 0 {
 		timeout = DefaultExecEvalHookTimeout
 	}
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, h.command, h.args...) //#nosec G204 -- command from trusted runtime config
-	cmd.Stdin = bytes.NewReader(payload)
-
-	// See execEvalHookWaitDelay for why this is set.
-	cmd.WaitDelay = execEvalHookWaitDelay
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if len(h.env) > 0 {
-		cmd.Env = os.Environ()
-		for _, name := range h.env {
-			if val, ok := os.LookupEnv(name); ok {
-				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", name, val))
-			}
-		}
+	resp, spawnErr := h.sandbox.Spawn(ctx, sandbox.Request{
+		Command: h.command,
+		Args:    h.args,
+		Env:     h.env,
+		Stdin:   payload,
+		Timeout: timeout,
+	})
+	// Spawn returns err only for transport-level failure; non-zero exit
+	// and timeout come back as a populated Response.Err. Treat both the
+	// same way — log and drop, per fire-and-forget contract.
+	runErr := spawnErr
+	if runErr == nil {
+		runErr = resp.Err
 	}
-
-	if err := cmd.Run(); err != nil {
+	if runErr != nil {
 		logger.Warn("exec eval hook: subprocess failed",
 			"hook", h.name,
 			"eval_id", result.EvalID,
-			"error", err,
-			"stderr", bytes.TrimSpace(stderr.Bytes()),
+			"error", runErr,
+			"stderr", bytes.TrimSpace(resp.Stderr),
 		)
 	}
 }

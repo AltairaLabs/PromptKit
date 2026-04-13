@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -432,3 +433,83 @@ var (
 	_ ToolHook     = (*ExecToolHook)(nil)
 	_ SessionHook  = (*ExecSessionHook)(nil)
 )
+
+// --- Sandbox integration ---
+
+// recordingSandbox captures the Request it is given and returns a
+// pre-canned Response. Used below to verify Exec*Hook wires through a
+// caller-provided Sandbox instead of spawning locally.
+type recordingSandbox struct {
+	lastReq sandbox.Request
+	resp    sandbox.Response
+	err     error
+}
+
+func (s *recordingSandbox) Name() string { return "recording" }
+func (s *recordingSandbox) Spawn(_ context.Context, req sandbox.Request) (sandbox.Response, error) {
+	s.lastReq = req
+	return s.resp, s.err
+}
+
+// TestExecHookConfig_CustomSandboxIsUsed verifies that when
+// ExecHookConfig.Sandbox is set, the hook routes all subprocess
+// invocations through it — no local exec happens.
+func TestExecHookConfig_CustomSandboxIsUsed(t *testing.T) {
+	stub := &recordingSandbox{
+		resp: sandbox.Response{Stdout: []byte(`{"allow": true}`)},
+	}
+	hook := NewExecProviderHook(&ExecHookConfig{
+		Name:      "pii",
+		Command:   "/would/not/exist/on/disk",
+		Args:      []string{"arg1"},
+		Env:       []string{"PK_TEST_VAR=value"},
+		TimeoutMs: 1234,
+		Phases:    []string{"before_call"},
+		Mode:      "filter",
+		Sandbox:   stub,
+	})
+
+	decision := hook.BeforeCall(context.Background(), &ProviderRequest{})
+	if !decision.Allow {
+		t.Errorf("Allow = %v, want true", decision.Allow)
+	}
+
+	// The stub captured the request — verify everything routed through it.
+	if stub.lastReq.Command != "/would/not/exist/on/disk" {
+		t.Errorf("Command = %q", stub.lastReq.Command)
+	}
+	if len(stub.lastReq.Args) != 1 || stub.lastReq.Args[0] != "arg1" {
+		t.Errorf("Args = %v", stub.lastReq.Args)
+	}
+	if len(stub.lastReq.Env) != 1 || stub.lastReq.Env[0] != "PK_TEST_VAR=value" {
+		t.Errorf("Env = %v", stub.lastReq.Env)
+	}
+	if stub.lastReq.Timeout != 1234*time.Millisecond {
+		t.Errorf("Timeout = %v, want 1234ms", stub.lastReq.Timeout)
+	}
+	if len(stub.lastReq.Stdin) == 0 {
+		t.Error("Stdin should carry the exec-hook JSON payload")
+	}
+}
+
+// TestExecHookConfig_NilSandboxDefaultsToDirect verifies that an
+// ExecHookConfig with Sandbox left unset still works — falling back to
+// the direct backend (historical behavior).
+func TestExecHookConfig_NilSandboxDefaultsToDirect(t *testing.T) {
+	// Use /bin/cat or similar only if present; we just need to verify
+	// that the hook constructs and invokes cleanly without a panic.
+	hook := NewExecProviderHook(&ExecHookConfig{
+		Name:      "nil-sandbox",
+		Command:   "/nonexistent/command/for/this/test",
+		Phases:    []string{"before_call"},
+		Mode:      "filter",
+		TimeoutMs: 100,
+	})
+	// The hook uses the default direct sandbox; invoking it against a
+	// nonexistent command should produce a deny (filter mode, process
+	// failed), not a panic or crash.
+	decision := hook.BeforeCall(context.Background(), &ProviderRequest{})
+	if decision.Allow {
+		t.Error("missing command with filter mode should deny, not allow")
+	}
+}
