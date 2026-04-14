@@ -304,6 +304,75 @@ func TestRuntimeConfigSpec_Validate_InvalidLogging(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigSpec_Validate_SandboxMissingMode(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		Sandboxes: map[string]*SandboxConfig{
+			"my_sandbox": {Config: map[string]any{"image": "alpine"}},
+		},
+	}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("expected error for missing sandbox mode")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_HookReferencesUndeclaredSandbox(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		Hooks: map[string]*ExecHook{
+			"h": {
+				ExecBinding: ExecBinding{Command: "./x", Sandbox: "ghost"},
+				Hook:        "provider",
+			},
+		},
+	}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("expected error referencing undeclared sandbox")
+	}
+}
+
+func TestLoadRuntimeConfig_SandboxesInline(t *testing.T) {
+	yaml := `
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+spec:
+  sandboxes:
+    my_docker:
+      mode: docker_run
+      image: python:3.12-slim
+      network: none
+      mounts:
+        - ./hooks:/hooks:ro
+  hooks:
+    pii:
+      command: /hooks/pii.py
+      hook: provider
+      sandbox: my_docker
+`
+	path := writeTemp(t, "rc.yaml", yaml)
+	rc, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRuntimeConfig: %v", err)
+	}
+	sb, ok := rc.Spec.Sandboxes["my_docker"]
+	if !ok {
+		t.Fatalf("sandbox my_docker not loaded")
+	}
+	if sb.Mode != "docker_run" {
+		t.Errorf("Mode = %q, want docker_run", sb.Mode)
+	}
+	if got := sb.Config["image"]; got != "python:3.12-slim" {
+		t.Errorf("Config[image] = %v, want python:3.12-slim", got)
+	}
+	if got := sb.Config["network"]; got != "none" {
+		t.Errorf("Config[network] = %v, want none", got)
+	}
+	hook := rc.Spec.Hooks["pii"]
+	if hook.Sandbox != "my_docker" {
+		t.Errorf("hook.Sandbox = %q, want my_docker", hook.Sandbox)
+	}
+}
+
 func writeTemp(t *testing.T, name, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)

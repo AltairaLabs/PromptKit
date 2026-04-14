@@ -39,6 +39,11 @@
           "type": "integer",
           "title": "Timeout",
           "description": "Per-invocation timeout in milliseconds"
+        },
+        "sandbox": {
+          "type": "string",
+          "title": "Sandbox",
+          "description": "Name of a sandbox declared under spec.sandboxes"
         }
       },
       "additionalProperties": false,

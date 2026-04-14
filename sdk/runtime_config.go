@@ -14,18 +14,56 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
+// resolveSandboxes builds a map from declared sandbox names to ready
+// Sandbox instances by looking up each mode in the process-wide factory
+// registry. Factories are expected to have been registered via
+// sandbox.RegisterFactory, direct's init, or sdk.WithSandboxFactory
+// before RuntimeConfig is applied.
+func resolveSandboxes(specs map[string]*pkgconfig.SandboxConfig) (map[string]sandbox.Sandbox, error) {
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]sandbox.Sandbox, len(specs))
+	for name, sb := range specs {
+		if sb == nil {
+			continue
+		}
+		factory, err := sandbox.LookupFactory(sb.Mode)
+		if err != nil {
+			return nil, fmt.Errorf("sandbox %q: %w", name, err)
+		}
+		inst, err := factory(name, sb.Config)
+		if err != nil {
+			return nil, fmt.Errorf("building sandbox %q: %w", name, err)
+		}
+		out[name] = inst
+	}
+	return out, nil
+}
+
 // applyExecHooks creates exec hook adapters from RuntimeConfig hook bindings
 // and appends them to the appropriate hook slices in the SDK config.
-func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook) {
+// Resolved sandboxes (from spec.Sandboxes) are looked up by name when a
+// binding sets its "sandbox:" field; unknown names are rejected.
+func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook, resolved map[string]sandbox.Sandbox) error {
 	for name, binding := range hookBindings {
 		if binding == nil {
 			continue
+		}
+		var sb sandbox.Sandbox
+		if binding.Sandbox != "" {
+			var ok bool
+			sb, ok = resolved[binding.Sandbox]
+			if !ok {
+				return fmt.Errorf("hook %q references undeclared sandbox %q", name, binding.Sandbox)
+			}
 		}
 		cfg := &hooks.ExecHookConfig{
 			Name:      name,
@@ -35,6 +73,7 @@ func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook) {
 			TimeoutMs: binding.TimeoutMs,
 			Phases:    binding.Phases,
 			Mode:      binding.Mode,
+			Sandbox:   sb,
 		}
 		switch binding.Hook {
 		case "provider":
@@ -52,9 +91,11 @@ func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook) {
 				Args:      binding.Args,
 				Env:       binding.Env,
 				TimeoutMs: binding.TimeoutMs,
+				Sandbox:   sb,
 			}))
 		}
 	}
+	return nil
 }
 
 // WithRuntimeConfig loads a RuntimeConfig YAML file and applies its settings
@@ -139,8 +180,15 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	// Apply exec eval handlers from RuntimeConfig evals map
 	applyExecEvalHandlers(c, spec.Evals)
 
-	// Apply exec hooks from RuntimeConfig hooks map
-	applyExecHooks(c, spec.Hooks)
+	// Resolve declared sandboxes, then apply exec hooks (which may
+	// reference them by name).
+	resolved, err := resolveSandboxes(spec.Sandboxes)
+	if err != nil {
+		return fmt.Errorf("resolving sandboxes from runtime config: %w", err)
+	}
+	if err := applyExecHooks(c, spec.Hooks, resolved); err != nil {
+		return fmt.Errorf("applying exec hooks from runtime config: %w", err)
+	}
 
 	return nil
 }

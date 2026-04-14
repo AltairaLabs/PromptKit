@@ -576,6 +576,68 @@ func TestApplyExecHooks_MultipleTypes(t *testing.T) {
 	assert.Len(t, c.sessionHooks, 1)
 }
 
+func TestApplyExecHooks_WithSandboxReference(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Sandboxes: map[string]*pkgconfig.SandboxConfig{
+			"local": {Mode: "direct"},
+		},
+		Hooks: map[string]*pkgconfig.ExecHook{
+			"pii": {
+				ExecBinding: pkgconfig.ExecBinding{
+					Command: "./pii",
+					Sandbox: "local",
+				},
+				Hook:   "provider",
+				Phases: []string{"before_call"},
+			},
+		},
+	}
+
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	require.Len(t, c.providerHooks, 1)
+}
+
+func TestApplyExecHooks_UndeclaredSandboxReference(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Hooks: map[string]*pkgconfig.ExecHook{
+			"pii": {
+				ExecBinding: pkgconfig.ExecBinding{
+					Command: "./pii",
+					Sandbox: "ghost",
+				},
+				Hook:   "provider",
+				Phases: []string{"before_call"},
+			},
+		},
+	}
+
+	c := &config{}
+	err := applyRuntimeConfig(c, spec)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "undeclared sandbox")
+	assert.Contains(t, err.Error(), "ghost")
+}
+
+func TestResolveSandboxes_UnknownMode(t *testing.T) {
+	specs := map[string]*pkgconfig.SandboxConfig{
+		"x": {Mode: "not_a_registered_mode"},
+	}
+	_, err := resolveSandboxes(specs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not_a_registered_mode")
+}
+
+func TestResolveSandboxes_NilAndEmpty(t *testing.T) {
+	out, err := resolveSandboxes(nil)
+	require.NoError(t, err)
+	assert.Nil(t, out)
+
+	out, err = resolveSandboxes(map[string]*pkgconfig.SandboxConfig{"skip": nil})
+	require.NoError(t, err)
+	assert.Empty(t, out)
+}
+
 // rtcMockStore is a minimal statestore.Store for runtime_config tests.
 type rtcMockStore struct{}
 
