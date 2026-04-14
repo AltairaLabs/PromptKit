@@ -87,6 +87,14 @@ type config struct {
 	retrievalProvider providers.EmbeddingProvider
 	retrievalTopK     int
 
+	// Declarative embedding providers, keyed by ID. Resolved by
+	// WithRuntimeConfig from spec.embedding_providers. The first
+	// entry doubles as a default for retrievalProvider (when one
+	// isn't set programmatically) and as the SelectorContext
+	// embedding instance handed to in-process selectors via Init.
+	embeddingProviders   map[string]providers.EmbeddingProvider
+	embeddingProviderIDs []string
+
 	// Auto-summarization for RAG context
 	summarizeProvider  providers.Provider
 	summarizeThreshold int

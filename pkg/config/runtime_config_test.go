@@ -373,6 +373,82 @@ spec:
 	}
 }
 
+func TestRuntimeConfigSpec_Validate_EmbeddingProviderMissingType(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		EmbeddingProviders: []EmbeddingProviderConfig{{Model: "x"}},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for missing embedding provider type")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_EmbeddingProviderInvalidType(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		EmbeddingProviders: []EmbeddingProviderConfig{{Type: "bogus"}},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for invalid embedding provider type")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_EmbeddingProviderDuplicateID(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		EmbeddingProviders: []EmbeddingProviderConfig{
+			{ID: "main", Type: "openai"},
+			{ID: "main", Type: "voyageai"},
+		},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected duplicate id error")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_EmbeddingProviderDefaultIDFromType(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		EmbeddingProviders: []EmbeddingProviderConfig{
+			{Type: "openai"},
+			{Type: "openai"},
+		},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected default-id collision error")
+	}
+}
+
+func TestLoadRuntimeConfig_EmbeddingProvidersYAML(t *testing.T) {
+	yaml := `
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+spec:
+  embedding_providers:
+    - id: rag
+      type: openai
+      model: text-embedding-3-small
+      credential:
+        credential_env: OPENAI_API_KEY
+    - id: voyage
+      type: voyageai
+      model: voyage-3
+      additional_config:
+        dimensions: 1024
+        input_type: query
+`
+	path := writeTemp(t, "rc.yaml", yaml)
+	rc, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRuntimeConfig: %v", err)
+	}
+	if len(rc.Spec.EmbeddingProviders) != 2 {
+		t.Fatalf("expected 2 embedding providers, got %d", len(rc.Spec.EmbeddingProviders))
+	}
+	if rc.Spec.EmbeddingProviders[0].ID != "rag" || rc.Spec.EmbeddingProviders[0].Type != "openai" {
+		t.Errorf("first provider mis-parsed: %+v", rc.Spec.EmbeddingProviders[0])
+	}
+	if got := rc.Spec.EmbeddingProviders[1].AdditionalConfig["dimensions"]; got != 1024 {
+		t.Errorf("voyageai dimensions = %v, want 1024", got)
+	}
+}
+
 func TestRuntimeConfigSpec_Validate_SelectorMissingCommand(t *testing.T) {
 	s := &RuntimeConfigSpec{
 		Selectors: map[string]*SelectorConfig{
