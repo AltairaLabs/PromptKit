@@ -58,8 +58,12 @@ spec:
       timeout_ms: 3000
       # sandbox: sidecar     # optional — runs the script inside a k8s sidecar
   skills:
-    selector: rerank
+    selector: rerank          # narrow skill__activate's index per turn
+  tool_selector: rerank       # narrow the LLM-visible pack tools per turn
 ```
+
+(`tool_selector` is a flat field rather than nested under `tools:`
+because the existing `spec.tools` map binds exec tool implementations.)
 
 The wire protocol is:
 
@@ -90,10 +94,13 @@ without changing the script.
 - A selector returning an error or an empty result is non-fatal —
   PromptKit falls back to "include all eligible" so a misconfigured
   ranker can never break a conversation.
-- The `Query.Kind` field carries `"skill"` today and `"tool"` once the
-  M3 work lands. A single selector implementation can dispatch on
-  `kind` to serve both hook points; one binding under
-  `spec.selectors.<name>` is fine.
+- The `Query.Kind` field carries `"skill"` (set from `spec.skills.selector`)
+  or `"tool"` (set from `spec.tool_selector`). A single selector
+  implementation can dispatch on `kind` to serve both hook points;
+  one binding under `spec.selectors.<name>` is fine. Tools narrowing
+  preserves system tools (`skill__`, `a2a__`, `workflow__`, `mcp__`,
+  `memory__`) regardless of selection — those are always available
+  to the LLM.
 - Selectors are called once per `Send` (per turn). Internal caching is
   the implementation's responsibility; the cosine example is one
   reasonable shape for it.

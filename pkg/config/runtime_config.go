@@ -78,6 +78,17 @@ type RuntimeConfigSpec struct {
 	// pack itself; this block only covers runtime wiring.
 	//nolint:lll // jsonschema tags require single line
 	Skills *SkillsConfig `yaml:"skills,omitempty" json:"skills,omitempty" jsonschema:"title=Skills,description=Runtime skill configuration"`
+
+	// ToolSelector names a selector declared under spec.selectors that
+	// narrows the pack-declared tool set surfaced to the LLM each turn.
+	// System tools (skill__, a2a__, workflow__, mcp__, memory__) are
+	// always preserved regardless of selection. When empty, the prompt's
+	// full allowedTools list is offered to the provider.
+	//
+	// This is a flat field (not nested under tools:) because the existing
+	// spec.tools map binds exec tool implementations.
+	//nolint:lll // jsonschema tags require single line
+	ToolSelector string `yaml:"tool_selector,omitempty" json:"tool_selector,omitempty" jsonschema:"title=ToolSelector,description=Name of a selector declared under spec.selectors used to narrow the LLM-visible tool set per turn"`
 }
 
 // SelectorConfig declares an external selector process. Command, Args,
@@ -346,6 +357,15 @@ func (s *RuntimeConfigSpec) validateSelectors() error {
 				Field:   "skills.selector",
 				Message: "references a selector not declared under spec.selectors",
 				Value:   s.Skills.Selector,
+			}
+		}
+	}
+	if s.ToolSelector != "" {
+		if _, ok := s.Selectors[s.ToolSelector]; !ok {
+			return &ValidationError{
+				Field:   "tool_selector",
+				Message: "references a selector not declared under spec.selectors",
+				Value:   s.ToolSelector,
 			}
 		}
 	}

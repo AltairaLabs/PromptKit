@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -66,6 +67,18 @@ type ProviderConfig struct {
 	// Compactor folds stale tool results between rounds when token usage
 	// exceeds the configured threshold. Nil = disabled.
 	Compactor CompactionStrategy
+
+	// ToolSelector, when set, narrows the pack-declared allowedTools
+	// each turn before tools are sent to the provider. The selector
+	// receives the latest user message as its query and the current
+	// allowedTools as candidates; only the IDs it returns are surfaced.
+	// System tools (skill__, a2a__, workflow__, mcp__, memory__) are
+	// always preserved regardless of selection. Selection is a no-op
+	// when nil, when allowedTools is empty, or when the user message
+	// has no text content. On any selector failure the full eligible
+	// set is used (the provider stage never crashes a turn because
+	// selection broke).
+	ToolSelector selection.Selector
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -273,6 +286,7 @@ func (s *ProviderStage) executeMultiRound(
 	ctx context.Context,
 	acc *providerInput,
 ) ([]types.Message, error) {
+	s.applyToolSelector(ctx, acc)
 	loop, err := s.newToolLoop(acc)
 	if err != nil {
 		return nil, err
@@ -290,6 +304,89 @@ func (s *ProviderStage) executeMultiRound(
 	return loop.messages, nil
 }
 
+// applyToolSelector narrows acc.allowedTools through the configured
+// external Selector. Mutates acc in place so subsequent rebuilds
+// (afterRound on tool rejection) see the same narrowed set. No-op
+// when no selector is configured, the candidate list is empty, the
+// user query is empty, the selector errors, or the selection result
+// is empty — fallback is always "use the full eligible list."
+func (s *ProviderStage) applyToolSelector(ctx context.Context, acc *providerInput) {
+	if s.config == nil || s.config.ToolSelector == nil || s.toolRegistry == nil {
+		return
+	}
+	query := lastUserMessageText(acc.messages)
+	candidates := s.toolCandidates(acc.allowedTools)
+	if query == "" || len(candidates) == 0 {
+		return
+	}
+	ids, err := s.config.ToolSelector.Select(ctx,
+		selection.Query{Text: query, Kind: "tool", K: len(candidates)},
+		candidates,
+	)
+	if err != nil || len(ids) == 0 {
+		return
+	}
+	if narrowed := intersectInOrder(acc.allowedTools, ids); len(narrowed) > 0 {
+		acc.allowedTools = narrowed
+	}
+}
+
+// toolCandidates resolves the named tool list against the registry and
+// returns one Candidate per registered entry. Unknown names are
+// dropped silently.
+func (s *ProviderStage) toolCandidates(names []string) []selection.Candidate {
+	out := make([]selection.Candidate, 0, len(names))
+	for _, name := range names {
+		td, err := s.toolRegistry.GetTool(name)
+		if err != nil {
+			continue
+		}
+		out = append(out, selection.Candidate{
+			ID:          td.Name,
+			Name:        td.Name,
+			Description: td.Description,
+		})
+	}
+	return out
+}
+
+// intersectInOrder returns the elements of source that appear in keep,
+// preserving source order.
+func intersectInOrder(source, keep []string) []string {
+	keepSet := make(map[string]bool, len(keep))
+	for _, id := range keep {
+		keepSet[id] = true
+	}
+	out := make([]string, 0, len(keep))
+	for _, name := range source {
+		if keepSet[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// lastUserMessageText returns the concatenated text of the most
+// recent user message in the slice, or "" when none is found.
+func lastUserMessageText(msgs []types.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != "user" {
+			continue
+		}
+		var sb strings.Builder
+		for _, p := range msgs[i].Parts {
+			if p.Type == types.ContentTypeText && p.Text != nil {
+				if sb.Len() > 0 {
+					sb.WriteByte(' ')
+				}
+				sb.WriteString(*p.Text)
+			}
+		}
+		return sb.String()
+	}
+	return ""
+}
+
 // getMaxRounds returns the maximum number of tool call rounds.
 func (s *ProviderStage) getMaxRounds() int {
 	if s.toolPolicy != nil && s.toolPolicy.MaxRounds > 0 {
@@ -303,6 +400,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 	acc *providerInput,
 	output chan<- StreamElement,
 ) ([]types.Message, error) {
+	s.applyToolSelector(ctx, acc)
 	loop, err := s.newToolLoop(acc)
 	if err != nil {
 		return nil, err

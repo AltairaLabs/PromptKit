@@ -404,6 +404,33 @@ func TestRuntimeConfigSpec_Validate_SkillsReferencesUndeclaredSelector(t *testin
 	}
 }
 
+func TestRuntimeConfigSpec_Validate_ToolSelectorReferencesUndeclared(t *testing.T) {
+	s := &RuntimeConfigSpec{ToolSelector: "ghost"}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for undeclared tool_selector ref")
+	}
+}
+
+func TestLoadRuntimeConfig_ToolSelector(t *testing.T) {
+	yaml := `
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+spec:
+  selectors:
+    rerank:
+      command: ./selectors/rerank
+  tool_selector: rerank
+`
+	path := writeTemp(t, "rc.yaml", yaml)
+	rc, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRuntimeConfig: %v", err)
+	}
+	if rc.Spec.ToolSelector != "rerank" {
+		t.Errorf("ToolSelector = %q, want rerank", rc.Spec.ToolSelector)
+	}
+}
+
 func TestLoadRuntimeConfig_SelectorsYAML(t *testing.T) {
 	yaml := `
 apiVersion: promptkit.altairalabs.ai/v1alpha1
