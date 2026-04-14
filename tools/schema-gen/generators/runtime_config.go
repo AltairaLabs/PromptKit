@@ -19,7 +19,23 @@ func GenerateRuntimeConfigSchema() (interface{}, error) {
 	})
 }
 
+// allowSandboxAdditionalProps flips SandboxConfig's additionalProperties
+// to true. SandboxConfig has a yaml-inline `Config map[string]any` that
+// receives all mode-specific keys (image, network, mounts, ...), so the
+// default strict setting would incorrectly reject valid configs.
+func allowSandboxAdditionalProps(schema *jsonschema.Schema) {
+	if schema.Definitions == nil {
+		return
+	}
+	sb, ok := schema.Definitions["SandboxConfig"]
+	if !ok {
+		return
+	}
+	sb.AdditionalProperties = &jsonschema.Schema{}
+}
+
 func addRuntimeConfigExample(schema *jsonschema.Schema) {
+	allowSandboxAdditionalProps(schema)
 	schema.Examples = []interface{}{
 		map[string]interface{}{
 			"apiVersion": "promptkit.altairalabs.ai/v1alpha1",

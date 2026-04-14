@@ -53,6 +53,32 @@ type RuntimeConfigSpec struct {
 	// Hooks configures external process hooks for pipeline lifecycle events.
 	//nolint:lll // jsonschema tags require single line
 	Hooks map[string]*ExecHook `yaml:"hooks,omitempty" json:"hooks,omitempty" jsonschema:"title=Hooks,description=External hook process configurations"`
+
+	// Sandboxes declares named sandbox backends that exec hooks can
+	// reference via their "sandbox:" field. Each entry's "mode" selects
+	// a factory registered via runtime/hooks/sandbox.RegisterFactory;
+	// the remaining fields are passed verbatim to that factory as the
+	// config map. The built-in "direct" mode resolves without any
+	// consumer opt-in; other modes (docker_run, docker_exec, kubectl_exec,
+	// or custom) require that their factory has been registered before
+	// RuntimeConfig is loaded.
+	//nolint:lll // jsonschema tags require single line
+	Sandboxes map[string]*SandboxConfig `yaml:"sandboxes,omitempty" json:"sandboxes,omitempty" jsonschema:"title=Sandboxes,description=Named sandbox backends for exec-hook subprocess launch"`
+}
+
+// SandboxConfig declares a named sandbox backend. Mode selects a
+// factory registered via runtime/hooks/sandbox.RegisterFactory; every
+// other field is passed to the factory as its config map.
+type SandboxConfig struct {
+	// Mode names a registered sandbox factory. "direct" ships in-tree
+	// and needs no extra registration.
+	//nolint:lll // jsonschema tags require single line
+	Mode string `yaml:"mode" json:"mode" jsonschema:"title=Mode,description=Registered sandbox factory name (direct ships in-tree; docker_run/docker_exec/kubectl_exec are examples)"`
+
+	// Config carries mode-specific configuration. Each factory
+	// documents its own keys. For example, the docker_run example
+	// expects "image", "network", and "mounts".
+	Config map[string]any `yaml:",inline" json:"-" jsonschema:"-"`
 }
 
 // ExecBinding defines how to invoke an external process for tool or eval execution.
@@ -71,6 +97,12 @@ type ExecBinding struct {
 	// TimeoutMs is the per-invocation timeout in milliseconds.
 	//nolint:lll // jsonschema tags require single line
 	TimeoutMs int `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty" jsonschema:"title=Timeout,description=Per-invocation timeout in milliseconds"`
+	// Sandbox names a sandbox backend declared under spec.sandboxes.
+	// When empty the built-in "direct" backend is used. Only applies to
+	// exec hooks; ignored for exec tools and exec eval handlers (which
+	// reuse this struct via embedding but do not yet support sandboxing).
+	//nolint:lll // jsonschema tags require single line
+	Sandbox string `yaml:"sandbox,omitempty" json:"sandbox,omitempty" jsonschema:"title=Sandbox,description=Name of a sandbox declared under spec.sandboxes"`
 }
 
 // ExecHook defines an external process hook bound to a pipeline lifecycle event.
@@ -148,6 +180,9 @@ func (s *RuntimeConfigSpec) Validate() error {
 	if err := s.validateEvals(); err != nil {
 		return err
 	}
+	if err := s.validateSandboxes(); err != nil {
+		return err
+	}
 	return s.validateHooks()
 }
 
@@ -220,7 +255,22 @@ func (s *RuntimeConfigSpec) validateEvals() error {
 	return nil
 }
 
-var validHookTypes = map[string]bool{"provider": true, "tool": true, "session": true}
+var validHookTypes = map[string]bool{"provider": true, "tool": true, "session": true, "eval": true}
+
+func (s *RuntimeConfigSpec) validateSandboxes() error {
+	for name, sb := range s.Sandboxes {
+		if sb == nil {
+			continue
+		}
+		if sb.Mode == "" {
+			return &ValidationError{
+				Field:   fmt.Sprintf("sandboxes[%s].mode", name),
+				Message: "sandbox mode is required",
+			}
+		}
+	}
+	return nil
+}
 
 func (s *RuntimeConfigSpec) validateHooks() error {
 	for name, h := range s.Hooks {
@@ -233,14 +283,23 @@ func (s *RuntimeConfigSpec) validateHooks() error {
 		if h.Hook == "" {
 			return &ValidationError{
 				Field:   fmt.Sprintf("hooks[%s].hook", name),
-				Message: "hook type is required (provider, tool, or session)",
+				Message: "hook type is required (provider, tool, session, or eval)",
 			}
 		}
 		if !validHookTypes[h.Hook] {
 			return &ValidationError{
 				Field:   fmt.Sprintf("hooks[%s].hook", name),
-				Message: "must be one of: provider, tool, session",
+				Message: "must be one of: provider, tool, session, eval",
 				Value:   h.Hook,
+			}
+		}
+		if h.Sandbox != "" {
+			if _, ok := s.Sandboxes[h.Sandbox]; !ok {
+				return &ValidationError{
+					Field:   fmt.Sprintf("hooks[%s].sandbox", name),
+					Message: "references a sandbox not declared under spec.sandboxes",
+					Value:   h.Sandbox,
+				}
 			}
 		}
 	}

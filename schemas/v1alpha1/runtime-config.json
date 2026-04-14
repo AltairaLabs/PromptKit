@@ -54,6 +54,11 @@
           "type": "integer",
           "title": "Timeout",
           "description": "Per-invocation timeout in milliseconds"
+        },
+        "sandbox": {
+          "type": "string",
+          "title": "Sandbox",
+          "description": "Name of a sandbox declared under spec.sandboxes"
         }
       },
       "additionalProperties": false,
@@ -99,6 +104,11 @@
           "type": "integer",
           "title": "Timeout",
           "description": "Per-invocation timeout in milliseconds"
+        },
+        "sandbox": {
+          "type": "string",
+          "title": "Sandbox",
+          "description": "Name of a sandbox declared under spec.sandboxes"
         },
         "hook": {
           "type": "string",
@@ -707,10 +717,32 @@
           "type": "object",
           "title": "Hooks",
           "description": "External hook process configurations"
+        },
+        "sandboxes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SandboxConfig"
+          },
+          "type": "object",
+          "title": "Sandboxes",
+          "description": "Named sandbox backends for exec-hook subprocess launch"
         }
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "SandboxConfig": {
+      "properties": {
+        "mode": {
+          "type": "string",
+          "title": "Mode",
+          "description": "Registered sandbox factory name (direct ships in-tree; docker_run/docker_exec/kubectl_exec are examples)"
+        }
+      },
+      "additionalProperties": true,
+      "type": "object",
+      "required": [
+        "mode"
+      ]
     },
     "StateStoreConfig": {
       "properties": {
