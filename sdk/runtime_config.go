@@ -17,6 +17,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	// Side-effect imports register embedding-provider factories so
+	// CreateEmbeddingProviderFromSpec can resolve declarative entries.
+	// Chat-provider factories register through other SDK paths.
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -142,6 +149,13 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 		c.provider = prov
 	}
 
+	// Apply embedding providers (declarative). The first declared
+	// entry doubles as the default RAG retrievalProvider when one
+	// isn't already set programmatically.
+	if err := applyEmbeddingProviders(c, spec.EmbeddingProviders); err != nil {
+		return fmt.Errorf("applying embedding providers from runtime config: %w", err)
+	}
+
 	// Apply MCP servers
 	for _, mcpCfg := range spec.MCPServers {
 		serverCfg := mcp.ServerConfig{
@@ -205,6 +219,32 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 		c.toolSelectorName = spec.ToolSelector
 	}
 
+	// Init all selectors with the shared SelectorContext now that
+	// embedding providers are resolved. Programmatic selectors that
+	// don't need an embedding provider can ignore the context; the
+	// reference cosine selector uses it to skip building its own.
+	if err := initSelectors(c); err != nil {
+		return fmt.Errorf("initializing selectors: %w", err)
+	}
+
+	return nil
+}
+
+// initSelectors calls Init on every registered selector with a
+// SelectorContext that exposes the configured RAG embedding provider
+// (when one is set). Init failure aborts config application — a
+// selector that can't initialize would fail every Send anyway, so
+// surfacing the error at config-load time gives a faster signal.
+func initSelectors(c *config) error {
+	if len(c.selectors) == 0 {
+		return nil
+	}
+	ctx := selection.SelectorContext{Embeddings: c.retrievalProvider}
+	for name, sel := range c.selectors {
+		if err := sel.Init(ctx); err != nil {
+			return fmt.Errorf("selector %q: %w", name, err)
+		}
+	}
 	return nil
 }
 
@@ -243,6 +283,52 @@ func applySelectors(c *config, specs map[string]*pkgconfig.SelectorConfig,
 			TimeoutMs: sel.TimeoutMs,
 			Sandbox:   sb,
 		})
+	}
+	return nil
+}
+
+// applyEmbeddingProviders builds embedding-provider instances from
+// the spec and stores them on the SDK config keyed by ID. The first
+// declared entry doubles as the default RAG retrievalProvider when
+// one isn't already set programmatically (matching the chat-provider
+// "first wins, programmatic-takes-precedence" pattern).
+func applyEmbeddingProviders(c *config, specs []pkgconfig.EmbeddingProviderConfig) error {
+	if len(specs) == 0 {
+		return nil
+	}
+	if c.embeddingProviders == nil {
+		c.embeddingProviders = make(map[string]providers.EmbeddingProvider, len(specs))
+	}
+	for i := range specs {
+		ep := &specs[i]
+		id := ep.ID
+		if id == "" {
+			id = ep.Type
+		}
+		if _, exists := c.embeddingProviders[id]; exists {
+			return fmt.Errorf("embedding provider %q: duplicate ID", id)
+		}
+		cred, err := providers.ResolveEmbeddingCredential(context.Background(), ep.Type, "", ep.Credential)
+		if err != nil {
+			return fmt.Errorf("embedding provider %q: resolving credential: %w", id, err)
+		}
+		instance, err := providers.CreateEmbeddingProviderFromSpec(providers.EmbeddingProviderSpec{
+			ID:               id,
+			Type:             ep.Type,
+			Model:            ep.Model,
+			BaseURL:          ep.BaseURL,
+			Credential:       cred,
+			AdditionalConfig: ep.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("embedding provider %q: %w", id, err)
+		}
+		c.embeddingProviders[id] = instance
+		c.embeddingProviderIDs = append(c.embeddingProviderIDs, id)
+	}
+	// Default RAG provider: first declared, unless one is already wired.
+	if c.retrievalProvider == nil && len(c.embeddingProviderIDs) > 0 {
+		c.retrievalProvider = c.embeddingProviders[c.embeddingProviderIDs[0]]
 	}
 	return nil
 }

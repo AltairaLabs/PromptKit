@@ -29,6 +29,14 @@ type RuntimeConfigSpec struct {
 	//nolint:lll // jsonschema tags require single line
 	Providers []Provider `yaml:"providers,omitempty" json:"providers,omitempty" jsonschema:"title=Providers,description=LLM provider configurations"`
 
+	// EmbeddingProviders configures embedding providers (OpenAI, Gemini,
+	// VoyageAI, Ollama). Used for RAG retrieval and as the shared
+	// provider supplied to selectors via SelectorContext.Embeddings.
+	// First entry becomes the default RAG provider unless one is set
+	// programmatically via WithContextRetrieval.
+	//nolint:lll // jsonschema tags require single line
+	EmbeddingProviders []EmbeddingProviderConfig `yaml:"embedding_providers,omitempty" json:"embedding_providers,omitempty" jsonschema:"title=Embedding Providers,description=Embedding provider configurations"`
+
 	// Tools binds pack tool names to implementations (HTTP, mock, or exec).
 	//nolint:lll // jsonschema tags require single line
 	Tools map[string]*ToolSpec `yaml:"tools,omitempty" json:"tools,omitempty" jsonschema:"title=Tools,description=Tool implementation bindings keyed by tool name"`
@@ -119,6 +127,36 @@ type SkillsConfig struct {
 	// When empty, all eligible skills are surfaced (current behavior).
 	//nolint:lll // jsonschema tags require single line
 	Selector string `yaml:"selector,omitempty" json:"selector,omitempty" jsonschema:"title=Selector,description=Name of a selector declared under spec.selectors"`
+}
+
+// EmbeddingProviderConfig declares an embedding provider — the
+// declarative analog of programmatic providers.NewEmbeddingProvider
+// constructors. Resolved by sdk.WithRuntimeConfig and stored by ID
+// for later lookup; the first declared entry becomes the default
+// retrieval and selector-context provider unless one is set
+// programmatically via WithContextRetrieval.
+type EmbeddingProviderConfig struct {
+	// ID is a stable identifier used to reference this provider from
+	// other config blocks (e.g. tool_selector via SelectorContext).
+	// Empty falls back to the type name.
+	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
+	// Type selects the implementation: openai, gemini, voyageai, ollama.
+	//nolint:lll // jsonschema tags require single line
+	Type string `yaml:"type" json:"type" jsonschema:"enum=openai,enum=gemini,enum=voyageai,enum=ollama,title=Type,description=Embedding provider type"`
+	// Model overrides the provider's default embedding model.
+	Model string `yaml:"model,omitempty" json:"model,omitempty" jsonschema:"title=Model,description=Embedding model name"`
+	// BaseURL overrides the provider's default API endpoint. Useful for
+	// self-hosted deployments and OpenAI-compatible gateways.
+	//nolint:lll // jsonschema tags require single line
+	BaseURL string `yaml:"base_url,omitempty" json:"base_url,omitempty" jsonschema:"title=BaseURL,description=API endpoint override"`
+	// Credential names how to obtain the API key. Same shape as the
+	// chat-provider credential block.
+	//nolint:lll // jsonschema tags require single line
+	Credential *CredentialConfig `yaml:"credential,omitempty" json:"credential,omitempty" jsonschema:"title=Credential,description=API key resolution"`
+	// AdditionalConfig carries provider-specific extras (e.g. VoyageAI
+	// dimensions, input_type). Each provider documents its own keys.
+	//nolint:lll // jsonschema tags require single line
+	AdditionalConfig map[string]any `yaml:"additional_config,omitempty" json:"additional_config,omitempty" jsonschema:"title=Additional Config,description=Provider-specific extras"`
 }
 
 // SandboxConfig declares a named sandbox backend. Mode selects a
@@ -221,6 +259,9 @@ func (s *RuntimeConfigSpec) Validate() error {
 	if err := s.validateProviders(); err != nil {
 		return err
 	}
+	if err := s.validateEmbeddingProviders(); err != nil {
+		return err
+	}
 	if err := s.validateStateStore(); err != nil {
 		return err
 	}
@@ -279,6 +320,43 @@ func (s *RuntimeConfigSpec) validateStateStore() error {
 			Field:   "state_store.redis",
 			Message: "redis configuration is required when type is redis",
 		}
+	}
+	return nil
+}
+
+var validEmbeddingTypes = map[string]bool{
+	"openai": true, "gemini": true, "voyageai": true, "ollama": true,
+}
+
+func (s *RuntimeConfigSpec) validateEmbeddingProviders() error {
+	seen := make(map[string]bool, len(s.EmbeddingProviders))
+	for i := range s.EmbeddingProviders {
+		ep := &s.EmbeddingProviders[i]
+		if ep.Type == "" {
+			return &ValidationError{
+				Field:   fmt.Sprintf("embedding_providers[%d].type", i),
+				Message: "embedding provider type is required",
+			}
+		}
+		if !validEmbeddingTypes[ep.Type] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("embedding_providers[%d].type", i),
+				Message: "must be one of: openai, gemini, voyageai, ollama",
+				Value:   ep.Type,
+			}
+		}
+		id := ep.ID
+		if id == "" {
+			id = ep.Type
+		}
+		if seen[id] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("embedding_providers[%d].id", i),
+				Message: "duplicate embedding provider id",
+				Value:   id,
+			}
+		}
+		seen[id] = true
 	}
 	return nil
 }

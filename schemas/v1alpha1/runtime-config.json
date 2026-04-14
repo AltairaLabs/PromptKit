@@ -17,6 +17,51 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "EmbeddingProviderConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "ID",
+          "description": "Stable identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "gemini",
+            "voyageai",
+            "ollama"
+          ],
+          "title": "Type",
+          "description": "Embedding provider type"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model",
+          "description": "Embedding model name"
+        },
+        "base_url": {
+          "type": "string",
+          "title": "BaseURL",
+          "description": "API endpoint override"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "title": "Credential",
+          "description": "API key resolution"
+        },
+        "additional_config": {
+          "type": "object",
+          "title": "Additional Config",
+          "description": "Provider-specific extras"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
     "ExecBinding": {
       "properties": {
         "command": {
@@ -675,6 +720,14 @@
           "type": "array",
           "title": "Providers",
           "description": "LLM provider configurations"
+        },
+        "embedding_providers": {
+          "items": {
+            "$ref": "#/$defs/EmbeddingProviderConfig"
+          },
+          "type": "array",
+          "title": "Embedding Providers",
+          "description": "Embedding provider configurations"
         },
         "tools": {
           "additionalProperties": {

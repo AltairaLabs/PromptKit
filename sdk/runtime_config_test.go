@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -637,6 +638,120 @@ func TestResolveSandboxes_NilAndEmpty(t *testing.T) {
 	out, err = resolveSandboxes(map[string]*pkgconfig.SandboxConfig{"skip": nil})
 	require.NoError(t, err)
 	assert.Empty(t, out)
+}
+
+func TestApplyEmbeddingProviders_Empty(t *testing.T) {
+	c := &config{}
+	require.NoError(t, applyEmbeddingProviders(c, nil))
+	require.Empty(t, c.embeddingProviders)
+	require.Nil(t, c.retrievalProvider)
+}
+
+func TestApplyEmbeddingProviders_BuildsAndDefaultsRetrieval(t *testing.T) {
+	specs := []pkgconfig.EmbeddingProviderConfig{
+		{ID: "rag", Type: "ollama", Model: "nomic-embed-text"},
+	}
+	c := &config{}
+	require.NoError(t, applyEmbeddingProviders(c, specs))
+	require.Contains(t, c.embeddingProviders, "rag")
+	require.NotNil(t, c.retrievalProvider, "first declared entry should default the retrieval provider")
+	require.Same(t, c.embeddingProviders["rag"], c.retrievalProvider)
+}
+
+func TestApplyEmbeddingProviders_RespectsExistingRetrievalProvider(t *testing.T) {
+	existing := &fakeEmbedderForTests{}
+	specs := []pkgconfig.EmbeddingProviderConfig{
+		{Type: "ollama"},
+	}
+	c := &config{retrievalProvider: existing}
+	require.NoError(t, applyEmbeddingProviders(c, specs))
+	require.Same(t, existing, c.retrievalProvider, "WithContextRetrieval should win over default-from-first")
+}
+
+func TestApplyEmbeddingProviders_DefaultIDFallsBackToType(t *testing.T) {
+	specs := []pkgconfig.EmbeddingProviderConfig{{Type: "ollama"}}
+	c := &config{}
+	require.NoError(t, applyEmbeddingProviders(c, specs))
+	require.Contains(t, c.embeddingProviders, "ollama", "ID should default to Type")
+}
+
+func TestApplyEmbeddingProviders_DuplicateID(t *testing.T) {
+	specs := []pkgconfig.EmbeddingProviderConfig{
+		{ID: "x", Type: "ollama"},
+		{ID: "x", Type: "ollama"},
+	}
+	c := &config{}
+	err := applyEmbeddingProviders(c, specs)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate ID")
+}
+
+func TestApplyEmbeddingProviders_UnsupportedType(t *testing.T) {
+	specs := []pkgconfig.EmbeddingProviderConfig{{Type: "no-such-provider"}}
+	c := &config{}
+	err := applyEmbeddingProviders(c, specs)
+	require.Error(t, err)
+}
+
+// fakeEmbedderForTests is used to verify retrievalProvider precedence
+// without standing up a real embedding implementation.
+type fakeEmbedderForTests struct{}
+
+func (f *fakeEmbedderForTests) Embed(_ context.Context,
+	_ providers.EmbeddingRequest,
+) (providers.EmbeddingResponse, error) {
+	return providers.EmbeddingResponse{}, nil
+}
+func (f *fakeEmbedderForTests) EmbeddingDimensions() int { return 0 }
+func (f *fakeEmbedderForTests) MaxBatchSize() int        { return 1 }
+func (f *fakeEmbedderForTests) ID() string               { return "fake" }
+
+// recordingSelector captures the SelectorContext passed to Init so
+// tests can confirm the embedding provider gets threaded through.
+type recordingSelector struct {
+	name      string
+	gotInit   selection.SelectorContext
+	initErr   error
+	initCalls int
+}
+
+func (s *recordingSelector) Name() string { return s.name }
+func (s *recordingSelector) Init(ctx selection.SelectorContext) error {
+	s.initCalls++
+	s.gotInit = ctx
+	return s.initErr
+}
+func (s *recordingSelector) Select(_ context.Context, _ selection.Query,
+	_ []selection.Candidate,
+) ([]string, error) {
+	return nil, nil
+}
+
+func TestInitSelectors_PassesEmbeddingProvider(t *testing.T) {
+	rec := &recordingSelector{name: "s"}
+	emb := &fakeEmbedderForTests{}
+	c := &config{
+		selectors:         map[string]selection.Selector{"s": rec},
+		retrievalProvider: emb,
+	}
+	require.NoError(t, initSelectors(c))
+	require.Equal(t, 1, rec.initCalls)
+	require.Same(t, emb, rec.gotInit.Embeddings)
+}
+
+func TestInitSelectors_NilEmbeddings(t *testing.T) {
+	rec := &recordingSelector{name: "s"}
+	c := &config{selectors: map[string]selection.Selector{"s": rec}}
+	require.NoError(t, initSelectors(c))
+	require.Nil(t, rec.gotInit.Embeddings)
+}
+
+func TestInitSelectors_PropagatesError(t *testing.T) {
+	rec := &recordingSelector{name: "s", initErr: fmt.Errorf("init blew up")}
+	c := &config{selectors: map[string]selection.Selector{"s": rec}}
+	err := initSelectors(c)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `selector "s"`)
 }
 
 // stubSelector is a programmatic selector used only in runtime-config tests.
