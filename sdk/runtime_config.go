@@ -26,7 +26,9 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
 // resolveSandboxes builds a map from declared sandbox names to ready
@@ -154,6 +156,16 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	// isn't already set programmatically.
 	if err := applyEmbeddingProviders(c, spec.EmbeddingProviders); err != nil {
 		return fmt.Errorf("applying embedding providers from runtime config: %w", err)
+	}
+
+	// Apply TTS / STT providers (declarative). First declared entry
+	// becomes the default ttsService / sttService when one isn't set
+	// programmatically via WithTTS / WithVADMode.
+	if err := applyTTSProviders(c, spec.TTSProviders); err != nil {
+		return fmt.Errorf("applying TTS providers from runtime config: %w", err)
+	}
+	if err := applySTTProviders(c, spec.STTProviders); err != nil {
+		return fmt.Errorf("applying STT providers from runtime config: %w", err)
 	}
 
 	// Apply MCP servers
@@ -329,6 +341,95 @@ func applyEmbeddingProviders(c *config, specs []pkgconfig.EmbeddingProviderConfi
 	// Default RAG provider: first declared, unless one is already wired.
 	if c.retrievalProvider == nil && len(c.embeddingProviderIDs) > 0 {
 		c.retrievalProvider = c.embeddingProviders[c.embeddingProviderIDs[0]]
+	}
+	return nil
+}
+
+// applyTTSProviders builds TTS instances from the spec and stores
+// them by ID. The first declared entry doubles as the default
+// ttsService when one isn't already set programmatically (matching
+// the embedding-provider precedence pattern).
+//
+//nolint:dupl // applySTTProviders is structurally identical but operates on a different type.
+func applyTTSProviders(c *config, specs []pkgconfig.TTSProviderConfig) error {
+	if len(specs) == 0 {
+		return nil
+	}
+	if c.ttsProviders == nil {
+		c.ttsProviders = make(map[string]tts.Service, len(specs))
+	}
+	for i := range specs {
+		tp := &specs[i]
+		id := tp.ID
+		if id == "" {
+			id = tp.Type
+		}
+		if _, exists := c.ttsProviders[id]; exists {
+			return fmt.Errorf("TTS provider %q: duplicate ID", id)
+		}
+		cred, err := tts.ResolveCredential(context.Background(), tp.Type, "", tp.Credential)
+		if err != nil {
+			return fmt.Errorf("TTS provider %q: resolving credential: %w", id, err)
+		}
+		instance, err := tts.CreateFromSpec(tts.ProviderSpec{
+			ID:               id,
+			Type:             tp.Type,
+			Model:            tp.Model,
+			BaseURL:          tp.BaseURL,
+			Credential:       cred,
+			AdditionalConfig: tp.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("TTS provider %q: %w", id, err)
+		}
+		c.ttsProviders[id] = instance
+		c.ttsProviderIDs = append(c.ttsProviderIDs, id)
+	}
+	if c.ttsService == nil && len(c.ttsProviderIDs) > 0 {
+		c.ttsService = c.ttsProviders[c.ttsProviderIDs[0]]
+	}
+	return nil
+}
+
+// applySTTProviders mirrors applyTTSProviders for STT.
+//
+//nolint:dupl // applyTTSProviders is structurally identical but operates on a different type.
+func applySTTProviders(c *config, specs []pkgconfig.STTProviderConfig) error {
+	if len(specs) == 0 {
+		return nil
+	}
+	if c.sttProviders == nil {
+		c.sttProviders = make(map[string]stt.Service, len(specs))
+	}
+	for i := range specs {
+		sp := &specs[i]
+		id := sp.ID
+		if id == "" {
+			id = sp.Type
+		}
+		if _, exists := c.sttProviders[id]; exists {
+			return fmt.Errorf("STT provider %q: duplicate ID", id)
+		}
+		cred, err := stt.ResolveCredential(context.Background(), sp.Type, "", sp.Credential)
+		if err != nil {
+			return fmt.Errorf("STT provider %q: resolving credential: %w", id, err)
+		}
+		instance, err := stt.CreateFromSpec(stt.ProviderSpec{
+			ID:               id,
+			Type:             sp.Type,
+			Model:            sp.Model,
+			BaseURL:          sp.BaseURL,
+			Credential:       cred,
+			AdditionalConfig: sp.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("STT provider %q: %w", id, err)
+		}
+		c.sttProviders[id] = instance
+		c.sttProviderIDs = append(c.sttProviderIDs, id)
+	}
+	if c.sttService == nil && len(c.sttProviderIDs) > 0 {
+		c.sttService = c.sttProviders[c.sttProviderIDs[0]]
 	}
 	return nil
 }
