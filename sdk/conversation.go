@@ -230,6 +230,12 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 		return nil, optErr
 	}
 
+	// Refresh per-send skill index in case an external selector is
+	// configured. Runs after capability registration (which happens
+	// inside the pipeline build); calling it before is a no-op because
+	// executor.SkillIndexFiltered handles the pre-registration state.
+	c.refreshSelectorBoundCapabilities(ctx, extractUserText(userMsg))
+
 	// Build and execute pipeline
 	result, err := c.executePipeline(ctx, userMsg)
 	if err != nil {
@@ -273,6 +279,38 @@ func (c *Conversation) buildUserMessage(message any) (*types.Message, error) {
 		return m, nil
 	default:
 		return nil, fmt.Errorf("message must be string or *types.Message, got %T", message)
+	}
+}
+
+// extractUserText concatenates the text parts of a user message for
+// use as a selector query. Non-text parts are skipped. Returns empty
+// when the message contains no text.
+func extractUserText(msg *types.Message) string {
+	if msg == nil {
+		return ""
+	}
+	var sb strings.Builder
+	for i, part := range msg.Parts {
+		if part.Type != "text" || part.Text == nil {
+			continue
+		}
+		if i > 0 && sb.Len() > 0 {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(*part.Text)
+	}
+	return sb.String()
+}
+
+// refreshSelectorBoundCapabilities lets capabilities that depend on
+// per-turn context (currently only SkillsCapability) refresh their
+// tool descriptors before the pipeline runs. No-op when no such
+// capability is present or no selector is configured.
+func (c *Conversation) refreshSelectorBoundCapabilities(ctx context.Context, query string) {
+	for _, cap := range c.capabilities {
+		if sc, ok := cap.(*SkillsCapability); ok {
+			sc.RefreshSkillIndex(ctx, query, c.toolRegistry)
+		}
 	}
 }
 

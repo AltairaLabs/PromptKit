@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 )
 
 type skillFilterKey struct{}
@@ -28,24 +30,26 @@ func SkillFilterFromContext(ctx context.Context) string {
 // Executor manages the skill activation lifecycle and provides
 // functions that implement the skill__ namespaced tools.
 type Executor struct {
-	registry  *Registry
-	selector  SkillSelector
-	active    map[string]*Skill // currently active skills, keyed by name
-	packTools []string          // all tools declared in the pack (the ceiling)
-	packSet   map[string]bool   // pre-built set from packTools for O(1) membership checks
-	maxActive int               // max concurrent active skills (0 = unlimited)
-	filter    string            // glob pattern restricting activatable skills
-	configDir string            // base directory for computing relative skill paths
-	mu        sync.RWMutex
+	registry    *Registry
+	selector    SkillSelector
+	newSelector selection.Selector
+	active      map[string]*Skill // currently active skills, keyed by name
+	packTools   []string          // all tools declared in the pack (the ceiling)
+	packSet     map[string]bool   // pre-built set from packTools for O(1) membership checks
+	maxActive   int               // max concurrent active skills (0 = unlimited)
+	filter      string            // glob pattern restricting activatable skills
+	configDir   string            // base directory for computing relative skill paths
+	mu          sync.RWMutex
 }
 
 // ExecutorConfig configures the skill executor.
 type ExecutorConfig struct {
-	Registry  *Registry
-	Selector  SkillSelector // nil = ModelDrivenSelector
-	PackTools []string      // all tools declared in the pack
-	MaxActive int           // 0 = unlimited
-	ConfigDir string        // base directory for computing relative skill paths in filters
+	Registry    *Registry
+	Selector    SkillSelector      // nil = ModelDrivenSelector
+	NewSelector selection.Selector // optional external selector for narrowing the skill index
+	PackTools   []string           // all tools declared in the pack
+	MaxActive   int                // 0 = unlimited
+	ConfigDir   string             // base directory for computing relative skill paths in filters
 }
 
 // NewExecutor creates a new Executor from the given configuration.
@@ -62,14 +66,24 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		packSet[t] = true
 	}
 	return &Executor{
-		registry:  cfg.Registry,
-		selector:  sel,
-		active:    make(map[string]*Skill),
-		packTools: cfg.PackTools,
-		packSet:   packSet,
-		maxActive: cfg.MaxActive,
-		configDir: cfg.ConfigDir,
+		registry:    cfg.Registry,
+		selector:    sel,
+		newSelector: cfg.NewSelector,
+		active:      make(map[string]*Skill),
+		packTools:   cfg.PackTools,
+		packSet:     packSet,
+		maxActive:   cfg.MaxActive,
+		configDir:   cfg.ConfigDir,
 	}
+}
+
+// SetNewSelector replaces the external selector after construction.
+// It is safe to call between Send()s; callers typically wire this at
+// capability-registration time based on RuntimeConfig.
+func (e *Executor) SetNewSelector(sel selection.Selector) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.newSelector = sel
 }
 
 // Activate loads a skill's instructions and returns them.
@@ -202,10 +216,23 @@ func (e *Executor) ReadResource(skillName, path string) ([]byte, error) {
 }
 
 // SkillIndex returns the Phase 1 skill index string for inclusion in
-// the skill__activate tool description. This is the list of available
-// skills with their names and descriptions.
-// If skillsDir is non-empty, filters to skills under that directory.
+// the skill__activate tool description. It is a thin wrapper over
+// SkillIndexFiltered with no query, so it preserves historical
+// behavior when no external selector is configured.
 func (e *Executor) SkillIndex(skillsDir string) string {
+	return e.SkillIndexFiltered(context.Background(), "", skillsDir)
+}
+
+// SkillIndexFiltered returns the skill index string, optionally
+// narrowed by the configured external Selector. When no selector is
+// configured, or the selector returns an error or an empty result,
+// the full eligible set is returned — PromptKit never crashes a
+// conversation because selection failed.
+//
+// query is the current-turn context the selector may rank against;
+// when empty, the selector is skipped entirely (there's nothing to
+// rank against, so all eligible skills surface).
+func (e *Executor) SkillIndexFiltered(ctx context.Context, query, skillsDir string) string {
 	var skills []SkillMetadata
 	if skillsDir != "" {
 		skills = e.registry.ListForDir(skillsDir)
@@ -217,6 +244,8 @@ func (e *Executor) SkillIndex(skillsDir string) string {
 		return "No skills available."
 	}
 
+	skills = e.applyNewSelector(ctx, query, skills)
+
 	var sb strings.Builder
 	sb.WriteString("Available skills:")
 	for _, s := range skills {
@@ -226,6 +255,48 @@ func (e *Executor) SkillIndex(skillsDir string) string {
 		sb.WriteString(s.Description)
 	}
 	return sb.String()
+}
+
+// applyNewSelector narrows the metadata slice to the IDs returned by
+// the configured external selector. Falls through to the input slice
+// on any failure path (nil selector, empty query, selector error,
+// empty result).
+func (e *Executor) applyNewSelector(ctx context.Context, query string, skills []SkillMetadata) []SkillMetadata {
+	e.mu.RLock()
+	sel := e.newSelector
+	e.mu.RUnlock()
+	if sel == nil || query == "" {
+		return skills
+	}
+
+	candidates := make([]selection.Candidate, 0, len(skills))
+	for _, s := range skills {
+		candidates = append(candidates, selection.Candidate{
+			ID:          s.Name,
+			Name:        s.Name,
+			Description: s.Description,
+		})
+	}
+
+	ids, err := sel.Select(ctx, selection.Query{Text: query, Kind: "skill"}, candidates)
+	if err != nil || len(ids) == 0 {
+		return skills
+	}
+
+	keep := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		keep[id] = true
+	}
+	out := make([]SkillMetadata, 0, len(ids))
+	for _, s := range skills {
+		if keep[s.Name] {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return skills
+	}
+	return out
 }
 
 // ActiveSkills returns the names of currently active skills, sorted.

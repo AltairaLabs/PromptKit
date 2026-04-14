@@ -17,6 +17,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
@@ -190,6 +191,56 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 		return fmt.Errorf("applying exec hooks from runtime config: %w", err)
 	}
 
+	// Resolve declared selectors (exec-backed) and wire the skills
+	// binding. Programmatic selectors registered via WithSelector are
+	// already in c.selectors and take precedence over exec entries of
+	// the same name.
+	if err := applySelectors(c, spec.Selectors, resolved); err != nil {
+		return fmt.Errorf("applying selectors from runtime config: %w", err)
+	}
+	if spec.Skills != nil && spec.Skills.Selector != "" {
+		c.skillsSelectorName = spec.Skills.Selector
+	}
+
+	return nil
+}
+
+// applySelectors builds exec-backed selector instances from the spec
+// and merges them into c.selectors. Names already present in
+// c.selectors (from WithSelector) are left untouched.
+func applySelectors(c *config, specs map[string]*pkgconfig.SelectorConfig,
+	sandboxes map[string]sandbox.Sandbox,
+) error {
+	if len(specs) == 0 {
+		return nil
+	}
+	if c.selectors == nil {
+		c.selectors = make(map[string]selection.Selector, len(specs))
+	}
+	for name, sel := range specs {
+		if sel == nil {
+			continue
+		}
+		if _, programmatic := c.selectors[name]; programmatic {
+			continue
+		}
+		var sb sandbox.Sandbox
+		if sel.Sandbox != "" {
+			var ok bool
+			sb, ok = sandboxes[sel.Sandbox]
+			if !ok {
+				return fmt.Errorf("selector %q references undeclared sandbox %q", name, sel.Sandbox)
+			}
+		}
+		c.selectors[name] = selection.NewExecClient(selection.ExecClientConfig{
+			Name:      name,
+			Command:   sel.Command,
+			Args:      sel.Args,
+			Env:       sel.Env,
+			TimeoutMs: sel.TimeoutMs,
+			Sandbox:   sb,
+		})
+	}
 	return nil
 }
 

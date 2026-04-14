@@ -373,6 +373,71 @@ spec:
 	}
 }
 
+func TestRuntimeConfigSpec_Validate_SelectorMissingCommand(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		Selectors: map[string]*SelectorConfig{
+			"rerank": {TimeoutMs: 1000},
+		},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for missing selector command")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_SelectorReferencesUndeclaredSandbox(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		Selectors: map[string]*SelectorConfig{
+			"rerank": {Command: "./r", Sandbox: "ghost"},
+		},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for undeclared sandbox ref")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_SkillsReferencesUndeclaredSelector(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		Skills: &SkillsConfig{Selector: "ghost"},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for undeclared selector ref")
+	}
+}
+
+func TestLoadRuntimeConfig_SelectorsYAML(t *testing.T) {
+	yaml := `
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+spec:
+  selectors:
+    rerank:
+      command: ./selectors/rerank
+      args: [--endpoint, https://rerank.internal]
+      env: [RERANK_API_KEY]
+      timeout_ms: 2000
+  skills:
+    selector: rerank
+`
+	path := writeTemp(t, "rc.yaml", yaml)
+	rc, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRuntimeConfig: %v", err)
+	}
+	sel, ok := rc.Spec.Selectors["rerank"]
+	if !ok {
+		t.Fatalf("selector rerank not loaded")
+	}
+	if sel.Command != "./selectors/rerank" {
+		t.Errorf("Command = %q", sel.Command)
+	}
+	if sel.TimeoutMs != 2000 {
+		t.Errorf("TimeoutMs = %d", sel.TimeoutMs)
+	}
+	if rc.Spec.Skills == nil || rc.Spec.Skills.Selector != "rerank" {
+		t.Errorf("skills.selector not loaded: %+v", rc.Spec.Skills)
+	}
+}
+
 func writeTemp(t *testing.T, name, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)

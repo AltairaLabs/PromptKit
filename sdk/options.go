@@ -19,6 +19,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
@@ -175,6 +176,10 @@ type config struct {
 	skillSources    []skills.SkillSource
 	skillSelector   skills.SkillSelector
 	maxActiveSkills int
+
+	// External selectors (by name) and which one narrows skills.
+	selectors          map[string]selection.Selector
+	skillsSelectorName string
 
 	// Telemetry: OTel TracerProvider for distributed tracing
 	tracerProvider trace.TracerProvider
@@ -1165,6 +1170,35 @@ func WithProviderHook(h hooks.ProviderHook) Option {
 func WithSandboxFactory(mode string, factory sandbox.Factory) Option {
 	return func(_ *config) error {
 		return sandbox.RegisterFactory(mode, factory)
+	}
+}
+
+// WithSelector registers an in-process Selector under the given name.
+// The selector narrows the skill (and later, tool) candidate set
+// surfaced to the LLM per-turn. Declarative RuntimeConfig-driven
+// selectors are resolved separately; WithSelector is the path for
+// Go consumers who want a pooled vector-DB client or any other
+// implementation that benefits from skipping a subprocess.
+//
+// A RuntimeConfig skills.selector reference resolves first against
+// WithSelector-registered names, so programmatic registrations take
+// precedence over exec-declared selectors of the same name.
+func WithSelector(name string, impl selection.Selector) Option {
+	return func(c *config) error {
+		if name == "" {
+			return fmt.Errorf("selector name must not be empty")
+		}
+		if impl == nil {
+			return fmt.Errorf("selector %q: impl must not be nil", name)
+		}
+		if c.selectors == nil {
+			c.selectors = make(map[string]selection.Selector)
+		}
+		if _, exists := c.selectors[name]; exists {
+			return fmt.Errorf("selector %q: already registered", name)
+		}
+		c.selectors[name] = impl
+		return nil
 	}
 }
 

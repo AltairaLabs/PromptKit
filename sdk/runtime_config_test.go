@@ -11,6 +11,7 @@ import (
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/stretchr/testify/assert"
@@ -636,6 +637,69 @@ func TestResolveSandboxes_NilAndEmpty(t *testing.T) {
 	out, err = resolveSandboxes(map[string]*pkgconfig.SandboxConfig{"skip": nil})
 	require.NoError(t, err)
 	assert.Empty(t, out)
+}
+
+// stubSelector is a programmatic selector used only in runtime-config tests.
+type stubSelector struct {
+	name string
+}
+
+func (s *stubSelector) Name() string                         { return s.name }
+func (s *stubSelector) Init(selection.SelectorContext) error { return nil }
+func (s *stubSelector) Select(_ context.Context, _ selection.Query,
+	_ []selection.Candidate,
+) ([]string, error) {
+	return nil, nil
+}
+
+func TestApplySelectors_BuildsExecClient(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Selectors: map[string]*pkgconfig.SelectorConfig{
+			"rerank": {Command: "/bin/true", Args: []string{"-k", "3"}, TimeoutMs: 1500},
+		},
+	}
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	require.Contains(t, c.selectors, "rerank")
+	require.Equal(t, "rerank", c.selectors["rerank"].Name())
+}
+
+func TestApplySelectors_ProgrammaticTakesPrecedence(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Selectors: map[string]*pkgconfig.SelectorConfig{
+			"rerank": {Command: "/bin/true"},
+		},
+	}
+	stub := &stubSelector{name: "rerank"}
+	c := &config{selectors: map[string]selection.Selector{"rerank": stub}}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	require.Same(t, stub, c.selectors["rerank"], "WithSelector entry must not be overwritten by exec spec")
+}
+
+func TestApplySelectors_UndeclaredSandbox(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Selectors: map[string]*pkgconfig.SelectorConfig{
+			"rerank": {Command: "/bin/true", Sandbox: "ghost"},
+		},
+	}
+	// Bypass Validate by calling applyRuntimeConfig directly with a
+	// sandbox-ref that's missing from the sandboxes map.
+	c := &config{}
+	err := applyRuntimeConfig(c, spec)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "undeclared sandbox")
+}
+
+func TestApplyRuntimeConfig_SkillsSelectorName(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Selectors: map[string]*pkgconfig.SelectorConfig{
+			"rerank": {Command: "/bin/true"},
+		},
+		Skills: &pkgconfig.SkillsConfig{Selector: "rerank"},
+	}
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	require.Equal(t, "rerank", c.skillsSelectorName)
 }
 
 // rtcMockStore is a minimal statestore.Store for runtime_config tests.

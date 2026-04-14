@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -91,6 +92,80 @@ Instructions here.`
 	readResourceTool := registry.Get(skills.SkillReadResourceTool)
 	require.NotNil(t, readResourceTool, "skill__read_resource should be registered")
 	assert.Equal(t, skills.SkillNamespace, readResourceTool.Namespace)
+}
+
+type capTestSelector struct {
+	name     string
+	selected []string
+	err      error
+}
+
+func (s *capTestSelector) Name() string                         { return s.name }
+func (s *capTestSelector) Init(selection.SelectorContext) error { return nil }
+func (s *capTestSelector) Select(_ context.Context, _ selection.Query,
+	_ []selection.Candidate,
+) ([]string, error) {
+	return s.selected, s.err
+}
+
+func writeSkillFile(t *testing.T, dir, name string) {
+	t.Helper()
+	skillDir := filepath.Join(dir, name)
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	body := "---\nname: " + name + "\ndescription: desc-" + name + "\n---\nInstructions."
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(body), 0o644))
+}
+
+func TestSkillsCapability_RefreshSkillIndex_WithSelector(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillFile(t, dir, "alpha")
+	writeSkillFile(t, dir, "beta")
+
+	sel := &capTestSelector{name: "s", selected: []string{"beta"}}
+	cap := NewSkillsCapability([]skills.SkillSource{{Dir: dir}})
+
+	p := &pack.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}
+	require.NoError(t, cap.Init(CapabilityContext{
+		Pack: p, PromptName: "chat",
+		Selectors:          map[string]selection.Selector{"s": sel},
+		SkillsSelectorName: "s",
+	}))
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+	cap.RefreshSkillIndex(context.Background(), "about beta", registry)
+
+	desc := registry.Get(skills.SkillActivateTool).Description
+	assert.Contains(t, desc, "beta")
+	assert.NotContains(t, desc, "alpha")
+}
+
+func TestSkillsCapability_RefreshSkillIndex_NoSelector_NoOp(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillFile(t, dir, "alpha")
+	cap := NewSkillsCapability([]skills.SkillSource{{Dir: dir}})
+	p := &pack.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}
+	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+	before := registry.Get(skills.SkillActivateTool).Description
+	cap.RefreshSkillIndex(context.Background(), "q", registry)
+	after := registry.Get(skills.SkillActivateTool).Description
+	assert.Equal(t, before, after, "no selector means no re-registration")
+}
+
+func TestSkillsCapability_RefreshSkillIndex_GuardRails(t *testing.T) {
+	// Nil registry and nil executor must not panic.
+	cap := NewSkillsCapability(nil)
+	cap.RefreshSkillIndex(context.Background(), "q", tools.NewRegistry())
+
+	dir := t.TempDir()
+	writeSkillFile(t, dir, "alpha")
+	cap = NewSkillsCapability([]skills.SkillSource{{Dir: dir}})
+	p := &pack.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}
+	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
+	cap.RefreshSkillIndex(context.Background(), "q", nil)
 }
 
 func TestSkillsCapability_RegisterTools_NilExecutor(t *testing.T) {
