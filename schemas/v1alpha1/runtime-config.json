@@ -725,6 +725,19 @@
           "type": "object",
           "title": "Sandboxes",
           "description": "Named sandbox backends for exec-hook subprocess launch"
+        },
+        "selectors": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SelectorConfig"
+          },
+          "type": "object",
+          "title": "Selectors",
+          "description": "External selector processes narrowing skill and tool candidate sets"
+        },
+        "skills": {
+          "$ref": "#/$defs/SkillsConfig",
+          "title": "Skills",
+          "description": "Runtime skill configuration"
         }
       },
       "additionalProperties": false,
@@ -743,6 +756,57 @@
       "required": [
         "mode"
       ]
+    },
+    "SelectorConfig": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "title": "Command",
+          "description": "Path to the selector executable"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Args",
+          "description": "Additional command arguments"
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Env",
+          "description": "Required environment variable names"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "title": "Timeout",
+          "description": "Per-invocation timeout in milliseconds"
+        },
+        "sandbox": {
+          "type": "string",
+          "title": "Sandbox",
+          "description": "Name of a sandbox declared under spec.sandboxes"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command"
+      ]
+    },
+    "SkillsConfig": {
+      "properties": {
+        "selector": {
+          "type": "string",
+          "title": "Selector",
+          "description": "Name of a selector declared under spec.selectors"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "StateStoreConfig": {
       "properties": {

@@ -64,6 +64,50 @@ type RuntimeConfigSpec struct {
 	// RuntimeConfig is loaded.
 	//nolint:lll // jsonschema tags require single line
 	Sandboxes map[string]*SandboxConfig `yaml:"sandboxes,omitempty" json:"sandboxes,omitempty" jsonschema:"title=Sandboxes,description=Named sandbox backends for exec-hook subprocess launch"`
+
+	// Selectors declares named selectors that narrow the skill or tool
+	// set surfaced to the LLM. Each entry spawns an external process
+	// that reads a JSON query on stdin and writes selected IDs on
+	// stdout. Referenced from spec.skills.selector / spec.tools.selector
+	// by name.
+	//nolint:lll // jsonschema tags require single line
+	Selectors map[string]*SelectorConfig `yaml:"selectors,omitempty" json:"selectors,omitempty" jsonschema:"title=Selectors,description=External selector processes narrowing skill and tool candidate sets"`
+
+	// Skills carries skill-specific runtime configuration, most notably
+	// the selector binding. Pack-level skill definitions live in the
+	// pack itself; this block only covers runtime wiring.
+	//nolint:lll // jsonschema tags require single line
+	Skills *SkillsConfig `yaml:"skills,omitempty" json:"skills,omitempty" jsonschema:"title=Skills,description=Runtime skill configuration"`
+}
+
+// SelectorConfig declares an external selector process. Command, Args,
+// Env, TimeoutMs, and Sandbox mirror the exec hook shape.
+type SelectorConfig struct {
+	// Command is the path to the selector executable, resolved relative
+	// to the config file by the loader.
+	Command string `yaml:"command" json:"command" jsonschema:"title=Command,description=Path to the selector executable"`
+	// Args are additional arguments passed to the command.
+	//nolint:lll // jsonschema tags require single line
+	Args []string `yaml:"args,omitempty" json:"args,omitempty" jsonschema:"title=Args,description=Additional command arguments"`
+	// Env lists environment variable names required by the process.
+	// Values come from the host environment.
+	//nolint:lll // jsonschema tags require single line
+	Env []string `yaml:"env,omitempty" json:"env,omitempty" jsonschema:"title=Env,description=Required environment variable names"`
+	// TimeoutMs is the per-invocation timeout in milliseconds.
+	//nolint:lll // jsonschema tags require single line
+	TimeoutMs int `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty" jsonschema:"title=Timeout,description=Per-invocation timeout in milliseconds"`
+	// Sandbox names a sandbox backend declared under spec.sandboxes.
+	// When empty the built-in "direct" backend is used.
+	//nolint:lll // jsonschema tags require single line
+	Sandbox string `yaml:"sandbox,omitempty" json:"sandbox,omitempty" jsonschema:"title=Sandbox,description=Name of a sandbox declared under spec.sandboxes"`
+}
+
+// SkillsConfig carries runtime-level skill wiring.
+type SkillsConfig struct {
+	// Selector names a selector declared under spec.selectors.
+	// When empty, all eligible skills are surfaced (current behavior).
+	//nolint:lll // jsonschema tags require single line
+	Selector string `yaml:"selector,omitempty" json:"selector,omitempty" jsonschema:"title=Selector,description=Name of a selector declared under spec.selectors"`
 }
 
 // SandboxConfig declares a named sandbox backend. Mode selects a
@@ -183,7 +227,10 @@ func (s *RuntimeConfigSpec) Validate() error {
 	if err := s.validateSandboxes(); err != nil {
 		return err
 	}
-	return s.validateHooks()
+	if err := s.validateHooks(); err != nil {
+		return err
+	}
+	return s.validateSelectors()
 }
 
 func (s *RuntimeConfigSpec) validateProviders() error {
@@ -266,6 +313,39 @@ func (s *RuntimeConfigSpec) validateSandboxes() error {
 			return &ValidationError{
 				Field:   fmt.Sprintf("sandboxes[%s].mode", name),
 				Message: "sandbox mode is required",
+			}
+		}
+	}
+	return nil
+}
+
+func (s *RuntimeConfigSpec) validateSelectors() error {
+	for name, sel := range s.Selectors {
+		if sel == nil {
+			continue
+		}
+		if sel.Command == "" {
+			return &ValidationError{
+				Field:   fmt.Sprintf("selectors[%s].command", name),
+				Message: "selector command is required",
+			}
+		}
+		if sel.Sandbox != "" {
+			if _, ok := s.Sandboxes[sel.Sandbox]; !ok {
+				return &ValidationError{
+					Field:   fmt.Sprintf("selectors[%s].sandbox", name),
+					Message: "references a sandbox not declared under spec.sandboxes",
+					Value:   sel.Sandbox,
+				}
+			}
+		}
+	}
+	if s.Skills != nil && s.Skills.Selector != "" {
+		if _, ok := s.Selectors[s.Skills.Selector]; !ok {
+			return &ValidationError{
+				Field:   "skills.selector",
+				Message: "references a selector not declared under spec.selectors",
+				Value:   s.Skills.Selector,
 			}
 		}
 	}

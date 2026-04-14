@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -1273,5 +1274,41 @@ func TestWithMaxMessageSize(t *testing.T) {
 		err := opt(cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "must be positive")
+	})
+}
+
+type optTestSelector struct{ n string }
+
+func (s *optTestSelector) Name() string                         { return s.n }
+func (s *optTestSelector) Init(selection.SelectorContext) error { return nil }
+func (s *optTestSelector) Select(_ context.Context, _ selection.Query,
+	_ []selection.Candidate,
+) ([]string, error) {
+	return nil, nil
+}
+
+func TestWithSelector(t *testing.T) {
+	t.Run("registers", func(t *testing.T) {
+		cfg := &config{}
+		sel := &optTestSelector{n: "rerank"}
+		require.NoError(t, WithSelector("rerank", sel)(cfg))
+		require.Same(t, sel, cfg.selectors["rerank"])
+	})
+	t.Run("rejects empty name", func(t *testing.T) {
+		cfg := &config{}
+		err := WithSelector("", &optTestSelector{})(cfg)
+		require.Error(t, err)
+	})
+	t.Run("rejects nil impl", func(t *testing.T) {
+		cfg := &config{}
+		err := WithSelector("x", nil)(cfg)
+		require.Error(t, err)
+	})
+	t.Run("rejects duplicate", func(t *testing.T) {
+		cfg := &config{}
+		require.NoError(t, WithSelector("r", &optTestSelector{})(cfg))
+		err := WithSelector("r", &optTestSelector{})(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already registered")
 	})
 }

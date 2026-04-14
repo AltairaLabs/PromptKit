@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
@@ -32,19 +33,23 @@ type StatefulCapability interface {
 
 // CapabilityContext provides read-only access to pack and config during Init.
 type CapabilityContext struct {
-	Pack       *pack.Pack
-	PromptName string
-	UserID     string
-	Metadata   map[string]any
+	Pack               *pack.Pack
+	PromptName         string
+	UserID             string
+	Metadata           map[string]any
+	Selectors          map[string]selection.Selector
+	SkillsSelectorName string
 }
 
 // newCapabilityContext builds a CapabilityContext from pack info and config.
 func newCapabilityContext(p *pack.Pack, promptName string, cfg *config) CapabilityContext {
 	return CapabilityContext{
-		Pack:       p,
-		PromptName: promptName,
-		UserID:     cfg.userID,
-		Metadata:   cfg.sessionMetadata,
+		Pack:               p,
+		PromptName:         promptName,
+		UserID:             cfg.userID,
+		Metadata:           cfg.sessionMetadata,
+		Selectors:          cfg.selectors,
+		SkillsSelectorName: cfg.skillsSelectorName,
 	}
 }
 
