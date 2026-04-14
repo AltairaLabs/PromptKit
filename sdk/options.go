@@ -177,9 +177,10 @@ type config struct {
 	skillSelector   skills.SkillSelector
 	maxActiveSkills int
 
-	// External selectors (by name) and which one narrows skills.
+	// External selectors (by name) and which one narrows skills / tools.
 	selectors          map[string]selection.Selector
 	skillsSelectorName string
+	toolSelectorName   string
 
 	// Telemetry: OTel TracerProvider for distributed tracing
 	tracerProvider trace.TracerProvider

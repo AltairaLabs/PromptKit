@@ -690,6 +690,18 @@ func TestApplySelectors_UndeclaredSandbox(t *testing.T) {
 	require.Contains(t, err.Error(), "undeclared sandbox")
 }
 
+func TestApplyRuntimeConfig_ToolSelectorName(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		Selectors: map[string]*pkgconfig.SelectorConfig{
+			"rerank": {Command: "/bin/true"},
+		},
+		ToolSelector: "rerank",
+	}
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	require.Equal(t, "rerank", c.toolSelectorName)
+}
+
 func TestApplyRuntimeConfig_SkillsSelectorName(t *testing.T) {
 	spec := &pkgconfig.RuntimeConfigSpec{
 		Selectors: map[string]*pkgconfig.SelectorConfig{

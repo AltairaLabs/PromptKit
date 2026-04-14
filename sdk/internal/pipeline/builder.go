@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -77,6 +78,11 @@ type Config struct {
 	// CompactionEnabled controls context compaction in tool loops.
 	// nil = default (enabled), false = disabled.
 	CompactionEnabled *bool
+
+	// ToolSelector narrows the pack-declared allowedTools per turn
+	// before they're sent to the provider. Optional; when nil the
+	// provider sees the full allowedTools list (existing behavior).
+	ToolSelector selection.Selector
 
 	// CompactionStrategy replaces the default compactor entirely.
 	// Mutually exclusive with CompactionRules.
@@ -391,6 +397,7 @@ func buildProviderStages(cfg *Config) ([]stage.Stage, error) {
 			ResponseFormat:   cfg.ResponseFormat,
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
+			ToolSelector:     cfg.ToolSelector,
 		}
 		// Configure compaction strategy
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {

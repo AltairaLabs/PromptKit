@@ -201,6 +201,9 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	if spec.Skills != nil && spec.Skills.Selector != "" {
 		c.skillsSelectorName = spec.Skills.Selector
 	}
+	if spec.ToolSelector != "" {
+		c.toolSelectorName = spec.ToolSelector
+	}
 
 	return nil
 }

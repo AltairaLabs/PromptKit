@@ -738,6 +738,11 @@
           "$ref": "#/$defs/SkillsConfig",
           "title": "Skills",
           "description": "Runtime skill configuration"
+        },
+        "tool_selector": {
+          "type": "string",
+          "title": "ToolSelector",
+          "description": "Name of a selector declared under spec.selectors used to narrow the LLM-visible tool set per turn"
         }
       },
       "additionalProperties": false,
