@@ -95,6 +95,14 @@ type config struct {
 	embeddingProviders   map[string]providers.EmbeddingProvider
 	embeddingProviderIDs []string
 
+	// Declarative TTS / STT providers, keyed by ID. First entry
+	// becomes the default ttsService / sttService unless one is
+	// already set via WithTTS / WithVADMode.
+	ttsProviders   map[string]tts.Service
+	ttsProviderIDs []string
+	sttProviders   map[string]stt.Service
+	sttProviderIDs []string
+
 	// Auto-summarization for RAG context
 	summarizeProvider  providers.Provider
 	summarizeThreshold int

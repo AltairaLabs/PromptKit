@@ -729,6 +729,22 @@
           "title": "Embedding Providers",
           "description": "Embedding provider configurations"
         },
+        "tts_providers": {
+          "items": {
+            "$ref": "#/$defs/TTSProviderConfig"
+          },
+          "type": "array",
+          "title": "TTS Providers",
+          "description": "Text-to-speech provider configurations"
+        },
+        "stt_providers": {
+          "items": {
+            "$ref": "#/$defs/STTProviderConfig"
+          },
+          "type": "array",
+          "title": "STT Providers",
+          "description": "Speech-to-text provider configurations"
+        },
         "tools": {
           "additionalProperties": {
             "$ref": "#/$defs/ToolSpec"
@@ -800,6 +816,48 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "STTProviderConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "ID",
+          "description": "Stable identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "openai"
+          ],
+          "title": "Type",
+          "description": "STT provider type"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model",
+          "description": "Transcription model name"
+        },
+        "base_url": {
+          "type": "string",
+          "title": "BaseURL",
+          "description": "API endpoint override"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "title": "Credential",
+          "description": "API key resolution"
+        },
+        "additional_config": {
+          "type": "object",
+          "title": "Additional Config",
+          "description": "Provider-specific extras"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
     },
     "SandboxConfig": {
       "properties": {
@@ -916,6 +974,50 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "TTSProviderConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "ID",
+          "description": "Stable identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "elevenlabs",
+            "cartesia"
+          ],
+          "title": "Type",
+          "description": "TTS provider type"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model",
+          "description": "Voice or model name"
+        },
+        "base_url": {
+          "type": "string",
+          "title": "BaseURL",
+          "description": "API endpoint override"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "title": "Credential",
+          "description": "API key resolution"
+        },
+        "additional_config": {
+          "type": "object",
+          "title": "Additional Config",
+          "description": "Provider-specific extras"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
     },
     "ToolClientConfig": {
       "properties": {

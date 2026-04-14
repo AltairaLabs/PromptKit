@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,7 +15,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -639,6 +642,99 @@ func TestResolveSandboxes_NilAndEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, out)
 }
+
+func TestApplyTTSProviders_BuildsAndDefaults(t *testing.T) {
+	specs := []pkgconfig.TTSProviderConfig{
+		{ID: "voice", Type: "openai"},
+	}
+	c := &config{}
+	require.NoError(t, applyTTSProviders(c, specs))
+	require.Contains(t, c.ttsProviders, "voice")
+	require.NotNil(t, c.ttsService)
+	require.Same(t, c.ttsProviders["voice"], c.ttsService)
+}
+
+func TestApplyTTSProviders_RespectsExistingService(t *testing.T) {
+	existing := &noopTTS{}
+	specs := []pkgconfig.TTSProviderConfig{{Type: "openai"}}
+	c := &config{ttsService: existing}
+	require.NoError(t, applyTTSProviders(c, specs))
+	require.Same(t, existing, c.ttsService, "WithTTS should win over default-from-first")
+}
+
+func TestApplyTTSProviders_DuplicateID(t *testing.T) {
+	specs := []pkgconfig.TTSProviderConfig{
+		{ID: "x", Type: "openai"}, {ID: "x", Type: "openai"},
+	}
+	c := &config{}
+	err := applyTTSProviders(c, specs)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate ID")
+}
+
+func TestApplyTTSProviders_UnsupportedType(t *testing.T) {
+	specs := []pkgconfig.TTSProviderConfig{{Type: "no-such"}}
+	c := &config{}
+	require.Error(t, applyTTSProviders(c, specs))
+}
+
+func TestApplyTTSProviders_DefaultIDFallsBackToType(t *testing.T) {
+	specs := []pkgconfig.TTSProviderConfig{{Type: "openai"}}
+	c := &config{}
+	require.NoError(t, applyTTSProviders(c, specs))
+	require.Contains(t, c.ttsProviders, "openai")
+}
+
+func TestApplySTTProviders_BuildsAndDefaults(t *testing.T) {
+	specs := []pkgconfig.STTProviderConfig{{Type: "openai"}}
+	c := &config{}
+	require.NoError(t, applySTTProviders(c, specs))
+	require.Contains(t, c.sttProviders, "openai")
+	require.NotNil(t, c.sttService)
+}
+
+func TestApplySTTProviders_RespectsExistingService(t *testing.T) {
+	existing := &noopSTT{}
+	specs := []pkgconfig.STTProviderConfig{{Type: "openai"}}
+	c := &config{sttService: existing}
+	require.NoError(t, applySTTProviders(c, specs))
+	require.Same(t, existing, c.sttService)
+}
+
+func TestApplySTTProviders_DuplicateID(t *testing.T) {
+	specs := []pkgconfig.STTProviderConfig{
+		{Type: "openai"}, {Type: "openai"},
+	}
+	c := &config{}
+	err := applySTTProviders(c, specs)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate ID")
+}
+
+func TestApplySTTProviders_UnsupportedType(t *testing.T) {
+	specs := []pkgconfig.STTProviderConfig{{Type: "no-such"}}
+	c := &config{}
+	require.Error(t, applySTTProviders(c, specs))
+}
+
+// noopTTS / noopSTT satisfy the Service interfaces minimally for
+// "respects existing programmatic instance" tests.
+type noopTTS struct{}
+
+func (noopTTS) Name() string { return "noop" }
+func (noopTTS) Synthesize(_ context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
+	return nil, nil
+}
+func (noopTTS) SupportedVoices() []tts.Voice        { return nil }
+func (noopTTS) SupportedFormats() []tts.AudioFormat { return nil }
+
+type noopSTT struct{}
+
+func (noopSTT) Name() string { return "noop" }
+func (noopSTT) Transcribe(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
+	return "", nil
+}
+func (noopSTT) SupportedFormats() []string { return nil }
 
 func TestApplyEmbeddingProviders_Empty(t *testing.T) {
 	c := &config{}

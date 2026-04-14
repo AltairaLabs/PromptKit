@@ -37,6 +37,19 @@ type RuntimeConfigSpec struct {
 	//nolint:lll // jsonschema tags require single line
 	EmbeddingProviders []EmbeddingProviderConfig `yaml:"embedding_providers,omitempty" json:"embedding_providers,omitempty" jsonschema:"title=Embedding Providers,description=Embedding provider configurations"`
 
+	// TTSProviders configures text-to-speech providers (OpenAI,
+	// ElevenLabs, Cartesia). First entry becomes the default TTS
+	// service unless one is set programmatically via WithTTS or
+	// WithVADMode.
+	//nolint:lll // jsonschema tags require single line
+	TTSProviders []TTSProviderConfig `yaml:"tts_providers,omitempty" json:"tts_providers,omitempty" jsonschema:"title=TTS Providers,description=Text-to-speech provider configurations"`
+
+	// STTProviders configures speech-to-text providers (OpenAI). First
+	// entry becomes the default STT service unless one is set
+	// programmatically via WithVADMode.
+	//nolint:lll // jsonschema tags require single line
+	STTProviders []STTProviderConfig `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty" jsonschema:"title=STT Providers,description=Speech-to-text provider configurations"`
+
 	// Tools binds pack tool names to implementations (HTTP, mock, or exec).
 	//nolint:lll // jsonschema tags require single line
 	Tools map[string]*ToolSpec `yaml:"tools,omitempty" json:"tools,omitempty" jsonschema:"title=Tools,description=Tool implementation bindings keyed by tool name"`
@@ -159,6 +172,52 @@ type EmbeddingProviderConfig struct {
 	AdditionalConfig map[string]any `yaml:"additional_config,omitempty" json:"additional_config,omitempty" jsonschema:"title=Additional Config,description=Provider-specific extras"`
 }
 
+// TTSProviderConfig declares a text-to-speech provider — the
+// declarative analog of programmatic tts.NewOpenAI / NewElevenLabs /
+// NewCartesia constructors. Resolved by sdk.WithRuntimeConfig.
+type TTSProviderConfig struct {
+	// ID is a stable identifier; defaults to the type when empty.
+	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
+	// Type selects the implementation: openai, elevenlabs, cartesia.
+	//nolint:lll // jsonschema tags require single line
+	Type string `yaml:"type" json:"type" jsonschema:"enum=openai,enum=elevenlabs,enum=cartesia,title=Type,description=TTS provider type"`
+	// Model overrides the provider's default voice/model.
+	Model string `yaml:"model,omitempty" json:"model,omitempty" jsonschema:"title=Model,description=Voice or model name"`
+	// BaseURL overrides the provider's default API endpoint.
+	//nolint:lll // jsonschema tags require single line
+	BaseURL string `yaml:"base_url,omitempty" json:"base_url,omitempty" jsonschema:"title=BaseURL,description=API endpoint override"`
+	// Credential names how to obtain the API key.
+	//nolint:lll // jsonschema tags require single line
+	Credential *CredentialConfig `yaml:"credential,omitempty" json:"credential,omitempty" jsonschema:"title=Credential,description=API key resolution"`
+	// AdditionalConfig carries provider-specific extras (Cartesia
+	// `ws_url`, etc.).
+	//nolint:lll // jsonschema tags require single line
+	AdditionalConfig map[string]any `yaml:"additional_config,omitempty" json:"additional_config,omitempty" jsonschema:"title=Additional Config,description=Provider-specific extras"`
+}
+
+// STTProviderConfig declares a speech-to-text provider — the
+// declarative analog of programmatic stt.NewOpenAI constructors.
+// Today only "openai" is supported; more types slot in via the
+// stt.RegisterSTTFactory pattern.
+type STTProviderConfig struct {
+	// ID is a stable identifier; defaults to the type when empty.
+	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
+	// Type selects the implementation. Today only "openai".
+	Type string `yaml:"type" json:"type" jsonschema:"enum=openai,title=Type,description=STT provider type"`
+	// Model overrides the provider's default transcription model.
+	//nolint:lll // jsonschema tags require single line
+	Model string `yaml:"model,omitempty" json:"model,omitempty" jsonschema:"title=Model,description=Transcription model name"`
+	// BaseURL overrides the provider's default API endpoint.
+	//nolint:lll // jsonschema tags require single line
+	BaseURL string `yaml:"base_url,omitempty" json:"base_url,omitempty" jsonschema:"title=BaseURL,description=API endpoint override"`
+	// Credential names how to obtain the API key.
+	//nolint:lll // jsonschema tags require single line
+	Credential *CredentialConfig `yaml:"credential,omitempty" json:"credential,omitempty" jsonschema:"title=Credential,description=API key resolution"`
+	// AdditionalConfig carries provider-specific extras.
+	//nolint:lll // jsonschema tags require single line
+	AdditionalConfig map[string]any `yaml:"additional_config,omitempty" json:"additional_config,omitempty" jsonschema:"title=Additional Config,description=Provider-specific extras"`
+}
+
 // SandboxConfig declares a named sandbox backend. Mode selects a
 // factory registered via runtime/hooks/sandbox.RegisterFactory; every
 // other field is passed to the factory as its config map.
@@ -262,6 +321,12 @@ func (s *RuntimeConfigSpec) Validate() error {
 	if err := s.validateEmbeddingProviders(); err != nil {
 		return err
 	}
+	if err := s.validateTTSProviders(); err != nil {
+		return err
+	}
+	if err := s.validateSTTProviders(); err != nil {
+		return err
+	}
 	if err := s.validateStateStore(); err != nil {
 		return err
 	}
@@ -353,6 +418,80 @@ func (s *RuntimeConfigSpec) validateEmbeddingProviders() error {
 			return &ValidationError{
 				Field:   fmt.Sprintf("embedding_providers[%d].id", i),
 				Message: "duplicate embedding provider id",
+				Value:   id,
+			}
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+var validTTSTypes = map[string]bool{
+	"openai": true, "elevenlabs": true, "cartesia": true,
+}
+
+func (s *RuntimeConfigSpec) validateTTSProviders() error {
+	seen := make(map[string]bool, len(s.TTSProviders))
+	for i := range s.TTSProviders {
+		tp := &s.TTSProviders[i]
+		if tp.Type == "" {
+			return &ValidationError{
+				Field:   fmt.Sprintf("tts_providers[%d].type", i),
+				Message: "TTS provider type is required",
+			}
+		}
+		if !validTTSTypes[tp.Type] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("tts_providers[%d].type", i),
+				Message: "must be one of: openai, elevenlabs, cartesia",
+				Value:   tp.Type,
+			}
+		}
+		id := tp.ID
+		if id == "" {
+			id = tp.Type
+		}
+		if seen[id] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("tts_providers[%d].id", i),
+				Message: "duplicate TTS provider id",
+				Value:   id,
+			}
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+var validSTTTypes = map[string]bool{
+	"openai": true,
+}
+
+func (s *RuntimeConfigSpec) validateSTTProviders() error {
+	seen := make(map[string]bool, len(s.STTProviders))
+	for i := range s.STTProviders {
+		sp := &s.STTProviders[i]
+		if sp.Type == "" {
+			return &ValidationError{
+				Field:   fmt.Sprintf("stt_providers[%d].type", i),
+				Message: "STT provider type is required",
+			}
+		}
+		if !validSTTTypes[sp.Type] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("stt_providers[%d].type", i),
+				Message: "must be one of: openai",
+				Value:   sp.Type,
+			}
+		}
+		id := sp.ID
+		if id == "" {
+			id = sp.Type
+		}
+		if seen[id] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("stt_providers[%d].id", i),
+				Message: "duplicate STT provider id",
 				Value:   id,
 			}
 		}

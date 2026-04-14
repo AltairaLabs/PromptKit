@@ -373,6 +373,92 @@ spec:
 	}
 }
 
+func TestRuntimeConfigSpec_Validate_TTSProviderMissingType(t *testing.T) {
+	s := &RuntimeConfigSpec{TTSProviders: []TTSProviderConfig{{Model: "x"}}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for missing TTS provider type")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_TTSProviderInvalidType(t *testing.T) {
+	s := &RuntimeConfigSpec{TTSProviders: []TTSProviderConfig{{Type: "bogus"}}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for invalid TTS provider type")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_TTSProviderDuplicateID(t *testing.T) {
+	s := &RuntimeConfigSpec{TTSProviders: []TTSProviderConfig{
+		{Type: "openai"}, {Type: "openai"},
+	}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected duplicate TTS id error")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_STTProviderMissingType(t *testing.T) {
+	s := &RuntimeConfigSpec{STTProviders: []STTProviderConfig{{Model: "x"}}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for missing STT provider type")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_STTProviderInvalidType(t *testing.T) {
+	s := &RuntimeConfigSpec{STTProviders: []STTProviderConfig{{Type: "bogus"}}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for invalid STT provider type")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_STTProviderDuplicateID(t *testing.T) {
+	s := &RuntimeConfigSpec{STTProviders: []STTProviderConfig{
+		{Type: "openai"}, {Type: "openai"},
+	}}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected duplicate STT id error")
+	}
+}
+
+func TestLoadRuntimeConfig_TTSAndSTTYAML(t *testing.T) {
+	yaml := `
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+spec:
+  tts_providers:
+    - id: voice
+      type: elevenlabs
+      model: eleven_turbo_v2
+      credential:
+        credential_env: ELEVEN_API_KEY
+    - id: cart
+      type: cartesia
+      additional_config:
+        ws_url: wss://api.cartesia.ai/tts/websocket
+  stt_providers:
+    - type: openai
+      model: whisper-1
+      credential:
+        credential_env: OPENAI_API_KEY
+`
+	path := writeTemp(t, "rc.yaml", yaml)
+	rc, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRuntimeConfig: %v", err)
+	}
+	if len(rc.Spec.TTSProviders) != 2 {
+		t.Fatalf("expected 2 tts providers, got %d", len(rc.Spec.TTSProviders))
+	}
+	if rc.Spec.TTSProviders[0].ID != "voice" || rc.Spec.TTSProviders[0].Type != "elevenlabs" {
+		t.Errorf("first tts mis-parsed: %+v", rc.Spec.TTSProviders[0])
+	}
+	if got := rc.Spec.TTSProviders[1].AdditionalConfig["ws_url"]; got != "wss://api.cartesia.ai/tts/websocket" {
+		t.Errorf("cartesia ws_url = %v", got)
+	}
+	if len(rc.Spec.STTProviders) != 1 || rc.Spec.STTProviders[0].Type != "openai" {
+		t.Errorf("stt providers mis-parsed: %+v", rc.Spec.STTProviders)
+	}
+}
+
 func TestRuntimeConfigSpec_Validate_EmbeddingProviderMissingType(t *testing.T) {
 	s := &RuntimeConfigSpec{
 		EmbeddingProviders: []EmbeddingProviderConfig{{Model: "x"}},
