@@ -649,3 +649,159 @@ func TestDiscoverPreloadNotDowngraded(t *testing.T) {
 		t.Fatalf("expected 1 preloaded skill, got %d", len(preloaded))
 	}
 }
+
+// TestReadResourceSymlinkEscape verifies that a symlink placed inside a skill
+// directory pointing outside the skill cannot be used to read files elsewhere.
+// The after-read EvalSymlinks check in ReadResource should detect the escape.
+func TestReadResourceSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := writeTestSkill(t, dir, "symlink-escape", "Test", "Instructions")
+
+	// Write a secret file outside the skill directory.
+	secretPath := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(secretPath, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink INSIDE the skill pointing OUTSIDE the skill.
+	linkPath := filepath.Join(skillDir, "escape")
+	if err := os.Symlink(secretPath, linkPath); err != nil {
+		t.Skipf("symlink creation not supported on this platform: %v", err)
+	}
+
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: dir}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	data, err := reg.ReadResource("symlink-escape", "escape")
+	if err == nil {
+		t.Fatalf("expected error for symlink escape, got content: %q", string(data))
+	}
+	if !errors.Is(err, ErrPathTraversal) {
+		t.Errorf("expected ErrPathTraversal, got: %v", err)
+	}
+}
+
+// TestReadResourceSymlinkToSiblingSkill verifies that a symlink pointing to a
+// sibling skill's file (which is outside THIS skill's directory) is blocked,
+// even though the target is itself a legitimate skill resource.
+func TestReadResourceSymlinkToSiblingSkill(t *testing.T) {
+	dir := t.TempDir()
+	aDir := writeTestSkill(t, dir, "skill-a", "A", "A instructions")
+	bDir := writeTestSkill(t, dir, "skill-b", "B", "B instructions")
+
+	bSecret := filepath.Join(bDir, "private.txt")
+	if err := os.WriteFile(bSecret, []byte("b-private"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	linkPath := filepath.Join(aDir, "peek")
+	if err := os.Symlink(bSecret, linkPath); err != nil {
+		t.Skipf("symlink creation not supported on this platform: %v", err)
+	}
+
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: dir}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	_, err := reg.ReadResource("skill-a", "peek")
+	if err == nil {
+		t.Fatal("expected error when reading symlink to sibling skill")
+	}
+	if !errors.Is(err, ErrPathTraversal) {
+		t.Errorf("expected ErrPathTraversal, got: %v", err)
+	}
+}
+
+// TestReadResourceAbsolutePath verifies that passing an absolute path as the
+// resource argument does NOT escape the skill directory. filepath.Join treats
+// the second arg as relative, so "/etc/passwd" becomes <skillDir>/etc/passwd
+// and is contained within the skill — it simply won't exist.
+func TestReadResourceAbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	writeTestSkill(t, dir, "abs-path", "Test", "Instructions")
+
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: dir}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	_, err := reg.ReadResource("abs-path", "/etc/passwd")
+	if err == nil {
+		t.Fatal("expected error for absolute path resource")
+	}
+	// Must NOT have read /etc/passwd — either the containment check rejects it
+	// or the file doesn't exist under the skill dir. Both are acceptable; what
+	// must not happen is a successful read of a real system file.
+	if errors.Is(err, ErrPathTraversal) {
+		return
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected ErrPathTraversal or ErrNotExist, got: %v", err)
+	}
+}
+
+// TestReadResourcePathNormalization covers traversal variants that exercise
+// filepath.Clean: mixed dot segments, double separators, and trailing parent
+// references. All escape attempts must be rejected; in-bounds normalization
+// must resolve correctly.
+func TestReadResourcePathNormalization(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := writeTestSkill(t, dir, "norm", "Test", "Instructions")
+
+	// File inside the skill for positive-case normalization.
+	refsDir := filepath.Join(skillDir, "refs")
+	if err := os.MkdirAll(refsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(refsDir, "data.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Secret outside skill dir.
+	if err := os.WriteFile(filepath.Join(dir, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry()
+	if err := reg.Discover([]SkillSource{{Dir: dir}}); err != nil {
+		t.Fatalf("Discover failed: %v", err)
+	}
+
+	escapeCases := []string{
+		"./refs/../../secret.txt",
+		"refs/../../secret.txt",
+		"./../secret.txt",
+		"refs/./../../secret.txt",
+	}
+	for _, path := range escapeCases {
+		t.Run("escape="+path, func(t *testing.T) {
+			_, err := reg.ReadResource("norm", path)
+			if err == nil {
+				t.Fatalf("expected error for %q", path)
+			}
+			if !errors.Is(err, ErrPathTraversal) {
+				t.Errorf("expected ErrPathTraversal for %q, got: %v", path, err)
+			}
+		})
+	}
+
+	inboundsCases := []string{
+		"refs//data.txt",
+		"./refs/data.txt",
+		"refs/./data.txt",
+		"refs/subdir/../data.txt",
+	}
+	for _, path := range inboundsCases {
+		t.Run("inbounds="+path, func(t *testing.T) {
+			data, err := reg.ReadResource("norm", path)
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", path, err)
+			}
+			if string(data) != "ok" {
+				t.Errorf("unexpected content for %q: %q", path, string(data))
+			}
+		})
+	}
+}
