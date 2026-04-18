@@ -170,6 +170,9 @@ func (m *Provider) handleStreamRequest(ctx context.Context, req providers.Predic
 	turn, err := m.getStreamTurn(ctx, params)
 	if err != nil {
 		logger.Debug("MockProvider stream repository error", "error", err)
+		// Propagate the repository error so callers observe it instead of
+		// silently receiving an empty stream.
+		outChan <- providers.StreamChunk{Error: fmt.Errorf("failed to get mock response: %w", err)}
 		return
 	}
 
