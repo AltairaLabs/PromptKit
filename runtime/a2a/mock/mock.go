@@ -16,6 +16,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 )
 
+const (
+	headerContentType = "Content-Type"
+	mimeJSON          = "application/json"
+)
+
 // Response holds the parts returned by a matched rule.
 type Response struct {
 	Parts []a2a.Part
@@ -121,7 +126,7 @@ func (m *A2AServer) handler() http.Handler {
 
 // handleAgentCard serves the agent card as JSON.
 func (m *A2AServer) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mimeJSON)
 	_ = json.NewEncoder(w).Encode(m.card)
 }
 
@@ -241,7 +246,7 @@ func messageText(msg *a2a.Message) string {
 // writeRPCResult writes a JSON-RPC 2.0 success response.
 func writeRPCResult(w http.ResponseWriter, id, result any) {
 	data, _ := json.Marshal(result)
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mimeJSON)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -251,7 +256,7 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 
 // writeRPCError writes a JSON-RPC 2.0 error response.
 func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mimeJSON)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,

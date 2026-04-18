@@ -18,6 +18,7 @@ import (
 const (
 	errInvalidToolDescriptor  = "invalid tool descriptor in %s: %w"
 	errResultValidationFailed = "result validation failed: %v"
+	errToolTimeoutFormat      = "%s: %s exceeded %dms timeout"
 
 	// DefaultToolTimeout is the default execution timeout applied to tools
 	// that don't specify their own TimeoutMs. 30 seconds accommodates HTTP-calling
@@ -439,7 +440,7 @@ func (r *Registry) Execute(
 		errMsg := err.Error()
 		if execCtx.Err() == context.DeadlineExceeded {
 			errMsg = fmt.Sprintf(
-				"%s: %s exceeded %dms timeout",
+				errToolTimeoutFormat,
 				ErrToolTimeout, toolName, tool.TimeoutMs,
 			)
 			logger.Warn("tool execution timed out",
@@ -592,7 +593,7 @@ func (r *Registry) executeWithAsyncExecutor(
 		errMsg := err.Error()
 		if ctx.Err() == context.DeadlineExceeded {
 			errMsg = fmt.Sprintf(
-				"%s: %s exceeded %dms timeout",
+				errToolTimeoutFormat,
 				ErrToolTimeout, tool.Name, tool.TimeoutMs,
 			)
 		}
@@ -641,7 +642,7 @@ func (r *Registry) executeSyncFallback(
 		errMsg := err.Error()
 		if ctx.Err() == context.DeadlineExceeded {
 			errMsg = fmt.Sprintf(
-				"%s: %s exceeded %dms timeout",
+				errToolTimeoutFormat,
 				ErrToolTimeout, tool.Name, tool.TimeoutMs,
 			)
 		}

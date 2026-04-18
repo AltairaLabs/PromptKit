@@ -23,6 +23,8 @@ const (
 	MethodDestroy         = "destroy"
 	MethodStatus          = "status"
 	MethodImport          = "import"
+
+	invalidParamsPrefix = "invalid params: "
 )
 
 // Standard JSON-RPC 2.0 error codes.
@@ -176,7 +178,7 @@ func handleValidateConfig(
 ) response {
 	var params deploy.ValidateRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errResponse(req.ID, CodeParseError, "invalid params: "+err.Error())
+		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
 	}
 	result, err := provider.ValidateConfig(ctx, &params)
 	if err != nil {
@@ -193,7 +195,7 @@ func handlePlan(
 ) response {
 	var params deploy.PlanRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errResponse(req.ID, CodeParseError, "invalid params: "+err.Error())
+		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
 	}
 	result, err := provider.Plan(ctx, &params)
 	if err != nil {
@@ -210,7 +212,7 @@ func handleApply(
 ) response {
 	var params deploy.PlanRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errResponse(req.ID, CodeParseError, "invalid params: "+err.Error())
+		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
 	}
 	// Apply streams events via callback; we collect them and return the
 	// final adapter state in the response.
@@ -234,7 +236,7 @@ func handleDestroy(
 ) response {
 	var params deploy.DestroyRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errResponse(req.ID, CodeParseError, "invalid params: "+err.Error())
+		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
 	}
 	var events []*deploy.DestroyEvent
 	callback := func(event *deploy.DestroyEvent) error {
@@ -256,7 +258,7 @@ func handleStatus(
 ) response {
 	var params deploy.StatusRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errResponse(req.ID, CodeParseError, "invalid params: "+err.Error())
+		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
 	}
 	result, err := provider.Status(ctx, &params)
 	if err != nil {
@@ -273,7 +275,7 @@ func handleImport(
 ) response {
 	var params deploy.ImportRequest
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errResponse(req.ID, CodeParseError, "invalid params: "+err.Error())
+		return errResponse(req.ID, CodeParseError, invalidParamsPrefix+err.Error())
 	}
 	result, err := provider.Import(ctx, &params)
 	if err != nil {

@@ -15,6 +15,8 @@ const (
 	defaultProviderGroup = "default"
 	extYAML              = ".yaml"
 	extYML               = ".yml"
+
+	errSchemaValidationFailed = "schema validation failed for %s: %w"
 )
 
 // mergeSpecs is a generic helper that merges inline specs into a loaded resource map.
@@ -302,7 +304,7 @@ func loadSimpleK8sManifest[T k8sManifest](filename string, expectedKind string) 
 		validationErr = ValidatePersona(data)
 	}
 	if validationErr != nil {
-		return zero, fmt.Errorf("schema validation failed for %s: %w", expectedKind, validationErr)
+		return zero, fmt.Errorf(errSchemaValidationFailed, expectedKind, validationErr)
 	}
 
 	var config T
@@ -376,7 +378,7 @@ func (c *Config) loadPromptConfigs(configPath string) error {
 
 		// Schema validation
 		if err := ValidatePromptConfig(data); err != nil {
-			return fmt.Errorf("schema validation failed for %s: %w", ref.File, err)
+			return fmt.Errorf(errSchemaValidationFailed, ref.File, err)
 		}
 
 		// Parse configuration
@@ -458,7 +460,7 @@ func (c *Config) loadTools(configPath string) error {
 		ext := strings.ToLower(filepath.Ext(ref.File))
 		if ext == extYAML || ext == extYML {
 			if err := ValidateTool(data); err != nil {
-				return fmt.Errorf("schema validation failed for %s: %w", ref.File, err)
+				return fmt.Errorf(errSchemaValidationFailed, ref.File, err)
 			}
 		}
 		c.LoadedTools = append(c.LoadedTools, ToolData{

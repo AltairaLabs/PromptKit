@@ -12,6 +12,8 @@ import (
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/tools"
 )
 
+const errSerializeClientToolResult = "failed to serialize client tool result: %w"
+
 // ClientToolRequest contains information about a client-side tool invocation.
 // It is passed to handlers registered via [Conversation.OnClientTool].
 type ClientToolRequest struct {
@@ -194,7 +196,7 @@ func (c *Conversation) SendToolResult(_ context.Context, callID string, result a
 	}
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		return fmt.Errorf("failed to serialize client tool result: %w", err)
+		return fmt.Errorf(errSerializeClientToolResult, err)
 	}
 	c.resolvedStore.Add(&sdktools.ToolResolution{
 		ID:         callID,
@@ -427,7 +429,7 @@ func (e *clientExecutor) executeHandler(
 	// Serialize result
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize client tool result: %w", err)
+		return nil, fmt.Errorf(errSerializeClientToolResult, err)
 	}
 
 	return resultJSON, nil
@@ -470,7 +472,7 @@ func (e *clientExecutor) executeHandlerAsync(
 	// Default: JSON-serialize result
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize client tool result: %w", err)
+		return nil, fmt.Errorf(errSerializeClientToolResult, err)
 	}
 
 	return &tools.ToolExecutionResult{

@@ -32,6 +32,8 @@ const (
 	geminiumBitDepth   = 16
 	geminiumChannels   = 1
 
+	errInvalidMediaReference = "invalid media reference: %w"
+
 	// DefaultMaxFileSize is the default maximum file size (50 MB).
 	DefaultMaxFileSize = 50 * 1024 * 1024
 
@@ -281,7 +283,7 @@ func (fs *FileStore) RetrieveMedia(ctx context.Context, reference storage.Refere
 
 	// Validate path is within base directory (prevents path traversal attacks)
 	if err := fs.validatePath(filePath); err != nil {
-		return nil, fmt.Errorf("invalid media reference: %w", err)
+		return nil, fmt.Errorf(errInvalidMediaReference, err)
 	}
 
 	// Validate file exists and is readable
@@ -326,7 +328,7 @@ func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Referenc
 
 	// Validate path is within base directory (prevents path traversal attacks)
 	if err := fs.validatePath(filePath); err != nil {
-		return fmt.Errorf("invalid media reference: %w", err)
+		return fmt.Errorf(errInvalidMediaReference, err)
 	}
 
 	// Check reference count if deduplication is enabled
@@ -381,7 +383,7 @@ func (fs *FileStore) GetURL(ctx context.Context, reference storage.Reference, ex
 
 	// Validate path is within base directory (prevents path traversal attacks)
 	if err := fs.validatePath(filePath); err != nil {
-		return "", fmt.Errorf("invalid media reference: %w", err)
+		return "", fmt.Errorf(errInvalidMediaReference, err)
 	}
 
 	// Validate file exists
