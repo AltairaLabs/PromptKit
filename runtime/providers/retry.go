@@ -197,24 +197,21 @@ func DoWithRetry(
 	state := &retryState{}
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		resp, err := doFn()
-
-		if err == nil && !isRetryableStatusCode(resp.StatusCode) {
-			return resp, nil
-		}
-
-		retryAfter, shouldRetry := state.classify(resp, err)
-		if !shouldRetry {
-			if err != nil {
+		result := runAttempt(ctx, state, doFn)
+		switch result.outcome {
+		case attemptOutcomeCtxCanceled:
+			return nil, result.err
+		case attemptOutcomeSuccess:
+			return result.resp, nil
+		case attemptOutcomeTerminal:
+			if result.err != nil {
 				logger.Debug("provider request failed (non-retryable)",
 					"provider", providerName,
-					"error", err)
+					"error", result.err)
 			}
-			return resp, err
+			return result.resp, result.err
+		case attemptOutcomeRetry:
+			// fall through to retry-scheduling logic below
 		}
 
 		if attempt >= maxAttempts-1 {
@@ -225,24 +222,12 @@ func DoWithRetry(
 			break
 		}
 
-		delay := calculateBackoff(policy, attempt, retryAfter)
-		statusInfo := ""
-		if resp != nil {
-			statusInfo = resp.Status
-		}
-		logger.Warn("retrying provider request",
-			"provider", providerName,
-			"attempt", attempt+1,
-			"max_retries", policy.MaxRetries,
-			"delay", delay.String(),
-			"status", statusInfo,
-			"error", state.lastErr,
+		waitErr := waitBeforeRetry(
+			ctx, policy, providerName, attempt,
+			result.resp, result.retryAfter, state.lastErr,
 		)
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(delay):
+		if waitErr != nil {
+			return nil, waitErr
 		}
 	}
 
@@ -250,6 +235,81 @@ func DoWithRetry(
 		return state.lastResp, state.lastErr
 	}
 	return nil, state.lastErr
+}
+
+// attemptOutcome categorizes the result of a single request attempt.
+type attemptOutcome int
+
+const (
+	// attemptOutcomeSuccess means the response is good; the caller should return it.
+	attemptOutcomeSuccess attemptOutcome = iota
+	// attemptOutcomeTerminal means the error/response is non-retryable; return as-is.
+	attemptOutcomeTerminal
+	// attemptOutcomeRetry means the caller should sleep and try again.
+	attemptOutcomeRetry
+	// attemptOutcomeCtxCanceled means the context was canceled before the attempt.
+	attemptOutcomeCtxCanceled
+)
+
+// attemptResult bundles a single attempt's response/error and classification.
+type attemptResult struct {
+	resp       *http.Response
+	err        error
+	retryAfter time.Duration
+	outcome    attemptOutcome
+}
+
+// runAttempt performs a single request attempt and classifies the result. It
+// does not sleep or log — the caller decides what to do with the outcome.
+// classify has side effects (closes a retryable response body, records the
+// last err on state); those are invoked here, never again for the same result.
+func runAttempt(ctx context.Context, state *retryState, doFn DoRequestFunc) attemptResult {
+	if err := ctx.Err(); err != nil {
+		return attemptResult{err: err, outcome: attemptOutcomeCtxCanceled}
+	}
+	resp, err := doFn()
+	if err == nil && !isRetryableStatusCode(resp.StatusCode) {
+		return attemptResult{resp: resp, outcome: attemptOutcomeSuccess}
+	}
+	retryAfter, shouldRetry := state.classify(resp, err)
+	if !shouldRetry {
+		return attemptResult{resp: resp, err: err, outcome: attemptOutcomeTerminal}
+	}
+	return attemptResult{resp: resp, err: err, retryAfter: retryAfter, outcome: attemptOutcomeRetry}
+}
+
+// waitBeforeRetry logs the upcoming retry and blocks until the backoff delay
+// elapses, returning ctx.Err() if the context is canceled while waiting.
+func waitBeforeRetry(
+	ctx context.Context,
+	policy pipeline.RetryPolicy,
+	providerName string,
+	attempt int,
+	resp *http.Response,
+	retryAfter time.Duration,
+	lastErr error,
+) error {
+	delay := calculateBackoff(policy, attempt, retryAfter)
+
+	statusInfo := ""
+	if resp != nil {
+		statusInfo = resp.Status
+	}
+	logger.Warn("retrying provider request",
+		"provider", providerName,
+		"attempt", attempt+1,
+		"max_retries", policy.MaxRetries,
+		"delay", delay.String(),
+		"status", statusInfo,
+		"error", lastErr,
+	)
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(delay):
+		return nil
+	}
 }
 
 // classify determines whether a request result is retryable and
