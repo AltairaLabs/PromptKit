@@ -14,7 +14,7 @@ type TextDeltaEvent struct {
 	Delta string
 }
 
-func (TextDeltaEvent) streamEvent() {}
+func (TextDeltaEvent) streamEvent() { /* marker method — intentionally empty */ }
 
 // ClientToolRequestEvent is emitted when the pipeline encounters a client tool
 // that needs caller fulfillment.
@@ -35,7 +35,7 @@ type ClientToolRequestEvent struct {
 	Categories []string
 }
 
-func (ClientToolRequestEvent) streamEvent() {}
+func (ClientToolRequestEvent) streamEvent() { /* marker method — intentionally empty */ }
 
 // StreamDoneEvent is emitted when the stream completes.
 type StreamDoneEvent struct {
@@ -43,7 +43,7 @@ type StreamDoneEvent struct {
 	Response *Response
 }
 
-func (StreamDoneEvent) streamEvent() {}
+func (StreamDoneEvent) streamEvent() { /* marker method — intentionally empty */ }
 
 // StreamEventHandler is called for each event during streaming.
 type StreamEventHandler func(event StreamEvent)

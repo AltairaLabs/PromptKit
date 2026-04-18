@@ -28,7 +28,9 @@ func (w *WorkflowCapability) Init(ctx CapabilityContext) error {
 
 // RegisterTools is a no-op at conversation level.
 // WorkflowConversation calls RegisterToolsForState per-state.
-func (w *WorkflowCapability) RegisterTools(_ *tools.Registry) {}
+func (w *WorkflowCapability) RegisterTools(_ *tools.Registry) {
+	/* no-op: tools are registered per-state via RegisterToolsForState */
+}
 
 // RegisterToolsForState registers workflow__transition for a specific state.
 // Called by WorkflowConversation when opening a conversation for a state.

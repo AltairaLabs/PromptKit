@@ -87,16 +87,16 @@ type Logger interface {
 type noopLogger struct{}
 
 // Debug implements Logger.
-func (noopLogger) Debug(_ string, _ ...interface{}) {}
+func (noopLogger) Debug(_ string, _ ...interface{}) { /* discarded */ }
 
 // Info implements Logger.
-func (noopLogger) Info(_ string, _ ...interface{}) {}
+func (noopLogger) Info(_ string, _ ...interface{}) { /* discarded */ }
 
 // Warn implements Logger.
-func (noopLogger) Warn(_ string, _ ...interface{}) {}
+func (noopLogger) Warn(_ string, _ ...interface{}) { /* discarded */ }
 
 // Error implements Logger.
-func (noopLogger) Error(_ string, _ ...interface{}) {}
+func (noopLogger) Error(_ string, _ ...interface{}) { /* discarded */ }
 
 func (c *ConnConfig) defaults() {
 	if c.DialTimeout == 0 {
