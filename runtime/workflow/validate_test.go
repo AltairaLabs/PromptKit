@@ -219,6 +219,55 @@ func TestValidate_TerminalWithOnEventWarns(t *testing.T) {
 	assertContains(t, r.Warnings, "terminal")
 }
 
+func TestValidate_NonTerminalWithoutExitWarns(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "p1"}, // no Terminal, no OnEvent, no MaxVisits — dead-end
+		},
+	}
+	r := Validate(spec, []string{"p1"})
+	if r.HasErrors() {
+		t.Fatalf("dead-end state should be a warning, not error: %v", r.Errors)
+	}
+	assertContains(t, r.Warnings, "no on_event and no max_visits")
+}
+
+func TestValidate_NonTerminalWithoutExit_TerminalSilences(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "p1", Terminal: true},
+		},
+	}
+	r := Validate(spec, []string{"p1"})
+	for _, w := range r.Warnings {
+		if contains(w, "no on_event and no max_visits") {
+			t.Errorf("terminal: true should silence reachability warning, got: %s", w)
+		}
+	}
+}
+
+func TestValidate_NonTerminalWithoutExit_V1Silent(t *testing.T) {
+	// v1 predates RFC 0009; dead-end states are implicitly terminal and
+	// should not trigger the reachability warning.
+	spec := &Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "p1"},
+		},
+	}
+	r := Validate(spec, []string{"p1"})
+	for _, w := range r.Warnings {
+		if contains(w, "no on_event and no max_visits") {
+			t.Errorf("v1 should not trigger RFC 0009 reachability warning, got: %s", w)
+		}
+	}
+}
+
 func TestValidate_RedirectChainWarns(t *testing.T) {
 	spec := &Spec{
 		Version: 2,
