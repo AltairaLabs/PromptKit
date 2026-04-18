@@ -42,6 +42,8 @@ const (
 	statusFailed  = "failed"
 
 	defaultNamespace = "promptkit"
+
+	evalMetricHelpFormat = "Eval metric: %s"
 )
 
 // Default histogram buckets for specific metric types.
@@ -633,7 +635,7 @@ func (c *Collector) registerEvalMetric(
 	case evals.MetricGauge, evals.MetricBoolean:
 		vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name:        name,
-			Help:        fmt.Sprintf("Eval metric: %s", metric.Name),
+			Help:        fmt.Sprintf(evalMetricHelpFormat, metric.Name),
 			ConstLabels: c.constLabels,
 		}, allLabelNames)
 		if err := c.registerer.Register(vec); err != nil {
@@ -646,7 +648,7 @@ func (c *Collector) registerEvalMetric(
 	case evals.MetricCounter:
 		vec := prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name:        name,
-			Help:        fmt.Sprintf("Eval metric: %s", metric.Name),
+			Help:        fmt.Sprintf(evalMetricHelpFormat, metric.Name),
 			ConstLabels: c.constLabels,
 		}, allLabelNames)
 		if err := c.registerer.Register(vec); err != nil {
@@ -660,7 +662,7 @@ func (c *Collector) registerEvalMetric(
 		buckets := prometheus.DefBuckets
 		vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:        name,
-			Help:        fmt.Sprintf("Eval metric: %s", metric.Name),
+			Help:        fmt.Sprintf(evalMetricHelpFormat, metric.Name),
 			Buckets:     buckets,
 			ConstLabels: c.constLabels,
 		}, allLabelNames)
