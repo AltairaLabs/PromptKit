@@ -465,3 +465,144 @@ func TestMediaSummary_Counts(t *testing.T) {
 func strPtr(s string) *string {
 	return &s
 }
+
+// TestGetMediaItemSummary locks in the per-branch behavior of getMediaItemSummary
+// ahead of an S3776 cognitive-complexity refactor. If a refactor changes observable
+// behavior, these will catch it.
+func TestGetMediaItemSummary(t *testing.T) {
+	const base64Text = "YWJjZGVmZ2hpamtsbW5vcA==" // 24 chars → expect 18 bytes
+	const expectedBase64Bytes = 18
+
+	t.Run("nil media reports error and exits", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{Type: ContentTypeImage, Media: nil})
+		if got.Error != "no media content" {
+			t.Errorf("Error = %q, want %q", got.Error, "no media content")
+		}
+		if got.Loaded {
+			t.Error("Loaded should be false for nil media")
+		}
+	})
+
+	t.Run("file path without data sets source but not loaded", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeImage,
+			Media: &MediaContent{FilePath: strPtr("/img.jpg"), MIMEType: MIMETypeImageJPEG},
+		})
+		if got.Source != "/img.jpg" {
+			t.Errorf("Source = %q, want %q", got.Source, "/img.jpg")
+		}
+		if got.Loaded {
+			t.Error("Loaded should be false without Data")
+		}
+		if got.SizeBytes != 0 {
+			t.Errorf("SizeBytes = %d, want 0", got.SizeBytes)
+		}
+	})
+
+	t.Run("file path with data sets loaded and estimates size", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeImage,
+			Media: &MediaContent{FilePath: strPtr("/img.jpg"), Data: strPtr(base64Text), MIMEType: MIMETypeImageJPEG},
+		})
+		if got.Source != "/img.jpg" {
+			t.Errorf("Source = %q, want %q", got.Source, "/img.jpg")
+		}
+		if !got.Loaded {
+			t.Error("Loaded should be true when Data is non-empty")
+		}
+		if got.SizeBytes != expectedBase64Bytes {
+			t.Errorf("SizeBytes = %d, want %d (estimated from base64)", got.SizeBytes, expectedBase64Bytes)
+		}
+	})
+
+	t.Run("url source with data sets loaded but no size estimate", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeImage,
+			Media: &MediaContent{URL: strPtr("https://x/y.jpg"), Data: strPtr(base64Text)},
+		})
+		if got.Source != "https://x/y.jpg" {
+			t.Errorf("Source = %q, want URL", got.Source)
+		}
+		if !got.Loaded {
+			t.Error("Loaded should be true when Data is set on URL branch")
+		}
+		if got.SizeBytes != 0 {
+			// URL branch intentionally doesn't estimate size from base64.
+			t.Errorf("SizeBytes = %d, want 0 (URL branch does not estimate)", got.SizeBytes)
+		}
+	})
+
+	t.Run("storage reference sets source but leaves Loaded false", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeImage,
+			Media: &MediaContent{StorageReference: strPtr("store://ref"), MIMEType: MIMETypeImageJPEG},
+		})
+		if got.Source != "store://ref" {
+			t.Errorf("Source = %q, want store://ref", got.Source)
+		}
+		if got.Loaded {
+			t.Error("Loaded should remain false for storage reference branch")
+		}
+	})
+
+	t.Run("inline data only sets loaded and estimates size", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeImage,
+			Media: &MediaContent{Data: strPtr(base64Text), MIMEType: MIMETypeImageJPEG},
+		})
+		if got.Source != "inline data" {
+			t.Errorf("Source = %q, want %q", got.Source, "inline data")
+		}
+		if !got.Loaded {
+			t.Error("Loaded should be true for inline data")
+		}
+		if got.SizeBytes != expectedBase64Bytes {
+			t.Errorf("SizeBytes = %d, want %d", got.SizeBytes, expectedBase64Bytes)
+		}
+	})
+
+	t.Run("no data source reports error", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeImage,
+			Media: &MediaContent{MIMEType: MIMETypeImageJPEG},
+		})
+		if got.Source != "unknown" {
+			t.Errorf("Source = %q, want unknown", got.Source)
+		}
+		if got.Error != "no data source" {
+			t.Errorf("Error = %q, want %q", got.Error, "no data source")
+		}
+	})
+
+	t.Run("image detail is copied when present", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeImage,
+			Media: &MediaContent{FilePath: strPtr("/img.jpg"), Detail: strPtr("high"), MIMEType: MIMETypeImageJPEG},
+		})
+		if got.Detail != "high" {
+			t.Errorf("Detail = %q, want high", got.Detail)
+		}
+	})
+
+	t.Run("detail is ignored for non-image types", func(t *testing.T) {
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeAudio,
+			Media: &MediaContent{FilePath: strPtr("/a.wav"), Detail: strPtr("high"), MIMEType: MIMETypeAudioWAV},
+		})
+		if got.Detail != "" {
+			t.Errorf("Detail = %q, want empty for non-image", got.Detail)
+		}
+	})
+
+	t.Run("SizeKB overrides base64 size estimate", func(t *testing.T) {
+		kb := int64(10)
+		got := getMediaItemSummary(ContentPart{
+			Type:  ContentTypeImage,
+			Media: &MediaContent{FilePath: strPtr("/img.jpg"), Data: strPtr(base64Text), SizeKB: &kb, MIMEType: MIMETypeImageJPEG},
+		})
+		const expectedBytes = 10 * 1024
+		if got.SizeBytes != expectedBytes {
+			t.Errorf("SizeBytes = %d, want %d (from SizeKB)", got.SizeBytes, expectedBytes)
+		}
+	})
+}
