@@ -85,8 +85,8 @@ type TimeBasedPolicyHandler struct {
 	// indexBuilt indicates whether the expiry index has been populated
 	indexBuilt bool
 
-	// ctx is the context used for auto-started enforcement
-	ctx    context.Context
+	// cancel stops the auto-started enforcement goroutine. Set only when
+	// autoStart is true; nil otherwise. Call Stop() to invoke it.
 	cancel context.CancelFunc
 }
 
@@ -107,8 +107,9 @@ func NewTimeBasedPolicyHandler(enforcementInterval time.Duration, opts ...Option
 	}
 
 	if h.autoStart && h.baseDir != "" && h.enforcementInterval > 0 {
-		h.ctx, h.cancel = context.WithCancel(context.Background())
-		h.StartEnforcement(h.ctx, h.baseDir)
+		var ctx context.Context
+		ctx, h.cancel = context.WithCancel(context.Background())
+		h.StartEnforcement(ctx, h.baseDir)
 	}
 
 	return h
