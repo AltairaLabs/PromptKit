@@ -39,7 +39,7 @@ type RecordingAdapter interface {
 	// CanHandle returns true if this adapter supports the given source/type hint.
 	// The source could be a file path, glob pattern, database query, etc.
 	// typeHint is an optional explicit format indicator from the eval config.
-	CanHandle(source string, typeHint string) bool
+	CanHandle(source, typeHint string) bool
 
 	// Enumerate expands a source into individual recording references.
 	// For file-based adapters, this expands glob patterns to matching files.

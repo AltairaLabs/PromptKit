@@ -279,7 +279,7 @@ type k8sManifest interface {
 
 // loadSimpleK8sManifest is a generic loader for K8s-style manifest files
 // This is used for simple config types (Scenario, Provider) that don't support legacy formats
-func loadSimpleK8sManifest[T k8sManifest](filename string, expectedKind string) (T, error) {
+func loadSimpleK8sManifest[T k8sManifest](filename, expectedKind string) (T, error) {
 	var zero T
 
 	data, err := os.ReadFile(filename)

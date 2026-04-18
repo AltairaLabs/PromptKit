@@ -912,7 +912,7 @@ func (ce *DefaultConversationExecutor) calculateTotalsFromMessages(messages []ty
 }
 
 // aggregateMessageCost adds message cost information to the total
-func (ce *DefaultConversationExecutor) aggregateMessageCost(totalCost *types.CostInfo, msgCost *types.CostInfo) {
+func (ce *DefaultConversationExecutor) aggregateMessageCost(totalCost, msgCost *types.CostInfo) {
 	if msgCost == nil {
 		return
 	}

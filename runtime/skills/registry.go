@@ -58,7 +58,7 @@ func (r *Registry) Discover(sources []SkillSource) error {
 		if err := validateSkillSource(&src); err != nil {
 			return fmt.Errorf("skills[%d]: %w", i, err)
 		}
-		if dir := src.EffectiveDir(); dir != "" {
+		if src.EffectiveDir() != "" {
 			resolved, err := r.resolveSource(&src)
 			if err != nil {
 				return err

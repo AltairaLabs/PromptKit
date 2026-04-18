@@ -125,7 +125,7 @@ func convertToolCalls(calls []types.MessageToolCall) ([]mock.ToolCall, error) {
 			// Try to decode args as JSON; if it fails, fall back to string.
 			if err := json.Unmarshal(tc.Args, &args); err != nil {
 				var asString string
-				if err2 := json.Unmarshal(tc.Args, &asString); err2 == nil {
+				if json.Unmarshal(tc.Args, &asString) == nil {
 					args = map[string]interface{}{"_raw": asString}
 				} else {
 					return nil, fmt.Errorf("tool call %s: failed to decode args: %w", tc.Name, err)

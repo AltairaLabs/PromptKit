@@ -11,7 +11,7 @@
 package render
 
 import (
-	_ "embed"
+	_ "embed" // for go:embed directives on the HTML template files below
 	"encoding/json"
 	"fmt"
 	"html/template"

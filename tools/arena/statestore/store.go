@@ -416,7 +416,7 @@ func (s *ArenaStateStore) deepCloneMessage(msg *types.Message) types.Message {
 }
 
 // cloneMessageParts clones the Parts slice (multimodal content) with deep copy of pointer fields
-func (s *ArenaStateStore) cloneMessageParts(cloned *types.Message, msg *types.Message) {
+func (s *ArenaStateStore) cloneMessageParts(cloned, msg *types.Message) {
 	if len(msg.Parts) > 0 {
 		cloned.Parts = make([]types.ContentPart, len(msg.Parts))
 		for i, part := range msg.Parts {
@@ -494,7 +494,7 @@ func cloneInt64Ptr(i *int64) *int64 {
 }
 
 // cloneMessageToolCalls clones the ToolCalls slice
-func (s *ArenaStateStore) cloneMessageToolCalls(cloned *types.Message, msg *types.Message) {
+func (s *ArenaStateStore) cloneMessageToolCalls(cloned, msg *types.Message) {
 	if len(msg.ToolCalls) == 0 {
 		return
 	}
@@ -510,7 +510,7 @@ func (s *ArenaStateStore) cloneMessageToolCalls(cloned *types.Message, msg *type
 }
 
 // cloneMessageToolResult clones the ToolResult
-func (s *ArenaStateStore) cloneMessageToolResult(cloned *types.Message, msg *types.Message) {
+func (s *ArenaStateStore) cloneMessageToolResult(cloned, msg *types.Message) {
 	if msg.ToolResult != nil {
 		partsCopy := make([]types.ContentPart, len(msg.ToolResult.Parts))
 		for i, part := range msg.ToolResult.Parts {
@@ -527,7 +527,7 @@ func (s *ArenaStateStore) cloneMessageToolResult(cloned *types.Message, msg *typ
 }
 
 // cloneMessageCostInfo clones the CostInfo
-func (s *ArenaStateStore) cloneMessageCostInfo(cloned *types.Message, msg *types.Message) {
+func (s *ArenaStateStore) cloneMessageCostInfo(cloned, msg *types.Message) {
 	if msg.CostInfo != nil {
 		cloned.CostInfo = &types.CostInfo{
 			InputTokens:   msg.CostInfo.InputTokens,
@@ -542,7 +542,7 @@ func (s *ArenaStateStore) cloneMessageCostInfo(cloned *types.Message, msg *types
 }
 
 // cloneMessageMeta clones the Meta map
-func (s *ArenaStateStore) cloneMessageMeta(cloned *types.Message, msg *types.Message) {
+func (s *ArenaStateStore) cloneMessageMeta(cloned, msg *types.Message) {
 	if len(msg.Meta) > 0 {
 		cloned.Meta = make(map[string]interface{}, len(msg.Meta))
 		for k, v := range msg.Meta {
@@ -552,7 +552,7 @@ func (s *ArenaStateStore) cloneMessageMeta(cloned *types.Message, msg *types.Mes
 }
 
 // cloneMessageValidations clones the Validations slice
-func (s *ArenaStateStore) cloneMessageValidations(cloned *types.Message, msg *types.Message) {
+func (s *ArenaStateStore) cloneMessageValidations(cloned, msg *types.Message) {
 	if len(msg.Validations) == 0 {
 		return
 	}
@@ -569,7 +569,7 @@ func (s *ArenaStateStore) cloneMessageValidations(cloned *types.Message, msg *ty
 }
 
 // cloneValidationDetails clones the Details map in a ValidationResult
-func (s *ArenaStateStore) cloneValidationDetails(cloned *types.ValidationResult, vr *types.ValidationResult) {
+func (s *ArenaStateStore) cloneValidationDetails(cloned, vr *types.ValidationResult) {
 	if len(vr.Details) > 0 {
 		cloned.Details = make(map[string]interface{}, len(vr.Details))
 		for k, v := range vr.Details {
