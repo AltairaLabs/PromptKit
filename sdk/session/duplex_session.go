@@ -4,6 +4,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -19,6 +20,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+const errSessionClosed = "session is closed"
 
 // duplexSession implements BidirectionalSession with stage-based StreamPipeline.
 // It manages streaming input/output through the stage pipeline.
@@ -180,7 +183,7 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return fmt.Errorf("session is closed")
+		return errors.New(errSessionClosed)
 	}
 	s.closeMu.Unlock()
 
@@ -219,7 +222,7 @@ func (s *duplexSession) SendText(ctx context.Context, text string) error {
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return fmt.Errorf("session is closed")
+		return errors.New(errSessionClosed)
 	}
 	s.closeMu.Unlock()
 
@@ -235,7 +238,7 @@ func (s *duplexSession) SendFrame(ctx context.Context, frame *ImageFrame) error 
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return fmt.Errorf("session is closed")
+		return errors.New(errSessionClosed)
 	}
 	s.closeMu.Unlock()
 
@@ -261,7 +264,7 @@ func (s *duplexSession) SendVideoChunk(ctx context.Context, vchunk *VideoChunk) 
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return fmt.Errorf("session is closed")
+		return errors.New(errSessionClosed)
 	}
 	s.closeMu.Unlock()
 
@@ -494,7 +497,7 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return fmt.Errorf("session is closed")
+		return errors.New(errSessionClosed)
 	}
 	s.closeMu.Unlock()
 

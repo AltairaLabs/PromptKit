@@ -8,6 +8,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
 
+const logCapabilityInferred = "capability inferred from pack"
+
 // Capability represents a platform feature that provides namespaced tools.
 // Capabilities are auto-inferred from pack structure or explicitly added
 // via WithCapability.
@@ -57,15 +59,15 @@ func newCapabilityContext(p *pack.Pack, promptName string, cfg *config) Capabili
 func inferCapabilities(p *pack.Pack) []Capability {
 	var caps []Capability
 	if p.Workflow != nil {
-		logger.Debug("capability inferred from pack", "capability", "workflow")
+		logger.Debug(logCapabilityInferred, "capability", "workflow")
 		caps = append(caps, NewWorkflowCapability())
 	}
 	if p.Agents != nil && len(p.Agents.Members) > 0 {
-		logger.Debug("capability inferred from pack", "capability", "a2a", "agents", len(p.Agents.Members))
+		logger.Debug(logCapabilityInferred, "capability", "a2a", "agents", len(p.Agents.Members))
 		caps = append(caps, NewA2ACapability())
 	}
 	if len(p.Skills) > 0 {
-		logger.Debug("capability inferred from pack", "capability", "skills", "sources", len(p.Skills))
+		logger.Debug(logCapabilityInferred, "capability", "skills", "sources", len(p.Skills))
 		sources := convertSkillSources(p.Skills)
 		caps = append(caps, NewSkillsCapability(sources))
 	}

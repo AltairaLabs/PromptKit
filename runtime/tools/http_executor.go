@@ -28,6 +28,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+const (
+	headerContentType = "Content-Type"
+	mimeJSON          = "application/json"
+)
+
 // Default configuration values for HTTP tool execution.
 const (
 	defaultHTTPMethod       = "POST"
@@ -244,7 +249,7 @@ func (e *HTTPExecutor) buildRequest(
 	}
 
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(headerContentType, mimeJSON)
 	}
 
 	e.applyHeaders(req, cfg)
@@ -330,7 +335,7 @@ func (e *HTTPExecutor) buildMappedRequest(
 	}
 
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(headerContentType, mimeJSON)
 	}
 
 	if err := e.applyMappedHeaders(req, mapper, cfg.Request.HeaderParams, argsMap); err != nil {
@@ -514,7 +519,7 @@ func (e *HTTPExecutor) ExecuteMultimodal(
 	defer resp.Body.Close()
 
 	// Check if response is binary based on Content-Type.
-	contentType := resp.Header.Get("Content-Type")
+	contentType := resp.Header.Get(headerContentType)
 	if IsBinaryContentType(contentType, cfg.Multimodal.AcceptTypes) {
 		return e.handleBinaryResponse(resp, cfg)
 	}
