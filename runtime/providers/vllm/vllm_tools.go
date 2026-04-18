@@ -22,6 +22,9 @@ const (
 	toolChoiceNone     = "none"
 	toolChoiceAuto     = "auto"
 	sseDoneMessage     = "[DONE]"
+
+	// OpenAI-compatible chat completions endpoint — vLLM uses this path.
+	chatCompletionsPath = "/v1/chat/completions"
 )
 
 // vLLM-specific tool structures (OpenAI-compatible format)
@@ -115,7 +118,7 @@ func (p *Provider) PredictWithTools( // NOSONAR
 	}
 
 	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/v1/chat/completions", bytes.NewReader(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+chatCompletionsPath, bytes.NewReader(reqBody))
 	if err != nil {
 		return providers.PredictionResponse{}, nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -143,7 +146,7 @@ func (p *Provider) PredictWithTools( // NOSONAR
 
 	// Check for HTTP errors
 	if httpResp.StatusCode != http.StatusOK {
-		url := p.baseURL + "/v1/chat/completions"
+		url := p.baseURL + chatCompletionsPath
 		body := string(respBody)
 		var apiErr vllmErrorResponse
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
@@ -230,7 +233,7 @@ func (p *Provider) PredictStreamWithTools(
 	}
 
 	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/v1/chat/completions", bytes.NewReader(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+chatCompletionsPath, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -254,7 +257,7 @@ func (p *Provider) PredictStreamWithTools(
 	if httpResp.StatusCode != http.StatusOK {
 		defer httpResp.Body.Close()
 		respBody, _ := io.ReadAll(httpResp.Body)
-		url := p.baseURL + "/v1/chat/completions"
+		url := p.baseURL + chatCompletionsPath
 		body := string(respBody)
 		var apiErr vllmErrorResponse
 		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
