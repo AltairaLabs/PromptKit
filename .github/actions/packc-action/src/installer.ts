@@ -59,6 +59,19 @@ function getPlatformInfo(): PlatformInfo {
   return { os: osName, arch: archName, orasOs, orasArch };
 }
 
+// Accept semver-ish release tags only: optional leading 'v', major.minor.patch,
+// optional pre-release / build metadata. Rejects anything with path separators,
+// traversal sequences, or shell metachars — release tags are interpolated into
+// filesystem paths and download URLs downstream.
+const RELEASE_TAG_PATTERN = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+
+function assertValidReleaseTag(tag: string, source: string): string {
+  if (!RELEASE_TAG_PATTERN.test(tag)) {
+    throw new Error(`invalid ${source} version tag: ${JSON.stringify(tag)}`);
+  }
+  return tag;
+}
+
 /**
  * Build GitHub API headers, including auth token when available.
  * Unauthenticated requests are limited to 60/hr; authenticated get 5,000/hr.
@@ -86,7 +99,7 @@ async function getLatestPromptKitVersion(): Promise<string> {
   }
 
   const release = (await response.json()) as { tag_name: string };
-  return release.tag_name;
+  return assertValidReleaseTag(release.tag_name, 'PromptKit');
 }
 
 async function getLatestOrasVersion(): Promise<string> {
@@ -100,7 +113,7 @@ async function getLatestOrasVersion(): Promise<string> {
   }
 
   const release = (await response.json()) as { tag_name: string };
-  return release.tag_name;
+  return assertValidReleaseTag(release.tag_name, 'ORAS');
 }
 
 async function getLatestCosignVersion(): Promise<string> {
@@ -114,7 +127,7 @@ async function getLatestCosignVersion(): Promise<string> {
   }
 
   const release = (await response.json()) as { tag_name: string };
-  return release.tag_name;
+  return assertValidReleaseTag(release.tag_name, 'Cosign');
 }
 
 export async function installPackC(version: string): Promise<string> {

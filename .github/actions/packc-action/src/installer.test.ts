@@ -287,5 +287,47 @@ describe('installer', () => {
 
       await expect(installCosign()).rejects.toThrow('Failed to fetch latest Cosign release');
     });
+
+    it('should reject path-traversal version tag', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ tag_name: '../../../etc/passwd' }),
+      });
+      mockedTc.find.mockReturnValue('');
+
+      await expect(installCosign()).rejects.toThrow(/invalid.*version/i);
+    });
+
+    it('should reject version with separators', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ tag_name: 'v1.0.0/../evil' }),
+      });
+      mockedTc.find.mockReturnValue('');
+
+      await expect(installCosign()).rejects.toThrow(/invalid.*version/i);
+    });
+  });
+
+  describe('version validation', () => {
+    it('installORAS rejects malformed tag', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ tag_name: '../../../evil' }),
+      });
+      mockedTc.find.mockReturnValue('');
+
+      await expect(installORAS()).rejects.toThrow(/invalid.*version/i);
+    });
+
+    it('installPackC rejects malformed latest tag', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ tag_name: '../../../evil' }),
+      });
+      mockedTc.find.mockReturnValue('');
+
+      await expect(installPackC('latest')).rejects.toThrow(/invalid.*version/i);
+    });
   });
 });
