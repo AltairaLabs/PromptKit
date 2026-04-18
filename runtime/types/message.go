@@ -468,6 +468,55 @@ func (m *Message) getMediaSummary() *MediaSummary {
 	return summary
 }
 
+// estimateBase64DecodedSize returns the approximate decoded-byte count for a
+// base64-encoded string. Every 4 base64 chars encode 3 bytes of payload; we
+// ignore padding for this rough estimate.
+func estimateBase64DecodedSize(data string) int {
+	const (
+		base64Ratio     = 4
+		base64Numerator = 3
+	)
+	return (len(data) * base64Numerator) / base64Ratio
+}
+
+// hasInlineData returns true when a MediaContent carries a non-empty base64 Data string.
+func hasInlineData(media *MediaContent) bool {
+	return media.Data != nil && *media.Data != ""
+}
+
+// populateMediaSource fills Source/Loaded/SizeBytes on item based on which
+// MediaContent field identifies the media. FilePath/URL/StorageReference take
+// priority over inline data for display; the SizeBytes estimate is only
+// applied on the FilePath and inline-data branches to preserve the
+// pre-refactor behavior.
+func populateMediaSource(item *MediaItemSummary, media *MediaContent) {
+	switch {
+	case media.FilePath != nil:
+		item.Source = *media.FilePath
+		if hasInlineData(media) {
+			item.Loaded = true
+			item.SizeBytes = estimateBase64DecodedSize(*media.Data)
+		}
+	case media.URL != nil:
+		item.Source = *media.URL
+		if hasInlineData(media) {
+			item.Loaded = true
+		}
+	case media.StorageReference != nil:
+		// StorageReference means media was externalized to storage; we don't
+		// mark Loaded here because the reference alone doesn't imply the data
+		// has been fetched into memory.
+		item.Source = *media.StorageReference
+	case hasInlineData(media):
+		item.Source = "inline data"
+		item.Loaded = true
+		item.SizeBytes = estimateBase64DecodedSize(*media.Data)
+	default:
+		item.Source = "unknown"
+		item.Error = "no data source"
+	}
+}
+
 // getMediaItemSummary extracts summary information from a media ContentPart.
 func getMediaItemSummary(part ContentPart) MediaItemSummary {
 	item := MediaItemSummary{
@@ -481,48 +530,13 @@ func getMediaItemSummary(part ContentPart) MediaItemSummary {
 	}
 
 	item.MIMEType = part.Media.MIMEType
+	populateMediaSource(&item, part.Media)
 
-	// Determine source - prefer FilePath/URL/StorageReference over "inline data" for better display
-	if part.Media.FilePath != nil {
-		item.Source = *part.Media.FilePath
-		// If Data field is also set, media was successfully loaded
-		if part.Media.Data != nil && *part.Media.Data != "" {
-			item.Loaded = true
-			// Estimate size from base64 data (roughly 3/4 of base64 length)
-			const (
-				base64Ratio     = 4
-				base64Numerator = 3
-			)
-			item.SizeBytes = (len(*part.Media.Data) * base64Numerator) / base64Ratio
-		}
-	} else if part.Media.URL != nil {
-		item.Source = *part.Media.URL
-		if part.Media.Data != nil && *part.Media.Data != "" {
-			item.Loaded = true
-		}
-	} else if part.Media.StorageReference != nil {
-		item.Source = *part.Media.StorageReference
-		// StorageReference means media was externalized to storage
-	} else if part.Media.Data != nil && *part.Media.Data != "" {
-		item.Source = "inline data"
-		item.Loaded = true
-		// Estimate size from base64 data (roughly 3/4 of base64 length)
-		const (
-			base64Ratio     = 4
-			base64Numerator = 3
-		)
-		item.SizeBytes = (len(*part.Media.Data) * base64Numerator) / base64Ratio
-	} else {
-		item.Source = "unknown"
-		item.Error = "no data source"
-	}
-
-	// Add detail level for images
 	if part.Type == ContentTypeImage && part.Media.Detail != nil {
 		item.Detail = *part.Media.Detail
 	}
 
-	// Use size metadata if available
+	// SizeKB metadata overrides any base64-derived estimate.
 	if part.Media.SizeKB != nil {
 		const bytesPerKB = 1024
 		item.SizeBytes = int(*part.Media.SizeKB * bytesPerKB)
