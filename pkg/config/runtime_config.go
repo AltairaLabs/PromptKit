@@ -549,41 +549,65 @@ func (s *RuntimeConfigSpec) validateSandboxes() error {
 
 func (s *RuntimeConfigSpec) validateSelectors() error {
 	for name, sel := range s.Selectors {
-		if sel == nil {
-			continue
-		}
-		if sel.Command == "" {
-			return &ValidationError{
-				Field:   fmt.Sprintf("selectors[%s].command", name),
-				Message: "selector command is required",
-			}
-		}
-		if sel.Sandbox != "" {
-			if _, ok := s.Sandboxes[sel.Sandbox]; !ok {
-				return &ValidationError{
-					Field:   fmt.Sprintf("selectors[%s].sandbox", name),
-					Message: "references a sandbox not declared under spec.sandboxes",
-					Value:   sel.Sandbox,
-				}
-			}
+		if err := s.validateSelectorEntry(name, sel); err != nil {
+			return err
 		}
 	}
-	if s.Skills != nil && s.Skills.Selector != "" {
-		if _, ok := s.Selectors[s.Skills.Selector]; !ok {
-			return &ValidationError{
-				Field:   "skills.selector",
-				Message: "references a selector not declared under spec.selectors",
-				Value:   s.Skills.Selector,
-			}
+	if err := s.validateSelectorRef("skills.selector", s.skillsSelectorRef()); err != nil {
+		return err
+	}
+	return s.validateSelectorRef("tool_selector", s.ToolSelector)
+}
+
+// skillsSelectorRef returns the configured skills selector name, or empty if
+// skills aren't configured. Centralizes the nil-Skills guard so the ref
+// validation path doesn't have to care about it.
+func (s *RuntimeConfigSpec) skillsSelectorRef() string {
+	if s.Skills == nil {
+		return ""
+	}
+	return s.Skills.Selector
+}
+
+// validateSelectorEntry checks a single entry in the selectors map. Nil
+// entries are accepted (YAML treats explicitly-null values as absent);
+// non-nil entries must carry a command and any referenced sandbox must be
+// declared.
+func (s *RuntimeConfigSpec) validateSelectorEntry(name string, sel *SelectorConfig) error {
+	if sel == nil {
+		return nil
+	}
+	if sel.Command == "" {
+		return &ValidationError{
+			Field:   fmt.Sprintf("selectors[%s].command", name),
+			Message: "selector command is required",
 		}
 	}
-	if s.ToolSelector != "" {
-		if _, ok := s.Selectors[s.ToolSelector]; !ok {
-			return &ValidationError{
-				Field:   "tool_selector",
-				Message: "references a selector not declared under spec.selectors",
-				Value:   s.ToolSelector,
-			}
+	if sel.Sandbox == "" {
+		return nil
+	}
+	if _, ok := s.Sandboxes[sel.Sandbox]; !ok {
+		return &ValidationError{
+			Field:   fmt.Sprintf("selectors[%s].sandbox", name),
+			Message: "references a sandbox not declared under spec.sandboxes",
+			Value:   sel.Sandbox,
+		}
+	}
+	return nil
+}
+
+// validateSelectorRef asserts that a named selector reference resolves to a
+// declared entry in spec.selectors. Empty references are a no-op so callers
+// can pass optional-field values directly.
+func (s *RuntimeConfigSpec) validateSelectorRef(field, name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, ok := s.Selectors[name]; !ok {
+		return &ValidationError{
+			Field:   field,
+			Message: "references a selector not declared under spec.selectors",
+			Value:   name,
 		}
 	}
 	return nil
