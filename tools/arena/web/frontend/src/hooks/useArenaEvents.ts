@@ -12,6 +12,7 @@ import type {
   ProviderCallData,
   LogEntry,
 } from "@/types";
+import { toDisplayString } from "@/lib/utils";
 
 const initialState: ArenaState = {
   connected: false,
@@ -184,7 +185,7 @@ function mapSSEToAction(event: SSEEvent): Action | null {
         entry: {
           timestamp: ts,
           level: "error",
-          message: `Provider call failed: ${String(d.provider ?? "unknown")} — ${String(d.error ?? "unknown error")}`,
+          message: `Provider call failed: ${toDisplayString(d.provider, "unknown")} — ${toDisplayString(d.error, "unknown error")}`,
           runId,
         },
       };
