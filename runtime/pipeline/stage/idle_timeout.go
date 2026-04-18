@@ -22,7 +22,7 @@ type idleResetKey struct{}
 func withIdleTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc, func()) {
 	if timeout <= 0 {
 		ctx, cancel := context.WithCancel(parent)
-		return ctx, cancel, func() {}
+		return ctx, cancel, func() { /* no-op reset: idle timeout disabled */ }
 	}
 
 	ctx, cancelCause := context.WithCancelCause(parent)

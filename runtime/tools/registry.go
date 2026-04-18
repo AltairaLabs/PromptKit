@@ -369,7 +369,7 @@ func (r *Registry) withTimeout(
 			ctx, time.Duration(tool.TimeoutMs)*time.Millisecond,
 		)
 	}
-	return ctx, func() {}
+	return ctx, func() { /* no-op cancel: tool has no timeout */ }
 }
 
 // Execute executes a tool with the given arguments
