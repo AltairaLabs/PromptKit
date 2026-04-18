@@ -292,6 +292,17 @@ function getPlatformInfo() {
     }
     return { os: osName, arch: archName, orasOs, orasArch };
 }
+// Accept semver-ish release tags only: optional leading 'v', major.minor.patch,
+// optional pre-release / build metadata. Rejects anything with path separators,
+// traversal sequences, or shell metachars — release tags are interpolated into
+// filesystem paths and download URLs downstream.
+const RELEASE_TAG_PATTERN = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+function assertValidReleaseTag(tag, source) {
+    if (!RELEASE_TAG_PATTERN.test(tag)) {
+        throw new Error(`invalid ${source} version tag: ${JSON.stringify(tag)}`);
+    }
+    return tag;
+}
 /**
  * Build GitHub API headers, including auth token when available.
  * Unauthenticated requests are limited to 60/hr; authenticated get 5,000/hr.
@@ -313,7 +324,7 @@ async function getLatestPromptKitVersion() {
         throw new Error(`Failed to fetch latest release: ${response.statusText}`);
     }
     const release = (await response.json());
-    return release.tag_name;
+    return assertValidReleaseTag(release.tag_name, 'PromptKit');
 }
 async function getLatestOrasVersion() {
     const response = await fetch(`https://api.github.com/repos/${ORAS_REPO_OWNER}/${ORAS_REPO_NAME}/releases/latest`, { headers: githubHeaders() });
@@ -321,7 +332,7 @@ async function getLatestOrasVersion() {
         throw new Error(`Failed to fetch latest ORAS release: ${response.statusText}`);
     }
     const release = (await response.json());
-    return release.tag_name;
+    return assertValidReleaseTag(release.tag_name, 'ORAS');
 }
 async function getLatestCosignVersion() {
     const response = await fetch(`https://api.github.com/repos/${COSIGN_REPO_OWNER}/${COSIGN_REPO_NAME}/releases/latest`, { headers: githubHeaders() });
@@ -329,7 +340,7 @@ async function getLatestCosignVersion() {
         throw new Error(`Failed to fetch latest Cosign release: ${response.statusText}`);
     }
     const release = (await response.json());
-    return release.tag_name;
+    return assertValidReleaseTag(release.tag_name, 'Cosign');
 }
 async function installPackC(version) {
     const platformInfo = getPlatformInfo();
