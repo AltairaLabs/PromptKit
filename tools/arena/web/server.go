@@ -280,7 +280,7 @@ func LoadResultsIntoStore(outDir string, store *statestore.ArenaStateStore) int 
 			Messages: r.Messages,
 			Metadata: make(map[string]interface{}),
 		}
-		if saveErr := store.Save(ctx, convState); saveErr != nil {
+		if store.Save(ctx, convState) != nil {
 			continue
 		}
 		meta := &statestore.RunMetadata{
@@ -299,7 +299,7 @@ func LoadResultsIntoStore(outDir string, store *statestore.ArenaStateStore) int 
 			PersonaID:                    r.PersonaID,
 			ConversationAssertionResults: r.ConversationAssertions.Results,
 		}
-		if saveErr := store.SaveMetadata(ctx, r.RunID, meta); saveErr != nil {
+		if store.SaveMetadata(ctx, r.RunID, meta) != nil {
 			continue
 		}
 		loaded++

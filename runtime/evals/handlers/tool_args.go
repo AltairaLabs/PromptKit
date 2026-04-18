@@ -131,9 +131,7 @@ func findMatchingCalls(
 
 // argsMatch checks if actual arguments contain all expected args
 // with matching string representations.
-func argsMatch(
-	actual map[string]any, expected map[string]any,
-) bool {
+func argsMatch(actual, expected map[string]any) bool {
 	for k, expectedVal := range expected {
 		actualVal, exists := actual[k]
 		if !exists {

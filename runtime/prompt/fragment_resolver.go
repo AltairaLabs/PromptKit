@@ -9,7 +9,7 @@ import (
 
 // FragmentRepository interface for loading fragments (to avoid import cycles)
 type FragmentRepository interface {
-	LoadFragment(name string, relativePath string, baseDir string) (*Fragment, error)
+	LoadFragment(name, relativePath, baseDir string) (*Fragment, error)
 }
 
 // FragmentResolver handles fragment loading, resolution, and variable substitution using the repository pattern

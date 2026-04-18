@@ -118,7 +118,7 @@ func buildEnv(extras []string) []string {
 	out := make([]string, 0, len(base)+len(extras))
 	out = append(out, base...)
 	for _, entry := range extras {
-		if i := indexOfByte(entry, '='); i >= 0 {
+		if indexOfByte(entry, '=') >= 0 {
 			out = append(out, entry)
 			continue
 		}

@@ -18,7 +18,7 @@ func NewArenaOutputAdapter() *ArenaOutputAdapter {
 }
 
 // CanHandle returns true for *.arena-output.json files or "arena_output" type hint.
-func (a *ArenaOutputAdapter) CanHandle(source string, typeHint string) bool {
+func (a *ArenaOutputAdapter) CanHandle(source, typeHint string) bool {
 	if matchesTypeHint(typeHint, "arena", "arena_output", "scenario_output") {
 		return true
 	}

@@ -355,7 +355,7 @@ type ModelOverride struct {
 // This should match persistence.Repository interface
 type Repository interface {
 	LoadPrompt(taskType string) (*Config, error)
-	LoadFragment(name string, relativePath string, baseDir string) (*Fragment, error)
+	LoadFragment(name, relativePath, baseDir string) (*Fragment, error)
 	ListPrompts() ([]string, error)
 	SavePrompt(config *Config) error
 }

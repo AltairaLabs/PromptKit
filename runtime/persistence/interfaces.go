@@ -16,7 +16,7 @@ type PromptRepository interface {
 	LoadPrompt(taskType string) (*prompt.Config, error)
 
 	// LoadFragment loads a fragment by name and optional path
-	LoadFragment(name string, relativePath string, baseDir string) (*prompt.Fragment, error)
+	LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error)
 
 	// ListPrompts returns all available prompt task types
 	ListPrompts() ([]string, error)
