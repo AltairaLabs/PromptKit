@@ -438,9 +438,10 @@ async function installCosign() {
         const downloadUrl = `https://github.com/${COSIGN_REPO_OWNER}/${COSIGN_REPO_NAME}/releases/download/${version}/${assetName}`;
         core.info(`Download URL: ${downloadUrl}`);
         const downloadPath = await tc.downloadTool(downloadUrl);
-        // Create a directory for the binary
-        const toolDir = path.join(os.tmpdir(), `cosign-${version}`);
-        fs.mkdirSync(toolDir, { recursive: true });
+        // Create a unique temp directory for the binary. Using mkdtempSync with a
+        // static prefix keeps the version tag out of the filesystem path entirely,
+        // so the tainted `version` value never flows into path.join/mkdirSync.
+        const toolDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cosign-'));
         const binaryName = platformInfo.os === 'Windows' ? 'cosign.exe' : 'cosign';
         const binaryPath = path.join(toolDir, binaryName);
         fs.copyFileSync(downloadPath, binaryPath);
