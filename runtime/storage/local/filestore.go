@@ -37,6 +37,10 @@ const (
 
 	// filePermissions is the default file permission mode for created files.
 	filePermissions = 0600
+
+	// errInvalidMediaReference wraps an inner validatePath error for Retrieve/
+	// Delete/GetURL when the caller-supplied reference is outside the base dir.
+	errInvalidMediaReference = "invalid media reference: %w"
 )
 
 // ErrFileTooLarge is returned when data exceeds the configured MaxFileSize.
@@ -281,7 +285,7 @@ func (fs *FileStore) RetrieveMedia(ctx context.Context, reference storage.Refere
 
 	// Validate path is within base directory (prevents path traversal attacks)
 	if err := fs.validatePath(filePath); err != nil {
-		return nil, fmt.Errorf("invalid media reference: %w", err)
+		return nil, fmt.Errorf(errInvalidMediaReference, err)
 	}
 
 	// Validate file exists and is readable
@@ -326,7 +330,7 @@ func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Referenc
 
 	// Validate path is within base directory (prevents path traversal attacks)
 	if err := fs.validatePath(filePath); err != nil {
-		return fmt.Errorf("invalid media reference: %w", err)
+		return fmt.Errorf(errInvalidMediaReference, err)
 	}
 
 	// Check reference count if deduplication is enabled
@@ -381,7 +385,7 @@ func (fs *FileStore) GetURL(ctx context.Context, reference storage.Reference, ex
 
 	// Validate path is within base directory (prevents path traversal attacks)
 	if err := fs.validatePath(filePath); err != nil {
-		return "", fmt.Errorf("invalid media reference: %w", err)
+		return "", fmt.Errorf(errInvalidMediaReference, err)
 	}
 
 	// Validate file exists

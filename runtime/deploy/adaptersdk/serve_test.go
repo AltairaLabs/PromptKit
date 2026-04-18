@@ -339,6 +339,62 @@ func TestServeIO_InvalidParams(t *testing.T) {
 	}
 }
 
+// invalidParamsRequest is a helper that yields a JSON-RPC request whose
+// `params` is a bare string — deliberately malformed so dispatch's
+// json.Unmarshal on the handler-specific params struct fails.
+func invalidParamsRequest(method string, id int) string {
+	return fmt.Sprintf(`{"jsonrpc":"2.0","method":%q,"params":"bad","id":%d}`+"\n", method, id)
+}
+
+func expectInvalidParamsResponse(t *testing.T, out *bytes.Buffer) {
+	t.Helper()
+	var resp response
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Error == nil {
+		t.Fatal("expected error response for invalid params")
+	}
+	if resp.Error.Code != CodeParseError {
+		t.Errorf("expected code %d, got %d", CodeParseError, resp.Error.Code)
+	}
+	if !strings.Contains(resp.Error.Message, "invalid params:") {
+		t.Errorf("expected message to contain %q, got %q", "invalid params:", resp.Error.Message)
+	}
+}
+
+func TestServeIO_ValidateConfig_InvalidParams(t *testing.T) {
+	var out bytes.Buffer
+	if err := ServeIO(newFakeProvider(), strings.NewReader(invalidParamsRequest("validate_config", 11)), &out); err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
+	expectInvalidParamsResponse(t, &out)
+}
+
+func TestServeIO_Apply_InvalidParams(t *testing.T) {
+	var out bytes.Buffer
+	if err := ServeIO(newFakeProvider(), strings.NewReader(invalidParamsRequest("apply", 12)), &out); err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
+	expectInvalidParamsResponse(t, &out)
+}
+
+func TestServeIO_Destroy_InvalidParams(t *testing.T) {
+	var out bytes.Buffer
+	if err := ServeIO(newFakeProvider(), strings.NewReader(invalidParamsRequest("destroy", 13)), &out); err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
+	expectInvalidParamsResponse(t, &out)
+}
+
+func TestServeIO_Status_InvalidParams(t *testing.T) {
+	var out bytes.Buffer
+	if err := ServeIO(newFakeProvider(), strings.NewReader(invalidParamsRequest("status", 14)), &out); err != nil {
+		t.Fatalf("ServeIO error: %v", err)
+	}
+	expectInvalidParamsResponse(t, &out)
+}
+
 func TestServeIO_MultipleRequests(t *testing.T) {
 	provider := newFakeProvider()
 	input := makeRequest("get_provider_info", nil, 1) + "\n" +
