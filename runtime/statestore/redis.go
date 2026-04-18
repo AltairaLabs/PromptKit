@@ -14,6 +14,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// Error-wrapping format strings for redis operations.
+const (
+	errRedisGetMetaFailed   = "redis get meta failed: %w"
+	errRedisLlenFailed      = "redis llen failed: %w"
+	errRedisPipelineFailed  = "redis pipeline failed: %w"
+	errMarshalMessageFailed = "failed to marshal message: %w"
+	errMarshalSummaryFailed = "failed to marshal summary: %w"
+)
+
 // RedisStore provides a Redis-backed implementation of the Store interface.
 // It uses JSON serialization for state storage and supports automatic TTL-based cleanup.
 // This implementation is suitable for distributed systems and production deployments.
@@ -127,7 +136,7 @@ func (s *RedisStore) loadMeta(ctx context.Context, id string) (*redisStateMeta, 
 		if errors.Is(err, redis.Nil) {
 			return nil, ErrNotFound
 		}
-		return nil, fmt.Errorf("redis get meta failed: %w", err)
+		return nil, fmt.Errorf(errRedisGetMetaFailed, err)
 	}
 
 	var meta redisStateMeta
@@ -234,7 +243,7 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	msgKey := s.messagesKey(state.ID)
 	existingCount, err := s.client.LLen(ctx, msgKey).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
-		return fmt.Errorf("redis llen failed: %w", err)
+		return fmt.Errorf(errRedisLlenFailed, err)
 	}
 
 	// Build pipeline: write meta, delta-append messages, replace summaries, cleanup legacy, update index
@@ -273,7 +282,7 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	s.pipeUpdateGlobalIndex(ctx, pipe, state.ID)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("redis pipeline failed: %w", err)
+		return fmt.Errorf(errRedisPipelineFailed, err)
 	}
 
 	return nil
@@ -285,7 +294,7 @@ func marshalMessageSlice(msgs []types.Message) ([]interface{}, error) {
 	for i := range msgs {
 		data, err := json.Marshal(&msgs[i])
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal message: %w", err)
+			return nil, fmt.Errorf(errMarshalMessageFailed, err)
 		}
 		vals = append(vals, data)
 	}
@@ -312,7 +321,7 @@ func marshalMessages(msgs []types.Message) func() ([]interface{}, error) {
 		for i := range msgs {
 			data, err := json.Marshal(&msgs[i])
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal message: %w", err)
+				return nil, fmt.Errorf(errMarshalMessageFailed, err)
 			}
 			vals = append(vals, data)
 		}
@@ -327,7 +336,7 @@ func marshalSummaries(sums []Summary) func() ([]interface{}, error) {
 		for i := range sums {
 			data, err := json.Marshal(&sums[i])
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal summary: %w", err)
+				return nil, fmt.Errorf(errMarshalSummaryFailed, err)
 			}
 			vals = append(vals, data)
 		}
@@ -429,7 +438,7 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error {
 	pipe.SRem(ctx, s.globalIndexKey(), id)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("redis pipeline failed: %w", err)
+		return fmt.Errorf(errRedisPipelineFailed, err)
 	}
 
 	if delCmd.Val() == 0 {
@@ -608,7 +617,7 @@ func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) (
 	key := s.messagesKey(id)
 	count, err := s.client.LLen(ctx, key).Result()
 	if err != nil {
-		return nil, fmt.Errorf("redis llen failed: %w", err)
+		return nil, fmt.Errorf(errRedisLlenFailed, err)
 	}
 
 	// Fall back to monolithic key if list doesn't exist
@@ -644,7 +653,7 @@ func (s *RedisStore) MessageCount(ctx context.Context, id string) (int, error) {
 	key := s.messagesKey(id)
 	count, err := s.client.LLen(ctx, key).Result()
 	if err != nil {
-		return 0, fmt.Errorf("redis llen failed: %w", err)
+		return 0, fmt.Errorf(errRedisLlenFailed, err)
 	}
 
 	// Fall back to monolithic key if list doesn't exist
@@ -692,7 +701,7 @@ func (s *RedisStore) ensureListFormat(ctx context.Context, id string) error {
 	listExistsCmd := pipe.Exists(ctx, key)
 	monoExistsCmd := pipe.Exists(ctx, monoKey)
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("redis pipeline failed: %w", err)
+		return fmt.Errorf(errRedisPipelineFailed, err)
 	}
 
 	if listExistsCmd.Val() > 0 {
@@ -717,7 +726,7 @@ func (s *RedisStore) rpushMessages(ctx context.Context, key string, messages []t
 	for i := range messages {
 		data, err := json.Marshal(&messages[i])
 		if err != nil {
-			return fmt.Errorf("failed to marshal message: %w", err)
+			return fmt.Errorf(errMarshalMessageFailed, err)
 		}
 		vals = append(vals, data)
 	}
@@ -743,7 +752,7 @@ func (s *RedisStore) updateMetaTTL(ctx context.Context, id, msgKey string) error
 			return fmt.Errorf("failed to unmarshal meta: %w", unmarshalErr)
 		}
 	} else if !errors.Is(err, redis.Nil) {
-		return fmt.Errorf("redis get meta failed: %w", err)
+		return fmt.Errorf(errRedisGetMetaFailed, err)
 	}
 	// If meta doesn't exist, we create a minimal one with just the ID and timestamp
 	meta.ID = id
@@ -761,7 +770,7 @@ func (s *RedisStore) updateMetaTTL(ctx context.Context, id, msgKey string) error
 	pipe.Set(ctx, metaKey, metaData, s.ttl)
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("redis pipeline failed: %w", err)
+		return fmt.Errorf(errRedisPipelineFailed, err)
 	}
 	return nil
 }
@@ -815,7 +824,7 @@ func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary
 	key := s.summariesKey(id)
 	data, err := json.Marshal(summary)
 	if err != nil {
-		return fmt.Errorf("failed to marshal summary: %w", err)
+		return fmt.Errorf(errMarshalSummaryFailed, err)
 	}
 
 	pipe := s.client.Pipeline()
@@ -825,7 +834,7 @@ func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("redis pipeline failed: %w", err)
+		return fmt.Errorf(errRedisPipelineFailed, err)
 	}
 
 	return nil
@@ -861,7 +870,7 @@ func (s *RedisStore) migrateSummaries(ctx context.Context, id string, summaries 
 	for i := range summaries {
 		data, err := json.Marshal(&summaries[i])
 		if err != nil {
-			return fmt.Errorf("failed to marshal summary: %w", err)
+			return fmt.Errorf(errMarshalSummaryFailed, err)
 		}
 		vals = append(vals, data)
 	}
@@ -964,7 +973,7 @@ func (s *RedisStore) pipelinedLoadStates(ctx context.Context, ids []string) ([]s
 		monoCmds[i] = pipe.Get(ctx, s.conversationKey(id))
 	}
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("redis pipeline failed: %w", err)
+		return nil, fmt.Errorf(errRedisPipelineFailed, err)
 	}
 
 	states := make([]stateWithID, 0, len(ids))
@@ -995,7 +1004,7 @@ func (s *RedisStore) resolveStateFromCmds(
 		return metaToState(&meta), nil
 	}
 	if !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("redis get meta failed: %w", err)
+		return nil, fmt.Errorf(errRedisGetMetaFailed, err)
 	}
 
 	// Fall back to monolithic key
