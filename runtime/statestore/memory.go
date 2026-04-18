@@ -317,62 +317,73 @@ func (s *MemoryStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// defaultListLimit is applied when ListOptions.Limit is zero.
+const defaultListLimit = 100
+
 // List returns conversation IDs matching the given criteria.
 // Expired entries are excluded from results.
 func (s *MemoryStore) List(ctx context.Context, opts ListOptions) ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Collect matching conversation IDs
-	var candidates []string
-	if opts.UserID != "" {
-		// Filter by user
-		userConvs, exists := s.userIndex[opts.UserID]
-		if !exists {
-			return []string{}, nil
-		}
-		candidates = make([]string, 0, len(userConvs))
-		for id := range userConvs {
-			candidates = append(candidates, id)
-		}
-	} else {
-		// Return all conversations
-		candidates = make([]string, 0, len(s.states))
-		for id := range s.states {
-			candidates = append(candidates, id)
-		}
-	}
+	ids := s.filterExpiredIDs(s.listCandidateIDs(opts.UserID))
 
-	// Filter out expired entries
-	ids := make([]string, 0, len(candidates))
-	for _, id := range candidates {
-		if state, ok := s.states[id]; ok && !s.isExpired(state) {
-			ids = append(ids, id)
-		}
-	}
-
-	// Sort if requested
 	if opts.SortBy != "" {
 		s.sortConversations(ids, opts.SortBy, opts.SortOrder)
 	}
 
-	// Apply pagination
-	limit := opts.Limit
+	return paginate(ids, opts.Offset, opts.Limit), nil
+}
+
+// listCandidateIDs returns the full set of conversation IDs to consider for a
+// List call. When userID is non-empty, the result is scoped to that user's
+// index; otherwise every known conversation is included. Caller must hold
+// at least the read lock.
+func (s *MemoryStore) listCandidateIDs(userID string) []string {
+	if userID != "" {
+		userConvs, exists := s.userIndex[userID]
+		if !exists {
+			return nil
+		}
+		ids := make([]string, 0, len(userConvs))
+		for id := range userConvs {
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	ids := make([]string, 0, len(s.states))
+	for id := range s.states {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// filterExpiredIDs drops any IDs whose state has expired or is missing.
+// Caller must hold at least the read lock.
+func (s *MemoryStore) filterExpiredIDs(candidates []string) []string {
+	alive := make([]string, 0, len(candidates))
+	for _, id := range candidates {
+		if state, ok := s.states[id]; ok && !s.isExpired(state) {
+			alive = append(alive, id)
+		}
+	}
+	return alive
+}
+
+// paginate applies offset/limit to a slice of IDs, substituting the default
+// limit when zero and returning an empty slice once offset passes the end.
+func paginate(ids []string, offset, limit int) []string {
 	if limit == 0 {
-		limit = 100 // Default limit
+		limit = defaultListLimit
 	}
-
-	start := opts.Offset
-	if start >= len(ids) {
-		return []string{}, nil
+	if offset >= len(ids) {
+		return []string{}
 	}
-
-	end := start + limit
+	end := offset + limit
 	if end > len(ids) {
 		end = len(ids)
 	}
-
-	return ids[start:end], nil
+	return ids[offset:end]
 }
 
 // LoadRecentMessages returns the last n messages for the given conversation.
