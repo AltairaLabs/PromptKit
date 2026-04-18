@@ -498,6 +498,48 @@ spec:
 	}
 }
 
+// TestLoadConfig_PromptSchemaValidationFailure covers the schema-validation
+// error branch in loadPromptConfigs when the referenced prompt file exists
+// but fails ValidatePromptConfig (e.g. wrong kind).
+func TestLoadConfig_PromptSchemaValidationFailure(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmpDir := t.TempDir()
+
+	// A file shaped like a K8s manifest but with a kind the prompt schema rejects.
+	promptPath := filepath.Join(tmpDir, "bad-prompt.yaml")
+	badPrompt := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: NotAPromptConfig
+metadata:
+  name: bogus
+spec: {}
+`
+	if err := os.WriteFile(promptPath, []byte(badPrompt), 0600); err != nil {
+		t.Fatalf("write prompt file: %v", err)
+	}
+
+	configPath := filepath.Join(tmpDir, "arena.yaml")
+	arena := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test-arena
+spec:
+  prompt_configs:
+    - id: test
+      file: bad-prompt.yaml
+`
+	if err := os.WriteFile(configPath, []byte(arena), 0600); err != nil {
+		t.Fatalf("write arena config: %v", err)
+	}
+
+	_, err := LoadConfig(configPath)
+	if err == nil {
+		t.Fatal("expected schema validation error for bad prompt kind")
+	}
+	if !strings.Contains(err.Error(), "schema validation failed") {
+		t.Errorf("expected 'schema validation failed' in error, got: %v", err)
+	}
+}
+
 func TestLoadConfig_LoadToolsError(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "test-config.yaml")
