@@ -442,49 +442,71 @@ func normalizeEnum(val string, enum []string) (string, bool) {
 }
 
 // coerceStringValue converts a string to the target JSON schema type.
-// Returns nil if no coercion is needed (e.g., target type is "string").
+// Returns (nil, nil) if no coercion is defined for targetType (e.g., "string"
+// or anything unrecognized — the caller treats that as "leave the value alone").
 func coerceStringValue(s, targetType string) (any, error) {
 	switch targetType {
 	case "integer":
-		if v, err := strconv.ParseInt(s, 10, 64); err == nil {
-			return v, nil
-		}
-		// Fall back: "5.0" → parse as float, truncate if no fractional part.
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			if f == math.Trunc(f) {
-				return int64(f), nil
-			}
-		}
-		return nil, fmt.Errorf("cannot parse %q as integer", s)
+		return coerceStringToInteger(s)
 	case "number":
 		return strconv.ParseFloat(s, 64)
 	case "boolean":
-		// strconv.ParseBool handles "true", "false", "1", "0", "t", "f".
-		if v, err := strconv.ParseBool(s); err == nil {
-			return v, nil
-		}
-		// Extended: "yes"/"no" (case-insensitive).
-		switch strings.ToLower(strings.TrimSpace(s)) {
-		case "yes":
-			return true, nil
-		case "no":
-			return false, nil
-		}
-		return nil, fmt.Errorf("cannot parse %q as boolean", s)
+		return coerceStringToBoolean(s)
 	case "object":
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(s), &obj); err != nil {
-			return nil, err
-		}
-		return obj, nil
+		return coerceStringToObject(s)
 	case "array":
-		var arr []any
-		if err := json.Unmarshal([]byte(s), &arr); err == nil {
-			return arr, nil
-		}
-		// Bare string → single-element array.
-		return []any{s}, nil
+		return coerceStringToArray(s)
 	default:
 		return nil, nil
 	}
+}
+
+// coerceStringToInteger parses s as int64 directly, falling back to a
+// whole-number float (so "5.0" is acceptable but "3.14" is not).
+func coerceStringToInteger(s string) (any, error) {
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v, nil
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil && f == math.Trunc(f) {
+		return int64(f), nil
+	}
+	return nil, fmt.Errorf("cannot parse %q as integer", s)
+}
+
+// coerceStringToBoolean parses s as a bool. Accepts strconv.ParseBool's
+// canonical forms ("true"/"false"/"1"/"0"/"t"/"f") and, case-insensitively
+// with whitespace trimmed, the natural-language forms "yes" and "no".
+func coerceStringToBoolean(s string) (any, error) {
+	if v, err := strconv.ParseBool(s); err == nil {
+		return v, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "yes":
+		return true, nil
+	case "no":
+		return false, nil
+	}
+	return nil, fmt.Errorf("cannot parse %q as boolean", s)
+}
+
+// coerceStringToObject parses s as a JSON object. Returns an error when the
+// string isn't valid JSON — unlike array coercion there's no sensible fallback
+// for a bare value.
+func coerceStringToObject(s string) (any, error) {
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(s), &obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+// coerceStringToArray parses s as a JSON array, falling back to wrapping the
+// bare string in a single-element slice so simple tool arguments like "tag1"
+// still validate against schemas expecting an array.
+func coerceStringToArray(s string) (any, error) {
+	var arr []any
+	if err := json.Unmarshal([]byte(s), &arr); err == nil {
+		return arr, nil
+	}
+	return []any{s}, nil
 }
