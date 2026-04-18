@@ -244,15 +244,33 @@ describe('installer', () => {
       mockedTc.find.mockReturnValue('');
       mockedTc.downloadTool.mockResolvedValue('/tmp/cosign');
       mockedTc.cacheDir.mockResolvedValue('/tools/cosign/v2.4.0');
+      mockedFs.mkdtempSync.mockReturnValue('/tmp/cosign-AbC123' as never);
 
       const result = await installCosign();
 
       expect(mockedTc.downloadTool).toHaveBeenCalledWith(
         expect.stringContaining('cosign-linux-amd64')
       );
-      expect(mockedFs.mkdirSync).toHaveBeenCalled();
+      expect(mockedFs.mkdtempSync).toHaveBeenCalledWith(
+        expect.stringMatching(/cosign-$/)
+      );
       expect(mockedFs.copyFileSync).toHaveBeenCalled();
       expect(result).toBe('/tools/cosign/v2.4.0/cosign');
+    });
+
+    it('should not interpolate version into the temp dir path', async () => {
+      // Regression guard for Sonar S2083: the version tag (user-controlled
+      // data from the GitHub API) must never flow into filesystem paths.
+      mockedTc.find.mockReturnValue('');
+      mockedTc.downloadTool.mockResolvedValue('/tmp/cosign');
+      mockedTc.cacheDir.mockResolvedValue('/tools/cosign/v2.4.0');
+      mockedFs.mkdtempSync.mockReturnValue('/tmp/cosign-xyz' as never);
+
+      await installCosign();
+
+      const [[mkdtempPrefix]] = mockedFs.mkdtempSync.mock.calls;
+      expect(mkdtempPrefix).not.toContain('2.4.0');
+      expect(mkdtempPrefix).not.toContain('v2.4.0');
     });
 
     it('should use cached Cosign if available', async () => {
@@ -270,6 +288,7 @@ describe('installer', () => {
       mockedTc.find.mockReturnValue('');
       mockedTc.downloadTool.mockResolvedValue('/tmp/cosign.exe');
       mockedTc.cacheDir.mockResolvedValue('/tools/cosign/v2.4.0');
+      mockedFs.mkdtempSync.mockReturnValue('/tmp/cosign-AbC123' as never);
 
       const result = await installCosign();
 
