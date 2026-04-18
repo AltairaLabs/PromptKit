@@ -22,6 +22,10 @@ const (
 	// Claude content source types
 	sourceTypeBase64 = "base64"
 	sourceTypeURL    = "url"
+
+	// Shared error-wrapping formats for tool-path request building.
+	errMarshalRequestFailed = "failed to marshal request: %w"
+	errCreateRequestFailed  = "failed to create request: %w"
 )
 
 // ToolProvider extends ClaudeProvider with tool support
@@ -529,12 +533,12 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 
 	reqBytes, err := json.Marshal(request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBytes))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf(errCreateRequestFailed, err)
 	}
 
 	if hdrErr := p.applyToolRequestHeaders(ctx, httpReq); hdrErr != nil {
@@ -601,7 +605,7 @@ func (p *ToolProvider) streamBedrockToolRequest(
 ) (<-chan providers.StreamChunk, error) {
 	reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}
 	url := p.messagesStreamURL()
 	requestFn := p.buildBedrockStreamingRequestFn(url, reqBody)
@@ -629,7 +633,7 @@ func (p *ToolProvider) streamDirectToolRequest(
 ) (<-chan providers.StreamChunk, error) {
 	requestBytes, err := json.Marshal(claudeReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}
 	url := p.messagesStreamURL()
 	requestFn := p.buildDirectStreamingRequestFn(url, requestBytes)
@@ -658,7 +662,7 @@ func (p *ToolProvider) buildBedrockStreamingRequestFn(
 	return func(ctx context.Context) (*http.Request, error) {
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+			return nil, fmt.Errorf(errCreateRequestFailed, err)
 		}
 		httpReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
 		if err := p.applyToolRequestHeaders(ctx, httpReq); err != nil {
@@ -676,7 +680,7 @@ func (p *ToolProvider) buildDirectStreamingRequestFn(
 	return func(ctx context.Context) (*http.Request, error) {
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+			return nil, fmt.Errorf(errCreateRequestFailed, err)
 		}
 		httpReq.Header.Set("Accept", "text/event-stream")
 		if err := p.applyToolRequestHeaders(ctx, httpReq); err != nil {
