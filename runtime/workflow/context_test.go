@@ -146,6 +146,95 @@ func TestLastTransition(t *testing.T) {
 	}
 }
 
+func TestCloneDeepCopiesVisitCounts(t *testing.T) {
+	ctx := NewContext("a", time.Now())
+	ctx.VisitCounts["a"] = 3
+	ctx.VisitCounts["b"] = 7
+
+	clone := ctx.Clone()
+
+	if clone.VisitCounts["a"] != 3 || clone.VisitCounts["b"] != 7 {
+		t.Errorf("VisitCounts not copied: got %+v", clone.VisitCounts)
+	}
+
+	// Mutate clone, verify original is untouched.
+	clone.VisitCounts["a"] = 99
+	clone.VisitCounts["c"] = 1
+	if ctx.VisitCounts["a"] != 3 {
+		t.Errorf("original VisitCounts[a] = %d, want 3", ctx.VisitCounts["a"])
+	}
+	if _, ok := ctx.VisitCounts["c"]; ok {
+		t.Error("original VisitCounts should not have key c")
+	}
+}
+
+func TestCloneDeepCopiesArtifacts(t *testing.T) {
+	ctx := NewContext("a", time.Now())
+	ctx.Artifacts = map[string]string{
+		"findings": "initial research",
+		"plan":     "step one",
+	}
+
+	clone := ctx.Clone()
+
+	if clone.Artifacts["findings"] != "initial research" {
+		t.Errorf("Artifacts[findings] = %q", clone.Artifacts["findings"])
+	}
+
+	// Mutate clone, verify independence.
+	clone.Artifacts["findings"] = "changed"
+	clone.Artifacts["new"] = "added"
+	if ctx.Artifacts["findings"] != "initial research" {
+		t.Error("original Artifacts[findings] was mutated")
+	}
+	if _, ok := ctx.Artifacts["new"]; ok {
+		t.Error("original Artifacts should not have key new")
+	}
+}
+
+func TestCloneDeepCopiesArtifactHistoryWithNestedValues(t *testing.T) {
+	now := time.Date(2026, 2, 17, 10, 0, 0, 0, time.UTC)
+	ctx := NewContext("a", now)
+	ctx.ArtifactHistory = []ArtifactSnapshot{
+		{
+			FromState: "a",
+			ToState:   "b",
+			Event:     "Next",
+			Timestamp: now,
+			Values:    map[string]string{"k1": "v1", "k2": "v2"},
+		},
+		{
+			FromState: "b",
+			ToState:   "c",
+			Event:     "Done",
+			Timestamp: now.Add(time.Minute),
+			Values:    nil, // explicitly nil to exercise the nil branch
+		},
+	}
+
+	clone := ctx.Clone()
+
+	if len(clone.ArtifactHistory) != 2 {
+		t.Fatalf("ArtifactHistory len = %d, want 2", len(clone.ArtifactHistory))
+	}
+	if clone.ArtifactHistory[0].Values["k1"] != "v1" {
+		t.Errorf("snapshot[0].Values[k1] = %q", clone.ArtifactHistory[0].Values["k1"])
+	}
+	if clone.ArtifactHistory[1].Values != nil {
+		t.Errorf("snapshot[1].Values should be nil, got %+v", clone.ArtifactHistory[1].Values)
+	}
+
+	// Mutate nested map on clone — original should not be affected.
+	clone.ArtifactHistory[0].Values["k1"] = "changed"
+	clone.ArtifactHistory[0].Values["k3"] = "added"
+	if ctx.ArtifactHistory[0].Values["k1"] != "v1" {
+		t.Error("original snapshot[0].Values[k1] was mutated")
+	}
+	if _, ok := ctx.ArtifactHistory[0].Values["k3"]; ok {
+		t.Error("original snapshot[0].Values should not have k3")
+	}
+}
+
 func TestCloneDeepCopiesNestedMetadata(t *testing.T) {
 	now := time.Date(2026, 2, 17, 10, 0, 0, 0, time.UTC)
 	ctx := NewContext("intake", now)

@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"maps"
+	"slices"
 	"time"
 )
 
@@ -57,46 +59,46 @@ func (ctx *Context) RecordTransition(from, to, event string, ts time.Time) {
 	ctx.UpdatedAt = ts
 }
 
-// Clone returns a deep copy of the Context.
+// Clone returns a deep copy of the Context. Nil collections on the source are
+// preserved as nil on the clone so callers can distinguish "absent" from
+// "present but empty" across the round-trip.
 func (ctx *Context) Clone() *Context {
-	c := &Context{
-		CurrentState:   ctx.CurrentState,
-		TotalToolCalls: ctx.TotalToolCalls,
-		StartedAt:      ctx.StartedAt,
-		UpdatedAt:      ctx.UpdatedAt,
+	return &Context{
+		CurrentState:    ctx.CurrentState,
+		TotalToolCalls:  ctx.TotalToolCalls,
+		StartedAt:       ctx.StartedAt,
+		UpdatedAt:       ctx.UpdatedAt,
+		History:         slices.Clone(ctx.History),
+		Metadata:        cloneMetadataMap(ctx.Metadata),
+		VisitCounts:     maps.Clone(ctx.VisitCounts),
+		Artifacts:       maps.Clone(ctx.Artifacts),
+		ArtifactHistory: cloneArtifactHistory(ctx.ArtifactHistory),
 	}
-	if ctx.History != nil {
-		c.History = make([]StateTransition, len(ctx.History))
-		copy(c.History, ctx.History)
+}
+
+// cloneMetadataMap is the entry point for deep-copying Metadata. It preserves
+// nil input as nil output rather than producing an empty map, to keep Clone's
+// input-output shape identical.
+func cloneMetadataMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
 	}
-	if ctx.Metadata != nil {
-		c.Metadata = deepCopyMap(ctx.Metadata)
+	return deepCopyMap(m)
+}
+
+// cloneArtifactHistory deep-copies the slice, ensuring each snapshot's
+// Values map is also an independent copy so callers can mutate the clone
+// without affecting the original.
+func cloneArtifactHistory(src []ArtifactSnapshot) []ArtifactSnapshot {
+	if src == nil {
+		return nil
 	}
-	if ctx.VisitCounts != nil {
-		c.VisitCounts = make(map[string]int, len(ctx.VisitCounts))
-		for k, v := range ctx.VisitCounts {
-			c.VisitCounts[k] = v
-		}
+	dst := make([]ArtifactSnapshot, len(src))
+	for i, s := range src {
+		dst[i] = s
+		dst[i].Values = maps.Clone(s.Values)
 	}
-	if ctx.Artifacts != nil {
-		c.Artifacts = make(map[string]string, len(ctx.Artifacts))
-		for k, v := range ctx.Artifacts {
-			c.Artifacts[k] = v
-		}
-	}
-	if ctx.ArtifactHistory != nil {
-		c.ArtifactHistory = make([]ArtifactSnapshot, len(ctx.ArtifactHistory))
-		for i, s := range ctx.ArtifactHistory {
-			c.ArtifactHistory[i] = s
-			if s.Values != nil {
-				c.ArtifactHistory[i].Values = make(map[string]string, len(s.Values))
-				for k, v := range s.Values {
-					c.ArtifactHistory[i].Values[k] = v
-				}
-			}
-		}
-	}
-	return c
+	return dst
 }
 
 // deepCopyMap performs a deep copy of a map[string]any, recursively copying
