@@ -447,3 +447,95 @@ func TestCoerceArgs(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// TestCoerceStringValue locks in per-branch behavior of the package-private
+// coerceStringValue helper ahead of an S3776 cognitive-complexity refactor.
+func TestCoerceStringValue(t *testing.T) {
+	t.Run("integer parses plain number", func(t *testing.T) {
+		v, err := coerceStringValue("42", "integer")
+		require.NoError(t, err)
+		assert.Equal(t, int64(42), v)
+	})
+
+	t.Run("integer falls back to float when fractional part is zero", func(t *testing.T) {
+		v, err := coerceStringValue("5.0", "integer")
+		require.NoError(t, err)
+		assert.Equal(t, int64(5), v)
+	})
+
+	t.Run("integer rejects non-integer float", func(t *testing.T) {
+		_, err := coerceStringValue("3.14", "integer")
+		assert.Error(t, err)
+	})
+
+	t.Run("integer rejects non-numeric string", func(t *testing.T) {
+		_, err := coerceStringValue("abc", "integer")
+		assert.Error(t, err)
+	})
+
+	t.Run("number parses float", func(t *testing.T) {
+		v, err := coerceStringValue("0.85", "number")
+		require.NoError(t, err)
+		assert.Equal(t, 0.85, v)
+	})
+
+	t.Run("number rejects non-numeric", func(t *testing.T) {
+		_, err := coerceStringValue("abc", "number")
+		assert.Error(t, err)
+	})
+
+	t.Run("boolean parses strconv forms", func(t *testing.T) {
+		for _, s := range []string{"true", "false", "1", "0", "t", "f"} {
+			_, err := coerceStringValue(s, "boolean")
+			assert.NoError(t, err, "input: %q", s)
+		}
+	})
+
+	t.Run("boolean accepts yes and no case-insensitively with trim", func(t *testing.T) {
+		v, err := coerceStringValue("  YES ", "boolean")
+		require.NoError(t, err)
+		assert.Equal(t, true, v)
+
+		v, err = coerceStringValue("No", "boolean")
+		require.NoError(t, err)
+		assert.Equal(t, false, v)
+	})
+
+	t.Run("boolean rejects garbage", func(t *testing.T) {
+		_, err := coerceStringValue("maybe", "boolean")
+		assert.Error(t, err)
+	})
+
+	t.Run("object parses JSON map", func(t *testing.T) {
+		v, err := coerceStringValue(`{"k":"v","n":1}`, "object")
+		require.NoError(t, err)
+		m, ok := v.(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "v", m["k"])
+	})
+
+	t.Run("object rejects non-JSON string", func(t *testing.T) {
+		_, err := coerceStringValue("not json", "object")
+		assert.Error(t, err)
+	})
+
+	t.Run("array parses JSON array", func(t *testing.T) {
+		v, err := coerceStringValue(`["a","b",3]`, "array")
+		require.NoError(t, err)
+		a, ok := v.([]any)
+		require.True(t, ok)
+		assert.Len(t, a, 3)
+	})
+
+	t.Run("array wraps bare string as single-element slice", func(t *testing.T) {
+		v, err := coerceStringValue("bare", "array")
+		require.NoError(t, err)
+		assert.Equal(t, []any{"bare"}, v)
+	})
+
+	t.Run("unknown target type returns (nil, nil) for no-op", func(t *testing.T) {
+		v, err := coerceStringValue("x", "mystery")
+		require.NoError(t, err)
+		assert.Nil(t, v)
+	})
+}
