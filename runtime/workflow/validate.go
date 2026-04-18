@@ -136,6 +136,14 @@ func validateLoopGuards(spec *Spec, name string, state *State, r *ValidationResu
 				name, state.OnMaxVisits))
 		}
 	}
+
+	// Reachability: v2 opts into explicit terminal semantics. A state with no
+	// transitions and no loop guard is a dead-end that should be marked terminal.
+	if spec.Version >= 2 && !state.Terminal && len(state.OnEvent) == 0 && state.MaxVisits == 0 {
+		r.Warnings = append(r.Warnings, fmt.Sprintf(
+			"workflow.states[%q]: non-terminal state has no on_event and no max_visits (mark terminal: true to silence)",
+			name))
+	}
 }
 
 // validateCycles checks rule 10: DFS cycle detection (warn only).
