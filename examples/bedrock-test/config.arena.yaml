@@ -1,0 +1,40 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+
+metadata:
+  name: bedrock-test
+
+spec:
+  prompt_configs:
+    - id: capability-test
+      file: prompts/capability-test.yaml
+
+  providers:
+    - file: providers/claude-bedrock-haiku45.provider.yaml
+      group: text,streaming,tools
+
+  scenarios:
+    - file: scenarios/text-basic.scenario.yaml
+    - file: scenarios/streaming.scenario.yaml
+    - file: scenarios/tools.scenario.yaml
+
+  tools:
+    - file: tools/get-weather.tool.yaml
+
+  defaults:
+    temperature: 0.1
+    max_tokens: 200
+    concurrency: 1
+    output:
+      dir: out
+      formats: ["json", "html", "markdown"]
+      html:
+        file: bedrock.html
+      markdown:
+        file: bedrock.md
+        include_details: true
+        show_overview: true
+        show_results_matrix: true
+        show_failed_tests: true
+        show_cost_summary: true
+    fail_on: []
