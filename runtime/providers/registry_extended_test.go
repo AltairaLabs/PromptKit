@@ -230,6 +230,43 @@ func TestCreateProviderFromSpecOpenAIAzureSkipsDefault(t *testing.T) {
 	}
 }
 
+// TestCreateProviderFromSpecGeminiVertexSkipsDefault is a regression test for
+// the Vertex cell of #1009: when spec.Type=="gemini" and spec.Platform=="vertex",
+// the registry must NOT default BaseURL to the AI Studio v1beta endpoint.
+// The gemini factory builds the publisher-models URL from PlatformConfig and
+// that branch is gated on baseURL=="" — clobbering it makes the Vertex path
+// unreachable, the same root cause as openai+azure (#1010).
+func TestCreateProviderFromSpecGeminiVertexSkipsDefault(t *testing.T) {
+	originalFactory := providerFactories["gemini"]
+	capturedBaseURL := "sentinel"
+	providerFactories["gemini"] = func(spec ProviderSpec) (Provider, error) {
+		capturedBaseURL = spec.BaseURL
+		return &mockProviderForTest{id: spec.ID}, nil
+	}
+	defer func() {
+		if originalFactory != nil {
+			providerFactories["gemini"] = originalFactory
+		} else {
+			delete(providerFactories, "gemini")
+		}
+	}()
+
+	spec := ProviderSpec{
+		ID:       "vertex-gemini",
+		Type:     "gemini",
+		Model:    testModelName,
+		Platform: "vertex",
+	}
+
+	if _, err := CreateProviderFromSpec(spec); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if capturedBaseURL != "" {
+		t.Errorf("Expected empty BaseURL for gemini+vertex, got %q (regression of #1010-class bug)", capturedBaseURL)
+	}
+}
+
 func TestCreateProviderFromSpecCustomBaseURL(t *testing.T) {
 	customURL := "https://custom.api.example.com"
 	spec := ProviderSpec{
