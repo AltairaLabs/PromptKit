@@ -235,11 +235,11 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 				baseURL = DefaultGeminiBaseURL
 			}
 		case "claude":
-			// Skip the api.anthropic.com default for Vertex — the claude
-			// factory builds the publishers/anthropic/models URL from
-			// PlatformConfig. Same #1010 root cause as openai+azure and
-			// gemini+vertex.
-			if spec.Platform != "vertex" {
+			// Skip the api.anthropic.com default for hyperscaler-hosted
+			// Anthropic — the claude factory builds the platform URL from
+			// PlatformConfig (Vertex: publishers/anthropic/models; Azure:
+			// openai/deployments/{deployment}). Same #1010 root cause.
+			if spec.Platform != "vertex" && spec.Platform != "azure" {
 				baseURL = "https://api.anthropic.com"
 			}
 		case "imagen":

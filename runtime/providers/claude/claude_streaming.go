@@ -146,6 +146,11 @@ func (p *Provider) PredictStream(
 		})
 	}
 
+	// Direct Anthropic API path. Azure shares this path because its body
+	// format is identical (model in body, stream:true) — only the URL
+	// differs (handled by messagesStreamURL) and the anthropic-version
+	// header must be skipped (Azure pins the contract via the api-version
+	// query parameter on the URL).
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -155,14 +160,16 @@ func (p *Provider) PredictStream(
 	// (auth tokens may have rotated between attempts) and a fresh body
 	// reader. The request factory is called once per attempt by the
 	// retry driver.
-	url := p.messagesURL()
+	url := p.messagesStreamURL()
 	requestFn := func(ctx context.Context) (*http.Request, error) {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 		if reqErr != nil {
 			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
-		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+		if !p.isAzure() {
+			httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
+		}
 		httpReq.Header.Set("Accept", "text/event-stream")
 		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
