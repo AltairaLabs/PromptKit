@@ -230,30 +230,28 @@ func TestCreateProviderFromSpecOpenAIAzureSkipsDefault(t *testing.T) {
 	}
 }
 
-// TestCreateProviderFromSpecGeminiVertexSkipsDefault is a regression test for
-// the Vertex cell of #1009: when spec.Type=="gemini" and spec.Platform=="vertex",
-// the registry must NOT default BaseURL to the AI Studio v1beta endpoint.
-// The gemini factory builds the publisher-models URL from PlatformConfig and
-// that branch is gated on baseURL=="" — clobbering it makes the Vertex path
-// unreachable, the same root cause as openai+azure (#1010).
-func TestCreateProviderFromSpecGeminiVertexSkipsDefault(t *testing.T) {
-	originalFactory := providerFactories["gemini"]
+// TestCreateProviderFromSpecClaudeVertexSkipsDefault is the matching
+// regression test for the claude+vertex cell: api.anthropic.com must not
+// clobber spec.BaseURL when Platform=="vertex". The claude factory derives
+// the publishers/anthropic/models URL from PlatformConfig in that case.
+func TestCreateProviderFromSpecClaudeVertexSkipsDefault(t *testing.T) {
+	originalFactory := providerFactories["claude"]
 	capturedBaseURL := "sentinel"
-	providerFactories["gemini"] = func(spec ProviderSpec) (Provider, error) {
+	providerFactories["claude"] = func(spec ProviderSpec) (Provider, error) {
 		capturedBaseURL = spec.BaseURL
 		return &mockProviderForTest{id: spec.ID}, nil
 	}
 	defer func() {
 		if originalFactory != nil {
-			providerFactories["gemini"] = originalFactory
+			providerFactories["claude"] = originalFactory
 		} else {
-			delete(providerFactories, "gemini")
+			delete(providerFactories, "claude")
 		}
 	}()
 
 	spec := ProviderSpec{
-		ID:       "vertex-gemini",
-		Type:     "gemini",
+		ID:       "vertex-claude",
+		Type:     "claude",
 		Model:    testModelName,
 		Platform: "vertex",
 	}
@@ -263,7 +261,7 @@ func TestCreateProviderFromSpecGeminiVertexSkipsDefault(t *testing.T) {
 	}
 
 	if capturedBaseURL != "" {
-		t.Errorf("Expected empty BaseURL for gemini+vertex, got %q (regression of #1010-class bug)", capturedBaseURL)
+		t.Errorf("Expected empty BaseURL for claude+vertex, got %q (regression of #1010-class bug)", capturedBaseURL)
 	}
 }
 

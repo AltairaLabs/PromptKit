@@ -107,6 +107,45 @@ func (p *Provider) PredictStream(
 		})
 	}
 
+	// Vertex: SSE via :streamRawPredict. Body uses the partner shape (no
+	// model, no stream flag, anthropic_version=vertex-2023-10-16); auth via
+	// GCP credential Bearer token; no anthropic-version header (in body).
+	if p.isVertex() {
+		reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+		url := p.messagesStreamURL()
+		requestFn := func(ctx context.Context) (*http.Request, error) {
+			httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+			if reqErr != nil {
+				return nil, fmt.Errorf("failed to create request: %w", reqErr)
+			}
+			httpReq.Header.Set(contentTypeHeader, applicationJSON)
+			httpReq.Header.Set("Accept", "text/event-stream")
+			if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+				return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+			}
+			if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+				return nil, hdrErr
+			}
+			return httpReq, nil
+		}
+		return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+			Policy:       p.StreamRetryPolicy(),
+			Budget:       p.StreamRetryBudget(),
+			ProviderName: p.ID(),
+			Host:         providers.HostFromURL(url),
+			IdleTimeout:  p.StreamIdleTimeout(),
+			RequestFn:    requestFn,
+			Client:       p.GetStreamingHTTPClient(),
+		}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+			idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
+			scanner := providers.NewSSEScanner(idleBody)
+			p.streamResponse(ctx, idleBody, scanner, outChan)
+		})
+	}
+
 	reqBody, err := json.Marshal(claudeReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
