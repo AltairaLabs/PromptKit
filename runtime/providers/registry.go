@@ -333,6 +333,42 @@ func (e *UnsupportedProviderError) Error() string {
 	return "unsupported provider type: " + e.ProviderType
 }
 
+// UnsupportedProviderPlatformError is returned when a provider type is
+// recognized but the requested platform is not a real partner endpoint
+// for that vendor (e.g. openai+vertex — Vertex does not host OpenAI
+// models natively). The error fires at provider construction so the
+// failure is config-time rather than first-request, giving operators a
+// fast and explicit signal that the combination is unavailable.
+type UnsupportedProviderPlatformError struct {
+	ProviderType string
+	Platform     string
+}
+
+// Error returns the error message for this unsupported pair.
+func (e *UnsupportedProviderPlatformError) Error() string {
+	return "provider type " + e.ProviderType +
+		" does not support platform " + e.Platform +
+		" — this combination is not offered by the platform vendor"
+}
+
+// RejectPlatforms wraps a ProviderFactory so it returns an
+// UnsupportedProviderPlatformError when spec.Platform is in rejected.
+// Used by per-provider init() to fail fast on (provider, platform) pairs
+// the underlying vendor doesn't host. Pairs that are real partner
+// endpoints either route through inner with a custom URL builder, or
+// fall through unchanged when the spec carries no platform.
+func RejectPlatforms(rejected map[string]bool, inner ProviderFactory) ProviderFactory {
+	return func(spec ProviderSpec) (Provider, error) {
+		if rejected[spec.Platform] {
+			return nil, &UnsupportedProviderPlatformError{
+				ProviderType: spec.Type,
+				Platform:     spec.Platform,
+			}
+		}
+		return inner(spec)
+	}
+}
+
 // HasCredential returns true if the spec has a real (non-empty, non-"none") credential.
 // Use this in factory functions to decide between credential-based and env-var-based constructors.
 func (s *ProviderSpec) HasCredential() bool {

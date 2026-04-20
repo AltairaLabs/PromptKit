@@ -613,19 +613,26 @@ func (p *ToolProvider) predictStreamWithCompletions(
 
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
-	providers.RegisterProviderFactory("openai", providers.CredentialFactory(
-		func(spec providers.ProviderSpec) (providers.Provider, error) {
-			return NewToolProviderWithCredential(
-				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
-				spec.IncludeRawOutput, spec.AdditionalConfig, spec.Credential,
-				spec.Platform, spec.PlatformConfig, spec.UnsupportedParams,
-			), nil
-		},
-		func(spec providers.ProviderSpec) (providers.Provider, error) {
-			return NewToolProvider(
-				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
-				spec.IncludeRawOutput, spec.AdditionalConfig, spec.UnsupportedParams,
-			), nil
-		},
+	// Reject (openai, vertex): Vertex AI does not host OpenAI models as a
+	// native partner endpoint. Routing this combination would either 404
+	// at the wire or silently send Entra-style auth to an OpenAI-shaped
+	// URL. Fail at construction with a clear error instead. (#1009)
+	providers.RegisterProviderFactory("openai", providers.RejectPlatforms(
+		map[string]bool{"vertex": true},
+		providers.CredentialFactory(
+			func(spec providers.ProviderSpec) (providers.Provider, error) {
+				return NewToolProviderWithCredential(
+					spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
+					spec.IncludeRawOutput, spec.AdditionalConfig, spec.Credential,
+					spec.Platform, spec.PlatformConfig, spec.UnsupportedParams,
+				), nil
+			},
+			func(spec providers.ProviderSpec) (providers.Provider, error) {
+				return NewToolProvider(
+					spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
+					spec.IncludeRawOutput, spec.AdditionalConfig, spec.UnsupportedParams,
+				), nil
+			},
+		),
 	))
 }

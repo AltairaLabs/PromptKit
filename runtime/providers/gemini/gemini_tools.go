@@ -676,18 +676,25 @@ func (p *ToolProvider) GetStreamingCapabilities() providers.StreamingCapabilitie
 
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
-	providers.RegisterProviderFactory("gemini", providers.CredentialFactory(
-		func(spec providers.ProviderSpec) (providers.Provider, error) {
-			return NewToolProviderWithCredential(
-				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
-				spec.IncludeRawOutput, spec.Credential,
-				spec.Platform, spec.PlatformConfig,
-			), nil
-		},
-		func(spec providers.ProviderSpec) (providers.Provider, error) {
-			return NewToolProvider(
-				spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
-			), nil
-		},
+	// Reject (gemini, bedrock) and (gemini, azure): neither AWS Bedrock nor
+	// Azure AI Foundry hosts Google Gemini as a partner endpoint. Routing
+	// these would either 404 or send the wrong auth shape. Fail at
+	// construction with a clear error instead. (#1009)
+	providers.RegisterProviderFactory("gemini", providers.RejectPlatforms(
+		map[string]bool{"bedrock": true, "azure": true},
+		providers.CredentialFactory(
+			func(spec providers.ProviderSpec) (providers.Provider, error) {
+				return NewToolProviderWithCredential(
+					spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
+					spec.IncludeRawOutput, spec.Credential,
+					spec.Platform, spec.PlatformConfig,
+				), nil
+			},
+			func(spec providers.ProviderSpec) (providers.Provider, error) {
+				return NewToolProvider(
+					spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
+				), nil
+			},
+		),
 	))
 }
