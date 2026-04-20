@@ -551,8 +551,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Build URL with API key for Gemini
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.baseURL, p.model, p.apiKey)
+	url := p.generateContentURL("generateContent")
 
 	// Debug log the request
 	var requestObj any
@@ -571,6 +570,10 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 	}
 
 	req.Header.Set(contentTypeHeader, applicationJSON)
+
+	if authErr := p.applyAuth(ctx, req); authErr != nil {
+		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	if hdrErr := p.ApplyCustomHeaders(req); hdrErr != nil {
 		return nil, hdrErr
@@ -620,11 +623,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Use streamGenerateContent endpoint
-	url := fmt.Sprintf(
-		"%s/models/%s:streamGenerateContent?key=%s",
-		p.baseURL, p.model, p.apiKey,
-	)
+	url := p.generateContentURL("streamGenerateContent")
 
 	requestFn := func(ctx context.Context) (*http.Request, error) {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(requestBytes))
@@ -632,6 +631,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 			return nil, hdrErr
 		}

@@ -46,13 +46,16 @@ func (p *Provider) PredictStream(
 	// past the opening '[' and the first complete element so
 	// peekFirstFrame can confirm the stream is "live" before handing
 	// ownership to the consumer goroutine.
-	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.baseURL, p.model, p.apiKey)
+	url := p.generateContentURL("streamGenerateContent")
 	requestFn := func(ctx context.Context) (*http.Request, error) {
 		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 		if reqErr != nil {
 			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
 		return httpReq, nil
 	}
 

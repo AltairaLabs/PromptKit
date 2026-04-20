@@ -204,8 +204,7 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 		predictResp.RawRequest = geminiReq
 	}
 
-	// Build URL with API key
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.baseURL, p.model, p.apiKey)
+	url := p.generateContentURL("generateContent")
 
 	// Debug log the request
 	headers := map[string]string{
@@ -221,6 +220,11 @@ func (p *Provider) predictWithContents(ctx context.Context, contents []geminiCon
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		predictResp.Latency = time.Since(start)
+		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	respBody, statusCode, err := p.DoAndReadResponse(httpReq, &predictResp, start, "Gemini")
 	if err != nil {
@@ -331,8 +335,7 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Build URL for streaming
-	url := fmt.Sprintf("%s/models/%s:streamGenerateContent?key=%s", p.baseURL, p.model, p.apiKey)
+	url := p.generateContentURL("streamGenerateContent")
 
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
@@ -341,6 +344,10 @@ func (p *Provider) predictStreamWithContents(ctx context.Context, contents []gem
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
 	if err != nil {
