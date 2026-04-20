@@ -192,6 +192,81 @@ func TestCreateProviderFromSpecDefaultBaseURLs(t *testing.T) {
 	}
 }
 
+// TestCreateProviderFromSpecOpenAIAzureSkipsDefault is a regression test for
+// issue #1010: when spec.Type=="openai" and spec.Platform=="azure", the
+// registry must NOT default BaseURL to https://api.openai.com/v1. The openai
+// factory builds the deployment URL from PlatformConfig and that branch is
+// gated on baseURL=="" — so clobbering it makes the Azure path unreachable.
+func TestCreateProviderFromSpecOpenAIAzureSkipsDefault(t *testing.T) {
+	originalFactory := providerFactories["openai"]
+	capturedBaseURL := "sentinel"
+	providerFactories["openai"] = func(spec ProviderSpec) (Provider, error) {
+		capturedBaseURL = spec.BaseURL
+		return &mockProviderForTest{id: spec.ID}, nil
+	}
+	defer func() {
+		if originalFactory != nil {
+			providerFactories["openai"] = originalFactory
+		} else {
+			delete(providerFactories, "openai")
+		}
+	}()
+
+	spec := ProviderSpec{
+		ID:       "azure-openai",
+		Type:     "openai",
+		Model:    testModelName,
+		Platform: "azure",
+		// No BaseURL — the factory must see "" so it can build the
+		// deployment URL from PlatformConfig.
+	}
+
+	if _, err := CreateProviderFromSpec(spec); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if capturedBaseURL != "" {
+		t.Errorf("Expected empty BaseURL for openai+azure, got %q (issue #1010)", capturedBaseURL)
+	}
+}
+
+// TestCreateProviderFromSpecGeminiVertexSkipsDefault is a regression test for
+// the Vertex cell of #1009: when spec.Type=="gemini" and spec.Platform=="vertex",
+// the registry must NOT default BaseURL to the AI Studio v1beta endpoint.
+// The gemini factory builds the publisher-models URL from PlatformConfig and
+// that branch is gated on baseURL=="" — clobbering it makes the Vertex path
+// unreachable, the same root cause as openai+azure (#1010).
+func TestCreateProviderFromSpecGeminiVertexSkipsDefault(t *testing.T) {
+	originalFactory := providerFactories["gemini"]
+	capturedBaseURL := "sentinel"
+	providerFactories["gemini"] = func(spec ProviderSpec) (Provider, error) {
+		capturedBaseURL = spec.BaseURL
+		return &mockProviderForTest{id: spec.ID}, nil
+	}
+	defer func() {
+		if originalFactory != nil {
+			providerFactories["gemini"] = originalFactory
+		} else {
+			delete(providerFactories, "gemini")
+		}
+	}()
+
+	spec := ProviderSpec{
+		ID:       "vertex-gemini",
+		Type:     "gemini",
+		Model:    testModelName,
+		Platform: "vertex",
+	}
+
+	if _, err := CreateProviderFromSpec(spec); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if capturedBaseURL != "" {
+		t.Errorf("Expected empty BaseURL for gemini+vertex, got %q (regression of #1010-class bug)", capturedBaseURL)
+	}
+}
+
 func TestCreateProviderFromSpecCustomBaseURL(t *testing.T) {
 	customURL := "https://custom.api.example.com"
 	spec := ProviderSpec{

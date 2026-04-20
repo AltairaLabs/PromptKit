@@ -22,6 +22,21 @@ const (
 	httpClientTimeout = 60 * time.Second
 )
 
+// Platform constants
+const (
+	vertexPlatform = "vertex"
+)
+
+// vertexGeminiEndpoint returns the Vertex AI base URL for Google publisher
+// models. The result ends in `/publishers/google/models` (no trailing slash);
+// per-call code appends `/{model}:{action}` to address a specific model.
+func vertexGeminiEndpoint(region, project string) string {
+	return fmt.Sprintf(
+		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models",
+		region, project, region,
+	)
+}
+
 // streamSessionFactory is the function signature for creating stream sessions.
 type streamSessionFactory func(
 	ctx context.Context, wsURL, apiKey string, config *StreamSessionConfig,
@@ -54,12 +69,23 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 }
 
 // NewProviderWithCredential creates a new Gemini provider with explicit credential.
+//
+// When platform=="vertex" and baseURL is empty, the Vertex publisher-models
+// URL is built from platformConfig.Region and platformConfig.Project. This
+// mirrors the openai+azure path: callers that pass an explicit baseURL still
+// win, but Arena-style configs that only set platform.region/project work
+// without users having to know the Vertex URL shape.
 func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
 	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
 	base, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
+
+	if baseURL == "" && platform == vertexPlatform &&
+		platformConfig != nil && platformConfig.Region != "" && platformConfig.Project != "" {
+		baseURL = vertexGeminiEndpoint(platformConfig.Region, platformConfig.Project)
+	}
 
 	return &Provider{
 		BaseProvider:   base,
@@ -71,6 +97,40 @@ func NewProviderWithCredential(
 		platform:       platform,
 		platformConfig: platformConfig,
 	}
+}
+
+// isVertex returns true if this provider is hosted on Google Vertex AI.
+func (p *Provider) isVertex() bool {
+	return p.platform == vertexPlatform
+}
+
+// generateContentURL returns the full URL for a generateContent-style call.
+// action is typically "generateContent" or "streamGenerateContent".
+//
+// Vertex:    {baseURL}/{model}:{action}                — auth via Bearer header
+// AI Studio: {baseURL}/models/{model}:{action}?key={k} — auth via query param
+//
+// The Vertex URL shape relies on baseURL ending in `/publishers/google/models`,
+// which vertexGeminiEndpoint produces and which the SDK platformBaseURL also
+// emits.
+func (p *Provider) generateContentURL(action string) string {
+	if p.isVertex() {
+		return fmt.Sprintf("%s/%s:%s", p.baseURL, p.model, action)
+	}
+	return fmt.Sprintf("%s/models/%s:%s?key=%s", p.baseURL, p.model, action, p.apiKey)
+}
+
+// applyAuth attaches platform-appropriate authentication to a request.
+//
+// Vertex requires an OAuth Bearer token in the Authorization header (sourced
+// from the GCP credential chain). Direct Google AI Studio uses the API key in
+// the URL, so applyAuth is a no-op for that path — callers still embed the
+// key via generateContentURL.
+func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
+	if p.isVertex() && p.credential != nil {
+		return p.credential.Apply(ctx, req)
+	}
+	return nil
 }
 
 // Model returns the model name/identifier used by this provider.
@@ -353,8 +413,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 		return nil, predictResp, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Build URL with API key
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", p.baseURL, p.model, p.apiKey)
+	url := p.generateContentURL("generateContent")
 
 	// Debug log the request
 	headers := map[string]string{
@@ -370,6 +429,11 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		predictResp.Latency = time.Since(start)
+		return nil, predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 		return nil, predictResp, hdrErr

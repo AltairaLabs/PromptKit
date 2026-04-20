@@ -211,14 +211,28 @@ type headersConfigurable interface {
 // CreateProviderFromSpec creates a provider implementation from a spec.
 // Returns an error if the provider type is unsupported.
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
-	// Use default base URLs if not specified
+	// Use default base URLs if not specified.
 	baseURL := spec.BaseURL
 	if baseURL == "" {
 		switch spec.Type {
 		case "openai":
-			baseURL = "https://api.openai.com/v1"
+			// Skip the api.openai.com default for Azure — the openai
+			// factory builds the deployment URL from PlatformConfig.
+			// Without this skip the default clobbers spec.BaseURL and
+			// the Azure branch in NewProviderFromConfig becomes
+			// unreachable (issue #1010).
+			if spec.Platform != "azure" {
+				baseURL = "https://api.openai.com/v1"
+			}
 		case "gemini":
-			baseURL = DefaultGeminiBaseURL
+			// Skip the AI Studio default for Vertex — the gemini
+			// factory builds the publisher-models URL from
+			// PlatformConfig.Region+Project. Same #1010 root cause as
+			// openai+azure: the default would clobber spec.BaseURL
+			// and make the Vertex branch unreachable.
+			if spec.Platform != "vertex" {
+				baseURL = DefaultGeminiBaseURL
+			}
 		case "claude":
 			baseURL = "https://api.anthropic.com"
 		case "imagen":

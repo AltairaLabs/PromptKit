@@ -1,0 +1,23 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: gemini-vertex-25flash
+spec:
+  id: gemini-vertex-25flash
+  type: gemini
+  model: gemini-2.5-flash
+  platform:
+    type: vertex
+    region: us-central1
+    project: hsbc-vertex-001
+  capabilities:
+    - text
+    - streaming
+    - tools
+  defaults:
+    temperature: 0.1
+    max_tokens: 200
+    top_p: 1.0
+  pricing:
+    input_cost_per_1k: 0.000075
+    output_cost_per_1k: 0.0003
