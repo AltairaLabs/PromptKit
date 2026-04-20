@@ -4,13 +4,9 @@ go 1.25.1
 
 retract v1.4.0 // Published prematurely; use v1.4.1+
 
-replace github.com/AltairaLabs/PromptKit/pkg => ../../pkg
-
-replace github.com/AltairaLabs/PromptKit/runtime => ../../runtime
-
 require (
-	github.com/AltairaLabs/PromptKit/pkg v1.3.5
-	github.com/AltairaLabs/PromptKit/runtime v1.3.5
+	github.com/AltairaLabs/PromptKit/pkg v1.4.6
+	github.com/AltairaLabs/PromptKit/runtime v1.4.6
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 )
