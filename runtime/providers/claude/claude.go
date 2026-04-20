@@ -41,12 +41,25 @@ func normalizeBaseURL(baseURL string) string {
 	return baseURL
 }
 
-// Bedrock constants
+// Platform constants
 const (
 	bedrockPlatform       = "bedrock"
 	bedrockVersionValue   = "bedrock-2023-05-31"
+	vertexPlatform        = "vertex"
+	vertexVersionValue    = "vertex-2023-10-16"
 	bedrockVersionBodyKey = "anthropic_version"
 )
+
+// vertexAnthropicEndpoint returns the Vertex AI base URL for Anthropic
+// publisher models. The result ends in `/publishers/anthropic/models` (no
+// trailing slash); per-call code appends `/{model}:rawPredict` (or
+// `:streamRawPredict`) to address a specific model.
+func vertexAnthropicEndpoint(region, project string) string {
+	return fmt.Sprintf(
+		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models",
+		region, project, region,
+	)
+}
 
 // Provider implements the Provider interface for Anthropic Claude
 type Provider struct {
@@ -74,12 +87,24 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 }
 
 // NewProviderWithCredential creates a new Claude provider with explicit credential.
+//
+// When platform=="vertex" and baseURL is empty, the Vertex publisher-models
+// URL is built from platformConfig.Region and platformConfig.Project.
+// Mirrors the openai+azure and gemini+vertex pattern: callers that pass an
+// explicit baseURL still win, but Arena-style configs that only set
+// platform.region/project work without users having to know the Vertex URL
+// shape.
 func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
 	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
 	base, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
+
+	if baseURL == "" && platform == vertexPlatform &&
+		platformConfig != nil && platformConfig.Region != "" && platformConfig.Project != "" {
+		baseURL = vertexAnthropicEndpoint(platformConfig.Region, platformConfig.Project)
+	}
 
 	return &Provider{
 		BaseProvider:   base,
@@ -103,32 +128,76 @@ func (p *Provider) isBedrock() bool {
 	return p.platform == bedrockPlatform
 }
 
-// messagesURL returns the appropriate API endpoint URL.
-// For Bedrock: {baseURL}/model/{model}/invoke
-// For direct Anthropic API: {baseURL}/messages
-func (p *Provider) messagesURL() string {
-	if p.isBedrock() {
-		return p.baseURL + "/model/" + p.model + "/invoke"
+// isVertex returns true if this provider is hosted on Google Vertex AI's
+// Anthropic partner endpoint.
+func (p *Provider) isVertex() bool {
+	return p.platform == vertexPlatform
+}
+
+// isPartnerHosted returns true when the provider sits behind a hyperscaler
+// partner endpoint (Bedrock or Vertex). These share three traits that
+// distinguish them from the direct Anthropic API: the model identifier
+// appears in the URL path (not the request body); the request body must
+// include `anthropic_version` set to a platform-specific value; and
+// authentication uses the resolved Credential (SigV4 / Bearer) rather than
+// the x-api-key header.
+func (p *Provider) isPartnerHosted() bool {
+	return p.isBedrock() || p.isVertex()
+}
+
+// platformAnthropicVersion returns the anthropic_version body value for the
+// current partner platform. Returns an empty string for the direct API
+// path, where the version is sent as a header instead.
+func (p *Provider) platformAnthropicVersion() string {
+	switch {
+	case p.isBedrock():
+		return bedrockVersionValue
+	case p.isVertex():
+		return vertexVersionValue
+	default:
+		return ""
 	}
-	return p.baseURL + "/messages"
+}
+
+// messagesURL returns the appropriate API endpoint URL.
+// Bedrock: {baseURL}/model/{model}/invoke
+// Vertex:  {baseURL}/{model}:rawPredict
+// Direct:  {baseURL}/messages
+func (p *Provider) messagesURL() string {
+	switch {
+	case p.isBedrock():
+		return p.baseURL + "/model/" + p.model + "/invoke"
+	case p.isVertex():
+		return p.baseURL + "/" + p.model + ":rawPredict"
+	default:
+		return p.baseURL + "/messages"
+	}
 }
 
 // messagesStreamURL returns the appropriate streaming API endpoint URL.
-// For Bedrock: {baseURL}/model/{model}/invoke-with-response-stream
-// For direct Anthropic API: {baseURL}/messages (same as messagesURL; streaming is SSE-based)
+// Bedrock: {baseURL}/model/{model}/invoke-with-response-stream  (binary event-stream)
+// Vertex:  {baseURL}/{model}:streamRawPredict                   (SSE)
+// Direct:  {baseURL}/messages                                   (SSE; same path as messagesURL)
 func (p *Provider) messagesStreamURL() string {
-	if p.isBedrock() {
+	switch {
+	case p.isBedrock():
 		return p.baseURL + "/model/" + p.model + "/invoke-with-response-stream"
+	case p.isVertex():
+		return p.baseURL + "/" + p.model + ":streamRawPredict"
+	default:
+		return p.baseURL + "/messages"
 	}
-	return p.baseURL + "/messages"
 }
 
-// marshalBedrockStreamingRequest converts any request map to Bedrock-compatible JSON,
-// injecting anthropic_version and removing model (Bedrock uses the URL path).
+// marshalBedrockStreamingRequest converts any request map to partner-platform
+// streaming JSON: injects anthropic_version (with the platform-specific value)
+// and removes both the model and stream fields. Used by both Bedrock
+// (binary event-stream) and Vertex (SSE via :streamRawPredict) — neither
+// puts the model in the body, neither uses the stream flag (the URL action
+// signals streaming for both).
 func (p *Provider) marshalBedrockStreamingRequest(reqMap map[string]interface{}) ([]byte, error) {
-	reqMap[bedrockVersionBodyKey] = bedrockVersionValue
+	reqMap[bedrockVersionBodyKey] = p.platformAnthropicVersion()
 	delete(reqMap, "model")
-	// Bedrock streaming does not use the "stream" field — streaming is indicated by the URL path
 	delete(reqMap, "stream")
 	return json.Marshal(reqMap)
 }
@@ -170,12 +239,13 @@ func (p *Provider) makeBedrockStreamingRequest(
 	return resp.Body, scanner, nil
 }
 
-// marshalBedrockRequest converts a claudeRequest to JSON with Bedrock-specific fields.
-// Bedrock expects anthropic_version in the body and does not use the model field in the body
-// (the model is specified in the URL path).
+// marshalBedrockRequest converts a claudeRequest to JSON with partner-platform
+// fields: anthropic_version (with the platform-specific value) and no model
+// field (the model is specified in the URL path). Used by both Bedrock and
+// Vertex non-streaming Predict calls.
 func (p *Provider) marshalBedrockRequest(claudeReq *claudeRequest) ([]byte, error) {
 	m := map[string]interface{}{
-		bedrockVersionBodyKey: bedrockVersionValue,
+		bedrockVersionBodyKey: p.platformAnthropicVersion(),
 		"max_tokens":          claudeReq.MaxTokens,
 		"messages":            claudeReq.Messages,
 	}
@@ -362,10 +432,11 @@ func (p *Provider) applyDefaults(temperature, topP float32, maxTokens int) (fina
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API
 func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
-	// For Bedrock, marshal via a map so we can inject anthropic_version into the body
+	// Partner-hosted (Bedrock/Vertex): marshal via a map so we can inject
+	// anthropic_version into the body and drop the model field.
 	var reqBody []byte
 	var err error
-	if p.isBedrock() {
+	if p.isPartnerHosted() {
 		reqBody, err = p.marshalBedrockRequest(&claudeReq)
 	} else {
 		reqBody, err = json.Marshal(claudeReq)
@@ -389,8 +460,8 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	// Bedrock uses anthropic_version in the body, not as a header
-	if !p.isBedrock() {
+	// Partner-hosted (Bedrock/Vertex) puts anthropic_version in the body, not the header.
+	if !p.isPartnerHosted() {
 		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 	}
 
@@ -434,12 +505,16 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 			"response", string(respBody))
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
-		if p.isBedrock() {
+		switch {
+		case p.isBedrock():
 			return nil, predictResp, parseBedrockHTTPError(resp.StatusCode, respBody)
-		}
-		return nil, predictResp, &providers.ProviderHTTPError{
-			StatusCode: resp.StatusCode, URL: url,
-			Body: string(respBody), Provider: p.ID(),
+		case p.isVertex():
+			return nil, predictResp, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
+		default:
+			return nil, predictResp, &providers.ProviderHTTPError{
+				StatusCode: resp.StatusCode, URL: url,
+				Body: string(respBody), Provider: p.ID(),
+			}
 		}
 	}
 

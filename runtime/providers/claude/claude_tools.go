@@ -502,13 +502,14 @@ func (p *ToolProvider) parseToolResponse(
 }
 
 // applyToolRequestHeaders sets content-type, anthropic auth, and custom
-// headers on req. Uses Bedrock SigV4 signing when isBedrock, otherwise the
-// direct-API x-api-key + anthropic-version headers. Centralizing this keeps
-// the caller functions below cognitive-complexity limits and ensures every
-// request path goes through the same custom-header collision check.
+// headers on req. Partner-hosted (Bedrock SigV4 / Vertex Bearer) auth via
+// the resolved Credential; direct API uses x-api-key + anthropic-version
+// headers. Centralizing this keeps the caller functions below
+// cognitive-complexity limits and ensures every request path goes through
+// the same custom-header collision check.
 func (p *ToolProvider) applyToolRequestHeaders(ctx context.Context, req *http.Request) error {
 	req.Header.Set(contentTypeHeader, applicationJSON)
-	if p.isBedrock() {
+	if p.isPartnerHosted() {
 		if err := p.applyAuth(ctx, req); err != nil {
 			return fmt.Errorf("failed to apply authentication: %w", err)
 		}
@@ -522,11 +523,12 @@ func (p *ToolProvider) applyToolRequestHeaders(ctx context.Context, req *http.Re
 func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
 	url := p.messagesURL()
 
-	// For Bedrock, inject anthropic_version into the request body and omit the header
-	if p.isBedrock() {
+	// Partner-hosted (Bedrock/Vertex): inject anthropic_version into the
+	// request body (with the platform-specific value) and drop the model
+	// field — both put the model in the URL path.
+	if p.isPartnerHosted() {
 		if reqMap, ok := request.(map[string]interface{}); ok {
-			reqMap[bedrockVersionBodyKey] = bedrockVersionValue
-			// Remove model from body — Bedrock uses the URL path for model selection
+			reqMap[bedrockVersionBodyKey] = p.platformAnthropicVersion()
 			delete(reqMap, "model")
 		}
 	}
@@ -557,12 +559,16 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		if p.isBedrock() {
+		switch {
+		case p.isBedrock():
 			return nil, parseBedrockHTTPError(resp.StatusCode, respBody)
-		}
-		return nil, &providers.ProviderHTTPError{
-			StatusCode: resp.StatusCode, URL: url,
-			Body: string(respBody), Provider: p.ID(),
+		case p.isVertex():
+			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
+		default:
+			return nil, &providers.ProviderHTTPError{
+				StatusCode: resp.StatusCode, URL: url,
+				Body: string(respBody), Provider: p.ID(),
+			}
 		}
 	}
 
@@ -587,13 +593,59 @@ func (p *ToolProvider) PredictStreamWithTools(
 	// Add streaming flag
 	claudeReq["stream"] = true
 
-	// Bedrock: use binary event-stream format, wired through
-	// RunStreamingRequest for retry, budget, semaphore, and metrics.
+	// Bedrock: binary event-stream format.
 	if p.isBedrock() {
 		return p.streamBedrockToolRequest(ctx, claudeReq)
 	}
 
+	// Vertex: SSE via :streamRawPredict with the partner body shape.
+	if p.isVertex() {
+		return p.streamVertexToolRequest(ctx, claudeReq)
+	}
+
 	return p.streamDirectToolRequest(ctx, claudeReq)
+}
+
+// streamVertexToolRequest handles the Vertex AI Anthropic-partner
+// tool-calling streaming path. URL is :streamRawPredict; body uses the
+// shared partner shape (no model field, anthropic_version=vertex-2023-10-16,
+// no stream flag); auth via the GCP credential. The response is plain SSE
+// like the direct API, so the SSE helper is reused.
+func (p *ToolProvider) streamVertexToolRequest(
+	ctx context.Context,
+	claudeReq map[string]interface{},
+) (<-chan providers.StreamChunk, error) {
+	reqBody, err := p.marshalBedrockStreamingRequest(claudeReq)
+	if err != nil {
+		return nil, fmt.Errorf(errMarshalRequestFailed, err)
+	}
+	return p.runSSEToolStream(ctx, reqBody)
+}
+
+// runSSEToolStream is the shared SSE streaming engine for tool-calling
+// requests. Both the direct Anthropic API and the Vertex Anthropic-partner
+// path call into this once they have produced a serialized body — they
+// differ only in body encoding (direct: full claudeReq as-is; vertex: the
+// partner-shape body with anthropic_version+no model+no stream). URL,
+// header set, and SSE scanner are identical.
+func (p *ToolProvider) runSSEToolStream(
+	ctx context.Context, reqBody []byte,
+) (<-chan providers.StreamChunk, error) {
+	url := p.messagesStreamURL()
+	requestFn := p.buildDirectStreamingRequestFn(url, reqBody)
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:       p.StreamRetryPolicy(),
+		Budget:       p.StreamRetryBudget(),
+		ProviderName: p.ID(),
+		Host:         providers.HostFromURL(url),
+		IdleTimeout:  p.StreamIdleTimeout(),
+		RequestFn:    requestFn,
+		Client:       p.GetStreamingHTTPClient(),
+	}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
+		scanner := providers.NewSSEScanner(idleBody)
+		p.streamResponse(ctx, idleBody, scanner, outChan)
+	})
 }
 
 // streamBedrockToolRequest handles the Bedrock tool-calling streaming path.
@@ -626,7 +678,8 @@ func (p *ToolProvider) streamBedrockToolRequest(
 }
 
 // streamDirectToolRequest handles the direct Anthropic API tool-calling
-// streaming path.
+// streaming path. Body is the full claudeReq (model, stream:true and all)
+// serialized as-is; auth is x-api-key via applyToolRequestHeaders.
 func (p *ToolProvider) streamDirectToolRequest(
 	ctx context.Context,
 	claudeReq map[string]interface{},
@@ -635,21 +688,7 @@ func (p *ToolProvider) streamDirectToolRequest(
 	if err != nil {
 		return nil, fmt.Errorf(errMarshalRequestFailed, err)
 	}
-	url := p.messagesStreamURL()
-	requestFn := p.buildDirectStreamingRequestFn(url, requestBytes)
-	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
-		Policy:       p.StreamRetryPolicy(),
-		Budget:       p.StreamRetryBudget(),
-		ProviderName: p.ID(),
-		Host:         providers.HostFromURL(url),
-		IdleTimeout:  p.StreamIdleTimeout(),
-		RequestFn:    requestFn,
-		Client:       p.GetStreamingHTTPClient(),
-	}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
-		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
-		scanner := providers.NewSSEScanner(idleBody)
-		p.streamResponse(ctx, idleBody, scanner, outChan)
-	})
+	return p.runSSEToolStream(ctx, requestBytes)
 }
 
 // buildBedrockStreamingRequestFn returns a RequestFn for the Bedrock
