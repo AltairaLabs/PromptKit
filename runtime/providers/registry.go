@@ -216,12 +216,13 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	if baseURL == "" {
 		switch spec.Type {
 		case "openai":
-			// Skip the api.openai.com default for Azure — the openai
-			// factory builds the deployment URL from PlatformConfig.
-			// Without this skip the default clobbers spec.BaseURL and
-			// the Azure branch in NewProviderFromConfig becomes
-			// unreachable (issue #1010).
-			if spec.Platform != "azure" {
+			// Skip the api.openai.com default for hyperscaler-hosted
+			// OpenAI — the openai factory builds the platform URL from
+			// PlatformConfig (Azure: deployment URL; Bedrock: regional
+			// invoke URL). Without these skips the default clobbers
+			// spec.BaseURL and the platform branch in
+			// NewProviderFromConfig becomes unreachable (#1010).
+			if spec.Platform != "azure" && spec.Platform != "bedrock" {
 				baseURL = "https://api.openai.com/v1"
 			}
 		case "gemini":

@@ -177,10 +177,26 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 	if len(unsupported) == 0 && isOSeriesModel(cfg.Model) {
 		unsupported = []string{"temperature", "top_p", "max_tokens"}
 	}
+	// Bedrock-hosted OpenAI (gpt-oss family) requires max_completion_tokens
+	// instead of max_tokens, and rejects `top_p: 0.0` (must be in (0, 1]).
+	// Skip both fields by default so the model picks its own; operators
+	// can still override the full unsupported set via UnsupportedParams.
+	if len(cfg.UnsupportedParams) == 0 && cfg.Platform == bedrockPlatform {
+		for _, param := range []string{"max_tokens", "top_p"} {
+			if !hasUnsupportedParam(unsupported, param) {
+				unsupported = append(unsupported, param)
+			}
+		}
+	}
 
 	baseURL := cfg.BaseURL
-	if baseURL == "" && cfg.Platform == azurePlatform && cfg.PlatformConfig != nil && cfg.PlatformConfig.Endpoint != "" {
-		baseURL = credentials.AzureOpenAIEndpoint(cfg.PlatformConfig.Endpoint, cfg.Model)
+	if baseURL == "" {
+		switch {
+		case cfg.Platform == azurePlatform && cfg.PlatformConfig != nil && cfg.PlatformConfig.Endpoint != "":
+			baseURL = credentials.AzureOpenAIEndpoint(cfg.PlatformConfig.Endpoint, cfg.Model)
+		case cfg.Platform == bedrockPlatform && cfg.PlatformConfig != nil && cfg.PlatformConfig.Region != "":
+			baseURL = credentials.BedrockEndpoint(cfg.PlatformConfig.Region)
+		}
 	}
 
 	p := &Provider{
@@ -197,8 +213,10 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		unsupportedParams: unsupported,
 		reasoningEffort:   getReasoningEffort(cfg.AdditionalConfig),
 	}
-	// Azure OpenAI doesn't support the Responses API.
-	if p.isAzure() {
+	// Neither Azure OpenAI nor Bedrock OpenAI exposes the Responses API.
+	// Force the legacy Chat Completions path so the request shape matches
+	// what the upstream actually accepts.
+	if p.isAzure() || p.isBedrock() {
 		p.apiMode = APIModeCompletions
 	}
 	return p
@@ -334,11 +352,20 @@ func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
-const azurePlatform = "azure"
+const (
+	azurePlatform   = "azure"
+	bedrockPlatform = "bedrock"
+)
 
 // isAzure returns true if this provider is hosted on Azure OpenAI.
 func (p *Provider) isAzure() bool {
 	return p.platform == azurePlatform
+}
+
+// isBedrock returns true if this provider is hosted on AWS Bedrock
+// (OpenAI gpt-oss partner endpoint).
+func (p *Provider) isBedrock() bool {
+	return p.platform == bedrockPlatform
 }
 
 // azureAPIVersion returns the api-version query parameter for Azure OpenAI.
@@ -352,9 +379,16 @@ func (p *Provider) azureAPIVersion() string {
 }
 
 // chatCompletionsURL returns the Chat Completions API endpoint.
-// For Azure: {baseURL}/chat/completions?api-version={version}
-// For standard OpenAI: {baseURL}/chat/completions
+// Azure:   {baseURL}/chat/completions?api-version={version}
+// Bedrock: {baseURL}/model/{model}/invoke   (Bedrock InvokeModel; the
+//
+//	response body is standard OpenAI Chat Completions JSON.)
+//
+// Standard OpenAI: {baseURL}/chat/completions
 func (p *Provider) chatCompletionsURL() string {
+	if p.isBedrock() {
+		return p.baseURL + "/model/" + p.model + "/invoke"
+	}
 	url := p.baseURL + openAIPredictCompletionsPath
 	if p.isAzure() {
 		url += "?api-version=" + p.azureAPIVersion()
@@ -362,11 +396,11 @@ func (p *Provider) chatCompletionsURL() string {
 	return url
 }
 
-// responsesURL returns the Responses API endpoint.
-// Azure OpenAI does not support the Responses API, so this falls back
-// to the Chat Completions endpoint.
+// responsesURL returns the Responses API endpoint. Neither Azure OpenAI
+// nor Bedrock OpenAI exposes the Responses API, so for those platforms
+// it falls back to the Chat Completions endpoint.
 func (p *Provider) responsesURL() string {
-	if p.isAzure() {
+	if p.isAzure() || p.isBedrock() {
 		return p.chatCompletionsURL()
 	}
 	return p.baseURL + responsesAPIPath
@@ -588,8 +622,20 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 	}
 }
 
-// PredictStream streams a predict response from OpenAI
+// PredictStream streams a predict response from OpenAI.
+//
+// Bedrock note: AWS Bedrock's `invoke-with-response-stream` returns a
+// binary event-stream protocol with OpenAI-format chunks inside —
+// distinct from the SSE format the rest of the openai stream code
+// expects. Until that path is wired (separate scanner needed), Bedrock
+// falls back to a single non-streaming Predict response surfaced as one
+// terminal chunk on the channel. Callers that need real per-token
+// streaming for openai+bedrock should track that follow-up.
 func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	if p.isBedrock() {
+		return p.predictStreamBedrockFallback(ctx, req)
+	}
+
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
 	if err != nil {
@@ -598,6 +644,36 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 
 	// Delegate to the common implementation
 	return p.predictStreamWithMessages(ctx, req, messages)
+}
+
+// predictStreamBedrockFallback runs a non-streaming Predict against
+// Bedrock and emits the result as a single StreamChunk so callers using
+// the streaming interface still get a terminal chunk with content,
+// finish_reason and cost info. This is honest — Bedrock's invoke
+// (without -with-response-stream) is non-streaming — and keeps Arena
+// scenarios with `streaming: true` working until real binary-event-stream
+// support lands for the openai provider.
+//
+//nolint:gocritic // hugeParam: matches the upstream PredictStream signature.
+func (p *Provider) predictStreamBedrockFallback(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	out := make(chan providers.StreamChunk, 1)
+	resp, err := p.Predict(ctx, req)
+	if err != nil {
+		close(out)
+		return nil, err
+	}
+	finish := finishStop
+	out <- providers.StreamChunk{
+		Content:      resp.Content,
+		Delta:        resp.Content,
+		TokenCount:   0,
+		CostInfo:     resp.CostInfo,
+		FinishReason: &finish,
+	}
+	close(out)
+	return out, nil
 }
 
 // openAIStreamChunk represents the structure of OpenAI streaming response chunks

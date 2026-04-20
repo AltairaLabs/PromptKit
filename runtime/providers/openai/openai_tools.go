@@ -538,13 +538,21 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	return p.MakeJSONRequest(ctx, url, request, headers, "OpenAI")
 }
 
-// PredictStreamWithTools performs a streaming predict request with tool support
+// PredictStreamWithTools performs a streaming predict request with tool support.
+//
+// Bedrock note: same fallback as PredictStream — Bedrock's streaming
+// endpoint uses binary event-stream framing distinct from SSE; we run a
+// single non-streaming call and surface it as one terminal chunk.
 func (p *ToolProvider) PredictStreamWithTools(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools interface{},
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
+	if p.isBedrock() {
+		return p.predictStreamWithToolsBedrockFallback(ctx, req, tools, toolChoice)
+	}
+
 	// Route to appropriate API based on mode
 	if p.apiMode == APIModeResponses {
 		return p.predictStreamWithResponses(ctx, req, tools, toolChoice)
@@ -552,6 +560,38 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 	// Legacy chat completions API
 	return p.predictStreamWithCompletions(ctx, req, tools, toolChoice)
+}
+
+// predictStreamWithToolsBedrockFallback runs PredictWithTools synchronously
+// and emits a single terminal chunk that carries content, tool calls,
+// finish reason and cost. See PredictStream for the rationale.
+//
+//nolint:gocritic // hugeParam: matches the upstream PredictStreamWithTools signature.
+func (p *ToolProvider) predictStreamWithToolsBedrockFallback(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	out := make(chan providers.StreamChunk, 1)
+	resp, toolCalls, err := p.PredictWithTools(ctx, req, tools, toolChoice)
+	if err != nil {
+		close(out)
+		return nil, err
+	}
+	finish := finishStop
+	if len(toolCalls) > 0 {
+		finish = "tool_calls"
+	}
+	out <- providers.StreamChunk{
+		Content:      resp.Content,
+		Delta:        resp.Content,
+		ToolCalls:    toolCalls,
+		CostInfo:     resp.CostInfo,
+		FinishReason: &finish,
+	}
+	close(out)
+	return out, nil
 }
 
 // predictStreamWithCompletions performs a streaming predict using chat completions API
