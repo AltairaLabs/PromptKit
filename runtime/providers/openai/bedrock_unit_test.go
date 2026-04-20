@@ -3,10 +3,12 @@ package openai
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // mockSigningCredential records whether Apply was invoked. Used to verify
@@ -171,4 +173,197 @@ func TestNewProviderFromConfig_Bedrock(t *testing.T) {
 			t.Errorf("non-Bedrock provider should not mark max_tokens unsupported, got %v", p.unsupportedParams)
 		}
 	})
+}
+
+// newBedrockOpenAIMockProvider stands up an httptest server that answers
+// the Bedrock invoke endpoint with a canned OpenAI Chat Completions JSON
+// body, and returns a Provider wired to it.
+func newBedrockOpenAIMockProvider(t *testing.T, responseBody string) *Provider {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(responseBody))
+	}))
+	t.Cleanup(server.Close)
+
+	return NewProviderFromConfig(&ProviderConfig{
+		ID:       "test-bedrock-openai",
+		Model:    "openai.gpt-oss-20b-1:0",
+		BaseURL:  server.URL,
+		Platform: bedrockPlatform,
+		PlatformConfig: &providers.PlatformConfig{
+			Type: bedrockPlatform, Region: "us-west-2",
+		},
+		Credential: &mockSigningCredential{},
+		Defaults: providers.ProviderDefaults{
+			MaxTokens:   64,
+			Temperature: 0.1,
+			Pricing: providers.Pricing{
+				InputCostPer1K:  0.00015,
+				OutputCostPer1K: 0.0006,
+			},
+		},
+	})
+}
+
+const bedrockOpenAIMockResponse = `{
+  "choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello.","role":"assistant"}}],
+  "created":1776687852,
+  "id":"chatcmpl-test",
+  "model":"openai.gpt-oss-20b-1:0",
+  "object":"chat.completion",
+  "usage":{"completion_tokens":2,"prompt_tokens":10,"total_tokens":12}
+}`
+
+func TestProvider_PredictStream_BedrockEmitsSingleChunk(t *testing.T) {
+	p := newBedrockOpenAIMockProvider(t, bedrockOpenAIMockResponse)
+
+	ch, err := p.PredictStream(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("PredictStream: %v", err)
+	}
+
+	chunks := 0
+	var last providers.StreamChunk
+	for c := range ch {
+		if c.Error != nil {
+			t.Fatalf("chunk error: %v", c.Error)
+		}
+		chunks++
+		last = c
+	}
+	if chunks != 1 {
+		t.Fatalf("Bedrock fallback must emit exactly one chunk, got %d", chunks)
+	}
+	if last.Content != "Hello." {
+		t.Errorf("chunk content = %q, want %q", last.Content, "Hello.")
+	}
+	if last.Delta != "Hello." {
+		t.Errorf("chunk delta = %q, want %q (delta mirrors content for fallback)", last.Delta, "Hello.")
+	}
+	if last.FinishReason == nil || *last.FinishReason != finishStop {
+		t.Errorf("chunk finish reason = %v, want %q", last.FinishReason, finishStop)
+	}
+	if last.CostInfo == nil {
+		t.Error("chunk must carry CostInfo")
+	}
+}
+
+func TestProvider_PredictStream_BedrockSurfacesError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"bad"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	p := NewProviderFromConfig(&ProviderConfig{
+		ID:       "test-bedrock-openai-err",
+		Model:    "openai.gpt-oss-20b-1:0",
+		BaseURL:  server.URL,
+		Platform: bedrockPlatform,
+		PlatformConfig: &providers.PlatformConfig{
+			Type: bedrockPlatform, Region: "us-west-2",
+		},
+		Credential: &mockSigningCredential{},
+		Defaults:   providers.ProviderDefaults{MaxTokens: 64},
+	})
+
+	_, err := p.PredictStream(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	if err == nil {
+		t.Fatal("expected error from Bedrock fallback when upstream returns 400")
+	}
+}
+
+func TestToolProvider_PredictStreamWithTools_BedrockEmitsSingleChunk(t *testing.T) {
+	respBody := `{
+  "choices":[{"finish_reason":"tool_calls","index":0,"message":{
+    "content":"",
+    "role":"assistant",
+    "tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}]
+  }}],
+  "created":1776687852,
+  "id":"chatcmpl-test-tools",
+  "model":"openai.gpt-oss-20b-1:0",
+  "object":"chat.completion",
+  "usage":{"completion_tokens":5,"prompt_tokens":20,"total_tokens":25}
+}`
+	p := newBedrockOpenAIMockProvider(t, respBody)
+	tp := &ToolProvider{Provider: p}
+
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{
+		{
+			Name:        "get_weather",
+			Description: "Get weather",
+			InputSchema: []byte(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+
+	ch, err := tp.PredictStreamWithTools(
+		context.Background(),
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "weather?"}}},
+		tools,
+		"auto",
+	)
+	if err != nil {
+		t.Fatalf("PredictStreamWithTools: %v", err)
+	}
+
+	chunks := 0
+	var last providers.StreamChunk
+	for c := range ch {
+		if c.Error != nil {
+			t.Fatalf("chunk error: %v", c.Error)
+		}
+		chunks++
+		last = c
+	}
+	if chunks != 1 {
+		t.Fatalf("Bedrock fallback must emit exactly one chunk, got %d", chunks)
+	}
+	if len(last.ToolCalls) != 1 || last.ToolCalls[0].Name != "get_weather" {
+		t.Errorf("expected get_weather tool call, got %+v", last.ToolCalls)
+	}
+	if last.FinishReason == nil || *last.FinishReason != "tool_calls" {
+		t.Errorf("expected finish=tool_calls, got %v", last.FinishReason)
+	}
+}
+
+func TestToolProvider_PredictStreamWithTools_BedrockSurfacesError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"oops"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	tp := &ToolProvider{
+		Provider: NewProviderFromConfig(&ProviderConfig{
+			ID:       "test-bedrock-tools-err",
+			Model:    "openai.gpt-oss-20b-1:0",
+			BaseURL:  server.URL,
+			Platform: bedrockPlatform,
+			PlatformConfig: &providers.PlatformConfig{
+				Type: bedrockPlatform, Region: "us-west-2",
+			},
+			Credential: &mockSigningCredential{},
+			Defaults:   providers.ProviderDefaults{MaxTokens: 64},
+		}),
+	}
+
+	_, err := tp.PredictStreamWithTools(
+		context.Background(),
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}},
+		nil,
+		"auto",
+	)
+	if err == nil {
+		t.Fatal("expected error from Bedrock tool fallback when upstream returns 500")
+	}
 }
