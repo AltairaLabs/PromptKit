@@ -265,6 +265,42 @@ func TestCreateProviderFromSpecClaudeVertexSkipsDefault(t *testing.T) {
 	}
 }
 
+// TestCreateProviderFromSpecClaudeAzureSkipsDefault is the regression test
+// for the claude+azure cell of #1009: api.anthropic.com must not clobber
+// spec.BaseURL when Platform=="azure". The claude factory derives the
+// openai/deployments/{deployment} URL from PlatformConfig.Endpoint in
+// that case.
+func TestCreateProviderFromSpecClaudeAzureSkipsDefault(t *testing.T) {
+	originalFactory := providerFactories["claude"]
+	capturedBaseURL := "sentinel"
+	providerFactories["claude"] = func(spec ProviderSpec) (Provider, error) {
+		capturedBaseURL = spec.BaseURL
+		return &mockProviderForTest{id: spec.ID}, nil
+	}
+	defer func() {
+		if originalFactory != nil {
+			providerFactories["claude"] = originalFactory
+		} else {
+			delete(providerFactories, "claude")
+		}
+	}()
+
+	spec := ProviderSpec{
+		ID:       "azure-claude",
+		Type:     "claude",
+		Model:    testModelName,
+		Platform: "azure",
+	}
+
+	if _, err := CreateProviderFromSpec(spec); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if capturedBaseURL != "" {
+		t.Errorf("Expected empty BaseURL for claude+azure, got %q (regression of #1010-class bug)", capturedBaseURL)
+	}
+}
+
 func TestCreateProviderFromSpecCustomBaseURL(t *testing.T) {
 	customURL := "https://custom.api.example.com"
 	spec := ProviderSpec{

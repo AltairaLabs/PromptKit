@@ -47,7 +47,13 @@ const (
 	bedrockVersionValue   = "bedrock-2023-05-31"
 	vertexPlatform        = "vertex"
 	vertexVersionValue    = "vertex-2023-10-16"
+	azurePlatform         = "azure"
 	bedrockVersionBodyKey = "anthropic_version"
+
+	// defaultAzureAPIVersion is the api-version query parameter used when
+	// the caller has not supplied one via PlatformConfig.AdditionalConfig.
+	// Tracks the openai+azure default for consistency.
+	defaultAzureAPIVersion = "2024-12-01-preview"
 )
 
 // vertexAnthropicEndpoint returns the Vertex AI base URL for Anthropic
@@ -59,6 +65,33 @@ func vertexAnthropicEndpoint(region, project string) string {
 		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models",
 		region, project, region,
 	)
+}
+
+// azureAnthropicDeploymentEndpoint returns the Azure AI Foundry base URL
+// for an Anthropic deployment on an AIServices account. The result ends
+// in `/openai/deployments/{deployment}` (no trailing slash); per-call
+// code appends `/messages?api-version={v}` to address the Anthropic
+// Messages API for that deployment.
+//
+// The path layout mirrors Azure OpenAI deployments
+// (`{endpoint}/openai/deployments/{deployment}/chat/completions?api-version=v`)
+// — Microsoft routes Foundry partner models through the same
+// deployment-name surface, swapping only the trailing API path. The
+// {deployment} segment is the deployment name the user assigned at
+// deploy time (passed through via spec.Model, mirroring openai+azure).
+//
+// Note: this is a best-endeavors URL pattern; the AI Foundry
+// deployment-style surface is the most-Microsoft-native shape but has
+// not been verified end-to-end against a live deployment in this PR.
+// The Anthropic-on-Foundry quota SKU is named
+// `AIServices.GlobalStandard.claude-*`, strongly suggesting deployment
+// via the AIServices account model surface (i.e. this layout) rather
+// than the older Marketplace + Foundry-hub serverless-API path. First
+// live run should validate; switching to a vendor-prefixed pattern
+// (`{endpoint}/anthropic/v1/messages?...`) is a one-line change to
+// `messagesURL`/`messagesStreamURL` if needed.
+func azureAnthropicDeploymentEndpoint(endpoint, deployment string) string {
+	return strings.TrimRight(endpoint, "/") + "/openai/deployments/" + deployment
 }
 
 // Provider implements the Provider interface for Anthropic Claude
@@ -88,12 +121,10 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 
 // NewProviderWithCredential creates a new Claude provider with explicit credential.
 //
-// When platform=="vertex" and baseURL is empty, the Vertex publisher-models
-// URL is built from platformConfig.Region and platformConfig.Project.
-// Mirrors the openai+azure and gemini+vertex pattern: callers that pass an
-// explicit baseURL still win, but Arena-style configs that only set
-// platform.region/project work without users having to know the Vertex URL
-// shape.
+// When baseURL is empty the URL is derived from platformConfig for the
+// platforms that support it: Vertex (`publishers/anthropic/models`) and
+// Azure (`openai/deployments/{deployment}`). Callers that pass an
+// explicit baseURL always win.
 func NewProviderWithCredential(
 	id, model, baseURL string, defaults providers.ProviderDefaults,
 	includeRawOutput bool, cred providers.Credential,
@@ -101,9 +132,14 @@ func NewProviderWithCredential(
 ) *Provider {
 	base, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
 
-	if baseURL == "" && platform == vertexPlatform &&
-		platformConfig != nil && platformConfig.Region != "" && platformConfig.Project != "" {
-		baseURL = vertexAnthropicEndpoint(platformConfig.Region, platformConfig.Project)
+	if baseURL == "" && platformConfig != nil {
+		switch {
+		case platform == vertexPlatform &&
+			platformConfig.Region != "" && platformConfig.Project != "":
+			baseURL = vertexAnthropicEndpoint(platformConfig.Region, platformConfig.Project)
+		case platform == azurePlatform && platformConfig.Endpoint != "":
+			baseURL = azureAnthropicDeploymentEndpoint(platformConfig.Endpoint, model)
+		}
 	}
 
 	return &Provider{
@@ -134,15 +170,46 @@ func (p *Provider) isVertex() bool {
 	return p.platform == vertexPlatform
 }
 
+// isAzure returns true if this provider is hosted on Azure AI Foundry's
+// Anthropic deployment surface.
+func (p *Provider) isAzure() bool {
+	return p.platform == azurePlatform
+}
+
 // isPartnerHosted returns true when the provider sits behind a hyperscaler
-// partner endpoint (Bedrock or Vertex). These share three traits that
-// distinguish them from the direct Anthropic API: the model identifier
-// appears in the URL path (not the request body); the request body must
-// include `anthropic_version` set to a platform-specific value; and
-// authentication uses the resolved Credential (SigV4 / Bearer) rather than
-// the x-api-key header.
+// partner endpoint that uses the partner body shape (Bedrock or Vertex).
+// These share three traits that distinguish them from the direct Anthropic
+// API: the model identifier appears in the URL path (not the request body);
+// the request body must include `anthropic_version` set to a platform-
+// specific value; and authentication uses the resolved Credential (SigV4 /
+// Bearer) rather than the x-api-key header.
+//
+// Azure is intentionally NOT in this set — Azure AI Foundry passes the
+// Anthropic Messages API through verbatim (model field stays in the body,
+// no anthropic_version), so only the URL and auth differ from the direct
+// path. Azure shares the auth half via usesCredentialAuth().
 func (p *Provider) isPartnerHosted() bool {
 	return p.isBedrock() || p.isVertex()
+}
+
+// usesCredentialAuth returns true when authentication goes through the
+// Credential interface (SigV4 for Bedrock, Bearer for Vertex/Azure)
+// rather than the direct API's x-api-key header. This is the broader
+// auth-side counterpart to isPartnerHosted().
+func (p *Provider) usesCredentialAuth() bool {
+	return p.isPartnerHosted() || p.isAzure()
+}
+
+// azureAPIVersion returns the api-version query parameter for Azure AI
+// Foundry calls. Configurable via PlatformConfig.AdditionalConfig
+// ("api_version"); falls back to defaultAzureAPIVersion.
+func (p *Provider) azureAPIVersion() string {
+	if p.platformConfig != nil {
+		if v, ok := p.platformConfig.AdditionalConfig["api_version"].(string); ok && v != "" {
+			return v
+		}
+	}
+	return defaultAzureAPIVersion
 }
 
 // platformAnthropicVersion returns the anthropic_version body value for the
@@ -162,6 +229,11 @@ func (p *Provider) platformAnthropicVersion() string {
 // messagesURL returns the appropriate API endpoint URL.
 // Bedrock: {baseURL}/model/{model}/invoke
 // Vertex:  {baseURL}/{model}:rawPredict
+// Azure:   {baseURL}/messages?api-version={v}        (baseURL is the
+//
+//	deployment URL `…/openai/deployments/{deployment}` built by
+//	azureAnthropicDeploymentEndpoint; streaming uses the same path)
+//
 // Direct:  {baseURL}/messages
 func (p *Provider) messagesURL() string {
 	switch {
@@ -169,6 +241,8 @@ func (p *Provider) messagesURL() string {
 		return p.baseURL + "/model/" + p.model + "/invoke"
 	case p.isVertex():
 		return p.baseURL + "/" + p.model + ":rawPredict"
+	case p.isAzure():
+		return p.baseURL + "/messages?api-version=" + p.azureAPIVersion()
 	default:
 		return p.baseURL + "/messages"
 	}
@@ -177,6 +251,7 @@ func (p *Provider) messagesURL() string {
 // messagesStreamURL returns the appropriate streaming API endpoint URL.
 // Bedrock: {baseURL}/model/{model}/invoke-with-response-stream  (binary event-stream)
 // Vertex:  {baseURL}/{model}:streamRawPredict                   (SSE)
+// Azure:   {baseURL}/messages?api-version={v}                   (SSE; same as messagesURL)
 // Direct:  {baseURL}/messages                                   (SSE; same path as messagesURL)
 func (p *Provider) messagesStreamURL() string {
 	switch {
@@ -184,6 +259,8 @@ func (p *Provider) messagesStreamURL() string {
 		return p.baseURL + "/model/" + p.model + "/invoke-with-response-stream"
 	case p.isVertex():
 		return p.baseURL + "/" + p.model + ":streamRawPredict"
+	case p.isAzure():
+		return p.baseURL + "/messages?api-version=" + p.azureAPIVersion()
 	default:
 		return p.baseURL + "/messages"
 	}
@@ -460,8 +537,10 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	// Partner-hosted (Bedrock/Vertex) puts anthropic_version in the body, not the header.
-	if !p.isPartnerHosted() {
+	// Partner-hosted (Bedrock/Vertex) puts anthropic_version in the body.
+	// Azure pins the API contract via the api-version query parameter.
+	// Only the direct API path uses the anthropic-version request header.
+	if !p.isPartnerHosted() && !p.isAzure() {
 		httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 	}
 
@@ -508,7 +587,7 @@ func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRe
 		switch {
 		case p.isBedrock():
 			return nil, predictResp, parseBedrockHTTPError(resp.StatusCode, respBody)
-		case p.isVertex():
+		case p.isVertex(), p.isAzure():
 			return nil, predictResp, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
 		default:
 			return nil, predictResp, &providers.ProviderHTTPError{

@@ -502,14 +502,16 @@ func (p *ToolProvider) parseToolResponse(
 }
 
 // applyToolRequestHeaders sets content-type, anthropic auth, and custom
-// headers on req. Partner-hosted (Bedrock SigV4 / Vertex Bearer) auth via
-// the resolved Credential; direct API uses x-api-key + anthropic-version
-// headers. Centralizing this keeps the caller functions below
-// cognitive-complexity limits and ensures every request path goes through
-// the same custom-header collision check.
+// headers on req. Credential-based auth (Bedrock SigV4 / Vertex Bearer /
+// Azure Bearer) goes via the resolved Credential; the direct API uses
+// x-api-key + anthropic-version headers. Azure pins the API contract via
+// the api-version query parameter so it does not need the
+// anthropic-version header. Centralizing this keeps the caller functions
+// below cognitive-complexity limits and ensures every request path goes
+// through the same custom-header collision check.
 func (p *ToolProvider) applyToolRequestHeaders(ctx context.Context, req *http.Request) error {
 	req.Header.Set(contentTypeHeader, applicationJSON)
-	if p.isPartnerHosted() {
+	if p.usesCredentialAuth() {
 		if err := p.applyAuth(ctx, req); err != nil {
 			return fmt.Errorf("failed to apply authentication: %w", err)
 		}
@@ -562,7 +564,7 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 		switch {
 		case p.isBedrock():
 			return nil, parseBedrockHTTPError(resp.StatusCode, respBody)
-		case p.isVertex():
+		case p.isVertex(), p.isAzure():
 			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, respBody)
 		default:
 			return nil, &providers.ProviderHTTPError{
