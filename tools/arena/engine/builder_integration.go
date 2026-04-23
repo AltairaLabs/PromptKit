@@ -35,6 +35,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	_ "github.com/AltairaLabs/PromptKit/tools/arena/mcpsource/docker/register" // register docker MCPSource
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
@@ -554,6 +555,11 @@ func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
 	registry := mcp.NewRegistry()
 
 	for _, serverCfg := range cfg.MCPServers {
+		if serverCfg.Source != "" {
+			// Source-backed entries are opened dynamically by mcpSourceScope
+			// at run/scenario/session boundaries — not registered statically.
+			continue
+		}
 		mcpServerConfig := mcp.ServerConfig{
 			Name:       serverCfg.Name,
 			Command:    serverCfg.Command,

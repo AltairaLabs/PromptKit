@@ -15,8 +15,6 @@ import (
 
 // openEntry tracks one open (scope, instance, server-name) triple so
 // CloseAll can find and tear it down.
-//
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 type openEntry struct {
 	serverName string
 	closer     io.Closer
@@ -24,8 +22,6 @@ type openEntry struct {
 
 // mcpSourceScope manages per-scope open/close of source-backed MCP entries.
 // The zero value is not usable; use newMCPSourceScope.
-//
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 type mcpSourceScope struct {
 	registry mcp.Registry
 
@@ -33,7 +29,6 @@ type mcpSourceScope struct {
 	opens map[string][]openEntry // keyed by "<scope>|<instanceID>"
 }
 
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func newMCPSourceScope(registry mcp.Registry) *mcpSourceScope {
 	return &mcpSourceScope{
 		registry: registry,
@@ -41,7 +36,6 @@ func newMCPSourceScope(registry mcp.Registry) *mcpSourceScope {
 	}
 }
 
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func scopeKey(scope mcpsource.Scope, instanceID string) string {
 	return string(scope) + "|" + instanceID
 }
@@ -50,8 +44,6 @@ func scopeKey(scope mcpsource.Scope, instanceID string) string {
 // expanded into SourceArgs, and (if any skill sources are provided) mount
 // entries are injected. Partial failures roll back any opens already
 // performed in this call.
-//
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func (m *mcpSourceScope) OpenAll(
 	ctx context.Context,
 	scope mcpsource.Scope,
@@ -96,8 +88,6 @@ func (m *mcpSourceScope) OpenAll(
 
 // prepareEntryArgs expands scenario templates in entry.SourceArgs and
 // injects skill mounts. Mutates entry in place (caller passes a local copy).
-//
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func prepareEntryArgs(entry *config.MCPServerConfig, scenarioVars map[string]string, mounts []map[string]any) {
 	args := expandArgs(entry.SourceArgs, scenarioVars)
 	if args == nil && len(mounts) > 0 {
@@ -109,8 +99,6 @@ func prepareEntryArgs(entry *config.MCPServerConfig, scenarioVars map[string]str
 
 // openOne looks up the named source, calls Open, and registers the
 // resulting URL+Headers with the MCP registry.
-//
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func (m *mcpSourceScope) openOne(ctx context.Context, entry *config.MCPServerConfig) (openEntry, error) {
 	src, ok := mcpsource.LookupMCPSource(entry.Source)
 	if !ok {
@@ -137,8 +125,6 @@ func (m *mcpSourceScope) openOne(ctx context.Context, entry *config.MCPServerCon
 
 // CloseAll tears down every entry opened for (scope, instanceID). Close
 // errors are collected and returned; registry entries are removed regardless.
-//
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func (m *mcpSourceScope) CloseAll(scope mcpsource.Scope, instanceID string) []error {
 	m.mu.Lock()
 	key := scopeKey(scope, instanceID)
@@ -158,7 +144,6 @@ func (m *mcpSourceScope) CloseAll(scope mcpsource.Scope, instanceID string) []er
 
 // --- Args templating (Task 5 responsibilities) ---
 
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func expandArgs(args map[string]any, vars map[string]string) map[string]any {
 	if args == nil {
 		return nil
@@ -170,7 +155,6 @@ func expandArgs(args map[string]any, vars map[string]string) map[string]any {
 	return out
 }
 
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func expandArgValue(v any, vars map[string]string) any {
 	switch x := v.(type) {
 	case string:
@@ -188,7 +172,6 @@ func expandArgValue(v any, vars map[string]string) any {
 	}
 }
 
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func expandString(s string, vars map[string]string) string {
 	for k, v := range vars {
 		s = strings.ReplaceAll(s, "{{scenario."+k+"}}", v)
@@ -202,8 +185,6 @@ func expandString(s string, vars map[string]string) string {
 // MCPSource args map. Each skill dir is mounted at /skills/<name> read-only.
 // Sources without a name or directory are skipped (inline skills produce no
 // mount — they're passed to the runtime via a different path).
-//
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func buildSkillMounts(sources []prompt.SkillSourceConfig) []map[string]any {
 	if len(sources) == 0 {
 		return nil
@@ -230,8 +211,6 @@ func buildSkillMounts(sources []prompt.SkillSourceConfig) []map[string]any {
 // injectMountsIntoArgs adds mounts to entry.SourceArgs under the "mounts"
 // key, preserving existing args. Empty mounts is a no-op (the key is not
 // added), so sources that don't understand mounts don't see it.
-//
-//nolint:unused // wired up in Task 6 (engine.go / execution.go)
 func injectMountsIntoArgs(entry *config.MCPServerConfig, mounts []map[string]any) {
 	if len(mounts) == 0 {
 		return

@@ -46,6 +46,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -87,6 +88,10 @@ type Engine struct {
 	skillExecutor        SkillFilterer                // Optional — set when skills are configured
 	memoryStore          *memory.InMemoryStore        // Optional memory store (set if config.Memory != nil)
 	recordingConfig      *stage.RecordingStageConfig  // Optional — enables RecordingStage in pipelines
+	// mcpSourceScope manages source-backed MCP entries at run/scenario/session scopes.
+	mcpSourceScope  *mcpSourceScope
+	mcpConfig       []config.MCPServerConfig   // Source-backed MCP entries, re-read at each scope boundary
+	mcpSkillSources []prompt.SkillSourceConfig // Skill sources to mount into source-backed MCP servers
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.
@@ -209,7 +214,7 @@ func NewEngine(
 		return nil, fmt.Errorf("failed to build media storage: %w", err)
 	}
 
-	return &Engine{
+	eng := &Engine{
 		config:               cfg,
 		providerRegistry:     providerRegistry,
 		promptRegistry:       promptRegistry,
@@ -222,7 +227,24 @@ func NewEngine(
 		evals:                cfg.LoadedEvals,
 		providers:            cfg.LoadedProviders,
 		personas:             cfg.LoadedPersonas,
-	}, nil
+		mcpConfig:            cfg.MCPServers,
+		mcpSkillSources:      cfg.LoadedSkillSources,
+	}
+
+	// Wire the source-backed MCP scope manager when a registry is available.
+	// Run-scoped sources open at engine construction; they're typically fast.
+	// If slow sources become common, thread ctx through NewEngine.
+	if mcpRegistry != nil {
+		eng.mcpSourceScope = newMCPSourceScope(mcpRegistry)
+		if err := eng.mcpSourceScope.OpenAll(
+			context.Background(), mcpsource.ScopeRun, "run", nil,
+			eng.mcpSkillSources, eng.mcpConfig,
+		); err != nil {
+			return nil, fmt.Errorf("open run-scoped MCP sources: %w", err)
+		}
+	}
+
+	return eng, nil
 }
 
 // Close shuts down the engine and cleans up resources.
@@ -231,6 +253,13 @@ func NewEngine(
 func (e *Engine) Close() error {
 	if e.a2aCleanup != nil {
 		e.a2aCleanup()
+	}
+
+	// Close run-scoped MCP sources before tearing down the underlying registry.
+	if e.mcpSourceScope != nil {
+		for _, cerr := range e.mcpSourceScope.CloseAll(mcpsource.ScopeRun, "run") {
+			logger.Warn("mcp source close failed (run scope)", "error", cerr)
+		}
 	}
 
 	if err := e.closeMCPRegistry(); err != nil {
