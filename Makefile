@@ -879,3 +879,22 @@ sonar-scan: sonar-deps ## Run SonarScanner locally (requires SONAR_TOKEN env var
 	fi
 
 sonar-quick: coverage sonar-scan ## Generate coverage and run Sonar analysis in one command
+
+.PHONY: codegen-demo codegen-demo-mock
+
+codegen-demo: build-arena ## Run the codegen-sandbox example against a live Docker daemon (requires Docker)
+	@echo "Pulling codegen-sandbox image..."
+	@docker pull ghcr.io/altairalabs/codegen-sandbox:latest
+	@echo ""
+	@echo "Running the codegen-sandbox example..."
+	@cd examples/codegen-sandbox && \
+		PROMPTKIT_SCHEMA_SOURCE=local $(CURDIR)/bin/promptarena run --ci --format html
+	@echo ""
+	@echo "Report at examples/codegen-sandbox/out/report.html"
+
+codegen-demo-mock: build-arena ## Run the codegen-sandbox example with --mock-provider (no Docker required)
+	@echo "Running the codegen-sandbox example with mock provider..."
+	@cd examples/codegen-sandbox && \
+		PROMPTKIT_SCHEMA_SOURCE=local $(CURDIR)/bin/promptarena run --mock-provider --ci --format html
+	@echo ""
+	@echo "Report at examples/codegen-sandbox/out/report.html"
