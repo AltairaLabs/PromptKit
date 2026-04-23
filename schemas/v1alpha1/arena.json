@@ -1105,6 +1105,15 @@
         "working_dir": {
           "type": "string"
         },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
         "timeout_ms": {
           "type": "integer"
         },
@@ -1115,8 +1124,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "name",
-        "command"
+        "name"
       ]
     },
     "MCPToolFilter": {
