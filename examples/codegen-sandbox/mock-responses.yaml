@@ -1,0 +1,30 @@
+# Mock responses for the codegen-sandbox example.
+#
+# The mock provider simulates the LLM's decisions; tools themselves execute
+# against whichever MCP server is configured. When --mock-provider is used
+# with this example, tool calls are matched against the assertions but no
+# real sandbox is required — making this example CI-safe even without Docker.
+
+scenarios:
+  simple-fix:
+    turns:
+      1:
+        response: "Let me read /workspace/add.go to find the bug."
+        tool_calls:
+          - name: Read
+            arguments:
+              path: /workspace/add.go
+      2:
+        response: "I can see the sign-handling branch is wrong. Fixing."
+        tool_calls:
+          - name: Edit
+            arguments:
+              path: /workspace/add.go
+              old_string: "if a < 0"
+              new_string: "if a < 0 || b < 0"
+      3:
+        response: "Running the tests to verify."
+        tool_calls:
+          - name: run_tests
+            arguments: {}
+      4: "Tests pass. The bug was the incomplete sign check — it only looked at `a`. Fixed."
