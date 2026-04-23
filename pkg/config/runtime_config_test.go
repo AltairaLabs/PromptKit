@@ -693,3 +693,80 @@ func TestRuntimeConfigSpec_Validate_MCPServerAcceptsSSE(t *testing.T) {
 		t.Fatalf("unexpected error for SSE-only config: %v", err)
 	}
 }
+
+func TestLoadRuntimeConfig_MCPServerSourceShape(t *testing.T) {
+	yaml := `
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+metadata:
+  name: mcp-source-test
+spec:
+  mcp_servers:
+    - name: sandbox
+      source: docker
+      scope: session
+      source_args:
+        image: ghcr.io/altairalabs/codegen-sandbox:latest
+        repo: "{{scenario.repo}}"
+`
+	path := writeTemp(t, "mcp-source.runtime.yaml", yaml)
+	rc, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rc.Spec.MCPServers) != 1 {
+		t.Fatalf("want 1 server, got %d", len(rc.Spec.MCPServers))
+	}
+	got := rc.Spec.MCPServers[0]
+	if got.Source != "docker" {
+		t.Errorf("Source = %q, want %q", got.Source, "docker")
+	}
+	if got.Scope != "session" {
+		t.Errorf("Scope = %q, want %q", got.Scope, "session")
+	}
+	if got.SourceArgs["image"] != "ghcr.io/altairalabs/codegen-sandbox:latest" {
+		t.Errorf("SourceArgs[image] = %v", got.SourceArgs["image"])
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPServerRejectsMultipleTransports(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{
+			Name:   "x",
+			URL:    "https://x",
+			Source: "docker",
+			Scope:  "session",
+		}},
+	}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("expected error for multiple transports")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPServerSourceRequiresScope(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{Name: "x", Source: "docker"}},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for source without scope")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPServerSourceRejectsBadScope(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{Name: "x", Source: "docker", Scope: "bogus"}},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for invalid scope")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPServerAcceptsSource(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{Name: "x", Source: "docker", Scope: "session"}},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error for source+scope config: %v", err)
+	}
+}
