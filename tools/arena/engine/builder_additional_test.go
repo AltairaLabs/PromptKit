@@ -139,6 +139,25 @@ func TestBuildMCPRegistry_PropagatesSSEFields(t *testing.T) {
 	require.Empty(t, got.Command)
 }
 
+// TestBuildMCPRegistry_SkipsSourceBackedEntries verifies that MCP servers
+// with a Source field are NOT registered statically — they are opened
+// dynamically by mcpSourceScope at scope boundaries (run/scenario/session).
+func TestBuildMCPRegistry_SkipsSourceBackedEntries(t *testing.T) {
+	cfg := &config.Config{
+		MCPServers: []config.MCPServerConfig{
+			{Name: "stdio-x", Command: "./foo"},
+			{Name: "source-y", Source: "docker", Scope: "session"},
+		},
+	}
+	registry, err := buildMCPRegistry(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, registry)
+
+	servers := registry.ListServers()
+	assert.Contains(t, servers, "stdio-x")
+	assert.NotContains(t, servers, "source-y")
+}
+
 func TestBuildSelfPlayComponents_Success(t *testing.T) {
 	cfg := &config.Config{
 		LoadedProviders: map[string]*config.Provider{

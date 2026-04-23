@@ -405,6 +405,13 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		defer e.workflowTransExec.UnregisterRun(runID)
 	}
 
+	// Open scenario + session scoped MCPSource entries; cleanup runs via defer.
+	mcpCleanup, mcpErr := e.openScenarioSessionMCPSources(runCtx, scenario, combo.ScenarioID, runID)
+	if mcpErr != nil {
+		return saveError(mcpErr.Error())
+	}
+	defer mcpCleanup()
+
 	// Get provider
 	provider, exists := e.providerRegistry.Get(combo.ProviderID)
 	if !exists {
