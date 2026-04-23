@@ -447,13 +447,18 @@ func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Too
 	return nil, fmt.Errorf("tool %s not found", toolName)
 }
 
-// ServerConfigData holds MCP server configuration matching config.MCPServerConfig
+// ServerConfigData holds MCP server configuration matching config.MCPServerConfig.
+// Kept in field-for-field sync with ServerConfig; adding a field here that
+// isn't on ServerConfig (or vice versa) breaks the direct conversion used in
+// NewRegistryWithServers.
 type ServerConfigData struct {
 	Name       string
 	Command    string
 	Args       []string
 	Env        map[string]string
 	WorkingDir string
+	URL        string
+	Headers    map[string]string
 	TimeoutMs  int
 	ToolFilter *ToolFilter
 }

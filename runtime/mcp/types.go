@@ -166,18 +166,56 @@ func (f ToolFilter) Includes(name string) bool {
 	return true
 }
 
-// ServerConfig represents configuration for an MCP server
+// ServerConfig represents configuration for an MCP server.
+//
+// Exactly one transport should be specified:
+//   - Command: stdio transport — PromptKit spawns a local subprocess.
+//   - URL:     HTTP+SSE transport — PromptKit connects to a running server.
+//
+// The registry selects the adapter via Transport(). Headers applies only to
+// the SSE transport.
 type ServerConfig struct {
-	Name    string            `json:"name" yaml:"name"`       // Unique identifier for this server
-	Command string            `json:"command" yaml:"command"` // Command to execute
+	Name    string            `json:"name" yaml:"name"`
+	Command string            `json:"command,omitempty" yaml:"command,omitempty"`
 	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	// WorkingDir sets the working directory for the server process.
+	// WorkingDir sets the working directory for the server process (stdio only).
 	WorkingDir string `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
+	// URL is the base URL for HTTP+SSE servers. When set, the registry uses
+	// the SSE adapter and Command is ignored.
+	URL string `json:"url,omitempty" yaml:"url,omitempty"`
+	// Headers are sent on both the initial GET /sse and subsequent POSTs.
+	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	// TimeoutMs sets the per-request timeout in milliseconds.
 	TimeoutMs int `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
 	// ToolFilter controls which tools from this server are exposed.
 	ToolFilter *ToolFilter `json:"tool_filter,omitempty" yaml:"tool_filter,omitempty"`
+}
+
+// Transport identifies which transport adapter should serve a config.
+type Transport string
+
+const (
+	// TransportUnknown means the config specifies no usable transport.
+	TransportUnknown Transport = ""
+	// TransportStdio is the local-subprocess transport.
+	TransportStdio Transport = "stdio"
+	// TransportSSE is the HTTP+SSE transport.
+	TransportSSE Transport = "sse"
+)
+
+// Transport returns the transport derived from which fields are populated.
+// URL takes precedence over Command; config validation upstream should
+// prevent both being set, but this function returns a deterministic answer
+// either way. Pointer receiver to avoid copying the (~120-byte) struct.
+func (c *ServerConfig) Transport() Transport {
+	if c.URL != "" {
+		return TransportSSE
+	}
+	if c.Command != "" {
+		return TransportStdio
+	}
+	return TransportUnknown
 }
 
 // Registry interface defines the MCP server registry operations
