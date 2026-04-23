@@ -880,3 +880,47 @@ func (f *unregisterFakeClient) Close() error {
 	return nil
 }
 func (f *unregisterFakeClient) IsAlive() bool { return f.alive }
+
+func TestRegistry_UnregisterServer_ReleasesProcessSlot(t *testing.T) {
+	reg := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 1})
+	reg.newClientFunc = func(c ServerConfig) Client {
+		return &unregisterFakeClient{alive: true}
+	}
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "a", Command: "./foo"}))
+	_, err := reg.GetClient(context.Background(), "a")
+	require.NoError(t, err)
+	require.NoError(t, reg.UnregisterServer("a"))
+
+	// Previously the slot was leaked; now we should be able to register+get a second server.
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "b", Command: "./bar"}))
+	_, err = reg.GetClient(context.Background(), "b")
+	require.NoError(t, err)
+}
+
+func TestRegistry_UnregisterServer_PrunesToolIndex(t *testing.T) {
+	reg := NewRegistry()
+	// Seed toolIndex directly (package-internal access — white-box).
+	reg.mu.Lock()
+	reg.toolIndex["tool_a"] = "server-1"
+	reg.toolIndex["tool_b"] = "server-1"
+	reg.toolIndex["tool_c"] = "server-2"
+	reg.servers["server-1"] = ServerConfig{Name: "server-1", Command: "./x"}
+	reg.servers["server-2"] = ServerConfig{Name: "server-2", Command: "./y"}
+	reg.mu.Unlock()
+
+	require.NoError(t, reg.UnregisterServer("server-1"))
+
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+	assert.NotContains(t, reg.toolIndex, "tool_a")
+	assert.NotContains(t, reg.toolIndex, "tool_b")
+	assert.Equal(t, "server-2", reg.toolIndex["tool_c"])
+}
+
+func TestRegistry_UnregisterServer_AfterClose(t *testing.T) {
+	reg := NewRegistry()
+	require.NoError(t, reg.Close())
+	err := reg.UnregisterServer("x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "closed")
+}
