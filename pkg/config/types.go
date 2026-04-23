@@ -169,9 +169,11 @@ type MCPToolFilter struct {
 
 // MCPServerConfig represents configuration for an MCP server.
 //
-// Exactly one transport must be specified: either Command (stdio — PromptKit
-// spawns a local subprocess) or URL (HTTP+SSE — PromptKit connects to a
-// remote server). Headers applies only to the SSE transport.
+// Exactly one transport must be specified:
+//   - Command: stdio (PromptKit spawns a local subprocess).
+//   - URL:     HTTP+SSE (connect to a running server).
+//   - Source:  host-provisioned (a named MCPSource opens the endpoint at
+//     a scope boundary). Requires Scope.
 type MCPServerConfig struct {
 	Name       string            `yaml:"name" json:"name"`
 	Command    string            `yaml:"command,omitempty" json:"command,omitempty"`
@@ -180,6 +182,9 @@ type MCPServerConfig struct {
 	WorkingDir string            `yaml:"working_dir,omitempty" json:"working_dir,omitempty"`
 	URL        string            `yaml:"url,omitempty" json:"url,omitempty"`
 	Headers    map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	Source     string            `yaml:"source,omitempty" json:"source,omitempty"`
+	Scope      string            `yaml:"scope,omitempty" json:"scope,omitempty"`
+	SourceArgs map[string]any    `yaml:"source_args,omitempty" json:"source_args,omitempty"`
 	TimeoutMs  int               `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
 	ToolFilter *MCPToolFilter    `yaml:"tool_filter,omitempty" json:"tool_filter,omitempty"`
 }
