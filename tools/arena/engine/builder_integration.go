@@ -560,6 +560,8 @@ func buildMCPRegistry(cfg *config.Config) (*mcp.RegistryImpl, error) {
 			Args:       serverCfg.Args,
 			Env:        serverCfg.Env,
 			WorkingDir: serverCfg.WorkingDir,
+			URL:        serverCfg.URL,
+			Headers:    serverCfg.Headers,
 			TimeoutMs:  serverCfg.TimeoutMs,
 		}
 		if serverCfg.ToolFilter != nil {

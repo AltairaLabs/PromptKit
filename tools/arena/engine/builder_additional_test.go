@@ -117,6 +117,28 @@ func TestBuildMCPRegistry_WithServer(t *testing.T) {
 	require.NotNil(t, registry)
 }
 
+func TestBuildMCPRegistry_PropagatesSSEFields(t *testing.T) {
+	cfg := &config.Config{
+		MCPServers: []config.MCPServerConfig{
+			{
+				Name:    "sandbox",
+				URL:     "https://sandbox.local:8080",
+				Headers: map[string]string{"Authorization": "Bearer abc"},
+			},
+		},
+	}
+
+	registry, err := buildMCPRegistry(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, registry)
+
+	got, ok := registry.GetServerConfig("sandbox")
+	require.True(t, ok)
+	require.Equal(t, "https://sandbox.local:8080", got.URL)
+	require.Equal(t, "Bearer abc", got.Headers["Authorization"])
+	require.Empty(t, got.Command)
+}
+
 func TestBuildSelfPlayComponents_Success(t *testing.T) {
 	cfg := &config.Config{
 		LoadedProviders: map[string]*config.Provider{
