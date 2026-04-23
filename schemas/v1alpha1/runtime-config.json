@@ -331,6 +331,15 @@
           },
           "type": "object"
         },
+        "source": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source_args": {
+          "type": "object"
+        },
         "timeout_ms": {
           "type": "integer"
         },

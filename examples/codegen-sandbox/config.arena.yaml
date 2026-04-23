@@ -36,6 +36,7 @@ spec:
           DEV_MODE: "1"
 
   skills:
+    - path: skills/
     - path: skills/codegen
       preload: true
 
