@@ -508,10 +508,12 @@ func (s *RuntimeConfigSpec) validateMCPServers() error {
 				Message: "MCP server name is required",
 			}
 		}
-		if m.Command == "" {
+		hasCmd := m.Command != ""
+		hasURL := m.URL != ""
+		if hasCmd == hasURL {
 			return &ValidationError{
-				Field:   fmt.Sprintf("mcp_servers[%d].command", i),
-				Message: "MCP server command is required",
+				Field:   fmt.Sprintf("mcp_servers[%d]", i),
+				Message: "exactly one of 'command' (stdio) or 'url' (sse) must be set",
 			}
 		}
 	}
