@@ -804,3 +804,25 @@ func TestRegistry_Close_WithMockClients(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(registry.processSem))
 }
+
+func TestRegistry_NewClientFunc_DispatchesByTransport(t *testing.T) {
+	reg := NewRegistry()
+
+	// SSE config yields an *SSEClient.
+	c := reg.newClientFunc(ServerConfig{Name: "sse", URL: "https://x"})
+	_, ok := c.(*SSEClient)
+	assert.True(t, ok, "expected *SSEClient, got %T", c)
+
+	// Stdio config yields a *StdioClient.
+	c = reg.newClientFunc(ServerConfig{Name: "stdio", Command: "./x"})
+	_, ok = c.(*StdioClient)
+	assert.True(t, ok, "expected *StdioClient, got %T", c)
+
+	// Unknown config (neither URL nor Command) falls through to stdio; the
+	// caller will get a clear error from StdioClient.Initialize later. This
+	// is a defence-in-depth behaviour — validation upstream should prevent
+	// the state from ever reaching here.
+	c = reg.newClientFunc(ServerConfig{Name: "x"})
+	_, ok = c.(*StdioClient)
+	assert.True(t, ok, "expected *StdioClient fallback, got %T", c)
+}
