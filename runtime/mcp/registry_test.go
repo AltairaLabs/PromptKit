@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -825,4 +826,101 @@ func TestRegistry_NewClientFunc_DispatchesByTransport(t *testing.T) {
 	c = reg.newClientFunc(ServerConfig{Name: "x"})
 	_, ok = c.(*StdioClient)
 	assert.True(t, ok, "expected *StdioClient fallback, got %T", c)
+}
+
+func TestRegistry_UnregisterServer(t *testing.T) {
+	reg := NewRegistry()
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "x", Command: "./foo"}))
+	require.Contains(t, reg.ListServers(), "x")
+
+	require.NoError(t, reg.UnregisterServer("x"))
+	assert.NotContains(t, reg.ListServers(), "x")
+
+	// Unregistering an unknown server is a no-op.
+	require.NoError(t, reg.UnregisterServer("unknown"))
+}
+
+func TestRegistry_UnregisterServer_ClosesClient(t *testing.T) {
+	reg := NewRegistry()
+	closed := make(chan struct{})
+	reg.newClientFunc = func(c ServerConfig) Client {
+		return &unregisterFakeClient{onClose: func() { close(closed) }, alive: true}
+	}
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "x", Command: "./foo"}))
+
+	_, err := reg.GetClient(context.Background(), "x")
+	require.NoError(t, err)
+
+	require.NoError(t, reg.UnregisterServer("x"))
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("UnregisterServer did not close the client")
+	}
+}
+
+type unregisterFakeClient struct {
+	onClose func()
+	alive   bool
+}
+
+func (f *unregisterFakeClient) Initialize(context.Context) (*InitializeResponse, error) {
+	f.alive = true
+	return &InitializeResponse{}, nil
+}
+func (f *unregisterFakeClient) ListTools(context.Context) ([]Tool, error) { return nil, nil }
+func (f *unregisterFakeClient) CallTool(context.Context, string, json.RawMessage) (*ToolCallResponse, error) {
+	return &ToolCallResponse{}, nil
+}
+func (f *unregisterFakeClient) Close() error {
+	if f.onClose != nil {
+		f.onClose()
+	}
+	f.alive = false
+	return nil
+}
+func (f *unregisterFakeClient) IsAlive() bool { return f.alive }
+
+func TestRegistry_UnregisterServer_ReleasesProcessSlot(t *testing.T) {
+	reg := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 1})
+	reg.newClientFunc = func(c ServerConfig) Client {
+		return &unregisterFakeClient{alive: true}
+	}
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "a", Command: "./foo"}))
+	_, err := reg.GetClient(context.Background(), "a")
+	require.NoError(t, err)
+	require.NoError(t, reg.UnregisterServer("a"))
+
+	// Previously the slot was leaked; now we should be able to register+get a second server.
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "b", Command: "./bar"}))
+	_, err = reg.GetClient(context.Background(), "b")
+	require.NoError(t, err)
+}
+
+func TestRegistry_UnregisterServer_PrunesToolIndex(t *testing.T) {
+	reg := NewRegistry()
+	// Seed toolIndex directly (package-internal access — white-box).
+	reg.mu.Lock()
+	reg.toolIndex["tool_a"] = "server-1"
+	reg.toolIndex["tool_b"] = "server-1"
+	reg.toolIndex["tool_c"] = "server-2"
+	reg.servers["server-1"] = ServerConfig{Name: "server-1", Command: "./x"}
+	reg.servers["server-2"] = ServerConfig{Name: "server-2", Command: "./y"}
+	reg.mu.Unlock()
+
+	require.NoError(t, reg.UnregisterServer("server-1"))
+
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+	assert.NotContains(t, reg.toolIndex, "tool_a")
+	assert.NotContains(t, reg.toolIndex, "tool_b")
+	assert.Equal(t, "server-2", reg.toolIndex["tool_c"])
+}
+
+func TestRegistry_UnregisterServer_AfterClose(t *testing.T) {
+	reg := NewRegistry()
+	require.NoError(t, reg.Close())
+	err := reg.UnregisterServer("x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "closed")
 }

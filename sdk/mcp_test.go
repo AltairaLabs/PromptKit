@@ -32,6 +32,10 @@ func (m *mockMCPRegistry) RegisterServer(config mcp.ServerConfig) error {
 	return nil
 }
 
+func (m *mockMCPRegistry) UnregisterServer(name string) error {
+	return nil
+}
+
 func (m *mockMCPRegistry) GetClient(ctx context.Context, serverName string) (mcp.Client, error) {
 	return &mockMCPClient{registry: m}, nil
 }

@@ -1,0 +1,48 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: codegen-sandbox-arena
+  annotations:
+    description: |
+      Agent doing codegen in a Docker-provisioned sandbox.
+
+      Live demo (needs Docker):
+        make build-arena
+        docker pull ghcr.io/altairalabs/codegen-sandbox:latest
+        cd examples/codegen-sandbox
+        PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+
+      Offline / CI (mock provider, no sandbox):
+        PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --mock-provider --ci --format html
+
+spec:
+  prompt_configs:
+    - id: codegen-agent
+      file: prompts/codegen-agent.yaml
+
+  providers:
+    - file: providers/mock-provider.yaml
+
+  scenarios:
+    - file: scenarios/simple-fix.scenario.yaml
+
+  mcp_servers:
+    - name: sandbox
+      source: docker
+      scope: session
+      source_args:
+        image: ghcr.io/altairalabs/codegen-sandbox:latest
+        env:
+          DEV_MODE: "1"
+
+  skills:
+    - path: skills/
+    - path: skills/codegen
+      preload: true
+
+  defaults:
+    temperature: 0.1
+    max_tokens: 512
+    output:
+      dir: out
+      formats: ["json", "html"]

@@ -223,6 +223,10 @@ type Registry interface {
 	// RegisterServer adds a new MCP server configuration
 	RegisterServer(config ServerConfig) error
 
+	// UnregisterServer closes the client (if any) and removes the server
+	// from the registry. Unknown names are no-ops.
+	UnregisterServer(name string) error
+
 	// GetClient returns an active client for the given server name
 	GetClient(ctx context.Context, serverName string) (Client, error)
 

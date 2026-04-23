@@ -1,0 +1,26 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: simple-fix
+
+spec:
+  id: "simple-fix"
+  task_type: codegen-agent
+  description: Agent fixes a small bug, runs tests to verify.
+
+  turns:
+    - role: user
+      content: |
+        There is a bug in /workspace/add.go — the `add` function returns
+        the wrong value for negative inputs. Please find it, fix it,
+        and verify the tests pass.
+      assertions:
+        - type: tools_called
+          params:
+            tools: ["Read"]
+            message: "Must read the file before editing."
+        - type: tools_called
+          params:
+            tools: ["run_tests"]
+            message: "Must verify with run_tests before finishing."

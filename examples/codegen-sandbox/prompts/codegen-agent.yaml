@@ -1,0 +1,27 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+
+metadata:
+  name: codegen-agent
+
+spec:
+  task_type: codegen-agent
+  version: "v1.0.0"
+  description: "Coding agent with sandbox tools."
+  system_template: |
+    You are a coding agent. The user will describe a task; your job is to
+    complete it using the tools available in the sandbox.
+
+    The repository is at /workspace inside the sandbox. Use Read before
+    Edit. Verify with run_tests before declaring done.
+
+  allowed_tools:
+    - Read
+    - Edit
+    - Write
+    - Glob
+    - Grep
+    - Bash
+    - run_tests
+    - run_lint
+    - run_typecheck

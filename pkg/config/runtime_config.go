@@ -508,12 +508,37 @@ func (s *RuntimeConfigSpec) validateMCPServers() error {
 				Message: "MCP server name is required",
 			}
 		}
-		hasCmd := m.Command != ""
-		hasURL := m.URL != ""
-		if hasCmd == hasURL {
+		transports := 0
+		if m.Command != "" {
+			transports++
+		}
+		if m.URL != "" {
+			transports++
+		}
+		if m.Source != "" {
+			transports++
+		}
+		if transports != 1 {
 			return &ValidationError{
 				Field:   fmt.Sprintf("mcp_servers[%d]", i),
-				Message: "exactly one of 'command' (stdio) or 'url' (sse) must be set",
+				Message: "exactly one of 'command' (stdio), 'url' (sse), or 'source' (host-provisioned) must be set",
+			}
+		}
+		if m.Source != "" {
+			if m.Scope == "" {
+				return &ValidationError{
+					Field:   fmt.Sprintf("mcp_servers[%d].scope", i),
+					Message: "scope is required when source is set (run|scenario|session)",
+				}
+			}
+			switch m.Scope {
+			case "run", "scenario", "session":
+				// ok
+			default:
+				return &ValidationError{
+					Field:   fmt.Sprintf("mcp_servers[%d].scope", i),
+					Message: fmt.Sprintf("invalid scope %q (want run|scenario|session)", m.Scope),
+				}
 			}
 		}
 	}
