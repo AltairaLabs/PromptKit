@@ -120,6 +120,10 @@ func (r *RegistryImpl) RegisterServer(config ServerConfig) error {
 // are no-ops; already-closed clients are not an error.
 func (r *RegistryImpl) UnregisterServer(name string) error {
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return fmt.Errorf("registry is closed")
+	}
 	client, hadClient := r.clients[name]
 	delete(r.clients, name)
 	delete(r.servers, name)
@@ -131,6 +135,7 @@ func (r *RegistryImpl) UnregisterServer(name string) error {
 	r.mu.Unlock()
 	if hadClient {
 		_ = client.Close()
+		r.releaseProcessSlot()
 	}
 	return nil
 }
