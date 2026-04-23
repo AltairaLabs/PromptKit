@@ -59,25 +59,34 @@ func NewRegistry() *RegistryImpl {
 	return NewRegistryWithOptions(RegistryOptions{MaxProcesses: DefaultMaxProcesses})
 }
 
-// newStdioClientAdapter wraps NewStdioClient to return the Client interface.
-// If config.TimeoutMs is set, it overrides the default request timeout.
-func newStdioClientAdapter(config ServerConfig) Client {
+// newClientAdapter dispatches on ServerConfig.Transport() and returns the
+// appropriate Client. If config.TimeoutMs is set, it overrides the default
+// request timeout on whichever adapter is selected.
+//
+// TransportUnknown (neither URL nor Command set) falls through to the stdio
+// adapter; the caller will see a clear error from StdioClient.Initialize.
+// Upstream validation should prevent this state from ever reaching here.
+func newClientAdapter(config *ServerConfig) Client {
+	opts := DefaultClientOptions()
 	if config.TimeoutMs > 0 {
-		opts := DefaultClientOptions()
 		opts.RequestTimeout = time.Duration(config.TimeoutMs) * time.Millisecond
-		return NewStdioClientWithOptions(config, opts)
 	}
-	return NewStdioClient(config)
+	if config.Transport() == TransportSSE {
+		return NewSSEClientWithOptions(*config, opts)
+	}
+	return NewStdioClientWithOptions(*config, opts)
 }
 
 // NewRegistryWithOptions creates a new MCP server registry with custom options.
 func NewRegistryWithOptions(opts RegistryOptions) *RegistryImpl {
 	r := &RegistryImpl{
-		servers:       make(map[string]ServerConfig),
-		clients:       make(map[string]Client),
-		toolIndex:     make(map[string]string),
-		options:       opts,
-		newClientFunc: newStdioClientAdapter,
+		servers:   make(map[string]ServerConfig),
+		clients:   make(map[string]Client),
+		toolIndex: make(map[string]string),
+		options:   opts,
+		// newClientFunc signature takes ServerConfig by value (matches the
+		// stdio-era API); adapt to the pointer-based dispatcher.
+		newClientFunc: func(c ServerConfig) Client { return newClientAdapter(&c) },
 	}
 	if opts.MaxProcesses > 0 {
 		r.processSem = make(chan struct{}, opts.MaxProcesses)
@@ -447,13 +456,18 @@ func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Too
 	return nil, fmt.Errorf("tool %s not found", toolName)
 }
 
-// ServerConfigData holds MCP server configuration matching config.MCPServerConfig
+// ServerConfigData holds MCP server configuration matching config.MCPServerConfig.
+// Kept in field-for-field sync with ServerConfig; adding a field here that
+// isn't on ServerConfig (or vice versa) breaks the direct conversion used in
+// NewRegistryWithServers.
 type ServerConfigData struct {
 	Name       string
 	Command    string
 	Args       []string
 	Env        map[string]string
 	WorkingDir string
+	URL        string
+	Headers    map[string]string
 	TimeoutMs  int
 	ToolFilter *ToolFilter
 }

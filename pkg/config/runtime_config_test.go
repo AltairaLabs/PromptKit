@@ -635,3 +635,61 @@ func writeTemp(t *testing.T, name, content string) string {
 	}
 	return path
 }
+
+func TestLoadRuntimeConfig_MCPServerSSEShape(t *testing.T) {
+	yaml := `
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+metadata:
+  name: mcp-sse-test
+spec:
+  mcp_servers:
+    - name: sandbox
+      url: https://sandbox.local:8080
+      headers:
+        Authorization: Bearer abc
+`
+	path := writeTemp(t, "mcp-sse.runtime.yaml", yaml)
+	rc, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rc.Spec.MCPServers) != 1 {
+		t.Fatalf("want 1 server, got %d", len(rc.Spec.MCPServers))
+	}
+	got := rc.Spec.MCPServers[0]
+	if got.URL != "https://sandbox.local:8080" {
+		t.Errorf("URL = %q, want %q", got.URL, "https://sandbox.local:8080")
+	}
+	if got.Headers["Authorization"] != "Bearer abc" {
+		t.Errorf("Header Authorization = %q, want %q", got.Headers["Authorization"], "Bearer abc")
+	}
+	if got.Command != "" {
+		t.Errorf("Command = %q, want empty", got.Command)
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPServerBothTransports(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{
+			Name:    "x",
+			Command: "./foo",
+			URL:     "https://x",
+		}},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error when both command and url are set")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPServerAcceptsSSE(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{
+			Name: "x",
+			URL:  "https://x",
+		}},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error for SSE-only config: %v", err)
+	}
+}
