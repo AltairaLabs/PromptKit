@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -826,3 +827,56 @@ func TestRegistry_NewClientFunc_DispatchesByTransport(t *testing.T) {
 	_, ok = c.(*StdioClient)
 	assert.True(t, ok, "expected *StdioClient fallback, got %T", c)
 }
+
+func TestRegistry_UnregisterServer(t *testing.T) {
+	reg := NewRegistry()
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "x", Command: "./foo"}))
+	require.Contains(t, reg.ListServers(), "x")
+
+	require.NoError(t, reg.UnregisterServer("x"))
+	assert.NotContains(t, reg.ListServers(), "x")
+
+	// Unregistering an unknown server is a no-op.
+	require.NoError(t, reg.UnregisterServer("unknown"))
+}
+
+func TestRegistry_UnregisterServer_ClosesClient(t *testing.T) {
+	reg := NewRegistry()
+	closed := make(chan struct{})
+	reg.newClientFunc = func(c ServerConfig) Client {
+		return &unregisterFakeClient{onClose: func() { close(closed) }, alive: true}
+	}
+	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "x", Command: "./foo"}))
+
+	_, err := reg.GetClient(context.Background(), "x")
+	require.NoError(t, err)
+
+	require.NoError(t, reg.UnregisterServer("x"))
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("UnregisterServer did not close the client")
+	}
+}
+
+type unregisterFakeClient struct {
+	onClose func()
+	alive   bool
+}
+
+func (f *unregisterFakeClient) Initialize(context.Context) (*InitializeResponse, error) {
+	f.alive = true
+	return &InitializeResponse{}, nil
+}
+func (f *unregisterFakeClient) ListTools(context.Context) ([]Tool, error) { return nil, nil }
+func (f *unregisterFakeClient) CallTool(context.Context, string, json.RawMessage) (*ToolCallResponse, error) {
+	return &ToolCallResponse{}, nil
+}
+func (f *unregisterFakeClient) Close() error {
+	if f.onClose != nil {
+		f.onClose()
+	}
+	f.alive = false
+	return nil
+}
+func (f *unregisterFakeClient) IsAlive() bool { return f.alive }
