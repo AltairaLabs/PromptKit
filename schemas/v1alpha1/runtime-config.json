@@ -322,6 +322,24 @@
         "working_dir": {
           "type": "string"
         },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "source": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source_args": {
+          "type": "object"
+        },
         "timeout_ms": {
           "type": "integer"
         },
@@ -332,8 +350,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "name",
-        "command"
+        "name"
       ]
     },
     "MCPToolFilter": {
