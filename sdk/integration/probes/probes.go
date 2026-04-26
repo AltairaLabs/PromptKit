@@ -3,6 +3,7 @@ package probes
 import (
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
@@ -80,4 +81,27 @@ func (p *Probes) ResetCounters() {
 // for additional subscriptions, but should not close it — Run wires cleanup.
 func (p *Probes) Bus() *events.EventBus {
 	return p.bus
+}
+
+// WaitForCount blocks until the count for op reaches at least atLeast or
+// the timeout expires. Returns true if the threshold was met, false on
+// timeout.
+//
+// Counts grow monotonically inside a single observation window (we do not
+// emit anti-events), so a successful WaitForCount guarantees the snapshot
+// holds at least the requested count. Callers asserting an *exact* count
+// should pair WaitForCount with a brief settle period and an Equal check
+// to catch overshoot.
+func (p *Probes) WaitForCount(op Op, atLeast int, timeout time.Duration) bool {
+	const pollInterval = 5 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+	for {
+		if p.Snapshot().Count(op) >= atLeast {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(pollInterval)
+	}
 }

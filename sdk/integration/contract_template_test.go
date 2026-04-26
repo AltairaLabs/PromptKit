@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -49,6 +50,12 @@ func TestContract_TemplateStage(t *testing.T) {
 			p, conv := probes.Run(t, probes.RunOptions{SeedHistory: tc.history})
 			_, err := conv.Send(context.Background(), "x")
 			require.NoError(t, err)
+
+			// EventBus is async; wait for the rendered event before snapshotting
+			// so we don't false-fail with count == 0 due to in-flight delivery.
+			require.True(t, p.WaitForCount("events.prompt.template.rendered", 1, 5*time.Second),
+				"timed out waiting for prompt.template.rendered to land")
+
 			contract.AssertHolds(t, p.Snapshot())
 		})
 	}

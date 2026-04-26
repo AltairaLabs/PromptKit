@@ -13,10 +13,19 @@ package integration
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/sdk/integration/probes"
+)
+
+// eventDrainTimeout caps how long known-bug tests will wait for the async
+// EventBus to deliver the events the bug emits. Pinned counts also re-check
+// after a brief settle to catch overshoot.
+const (
+	eventDrainTimeout = 5 * time.Second
+	eventSettleDelay  = 50 * time.Millisecond
 )
 
 // TestKnownBug_Issue1035_HistoryMultipliesTemplateEvents pins the current
@@ -38,6 +47,14 @@ func TestKnownBug_Issue1035_HistoryMultipliesTemplateEvents(t *testing.T) {
 	p, conv := probes.Run(t, probes.RunOptions{SeedHistory: history})
 	_, err := conv.Send(context.Background(), "current input")
 	require.NoError(t, err)
+
+	// EventBus dispatches asynchronously; wait for at least `expected` events
+	// to land, then settle briefly so we'd notice an overshoot.
+	require.True(t, p.WaitForCount("events.prompt.template.started", expected, eventDrainTimeout),
+		"timed out waiting for template.started to reach %d", expected)
+	require.True(t, p.WaitForCount("events.prompt.template.rendered", expected, eventDrainTimeout),
+		"timed out waiting for template.rendered to reach %d", expected)
+	time.Sleep(eventSettleDelay)
 
 	snap := p.Snapshot()
 	require.Equal(t, expected, snap.Count("events.prompt.template.started"),

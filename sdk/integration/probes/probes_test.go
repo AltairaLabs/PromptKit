@@ -260,6 +260,20 @@ func TestProbes_BusReturnsSameInstance(t *testing.T) {
 	assert.Same(t, p.bus, p.Bus())
 }
 
+func TestProbes_WaitForCount_Reaches(t *testing.T) {
+	p := newTestProbes(t)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		p.bus.Publish(&events.Event{Type: events.EventTemplateRendered})
+	}()
+	assert.True(t, p.WaitForCount("events.prompt.template.rendered", 1, 2*time.Second))
+}
+
+func TestProbes_WaitForCount_Timeout(t *testing.T) {
+	p := newTestProbes(t)
+	assert.False(t, p.WaitForCount("events.prompt.template.rendered", 1, 20*time.Millisecond))
+}
+
 // ---------------------------------------------------------------------------
 // Run (smoke + seed)
 // ---------------------------------------------------------------------------
