@@ -86,6 +86,7 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 		Content    string         `json:"content"`
 		Type       string         `json:"type,omitempty"`
 		Confidence float64        `json:"confidence,omitempty"`
+		Category   string         `json:"category,omitempty"`
 		Metadata   map[string]any `json:"metadata,omitempty"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
@@ -108,6 +109,16 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 		Confidence: a.Confidence,
 		Metadata:   a.Metadata,
 		Scope:      e.scope,
+	}
+	// Stash the LLM-supplied consent category so downstream consumers
+	// (e.g. Omnia's PII redactor / per-category retention) can read it
+	// without re-classifying. Empty category is allowed and lets a
+	// server-side classifier act as the fallback.
+	if a.Category != "" {
+		if m.Metadata == nil {
+			m.Metadata = make(map[string]any)
+		}
+		m.Metadata[MetaKeyConsentCategory] = a.Category
 	}
 	// Always set provenance — overwrites any LLM-provided value.
 	m.SetProvenance(ProvenanceUserRequested)
@@ -253,6 +264,19 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 					"confidence": map[string]any{
 						"type":        "number",
 						"description": "How confident you are (0.0-1.0). Default: 0.8.",
+					},
+					"category": map[string]any{
+						"type": "string",
+						"description": "Optional consent category for downstream policies " +
+							"(retention, redaction, opt-out). Pick the most specific match " +
+							"for the memory's content; leave unset if uncertain so a " +
+							"server-side classifier can decide. Suggested values:\n" +
+							"  memory:identity     names, IDs, pronouns, contact details\n" +
+							"  memory:preferences  likes, dislikes, settings, configuration\n" +
+							"  memory:context      work/project context, domain knowledge, current task\n" +
+							"  memory:location     geographic info, addresses, IP\n" +
+							"  memory:health       health, dietary, medical, accessibility info\n" +
+							"  memory:history      past conversations, decisions, what was said before",
 					},
 					"metadata": map[string]any{
 						"type":        "object",

@@ -187,6 +187,12 @@ type config struct {
 	// Platform capabilities (workflow, a2a, memory, etc.)
 	capabilities []Capability
 
+	// Tool descriptor overrides applied after capabilities register their
+	// tools. Each entry patches a registered descriptor by name. Maintained
+	// as an ordered slice (not a map) so multiple overrides for the same
+	// tool compose deterministically.
+	toolDescriptorOverrides []toolDescriptorOverride
+
 	// Skills configuration
 	skillsDirs      []string
 	skillSources    []skills.SkillSource

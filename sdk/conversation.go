@@ -427,6 +427,14 @@ func (c *Conversation) buildPipelineConfig(
 				logger.Debug("capability registered no tools", "capability", cap.Name())
 			}
 		}
+		// Apply per-tool descriptor overrides AFTER capabilities have
+		// registered their defaults. Last-write-wins semantics in
+		// Registry.Register let us replace any tool by name regardless of
+		// which capability owns it. See WithToolDescriptorOverride.
+		if len(c.config.toolDescriptorOverrides) > 0 {
+			applyToolDescriptorOverrides(c.toolRegistry, c.config.toolDescriptorOverrides)
+		}
+
 		c.capabilitiesRegistered = true
 		allTools := c.toolRegistry.List()
 		if len(allTools) > 0 {
