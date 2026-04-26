@@ -231,6 +231,55 @@ func TestMemoryExecutor_Remember_PreservesUserMetadata(t *testing.T) {
 	}
 }
 
+func TestMemoryExecutor_Remember_StashesConsentCategory(t *testing.T) {
+	store := NewInMemoryStore()
+	scope := map[string]string{"user_id": "u1"}
+	exec := NewExecutor(store, scope)
+	desc := &tools.ToolDescriptor{Name: RememberToolName}
+
+	args, _ := json.Marshal(map[string]any{
+		"content":  "allergic to peanuts",
+		"category": "memory:health",
+	})
+	if _, err := exec.Execute(context.Background(), desc, args); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+
+	all, _ := store.List(context.Background(), scope, ListOptions{})
+	if len(all) != 1 {
+		t.Fatalf("expected 1 memory, got %d", len(all))
+	}
+	if got := all[0].Metadata[MetaKeyConsentCategory]; got != "memory:health" {
+		t.Errorf("%s = %q, want %q", MetaKeyConsentCategory, got, "memory:health")
+	}
+	// Provenance still pinned regardless of category presence.
+	if all[0].Metadata[MetaKeyProvenance] != string(ProvenanceUserRequested) {
+		t.Errorf("provenance lost when category supplied")
+	}
+}
+
+func TestMemoryExecutor_Remember_NoCategoryLeavesMetadataAlone(t *testing.T) {
+	store := NewInMemoryStore()
+	scope := map[string]string{"user_id": "u1"}
+	exec := NewExecutor(store, scope)
+	desc := &tools.ToolDescriptor{Name: RememberToolName}
+
+	args, _ := json.Marshal(map[string]any{
+		"content": "I prefer dark mode",
+	})
+	if _, err := exec.Execute(context.Background(), desc, args); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+
+	all, _ := store.List(context.Background(), scope, ListOptions{})
+	if len(all) != 1 {
+		t.Fatalf("expected 1 memory, got %d", len(all))
+	}
+	if _, ok := all[0].Metadata[MetaKeyConsentCategory]; ok {
+		t.Errorf("expected %s absent when not supplied", MetaKeyConsentCategory)
+	}
+}
+
 func TestMemoryExecutor_Remember_UserCannotOverrideProvenance(t *testing.T) {
 	store := NewInMemoryStore()
 	scope := map[string]string{"user_id": "u1"}

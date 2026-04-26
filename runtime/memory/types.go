@@ -34,6 +34,13 @@ const (
 	// MetaKeyProvenance is the well-known Metadata key for provenance.
 	MetaKeyProvenance = "provenance"
 
+	// MetaKeyConsentCategory is the well-known Metadata key for the
+	// consent category supplied by the calling LLM via memory__remember.
+	// Populated when present; consumers that classify server-side may
+	// fall back to their own classifier if absent. Values are not
+	// validated by PromptKit — semantics are owned by the consumer.
+	MetaKeyConsentCategory = "consent_category"
+
 	// ProvenanceUserRequested — user explicitly asked the agent to remember this.
 	ProvenanceUserRequested Provenance = "user_requested"
 
