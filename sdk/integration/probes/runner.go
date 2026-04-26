@@ -59,6 +59,16 @@ type RunOptions struct {
 	// provider or a different state store), but doing so will defeat the
 	// corresponding probe.
 	SDKOptions []sdk.Option
+	// AutoSummarize, when non-nil, wires sdk.WithAutoSummarize using the
+	// probes' counted summarizer provider, so summarizer.Predict shows up
+	// in Snapshot.Count.
+	AutoSummarize *AutoSummarizeOpts
+}
+
+// AutoSummarizeOpts configures probed auto-summarization.
+type AutoSummarizeOpts struct {
+	Threshold int
+	BatchSize int
 }
 
 // numDefaultOptions tracks the count of options Run installs internally.
@@ -67,15 +77,18 @@ const numDefaultOptions = 5
 // Run wires probes around a fresh sdk.Conversation and returns both. Counters
 // are reset before Run returns, so the caller observes only post-Open traffic.
 //
-// Cleanup (closing the conv and the bus) is registered with t.Cleanup.
+// Cleanup (closing the conv and the bus) is registered with tb.Cleanup.
+//
+// Accepts testing.TB so both *testing.T (unit / integration tests) and
+// *testing.B (benchmarks) can use the helper.
 //
 // RunOptions is intentionally passed by value: tests benefit from the inline
 // struct-literal call site (Run(t, RunOptions{SeedHistory: 5})), and the
 // per-call cost of an 80-byte copy is negligible against the work Run does.
 //
 //nolint:gocritic // hugeParam suppression — see godoc above.
-func Run(t *testing.T, ro RunOptions) (*Probes, *sdk.Conversation) {
-	t.Helper()
+func Run(tb testing.TB, ro RunOptions) (*Probes, *sdk.Conversation) {
+	tb.Helper()
 
 	packJSON := ro.PackJSON
 	if packJSON == "" {
@@ -93,26 +106,35 @@ func Run(t *testing.T, ro RunOptions) (*Probes, *sdk.Conversation) {
 	inner := statestore.NewMemoryStore()
 
 	if ro.SeedHistory > 0 {
-		seedStore(t, inner, convID, ro.SeedHistory)
+		seedStore(tb, inner, convID, ro.SeedHistory)
 	}
 
 	bus := events.NewEventBus()
-	t.Cleanup(func() { bus.Close() })
+	tb.Cleanup(func() { bus.Close() })
+
+	summarizerInner := mock.NewProvider("probes-summarizer", "probes-summarizer-model", false)
 
 	p := &Probes{
-		store:  newProbedStore(inner),
-		bus:    bus,
-		events: make(map[events.EventType]int),
+		store:              newProbedStore(inner),
+		bus:                bus,
+		summarizerProvider: newProbedProvider(summarizerInner),
+		events:             make(map[events.EventType]int),
+		eventRecords:       make(map[events.EventType][]*events.Event),
 	}
 	bus.SubscribeAll(func(e *events.Event) {
 		p.mu.Lock()
 		p.events[e.Type]++
+		p.eventRecords[e.Type] = append(p.eventRecords[e.Type], e)
 		p.mu.Unlock()
 	})
 
 	provider := mock.NewProvider("probes-mock", "probes-model", false)
 
-	allOpts := make([]sdk.Option, 0, numDefaultOptions+len(ro.SDKOptions))
+	extraSlots := len(ro.SDKOptions)
+	if ro.AutoSummarize != nil {
+		extraSlots++
+	}
+	allOpts := make([]sdk.Option, 0, numDefaultOptions+extraSlots)
 	allOpts = append(allOpts,
 		sdk.WithProvider(provider),
 		sdk.WithSkipSchemaValidation(),
@@ -120,19 +142,24 @@ func Run(t *testing.T, ro RunOptions) (*Probes, *sdk.Conversation) {
 		sdk.WithConversationID(convID),
 		sdk.WithEventBus(bus),
 	)
+	if ro.AutoSummarize != nil {
+		allOpts = append(allOpts, sdk.WithAutoSummarize(
+			p.summarizerProvider, ro.AutoSummarize.Threshold, ro.AutoSummarize.BatchSize,
+		))
+	}
 	allOpts = append(allOpts, ro.SDKOptions...)
 
-	packPath := writePackFile(t, packJSON)
+	packPath := writePackFile(tb, packJSON)
 	conv, err := sdk.Open(packPath, promptName, allOpts...)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conv.Close() })
+	require.NoError(tb, err)
+	tb.Cleanup(func() { _ = conv.Close() })
 
 	p.ResetCounters()
 	return p, conv
 }
 
-func seedStore(t *testing.T, store statestore.Store, convID string, n int) {
-	t.Helper()
+func seedStore(tb testing.TB, store statestore.Store, convID string, n int) {
+	tb.Helper()
 	msgs := make([]types.Message, n)
 	for i := range n {
 		role := "user"
@@ -141,16 +168,16 @@ func seedStore(t *testing.T, store statestore.Store, convID string, n int) {
 		}
 		msgs[i] = types.Message{Role: role, Content: "prior"}
 	}
-	require.NoError(t, store.Save(context.Background(), &statestore.ConversationState{
+	require.NoError(tb, store.Save(context.Background(), &statestore.ConversationState{
 		ID:       convID,
 		Messages: msgs,
 	}))
 }
 
-func writePackFile(t *testing.T, pack string) string {
-	t.Helper()
-	dir := t.TempDir()
+func writePackFile(tb testing.TB, pack string) string {
+	tb.Helper()
+	dir := tb.TempDir()
 	path := filepath.Join(dir, "probes.pack.json")
-	require.NoError(t, os.WriteFile(path, []byte(pack), packFilePerms))
+	require.NoError(tb, os.WriteFile(path, []byte(pack), packFilePerms))
 	return path
 }

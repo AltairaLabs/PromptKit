@@ -63,6 +63,35 @@ func TestKnownBug_Issue1035_HistoryMultipliesTemplateEvents(t *testing.T) {
 		"BUG #1035: template.rendered should be 1 per Send; pinned at N_history+1 until fix lands")
 }
 
+// TestKnownBug_Issue1035_AtScale confirms #1035 reproduces identically at
+// production-scale conversation lengths. If anything truncated, throttled,
+// or coalesced events at high N this would surface differently than the
+// short-history pin above. It does not — the bug is linear in history depth.
+//
+// Skipped under -short to keep the regular test loop fast; CI runs it.
+func TestKnownBug_Issue1035_AtScale(t *testing.T) {
+	if testing.Short() {
+		t.Skip("scale test skipped under -short")
+	}
+	const history = 2000
+	const expected = history + 1
+
+	p, conv := probes.Run(t, probes.RunOptions{SeedHistory: history})
+	_, err := conv.Send(context.Background(), "current input")
+	require.NoError(t, err)
+
+	// At 2000 events, drain takes longer; allow more time before settling.
+	require.True(t, p.WaitForCount("events.prompt.template.started", expected, 30*time.Second),
+		"timed out waiting for template.started to reach %d at scale", expected)
+	require.True(t, p.WaitForCount("events.prompt.template.rendered", expected, 30*time.Second),
+		"timed out waiting for template.rendered to reach %d at scale", expected)
+	time.Sleep(eventSettleDelay)
+
+	snap := p.Snapshot()
+	require.Equal(t, expected, snap.Count("events.prompt.template.started"))
+	require.Equal(t, expected, snap.Count("events.prompt.template.rendered"))
+}
+
 // TestKnownBug_StateStoreSaveStageRedundantLoad pins the current redundant
 // store.Load call performed inside StateStoreSaveStage.
 //

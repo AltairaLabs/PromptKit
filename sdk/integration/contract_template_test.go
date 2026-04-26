@@ -40,6 +40,10 @@ func TestContract_TemplateStage(t *testing.T) {
 		{"history-1", 1, "#1035"},
 		{"history-5", 5, "#1035"},
 		{"history-50", 50, "#1035"},
+		// Scale: a 2000-turn conversation is plausible production traffic for
+		// long-running agent sessions. The bug behaves identically here, but
+		// once #1035 is fixed this case proves the contract holds at scale.
+		{"history-2000", 2000, "#1035"},
 	}
 
 	for _, tc := range cases {

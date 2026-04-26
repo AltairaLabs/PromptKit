@@ -9,7 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // stubReporter implements the local reporter interface (Helper + Errorf) so
@@ -189,6 +192,113 @@ func TestProbedStore_ForkCounts(t *testing.T) {
 	assert.Equal(t, 1, forks)
 }
 
+func TestProbedStore_OptionalInterfacesDelegate(t *testing.T) {
+	inner := statestore.NewMemoryStore()
+	require.NoError(t, inner.Save(context.Background(), &statestore.ConversationState{
+		ID:       "c1",
+		Messages: []types.Message{{Role: "user", Content: "hi"}, {Role: "assistant", Content: "yo"}},
+	}))
+	s := newProbedStore(inner)
+
+	// MessageReader: LoadRecentMessages + MessageCount
+	recent, err := s.LoadRecentMessages(context.Background(), "c1", 10)
+	require.NoError(t, err)
+	assert.Len(t, recent, 2)
+	count, err := s.MessageCount(context.Background(), "c1")
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+
+	// MessageAppender: MemoryStore implements it
+	require.NoError(t, s.AppendMessages(context.Background(), "c1",
+		[]types.Message{{Role: "user", Content: "more"}}))
+	count, err = s.MessageCount(context.Background(), "c1")
+	require.NoError(t, err)
+	assert.Equal(t, 3, count)
+
+	// MetadataAccessor — return value may be nil for state without metadata;
+	// what matters is that the call delegates without error.
+	_, err = s.LoadMetadata(context.Background(), "c1")
+	require.NoError(t, err)
+
+	// SummaryAccessor: LoadSummaries returns nil for fresh state
+	summaries, err := s.LoadSummaries(context.Background(), "c1")
+	require.NoError(t, err)
+	assert.Empty(t, summaries)
+	require.NoError(t, s.SaveSummary(context.Background(), "c1",
+		statestore.Summary{StartTurn: 0, EndTurn: 1, Content: "summary"}))
+	summaries, err = s.LoadSummaries(context.Background(), "c1")
+	require.NoError(t, err)
+	assert.Len(t, summaries, 1)
+}
+
+// stubBareStore implements only statestore.Store (no optional interfaces).
+type stubBareStore struct{}
+
+func (stubBareStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
+	return &statestore.ConversationState{}, nil
+}
+
+func (stubBareStore) Save(_ context.Context, _ *statestore.ConversationState) error { return nil }
+
+func (stubBareStore) Fork(_ context.Context, _, _ string) error { return nil }
+
+func TestProbedStore_OptionalInterfacesFallbackOnBareStore(t *testing.T) {
+	s := newProbedStore(stubBareStore{})
+
+	_, err := s.LoadRecentMessages(context.Background(), "c", 10)
+	assert.ErrorIs(t, err, statestore.ErrNotFound)
+
+	_, err = s.MessageCount(context.Background(), "c")
+	assert.ErrorIs(t, err, statestore.ErrNotFound)
+
+	err = s.AppendMessages(context.Background(), "c", nil)
+	assert.ErrorIs(t, err, statestore.ErrNotFound)
+
+	_, err = s.LoadMetadata(context.Background(), "c")
+	assert.ErrorIs(t, err, statestore.ErrNotFound)
+
+	summaries, err := s.LoadSummaries(context.Background(), "c")
+	assert.NoError(t, err)
+	assert.Nil(t, summaries)
+
+	err = s.SaveSummary(context.Background(), "c", statestore.Summary{})
+	assert.ErrorIs(t, err, statestore.ErrNotFound)
+}
+
+func TestProbedProvider_PredictAndStreamCount(t *testing.T) {
+	inner := mock.NewProvider("test-mock", "test-model", false)
+	p := newProbedProvider(inner)
+
+	// ID/Model/SupportsStreaming/ShouldIncludeRawOutput/Close/CalculateCost
+	assert.NotEmpty(t, p.ID())
+	assert.NotEmpty(t, p.Model())
+	_ = p.SupportsStreaming()
+	_ = p.ShouldIncludeRawOutput()
+	cost := p.CalculateCost(100, 50, 0)
+	assert.NotNil(t, cost)
+
+	_, err := p.Predict(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, p.predicts())
+
+	if p.SupportsStreaming() {
+		ch, err := p.PredictStream(context.Background(), providers.PredictionRequest{
+			Messages: []types.Message{{Role: "user", Content: "hi"}},
+		})
+		require.NoError(t, err)
+		// Drain so the goroutine exits cleanly.
+		for range ch {
+		}
+		// Stream count is internal state; nothing to assert beyond no error.
+	}
+
+	require.NoError(t, p.Close())
+	p.reset()
+	assert.Equal(t, 0, p.predicts())
+}
+
 // ---------------------------------------------------------------------------
 // Probes (Snapshot / ResetCounters / Bus)
 // ---------------------------------------------------------------------------
@@ -203,13 +313,16 @@ func newTestProbes(t *testing.T) *Probes {
 	bus := events.NewEventBus()
 	t.Cleanup(bus.Close)
 	p := &Probes{
-		store:  newProbedStore(statestore.NewMemoryStore()),
-		bus:    bus,
-		events: map[events.EventType]int{},
+		store:              newProbedStore(statestore.NewMemoryStore()),
+		bus:                bus,
+		summarizerProvider: newProbedProvider(mock.NewProvider("unit-summarizer", "unit-summarizer-model", false)),
+		events:             map[events.EventType]int{},
+		eventRecords:       map[events.EventType][]*events.Event{},
 	}
 	bus.SubscribeAll(func(e *events.Event) {
 		p.mu.Lock()
 		p.events[e.Type]++
+		p.eventRecords[e.Type] = append(p.eventRecords[e.Type], e)
 		p.mu.Unlock()
 	})
 	return p

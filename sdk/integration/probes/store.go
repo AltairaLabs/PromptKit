@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // probedStore wraps a statestore.Store and counts Load/Save/Fork calls.
@@ -62,3 +63,73 @@ func (s *probedStore) snapshot() (loads, saves, forks int) {
 
 // Compile-time assertion that probedStore implements statestore.Store.
 var _ statestore.Store = (*probedStore)(nil)
+
+// The probed store also surfaces optional statestore interfaces by delegating
+// to the inner store when it implements them. Without these passthroughs,
+// IncrementalSaveStage's type assertions against MessageReader / MessageAppender
+// would fail on the wrapper and silently disable auto-summarization /
+// incremental save — which would make probe-based contract tests vacuous.
+
+// LoadRecentMessages delegates if the inner supports MessageReader;
+// otherwise returns ErrNotFound so callers fall back to Load().
+func (s *probedStore) LoadRecentMessages(
+	ctx context.Context, id string, n int,
+) ([]types.Message, error) {
+	if r, ok := s.inner.(statestore.MessageReader); ok {
+		return r.LoadRecentMessages(ctx, id, n)
+	}
+	return nil, statestore.ErrNotFound
+}
+
+// MessageCount delegates if the inner supports MessageReader; otherwise
+// returns ErrNotFound.
+func (s *probedStore) MessageCount(ctx context.Context, id string) (int, error) {
+	if r, ok := s.inner.(statestore.MessageReader); ok {
+		return r.MessageCount(ctx, id)
+	}
+	return 0, statestore.ErrNotFound
+}
+
+// AppendMessages delegates if the inner supports MessageAppender; otherwise
+// returns ErrNotFound. Save calls remain counted via the wrapper's Save.
+func (s *probedStore) AppendMessages(
+	ctx context.Context, id string, messages []types.Message,
+) error {
+	if a, ok := s.inner.(statestore.MessageAppender); ok {
+		return a.AppendMessages(ctx, id, messages)
+	}
+	return statestore.ErrNotFound
+}
+
+// LoadMetadata delegates if the inner supports MetadataAccessor; otherwise
+// returns ErrNotFound.
+func (s *probedStore) LoadMetadata(
+	ctx context.Context, id string,
+) (map[string]any, error) {
+	if a, ok := s.inner.(statestore.MetadataAccessor); ok {
+		return a.LoadMetadata(ctx, id)
+	}
+	return nil, statestore.ErrNotFound
+}
+
+// LoadSummaries delegates if the inner supports SummaryAccessor; otherwise
+// returns nil (no summaries) so callers don't error.
+func (s *probedStore) LoadSummaries(
+	ctx context.Context, id string,
+) ([]statestore.Summary, error) {
+	if a, ok := s.inner.(statestore.SummaryAccessor); ok {
+		return a.LoadSummaries(ctx, id)
+	}
+	return nil, nil
+}
+
+// SaveSummary delegates if the inner supports SummaryAccessor; otherwise
+// returns ErrNotFound.
+func (s *probedStore) SaveSummary(
+	ctx context.Context, id string, summary statestore.Summary,
+) error {
+	if a, ok := s.inner.(statestore.SummaryAccessor); ok {
+		return a.SaveSummary(ctx, id, summary)
+	}
+	return statestore.ErrNotFound
+}
