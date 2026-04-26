@@ -180,15 +180,20 @@ func TestNewProviderWithCredential_DerivesVertexURL(t *testing.T) {
 		}
 	})
 
-	t.Run("non-vertex platform does not derive URL", func(t *testing.T) {
-		pc := &providers.PlatformConfig{Type: "bedrock", Region: "us-west-2"}
+	t.Run("unrecognized platform does not derive URL", func(t *testing.T) {
+		// Note: bedrock used to be exercised here as the "non-vertex"
+		// example, but Bedrock URL derivation was added in #1029. Use
+		// a synthetic unsupported platform name instead so the test
+		// continues to assert "platforms outside the supported set
+		// fall through to an empty derived URL".
+		pc := &providers.PlatformConfig{Type: "unknown-platform", Region: "us-west-2"}
 		p := NewProviderWithCredential(
 			"test", "claude-haiku-4-5", "",
 			providers.ProviderDefaults{},
-			false, cred, "bedrock", pc,
+			false, cred, "unknown-platform", pc,
 		)
 		if p.baseURL != "" {
-			t.Errorf("non-vertex platform should not derive URL, got %q", p.baseURL)
+			t.Errorf("unrecognized platform should not derive URL, got %q", p.baseURL)
 		}
 	})
 }
