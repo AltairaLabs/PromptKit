@@ -59,21 +59,19 @@ func ProcessResponseElement(elem *stage.StreamElement, logPrefix string) (Respon
 		return ResponseActionError, elem.Error
 	}
 
-	// Check for interruption signals - these are informational, keep waiting
-	if elem.Metadata != nil {
-		// Interruption signal: provider detected user started speaking during response.
-		// The partial response has been captured, now waiting for the new response.
-		if interrupted, ok := elem.Metadata["interrupted"].(bool); ok && interrupted {
-			logger.Debug("response interrupted, waiting for new response", "component", logPrefix)
-			return ResponseActionContinue, nil
-		}
+	// Check for interruption signals - these are informational, keep waiting.
+	// Interruption signal: provider detected user started speaking during response.
+	// The partial response has been captured, now waiting for the new response.
+	if elem.Meta.Interrupted {
+		logger.Debug("response interrupted, waiting for new response", "component", logPrefix)
+		return ResponseActionContinue, nil
+	}
 
-		// Interrupted turn complete: Empty turnComplete after interruption.
-		// This is just the provider closing the interrupted turn, not the final response.
-		if itc, ok := elem.Metadata["interrupted_turn_complete"].(bool); ok && itc {
-			logger.Debug("interrupted turn complete, waiting for real response", "component", logPrefix)
-			return ResponseActionContinue, nil
-		}
+	// Interrupted turn complete: Empty turnComplete after interruption.
+	// This is just the provider closing the interrupted turn, not the final response.
+	if elem.Meta.InterruptedTurnComplete {
+		logger.Debug("interrupted turn complete, waiting for real response", "component", logPrefix)
+		return ResponseActionContinue, nil
 	}
 
 	// Check for turn completion (EndOfStream from DuplexProviderStage)

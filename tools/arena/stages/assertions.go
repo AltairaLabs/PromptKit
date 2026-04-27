@@ -71,15 +71,15 @@ func (s *ArenaAssertionStage) Process(
 		return nil
 	}
 
-	// Collect all elements
+	// Collect all elements. Per-element metadata previously rode on
+	// StreamElement.Metadata; with that bag removed, assertions no longer
+	// have a per-element opaque map. The when-evaluator still receives a
+	// nil _metadata which it tolerates.
 	var elements []stage.StreamElement
 	var metadata map[string]interface{}
 
 	for elem := range input {
 		elements = append(elements, elem)
-		if elem.Metadata != nil && metadata == nil {
-			metadata = elem.Metadata
-		}
 	}
 
 	// Build messages list from elements for assertion execution

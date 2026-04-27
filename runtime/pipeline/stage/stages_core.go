@@ -247,7 +247,8 @@ func (s *StateStoreLoadStage) forwardInput(
 // StateStoreSaveStage saves conversation state to state store.
 type StateStoreSaveStage struct {
 	BaseStage
-	config *pipeline.StateStoreConfig
+	config    *pipeline.StateStoreConfig
+	turnState *TurnState
 }
 
 // NewStateStoreSaveStage creates a new state store save stage.
@@ -258,10 +259,25 @@ func NewStateStoreSaveStage(config *pipeline.StateStoreConfig) *StateStoreSaveSt
 	}
 }
 
+// NewStateStoreSaveStageWithTurnState creates a save stage that also merges
+// TurnState.ProviderRequestMetadata into the persisted state.Metadata. This
+// is the path consumers use to persist per-Turn coordination data (e.g. arena
+// turn counters) that previously rode on the deleted StreamElement.Metadata
+// bag.
+func NewStateStoreSaveStageWithTurnState(
+	config *pipeline.StateStoreConfig,
+	turnState *TurnState,
+) *StateStoreSaveStage {
+	return &StateStoreSaveStage{
+		BaseStage: NewBaseStage("statestore_save", StageTypeSink),
+		config:    config,
+		turnState: turnState,
+	}
+}
+
 // saveCollectedData holds data collected during state save processing.
 type saveCollectedData struct {
 	messages []types.Message
-	metadata map[string]interface{}
 }
 
 // Process collects all messages and saves them to state store.
@@ -322,7 +338,6 @@ func (s *StateStoreSaveStage) collectAndForward(
 		if elem.Message != nil {
 			collected.messages = append(collected.messages, *elem.Message)
 		}
-		s.mergeElementMetadata(&elem, collected)
 
 		// Always forward error elements unconditionally - they carry critical
 		// error information that must reach accumulateResult even when context
@@ -339,19 +354,6 @@ func (s *StateStoreSaveStage) collectAndForward(
 		}
 	}
 	return collected, nil
-}
-
-// mergeElementMetadata merges element metadata into collected data.
-func (s *StateStoreSaveStage) mergeElementMetadata(elem *StreamElement, collected *saveCollectedData) {
-	if elem.Metadata == nil {
-		return
-	}
-	if collected.metadata == nil {
-		collected.metadata = make(map[string]interface{})
-	}
-	for k, v := range elem.Metadata {
-		collected.metadata[k] = v
-	}
 }
 
 // saveToStateStore saves collected data to the state store.
@@ -401,7 +403,8 @@ func (s *StateStoreSaveStage) createNewState() *statestore.ConversationState {
 	return state
 }
 
-// updateStateWithCollectedData updates state with collected messages and metadata.
+// updateStateWithCollectedData updates state with collected messages and any
+// per-Turn provider-request metadata produced by upstream stages.
 func (s *StateStoreSaveStage) updateStateWithCollectedData(
 	state *statestore.ConversationState,
 	collected *saveCollectedData,
@@ -412,7 +415,10 @@ func (s *StateStoreSaveStage) updateStateWithCollectedData(
 	if state.Metadata == nil {
 		state.Metadata = make(map[string]interface{})
 	}
-	for k, v := range collected.metadata {
-		state.Metadata[k] = v
+
+	if s.turnState != nil {
+		for k, v := range s.turnState.ProviderRequestMetadata {
+			state.Metadata[k] = v
+		}
 	}
 }

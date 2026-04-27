@@ -9,6 +9,9 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // skipIfNoFFmpeg skips the test if FFmpeg is not available.
@@ -421,9 +424,11 @@ func TestFramesToMessageStage_ComposeFrames(t *testing.T) {
 			Height:   100,
 		}
 		elem := NewImageElement(imageData)
-		elem.WithMetadata(VideoFramesVideoIDKey, videoID)
-		elem.WithMetadata(VideoFramesFrameIndexKey, i)
-		elem.WithMetadata(VideoFramesTotalFramesKey, totalFrames)
+		elem.Meta.VideoFrames = &VideoFramesInfo{
+			VideoID:     videoID,
+			FrameIndex:  i,
+			TotalFrames: totalFrames,
+		}
 		input <- elem
 	}
 
@@ -486,9 +491,11 @@ func TestFramesToMessageStage_MultipleVideos(t *testing.T) {
 			Width:    100,
 			Height:   100,
 		})
-		elem.WithMetadata(VideoFramesVideoIDKey, videoID1)
-		elem.WithMetadata(VideoFramesFrameIndexKey, i)
-		elem.WithMetadata(VideoFramesTotalFramesKey, 2)
+		elem.Meta.VideoFrames = &VideoFramesInfo{
+			VideoID:     videoID1,
+			FrameIndex:  i,
+			TotalFrames: 2,
+		}
 		input <- elem
 	}
 
@@ -500,9 +507,11 @@ func TestFramesToMessageStage_MultipleVideos(t *testing.T) {
 			Width:    100,
 			Height:   100,
 		})
-		elem.WithMetadata(VideoFramesVideoIDKey, videoID2)
-		elem.WithMetadata(VideoFramesFrameIndexKey, i)
-		elem.WithMetadata(VideoFramesTotalFramesKey, 3)
+		elem.Meta.VideoFrames = &VideoFramesInfo{
+			VideoID:     videoID2,
+			FrameIndex:  i,
+			TotalFrames: 3,
+		}
 		input <- elem
 	}
 
@@ -656,9 +665,11 @@ func TestFramesToMessageStage_ContextCancellation(t *testing.T) {
 		Height:   100,
 	}
 	elem := NewImageElement(imageData)
-	elem.WithMetadata(VideoFramesVideoIDKey, "test-video")
-	elem.WithMetadata(VideoFramesFrameIndexKey, 0)
-	elem.WithMetadata(VideoFramesTotalFramesKey, 2)
+	elem.Meta.VideoFrames = &VideoFramesInfo{
+		VideoID:     "test-video",
+		FrameIndex:  0,
+		TotalFrames: 2,
+	}
 	input <- elem
 
 	// Cancel context during processing
@@ -743,110 +754,6 @@ func TestVideoToFramesStage_Integration_RealVideo(t *testing.T) {
 	}
 }
 
-func TestFramesToMessageStage_AccumulateFrame_InvalidMetadata(t *testing.T) {
-	config := DefaultFramesToMessageConfig()
-	stg := NewFramesToMessageStage(config)
-	ctx := context.Background()
-
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
-
-	// Send frame with invalid video ID type
-	elem := NewImageElement(&ImageData{
-		Data:     createTestFrameData(100, 100),
-		MIMEType: "image/jpeg",
-	})
-	elem.WithMetadata(VideoFramesVideoIDKey, 12345) // Wrong type (int instead of string)
-	elem.WithMetadata(VideoFramesFrameIndexKey, 0)
-	elem.WithMetadata(VideoFramesTotalFramesKey, 1)
-	input <- elem
-	close(input)
-
-	go func() {
-		_ = stg.Process(ctx, input, output)
-	}()
-
-	var results []StreamElement
-	for elem := range output {
-		results = append(results, elem)
-	}
-
-	// Should get error element
-	if len(results) != 1 {
-		t.Fatalf("Expected 1 element, got %d", len(results))
-	}
-
-	if results[0].Error == nil {
-		t.Error("Expected error for invalid metadata type")
-	}
-}
-
-func TestFramesToMessageStage_AccumulateFrame_InvalidFrameIndex(t *testing.T) {
-	config := DefaultFramesToMessageConfig()
-	stg := NewFramesToMessageStage(config)
-	ctx := context.Background()
-
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
-
-	// Send frame with invalid frame index type
-	elem := NewImageElement(&ImageData{
-		Data:     createTestFrameData(100, 100),
-		MIMEType: "image/jpeg",
-	})
-	elem.WithMetadata(VideoFramesVideoIDKey, "test-video")
-	elem.WithMetadata(VideoFramesFrameIndexKey, "invalid") // Wrong type
-	elem.WithMetadata(VideoFramesTotalFramesKey, 1)
-	input <- elem
-	close(input)
-
-	go func() {
-		_ = stg.Process(ctx, input, output)
-	}()
-
-	var results []StreamElement
-	for elem := range output {
-		results = append(results, elem)
-	}
-
-	if len(results) != 1 || results[0].Error == nil {
-		t.Error("Expected error for invalid frame index type")
-	}
-}
-
-func TestFramesToMessageStage_AccumulateFrame_InvalidTotalFrames(t *testing.T) {
-	config := DefaultFramesToMessageConfig()
-	stg := NewFramesToMessageStage(config)
-	ctx := context.Background()
-
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
-
-	// Send frame with invalid total frames type
-	elem := NewImageElement(&ImageData{
-		Data:     createTestFrameData(100, 100),
-		MIMEType: "image/jpeg",
-	})
-	elem.WithMetadata(VideoFramesVideoIDKey, "test-video")
-	elem.WithMetadata(VideoFramesFrameIndexKey, 0)
-	elem.WithMetadata(VideoFramesTotalFramesKey, "invalid") // Wrong type
-	input <- elem
-	close(input)
-
-	go func() {
-		_ = stg.Process(ctx, input, output)
-	}()
-
-	var results []StreamElement
-	for elem := range output {
-		results = append(results, elem)
-	}
-
-	if len(results) != 1 || results[0].Error == nil {
-		t.Error("Expected error for invalid total frames type")
-	}
-}
-
 func TestFramesToMessageStage_CreateImagePart_NilImage(t *testing.T) {
 	config := DefaultFramesToMessageConfig()
 	stg := NewFramesToMessageStage(config)
@@ -918,9 +825,11 @@ func TestFramesToMessageStage_Timeout(t *testing.T) {
 		Width:    100,
 		Height:   100,
 	})
-	elem.WithMetadata(VideoFramesVideoIDKey, "test-video")
-	elem.WithMetadata(VideoFramesFrameIndexKey, 0)
-	elem.WithMetadata(VideoFramesTotalFramesKey, 3)
+	elem.Meta.VideoFrames = &VideoFramesInfo{
+		VideoID:     "test-video",
+		FrameIndex:  0,
+		TotalFrames: 3,
+	}
 	input <- elem
 
 	go func() {
@@ -951,6 +860,44 @@ func TestFramesToMessageStage_Timeout(t *testing.T) {
 			return
 		}
 	}
+}
+
+// TestFramesToMessageStage_ProcessTimeouts verifies that pending frames whose
+// receivedAt exceeds CompletionTimeout are composed into a partial message and
+// removed from the pending map.
+func TestFramesToMessageStage_ProcessTimeouts(t *testing.T) {
+	cfg := DefaultFramesToMessageConfig()
+	cfg.CompletionTimeout = 5 * time.Millisecond
+	stg := NewFramesToMessageStage(cfg)
+
+	// Seed the stage's pending map with an "old" entry (one frame received,
+	// expecting two; receivedAt set far enough in the past to trip the
+	// timeout immediately).
+	frames := map[int]*ImageData{
+		0: {Data: createTestFrameData(50, 50), MIMEType: "image/jpeg", Width: 50, Height: 50},
+	}
+	stg.pending["timed-out"] = &pendingFrames{
+		frames:      frames,
+		totalFrames: 2,
+		receivedAt:  time.Now().Add(-time.Hour),
+		sequence:    1,
+		source:      "vad-test",
+	}
+
+	output := make(chan StreamElement, 4)
+	stg.processTimeouts(t.Context(), output)
+	close(output)
+
+	if _, exists := stg.pending["timed-out"]; exists {
+		t.Fatal("expected pending entry to be evicted after timeout")
+	}
+
+	var emitted []StreamElement
+	for elem := range output {
+		emitted = append(emitted, elem)
+	}
+	require.Len(t, emitted, 1, "expected one message emitted from timed-out partial frames")
+	assert.NotNil(t, emitted[0].Message, "timed-out partial composition should produce a message")
 }
 
 func TestVideoToFramesStage_WriteVideoToTempFile_DifferentFormats(t *testing.T) {

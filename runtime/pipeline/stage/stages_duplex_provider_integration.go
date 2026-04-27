@@ -197,21 +197,15 @@ func (s *DuplexProviderStage) Process(
 			return errors.New("duplex provider stage: no provider or session configured")
 		}
 
-		// Wait for first element to get system_prompt from metadata
+		// Wait for first element to get system_prompt from TurnState
 		firstElem, ok := <-input
 		if !ok {
 			return errors.New("duplex provider stage: input channel closed before receiving first element")
 		}
 
-		// Source system_prompt: TurnState wins, falls back to element metadata
-		// for legacy callers.
 		systemPrompt := ""
-		if s.turnState != nil && s.turnState.SystemPrompt != "" {
+		if s.turnState != nil {
 			systemPrompt = s.turnState.SystemPrompt
-		} else if firstElem.Metadata != nil {
-			if sp, ok := firstElem.Metadata["system_prompt"].(string); ok {
-				systemPrompt = sp
-			}
 		}
 
 		// Create session config with system instruction
@@ -220,15 +214,6 @@ func (s *DuplexProviderStage) Process(
 			sessionConfig = &providers.StreamingInputConfig{}
 		}
 		sessionConfig.SystemInstruction = systemPrompt
-
-		// Extract tools from metadata if provided
-		// Tools are passed from the duplex executor via element metadata
-		if firstElem.Metadata != nil {
-			if tools, ok := firstElem.Metadata["tools"].([]providers.StreamingToolDefinition); ok {
-				sessionConfig.Tools = tools
-				logger.Debug("DuplexProviderStage: tools extracted from metadata", "tool_count", len(tools))
-			}
-		}
 
 		logger.Debug("DuplexProviderStage: creating session with system instruction",
 			"system_prompt_length", len(systemPrompt))
@@ -390,39 +375,37 @@ func (s *DuplexProviderStage) forwardInputElements(
 				return
 			}
 
-			// Check for "all_responses_received" signal from executor
+			// Check for "all responses received" signal from executor.
 			// This tells us that all expected responses have been received synchronously
-			// and we can skip the finalResponseTimeout when input closes
-			if elem.Metadata != nil {
-				if allReceived, ok := elem.Metadata["all_responses_received"].(bool); ok && allReceived {
-					logger.Debug("DuplexProviderStage: all responses received signal, will skip final timeout")
-					s.allResponsesReceivedOnce.Do(func() {
-						close(s.allResponsesReceivedCh)
-					})
-					continue // Don't forward this signal element
-				}
+			// and we can skip the finalResponseTimeout when input closes.
+			if elem.Meta.AllResponsesReceived {
+				logger.Debug("DuplexProviderStage: all responses received signal, will skip final timeout")
+				s.allResponsesReceivedOnce.Do(func() {
+					close(s.allResponsesReceivedCh)
+				})
+				continue // Don't forward this signal element
+			}
 
-				// Check for tool result messages to forward to output for state store capture
-				// These are created by the executor after executing tools requested by the model
-				if toolMsgs, ok := elem.Metadata["tool_result_messages"].([]types.Message); ok && len(toolMsgs) > 0 {
-					logger.Debug("DuplexProviderStage: forwarding tool result messages to output",
-						"count", len(toolMsgs))
-					for i := range toolMsgs {
-						toolElem := StreamElement{
-							Message:     &toolMsgs[i],
-							EndOfStream: false,
-						}
-						select {
-						case output <- toolElem:
-							logger.Debug("DuplexProviderStage: tool result message forwarded",
-								"tool", toolMsgs[i].ToolResult.Name)
-						case <-ctx.Done():
-							done <- ctx.Err()
-							return
-						}
+			// Check for tool result messages to forward to output for state store capture.
+			// These are created by the executor after executing tools requested by the model.
+			if toolMsgs := elem.Meta.ToolResultMessages; len(toolMsgs) > 0 {
+				logger.Debug("DuplexProviderStage: forwarding tool result messages to output",
+					"count", len(toolMsgs))
+				for i := range toolMsgs {
+					toolElem := StreamElement{
+						Message:     &toolMsgs[i],
+						EndOfStream: false,
 					}
-					// Continue to process the element (may also have tool_responses for provider)
+					select {
+					case output <- toolElem:
+						logger.Debug("DuplexProviderStage: tool result message forwarded",
+							"tool", toolMsgs[i].ToolResult.Name)
+					case <-ctx.Done():
+						done <- ctx.Err()
+						return
+					}
 				}
+				// Continue to process the element (may also have tool responses for provider)
 			}
 
 			// Forward Message elements to output for state store capture
@@ -435,7 +418,8 @@ func (s *DuplexProviderStage) forwardInputElements(
 						"turnStartTime", s.turnStartTime.Format(time.RFC3339Nano))
 				}
 				// Extract turn_id for correlating transcription events
-				if turnID, ok := elem.Metadata["turn_id"].(string); ok && turnID != "" {
+				if elem.Meta.TurnID != nil && *elem.Meta.TurnID != "" {
+					turnID := *elem.Meta.TurnID
 					s.turnIDMu.Lock()
 					s.turnIDQueue = append(s.turnIDQueue, turnID)
 					logger.Debug("DuplexProviderStage: pushed turn ID to queue",
@@ -488,36 +472,29 @@ func (s *DuplexProviderStage) replayAndMerge(
 
 // sendElementToSession sends a single element to the WebSocket session.
 func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *StreamElement) {
-	// Check for tool responses to send back to the provider
-	// Tool responses are sent by the executor after executing tools requested by the model
-	if elem.Metadata != nil {
-		if toolResponses, ok := elem.Metadata["tool_responses"].([]providers.ToolResponse); ok && len(toolResponses) > 0 {
-			// Check if session supports tool responses
-			if toolSession, ok := s.session.(providers.ToolResponseSupport); ok {
-				logger.Debug("DuplexProviderStage: sending tool responses to session",
-					"count", len(toolResponses))
-				if err := toolSession.SendToolResponses(ctx, toolResponses); err != nil {
-					logger.Error("DuplexProviderStage: failed to send tool responses", "error", err)
-				} else {
-					logger.Debug("DuplexProviderStage: tool responses sent successfully")
-				}
+	// Check for tool responses to send back to the provider.
+	// Tool responses are sent by the executor after executing tools requested by the model.
+	if toolResponses := elem.Meta.ToolResponses; len(toolResponses) > 0 {
+		if toolSession, ok := s.session.(providers.ToolResponseSupport); ok {
+			logger.Debug("DuplexProviderStage: sending tool responses to session",
+				"count", len(toolResponses))
+			if err := toolSession.SendToolResponses(ctx, toolResponses); err != nil {
+				logger.Error("DuplexProviderStage: failed to send tool responses", "error", err)
 			} else {
-				logger.Warn("DuplexProviderStage: session does not support tool responses",
-					"sessionType", fmt.Sprintf("%T", s.session))
+				logger.Debug("DuplexProviderStage: tool responses sent successfully")
 			}
-			return
+		} else {
+			logger.Warn("DuplexProviderStage: session does not support tool responses",
+				"sessionType", fmt.Sprintf("%T", s.session))
 		}
+		return
 	}
 
-	// Source the system prompt: TurnState wins, fall back to element metadata.
+	// Source the system prompt from TurnState.
 	if !s.systemPromptSent {
 		systemPrompt := ""
-		if s.turnState != nil && s.turnState.SystemPrompt != "" {
+		if s.turnState != nil {
 			systemPrompt = s.turnState.SystemPrompt
-		} else if elem.Metadata != nil {
-			if sp, ok := elem.Metadata["system_prompt"].(string); ok {
-				systemPrompt = sp
-			}
 		}
 		if systemPrompt != "" {
 			logger.Debug("DuplexProviderStage: sending system prompt as context (no turn_complete)",
@@ -1118,10 +1095,9 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		// Mark that we saw an interruption - the next turnComplete without content should be skipped
 		s.wasInterrupted = true
 
-		elem.Metadata = map[string]interface{}{
-			"interrupted":   true,
-			"finish_reason": "interrupted",
-		}
+		interruptedReason := "interrupted"
+		elem.Meta.Interrupted = true
+		elem.Meta.FinishReason = &interruptedReason
 		// Note: NOT setting EndOfStream - the provider will continue with new response
 		return elem
 	}
@@ -1179,10 +1155,9 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		if !hasContent && s.wasInterrupted {
 			logger.Debug("DuplexProviderStage: detected interrupted turn complete (empty response after interruption), skipping",
 				"hasCostInfo", hasCostInfo)
-			elem.Metadata = map[string]interface{}{
-				"interrupted_turn_complete": true,
-				"finish_reason":             *chunk.FinishReason,
-			}
+			finishReason := *chunk.FinishReason
+			elem.Meta.InterruptedTurnComplete = true
+			elem.Meta.FinishReason = &finishReason
 			// Note: NOT setting EndOfStream - we're still waiting for the real response
 			// Keep wasInterrupted true since we're still in the interrupted state
 			return elem
@@ -1246,11 +1221,6 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		s.wasInterrupted = false
 	}
 
-	// Add metadata from chunk
-	if chunk.Metadata != nil {
-		elem.Metadata = chunk.Metadata
-	}
-
 	// Pop turn_id from queue on EndOfStream to keep queue in sync with turns.
 	// This must happen regardless of whether transcription was captured, because
 	// some turns may not produce transcription (e.g., short audio, no speech detected).
@@ -1270,16 +1240,14 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		s.turnIDMu.Unlock()
 	}
 
-	// Add input transcription to metadata if present.
+	// Add input transcription to typed metadata if present.
 	// Only add if we just popped a turn_id (turnID != ""), which means this is
 	// the first EndOfStream for this user turn. Subsequent EndOfStream events
 	// (e.g., after tool execution) should not re-add transcription.
 	if s.inputTranscription.Len() > 0 && elem.EndOfStream && turnID != "" {
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
-		}
-		elem.Metadata["input_transcription"] = s.inputTranscription.String()
-		elem.Metadata["transcription_turn_id"] = turnID
+		elem.Meta.Transcription = &Transcription{Text: s.inputTranscription.String()}
+		turnIDCopy := turnID
+		elem.Meta.TurnID = &turnIDCopy
 		logger.Debug("DuplexProviderStage: adding input transcription",
 			"transcriptionLen", s.inputTranscription.Len(),
 			"turnID", turnID)

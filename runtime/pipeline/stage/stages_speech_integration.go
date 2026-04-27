@@ -159,13 +159,11 @@ func (s *AudioTurnStage) Process(
 
 		// Check for passthrough mode - forward audio immediately without accumulation
 		// This is used for selfplay/TTS audio that needs real-time streaming to the provider
-		if elem.Metadata != nil {
-			if passthrough, ok := elem.Metadata["passthrough"].(bool); ok && passthrough {
-				if err := s.forwardElement(ctx, &elem, output); err != nil {
-					return err
-				}
-				continue
+		if elem.Meta.Passthrough {
+			if err := s.forwardElement(ctx, &elem, output); err != nil {
+				return err
 			}
+			continue
 		}
 
 		// Process audio chunk and handle turn completion
@@ -361,9 +359,6 @@ func (s *AudioTurnStage) emitTurnAudio(
 			Format:     AudioFormatPCM16,
 		},
 		Timestamp: time.Now(),
-		Metadata: map[string]interface{}{
-			"turn_complete": true,
-		},
 	}
 
 	select {
@@ -488,7 +483,7 @@ func (s *STTStage) Process(
 		outElem := StreamElement{
 			Text:      &text,
 			Timestamp: time.Now(),
-			Metadata:  elem.Metadata,
+			Meta:      elem.Meta,
 		}
 
 		select {
@@ -658,7 +653,7 @@ func (s *TTSStageWithInterruption) synthesizeAndEmit(
 		return nil
 	}
 
-	return s.emitAudioElement(ctx, text, audioData, elem.Metadata, output)
+	return s.emitAudioElement(ctx, text, audioData, &elem.Meta, output)
 }
 
 // performSynthesis executes the TTS synthesis and returns audio data.
@@ -708,7 +703,7 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 	ctx context.Context,
 	text string,
 	audioData []byte,
-	metadata map[string]interface{},
+	meta *ElementMetadata,
 	output chan<- StreamElement,
 ) error {
 	logger.Debug("TTSStageWithInterruption: synthesized",
@@ -723,7 +718,9 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 			Format:     AudioFormatPCM16,
 		},
 		Timestamp: time.Now(),
-		Metadata:  metadata,
+	}
+	if meta != nil {
+		outElem.Meta = *meta
 	}
 
 	s.setBotSpeaking(false)

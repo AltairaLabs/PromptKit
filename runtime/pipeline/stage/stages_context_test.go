@@ -61,7 +61,7 @@ func TestContextAssemblyStage_WithMessageReader(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		assert.Equal(t, fmt.Sprintf("Message %d", i+10), results[i].Message.Content)
 		assert.Equal(t, "statestore", results[i].Message.Source)
-		assert.True(t, results[i].Metadata["from_history"].(bool))
+		assert.True(t, results[i].Meta.FromHistory)
 	}
 
 	// Last should be current message
@@ -463,7 +463,8 @@ func TestContextAssemblyStage_WithUserID(t *testing.T) {
 		RecentMessages: 20,
 	}
 
-	s := NewContextAssemblyStage(config)
+	turnState := NewTurnState()
+	s := NewContextAssemblyStageWithTurnState(config, turnState)
 
 	inputs := []StreamElement{
 		newTestMsgElement("user", "Current message"),
@@ -473,12 +474,9 @@ func TestContextAssemblyStage_WithUserID(t *testing.T) {
 
 	// 1 history + 1 current = 2
 	require.Len(t, results, 2)
-
-	// The current message (forwarded via forwardWithMetadata) should have user_id metadata
-	currentMsg := results[1]
-	assert.Equal(t, "Current message", currentMsg.Message.Content)
-	assert.Equal(t, "conv-uid", currentMsg.Metadata["conversation_id"])
-	assert.Equal(t, "user-42", currentMsg.Metadata["user_id"])
+	assert.Equal(t, "Current message", results[1].Message.Content)
+	assert.Equal(t, "conv-uid", turnState.ConversationID)
+	assert.Equal(t, "user-42", turnState.UserID)
 }
 
 func TestContextAssemblyStage_LoadFullHistory_NotFound(t *testing.T) {
@@ -912,8 +910,8 @@ func TestContextAssemblyStage_WarningFires_AboveThreshold(t *testing.T) {
 			Store:          store,
 			ConversationID: "conv-warn",
 		},
-		WarningThreshold: 10,  // Low threshold — 20 msgs will trigger warning
-		MaxMessages:      50,  // High enough to not truncate
+		WarningThreshold: 10, // Low threshold — 20 msgs will trigger warning
+		MaxMessages:      50, // High enough to not truncate
 		HasContextWindow: false,
 		HasTokenBudget:   false,
 	}

@@ -396,10 +396,7 @@ func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamE
 
 	// Surface pending tools to the caller
 	if len(duplexResult.Pending) > 0 {
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
-		}
-		elem.Metadata["pending_tools"] = duplexResult.Pending
+		elem.Meta.PendingTools = duplexResult.Pending
 		chunk := streamElementToStreamChunk(elem)
 		select {
 		case s.streamOutput <- chunk:
@@ -690,9 +687,7 @@ func convertMediaData(elem *stage.StreamElement, chunk *providers.StreamChunk) {
 // This is the boundary conversion for input data.
 // Routes media based on MIME type: video/* -> VideoData, image/* -> ImageData, audio/* -> AudioData.
 func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElement {
-	elem := stage.StreamElement{
-		Metadata: make(map[string]interface{}),
-	}
+	elem := stage.StreamElement{}
 
 	convertMediaData(&elem, chunk)
 
@@ -703,12 +698,8 @@ func streamChunkToStreamElement(chunk *providers.StreamChunk) stage.StreamElemen
 		elem.Text = &chunk.Content
 	}
 
-	// Copy metadata
+	// Check for end_of_stream signal in chunk metadata
 	if chunk.Metadata != nil {
-		for k, v := range chunk.Metadata {
-			elem.Metadata[k] = v
-		}
-		// Check for end_of_stream signal in metadata
 		if eos, ok := chunk.Metadata["end_of_stream"].(bool); ok && eos {
 			elem.EndOfStream = true
 		}
@@ -743,17 +734,10 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 		chunk.Error = elem.Error
 	}
 
-	// Copy metadata
-	if elem.Metadata != nil {
-		chunk.Metadata = elem.Metadata
-
-		// Detect pending client tools (pipeline suspended)
-		if pt, ok := elem.Metadata["pending_tools"]; ok {
-			if pending, ok := pt.([]tools.PendingToolExecution); ok && len(pending) > 0 {
-				chunk.PendingTools = pending
-				chunk.FinishReason = strPtr("pending_tools")
-			}
-		}
+	// Detect pending client tools (pipeline suspended)
+	if len(elem.Meta.PendingTools) > 0 {
+		chunk.PendingTools = elem.Meta.PendingTools
+		chunk.FinishReason = strPtr("pending_tools")
 	}
 
 	return chunk

@@ -103,8 +103,7 @@ func (s *MediaComposeStage) Process(
 
 	for elem := range input {
 		// Check if this is a media element with extract metadata
-		msgID := elem.GetMetadata(MediaExtractMessageIDKey)
-		if msgID == nil {
+		if elem.Meta.MediaExtract == nil {
 			// Pass through non-extracted elements
 			select {
 			case output <- elem:
@@ -189,22 +188,14 @@ func (s *MediaComposeStage) Process(
 // accumulatePart adds a processed part to its pending message.
 // Returns the complete pendingMessage if all parts have been received.
 func (s *MediaComposeStage) accumulatePart(elem *StreamElement) (*pendingMessage, error) {
-	msgID, ok := elem.GetMetadata(MediaExtractMessageIDKey).(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid message ID type")
+	info := elem.Meta.MediaExtract
+	if info == nil {
+		return nil, fmt.Errorf("missing media extract info")
 	}
-
-	partIdx, ok := elem.GetMetadata(MediaExtractPartIndexKey).(int)
-	if !ok {
-		return nil, fmt.Errorf("invalid part index type")
-	}
-
-	totalParts, ok := elem.GetMetadata(MediaExtractTotalPartsKey).(int)
-	if !ok {
-		return nil, fmt.Errorf("invalid total parts type")
-	}
-
-	mediaType, _ := elem.GetMetadata(MediaExtractMediaTypeKey).(string)
+	msgID := info.MessageID
+	partIdx := info.PartIndex
+	totalParts := info.TotalParts
+	mediaType := info.MediaType
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -212,9 +203,8 @@ func (s *MediaComposeStage) accumulatePart(elem *StreamElement) (*pendingMessage
 	// Get or create pending message
 	pm, exists := s.pending[msgID]
 	if !exists {
-		origMsg, _ := elem.GetMetadata(MediaExtractOriginalMessageKey).(*types.Message)
 		pm = &pendingMessage{
-			originalMessage: origMsg,
+			originalMessage: info.OriginalMessage,
 			parts:           make(map[int]*processedPart),
 			totalParts:      totalParts,
 			receivedAt:      time.Now(),

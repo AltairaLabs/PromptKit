@@ -354,7 +354,6 @@ func TestResponseVADStage_PointerAliasingBug(t *testing.T) {
 	endOfStreamElem := stage.StreamElement{
 		Message:     msg,
 		EndOfStream: true,
-		Metadata:    map[string]interface{}{"important_data": "should_be_preserved"},
 	}
 	input <- endOfStreamElem
 

@@ -150,7 +150,6 @@ func runProviderStage(
 	input := make(chan StreamElement, 1)
 	msg := types.Message{Role: "user", Content: userContent}
 	elem := NewMessageElement(&msg)
-	elem.Metadata["system_prompt"] = "test"
 	input <- elem
 	close(input)
 

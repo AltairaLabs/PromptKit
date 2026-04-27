@@ -2,6 +2,7 @@ package stage
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -143,9 +144,67 @@ type ElementMetadata struct {
 	// consumes them as the next-round input.
 	ToolResultMessages []types.Message
 
+	// ToolResponses carries provider-bound tool call responses produced
+	// by the streaming tool integration. The duplex provider stage
+	// forwards them to a session that implements ToolResponseSupport.
+	ToolResponses []providers.ToolResponse
+
 	// PendingTools carries tool calls that returned ToolStatusPending and
 	// must be surfaced to the caller for out-of-band completion.
 	PendingTools []tools.PendingToolExecution
+
+	// TokenCount is the per-chunk token count emitted by streaming providers.
+	// Zero when the chunk did not include a token count.
+	TokenCount int
+
+	// FinishReason carries the provider-reported stop reason on the chunk
+	// element that closes a streaming response (e.g. "stop", "length",
+	// "tool_calls"). Nil for intermediate chunks.
+	FinishReason *string
+
+	// Passthrough marks media elements that should bypass per-stage
+	// accumulation (audio/image/video buffering) and be forwarded
+	// immediately to the next stage. Producers: streaming.AudioStreamer,
+	// streaming.ImageStreamer, streaming.VideoStreamer. Consumer:
+	// AudioTurnStage forwards passthrough audio without VAD-driven
+	// accumulation.
+	Passthrough bool
+
+	// MediaExtract carries correlation data for the MediaExtractStage →
+	// MediaComposeStage round-trip. Nil for elements not produced by the
+	// extract stage.
+	MediaExtract *MediaExtractInfo
+
+	// VideoFrames carries correlation data for the VideoFramesExtractStage
+	// → VideoFramesComposeStage round-trip. Nil for elements not produced
+	// by the frames extractor.
+	VideoFrames *VideoFramesInfo
+}
+
+// MediaExtractInfo is the typed payload for media-extraction correlation.
+type MediaExtractInfo struct {
+	// MessageID identifies the original message the extracted part belongs to.
+	MessageID string
+	// PartIndex is the part's index within the original message.
+	PartIndex int
+	// TotalParts is the total number of media parts in the original message.
+	TotalParts int
+	// MediaType (image, video) classifies the extracted part.
+	MediaType string
+	// OriginalMessage is the full source message for later composition.
+	OriginalMessage *types.Message
+}
+
+// VideoFramesInfo is the typed payload for video-frame extraction correlation.
+type VideoFramesInfo struct {
+	// VideoID identifies the source video an extracted frame belongs to.
+	VideoID string
+	// FrameIndex is the frame's index within the source video.
+	FrameIndex int
+	// TotalFrames is the total number of frames extracted from the source.
+	TotalFrames int
+	// OriginalVideo is the source video kept for later composition.
+	OriginalVideo *VideoData
 }
 
 // Transcription is the typed payload for duplex-provider input

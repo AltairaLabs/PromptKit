@@ -291,7 +291,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 	if storeConfig := buildStateStoreConfig(req); storeConfig != nil {
 		stages = append(stages,
 			stage.NewStateStoreLoadStageWithTurnState(storeConfig, turnState),
-			arenastages.NewTurnIndexStage(),
+			arenastages.NewTurnIndexStageWithTurnState(turnState),
 		)
 	}
 
@@ -299,7 +299,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 	stages = append(stages,
 		stage.NewVariableProviderStageWithVarsAndTurnState(mergedVars, nil, turnState),
 		stage.NewPromptAssemblyStageWithTurnState(req.PromptRegistry, req.TaskType, mergedVars, turnState),
-		arenastages.NewScenarioContextExtractionStage(req.Scenario),
+		arenastages.NewScenarioContextExtractionStageWithTurnState(req.Scenario, turnState),
 		stage.NewTemplateStageWithTurnState(emitterFromRequest(req), turnState),
 	)
 
@@ -315,7 +315,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// 4a. Mock scenario context (for mock providers only)
 	if isMockProvider(req.Provider) {
 		logger.Debug("Adding MockScenarioContext stage", "scenario_id", req.Scenario.ID)
-		stages = append(stages, arenastages.NewMockScenarioContextStage(req.Scenario))
+		stages = append(stages, arenastages.NewMockScenarioContextStageWithTurnState(req.Scenario, turnState))
 	} else {
 		logger.Debug("Skipping MockScenarioContext stage - not a mock provider",
 			"provider_type", fmt.Sprintf("%T", req.Provider))
@@ -465,10 +465,6 @@ func (e *PipelineExecutor) Execute(
 	// Create input element from user message
 	inputElem := stage.StreamElement{
 		Message: userMessage,
-		Metadata: map[string]interface{}{
-			"run_id":          req.RunID,
-			"conversation_id": req.ConversationID,
-		},
 	}
 
 	// Execute pipeline synchronously
@@ -521,7 +517,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 		storeConfig := buildStateStoreConfig(req)
 		stages = append(stages, stage.NewStateStoreLoadStageWithTurnState(storeConfig, turnState))
 		if cfg.IncludeTurnIndex {
-			stages = append(stages, arenastages.NewTurnIndexStage())
+			stages = append(stages, arenastages.NewTurnIndexStageWithTurnState(turnState))
 		}
 	}
 
@@ -533,7 +529,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 
 	// Scenario context extraction (scripted only)
 	if cfg.IncludeScenarioContextExtraction {
-		stages = append(stages, arenastages.NewScenarioContextExtractionStage(req.Scenario))
+		stages = append(stages, arenastages.NewScenarioContextExtractionStageWithTurnState(req.Scenario, turnState))
 	}
 
 	// Template
@@ -546,7 +542,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 
 	// Mock scenario context (for mock providers only)
 	if isMockProvider(req.Provider) {
-		stages = append(stages, arenastages.NewMockScenarioContextStage(req.Scenario))
+		stages = append(stages, arenastages.NewMockScenarioContextStageWithTurnState(req.Scenario, turnState))
 	}
 
 	// Context builder (if policy exists) — scripted path
@@ -599,7 +595,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 		if cfg.UseArenaStateStoreSave {
 			stages = append(stages, arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState))
 		} else {
-			stages = append(stages, stage.NewStateStoreSaveStage(storeConfig))
+			stages = append(stages, stage.NewStateStoreSaveStageWithTurnState(storeConfig, turnState))
 		}
 	}
 

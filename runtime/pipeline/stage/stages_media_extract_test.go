@@ -74,24 +74,20 @@ func TestMediaExtractStage_ExtractSingleImage(t *testing.T) {
 	}
 
 	// Check correlation metadata
-	msgID := result.GetMetadata(MediaExtractMessageIDKey)
-	if msgID == nil {
+	if result.Meta.MediaExtract == nil {
+		t.Fatal("Expected MediaExtract info on element")
+	}
+	if result.Meta.MediaExtract.MessageID == "" {
 		t.Error("Expected message ID metadata")
 	}
-
-	partIdx := result.GetMetadata(MediaExtractPartIndexKey)
-	if partIdx != 0 {
-		t.Errorf("Expected part index 0, got %v", partIdx)
+	if result.Meta.MediaExtract.PartIndex != 0 {
+		t.Errorf("Expected part index 0, got %d", result.Meta.MediaExtract.PartIndex)
 	}
-
-	totalParts := result.GetMetadata(MediaExtractTotalPartsKey)
-	if totalParts != 1 {
-		t.Errorf("Expected total parts 1, got %v", totalParts)
+	if result.Meta.MediaExtract.TotalParts != 1 {
+		t.Errorf("Expected total parts 1, got %d", result.Meta.MediaExtract.TotalParts)
 	}
-
-	mediaType := result.GetMetadata(MediaExtractMediaTypeKey)
-	if mediaType != types.ContentTypeImage {
-		t.Errorf("Expected media type 'image', got %v", mediaType)
+	if result.Meta.MediaExtract.MediaType != types.ContentTypeImage {
+		t.Errorf("Expected media type 'image', got %s", result.Meta.MediaExtract.MediaType)
 	}
 }
 
@@ -140,27 +136,28 @@ func TestMediaExtractStage_ExtractMultipleImages(t *testing.T) {
 	}
 
 	// Verify all have same message ID
-	var msgID interface{}
+	var msgID string
 	for i, result := range results {
 		if result.Image == nil {
 			t.Errorf("Element %d: Expected Image", i)
 		}
+		if result.Meta.MediaExtract == nil {
+			t.Errorf("Element %d: Expected MediaExtract info", i)
+			continue
+		}
 
-		currentMsgID := result.GetMetadata(MediaExtractMessageIDKey)
+		currentMsgID := result.Meta.MediaExtract.MessageID
 		if i == 0 {
 			msgID = currentMsgID
 		} else if currentMsgID != msgID {
 			t.Errorf("Element %d: Message ID mismatch", i)
 		}
 
-		partIdx := result.GetMetadata(MediaExtractPartIndexKey)
-		if partIdx != i {
-			t.Errorf("Element %d: Expected part index %d, got %v", i, i, partIdx)
+		if result.Meta.MediaExtract.PartIndex != i {
+			t.Errorf("Element %d: Expected part index %d, got %d", i, i, result.Meta.MediaExtract.PartIndex)
 		}
-
-		totalParts := result.GetMetadata(MediaExtractTotalPartsKey)
-		if totalParts != 3 {
-			t.Errorf("Element %d: Expected total parts 3, got %v", i, totalParts)
+		if result.Meta.MediaExtract.TotalParts != 3 {
+			t.Errorf("Element %d: Expected total parts 3, got %d", i, result.Meta.MediaExtract.TotalParts)
 		}
 	}
 }
@@ -391,16 +388,13 @@ func TestMediaExtractStage_OriginalMessagePreserved(t *testing.T) {
 	result := <-output
 
 	// Verify original message is preserved in metadata
-	origMsg := result.GetMetadata(MediaExtractOriginalMessageKey)
-	if origMsg == nil {
+	if result.Meta.MediaExtract == nil {
+		t.Fatal("Expected MediaExtract info on element")
+	}
+	preserved := result.Meta.MediaExtract.OriginalMessage
+	if preserved == nil {
 		t.Fatal("Expected original message in metadata")
 	}
-
-	preserved, ok := origMsg.(*types.Message)
-	if !ok {
-		t.Fatalf("Expected *types.Message, got %T", origMsg)
-	}
-
 	if preserved.Role != "user" {
 		t.Errorf("Expected role 'user', got '%s'", preserved.Role)
 	}

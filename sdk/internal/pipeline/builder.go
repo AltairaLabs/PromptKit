@@ -369,14 +369,14 @@ func appendStateStoreLoadStages(
 		return stages
 	}
 	if useRAGContext {
-		return append(stages, stage.NewContextAssemblyStage(&stage.ContextAssemblyConfig{
+		return append(stages, stage.NewContextAssemblyStageWithTurnState(&stage.ContextAssemblyConfig{
 			StateStoreConfig: stateStoreConfig,
 			RecentMessages:   cfg.ContextWindow,
 			MessageIndex:     cfg.MessageIndex,
 			RetrievalTopK:    cfg.RetrievalTopK,
 			HasTokenBudget:   cfg.TokenBudget > 0,
 			HasContextWindow: cfg.ContextWindow > 0,
-		}))
+		}, turnState))
 	}
 	return append(stages, stage.NewStateStoreLoadStageWithTurnState(stateStoreConfig, turnState))
 }

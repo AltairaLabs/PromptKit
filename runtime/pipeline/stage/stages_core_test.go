@@ -437,18 +437,19 @@ func TestStateStoreSaveStage_MergesMetadata(t *testing.T) {
 		},
 	}
 
-	s := NewStateStoreSaveStage(config)
-
-	elem := newTestMsgElement("user", "Test")
-	elem.Metadata = map[string]interface{}{
+	turnState := NewTurnState()
+	turnState.ProviderRequestMetadata = map[string]interface{}{
 		"execution_key": "execution_value",
 	}
 
+	s := NewStateStoreSaveStageWithTurnState(config, turnState)
+
+	elem := newTestMsgElement("user", "Test")
 	results := runTestStage(t, s, []StreamElement{elem})
 
 	require.Len(t, results, 1)
 
-	// Verify metadata was merged
+	// Verify metadata was merged from TurnState.ProviderRequestMetadata
 	ctx := context.Background()
 	state, err := store.Load(ctx, "metadata-test")
 	require.NoError(t, err)

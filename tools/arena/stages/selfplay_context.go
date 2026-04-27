@@ -10,37 +10,53 @@ import (
 // SelfPlayUserTurnContextStage adds scenario context for the NEXT user turn
 // (completed user turns + 1). Intended only for self-play user generation.
 //
-// This stage enriches elements with metadata that MockProvider uses to select
-// the appropriate mock response based on scenario and turn number.
+// This stage writes scenario/turn coordination keys into TurnState's
+// ProviderRequestMetadata so the mock provider can select the appropriate
+// canned response by scenario id, turn number, and persona.
 type SelfPlayUserTurnContextStage struct {
 	stage.BaseStage
 	scenario      *config.Scenario
 	turnIndexHint int // If > 0, use this instead of computing from history
+	turnState     *stage.TurnState
+	personaID     string
 }
 
-// NewSelfPlayUserTurnContextStage creates a new self-play context stage.
-func NewSelfPlayUserTurnContextStage(scenario *config.Scenario) *SelfPlayUserTurnContextStage {
+// NewSelfPlayUserTurnContextStageWithTurnState creates a self-play context
+// stage that writes coordination metadata into the shared *TurnState.
+func NewSelfPlayUserTurnContextStageWithTurnState(
+	scenario *config.Scenario,
+	personaID string,
+	turnState *stage.TurnState,
+) *SelfPlayUserTurnContextStage {
 	return &SelfPlayUserTurnContextStage{
 		BaseStage: stage.NewBaseStage("selfplay_user_context", stage.StageTypeTransform),
 		scenario:  scenario,
+		turnState: turnState,
+		personaID: personaID,
 	}
 }
 
-// NewSelfPlayUserTurnContextStageWithHint creates a self-play context stage with an explicit
-// turn index. The turnIndexHint should be the 1-indexed selfplay turn number (first selfplay = 1).
-// This is used when the scenario has mixed file-based and selfplay turns.
-func NewSelfPlayUserTurnContextStageWithHint(
+// NewSelfPlayUserTurnContextStageWithHintAndTurnState creates a self-play
+// context stage with an explicit turn index. The turnIndexHint should be the
+// 1-indexed selfplay turn number (first selfplay = 1). Used when the scenario
+// has mixed file-based and selfplay turns.
+func NewSelfPlayUserTurnContextStageWithHintAndTurnState(
 	scenario *config.Scenario,
 	turnIndexHint int,
+	personaID string,
+	turnState *stage.TurnState,
 ) *SelfPlayUserTurnContextStage {
 	return &SelfPlayUserTurnContextStage{
 		BaseStage:     stage.NewBaseStage("selfplay_user_context", stage.StageTypeTransform),
 		scenario:      scenario,
 		turnIndexHint: turnIndexHint,
+		turnState:     turnState,
+		personaID:     personaID,
 	}
 }
 
-// Process adds next-turn self-play context metadata to all elements.
+// Process writes next-turn self-play context into TurnState's provider
+// request metadata, then forwards all input elements unchanged.
 //
 //nolint:lll // Channel signature cannot be shortened
 func (s *SelfPlayUserTurnContextStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
@@ -57,52 +73,12 @@ func (s *SelfPlayUserTurnContextStage) Process(ctx context.Context, input <-chan
 		nextUserTurn = s.turnIndexHint
 	}
 
-	// Forward elements with enriched metadata
-	return s.forwardWithMetadataAndTurn(ctx, elements, userCount, nextUserTurn, output)
-}
+	s.writeProviderMetadata(userCount, nextUserTurn)
 
-// accumulateAndCount collects all input elements and counts user messages.
-func (s *SelfPlayUserTurnContextStage) accumulateAndCount(
-	input <-chan stage.StreamElement,
-) (elements []stage.StreamElement, userCount int) {
-	for elem := range input {
-		elements = append(elements, elem)
-		userCount = s.countUserTurn(&elem, userCount)
-	}
-	return elements, userCount
-}
-
-// countUserTurn updates the user count based on an element.
-func (s *SelfPlayUserTurnContextStage) countUserTurn(elem *stage.StreamElement, currentCount int) int {
-	// Count user messages
-	if elem.Message != nil && elem.Message.Role == "user" {
-		currentCount++
-	}
-
-	// Also check if turn count is already in metadata (from TurnIndexStage)
-	if elem.Metadata != nil {
-		if count, ok := elem.Metadata["arena_user_completed_turns"].(int); ok && count > currentCount {
-			return count
-		}
-	}
-
-	return currentCount
-}
-
-// forwardWithMetadataAndTurn enriches elements with context and forwards them.
-func (s *SelfPlayUserTurnContextStage) forwardWithMetadataAndTurn(
-	ctx context.Context,
-	elements []stage.StreamElement,
-	userCount int,
-	nextUserTurn int,
-	output chan<- stage.StreamElement,
-) error {
+	// Forward all elements unchanged.
 	for i := range elements {
-		elem := &elements[i]
-		s.enrichElement(elem, userCount, nextUserTurn)
-
 		select {
-		case output <- *elem:
+		case output <- elements[i]:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -111,26 +87,35 @@ func (s *SelfPlayUserTurnContextStage) forwardWithMetadataAndTurn(
 	return nil
 }
 
-// enrichElement adds self-play context metadata to an element.
-func (s *SelfPlayUserTurnContextStage) enrichElement(elem *stage.StreamElement, userCount, nextUserTurn int) {
-	if s.scenario == nil || s.scenario.ID == "" {
+// accumulateAndCount collects all input elements and counts user messages.
+func (s *SelfPlayUserTurnContextStage) accumulateAndCount(
+	input <-chan stage.StreamElement,
+) (elements []stage.StreamElement, userCount int) {
+	for elem := range input {
+		elements = append(elements, elem)
+		if elem.Message != nil && elem.Message.Role == "user" {
+			userCount++
+		}
+	}
+	return elements, userCount
+}
+
+// writeProviderMetadata writes self-play coordination keys into the
+// per-Turn ProviderRequestMetadata bag on TurnState.
+func (s *SelfPlayUserTurnContextStage) writeProviderMetadata(userCount, nextUserTurn int) {
+	if s.turnState == nil || s.scenario == nil || s.scenario.ID == "" {
 		return
 	}
-
-	if elem.Metadata == nil {
-		elem.Metadata = make(map[string]interface{})
+	if s.turnState.ProviderRequestMetadata == nil {
+		s.turnState.ProviderRequestMetadata = map[string]interface{}{}
 	}
-
-	elem.Metadata["arena_user_completed_turns"] = userCount
-	elem.Metadata["arena_user_next_turn"] = nextUserTurn
-	elem.Metadata["arena_role"] = "self_play_user"
-	elem.Metadata["mock_scenario_id"] = s.scenario.ID
-	elem.Metadata["mock_turn_number"] = nextUserTurn // backward-compat
-
-	// Copy persona ID from input metadata to mock_persona_id for mock provider lookup.
-	// This allows the mock repository to return persona-specific responses instead of
-	// scenario responses when generating selfplay user turns.
-	if personaID, ok := elem.Metadata["persona"].(string); ok && personaID != "" {
-		elem.Metadata["mock_persona_id"] = personaID
+	m := s.turnState.ProviderRequestMetadata
+	m["arena_user_completed_turns"] = userCount
+	m["arena_user_next_turn"] = nextUserTurn
+	m["arena_role"] = "self_play_user"
+	m["mock_scenario_id"] = s.scenario.ID
+	m["mock_turn_number"] = nextUserTurn // backward-compat
+	if s.personaID != "" {
+		m["mock_persona_id"] = s.personaID
 	}
 }

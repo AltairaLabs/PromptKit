@@ -9,21 +9,11 @@ import (
 // SkillInstructionStage appends preloaded skill instructions to the system
 // prompt so the model sees skills marked preload: true from turn 1 without
 // having to call skill__activate. The instructions are appended exactly once
-// per Turn when wired with a *TurnState.
+// per Turn into TurnState.SystemPrompt.
 type SkillInstructionStage struct {
 	stage.BaseStage
 	instructions string
 	turnState    *stage.TurnState
-}
-
-// NewSkillInstructionStage creates a stage that appends the given preloaded
-// skill instructions block to the system prompt. Pipelines that have migrated
-// to TurnState should use NewSkillInstructionStageWithTurnState.
-func NewSkillInstructionStage(instructions string) *SkillInstructionStage {
-	return &SkillInstructionStage{
-		BaseStage:    stage.NewBaseStage("skill_instruction", stage.StageTypeTransform),
-		instructions: instructions,
-	}
 }
 
 // NewSkillInstructionStageWithTurnState creates a stage that reads and writes

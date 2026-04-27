@@ -147,6 +147,7 @@ func TestSTTStage_PreservesMetadata(t *testing.T) {
 	}
 	s := stage.NewSTTStage(mock, stage.DefaultSTTStageConfig())
 
+	turnID := "abc123"
 	audioElem := stage.StreamElement{
 		Audio: &stage.AudioData{
 			Samples:    generateTestPCMAudio(32000),
@@ -154,17 +155,15 @@ func TestSTTStage_PreservesMetadata(t *testing.T) {
 			Channels:   1,
 			Format:     stage.AudioFormatPCM16,
 		},
-		Metadata: map[string]interface{}{
-			"turn_id": "abc123",
-		},
+		Meta: stage.ElementMetadata{TurnID: &turnID},
 	}
 
 	results := runStage(t, s, []stage.StreamElement{audioElem}, 2*time.Second)
 
 	require.Len(t, results, 1)
 	require.NotNil(t, results[0].Text)
-	require.NotNil(t, results[0].Metadata)
-	assert.Equal(t, "abc123", results[0].Metadata["turn_id"])
+	require.NotNil(t, results[0].Meta.TurnID)
+	assert.Equal(t, "abc123", *results[0].Meta.TurnID)
 }
 
 func TestSTTStage_PassesLanguageConfig(t *testing.T) {

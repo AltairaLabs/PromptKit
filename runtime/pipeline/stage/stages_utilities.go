@@ -97,10 +97,6 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 		snapshot["error"] = elem.Error.Error()
 	}
 
-	if len(elem.Metadata) > 0 {
-		snapshot["metadata_keys"] = getKeys(elem.Metadata)
-	}
-
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		logger.Debug("Failed to marshal element", "error", err)
@@ -108,15 +104,6 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 	}
 
 	logger.Debug("StreamElement snapshot", "stage", s.stageName, "timing", timing, "element", string(data))
-}
-
-// getKeys extracts keys from a map for logging.
-func getKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 // TemplateStage substitutes {{variable}} placeholders in messages and metadata.

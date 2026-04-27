@@ -57,9 +57,6 @@ func (s *HistoryInjectionStage) Process(ctx context.Context, input <-chan stage.
 		}
 		elem := stage.StreamElement{
 			Message: &msg,
-			Metadata: map[string]interface{}{
-				"source": "history_injection",
-			},
 		}
 
 		select {

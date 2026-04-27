@@ -151,8 +151,7 @@ func TestTokenBudgetStage_ForwardsNonMessageElements(t *testing.T) {
 	inputs := []StreamElement{
 		newTestMsgElement("user", "Hello"),
 		{
-			Text:     &text,
-			Metadata: map[string]interface{}{"system_prompt": "You are helpful"},
+			Text: &text,
 		},
 	}
 
@@ -166,30 +165,24 @@ func TestTokenBudgetStage_ForwardsNonMessageElements(t *testing.T) {
 	assert.Equal(t, "some text", *results[1].Text)
 }
 
-func TestTokenBudgetStage_SystemPromptFromMetadata(t *testing.T) {
+func TestTokenBudgetStage_SystemPromptFromTurnState(t *testing.T) {
 	counter := tokenizer.NewHeuristicTokenCounterWithRatio(1.0)
-	s := NewTokenBudgetStage(&TokenBudgetConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a very helpful assistant with a long system prompt"
+	s := NewTokenBudgetStageWithTurnState(&TokenBudgetConfig{
 		MaxTokens:    30,
 		TokenCounter: counter,
-	})
+	}, turnState)
 
-	// System prompt metadata takes up budget space
 	inputs := []StreamElement{
 		newTestMsgElement("user", "Message 1 content here"),
 		newTestMsgElement("user", "Message 2 content here"),
 		newTestMsgElement("user", "Message 3 content here"),
-		{
-			Metadata: map[string]interface{}{
-				"system_prompt": "You are a very helpful assistant with a long system prompt",
-			},
-		},
 	}
 
 	results := runTestStage(t, s, inputs)
 
 	// Should have some messages truncated due to system prompt overhead
-	// The exact count depends on token counting, but it should be less than
-	// 4 (3 messages + 1 metadata)
 	require.Greater(t, len(results), 0)
 }
 

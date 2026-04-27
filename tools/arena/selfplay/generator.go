@@ -109,6 +109,8 @@ func (cg *ContentGenerator) NextUserTurn(
 		Source:      events.SourceSelfPlay,
 	}
 
+	turnState := stage.NewTurnState()
+
 	// Create the selfplay context stage.
 	// If opts provides a selfplay turn index, use it instead of computing from history.
 	// This is important for scenarios with mixed file-based and selfplay turns.
@@ -118,17 +120,22 @@ func (cg *ContentGenerator) NextUserTurn(
 		selfplayTurnIndex = opts.SelfplayTurnIndex
 	}
 	if selfplayTurnIndex > 0 {
-		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStageWithHint(
+		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStageWithHintAndTurnState(
 			&config.Scenario{ID: scenarioID},
 			selfplayTurnIndex,
+			cg.persona.ID,
+			turnState,
 		)
 	} else {
-		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStage(&config.Scenario{ID: scenarioID})
+		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStageWithTurnState(
+			&config.Scenario{ID: scenarioID},
+			cg.persona.ID,
+			turnState,
+		)
 	}
 
-	turnState := stage.NewTurnState()
 	stages := []stage.Stage{
-		arenastages.NewPersonaAssemblyStage(cg.persona, region, baseVariables),
+		arenastages.NewPersonaAssemblyStageWithTurnState(cg.persona, region, baseVariables, turnState),
 	}
 
 	// Append natural termination instruction when enabled
@@ -154,13 +161,9 @@ func (cg *ContentGenerator) NextUserTurn(
 		return nil, fmt.Errorf("failed to build stage pipeline: %w", err)
 	}
 
-	// Create empty input element (system prompt + history drives generation)
-	inputElem := stage.StreamElement{
-		Metadata: map[string]interface{}{
-			"persona":     cg.persona.ID,
-			"scenario_id": scenarioID,
-		},
-	}
+	// Empty input element — system prompt + history drives generation. Per-Turn
+	// coordination data lives in TurnState, not on the element.
+	inputElem := stage.StreamElement{}
 
 	// Execute pipeline synchronously
 	stageResult, err := pl.ExecuteSync(ctx, inputElem)

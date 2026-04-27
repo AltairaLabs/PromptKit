@@ -110,29 +110,6 @@ func TestTemplateStage_SubstitutesInMessageContent(t *testing.T) {
 	assert.Equal(t, "This is about testing", *result.Message.Parts[0].Text)
 }
 
-func TestTemplateStage_NoVariablesInMetadata(t *testing.T) {
-	stage := NewTemplateStage()
-
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
-
-	elem := StreamElement{
-		Metadata: map[string]interface{}{
-			"system_prompt": "Hello {{name}}!",
-			// No variables key
-		},
-	}
-	input <- elem
-	close(input)
-
-	err := stage.Process(context.Background(), input, output)
-	require.NoError(t, err)
-
-	result := <-output
-	// Without variables, placeholder remains
-	assert.Equal(t, "Hello {{name}}!", result.Metadata["system_prompt"])
-}
-
 func TestTemplateStage_NilMessage(t *testing.T) {
 	turnState := NewTurnState()
 	turnState.Template = &prompt.Template{RawTemplate: "Hello {{name}}!"}
@@ -187,11 +164,7 @@ func TestTemplateStage_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	elem := StreamElement{
-		Metadata: map[string]interface{}{
-			"variables": map[string]string{"name": "Test"},
-		},
-	}
+	elem := StreamElement{}
 	input <- elem
 	close(input)
 
@@ -675,8 +648,8 @@ func TestContextBuilderStage_AddsTruncationMetadata(t *testing.T) {
 
 	// Check that truncation metadata is added
 	for elem := range output {
-		if truncated, ok := elem.Metadata["context_truncated"].(bool); ok && truncated {
-			assert.True(t, truncated, "Truncation flag should be set")
+		if elem.Meta.ContextTruncated {
+			assert.True(t, elem.Meta.ContextTruncated, "Truncation flag should be set")
 			return // Found it
 		}
 	}
@@ -1069,7 +1042,6 @@ func TestNewAudioElement(t *testing.T) {
 
 	assert.NotNil(t, elem.Audio)
 	assert.Equal(t, PriorityHigh, elem.Priority)
-	assert.NotNil(t, elem.Metadata)
 }
 
 func TestNewVideoElement(t *testing.T) {
@@ -1178,40 +1150,6 @@ func TestStreamElement_WithSequence(t *testing.T) {
 	result := elem.WithSequence(42)
 
 	assert.Equal(t, int64(42), result.Sequence)
-}
-
-func TestStreamElement_WithMetadata(t *testing.T) {
-	elem := NewTextElement("test")
-	result := elem.WithMetadata("key", "value")
-
-	assert.Equal(t, "value", result.Metadata["key"])
-}
-
-func TestStreamElement_WithMetadata_NilMap(t *testing.T) {
-	elem := StreamElement{}
-	result := elem.WithMetadata("key", "value")
-
-	assert.NotNil(t, result.Metadata)
-	assert.Equal(t, "value", result.Metadata["key"])
-}
-
-func TestStreamElement_GetMetadata(t *testing.T) {
-	t.Run("existing key", func(t *testing.T) {
-		elem := NewTextElement("test")
-		elem.Metadata["key"] = "value"
-
-		assert.Equal(t, "value", elem.GetMetadata("key"))
-	})
-
-	t.Run("missing key", func(t *testing.T) {
-		elem := NewTextElement("test")
-		assert.Nil(t, elem.GetMetadata("nonexistent"))
-	})
-
-	t.Run("nil metadata", func(t *testing.T) {
-		elem := StreamElement{}
-		assert.Nil(t, elem.GetMetadata("key"))
-	})
 }
 
 // =============================================================================
@@ -1331,7 +1269,6 @@ func TestStreamPipeline_ExecuteSync(t *testing.T) {
 		// Create input with a message
 		msg := &types.Message{Role: "assistant", Content: "Hello, world!"}
 		input := NewMessageElement(msg)
-		input.Metadata["test_key"] = "test_value"
 
 		// Execute sync
 		result, err := pipeline.ExecuteSync(context.Background(), input)
@@ -1343,7 +1280,6 @@ func TestStreamPipeline_ExecuteSync(t *testing.T) {
 		assert.Equal(t, "Hello, world!", result.Messages[0].Content)
 		assert.NotNil(t, result.Response)
 		assert.Equal(t, "Hello, world!", result.Response.Content)
-		assert.Equal(t, "test_value", result.Metadata["test_key"])
 	})
 
 	t.Run("handles empty input", func(t *testing.T) {
@@ -1739,7 +1675,7 @@ func TestVariableProviderStage_ErrorHandling(t *testing.T) {
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
 
-		input <- StreamElement{Metadata: map[string]interface{}{}}
+		input <- StreamElement{}
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
@@ -2627,24 +2563,6 @@ func TestSelectByRelevance(t *testing.T) {
 	})
 }
 
-func TestGetKeys(t *testing.T) {
-	t.Run("returns all keys", func(t *testing.T) {
-		m := map[string]interface{}{
-			"alpha": 1,
-			"beta":  "two",
-			"gamma": true,
-		}
-		keys := getKeys(m)
-		assert.Len(t, keys, 3)
-		assert.ElementsMatch(t, []string{"alpha", "beta", "gamma"}, keys)
-	})
-
-	t.Run("empty map", func(t *testing.T) {
-		keys := getKeys(map[string]interface{}{})
-		assert.Empty(t, keys)
-	})
-}
-
 func TestSelectMostRecentProtected(t *testing.T) {
 	stage := NewContextBuilderStage(&ContextBuilderPolicy{
 		TokenBudget: 1000,
@@ -2686,7 +2604,7 @@ func TestDebugStage_LogElement(t *testing.T) {
 
 	t.Run("logs text element", func(t *testing.T) {
 		text := "Hello world"
-		elem := &StreamElement{Text: &text, Metadata: map[string]interface{}{"key": "val"}}
+		elem := &StreamElement{Text: &text}
 		stage.logElement(elem, "pre")
 	})
 
