@@ -67,6 +67,18 @@ func vertexAnthropicEndpoint(region, project string) string {
 	)
 }
 
+// bedrockAnthropicEndpoint returns the AWS Bedrock Runtime base URL for the
+// given region. The result has no trailing slash; per-call code appends
+// `/model/{model}/invoke` (or `/invoke-with-response-stream`) to address a
+// specific model. Returns an empty string if region is empty so callers
+// can fall back to an explicit BaseURL.
+func bedrockAnthropicEndpoint(region string) string {
+	if region == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", region)
+}
+
 // azureAnthropicDeploymentEndpoint returns the Azure AI Foundry base URL
 // for an Anthropic deployment on an AIServices account. The result ends
 // in `/openai/deployments/{deployment}` (no trailing slash); per-call
@@ -139,6 +151,8 @@ func NewProviderWithCredential(
 			baseURL = vertexAnthropicEndpoint(platformConfig.Region, platformConfig.Project)
 		case platform == azurePlatform && platformConfig.Endpoint != "":
 			baseURL = azureAnthropicDeploymentEndpoint(platformConfig.Endpoint, model)
+		case platform == bedrockPlatform && platformConfig.Region != "":
+			baseURL = bedrockAnthropicEndpoint(platformConfig.Region)
 		}
 	}
 

@@ -238,8 +238,11 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 			// Skip the api.anthropic.com default for hyperscaler-hosted
 			// Anthropic — the claude factory builds the platform URL from
 			// PlatformConfig (Vertex: publishers/anthropic/models; Azure:
-			// openai/deployments/{deployment}). Same #1010 root cause.
-			if spec.Platform != "vertex" && spec.Platform != "azure" {
+			// openai/deployments/{deployment}; Bedrock:
+			// bedrock-runtime.{region}.amazonaws.com). Same #1010 root cause.
+			// See #1029 for the Bedrock case that previously fell through.
+			if spec.Platform != "vertex" && spec.Platform != "azure" &&
+				spec.Platform != "bedrock" {
 				baseURL = "https://api.anthropic.com"
 			}
 		case "imagen":

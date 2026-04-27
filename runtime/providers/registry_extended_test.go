@@ -301,6 +301,47 @@ func TestCreateProviderFromSpecClaudeAzureSkipsDefault(t *testing.T) {
 	}
 }
 
+// TestCreateProviderFromSpecClaudeBedrockSkipsDefault is the regression test
+// for #1029: api.anthropic.com must not clobber spec.BaseURL when
+// Platform=="bedrock". The claude factory derives the
+// bedrock-runtime.{region}.amazonaws.com URL from PlatformConfig.Region in
+// that case; if the registry overwrites BaseURL, requests 404 against the
+// public Anthropic API.
+func TestCreateProviderFromSpecClaudeBedrockSkipsDefault(t *testing.T) {
+	originalFactory := providerFactories["claude"]
+	capturedBaseURL := "sentinel"
+	providerFactories["claude"] = func(spec ProviderSpec) (Provider, error) {
+		capturedBaseURL = spec.BaseURL
+		return &mockProviderForTest{id: spec.ID}, nil
+	}
+	defer func() {
+		if originalFactory != nil {
+			providerFactories["claude"] = originalFactory
+		} else {
+			delete(providerFactories, "claude")
+		}
+	}()
+
+	spec := ProviderSpec{
+		ID:       "bedrock-claude",
+		Type:     "claude",
+		Model:    testModelName,
+		Platform: "bedrock",
+		PlatformConfig: &PlatformConfig{
+			Type:   "bedrock",
+			Region: "us-west-2",
+		},
+	}
+
+	if _, err := CreateProviderFromSpec(spec); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if capturedBaseURL != "" {
+		t.Errorf("Expected empty BaseURL for claude+bedrock, got %q (regression of #1029)", capturedBaseURL)
+	}
+}
+
 func TestCreateProviderFromSpecCustomBaseURL(t *testing.T) {
 	customURL := "https://custom.api.example.com"
 	spec := ProviderSpec{
