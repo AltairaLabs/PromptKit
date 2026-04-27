@@ -634,7 +634,7 @@ func TestEvalRunner_EmitResult(t *testing.T) {
 	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
 	r := NewEvalRunner(reg, WithEmitter(emitter))
 
-	r.emitResult(&EvalResult{
+	r.emitResult(nil, &EvalResult{
 		EvalID: "e1",
 		Type:   "test",
 		Score:  func() *float64 { v := 1.0; return &v }(),
@@ -668,7 +668,7 @@ func TestEvalRunner_EmitResult_UsesValueForPassed(t *testing.T) {
 	r := NewEvalRunner(reg, WithEmitter(emitter))
 
 	// Score is 0.7 (below 1.0) but Value is true (threshold passed)
-	r.emitResult(&EvalResult{
+	r.emitResult(nil, &EvalResult{
 		EvalID: "e1",
 		Type:   "test",
 		Score:  func() *float64 { v := 0.7; return &v }(),
@@ -680,6 +680,98 @@ func TestEvalRunner_EmitResult_UsesValueForPassed(t *testing.T) {
 		data := e.Data.(*events.EvalCompletedData)
 		if !data.Passed {
 			t.Error("expected passed=true from Value, not score")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out")
+	}
+}
+
+// TestEvalRunner_EmitResult_Lossless1028 pins the #1028 contract: the event
+// payload carries Trigger, Details, and full structured Violations, not the
+// previously-flattened []string. Removing any of these would have to update
+// this test (and the consumer-facing payload).
+func TestEvalRunner_EmitResult_Lossless1028(t *testing.T) {
+	reg := NewEvalTypeRegistry()
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	received := make(chan *events.Event, 10)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
+		received <- e
+	})
+
+	emitter := events.NewEmitter(bus, "", "", "")
+	r := NewEvalRunner(reg, WithEmitter(emitter))
+
+	def := &EvalDef{ID: "e1", Type: "test", Trigger: TriggerEveryTurn}
+	r.emitResult(def, &EvalResult{
+		EvalID:  "e1",
+		Type:    "test",
+		Score:   func() *float64 { v := 1.0; return &v }(),
+		Details: map[string]any{"per_criterion": []float64{0.9, 0.95}, "model": "judge-v1"},
+		Violations: []EvalViolation{
+			{
+				TurnIndex:   2,
+				Description: "tool args drifted",
+				Evidence:    map[string]any{"expected": "x", "actual": "y"},
+			},
+			{TurnIndex: 5, Description: "format mismatch"},
+		},
+	})
+
+	select {
+	case e := <-received:
+		data := e.Data.(*events.EvalCompletedData)
+		if data.Trigger != string(TriggerEveryTurn) {
+			t.Errorf("Trigger = %q, want %q", data.Trigger, TriggerEveryTurn)
+		}
+		if data.Details["model"] != "judge-v1" {
+			t.Errorf("Details[\"model\"] = %v, want %q", data.Details["model"], "judge-v1")
+		}
+		if len(data.Violations) != 2 {
+			t.Fatalf("Violations len = %d, want 2", len(data.Violations))
+		}
+		v0 := data.Violations[0]
+		if v0.TurnIndex != 2 || v0.Description != "tool args drifted" {
+			t.Errorf("Violation[0] = %+v, want TurnIndex=2 Description=\"tool args drifted\"", v0)
+		}
+		if v0.Evidence["expected"] != "x" || v0.Evidence["actual"] != "y" {
+			t.Errorf("Violation[0].Evidence lost evidence map")
+		}
+		v1 := data.Violations[1]
+		if v1.TurnIndex != 5 || v1.Description != "format mismatch" {
+			t.Errorf("Violation[1] = %+v, want TurnIndex=5 Description=\"format mismatch\"", v1)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for EvalCompleted event")
+	}
+}
+
+// TestEvalRunner_EmitResult_TriggerOmittedWhenNilDef sanity-checks the
+// nil-def fallback (used by the existing test scaffolding above).
+func TestEvalRunner_EmitResult_TriggerOmittedWhenNilDef(t *testing.T) {
+	reg := NewEvalTypeRegistry()
+	bus := events.NewEventBus()
+	defer bus.Close()
+
+	received := make(chan *events.Event, 10)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
+		received <- e
+	})
+
+	emitter := events.NewEmitter(bus, "", "", "")
+	r := NewEvalRunner(reg, WithEmitter(emitter))
+
+	r.emitResult(nil, &EvalResult{
+		EvalID: "e1", Type: "test",
+		Score: func() *float64 { v := 1.0; return &v }(),
+	})
+
+	select {
+	case e := <-received:
+		data := e.Data.(*events.EvalCompletedData)
+		if data.Trigger != "" {
+			t.Errorf("Trigger should be empty when def is nil, got %q", data.Trigger)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out")
