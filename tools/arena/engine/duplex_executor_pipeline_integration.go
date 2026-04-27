@@ -251,14 +251,15 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	if req.Scenario != nil {
 		taskType = req.Scenario.TaskType
 	}
+	turnState := stage.NewTurnState()
 	stages = append(stages,
 		stage.NewVariableProviderStageWithVars(mergedVars, nil),
-		stage.NewPromptAssemblyStage(de.promptRegistry, taskType, mergedVars),
+		stage.NewPromptAssemblyStageWithTurnState(de.promptRegistry, taskType, mergedVars, turnState),
 		// NOTE: ScenarioContextExtractionStage is NOT included in the duplex pipeline.
 		// It accumulates ALL elements before forwarding, which blocks the real-time
 		// element flow needed for duplex streaming. Context extraction is handled
 		// via mergedVars passed to PromptAssemblyStage.
-		stage.NewTemplateStage(),
+		stage.NewTemplateStageWithTurnState(nil, turnState),
 	)
 
 	// 2. Duplex provider stage - creates session using system_prompt from metadata

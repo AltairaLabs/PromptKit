@@ -274,6 +274,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 ) (*stage.StreamPipeline, error) {
 	logger.Debug("Building stage pipeline", "provider_type", fmt.Sprintf("%T", req.Provider))
 	builder := stage.NewPipelineBuilder()
+	turnState := stage.NewTurnState()
 
 	// Merge prompt vars into base variables
 	mergedVars := map[string]string{}
@@ -302,9 +303,9 @@ func (e *PipelineExecutor) buildStagePipeline(
 
 	// 2-4. Prompt assembly, context extraction, template
 	stages = append(stages,
-		stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars),
+		stage.NewPromptAssemblyStageWithTurnState(req.PromptRegistry, req.TaskType, mergedVars, turnState),
 		arenastages.NewScenarioContextExtractionStage(req.Scenario),
-		stage.NewTemplateStage(),
+		stage.NewTemplateStageWithTurnState(emitterFromRequest(req), turnState),
 	)
 
 	// 4b. Append preloaded skill instructions to system_prompt so skills
@@ -339,7 +340,10 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// 6. Provider stage (with consent simulation hook if overrides are present)
 	// 7. Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
 	providerConfig := buildProviderConfig(req)
-	stages = append(stages, e.buildProviderStage(req, providerConfig), arenastages.NewGuardrailEvalStage())
+	stages = append(stages,
+		e.buildProviderStage(req, providerConfig),
+		arenastages.NewGuardrailEvalStageWithTurnState(turnState),
+	)
 
 	// 7a. Output recording stage (opt-in via RecordingConfig)
 	stages = appendRecordingStage(stages, req, stage.RecordingPositionOutput)
@@ -508,6 +512,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 ) (*stage.StreamPipeline, error) {
 	mergedVars := mergePromptVars(req)
 	builder := stage.NewPipelineBuilder()
+	turnState := stage.NewTurnState()
 	var stages []stage.Stage
 
 	// StateStore Load stage
@@ -526,7 +531,8 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	}
 
 	// Prompt assembly
-	stages = append(stages, stage.NewPromptAssemblyStage(req.PromptRegistry, req.TaskType, mergedVars))
+	stages = append(stages,
+		stage.NewPromptAssemblyStageWithTurnState(req.PromptRegistry, req.TaskType, mergedVars, turnState))
 
 	// Scenario context extraction (scripted only)
 	if cfg.IncludeScenarioContextExtraction {
@@ -534,7 +540,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	}
 
 	// Template
-	stages = append(stages, stage.NewTemplateStage())
+	stages = append(stages, stage.NewTemplateStageWithTurnState(emitterFromRequest(req), turnState))
 
 	// Strip tool messages (self-play only)
 	if cfg.IncludeStripToolMessages {
@@ -567,7 +573,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 
 	// Guardrail evaluation (scripted only)
 	if cfg.IncludeGuardrailEval {
-		stages = append(stages, arenastages.NewGuardrailEvalStage())
+		stages = append(stages, arenastages.NewGuardrailEvalStageWithTurnState(turnState))
 	}
 
 	// Output recording stage (opt-in via RecordingConfig)

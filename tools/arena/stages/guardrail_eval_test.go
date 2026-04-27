@@ -9,6 +9,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGuardrailEvalStage_TurnStateTakesPrecedenceOverMetadata(t *testing.T) {
+	// When wired with a TurnState that has Validators, the stage uses those
+	// configs in preference to the deprecated metadata bag. The metadata
+	// fallback path is exercised by all the other tests in this file.
+	turnState := stage.NewTurnState()
+	turnState.Validators = []prompt.ValidatorConfig{
+		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
+	}
+	s := NewGuardrailEvalStageWithTurnState(turnState)
+
+	elem := newTestMessageElement("assistant", "This is forbidden content.")
+	// Bag contains a different (incorrect) config; TurnState must win.
+	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
+		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"never_match"}}},
+	}
+
+	results := runStage(t, s, []stage.StreamElement{elem})
+	require.Len(t, results, 1)
+	msg := results[0].Message
+	require.Len(t, msg.Validations, 1)
+	assert.False(t, msg.Validations[0].Passed, "TurnState validator should fail on the forbidden word")
+}
+
+func TestGuardrailEvalStage_TurnStateEmptyFallsBackToMetadata(t *testing.T) {
+	// When TurnState is wired but has no Validators, the stage falls back
+	// to scanning the metadata bag for back-compat.
+	turnState := stage.NewTurnState()
+	s := NewGuardrailEvalStageWithTurnState(turnState)
+
+	elem := newTestMessageElement("assistant", "This is forbidden content.")
+	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
+		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
+	}
+
+	results := runStage(t, s, []stage.StreamElement{elem})
+	require.Len(t, results, 1)
+	msg := results[0].Message
+	require.Len(t, msg.Validations, 1)
+	assert.False(t, msg.Validations[0].Passed)
+}
+
 func TestGuardrailEvalStage_BannedWordsTriggers(t *testing.T) {
 	s := NewGuardrailEvalStage()
 
