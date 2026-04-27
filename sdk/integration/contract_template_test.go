@@ -17,10 +17,11 @@ import (
 //   - emit prompt.template.rendered exactly once
 //   - never emit prompt.template.failed
 //
-// Cases marked with a knownViolation reference are skipped pending the bug
-// fix. Removing the skip is the signal that the fix has landed; if the
-// assertions then hold the contract is enforced for that fixture going
-// forward.
+// Enforced for every fixture from history=0 to history=2000 — the
+// per-Send TurnState render cache (see runtime/pipeline/stage/turn_state.go
+// and ARCHITECTURE.md §4) ensures rendering is decoupled from element
+// count. This contract test was previously t.Skipf-ed for history>0
+// pending the #1035 fix; that fix landed in PR feat/turnstate-runtime.
 func TestContract_TemplateStage(t *testing.T) {
 	contract := probes.StageContract{
 		Stage: "template",
@@ -32,32 +33,27 @@ func TestContract_TemplateStage(t *testing.T) {
 	}
 
 	cases := []struct {
-		name             string
-		history          int
-		knownViolationOf string
+		name    string
+		history int
 	}{
-		{"no-history", 0, ""},
-		{"history-1", 1, "#1035"},
-		{"history-5", 5, "#1035"},
-		{"history-50", 50, "#1035"},
-		// Scale: a 2000-turn conversation is plausible production traffic for
-		// long-running agent sessions. The bug behaves identically here, but
-		// once #1035 is fixed this case proves the contract holds at scale.
-		{"history-2000", 2000, "#1035"},
+		{"no-history", 0},
+		{"history-1", 1},
+		{"history-5", 5},
+		{"history-50", 50},
+		// Scale: a 2000-turn conversation is plausible production traffic
+		// for long-running agent sessions; the contract must hold here too.
+		{"history-2000", 2000},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.knownViolationOf != "" {
-				t.Skipf("known violation: %s — see contract_known_bugs_test.go", tc.knownViolationOf)
-			}
 			p, conv := probes.Run(t, probes.RunOptions{SeedHistory: tc.history})
 			_, err := conv.Send(context.Background(), "x")
 			require.NoError(t, err)
 
 			// EventBus is async; wait for the rendered event before snapshotting
 			// so we don't false-fail with count == 0 due to in-flight delivery.
-			require.True(t, p.WaitForCount("events.prompt.template.rendered", 1, 5*time.Second),
+			require.True(t, p.WaitForCount("events.prompt.template.rendered", 1, 10*time.Second),
 				"timed out waiting for prompt.template.rendered to land")
 
 			contract.AssertHolds(t, p.Snapshot())

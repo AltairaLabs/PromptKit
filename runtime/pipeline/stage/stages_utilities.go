@@ -135,6 +135,13 @@ type TemplateStage struct {
 	BaseStage
 	emitter  *events.Emitter
 	renderer *template.Renderer
+
+	// turnState, when set, is used as the per-Turn render cache: render
+	// fires exactly once per Send (the first non-history element) and the
+	// rendered SystemPrompt is reused for every subsequent element.
+	// Without it, the stage falls back to the legacy per-element render
+	// path (#1035 behavior). New pipelines should always wire it.
+	turnState *TurnState
 }
 
 // NewTemplateStage creates a template substitution stage.
@@ -151,6 +158,20 @@ func NewTemplateStageWithEmitter(emitter *events.Emitter) *TemplateStage {
 		BaseStage: NewBaseStage("template", StageTypeTransform),
 		emitter:   emitter,
 		renderer:  template.NewRenderer(),
+	}
+}
+
+// NewTemplateStageWithTurnState creates a template stage that uses a shared
+// *TurnState as a per-Turn render cache. This is the per-#1035 fix path:
+// the system_template is rendered once per Send regardless of how many
+// elements flow through (history loaders fan-out N elements per turn but
+// this stage now does a single render).
+func NewTemplateStageWithTurnState(emitter *events.Emitter, turnState *TurnState) *TemplateStage {
+	return &TemplateStage{
+		BaseStage: NewBaseStage("template", StageTypeTransform),
+		emitter:   emitter,
+		renderer:  template.NewRenderer(),
+		turnState: turnState,
 	}
 }
 
@@ -199,7 +220,11 @@ func (s *TemplateStage) processElement(elem *StreamElement) {
 		}
 	}
 
-	// New path: render system_template via Renderer
+	// Render path: when TurnState is configured, the template is rendered
+	// exactly once per Send (the first call populates TurnState.SystemPrompt;
+	// subsequent calls reuse it). This is the #1035 fix — without TurnState
+	// caching, every element with system_template metadata triggers a full
+	// re-render and re-emits the started/rendered events.
 	if rawTemplate, ok := elem.Metadata["system_template"].(string); ok {
 		s.renderSystemTemplate(elem, rawTemplate, mergedVars)
 	} else if _, ok := elem.Metadata["system_prompt"].(string); ok {
@@ -214,11 +239,29 @@ func (s *TemplateStage) processElement(elem *StreamElement) {
 }
 
 // renderSystemTemplate renders the raw template using the full Renderer and emits events.
+//
+// When TurnState is configured, the first call performs the render and
+// caches the result in TurnState.SystemPrompt; subsequent calls reuse
+// the cached value without re-rendering or re-emitting events. This is
+// the per-Send dedup that fixes #1035 — without TurnState, every element
+// flowing through the stage with a system_template metadata key triggers
+// a full render and a new pair of started/rendered events.
+//
+// The cached value is also written to elem.Metadata["system_prompt"] for
+// every element so legacy consumers (Arena's ArenaStateStoreSaveStage,
+// instruction stages) still see it on each element until they migrate.
 func (s *TemplateStage) renderSystemTemplate(
 	elem *StreamElement, rawTemplate string, vars map[string]string,
 ) {
 	taskType, _ := elem.Metadata["template_task_type"].(string)
 	modelOverride, _ := elem.Metadata["template_model_override"].(string)
+
+	// Cache hit: TurnState is configured AND this Send has already
+	// rendered. Reuse the rendered SystemPrompt for this element.
+	if s.turnState != nil && s.turnState.SystemPrompt != "" {
+		elem.Metadata["system_prompt"] = s.turnState.SystemPrompt
+		return
+	}
 
 	if s.emitter != nil {
 		s.emitter.TemplateStarted(taskType, rawTemplate, len(vars), modelOverride)
@@ -232,11 +275,17 @@ func (s *TemplateStage) renderSystemTemplate(
 		}
 		// Fall back to raw template so the pipeline doesn't break
 		elem.Metadata["system_prompt"] = rawTemplate
+		if s.turnState != nil {
+			s.turnState.SystemPrompt = rawTemplate
+		}
 		return
 	}
 
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(result.Text)))
 	elem.Metadata["system_prompt"] = result.Text
+	if s.turnState != nil {
+		s.turnState.SystemPrompt = result.Text
+	}
 
 	if s.emitter != nil {
 		fragmentNames := extractFragmentNames(elem)
