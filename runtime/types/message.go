@@ -30,10 +30,12 @@ type Message struct {
 	Source string `json:"-"`
 
 	// Metadata for observability and tracking
-	Timestamp time.Time              `json:"timestamp,omitempty"`  // When the message was created
-	LatencyMs int64                  `json:"latency_ms,omitempty"` // Time taken to generate (for assistant messages)
-	CostInfo  *CostInfo              `json:"cost_info,omitempty"`  // Token usage and cost tracking
-	Meta      map[string]interface{} `json:"meta,omitempty"`       // Custom metadata
+	Timestamp time.Time `json:"timestamp,omitempty"`  // When the message was created
+	LatencyMs int64     `json:"latency_ms,omitempty"` // Time taken to generate (for assistant messages)
+	CostInfo  *CostInfo `json:"cost_info,omitempty"`  // Token usage and cost tracking
+	// Provider-reported reason the assistant stopped (e.g. "stop", "length", "tool_calls").
+	FinishReason string                 `json:"finish_reason,omitempty"`
+	Meta         map[string]interface{} `json:"meta,omitempty"` // Custom metadata
 
 	// Validation results (for assistant messages)
 	Validations []ValidationResult `json:"validations,omitempty"`

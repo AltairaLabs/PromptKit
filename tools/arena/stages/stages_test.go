@@ -116,62 +116,6 @@ func TestHistoryInjectionStage_MultipleElements(t *testing.T) {
 }
 
 // =============================================================================
-// MetadataInjectionStage Tests
-// =============================================================================
-
-func TestMetadataInjectionStage_InjectsMetadata(t *testing.T) {
-	metadata := map[string]interface{}{
-		"key1": "value1",
-		"key2": 42,
-	}
-
-	s := NewMetadataInjectionStage(metadata)
-
-	inputs := []stage.StreamElement{
-		newTestMessageElement("user", "Test"),
-	}
-
-	results := runStage(t, s, inputs)
-
-	require.Len(t, results, 1)
-	assert.Equal(t, "value1", results[0].Metadata["key1"])
-	assert.Equal(t, 42, results[0].Metadata["key2"])
-}
-
-func TestMetadataInjectionStage_EmptyMetadata(t *testing.T) {
-	s := NewMetadataInjectionStage(nil)
-
-	inputs := []stage.StreamElement{
-		newTestMessageElement("user", "Test"),
-	}
-
-	results := runStage(t, s, inputs)
-
-	require.Len(t, results, 1)
-	// Should still work with empty metadata
-	assert.Equal(t, "Test", results[0].Message.Content)
-}
-
-func TestMetadataInjectionStage_PreservesExistingMetadata(t *testing.T) {
-	metadata := map[string]interface{}{
-		"new_key": "new_value",
-	}
-
-	s := NewMetadataInjectionStage(metadata)
-
-	elem := newTestMessageElement("user", "Test")
-	elem.Metadata = map[string]interface{}{
-		"existing_key": "existing_value",
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
-
-	require.Len(t, results, 1)
-	assert.Equal(t, "existing_value", results[0].Metadata["existing_key"])
-	assert.Equal(t, "new_value", results[0].Metadata["new_key"])
-}
-
-// =============================================================================
 // TurnIndexStage Tests
 // =============================================================================
 
@@ -803,35 +747,6 @@ func TestArenaStateStoreSaveStage_WithCostInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0.01, state.Metadata["total_cost_usd"])
 	assert.Equal(t, 150, state.Metadata["total_tokens"])
-}
-
-func TestArenaStateStoreSaveStage_WithExecutionTrace(t *testing.T) {
-	store := statestore.NewArenaStateStore()
-
-	cfg := &pipeline.StateStoreConfig{
-		Store:          store,
-		ConversationID: "test-conv-4",
-	}
-
-	s := NewArenaStateStoreSaveStage(cfg)
-
-	elem := newTestMessageElement("assistant", "Response")
-	elem.Metadata = map[string]interface{}{
-		"execution_trace": &pipeline.ExecutionTrace{
-			StartedAt: time.Now(),
-			LLMCalls:  []pipeline.LLMCall{},
-		},
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
-
-	require.Len(t, results, 1)
-
-	// Verify state was saved
-	ctx := context.Background()
-	state, err := store.Load(ctx, "test-conv-4")
-	require.NoError(t, err)
-	require.NotNil(t, state)
 }
 
 func TestArenaStateStoreSaveStage_InvalidStoreType(t *testing.T) {

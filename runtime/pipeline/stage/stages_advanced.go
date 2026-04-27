@@ -180,11 +180,8 @@ func (s *MergeStage) forwardInput(
 	output chan<- StreamElement,
 ) {
 	for elem := range input {
-		// Add input source metadata
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
-		}
-		elem.Metadata["merge_input_index"] = inputIdx
+		idx := inputIdx
+		elem.Meta.MergeInputIndex = &idx
 
 		select {
 		case output <- elem:
@@ -459,91 +456,4 @@ func (pc *PriorityChannel) Len() int {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	return pc.size
-}
-
-// TracingStage wraps another stage and adds element-level tracing.
-// Each element gets a trace ID and timing information.
-type TracingStage struct {
-	BaseStage
-	wrappedStage Stage
-	traceIDGen   func() string // Function to generate trace IDs
-}
-
-// NewTracingStage wraps a stage with tracing support.
-func NewTracingStage(wrappedStage Stage, traceIDGen func() string) *TracingStage {
-	return &TracingStage{
-		BaseStage:    NewBaseStage(wrappedStage.Name()+"_tracing", StageTypeTransform),
-		wrappedStage: wrappedStage,
-		traceIDGen:   traceIDGen,
-	}
-}
-
-// Process implements the Stage interface with tracing.
-func (s *TracingStage) Process(
-	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
-) error {
-	// Create intermediate channel to intercept elements
-	intermediate := make(chan StreamElement, 16)
-
-	// Process elements through wrapped stage in a goroutine
-	errChan := make(chan error, 1)
-	go func() {
-		err := s.wrappedStage.Process(ctx, input, intermediate)
-		errChan <- err
-	}()
-
-	// Forward elements from intermediate to output while adding trace info
-	for elem := range intermediate {
-		// Add or update trace metadata
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
-		}
-
-		// Add trace ID if not present
-		if _, exists := elem.Metadata["trace_id"]; !exists && s.traceIDGen != nil {
-			elem.Metadata["trace_id"] = s.traceIDGen()
-		}
-
-		// Add stage timing
-		stageTimingKey := "stage_times"
-		var stageTimes map[string]time.Time
-		if existing, ok := elem.Metadata[stageTimingKey].(map[string]time.Time); ok {
-			stageTimes = existing
-		} else {
-			stageTimes = make(map[string]time.Time)
-		}
-		stageTimes[s.wrappedStage.Name()] = time.Now()
-		elem.Metadata[stageTimingKey] = stageTimes
-
-		// Forward element
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-
-	close(output)
-
-	// Wait for wrapped stage to complete
-	return <-errChan
-}
-
-// GetTraceInfo extracts trace information from an element.
-func GetTraceInfo(elem *StreamElement) (traceID string, stageTimes map[string]time.Time) {
-	if elem.Metadata == nil {
-		return "", nil
-	}
-
-	if id, ok := elem.Metadata["trace_id"].(string); ok {
-		traceID = id
-	}
-
-	if times, ok := elem.Metadata["stage_times"].(map[string]time.Time); ok {
-		stageTimes = times
-	}
-
-	return traceID, stageTimes
 }

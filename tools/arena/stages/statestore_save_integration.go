@@ -23,14 +23,25 @@ const (
 // for Arena testing and analysis.
 type ArenaStateStoreSaveStage struct {
 	stage.BaseStage
-	config *pipeline.StateStoreConfig
+	config    *pipeline.StateStoreConfig
+	turnState *stage.TurnState
 }
 
 // NewArenaStateStoreSaveStage creates a new Arena state store save stage.
 func NewArenaStateStoreSaveStage(config *pipeline.StateStoreConfig) *ArenaStateStoreSaveStage {
+	return NewArenaStateStoreSaveStageWithTurnState(config, nil)
+}
+
+// NewArenaStateStoreSaveStageWithTurnState creates an Arena state store
+// save stage that reads the rendered system prompt from the supplied
+// TurnState before falling back to per-element metadata.
+func NewArenaStateStoreSaveStageWithTurnState(
+	config *pipeline.StateStoreConfig, turnState *stage.TurnState,
+) *ArenaStateStoreSaveStage {
 	return &ArenaStateStoreSaveStage{
 		BaseStage: stage.NewBaseStage("arena_statestore_save", stage.StageTypeSink),
 		config:    config,
+		turnState: turnState,
 	}
 }
 
@@ -66,9 +77,6 @@ func (d *collectedData) collectFromElement(elem *stage.StreamElement) {
 	}
 	for k, v := range elem.Metadata {
 		d.metadata[k] = v
-	}
-	if t, ok := elem.Metadata["execution_trace"].(*pipeline.ExecutionTrace); ok {
-		d.trace = t
 	}
 	if c, ok := elem.Metadata["cost_info"].(*types.CostInfo); ok {
 		d.costInfo = c
@@ -338,12 +346,14 @@ func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
 		state = s.createNewState()
 	}
 
-	// Look for system_prompt in element metadata first, then in config metadata
-	// This allows system_prompt to be passed through either path
+	// Source the system prompt from TurnState (set by TemplateStage), then
+	// fall back to config metadata for tests that wire SystemPrompt through
+	// the config path.
 	systemPrompt := ""
-	if sp, ok := metadata["system_prompt"].(string); ok && sp != "" {
-		systemPrompt = sp
-	} else if s.config != nil && s.config.Metadata != nil {
+	if s.turnState != nil {
+		systemPrompt = s.turnState.SystemPrompt
+	}
+	if systemPrompt == "" && s.config != nil && s.config.Metadata != nil {
 		if sp, ok := s.config.Metadata["system_prompt"].(string); ok && sp != "" {
 			systemPrompt = sp
 		}

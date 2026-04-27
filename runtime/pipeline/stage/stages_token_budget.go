@@ -48,11 +48,18 @@ type TokenBudgetConfig struct {
 // pipeline to prevent context window overflow errors.
 type TokenBudgetStage struct {
 	BaseStage
-	config *TokenBudgetConfig
+	config    *TokenBudgetConfig
+	turnState *TurnState
 }
 
 // NewTokenBudgetStage creates a new token budget enforcement stage.
 func NewTokenBudgetStage(config *TokenBudgetConfig) *TokenBudgetStage {
+	return NewTokenBudgetStageWithTurnState(config, nil)
+}
+
+// NewTokenBudgetStageWithTurnState creates a token budget stage that
+// reads the system prompt from the supplied TurnState.
+func NewTokenBudgetStageWithTurnState(config *TokenBudgetConfig, turnState *TurnState) *TokenBudgetStage {
 	if config == nil {
 		config = &TokenBudgetConfig{}
 	}
@@ -65,6 +72,7 @@ func NewTokenBudgetStage(config *TokenBudgetConfig) *TokenBudgetStage {
 	return &TokenBudgetStage{
 		BaseStage: NewBaseStage("token_budget", StageTypeTransform),
 		config:    config,
+		turnState: turnState,
 	}
 }
 
@@ -96,7 +104,8 @@ func (s *TokenBudgetStage) Process(
 }
 
 // collectInput reads all elements from the input channel, separating
-// messages from non-message elements and extracting the system prompt.
+// messages from non-message elements. The system prompt is sourced from
+// TurnState when wired.
 func (s *TokenBudgetStage) collectInput(input <-chan StreamElement) *budgetInput {
 	bi := &budgetInput{}
 
@@ -106,11 +115,10 @@ func (s *TokenBudgetStage) collectInput(input <-chan StreamElement) *budgetInput
 			continue
 		}
 		bi.nonMessageElems = append(bi.nonMessageElems, elem)
-		if elem.Metadata != nil {
-			if sp, ok := elem.Metadata["system_prompt"].(string); ok {
-				bi.systemPrompt = sp
-			}
-		}
+	}
+
+	if s.turnState != nil {
+		bi.systemPrompt = s.turnState.SystemPrompt
 	}
 
 	return bi

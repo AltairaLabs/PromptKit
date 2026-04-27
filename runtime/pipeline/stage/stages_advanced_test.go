@@ -138,8 +138,8 @@ func TestMergeStage_AddsInputIndexMetadata(t *testing.T) {
 
 	text1 := "input1"
 	text2 := "input2"
-	input1 <- StreamElement{Text: &text1, Metadata: map[string]interface{}{}}
-	input2 <- StreamElement{Text: &text2, Metadata: map[string]interface{}{}}
+	input1 <- StreamElement{Text: &text1}
+	input2 <- StreamElement{Text: &text2}
 	close(input1)
 	close(input2)
 
@@ -152,10 +152,8 @@ func TestMergeStage_AddsInputIndexMetadata(t *testing.T) {
 
 	wg.Wait()
 
-	// Check metadata contains input index
 	for elem := range output {
-		_, hasIndex := elem.Metadata["merge_input_index"]
-		assert.True(t, hasIndex, "Element should have merge_input_index metadata")
+		assert.NotNil(t, elem.Meta.MergeInputIndex, "Element should record its merge input index")
 	}
 }
 
@@ -281,49 +279,4 @@ func TestPriorityChannel_Len(t *testing.T) {
 	_ = pc.Send(ctx, StreamElement{Priority: PriorityHigh})
 
 	assert.Equal(t, 2, pc.Len())
-}
-
-func TestTracingStage_AddsTraceInfo(t *testing.T) {
-	inner := NewPassthroughStage("inner")
-	tracing := NewTracingStage(inner, func() string { return "test-trace-123" })
-
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
-
-	input <- StreamElement{Metadata: map[string]interface{}{}}
-	close(input)
-
-	err := tracing.Process(context.Background(), input, output)
-	require.NoError(t, err)
-
-	elem := <-output
-	traceID, stageTimes := GetTraceInfo(&elem)
-	require.NotEmpty(t, traceID)
-	require.NotNil(t, stageTimes)
-
-	assert.Equal(t, "test-trace-123", traceID)
-}
-
-func TestTracingStage_PreservesExistingTraceID(t *testing.T) {
-	inner := NewPassthroughStage("inner")
-	existingTraceID := "existing-trace-123"
-	tracing := NewTracingStage(inner, func() string { return existingTraceID })
-
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
-
-	input <- StreamElement{
-		Metadata: map[string]interface{}{
-			"trace_id": existingTraceID,
-		},
-	}
-	close(input)
-
-	err := tracing.Process(context.Background(), input, output)
-	require.NoError(t, err)
-
-	elem := <-output
-	traceID, _ := GetTraceInfo(&elem)
-
-	assert.Equal(t, existingTraceID, traceID)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -17,8 +18,6 @@ import (
 )
 
 func TestTemplateStage_SubstitutesVariables(t *testing.T) {
-	stage := NewTemplateStage()
-
 	tests := []struct {
 		name           string
 		systemPrompt   string
@@ -44,10 +43,12 @@ func TestTemplateStage_SubstitutesVariables(t *testing.T) {
 			expectedPrompt: "Static prompt with no placeholders",
 		},
 		{
-			name:           "missing variable leaves placeholder",
+			// Renderer treats unresolved placeholders as an error; on
+			// failure the stage falls back to the raw template.
+			name:           "missing variable falls back to raw template",
 			systemPrompt:   "Hello {{name}} and {{friend}}!",
 			variables:      map[string]string{"name": "Alice"},
-			expectedPrompt: "Hello Alice and {{friend}}!",
+			expectedPrompt: "Hello {{name}} and {{friend}}!",
 		},
 		{
 			name:           "empty variables",
@@ -59,29 +60,31 @@ func TestTemplateStage_SubstitutesVariables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			turnState := NewTurnState()
+			turnState.Template = &prompt.Template{RawTemplate: tt.systemPrompt}
+			turnState.Variables = tt.variables
+			stage := NewTemplateStageWithTurnState(nil, turnState)
+
 			input := make(chan StreamElement, 1)
 			output := make(chan StreamElement, 1)
 
-			elem := StreamElement{
-				Metadata: map[string]interface{}{
-					"system_prompt": tt.systemPrompt,
-					"variables":     tt.variables,
-				},
-			}
-			input <- elem
+			input <- StreamElement{}
 			close(input)
 
 			err := stage.Process(context.Background(), input, output)
 			require.NoError(t, err)
 
-			result := <-output
-			assert.Equal(t, tt.expectedPrompt, result.Metadata["system_prompt"])
+			<-output
+			assert.Equal(t, tt.expectedPrompt, turnState.SystemPrompt)
 		})
 	}
 }
 
 func TestTemplateStage_SubstitutesInMessageContent(t *testing.T) {
-	stage := NewTemplateStage()
+	turnState := NewTurnState()
+	turnState.Template = &prompt.Template{}
+	turnState.Variables = map[string]string{"topic": "testing"}
+	stage := NewTemplateStageWithTurnState(nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -95,12 +98,7 @@ func TestTemplateStage_SubstitutesInMessageContent(t *testing.T) {
 		},
 	}
 
-	elem := StreamElement{
-		Message: msg,
-		Metadata: map[string]interface{}{
-			"variables": map[string]string{"topic": "testing"},
-		},
-	}
+	elem := StreamElement{Message: msg}
 	input <- elem
 	close(input)
 
@@ -136,32 +134,31 @@ func TestTemplateStage_NoVariablesInMetadata(t *testing.T) {
 }
 
 func TestTemplateStage_NilMessage(t *testing.T) {
-	stage := NewTemplateStage()
+	turnState := NewTurnState()
+	turnState.Template = &prompt.Template{RawTemplate: "Hello {{name}}!"}
+	turnState.Variables = map[string]string{"name": "Test"}
+	stage := NewTemplateStageWithTurnState(nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	// Element with variables but no message
-	elem := StreamElement{
-		Metadata: map[string]interface{}{
-			"variables":     map[string]string{"name": "Test"},
-			"system_prompt": "Hello {{name}}!",
-		},
-		// No Message field
-	}
-	input <- elem
+	// Element with no message
+	input <- StreamElement{}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
 	result := <-output
-	assert.Equal(t, "Hello Test!", result.Metadata["system_prompt"])
+	assert.Equal(t, "Hello Test!", turnState.SystemPrompt)
 	assert.Nil(t, result.Message)
 }
 
 func TestTemplateStage_MessageWithNoParts(t *testing.T) {
-	stage := NewTemplateStage()
+	turnState := NewTurnState()
+	turnState.Template = &prompt.Template{}
+	turnState.Variables = map[string]string{"name": "World"}
+	stage := NewTemplateStageWithTurnState(nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -172,9 +169,7 @@ func TestTemplateStage_MessageWithNoParts(t *testing.T) {
 		Content: "Hello {{name}}!",
 		Parts:   nil, // No parts
 	}
-	elem := NewMessageElement(msg)
-	elem.Metadata["variables"] = map[string]string{"name": "World"}
-	input <- elem
+	input <- NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -210,7 +205,13 @@ func TestTemplateStage_ContextCancellation(t *testing.T) {
 
 func TestTemplateStage_RendersFromSystemTemplate(t *testing.T) {
 	t.Run("renders system_template with merged variables", func(t *testing.T) {
-		stage := NewTemplateStage()
+		turnState := NewTurnState()
+		turnState.Template = &prompt.Template{
+			RawTemplate: "You are {{role}}. Help with {{topic}}.",
+			DefaultVars: map[string]string{"role": "a helper", "topic": "default-topic"},
+		}
+		turnState.Variables = map[string]string{"topic": "AI"}
+		stage := NewTemplateStageWithTurnState(nil, turnState)
 
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
@@ -222,11 +223,6 @@ func TestTemplateStage_RendersFromSystemTemplate(t *testing.T) {
 				Content: "Tell me about {{topic}}",
 				Parts:   []types.ContentPart{{Text: &textContent}},
 			},
-			Metadata: map[string]interface{}{
-				"system_template":       "You are {{role}}. Help with {{topic}}.",
-				"template_default_vars": map[string]string{"role": "a helper", "topic": "default-topic"},
-				"variables":             map[string]string{"topic": "AI"},
-			},
 		}
 		input <- elem
 		close(input)
@@ -236,57 +232,53 @@ func TestTemplateStage_RendersFromSystemTemplate(t *testing.T) {
 
 		result := <-output
 		// variables override defaults for "topic", default "role" survives
-		assert.Equal(t, "You are a helper. Help with AI.", result.Metadata["system_prompt"])
+		assert.Equal(t, "You are a helper. Help with AI.", turnState.SystemPrompt)
 		// Message content is also substituted
 		assert.Equal(t, "Tell me about AI", result.Message.Content)
 		assert.Equal(t, "User asks about AI", *result.Message.Parts[0].Text)
 	})
 
 	t.Run("merges fragment vars between defaults and explicit vars", func(t *testing.T) {
-		stage := NewTemplateStage()
+		turnState := NewTurnState()
+		turnState.Template = &prompt.Template{
+			RawTemplate:  "{{greeting}} {{name}}, role={{role}}",
+			DefaultVars:  map[string]string{"greeting": "Hello", "name": "Default", "role": "default"},
+			FragmentVars: map[string]string{"name": "Fragment", "role": "fragment-role"},
+		}
+		turnState.Variables = map[string]string{"name": "Explicit"}
+		stage := NewTemplateStageWithTurnState(nil, turnState)
 
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
 
-		elem := StreamElement{
-			Metadata: map[string]interface{}{
-				"system_template":        "{{greeting}} {{name}}, role={{role}}",
-				"template_default_vars":  map[string]string{"greeting": "Hello", "name": "Default", "role": "default"},
-				"template_fragment_vars": map[string]string{"name": "Fragment", "role": "fragment-role"},
-				"variables":              map[string]string{"name": "Explicit"},
-			},
-		}
-		input <- elem
+		input <- StreamElement{}
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
+		<-output
 		// Priority: variables > fragment_vars > default_vars
-		assert.Equal(t, "Hello Explicit, role=fragment-role", result.Metadata["system_prompt"])
+		assert.Equal(t, "Hello Explicit, role=fragment-role", turnState.SystemPrompt)
 	})
 
-	t.Run("falls back to system_prompt for backward compat", func(t *testing.T) {
-		stage := NewTemplateStage()
+	t.Run("renders raw template", func(t *testing.T) {
+		turnState := NewTurnState()
+		turnState.Template = &prompt.Template{RawTemplate: "Hello {{name}}!"}
+		turnState.Variables = map[string]string{"name": "Alice"}
+		stage := NewTemplateStageWithTurnState(nil, turnState)
 
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
 
-		elem := StreamElement{
-			Metadata: map[string]interface{}{
-				"system_prompt": "Hello {{name}}!",
-				"variables":     map[string]string{"name": "Alice"},
-			},
-		}
-		input <- elem
+		input <- StreamElement{}
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
-		assert.Equal(t, "Hello Alice!", result.Metadata["system_prompt"])
+		<-output
+		assert.Equal(t, "Hello Alice!", turnState.SystemPrompt)
 	})
 }
 
@@ -294,11 +286,16 @@ func TestTemplateStage_TurnStateRenderCache(t *testing.T) {
 	// First element: full render path; SystemPrompt cached on TurnState,
 	// started+rendered events emitted exactly once.
 	// Second element with the same TurnState: cache hit; no events emitted,
-	// system_prompt copied from TurnState. This is the #1035 fix path.
+	// SystemPrompt unchanged on TurnState. This is the #1035 fix path.
 	bus := events.NewEventBus()
 	defer bus.Close()
 	emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
 	turnState := NewTurnState()
+	turnState.Template = &prompt.Template{
+		RawTemplate: "Hello {{name}}!",
+		TaskType:    "greeting",
+	}
+	turnState.Variables = map[string]string{"name": "World"}
 	stage := NewTemplateStageWithTurnState(emitter, turnState)
 
 	var mu sync.Mutex
@@ -312,34 +309,23 @@ func TestTemplateStage_TurnStateRenderCache(t *testing.T) {
 	// First call: full render.
 	in1 := make(chan StreamElement, 1)
 	out1 := make(chan StreamElement, 1)
-	in1 <- StreamElement{
-		Metadata: map[string]interface{}{
-			"system_template":    "Hello {{name}}!",
-			"template_task_type": "greeting",
-			"variables":          map[string]string{"name": "World"},
-		},
-	}
+	in1 <- StreamElement{}
 	close(in1)
 	require.NoError(t, stage.Process(context.Background(), in1, out1))
-	first := <-out1
-	assert.Equal(t, "Hello World!", first.Metadata["system_prompt"])
+	<-out1
 	assert.Equal(t, "Hello World!", turnState.SystemPrompt, "SystemPrompt should be cached on TurnState")
 
-	// Second call with the same TurnState: cache hit. system_prompt is
-	// still set on the element, but the renderer is not invoked again.
+	// Second call with the same TurnState: cache hit. Mutating Variables
+	// should not change the cached SystemPrompt because the render is
+	// memoised on TurnState.SystemPrompt.
+	turnState.Variables = map[string]string{"name": "Alice"}
 	in2 := make(chan StreamElement, 1)
 	out2 := make(chan StreamElement, 1)
-	in2 <- StreamElement{
-		Metadata: map[string]interface{}{
-			"system_template":    "Hello {{name}}!",
-			"template_task_type": "greeting",
-			"variables":          map[string]string{"name": "Alice"}, // different vars — cache should still win
-		},
-	}
+	in2 <- StreamElement{}
 	close(in2)
 	require.NoError(t, stage.Process(context.Background(), in2, out2))
-	second := <-out2
-	assert.Equal(t, "Hello World!", second.Metadata["system_prompt"], "second element must reuse cached SystemPrompt")
+	<-out2
+	assert.Equal(t, "Hello World!", turnState.SystemPrompt, "second call must reuse cached SystemPrompt")
 
 	// Wait for events to drain, then count: exactly one started + one rendered.
 	require.Eventually(t, func() bool {
@@ -363,7 +349,14 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 		bus := events.NewEventBus()
 		defer bus.Close()
 		emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
-		stage := NewTemplateStageWithEmitter(emitter)
+		turnState := NewTurnState()
+		turnState.Template = &prompt.Template{
+			RawTemplate:  "Hello {{name}}!",
+			TaskType:     "greeting",
+			FragmentVars: map[string]string{"frag_key": "frag_val"},
+		}
+		turnState.Variables = map[string]string{"name": "World"}
+		stage := NewTemplateStageWithTurnState(emitter, turnState)
 
 		var mu sync.Mutex
 		var collected []*events.Event
@@ -376,22 +369,14 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
 
-		elem := StreamElement{
-			Metadata: map[string]interface{}{
-				"system_template":        "Hello {{name}}!",
-				"template_task_type":     "greeting",
-				"variables":              map[string]string{"name": "World"},
-				"template_fragment_vars": map[string]string{"frag_key": "frag_val"},
-			},
-		}
-		input <- elem
+		input <- StreamElement{}
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
-		assert.Equal(t, "Hello World!", result.Metadata["system_prompt"])
+		<-output
+		assert.Equal(t, "Hello World!", turnState.SystemPrompt)
 
 		// Wait briefly for async event delivery
 		require.Eventually(t, func() bool {
@@ -437,7 +422,13 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 		bus := events.NewEventBus()
 		defer bus.Close()
 		emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
-		stage := NewTemplateStageWithEmitter(emitter)
+		turnState := NewTurnState()
+		turnState.Template = &prompt.Template{
+			RawTemplate: "Hello {{name}} and {{missing}}!",
+			TaskType:    "broken",
+		}
+		turnState.Variables = map[string]string{"name": "World"}
+		stage := NewTemplateStageWithTurnState(emitter, turnState)
 
 		var mu sync.Mutex
 		var collected []*events.Event
@@ -450,23 +441,15 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
 
-		// Template has {{missing}} that is not provided -> render error
-		elem := StreamElement{
-			Metadata: map[string]interface{}{
-				"system_template":    "Hello {{name}} and {{missing}}!",
-				"template_task_type": "broken",
-				"variables":          map[string]string{"name": "World"},
-			},
-		}
-		input <- elem
+		input <- StreamElement{}
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
+		<-output
 		// Falls back to raw template on failure
-		assert.Equal(t, "Hello {{name}} and {{missing}}!", result.Metadata["system_prompt"])
+		assert.Equal(t, "Hello {{name}} and {{missing}}!", turnState.SystemPrompt)
 
 		// Wait for failed event
 		require.Eventually(t, func() bool {
@@ -827,28 +810,22 @@ func TestVariableProviderStage_MergesProviderVariables(t *testing.T) {
 		},
 	}
 
-	stage := NewVariableProviderStage(mockProvider)
+	turnState := NewTurnState()
+	turnState.Variables = map[string]string{"existing_var": "existing_value"}
+	stage := NewVariableProviderStageWithVarsAndTurnState(nil, []variables.Provider{mockProvider}, turnState)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	// Element with existing variables
-	input <- StreamElement{
-		Metadata: map[string]interface{}{
-			"variables": map[string]string{
-				"existing_var": "existing_value",
-			},
-		},
-	}
+	input <- StreamElement{}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	result := <-output
-	vars := result.Metadata["variables"].(map[string]string)
-	assert.Equal(t, "existing_value", vars["existing_var"])
-	assert.Equal(t, "dynamic_value", vars["dynamic_var"])
+	<-output
+	assert.Equal(t, "existing_value", turnState.Variables["existing_var"])
+	assert.Equal(t, "dynamic_value", turnState.Variables["dynamic_var"])
 }
 
 // mockVariableProvider is a simple test implementation of variables.Provider
@@ -1769,36 +1746,38 @@ func TestVariableProviderStage_ErrorHandling(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("handles nil metadata", func(t *testing.T) {
+	t.Run("publishes vars to TurnState with no element metadata", func(t *testing.T) {
 		mockProvider := &mockVariableProvider{
 			name: "test-provider",
 			vars: map[string]string{"key": "value"},
 		}
 
-		stage := NewVariableProviderStage(mockProvider)
+		turnState := NewTurnState()
+		stage := NewVariableProviderStageWithVarsAndTurnState(nil, []variables.Provider{mockProvider}, turnState)
 
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
 
-		// Element with nil metadata
+		// Element with nil metadata — provider variables flow into TurnState,
+		// not the per-element bag.
 		input <- StreamElement{}
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
-		assert.NotNil(t, result.Metadata)
-		vars := result.Metadata["variables"].(map[string]string)
-		assert.Equal(t, "value", vars["key"])
+		<-output
+		assert.Equal(t, "value", turnState.Variables["key"])
 	})
 }
 
 func TestVariableProviderStage_WithStaticVars(t *testing.T) {
 	t.Run("injects static variables", func(t *testing.T) {
-		stage := NewVariableProviderStageWithVars(
+		turnState := NewTurnState()
+		stage := NewVariableProviderStageWithVarsAndTurnState(
 			map[string]string{"static_key": "static_value"},
 			nil,
+			turnState,
 		)
 
 		input := make(chan StreamElement, 1)
@@ -1810,10 +1789,8 @@ func TestVariableProviderStage_WithStaticVars(t *testing.T) {
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
-		require.NotNil(t, result.Metadata)
-		vars := result.Metadata["variables"].(map[string]string)
-		assert.Equal(t, "static_value", vars["static_key"])
+		<-output
+		assert.Equal(t, "static_value", turnState.Variables["static_key"])
 	})
 
 	t.Run("providers override static vars", func(t *testing.T) {
@@ -1822,9 +1799,11 @@ func TestVariableProviderStage_WithStaticVars(t *testing.T) {
 			vars: map[string]string{"shared_key": "dynamic_value"},
 		}
 
-		stage := NewVariableProviderStageWithVars(
+		turnState := NewTurnState()
+		stage := NewVariableProviderStageWithVarsAndTurnState(
 			map[string]string{"shared_key": "static_value", "static_only": "kept"},
 			[]variables.Provider{mockProvider},
+			turnState,
 		)
 
 		input := make(chan StreamElement, 1)
@@ -1836,41 +1815,39 @@ func TestVariableProviderStage_WithStaticVars(t *testing.T) {
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
-		vars := result.Metadata["variables"].(map[string]string)
+		<-output
 		// Provider value wins over static
-		assert.Equal(t, "dynamic_value", vars["shared_key"])
+		assert.Equal(t, "dynamic_value", turnState.Variables["shared_key"])
 		// Static-only key is preserved
-		assert.Equal(t, "kept", vars["static_only"])
+		assert.Equal(t, "kept", turnState.Variables["static_only"])
 	})
 
-	t.Run("merges with existing metadata variables", func(t *testing.T) {
-		stage := NewVariableProviderStageWithVars(
+	t.Run("merges with pre-existing TurnState variables", func(t *testing.T) {
+		turnState := NewTurnState()
+		turnState.Variables = map[string]string{"existing_key": "existing_value"}
+		stage := NewVariableProviderStageWithVarsAndTurnState(
 			map[string]string{"static_key": "static_value"},
 			nil,
+			turnState,
 		)
 
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
 
-		input <- StreamElement{
-			Metadata: map[string]interface{}{
-				"variables": map[string]string{"existing_key": "existing_value"},
-			},
-		}
+		input <- StreamElement{}
 		close(input)
 
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
-		vars := result.Metadata["variables"].(map[string]string)
-		assert.Equal(t, "existing_value", vars["existing_key"])
-		assert.Equal(t, "static_value", vars["static_key"])
+		<-output
+		assert.Equal(t, "existing_value", turnState.Variables["existing_key"])
+		assert.Equal(t, "static_value", turnState.Variables["static_key"])
 	})
 
 	t.Run("nil static vars and nil providers", func(t *testing.T) {
-		stage := NewVariableProviderStageWithVars(nil, nil)
+		turnState := NewTurnState()
+		stage := NewVariableProviderStageWithVarsAndTurnState(nil, nil, turnState)
 
 		input := make(chan StreamElement, 1)
 		output := make(chan StreamElement, 1)
@@ -1881,16 +1858,17 @@ func TestVariableProviderStage_WithStaticVars(t *testing.T) {
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		result := <-output
-		require.NotNil(t, result.Metadata)
-		vars := result.Metadata["variables"].(map[string]string)
-		assert.Empty(t, vars)
+		<-output
+		// No vars resolved means TurnState.Variables stays empty/nil.
+		assert.Empty(t, turnState.Variables)
 	})
 
-	t.Run("static vars do not share map across elements", func(t *testing.T) {
-		stage := NewVariableProviderStageWithVars(
+	t.Run("publishing vars updates the shared TurnState across elements", func(t *testing.T) {
+		turnState := NewTurnState()
+		stage := NewVariableProviderStageWithVarsAndTurnState(
 			map[string]string{"key": "value"},
 			nil,
+			turnState,
 		)
 
 		input := make(chan StreamElement, 2)
@@ -1903,15 +1881,11 @@ func TestVariableProviderStage_WithStaticVars(t *testing.T) {
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		first := <-output
-		second := <-output
+		<-output
+		<-output
 
-		firstVars := first.Metadata["variables"].(map[string]string)
-		secondVars := second.Metadata["variables"].(map[string]string)
-
-		// Mutating first should not affect second
-		firstVars["injected"] = "mutation"
-		assert.NotEqual(t, "mutation", secondVars["injected"])
+		// Vars are published once on TurnState; both elements observe the same state.
+		assert.Equal(t, "value", turnState.Variables["key"])
 	})
 }
 

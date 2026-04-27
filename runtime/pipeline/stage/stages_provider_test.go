@@ -146,10 +146,10 @@ func TestProviderStage_TurnStateOverridesMetadata(t *testing.T) {
 		"TurnState.AllowedTools must override the bag value")
 }
 
-// TestProviderStage_TurnStateEmptyFallsBackToMetadata pins the back-compat
-// path: when TurnState is wired but its fields are zero/empty, the stage
-// falls back to reading from the metadata bag.
-func TestProviderStage_TurnStateEmptyFallsBackToMetadata(t *testing.T) {
+// TestProviderStage_TurnStateEmpty pins behaviour when TurnState is wired
+// but its fields are zero/empty: the stage uses the empty values and does
+// not fall back to anywhere else (the legacy metadata bag path is gone).
+func TestProviderStage_TurnStateEmpty(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
 	turnState := NewTurnState() // empty
 
@@ -158,16 +158,14 @@ func TestProviderStage_TurnStateEmptyFallsBackToMetadata(t *testing.T) {
 
 	input := make(chan StreamElement, 2)
 	elem := NewMessageElement(&types.Message{Role: "user", Content: "Test"})
-	elem.Metadata["system_prompt"] = "Bag system prompt"
-	elem.Metadata["allowed_tools"] = []string{"bag_tool"}
 	input <- elem
 	close(input)
 
 	acc := stage.accumulateInput(input)
-	assert.Equal(t, "Bag system prompt", acc.systemPrompt,
-		"empty TurnState.SystemPrompt should fall through to bag")
-	assert.Equal(t, []string{"bag_tool"}, acc.allowedTools,
-		"empty TurnState.AllowedTools should fall through to bag")
+	assert.Empty(t, acc.systemPrompt,
+		"empty TurnState.SystemPrompt produces an empty system prompt")
+	assert.Empty(t, acc.allowedTools,
+		"empty TurnState.AllowedTools produces no allowed tools")
 }
 
 // TestProviderStage_NoProvider tests error when provider is nil
@@ -641,27 +639,19 @@ func TestProviderStage_BaseStageProperties(t *testing.T) {
 
 func TestProviderStage_AccumulateInput(t *testing.T) {
 	provider := mock.NewProvider("test", "model", false)
-	stage := NewProviderStage(provider, nil, nil, nil)
 
-	t.Run("accumulates messages and metadata", func(t *testing.T) {
+	t.Run("accumulates messages and reads from TurnState", func(t *testing.T) {
+		turnState := NewTurnState()
+		turnState.SystemPrompt = "You are helpful"
+		turnState.AllowedTools = []string{"tool1", "tool2"}
+		turnState.ProviderRequestMetadata = map[string]interface{}{"custom_key": "custom_value"}
+
+		stage := NewProviderStageWithTurnState(provider, nil, nil, nil, nil, nil, turnState)
+
 		input := make(chan StreamElement, 3)
-
-		// Send multiple messages with metadata
-		msg1 := types.Message{Role: "user", Content: "Hello"}
-		elem1 := NewMessageElement(&msg1)
-		elem1.Metadata["system_prompt"] = "You are helpful"
-		input <- elem1
-
-		msg2 := types.Message{Role: "assistant", Content: "Hi"}
-		elem2 := NewMessageElement(&msg2)
-		elem2.Metadata["allowed_tools"] = []string{"tool1", "tool2"}
-		input <- elem2
-
-		msg3 := types.Message{Role: "user", Content: "Thanks"}
-		elem3 := NewMessageElement(&msg3)
-		elem3.Metadata["custom_key"] = "custom_value"
-		input <- elem3
-
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Hello"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Hi"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Thanks"})
 		close(input)
 
 		acc := stage.accumulateInput(input)
@@ -673,6 +663,7 @@ func TestProviderStage_AccumulateInput(t *testing.T) {
 	})
 
 	t.Run("handles empty input", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, nil, nil)
 		input := make(chan StreamElement)
 		close(input)
 
@@ -685,9 +676,13 @@ func TestProviderStage_AccumulateInput(t *testing.T) {
 	})
 
 	t.Run("handles elements without messages", func(t *testing.T) {
+		turnState := NewTurnState()
+		turnState.ProviderRequestMetadata = map[string]interface{}{"key": "value"}
+		stage := NewProviderStageWithTurnState(provider, nil, nil, nil, nil, nil, turnState)
+
 		input := make(chan StreamElement, 1)
 		text := "some text"
-		elem := StreamElement{Text: &text, Metadata: map[string]interface{}{"key": "value"}}
+		elem := StreamElement{Text: &text}
 		input <- elem
 		close(input)
 
@@ -695,52 +690,6 @@ func TestProviderStage_AccumulateInput(t *testing.T) {
 
 		assert.Len(t, acc.messages, 0)
 		assert.Equal(t, "value", acc.metadata["key"])
-	})
-}
-
-func TestProviderStage_ExtractMetadata(t *testing.T) {
-	provider := mock.NewProvider("test", "model", false)
-	stage := NewProviderStage(provider, nil, nil, nil)
-
-	t.Run("extracts system prompt", func(t *testing.T) {
-		acc := &providerInput{metadata: make(map[string]interface{})}
-		elem := &StreamElement{Metadata: map[string]interface{}{"system_prompt": "test prompt"}}
-
-		stage.extractMetadata(elem, acc)
-
-		assert.Equal(t, "test prompt", acc.systemPrompt)
-	})
-
-	t.Run("extracts allowed tools", func(t *testing.T) {
-		acc := &providerInput{metadata: make(map[string]interface{})}
-		elem := &StreamElement{Metadata: map[string]interface{}{"allowed_tools": []string{"a", "b"}}}
-
-		stage.extractMetadata(elem, acc)
-
-		assert.Equal(t, []string{"a", "b"}, acc.allowedTools)
-	})
-
-	t.Run("handles nil metadata", func(t *testing.T) {
-		acc := &providerInput{metadata: make(map[string]interface{})}
-		elem := &StreamElement{Metadata: nil}
-
-		stage.extractMetadata(elem, acc)
-
-		assert.Empty(t, acc.systemPrompt)
-		assert.Nil(t, acc.allowedTools)
-	})
-
-	t.Run("merges all metadata", func(t *testing.T) {
-		acc := &providerInput{metadata: make(map[string]interface{})}
-		elem := &StreamElement{Metadata: map[string]interface{}{
-			"key1": "value1",
-			"key2": 42,
-		}}
-
-		stage.extractMetadata(elem, acc)
-
-		assert.Equal(t, "value1", acc.metadata["key1"])
-		assert.Equal(t, 42, acc.metadata["key2"])
 	})
 }
 

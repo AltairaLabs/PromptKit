@@ -205,7 +205,8 @@ func (s *ProviderStage) Process(
 	return s.executeAndEmit(ctx, accumulated, output)
 }
 
-// accumulateInput collects messages and metadata from input channel.
+// accumulateInput collects messages from the input channel and seeds
+// per-Turn provider request metadata from TurnState.
 func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInput {
 	acc := &providerInput{
 		metadata: make(map[string]interface{}),
@@ -215,45 +216,21 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 		if elem.Message != nil {
 			acc.messages = append(acc.messages, *elem.Message)
 		}
-		s.extractMetadata(&elem, acc)
 	}
 
-	// TurnState takes precedence over the bag for the runtime-owned keys.
-	// The bag-derived values populated above are overwritten when
-	// TurnState is wired and has these fields set.
 	if s.turnState != nil {
-		if s.turnState.SystemPrompt != "" {
-			acc.systemPrompt = s.turnState.SystemPrompt
-		}
+		acc.systemPrompt = s.turnState.SystemPrompt
+		acc.allowedTools = s.turnState.AllowedTools
 		if len(s.turnState.AllowedTools) > 0 {
-			acc.allowedTools = s.turnState.AllowedTools
 			logger.Debug("ProviderStage allowed_tools from TurnState",
 				"tools", s.turnState.AllowedTools, "count", len(s.turnState.AllowedTools))
+		}
+		for k, v := range s.turnState.ProviderRequestMetadata {
+			acc.metadata[k] = v
 		}
 	}
 
 	return acc
-}
-
-// extractMetadata extracts prompt data and merges metadata from element.
-//
-// The system_prompt and allowed_tools reads are kept here for backward
-// compatibility with legacy callers that don't wire a *TurnState.
-// accumulateInput overwrites these from TurnState when available.
-func (s *ProviderStage) extractMetadata(elem *StreamElement, acc *providerInput) {
-	if elem.Metadata == nil {
-		return
-	}
-	if sp, ok := elem.Metadata["system_prompt"].(string); ok {
-		acc.systemPrompt = sp
-	}
-	if toolsList, ok := elem.Metadata["allowed_tools"].([]string); ok {
-		acc.allowedTools = toolsList
-		logger.Debug("ProviderStage received allowed_tools", "tools", toolsList, "count", len(toolsList))
-	}
-	for k, v := range elem.Metadata {
-		acc.metadata[k] = v
-	}
 }
 
 // executeAndEmit runs provider execution and emits results.

@@ -290,19 +290,14 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// 0. State store load + turn index
 	if storeConfig := buildStateStoreConfig(req); storeConfig != nil {
 		stages = append(stages,
-			stage.NewStateStoreLoadStage(storeConfig),
+			stage.NewStateStoreLoadStageWithTurnState(storeConfig, turnState),
 			arenastages.NewTurnIndexStage(),
 		)
 	}
 
-	// 1. Variable and metadata injection stages
-	stages = append(stages, stage.NewVariableProviderStageWithVars(mergedVars, nil))
-	if len(req.Metadata) > 0 {
-		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
-	}
-
-	// 2-4. Prompt assembly, context extraction, template
+	// 1-4. Variable provider, prompt assembly, context extraction, template
 	stages = append(stages,
+		stage.NewVariableProviderStageWithVarsAndTurnState(mergedVars, nil, turnState),
 		stage.NewPromptAssemblyStageWithTurnState(req.PromptRegistry, req.TaskType, mergedVars, turnState),
 		arenastages.NewScenarioContextExtractionStage(req.Scenario),
 		stage.NewTemplateStageWithTurnState(emitterFromRequest(req), turnState),
@@ -367,7 +362,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// 10. Arena state store save - saves messages with assertion metadata
 	if req.StateStoreConfig != nil && req.ConversationID != "" {
 		storeConfig := buildStateStoreConfig(req)
-		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
+		stages = append(stages, arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState))
 	}
 
 	// Chain all stages together
@@ -524,21 +519,17 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	// StateStore Load stage
 	if hasStateStore(req) {
 		storeConfig := buildStateStoreConfig(req)
-		stages = append(stages, stage.NewStateStoreLoadStage(storeConfig))
+		stages = append(stages, stage.NewStateStoreLoadStageWithTurnState(storeConfig, turnState))
 		if cfg.IncludeTurnIndex {
 			stages = append(stages, arenastages.NewTurnIndexStage())
 		}
 	}
 
-	// Variable injection
-	stages = append(stages, stage.NewVariableProviderStageWithVars(mergedVars, nil))
-	if len(req.Metadata) > 0 {
-		stages = append(stages, arenastages.NewMetadataInjectionStage(req.Metadata))
-	}
-
-	// Prompt assembly
+	// Variable injection + prompt assembly
 	stages = append(stages,
-		stage.NewPromptAssemblyStageWithTurnState(req.PromptRegistry, req.TaskType, mergedVars, turnState))
+		stage.NewVariableProviderStageWithVarsAndTurnState(mergedVars, nil, turnState),
+		stage.NewPromptAssemblyStageWithTurnState(req.PromptRegistry, req.TaskType, mergedVars, turnState),
+	)
 
 	// Scenario context extraction (scripted only)
 	if cfg.IncludeScenarioContextExtraction {
@@ -606,7 +597,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	if hasStateStore(req) {
 		storeConfig := buildStateStoreConfig(req)
 		if cfg.UseArenaStateStoreSave {
-			stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
+			stages = append(stages, arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState))
 		} else {
 			stages = append(stages, stage.NewStateStoreSaveStage(storeConfig))
 		}
