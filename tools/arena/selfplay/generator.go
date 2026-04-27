@@ -133,7 +133,9 @@ func (cg *ContentGenerator) NextUserTurn(
 
 	// Append natural termination instruction when enabled
 	if opts != nil && opts.NaturalTerminationEnabled {
-		stages = append(stages, arenastages.NewCompletionInstructionStage(CompletionInstruction))
+		stages = append(stages,
+			arenastages.NewCompletionInstructionStageWithTurnState(CompletionInstruction, turnState),
+		)
 	}
 
 	// Swap user↔assistant roles so the self-play LLM sees its own prior outputs

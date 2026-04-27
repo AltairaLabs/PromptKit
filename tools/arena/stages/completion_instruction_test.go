@@ -86,6 +86,48 @@ func TestCompletionInstructionStage_Constructor(t *testing.T) {
 	assert.Equal(t, stage.StageTypeTransform, s.Type())
 }
 
+func TestCompletionInstructionStage_TurnStateAppendsOnce(t *testing.T) {
+	// With TurnState, the stage appends exactly once per Turn — even across
+	// multiple elements that all carry a system_prompt. The shared
+	// SystemPrompt becomes the source of truth and propagates onto every
+	// element's bag for back-compat readers.
+	turnState := stage.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant."
+	s := NewCompletionInstructionStageWithTurnState("\nPlease finish now.", turnState)
+
+	inputs := []stage.StreamElement{
+		{Metadata: map[string]interface{}{"system_prompt": "stale-bag-value"}},
+		{Metadata: map[string]interface{}{"system_prompt": "another-stale-value"}},
+		{Metadata: map[string]interface{}{"other": "no system_prompt"}},
+	}
+	results := runStage(t, s, inputs)
+	require.Len(t, results, 3)
+
+	expected := "You are a helpful assistant.\nPlease finish now."
+	assert.Equal(t, expected, turnState.SystemPrompt, "TurnState should hold the appended prompt exactly once")
+	assert.Equal(t, expected, results[0].Metadata["system_prompt"])
+	assert.Equal(t, expected, results[1].Metadata["system_prompt"],
+		"second element's bag should mirror the appended TurnState prompt — no double-append")
+	assert.Equal(t, expected, results[2].Metadata["system_prompt"],
+		"element without prior system_prompt still gets the propagated value")
+}
+
+func TestCompletionInstructionStage_TurnStateEmptyFallsBackToBag(t *testing.T) {
+	// When TurnState.SystemPrompt is empty (legacy callers wiring TurnState
+	// but not having TemplateStage populate it), the stage seeds from the
+	// first element's bag and writes the appended value back.
+	turnState := stage.NewTurnState()
+	s := NewCompletionInstructionStageWithTurnState(" END", turnState)
+
+	inputs := []stage.StreamElement{
+		{Metadata: map[string]interface{}{"system_prompt": "First"}},
+	}
+	results := runStage(t, s, inputs)
+	require.Len(t, results, 1)
+	assert.Equal(t, "First END", turnState.SystemPrompt)
+	assert.Equal(t, "First END", results[0].Metadata["system_prompt"])
+}
+
 func TestCompletionInstructionStage_MultipleElements(t *testing.T) {
 	s := NewCompletionInstructionStage(" END")
 
