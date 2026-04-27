@@ -11,7 +11,7 @@
     "check-links": "node check-links.js"
   },
   "dependencies": {
-    "@astrojs/mdx": "^5.0.3",
+    "@astrojs/mdx": "^5.0.4",
     "@astrojs/sitemap": "^3.7.0",
     "@astrojs/starlight": "^0.38.3",
     "astro": "^6.1.5",
