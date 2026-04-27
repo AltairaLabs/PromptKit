@@ -120,6 +120,56 @@ func TestProviderStage_MetadataExtraction(t *testing.T) {
 	assert.Greater(t, len(elements), 0, "should receive output")
 }
 
+// TestProviderStage_TurnStateOverridesMetadata pins the contract that when
+// a *TurnState is wired into the stage, its SystemPrompt and AllowedTools
+// fields override whatever is in the deprecated metadata bag.
+func TestProviderStage_TurnStateOverridesMetadata(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "TurnState system prompt"
+	turnState.AllowedTools = []string{"turnstate_tool_a", "turnstate_tool_b"}
+
+	stage := NewProviderStageWithTurnState(provider, nil, nil,
+		&ProviderConfig{MaxTokens: 100, Temperature: 0.7}, nil, nil, turnState)
+
+	input := make(chan StreamElement, 2)
+	elem := NewMessageElement(&types.Message{Role: "user", Content: "Test"})
+	elem.Metadata["system_prompt"] = "BAG should NOT win"
+	elem.Metadata["allowed_tools"] = []string{"bag_tool"}
+	input <- elem
+	close(input)
+
+	acc := stage.accumulateInput(input)
+	assert.Equal(t, "TurnState system prompt", acc.systemPrompt,
+		"TurnState.SystemPrompt must override the bag value")
+	assert.Equal(t, []string{"turnstate_tool_a", "turnstate_tool_b"}, acc.allowedTools,
+		"TurnState.AllowedTools must override the bag value")
+}
+
+// TestProviderStage_TurnStateEmptyFallsBackToMetadata pins the back-compat
+// path: when TurnState is wired but its fields are zero/empty, the stage
+// falls back to reading from the metadata bag.
+func TestProviderStage_TurnStateEmptyFallsBackToMetadata(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := NewTurnState() // empty
+
+	stage := NewProviderStageWithTurnState(provider, nil, nil,
+		&ProviderConfig{MaxTokens: 100, Temperature: 0.7}, nil, nil, turnState)
+
+	input := make(chan StreamElement, 2)
+	elem := NewMessageElement(&types.Message{Role: "user", Content: "Test"})
+	elem.Metadata["system_prompt"] = "Bag system prompt"
+	elem.Metadata["allowed_tools"] = []string{"bag_tool"}
+	input <- elem
+	close(input)
+
+	acc := stage.accumulateInput(input)
+	assert.Equal(t, "Bag system prompt", acc.systemPrompt,
+		"empty TurnState.SystemPrompt should fall through to bag")
+	assert.Equal(t, []string{"bag_tool"}, acc.allowedTools,
+		"empty TurnState.AllowedTools should fall through to bag")
+}
+
 // TestProviderStage_NoProvider tests error when provider is nil
 func TestProviderStage_NoProvider(t *testing.T) {
 	stage := NewProviderStage(nil, nil, nil, &ProviderConfig{})

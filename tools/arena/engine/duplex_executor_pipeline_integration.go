@@ -274,11 +274,9 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 		emitter = events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
 	}
 
-	if emitter != nil {
-		stages = append(stages, stage.NewDuplexProviderStageWithEmitter(streamProvider, baseConfig, emitter))
-	} else {
-		stages = append(stages, stage.NewDuplexProviderStage(streamProvider, baseConfig))
-	}
+	stages = append(stages, stage.NewDuplexProviderStageWithTurnState(
+		streamProvider, baseConfig, emitter, turnState,
+	))
 
 	// NOTE: ResponseVADStage was removed. It was intended to delay EndOfStream until
 	// VAD confirmed response audio stopped, but it caused timing issues with selfplay:

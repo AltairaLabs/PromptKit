@@ -730,10 +730,21 @@ type ContextBuilderStage struct {
 	BaseStage
 	policy       *ContextBuilderPolicy
 	tokenCounter tokenizer.TokenCounter
+	// turnState is the per-Turn shared state. When wired, the system prompt
+	// used for token-budget accounting is sourced from TurnState.SystemPrompt
+	// rather than scanning element metadata.
+	turnState *TurnState
 }
 
 // NewContextBuilderStage creates a context builder stage.
+// Pipelines that have migrated to TurnState should use NewContextBuilderStageWithTurnState.
 func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage {
+	return NewContextBuilderStageWithTurnState(policy, nil)
+}
+
+// NewContextBuilderStageWithTurnState creates a context builder stage that
+// reads the system prompt from the shared *TurnState.
+func NewContextBuilderStageWithTurnState(policy *ContextBuilderPolicy, turnState *TurnState) *ContextBuilderStage {
 	// Use provided TokenCounter or default to heuristic counter
 	var tc tokenizer.TokenCounter = tokenizer.DefaultTokenCounter
 	if policy != nil && policy.TokenCounter != nil {
@@ -744,6 +755,7 @@ func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage {
 		BaseStage:    NewBaseStage("context_builder", StageTypeAccumulate),
 		policy:       policy,
 		tokenCounter: tc,
+		turnState:    turnState,
 	}
 }
 
@@ -781,10 +793,15 @@ func (s *ContextBuilderStage) Process(
 			messages = append(messages, *elem.Message)
 		}
 
-		// Extract system prompt from metadata
+		// Extract system prompt from metadata (legacy fallback path).
 		if sp, ok := elem.Metadata["system_prompt"].(string); ok {
 			systemPrompt = sp
 		}
+	}
+
+	// TurnState takes precedence over the bag for the system prompt.
+	if s.turnState != nil && s.turnState.SystemPrompt != "" {
+		systemPrompt = s.turnState.SystemPrompt
 	}
 
 	// Calculate available budget

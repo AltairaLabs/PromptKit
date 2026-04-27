@@ -326,7 +326,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 
 	// 5. Context builder (if policy exists)
 	if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
-		stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
+		stages = append(stages, stage.NewContextBuilderStageWithTurnState(contextPolicy, turnState))
 	}
 
 	// 5a. Media conversion stage - converts media to provider-supported formats
@@ -341,7 +341,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// 7. Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
 	providerConfig := buildProviderConfig(req)
 	stages = append(stages,
-		e.buildProviderStage(req, providerConfig),
+		e.buildProviderStage(req, providerConfig, turnState),
 		arenastages.NewGuardrailEvalStageWithTurnState(turnState),
 	)
 
@@ -407,7 +407,9 @@ func emitterFromRequest(req *TurnRequest) *events.Emitter {
 
 // buildProviderStage creates a provider stage, attaching hooks
 // for consent simulation and/or chaos injection when configured.
-func (e *PipelineExecutor) buildProviderStage(req *TurnRequest, providerConfig *stage.ProviderConfig) stage.Stage {
+func (e *PipelineExecutor) buildProviderStage(
+	req *TurnRequest, providerConfig *stage.ProviderConfig, turnState *stage.TurnState,
+) stage.Stage {
 	toolPolicy := buildToolPolicy(req.Scenario)
 	emitter := emitterFromRequest(req)
 
@@ -419,15 +421,17 @@ func (e *PipelineExecutor) buildProviderStage(req *TurnRequest, providerConfig *
 		toolHooks = append(toolHooks, chaos.NewHook())
 	}
 
+	var hookReg *hooks.Registry
 	if len(toolHooks) > 0 {
 		var opts []hooks.Option
 		for _, h := range toolHooks {
 			opts = append(opts, hooks.WithToolHook(h))
 		}
-		hookReg := hooks.NewRegistry(opts...)
-		return stage.NewProviderStageWithHooks(req.Provider, e.toolRegistry, toolPolicy, providerConfig, emitter, hookReg)
+		hookReg = hooks.NewRegistry(opts...)
 	}
-	return stage.NewProviderStageWithEmitter(req.Provider, e.toolRegistry, toolPolicy, providerConfig, emitter)
+	return stage.NewProviderStageWithTurnState(
+		req.Provider, e.toolRegistry, toolPolicy, providerConfig, emitter, hookReg, turnState,
+	)
 }
 
 // Execute runs the conversation through the pipeline and returns the new messages generated.
@@ -555,7 +559,7 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	// Context builder (if policy exists) — scripted path
 	if cfg.IncludeScenarioContextExtraction {
 		if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
-			stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
+			stages = append(stages, stage.NewContextBuilderStageWithTurnState(contextPolicy, turnState))
 		}
 	}
 
@@ -565,10 +569,12 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	// Provider stage
 	providerConfig := buildProviderConfig(req)
 	if cfg.UseHooksProvider {
-		stages = append(stages, e.buildProviderStage(req, providerConfig))
+		stages = append(stages, e.buildProviderStage(req, providerConfig, turnState))
 	} else {
-		stages = append(stages, stage.NewProviderStageWithEmitter(
-			req.Provider, e.toolRegistry, buildToolPolicy(req.Scenario), providerConfig, emitterFromRequest(req)))
+		stages = append(stages, stage.NewProviderStageWithTurnState(
+			req.Provider, e.toolRegistry, buildToolPolicy(req.Scenario),
+			providerConfig, emitterFromRequest(req), nil, turnState,
+		))
 	}
 
 	// Guardrail evaluation (scripted only)
