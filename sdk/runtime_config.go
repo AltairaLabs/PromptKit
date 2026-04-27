@@ -143,12 +143,12 @@ func WithRuntimeConfig(path string) Option {
 // of the host process.
 func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	// Apply provider (use first provider if configured and no provider already set)
-	if len(spec.Providers) > 0 && c.provider == nil {
+	if len(spec.Providers) > 0 && c.getAgentProvider() == nil {
 		prov, err := createProviderFromConfig(&spec.Providers[0])
 		if err != nil {
 			return fmt.Errorf("creating provider from runtime config: %w", err)
 		}
-		c.provider = prov
+		registerAgentProvider(c, prov)
 	}
 
 	// Apply embedding providers (declarative). The first declared

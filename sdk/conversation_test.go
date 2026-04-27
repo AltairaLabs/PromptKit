@@ -468,7 +468,8 @@ func TestConversationStateStoreMiddlewareIntegration(t *testing.T) {
 	conv := newTestConversation()
 	initInternalStateStore(conv, &config{}) // This sets up both store and ID
 
-	// Use existing mockStreamProvider (no extra setup needed)
+	// Use existing mockStreamProvider (no extra setup needed).
+	// Sets the deprecated legacy field; getAgentProvider lifts it on read.
 	conv.config.provider = &mockStreamProvider{}
 
 	ctx := context.Background()
