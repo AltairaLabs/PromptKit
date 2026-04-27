@@ -494,6 +494,42 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 	})
 }
 
+func TestContextBuilderStage_TurnStateOverridesMetadataSystemPrompt(t *testing.T) {
+	// Force budget pressure: TurnState carries a long system prompt that
+	// drains the budget; the bag carries an empty value. If TurnState is
+	// honoured, we should observe truncation; if the bag wins, no truncation.
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "Long system prompt that takes up significant token budget for testing purposes"
+
+	policy := &ContextBuilderPolicy{
+		TokenBudget:      30,
+		ReserveForOutput: 5,
+		Strategy:         TruncateOldest,
+	}
+	stage := NewContextBuilderStageWithTurnState(policy, turnState)
+
+	input := make(chan StreamElement, 5)
+	output := make(chan StreamElement, 5)
+
+	for i := 0; i < 5; i++ {
+		elem := NewMessageElement(&types.Message{Role: "user", Content: "Some message content here"})
+		// Bag deliberately empty for system_prompt — TurnState must drive the budget math.
+		input <- elem
+	}
+	close(input)
+
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	var results []types.Message
+	for elem := range output {
+		if elem.Message != nil {
+			results = append(results, *elem.Message)
+		}
+	}
+	assert.Less(t, len(results), 5,
+		"long TurnState.SystemPrompt should consume the budget and force truncation")
+}
+
 func TestContextBuilderStage_PassThroughWhenUnderBudget(t *testing.T) {
 	policy := &ContextBuilderPolicy{
 		TokenBudget:      1000,

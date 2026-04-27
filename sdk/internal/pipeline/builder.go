@@ -312,7 +312,7 @@ func collectPipelineStages(
 	// 4.5 Context builder stage - manages token budget and truncation
 	if cfg.TokenBudget > 0 {
 		contextPolicy := buildContextBuilderPolicy(cfg)
-		stages = append(stages, stage.NewContextBuilderStage(contextPolicy))
+		stages = append(stages, stage.NewContextBuilderStageWithTurnState(contextPolicy, turnState))
 	}
 
 	// 4.6 Image preprocessing stage - resize/optimize images before provider
@@ -332,7 +332,7 @@ func collectPipelineStages(
 	}
 
 	// 5. Provider stage - LLM calls with streaming and tool support
-	providerStages, err := buildProviderStages(cfg)
+	providerStages, err := buildProviderStages(cfg, turnState)
 	if err != nil {
 		return nil, err
 	}
@@ -381,11 +381,13 @@ func appendStateStoreLoadStages(
 }
 
 // buildProviderStages returns the appropriate provider stage(s) based on config.
-func buildProviderStages(cfg *Config) ([]stage.Stage, error) {
+func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage, error) {
 	if cfg.StreamInputProvider != nil {
 		// ASM mode: Direct audio streaming to LLM
 		logger.Debug("Using DuplexProviderStage for ASM mode")
-		return []stage.Stage{stage.NewDuplexProviderStage(cfg.StreamInputProvider, cfg.StreamInputConfig)}, nil
+		return []stage.Stage{stage.NewDuplexProviderStageWithTurnState(
+			cfg.StreamInputProvider, cfg.StreamInputConfig, nil, turnState,
+		)}, nil
 	}
 	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
 		// VAD mode: build audio pipeline
@@ -405,13 +407,14 @@ func buildProviderStages(cfg *Config) ([]stage.Stage, error) {
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {
 			providerConfig.Compactor = buildCompactionStrategy(cfg)
 		}
-		return []stage.Stage{stage.NewProviderStageWithHooks(
+		return []stage.Stage{stage.NewProviderStageWithTurnState(
 			cfg.Provider,
 			cfg.ToolRegistry,
 			cfg.ToolPolicy,
 			providerConfig,
 			cfg.EventEmitter,
 			cfg.HookRegistry,
+			turnState,
 		)}, nil
 	}
 	return nil, nil

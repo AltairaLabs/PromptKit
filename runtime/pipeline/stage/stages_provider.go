@@ -44,6 +44,11 @@ type ProviderStage struct {
 	config       *ProviderConfig
 	emitter      *events.Emitter // Optional event emitter for provider call events
 	hookRegistry *hooks.Registry // Optional hook registry for policy enforcement
+	// turnState is the per-Turn shared state. When wired, system_prompt and
+	// allowed_tools are sourced from TurnState.SystemPrompt /
+	// TurnState.AllowedTools rather than from element metadata. May be nil
+	// for legacy callers; in that case the stage falls back to the bag.
+	turnState *TurnState
 }
 
 // ProviderConfig contains configuration for the provider stage.
@@ -125,6 +130,22 @@ func NewProviderStageWithHooks(
 	emitter *events.Emitter,
 	hookRegistry *hooks.Registry,
 ) *ProviderStage {
+	return NewProviderStageWithTurnState(provider, toolRegistry, toolPolicy, config, emitter, hookRegistry, nil)
+}
+
+// NewProviderStageWithTurnState creates a provider stage that sources
+// system_prompt and allowed_tools from the shared *TurnState rather than the
+// deprecated element metadata bag. Pipelines that have migrated to TurnState
+// should use this constructor.
+func NewProviderStageWithTurnState(
+	provider providers.Provider,
+	toolRegistry *tools.Registry,
+	toolPolicy *pipeline.ToolPolicy,
+	config *ProviderConfig,
+	emitter *events.Emitter,
+	hookRegistry *hooks.Registry,
+	turnState *TurnState,
+) *ProviderStage {
 	if config == nil {
 		config = &ProviderConfig{}
 	}
@@ -136,6 +157,7 @@ func NewProviderStageWithHooks(
 		config:       config,
 		emitter:      emitter,
 		hookRegistry: hookRegistry,
+		turnState:    turnState,
 	}
 }
 
@@ -196,10 +218,28 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 		s.extractMetadata(&elem, acc)
 	}
 
+	// TurnState takes precedence over the bag for the runtime-owned keys.
+	// The bag-derived values populated above are overwritten when
+	// TurnState is wired and has these fields set.
+	if s.turnState != nil {
+		if s.turnState.SystemPrompt != "" {
+			acc.systemPrompt = s.turnState.SystemPrompt
+		}
+		if len(s.turnState.AllowedTools) > 0 {
+			acc.allowedTools = s.turnState.AllowedTools
+			logger.Debug("ProviderStage allowed_tools from TurnState",
+				"tools", s.turnState.AllowedTools, "count", len(s.turnState.AllowedTools))
+		}
+	}
+
 	return acc
 }
 
 // extractMetadata extracts prompt data and merges metadata from element.
+//
+// The system_prompt and allowed_tools reads are kept here for backward
+// compatibility with legacy callers that don't wire a *TurnState.
+// accumulateInput overwrites these from TurnState when available.
 func (s *ProviderStage) extractMetadata(elem *StreamElement, acc *providerInput) {
 	if elem.Metadata == nil {
 		return

@@ -67,6 +67,11 @@ type DuplexProviderStage struct {
 	provider   providers.StreamInputSupport
 	baseConfig *providers.StreamingInputConfig
 
+	// turnState is the per-Turn shared state. When wired, system_prompt is
+	// sourced from TurnState.SystemPrompt rather than scanning element
+	// metadata at session-creation time. May be nil for legacy callers.
+	turnState *TurnState
+
 	// Session created on first element with system_prompt
 	session          providers.StreamInputSession
 	systemPromptSent bool
@@ -153,6 +158,21 @@ func NewDuplexProviderStageWithEmitter(
 	return s
 }
 
+// NewDuplexProviderStageWithTurnState creates a new duplex provider stage that
+// sources system_prompt from the shared *TurnState rather than the deprecated
+// metadata bag. The emitter remains optional.
+func NewDuplexProviderStageWithTurnState(
+	provider providers.StreamInputSupport,
+	baseConfig *providers.StreamingInputConfig,
+	emitter *events.Emitter,
+	turnState *TurnState,
+) *DuplexProviderStage {
+	s := NewDuplexProviderStage(provider, baseConfig)
+	s.emitter = emitter
+	s.turnState = turnState
+	return s
+}
+
 // Process implements the Stage interface.
 // Handles bidirectional streaming between input channel and WebSocket session.
 //
@@ -183,9 +203,12 @@ func (s *DuplexProviderStage) Process(
 			return errors.New("duplex provider stage: input channel closed before receiving first element")
 		}
 
-		// Extract system_prompt from metadata
+		// Source system_prompt: TurnState wins, falls back to element metadata
+		// for legacy callers.
 		systemPrompt := ""
-		if firstElem.Metadata != nil {
+		if s.turnState != nil && s.turnState.SystemPrompt != "" {
+			systemPrompt = s.turnState.SystemPrompt
+		} else if firstElem.Metadata != nil {
 			if sp, ok := firstElem.Metadata["system_prompt"].(string); ok {
 				systemPrompt = sp
 			}
@@ -486,9 +509,17 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 		}
 	}
 
-	// Check for system prompt in metadata (sent once at the start)
-	if !s.systemPromptSent && elem.Metadata != nil {
-		if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok && systemPrompt != "" {
+	// Source the system prompt: TurnState wins, fall back to element metadata.
+	if !s.systemPromptSent {
+		systemPrompt := ""
+		if s.turnState != nil && s.turnState.SystemPrompt != "" {
+			systemPrompt = s.turnState.SystemPrompt
+		} else if elem.Metadata != nil {
+			if sp, ok := elem.Metadata["system_prompt"].(string); ok {
+				systemPrompt = sp
+			}
+		}
+		if systemPrompt != "" {
 			logger.Debug("DuplexProviderStage: sending system prompt as context (no turn_complete)",
 				"promptLength", len(systemPrompt))
 			// Use SendSystemContext to send prompt WITHOUT triggering a response
