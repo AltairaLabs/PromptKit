@@ -312,7 +312,9 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// marked preload: true are active from turn 1 without requiring the
 	// model to call skill__activate.
 	if e.preloadedSkillInstructions != "" {
-		stages = append(stages, arenastages.NewSkillInstructionStage(e.preloadedSkillInstructions))
+		stages = append(stages,
+			arenastages.NewSkillInstructionStageWithTurnState(e.preloadedSkillInstructions, turnState),
+		)
 	}
 
 	// 4a. Mock scenario context (for mock providers only)
