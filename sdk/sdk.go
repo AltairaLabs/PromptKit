@@ -299,7 +299,7 @@ func applyOptions(promptName string, opts []Option) (*config, error) {
 	if cfg.retrievalProvider != nil && cfg.contextWindow <= 0 {
 		return nil, fmt.Errorf("WithContextRetrieval requires WithContextWindow")
 	}
-	if cfg.summarizeProvider != nil && cfg.contextWindow <= 0 {
+	if cfg.summarizeSet && cfg.contextWindow <= 0 {
 		return nil, fmt.Errorf("WithAutoSummarize requires WithContextWindow")
 	}
 
@@ -362,10 +362,11 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 }
 
 // resolveProvider auto-detects or uses the configured provider.
-// Stores the resolved provider in cfg.provider for later use.
+// Resolved provider is registered in cfg.providers and cfg.agentProviderID
+// is set to its ID.
 func resolveProvider(cfg *config) (providers.Provider, error) {
-	if cfg.provider != nil {
-		return cfg.provider, nil
+	if existing := cfg.getAgentProvider(); existing != nil {
+		return existing, nil
 	}
 
 	// Resolve credential config into an API key if set.
@@ -386,7 +387,7 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 		if err != nil {
 			return nil, err
 		}
-		cfg.provider = p
+		registerAgentProvider(cfg, p)
 		return p, nil
 	}
 
@@ -394,8 +395,16 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect provider: %w", err)
 	}
-	cfg.provider = detected
+	registerAgentProvider(cfg, detected)
 	return detected, nil
+}
+
+// registerAgentProvider installs p as the agent provider in the pool.
+func registerAgentProvider(cfg *config, p providers.Provider) {
+	ensureProviderPool(cfg)
+	cfg.providers.Register(p)
+	cfg.agentProviderID = p.ID()
+	cfg.agentSet = true
 }
 
 // resolveCredentialAPIKey resolves a credentialConfig into an API key string.

@@ -52,7 +52,22 @@ type config struct {
 	// Prompt selection
 	promptName string
 
-	// Provider configuration
+	// Provider configuration. Providers used by the conversation (agent
+	// and summarizer today) are held in a single pool so they share one
+	// lifecycle. The pool is closed once on Conversation.Close. Lookups
+	// happen by ID — see agentProviderID / summarizeProviderID below.
+	// See ARCHITECTURE.md §1.1.
+	providers       *providers.Registry
+	agentProviderID string
+	// agentSet tracks whether an agent provider has been registered.
+	// We need a separate bool because providers may legitimately have
+	// empty ID() values (e.g. minimal test mocks), so empty
+	// agentProviderID is not a reliable "unset" sentinel.
+	agentSet bool
+	// Deprecated: legacy field for test scaffolding that builds *config
+	// directly. Production code uses WithProvider, which registers the
+	// provider into the pool. Reads via getAgentProvider() lift this
+	// field into the pool on first access.
 	provider   providers.Provider
 	apiKey     string
 	model      string
@@ -103,7 +118,15 @@ type config struct {
 	sttProviders   map[string]stt.Service
 	sttProviderIDs []string
 
-	// Auto-summarization for RAG context
+	// Auto-summarization for RAG context. The summarize provider is held
+	// in the providers pool; summarizeProviderID points at it.
+	summarizeProviderID string
+	// summarizeSet tracks whether a summarize provider has been registered.
+	// Empty IDs are valid for the same reason as agentSet — see above.
+	summarizeSet bool
+	// Deprecated: legacy field for test scaffolding. Production code uses
+	// WithAutoSummarize. Reads via getSummarizeProvider() lift this into
+	// the pool on first access.
 	summarizeProvider  providers.Provider
 	summarizeThreshold int
 	summarizeBatchSize int
@@ -308,9 +331,60 @@ func WithAPIKey(key string) Option {
 //	)
 func WithProvider(p providers.Provider) Option {
 	return func(c *config) error {
-		c.provider = p
+		if p == nil {
+			// Match prior behavior: WithProvider(nil) is a no-op rather
+			// than an error. Tests rely on this; callers that haven't
+			// yet resolved a provider are expected to either resolve via
+			// auto-detect or call WithProvider again.
+			return nil
+		}
+		registerAgentProvider(c, p)
 		return nil
 	}
+}
+
+// ensureProviderPool lazy-initializes the provider pool. Called by every
+// option that needs to register a provider, and by sdk.Open's resolution
+// paths that auto-detect or build providers from spec.
+func ensureProviderPool(c *config) {
+	if c.providers == nil {
+		c.providers = providers.NewRegistry()
+	}
+}
+
+// getAgentProvider returns the configured agent provider, or nil if none
+// is registered. Internal helper used by Open / pipeline construction.
+//
+// As a backward-compatibility step, this method lifts the legacy
+// `provider` field into the pool on first access if WithProvider has not
+// already done so. This lets test scaffolding that constructs *config
+// struct literals directly continue to work.
+func (c *config) getAgentProvider() providers.Provider {
+	if c.provider != nil && !c.agentSet {
+		registerAgentProvider(c, c.provider)
+	}
+	if !c.agentSet || c.providers == nil {
+		return nil
+	}
+	p, _ := c.providers.Get(c.agentProviderID)
+	return p
+}
+
+// getSummarizeProvider returns the configured summarizer provider, or
+// nil if WithAutoSummarize wasn't called. Lifts the legacy
+// `summarizeProvider` field on first access.
+func (c *config) getSummarizeProvider() providers.Provider {
+	if c.summarizeProvider != nil && !c.summarizeSet {
+		ensureProviderPool(c)
+		c.providers.Register(c.summarizeProvider)
+		c.summarizeProviderID = c.summarizeProvider.ID()
+		c.summarizeSet = true
+	}
+	if !c.summarizeSet || c.providers == nil {
+		return nil
+	}
+	p, _ := c.providers.Get(c.summarizeProviderID)
+	return p
 }
 
 // CredentialOption configures credentials for a provider.
@@ -1146,7 +1220,10 @@ func WithAutoSummarize(provider providers.Provider, threshold, batchSize int) Op
 		if batchSize <= 0 {
 			return fmt.Errorf("WithAutoSummarize: batchSize must be positive, got %d", batchSize)
 		}
-		c.summarizeProvider = provider
+		ensureProviderPool(c)
+		c.providers.Register(provider)
+		c.summarizeProviderID = provider.ID()
+		c.summarizeSet = true
 		c.summarizeThreshold = threshold
 		c.summarizeBatchSize = batchSize
 		return nil

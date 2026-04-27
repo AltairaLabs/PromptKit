@@ -453,7 +453,7 @@ func (c *Conversation) buildPipelineConfig(
 
 	// Build pipeline configuration
 	pipelineCfg := &intpipeline.Config{
-		Provider:              c.config.provider,
+		Provider:              c.config.getAgentProvider(),
 		ToolRegistry:          toolRegistry,
 		PromptRegistry:        c.promptRegistry,
 		TaskType:              c.promptName,
@@ -514,8 +514,8 @@ func (c *Conversation) buildPipelineConfig(
 	if c.config.retrievalProvider != nil {
 		pipelineCfg.MessageIndex = statestore.NewInMemoryIndex(c.config.retrievalProvider)
 	}
-	if c.config.summarizeProvider != nil {
-		pipelineCfg.Summarizer = statestore.NewLLMSummarizer(c.config.summarizeProvider)
+	if sp := c.config.getSummarizeProvider(); sp != nil {
+		pipelineCfg.Summarizer = statestore.NewLLMSummarizer(sp)
 	}
 
 	// Apply parameters from prompt if available
@@ -1117,6 +1117,14 @@ func (c *Conversation) Close() error {
 	if c.mcpRegistry != nil {
 		if err := c.mcpRegistry.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close MCP registry: %w", err))
+		}
+	}
+
+	// Close the provider pool — closes every provider registered via
+	// WithProvider, WithAutoSummarize, etc. in one shot.
+	if c.config != nil && c.config.providers != nil {
+		if err := c.config.providers.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close provider pool: %w", err))
 		}
 	}
 

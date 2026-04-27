@@ -171,14 +171,16 @@ func TestApplyRuntimeConfig_Provider_SkipsIfSet(t *testing.T) {
 	existing := &rtcMockProvider{}
 	c := &config{provider: existing}
 	require.NoError(t, applyRuntimeConfig(c, spec))
-	assert.Equal(t, existing, c.provider, "should not override existing provider")
+	// applyRuntimeConfig reads via getAgentProvider which lifts the legacy
+	// field into the pool — verify resolution returns the same instance.
+	assert.Equal(t, existing, c.getAgentProvider(), "should not override existing provider")
 }
 
 func TestApplyRuntimeConfig_EmptySpec(t *testing.T) {
 	spec := &pkgconfig.RuntimeConfigSpec{}
 	c := &config{}
 	require.NoError(t, applyRuntimeConfig(c, spec))
-	assert.Nil(t, c.provider)
+	assert.Nil(t, c.getAgentProvider())
 	assert.Empty(t, c.mcpServers)
 	assert.Nil(t, c.stateStore)
 	assert.Nil(t, c.logger)
@@ -238,7 +240,7 @@ func TestApplyRuntimeConfig_Provider_MockType(t *testing.T) {
 	c := &config{}
 	err := applyRuntimeConfig(c, spec)
 	require.NoError(t, err)
-	assert.NotNil(t, c.provider)
+	assert.NotNil(t, c.getAgentProvider())
 }
 
 func TestCreateProviderFromConfig_WithPlatform(t *testing.T) {
@@ -936,3 +938,7 @@ func (m *rtcMockStore) Fork(_ context.Context, _, _ string) error               
 
 // rtcMockProvider is a minimal providers.Provider for runtime_config tests.
 type rtcMockProvider struct{ providers.Provider }
+
+// ID overrides the embedded interface's nil method so the provider can
+// be safely registered into a providers.Registry, which keys by ID().
+func (m *rtcMockProvider) ID() string { return "rtc-mock" }

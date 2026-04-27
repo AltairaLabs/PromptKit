@@ -998,7 +998,8 @@ func TestWithAutoSummarize(t *testing.T) {
 	cfg := &config{}
 	err := opt(cfg)
 	assert.NoError(t, err)
-	assert.Equal(t, sumProvider, cfg.summarizeProvider)
+	assert.Equal(t, sumProvider, cfg.getSummarizeProvider())
+	assert.Equal(t, sumProvider.ID(), cfg.summarizeProviderID)
 	assert.Equal(t, 100, cfg.summarizeThreshold)
 	assert.Equal(t, 50, cfg.summarizeBatchSize)
 }
