@@ -604,22 +604,38 @@ type ClientToolResolvedData struct {
 
 // --- Eval events (consolidated) ---
 
+// EvalViolationData mirrors evals.EvalViolation so consumers of the event
+// bus can read structured violations without importing the evals package
+// (which depends on this one). Field names and JSON tags match the source
+// struct so payloads round-trip cleanly.
+type EvalViolationData struct {
+	TurnIndex   int            `json:"turn_index"`
+	Description string         `json:"description"`
+	Evidence    map[string]any `json:"evidence,omitempty"`
+}
+
 // EvalEventData is the unified payload for eval lifecycle events
 // (completed, failed). It captures the eval result and metadata.
+//
+// Violations and Details carry the lossless content of the underlying
+// EvalResult — see https://github.com/AltairaLabs/PromptKit/issues/1028
+// for the rationale. Consumers that only want a textual summary can
+// derive it from Violations[].Description.
 type EvalEventData struct {
 	baseEventData
-	EvalID      string   `json:"eval_id"`
-	EvalType    string   `json:"eval_type"` // handler type: "llm_judge", "content_check", etc.
-	Trigger     string   `json:"trigger"`   // "every_turn", "on_session_complete", etc.
-	Passed      bool     `json:"passed"`
-	Score       *float64 `json:"score,omitempty"`
-	Explanation string   `json:"explanation,omitempty"`
-	DurationMs  int64    `json:"duration_ms"`
-	Error       string   `json:"error,omitempty"`
-	Message     string   `json:"message,omitempty"`
-	Violations  []string `json:"violations,omitempty"` // flattened from EvalViolation
-	Skipped     bool     `json:"skipped,omitempty"`
-	SkipReason  string   `json:"skip_reason,omitempty"`
+	EvalID      string              `json:"eval_id"`
+	EvalType    string              `json:"eval_type"` // handler type: "llm_judge", "content_check", etc.
+	Trigger     string              `json:"trigger"`   // "every_turn", "on_session_complete", etc.
+	Passed      bool                `json:"passed"`
+	Score       *float64            `json:"score,omitempty"`
+	Explanation string              `json:"explanation,omitempty"`
+	DurationMs  int64               `json:"duration_ms"`
+	Error       string              `json:"error,omitempty"`
+	Message     string              `json:"message,omitempty"`
+	Details     map[string]any      `json:"details,omitempty"`    // handler-specific structured detail
+	Violations  []EvalViolationData `json:"violations,omitempty"` // structured (was []string before #1028)
+	Skipped     bool                `json:"skipped,omitempty"`
+	SkipReason  string              `json:"skip_reason,omitempty"`
 }
 
 type (

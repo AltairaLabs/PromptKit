@@ -179,7 +179,7 @@ func (r *EvalRunner) runEvals(
 			result.SessionID = evalCtx.SessionID
 			result.TurnIndex = evalCtx.TurnIndex
 			r.runHooks(ctx, &defs[i], evalCtx, result)
-			r.emitResult(result)
+			r.emitResult(&defs[i], result)
 			results = append(results, *result)
 		}
 	}
@@ -332,7 +332,11 @@ func (r *EvalRunner) invokeHook(
 }
 
 // emitResult publishes eval.completed or eval.failed via the emitter (if set).
-func (r *EvalRunner) emitResult(result *EvalResult) {
+//
+// def is the EvalDef the result came from; when non-nil its Trigger is
+// propagated to the event payload. Some test callers pass nil where
+// Trigger doesn't matter.
+func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 	if r.emitter == nil {
 		return
 	}
@@ -344,8 +348,12 @@ func (r *EvalRunner) emitResult(result *EvalResult) {
 		DurationMs:  result.DurationMs,
 		Error:       result.Error,
 		Message:     result.Message,
+		Details:     result.Details,
 		Skipped:     result.Skipped,
 		SkipReason:  result.SkipReason,
+	}
+	if def != nil {
+		data.Trigger = string(def.Trigger)
 	}
 	// Determine passed status: skip skipped evals, use handler's Value (bool)
 	// if available (accounts for min_score/max_score thresholds), otherwise
@@ -357,8 +365,15 @@ func (r *EvalRunner) emitResult(result *EvalResult) {
 			data.Passed = true
 		}
 	}
-	for _, v := range result.Violations {
-		data.Violations = append(data.Violations, v.Description)
+	if len(result.Violations) > 0 {
+		data.Violations = make([]events.EvalViolationData, len(result.Violations))
+		for i, v := range result.Violations {
+			data.Violations[i] = events.EvalViolationData{
+				TurnIndex:   v.TurnIndex,
+				Description: v.Description,
+				Evidence:    v.Evidence,
+			}
+		}
 	}
 	if result.Error != "" {
 		r.emitter.EvalFailed(data)
