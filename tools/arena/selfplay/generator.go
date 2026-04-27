@@ -126,6 +126,7 @@ func (cg *ContentGenerator) NextUserTurn(
 		selfplayContextStage = arenastages.NewSelfPlayUserTurnContextStage(&config.Scenario{ID: scenarioID})
 	}
 
+	turnState := stage.NewTurnState()
 	stages := []stage.Stage{
 		arenastages.NewPersonaAssemblyStage(cg.persona, region, baseVariables),
 	}
@@ -141,7 +142,7 @@ func (cg *ContentGenerator) NextUserTurn(
 	stages = append(stages,
 		arenastages.NewHistoryInjectionStageSwapped(history),
 		selfplayContextStage,
-		stage.NewTemplateStage(),
+		stage.NewTemplateStageWithTurnState(emitter, turnState),
 		stage.NewProviderStageWithEmitter(cg.provider, nil, nil, providerConfig, emitter),
 	)
 

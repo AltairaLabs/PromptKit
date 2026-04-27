@@ -19,17 +19,28 @@ import (
 // the guardrail by modifying the message content (e.g., truncating for length
 // validators, replacing content for content blockers).
 //
-// This stage reads "validator_configs" from element metadata (set by
-// PromptAssemblyStage) and uses guardrails.NewGuardrailHook to instantiate
-// each hook, then calls AfterCall to evaluate the response.
+// Validator configs are sourced from the per-Turn *TurnState* (populated by
+// PromptAssemblyStage). When TurnState is not wired, the stage falls back to
+// reading "validator_configs" from element metadata for backward compat.
 type GuardrailEvalStage struct {
 	stage.BaseStage
+	turnState *stage.TurnState
 }
 
 // NewGuardrailEvalStage creates a new guardrail evaluation stage.
+// Pipelines that have migrated to TurnState should use NewGuardrailEvalStageWithTurnState.
 func NewGuardrailEvalStage() *GuardrailEvalStage {
 	return &GuardrailEvalStage{
 		BaseStage: stage.NewBaseStage("guardrail_eval", stage.StageTypeTransform),
+	}
+}
+
+// NewGuardrailEvalStageWithTurnState creates a guardrail evaluation stage that
+// reads validator configurations from the shared *TurnState.
+func NewGuardrailEvalStageWithTurnState(turnState *stage.TurnState) *GuardrailEvalStage {
+	return &GuardrailEvalStage{
+		BaseStage: stage.NewBaseStage("guardrail_eval", stage.StageTypeTransform),
+		turnState: turnState,
 	}
 }
 
@@ -120,8 +131,13 @@ func (s *GuardrailEvalStage) Process(
 	return s.forwardAll(ctx, elements, output)
 }
 
-// extractValidatorConfigs finds validator_configs in any element's metadata.
+// extractValidatorConfigs sources validator configs from TurnState when wired,
+// otherwise falls back to scanning element metadata for the deprecated
+// "validator_configs" key.
 func (s *GuardrailEvalStage) extractValidatorConfigs(elements []stage.StreamElement) []prompt.ValidatorConfig {
+	if s.turnState != nil && len(s.turnState.Validators) > 0 {
+		return s.turnState.Validators
+	}
 	for i := range elements {
 		if elements[i].Metadata == nil {
 			continue
