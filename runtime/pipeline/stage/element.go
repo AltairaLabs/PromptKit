@@ -78,11 +78,22 @@ type StreamElement struct {
 	MediaData *types.MediaContent    // Media content with MIME type
 
 	// Metadata
-	Sequence  int64                  // Monotonic sequence number
-	Timestamp time.Time              // When element was created
-	Source    string                 // Stage that produced this element
-	Priority  Priority               // Scheduling priority (for QoS)
-	Metadata  map[string]interface{} // Additional metadata for passing data between stages
+	Sequence  int64     // Monotonic sequence number
+	Timestamp time.Time // When element was created
+	Source    string    // Stage that produced this element
+	Priority  Priority  // Scheduling priority (for QoS)
+
+	// Meta is the typed schema for genuinely per-element coordination data
+	// (e.g. FromHistory). Per-Turn invariants (system_prompt, allowed_tools,
+	// validators, variables, etc.) live in TurnState — see
+	// runtime/pipeline/stage/ARCHITECTURE.md §4.
+	Meta ElementMetadata
+
+	// Deprecated: free-form per-element metadata bag. Slated for removal
+	// once Arena and any remaining downstream consumers migrate to
+	// typed paths (TurnState for per-Turn data, ElementMetadata for
+	// per-element flags). New stages must NOT add keys here.
+	Metadata map[string]interface{}
 
 	// Control signals
 	EndOfStream bool  // No more elements after this

@@ -290,6 +290,74 @@ func TestTemplateStage_RendersFromSystemTemplate(t *testing.T) {
 	})
 }
 
+func TestTemplateStage_TurnStateRenderCache(t *testing.T) {
+	// First element: full render path; SystemPrompt cached on TurnState,
+	// started+rendered events emitted exactly once.
+	// Second element with the same TurnState: cache hit; no events emitted,
+	// system_prompt copied from TurnState. This is the #1035 fix path.
+	bus := events.NewEventBus()
+	defer bus.Close()
+	emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
+	turnState := NewTurnState()
+	stage := NewTemplateStageWithTurnState(emitter, turnState)
+
+	var mu sync.Mutex
+	var collected []*events.Event
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		collected = append(collected, e)
+		mu.Unlock()
+	})
+
+	// First call: full render.
+	in1 := make(chan StreamElement, 1)
+	out1 := make(chan StreamElement, 1)
+	in1 <- StreamElement{
+		Metadata: map[string]interface{}{
+			"system_template":    "Hello {{name}}!",
+			"template_task_type": "greeting",
+			"variables":          map[string]string{"name": "World"},
+		},
+	}
+	close(in1)
+	require.NoError(t, stage.Process(context.Background(), in1, out1))
+	first := <-out1
+	assert.Equal(t, "Hello World!", first.Metadata["system_prompt"])
+	assert.Equal(t, "Hello World!", turnState.SystemPrompt, "SystemPrompt should be cached on TurnState")
+
+	// Second call with the same TurnState: cache hit. system_prompt is
+	// still set on the element, but the renderer is not invoked again.
+	in2 := make(chan StreamElement, 1)
+	out2 := make(chan StreamElement, 1)
+	in2 <- StreamElement{
+		Metadata: map[string]interface{}{
+			"system_template":    "Hello {{name}}!",
+			"template_task_type": "greeting",
+			"variables":          map[string]string{"name": "Alice"}, // different vars — cache should still win
+		},
+	}
+	close(in2)
+	require.NoError(t, stage.Process(context.Background(), in2, out2))
+	second := <-out2
+	assert.Equal(t, "Hello World!", second.Metadata["system_prompt"], "second element must reuse cached SystemPrompt")
+
+	// Wait for events to drain, then count: exactly one started + one rendered.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		var started, rendered int
+		for _, e := range collected {
+			if e.Type == events.EventTemplateStarted {
+				started++
+			}
+			if e.Type == events.EventTemplateRendered {
+				rendered++
+			}
+		}
+		return started == 1 && rendered == 1
+	}, 2*time.Second, 10*time.Millisecond, "expected exactly 1 started + 1 rendered event across both calls")
+}
+
 func TestTemplateStage_WithEmitter(t *testing.T) {
 	t.Run("emits started and rendered events", func(t *testing.T) {
 		bus := events.NewEventBus()

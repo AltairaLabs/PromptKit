@@ -286,19 +286,21 @@ func collectPipelineStages(
 	// 1. State store load stage - loads conversation history FIRST
 	stages = appendStateStoreLoadStages(stages, cfg, stateStoreConfig, useRAGContext)
 
+	// Per-Turn shared state populated by PromptAssemblyStage and consumed by
+	// TemplateStage (and future stages). Caching the rendered system prompt
+	// here is what fixes #1035 — see runtime/pipeline/stage/ARCHITECTURE.md §4.
+	turnState := stage.NewTurnState()
+
 	// 2. Variable provider stage - always present, handles static + dynamic vars
 	// 3. Prompt assembly stage - loads raw template (no rendering)
 	stages = append(stages,
 		stage.NewVariableProviderStageWithVars(cfg.Variables, cfg.VariableProviders),
-		stage.NewPromptAssemblyStage(cfg.PromptRegistry, cfg.TaskType, cfg.Variables),
+		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
 	)
 
-	// 4. Template stage - single render point, emits events
-	if cfg.EventEmitter != nil {
-		stages = append(stages, stage.NewTemplateStageWithEmitter(cfg.EventEmitter))
-	} else {
-		stages = append(stages, stage.NewTemplateStage())
-	}
+	// 4. Template stage - single render point, emits events. With turnState,
+	// rendering happens once per Send rather than once per element.
+	stages = append(stages, stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState))
 
 	// 4.1 Input recording stage - captures user input with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingEventBus != nil {

@@ -213,6 +213,60 @@ func TestPromptAssemblyStage_RegistryMissing(t *testing.T) {
 	assert.Nil(t, results[0].Metadata["system_prompt"])
 }
 
+func TestPromptAssemblyStage_PopulatesTurnState(t *testing.T) {
+	// Registry with a template that has both validators and the default raw
+	// template. The stage should populate TurnState.Template /
+	// AllowedTools / Validators on its first iteration, before any element
+	// is forwarded.
+	repo := newMockRepo()
+	registry := prompt.NewRegistryWithRepository(repo)
+	enabled := true
+	disabled := false
+	cfg := &prompt.Config{
+		Spec: prompt.Spec{
+			TaskType:       "chat",
+			SystemTemplate: "You are a {{role}} bot.",
+			Validators: []prompt.ValidatorConfig{
+				{Type: "banned_words", Params: map[string]interface{}{"words": []string{"bad"}}, Enabled: &enabled},
+				{Type: "noop_disabled", Enabled: &disabled},
+			},
+		},
+	}
+	require.NoError(t, registry.RegisterConfig("chat", cfg))
+
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(registry, "chat", map[string]string{"role": "support"}, turnState)
+
+	inputs := []StreamElement{
+		newTestMsgElement("user", "Hello"),
+		newTestMsgElement("user", "Second message"),
+	}
+	results := runTestStage(t, s, inputs)
+	require.Len(t, results, 2)
+
+	// TurnState must be populated exactly once with the loaded template.
+	require.NotNil(t, turnState.Template)
+	assert.Equal(t, "You are a {{role}} bot.", turnState.Template.RawTemplate)
+	// Validators copied; the disabled one is filtered out.
+	require.Len(t, turnState.Validators, 1)
+	assert.Equal(t, "banned_words", turnState.Validators[0].Type)
+}
+
+func TestPromptAssemblyStage_TurnStateNilTemplateNoOp(t *testing.T) {
+	// loadTemplate always returns a non-nil default, so TurnState should
+	// still get populated even when the registry has nothing useful.
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(nil, "chat", nil, turnState)
+
+	inputs := []StreamElement{newTestMsgElement("user", "Hello")}
+	results := runTestStage(t, s, inputs)
+	require.Len(t, results, 1)
+
+	require.NotNil(t, turnState.Template)
+	assert.Equal(t, "You are a helpful AI assistant.", turnState.Template.RawTemplate)
+	assert.Empty(t, turnState.Validators)
+}
+
 func TestPromptAssemblyStage_ExtractValidatorConfigs(t *testing.T) {
 	s := NewPromptAssemblyStage(nil, "chat", nil)
 
