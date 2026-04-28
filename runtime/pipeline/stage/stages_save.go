@@ -214,6 +214,18 @@ func (s *IncrementalSaveStage) fullSave(ctx context.Context, collected *incremen
 		}
 	}
 
+	// Re-load summaries before Save: a typed SaveSummary call may have
+	// landed between our Load and Save (e.g., from maybeSummarize on a
+	// different goroutine, or a future parallel compaction stage). The
+	// snapshot we Loaded would otherwise clobber it.
+	if accessor, ok := s.config.StateStoreConfig.Store.(statestore.SummaryAccessor); ok {
+		summaries, sumErr := accessor.LoadSummaries(ctx, convID)
+		if sumErr != nil {
+			return fmt.Errorf("incremental save: failed to reload summaries: %w", sumErr)
+		}
+		state.Summaries = summaries
+	}
+
 	return store.Save(ctx, state)
 }
 

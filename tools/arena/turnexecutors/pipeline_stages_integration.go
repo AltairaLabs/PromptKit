@@ -595,7 +595,10 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 		if cfg.UseArenaStateStoreSave {
 			stages = append(stages, arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState))
 		} else {
-			stages = append(stages, stage.NewStateStoreSaveStageWithTurnState(storeConfig, turnState))
+			stages = append(stages, stage.NewIncrementalSaveStageWithTurnState(
+				&stage.IncrementalSaveConfig{StateStoreConfig: storeConfig},
+				turnState,
+			))
 		}
 	}
 

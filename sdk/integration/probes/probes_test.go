@@ -171,16 +171,18 @@ func TestProbedStore_CountsCallsAndForwards(t *testing.T) {
 	require.NotNil(t, got)
 	require.NoError(t, s.Save(context.Background(), state))
 
-	loads, saves, forks := s.snapshot()
+	loads, saves, forks, appendMessages := s.snapshot()
 	assert.Equal(t, 1, loads)
 	assert.Equal(t, 2, saves)
 	assert.Equal(t, 0, forks)
+	assert.Equal(t, 0, appendMessages)
 
 	s.reset()
-	loads, saves, forks = s.snapshot()
+	loads, saves, forks, appendMessages = s.snapshot()
 	assert.Equal(t, 0, loads)
 	assert.Equal(t, 0, saves)
 	assert.Equal(t, 0, forks)
+	assert.Equal(t, 0, appendMessages)
 }
 
 func TestProbedStore_ForkCounts(t *testing.T) {
@@ -188,7 +190,7 @@ func TestProbedStore_ForkCounts(t *testing.T) {
 	require.NoError(t, inner.Save(context.Background(), &statestore.ConversationState{ID: "src"}))
 	s := newProbedStore(inner)
 	require.NoError(t, s.Fork(context.Background(), "src", "dst"))
-	_, _, forks := s.snapshot()
+	_, _, forks, _ := s.snapshot()
 	assert.Equal(t, 1, forks)
 }
 
@@ -409,7 +411,10 @@ func TestRun_SeedHistoryFlowsThroughSend(t *testing.T) {
 	_, err := conv.Send(context.Background(), "ping")
 	require.NoError(t, err)
 
-	// The pipeline must Save at least once; Load count is left for the
-	// pipeline contract test in the parent package to assert.
-	assert.GreaterOrEqual(t, p.Snapshot().Count("store.Save"), 1)
+	// The pipeline must persist at least once. With MessageAppender-capable
+	// stores (the probe default uses MemoryStore), persistence goes through
+	// AppendMessages; bulk Save is the fallback.
+	snap := p.Snapshot()
+	persists := snap.Count("store.Save") + snap.Count("store.AppendMessages")
+	assert.GreaterOrEqual(t, persists, 1)
 }

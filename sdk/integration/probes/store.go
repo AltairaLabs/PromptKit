@@ -15,10 +15,11 @@ import (
 type probedStore struct {
 	inner statestore.Store
 
-	mu    sync.Mutex
-	loads int
-	saves int
-	forks int
+	mu             sync.Mutex
+	loads          int
+	saves          int
+	forks          int
+	appendMessages int
 }
 
 func newProbedStore(inner statestore.Store) *probedStore {
@@ -52,13 +53,13 @@ func (s *probedStore) Fork(ctx context.Context, sourceID, newID string) error {
 func (s *probedStore) reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.loads, s.saves, s.forks = 0, 0, 0
+	s.loads, s.saves, s.forks, s.appendMessages = 0, 0, 0, 0
 }
 
-func (s *probedStore) snapshot() (loads, saves, forks int) {
+func (s *probedStore) snapshot() (loads, saves, forks, appendMessages int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.loads, s.saves, s.forks
+	return s.loads, s.saves, s.forks, s.appendMessages
 }
 
 // Compile-time assertion that probedStore implements statestore.Store.
@@ -91,10 +92,15 @@ func (s *probedStore) MessageCount(ctx context.Context, id string) (int, error) 
 }
 
 // AppendMessages delegates if the inner supports MessageAppender; otherwise
-// returns ErrNotFound. Save calls remain counted via the wrapper's Save.
+// returns ErrNotFound. Counted under "store.AppendMessages" in the snapshot
+// so contracts can pin write traffic regardless of the persistence path
+// (Save vs AppendMessages) chosen by the active stage.
 func (s *probedStore) AppendMessages(
 	ctx context.Context, id string, messages []types.Message,
 ) error {
+	s.mu.Lock()
+	s.appendMessages++
+	s.mu.Unlock()
 	if a, ok := s.inner.(statestore.MessageAppender); ok {
 		return a.AppendMessages(ctx, id, messages)
 	}
