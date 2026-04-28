@@ -1,0 +1,33 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: openai-audio-output
+  annotations:
+    description: |
+      Asks gpt-4o-audio-preview for spoken (audio) output, exercising the
+      end-to-end media-externalization path: provider returns inline
+      base64 audio → MediaExternalizerStage moves it to out/media/ →
+      report renders an <audio> player resolving against the file on
+      disk. Requires OPENAI_API_KEY.
+spec:
+  id: openai-audio-output
+  task_type: audio-analysis
+  turns:
+    - role: user
+      parts:
+        - type: text
+          text: |
+            Read this single sentence aloud verbatim and nothing else:
+            "The Brooklyn Bridge connects Manhattan to Brooklyn."
+      assertions:
+        - type: audio_format
+          params:
+            formats:
+              - wav
+          message: Response should include WAV-formatted audio output
+  description: |
+    Asks gpt-4o-audio-preview for spoken (audio) output, exercising the
+    end-to-end media-externalization path: provider returns inline
+    base64 audio → MediaExternalizerStage moves it to out/media/ →
+    report renders an <audio> player resolving against the file on
+    disk. Requires OPENAI_API_KEY.

@@ -13,6 +13,7 @@ spec:
     - file: providers/mock-provider.provider.yaml
     - file: providers/gemini-provider.provider.yaml
     - file: providers/imagen-provider.provider.yaml
+    - file: providers/openai-gpt4o-audio-output.provider.yaml
 
   scenarios:
     - file: scenarios/image-analysis.scenario.yaml
@@ -20,6 +21,7 @@ spec:
     - file: scenarios/multimodal-mixed.scenario.yaml
     - file: scenarios/audio-transcription.scenario.yaml
     - file: scenarios/imagen-generation.scenario.yaml
+    - file: scenarios/openai-audio-output.scenario.yaml
 
   defaults:
     temperature: 0.7
