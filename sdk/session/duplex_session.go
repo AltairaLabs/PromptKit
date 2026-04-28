@@ -91,7 +91,7 @@ func initConversationState(ctx context.Context, store statestore.Store, cfg *Dup
 //
 // If Config is provided (ASM mode):
 //   - Passes streaming provider + base config to PipelineBuilder
-//   - DuplexProviderStage creates session lazily using system_prompt from element metadata
+//   - DuplexProviderStage creates the session lazily using TurnState.SystemPrompt
 //   - Single long-running pipeline execution
 //
 // If Config is nil (VAD mode):
@@ -130,8 +130,9 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		if !ok {
 			return nil, fmt.Errorf("provider must implement StreamInputSupport for ASM mode")
 		}
-		// Note: Session is NOT created here - DuplexProviderStage creates it lazily
-		// using system_prompt from element metadata (set by PromptAssemblyStage)
+		// Note: Session is NOT created here — DuplexProviderStage creates it
+		// lazily using TurnState.SystemPrompt (published by PromptAssemblyStage
+		// and TemplateStage).
 	}
 
 	// Build pipeline with streaming provider + config (provider creates session lazily)

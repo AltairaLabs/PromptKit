@@ -114,7 +114,7 @@ func (s *SelfPlayUserTurnContextStage) writeProviderMetadata(userCount, nextUser
 	m["arena_user_next_turn"] = nextUserTurn
 	m["arena_role"] = "self_play_user"
 	m["mock_scenario_id"] = s.scenario.ID
-	m["mock_turn_number"] = nextUserTurn // backward-compat
+	m["mock_turn_number"] = nextUserTurn // mirror of arena_user_next_turn for the mock provider's lookup
 	if s.personaID != "" {
 		m["mock_persona_id"] = s.personaID
 	}

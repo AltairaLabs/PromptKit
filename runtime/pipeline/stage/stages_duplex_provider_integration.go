@@ -67,9 +67,9 @@ type DuplexProviderStage struct {
 	provider   providers.StreamInputSupport
 	baseConfig *providers.StreamingInputConfig
 
-	// turnState is the per-Turn shared state. When wired, system_prompt is
-	// sourced from TurnState.SystemPrompt rather than scanning element
-	// metadata at session-creation time. May be nil for legacy callers.
+	// turnState is the per-Turn shared state; SystemPrompt is sourced
+	// from TurnState.SystemPrompt at session-creation time. Nil-safe
+	// (the stage uses an empty system prompt when not wired).
 	turnState *TurnState
 
 	// Session created on first element with system_prompt
@@ -128,10 +128,10 @@ type DuplexProviderStage struct {
 	outputChunkIndex int
 }
 
-// NewDuplexProviderStage creates a new duplex provider stage.
-// The session is created lazily when the first element arrives,
-// using system_prompt from element metadata. This allows the pipeline
-// to be the single source of truth for prompt assembly.
+// NewDuplexProviderStage creates a new duplex provider stage. The session
+// is created lazily when the first element arrives. Prefer
+// NewDuplexProviderStageWithTurnState in production so the system prompt
+// is sourced from the per-Turn shared state.
 func NewDuplexProviderStage(
 	provider providers.StreamInputSupport,
 	baseConfig *providers.StreamingInputConfig,
@@ -158,9 +158,9 @@ func NewDuplexProviderStageWithEmitter(
 	return s
 }
 
-// NewDuplexProviderStageWithTurnState creates a new duplex provider stage that
-// sources system_prompt from the shared *TurnState rather than the deprecated
-// metadata bag. The emitter remains optional.
+// NewDuplexProviderStageWithTurnState creates a new duplex provider stage
+// that sources system_prompt from the shared *TurnState. The emitter
+// remains optional.
 func NewDuplexProviderStageWithTurnState(
 	provider providers.StreamInputSupport,
 	baseConfig *providers.StreamingInputConfig,
@@ -181,9 +181,9 @@ func NewDuplexProviderStageWithTurnState(
 // - Session response channel is closed (server ends session)
 // - Input channel is closed (upstream ends)
 //
-// If no session is pre-configured, the session is created lazily when the first
-// element arrives. The system_prompt from element metadata is used as the
-// SystemInstruction for session creation.
+// If no session is pre-configured, the session is created lazily when the
+// first element arrives. The system_prompt from TurnState (when wired) is
+// used as the SystemInstruction for session creation.
 func (s *DuplexProviderStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,

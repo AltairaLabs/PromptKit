@@ -34,7 +34,8 @@ func NewArenaStateStoreSaveStage(config *pipeline.StateStoreConfig) *ArenaStateS
 
 // NewArenaStateStoreSaveStageWithTurnState creates an Arena state store
 // save stage that reads the rendered system prompt from the supplied
-// TurnState before falling back to per-element metadata.
+// TurnState. Falls back to config.Metadata["system_prompt"] when the
+// TurnState is empty (used by tests that wire the prompt via config).
 func NewArenaStateStoreSaveStageWithTurnState(
 	config *pipeline.StateStoreConfig, turnState *stage.TurnState,
 ) *ArenaStateStoreSaveStage {

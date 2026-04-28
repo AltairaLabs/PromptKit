@@ -110,13 +110,9 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 //
 // When metadata contains "system_template" (set by PromptAssemblyStage), this
 // stage is the single render point: it merges variable maps with the priority
-// template_default_vars < template_fragment_vars < variables, calls the
-// template.Renderer for recursive substitution, and emits lifecycle events.
-//
-// For backward compatibility, if "system_template" is absent but "system_prompt"
-// is present, the stage falls back to simple string replacement.
-//
-// In both paths the stage also substitutes variables in message content and parts.
+// template.DefaultVars < template.FragmentVars < TurnState.Variables, calls
+// the template.Renderer for recursive substitution, and emits lifecycle events.
+// It also substitutes variables in message content and parts.
 //
 // This is a Transform stage: 1 input element → 1 output element.
 type TemplateStage struct {
@@ -124,11 +120,10 @@ type TemplateStage struct {
 	emitter  *events.Emitter
 	renderer *template.Renderer
 
-	// turnState, when set, is used as the per-Turn render cache: render
-	// fires exactly once per Send (the first non-history element) and the
-	// rendered SystemPrompt is reused for every subsequent element.
-	// Without it, the stage falls back to the legacy per-element render
-	// path (#1035 behavior). New pipelines should always wire it.
+	// turnState provides the template, merged variables, and the per-Turn
+	// render cache: render fires exactly once per Send (the first
+	// non-history element) and the rendered SystemPrompt is reused for
+	// every subsequent element. Nil-safe (the stage no-ops without it).
 	turnState *TurnState
 }
 
@@ -676,14 +671,15 @@ type ContextBuilderStage struct {
 	BaseStage
 	policy       *ContextBuilderPolicy
 	tokenCounter tokenizer.TokenCounter
-	// turnState is the per-Turn shared state. When wired, the system prompt
-	// used for token-budget accounting is sourced from TurnState.SystemPrompt
-	// rather than scanning element metadata.
+	// turnState provides the system prompt used for token-budget
+	// accounting. Nil-safe (the stage assumes an empty system prompt).
 	turnState *TurnState
 }
 
-// NewContextBuilderStage creates a context builder stage.
-// Pipelines that have migrated to TurnState should use NewContextBuilderStageWithTurnState.
+// NewContextBuilderStage creates a context builder stage with no TurnState
+// wired. Useful for tests; production callers should use
+// NewContextBuilderStageWithTurnState so the system prompt is available
+// for token-budget accounting.
 func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage {
 	return NewContextBuilderStageWithTurnState(policy, nil)
 }

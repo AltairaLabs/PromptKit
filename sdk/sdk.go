@@ -620,9 +620,9 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 	return nil
 }
 
-// Note: loadSystemInstruction was removed - system prompt now comes from pipeline
-// PromptAssemblyStage adds system_prompt to element metadata, and DuplexProviderStage
-// reads it when creating the session lazily
+// Note: loadSystemInstruction was removed - the system prompt now comes from
+// the pipeline. PromptAssemblyStage publishes it to TurnState.SystemPrompt
+// and DuplexProviderStage reads it from TurnState when creating the session.
 
 // initDuplexSession initializes a duplex streaming session.
 func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers.StreamInputSupport) error {
@@ -645,9 +645,10 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 		initialVars = make(map[string]string)
 	}
 
-	// Create pipeline builder closure that captures conversation context
-	// Returns *stage.StreamPipeline directly for duplex sessions
-	// Note: DuplexProviderStage creates session lazily using system_prompt from element metadata
+	// Create pipeline builder closure that captures conversation context.
+	// Returns *stage.StreamPipeline directly for duplex sessions.
+	// DuplexProviderStage creates the session lazily using the system prompt
+	// published to TurnState by PromptAssemblyStage / TemplateStage.
 	pipelineBuilder := func(
 		ctx context.Context,
 		provider providers.Provider,
@@ -663,8 +664,8 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 	// Mode is determined by cfg.streamingConfig:
 	// - If set: ASM mode (creates provider session, continuous streaming)
 	// - If nil: VAD mode (no provider session, turn-based streaming)
-	// Note: System instruction is NOT pre-loaded here anymore - it comes from pipeline
-	// PromptAssemblyStage adds system_prompt to element metadata
+	// The system instruction is not pre-loaded here — PromptAssemblyStage
+	// publishes it to TurnState and DuplexProviderStage reads from there.
 	streamConfig := cfg.streamingConfig
 
 	// Build HITL checker closure — reads asyncHandlers dynamically under lock

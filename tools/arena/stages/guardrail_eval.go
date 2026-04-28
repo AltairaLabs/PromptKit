@@ -19,16 +19,16 @@ import (
 // the guardrail by modifying the message content (e.g., truncating for length
 // validators, replacing content for content blockers).
 //
-// Validator configs are sourced from the per-Turn *TurnState* (populated by
-// PromptAssemblyStage). When TurnState is not wired, the stage falls back to
-// reading "validator_configs" from element metadata for backward compat.
+// Validator configs are sourced from TurnState (populated by
+// PromptAssemblyStage). The stage no-ops when TurnState is not wired.
 type GuardrailEvalStage struct {
 	stage.BaseStage
 	turnState *stage.TurnState
 }
 
-// NewGuardrailEvalStage creates a new guardrail evaluation stage.
-// Pipelines that have migrated to TurnState should use NewGuardrailEvalStageWithTurnState.
+// NewGuardrailEvalStage creates a guardrail evaluation stage with no
+// TurnState wired. Useful for tests that exercise the no-op path; production
+// callers should use NewGuardrailEvalStageWithTurnState.
 func NewGuardrailEvalStage() *GuardrailEvalStage {
 	return &GuardrailEvalStage{
 		BaseStage: stage.NewBaseStage("guardrail_eval", stage.StageTypeTransform),

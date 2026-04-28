@@ -184,7 +184,7 @@ func (s *MediaExtractStage) extractMediaFromMessage(
 			OriginalMessage: msg,
 		}
 
-		// Preserve original element metadata
+		// Preserve provenance from the source element.
 		outElem.Source = elem.Source
 		outElem.Sequence = elem.Sequence
 

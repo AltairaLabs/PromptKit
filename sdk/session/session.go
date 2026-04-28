@@ -116,9 +116,9 @@ type UnarySessionConfig struct {
 // PipelineBuilder creates a StreamPipeline for a DuplexSession.
 // This is typically a closure created in SDK that captures configuration.
 //
-// For ASM mode: streamProvider will be non-nil, builder passes it to DuplexProviderStage
-//
-//	which creates the session lazily using system_prompt from element metadata.
+// For ASM mode: streamProvider will be non-nil, builder passes it to
+// DuplexProviderStage, which creates the session lazily using
+// TurnState.SystemPrompt (published by PromptAssemblyStage).
 //
 // For VAD mode: streamProvider will be nil, builder creates pipeline with VAD/TTS stages.
 type PipelineBuilder func(
@@ -159,7 +159,7 @@ type AsyncToolChecker func(callID, name string, args map[string]any) *AsyncToolC
 //
 // ASM Mode (Config provided):
 //   - Pipeline is the single source of truth
-//   - DuplexProviderStage creates the session lazily using system_prompt from element metadata
+//   - DuplexProviderStage creates the session lazily using TurnState.SystemPrompt
 //   - PipelineBuilder receives streaming provider + base config (NOT a pre-created session)
 //   - Single long-running pipeline execution for continuous streaming
 //

@@ -114,11 +114,12 @@ type Config struct {
 
 	// StreamInputProvider for duplex streaming (ASM mode) (optional)
 	// When provided with StreamInputConfig, DuplexProviderStage will be used.
-	// The stage creates the session lazily using system_prompt from element metadata.
+	// The stage creates the session lazily using TurnState.SystemPrompt
+	// (published by PromptAssemblyStage / TemplateStage).
 	StreamInputProvider providers.StreamInputSupport
 
-	// StreamInputConfig for duplex streaming session creation (ASM mode) (optional)
-	// Base config for session - system prompt is added from pipeline element metadata.
+	// StreamInputConfig for duplex streaming session creation (ASM mode) (optional).
+	// The system prompt is sourced from TurnState by the duplex stage.
 	StreamInputConfig *providers.StreamingInputConfig
 
 	// UseStages is deprecated and ignored - stages are always used.
@@ -327,8 +328,8 @@ func collectPipelineStages(
 
 	// 4.8 Memory retrieval stage - inject relevant memories before provider
 	if cfg.MemoryRetriever != nil && cfg.MemoryStore != nil {
-		stages = append(stages, stage.NewMemoryRetrievalStage(
-			cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope))
+		stages = append(stages, stage.NewMemoryRetrievalStageWithTurnState(
+			cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope, turnState))
 	}
 
 	// 5. Provider stage - LLM calls with streaming and tool support

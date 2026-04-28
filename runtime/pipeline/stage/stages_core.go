@@ -14,24 +14,19 @@ import (
 
 // PromptAssemblyStage loads and assembles prompts from the prompt registry.
 // It populates TurnState (Template, AllowedTools, Validators) on its first
-// iteration and continues stamping the deprecated per-element Metadata bag
-// for backward compatibility with Arena's wholesale-copy save stage.
-//
-// See ARCHITECTURE.md §4.
+// iteration; downstream stages read from TurnState. See ARCHITECTURE.md §4.
 type PromptAssemblyStage struct {
 	BaseStage
 	promptRegistry *prompt.Registry
 	taskType       string
 	baseVariables  map[string]string
-
-	// turnState is the per-Turn shared state populated on first element.
-	// May be nil for legacy callers that haven't migrated to TurnState
-	// wiring; in that case the stage falls back to the metadata-only path.
-	turnState *TurnState
+	turnState      *TurnState
 }
 
-// NewPromptAssemblyStage creates a new prompt assembly stage. Pipelines
-// that have migrated to TurnState should use NewPromptAssemblyStageWithTurnState.
+// NewPromptAssemblyStage creates a prompt assembly stage with no TurnState
+// wired. Useful for tests that only need the loadTemplate side; production
+// callers should use NewPromptAssemblyStageWithTurnState so downstream
+// stages can read the loaded template.
 func NewPromptAssemblyStage(
 	promptRegistry *prompt.Registry,
 	taskType string,
@@ -45,8 +40,9 @@ func NewPromptAssemblyStage(
 	}
 }
 
-// NewPromptAssemblyStageWithTurnState creates a stage that populates the
-// shared *TurnState in addition to the deprecated per-element metadata.
+// NewPromptAssemblyStageWithTurnState creates a stage that publishes the
+// loaded template, allowed tools, and validator configs onto the supplied
+// TurnState before forwarding the first element.
 func NewPromptAssemblyStageWithTurnState(
 	promptRegistry *prompt.Registry,
 	taskType string,
@@ -58,10 +54,10 @@ func NewPromptAssemblyStageWithTurnState(
 	return s
 }
 
-// Process loads the prompt template, populates TurnState (when configured),
-// and continues stamping per-element metadata for back-compat. It does NOT
-// render the template — that is TemplateStage's responsibility.
-// It does NOT set metadata["variables"] — that is VariableProviderStage's responsibility.
+// Process loads the prompt template and populates TurnState. It does NOT
+// render the template (that is TemplateStage's job) and does NOT set
+// variables (that is VariableProviderStage's job). All input elements are
+// forwarded unchanged.
 //
 //nolint:lll // Channel signature cannot be shortened
 func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
@@ -260,10 +256,9 @@ func NewStateStoreSaveStage(config *pipeline.StateStoreConfig) *StateStoreSaveSt
 }
 
 // NewStateStoreSaveStageWithTurnState creates a save stage that also merges
-// TurnState.ProviderRequestMetadata into the persisted state.Metadata. This
-// is the path consumers use to persist per-Turn coordination data (e.g. arena
-// turn counters) that previously rode on the deleted StreamElement.Metadata
-// bag.
+// TurnState.ProviderRequestMetadata into the persisted state.Metadata. Use
+// this when per-Turn coordination data (e.g. arena turn counters) needs to
+// be persisted alongside the conversation state.
 func NewStateStoreSaveStageWithTurnState(
 	config *pipeline.StateStoreConfig,
 	turnState *TurnState,

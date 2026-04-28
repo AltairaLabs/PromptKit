@@ -152,7 +152,7 @@ func (cg *ContentGenerator) NextUserTurn(
 		arenastages.NewHistoryInjectionStageSwapped(history),
 		selfplayContextStage,
 		stage.NewTemplateStageWithTurnState(emitter, turnState),
-		stage.NewProviderStageWithEmitter(cg.provider, nil, nil, providerConfig, emitter),
+		stage.NewProviderStageWithTurnState(cg.provider, nil, nil, providerConfig, emitter, nil, turnState),
 	)
 
 	builder := stage.NewPipelineBuilder()

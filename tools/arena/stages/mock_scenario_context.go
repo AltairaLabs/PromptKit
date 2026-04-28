@@ -76,8 +76,8 @@ func (s *MockScenarioContextStage) shouldAddScenarioContext() bool {
 	return s.turnState != nil && s.scenario != nil && s.scenario.ID != ""
 }
 
-// writeScenarioContext writes scenario id and turn number into TurnState's
-// provider request metadata bag.
+// writeScenarioContext publishes scenario id and turn number onto
+// TurnState.ProviderRequestMetadata for the mock provider to consume.
 func (s *MockScenarioContextStage) writeScenarioContext(turnNumber int) {
 	if s.turnState.ProviderRequestMetadata == nil {
 		s.turnState.ProviderRequestMetadata = map[string]interface{}{}

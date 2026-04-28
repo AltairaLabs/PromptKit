@@ -44,10 +44,9 @@ type ProviderStage struct {
 	config       *ProviderConfig
 	emitter      *events.Emitter // Optional event emitter for provider call events
 	hookRegistry *hooks.Registry // Optional hook registry for policy enforcement
-	// turnState is the per-Turn shared state. When wired, system_prompt and
-	// allowed_tools are sourced from TurnState.SystemPrompt /
-	// TurnState.AllowedTools rather than from element metadata. May be nil
-	// for legacy callers; in that case the stage falls back to the bag.
+	// turnState is the per-Turn shared state. SystemPrompt, AllowedTools,
+	// and ProviderRequestMetadata are sourced from it. Nil-safe (the
+	// stage emits an empty system prompt and no allowed tools).
 	turnState *TurnState
 }
 
@@ -134,9 +133,8 @@ func NewProviderStageWithHooks(
 }
 
 // NewProviderStageWithTurnState creates a provider stage that sources
-// system_prompt and allowed_tools from the shared *TurnState rather than the
-// deprecated element metadata bag. Pipelines that have migrated to TurnState
-// should use this constructor.
+// system_prompt, allowed_tools, and provider-bound metadata from the shared
+// *TurnState. Pass nil for ad-hoc / test usage where TurnState is not wired.
 func NewProviderStageWithTurnState(
 	provider providers.Provider,
 	toolRegistry *tools.Registry,
