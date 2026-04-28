@@ -62,18 +62,19 @@ func (s Snapshot) All() map[Op]int {
 
 // Snapshot captures the current counter state.
 func (p *Probes) Snapshot() Snapshot {
-	loads, saves, forks := p.store.snapshot()
+	loads, saves, forks, appendMessages := p.store.snapshot()
 	summarizerPredicts := p.summarizerProvider.predicts()
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	const fixedCounters = 4 // store.{Load,Save,Fork}, summarizer.Predict
+	const fixedCounters = 5 // store.{Load,Save,Fork,AppendMessages}, summarizer.Predict
 
 	counts := make(map[Op]int, len(p.events)+fixedCounters)
 	counts["store.Load"] = loads
 	counts["store.Save"] = saves
 	counts["store.Fork"] = forks
+	counts["store.AppendMessages"] = appendMessages
 	counts["summarizer.Predict"] = summarizerPredicts
 	for et, n := range p.events {
 		counts[Op("events."+string(et))] = n

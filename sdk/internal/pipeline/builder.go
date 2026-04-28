@@ -353,7 +353,7 @@ func collectPipelineStages(
 	}
 
 	// 6. State store save stage - saves conversation state LAST
-	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig, useRAGContext)
+	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig)
 
 	return stages, nil
 }
@@ -422,27 +422,26 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 	return nil, nil
 }
 
-// appendStateStoreSaveStages adds the appropriate state store save stage.
+// appendStateStoreSaveStages adds the state store save stage.
+// Always uses IncrementalSaveStage — it falls back to a full save when the
+// store doesn't implement MessageAppender, and otherwise uses the typed
+// append path. RAG-only fields (MessageIndex, Summarizer) stay nil-safe.
 func appendStateStoreSaveStages(
 	stages []stage.Stage,
 	cfg *Config,
 	stateStoreConfig *rtpipeline.StateStoreConfig,
-	useRAGContext bool,
 ) []stage.Stage {
 	if stateStoreConfig == nil {
 		return stages
 	}
-	if useRAGContext {
-		return append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{
-			StateStoreConfig:   stateStoreConfig,
-			MessageIndex:       cfg.MessageIndex,
-			Summarizer:         cfg.Summarizer,
-			SummarizeThreshold: cfg.SummarizeThreshold,
-			SummarizeBatchSize: cfg.SummarizeBatchSize,
-			MessageLog:         cfg.MessageLog,
-		}))
-	}
-	return append(stages, stage.NewStateStoreSaveStage(stateStoreConfig))
+	return append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{
+		StateStoreConfig:   stateStoreConfig,
+		MessageIndex:       cfg.MessageIndex,
+		Summarizer:         cfg.Summarizer,
+		SummarizeThreshold: cfg.SummarizeThreshold,
+		SummarizeBatchSize: cfg.SummarizeBatchSize,
+		MessageLog:         cfg.MessageLog,
+	}))
 }
 
 // buildContextBuilderPolicy creates a ContextBuilderPolicy from pipeline config.

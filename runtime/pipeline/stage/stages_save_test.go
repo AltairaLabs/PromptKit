@@ -494,8 +494,8 @@ func (s *noReaderStore) AppendMessages(_ context.Context, id string, msgs []type
 
 // readerOnlyStore implements MessageAppender and MessageReader but NOT SummaryAccessor or Store.
 type readerOnlyStore struct {
-	messages     map[string][]types.Message
-	countErr     error
+	messages      map[string][]types.Message
+	countErr      error
 	countOverride int
 }
 
@@ -887,4 +887,78 @@ func TestIncrementalSaveStage_Passthrough_WithErrors(t *testing.T) {
 	// Third element is a message
 	assert.NotNil(t, results[2].Message)
 	assert.Equal(t, "After error", results[2].Message.Content)
+}
+
+// summaryAccessorOnlyStore implements Store + SummaryAccessor but NOT
+// MessageAppender, so IncrementalSaveStage takes the fullSave path. Load
+// deliberately omits summaries from the snapshot to simulate a stale
+// Load that pre-dates a SaveSummary on a different goroutine.
+type summaryAccessorOnlyStore struct {
+	state     *statestore.ConversationState
+	summaries []statestore.Summary
+}
+
+func (s *summaryAccessorOnlyStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
+	if s.state == nil {
+		return nil, statestore.ErrNotFound
+	}
+	snapshot := *s.state
+	snapshot.Summaries = nil
+	return &snapshot, nil
+}
+
+func (s *summaryAccessorOnlyStore) Save(_ context.Context, state *statestore.ConversationState) error {
+	saved := *state
+	if state.Summaries != nil {
+		saved.Summaries = make([]statestore.Summary, len(state.Summaries))
+		copy(saved.Summaries, state.Summaries)
+	}
+	s.state = &saved
+	return nil
+}
+
+func (s *summaryAccessorOnlyStore) Fork(_ context.Context, _, _ string) error { return nil }
+
+func (s *summaryAccessorOnlyStore) LoadSummaries(_ context.Context, _ string) ([]statestore.Summary, error) {
+	return s.summaries, nil
+}
+
+func (s *summaryAccessorOnlyStore) SaveSummary(_ context.Context, _ string, summary statestore.Summary) error {
+	s.summaries = append(s.summaries, summary)
+	return nil
+}
+
+// Regression: IncrementalSaveStage.fullSave must reload summaries via
+// SummaryAccessor before Save, so a SaveSummary that lands between Load
+// and Save isn't clobbered by the stale snapshot.
+func TestIncrementalSaveStage_FullSavePreservesSummariesViaSummaryAccessor(t *testing.T) {
+	store := &summaryAccessorOnlyStore{
+		state: &statestore.ConversationState{
+			ID:       "conv-summary",
+			Messages: []types.Message{},
+		},
+		summaries: []statestore.Summary{
+			{StartTurn: 0, EndTurn: 5, Content: "summary written between Load and Save"},
+		},
+	}
+
+	config := &IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-summary",
+		},
+	}
+
+	s := NewIncrementalSaveStage(config)
+
+	msg := types.Message{Role: "user", Content: "new"}
+	results := runTestStage(t, s, []StreamElement{NewMessageElement(&msg)})
+
+	require.Len(t, results, 1)
+
+	// Load returned no summaries, but fullSave must have reloaded them via
+	// SummaryAccessor and persisted them — proving the race is closed.
+	require.NotNil(t, store.state)
+	require.Len(t, store.state.Summaries, 1)
+	assert.Equal(t, "summary written between Load and Save", store.state.Summaries[0].Content)
 }

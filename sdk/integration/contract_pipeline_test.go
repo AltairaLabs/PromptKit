@@ -11,36 +11,32 @@ import (
 
 // TestContract_PipelineStateStoreBudget pins the cross-stage per-Send budget
 // for state store traffic. Regardless of stage composition, a single Send
-// should produce exactly one Load (history assembly) and exactly one Save
-// (state persistence).
-//
-// Currently violated by StateStoreSaveStage.loadOrCreateState, which performs
-// an additional Load inside the save path. See contract_known_bugs_test.go
-// for the pinned violation count.
+// should produce exactly one Load (history assembly) and exactly one
+// persistence operation. With the consolidated IncrementalSaveStage, the
+// persistence op is AppendMessages on stores that implement MessageAppender
+// (the default MemoryStore does); legacy bulk Save is only used by stores
+// without typed-write support.
 func TestContract_PipelineStateStoreBudget(t *testing.T) {
 	inv := probes.PipelineInvariants{
 		Label: "state-store-budget",
 		PerSend: probes.Ops{
-			"store.Load": probes.Exactly(1),
-			"store.Save": probes.Exactly(1),
-			"store.Fork": probes.Exactly(0),
+			"store.Load":           probes.Exactly(1),
+			"store.Save":           probes.Exactly(0),
+			"store.AppendMessages": probes.Exactly(1),
+			"store.Fork":           probes.Exactly(0),
 		},
 	}
 
 	cases := []struct {
-		name             string
-		history          int
-		knownViolationOf string
+		name    string
+		history int
 	}{
-		{"no-history", 0, "#1035: redundant Load in StateStoreSaveStage"},
-		{"history-5", 5, "#1035: redundant Load in StateStoreSaveStage"},
+		{"no-history", 0},
+		{"history-5", 5},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.knownViolationOf != "" {
-				t.Skipf("known violation: %s — see contract_known_bugs_test.go", tc.knownViolationOf)
-			}
 			p, conv := probes.Run(t, probes.RunOptions{SeedHistory: tc.history})
 			_, err := conv.Send(context.Background(), "x")
 			require.NoError(t, err)

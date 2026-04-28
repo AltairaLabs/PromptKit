@@ -378,123 +378,6 @@ func TestStateStoreLoadStage_AddsConversationMetadata(t *testing.T) {
 }
 
 // =============================================================================
-// StateStoreSaveStage Tests
-// =============================================================================
-
-func TestStateStoreSaveStage_NilConfig(t *testing.T) {
-	s := NewStateStoreSaveStage(nil)
-
-	inputs := []StreamElement{
-		newTestMsgElement("user", "Message"),
-	}
-
-	results := runTestStage(t, s, inputs)
-
-	// Should just forward
-	require.Len(t, results, 1)
-	assert.Equal(t, "Message", results[0].Message.Content)
-}
-
-func TestStateStoreSaveStage_SavesMessages(t *testing.T) {
-	store := statestore.NewMemoryStore()
-
-	config := &pipeline.StateStoreConfig{
-		Store:          store,
-		ConversationID: "save-test",
-		UserID:         "user-1",
-	}
-
-	s := NewStateStoreSaveStage(config)
-
-	inputs := []StreamElement{
-		newTestMsgElement("user", "User message"),
-		newTestMsgElement("assistant", "Assistant message"),
-	}
-
-	results := runTestStage(t, s, inputs)
-
-	// Should forward all elements
-	require.Len(t, results, 2)
-
-	// Verify state was saved
-	ctx := context.Background()
-	state, err := store.Load(ctx, "save-test")
-	require.NoError(t, err)
-	require.NotNil(t, state)
-	assert.Len(t, state.Messages, 2)
-	assert.Equal(t, "User message", state.Messages[0].Content)
-	assert.Equal(t, "Assistant message", state.Messages[1].Content)
-}
-
-func TestStateStoreSaveStage_MergesMetadata(t *testing.T) {
-	store := statestore.NewMemoryStore()
-
-	config := &pipeline.StateStoreConfig{
-		Store:          store,
-		ConversationID: "metadata-test",
-		Metadata: map[string]interface{}{
-			"initial_key": "initial_value",
-		},
-	}
-
-	turnState := NewTurnState()
-	turnState.ProviderRequestMetadata = map[string]interface{}{
-		"execution_key": "execution_value",
-	}
-
-	s := NewStateStoreSaveStageWithTurnState(config, turnState)
-
-	elem := newTestMsgElement("user", "Test")
-	results := runTestStage(t, s, []StreamElement{elem})
-
-	require.Len(t, results, 1)
-
-	// Verify metadata was merged from TurnState.ProviderRequestMetadata
-	ctx := context.Background()
-	state, err := store.Load(ctx, "metadata-test")
-	require.NoError(t, err)
-	assert.Equal(t, "initial_value", state.Metadata["initial_key"])
-	assert.Equal(t, "execution_value", state.Metadata["execution_key"])
-}
-
-func TestStateStoreSaveStage_UpdatesExistingState(t *testing.T) {
-	store := statestore.NewMemoryStore()
-	ctx := context.Background()
-
-	// Create initial state
-	_ = store.Save(ctx, &statestore.ConversationState{
-		ID: "update-test",
-		Messages: []types.Message{
-			{Role: "user", Content: "Old message"},
-		},
-		Metadata: map[string]interface{}{
-			"old_key": "old_value",
-		},
-	})
-
-	config := &pipeline.StateStoreConfig{
-		Store:          store,
-		ConversationID: "update-test",
-	}
-
-	s := NewStateStoreSaveStage(config)
-
-	inputs := []StreamElement{
-		newTestMsgElement("user", "New message"),
-	}
-
-	_ = runTestStage(t, s, inputs)
-
-	// Verify state was updated
-	state, err := store.Load(ctx, "update-test")
-	require.NoError(t, err)
-	assert.Len(t, state.Messages, 1)
-	assert.Equal(t, "New message", state.Messages[0].Content)
-	// Old metadata should be preserved
-	assert.Equal(t, "old_value", state.Metadata["old_key"])
-}
-
-// =============================================================================
 // Invalid Store Type Tests
 // =============================================================================
 
@@ -520,33 +403,6 @@ func TestStateStoreLoadStage_InvalidStoreType(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid store type")
 }
 
-func TestStateStoreSaveStage_InvalidStoreType(t *testing.T) {
-	config := &pipeline.StateStoreConfig{
-		Store:          &invalidStore{},
-		ConversationID: "test",
-	}
-
-	s := NewStateStoreSaveStage(config)
-
-	inputs := []StreamElement{
-		newTestMsgElement("user", "Test"),
-	}
-
-	input := make(chan StreamElement, len(inputs))
-	for _, elem := range inputs {
-		input <- elem
-	}
-	close(input)
-
-	output := make(chan StreamElement, 10)
-	ctx := context.Background()
-
-	err := s.Process(ctx, input, output)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid store type")
-}
-
 // =============================================================================
 // Error Store for Testing
 // =============================================================================
@@ -554,7 +410,6 @@ func TestStateStoreSaveStage_InvalidStoreType(t *testing.T) {
 type errorStore struct {
 	statestore.Store
 	loadErr error
-	saveErr error
 }
 
 func (s *errorStore) Load(ctx context.Context, id string) (*statestore.ConversationState, error) {
@@ -562,10 +417,6 @@ func (s *errorStore) Load(ctx context.Context, id string) (*statestore.Conversat
 		return nil, s.loadErr
 	}
 	return nil, statestore.ErrNotFound
-}
-
-func (s *errorStore) Save(ctx context.Context, state *statestore.ConversationState) error {
-	return s.saveErr
 }
 
 func TestStateStoreLoadStage_LoadError(t *testing.T) {
@@ -588,33 +439,4 @@ func TestStateStoreLoadStage_LoadError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "load failed")
-}
-
-func TestStateStoreSaveStage_SaveError(t *testing.T) {
-	store := &errorStore{saveErr: errors.New("save failed")}
-
-	config := &pipeline.StateStoreConfig{
-		Store:          store,
-		ConversationID: "test",
-	}
-
-	s := NewStateStoreSaveStage(config)
-
-	inputs := []StreamElement{
-		newTestMsgElement("user", "Test"),
-	}
-
-	input := make(chan StreamElement, len(inputs))
-	for _, elem := range inputs {
-		input <- elem
-	}
-	close(input)
-
-	output := make(chan StreamElement, 10)
-	ctx := context.Background()
-
-	err := s.Process(ctx, input, output)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "save failed")
 }
