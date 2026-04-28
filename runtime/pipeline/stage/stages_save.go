@@ -84,15 +84,16 @@ func (s *IncrementalSaveStage) Process(
 		return s.passthrough(ctx, input, output)
 	}
 
-	// Collect messages while forwarding elements
+	// Collect new (non-history) messages while forwarding elements. History
+	// messages are dropped from the in-memory slice — they're already in
+	// the store and don't need to be re-persisted. Holding them here would
+	// scale O(conversation-length) per Send for long conversations.
 	collected, err := s.collectAndForward(ctx, input, output)
 	if err != nil {
 		return err
 	}
 
-	// Identify new messages (those not from history)
-	newMessages := s.filterNewMessages(collected.messages)
-	if len(newMessages) == 0 {
+	if len(collected.messages) == 0 {
 		return nil
 	}
 
@@ -102,14 +103,14 @@ func (s *IncrementalSaveStage) Process(
 	// When MessageLog IS active, messages are already persisted per-round
 	// by the provider stage write-through — skip message append.
 	if s.config.MessageLog == nil {
-		if err := s.persistMessages(ctx, convID, newMessages, collected); err != nil {
+		if err := s.persistMessages(ctx, convID, collected.messages); err != nil {
 			return err
 		}
 	}
 
 	// Index and summarize regardless of persistence path
 	if s.config.MessageIndex != nil {
-		s.indexNewMessages(ctx, convID, newMessages)
+		s.indexNewMessages(ctx, convID, collected.messages)
 	}
 	if s.config.Summarizer != nil && s.config.SummarizeThreshold > 0 {
 		s.maybeSummarize(ctx, convID)
@@ -118,12 +119,12 @@ func (s *IncrementalSaveStage) Process(
 	return nil
 }
 
-// persistMessages saves new messages to the store via MessageAppender or full save fallback.
+// persistMessages saves new messages to the store via MessageAppender or
+// the BulkWriter fallback (Load + append-to-state + Save).
 func (s *IncrementalSaveStage) persistMessages(
 	ctx context.Context,
 	convID string,
 	newMessages []types.Message,
-	collected *incrementalCollectedData,
 ) error {
 	if appender, ok := s.config.StateStoreConfig.Store.(statestore.MessageAppender); ok {
 		if err := appender.AppendMessages(ctx, convID, newMessages); err != nil {
@@ -131,15 +132,21 @@ func (s *IncrementalSaveStage) persistMessages(
 		}
 		return nil
 	}
-	return s.fullSave(ctx, collected)
+	return s.fullSave(ctx, newMessages)
 }
 
 // incrementalCollectedData holds data collected during processing.
 type incrementalCollectedData struct {
+	// messages contains only the new (non-history) messages produced by
+	// this Send. History elements coming through the stream are filtered
+	// out at collect time so we don't duplicate the conversation in memory.
 	messages []types.Message
 }
 
-// collectAndForward collects messages while forwarding all elements.
+// collectAndForward collects new messages while forwarding all elements.
+// Messages whose Source is "statestore", "summary", or "retrieved" are
+// considered history and are forwarded but not collected — they're
+// already persisted upstream.
 func (s *IncrementalSaveStage) collectAndForward(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -148,7 +155,7 @@ func (s *IncrementalSaveStage) collectAndForward(
 	collected := &incrementalCollectedData{}
 
 	for elem := range input {
-		if elem.Message != nil {
+		if elem.Message != nil && isNewMessage(elem.Message) {
 			collected.messages = append(collected.messages, *elem.Message)
 		}
 
@@ -167,23 +174,23 @@ func (s *IncrementalSaveStage) collectAndForward(
 	return collected, nil
 }
 
-// filterNewMessages returns only messages that were not loaded from history.
-func (s *IncrementalSaveStage) filterNewMessages(messages []types.Message) []types.Message {
-	var newMsgs []types.Message
-	for i := range messages {
-		src := messages[i].Source
-		if src != sourceStateStore && src != sourceSummary && src != sourceRetrieved {
-			newMsgs = append(newMsgs, messages[i])
-		}
+// isNewMessage reports whether a message originated from this Send (true)
+// or was loaded from history by an upstream stage (false).
+func isNewMessage(m *types.Message) bool {
+	switch m.Source {
+	case sourceStateStore, sourceSummary, sourceRetrieved:
+		return false
+	default:
+		return true
 	}
-	return newMsgs
 }
 
-// fullSave performs a full load+replace+save cycle. This path is reached
-// only when the store does not implement MessageAppender; persistence
-// requires the store to also implement BulkWriter (otherwise the state
-// is fundamentally unwritable and the stage errors clearly).
-func (s *IncrementalSaveStage) fullSave(ctx context.Context, collected *incrementalCollectedData) error {
+// fullSave appends the new messages to the existing state and writes via
+// BulkWriter. This path is reached only when the store does not implement
+// MessageAppender; persistence requires the store to also implement
+// BulkWriter (otherwise the state is fundamentally unwritable and the
+// stage errors clearly).
+func (s *IncrementalSaveStage) fullSave(ctx context.Context, newMessages []types.Message) error {
 	store, ok := s.config.StateStoreConfig.Store.(statestore.Store)
 	if !ok {
 		return fmt.Errorf("incremental save: invalid store type")
@@ -204,13 +211,15 @@ func (s *IncrementalSaveStage) fullSave(ctx context.Context, collected *incremen
 		state = &statestore.ConversationState{
 			ID:       convID,
 			UserID:   s.config.StateStoreConfig.UserID,
-			Messages: make([]types.Message, 0),
+			Messages: make([]types.Message, 0, len(newMessages)),
 			Metadata: make(map[string]any),
 		}
 	}
 
-	state.Messages = make([]types.Message, len(collected.messages))
-	copy(state.Messages, collected.messages)
+	// Append the new messages to whatever was already in the store —
+	// the stage no longer collects history into memory, so this is the
+	// only path that knows the full message set.
+	state.Messages = append(state.Messages, newMessages...)
 
 	if state.Metadata == nil {
 		state.Metadata = make(map[string]any)
@@ -306,25 +315,29 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 		return
 	}
 
-	// Load the batch to summarize
-	store, ok := s.config.StateStoreConfig.Store.(statestore.Store)
-	if !ok {
-		return
-	}
-
-	state, err := store.Load(ctx, convID)
+	// Load only the unsummarized tail via MessageReader. We hit this path
+	// only when reader is non-nil (asserted at the top of the function),
+	// so avoid the legacy Store.Load that deep-copies the entire history.
+	tail, err := reader.LoadRecentMessages(ctx, convID, unsummarized)
 	if err != nil {
-		logger.Warn("Auto-summarize: failed to load state for summarization",
+		logger.Warn("Auto-summarize: failed to load message tail for summarization",
 			"conversation", convID, "error", err)
 		return
 	}
-
-	endTurn := lastSummarizedTurn + s.config.SummarizeBatchSize
-	if endTurn > len(state.Messages) {
-		endTurn = len(state.Messages)
+	if len(tail) < unsummarized {
+		// Reader returned fewer than asked — adjust unsummarized so the
+		// turn-index math below stays consistent.
+		unsummarized = len(tail)
 	}
 
-	batch := state.Messages[lastSummarizedTurn:endTurn]
+	endTurn := lastSummarizedTurn + s.config.SummarizeBatchSize
+	if endTurn-lastSummarizedTurn > unsummarized {
+		endTurn = lastSummarizedTurn + unsummarized
+	}
+
+	// tail covers messages [lastSummarizedTurn, count). Slice off the
+	// SummarizeBatchSize prefix to get the oldest unsummarized batch.
+	batch := tail[:endTurn-lastSummarizedTurn]
 	content, err := s.config.Summarizer.Summarize(ctx, batch)
 	if err != nil {
 		logger.Error("Auto-summarize: summarization failed",
