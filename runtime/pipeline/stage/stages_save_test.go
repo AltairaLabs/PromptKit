@@ -110,7 +110,9 @@ func TestIncrementalSaveStage_FallbackToFullSave(t *testing.T) {
 	state, err := store.Load(ctx, "conv-123")
 	require.NoError(t, err)
 
-	// Full save replaces all messages with what was collected
+	// fullSave appends new messages onto the loaded state — history
+	// elements that streamed through the pipeline are NOT re-collected
+	// (they were already in the store).
 	require.Len(t, state.Messages, 2)
 	assert.Equal(t, "Old message", state.Messages[0].Content)
 	assert.Equal(t, "New response", state.Messages[1].Content)
@@ -223,6 +225,48 @@ func TestIncrementalSaveStage_NoNewMessages(t *testing.T) {
 	assert.Len(t, state.Messages, 2)
 	assert.Equal(t, "History 1", state.Messages[0].Content)
 	assert.Equal(t, "History 2", state.Messages[1].Content)
+}
+
+// TestIncrementalSaveStage_DropsHistoryFromInMemorySlice asserts that
+// history elements streaming through the stage are NOT retained in
+// collected.messages. Pre-fix the stage held the full history slice in
+// memory until end-of-Send, scaling O(conversation-length) per Send.
+//
+// History size is kept under the runTestStage output-channel buffer
+// (100) — the contract under test is "filter, don't collect", not the
+// channel's buffering capacity.
+func TestIncrementalSaveStage_DropsHistoryFromInMemorySlice(t *testing.T) {
+	store := statestore.NewMemoryStore()
+
+	config := &IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "long-conv",
+		},
+	}
+	s := NewIncrementalSaveStage(config)
+
+	// Simulate ContextAssemblyStage emitting many history messages plus
+	// one fresh user message — the realistic shape of a Send on a long
+	// conversation.
+	const historyLen = 80
+	inputs := make([]StreamElement, 0, historyLen+1)
+	for range historyLen {
+		msg := types.Message{Role: "user", Content: "history", Source: sourceStateStore}
+		inputs = append(inputs, NewMessageElement(&msg))
+	}
+	newMsg := types.Message{Role: "user", Content: "new"}
+	inputs = append(inputs, NewMessageElement(&newMsg))
+
+	results := runTestStage(t, s, inputs)
+	require.Len(t, results, historyLen+1)
+
+	// Store contains only the new message (no history was pre-populated,
+	// no history was re-collected from the stream).
+	state, err := store.Load(context.Background(), "long-conv")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 1)
+	assert.Equal(t, "new", state.Messages[0].Content)
 }
 
 func TestIncrementalSaveStage_FiltersSummaryAndRetrievedSources(t *testing.T) {
@@ -534,6 +578,7 @@ type readerWithSummaryStore struct {
 	countOverride  int
 	loadSumErr     error
 	loadErr        error
+	loadRecentErr  error
 	saveSummaryErr error
 }
 
@@ -558,6 +603,9 @@ func (s *readerWithSummaryStore) AppendMessages(_ context.Context, id string, ms
 }
 
 func (s *readerWithSummaryStore) LoadRecentMessages(_ context.Context, id string, n int) ([]types.Message, error) {
+	if s.loadRecentErr != nil {
+		return nil, s.loadRecentErr
+	}
 	msgs := s.messages[id]
 	if n > len(msgs) {
 		n = len(msgs)
@@ -746,20 +794,15 @@ func TestMaybeSummarize_UnsummarizedLessThanBatch(t *testing.T) {
 	assert.Equal(t, 0, summarizer.summarizeCalls)
 }
 
-func TestMaybeSummarize_StoreLoadFails(t *testing.T) {
-	// Use noStoreInterfaceSummaryStore which doesn't implement Store
-	store := newNoStoreInterfaceSummaryStore()
-	store.countOverride = 10
-	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
-	callMaybeSummarize(t, store, summarizer, 3, 3)
-	// Store doesn't implement statestore.Store → early return at store.Load
-	assert.Equal(t, 0, summarizer.summarizeCalls)
-}
-
-func TestMaybeSummarize_StoreLoadReturnsError(t *testing.T) {
+// TestMaybeSummarize_LoadRecentMessagesReturnsError verifies that the
+// summarizer is NOT invoked when MessageReader.LoadRecentMessages
+// returns an error. Replaces the previous TestMaybeSummarize_StoreLoadFails
+// and TestMaybeSummarize_StoreLoadReturnsError pair, which pinned the
+// (now removed) Store.Load fallback path.
+func TestMaybeSummarize_LoadRecentMessagesReturnsError(t *testing.T) {
 	store := newReaderWithSummaryStore()
 	store.countOverride = 10
-	store.loadErr = errors.New("load error")
+	store.loadRecentErr = errors.New("load recent error")
 	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
 	callMaybeSummarize(t, store, summarizer, 3, 3)
 	assert.Equal(t, 0, summarizer.summarizeCalls)
@@ -894,8 +937,9 @@ func TestIncrementalSaveStage_Passthrough_WithErrors(t *testing.T) {
 // deliberately omits summaries from the snapshot to simulate a stale
 // Load that pre-dates a SaveSummary on a different goroutine.
 type summaryAccessorOnlyStore struct {
-	state     *statestore.ConversationState
-	summaries []statestore.Summary
+	state            *statestore.ConversationState
+	summaries        []statestore.Summary
+	loadSummariesErr error
 }
 
 func (s *summaryAccessorOnlyStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
@@ -920,12 +964,120 @@ func (s *summaryAccessorOnlyStore) Save(_ context.Context, state *statestore.Con
 func (s *summaryAccessorOnlyStore) Fork(_ context.Context, _, _ string) error { return nil }
 
 func (s *summaryAccessorOnlyStore) LoadSummaries(_ context.Context, _ string) ([]statestore.Summary, error) {
+	if s.loadSummariesErr != nil {
+		return nil, s.loadSummariesErr
+	}
 	return s.summaries, nil
 }
 
 func (s *summaryAccessorOnlyStore) SaveSummary(_ context.Context, _ string, summary statestore.Summary) error {
 	s.summaries = append(s.summaries, summary)
 	return nil
+}
+
+// readOnlyMinimalStore implements only Store (Load + Fork). No
+// MessageAppender, no BulkWriter — used to verify fullSave errors
+// clearly when bulk write is unavailable.
+type readOnlyMinimalStore struct {
+	states map[string]*statestore.ConversationState
+}
+
+func newReadOnlyMinimalStore() *readOnlyMinimalStore {
+	return &readOnlyMinimalStore{states: make(map[string]*statestore.ConversationState)}
+}
+
+func (s *readOnlyMinimalStore) Load(_ context.Context, id string) (*statestore.ConversationState, error) {
+	state, ok := s.states[id]
+	if !ok {
+		return nil, statestore.ErrNotFound
+	}
+	return state, nil
+}
+
+func (s *readOnlyMinimalStore) Fork(_ context.Context, _, _ string) error { return nil }
+
+// TestIncrementalSaveStage_FullSaveErrorsWithoutBulkWriter pins the
+// error contract: when the store implements neither MessageAppender nor
+// BulkWriter, fullSave must surface a clear error rather than silently
+// dropping the persist.
+func TestIncrementalSaveStage_FullSaveErrorsWithoutBulkWriter(t *testing.T) {
+	store := newReadOnlyMinimalStore()
+	config := &IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "no-write",
+		},
+	}
+	s := NewIncrementalSaveStage(config)
+
+	msg := types.Message{Role: "user", Content: "x"}
+	input := make(chan StreamElement, 1)
+	input <- NewMessageElement(&msg)
+	close(input)
+
+	output := make(chan StreamElement, 4)
+	err := s.Process(context.Background(), input, output)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "BulkWriter")
+}
+
+// TestIncrementalSaveStage_FullSaveCreatesFreshStateOnNotFound pins the
+// auto-create branch of fullSave: when the store has no record for the
+// conversation yet, the stage builds a fresh ConversationState with the
+// new messages rather than erroring.
+func TestIncrementalSaveStage_FullSaveCreatesFreshStateOnNotFound(t *testing.T) {
+	// minimalStore returns ErrNotFound when no state has been pre-saved.
+	store := newMinimalStore()
+	config := &IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "fresh",
+			UserID:         "u1",
+		},
+	}
+	s := NewIncrementalSaveStage(config)
+
+	msg := types.Message{Role: "user", Content: "hello"}
+	results := runTestStage(t, s, []StreamElement{NewMessageElement(&msg)})
+	require.Len(t, results, 1)
+
+	state, err := store.Load(context.Background(), "fresh")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 1)
+	assert.Equal(t, "hello", state.Messages[0].Content)
+	assert.Equal(t, "u1", state.UserID)
+}
+
+// TestIncrementalSaveStage_FullSavePropagatesSummaryReloadError pins the
+// error-path of the summary re-load guard in fullSave: when LoadSummaries
+// fails, the stage must surface the error rather than silently writing
+// state without summaries.
+func TestIncrementalSaveStage_FullSavePropagatesSummaryReloadError(t *testing.T) {
+	store := &summaryAccessorOnlyStore{
+		state: &statestore.ConversationState{
+			ID:       "conv-summary-err",
+			Messages: []types.Message{},
+		},
+		loadSummariesErr: errors.New("boom"),
+	}
+
+	config := &IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-summary-err",
+		},
+	}
+	s := NewIncrementalSaveStage(config)
+
+	msg := types.Message{Role: "user", Content: "x"}
+	input := make(chan StreamElement, 1)
+	input <- NewMessageElement(&msg)
+	close(input)
+
+	output := make(chan StreamElement, 8)
+	err := s.Process(context.Background(), input, output)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to reload summaries")
 }
 
 // Regression: IncrementalSaveStage.fullSave must reload summaries via
