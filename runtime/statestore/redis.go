@@ -21,6 +21,11 @@ const (
 	errMarshalMeta   = "failed to marshal meta: %w"
 )
 
+// userMetadataFieldPrefix namespaces user-supplied metadata keys inside the
+// per-conversation Redis hash so future internal fields (if any are ever
+// added to the same hash) won't collide with caller keys.
+const userMetadataFieldPrefix = "user."
+
 // RedisStore provides a Redis-backed implementation of the Store interface.
 // It uses JSON serialization for state storage and supports automatic TTL-based cleanup.
 // This implementation is suitable for distributed systems and production deployments.
@@ -73,15 +78,17 @@ func NewRedisStore(client *redis.Client, opts ...RedisOption) *RedisStore {
 	return store
 }
 
-// redisStateMeta holds the non-message, non-summary fields of a ConversationState.
-// It is stored as a single JSON value in the meta key, keeping it small and fast to serialize.
+// redisStateMeta holds the non-message, non-summary, non-metadata fields
+// of a ConversationState. It is stored as a single small JSON value in
+// the meta key. User metadata (state.Metadata) lives in a dedicated
+// Redis hash — see metadataKey / MergeMetadata / LoadMetadata — so
+// per-key updates don't pay for re-marshaling unrelated fields.
 type redisStateMeta struct {
-	ID             string                 `json:"id"`
-	UserID         string                 `json:"user_id"`
-	SystemPrompt   string                 `json:"system_prompt,omitempty"`
-	TokenCount     int                    `json:"token_count,omitempty"`
-	LastAccessedAt time.Time              `json:"last_accessed_at"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+	SystemPrompt   string    `json:"system_prompt,omitempty"`
+	TokenCount     int       `json:"token_count,omitempty"`
+	LastAccessedAt time.Time `json:"last_accessed_at"`
 }
 
 // Load retrieves a conversation state by ID from Redis.
@@ -105,7 +112,8 @@ func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, e
 	return s.loadMonolithic(ctx, id)
 }
 
-// loadDecomposed loads a conversation state from decomposed keys (meta + messages list + summaries list).
+// loadDecomposed loads a conversation state from decomposed keys
+// (meta + messages list + summaries list + metadata hash).
 func (s *RedisStore) loadDecomposed(ctx context.Context, id string) (*ConversationState, error) {
 	meta, err := s.loadMeta(ctx, id)
 	if err != nil {
@@ -120,6 +128,11 @@ func (s *RedisStore) loadDecomposed(ctx context.Context, id string) (*Conversati
 	}
 
 	state.Summaries, err = s.loadSummariesList(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	state.Metadata, err = s.loadMetadataHash(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +157,8 @@ func (s *RedisStore) loadMeta(ctx context.Context, id string) (*redisStateMeta, 
 	return &meta, nil
 }
 
-// metaToState converts a redisStateMeta to a ConversationState (without messages/summaries).
+// metaToState converts a redisStateMeta to a ConversationState (without
+// messages, summaries, or metadata — those live in their own keys).
 func metaToState(meta *redisStateMeta) *ConversationState {
 	return &ConversationState{
 		ID:             meta.ID,
@@ -152,7 +166,6 @@ func metaToState(meta *redisStateMeta) *ConversationState {
 		SystemPrompt:   meta.SystemPrompt,
 		TokenCount:     meta.TokenCount,
 		LastAccessedAt: meta.LastAccessedAt,
-		Metadata:       meta.Metadata,
 	}
 }
 
@@ -273,6 +286,10 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 		return err
 	}
 
+	if err := s.pipeReplaceMetadataHash(ctx, pipe, state.ID, state.Metadata); err != nil {
+		return err
+	}
+
 	// Remove legacy monolithic key if it exists
 	pipe.Del(ctx, s.conversationKey(state.ID))
 
@@ -299,7 +316,9 @@ func marshalMessageSlice(msgs []types.Message) ([]interface{}, error) {
 	return vals, nil
 }
 
-// stateToMeta extracts the metadata fields from a ConversationState.
+// stateToMeta extracts the meta-blob fields from a ConversationState.
+// User metadata (state.Metadata) is intentionally not included — it
+// lives in a separate hash key; see metadataKey / MergeMetadata.
 func stateToMeta(state *ConversationState) redisStateMeta {
 	return redisStateMeta{
 		ID:             state.ID,
@@ -307,7 +326,6 @@ func stateToMeta(state *ConversationState) redisStateMeta {
 		SystemPrompt:   state.SystemPrompt,
 		TokenCount:     state.TokenCount,
 		LastAccessedAt: state.LastAccessedAt,
-		Metadata:       state.Metadata,
 	}
 }
 
@@ -356,6 +374,33 @@ func (s *RedisStore) pipeReplaceList(
 		if s.ttl > 0 {
 			pipe.Expire(ctx, key, s.ttl)
 		}
+	}
+	return nil
+}
+
+// pipeReplaceMetadataHash deletes the metadata hash and re-populates it
+// from the supplied state.Metadata map. Used by Save (BulkWriter), which
+// is a full bulk replacement — so any keys not present in the new map
+// must disappear from the hash.
+func (s *RedisStore) pipeReplaceMetadataHash(
+	ctx context.Context, pipe redis.Pipeliner, id string, metadata map[string]interface{},
+) error {
+	key := s.metadataKey(id)
+	pipe.Del(ctx, key)
+	if len(metadata) == 0 {
+		return nil
+	}
+	fields := make(map[string]interface{}, len(metadata))
+	for k, v := range metadata {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("redis save: marshal metadata %q: %w", k, err)
+		}
+		fields[userMetadataFieldPrefix+k] = data
+	}
+	pipe.HSet(ctx, key, fields)
+	if s.ttl > 0 {
+		pipe.Expire(ctx, key, s.ttl)
 	}
 	return nil
 }
@@ -425,6 +470,7 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error {
 		s.metaKey(id),         // decomposed meta
 		s.messagesKey(id),     // decomposed messages list
 		s.summariesKey(id),    // decomposed summaries list
+		s.metadataKey(id),     // decomposed user metadata hash
 	)
 
 	if state.UserID != "" {
@@ -581,35 +627,86 @@ func (s *RedisStore) summariesKey(id string) string {
 	return fmt.Sprintf("%s:conversation:%s:summaries", s.prefix, id)
 }
 
-// LoadMetadata returns just the metadata map for the given conversation.
-// This only loads the meta key, avoiding deserialization of the messages and summaries lists.
+// metadataKey generates the Redis key for a conversation's user metadata
+// hash. Each map[string]interface{} entry in state.Metadata is stored as
+// one hash field (with a userMetadataFieldPrefix namespace) so individual
+// updates use native HSET — no read-then-write, no WATCH/MULTI/EXEC.
+func (s *RedisStore) metadataKey(id string) string {
+	return fmt.Sprintf("%s:conversation:%s:metadata", s.prefix, id)
+}
+
+// LoadMetadata returns the user metadata map for the given conversation
+// by reading the dedicated metadata hash. Returns ErrNotFound when the
+// conversation doesn't exist (matches MemoryStore.LoadMetadata).
+// Returns an empty (or nil) map when the conversation exists but has no
+// metadata.
 func (s *RedisStore) LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error) {
 	if id == "" {
 		return nil, ErrInvalidID
 	}
 
-	// Try decomposed meta key first
-	meta, err := s.loadMeta(ctx, id)
-	if err == nil {
-		return meta.Metadata, nil
-	}
-	if !errors.Is(err, ErrNotFound) {
-		return nil, err
+	// Pipeline HGETALL on the metadata hash with EXISTS on the meta key
+	// in one round-trip: the EXISTS distinguishes "no metadata yet" from
+	// "no conversation".
+	pipe := s.client.Pipeline()
+	hashCmd := pipe.HGetAll(ctx, s.metadataKey(id))
+	existsCmd := pipe.Exists(ctx, s.metaKey(id))
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("redis load metadata pipeline failed: %w", err)
 	}
 
-	// Fall back to monolithic key (loads full state, but this is the legacy path)
-	state, err := s.loadMonolithic(ctx, id)
-	if err != nil {
-		return nil, err
+	fields, err := hashCmd.Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis hgetall metadata failed: %w", err)
 	}
-	return state.Metadata, nil
+	if len(fields) == 0 {
+		// Hash empty — distinguish "conversation exists, no metadata" from
+		// "conversation doesn't exist".
+		if existsCmd.Val() == 0 {
+			return nil, ErrNotFound
+		}
+		return nil, nil
+	}
+	return decodeMetadataHash(fields)
 }
 
-// MergeMetadata atomically merges the supplied keys into the conversation's
-// Metadata map. Uses Redis WATCH/MULTI/EXEC to serialize concurrent merges
-// against the same conversation (so two interleaved MergeMetadata calls
-// can't drop each other's updates). Auto-creates the conversation if the
-// meta key doesn't yet exist.
+// loadMetadataHash reads the metadata hash and JSON-decodes each value.
+// Returns nil for an empty hash. Used by Load (which already knows the
+// conversation exists from the meta blob).
+func (s *RedisStore) loadMetadataHash(ctx context.Context, id string) (map[string]interface{}, error) {
+	fields, err := s.client.HGetAll(ctx, s.metadataKey(id)).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("redis hgetall metadata failed: %w", err)
+	}
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	return decodeMetadataHash(fields)
+}
+
+// decodeMetadataHash JSON-decodes each hash field value and strips the
+// userMetadataFieldPrefix namespace from the key.
+func decodeMetadataHash(fields map[string]string) (map[string]interface{}, error) {
+	out := make(map[string]interface{}, len(fields))
+	for k, raw := range fields {
+		userKey := strings.TrimPrefix(k, userMetadataFieldPrefix)
+		var v interface{}
+		if err := json.Unmarshal([]byte(raw), &v); err != nil {
+			return nil, fmt.Errorf("redis metadata: unmarshal %q: %w", userKey, err)
+		}
+		out[userKey] = v
+	}
+	return out, nil
+}
+
+// MergeMetadata writes the supplied keys into the conversation's metadata
+// hash via a single HMSET. Each Redis hash field write is server-atomic,
+// so concurrent MergeMetadata calls on the same conversation just work —
+// no WATCH/MULTI/EXEC, no retry loop. Updates the meta-key TTL too so
+// metadata-only writes count as activity for retention purposes.
 func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[string]interface{}) error {
 	if id == "" {
 		return ErrInvalidID
@@ -618,77 +715,28 @@ func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[s
 		return nil
 	}
 
-	metaKey := s.metaKey(id)
-
-	// Optimistic concurrency: WATCH + retry. The retry budget is sized for
-	// realistic contention (a handful of stages writing metadata for the
-	// same conversation in flight); exhausting it indicates pathological
-	// contention or a hot-spot misuse.
-	const maxAttempts = 32
-	for range maxAttempts {
-		err := s.client.Watch(ctx, func(tx *redis.Tx) error {
-			return s.mergeMetadataTx(ctx, tx, id, metaKey, updates)
-		}, metaKey)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, redis.TxFailedErr) {
-			return fmt.Errorf("redis merge metadata failed: %w", err)
-		}
-		// TxFailedErr means the watched key changed — retry.
-	}
-	return fmt.Errorf("redis merge metadata: aborted after %d retries due to contention", maxAttempts)
-}
-
-// mergeMetadataTx runs the body of a MergeMetadata WATCH transaction:
-// load → merge → set. Extracted so MergeMetadata stays under the
-// gocognit threshold and the merge body can be exercised by the unit
-// tests without spinning up a contention scenario.
-func (s *RedisStore) mergeMetadataTx(
-	ctx context.Context, tx *redis.Tx, id, metaKey string, updates map[string]interface{},
-) error {
-	meta, err := s.loadMetaTx(ctx, tx, id)
-	if err != nil {
-		return err
-	}
-	if meta.Metadata == nil {
-		meta.Metadata = make(map[string]interface{}, len(updates))
-	}
+	fields := make(map[string]interface{}, len(updates))
 	for k, v := range updates {
-		meta.Metadata[k] = v
-	}
-	meta.LastAccessedAt = time.Now()
-
-	data, err := json.Marshal(meta)
-	if err != nil {
-		return fmt.Errorf(errMarshalMeta, err)
-	}
-	_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-		pipe.Set(ctx, metaKey, data, s.ttl)
-		return nil
-	})
-	return err
-}
-
-// loadMetaTx loads the meta blob inside a WATCH transaction. Returns a fresh
-// redisStateMeta seeded with the conversation ID when the key doesn't exist
-// (auto-create semantics for typed write paths).
-func (s *RedisStore) loadMetaTx(ctx context.Context, tx *redis.Tx, id string) (*redisStateMeta, error) {
-	data, err := tx.Get(ctx, s.metaKey(id)).Bytes()
-	if err == nil {
-		var meta redisStateMeta
-		if unmarshalErr := json.Unmarshal(data, &meta); unmarshalErr != nil {
-			return nil, fmt.Errorf(errUnmarshalMeta, unmarshalErr)
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("redis merge metadata: marshal %q: %w", k, err)
 		}
-		if meta.ID == "" {
-			meta.ID = id
-		}
-		return &meta, nil
+		fields[userMetadataFieldPrefix+k] = data
 	}
-	if !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("redis get meta failed: %w", err)
+
+	pipe := s.client.Pipeline()
+	pipe.HSet(ctx, s.metadataKey(id), fields)
+	if s.ttl > 0 {
+		pipe.Expire(ctx, s.metadataKey(id), s.ttl)
+		// Touch the meta key so it doesn't expire while only metadata is
+		// being written (e.g., a long workflow that updates state every
+		// transition without appending messages).
+		pipe.Expire(ctx, s.metaKey(id), s.ttl)
 	}
-	return &redisStateMeta{ID: id}, nil
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("redis merge metadata failed: %w", err)
+	}
+	return nil
 }
 
 // LoadRecentMessages returns the last n messages using LRANGE on the messages list.
