@@ -83,6 +83,6 @@ If you reference a tool name that doesn't exist in the registry (for example, a 
 
 ## Does not affect
 
-- The executor that handles the tool. The executor remains the one the capability registered. If you need the executor to recognise a new parameter, you must change the capability code (or wrap the capability — see [Capabilities reference](/sdk/reference/capabilities/)).
+- The executor that handles the tool. The executor remains the one the capability registered. If you need the executor to recognise a new parameter, you must change the capability code (or wrap the capability with your own).
 - Other tools — patches operate on a clone of one descriptor.
 - Capability lifecycle (Init, Close).
