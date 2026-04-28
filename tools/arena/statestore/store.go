@@ -118,13 +118,19 @@ type ArenaConversationState struct {
 // ArenaStateStore is an in-memory state store with Arena-specific telemetry
 type ArenaStateStore struct {
 	conversations map[string]*ArenaConversationState
-	mu            sync.RWMutex
+	// lists holds per-conversation, per-name append-only collections that
+	// satisfy the runtime statestore.ListAccessor interface. Used by SDK
+	// workflow code to persist History / ArtifactHistory incrementally
+	// without rewriting the full slice on every transition.
+	lists map[string]map[string][][]byte
+	mu    sync.RWMutex
 }
 
 // NewArenaStateStore creates a new Arena state store
 func NewArenaStateStore() *ArenaStateStore {
 	return &ArenaStateStore{
 		conversations: make(map[string]*ArenaConversationState),
+		lists:         make(map[string]map[string][][]byte),
 	}
 }
 
@@ -133,6 +139,7 @@ func (s *ArenaStateStore) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.conversations = make(map[string]*ArenaConversationState)
+	s.lists = make(map[string]map[string][][]byte)
 }
 
 // Save stores conversation state (implements Store interface).
@@ -689,7 +696,93 @@ func (s *ArenaStateStore) Delete(ctx context.Context, conversationID string) err
 	defer s.mu.Unlock()
 
 	delete(s.conversations, conversationID)
+	delete(s.lists, conversationID)
 	return nil
+}
+
+// AppendList implements runtime statestore.ListAccessor — items are
+// deep-copied and appended to the named per-conversation list. Auto-creates
+// the conversation entry on first use so list writes can land before any
+// Save (matching MemoryStore semantics).
+func (s *ArenaStateStore) AppendList(_ context.Context, id, listName string, items [][]byte) error {
+	if id == "" {
+		return runtimestore.ErrInvalidID
+	}
+	if listName == "" {
+		return fmt.Errorf("arena append list: list name must not be empty")
+	}
+	if len(items) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.conversations[id]; !exists {
+		s.conversations[id] = &ArenaConversationState{
+			ConversationState: runtimestore.ConversationState{ID: id},
+		}
+	}
+	if s.lists[id] == nil {
+		s.lists[id] = make(map[string][][]byte)
+	}
+	cp := make([][]byte, len(items))
+	for i, item := range items {
+		cp[i] = make([]byte, len(item))
+		copy(cp[i], item)
+	}
+	s.lists[id][listName] = append(s.lists[id][listName], cp...)
+	return nil
+}
+
+// LoadList implements runtime statestore.ListAccessor — returns deep copies
+// of every item in the named list, in append order. Returns (nil, nil) for
+// an empty/missing list when the conversation exists; ErrNotFound only when
+// the conversation itself doesn't exist.
+func (s *ArenaStateStore) LoadList(_ context.Context, id, listName string) ([][]byte, error) {
+	if id == "" {
+		return nil, runtimestore.ErrInvalidID
+	}
+	if listName == "" {
+		return nil, fmt.Errorf("arena load list: list name must not be empty")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if _, exists := s.conversations[id]; !exists {
+		return nil, runtimestore.ErrNotFound
+	}
+	items := s.lists[id][listName]
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([][]byte, len(items))
+	for i, item := range items {
+		out[i] = make([]byte, len(item))
+		copy(out[i], item)
+	}
+	return out, nil
+}
+
+// ListLen implements runtime statestore.ListAccessor — returns the current
+// length of the named list. Returns ErrNotFound only when the conversation
+// itself doesn't exist.
+func (s *ArenaStateStore) ListLen(_ context.Context, id, listName string) (int, error) {
+	if id == "" {
+		return 0, runtimestore.ErrInvalidID
+	}
+	if listName == "" {
+		return 0, fmt.Errorf("arena list len: list name must not be empty")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if _, exists := s.conversations[id]; !exists {
+		return 0, runtimestore.ErrNotFound
+	}
+	return len(s.lists[id][listName]), nil
 }
 
 // GetArenaState retrieves the full Arena state including telemetry.
