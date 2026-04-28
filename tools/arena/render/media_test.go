@@ -582,6 +582,57 @@ func TestRenderInlineImage(t *testing.T) {
 			want:    []string{"inline-image-placeholder", "1.0 MB"},
 			wantNot: []string{"<img"},
 		},
+		{
+			// Externalised by MediaExternalizerStage: Data is cleared and
+			// StorageReference points to the on-disk file under out/media/.
+			// Render must produce a real <img> with a report-relative src,
+			// not the "no displayable data" placeholder.
+			name: "image with storage reference",
+			part: types.ContentPart{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType:         "image/png",
+					StorageReference: testutil.Ptr("out/media/run-1/abc.png"),
+					SizeKB:           testutil.Ptr[int64](200),
+				},
+			},
+			// src must be report-relative (out/ prefix stripped); alt/title
+			// keep the full storage reference for context.
+			want:    []string{`<img src="media/run-1/abc.png"`, "inline-image"},
+			wantNot: []string{"inline-image-placeholder", "data:", `src="out/`},
+		},
+		{
+			// Storage path that doesn't sit under out/ (e.g. an absolute
+			// path or a custom output dir) is left as-is — the trim is a
+			// no-op and the browser resolves the path verbatim.
+			name: "image with storage reference outside out/",
+			part: types.ContentPart{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType:         "image/jpeg",
+					StorageReference: testutil.Ptr("/tmp/media/abc.jpg"),
+				},
+			},
+			want:    []string{`<img src="/tmp/media/abc.jpg"`},
+			wantNot: []string{"inline-image-placeholder"},
+		},
+		{
+			// Inline Data wins over StorageReference when both are set —
+			// matches the legacy precedence ordering. The data: URL must
+			// be the rendered src; the storage path's filename only shows
+			// up in the alt/title attributes.
+			name: "image with both data and storage reference prefers data",
+			part: types.ContentPart{
+				Type: types.ContentTypeImage,
+				Media: &types.MediaContent{
+					MIMEType:         "image/png",
+					Data:             testutil.Ptr("SGVsbG8="),
+					StorageReference: testutil.Ptr("out/media/run-1/skip.png"),
+				},
+			},
+			want:    []string{`<img src="data:image/png;base64,SGVsbG8="`},
+			wantNot: []string{`<img src="media/run-1/skip.png"`, `src="out/`},
+		},
 	}
 
 	for _, tt := range tests {
@@ -598,6 +649,27 @@ func TestRenderInlineImage(t *testing.T) {
 				if strings.Contains(got, wantNot) {
 					t.Errorf("renderInlineImage() contains unexpected string %q\nGot: %s", wantNot, got)
 				}
+			}
+		})
+	}
+}
+
+func TestReportRelativeMediaPath(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"strips out/ prefix", "out/media/run-1/abc.png", "media/run-1/abc.png"},
+		{"leaves non-prefixed paths alone", "media/run-1/abc.png", "media/run-1/abc.png"},
+		{"leaves absolute paths alone", "/tmp/media/abc.png", "/tmp/media/abc.png"},
+		{"leaves nested out/ inside path alone", "fixtures/out/media/abc.png", "fixtures/out/media/abc.png"},
+		{"empty string returns empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := reportRelativeMediaPath(tt.in); got != tt.want {
+				t.Errorf("reportRelativeMediaPath(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
