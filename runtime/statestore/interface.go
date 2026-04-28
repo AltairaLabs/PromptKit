@@ -9,16 +9,33 @@ import (
 )
 
 // Store defines the interface for persistent conversation state storage.
+//
+// Store is read-shaped: it deliberately does not include bulk-write methods.
+// Callers needing to persist state should use the typed write interfaces
+// (MessageAppender, MetadataAccessor.MergeMetadata, SummaryAccessor.SaveSummary).
+// Admin/seed paths that need to replace whole state should type-assert for
+// BulkWriter; hot-path pipeline stages must not.
 type Store interface {
 	// Load retrieves conversation state by ID
 	Load(ctx context.Context, id string) (*ConversationState, error)
 
-	// Save persists conversation state
-	Save(ctx context.Context, state *ConversationState) error
-
 	// Fork creates a copy of an existing conversation state with a new ID
 	// The original conversation is left unchanged. Returns ErrNotFound if sourceID doesn't exist.
 	Fork(ctx context.Context, sourceID, newID string) error
+}
+
+// BulkWriter allows replacing the entire conversation state in one
+// operation. Optional and explicitly OUT-OF-BAND for hot-path stages —
+// it exists for admin tools, test seeders, and Session.Clear-style ops.
+//
+// Pipeline stages must NEVER take a BulkWriter as a config field. Use
+// MessageAppender, MetadataAccessor.MergeMetadata, and SummaryAccessor.SaveSummary
+// for typed, race-safe writes instead. A reflective test in
+// runtime/pipeline/stage enforces this invariant.
+type BulkWriter interface {
+	// Save persists the entire conversation state, overwriting any existing
+	// record. Auto-creates the conversation if it doesn't exist.
+	Save(ctx context.Context, state *ConversationState) error
 }
 
 // ListOptions provides filtering and pagination options for listing conversations.
@@ -58,22 +75,30 @@ type MessageReader interface {
 
 // MessageAppender allows appending messages without a full load+replace+save cycle.
 // This is an optional interface — stores that implement it enable incremental saves.
-// Pipeline stages type-assert for this interface and fall back to Store.Save when unavailable.
+// Pipeline stages type-assert for this interface and fall back to BulkWriter when unavailable.
 type MessageAppender interface {
 	// AppendMessages appends messages to the conversation's message history.
-	// Creates the conversation if it doesn't exist.
+	// Auto-creates the conversation if it doesn't exist.
 	AppendMessages(ctx context.Context, id string, messages []types.Message) error
 }
 
-// MetadataAccessor allows reading metadata without loading the full state.
-// This is an optional interface — stores that implement it enable efficient
-// metadata reads without the cost of deep-copying the message history.
-// Pipeline stages type-assert for this interface and fall back to Store.Load when unavailable.
+// MetadataAccessor allows reading and writing metadata without loading the
+// full state. This is an optional interface — stores that implement it
+// enable efficient metadata operations without the cost of deep-copying the
+// message history. Pipeline stages type-assert for this interface; reads
+// fall back to Store.Load when LoadMetadata is unavailable, and writes fall
+// back to BulkWriter when MergeMetadata is unavailable.
 type MetadataAccessor interface {
 	// LoadMetadata returns just the metadata map for the given conversation.
 	// Returns ErrNotFound if the conversation doesn't exist.
 	// The returned map is a deep copy safe for mutation by the caller.
 	LoadMetadata(ctx context.Context, id string) (map[string]interface{}, error)
+
+	// MergeMetadata atomically merges the supplied keys into the
+	// conversation's Metadata map. Existing keys are overwritten, other
+	// fields (Messages, Summaries, etc.) are untouched. Auto-creates the
+	// conversation if it doesn't exist.
+	MergeMetadata(ctx context.Context, id string, updates map[string]interface{}) error
 }
 
 // SummaryAccessor allows reading and writing summaries independently of the full state.
@@ -84,6 +109,7 @@ type SummaryAccessor interface {
 	LoadSummaries(ctx context.Context, id string) ([]Summary, error)
 
 	// SaveSummary appends a summary to the conversation's summary list.
+	// Auto-creates the conversation if it doesn't exist.
 	SaveSummary(ctx context.Context, id string, summary Summary) error
 }
 

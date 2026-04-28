@@ -121,15 +121,15 @@ func (de *DuplexConversationExecutor) clearStateStoreForRetry(ctx context.Contex
 	// ArenaStateStore has a Delete method, but the generic Store interface doesn't
 	arenaStore, ok := req.StateStoreConfig.Store.(*arenastore.ArenaStateStore)
 	if !ok {
-		// For other store types, save an empty state to reset
-		store, ok := req.StateStoreConfig.Store.(statestore.Store)
-		if ok {
+		// For other store types, bulk-write an empty state to reset.
+		// Requires BulkWriter; stores without bulk-write support are skipped.
+		if bulkWriter, ok := req.StateStoreConfig.Store.(statestore.BulkWriter); ok {
 			emptyState := &statestore.ConversationState{
 				ID:       req.ConversationID,
 				Messages: []types.Message{},
 				Metadata: make(map[string]interface{}),
 			}
-			return store.Save(ctx, emptyState)
+			return bulkWriter.Save(ctx, emptyState)
 		}
 		return nil
 	}

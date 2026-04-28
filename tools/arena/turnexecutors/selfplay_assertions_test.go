@@ -70,15 +70,15 @@ func TestSelfPlayExecutor_WithAssertions_Pass(t *testing.T) {
 
 	// Pre-initialize state store
 	storeIface := storeConfig.Store
-	rtStore, ok := storeIface.(runtimestore.Store)
-	require.True(t, ok, "state store must implement runtimestore.Store")
+	bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
+	require.True(t, ok, "state store must implement runtimestore.BulkWriter")
 	initState := &runtimestore.ConversationState{
 		ID:       "test-selfplay-conv",
 		UserID:   "test-user",
 		Messages: []types.Message{},
 		Metadata: map[string]interface{}{},
 	}
-	saveErr := rtStore.Save(context.Background(), initState)
+	saveErr := bulkWriter.Save(context.Background(), initState)
 	require.NoError(t, saveErr)
 
 	// Create request with assertions
@@ -203,7 +203,7 @@ func TestSelfPlayExecutor_WithAssertions_Fail(t *testing.T) {
 
 	// Pre-initialize state store
 	storeIface := storeConfig.Store
-	rtStore, ok := storeIface.(runtimestore.Store)
+	bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
 	require.True(t, ok)
 	initState := &runtimestore.ConversationState{
 		ID:       "test-selfplay-fail",
@@ -211,7 +211,7 @@ func TestSelfPlayExecutor_WithAssertions_Fail(t *testing.T) {
 		Messages: []types.Message{},
 		Metadata: map[string]interface{}{},
 	}
-	saveErr := rtStore.Save(context.Background(), initState)
+	saveErr := bulkWriter.Save(context.Background(), initState)
 	require.NoError(t, saveErr)
 
 	// Create request with assertions that will fail

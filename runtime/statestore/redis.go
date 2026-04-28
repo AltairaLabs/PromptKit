@@ -598,6 +598,92 @@ func (s *RedisStore) LoadMetadata(ctx context.Context, id string) (map[string]in
 	return state.Metadata, nil
 }
 
+// MergeMetadata atomically merges the supplied keys into the conversation's
+// Metadata map. Uses Redis WATCH/MULTI/EXEC to serialize concurrent merges
+// against the same conversation (so two interleaved MergeMetadata calls
+// can't drop each other's updates). Auto-creates the conversation if the
+// meta key doesn't yet exist.
+func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[string]interface{}) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+
+	metaKey := s.metaKey(id)
+
+	// Optimistic concurrency: WATCH + retry. The retry budget is sized for
+	// realistic contention (a handful of stages writing metadata for the
+	// same conversation in flight); exhausting it indicates pathological
+	// contention or a hot-spot misuse.
+	const maxAttempts = 32
+	for range maxAttempts {
+		err := s.client.Watch(ctx, func(tx *redis.Tx) error {
+			return s.mergeMetadataTx(ctx, tx, id, metaKey, updates)
+		}, metaKey)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, redis.TxFailedErr) {
+			return fmt.Errorf("redis merge metadata failed: %w", err)
+		}
+		// TxFailedErr means the watched key changed — retry.
+	}
+	return fmt.Errorf("redis merge metadata: aborted after %d retries due to contention", maxAttempts)
+}
+
+// mergeMetadataTx runs the body of a MergeMetadata WATCH transaction:
+// load → merge → set. Extracted so MergeMetadata stays under the
+// gocognit threshold and the merge body can be exercised by the unit
+// tests without spinning up a contention scenario.
+func (s *RedisStore) mergeMetadataTx(
+	ctx context.Context, tx *redis.Tx, id, metaKey string, updates map[string]interface{},
+) error {
+	meta, err := s.loadMetaTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if meta.Metadata == nil {
+		meta.Metadata = make(map[string]interface{}, len(updates))
+	}
+	for k, v := range updates {
+		meta.Metadata[k] = v
+	}
+	meta.LastAccessedAt = time.Now()
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal meta: %w", err)
+	}
+	_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Set(ctx, metaKey, data, s.ttl)
+		return nil
+	})
+	return err
+}
+
+// loadMetaTx loads the meta blob inside a WATCH transaction. Returns a fresh
+// redisStateMeta seeded with the conversation ID when the key doesn't exist
+// (auto-create semantics for typed write paths).
+func (s *RedisStore) loadMetaTx(ctx context.Context, tx *redis.Tx, id string) (*redisStateMeta, error) {
+	data, err := tx.Get(ctx, s.metaKey(id)).Bytes()
+	if err == nil {
+		var meta redisStateMeta
+		if unmarshalErr := json.Unmarshal(data, &meta); unmarshalErr != nil {
+			return nil, fmt.Errorf("failed to unmarshal meta: %w", unmarshalErr)
+		}
+		if meta.ID == "" {
+			meta.ID = id
+		}
+		return &meta, nil
+	}
+	if !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis get meta failed: %w", err)
+	}
+	return &redisStateMeta{ID: id}, nil
+}
+
 // LoadRecentMessages returns the last n messages using LRANGE on the messages list.
 // Falls back to loading from the monolithic key if the list doesn't exist.
 func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error) {

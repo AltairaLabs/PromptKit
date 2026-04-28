@@ -1044,9 +1044,12 @@ func TestMemoryStore_SaveSummary(t *testing.T) {
 	assert.Equal(t, "First summary of the conversation.", loaded.Summaries[0].Content)
 	assert.Equal(t, "Second summary of the conversation.", loaded.Summaries[1].Content)
 
-	// Not found
-	err = store.SaveSummary(ctx, "nonexistent", summary1)
-	assert.ErrorIs(t, err, ErrNotFound)
+	// Auto-create on first SaveSummary for a new conversation
+	err = store.SaveSummary(ctx, "auto-created", summary1)
+	require.NoError(t, err)
+	created, err := store.Load(ctx, "auto-created")
+	require.NoError(t, err)
+	require.Len(t, created.Summaries, 1)
 
 	// Invalid ID
 	err = store.SaveSummary(ctx, "", summary1)
@@ -1268,6 +1271,66 @@ func TestMemoryStore_LoadMetadata(t *testing.T) {
 	metadata, err = store.LoadMetadata(ctx, "conv-no-meta")
 	require.NoError(t, err)
 	assert.Nil(t, metadata)
+}
+
+func TestMemoryStore_MergeMetadata(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	// Auto-create on first MergeMetadata
+	require.NoError(t, store.MergeMetadata(ctx, "conv-merge", map[string]interface{}{
+		"a": 1, "b": "two",
+	}))
+	got, err := store.LoadMetadata(ctx, "conv-merge")
+	require.NoError(t, err)
+	assert.Equal(t, 1, got["a"])
+	assert.Equal(t, "two", got["b"])
+
+	// Subsequent merge adds and overwrites — other fields untouched
+	require.NoError(t, store.AppendMessages(ctx, "conv-merge", []types.Message{{Role: "user", Content: "hi"}}))
+	require.NoError(t, store.MergeMetadata(ctx, "conv-merge", map[string]interface{}{
+		"b": "TWO", "c": 3,
+	}))
+	loaded, err := store.Load(ctx, "conv-merge")
+	require.NoError(t, err)
+	assert.Equal(t, 1, loaded.Metadata["a"])
+	assert.Equal(t, "TWO", loaded.Metadata["b"])
+	assert.Equal(t, 3, loaded.Metadata["c"])
+	require.Len(t, loaded.Messages, 1)
+	assert.Equal(t, "hi", loaded.Messages[0].Content)
+
+	// Empty updates is a no-op
+	require.NoError(t, store.MergeMetadata(ctx, "conv-merge", nil))
+	require.NoError(t, store.MergeMetadata(ctx, "conv-merge", map[string]interface{}{}))
+
+	// Invalid ID
+	assert.ErrorIs(t, store.MergeMetadata(ctx, "", map[string]interface{}{"x": 1}), ErrInvalidID)
+}
+
+func TestMemoryStore_MergeMetadataConcurrent(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	const goroutines = 50
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			err := store.MergeMetadata(ctx, "race", map[string]interface{}{
+				fmt.Sprintf("k%d", i): i,
+			})
+			require.NoError(t, err)
+		}(i)
+	}
+	wg.Wait()
+
+	got, err := store.LoadMetadata(ctx, "race")
+	require.NoError(t, err)
+	require.Len(t, got, goroutines)
+	for i := 0; i < goroutines; i++ {
+		assert.Equal(t, i, got[fmt.Sprintf("k%d", i)])
+	}
 }
 
 func TestMemoryStore_LoadMetadata_Expired(t *testing.T) {

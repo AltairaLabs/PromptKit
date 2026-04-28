@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -326,31 +325,11 @@ func saveMessagesToStateStore(ctx context.Context, req turnexecutors.TurnRequest
 	if req.StateStoreConfig == nil || req.StateStoreConfig.Store == nil || req.ConversationID == "" {
 		return nil
 	}
-
-	store, ok := req.StateStoreConfig.Store.(statestore.Store)
+	appender, ok := req.StateStoreConfig.Store.(statestore.MessageAppender)
 	if !ok {
 		return nil
 	}
-
-	// Load existing conversation
-	state, loadErr := store.Load(ctx, req.ConversationID)
-	if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
-		return loadErr
-	}
-
-	if state == nil {
-		state = &statestore.ConversationState{
-			ID:       req.ConversationID,
-			UserID:   req.StateStoreConfig.UserID,
-			Messages: []types.Message{},
-		}
-	}
-
-	// Append new messages
-	state.Messages = append(state.Messages, messages...)
-
-	// Save back
-	return store.Save(ctx, state)
+	return appender.AppendMessages(ctx, req.ConversationID, messages)
 }
 
 // createTestSelfPlayRegistry creates a minimal self-play registry for testing

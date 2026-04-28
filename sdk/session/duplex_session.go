@@ -69,19 +69,20 @@ type duplexSession struct {
 
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
-// initConversationState initializes state for a new conversation if it doesn't exist.
+// initConversationState seeds initial metadata for a new conversation if
+// any is provided. Otherwise the conversation is created lazily on the
+// first typed write (AppendMessages, MergeMetadata, SaveSummary). No bulk
+// Save needed.
 func initConversationState(ctx context.Context, store statestore.Store, cfg *DuplexSessionConfig, convID string) error {
-	_, err := store.Load(ctx, convID)
-	if err != nil {
-		initialState := &statestore.ConversationState{
-			ID:       convID,
-			UserID:   cfg.UserID,
-			Messages: []types.Message{},
-			Metadata: cfg.Metadata,
-		}
-		if err := store.Save(ctx, initialState); err != nil {
-			return fmt.Errorf("failed to initialize conversation state: %w", err)
-		}
+	if len(cfg.Metadata) == 0 {
+		return nil
+	}
+	accessor, ok := store.(statestore.MetadataAccessor)
+	if !ok {
+		return fmt.Errorf("session: store does not implement MetadataAccessor; cannot seed initial metadata")
+	}
+	if err := accessor.MergeMetadata(ctx, convID, cfg.Metadata); err != nil {
+		return fmt.Errorf("failed to seed conversation metadata: %w", err)
 	}
 	return nil
 }
@@ -542,22 +543,32 @@ func (s *duplexSession) GetVar(name string) (string, bool) {
 	return val, ok
 }
 
-// Messages implements BaseSession.
+// Messages implements BaseSession. Conversations are created lazily on the
+// first typed write, so a brand-new session may not yet exist in the store.
+// Treat ErrNotFound as an empty conversation rather than propagating the error.
 func (s *duplexSession) Messages(ctx context.Context) ([]types.Message, error) {
 	state, err := s.store.Load(ctx, s.id)
 	if err != nil {
+		if errors.Is(err, statestore.ErrNotFound) {
+			return []types.Message{}, nil
+		}
 		return nil, err
 	}
 	return state.Messages, nil
 }
 
-// Clear implements BaseSession.
+// Clear implements BaseSession. Bulk operation — requires the store to
+// implement BulkWriter. Stores without bulk-write support cannot honor
+// Clear and return an error.
 func (s *duplexSession) Clear(ctx context.Context) error {
-	state := &statestore.ConversationState{
+	bulkWriter, ok := s.store.(statestore.BulkWriter)
+	if !ok {
+		return fmt.Errorf("session clear: store does not implement BulkWriter")
+	}
+	return bulkWriter.Save(ctx, &statestore.ConversationState{
 		ID:       s.id,
 		Messages: nil,
-	}
-	return s.store.Save(ctx, state)
+	})
 }
 
 // ForkSession implements DuplexSession.
@@ -566,9 +577,20 @@ func (s *duplexSession) ForkSession(
 	forkID string,
 	pipelineBuilder PipelineBuilder,
 ) (DuplexSession, error) {
-	// Fork the state in the store
+	// Fork the state in the store. If the source conversation has not yet been
+	// materialized (e.g. a session that has only run pipelines without typed
+	// writes), create an empty fork target via BulkWriter when available.
 	if err := s.store.Fork(ctx, s.id, forkID); err != nil {
-		return nil, fmt.Errorf("failed to fork state: %w", err)
+		if !errors.Is(err, statestore.ErrNotFound) {
+			return nil, fmt.Errorf("failed to fork state: %w", err)
+		}
+		bulkWriter, ok := s.store.(statestore.BulkWriter)
+		if !ok {
+			return nil, fmt.Errorf("failed to fork state: %w", err)
+		}
+		if saveErr := bulkWriter.Save(ctx, &statestore.ConversationState{ID: forkID}); saveErr != nil {
+			return nil, fmt.Errorf("failed to fork state: %w", saveErr)
+		}
 	}
 
 	// Copy variables

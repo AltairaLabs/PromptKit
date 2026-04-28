@@ -160,6 +160,9 @@ func Run(tb testing.TB, ro RunOptions) (*Probes, *sdk.Conversation) {
 
 func seedStore(tb testing.TB, store statestore.Store, convID string, n int) {
 	tb.Helper()
+	bulkWriter, ok := store.(statestore.BulkWriter)
+	require.True(tb, ok, "seedStore: probe store must implement BulkWriter")
+
 	msgs := make([]types.Message, n)
 	for i := range n {
 		role := "user"
@@ -168,7 +171,7 @@ func seedStore(tb testing.TB, store statestore.Store, convID string, n int) {
 		}
 		msgs[i] = types.Message{Role: role, Content: "prior"}
 	}
-	require.NoError(tb, store.Save(context.Background(), &statestore.ConversationState{
+	require.NoError(tb, bulkWriter.Save(context.Background(), &statestore.ConversationState{
 		ID:       convID,
 		Messages: msgs,
 	}))

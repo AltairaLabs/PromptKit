@@ -124,8 +124,8 @@ func TestScriptedExecutor_ExecuteTurn_Success(t *testing.T) {
 	// state store expects a ConversationState to exist for the given ID.
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeIface := req.StateStoreConfig.Store
-		store, ok := storeIface.(runtimestore.Store)
-		require.True(t, ok, "state store must implement runtimestore.Store")
+		bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
+		require.True(t, ok, "state store must implement runtimestore.BulkWriter")
 
 		initState := &runtimestore.ConversationState{
 			ID:       req.ConversationID,
@@ -133,7 +133,7 @@ func TestScriptedExecutor_ExecuteTurn_Success(t *testing.T) {
 			Messages: []types.Message{},
 			Metadata: map[string]interface{}{},
 		}
-		saveErr := store.Save(context.Background(), initState)
+		saveErr := bulkWriter.Save(context.Background(), initState)
 		require.NoError(t, saveErr)
 	}
 
@@ -218,8 +218,8 @@ func TestScriptedExecutor_ExecuteTurn_EmptyScriptedContent(t *testing.T) {
 	// Ensure conversation exists in state store before executing the turn.
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeIface := req.StateStoreConfig.Store
-		store, ok := storeIface.(runtimestore.Store)
-		require.True(t, ok, "state store must implement runtimestore.Store")
+		bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
+		require.True(t, ok, "state store must implement runtimestore.BulkWriter")
 
 		initState := &runtimestore.ConversationState{
 			ID:       req.ConversationID,
@@ -227,7 +227,7 @@ func TestScriptedExecutor_ExecuteTurn_EmptyScriptedContent(t *testing.T) {
 			Messages: []types.Message{},
 			Metadata: map[string]interface{}{},
 		}
-		saveErr := store.Save(context.Background(), initState)
+		saveErr := bulkWriter.Save(context.Background(), initState)
 		require.NoError(t, saveErr)
 	}
 
@@ -305,8 +305,8 @@ func TestScriptedExecutor_ExecuteTurn_WithHistory(t *testing.T) {
 	// is available to the executor.
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeIface := req.StateStoreConfig.Store
-		store, ok := storeIface.(runtimestore.Store)
-		require.True(t, ok, "state store must implement runtimestore.Store")
+		bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
+		require.True(t, ok, "state store must implement runtimestore.BulkWriter")
 
 		// Add a prior message to simulate history
 		initState := &runtimestore.ConversationState{
@@ -317,7 +317,7 @@ func TestScriptedExecutor_ExecuteTurn_WithHistory(t *testing.T) {
 			},
 			Metadata: map[string]interface{}{},
 		}
-		saveErr := store.Save(context.Background(), initState)
+		saveErr := bulkWriter.Save(context.Background(), initState)
 		require.NoError(t, saveErr)
 	}
 
@@ -393,8 +393,8 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 	// Initialize conversation state
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeIface := req.StateStoreConfig.Store
-		store, ok := storeIface.(runtimestore.Store)
-		require.True(t, ok, "state store must implement runtimestore.Store")
+		bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
+		require.True(t, ok, "state store must implement runtimestore.BulkWriter")
 
 		initState := &runtimestore.ConversationState{
 			ID:       req.ConversationID,
@@ -402,7 +402,7 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 			Messages: []types.Message{},
 			Metadata: map[string]interface{}{},
 		}
-		saveErr := store.Save(context.Background(), initState)
+		saveErr := bulkWriter.Save(context.Background(), initState)
 		require.NoError(t, saveErr)
 	}
 

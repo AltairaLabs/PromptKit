@@ -220,27 +220,10 @@ func (m *MockTurnExecutor) ExecuteTurn(ctx context.Context, req turnexecutors.Tu
 		},
 	} // Save messages to StateStore if configured
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil && req.ConversationID != "" {
-		store, ok := req.StateStoreConfig.Store.(statestore.Store)
+		appender, ok := req.StateStoreConfig.Store.(statestore.MessageAppender)
 		if ok {
-			// Load existing conversation
-			state, loadErr := store.Load(ctx, req.ConversationID)
-			if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
-				return loadErr
-			}
-			if state == nil {
-				state = &statestore.ConversationState{
-					ID:       req.ConversationID,
-					UserID:   req.StateStoreConfig.UserID,
-					Messages: []types.Message{},
-				}
-			}
-
-			// Append new messages
-			state.Messages = append(state.Messages, messages...)
-
-			// Save back
-			if saveErr := store.Save(ctx, state); saveErr != nil {
-				return saveErr
+			if appendErr := appender.AppendMessages(ctx, req.ConversationID, messages); appendErr != nil {
+				return appendErr
 			}
 		}
 	}
@@ -565,22 +548,10 @@ func TestExecuteConversation_WithToolCalls(t *testing.T) {
 
 			// Save to StateStore
 			if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil && req.ConversationID != "" {
-				store, ok := req.StateStoreConfig.Store.(statestore.Store)
+				appender, ok := req.StateStoreConfig.Store.(statestore.MessageAppender)
 				if ok {
-					state, loadErr := store.Load(ctx, req.ConversationID)
-					if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
-						return loadErr
-					}
-					if state == nil {
-						state = &statestore.ConversationState{
-							ID:       req.ConversationID,
-							UserID:   req.StateStoreConfig.UserID,
-							Messages: []types.Message{},
-						}
-					}
-					state.Messages = append(state.Messages, messages...)
-					if saveErr := store.Save(ctx, state); saveErr != nil {
-						return saveErr
+					if appendErr := appender.AppendMessages(ctx, req.ConversationID, messages); appendErr != nil {
+						return appendErr
 					}
 				}
 			}
@@ -723,21 +694,11 @@ func TestExecuteConversation_ValidationFailurePreservesMessages(t *testing.T) {
 
 			// Save to StateStore
 			if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
-				state, loadErr := req.StateStoreConfig.Store.(statestore.Store).Load(ctx, req.ConversationID)
-				if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
-					return loadErr
-				}
-				if state == nil {
-					state = &statestore.ConversationState{
-						ID:       req.ConversationID,
-						Messages: []types.Message{},
+				appender, ok := req.StateStoreConfig.Store.(statestore.MessageAppender)
+				if ok {
+					if appendErr := appender.AppendMessages(ctx, req.ConversationID, messages); appendErr != nil {
+						return appendErr
 					}
-				}
-
-				state.Messages = append(state.Messages, messages...)
-
-				if saveErr := req.StateStoreConfig.Store.(statestore.Store).Save(ctx, state); saveErr != nil {
-					return saveErr
 				}
 			}
 
@@ -971,17 +932,7 @@ func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 		executeFunc: func(ctx context.Context, req turnexecutors.TurnRequest) error {
 			callCount++
 
-			// Load existing state
-			state, loadErr := req.StateStoreConfig.Store.(statestore.Store).Load(ctx, req.ConversationID)
-			if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
-				return loadErr
-			}
-			if state == nil {
-				state = &statestore.ConversationState{
-					ID:       req.ConversationID,
-					Messages: []types.Message{},
-				}
-			}
+			appender, _ := req.StateStoreConfig.Store.(statestore.MessageAppender)
 
 			if callCount == 1 {
 				// First turn succeeds
@@ -1000,8 +951,9 @@ func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 						},
 					},
 				}
-				state.Messages = append(state.Messages, messages...)
-				_ = req.StateStoreConfig.Store.(statestore.Store).Save(ctx, state) // Ignore error in test
+				if appender != nil {
+					_ = appender.AppendMessages(ctx, req.ConversationID, messages) // Ignore error in test
+				}
 				return nil
 			} else {
 				// Second turn fails validation but saves messages first
@@ -1020,8 +972,9 @@ func TestExecuteConversation_ValidationFailureMultipleTurns(t *testing.T) {
 						},
 					},
 				}
-				state.Messages = append(state.Messages, messages...)
-				_ = req.StateStoreConfig.Store.(statestore.Store).Save(ctx, state) // Ignore error in test
+				if appender != nil {
+					_ = appender.AppendMessages(ctx, req.ConversationID, messages) // Ignore error in test
+				}
 				return errors.New("validation failed (*validators.BannedWordsValidator): [guarantee]")
 			}
 		},
