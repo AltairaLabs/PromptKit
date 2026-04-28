@@ -31,22 +31,21 @@ func (p *nonStreamingProvider) SupportsStreaming() bool {
 
 // TestProviderStage_StreamingMode tests that streaming providers use the streaming execution path
 func TestProviderStage_StreamingMode(t *testing.T) {
-	// Create mock provider with streaming support (enabled by default)
 	provider := mock.NewProvider("test-provider", "test-model", false)
 
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	})
+	}, nil, nil, turnState)
 
-	// Create input with system prompt in metadata
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
 		Role:    "user",
 		Content: "Test message",
 	}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helpful assistant"
 	input <- elem
 	close(input)
 
@@ -86,22 +85,21 @@ func TestProviderStage_StreamingMode(t *testing.T) {
 func TestProviderStage_MetadataExtraction(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
 
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "Custom system prompt"
+	turnState.AllowedTools = []string{"tool1", "tool2"}
+	turnState.ProviderRequestMetadata = map[string]interface{}{"custom_key": "custom_value"}
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	})
+	}, nil, nil, turnState)
 
-	// Create input with various metadata
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
 		Role:    "user",
 		Content: "Test",
 	}
-	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "Custom system prompt"
-	elem.Metadata["allowed_tools"] = []string{"tool1", "tool2"}
-	elem.Metadata["custom_key"] = "custom_value"
-	input <- elem
+	input <- NewMessageElement(&userMsg)
 	close(input)
 
 	// Execute stage
@@ -120,36 +118,10 @@ func TestProviderStage_MetadataExtraction(t *testing.T) {
 	assert.Greater(t, len(elements), 0, "should receive output")
 }
 
-// TestProviderStage_TurnStateOverridesMetadata pins the contract that when
-// a *TurnState is wired into the stage, its SystemPrompt and AllowedTools
-// fields override whatever is in the deprecated metadata bag.
-func TestProviderStage_TurnStateOverridesMetadata(t *testing.T) {
-	provider := mock.NewProvider("test-provider", "test-model", false)
-	turnState := NewTurnState()
-	turnState.SystemPrompt = "TurnState system prompt"
-	turnState.AllowedTools = []string{"turnstate_tool_a", "turnstate_tool_b"}
-
-	stage := NewProviderStageWithTurnState(provider, nil, nil,
-		&ProviderConfig{MaxTokens: 100, Temperature: 0.7}, nil, nil, turnState)
-
-	input := make(chan StreamElement, 2)
-	elem := NewMessageElement(&types.Message{Role: "user", Content: "Test"})
-	elem.Metadata["system_prompt"] = "BAG should NOT win"
-	elem.Metadata["allowed_tools"] = []string{"bag_tool"}
-	input <- elem
-	close(input)
-
-	acc := stage.accumulateInput(input)
-	assert.Equal(t, "TurnState system prompt", acc.systemPrompt,
-		"TurnState.SystemPrompt must override the bag value")
-	assert.Equal(t, []string{"turnstate_tool_a", "turnstate_tool_b"}, acc.allowedTools,
-		"TurnState.AllowedTools must override the bag value")
-}
-
-// TestProviderStage_TurnStateEmptyFallsBackToMetadata pins the back-compat
-// path: when TurnState is wired but its fields are zero/empty, the stage
-// falls back to reading from the metadata bag.
-func TestProviderStage_TurnStateEmptyFallsBackToMetadata(t *testing.T) {
+// TestProviderStage_TurnStateEmpty pins behaviour when TurnState is wired
+// but its fields are zero/empty: the stage uses the empty values and does
+// not fall back to anywhere else (the legacy metadata bag path is gone).
+func TestProviderStage_TurnStateEmpty(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
 	turnState := NewTurnState() // empty
 
@@ -158,16 +130,14 @@ func TestProviderStage_TurnStateEmptyFallsBackToMetadata(t *testing.T) {
 
 	input := make(chan StreamElement, 2)
 	elem := NewMessageElement(&types.Message{Role: "user", Content: "Test"})
-	elem.Metadata["system_prompt"] = "Bag system prompt"
-	elem.Metadata["allowed_tools"] = []string{"bag_tool"}
 	input <- elem
 	close(input)
 
 	acc := stage.accumulateInput(input)
-	assert.Equal(t, "Bag system prompt", acc.systemPrompt,
-		"empty TurnState.SystemPrompt should fall through to bag")
-	assert.Equal(t, []string{"bag_tool"}, acc.allowedTools,
-		"empty TurnState.AllowedTools should fall through to bag")
+	assert.Empty(t, acc.systemPrompt,
+		"empty TurnState.SystemPrompt produces an empty system prompt")
+	assert.Empty(t, acc.allowedTools,
+		"empty TurnState.AllowedTools produces no allowed tools")
 }
 
 // TestProviderStage_NoProvider tests error when provider is nil
@@ -214,18 +184,17 @@ func TestProviderStage_EmptyInput(t *testing.T) {
 // TestProviderStage_MultipleMessages tests processing multiple messages
 func TestProviderStage_MultipleMessages(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "System"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
 
-	// Multiple input messages
 	input := make(chan StreamElement, 3)
 	for i := 0; i < 3; i++ {
 		msg := types.Message{
 			Role:    "user",
 			Content: "Test message",
 		}
-		elem := NewMessageElement(&msg)
-		elem.Metadata["system_prompt"] = "System"
-		input <- elem
+		input <- NewMessageElement(&msg)
 	}
 	close(input)
 
@@ -252,15 +221,12 @@ func TestProviderStage_ContextCancellation(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
 	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
 
-	// Create input
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
 		Role:    "user",
 		Content: "Test message",
 	}
-	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "System"
-	input <- elem
+	input <- NewMessageElement(&userMsg)
 	close(input)
 
 	// Create cancellable context
@@ -289,16 +255,16 @@ func TestProviderStage_ContextCancellation(t *testing.T) {
 // TestProviderStage_StreamingChunkMetadata tests that streaming chunks have proper metadata
 func TestProviderStage_StreamingChunkMetadata(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a storyteller"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
 		Role:    "user",
 		Content: "Tell me a story",
 	}
-	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a storyteller"
-	input <- elem
+	input <- NewMessageElement(&userMsg)
 	close(input)
 
 	output := make(chan StreamElement, 20)
@@ -315,12 +281,10 @@ func TestProviderStage_StreamingChunkMetadata(t *testing.T) {
 
 	// Check that streaming elements have timestamp and priority
 	for _, elem := range elements {
-		if elem.Metadata != nil {
-			if _, hasDelta := elem.Metadata["delta"]; hasDelta {
-				// This is a streaming chunk
-				assert.False(t, elem.Timestamp.IsZero(), "streaming chunk should have timestamp")
-				assert.NotEqual(t, Priority(0), elem.Priority, "streaming chunk should have priority")
-			}
+		if elem.Text != nil {
+			// This is a streaming chunk
+			assert.False(t, elem.Timestamp.IsZero(), "streaming chunk should have timestamp")
+			assert.NotEqual(t, Priority(0), elem.Priority, "streaming chunk should have priority")
 		}
 	}
 }
@@ -328,16 +292,16 @@ func TestProviderStage_StreamingChunkMetadata(t *testing.T) {
 // TestProviderStage_MessageTimestamps tests that messages have timestamps
 func TestProviderStage_MessageTimestamps(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "System"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
 		Role:    "user",
 		Content: "Test",
 	}
-	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "System"
-	input <- elem
+	input <- NewMessageElement(&userMsg)
 	close(input)
 
 	output := make(chan StreamElement, 10)
@@ -358,7 +322,9 @@ func TestProviderStage_MessageTimestamps(t *testing.T) {
 // TestProviderStage_MessageLatency tests that messages have latency tracking
 func TestProviderStage_MessageLatency(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "System"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
@@ -366,7 +332,6 @@ func TestProviderStage_MessageLatency(t *testing.T) {
 		Content: "Test message",
 	}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "System"
 	input <- elem
 	close(input)
 
@@ -392,7 +357,9 @@ func TestProviderStage_MessageLatency(t *testing.T) {
 // TestProviderStage_StreamingLatency tests latency tracking in streaming mode
 func TestProviderStage_StreamingLatency(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", true) // streaming = true
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "System"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
@@ -400,7 +367,6 @@ func TestProviderStage_StreamingLatency(t *testing.T) {
 		Content: "Test streaming message",
 	}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "System"
 	input <- elem
 	close(input)
 
@@ -556,10 +522,12 @@ func TestProviderStage_NonStreamingMode(t *testing.T) {
 	baseProvider := mock.NewProvider("test-provider", "test-model", false)
 	provider := &nonStreamingProvider{Provider: baseProvider}
 
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	})
+	}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
@@ -567,7 +535,6 @@ func TestProviderStage_NonStreamingMode(t *testing.T) {
 		Content: "Test message",
 	}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helpful assistant"
 	input <- elem
 	close(input)
 
@@ -599,7 +566,13 @@ func TestProviderStage_NonStreamingMode(t *testing.T) {
 
 func TestProviderStage_MockScenarioMetadata(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "System"
+	turnState.ProviderRequestMetadata = map[string]interface{}{
+		"mock_scenario_id": "test-scenario",
+		"mock_turn_number": 1,
+	}
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{
@@ -607,9 +580,6 @@ func TestProviderStage_MockScenarioMetadata(t *testing.T) {
 		Content: "Test",
 	}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "System"
-	elem.Metadata["mock_scenario_id"] = "test-scenario"
-	elem.Metadata["mock_turn_number"] = 1
 	input <- elem
 	close(input)
 
@@ -641,27 +611,19 @@ func TestProviderStage_BaseStageProperties(t *testing.T) {
 
 func TestProviderStage_AccumulateInput(t *testing.T) {
 	provider := mock.NewProvider("test", "model", false)
-	stage := NewProviderStage(provider, nil, nil, nil)
 
-	t.Run("accumulates messages and metadata", func(t *testing.T) {
+	t.Run("accumulates messages and reads from TurnState", func(t *testing.T) {
+		turnState := NewTurnState()
+		turnState.SystemPrompt = "You are helpful"
+		turnState.AllowedTools = []string{"tool1", "tool2"}
+		turnState.ProviderRequestMetadata = map[string]interface{}{"custom_key": "custom_value"}
+
+		stage := NewProviderStageWithTurnState(provider, nil, nil, nil, nil, nil, turnState)
+
 		input := make(chan StreamElement, 3)
-
-		// Send multiple messages with metadata
-		msg1 := types.Message{Role: "user", Content: "Hello"}
-		elem1 := NewMessageElement(&msg1)
-		elem1.Metadata["system_prompt"] = "You are helpful"
-		input <- elem1
-
-		msg2 := types.Message{Role: "assistant", Content: "Hi"}
-		elem2 := NewMessageElement(&msg2)
-		elem2.Metadata["allowed_tools"] = []string{"tool1", "tool2"}
-		input <- elem2
-
-		msg3 := types.Message{Role: "user", Content: "Thanks"}
-		elem3 := NewMessageElement(&msg3)
-		elem3.Metadata["custom_key"] = "custom_value"
-		input <- elem3
-
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Hello"})
+		input <- NewMessageElement(&types.Message{Role: "assistant", Content: "Hi"})
+		input <- NewMessageElement(&types.Message{Role: "user", Content: "Thanks"})
 		close(input)
 
 		acc := stage.accumulateInput(input)
@@ -673,6 +635,7 @@ func TestProviderStage_AccumulateInput(t *testing.T) {
 	})
 
 	t.Run("handles empty input", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, nil, nil)
 		input := make(chan StreamElement)
 		close(input)
 
@@ -685,9 +648,13 @@ func TestProviderStage_AccumulateInput(t *testing.T) {
 	})
 
 	t.Run("handles elements without messages", func(t *testing.T) {
+		turnState := NewTurnState()
+		turnState.ProviderRequestMetadata = map[string]interface{}{"key": "value"}
+		stage := NewProviderStageWithTurnState(provider, nil, nil, nil, nil, nil, turnState)
+
 		input := make(chan StreamElement, 1)
 		text := "some text"
-		elem := StreamElement{Text: &text, Metadata: map[string]interface{}{"key": "value"}}
+		elem := StreamElement{Text: &text}
 		input <- elem
 		close(input)
 
@@ -698,67 +665,20 @@ func TestProviderStage_AccumulateInput(t *testing.T) {
 	})
 }
 
-func TestProviderStage_ExtractMetadata(t *testing.T) {
-	provider := mock.NewProvider("test", "model", false)
-	stage := NewProviderStage(provider, nil, nil, nil)
-
-	t.Run("extracts system prompt", func(t *testing.T) {
-		acc := &providerInput{metadata: make(map[string]interface{})}
-		elem := &StreamElement{Metadata: map[string]interface{}{"system_prompt": "test prompt"}}
-
-		stage.extractMetadata(elem, acc)
-
-		assert.Equal(t, "test prompt", acc.systemPrompt)
-	})
-
-	t.Run("extracts allowed tools", func(t *testing.T) {
-		acc := &providerInput{metadata: make(map[string]interface{})}
-		elem := &StreamElement{Metadata: map[string]interface{}{"allowed_tools": []string{"a", "b"}}}
-
-		stage.extractMetadata(elem, acc)
-
-		assert.Equal(t, []string{"a", "b"}, acc.allowedTools)
-	})
-
-	t.Run("handles nil metadata", func(t *testing.T) {
-		acc := &providerInput{metadata: make(map[string]interface{})}
-		elem := &StreamElement{Metadata: nil}
-
-		stage.extractMetadata(elem, acc)
-
-		assert.Empty(t, acc.systemPrompt)
-		assert.Nil(t, acc.allowedTools)
-	})
-
-	t.Run("merges all metadata", func(t *testing.T) {
-		acc := &providerInput{metadata: make(map[string]interface{})}
-		elem := &StreamElement{Metadata: map[string]interface{}{
-			"key1": "value1",
-			"key2": 42,
-		}}
-
-		stage.extractMetadata(elem, acc)
-
-		assert.Equal(t, "value1", acc.metadata["key1"])
-		assert.Equal(t, 42, acc.metadata["key2"])
-	})
-}
-
 func TestProviderStage_EmitResponseMessages(t *testing.T) {
 	provider := mock.NewProvider("test", "model", false)
 	stage := NewProviderStage(provider, nil, nil, nil)
 
-	t.Run("emits all messages with metadata", func(t *testing.T) {
+	t.Run("emits all messages", func(t *testing.T) {
 		ctx := context.Background()
 		output := make(chan StreamElement, 10)
 		messages := []types.Message{
 			{Role: "assistant", Content: "Response 1"},
 			{Role: "assistant", Content: "Response 2"},
 		}
-		metadata := map[string]interface{}{"key": "value"}
 
 		go func() {
-			err := stage.emitResponseMessages(ctx, messages, metadata, output)
+			err := stage.emitResponseMessages(ctx, messages, output)
 			assert.NoError(t, err)
 			close(output)
 		}()
@@ -770,14 +690,13 @@ func TestProviderStage_EmitResponseMessages(t *testing.T) {
 
 		assert.Len(t, received, 2)
 		assert.Equal(t, "Response 1", received[0].Message.Content)
-		assert.Equal(t, "value", received[0].Metadata["key"])
 	})
 
 	t.Run("handles empty messages", func(t *testing.T) {
 		ctx := context.Background()
 		output := make(chan StreamElement, 10)
 
-		err := stage.emitResponseMessages(ctx, []types.Message{}, nil, output)
+		err := stage.emitResponseMessages(ctx, []types.Message{}, output)
 
 		assert.NoError(t, err)
 	})
@@ -789,7 +708,7 @@ func TestProviderStage_EmitResponseMessages(t *testing.T) {
 		output := make(chan StreamElement) // Unbuffered, will block
 		messages := []types.Message{{Role: "assistant", Content: "Test"}}
 
-		err := stage.emitResponseMessages(ctx, messages, nil, output)
+		err := stage.emitResponseMessages(ctx, messages, output)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "context canceled")
@@ -851,16 +770,17 @@ func TestProviderStage_EmitsProviderCallStartedEvent(t *testing.T) {
 
 	// Create provider and stage with emitter
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStageWithEmitter(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	}, emitter)
+	}, emitter, nil, turnState)
 
 	// Create input
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helpful assistant"
 	input <- elem
 	close(input)
 
@@ -908,16 +828,17 @@ func TestProviderStage_EmitsProviderCallCompletedEvent(t *testing.T) {
 
 	// Create provider and stage with emitter
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStageWithEmitter(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	}, emitter)
+	}, emitter, nil, turnState)
 
 	// Create input
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helpful assistant"
 	input <- elem
 	close(input)
 
@@ -966,16 +887,17 @@ func TestProviderStage_EmitsProviderCallCompletedEvent_NonStreaming(t *testing.T
 	// Create provider WITHOUT streaming support using the wrapper
 	baseProvider := mock.NewProvider("test-provider", "test-model", false)
 	provider := &nonStreamingProvider{Provider: baseProvider}
-	stage := NewProviderStageWithEmitter(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	}, emitter)
+	}, emitter, nil, turnState)
 
 	// Create input
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helpful assistant"
 	input <- elem
 	close(input)
 
@@ -1014,16 +936,17 @@ func TestProviderStage_NoEventsWithNilEmitter(t *testing.T) {
 
 	// Create provider and stage WITHOUT emitter (nil)
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	})
+	}, nil, nil, turnState)
 
 	// Create input
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helpful assistant"
 	input <- elem
 	close(input)
 
@@ -1060,17 +983,18 @@ func TestProviderStage_WithToolRegistry(t *testing.T) {
 		// Use tool provider mock
 		provider := mock.NewToolProvider("test-provider", "test-model", false, nil)
 
-		stage := NewProviderStage(provider, toolRegistry, nil, &ProviderConfig{
+		turnState := NewTurnState()
+		turnState.SystemPrompt = "You are a helpful assistant"
+		turnState.AllowedTools = []string{"test_tool"}
+		stage := NewProviderStageWithTurnState(provider, toolRegistry, nil, &ProviderConfig{
 			MaxTokens:   100,
 			Temperature: 0.7,
-		})
+		}, nil, nil, turnState)
 
-		// Create input with allowed_tools
+		// Create input
 		input := make(chan StreamElement, 1)
 		userMsg := types.Message{Role: "user", Content: "Test message"}
 		elem := NewMessageElement(&userMsg)
-		elem.Metadata["system_prompt"] = "You are a helpful assistant"
-		elem.Metadata["allowed_tools"] = []string{"test_tool"}
 		input <- elem
 		close(input)
 
@@ -1090,16 +1014,17 @@ func TestProviderStage_WithToolRegistry(t *testing.T) {
 		toolRegistry := tools.NewRegistry()
 		provider := mock.NewToolProvider("test-provider", "test-model", false, nil)
 
-		stage := NewProviderStage(provider, toolRegistry, nil, &ProviderConfig{
+		turnState := NewTurnState()
+		turnState.SystemPrompt = "You are a helpful assistant"
+		stage := NewProviderStageWithTurnState(provider, toolRegistry, nil, &ProviderConfig{
 			MaxTokens:   100,
 			Temperature: 0.7,
-		})
+		}, nil, nil, turnState)
 
 		// Create input without allowed_tools
 		input := make(chan StreamElement, 1)
 		userMsg := types.Message{Role: "user", Content: "Test message"}
 		elem := NewMessageElement(&userMsg)
-		elem.Metadata["system_prompt"] = "You are a helpful assistant"
 		input <- elem
 		close(input)
 
@@ -1609,16 +1534,17 @@ func TestProviderStage_EmitsBothStartAndCompletedEvents(t *testing.T) {
 
 	// Create provider and stage with emitter
 	provider := mock.NewProvider("test-provider", "test-model", false)
-	stage := NewProviderStageWithEmitter(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	}, emitter)
+	}, emitter, nil, turnState)
 
 	// Create input
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helpful assistant"
 	input <- elem
 	close(input)
 
@@ -2138,15 +2064,16 @@ func TestProviderStage_EmitsProviderCallFailedEvent(t *testing.T) {
 	})
 
 	provider := &errorProvider{}
-	stage := NewProviderStageWithEmitter(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are helpful"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	}, emitter)
+	}, emitter, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are helpful"
 	input <- elem
 	close(input)
 
@@ -2179,10 +2106,12 @@ func TestProviderStage_EmitsProviderCallFailedEvent(t *testing.T) {
 func TestProviderStage_ResetsIdleOnStreamChunks(t *testing.T) {
 	provider := mock.NewProvider("test-provider", "test-model", false)
 
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helper"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	})
+	}, nil, nil, turnState)
 
 	// Set up context with a spy reset func
 	var resetCount int32
@@ -2192,7 +2121,6 @@ func TestProviderStage_ResetsIdleOnStreamChunks(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helper"
 	input <- elem
 	close(input)
 
@@ -2213,10 +2141,12 @@ func TestProviderStage_ResetsIdleOnNonStreamingRound(t *testing.T) {
 	inner := mock.NewProvider("test-provider", "test-model", false)
 	provider := &nonStreamingProvider{Provider: inner}
 
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helper"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	})
+	}, nil, nil, turnState)
 
 	var resetCount int32
 	spy := func() { resetCount++ }
@@ -2225,7 +2155,6 @@ func TestProviderStage_ResetsIdleOnNonStreamingRound(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helper"
 	input <- elem
 	close(input)
 
@@ -2296,10 +2225,12 @@ func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
 	// never produces a response because ctx is cancelled before the delay.
 	provider := &delayedStreamProvider{delay: 2 * time.Second, response: "late"}
 
-	providerStage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helper"
+	providerStage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	})
+	}, nil, nil, turnState)
 
 	config := DefaultPipelineConfig()
 	config.IdleTimeout = 200 * time.Millisecond
@@ -2312,7 +2243,6 @@ func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
 
 	userMsg := types.Message{Role: "user", Content: "hello"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helper"
 
 	start := time.Now()
 	result, _ := pl.ExecuteSync(context.Background(), elem)
@@ -2335,10 +2265,12 @@ func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
 	// The pipeline should succeed because the chunk arrives in time.
 	provider := &delayedStreamProvider{delay: 50 * time.Millisecond, response: "hello"}
 
-	providerStage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helper"
+	providerStage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens:   100,
 		Temperature: 0.7,
-	})
+	}, nil, nil, turnState)
 
 	config := DefaultPipelineConfig()
 	config.IdleTimeout = 200 * time.Millisecond
@@ -2351,7 +2283,6 @@ func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
 
 	userMsg := types.Message{Role: "user", Content: "hello"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helper"
 
 	result, execErr := pl.ExecuteSync(context.Background(), elem)
 
@@ -2528,17 +2459,18 @@ func TestToolLoop_WriteThroughPersistsPerRound(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stage := NewProviderStageWithHooks(provider, registry, nil,
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "You are a helper"
+	stage := NewProviderStageWithTurnState(provider, registry, nil,
 		&ProviderConfig{
 			MaxTokens:        100,
 			MessageLog:       spy,
 			MessageLogConvID: "test-conv",
-		}, nil, nil)
+		}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "do something"}
 	elem := NewMessageElement(&userMsg)
-	elem.Metadata["system_prompt"] = "You are a helper"
 	input <- elem
 	close(input)
 
@@ -2560,13 +2492,14 @@ func TestToolLoop_WriteThroughPersistsPerRound(t *testing.T) {
 func TestToolLoop_WriteThroughDisabledByDefault(t *testing.T) {
 	// No MessageLog configured — should work normally without panics
 	provider := mock.NewProvider("test", "model", false)
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "helper"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
 		MaxTokens: 100,
-	})
+	}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	elem := NewMessageElement(&types.Message{Role: "user", Content: "hello"})
-	elem.Metadata["system_prompt"] = "helper"
 	input <- elem
 	close(input)
 

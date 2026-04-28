@@ -13,24 +13,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Metadata keys for media extraction correlation.
-const (
-	// MediaExtractMessageIDKey tracks which message an extracted element belongs to.
-	MediaExtractMessageIDKey = "media_extract_message_id"
-
-	// MediaExtractPartIndexKey tracks the part index within the message.
-	MediaExtractPartIndexKey = "media_extract_part_index"
-
-	// MediaExtractTotalPartsKey tracks total media parts in the original message.
-	MediaExtractTotalPartsKey = "media_extract_total_parts"
-
-	// MediaExtractMediaTypeKey tracks the media type (image, video).
-	MediaExtractMediaTypeKey = "media_extract_media_type"
-
-	// MediaExtractOriginalMessageKey stores the original message for later composition.
-	MediaExtractOriginalMessageKey = "media_extract_original_message"
-)
-
 // MediaExtractConfig configures the MediaExtractStage behavior.
 type MediaExtractConfig struct {
 	// ExtractImages enables image extraction.
@@ -194,11 +176,13 @@ func (s *MediaExtractStage) extractMediaFromMessage(
 		}
 
 		// Set correlation metadata
-		outElem.WithMetadata(MediaExtractMessageIDKey, msgID)
-		outElem.WithMetadata(MediaExtractPartIndexKey, partIdx)
-		outElem.WithMetadata(MediaExtractTotalPartsKey, len(mediaParts))
-		outElem.WithMetadata(MediaExtractMediaTypeKey, mp.mediaType)
-		outElem.WithMetadata(MediaExtractOriginalMessageKey, msg)
+		outElem.Meta.MediaExtract = &MediaExtractInfo{
+			MessageID:       msgID,
+			PartIndex:       partIdx,
+			TotalParts:      len(mediaParts),
+			MediaType:       mp.mediaType,
+			OriginalMessage: msg,
+		}
 
 		// Preserve original element metadata
 		outElem.Source = elem.Source

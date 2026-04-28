@@ -1,11 +1,9 @@
 package turnexecutors
 
 import (
-	"context"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 )
 
 // Note: mock provider detection covered in existing helpers test file
@@ -205,28 +203,5 @@ func TestPipelineExecutor_BuildBaseVariables(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestMetadataInjectionStage(t *testing.T) {
-	s := arenastages.NewMetadataInjectionStage(map[string]interface{}{"foo": "bar"})
-
-	input := make(chan stage.StreamElement, 1)
-	output := make(chan stage.StreamElement, 1)
-
-	// Send a test element
-	input <- stage.StreamElement{Metadata: make(map[string]interface{})}
-	close(input)
-
-	// Process
-	err := s.Process(context.Background(), input, output)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	// Check output
-	elem := <-output
-	if elem.Metadata["foo"] != "bar" {
-		t.Fatalf("expected metadata to be injected, got %v", elem.Metadata)
 	}
 }

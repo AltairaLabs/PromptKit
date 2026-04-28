@@ -58,13 +58,13 @@ func SendToolResults(
 
 // BuildToolResponseElement creates a stream element containing tool results.
 // This element can be sent through the pipeline to:
-// 1. Forward tool responses to the provider (via metadata["tool_responses"])
-// 2. Capture tool results in the state store (via metadata["tool_result_messages"])
+// 1. Forward tool responses to the provider (via Meta.ToolResponses)
+// 2. Capture tool results in the state store (via Meta.ToolResultMessages)
 func BuildToolResponseElement(result *ToolExecutionResult) stage.StreamElement {
 	return stage.StreamElement{
-		Metadata: map[string]interface{}{
-			"tool_responses":       result.ProviderResponses,
-			"tool_result_messages": result.ResultMessages,
+		Meta: stage.ElementMetadata{
+			ToolResponses:      result.ProviderResponses,
+			ToolResultMessages: result.ResultMessages,
 		},
 	}
 }

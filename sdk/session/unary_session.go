@@ -75,8 +75,7 @@ func (s *unarySession) Execute(ctx context.Context, role, content string) (*pipe
 
 	// Create input element
 	inputElem := stage.StreamElement{
-		Message:  &message,
-		Metadata: map[string]interface{}{"variables": s.variables},
+		Message: &message,
 	}
 
 	// Execute synchronously
@@ -101,8 +100,7 @@ func (s *unarySession) ExecuteWithMessage(
 
 	// Create input element
 	inputElem := stage.StreamElement{
-		Message:  &message,
-		Metadata: map[string]interface{}{"variables": s.variables},
+		Message: &message,
 	}
 
 	// Execute synchronously
@@ -127,8 +125,7 @@ func (s *unarySession) ResumeWithToolResults(
 	inputElems := make([]stage.StreamElement, 0, len(toolResults))
 	for i := range toolResults {
 		inputElems = append(inputElems, stage.StreamElement{
-			Message:  &toolResults[i],
-			Metadata: map[string]interface{}{"variables": s.variables},
+			Message: &toolResults[i],
 		})
 	}
 
@@ -153,8 +150,7 @@ func (s *unarySession) ExecuteStream(ctx context.Context, role, content string) 
 
 	// Create input element
 	inputElem := stage.StreamElement{
-		Message:  &message,
-		Metadata: map[string]interface{}{"variables": s.variables},
+		Message: &message,
 	}
 
 	// Create input channel
@@ -184,8 +180,7 @@ func (s *unarySession) ExecuteStreamWithMessage(
 
 	// Create input element
 	inputElem := stage.StreamElement{
-		Message:  &message,
-		Metadata: map[string]interface{}{"variables": s.variables},
+		Message: &message,
 	}
 
 	// Create input channel
@@ -215,8 +210,7 @@ func (s *unarySession) ResumeStreamWithToolResults(
 	inputElems := make([]stage.StreamElement, 0, len(toolResults))
 	for i := range toolResults {
 		inputElems = append(inputElems, stage.StreamElement{
-			Message:  &toolResults[i],
-			Metadata: map[string]interface{}{"variables": s.variables},
+			Message: &toolResults[i],
 		})
 	}
 
@@ -314,9 +308,10 @@ func (s *unarySession) ForkSession(
 // convertExecutionResult converts stage.ExecutionResult to pipeline.ExecutionResult
 func convertExecutionResult(result *stage.ExecutionResult) *pipeline.ExecutionResult {
 	pipelineResult := &pipeline.ExecutionResult{
-		Messages: result.Messages,
-		CostInfo: result.CostInfo,
-		Metadata: result.Metadata,
+		Messages:     result.Messages,
+		CostInfo:     result.CostInfo,
+		Metadata:     result.Metadata,
+		PendingTools: result.PendingTools,
 		Trace: pipeline.ExecutionTrace{
 			LLMCalls: make([]pipeline.LLMCall, 0),
 			Events:   make([]pipeline.TraceEvent, 0),
@@ -329,13 +324,6 @@ func convertExecutionResult(result *stage.ExecutionResult) *pipeline.ExecutionRe
 			Content:   result.Response.Content,
 			Parts:     result.Response.Parts,
 			ToolCalls: result.Response.ToolCalls,
-		}
-	}
-
-	// Propagate pending tools from stage metadata
-	if pt, ok := result.Metadata["pending_tools"]; ok {
-		if pending, ok := pt.([]tools.PendingToolExecution); ok {
-			pipelineResult.PendingTools = pending
 		}
 	}
 
@@ -394,26 +382,14 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) bool {
 		}
 	}
 
-	if elem.Metadata != nil {
-		p.collectMetadata(elem.Metadata)
+	if len(elem.Meta.PendingTools) > 0 {
+		p.emitPendingTools(elem.Meta.PendingTools)
 	}
 	return true
 }
 
-// collectMetadata extracts final results and pending tools from element metadata.
-func (p *streamProcessor) collectMetadata(metadata map[string]interface{}) {
-	if stageResult, ok := metadata["__final_result__"].(*stage.ExecutionResult); ok {
-		p.finalResult = convertExecutionResult(stageResult)
-	}
-
-	pt, ok := metadata["pending_tools"]
-	if !ok {
-		return
-	}
-	pending, ok := pt.([]tools.PendingToolExecution)
-	if !ok || len(pending) == 0 {
-		return
-	}
+// emitPendingTools surfaces pending tool calls as a final stream chunk.
+func (p *streamProcessor) emitPendingTools(pending []tools.PendingToolExecution) {
 	p.sendChunk(&providers.StreamChunk{
 		FinishReason: strPtr("pending_tools"),
 		PendingTools: pending,

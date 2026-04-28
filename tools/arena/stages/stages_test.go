@@ -75,9 +75,6 @@ func TestHistoryInjectionStage_EmitsHistoryFirst(t *testing.T) {
 
 	// Last should be current
 	assert.Equal(t, "Current message", results[2].Message.Content)
-
-	// History elements should have source metadata
-	assert.Equal(t, "history_injection", results[0].Metadata["source"])
 }
 
 func TestHistoryInjectionStage_EmptyHistory(t *testing.T) {
@@ -116,67 +113,12 @@ func TestHistoryInjectionStage_MultipleElements(t *testing.T) {
 }
 
 // =============================================================================
-// MetadataInjectionStage Tests
-// =============================================================================
-
-func TestMetadataInjectionStage_InjectsMetadata(t *testing.T) {
-	metadata := map[string]interface{}{
-		"key1": "value1",
-		"key2": 42,
-	}
-
-	s := NewMetadataInjectionStage(metadata)
-
-	inputs := []stage.StreamElement{
-		newTestMessageElement("user", "Test"),
-	}
-
-	results := runStage(t, s, inputs)
-
-	require.Len(t, results, 1)
-	assert.Equal(t, "value1", results[0].Metadata["key1"])
-	assert.Equal(t, 42, results[0].Metadata["key2"])
-}
-
-func TestMetadataInjectionStage_EmptyMetadata(t *testing.T) {
-	s := NewMetadataInjectionStage(nil)
-
-	inputs := []stage.StreamElement{
-		newTestMessageElement("user", "Test"),
-	}
-
-	results := runStage(t, s, inputs)
-
-	require.Len(t, results, 1)
-	// Should still work with empty metadata
-	assert.Equal(t, "Test", results[0].Message.Content)
-}
-
-func TestMetadataInjectionStage_PreservesExistingMetadata(t *testing.T) {
-	metadata := map[string]interface{}{
-		"new_key": "new_value",
-	}
-
-	s := NewMetadataInjectionStage(metadata)
-
-	elem := newTestMessageElement("user", "Test")
-	elem.Metadata = map[string]interface{}{
-		"existing_key": "existing_value",
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
-
-	require.Len(t, results, 1)
-	assert.Equal(t, "existing_value", results[0].Metadata["existing_key"])
-	assert.Equal(t, "new_value", results[0].Metadata["new_key"])
-}
-
-// =============================================================================
 // TurnIndexStage Tests
 // =============================================================================
 
 func TestTurnIndexStage_CountsTurns(t *testing.T) {
-	s := NewTurnIndexStage()
+	turnState := stage.NewTurnState()
+	s := NewTurnIndexStageWithTurnState(turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "User 1"),
@@ -189,13 +131,12 @@ func TestTurnIndexStage_CountsTurns(t *testing.T) {
 
 	require.Len(t, results, 4)
 
-	// All elements should have the same turn counts
-	for _, elem := range results {
-		assert.Equal(t, 2, elem.Metadata["arena_user_completed_turns"])
-		assert.Equal(t, 3, elem.Metadata["arena_user_next_turn"])
-		assert.Equal(t, 2, elem.Metadata["arena_assistant_completed_turns"])
-		assert.Equal(t, 3, elem.Metadata["arena_assistant_next_turn"])
-	}
+	// Counters land on TurnState.ProviderRequestMetadata.
+	m := turnState.ProviderRequestMetadata
+	assert.Equal(t, 2, m["arena_user_completed_turns"])
+	assert.Equal(t, 3, m["arena_user_next_turn"])
+	assert.Equal(t, 2, m["arena_assistant_completed_turns"])
+	assert.Equal(t, 3, m["arena_assistant_next_turn"])
 }
 
 func TestTurnIndexStage_EmptyInput(t *testing.T) {
@@ -207,7 +148,8 @@ func TestTurnIndexStage_EmptyInput(t *testing.T) {
 }
 
 func TestTurnIndexStage_OnlyUserMessages(t *testing.T) {
-	s := NewTurnIndexStage()
+	turnState := stage.NewTurnState()
+	s := NewTurnIndexStageWithTurnState(turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "User 1"),
@@ -217,23 +159,22 @@ func TestTurnIndexStage_OnlyUserMessages(t *testing.T) {
 	results := runStage(t, s, inputs)
 
 	require.Len(t, results, 2)
-	assert.Equal(t, 2, results[0].Metadata["arena_user_completed_turns"])
-	assert.Equal(t, 0, results[0].Metadata["arena_assistant_completed_turns"])
+	assert.Equal(t, 2, turnState.ProviderRequestMetadata["arena_user_completed_turns"])
+	assert.Equal(t, 0, turnState.ProviderRequestMetadata["arena_assistant_completed_turns"])
 }
 
 func TestTurnIndexStage_DoesNotOverwriteExisting(t *testing.T) {
-	s := NewTurnIndexStage()
-
-	elem := newTestMessageElement("user", "Test")
-	elem.Metadata = map[string]interface{}{
+	turnState := stage.NewTurnState()
+	turnState.ProviderRequestMetadata = map[string]interface{}{
 		"arena_user_completed_turns": 100, // Pre-existing value
 	}
+	s := NewTurnIndexStageWithTurnState(turnState)
 
-	results := runStage(t, s, []stage.StreamElement{elem})
+	results := runStage(t, s, []stage.StreamElement{newTestMessageElement("user", "Test")})
 
 	require.Len(t, results, 1)
 	// Should NOT overwrite the existing value
-	assert.Equal(t, 100, results[0].Metadata["arena_user_completed_turns"])
+	assert.Equal(t, 100, turnState.ProviderRequestMetadata["arena_user_completed_turns"])
 }
 
 // =============================================================================
@@ -291,7 +232,8 @@ func TestMockScenarioContextStage_AddsContext(t *testing.T) {
 		ID: "test-scenario",
 	}
 
-	s := NewMockScenarioContextStage(scenario)
+	turnState := stage.NewTurnState()
+	s := NewMockScenarioContextStageWithTurnState(scenario, turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Test"),
@@ -300,12 +242,13 @@ func TestMockScenarioContextStage_AddsContext(t *testing.T) {
 	results := runStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	assert.Equal(t, "test-scenario", results[0].Metadata["mock_scenario_id"])
-	assert.NotNil(t, results[0].Metadata["mock_turn_number"])
+	assert.Equal(t, "test-scenario", turnState.ProviderRequestMetadata["mock_scenario_id"])
+	assert.NotNil(t, turnState.ProviderRequestMetadata["mock_turn_number"])
 }
 
 func TestMockScenarioContextStage_NilScenario(t *testing.T) {
-	s := NewMockScenarioContextStage(nil)
+	turnState := stage.NewTurnState()
+	s := NewMockScenarioContextStageWithTurnState(nil, turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Test"),
@@ -314,8 +257,8 @@ func TestMockScenarioContextStage_NilScenario(t *testing.T) {
 	results := runStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	// Should forward without scenario metadata
-	assert.Nil(t, results[0].Metadata["mock_scenario_id"])
+	// Should forward without writing scenario metadata.
+	assert.Nil(t, turnState.ProviderRequestMetadata["mock_scenario_id"])
 }
 
 func TestMockScenarioContextStage_EmptyScenarioID(t *testing.T) {
@@ -323,7 +266,8 @@ func TestMockScenarioContextStage_EmptyScenarioID(t *testing.T) {
 		ID: "", // Empty ID
 	}
 
-	s := NewMockScenarioContextStage(scenario)
+	turnState := stage.NewTurnState()
+	s := NewMockScenarioContextStageWithTurnState(scenario, turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Test"),
@@ -332,27 +276,28 @@ func TestMockScenarioContextStage_EmptyScenarioID(t *testing.T) {
 	results := runStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	// Should forward without scenario metadata when ID is empty
-	assert.Nil(t, results[0].Metadata["mock_scenario_id"])
+	// Should forward without writing scenario metadata when ID is empty.
+	assert.Nil(t, turnState.ProviderRequestMetadata["mock_scenario_id"])
 }
 
-func TestMockScenarioContextStage_TurnNumberFromMetadata(t *testing.T) {
+func TestMockScenarioContextStage_TurnNumberFromTurnState(t *testing.T) {
 	scenario := &config.Scenario{
 		ID: "test-scenario",
 	}
 
-	s := NewMockScenarioContextStage(scenario)
-
-	elem := newTestMessageElement("user", "Test")
-	elem.Metadata = map[string]interface{}{
+	turnState := stage.NewTurnState()
+	turnState.ProviderRequestMetadata = map[string]interface{}{
 		"arena_user_completed_turns": 5,
 	}
+	s := NewMockScenarioContextStageWithTurnState(scenario, turnState)
+
+	elem := newTestMessageElement("user", "Test")
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
 	require.Len(t, results, 1)
-	// Should use the turn number from metadata
-	assert.Equal(t, 5, results[0].Metadata["mock_turn_number"])
+	// Should use the turn number from TurnState's existing metadata.
+	assert.Equal(t, 5, turnState.ProviderRequestMetadata["mock_turn_number"])
 }
 
 func TestMockScenarioContextStage_TurnNumberFromAssistantCount(t *testing.T) {
@@ -360,7 +305,8 @@ func TestMockScenarioContextStage_TurnNumberFromAssistantCount(t *testing.T) {
 		ID: "test-scenario",
 	}
 
-	s := NewMockScenarioContextStage(scenario)
+	turnState := stage.NewTurnState()
+	s := NewMockScenarioContextStageWithTurnState(scenario, turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "User 1"),
@@ -373,7 +319,7 @@ func TestMockScenarioContextStage_TurnNumberFromAssistantCount(t *testing.T) {
 
 	require.Len(t, results, 4)
 	// Turn number should be assistant count + 1 = 3
-	assert.Equal(t, 3, results[0].Metadata["mock_turn_number"])
+	assert.Equal(t, 3, turnState.ProviderRequestMetadata["mock_turn_number"])
 }
 
 func TestMockScenarioContextStage_TurnNumberFromUserCount(t *testing.T) {
@@ -381,7 +327,8 @@ func TestMockScenarioContextStage_TurnNumberFromUserCount(t *testing.T) {
 		ID: "test-scenario",
 	}
 
-	s := NewMockScenarioContextStage(scenario)
+	turnState := stage.NewTurnState()
+	s := NewMockScenarioContextStageWithTurnState(scenario, turnState)
 
 	// Only user messages, no assistant messages
 	inputs := []stage.StreamElement{
@@ -393,7 +340,7 @@ func TestMockScenarioContextStage_TurnNumberFromUserCount(t *testing.T) {
 
 	require.Len(t, results, 2)
 	// Turn number should be user count = 2
-	assert.Equal(t, 2, results[0].Metadata["mock_turn_number"])
+	assert.Equal(t, 2, turnState.ProviderRequestMetadata["mock_turn_number"])
 }
 
 // =============================================================================
@@ -405,7 +352,8 @@ func TestSelfPlayUserTurnContextStage_AddsContext(t *testing.T) {
 		ID: "selfplay-scenario",
 	}
 
-	s := NewSelfPlayUserTurnContextStage(scenario)
+	turnState := stage.NewTurnState()
+	s := NewSelfPlayUserTurnContextStageWithTurnState(scenario, "", turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "User 1"),
@@ -416,15 +364,17 @@ func TestSelfPlayUserTurnContextStage_AddsContext(t *testing.T) {
 
 	require.Len(t, results, 2)
 
-	// Check metadata on first element
-	assert.Equal(t, "selfplay-scenario", results[0].Metadata["mock_scenario_id"])
-	assert.Equal(t, 1, results[0].Metadata["arena_user_completed_turns"])
-	assert.Equal(t, 2, results[0].Metadata["arena_user_next_turn"])
-	assert.Equal(t, "self_play_user", results[0].Metadata["arena_role"])
+	// Coordination data lives in TurnState's provider request metadata.
+	m := turnState.ProviderRequestMetadata
+	assert.Equal(t, "selfplay-scenario", m["mock_scenario_id"])
+	assert.Equal(t, 1, m["arena_user_completed_turns"])
+	assert.Equal(t, 2, m["arena_user_next_turn"])
+	assert.Equal(t, "self_play_user", m["arena_role"])
 }
 
 func TestSelfPlayUserTurnContextStage_NilScenario(t *testing.T) {
-	s := NewSelfPlayUserTurnContextStage(nil)
+	turnState := stage.NewTurnState()
+	s := NewSelfPlayUserTurnContextStageWithTurnState(nil, "", turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Test"),
@@ -433,35 +383,25 @@ func TestSelfPlayUserTurnContextStage_NilScenario(t *testing.T) {
 	results := runStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	// Should not add scenario-specific metadata
-	assert.Nil(t, results[0].Metadata["mock_scenario_id"])
+	// Should not write scenario-specific metadata.
+	assert.Nil(t, turnState.ProviderRequestMetadata["mock_scenario_id"])
 }
 
-func TestSelfPlayUserTurnContextStage_UsesExistingTurnCount(t *testing.T) {
-	scenario := &config.Scenario{
-		ID: "test-scenario",
-	}
+func TestSelfPlayUserTurnContextStage_PersonaIDRoutedToProviderMetadata(t *testing.T) {
+	scenario := &config.Scenario{ID: "test-scenario"}
+	turnState := stage.NewTurnState()
+	s := NewSelfPlayUserTurnContextStageWithTurnState(scenario, "curious-customer", turnState)
 
-	s := NewSelfPlayUserTurnContextStage(scenario)
-
-	elem := newTestMessageElement("user", "Test")
-	elem.Metadata = map[string]interface{}{
-		"arena_user_completed_turns": 10, // Pre-existing count
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
-
+	results := runStage(t, s, []stage.StreamElement{newTestMessageElement("user", "hi")})
 	require.Len(t, results, 1)
-	// Should use the higher existing count
-	assert.Equal(t, 10, results[0].Metadata["arena_user_completed_turns"])
-	assert.Equal(t, 11, results[0].Metadata["arena_user_next_turn"])
+	assert.Equal(t, "curious-customer", turnState.ProviderRequestMetadata["mock_persona_id"])
 }
 
 // =============================================================================
 // ScenarioContextExtractionStage Tests
 // =============================================================================
 
-func TestScenarioContextExtractionStage_ExtractsContext(t *testing.T) {
+func TestScenarioContextExtractionStage_WritesToTurnStateVariables(t *testing.T) {
 	scenario := &config.Scenario{
 		ID:          "test-scenario",
 		Description: "Test scenario description",
@@ -472,58 +412,35 @@ func TestScenarioContextExtractionStage_ExtractsContext(t *testing.T) {
 		},
 	}
 
-	s := NewScenarioContextExtractionStage(scenario)
+	turnState := stage.NewTurnState()
+	s := NewScenarioContextExtractionStageWithTurnState(scenario, turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Hello"),
 	}
 
 	results := runStage(t, s, inputs)
-
 	require.Len(t, results, 1)
-	assert.Equal(t, "technology", results[0].Metadata["domain"])
-	assert.Equal(t, "developer", results[0].Metadata["user_context"])
-	assert.Equal(t, "developer", results[0].Metadata["user_role"])
-	assert.Contains(t, results[0].Metadata["context_slot"], "Test scenario description")
+
+	assert.Equal(t, "technology", turnState.Variables["domain"])
+	assert.Equal(t, "developer", turnState.Variables["user_context"])
+	assert.Equal(t, "developer", turnState.Variables["user_role"])
+	assert.Contains(t, turnState.Variables["context_slot"], "Test scenario description")
 }
 
-func TestScenarioContextExtractionStage_NilScenario(t *testing.T) {
-	s := NewScenarioContextExtractionStage(&config.Scenario{})
+func TestScenarioContextExtractionStage_EmptyScenarioWritesEmptyValues(t *testing.T) {
+	turnState := stage.NewTurnState()
+	s := NewScenarioContextExtractionStageWithTurnState(&config.Scenario{}, turnState)
 
 	inputs := []stage.StreamElement{
 		newTestMessageElement("user", "Test"),
 	}
 
 	results := runStage(t, s, inputs)
-
-	require.Len(t, results, 1)
-	// Should still have empty string values
-	assert.Equal(t, "", results[0].Metadata["domain"])
-}
-
-func TestScenarioContextExtractionStage_VariablesSubMap(t *testing.T) {
-	scenario := &config.Scenario{
-		ID:       "test",
-		TaskType: "chat",
-		ContextMetadata: &config.ContextMetadata{
-			Domain: "finance",
-		},
-	}
-
-	s := NewScenarioContextExtractionStage(scenario)
-
-	inputs := []stage.StreamElement{
-		newTestMessageElement("user", "Test"),
-	}
-
-	results := runStage(t, s, inputs)
-
 	require.Len(t, results, 1)
 
-	// Check variables sub-map
-	vars, ok := results[0].Metadata["variables"].(map[string]string)
-	require.True(t, ok)
-	assert.Equal(t, "finance", vars["domain"])
+	// Should have empty string values for missing context.
+	assert.Equal(t, "", turnState.Variables["domain"])
 }
 
 func TestScenarioContextExtractionStage_DoesNotOverwriteExisting(t *testing.T) {
@@ -533,18 +450,17 @@ func TestScenarioContextExtractionStage_DoesNotOverwriteExisting(t *testing.T) {
 		},
 	}
 
-	s := NewScenarioContextExtractionStage(scenario)
-
-	elem := newTestMessageElement("user", "Test")
-	elem.Metadata = map[string]interface{}{
+	turnState := stage.NewTurnState()
+	turnState.Variables = map[string]string{
 		"domain": "existing_domain", // Pre-existing value
 	}
+	s := NewScenarioContextExtractionStageWithTurnState(scenario, turnState)
 
-	results := runStage(t, s, []stage.StreamElement{elem})
-
+	results := runStage(t, s, []stage.StreamElement{newTestMessageElement("user", "Test")})
 	require.Len(t, results, 1)
-	// Should NOT overwrite existing domain
-	assert.Equal(t, "existing_domain", results[0].Metadata["domain"])
+
+	// Should NOT overwrite existing domain in TurnState.
+	assert.Equal(t, "existing_domain", turnState.Variables["domain"])
 }
 
 func TestBuildContextSlot_WithDescription(t *testing.T) {
@@ -753,12 +669,11 @@ func TestArenaStateStoreSaveStage_WithSystemPrompt(t *testing.T) {
 		ConversationID: "test-conv-2",
 	}
 
-	s := NewArenaStateStoreSaveStage(cfg)
+	turnState := stage.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	s := NewArenaStateStoreSaveStageWithTurnState(cfg, turnState)
 
 	elem := newTestMessageElement("user", "Hello")
-	elem.Metadata = map[string]interface{}{
-		"system_prompt": "You are a helpful assistant",
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -785,12 +700,10 @@ func TestArenaStateStoreSaveStage_WithCostInfo(t *testing.T) {
 	s := NewArenaStateStoreSaveStage(cfg)
 
 	elem := newTestMessageElement("assistant", "Response")
-	elem.Metadata = map[string]interface{}{
-		"cost_info": &types.CostInfo{
-			TotalCost:    0.01,
-			InputTokens:  100,
-			OutputTokens: 50,
-		},
+	elem.Message.CostInfo = &types.CostInfo{
+		TotalCost:    0.01,
+		InputTokens:  100,
+		OutputTokens: 50,
 	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
@@ -803,35 +716,6 @@ func TestArenaStateStoreSaveStage_WithCostInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0.01, state.Metadata["total_cost_usd"])
 	assert.Equal(t, 150, state.Metadata["total_tokens"])
-}
-
-func TestArenaStateStoreSaveStage_WithExecutionTrace(t *testing.T) {
-	store := statestore.NewArenaStateStore()
-
-	cfg := &pipeline.StateStoreConfig{
-		Store:          store,
-		ConversationID: "test-conv-4",
-	}
-
-	s := NewArenaStateStoreSaveStage(cfg)
-
-	elem := newTestMessageElement("assistant", "Response")
-	elem.Metadata = map[string]interface{}{
-		"execution_trace": &pipeline.ExecutionTrace{
-			StartedAt: time.Now(),
-			LLMCalls:  []pipeline.LLMCall{},
-		},
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
-
-	require.Len(t, results, 1)
-
-	// Verify state was saved
-	ctx := context.Background()
-	state, err := store.Load(ctx, "test-conv-4")
-	require.NoError(t, err)
-	require.NotNil(t, state)
 }
 
 func TestArenaStateStoreSaveStage_InvalidStoreType(t *testing.T) {
@@ -1042,9 +926,7 @@ func TestArenaStateStoreSaveStage_PreservesOriginalTextForSelfplay(t *testing.T)
 		Content: "We offer several enterprise services...",
 	}
 	assistantElem := stage.NewMessageElement(assistantMsg)
-	assistantElem.Metadata = map[string]interface{}{
-		"input_transcription": transcribedText,
-	}
+	assistantElem.Meta.Transcription = &stage.Transcription{Text: transcribedText}
 
 	results := runStage(t, s, []stage.StreamElement{
 		stage.NewMessageElement(userMsg),
@@ -1120,9 +1002,7 @@ func TestArenaStateStoreSaveStage_TranscriptionAppliedToCorrectTurn(t *testing.T
 		Content: "We offer many services...",
 	}
 	assistant1Elem := stage.NewMessageElement(assistant1)
-	assistant1Elem.Metadata = map[string]interface{}{
-		"input_transcription": transcript1,
-	}
+	assistant1Elem.Meta.Transcription = &stage.Transcription{Text: transcript1}
 
 	transcript2 := " That sounds great what about pricing"
 	assistant2 := &types.Message{
@@ -1130,9 +1010,7 @@ func TestArenaStateStoreSaveStage_TranscriptionAppliedToCorrectTurn(t *testing.T
 		Content: "Our pricing is...",
 	}
 	assistant2Elem := stage.NewMessageElement(assistant2)
-	assistant2Elem.Metadata = map[string]interface{}{
-		"input_transcription": transcript2,
-	}
+	assistant2Elem.Meta.Transcription = &stage.Transcription{Text: transcript2}
 
 	// Send messages in the "race condition" order
 	results := runStage(t, s, []stage.StreamElement{
@@ -1271,10 +1149,9 @@ func TestArenaStateStoreSaveStage_TranscriptionByTurnID(t *testing.T) {
 		Content: "I'm doing well, thanks!",
 	}
 	assistant1Elem := stage.NewMessageElement(assistant1)
-	assistant1Elem.Metadata = map[string]interface{}{
-		"input_transcription":   transcript1,
-		"transcription_turn_id": turnID1,
-	}
+	assistant1Elem.Meta.Transcription = &stage.Transcription{Text: transcript1}
+	tID1 := turnID1
+	assistant1Elem.Meta.TurnID = &tID1
 
 	transcript2 := " What services do you offer"
 	assistant2 := &types.Message{
@@ -1282,10 +1159,9 @@ func TestArenaStateStoreSaveStage_TranscriptionByTurnID(t *testing.T) {
 		Content: "We offer many services...",
 	}
 	assistant2Elem := stage.NewMessageElement(assistant2)
-	assistant2Elem.Metadata = map[string]interface{}{
-		"input_transcription":   transcript2,
-		"transcription_turn_id": turnID2,
-	}
+	assistant2Elem.Meta.Transcription = &stage.Transcription{Text: transcript2}
+	tID2 := turnID2
+	assistant2Elem.Meta.TurnID = &tID2
 
 	// Send messages in a mixed order (user2 arrives before assistant1)
 	// With turn_id matching, transcriptions should still be correct

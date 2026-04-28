@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -438,32 +439,33 @@ func TestScriptedExecutor_ExecuteTurn_SetsTimestamp(t *testing.T) {
 	mockProvider.AssertExpectations(t)
 }
 
-func TestExtractFinishReason_Nil(t *testing.T) {
-	assert.Nil(t, extractFinishReason(nil))
+func TestElementFinishReason_Nil(t *testing.T) {
+	assert.Nil(t, elementFinishReason(nil))
 }
 
-func TestExtractFinishReason_Present(t *testing.T) {
-	meta := map[string]interface{}{"finish_reason": "stop"}
-	result := extractFinishReason(meta)
+func TestElementFinishReason_Present(t *testing.T) {
+	fr := "stop"
+	elem := &stage.StreamElement{Meta: stage.ElementMetadata{FinishReason: &fr}}
+	result := elementFinishReason(elem)
 	require.NotNil(t, result)
 	assert.Equal(t, "stop", *result)
 }
 
-func TestExtractFinishReason_Missing(t *testing.T) {
-	meta := map[string]interface{}{"other": "value"}
-	assert.Nil(t, extractFinishReason(meta))
+func TestElementFinishReason_Missing(t *testing.T) {
+	elem := &stage.StreamElement{}
+	assert.Nil(t, elementFinishReason(elem))
 }
 
-func TestExtractTokenCount_Nil(t *testing.T) {
-	assert.Equal(t, 0, extractTokenCount(nil))
+func TestElementTokenCount_Nil(t *testing.T) {
+	assert.Equal(t, 0, elementTokenCount(nil))
 }
 
-func TestExtractTokenCount_Present(t *testing.T) {
-	meta := map[string]interface{}{"token_count": 42}
-	assert.Equal(t, 42, extractTokenCount(meta))
+func TestElementTokenCount_Present(t *testing.T) {
+	elem := &stage.StreamElement{Meta: stage.ElementMetadata{TokenCount: 42}}
+	assert.Equal(t, 42, elementTokenCount(elem))
 }
 
-func TestExtractTokenCount_Missing(t *testing.T) {
-	meta := map[string]interface{}{"other": "value"}
-	assert.Equal(t, 0, extractTokenCount(meta))
+func TestElementTokenCount_Missing(t *testing.T) {
+	elem := &stage.StreamElement{}
+	assert.Equal(t, 0, elementTokenCount(elem))
 }

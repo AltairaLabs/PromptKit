@@ -24,21 +24,27 @@ const (
 // - Scenario description and task type
 // - Message analysis as fallback
 //
-// Extracted variables are merged into element metadata, allowing templates to use them.
+// Extracted variables are merged into TurnState.Variables, where TemplateStage
+// reads them when rendering the system prompt.
 type ScenarioContextExtractionStage struct {
 	stage.BaseStage
-	scenario *config.Scenario
+	scenario  *config.Scenario
+	turnState *stage.TurnState
 }
 
-// NewScenarioContextExtractionStage creates a new scenario context extraction stage.
-func NewScenarioContextExtractionStage(scenario *config.Scenario) *ScenarioContextExtractionStage {
+// NewScenarioContextExtractionStageWithTurnState creates a scenario context
+// extraction stage that writes extracted variables into the shared *TurnState.
+func NewScenarioContextExtractionStageWithTurnState(
+	scenario *config.Scenario, turnState *stage.TurnState,
+) *ScenarioContextExtractionStage {
 	return &ScenarioContextExtractionStage{
 		BaseStage: stage.NewBaseStage("scenario_context_extraction", stage.StageTypeTransform),
 		scenario:  scenario,
+		turnState: turnState,
 	}
 }
 
-// Process extracts scenario context and adds it to elements.
+// Process extracts scenario context and writes it to TurnState.Variables.
 //
 //nolint:lll // Channel signature cannot be shortened
 func (s *ScenarioContextExtractionStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
@@ -50,8 +56,27 @@ func (s *ScenarioContextExtractionStage) Process(ctx context.Context, input <-ch
 	// Extract context using scenario metadata + message analysis
 	extracted := extractFromScenario(s.scenario, messages)
 
-	// Forward elements with enriched metadata
-	return s.forwardEnrichedElements(ctx, elements, extracted, output)
+	// Merge into TurnState.Variables (don't overwrite existing keys).
+	if s.turnState != nil {
+		if s.turnState.Variables == nil {
+			s.turnState.Variables = make(map[string]string, len(extracted))
+		}
+		for k, v := range extracted {
+			if _, exists := s.turnState.Variables[k]; !exists {
+				s.turnState.Variables[k] = v
+			}
+		}
+	}
+
+	// Forward elements unchanged.
+	for i := range elements {
+		select {
+		case output <- elements[i]:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 // accumulateInput collects all input elements and their messages.
@@ -69,54 +94,6 @@ func (s *ScenarioContextExtractionStage) accumulateInput(
 	}
 
 	return elements, messages
-}
-
-// forwardEnrichedElements sends elements with added scenario context.
-//
-//nolint:lll // Channel signature cannot be shortened
-func (s *ScenarioContextExtractionStage) forwardEnrichedElements(ctx context.Context, elements []stage.StreamElement, extracted map[string]string, output chan<- stage.StreamElement) error {
-	for i := range elements {
-		elem := &elements[i]
-		s.enrichElement(elem, extracted)
-
-		select {
-		case output <- *elem:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return nil
-}
-
-// enrichElement adds extracted variables to an element's metadata.
-func (s *ScenarioContextExtractionStage) enrichElement(elem *stage.StreamElement, extracted map[string]string) {
-	if elem.Metadata == nil {
-		elem.Metadata = make(map[string]interface{})
-	}
-
-	// Add extracted variables to metadata (don't overwrite existing)
-	for k, v := range extracted {
-		if _, exists := elem.Metadata[k]; !exists {
-			elem.Metadata[k] = v
-		}
-	}
-
-	// Also store in variables sub-map for TemplateStage
-	s.enrichVariablesSubMap(elem, extracted)
-}
-
-// enrichVariablesSubMap adds extracted variables to the variables sub-map.
-func (s *ScenarioContextExtractionStage) enrichVariablesSubMap(elem *stage.StreamElement, extracted map[string]string) {
-	if _, ok := elem.Metadata["variables"]; !ok {
-		elem.Metadata["variables"] = make(map[string]string)
-	}
-	if vars, ok := elem.Metadata["variables"].(map[string]string); ok {
-		for k, v := range extracted {
-			if _, exists := vars[k]; !exists {
-				vars[k] = v
-			}
-		}
-	}
 }
 
 // buildContextSlot creates the main context description from scenario and conversation

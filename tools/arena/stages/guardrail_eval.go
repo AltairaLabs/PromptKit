@@ -131,24 +131,10 @@ func (s *GuardrailEvalStage) Process(
 	return s.forwardAll(ctx, elements, output)
 }
 
-// extractValidatorConfigs sources validator configs from TurnState when wired,
-// otherwise falls back to scanning element metadata for the deprecated
-// "validator_configs" key.
-func (s *GuardrailEvalStage) extractValidatorConfigs(elements []stage.StreamElement) []prompt.ValidatorConfig {
-	if s.turnState != nil && len(s.turnState.Validators) > 0 {
+// extractValidatorConfigs returns the validator configs from TurnState.
+func (s *GuardrailEvalStage) extractValidatorConfigs(_ []stage.StreamElement) []prompt.ValidatorConfig {
+	if s.turnState != nil {
 		return s.turnState.Validators
-	}
-	for i := range elements {
-		if elements[i].Metadata == nil {
-			continue
-		}
-		raw, ok := elements[i].Metadata["validator_configs"]
-		if !ok {
-			continue
-		}
-		if configs, ok := raw.([]prompt.ValidatorConfig); ok {
-			return configs
-		}
 	}
 	return nil
 }

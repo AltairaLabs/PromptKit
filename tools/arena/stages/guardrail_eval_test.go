@@ -9,54 +9,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGuardrailEvalStage_TurnStateTakesPrecedenceOverMetadata(t *testing.T) {
-	// When wired with a TurnState that has Validators, the stage uses those
-	// configs in preference to the deprecated metadata bag. The metadata
-	// fallback path is exercised by all the other tests in this file.
-	turnState := stage.NewTurnState()
-	turnState.Validators = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
-	}
-	s := NewGuardrailEvalStageWithTurnState(turnState)
-
-	elem := newTestMessageElement("assistant", "This is forbidden content.")
-	// Bag contains a different (incorrect) config; TurnState must win.
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"never_match"}}},
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
-	require.Len(t, results, 1)
-	msg := results[0].Message
-	require.Len(t, msg.Validations, 1)
-	assert.False(t, msg.Validations[0].Passed, "TurnState validator should fail on the forbidden word")
-}
-
-func TestGuardrailEvalStage_TurnStateEmptyFallsBackToMetadata(t *testing.T) {
-	// When TurnState is wired but has no Validators, the stage falls back
-	// to scanning the metadata bag for back-compat.
-	turnState := stage.NewTurnState()
-	s := NewGuardrailEvalStageWithTurnState(turnState)
-
-	elem := newTestMessageElement("assistant", "This is forbidden content.")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
-	require.Len(t, results, 1)
-	msg := results[0].Message
-	require.Len(t, msg.Validations, 1)
-	assert.False(t, msg.Validations[0].Passed)
+// turnStateWithValidators is a shorthand for the test setup that wires a
+// fresh TurnState with the supplied validator configs.
+func turnStateWithValidators(configs ...prompt.ValidatorConfig) *stage.TurnState {
+	ts := stage.NewTurnState()
+	ts.Validators = configs
+	return ts
 }
 
 func TestGuardrailEvalStage_BannedWordsTriggers(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:   "banned_words",
+		Params: map[string]interface{}{"words": []any{"forbidden"}},
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	elem := newTestMessageElement("assistant", "This is forbidden content.")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -70,12 +38,13 @@ func TestGuardrailEvalStage_BannedWordsTriggers(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_CleanResponse(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:   "banned_words",
+		Params: map[string]interface{}{"words": []any{"forbidden"}},
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	elem := newTestMessageElement("assistant", "This is perfectly fine.")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -87,7 +56,7 @@ func TestGuardrailEvalStage_CleanResponse(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_NoValidatorConfigs(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	s := NewGuardrailEvalStageWithTurnState(stage.NewTurnState())
 
 	elem := newTestMessageElement("assistant", "Hello world")
 
@@ -98,12 +67,13 @@ func TestGuardrailEvalStage_NoValidatorConfigs(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_UnknownTypeSkipped(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:   "nonexistent_guardrail",
+		Params: map[string]interface{}{},
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	elem := newTestMessageElement("assistant", "Hello world")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "nonexistent_guardrail", Params: map[string]interface{}{}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -112,13 +82,13 @@ func TestGuardrailEvalStage_UnknownTypeSkipped(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_MultipleValidators(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(
+		prompt.ValidatorConfig{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
+		prompt.ValidatorConfig{Type: "length", Params: map[string]interface{}{"max_characters": 20}},
+	)
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	elem := newTestMessageElement("assistant", "This is forbidden content that is way too long for the limit.")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
-		{Type: "length", Params: map[string]interface{}{"max_characters": 20}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -134,15 +104,15 @@ func TestGuardrailEvalStage_MultipleValidators(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_LastAssistantMessage(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:   "banned_words",
+		Params: map[string]interface{}{"words": []any{"forbidden"}},
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
-	// Multiple messages — only the last assistant should get validations
 	userElem := newTestMessageElement("user", "Hello")
 	assistantElem1 := newTestMessageElement("assistant", "First response")
 	assistantElem2 := newTestMessageElement("assistant", "This is forbidden")
-	assistantElem2.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{userElem, assistantElem1, assistantElem2})
 
@@ -157,12 +127,13 @@ func TestGuardrailEvalStage_LastAssistantMessage(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_NoAssistantMessage(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:   "banned_words",
+		Params: map[string]interface{}{"words": []any{"test"}},
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	elem := newTestMessageElement("user", "Hello")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"test"}}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -171,13 +142,14 @@ func TestGuardrailEvalStage_NoAssistantMessage(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_EnforcesLengthTruncation(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:   "length",
+		Params: map[string]interface{}{"max_characters": 20},
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	longContent := "This is a very long response that exceeds the maximum length limit."
 	elem := newTestMessageElement("assistant", longContent)
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "length", Params: map[string]interface{}{"max_characters": 20}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -191,12 +163,13 @@ func TestGuardrailEvalStage_EnforcesLengthTruncation(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_EnforcesContentBlock(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:   "banned_words",
+		Params: map[string]interface{}{"words": []any{"forbidden"}},
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	elem := newTestMessageElement("assistant", "This contains forbidden words.")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -206,13 +179,15 @@ func TestGuardrailEvalStage_EnforcesContentBlock(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_EnforcesContentBlockCustomMessage(t *testing.T) {
-	s := NewGuardrailEvalStage()
-
 	customMsg := "This response has been removed."
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:    "banned_words",
+		Params:  map[string]interface{}{"words": []any{"forbidden"}},
+		Message: customMsg,
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
+
 	elem := newTestMessageElement("assistant", "This contains forbidden words.")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}, Message: customMsg},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -222,14 +197,16 @@ func TestGuardrailEvalStage_EnforcesContentBlockCustomMessage(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_FailOnViolationFalseSkipsEnforcement(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	failOnViolation := false
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:            "length",
+		Params:          map[string]interface{}{"max_characters": 10},
+		FailOnViolation: &failOnViolation,
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	originalContent := "This is a very long response that exceeds the limit."
-	failOnViolation := false
 	elem := newTestMessageElement("assistant", originalContent)
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "length", Params: map[string]interface{}{"max_characters": 10}, FailOnViolation: &failOnViolation},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 
@@ -242,12 +219,13 @@ func TestGuardrailEvalStage_FailOnViolationFalseSkipsEnforcement(t *testing.T) {
 }
 
 func TestGuardrailEvalStage_PassedValidationIncludesConfig(t *testing.T) {
-	s := NewGuardrailEvalStage()
+	ts := turnStateWithValidators(prompt.ValidatorConfig{
+		Type:   "banned_words",
+		Params: map[string]interface{}{"words": []any{"forbidden"}},
+	})
+	s := NewGuardrailEvalStageWithTurnState(ts)
 
 	elem := newTestMessageElement("assistant", "Clean content")
-	elem.Metadata["validator_configs"] = []prompt.ValidatorConfig{
-		{Type: "banned_words", Params: map[string]interface{}{"words": []any{"forbidden"}}},
-	}
 
 	results := runStage(t, s, []stage.StreamElement{elem})
 

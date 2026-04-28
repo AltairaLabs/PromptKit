@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
@@ -96,10 +97,6 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 		snapshot["error"] = elem.Error.Error()
 	}
 
-	if len(elem.Metadata) > 0 {
-		snapshot["metadata_keys"] = getKeys(elem.Metadata)
-	}
-
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		logger.Debug("Failed to marshal element", "error", err)
@@ -107,15 +104,6 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 	}
 
 	logger.Debug("StreamElement snapshot", "stage", s.stageName, "timing", timing, "element", string(data))
-}
-
-// getKeys extracts keys from a map for logging.
-func getKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 // TemplateStage substitutes {{variable}} placeholders in messages and metadata.
@@ -198,70 +186,47 @@ func (s *TemplateStage) Process(
 
 // processElement performs variable substitution on a single element.
 func (s *TemplateStage) processElement(elem *StreamElement) {
-	if elem.Metadata == nil {
+	if s.turnState == nil || s.turnState.Template == nil {
 		return
 	}
+	tmpl := s.turnState.Template
 
-	// Build merged variable map: defaults < fragment vars < explicit vars
 	mergedVars := make(map[string]string)
-	if defaults, ok := elem.Metadata["template_default_vars"].(map[string]string); ok {
-		for k, v := range defaults {
-			mergedVars[k] = v
-		}
+	for k, v := range tmpl.DefaultVars {
+		mergedVars[k] = v
 	}
-	if fragmentVars, ok := elem.Metadata["template_fragment_vars"].(map[string]string); ok {
-		for k, v := range fragmentVars {
-			mergedVars[k] = v
-		}
+	for k, v := range tmpl.FragmentVars {
+		mergedVars[k] = v
 	}
-	if vars, ok := elem.Metadata["variables"].(map[string]string); ok {
-		for k, v := range vars {
-			mergedVars[k] = v
-		}
+	for k, v := range s.turnState.Variables {
+		mergedVars[k] = v
 	}
 
-	// Render path: when TurnState is configured, the template is rendered
-	// exactly once per Send (the first call populates TurnState.SystemPrompt;
-	// subsequent calls reuse it). This is the #1035 fix — without TurnState
-	// caching, every element with system_template metadata triggers a full
-	// re-render and re-emits the started/rendered events.
-	if rawTemplate, ok := elem.Metadata["system_template"].(string); ok {
-		s.renderSystemTemplate(elem, rawTemplate, mergedVars)
-	} else if _, ok := elem.Metadata["system_prompt"].(string); ok {
-		// Backward compat: substitute in existing system_prompt
-		s.substituteSystemPrompt(elem, mergedVars)
+	if tmpl.RawTemplate != "" {
+		s.renderSystemTemplate(tmpl, mergedVars)
 	}
 
-	// Always substitute in message content
 	if elem.Message != nil {
 		s.substituteMessage(elem.Message, mergedVars)
 	}
 }
 
-// renderSystemTemplate renders the raw template using the full Renderer and emits events.
-//
-// When TurnState is configured, the first call performs the render and
-// caches the result in TurnState.SystemPrompt; subsequent calls reuse
-// the cached value without re-rendering or re-emitting events. This is
-// the per-Send dedup that fixes #1035 — without TurnState, every element
-// flowing through the stage with a system_template metadata key triggers
-// a full render and a new pair of started/rendered events.
-//
-// The cached value is also written to elem.Metadata["system_prompt"] for
-// every element so legacy consumers (Arena's ArenaStateStoreSaveStage,
-// instruction stages) still see it on each element until they migrate.
+// renderSystemTemplate renders the raw template using the full Renderer
+// and caches the result on TurnState.SystemPrompt. The first call per
+// Send performs the render and emits events; subsequent calls reuse
+// the cached value without re-rendering. This is the per-Send dedup
+// that fixes #1035 — without it, every element flowing through the
+// stage triggers a full render and a new pair of started/rendered events.
 func (s *TemplateStage) renderSystemTemplate(
-	elem *StreamElement, rawTemplate string, vars map[string]string,
+	tmpl *prompt.Template, vars map[string]string,
 ) {
-	taskType, _ := elem.Metadata["template_task_type"].(string)
-	modelOverride, _ := elem.Metadata["template_model_override"].(string)
-
-	// Cache hit: TurnState is configured AND this Send has already
-	// rendered. Reuse the rendered SystemPrompt for this element.
-	if s.turnState != nil && s.turnState.SystemPrompt != "" {
-		elem.Metadata["system_prompt"] = s.turnState.SystemPrompt
+	if s.turnState.SystemPrompt != "" {
 		return
 	}
+
+	rawTemplate := tmpl.RawTemplate
+	taskType := tmpl.TaskType
+	modelOverride := tmpl.ModelOverride
 
 	if s.emitter != nil {
 		s.emitter.TemplateStarted(taskType, rawTemplate, len(vars), modelOverride)
@@ -273,45 +238,29 @@ func (s *TemplateStage) renderSystemTemplate(
 		if s.emitter != nil {
 			s.emitter.TemplateFailed(taskType, err.Error(), nil)
 		}
-		// Fall back to raw template so the pipeline doesn't break
-		elem.Metadata["system_prompt"] = rawTemplate
-		if s.turnState != nil {
-			s.turnState.SystemPrompt = rawTemplate
-		}
+		s.turnState.SystemPrompt = rawTemplate
 		return
 	}
 
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(result.Text)))
-	elem.Metadata["system_prompt"] = result.Text
-	if s.turnState != nil {
-		s.turnState.SystemPrompt = result.Text
-	}
+	s.turnState.SystemPrompt = result.Text
 
 	if s.emitter != nil {
-		fragmentNames := extractFragmentNames(elem)
 		s.emitter.TemplateRendered(&events.TemplateRenderedData{
 			TaskType:        taskType,
 			SystemPrompt:    result.Text,
 			PromptHash:      hash,
 			VariablesUsed:   result.UsedVars,
 			UnusedVariables: result.UnusedVars,
-			FragmentsUsed:   fragmentNames,
+			FragmentsUsed:   sortedFragmentNames(tmpl.FragmentVars),
 			RenderPasses:    result.Passes,
 		})
 	}
 }
 
-// substituteSystemPrompt applies simple string replacement on system_prompt (backward compat).
-func (s *TemplateStage) substituteSystemPrompt(elem *StreamElement, vars map[string]string) {
-	if systemPrompt, ok := elem.Metadata["system_prompt"].(string); ok {
-		elem.Metadata["system_prompt"] = s.substituteVariables(systemPrompt, vars)
-	}
-}
-
-// extractFragmentNames returns sorted keys from the template_fragment_vars metadata.
-func extractFragmentNames(elem *StreamElement) []string {
-	fragmentVars, ok := elem.Metadata["template_fragment_vars"].(map[string]string)
-	if !ok {
+// sortedFragmentNames returns sorted keys of the template's fragment vars.
+func sortedFragmentNames(fragmentVars map[string]string) []string {
+	if len(fragmentVars) == 0 {
 		return nil
 	}
 	names := make([]string, 0, len(fragmentVars))
@@ -368,6 +317,7 @@ type VariableProviderStage struct {
 	BaseStage
 	staticVars map[string]string
 	providers  []variables.Provider
+	turnState  *TurnState
 }
 
 // NewVariableProviderStageWithVars creates a variable provider stage with static variables and dynamic providers.
@@ -376,10 +326,21 @@ func NewVariableProviderStageWithVars(
 	staticVars map[string]string,
 	variableProviders []variables.Provider,
 ) *VariableProviderStage {
+	return NewVariableProviderStageWithVarsAndTurnState(staticVars, variableProviders, nil)
+}
+
+// NewVariableProviderStageWithVarsAndTurnState creates a stage that publishes
+// the resolved variables onto the supplied TurnState.Variables.
+func NewVariableProviderStageWithVarsAndTurnState(
+	staticVars map[string]string,
+	variableProviders []variables.Provider,
+	turnState *TurnState,
+) *VariableProviderStage {
 	return &VariableProviderStage{
 		BaseStage:  NewBaseStage("variable_provider", StageTypeTransform),
 		staticVars: staticVars,
 		providers:  variableProviders,
+		turnState:  turnState,
 	}
 }
 
@@ -388,7 +349,8 @@ func NewVariableProviderStage(variableProviders ...variables.Provider) *Variable
 	return NewVariableProviderStageWithVars(nil, variableProviders)
 }
 
-// Process resolves variables from all providers and merges them into element metadata.
+// Process resolves variables from all providers, publishes them onto
+// TurnState.Variables, and forwards elements unchanged.
 func (s *VariableProviderStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -396,7 +358,6 @@ func (s *VariableProviderStage) Process(
 ) error {
 	defer close(output)
 
-	// Resolve variables: start with static vars, then dynamic providers override
 	allVars := make(map[string]string)
 	for k, v := range s.staticVars {
 		allVars[k] = v
@@ -407,36 +368,21 @@ func (s *VariableProviderStage) Process(
 			logger.Error("Variable provider failed", "provider", provider.Name(), "error", err)
 			return fmt.Errorf("variable provider %s failed: %w", provider.Name(), err)
 		}
-
-		// Merge (later providers override earlier ones, and all providers override static vars)
 		for k, v := range vars {
 			allVars[k] = v
 		}
 	}
 
-	// Add resolved variables to each element's metadata
+	if s.turnState != nil {
+		if s.turnState.Variables == nil {
+			s.turnState.Variables = make(map[string]string, len(allVars))
+		}
+		for k, v := range allVars {
+			s.turnState.Variables[k] = v
+		}
+	}
+
 	for elem := range input {
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
-		}
-
-		// Merge with existing variables
-		if existingVars, ok := elem.Metadata["variables"].(map[string]string); ok {
-			// Merge existing with new (providers override)
-			for k, v := range allVars {
-				existingVars[k] = v
-			}
-			elem.Metadata["variables"] = existingVars
-		} else {
-			// Copy allVars to avoid sharing the same map across elements
-			elemVars := make(map[string]string, len(allVars))
-			for k, v := range allVars {
-				elemVars[k] = v
-			}
-			elem.Metadata["variables"] = elemVars
-		}
-
-		// Forward element
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -781,7 +727,6 @@ func (s *ContextBuilderStage) Process(
 
 	// Accumulate all messages
 	var messages []types.Message
-	var systemPrompt string
 	var firstElem *StreamElement
 
 	for elem := range input {
@@ -792,15 +737,10 @@ func (s *ContextBuilderStage) Process(
 		if elem.Message != nil {
 			messages = append(messages, *elem.Message)
 		}
-
-		// Extract system prompt from metadata (legacy fallback path).
-		if sp, ok := elem.Metadata["system_prompt"].(string); ok {
-			systemPrompt = sp
-		}
 	}
 
-	// TurnState takes precedence over the bag for the system prompt.
-	if s.turnState != nil && s.turnState.SystemPrompt != "" {
+	systemPrompt := ""
+	if s.turnState != nil {
 		systemPrompt = s.turnState.SystemPrompt
 	}
 
@@ -844,25 +784,17 @@ func (s *ContextBuilderStage) emitMessages(
 ) error {
 	for i := range messages {
 		elem := StreamElement{
-			Message:  &messages[i],
-			Metadata: make(map[string]interface{}),
+			Message: &messages[i],
+		}
+		if template != nil {
+			elem.Meta = template.Meta
 		}
 
-		// Copy metadata from template
-		if template != nil && template.Metadata != nil {
-			for k, v := range template.Metadata {
-				elem.Metadata[k] = v
-			}
-		}
-
-		// Add truncation info
 		if truncated {
-			elem.Metadata["context_truncated"] = true
+			elem.Meta.ContextTruncated = true
 		}
-
-		// Add cache breakpoint flag if enabled
 		if s.policy.CacheBreakpoints {
-			elem.Metadata["enable_cache_breakpoints"] = true
+			elem.Meta.EnableCacheBreakpoints = true
 		}
 
 		select {

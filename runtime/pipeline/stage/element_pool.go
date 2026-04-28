@@ -17,22 +17,15 @@ import (
 // and ready to use but currently unused by the pipeline internals.
 var elementPool = sync.Pool{
 	New: func() interface{} {
-		return &StreamElement{
-			Metadata: make(map[string]interface{}),
-		}
+		return &StreamElement{}
 	},
 }
 
 // GetElement retrieves a StreamElement from the pool or creates a new one.
-// The returned element is reset to its zero state with an initialized Metadata map.
+// The returned element is reset to its zero state.
 // Callers should use PutElement when the element is no longer needed.
 func GetElement() *StreamElement {
-	elem := elementPool.Get().(*StreamElement)
-	// Ensure metadata map is initialized (in case it was nil'd during Reset)
-	if elem.Metadata == nil {
-		elem.Metadata = make(map[string]interface{})
-	}
-	return elem
+	return elementPool.Get().(*StreamElement)
 }
 
 // PutElement returns a StreamElement to the pool for reuse.
@@ -48,7 +41,6 @@ func PutElement(elem *StreamElement) {
 
 // Reset clears all fields of the StreamElement to their zero values.
 // This is called automatically by PutElement before returning to the pool.
-// The Metadata map is cleared but retained to avoid reallocation.
 func (e *StreamElement) Reset() {
 	// Clear content types
 	e.Text = nil
@@ -66,10 +58,8 @@ func (e *StreamElement) Reset() {
 	e.Source = ""
 	e.Priority = PriorityNormal
 
-	// Clear the metadata map contents but keep the map to avoid reallocation
-	for k := range e.Metadata {
-		delete(e.Metadata, k)
-	}
+	// Clear typed metadata
+	e.Meta = ElementMetadata{}
 
 	// Clear control signals
 	e.EndOfStream = false

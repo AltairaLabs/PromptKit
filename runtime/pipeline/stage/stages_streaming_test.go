@@ -28,13 +28,12 @@ func baseConfig() *providers.StreamingInputConfig {
 	}
 }
 
-// elementWithSystemPrompt creates a stream element with system_prompt in metadata
-func elementWithSystemPrompt(prompt string) StreamElement {
-	return StreamElement{
-		Metadata: map[string]interface{}{
-			"system_prompt": prompt,
-		},
-	}
+// elementWithSystemPrompt creates a placeholder stream element used to trigger
+// the duplex provider stage's lazy session creation. The actual system prompt
+// now lives on TurnState.SystemPrompt; tests that need a non-empty prompt
+// must construct the stage via NewDuplexProviderStageWithTurnState.
+func elementWithSystemPrompt(_ string) StreamElement {
+	return StreamElement{}
 }
 
 func TestDuplexProviderStage_Basic(t *testing.T) {
@@ -463,10 +462,9 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 20)
 
-		// Send system prompt with EndOfStream to allow bidirectional streaming to start
+		// Send EndOfStream marker to allow bidirectional streaming to start
 		// (the drain goroutine waits for EndOfStream before exiting)
 		input <- StreamElement{
-			Metadata:    map[string]interface{}{"system_prompt": "Test system prompt"},
 			EndOfStream: true,
 		}
 
@@ -518,10 +516,8 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			if elem.EndOfStream {
 				hasEndOfStreamBeforeFinal = true
 			}
-			if elem.Metadata != nil {
-				if itc, ok := elem.Metadata["interrupted_turn_complete"].(bool); ok && itc {
-					hasInterruptedTurnComplete = true
-				}
+			if elem.Meta.InterruptedTurnComplete {
+				hasInterruptedTurnComplete = true
 			}
 		}
 
@@ -593,10 +589,9 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 20)
 
-		// Send system prompt with EndOfStream to allow bidirectional streaming to start
+		// Send EndOfStream marker to allow bidirectional streaming to start
 		// (the drain goroutine waits for EndOfStream before exiting)
 		input <- StreamElement{
-			Metadata:    map[string]interface{}{"system_prompt": "Test system prompt"},
 			EndOfStream: true,
 		}
 
@@ -639,10 +634,8 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 			if elem.EndOfStream {
 				hasEndOfStream = true
 			}
-			if elem.Metadata != nil {
-				if itc, ok := elem.Metadata["interrupted_turn_complete"].(bool); ok && itc {
-					hasInterruptedTurnComplete = true
-				}
+			if elem.Meta.InterruptedTurnComplete {
+				hasInterruptedTurnComplete = true
 			}
 		}
 

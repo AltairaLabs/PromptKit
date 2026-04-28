@@ -1191,9 +1191,7 @@ func TestApplyImageMetadata(t *testing.T) {
 // TestConvertMediaDataVideoWithMetadata verifies that convertMediaData correctly
 // handles video MIME types and applies supplementary metadata.
 func TestConvertMediaDataVideoWithMetadata(t *testing.T) {
-	elem := &stage.StreamElement{
-		Metadata: make(map[string]interface{}),
-	}
+	elem := &stage.StreamElement{}
 	chunk := &providers.StreamChunk{
 		MediaData: &providers.StreamMediaData{
 			Data:       []byte("video-bytes"),
@@ -1225,9 +1223,7 @@ func TestConvertMediaDataVideoWithMetadata(t *testing.T) {
 // TestConvertMediaDataImageWithMetadata verifies that convertMediaData correctly
 // handles image MIME types and applies supplementary metadata.
 func TestConvertMediaDataImageWithMetadata(t *testing.T) {
-	elem := &stage.StreamElement{
-		Metadata: make(map[string]interface{}),
-	}
+	elem := &stage.StreamElement{}
 	chunk := &providers.StreamChunk{
 		MediaData: &providers.StreamMediaData{
 			Data:     []byte("img-bytes"),

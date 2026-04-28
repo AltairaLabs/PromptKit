@@ -237,17 +237,17 @@ func (s *VideoToFramesStage) readExtractedFrames(
 		frameElem.Source = elem.Source
 
 		// Add correlation metadata
-		frameElem.WithMetadata(VideoFramesVideoIDKey, videoID)
-		frameElem.WithMetadata(VideoFramesFrameIndexKey, i)
-		frameElem.WithMetadata(VideoFramesTotalFramesKey, totalFrames)
-		frameElem.WithMetadata(VideoFramesOriginalVideoKey, elem.Video)
-
-		// Copy MediaExtract metadata if present
-		if msgID := elem.GetMetadata(MediaExtractMessageIDKey); msgID != nil {
-			frameElem.WithMetadata(MediaExtractMessageIDKey, msgID)
+		frameElem.Meta.VideoFrames = &VideoFramesInfo{
+			VideoID:       videoID,
+			FrameIndex:    i,
+			TotalFrames:   totalFrames,
+			OriginalVideo: elem.Video,
 		}
-		if partIdx := elem.GetMetadata(MediaExtractPartIndexKey); partIdx != nil {
-			frameElem.WithMetadata(MediaExtractPartIndexKey, partIdx)
+
+		// Propagate MediaExtract correlation when present
+		if elem.Meta.MediaExtract != nil {
+			info := *elem.Meta.MediaExtract
+			frameElem.Meta.MediaExtract = &info
 		}
 
 		// Emit frame

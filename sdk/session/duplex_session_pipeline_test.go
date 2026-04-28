@@ -221,9 +221,8 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 		// Tool results sent to stageInput
 		select {
 		case inputElem := <-s.stageInput:
-			assert.NotNil(t, inputElem.Metadata)
-			assert.NotNil(t, inputElem.Metadata["tool_responses"])
-			assert.NotNil(t, inputElem.Metadata["tool_result_messages"])
+			assert.NotEmpty(t, inputElem.Meta.ToolResponses)
+			assert.NotEmpty(t, inputElem.Meta.ToolResultMessages)
 		default:
 			t.Fatal("expected tool results on stageInput")
 		}
@@ -298,7 +297,7 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 		// Completed tool results on stageInput
 		select {
 		case inputElem := <-s.stageInput:
-			responses := inputElem.Metadata["tool_responses"].([]providers.ToolResponse)
+			responses := inputElem.Meta.ToolResponses
 			assert.Len(t, responses, 1)
 			assert.Equal(t, "c1", responses[0].ToolCallID)
 		default:

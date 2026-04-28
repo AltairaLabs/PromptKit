@@ -52,11 +52,13 @@ func TestMediaComposeStage_ComposeSingleImage(t *testing.T) {
 		Width:    256,
 		Height:   256,
 	})
-	elem.WithMetadata(MediaExtractMessageIDKey, "msg-1")
-	elem.WithMetadata(MediaExtractPartIndexKey, 0)
-	elem.WithMetadata(MediaExtractTotalPartsKey, 1)
-	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
-	elem.WithMetadata(MediaExtractOriginalMessageKey, origMsg)
+	elem.Meta.MediaExtract = &MediaExtractInfo{
+		MessageID:       "msg-1",
+		PartIndex:       0,
+		TotalParts:      1,
+		MediaType:       types.ContentTypeImage,
+		OriginalMessage: origMsg,
+	}
 
 	input <- elem
 	close(input)
@@ -141,11 +143,13 @@ func TestMediaComposeStage_ComposeMultipleImages(t *testing.T) {
 			Width:    64,
 			Height:   64,
 		})
-		elem.WithMetadata(MediaExtractMessageIDKey, "msg-2")
-		elem.WithMetadata(MediaExtractPartIndexKey, i)
-		elem.WithMetadata(MediaExtractTotalPartsKey, 3)
-		elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
-		elem.WithMetadata(MediaExtractOriginalMessageKey, origMsg)
+		elem.Meta.MediaExtract = &MediaExtractInfo{
+			MessageID:       "msg-2",
+			PartIndex:       i,
+			TotalParts:      3,
+			MediaType:       types.ContentTypeImage,
+			OriginalMessage: origMsg,
+		}
 
 		input <- elem
 	}
@@ -229,10 +233,12 @@ func TestMediaComposeStage_PreserveStorageRef(t *testing.T) {
 		MIMEType:   "image/jpeg",
 		StorageRef: "storage://bucket/processed.jpg",
 	})
-	elem.WithMetadata(MediaExtractMessageIDKey, "msg-3")
-	elem.WithMetadata(MediaExtractPartIndexKey, 0)
-	elem.WithMetadata(MediaExtractTotalPartsKey, 1)
-	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
+	elem.Meta.MediaExtract = &MediaExtractInfo{
+		MessageID:  "msg-3",
+		PartIndex:  0,
+		TotalParts: 1,
+		MediaType:  types.ContentTypeImage,
+	}
 
 	input <- elem
 	close(input)
@@ -288,10 +294,12 @@ func TestMediaComposeStage_MultipleMessages(t *testing.T) {
 				Data:     testData,
 				MIMEType: "image/jpeg",
 			})
-			elem.WithMetadata(MediaExtractMessageIDKey, msgID)
-			elem.WithMetadata(MediaExtractPartIndexKey, i)
-			elem.WithMetadata(MediaExtractTotalPartsKey, 2)
-			elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
+			elem.Meta.MediaExtract = &MediaExtractInfo{
+				MessageID:  msgID,
+				PartIndex:  i,
+				TotalParts: 2,
+				MediaType:  types.ContentTypeImage,
+			}
 
 			input <- elem
 		}
@@ -346,10 +354,12 @@ func TestMediaComposeStage_ContextCancellation(t *testing.T) {
 		Data:     testData,
 		MIMEType: "image/jpeg",
 	})
-	elem.WithMetadata(MediaExtractMessageIDKey, "msg-cancel")
-	elem.WithMetadata(MediaExtractPartIndexKey, 0)
-	elem.WithMetadata(MediaExtractTotalPartsKey, 2)
-	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
+	elem.Meta.MediaExtract = &MediaExtractInfo{
+		MessageID:  "msg-cancel",
+		PartIndex:  0,
+		TotalParts: 2,
+		MediaType:  types.ContentTypeImage,
+	}
 
 	input <- elem
 	close(input)
@@ -505,11 +515,13 @@ func TestMediaComposeStage_ComposeVideo(t *testing.T) {
 		FrameRate: 30.0,
 		Duration:  time.Minute,
 	})
-	elem.WithMetadata(MediaExtractMessageIDKey, "msg-video-1")
-	elem.WithMetadata(MediaExtractPartIndexKey, 0)
-	elem.WithMetadata(MediaExtractTotalPartsKey, 1)
-	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeVideo)
-	elem.WithMetadata(MediaExtractOriginalMessageKey, origMsg)
+	elem.Meta.MediaExtract = &MediaExtractInfo{
+		MessageID:       "msg-video-1",
+		PartIndex:       0,
+		TotalParts:      1,
+		MediaType:       types.ContentTypeVideo,
+		OriginalMessage: origMsg,
+	}
 
 	input <- elem
 	close(input)
@@ -572,10 +584,12 @@ func TestMediaComposeStage_Timeout(t *testing.T) {
 		Data:     testData,
 		MIMEType: "image/jpeg",
 	})
-	elem.WithMetadata(MediaExtractMessageIDKey, "msg-timeout")
-	elem.WithMetadata(MediaExtractPartIndexKey, 0)
-	elem.WithMetadata(MediaExtractTotalPartsKey, 2) // Expecting 2 parts but only sending 1
-	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
+	elem.Meta.MediaExtract = &MediaExtractInfo{
+		MessageID:  "msg-timeout",
+		PartIndex:  0,
+		TotalParts: 2, // Expecting 2 parts but only sending 1
+		MediaType:  types.ContentTypeImage,
+	}
 
 	errChan := make(chan error, 1)
 	go func() {
@@ -715,10 +729,12 @@ func TestMediaComposeStage_VideoWithStorageRef(t *testing.T) {
 		MIMEType:   "video/mp4",
 		StorageRef: "storage://bucket/processed.mp4",
 	})
-	elem.WithMetadata(MediaExtractMessageIDKey, "msg-video-storage")
-	elem.WithMetadata(MediaExtractPartIndexKey, 0)
-	elem.WithMetadata(MediaExtractTotalPartsKey, 1)
-	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeVideo)
+	elem.Meta.MediaExtract = &MediaExtractInfo{
+		MessageID:  "msg-video-storage",
+		PartIndex:  0,
+		TotalParts: 1,
+		MediaType:  types.ContentTypeVideo,
+	}
 
 	input <- elem
 	close(input)
@@ -778,14 +794,14 @@ func TestMediaComposeStage_ComposeErrorOnInvalidPart(t *testing.T) {
 	})
 
 	// Create element with nil image data (will cause error during compose)
-	elem := StreamElement{
-		Metadata: make(map[string]interface{}),
+	elem := StreamElement{}
+	elem.Meta.MediaExtract = &MediaExtractInfo{
+		MessageID:       "msg-error",
+		PartIndex:       0,
+		TotalParts:      1,
+		MediaType:       types.ContentTypeImage,
+		OriginalMessage: origMsg,
 	}
-	elem.WithMetadata(MediaExtractMessageIDKey, "msg-error")
-	elem.WithMetadata(MediaExtractPartIndexKey, 0)
-	elem.WithMetadata(MediaExtractTotalPartsKey, 1)
-	elem.WithMetadata(MediaExtractMediaTypeKey, types.ContentTypeImage)
-	elem.WithMetadata(MediaExtractOriginalMessageKey, origMsg)
 	// Note: Not setting elem.Image, so it will be nil during compose
 
 	input <- elem

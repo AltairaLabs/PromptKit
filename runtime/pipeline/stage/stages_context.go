@@ -67,11 +67,20 @@ type ContextAssemblyConfig struct {
 // all history via Store.Load (same behavior as StateStoreLoadStage).
 type ContextAssemblyStage struct {
 	BaseStage
-	config *ContextAssemblyConfig
+	config    *ContextAssemblyConfig
+	turnState *TurnState
 }
 
 // NewContextAssemblyStage creates a new context assembly stage.
 func NewContextAssemblyStage(config *ContextAssemblyConfig) *ContextAssemblyStage {
+	return NewContextAssemblyStageWithTurnState(config, nil)
+}
+
+// NewContextAssemblyStageWithTurnState creates a context assembly stage
+// that publishes ConversationID/UserID onto the supplied TurnState.
+func NewContextAssemblyStageWithTurnState(
+	config *ContextAssemblyConfig, turnState *TurnState,
+) *ContextAssemblyStage {
 	if config != nil {
 		if config.MaxMessages <= 0 {
 			config.MaxMessages = DefaultMaxMessages
@@ -83,6 +92,7 @@ func NewContextAssemblyStage(config *ContextAssemblyConfig) *ContextAssemblyStag
 	return &ContextAssemblyStage{
 		BaseStage: NewBaseStage("context_assembly", StageTypeTransform),
 		config:    config,
+		turnState: turnState,
 	}
 }
 
@@ -104,6 +114,11 @@ func (s *ContextAssemblyStage) Process(
 	}
 
 	convID := s.config.StateStoreConfig.ConversationID
+
+	if s.turnState != nil {
+		s.turnState.ConversationID = convID
+		s.turnState.UserID = s.config.StateStoreConfig.UserID
+	}
 
 	// Try to use MessageReader for efficient partial reads
 	reader, hasReader := s.config.StateStoreConfig.Store.(statestore.MessageReader)
@@ -136,8 +151,7 @@ func (s *ContextAssemblyStage) Process(
 		return err
 	}
 
-	// Forward input with metadata
-	return s.forwardWithMetadata(ctx, input, output)
+	return s.forwardInput(ctx, input, output)
 }
 
 // assembleFromReader uses MessageReader and SummaryAccessor for efficient loading.
@@ -264,7 +278,7 @@ func (s *ContextAssemblyStage) emitHistory(
 	for i := range messages {
 		messages[i].Source = "statestore"
 		elem := NewMessageElement(&messages[i])
-		elem.Metadata["from_history"] = true
+		elem.Meta.FromHistory = true
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -340,22 +354,14 @@ func (s *ContextAssemblyStage) applyDefaultMessageLimit(messages []types.Message
 	return result
 }
 
-// forwardWithMetadata forwards input elements with conversation metadata.
-func (s *ContextAssemblyStage) forwardWithMetadata(
+// forwardInput forwards input elements unchanged. Conversation/user IDs
+// are published to TurnState in Process() before this loop runs.
+func (s *ContextAssemblyStage) forwardInput(
 	ctx context.Context,
 	input <-chan StreamElement,
 	output chan<- StreamElement,
 ) error {
 	for elem := range input {
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
-		}
-		if s.config.StateStoreConfig != nil {
-			elem.Metadata["conversation_id"] = s.config.StateStoreConfig.ConversationID
-			if s.config.StateStoreConfig.UserID != "" {
-				elem.Metadata["user_id"] = s.config.StateStoreConfig.UserID
-			}
-		}
 		select {
 		case output <- elem:
 		case <-ctx.Done():

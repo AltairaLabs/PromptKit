@@ -388,10 +388,6 @@ func (e *SelfPlayExecutor) executeStreamingPipeline(
 	// Create input element
 	inputElem := stage.StreamElement{
 		Message: userMessage,
-		Metadata: map[string]interface{}{
-			"run_id":          req.RunID,
-			"conversation_id": req.ConversationID,
-		},
 	}
 
 	// Create input channel
@@ -458,7 +454,7 @@ func (e *SelfPlayExecutor) processAssistantElement(
 	*assistantMsg = *elem.Message
 	*messages = e.updateMessagesList(*messages, assistantMsg, assistantIndex)
 
-	finishReason := e.extractFinishReason(elem.Metadata)
+	finishReason := elementFinishReason(elem)
 
 	outChan <- MessageStreamChunk{
 		Messages:     *messages,
@@ -467,17 +463,6 @@ func (e *SelfPlayExecutor) processAssistantElement(
 	}
 
 	return finishReason != nil
-}
-
-// extractFinishReason extracts the finish reason from element metadata.
-func (e *SelfPlayExecutor) extractFinishReason(metadata map[string]interface{}) *string {
-	if metadata == nil {
-		return nil
-	}
-	if fr, ok := metadata["finish_reason"].(string); ok {
-		return &fr
-	}
-	return nil
 }
 
 // updateMessagesList updates the messages list with current assistant message

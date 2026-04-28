@@ -283,18 +283,18 @@ func collectPipelineStages(
 ) ([]stage.Stage, error) {
 	var stages []stage.Stage
 
-	// 1. State store load stage - loads conversation history FIRST
-	stages = appendStateStoreLoadStages(stages, cfg, stateStoreConfig, useRAGContext)
-
 	// Per-Turn shared state populated by PromptAssemblyStage and consumed by
 	// TemplateStage (and future stages). Caching the rendered system prompt
 	// here is what fixes #1035 — see runtime/pipeline/stage/ARCHITECTURE.md §4.
 	turnState := stage.NewTurnState()
 
+	// 1. State store load stage - loads conversation history FIRST
+	stages = appendStateStoreLoadStages(stages, cfg, stateStoreConfig, useRAGContext, turnState)
+
 	// 2. Variable provider stage - always present, handles static + dynamic vars
 	// 3. Prompt assembly stage - loads raw template (no rendering)
 	stages = append(stages,
-		stage.NewVariableProviderStageWithVars(cfg.Variables, cfg.VariableProviders),
+		stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
 		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
 	)
 
@@ -363,21 +363,22 @@ func appendStateStoreLoadStages(
 	cfg *Config,
 	stateStoreConfig *rtpipeline.StateStoreConfig,
 	useRAGContext bool,
+	turnState *stage.TurnState,
 ) []stage.Stage {
 	if stateStoreConfig == nil {
 		return stages
 	}
 	if useRAGContext {
-		return append(stages, stage.NewContextAssemblyStage(&stage.ContextAssemblyConfig{
+		return append(stages, stage.NewContextAssemblyStageWithTurnState(&stage.ContextAssemblyConfig{
 			StateStoreConfig: stateStoreConfig,
 			RecentMessages:   cfg.ContextWindow,
 			MessageIndex:     cfg.MessageIndex,
 			RetrievalTopK:    cfg.RetrievalTopK,
 			HasTokenBudget:   cfg.TokenBudget > 0,
 			HasContextWindow: cfg.ContextWindow > 0,
-		}))
+		}, turnState))
 	}
-	return append(stages, stage.NewStateStoreLoadStage(stateStoreConfig))
+	return append(stages, stage.NewStateStoreLoadStageWithTurnState(stateStoreConfig, turnState))
 }
 
 // buildProviderStages returns the appropriate provider stage(s) based on config.

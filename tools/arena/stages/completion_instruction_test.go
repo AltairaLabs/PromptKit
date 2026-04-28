@@ -10,59 +10,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompletionInstructionStage_AppendsToSystemPrompt(t *testing.T) {
-	s := NewCompletionInstructionStage("\nPlease finish now.")
+func TestCompletionInstructionStage_AppendsToTurnStateSystemPrompt(t *testing.T) {
+	turnState := stage.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant."
+	s := NewCompletionInstructionStageWithTurnState("\nPlease finish now.", turnState)
 
-	elem := stage.StreamElement{
-		Metadata: map[string]interface{}{
-			"system_prompt": "You are a helpful assistant.",
-		},
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
+	results := runStage(t, s, []stage.StreamElement{{}})
 	require.Len(t, results, 1)
-	assert.Equal(t, "You are a helpful assistant.\nPlease finish now.", results[0].Metadata["system_prompt"])
+	assert.Equal(t, "You are a helpful assistant.\nPlease finish now.", turnState.SystemPrompt)
 }
 
-func TestCompletionInstructionStage_NoSystemPromptKey(t *testing.T) {
-	s := NewCompletionInstructionStage("\nDone.")
+func TestCompletionInstructionStage_NoTurnState_NoOp(t *testing.T) {
+	s := NewCompletionInstructionStageWithTurnState("\nDone.", nil)
 
-	elem := stage.StreamElement{
-		Metadata: map[string]interface{}{
-			"other_key": "value",
-		},
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
+	results := runStage(t, s, []stage.StreamElement{{}})
 	require.Len(t, results, 1)
-	assert.Equal(t, "value", results[0].Metadata["other_key"])
-	assert.Nil(t, results[0].Metadata["system_prompt"])
 }
 
-func TestCompletionInstructionStage_NilMetadata(t *testing.T) {
-	s := NewCompletionInstructionStage("\nDone.")
+func TestCompletionInstructionStage_EmptyInstruction_NoOp(t *testing.T) {
+	turnState := stage.NewTurnState()
+	turnState.SystemPrompt = "Original prompt."
+	s := NewCompletionInstructionStageWithTurnState("", turnState)
 
-	elem := stage.StreamElement{
-		Metadata: nil,
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
+	results := runStage(t, s, []stage.StreamElement{{}})
 	require.Len(t, results, 1)
-	assert.Nil(t, results[0].Metadata)
+	assert.Equal(t, "Original prompt.", turnState.SystemPrompt, "empty instruction must not modify TurnState")
 }
 
 func TestCompletionInstructionStage_ContextCancellation(t *testing.T) {
-	s := NewCompletionInstructionStage("\nDone.")
+	turnState := stage.NewTurnState()
+	turnState.SystemPrompt = "Hello"
+	s := NewCompletionInstructionStageWithTurnState("\nDone.", turnState)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
 	input := make(chan stage.StreamElement, 1)
-	input <- stage.StreamElement{
-		Metadata: map[string]interface{}{
-			"system_prompt": "Hello",
-		},
-	}
+	input <- stage.StreamElement{}
 	close(input)
 
 	output := make(chan stage.StreamElement) // unbuffered so send blocks
@@ -81,65 +65,34 @@ func TestCompletionInstructionStage_ContextCancellation(t *testing.T) {
 }
 
 func TestCompletionInstructionStage_Constructor(t *testing.T) {
-	s := NewCompletionInstructionStage("test instruction")
+	s := NewCompletionInstructionStageWithTurnState("test instruction", stage.NewTurnState())
 	assert.Equal(t, "completion_instruction", s.Name())
 	assert.Equal(t, stage.StageTypeTransform, s.Type())
 }
 
 func TestCompletionInstructionStage_TurnStateAppendsOnce(t *testing.T) {
 	// With TurnState, the stage appends exactly once per Turn — even across
-	// multiple elements that all carry a system_prompt. The shared
-	// SystemPrompt becomes the source of truth and propagates onto every
-	// element's bag for back-compat readers.
+	// multiple elements that all flow through. The shared SystemPrompt
+	// becomes the source of truth.
 	turnState := stage.NewTurnState()
 	turnState.SystemPrompt = "You are a helpful assistant."
 	s := NewCompletionInstructionStageWithTurnState("\nPlease finish now.", turnState)
 
-	inputs := []stage.StreamElement{
-		{Metadata: map[string]interface{}{"system_prompt": "stale-bag-value"}},
-		{Metadata: map[string]interface{}{"system_prompt": "another-stale-value"}},
-		{Metadata: map[string]interface{}{"other": "no system_prompt"}},
-	}
+	inputs := []stage.StreamElement{{}, {}, {}}
 	results := runStage(t, s, inputs)
 	require.Len(t, results, 3)
 
 	expected := "You are a helpful assistant.\nPlease finish now."
 	assert.Equal(t, expected, turnState.SystemPrompt, "TurnState should hold the appended prompt exactly once")
-	assert.Equal(t, expected, results[0].Metadata["system_prompt"])
-	assert.Equal(t, expected, results[1].Metadata["system_prompt"],
-		"second element's bag should mirror the appended TurnState prompt — no double-append")
-	assert.Equal(t, expected, results[2].Metadata["system_prompt"],
-		"element without prior system_prompt still gets the propagated value")
 }
 
-func TestCompletionInstructionStage_TurnStateEmptyFallsBackToBag(t *testing.T) {
-	// When TurnState.SystemPrompt is empty (legacy callers wiring TurnState
-	// but not having TemplateStage populate it), the stage seeds from the
-	// first element's bag and writes the appended value back.
+func TestCompletionInstructionStage_TurnStateEmptyPromptStillAppends(t *testing.T) {
+	// When TurnState.SystemPrompt is empty (e.g. TemplateStage hasn't run
+	// yet), the instruction is still appended.
 	turnState := stage.NewTurnState()
 	s := NewCompletionInstructionStageWithTurnState(" END", turnState)
 
-	inputs := []stage.StreamElement{
-		{Metadata: map[string]interface{}{"system_prompt": "First"}},
-	}
-	results := runStage(t, s, inputs)
+	results := runStage(t, s, []stage.StreamElement{{}})
 	require.Len(t, results, 1)
-	assert.Equal(t, "First END", turnState.SystemPrompt)
-	assert.Equal(t, "First END", results[0].Metadata["system_prompt"])
-}
-
-func TestCompletionInstructionStage_MultipleElements(t *testing.T) {
-	s := NewCompletionInstructionStage(" END")
-
-	inputs := []stage.StreamElement{
-		{Metadata: map[string]interface{}{"system_prompt": "First"}},
-		{Metadata: map[string]interface{}{"system_prompt": "Second"}},
-		{Metadata: map[string]interface{}{"other": "no change"}},
-	}
-
-	results := runStage(t, s, inputs)
-	require.Len(t, results, 3)
-	assert.Equal(t, "First END", results[0].Metadata["system_prompt"])
-	assert.Equal(t, "Second END", results[1].Metadata["system_prompt"])
-	assert.Equal(t, "no change", results[2].Metadata["other"])
+	assert.Equal(t, " END", turnState.SystemPrompt)
 }

@@ -1949,8 +1949,7 @@ func TestBuildPipelineWithRAGContextOptions(t *testing.T) {
 		// Execute a turn to verify the stages work end-to-end
 		userMsg := types.Message{Role: "user", Content: "Hello"}
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipeline.ExecuteSync(context.Background(), elem)

@@ -11,35 +11,39 @@ import (
 
 // PersonaAssemblyStage assembles persona prompts using the same
 // fragment/template system as PromptAssemblyStage.
-// It enriches elements with the persona's assembled prompt and variables.
 //
 // This stage mirrors the behavior of PromptAssemblyMiddleware but for personas:
 // - Uses persona's BuildSystemPrompt() which handles fragment assembly
 // - Supports template variable substitution with {{variable}} syntax
 // - Injects persona-specific variables (goals, constraints, style)
-// - Sets base variables for downstream template stage
+// - Writes the rendered system prompt and base variables into TurnState
 type PersonaAssemblyStage struct {
 	stage.BaseStage
 	persona       *config.UserPersonaPack
 	region        string
 	baseVariables map[string]string
+	turnState     *stage.TurnState
 }
 
-// NewPersonaAssemblyStage creates a new persona assembly stage.
-func NewPersonaAssemblyStage(
+// NewPersonaAssemblyStageWithTurnState creates a persona assembly stage that
+// writes the rendered persona system prompt into the shared *TurnState.
+func NewPersonaAssemblyStageWithTurnState(
 	persona *config.UserPersonaPack,
 	region string,
 	baseVariables map[string]string,
+	turnState *stage.TurnState,
 ) *PersonaAssemblyStage {
 	return &PersonaAssemblyStage{
 		BaseStage:     stage.NewBaseStage("arena_persona_assembly", stage.StageTypeTransform),
 		persona:       persona,
 		region:        region,
 		baseVariables: baseVariables,
+		turnState:     turnState,
 	}
 }
 
-// Process assembles the persona prompt and enriches all elements with it.
+// Process assembles the persona prompt and writes it into TurnState. All input
+// elements are forwarded unchanged.
 //
 //nolint:lll // Channel signature cannot be shortened
 func (s *PersonaAssemblyStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
@@ -60,29 +64,20 @@ func (s *PersonaAssemblyStage) Process(ctx context.Context, input <-chan stage.S
 		"length", len(systemPrompt),
 		"base_vars", len(s.baseVariables))
 
-	// Prepare metadata to add to all elements
-	personaMetadata := map[string]interface{}{
-		"system_prompt":  systemPrompt,
-		"base_variables": s.baseVariables,
-		"persona_id":     s.persona.ID,
-		"region":         s.region,
-	}
-
-	// Forward all elements with persona metadata
-	for elem := range input {
-		if elem.Metadata == nil {
-			elem.Metadata = make(map[string]interface{})
+	if s.turnState != nil {
+		s.turnState.SystemPrompt = systemPrompt
+		if s.turnState.Variables == nil {
+			s.turnState.Variables = make(map[string]string, len(s.baseVariables))
 		}
-
-		// Enrich element with persona metadata
-		for key, value := range personaMetadata {
-			// Don't overwrite existing metadata
-			if _, exists := elem.Metadata[key]; !exists {
-				elem.Metadata[key] = value
+		for k, v := range s.baseVariables {
+			if _, exists := s.turnState.Variables[k]; !exists {
+				s.turnState.Variables[k] = v
 			}
 		}
+	}
 
-		// Forward element
+	// Forward all input elements unchanged.
+	for elem := range input {
 		select {
 		case output <- elem:
 		case <-ctx.Done():

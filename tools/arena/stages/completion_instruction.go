@@ -16,16 +16,6 @@ type CompletionInstructionStage struct {
 	turnState   *stage.TurnState
 }
 
-// NewCompletionInstructionStage creates a stage that appends the given
-// instruction to the system prompt. Pipelines that have migrated to TurnState
-// should use NewCompletionInstructionStageWithTurnState.
-func NewCompletionInstructionStage(instruction string) *CompletionInstructionStage {
-	return &CompletionInstructionStage{
-		BaseStage:   stage.NewBaseStage("completion_instruction", stage.StageTypeTransform),
-		instruction: instruction,
-	}
-}
-
 // NewCompletionInstructionStageWithTurnState creates a stage that reads and
 // writes the system prompt through the shared *TurnState.
 func NewCompletionInstructionStageWithTurnState(

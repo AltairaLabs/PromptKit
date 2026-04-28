@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -23,32 +24,11 @@ type StreamPipeline struct {
 	config       *PipelineConfig
 	eventEmitter *events.Emitter
 
-	// BaseMetadata is merged into every StreamElement at the start of each
-	// Execute/ExecuteSync call. Per-element metadata takes precedence over
-	// base metadata on key collision. Nil by default (zero cost when unused).
-	BaseMetadata map[string]interface{}
-
 	// Concurrency control
 	wg         sync.WaitGroup
 	shutdown   chan struct{}
 	shutdownMu sync.RWMutex
 	isShutdown bool
-}
-
-// applyBaseMetadata merges BaseMetadata into an element. Per-element keys
-// already present take precedence over base metadata keys.
-func (p *StreamPipeline) applyBaseMetadata(elem *StreamElement) {
-	if len(p.BaseMetadata) == 0 {
-		return
-	}
-	if elem.Metadata == nil {
-		elem.Metadata = make(map[string]interface{}, len(p.BaseMetadata))
-	}
-	for k, v := range p.BaseMetadata {
-		if _, exists := elem.Metadata[k]; !exists {
-			elem.Metadata[k] = v
-		}
-	}
 }
 
 // Execute starts the pipeline execution with the given input channel.
@@ -58,28 +38,6 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	// Check if shutting down
 	if p.isShuttingDown() {
 		return nil, ErrPipelineShuttingDown
-	}
-
-	// Wrap input to inject base metadata if configured
-	actualInput := input
-	if len(p.BaseMetadata) > 0 {
-		wrapped := make(chan StreamElement, p.config.ChannelBufferSize)
-		go func() {
-			defer close(wrapped)
-			for {
-				select {
-				case elem, ok := <-input:
-					if !ok {
-						return
-					}
-					p.applyBaseMetadata(&elem)
-					wrapped <- elem
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-		actualInput = wrapped
 	}
 
 	// Apply execution timeout if configured (hard ceiling)
@@ -117,7 +75,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	output := make(chan StreamElement, p.config.ChannelBufferSize)
 
 	// Execute pipeline in background
-	go p.executeBackground(execCtx, actualInput, output, cancel)
+	go p.executeBackground(execCtx, input, output, cancel)
 
 	return output, nil
 }
@@ -432,11 +390,12 @@ func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement
 // ExecutionResult represents the final result of a pipeline execution.
 // This matches the existing pipeline.ExecutionResult for compatibility.
 type ExecutionResult struct {
-	Messages []types.Message        // All messages in the conversation
-	Response *Response              // The final response
-	Trace    ExecutionTrace         // Execution trace
-	CostInfo types.CostInfo         // Cost information
-	Metadata map[string]interface{} // Additional metadata
+	Messages     []types.Message              // All messages in the conversation
+	Response     *Response                    // The final response
+	Trace        ExecutionTrace               // Execution trace
+	CostInfo     types.CostInfo               // Cost information
+	PendingTools []tools.PendingToolExecution // Tool calls suspended awaiting out-of-band completion
+	Metadata     map[string]interface{}       // Additional metadata
 }
 
 // Response represents a response message (for compatibility with existing pipeline).
@@ -497,9 +456,8 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 			result.Response.Content += *elem.Text
 		}
 
-		// Merge metadata
-		for k, v := range elem.Metadata {
-			result.Metadata[k] = v
+		if len(elem.Meta.PendingTools) > 0 {
+			result.PendingTools = elem.Meta.PendingTools
 		}
 
 		// Track errors

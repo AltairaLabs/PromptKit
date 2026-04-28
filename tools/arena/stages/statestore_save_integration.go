@@ -23,14 +23,25 @@ const (
 // for Arena testing and analysis.
 type ArenaStateStoreSaveStage struct {
 	stage.BaseStage
-	config *pipeline.StateStoreConfig
+	config    *pipeline.StateStoreConfig
+	turnState *stage.TurnState
 }
 
 // NewArenaStateStoreSaveStage creates a new Arena state store save stage.
 func NewArenaStateStoreSaveStage(config *pipeline.StateStoreConfig) *ArenaStateStoreSaveStage {
+	return NewArenaStateStoreSaveStageWithTurnState(config, nil)
+}
+
+// NewArenaStateStoreSaveStageWithTurnState creates an Arena state store
+// save stage that reads the rendered system prompt from the supplied
+// TurnState before falling back to per-element metadata.
+func NewArenaStateStoreSaveStageWithTurnState(
+	config *pipeline.StateStoreConfig, turnState *stage.TurnState,
+) *ArenaStateStoreSaveStage {
 	return &ArenaStateStoreSaveStage{
 		BaseStage: stage.NewBaseStage("arena_statestore_save", stage.StageTypeSink),
 		config:    config,
+		turnState: turnState,
 	}
 }
 
@@ -46,7 +57,6 @@ type collectedData struct {
 // collectFromElement extracts data from a single element and updates collected data.
 func (d *collectedData) collectFromElement(elem *stage.StreamElement) {
 	if elem.Message != nil {
-		// Truncate content for logging
 		contentPreview := elem.Message.Content
 		if len(contentPreview) > contentPreviewMaxLen {
 			contentPreview = contentPreview[:contentPreviewMaxLen] + "..."
@@ -57,33 +67,19 @@ func (d *collectedData) collectFromElement(elem *stage.StreamElement) {
 			"content_preview", contentPreview,
 			"total_messages", len(d.messages)+1)
 		d.messages = append(d.messages, *elem.Message)
-	}
-	if elem.Metadata == nil {
-		return
-	}
-	if d.metadata == nil {
-		d.metadata = make(map[string]interface{})
-	}
-	for k, v := range elem.Metadata {
-		d.metadata[k] = v
-	}
-	if t, ok := elem.Metadata["execution_trace"].(*pipeline.ExecutionTrace); ok {
-		d.trace = t
-	}
-	if c, ok := elem.Metadata["cost_info"].(*types.CostInfo); ok {
-		d.costInfo = c
+		if elem.Message.CostInfo != nil {
+			d.costInfo = elem.Message.CostInfo
+		}
 	}
 
-	// Apply input transcription to the correct user message.
-	// If a turn_id is provided, use it to find the exact user message.
-	// Otherwise, fall back to order-based matching (N-th transcription to N-th user message).
-	if inputTranscript, ok := elem.Metadata["input_transcription"].(string); ok && inputTranscript != "" {
-		if turnID, ok := elem.Metadata["transcription_turn_id"].(string); ok && turnID != "" {
-			// Use turn_id for reliable matching
-			d.applyTranscriptionByTurnID(inputTranscript, turnID)
+	// Apply duplex input transcription to the correct user message. When a
+	// turn id is set we pair by turn id; otherwise fall back to the order
+	// in which transcriptions arrive.
+	if elem.Meta.Transcription != nil && elem.Meta.Transcription.Text != "" {
+		if elem.Meta.TurnID != nil && *elem.Meta.TurnID != "" {
+			d.applyTranscriptionByTurnID(elem.Meta.Transcription.Text, *elem.Meta.TurnID)
 		} else {
-			// Fall back to order-based matching
-			d.applyNextTranscription(inputTranscript)
+			d.applyNextTranscription(elem.Meta.Transcription.Text)
 		}
 	}
 }
@@ -338,12 +334,14 @@ func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
 		state = s.createNewState()
 	}
 
-	// Look for system_prompt in element metadata first, then in config metadata
-	// This allows system_prompt to be passed through either path
+	// Source the system prompt from TurnState (set by TemplateStage), then
+	// fall back to config metadata for tests that wire SystemPrompt through
+	// the config path.
 	systemPrompt := ""
-	if sp, ok := metadata["system_prompt"].(string); ok && sp != "" {
-		systemPrompt = sp
-	} else if s.config != nil && s.config.Metadata != nil {
+	if s.turnState != nil {
+		systemPrompt = s.turnState.SystemPrompt
+	}
+	if systemPrompt == "" && s.config != nil && s.config.Metadata != nil {
 		if sp, ok := s.config.Metadata["system_prompt"].(string); ok && sp != "" {
 			systemPrompt = sp
 		}
@@ -357,13 +355,42 @@ func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
 		copy(state.Messages, messages)
 	}
 
-	updateStateMetadata(state, metadata, costInfo)
+	// Merge metadata from collected sources and TurnState provider-request
+	// metadata so per-Turn coordination data (e.g. arena turn counters)
+	// reaches the persisted state.
+	mergedMetadata := mergeMetadata(metadata, s.turnStateMetadata())
+	updateStateMetadata(state, mergedMetadata, costInfo)
 
 	if err := arenaStore.SaveWithTrace(ctx, state, ensureTrace(trace)); err != nil {
 		return fmt.Errorf("failed to save with trace: %w", err)
 	}
 
 	return nil
+}
+
+// turnStateMetadata returns the TurnState's ProviderRequestMetadata, or nil
+// when no TurnState is wired.
+func (s *ArenaStateStoreSaveStage) turnStateMetadata() map[string]interface{} {
+	if s.turnState == nil {
+		return nil
+	}
+	return s.turnState.ProviderRequestMetadata
+}
+
+// mergeMetadata returns a single map with all keys from a then b. b wins on
+// collisions. nil inputs are tolerated.
+func mergeMetadata(a, b map[string]interface{}) map[string]interface{} {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	merged := make(map[string]interface{}, len(a)+len(b))
+	for k, v := range a {
+		merged[k] = v
+	}
+	for k, v := range b {
+		merged[k] = v
+	}
+	return merged
 }
 
 // createSystemMessage creates a system message with the given prompt and timestamp.
