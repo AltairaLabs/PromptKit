@@ -14,6 +14,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// Error message format strings, kept as constants so the same wording
+// doesn't repeat across each call site (Sonar's go:S1192 threshold of 3).
+const (
+	errUnmarshalMeta = "failed to unmarshal meta: %w"
+	errMarshalMeta   = "failed to marshal meta: %w"
+)
+
 // RedisStore provides a Redis-backed implementation of the Store interface.
 // It uses JSON serialization for state storage and supports automatic TTL-based cleanup.
 // This implementation is suitable for distributed systems and production deployments.
@@ -132,7 +139,7 @@ func (s *RedisStore) loadMeta(ctx context.Context, id string) (*redisStateMeta, 
 
 	var meta redisStateMeta
 	if unmarshalErr := json.Unmarshal(data, &meta); unmarshalErr != nil {
-		return nil, fmt.Errorf("failed to unmarshal meta: %w", unmarshalErr)
+		return nil, fmt.Errorf(errUnmarshalMeta, unmarshalErr)
 	}
 	return &meta, nil
 }
@@ -227,7 +234,7 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	meta.LastAccessedAt = now
 	metaData, err := json.Marshal(meta)
 	if err != nil {
-		return fmt.Errorf("failed to marshal meta: %w", err)
+		return fmt.Errorf(errMarshalMeta, err)
 	}
 
 	// Check how many messages are already stored so we can do a delta RPUSH
@@ -654,7 +661,7 @@ func (s *RedisStore) mergeMetadataTx(
 
 	data, err := json.Marshal(meta)
 	if err != nil {
-		return fmt.Errorf("failed to marshal meta: %w", err)
+		return fmt.Errorf(errMarshalMeta, err)
 	}
 	_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 		pipe.Set(ctx, metaKey, data, s.ttl)
@@ -671,7 +678,7 @@ func (s *RedisStore) loadMetaTx(ctx context.Context, tx *redis.Tx, id string) (*
 	if err == nil {
 		var meta redisStateMeta
 		if unmarshalErr := json.Unmarshal(data, &meta); unmarshalErr != nil {
-			return nil, fmt.Errorf("failed to unmarshal meta: %w", unmarshalErr)
+			return nil, fmt.Errorf(errUnmarshalMeta, unmarshalErr)
 		}
 		if meta.ID == "" {
 			meta.ID = id
@@ -826,7 +833,7 @@ func (s *RedisStore) updateMetaTTL(ctx context.Context, id, msgKey string) error
 	if err == nil {
 		// Existing meta found — update timestamp
 		if unmarshalErr := json.Unmarshal(data, &meta); unmarshalErr != nil {
-			return fmt.Errorf("failed to unmarshal meta: %w", unmarshalErr)
+			return fmt.Errorf(errUnmarshalMeta, unmarshalErr)
 		}
 	} else if !errors.Is(err, redis.Nil) {
 		return fmt.Errorf("redis get meta failed: %w", err)
@@ -837,7 +844,7 @@ func (s *RedisStore) updateMetaTTL(ctx context.Context, id, msgKey string) error
 
 	metaData, err := json.Marshal(meta)
 	if err != nil {
-		return fmt.Errorf("failed to marshal meta: %w", err)
+		return fmt.Errorf(errMarshalMeta, err)
 	}
 
 	pipe := s.client.Pipeline()

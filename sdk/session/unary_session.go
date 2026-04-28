@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -260,32 +259,14 @@ func (s *unarySession) Variables() map[string]string {
 	return vars
 }
 
-// Messages implements BaseSession. Conversations are created lazily on the
-// first typed write, so a brand-new session may not yet exist in the store.
-// Treat ErrNotFound as an empty conversation rather than propagating the error.
+// Messages implements BaseSession.
 func (s *unarySession) Messages(ctx context.Context) ([]types.Message, error) {
-	state, err := s.store.Load(ctx, s.id)
-	if err != nil {
-		if errors.Is(err, statestore.ErrNotFound) {
-			return []types.Message{}, nil
-		}
-		return nil, err
-	}
-	return state.Messages, nil
+	return loadMessages(ctx, s.store, s.id)
 }
 
-// Clear implements BaseSession. Bulk operation — requires the store to
-// implement BulkWriter. Stores without bulk-write support cannot honor
-// Clear and return an error.
+// Clear implements BaseSession.
 func (s *unarySession) Clear(ctx context.Context) error {
-	bulkWriter, ok := s.store.(statestore.BulkWriter)
-	if !ok {
-		return fmt.Errorf("session clear: store does not implement BulkWriter")
-	}
-	return bulkWriter.Save(ctx, &statestore.ConversationState{
-		ID:       s.id,
-		Messages: nil,
-	})
+	return clearSession(ctx, s.store, s.id)
 }
 
 // ForkSession implements UnarySession.
@@ -294,20 +275,8 @@ func (s *unarySession) ForkSession(
 	forkID string,
 	pipelineArg *stage.StreamPipeline,
 ) (UnarySession, error) {
-	// Fork the state in the store. If the source conversation has not yet been
-	// materialized (e.g. a session that has only run pipelines without typed
-	// writes), create an empty fork target via BulkWriter when available.
-	if err := s.store.Fork(ctx, s.id, forkID); err != nil {
-		if !errors.Is(err, statestore.ErrNotFound) {
-			return nil, fmt.Errorf("failed to fork state: %w", err)
-		}
-		bulkWriter, ok := s.store.(statestore.BulkWriter)
-		if !ok {
-			return nil, fmt.Errorf("failed to fork state: %w", err)
-		}
-		if saveErr := bulkWriter.Save(ctx, &statestore.ConversationState{ID: forkID}); saveErr != nil {
-			return nil, fmt.Errorf("failed to fork state: %w", saveErr)
-		}
+	if err := forkOrCreate(ctx, s.store, s.id, forkID); err != nil {
+		return nil, err
 	}
 
 	// Copy variables
