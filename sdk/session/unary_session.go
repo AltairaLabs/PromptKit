@@ -36,16 +36,16 @@ func NewUnarySession(cfg UnarySessionConfig) (UnarySession, error) {
 		return nil, fmt.Errorf("pipeline is required")
 	}
 
-	_, err := cfg.StateStore.Load(context.Background(), cfg.ConversationID)
-	if err != nil {
-		initialState := &statestore.ConversationState{
-			ID:       cfg.ConversationID,
-			UserID:   cfg.UserID,
-			Messages: []types.Message{},
-			Metadata: cfg.Metadata,
-		}
-		if err := cfg.StateStore.Save(context.Background(), initialState); err != nil {
-			return nil, fmt.Errorf("failed to initialize conversation state: %w", err)
+	// Seed initial metadata if provided. Otherwise the conversation is
+	// created lazily on the first typed write (AppendMessages, MergeMetadata,
+	// SaveSummary). No bulk Save needed.
+	if len(cfg.Metadata) > 0 {
+		if accessor, ok := cfg.StateStore.(statestore.MetadataAccessor); ok {
+			if err := accessor.MergeMetadata(context.Background(), cfg.ConversationID, cfg.Metadata); err != nil {
+				return nil, fmt.Errorf("failed to seed conversation metadata: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("session: store does not implement MetadataAccessor; cannot seed initial metadata")
 		}
 	}
 
@@ -261,20 +261,12 @@ func (s *unarySession) Variables() map[string]string {
 
 // Messages implements BaseSession.
 func (s *unarySession) Messages(ctx context.Context) ([]types.Message, error) {
-	state, err := s.store.Load(ctx, s.id)
-	if err != nil {
-		return nil, err
-	}
-	return state.Messages, nil
+	return loadMessages(ctx, s.store, s.id)
 }
 
 // Clear implements BaseSession.
 func (s *unarySession) Clear(ctx context.Context) error {
-	state := &statestore.ConversationState{
-		ID:       s.id,
-		Messages: nil,
-	}
-	return s.store.Save(ctx, state)
+	return clearSession(ctx, s.store, s.id)
 }
 
 // ForkSession implements UnarySession.
@@ -283,9 +275,8 @@ func (s *unarySession) ForkSession(
 	forkID string,
 	pipelineArg *stage.StreamPipeline,
 ) (UnarySession, error) {
-	// Fork the state in the store
-	if err := s.store.Fork(ctx, s.id, forkID); err != nil {
-		return nil, fmt.Errorf("failed to fork state: %w", err)
+	if err := forkOrCreate(ctx, s.store, s.id, forkID); err != nil {
+		return nil, err
 	}
 
 	// Copy variables

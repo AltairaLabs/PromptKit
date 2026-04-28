@@ -276,11 +276,13 @@ func (m *mockTurnExecutor) ExecuteTurn(ctx context.Context, req turnexecutors.Tu
 		{Role: "assistant", Content: "mock response"},
 	}
 
-	// Save messages to StateStore if configured
+	// Save messages to StateStore if configured.
+	// Use BulkWriter directly: ArenaStateStore (used by Engine tests) implements
+	// BulkWriter but not MessageAppender, so we replace the whole state here.
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil && req.ConversationID != "" {
-		store, ok := req.StateStoreConfig.Store.(statestore.Store)
-		if ok {
-			// Load existing conversation
+		store, storeOK := req.StateStoreConfig.Store.(statestore.Store)
+		bulkWriter, bulkOK := req.StateStoreConfig.Store.(statestore.BulkWriter)
+		if storeOK && bulkOK {
 			state, loadErr := store.Load(ctx, req.ConversationID)
 			if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
 				return loadErr
@@ -292,12 +294,8 @@ func (m *mockTurnExecutor) ExecuteTurn(ctx context.Context, req turnexecutors.Tu
 					Messages: []types.Message{},
 				}
 			}
-
-			// Append new messages
 			state.Messages = append(state.Messages, messages...)
-
-			// Save back
-			if saveErr := store.Save(ctx, state); saveErr != nil {
+			if saveErr := bulkWriter.Save(ctx, state); saveErr != nil {
 				return saveErr
 			}
 		}

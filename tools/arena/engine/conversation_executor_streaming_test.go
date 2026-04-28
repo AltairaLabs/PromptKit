@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -283,22 +282,10 @@ func (m *MockStreamingTurnExecutor) ExecuteTurn(ctx context.Context, req turnexe
 			{Role: "assistant", Content: "mock response"},
 		}
 
-		store, ok := req.StateStoreConfig.Store.(statestore.Store)
+		appender, ok := req.StateStoreConfig.Store.(statestore.MessageAppender)
 		if ok {
-			state, loadErr := store.Load(ctx, req.ConversationID)
-			if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
-				return loadErr
-			}
-			if state == nil {
-				state = &statestore.ConversationState{
-					ID:       req.ConversationID,
-					UserID:   req.StateStoreConfig.UserID,
-					Messages: []types.Message{},
-				}
-			}
-			state.Messages = append(state.Messages, messages...)
-			if saveErr := store.Save(ctx, state); saveErr != nil {
-				return saveErr
+			if appendErr := appender.AppendMessages(ctx, req.ConversationID, messages); appendErr != nil {
+				return appendErr
 			}
 		}
 	}
@@ -360,28 +347,10 @@ func (m *MockStreamingTurnExecutor) ExecuteTurnStream(ctx context.Context, req t
 
 		// Save messages to StateStore if configured
 		if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil && req.ConversationID != "" {
-			store, ok := req.StateStoreConfig.Store.(statestore.Store)
+			appender, ok := req.StateStoreConfig.Store.(statestore.MessageAppender)
 			if ok {
-				// Load existing conversation
-				state, loadErr := store.Load(ctx, req.ConversationID)
-				if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
-					ch <- turnexecutors.MessageStreamChunk{Messages: messages, Error: loadErr}
-					return
-				}
-				if state == nil {
-					state = &statestore.ConversationState{
-						ID:       req.ConversationID,
-						UserID:   req.StateStoreConfig.UserID,
-						Messages: []types.Message{},
-					}
-				}
-
-				// Append new messages
-				state.Messages = append(state.Messages, messages...)
-
-				// Save back
-				if saveErr := store.Save(ctx, state); saveErr != nil {
-					ch <- turnexecutors.MessageStreamChunk{Messages: messages, Error: saveErr}
+				if appendErr := appender.AppendMessages(ctx, req.ConversationID, messages); appendErr != nil {
+					ch <- turnexecutors.MessageStreamChunk{Messages: messages, Error: appendErr}
 					return
 				}
 			}

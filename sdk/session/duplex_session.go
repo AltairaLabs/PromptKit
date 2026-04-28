@@ -69,19 +69,20 @@ type duplexSession struct {
 
 const streamBufferSize = 100 // Size of buffered channels for streaming
 
-// initConversationState initializes state for a new conversation if it doesn't exist.
+// initConversationState seeds initial metadata for a new conversation if
+// any is provided. Otherwise the conversation is created lazily on the
+// first typed write (AppendMessages, MergeMetadata, SaveSummary). No bulk
+// Save needed.
 func initConversationState(ctx context.Context, store statestore.Store, cfg *DuplexSessionConfig, convID string) error {
-	_, err := store.Load(ctx, convID)
-	if err != nil {
-		initialState := &statestore.ConversationState{
-			ID:       convID,
-			UserID:   cfg.UserID,
-			Messages: []types.Message{},
-			Metadata: cfg.Metadata,
-		}
-		if err := store.Save(ctx, initialState); err != nil {
-			return fmt.Errorf("failed to initialize conversation state: %w", err)
-		}
+	if len(cfg.Metadata) == 0 {
+		return nil
+	}
+	accessor, ok := store.(statestore.MetadataAccessor)
+	if !ok {
+		return fmt.Errorf("session: store does not implement MetadataAccessor; cannot seed initial metadata")
+	}
+	if err := accessor.MergeMetadata(ctx, convID, cfg.Metadata); err != nil {
+		return fmt.Errorf("failed to seed conversation metadata: %w", err)
 	}
 	return nil
 }
@@ -544,20 +545,12 @@ func (s *duplexSession) GetVar(name string) (string, bool) {
 
 // Messages implements BaseSession.
 func (s *duplexSession) Messages(ctx context.Context) ([]types.Message, error) {
-	state, err := s.store.Load(ctx, s.id)
-	if err != nil {
-		return nil, err
-	}
-	return state.Messages, nil
+	return loadMessages(ctx, s.store, s.id)
 }
 
 // Clear implements BaseSession.
 func (s *duplexSession) Clear(ctx context.Context) error {
-	state := &statestore.ConversationState{
-		ID:       s.id,
-		Messages: nil,
-	}
-	return s.store.Save(ctx, state)
+	return clearSession(ctx, s.store, s.id)
 }
 
 // ForkSession implements DuplexSession.
@@ -566,9 +559,8 @@ func (s *duplexSession) ForkSession(
 	forkID string,
 	pipelineBuilder PipelineBuilder,
 ) (DuplexSession, error) {
-	// Fork the state in the store
-	if err := s.store.Fork(ctx, s.id, forkID); err != nil {
-		return nil, fmt.Errorf("failed to fork state: %w", err)
+	if err := forkOrCreate(ctx, s.store, s.id, forkID); err != nil {
+		return nil, err
 	}
 
 	// Copy variables

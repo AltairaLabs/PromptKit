@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -43,31 +42,12 @@ func TestExecuteConversation_TenScriptedTurns(t *testing.T) {
 			}
 
 			if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil && req.ConversationID != "" {
-				store, ok := req.StateStoreConfig.Store.(statestore.Store)
+				appender, ok := req.StateStoreConfig.Store.(statestore.MessageAppender)
 				if !ok {
 					return nil
 				}
-
-				// Load existing conversation
-				state, loadErr := store.Load(ctx, req.ConversationID)
-				if loadErr != nil && !errors.Is(loadErr, statestore.ErrNotFound) {
-					return loadErr
-				}
-
-				if state == nil {
-					state = &statestore.ConversationState{
-						ID:       req.ConversationID,
-						UserID:   req.StateStoreConfig.UserID,
-						Messages: []types.Message{},
-					}
-				}
-
-				// Append new messages
-				state.Messages = append(state.Messages, messages...)
-
-				// Save back
-				if saveErr := store.Save(ctx, state); saveErr != nil {
-					return saveErr
+				if appendErr := appender.AppendMessages(ctx, req.ConversationID, messages); appendErr != nil {
+					return appendErr
 				}
 			}
 

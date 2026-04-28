@@ -179,11 +179,19 @@ func (s *IncrementalSaveStage) filterNewMessages(messages []types.Message) []typ
 	return newMsgs
 }
 
-// fullSave performs a full load+replace+save cycle (fallback when MessageAppender unavailable).
+// fullSave performs a full load+replace+save cycle. This path is reached
+// only when the store does not implement MessageAppender; persistence
+// requires the store to also implement BulkWriter (otherwise the state
+// is fundamentally unwritable and the stage errors clearly).
 func (s *IncrementalSaveStage) fullSave(ctx context.Context, collected *incrementalCollectedData) error {
 	store, ok := s.config.StateStoreConfig.Store.(statestore.Store)
 	if !ok {
 		return fmt.Errorf("incremental save: invalid store type")
+	}
+	bulkWriter, ok := s.config.StateStoreConfig.Store.(statestore.BulkWriter)
+	if !ok {
+		return fmt.Errorf(
+			"incremental save: store implements neither MessageAppender nor BulkWriter — cannot persist state")
 	}
 
 	convID := s.config.StateStoreConfig.ConversationID
@@ -226,7 +234,7 @@ func (s *IncrementalSaveStage) fullSave(ctx context.Context, collected *incremen
 		state.Summaries = summaries
 	}
 
-	return store.Save(ctx, state)
+	return bulkWriter.Save(ctx, state)
 }
 
 // indexNewMessages indexes new messages in the message index (Phase 2).

@@ -29,10 +29,10 @@ func (m *mockStateStore) Fork(_ context.Context, _, _ string) error {
 // It tracks whether LoadMetadata was called to verify the fast path is used.
 type mockMetadataStore struct {
 	mockStateStore
-	metadata         map[string]interface{}
-	metadataErr      error
-	loadMetaCalled   bool
-	loadStateCalled  bool
+	metadata        map[string]interface{}
+	metadataErr     error
+	loadMetaCalled  bool
+	loadStateCalled bool
 }
 
 func (m *mockMetadataStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
@@ -43,6 +43,10 @@ func (m *mockMetadataStore) Load(_ context.Context, _ string) (*statestore.Conve
 func (m *mockMetadataStore) LoadMetadata(_ context.Context, _ string) (map[string]interface{}, error) {
 	m.loadMetaCalled = true
 	return m.metadata, m.metadataErr
+}
+
+func (m *mockMetadataStore) MergeMetadata(_ context.Context, _ string, _ map[string]interface{}) error {
+	return nil
 }
 
 func TestStateProvider_Name(t *testing.T) {

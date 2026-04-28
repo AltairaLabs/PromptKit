@@ -34,12 +34,19 @@ func (s *probedStore) Load(ctx context.Context, id string) (*statestore.Conversa
 	return s.inner.Load(ctx, id)
 }
 
-// Save forwards to the inner store and increments the Save counter.
+// Save forwards to the inner store's BulkWriter and increments the Save
+// counter. Counted under "store.Save" in the snapshot. Returns
+// ErrNotFound when the inner store does not implement BulkWriter — keeps
+// admin/test-seed paths working without forcing every probed store
+// configuration to support bulk writes.
 func (s *probedStore) Save(ctx context.Context, state *statestore.ConversationState) error {
 	s.mu.Lock()
 	s.saves++
 	s.mu.Unlock()
-	return s.inner.Save(ctx, state)
+	if bw, ok := s.inner.(statestore.BulkWriter); ok {
+		return bw.Save(ctx, state)
+	}
+	return statestore.ErrNotFound
 }
 
 // Fork forwards to the inner store and increments the Fork counter.

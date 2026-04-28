@@ -274,17 +274,30 @@ func TestMemoryStore_TTLLoadSummariesExpired(t *testing.T) {
 	assert.Nil(t, summaries)
 }
 
-func TestMemoryStore_TTLSaveSummaryExpired(t *testing.T) {
+func TestMemoryStore_TTLSaveSummaryExpiredAutoRecreates(t *testing.T) {
+	// SaveSummary auto-creates the conversation if missing or expired.
+	// After expiry, SaveSummary re-creates the entry with the new summary
+	// and no prior messages.
 	store := NewMemoryStore(WithMemoryTTL(50 * time.Millisecond))
 	ctx := context.Background()
 
-	err := store.Save(ctx, &ConversationState{ID: "conv-ss"})
+	err := store.Save(ctx, &ConversationState{
+		ID:       "conv-ss",
+		Messages: []types.Message{{Role: "user", Content: "old"}},
+	})
 	require.NoError(t, err)
 
 	time.Sleep(80 * time.Millisecond)
 
 	err = store.SaveSummary(ctx, "conv-ss", Summary{Content: "Late summary"})
-	assert.ErrorIs(t, err, ErrNotFound)
+	require.NoError(t, err)
+
+	loaded, err := store.Load(ctx, "conv-ss")
+	require.NoError(t, err)
+	require.Len(t, loaded.Summaries, 1)
+	assert.Equal(t, "Late summary", loaded.Summaries[0].Content)
+	// Messages from the expired entry are gone.
+	assert.Empty(t, loaded.Messages)
 }
 
 func TestMemoryStore_MaxEntries(t *testing.T) {

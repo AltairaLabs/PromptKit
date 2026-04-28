@@ -51,15 +51,15 @@ func TestPipelineExecutor_AssertionsPass(t *testing.T) {
 
 	// Pre-initialize state store (required for ArenaStateStore)
 	storeIface := storeConfig.Store
-	rtStore, ok := storeIface.(runtimestore.Store)
-	require.True(t, ok, "state store must implement runtimestore.Store")
+	bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
+	require.True(t, ok, "state store must implement runtimestore.BulkWriter")
 	initState := &runtimestore.ConversationState{
 		ID:       "test-conv",
 		UserID:   "test-user",
 		Messages: []types.Message{},
 		Metadata: map[string]interface{}{},
 	}
-	saveErr := rtStore.Save(context.Background(), initState)
+	saveErr := bulkWriter.Save(context.Background(), initState)
 	require.NoError(t, saveErr)
 
 	// Create request with assertions
@@ -151,15 +151,15 @@ func TestPipelineExecutor_AssertionsFail(t *testing.T) {
 
 	// Pre-initialize state store (required for ArenaStateStore)
 	storeIface := storeConfig.Store
-	rtStore, ok := storeIface.(runtimestore.Store)
-	require.True(t, ok, "state store must implement runtimestore.Store")
+	bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
+	require.True(t, ok, "state store must implement runtimestore.BulkWriter")
 	initState := &runtimestore.ConversationState{
 		ID:       "test-conv-fail",
 		UserID:   "test-user",
 		Messages: []types.Message{},
 		Metadata: map[string]interface{}{},
 	}
-	saveErr := rtStore.Save(context.Background(), initState)
+	saveErr := bulkWriter.Save(context.Background(), initState)
 	require.NoError(t, saveErr)
 
 	// Create request with assertions that will fail
@@ -238,15 +238,15 @@ func TestPipelineExecutor_NoAssertions(t *testing.T) {
 
 	// Pre-initialize state store (required for ArenaStateStore)
 	storeIface := storeConfig.Store
-	rtStore, ok := storeIface.(runtimestore.Store)
-	require.True(t, ok, "state store must implement runtimestore.Store")
+	bulkWriter, ok := storeIface.(runtimestore.BulkWriter)
+	require.True(t, ok, "state store must implement runtimestore.BulkWriter")
 	initState := &runtimestore.ConversationState{
 		ID:       "test-conv-no-assertions",
 		UserID:   "test-user",
 		Messages: []types.Message{},
 		Metadata: map[string]interface{}{},
 	}
-	saveErr := rtStore.Save(context.Background(), initState)
+	saveErr := bulkWriter.Save(context.Background(), initState)
 	require.NoError(t, saveErr)
 
 	// Create request without assertions

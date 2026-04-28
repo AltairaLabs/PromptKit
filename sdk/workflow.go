@@ -484,6 +484,10 @@ func extractMessageText(msg *types.Message) string {
 
 // persistWorkflowContext saves the workflow context to the state store.
 // It respects the persistence hint on the current state: transient states skip writes.
+//
+// Uses MetadataAccessor.MergeMetadata when available — the typed, race-safe
+// path. Falls back to load-modify-BulkWrite for stores that lack typed
+// metadata writes.
 func (wc *WorkflowConversation) persistWorkflowContext() {
 	// Check if current state is transient
 	currentState := wc.machine.CurrentState()
@@ -496,13 +500,29 @@ func (wc *WorkflowConversation) persistWorkflowContext() {
 	}
 
 	ctx := context.Background()
+	wfCtx := wc.machine.Context()
+
+	if accessor, ok := wc.stateStore.(statestore.MetadataAccessor); ok {
+		if err := accessor.MergeMetadata(ctx, wc.workflowID, map[string]any{"workflow": wfCtx}); err != nil {
+			logger.Warn("failed to persist workflow context",
+				"workflow_id", wc.workflowID, "error", err)
+		}
+		return
+	}
+
+	bulkWriter, ok := wc.stateStore.(statestore.BulkWriter)
+	if !ok {
+		logger.Warn("workflow context not persisted: store implements neither MetadataAccessor nor BulkWriter",
+			"workflow_id", wc.workflowID)
+		return
+	}
+
 	state, err := wc.stateStore.Load(ctx, wc.workflowID)
 	if err != nil {
 		logger.Warn("failed to load workflow state, creating fresh state",
 			"workflow_id", wc.workflowID, "error", err)
 	}
 	if err != nil || state == nil {
-		// Create new state if not found or on load error
 		state = &statestore.ConversationState{
 			ID:       wc.workflowID,
 			Metadata: make(map[string]any),
@@ -511,10 +531,8 @@ func (wc *WorkflowConversation) persistWorkflowContext() {
 	if state.Metadata == nil {
 		state.Metadata = make(map[string]any)
 	}
-
-	wfCtx := wc.machine.Context()
 	state.Metadata["workflow"] = wfCtx
-	if err := wc.stateStore.Save(ctx, state); err != nil {
+	if err := bulkWriter.Save(ctx, state); err != nil {
 		logger.Warn("failed to persist workflow context", "workflow_id", wc.workflowID, "error", err)
 	}
 }

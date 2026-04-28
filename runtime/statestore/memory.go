@@ -611,7 +611,7 @@ func (s *MemoryStore) LoadSummaries(ctx context.Context, id string) ([]Summary, 
 }
 
 // SaveSummary appends a summary to the conversation's summary list.
-// Expired entries return ErrNotFound.
+// Auto-creates the conversation if it doesn't exist.
 func (s *MemoryStore) SaveSummary(ctx context.Context, id string, summary Summary) error {
 	if id == "" {
 		return ErrInvalidID
@@ -620,17 +620,35 @@ func (s *MemoryStore) SaveSummary(ctx context.Context, id string, summary Summar
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	state, exists := s.states[id]
-	if !exists {
-		return ErrNotFound
-	}
-
-	if s.isExpired(state) {
-		s.deleteStateLocked(id, state)
-		return ErrNotFound
-	}
-
+	state := s.getOrCreateStateLocked(id)
 	state.Summaries = append(state.Summaries, summary)
+	now := time.Now()
+	state.LastAccessedAt = now
+	s.touchLRULocked(id, now)
+
+	return nil
+}
+
+// MergeMetadata atomically merges the supplied keys into the conversation's
+// Metadata map. Auto-creates the conversation if it doesn't exist.
+func (s *MemoryStore) MergeMetadata(ctx context.Context, id string, updates map[string]interface{}) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := s.getOrCreateStateLocked(id)
+	if state.Metadata == nil {
+		state.Metadata = make(map[string]interface{}, len(updates))
+	}
+	for k, v := range updates {
+		state.Metadata[k] = v
+	}
 	now := time.Now()
 	state.LastAccessedAt = now
 	s.touchLRULocked(id, now)

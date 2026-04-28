@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -2171,4 +2172,98 @@ func TestRedisStore_MarshalMessageSlice_Empty(t *testing.T) {
 	vals, err := marshalMessageSlice(nil)
 	require.NoError(t, err)
 	assert.Empty(t, vals)
+}
+
+func TestRedisStore_MergeMetadata_AutoCreatesAndMerges(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Auto-create on first MergeMetadata
+	require.NoError(t, store.MergeMetadata(ctx, "conv-merge", map[string]interface{}{
+		"a": "one",
+		"b": float64(2), // JSON round-trip turns ints into float64
+	}))
+
+	got, err := store.LoadMetadata(ctx, "conv-merge")
+	require.NoError(t, err)
+	assert.Equal(t, "one", got["a"])
+	assert.Equal(t, float64(2), got["b"])
+
+	// Subsequent merge adds and overwrites; other fields untouched
+	require.NoError(t, store.AppendMessages(ctx, "conv-merge", []types.Message{
+		{Role: "user", Content: "hi"},
+	}))
+	require.NoError(t, store.MergeMetadata(ctx, "conv-merge", map[string]interface{}{
+		"b": "TWO",
+		"c": float64(3),
+	}))
+
+	loaded, err := store.Load(ctx, "conv-merge")
+	require.NoError(t, err)
+	assert.Equal(t, "one", loaded.Metadata["a"])
+	assert.Equal(t, "TWO", loaded.Metadata["b"])
+	assert.Equal(t, float64(3), loaded.Metadata["c"])
+	require.Len(t, loaded.Messages, 1)
+	assert.Equal(t, "hi", loaded.Messages[0].Content)
+}
+
+func TestRedisStore_MergeMetadata_EmptyOrInvalid(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Empty updates is a no-op (no key created)
+	require.NoError(t, store.MergeMetadata(ctx, "conv-empty", nil))
+	require.NoError(t, store.MergeMetadata(ctx, "conv-empty", map[string]interface{}{}))
+	_, err := store.LoadMetadata(ctx, "conv-empty")
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	// Invalid ID
+	assert.ErrorIs(t,
+		store.MergeMetadata(ctx, "", map[string]interface{}{"x": 1}),
+		ErrInvalidID)
+}
+
+// TestRedisStore_MergeMetadata_CorruptMeta covers the unmarshal-error branch
+// in loadMetaTx: when the meta key holds invalid JSON, MergeMetadata must
+// surface a marshal error rather than silently overwriting the bad value.
+func TestRedisStore_MergeMetadata_CorruptMeta(t *testing.T) {
+	store, mr := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Plant invalid JSON at the meta key for "conv-corrupt".
+	require.NoError(t, mr.Set(store.metaKey("conv-corrupt"), "not-json{{"))
+
+	err := store.MergeMetadata(ctx, "conv-corrupt", map[string]interface{}{"k": "v"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshal meta")
+}
+
+func TestRedisStore_MergeMetadata_ConcurrentMergesSerialise(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	// Realistic contention: a handful of stages writing concurrently to the
+	// same conversation. Pinning at the natural worst case (handful, not
+	// tens) keeps the test deterministic against miniredis's strict WATCH
+	// semantics.
+	const goroutines = 8
+	var wg sync.WaitGroup
+	for i := range goroutines {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			err := store.MergeMetadata(ctx, "race", map[string]interface{}{
+				fmt.Sprintf("k%d", i): float64(i),
+			})
+			require.NoError(t, err)
+		}(i)
+	}
+	wg.Wait()
+
+	got, err := store.LoadMetadata(ctx, "race")
+	require.NoError(t, err)
+	require.Len(t, got, goroutines, "every concurrent MergeMetadata must land")
+	for i := range goroutines {
+		assert.Equal(t, float64(i), got[fmt.Sprintf("k%d", i)])
+	}
 }

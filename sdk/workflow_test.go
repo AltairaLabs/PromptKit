@@ -1273,6 +1273,75 @@ func TestPersistWorkflowContext_TransientStateSkipped(t *testing.T) {
 	wc.persistWorkflowContext()
 }
 
+// loadErrorBulkStore implements Store + BulkWriter but its Load always
+// errors. Exercises the "Load failed → fresh state" branch in
+// persistWorkflowContext's BulkWriter fallback path.
+type loadErrorBulkStore struct{}
+
+func (loadErrorBulkStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
+	return nil, errors.New("simulated load failure")
+}
+func (loadErrorBulkStore) Fork(_ context.Context, _, _ string) error { return nil }
+func (loadErrorBulkStore) Save(_ context.Context, _ *statestore.ConversationState) error {
+	return nil
+}
+
+// TestPersistWorkflowContext_BulkWriterLoadFails covers the fallback branch
+// where the store is BulkWriter-only and Load errors — the function should
+// proceed with a fresh state and not panic.
+func TestPersistWorkflowContext_BulkWriterLoadFails(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		stateStore:   loadErrorBulkStore{},
+		workflowID:   "wf-1",
+	}
+
+	wc.persistWorkflowContext() // Must not panic.
+}
+
+// readOnlyStore implements only the bare Store interface (Load + Fork) —
+// no BulkWriter, no MetadataAccessor. Used to exercise the warning path
+// in persistWorkflowContext when neither typed nor bulk write is available.
+type readOnlyStore struct{}
+
+func (readOnlyStore) Load(_ context.Context, id string) (*statestore.ConversationState, error) {
+	return &statestore.ConversationState{ID: id, Metadata: make(map[string]any)}, nil
+}
+func (readOnlyStore) Fork(_ context.Context, _, _ string) error { return nil }
+
+// TestPersistWorkflowContext_NoWriteCapability covers the branch where the
+// store implements neither MetadataAccessor nor BulkWriter — the function
+// must log a warning and return without panicking.
+func TestPersistWorkflowContext_NoWriteCapability(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		stateStore:   readOnlyStore{},
+		workflowID:   "wf-1",
+	}
+
+	wc.persistWorkflowContext() // Must not panic.
+}
+
 func TestPersistWorkflowContext_Success(t *testing.T) {
 	spec := &workflow.Spec{
 		Version: 1,
