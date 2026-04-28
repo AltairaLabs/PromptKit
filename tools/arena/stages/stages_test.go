@@ -799,6 +799,66 @@ func TestArenaStateStoreSaveStage_NilStore(t *testing.T) {
 	require.Len(t, results, 1)
 }
 
+// countingArenaStore wraps an inner ArenaStateStore and counts Load calls.
+// Used to verify that ArenaStateStoreSaveStage Loads at most once per
+// Process invocation regardless of how many Message elements stream
+// through (the regression target for the per-element redundant-load fix).
+type countingArenaStore struct {
+	inner     *statestore.ArenaStateStore
+	loadCalls int
+}
+
+func (s *countingArenaStore) Load(
+	ctx context.Context, id string,
+) (*runtimeStatestore.ConversationState, error) {
+	s.loadCalls++
+	return s.inner.Load(ctx, id)
+}
+
+func (s *countingArenaStore) SaveWithTrace(
+	ctx context.Context, state *runtimeStatestore.ConversationState, trace *pipeline.ExecutionTrace,
+) error {
+	return s.inner.SaveWithTrace(ctx, state, trace)
+}
+
+// TestArenaStateStoreSaveStage_LoadsAtMostOncePerProcess pins the
+// per-Process Load budget. Before the cache-state fix this stage Loaded
+// once per Message element plus once at end-of-pipeline; for an N-message
+// turn that's N+1 Loads of the full conversation state.
+func TestArenaStateStoreSaveStage_LoadsAtMostOncePerProcess(t *testing.T) {
+	counting := &countingArenaStore{inner: statestore.NewArenaStateStore()}
+
+	cfg := &pipeline.StateStoreConfig{
+		Store:          counting,
+		ConversationID: "load-budget",
+		UserID:         "u1",
+	}
+	s := NewArenaStateStoreSaveStage(cfg)
+
+	// 5 Message elements in one Process call (mirrors a multi-round
+	// tool loop within a single Arena turn).
+	inputs := []stage.StreamElement{
+		newTestMessageElement("user", "1"),
+		newTestMessageElement("assistant", "2"),
+		newTestMessageElement("user", "3"),
+		newTestMessageElement("assistant", "4"),
+		newTestMessageElement("assistant", "5"),
+	}
+
+	results := runStage(t, s, inputs)
+	require.Len(t, results, 5)
+
+	assert.Equal(t, 1, counting.loadCalls,
+		"ArenaStateStoreSaveStage must Load once per Process invocation, not per Message element")
+
+	// State still contains all collected messages — the cached state was
+	// reused, not stale.
+	state, err := counting.inner.Load(context.Background(), "load-budget")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Len(t, state.Messages, 5)
+}
+
 func TestCreateSystemMessage(t *testing.T) {
 	timestamp := time.Now()
 	msg := createSystemMessage("You are helpful", timestamp)

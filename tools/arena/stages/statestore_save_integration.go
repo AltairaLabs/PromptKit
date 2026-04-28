@@ -197,51 +197,51 @@ func forwardElements(ctx context.Context, input <-chan stage.StreamElement, outp
 	return nil
 }
 
+// arenaSaveStore is the subset of *statestore.ArenaStateStore that this
+// stage needs (Load + SaveWithTrace). Defined locally so tests can supply
+// a counting wrapper to verify that Load is called once per Process call,
+// not once per persisted Message.
+type arenaSaveStore interface {
+	Load(ctx context.Context, id string) (*runtimeStatestore.ConversationState, error)
+	SaveWithTrace(
+		ctx context.Context,
+		state *runtimeStatestore.ConversationState,
+		trace *pipeline.ExecutionTrace,
+	) error
+}
+
 // Process collects messages and saves them incrementally to Arena state store.
 // Messages are saved after each turn completion (when an element contains a Message).
 // This ensures conversation state is captured in real-time as turns complete.
-func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
+//
+// The conversation state is loaded lazily on the first save and reused for
+// subsequent saves within the same Process call — avoiding O(N) Loads on
+// scenarios with many Message elements.
+func (s *ArenaStateStoreSaveStage) Process(
+	ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement,
+) error {
 	defer close(output)
 
 	if s.config == nil || s.config.Store == nil {
 		return forwardElements(ctx, input, output)
 	}
 
-	arenaStore, ok := s.config.Store.(*statestore.ArenaStateStore)
+	arenaStore, ok := s.config.Store.(arenaSaveStore)
 	if !ok {
 		//nolint:lll // Error message with type name - acceptable long line
-		return fmt.Errorf("arena state store save: invalid store type, expected *statestore.ArenaStateStore, got %T", s.config.Store)
+		return fmt.Errorf("arena state store save: invalid store type, expected arenaSaveStore (e.g. *statestore.ArenaStateStore), got %T", s.config.Store)
 	}
 
 	data := &collectedData{}
+	var cachedState *runtimeStatestore.ConversationState
 	ctxCanceled := false
+
 	for elem := range input {
 		data.collectFromElement(&elem)
-
-		// Save incrementally when we receive a Message (turn completion)
-		// This ensures each turn is saved to state store immediately
-		if elem.Message != nil {
-			logger.Debug("ArenaStateStoreSaveStage: saving after turn completion",
-				"message_count", len(data.messages),
-				"last_role", elem.Message.Role,
-				"last_content_len", len(elem.Message.Content))
-
-			// Use background context for saves - we want to capture data even if main ctx is canceled
-			// NOSONAR: Intentional background context - ensures data persistence on cancellation
-			saveCtx := ctx
-			if ctxCanceled {
-				saveCtx = context.Background()
-			}
-			err := s.saveToArenaStateStore(
-				saveCtx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
-			if err != nil {
-				logger.Error("ArenaStateStoreSaveStage: failed to save after turn", "error", err)
-				// Continue processing - don't fail the entire pipeline for a save error
-			}
-		}
+		cachedState = s.maybeIncrementalSave(ctx, arenaStore, &elem, data, cachedState, ctxCanceled)
 
 		// Try to forward element, but if context is canceled, just drain remaining input
-		// This ensures we capture all messages (including partial responses) even on timeout
+		// so we still capture trailing messages (including partial responses) on timeout.
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -249,28 +249,92 @@ func (s *ArenaStateStoreSaveStage) Process(ctx context.Context, input <-chan sta
 				logger.Debug("ArenaStateStoreSaveStage: context canceled, will drain remaining elements")
 				ctxCanceled = true
 			}
-			// Continue draining - don't return early
 		}
 	}
 
-	// Final save at end (in case any metadata/trace was collected after last message)
 	logger.Debug("ArenaStateStoreSaveStage: final save",
 		"message_count", len(data.messages))
 
-	// Use background context for final save if main context was canceled
-	// This ensures we save all collected data including partial responses
-	// NOSONAR: Intentional background context - ensures final data persistence on cancellation
-	saveCtx := ctx
-	if ctxCanceled {
-		saveCtx = context.Background()
-	}
-	err := s.saveToArenaStateStore(
-		saveCtx, arenaStore, data.messages, data.metadata, data.trace, data.costInfo)
+	saveCtx := ctxOrBackground(ctx, ctxCanceled)
+	loaded, err := s.ensureLoaded(saveCtx, arenaStore, cachedState)
 	if err != nil {
+		return fmt.Errorf("arena state store save: %w", err)
+	}
+	cachedState = loaded
+	if err := s.persistState(
+		saveCtx, arenaStore, cachedState,
+		data.messages, data.metadata, data.trace, data.costInfo,
+	); err != nil {
 		return fmt.Errorf("arena state store save: %w", err)
 	}
 
 	return nil
+}
+
+// ctxOrBackground returns context.Background when the upstream context has
+// been canceled, so save calls still complete after a pipeline cancellation.
+// NOSONAR: Intentional background context — ensures data persistence on cancellation.
+func ctxOrBackground(ctx context.Context, ctxCanceled bool) context.Context {
+	if ctxCanceled {
+		return context.Background()
+	}
+	return ctx
+}
+
+// maybeIncrementalSave persists the in-flight state when the latest element
+// completes a turn (carries a Message). Loads lazily on the first save and
+// reuses the cached pointer for subsequent calls within the same Process.
+// Returns the cached state unchanged when the element has no Message.
+func (s *ArenaStateStoreSaveStage) maybeIncrementalSave(
+	ctx context.Context,
+	arenaStore arenaSaveStore,
+	elem *stage.StreamElement,
+	data *collectedData,
+	cachedState *runtimeStatestore.ConversationState,
+	ctxCanceled bool,
+) *runtimeStatestore.ConversationState {
+	if elem.Message == nil {
+		return cachedState
+	}
+
+	logger.Debug("ArenaStateStoreSaveStage: saving after turn completion",
+		"message_count", len(data.messages),
+		"last_role", elem.Message.Role,
+		"last_content_len", len(elem.Message.Content))
+
+	saveCtx := ctxOrBackground(ctx, ctxCanceled)
+	loaded, err := s.ensureLoaded(saveCtx, arenaStore, cachedState)
+	if err != nil {
+		logger.Error("ArenaStateStoreSaveStage: failed to load state for incremental save",
+			"error", err)
+		return cachedState
+	}
+	if saveErr := s.persistState(
+		saveCtx, arenaStore, loaded,
+		data.messages, data.metadata, data.trace, data.costInfo,
+	); saveErr != nil {
+		logger.Error("ArenaStateStoreSaveStage: failed to save after turn", "error", saveErr)
+	}
+	return loaded
+}
+
+// ensureLoaded returns the cached state if non-nil, otherwise Loads from
+// the store (creating a fresh state if the conversation doesn't exist).
+// Called once per Process invocation in the typical case.
+func (s *ArenaStateStoreSaveStage) ensureLoaded(
+	ctx context.Context, arenaStore arenaSaveStore, cached *runtimeStatestore.ConversationState,
+) (*runtimeStatestore.ConversationState, error) {
+	if cached != nil {
+		return cached, nil
+	}
+	state, err := arenaStore.Load(ctx, s.config.ConversationID)
+	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
+		return nil, fmt.Errorf("failed to load state: %w", err)
+	}
+	if state == nil {
+		state = s.createNewState()
+	}
+	return state, nil
 }
 
 // createNewState creates a new conversation state with config defaults.
@@ -317,24 +381,20 @@ func ensureTrace(trace *pipeline.ExecutionTrace) *pipeline.ExecutionTrace {
 	}
 }
 
-// saveToArenaStateStore saves conversation state with telemetry.
-func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
+// persistState writes the supplied state with telemetry, mutating it in
+// place to reflect the latest collected messages, metadata, and cost info.
+// Caller is responsible for loading the state once (via ensureLoaded) and
+// passing the same pointer back on subsequent calls within a Process
+// invocation — this is what avoids redundant Loads.
+func (s *ArenaStateStoreSaveStage) persistState(
 	ctx context.Context,
-	arenaStore *statestore.ArenaStateStore,
+	arenaStore arenaSaveStore,
+	state *runtimeStatestore.ConversationState,
 	messages []types.Message,
 	metadata map[string]interface{},
 	trace *pipeline.ExecutionTrace,
 	costInfo *types.CostInfo,
 ) error {
-	state, err := arenaStore.Load(ctx, s.config.ConversationID)
-	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
-		return fmt.Errorf("failed to load state: %w", err)
-	}
-
-	if state == nil {
-		state = s.createNewState()
-	}
-
 	// Source the system prompt from TurnState (set by TemplateStage), then
 	// fall back to config metadata for tests that wire SystemPrompt through
 	// the config path.
@@ -348,7 +408,6 @@ func (s *ArenaStateStoreSaveStage) saveToArenaStateStore(
 		}
 	}
 
-	// Set messages with system prompt if present
 	if systemPrompt != "" {
 		state.Messages = prependSystemMessage(messages, systemPrompt)
 	} else {
