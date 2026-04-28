@@ -46,7 +46,8 @@ type IncrementalSaveConfig struct {
 // doesn't implement MessageAppender, it falls back to StateStoreSaveStage behavior.
 type IncrementalSaveStage struct {
 	BaseStage
-	config *IncrementalSaveConfig
+	config    *IncrementalSaveConfig
+	turnState *TurnState
 }
 
 // NewIncrementalSaveStage creates a new incremental save stage.
@@ -54,6 +55,20 @@ func NewIncrementalSaveStage(config *IncrementalSaveConfig) *IncrementalSaveStag
 	return &IncrementalSaveStage{
 		BaseStage: NewBaseStage("incremental_save", StageTypeSink),
 		config:    config,
+	}
+}
+
+// NewIncrementalSaveStageWithTurnState creates an incremental save stage that
+// also merges TurnState.ProviderRequestMetadata into the persisted state on
+// the fallback fullSave path.
+func NewIncrementalSaveStageWithTurnState(
+	config *IncrementalSaveConfig,
+	turnState *TurnState,
+) *IncrementalSaveStage {
+	return &IncrementalSaveStage{
+		BaseStage: NewBaseStage("incremental_save", StageTypeSink),
+		config:    config,
+		turnState: turnState,
 	}
 }
 
@@ -122,7 +137,6 @@ func (s *IncrementalSaveStage) persistMessages(
 // incrementalCollectedData holds data collected during processing.
 type incrementalCollectedData struct {
 	messages []types.Message
-	metadata map[string]any
 }
 
 // collectAndForward collects messages while forwarding all elements.
@@ -136,16 +150,6 @@ func (s *IncrementalSaveStage) collectAndForward(
 	for elem := range input {
 		if elem.Message != nil {
 			collected.messages = append(collected.messages, *elem.Message)
-		}
-
-		// Merge metadata
-		if elem.Metadata != nil {
-			if collected.metadata == nil {
-				collected.metadata = make(map[string]any)
-			}
-			for k, v := range elem.Metadata {
-				collected.metadata[k] = v
-			}
 		}
 
 		// Always forward error elements unconditionally
@@ -203,8 +207,11 @@ func (s *IncrementalSaveStage) fullSave(ctx context.Context, collected *incremen
 	if state.Metadata == nil {
 		state.Metadata = make(map[string]any)
 	}
-	for k, v := range collected.metadata {
-		state.Metadata[k] = v
+
+	if s.turnState != nil {
+		for k, v := range s.turnState.ProviderRequestMetadata {
+			state.Metadata[k] = v
+		}
 	}
 
 	return store.Save(ctx, state)

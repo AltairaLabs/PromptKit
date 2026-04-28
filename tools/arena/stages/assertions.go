@@ -71,15 +71,14 @@ func (s *ArenaAssertionStage) Process(
 		return nil
 	}
 
-	// Collect all elements
+	// Collect all elements. Per-element metadata is typed (elem.Meta);
+	// the when-evaluator's _metadata parameter is left nil and the
+	// evaluator tolerates that.
 	var elements []stage.StreamElement
 	var metadata map[string]interface{}
 
 	for elem := range input {
 		elements = append(elements, elem)
-		if elem.Metadata != nil && metadata == nil {
-			metadata = elem.Metadata
-		}
 	}
 
 	// Build messages list from elements for assertion execution

@@ -57,10 +57,8 @@ func TestAudioTurnStage_PassthroughMetadata(t *testing.T) {
 			Channels:   1,
 			Format:     stage.AudioFormatPCM16,
 		},
-		Metadata: map[string]interface{}{
-			"passthrough": true,
-		},
 	}
+	elem.Meta.Passthrough = true
 
 	results := runStage(t, s, []stage.StreamElement{elem}, 2*time.Second)
 
@@ -109,7 +107,6 @@ func TestAudioTurnStage_AccumulatesAudio(t *testing.T) {
 	case elem := <-output:
 		require.NotNil(t, elem.Audio, "Expected audio output")
 		assert.NotEmpty(t, elem.Audio.Samples, "Expected non-empty audio samples")
-		assert.NotNil(t, elem.Metadata, "Expected metadata with turn_complete")
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for accumulated audio output")
 	}

@@ -44,10 +44,9 @@ type ProviderStage struct {
 	config       *ProviderConfig
 	emitter      *events.Emitter // Optional event emitter for provider call events
 	hookRegistry *hooks.Registry // Optional hook registry for policy enforcement
-	// turnState is the per-Turn shared state. When wired, system_prompt and
-	// allowed_tools are sourced from TurnState.SystemPrompt /
-	// TurnState.AllowedTools rather than from element metadata. May be nil
-	// for legacy callers; in that case the stage falls back to the bag.
+	// turnState is the per-Turn shared state. SystemPrompt, AllowedTools,
+	// and ProviderRequestMetadata are sourced from it. Nil-safe (the
+	// stage emits an empty system prompt and no allowed tools).
 	turnState *TurnState
 }
 
@@ -134,9 +133,8 @@ func NewProviderStageWithHooks(
 }
 
 // NewProviderStageWithTurnState creates a provider stage that sources
-// system_prompt and allowed_tools from the shared *TurnState rather than the
-// deprecated element metadata bag. Pipelines that have migrated to TurnState
-// should use this constructor.
+// system_prompt, allowed_tools, and provider-bound metadata from the shared
+// *TurnState. Pass nil for ad-hoc / test usage where TurnState is not wired.
 func NewProviderStageWithTurnState(
 	provider providers.Provider,
 	toolRegistry *tools.Registry,
@@ -205,7 +203,8 @@ func (s *ProviderStage) Process(
 	return s.executeAndEmit(ctx, accumulated, output)
 }
 
-// accumulateInput collects messages and metadata from input channel.
+// accumulateInput collects messages from the input channel and seeds
+// per-Turn provider request metadata from TurnState.
 func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInput {
 	acc := &providerInput{
 		metadata: make(map[string]interface{}),
@@ -215,45 +214,21 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 		if elem.Message != nil {
 			acc.messages = append(acc.messages, *elem.Message)
 		}
-		s.extractMetadata(&elem, acc)
 	}
 
-	// TurnState takes precedence over the bag for the runtime-owned keys.
-	// The bag-derived values populated above are overwritten when
-	// TurnState is wired and has these fields set.
 	if s.turnState != nil {
-		if s.turnState.SystemPrompt != "" {
-			acc.systemPrompt = s.turnState.SystemPrompt
-		}
+		acc.systemPrompt = s.turnState.SystemPrompt
+		acc.allowedTools = s.turnState.AllowedTools
 		if len(s.turnState.AllowedTools) > 0 {
-			acc.allowedTools = s.turnState.AllowedTools
 			logger.Debug("ProviderStage allowed_tools from TurnState",
 				"tools", s.turnState.AllowedTools, "count", len(s.turnState.AllowedTools))
+		}
+		for k, v := range s.turnState.ProviderRequestMetadata {
+			acc.metadata[k] = v
 		}
 	}
 
 	return acc
-}
-
-// extractMetadata extracts prompt data and merges metadata from element.
-//
-// The system_prompt and allowed_tools reads are kept here for backward
-// compatibility with legacy callers that don't wire a *TurnState.
-// accumulateInput overwrites these from TurnState when available.
-func (s *ProviderStage) extractMetadata(elem *StreamElement, acc *providerInput) {
-	if elem.Metadata == nil {
-		return
-	}
-	if sp, ok := elem.Metadata["system_prompt"].(string); ok {
-		acc.systemPrompt = sp
-	}
-	if toolsList, ok := elem.Metadata["allowed_tools"].([]string); ok {
-		acc.allowedTools = toolsList
-		logger.Debug("ProviderStage received allowed_tools", "tools", toolsList, "count", len(toolsList))
-	}
-	for k, v := range elem.Metadata {
-		acc.metadata[k] = v
-	}
 }
 
 // executeAndEmit runs provider execution and emits results.
@@ -272,18 +247,15 @@ func (s *ProviderStage) executeAndEmit(
 	}
 
 	if err != nil {
-		// If tools are pending, emit collected messages and propagate pending
-		// info as metadata so the SDK can surface them to the caller.
+		// If tools are pending, emit collected messages and propagate the
+		// pending list on a typed marker element so the SDK can surface
+		// them to the caller.
 		if ep, ok := tools.IsErrToolsPending(err); ok {
-			if emitErr := s.emitResponseMessages(ctx, responseMessages, acc.metadata, output); emitErr != nil {
+			if emitErr := s.emitResponseMessages(ctx, responseMessages, output); emitErr != nil {
 				return emitErr
 			}
-			// Send a marker element with pending tool info in metadata
-			pendingElem := StreamElement{
-				Metadata: map[string]interface{}{
-					"pending_tools": ep.Pending,
-				},
-			}
+			pendingElem := StreamElement{}
+			pendingElem.Meta.PendingTools = ep.Pending
 			select {
 			case output <- pendingElem:
 			case <-ctx.Done():
@@ -295,23 +267,20 @@ func (s *ProviderStage) executeAndEmit(
 		return err
 	}
 
-	return s.emitResponseMessages(ctx, responseMessages, acc.metadata, output)
+	return s.emitResponseMessages(ctx, responseMessages, output)
 }
 
 // emitResponseMessages sends response messages to output channel.
 func (s *ProviderStage) emitResponseMessages(
 	ctx context.Context,
 	messages []types.Message,
-	metadata map[string]interface{},
 	output chan<- StreamElement,
 ) error {
 	for i := range messages {
 		elem := NewMessageElement(&messages[i])
-		elem.Metadata = metadata
 
 		logger.Debug("ProviderStage emitting response message",
-			"role", messages[i].Role,
-			"has_validator_configs", metadata["validator_configs"] != nil)
+			"role", messages[i].Role)
 
 		select {
 		case output <- elem:
@@ -855,7 +824,7 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	// Process all chunks and collect response
-	content, toolCalls, costInfo, err := s.processStreamChunks(ctx, streamChan, params.metadata, output)
+	content, toolCalls, costInfo, err := s.processStreamChunks(ctx, streamChan, output)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -990,7 +959,6 @@ func (s *ProviderStage) startStreamingRequest(
 func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
-	metadata map[string]interface{},
 	output chan<- StreamElement,
 ) (string, []types.MessageToolCall, *types.CostInfo, error) {
 	var content string
@@ -1025,7 +993,7 @@ func (s *ProviderStage) processStreamChunks(
 			costInfo = chunk.CostInfo
 		}
 
-		if err := s.emitChunkElement(ctx, &chunk, metadata, output); err != nil {
+		if err := s.emitChunkElement(ctx, &chunk, output); err != nil {
 			return "", nil, nil, err
 		}
 
@@ -1055,7 +1023,6 @@ func (s *ProviderStage) processStreamChunks(
 func (s *ProviderStage) emitChunkElement(
 	ctx context.Context,
 	chunk *providers.StreamChunk,
-	metadata map[string]interface{},
 	output chan<- StreamElement,
 ) error {
 	// Emit text element if present
@@ -1064,13 +1031,10 @@ func (s *ProviderStage) emitChunkElement(
 		elem.Timestamp = timeNow()
 		elem.Priority = PriorityNormal
 
-		for k, v := range metadata {
-			elem.Metadata[k] = v
-		}
-
-		elem.Metadata["token_count"] = chunk.TokenCount
+		elem.Meta.TokenCount = chunk.TokenCount
 		if chunk.FinishReason != nil {
-			elem.Metadata["finish_reason"] = *chunk.FinishReason
+			fr := *chunk.FinishReason
+			elem.Meta.FinishReason = &fr
 		}
 
 		select {
@@ -1083,10 +1047,6 @@ func (s *ProviderStage) emitChunkElement(
 	// Emit media element if present
 	if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
 		elem := StreamMediaToElement(chunk.MediaData)
-
-		for k, v := range metadata {
-			elem.Metadata[k] = v
-		}
 
 		select {
 		case output <- elem:
@@ -1102,7 +1062,6 @@ func (s *ProviderStage) emitChunkElement(
 // Routes by MIME type: audio/* → AudioData, video/* → VideoData, image/* → ImageData.
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement {
 	elem := StreamElement{
-		Metadata:  make(map[string]interface{}),
 		Timestamp: timeNow(),
 	}
 

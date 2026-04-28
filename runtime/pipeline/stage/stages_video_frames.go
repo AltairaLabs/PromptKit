@@ -18,24 +18,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// Metadata keys for video-to-frames correlation.
-const (
-	// VideoFramesVideoIDKey uniquely identifies the source video.
-	VideoFramesVideoIDKey = "video_frames_video_id"
-
-	// VideoFramesFrameIndexKey tracks the frame index within the video.
-	VideoFramesFrameIndexKey = "video_frames_frame_index"
-
-	// VideoFramesTotalFramesKey tracks expected total frames.
-	VideoFramesTotalFramesKey = "video_frames_total_frames"
-
-	// VideoFramesTimestampKey tracks the frame's timestamp in the original video.
-	VideoFramesTimestampKey = "video_frames_timestamp"
-
-	// VideoFramesOriginalVideoKey stores reference to original VideoData.
-	VideoFramesOriginalVideoKey = "video_frames_original_video"
-)
-
 // Default configuration values.
 const (
 	// DefaultFrameInterval is the default time between extracted frames.
@@ -414,8 +396,7 @@ func (s *FramesToMessageStage) Process(
 
 	for elem := range input {
 		// Check if this is a frame element with video_frames metadata
-		videoID := elem.GetMetadata(VideoFramesVideoIDKey)
-		if videoID == nil {
+		if elem.Meta.VideoFrames == nil {
 			// Pass through non-frame elements
 			select {
 			case output <- elem:
@@ -499,20 +480,13 @@ func (s *FramesToMessageStage) Process(
 // accumulateFrame adds a frame to its pending video.
 // Returns the complete pendingFrames if all frames have been received.
 func (s *FramesToMessageStage) accumulateFrame(elem *StreamElement) (*pendingFrames, error) {
-	videoID, ok := elem.GetMetadata(VideoFramesVideoIDKey).(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid video ID type")
+	info := elem.Meta.VideoFrames
+	if info == nil {
+		return nil, fmt.Errorf("missing video frames info")
 	}
-
-	frameIdx, ok := elem.GetMetadata(VideoFramesFrameIndexKey).(int)
-	if !ok {
-		return nil, fmt.Errorf("invalid frame index type")
-	}
-
-	totalFrames, ok := elem.GetMetadata(VideoFramesTotalFramesKey).(int)
-	if !ok {
-		return nil, fmt.Errorf("invalid total frames type")
-	}
+	videoID := info.VideoID
+	frameIdx := info.FrameIndex
+	totalFrames := info.TotalFrames
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -520,11 +494,10 @@ func (s *FramesToMessageStage) accumulateFrame(elem *StreamElement) (*pendingFra
 	// Get or create pending frames
 	pf, exists := s.pending[videoID]
 	if !exists {
-		origVideo, _ := elem.GetMetadata(VideoFramesOriginalVideoKey).(*VideoData)
 		pf = &pendingFrames{
 			frames:        make(map[int]*ImageData),
 			totalFrames:   totalFrames,
-			originalVideo: origVideo,
+			originalVideo: info.OriginalVideo,
 			receivedAt:    time.Now(),
 			sequence:      elem.Sequence,
 			source:        elem.Source,

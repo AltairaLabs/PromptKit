@@ -220,7 +220,7 @@ func (de *DuplexConversationExecutor) finalizeTurnProcessing(
 ) {
 	if turnErr == nil || errors.Is(turnErr, errPartialSuccess) {
 		allDoneElem := stage.StreamElement{
-			Metadata: map[string]interface{}{"all_responses_received": true},
+			Meta: stage.ElementMetadata{AllResponsesReceived: true},
 		}
 		select {
 		case inputChan <- allDoneElem:
@@ -343,11 +343,9 @@ func (de *DuplexConversationExecutor) streamAudioTurn(
 
 	// Send user message to pipeline for state store capture
 	userMsgElem := stage.NewMessageElement(userMsg)
-	// Also add turn_id to element metadata so DuplexProviderStage can track it
-	if userMsgElem.Metadata == nil {
-		userMsgElem.Metadata = make(map[string]interface{})
-	}
-	userMsgElem.Metadata["turn_id"] = turnID
+	// Also add turn_id to typed element metadata so DuplexProviderStage can track it
+	turnIDCopy := turnID
+	userMsgElem.Meta.TurnID = &turnIDCopy
 	select {
 	case inputChan <- userMsgElem:
 	case <-ctx.Done():
@@ -593,11 +591,9 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 
 	// Send user message to pipeline for state store capture
 	userMsgElem := stage.NewMessageElement(userMsg)
-	// Also add turn_id to element metadata so DuplexProviderStage can track it
-	if userMsgElem.Metadata == nil {
-		userMsgElem.Metadata = make(map[string]interface{})
-	}
-	userMsgElem.Metadata["turn_id"] = turnID
+	// Also add turn_id to typed element metadata so DuplexProviderStage can track it
+	turnIDCopy := turnID
+	userMsgElem.Meta.TurnID = &turnIDCopy
 	select {
 	case inputChan <- userMsgElem:
 	case <-ctx.Done():

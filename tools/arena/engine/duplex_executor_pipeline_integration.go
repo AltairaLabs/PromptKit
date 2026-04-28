@@ -253,7 +253,7 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	}
 	turnState := stage.NewTurnState()
 	stages = append(stages,
-		stage.NewVariableProviderStageWithVars(mergedVars, nil),
+		stage.NewVariableProviderStageWithVarsAndTurnState(mergedVars, nil, turnState),
 		stage.NewPromptAssemblyStageWithTurnState(de.promptRegistry, taskType, mergedVars, turnState),
 		// NOTE: ScenarioContextExtractionStage is NOT included in the duplex pipeline.
 		// It accumulates ALL elements before forwarding, which blocks the real-time
@@ -301,7 +301,7 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	// This stage handles system_prompt in metadata and prepends it as a system message
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeConfig := de.buildPipelineStateStoreConfig(req)
-		stages = append(stages, arenastages.NewArenaStateStoreSaveStage(storeConfig))
+		stages = append(stages, arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState))
 	}
 
 	return builder.Chain(stages...).Build()

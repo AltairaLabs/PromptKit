@@ -62,11 +62,8 @@ func (s *VideoStreamer) SendChunk(
 			Timestamp:  timestamp,
 		},
 		Priority: stage.PriorityHigh,
-		Metadata: map[string]any{
-			"passthrough":  true,
-			"is_key_frame": isKeyFrame,
-		},
 	}
+	elem.Meta.Passthrough = true
 
 	select {
 	case output <- elem:
@@ -103,11 +100,8 @@ func (s *VideoStreamer) SendChunkWithDimensions(
 			Timestamp:  timestamp,
 		},
 		Priority: stage.PriorityHigh,
-		Metadata: map[string]any{
-			"passthrough":  true,
-			"is_key_frame": isKeyFrame,
-		},
 	}
+	elem.Meta.Passthrough = true
 
 	select {
 	case output <- elem:
@@ -210,9 +204,6 @@ func SendVideoEndOfStream(
 	logger.Debug("Sending video EndOfStream signal to trigger response")
 	elem := stage.StreamElement{
 		EndOfStream: true,
-		Metadata: map[string]any{
-			"media_type": "video",
-		},
 	}
 	select {
 	case output <- elem:

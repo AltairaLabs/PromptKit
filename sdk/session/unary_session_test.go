@@ -375,14 +375,12 @@ func TestProcessStreamElements_PropagatesPendingTools(t *testing.T) {
 		},
 	}
 
-	// Send a text element, then a pending_tools element
+	// Send a text element, then a pending_tools marker element
 	text := "I need your location."
 	stageChan <- stage.StreamElement{Text: &text}
-	stageChan <- stage.StreamElement{
-		Metadata: map[string]any{
-			"pending_tools": pendingTools,
-		},
-	}
+	pendingElem := stage.StreamElement{}
+	pendingElem.Meta.PendingTools = pendingTools
+	stageChan <- pendingElem
 	close(stageChan)
 
 	// Use convertStreamOutput which properly wraps processStreamElements with close
@@ -531,33 +529,6 @@ func TestStreamProcessor_ProcessElement_Error(t *testing.T) {
 	assert.Equal(t, testErr, chunk.Error)
 	require.NotNil(t, chunk.FinishReason)
 	assert.Equal(t, "error", *chunk.FinishReason)
-}
-
-func TestStreamProcessor_CollectMetadata_FinalResult(t *testing.T) {
-	chunkChan := make(chan providers.StreamChunk, 10)
-	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
-
-	execResult := &stage.ExecutionResult{
-		Response: &stage.Response{Role: "assistant", Content: "test"},
-	}
-	meta := map[string]interface{}{
-		"__final_result__": execResult,
-	}
-	p.collectMetadata(meta)
-
-	assert.NotNil(t, p.finalResult, "finalResult should be set from metadata")
-}
-
-func TestStreamProcessor_CollectMetadata_InvalidPendingToolsType(t *testing.T) {
-	chunkChan := make(chan providers.StreamChunk, 10)
-	p := &streamProcessor{ctx: context.Background(), chunkChan: chunkChan}
-
-	// pending_tools exists but is wrong type — should hit early return
-	meta := map[string]interface{}{
-		"pending_tools": "not-a-slice",
-	}
-	p.collectMetadata(meta)
-	assert.False(t, p.pendingToolsEmitted)
 }
 
 func TestProcessStreamElements_EarlyExit(t *testing.T) {

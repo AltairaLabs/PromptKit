@@ -83,17 +83,11 @@ type StreamElement struct {
 	Source    string    // Stage that produced this element
 	Priority  Priority  // Scheduling priority (for QoS)
 
-	// Meta is the typed schema for genuinely per-element coordination data
-	// (e.g. FromHistory). Per-Turn invariants (system_prompt, allowed_tools,
-	// validators, variables, etc.) live in TurnState — see
-	// runtime/pipeline/stage/ARCHITECTURE.md §4.
+	// Meta is the typed schema for per-element coordination data
+	// (e.g. FromHistory, TurnID, MediaExtract). Per-Turn invariants
+	// (system_prompt, allowed_tools, validators, variables, etc.) live
+	// on TurnState — see runtime/pipeline/stage/ARCHITECTURE.md §4.
 	Meta ElementMetadata
-
-	// Deprecated: free-form per-element metadata bag. Slated for removal
-	// once Arena and any remaining downstream consumers migrate to
-	// typed paths (TurnState for per-Turn data, ElementMetadata for
-	// per-element flags). New stages must NOT add keys here.
-	Metadata map[string]interface{}
 
 	// Control signals
 	EndOfStream bool  // No more elements after this
@@ -297,17 +291,12 @@ func (d *ImageData) EnsureLoaded(ctx context.Context, store storage.MediaStorage
 }
 
 // defaultMetadataCapacity is the initial map capacity for StreamElement metadata.
-// Sized for the typical streaming metadata fields (token_count, finish_reason,
-// provider info, timestamps) to avoid map growth during hot-path emission.
-const defaultMetadataCapacity = 4
-
 // NewTextElement creates a new StreamElement with text content.
 func NewTextElement(text string) StreamElement {
 	return StreamElement{
 		Text:      &text,
 		Timestamp: time.Now(),
 		Priority:  PriorityNormal,
-		Metadata:  make(map[string]interface{}, defaultMetadataCapacity), // pre-sized for typical streaming metadata
 	}
 }
 
@@ -317,7 +306,6 @@ func NewMessageElement(msg *types.Message) StreamElement {
 		Message:   msg,
 		Timestamp: time.Now(),
 		Priority:  PriorityNormal,
-		Metadata:  make(map[string]interface{}, defaultMetadataCapacity),
 	}
 }
 
@@ -327,7 +315,6 @@ func NewAudioElement(audio *AudioData) StreamElement {
 		Audio:     audio,
 		Timestamp: time.Now(),
 		Priority:  PriorityHigh,
-		Metadata:  make(map[string]interface{}, defaultMetadataCapacity),
 	}
 }
 
@@ -337,7 +324,6 @@ func NewVideoElement(video *VideoData) StreamElement {
 		Video:     video,
 		Timestamp: time.Now(),
 		Priority:  PriorityHigh,
-		Metadata:  make(map[string]interface{}, defaultMetadataCapacity),
 	}
 }
 
@@ -347,7 +333,6 @@ func NewImageElement(image *ImageData) StreamElement {
 		Image:     image,
 		Timestamp: time.Now(),
 		Priority:  PriorityNormal,
-		Metadata:  make(map[string]interface{}),
 	}
 }
 
@@ -357,7 +342,6 @@ func NewErrorElement(err error) StreamElement {
 		Error:     err,
 		Timestamp: time.Now(),
 		Priority:  PriorityCritical, // Errors are always critical
-		Metadata:  make(map[string]interface{}),
 	}
 }
 
@@ -367,7 +351,6 @@ func NewEndOfStreamElement() StreamElement {
 		EndOfStream: true,
 		Timestamp:   time.Now(),
 		Priority:    PriorityCritical,
-		Metadata:    make(map[string]interface{}),
 	}
 }
 
@@ -418,23 +401,6 @@ func (e *StreamElement) WithPriority(priority Priority) *StreamElement {
 func (e *StreamElement) WithSequence(seq int64) *StreamElement {
 	e.Sequence = seq
 	return e
-}
-
-// WithMetadata adds metadata to this element.
-func (e *StreamElement) WithMetadata(key string, value interface{}) *StreamElement {
-	if e.Metadata == nil {
-		e.Metadata = make(map[string]interface{})
-	}
-	e.Metadata[key] = value
-	return e
-}
-
-// GetMetadata retrieves metadata by key, returning nil if not found.
-func (e *StreamElement) GetMetadata(key string) interface{} {
-	if e.Metadata == nil {
-		return nil
-	}
-	return e.Metadata[key]
 }
 
 // timeNow is a helper function that returns the current time.

@@ -2,6 +2,9 @@ package stage
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // TurnState holds per-Turn invariants shared across stages within a single
@@ -63,6 +66,20 @@ type TurnState struct {
 
 	// UserID identifies the user owning the conversation, when configured.
 	UserID string
+
+	// ProviderRequestMetadata is the per-Turn payload that flows into
+	// providers.PredictionRequest.Metadata. Written by upstream stages
+	// (mock-scenario, selfplay) and consumed at the provider boundary
+	// where typed Arena coordination state must reach a third-party
+	// provider whose ABI is itself untyped (map[string]any).
+	//
+	// Outside that boundary, prefer typed fields. This map exists only
+	// because the provider interface is opaque by design — adding new
+	// keys here means you're crossing that boundary.
+	//
+	// Read-only after the producer stage runs; downstream stages must
+	// not mutate it.
+	ProviderRequestMetadata map[string]interface{}
 }
 
 // NewTurnState constructs a fresh, empty TurnState.
@@ -84,4 +101,115 @@ type ElementMetadata struct {
 	// Read by stages that need to skip per-Turn work for historical
 	// elements (e.g. TemplateStage no longer renders for history rows).
 	FromHistory bool
+
+	// MergeInputIndex records which input channel this element arrived on
+	// when forwarded by a MergeStage. Nil for elements not produced by a
+	// merge stage.
+	MergeInputIndex *int
+
+	// ContextTruncated marks elements where the upstream context-window
+	// stage truncated history before assembling this Turn's prompt.
+	ContextTruncated bool
+
+	// EnableCacheBreakpoints marks elements that should cause downstream
+	// providers to insert prompt-cache breakpoints.
+	EnableCacheBreakpoints bool
+
+	// TurnID identifies the user turn this element belongs to in duplex
+	// flows. Producers (Arena duplex executor for user-message elements;
+	// DuplexProviderStage for the EOS element that closes a transcribed
+	// turn) set it; downstream stages pair turns by reading it.
+	TurnID *string
+
+	// Transcription carries duplex-provider input transcription data
+	// attached to the element that closed a user turn. Nil for elements
+	// without transcription.
+	Transcription *Transcription
+
+	// AllResponsesReceived signals (on a marker element from the
+	// duplex executor) that the duplex provider has emitted every
+	// response for the active turn.
+	AllResponsesReceived bool
+
+	// Interrupted marks elements emitted to indicate that a duplex
+	// session was interrupted mid-response.
+	Interrupted bool
+
+	// InterruptedTurnComplete marks the element that closes an
+	// interrupted turn (downstream cleanup signal).
+	InterruptedTurnComplete bool
+
+	// ToolResultMessages carries tool-execution result messages produced
+	// by the streaming tool integration; the duplex provider stage
+	// consumes them as the next-round input.
+	ToolResultMessages []types.Message
+
+	// ToolResponses carries provider-bound tool call responses produced
+	// by the streaming tool integration. The duplex provider stage
+	// forwards them to a session that implements ToolResponseSupport.
+	ToolResponses []providers.ToolResponse
+
+	// PendingTools carries tool calls that returned ToolStatusPending and
+	// must be surfaced to the caller for out-of-band completion.
+	PendingTools []tools.PendingToolExecution
+
+	// TokenCount is the per-chunk token count emitted by streaming providers.
+	// Zero when the chunk did not include a token count.
+	TokenCount int
+
+	// FinishReason carries the provider-reported stop reason on the chunk
+	// element that closes a streaming response (e.g. "stop", "length",
+	// "tool_calls"). Nil for intermediate chunks.
+	FinishReason *string
+
+	// Passthrough marks media elements that should bypass per-stage
+	// accumulation (audio/image/video buffering) and be forwarded
+	// immediately to the next stage. Producers: streaming.AudioStreamer,
+	// streaming.ImageStreamer, streaming.VideoStreamer. Consumer:
+	// AudioTurnStage forwards passthrough audio without VAD-driven
+	// accumulation.
+	Passthrough bool
+
+	// MediaExtract carries correlation data for the MediaExtractStage →
+	// MediaComposeStage round-trip. Nil for elements not produced by the
+	// extract stage.
+	MediaExtract *MediaExtractInfo
+
+	// VideoFrames carries correlation data for the VideoFramesExtractStage
+	// → VideoFramesComposeStage round-trip. Nil for elements not produced
+	// by the frames extractor.
+	VideoFrames *VideoFramesInfo
+}
+
+// MediaExtractInfo is the typed payload for media-extraction correlation.
+type MediaExtractInfo struct {
+	// MessageID identifies the original message the extracted part belongs to.
+	MessageID string
+	// PartIndex is the part's index within the original message.
+	PartIndex int
+	// TotalParts is the total number of media parts in the original message.
+	TotalParts int
+	// MediaType (image, video) classifies the extracted part.
+	MediaType string
+	// OriginalMessage is the full source message for later composition.
+	OriginalMessage *types.Message
+}
+
+// VideoFramesInfo is the typed payload for video-frame extraction correlation.
+type VideoFramesInfo struct {
+	// VideoID identifies the source video an extracted frame belongs to.
+	VideoID string
+	// FrameIndex is the frame's index within the source video.
+	FrameIndex int
+	// TotalFrames is the total number of frames extracted from the source.
+	TotalFrames int
+	// OriginalVideo is the source video kept for later composition.
+	OriginalVideo *VideoData
+}
+
+// Transcription is the typed payload for duplex-provider input
+// transcription attached to an element via ElementMetadata.
+type Transcription struct {
+	// Text is the transcribed user audio.
+	Text string
 }

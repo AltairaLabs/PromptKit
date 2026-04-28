@@ -10,27 +10,38 @@ import (
 )
 
 // MemoryRetrievalStage injects relevant memories into the conversation context.
-// Runs early in the pipeline (before the provider stage). Calls
-// Retriever.RetrieveContext() with the current messages and injects returned
-// memories as a system-level context message.
+// Runs early in the pipeline (before the provider stage). Accumulates
+// messages from input elements, then calls Retriever.RetrieveContext() once
+// the input channel closes and writes the formatted memory context onto
+// TurnState.Variables["memory_context"] for the template stage to consume.
 //
-// No-op passthrough when retriever is nil.
+// No-op passthrough when retriever or turnState is nil.
 type MemoryRetrievalStage struct {
 	BaseStage
 	retriever memory.Retriever
 	store     memory.Store
 	scope     map[string]string
+	turnState *TurnState
 }
 
 // NewMemoryRetrievalStage creates a retrieval stage.
 func NewMemoryRetrievalStage(
 	retriever memory.Retriever, store memory.Store, scope map[string]string,
 ) *MemoryRetrievalStage {
+	return NewMemoryRetrievalStageWithTurnState(retriever, store, scope, nil)
+}
+
+// NewMemoryRetrievalStageWithTurnState creates a retrieval stage that
+// publishes its formatted memory context onto the supplied TurnState.
+func NewMemoryRetrievalStageWithTurnState(
+	retriever memory.Retriever, store memory.Store, scope map[string]string, turnState *TurnState,
+) *MemoryRetrievalStage {
 	return &MemoryRetrievalStage{
 		BaseStage: NewBaseStage("memory_retrieval", StageTypeTransform),
 		retriever: retriever,
 		store:     store,
 		scope:     scope,
+		turnState: turnState,
 	}
 }
 
@@ -42,35 +53,47 @@ func (s *MemoryRetrievalStage) Process(
 ) error {
 	defer close(output)
 
+	var messages []types.Message
+	var pending []StreamElement
+
 	for elem := range input {
-		if s.retriever == nil {
-			output <- elem
-			continue
+		if elem.Message != nil {
+			messages = append(messages, *elem.Message)
 		}
+		pending = append(pending, elem)
+	}
 
-		// Extract messages from the element for context
-		messages := extractMessages(&elem)
-		if len(messages) == 0 {
-			output <- elem
-			continue
-		}
-
+	if s.retriever != nil && s.turnState != nil && len(messages) > 0 {
 		memories, err := s.retriever.RetrieveContext(ctx, s.scope, messages)
 		if err != nil {
 			logger.Error("Memory retrieval failed", "error", err)
-			output <- elem
-			continue
+		} else if len(memories) > 0 {
+			s.injectMemoryContext(memories)
+			logger.Debug("Memories injected into context", "count", len(memories))
 		}
+	}
 
-		if len(memories) > 0 {
-			injectMemories(&elem, memories)
-			logger.Debug("Memories injected into context",
-				"count", len(memories))
+	for i := range pending {
+		select {
+		case output <- pending[i]:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-
-		output <- elem
 	}
 	return nil
+}
+
+// injectMemoryContext formats the retrieved memories and writes them onto
+// TurnState.Variables["memory_context"].
+func (s *MemoryRetrievalStage) injectMemoryContext(memories []*memory.Memory) {
+	var ctx string
+	for _, m := range memories {
+		ctx += fmt.Sprintf("[%s] %s (confidence: %.1f)\n", m.Type, m.Content, m.Confidence)
+	}
+	if s.turnState.Variables == nil {
+		s.turnState.Variables = make(map[string]string)
+	}
+	s.turnState.Variables["memory_context"] = ctx
 }
 
 // MemoryExtractionStage extracts memories from the conversation after the
@@ -106,20 +129,26 @@ func (s *MemoryExtractionStage) Process(
 ) error {
 	defer close(output)
 
+	var messages []types.Message
+	var pending []StreamElement
+
 	for elem := range input {
-		if s.extractor == nil {
-			output <- elem
-			continue
+		if elem.Message != nil {
+			messages = append(messages, *elem.Message)
 		}
+		pending = append(pending, elem)
+	}
 
-		messages := extractMessages(&elem)
-		if len(messages) == 0 {
-			output <- elem
-			continue
-		}
-
+	if s.extractor != nil && len(messages) > 0 {
 		s.extractAndSave(ctx, messages)
-		output <- elem
+	}
+
+	for i := range pending {
+		select {
+		case output <- pending[i]:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return nil
 }
@@ -145,40 +174,5 @@ func (s *MemoryExtractionStage) extractAndSave(ctx context.Context, messages []t
 	}
 	if len(memories) > 0 {
 		logger.Debug("Memories extracted and saved", "count", len(memories))
-	}
-}
-
-// extractMessages pulls the message slice from a StreamElement's metadata.
-func extractMessages(elem *StreamElement) []types.Message {
-	if elem.Metadata == nil {
-		return nil
-	}
-	msgs, ok := elem.Metadata["messages"]
-	if !ok {
-		return nil
-	}
-	typedMsgs, ok := msgs.([]types.Message)
-	if !ok {
-		return nil
-	}
-	return typedMsgs
-}
-
-// injectMemories adds retrieved memories to the element metadata as context.
-func injectMemories(elem *StreamElement, memories []*memory.Memory) {
-	if elem.Metadata == nil {
-		return
-	}
-	// Format memories as a context string for the system prompt
-	var memoryContext string
-	for _, m := range memories {
-		memoryContext += fmt.Sprintf("[%s] %s (confidence: %.1f)\n", m.Type, m.Content, m.Confidence)
-	}
-
-	// Store formatted memories in metadata for the template stage to use
-	if existing, ok := elem.Metadata["variables"].(map[string]string); ok {
-		existing["memory_context"] = memoryContext
-	} else {
-		elem.Metadata["memory_context"] = memoryContext
 	}
 }

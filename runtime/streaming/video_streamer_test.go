@@ -68,11 +68,11 @@ func TestVideoStreamer_SendChunk(t *testing.T) {
 		if elem.Priority != stage.PriorityHigh {
 			t.Errorf("Expected PriorityHigh, got %v", elem.Priority)
 		}
-		if elem.Metadata["passthrough"] != true {
-			t.Error("Expected passthrough metadata to be true")
+		if !elem.Meta.Passthrough {
+			t.Error("Expected Meta.Passthrough to be true")
 		}
-		if elem.Metadata["is_key_frame"] != true {
-			t.Error("Expected is_key_frame metadata to be true")
+		if !elem.Video.IsKeyFrame {
+			t.Error("Expected Video.IsKeyFrame to be true")
 		}
 	default:
 		t.Fatal("Expected element in output channel")
@@ -92,9 +92,6 @@ func TestVideoStreamer_SendChunk_NonKeyFrame(t *testing.T) {
 	elem := <-output
 	if elem.Video.IsKeyFrame {
 		t.Error("Expected IsKeyFrame to be false")
-	}
-	if elem.Metadata["is_key_frame"] != false {
-		t.Error("Expected is_key_frame metadata to be false")
 	}
 }
 
@@ -300,9 +297,6 @@ func TestSendVideoEndOfStream(t *testing.T) {
 	elem := <-output
 	if !elem.EndOfStream {
 		t.Error("Expected EndOfStream to be true")
-	}
-	if elem.Metadata["media_type"] != "video" {
-		t.Errorf("Expected media_type 'video', got %v", elem.Metadata["media_type"])
 	}
 }
 

@@ -139,10 +139,8 @@ func (a *AudioStreamer) SendChunk(
 			Channels:   1,
 			Format:     stage.AudioFormatPCM16,
 		},
-		Metadata: map[string]interface{}{
-			"passthrough": true,
-		},
 	}
+	elem.Meta.Passthrough = true
 
 	select {
 	case inputChan <- elem:

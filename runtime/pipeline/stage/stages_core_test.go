@@ -84,7 +84,8 @@ func runTestStage(t *testing.T, s Stage, inputs []StreamElement) []StreamElement
 // =============================================================================
 
 func TestPromptAssemblyStage_NoRegistry(t *testing.T) {
-	s := NewPromptAssemblyStage(nil, "chat", nil)
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(nil, "chat", nil, turnState)
 
 	inputs := []StreamElement{
 		newTestMsgElement("user", "Hello"),
@@ -93,18 +94,14 @@ func TestPromptAssemblyStage_NoRegistry(t *testing.T) {
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	// Should use default raw template (not rendered)
-	assert.Equal(t, "You are a helpful AI assistant.", results[0].Metadata["system_template"])
-	// system_prompt must NOT be set — that's TemplateStage's job
-	assert.Nil(t, results[0].Metadata["system_prompt"])
-	// variables must NOT be set — that's VariableProviderStage's job
-	assert.Nil(t, results[0].Metadata["variables"])
+	require.NotNil(t, turnState.Template)
+	assert.Equal(t, "You are a helpful AI assistant.", turnState.Template.RawTemplate)
+	assert.Empty(t, turnState.SystemPrompt, "system prompt is set by TemplateStage, not here")
 }
 
 func TestPromptAssemblyStage_WithVariables(t *testing.T) {
-	s := NewPromptAssemblyStage(nil, "chat", map[string]string{
-		"name": "John",
-	})
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(nil, "chat", map[string]string{"name": "John"}, turnState)
 
 	inputs := []StreamElement{
 		newTestMsgElement("user", "Hello"),
@@ -113,12 +110,12 @@ func TestPromptAssemblyStage_WithVariables(t *testing.T) {
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	baseVars := results[0].Metadata["base_variables"].(map[string]string)
-	assert.Equal(t, "John", baseVars["name"])
+	require.NotNil(t, turnState.Template)
 }
 
 func TestPromptAssemblyStage_EnrichesAllElements(t *testing.T) {
-	s := NewPromptAssemblyStage(nil, "chat", nil)
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(nil, "chat", nil, turnState)
 
 	inputs := []StreamElement{
 		newTestMsgElement("user", "Message 1"),
@@ -129,11 +126,8 @@ func TestPromptAssemblyStage_EnrichesAllElements(t *testing.T) {
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 3)
-	// All elements should have system_template (raw, unrendered)
-	for _, elem := range results {
-		assert.Equal(t, "You are a helpful AI assistant.", elem.Metadata["system_template"])
-		assert.Nil(t, elem.Metadata["system_prompt"])
-	}
+	require.NotNil(t, turnState.Template)
+	assert.Equal(t, "You are a helpful AI assistant.", turnState.Template.RawTemplate)
 }
 
 func TestPromptAssemblyStage_ContextCancellation(t *testing.T) {
@@ -155,7 +149,6 @@ func TestPromptAssemblyStage_ContextCancellation(t *testing.T) {
 }
 
 func TestPromptAssemblyStage_WithRegistry(t *testing.T) {
-	// Create a registry with a mock repository and a prompt that has validators
 	repo := newMockRepo()
 	registry := prompt.NewRegistryWithRepository(repo)
 	enabled := true
@@ -172,45 +165,34 @@ func TestPromptAssemblyStage_WithRegistry(t *testing.T) {
 			},
 		},
 	}
-	err := registry.RegisterConfig("chat", cfg)
-	require.NoError(t, err)
+	require.NoError(t, registry.RegisterConfig("chat", cfg))
 
-	s := NewPromptAssemblyStage(registry, "chat", nil)
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(registry, "chat", nil, turnState)
 
-	inputs := []StreamElement{
-		newTestMsgElement("user", "Hello"),
-	}
+	inputs := []StreamElement{newTestMsgElement("user", "Hello")}
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	// Raw template — placeholders must NOT be resolved yet
-	assert.Equal(t, "You are a {{role}} bot.", results[0].Metadata["system_template"])
-	// system_prompt must NOT be set — that's TemplateStage's job
-	assert.Nil(t, results[0].Metadata["system_prompt"])
-	// variables must NOT be set — that's VariableProviderStage's job
-	assert.Nil(t, results[0].Metadata["variables"])
-	// template_default_vars should be set (even if empty map)
-	assert.NotNil(t, results[0].Metadata["template_default_vars"])
-	// Validator configs should be passed through
-	assert.NotNil(t, results[0].Metadata["validator_configs"])
+	require.NotNil(t, turnState.Template)
+	assert.Equal(t, "You are a {{role}} bot.", turnState.Template.RawTemplate)
+	require.Len(t, turnState.Validators, 1)
+	assert.Equal(t, "banned_words", turnState.Validators[0].Type)
 }
 
 func TestPromptAssemblyStage_RegistryMissing(t *testing.T) {
-	// Test the path where registry has no prompt for the task type
 	repo := newMockRepo()
 	registry := prompt.NewRegistryWithRepository(repo)
 
-	s := NewPromptAssemblyStage(registry, "nonexistent", nil)
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(registry, "nonexistent", nil, turnState)
 
-	inputs := []StreamElement{
-		newTestMsgElement("user", "Hello"),
-	}
+	inputs := []StreamElement{newTestMsgElement("user", "Hello")}
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	// Should fall back to default raw template
-	assert.Equal(t, "You are a helpful AI assistant.", results[0].Metadata["system_template"])
-	assert.Nil(t, results[0].Metadata["system_prompt"])
+	require.NotNil(t, turnState.Template)
+	assert.Equal(t, "You are a helpful AI assistant.", turnState.Template.RawTemplate)
 }
 
 func TestPromptAssemblyStage_PopulatesTurnState(t *testing.T) {
@@ -345,7 +327,7 @@ func TestStateStoreLoadStage_WithStore(t *testing.T) {
 	// First two should be from history
 	assert.Equal(t, "History 1", results[0].Message.Content)
 	assert.Equal(t, "statestore", results[0].Message.Source)
-	assert.True(t, results[0].Metadata["from_history"].(bool))
+	assert.True(t, results[0].Meta.FromHistory)
 
 	// Last should be current
 	assert.Equal(t, "Current message", results[2].Message.Content)
@@ -381,7 +363,8 @@ func TestStateStoreLoadStage_AddsConversationMetadata(t *testing.T) {
 		UserID:         "user-456",
 	}
 
-	s := NewStateStoreLoadStage(config)
+	turnState := NewTurnState()
+	s := NewStateStoreLoadStageWithTurnState(config, turnState)
 
 	inputs := []StreamElement{
 		newTestMsgElement("user", "Test"),
@@ -390,8 +373,8 @@ func TestStateStoreLoadStage_AddsConversationMetadata(t *testing.T) {
 	results := runTestStage(t, s, inputs)
 
 	require.Len(t, results, 1)
-	assert.Equal(t, "conv-123", results[0].Metadata["conversation_id"])
-	assert.Equal(t, "user-456", results[0].Metadata["user_id"])
+	assert.Equal(t, "conv-123", turnState.ConversationID)
+	assert.Equal(t, "user-456", turnState.UserID)
 }
 
 // =============================================================================
@@ -454,18 +437,19 @@ func TestStateStoreSaveStage_MergesMetadata(t *testing.T) {
 		},
 	}
 
-	s := NewStateStoreSaveStage(config)
-
-	elem := newTestMsgElement("user", "Test")
-	elem.Metadata = map[string]interface{}{
+	turnState := NewTurnState()
+	turnState.ProviderRequestMetadata = map[string]interface{}{
 		"execution_key": "execution_value",
 	}
 
+	s := NewStateStoreSaveStageWithTurnState(config, turnState)
+
+	elem := newTestMsgElement("user", "Test")
 	results := runTestStage(t, s, []StreamElement{elem})
 
 	require.Len(t, results, 1)
 
-	// Verify metadata was merged
+	// Verify metadata was merged from TurnState.ProviderRequestMetadata
 	ctx := context.Background()
 	state, err := store.Load(ctx, "metadata-test")
 	require.NoError(t, err)

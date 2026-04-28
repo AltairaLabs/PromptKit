@@ -182,8 +182,7 @@ func TestBuildWithMockProvider(t *testing.T) {
 		userMsg.AddTextPart("Hello!")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -216,8 +215,7 @@ func TestBuildWithMockProvider(t *testing.T) {
 		userMsg.AddTextPart("Hi!")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -247,8 +245,7 @@ func TestBuildWithMockProvider(t *testing.T) {
 		userMsg.AddTextPart("What mode?")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -276,8 +273,7 @@ func TestBuildWithMockProvider(t *testing.T) {
 		userMsg.AddTextPart("Use a tool")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -342,8 +338,7 @@ func TestBuildStagePipeline(t *testing.T) {
 		userMsg.AddTextPart("Hello from stages!")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -373,8 +368,7 @@ func TestBuildStagePipeline(t *testing.T) {
 		userMsg.AddTextPart("Hi!")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -418,8 +412,7 @@ func TestStreamPipelineAdapter(t *testing.T) {
 		userMsg.AddTextPart("Test adapter")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -450,8 +443,7 @@ func TestStreamPipelineAdapter(t *testing.T) {
 		userMsg.AddTextPart("Test metadata")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -477,8 +469,7 @@ func TestStreamPipelineAdapter(t *testing.T) {
 		userMsg.AddTextPart("Preserve me")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -505,8 +496,7 @@ func TestStreamPipelineAdapter(t *testing.T) {
 		userMsg.AddTextPart("Test streaming")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		// Execute - this should work with streaming provider
@@ -537,8 +527,7 @@ func TestStreamPipelineAdapter(t *testing.T) {
 
 		inputChan := make(chan stage.StreamElement, 1)
 		inputChan <- stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{},
+			Message: &userMsg,
 		}
 		close(inputChan)
 
@@ -575,8 +564,7 @@ func TestStreamPipelineAdapter(t *testing.T) {
 		userMsg.AddTextPart("Test streaming")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -865,8 +853,7 @@ func TestCollectPipelineStagesVariableProvider(t *testing.T) {
 		userMsg.AddTextPart("Hello!")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -895,8 +882,7 @@ func TestCollectPipelineStagesVariableProvider(t *testing.T) {
 		userMsg.AddTextPart("Hi!")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -943,8 +929,7 @@ func TestBuildWithHookRegistry(t *testing.T) {
 		userMsg.AddTextPart("Hello with hooks!")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)
@@ -1020,8 +1005,7 @@ func TestBuildWithRecordingConfig(t *testing.T) {
 		userMsg.AddTextPart("Hello with recording!")
 
 		elem := stage.StreamElement{
-			Message:  &userMsg,
-			Metadata: map[string]interface{}{"conversation_id": "test-conv"},
+			Message: &userMsg,
 		}
 
 		result, err := pipe.ExecuteSync(context.Background(), elem)

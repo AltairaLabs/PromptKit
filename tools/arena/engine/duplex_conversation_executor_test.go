@@ -653,9 +653,7 @@ func TestProcessResponseElement(t *testing.T) {
 		{
 			name: "interrupted signal",
 			elem: &stage.StreamElement{
-				Metadata: map[string]interface{}{
-					"interrupted": true,
-				},
+				Meta: stage.ElementMetadata{Interrupted: true},
 			},
 			expectedAction: streaming.ResponseActionContinue,
 			expectedErr:    false,
@@ -663,9 +661,7 @@ func TestProcessResponseElement(t *testing.T) {
 		{
 			name: "interrupted turn complete",
 			elem: &stage.StreamElement{
-				Metadata: map[string]interface{}{
-					"interrupted_turn_complete": true,
-				},
+				Meta: stage.ElementMetadata{InterruptedTurnComplete: true},
 			},
 			expectedAction: streaming.ResponseActionContinue,
 			expectedErr:    false,

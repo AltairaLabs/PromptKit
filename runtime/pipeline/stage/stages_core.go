@@ -14,24 +14,19 @@ import (
 
 // PromptAssemblyStage loads and assembles prompts from the prompt registry.
 // It populates TurnState (Template, AllowedTools, Validators) on its first
-// iteration and continues stamping the deprecated per-element Metadata bag
-// for backward compatibility with Arena's wholesale-copy save stage.
-//
-// See ARCHITECTURE.md §4.
+// iteration; downstream stages read from TurnState. See ARCHITECTURE.md §4.
 type PromptAssemblyStage struct {
 	BaseStage
 	promptRegistry *prompt.Registry
 	taskType       string
 	baseVariables  map[string]string
-
-	// turnState is the per-Turn shared state populated on first element.
-	// May be nil for legacy callers that haven't migrated to TurnState
-	// wiring; in that case the stage falls back to the metadata-only path.
-	turnState *TurnState
+	turnState      *TurnState
 }
 
-// NewPromptAssemblyStage creates a new prompt assembly stage. Pipelines
-// that have migrated to TurnState should use NewPromptAssemblyStageWithTurnState.
+// NewPromptAssemblyStage creates a prompt assembly stage with no TurnState
+// wired. Useful for tests that only need the loadTemplate side; production
+// callers should use NewPromptAssemblyStageWithTurnState so downstream
+// stages can read the loaded template.
 func NewPromptAssemblyStage(
 	promptRegistry *prompt.Registry,
 	taskType string,
@@ -45,8 +40,9 @@ func NewPromptAssemblyStage(
 	}
 }
 
-// NewPromptAssemblyStageWithTurnState creates a stage that populates the
-// shared *TurnState in addition to the deprecated per-element metadata.
+// NewPromptAssemblyStageWithTurnState creates a stage that publishes the
+// loaded template, allowed tools, and validator configs onto the supplied
+// TurnState before forwarding the first element.
 func NewPromptAssemblyStageWithTurnState(
 	promptRegistry *prompt.Registry,
 	taskType string,
@@ -58,10 +54,10 @@ func NewPromptAssemblyStageWithTurnState(
 	return s
 }
 
-// Process loads the prompt template, populates TurnState (when configured),
-// and continues stamping per-element metadata for back-compat. It does NOT
-// render the template — that is TemplateStage's responsibility.
-// It does NOT set metadata["variables"] — that is VariableProviderStage's responsibility.
+// Process loads the prompt template and populates TurnState. It does NOT
+// render the template (that is TemplateStage's job) and does NOT set
+// variables (that is VariableProviderStage's job). All input elements are
+// forwarded unchanged.
 //
 //nolint:lll // Channel signature cannot be shortened
 func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
@@ -81,31 +77,8 @@ func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamEl
 		}
 	}
 
-	// Forward all elements with enriched metadata
+	// Forward all elements; per-Turn data lives on TurnState above.
 	for elem := range input {
-		if tmpl != nil {
-			if elem.Metadata == nil {
-				elem.Metadata = make(map[string]interface{})
-			}
-			elem.Metadata["system_template"] = tmpl.RawTemplate
-			elem.Metadata["allowed_tools"] = tmpl.AllowedTools
-			elem.Metadata["base_variables"] = s.baseVariables
-			elem.Metadata["template_task_type"] = tmpl.TaskType
-			elem.Metadata["template_default_vars"] = tmpl.DefaultVars
-			elem.Metadata["template_required_vars"] = tmpl.RequiredVars
-			elem.Metadata["template_fragment_vars"] = tmpl.FragmentVars
-			elem.Metadata["template_model_override"] = tmpl.ModelOverride
-
-			// Store validator configs for dynamic validator stage
-			if len(tmpl.Validators) > 0 {
-				validatorConfigs := s.extractValidatorConfigs(tmpl.Validators)
-				if len(validatorConfigs) > 0 {
-					elem.Metadata["validator_configs"] = validatorConfigs
-				}
-			}
-		}
-
-		// Forward element
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -159,14 +132,22 @@ func (s *PromptAssemblyStage) extractValidatorConfigs(
 // StateStoreLoadStage loads conversation history from state store.
 type StateStoreLoadStage struct {
 	BaseStage
-	config *pipeline.StateStoreConfig
+	config    *pipeline.StateStoreConfig
+	turnState *TurnState
 }
 
 // NewStateStoreLoadStage creates a new state store load stage.
 func NewStateStoreLoadStage(config *pipeline.StateStoreConfig) *StateStoreLoadStage {
+	return NewStateStoreLoadStageWithTurnState(config, nil)
+}
+
+// NewStateStoreLoadStageWithTurnState creates a state store load stage
+// that publishes ConversationID/UserID onto the supplied TurnState.
+func NewStateStoreLoadStageWithTurnState(config *pipeline.StateStoreConfig, turnState *TurnState) *StateStoreLoadStage {
 	return &StateStoreLoadStage{
 		BaseStage: NewBaseStage("statestore_load", StageTypeTransform),
 		config:    config,
+		turnState: turnState,
 	}
 }
 
@@ -180,6 +161,11 @@ func (s *StateStoreLoadStage) Process(
 ) error {
 	defer close(output)
 
+	if s.turnState != nil && s.config != nil {
+		s.turnState.ConversationID = s.config.ConversationID
+		s.turnState.UserID = s.config.UserID
+	}
+
 	historyMessages, err := s.loadHistoryMessages(ctx)
 	if err != nil {
 		return err
@@ -189,7 +175,7 @@ func (s *StateStoreLoadStage) Process(
 		return err
 	}
 
-	return s.forwardInputWithMetadata(ctx, input, output)
+	return s.forwardInput(ctx, input, output)
 }
 
 // loadHistoryMessages loads messages from state store if configured.
@@ -226,7 +212,7 @@ func (s *StateStoreLoadStage) emitHistoryMessages(
 ) error {
 	for i := range messages {
 		elem := NewMessageElement(&messages[i])
-		elem.Metadata["from_history"] = true
+		elem.Meta.FromHistory = true
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -236,14 +222,15 @@ func (s *StateStoreLoadStage) emitHistoryMessages(
 	return nil
 }
 
-// forwardInputWithMetadata forwards input elements with conversation metadata.
-func (s *StateStoreLoadStage) forwardInputWithMetadata(
+// forwardInput forwards input elements unchanged. Conversation/user IDs
+// are published to TurnState in Process() before the loop runs, so
+// per-element enrichment is no longer required.
+func (s *StateStoreLoadStage) forwardInput(
 	ctx context.Context,
 	input <-chan StreamElement,
 	output chan<- StreamElement,
 ) error {
 	for elem := range input {
-		s.enrichElementMetadata(&elem)
 		select {
 		case output <- elem:
 		case <-ctx.Done():
@@ -253,23 +240,11 @@ func (s *StateStoreLoadStage) forwardInputWithMetadata(
 	return nil
 }
 
-// enrichElementMetadata adds conversation metadata to an element.
-func (s *StateStoreLoadStage) enrichElementMetadata(elem *StreamElement) {
-	if elem.Metadata == nil {
-		elem.Metadata = make(map[string]interface{})
-	}
-	if s.config != nil {
-		elem.Metadata["conversation_id"] = s.config.ConversationID
-		if s.config.UserID != "" {
-			elem.Metadata["user_id"] = s.config.UserID
-		}
-	}
-}
-
 // StateStoreSaveStage saves conversation state to state store.
 type StateStoreSaveStage struct {
 	BaseStage
-	config *pipeline.StateStoreConfig
+	config    *pipeline.StateStoreConfig
+	turnState *TurnState
 }
 
 // NewStateStoreSaveStage creates a new state store save stage.
@@ -280,10 +255,24 @@ func NewStateStoreSaveStage(config *pipeline.StateStoreConfig) *StateStoreSaveSt
 	}
 }
 
+// NewStateStoreSaveStageWithTurnState creates a save stage that also merges
+// TurnState.ProviderRequestMetadata into the persisted state.Metadata. Use
+// this when per-Turn coordination data (e.g. arena turn counters) needs to
+// be persisted alongside the conversation state.
+func NewStateStoreSaveStageWithTurnState(
+	config *pipeline.StateStoreConfig,
+	turnState *TurnState,
+) *StateStoreSaveStage {
+	return &StateStoreSaveStage{
+		BaseStage: NewBaseStage("statestore_save", StageTypeSink),
+		config:    config,
+		turnState: turnState,
+	}
+}
+
 // saveCollectedData holds data collected during state save processing.
 type saveCollectedData struct {
 	messages []types.Message
-	metadata map[string]interface{}
 }
 
 // Process collects all messages and saves them to state store.
@@ -344,7 +333,6 @@ func (s *StateStoreSaveStage) collectAndForward(
 		if elem.Message != nil {
 			collected.messages = append(collected.messages, *elem.Message)
 		}
-		s.mergeElementMetadata(&elem, collected)
 
 		// Always forward error elements unconditionally - they carry critical
 		// error information that must reach accumulateResult even when context
@@ -361,19 +349,6 @@ func (s *StateStoreSaveStage) collectAndForward(
 		}
 	}
 	return collected, nil
-}
-
-// mergeElementMetadata merges element metadata into collected data.
-func (s *StateStoreSaveStage) mergeElementMetadata(elem *StreamElement, collected *saveCollectedData) {
-	if elem.Metadata == nil {
-		return
-	}
-	if collected.metadata == nil {
-		collected.metadata = make(map[string]interface{})
-	}
-	for k, v := range elem.Metadata {
-		collected.metadata[k] = v
-	}
 }
 
 // saveToStateStore saves collected data to the state store.
@@ -423,7 +398,8 @@ func (s *StateStoreSaveStage) createNewState() *statestore.ConversationState {
 	return state
 }
 
-// updateStateWithCollectedData updates state with collected messages and metadata.
+// updateStateWithCollectedData updates state with collected messages and any
+// per-Turn provider-request metadata produced by upstream stages.
 func (s *StateStoreSaveStage) updateStateWithCollectedData(
 	state *statestore.ConversationState,
 	collected *saveCollectedData,
@@ -434,7 +410,10 @@ func (s *StateStoreSaveStage) updateStateWithCollectedData(
 	if state.Metadata == nil {
 		state.Metadata = make(map[string]interface{})
 	}
-	for k, v := range collected.metadata {
-		state.Metadata[k] = v
+
+	if s.turnState != nil {
+		for k, v := range s.turnState.ProviderRequestMetadata {
+			state.Metadata[k] = v
+		}
 	}
 }

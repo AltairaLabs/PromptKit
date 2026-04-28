@@ -103,7 +103,7 @@ func TestTTSStageWithInterruption_ExtractText_FromMessage(t *testing.T) {
 	s := stage.NewTTSStageWithInterruption(mock, stage.DefaultTTSStageWithInterruptionConfig())
 
 	msg := &types.Message{Role: "assistant", Content: "Hello from message"}
-	inputs := []stage.StreamElement{{Message: msg, Metadata: map[string]interface{}{}}}
+	inputs := []stage.StreamElement{{Message: msg}}
 	results := runStage(t, s, inputs, 2*time.Second)
 
 	require.GreaterOrEqual(t, len(results), 1)
@@ -127,7 +127,7 @@ func TestTTSStageWithInterruption_ExtractText_FromMessageParts(t *testing.T) {
 		Content: "", // Empty content, should fall through to parts
 		Parts:   []types.ContentPart{{Type: "text", Text: &partText}},
 	}
-	inputs := []stage.StreamElement{{Message: msg, Metadata: map[string]interface{}{}}}
+	inputs := []stage.StreamElement{{Message: msg}}
 	results := runStage(t, s, inputs, 2*time.Second)
 
 	require.GreaterOrEqual(t, len(results), 1)
@@ -145,7 +145,7 @@ func TestTTSStageWithInterruption_ExtractText_EmptyMessageContent(t *testing.T) 
 	s := stage.NewTTSStageWithInterruption(mock, stage.DefaultTTSStageWithInterruptionConfig())
 
 	msg := &types.Message{Role: "assistant", Content: ""}
-	inputs := []stage.StreamElement{{Message: msg, Metadata: map[string]interface{}{}}}
+	inputs := []stage.StreamElement{{Message: msg}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
@@ -229,7 +229,7 @@ func TestTTSStageWithInterruption_MessageElement_NilText(t *testing.T) {
 	s := stage.NewTTSStageWithInterruption(&mockTTSService{}, stage.DefaultTTSStageWithInterruptionConfig())
 
 	// Element with nil Text and nil Message — should not panic
-	elem := stage.StreamElement{Metadata: map[string]interface{}{}}
+	elem := stage.StreamElement{}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -287,7 +287,7 @@ func TestTTSStageWithInterruption_PerformSynthesis_ReadError(t *testing.T) {
 		_ = s.Process(ctx, input, output)
 	}()
 
-	input <- stage.StreamElement{Text: func() *string { s := "Test text for read error"; return &s }(), Metadata: map[string]interface{}{}}
+	input <- stage.StreamElement{Text: func() *string { s := "Test text for read error"; return &s }()}
 	close(input)
 
 	select {

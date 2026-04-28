@@ -15,9 +15,6 @@ func TestGetElement(t *testing.T) {
 	if elem == nil {
 		t.Fatal("GetElement returned nil")
 	}
-	if elem.Metadata == nil {
-		t.Error("GetElement should initialize Metadata map")
-	}
 	// Clean up
 	PutElement(elem)
 }
@@ -31,7 +28,7 @@ func TestPutElement(t *testing.T) {
 	elem.Text = testutil.Ptr("test")
 	elem.Sequence = 42
 	elem.Source = "test-source"
-	elem.Metadata["key"] = "value"
+	elem.Meta.FromHistory = true
 
 	PutElement(elem)
 
@@ -48,8 +45,8 @@ func TestPutElement(t *testing.T) {
 	if elem2.Source != "" {
 		t.Error("Element should be reset - Source should be empty")
 	}
-	if len(elem2.Metadata) != 0 {
-		t.Error("Element should be reset - Metadata should be empty")
+	if elem2.Meta.FromHistory {
+		t.Error("Element should be reset - Meta.FromHistory should be false")
 	}
 	PutElement(elem2)
 }
@@ -68,7 +65,7 @@ func TestReset(t *testing.T) {
 		Timestamp:   time.Now(),
 		Source:      "test-source",
 		Priority:    PriorityHigh,
-		Metadata:    map[string]interface{}{"key": "value", "num": 42},
+		Meta:        ElementMetadata{FromHistory: true, TokenCount: 42},
 		EndOfStream: true,
 		Error:       errors.New("test error"),
 	}
@@ -112,8 +109,8 @@ func TestReset(t *testing.T) {
 	if elem.Priority != PriorityNormal {
 		t.Error("Priority should be PriorityNormal after Reset")
 	}
-	if len(elem.Metadata) != 0 {
-		t.Error("Metadata should be empty after Reset")
+	if elem.Meta.FromHistory || elem.Meta.TokenCount != 0 || elem.Meta.MediaExtract != nil || elem.Meta.VideoFrames != nil {
+		t.Error("Meta should be zero-value ElementMetadata after Reset")
 	}
 	if elem.EndOfStream {
 		t.Error("EndOfStream should be false after Reset")
@@ -135,9 +132,6 @@ func TestGetTextElement(t *testing.T) {
 	}
 	if elem.Priority != PriorityNormal {
 		t.Errorf("Expected Priority %d, got %d", PriorityNormal, elem.Priority)
-	}
-	if elem.Metadata == nil {
-		t.Error("Metadata should be initialized")
 	}
 	PutElement(elem)
 }
@@ -249,8 +243,7 @@ func TestPoolConcurrency(t *testing.T) {
 				elem := GetElement()
 				elem.Text = testutil.Ptr("test")
 				elem.Sequence = int64(id*numOperations + j)
-				elem.Metadata["id"] = id
-				elem.Metadata["op"] = j
+				elem.Meta.TokenCount = id + j
 				PutElement(elem)
 			}
 		}(i)
@@ -313,7 +306,7 @@ func BenchmarkPoolParallel(b *testing.B) {
 		for pb.Next() {
 			elem := GetElement()
 			elem.Text = testutil.Ptr("test")
-			elem.Metadata["key"] = "value"
+			elem.Meta.TokenCount = 1
 			PutElement(elem)
 		}
 	})

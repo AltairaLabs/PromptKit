@@ -216,7 +216,7 @@ func TestArenaAssertionStage_ExtractsMessagesFromElements(t *testing.T) {
 	elements := []stage.StreamElement{
 		newTestMessageElement("user", "User message"),
 		newTestMessageElement("assistant", "Assistant message"),
-		{Metadata: map[string]interface{}{"no_message": true}}, // Element without message
+		{}, // Element without message
 	}
 
 	messages := s.extractMessagesFromElements(elements)
@@ -348,21 +348,6 @@ func TestArenaAssertionStage_AttachResultsToMessage_NilMeta(t *testing.T) {
 
 	require.NotNil(t, msg.Meta)
 	assert.Equal(t, results, msg.Meta["assertions"])
-}
-
-func TestArenaAssertionStage_WithMetadata(t *testing.T) {
-	s := NewArenaAssertionStage(nil)
-
-	elem := newTestMessageElement("assistant", "Response")
-	elem.Metadata = map[string]interface{}{
-		"custom_key": "custom_value",
-	}
-
-	results := runStage(t, s, []stage.StreamElement{elem})
-
-	require.Len(t, results, 1)
-	// Metadata should be preserved
-	assert.Equal(t, "custom_value", results[0].Metadata["custom_key"])
 }
 
 func TestArenaAssertionStage_MultipleAssertions(t *testing.T) {

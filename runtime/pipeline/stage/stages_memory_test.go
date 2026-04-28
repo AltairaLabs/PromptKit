@@ -31,13 +31,14 @@ func TestMemoryRetrievalStage_InjectsMemories(t *testing.T) {
 		},
 	}
 	store := memory.NewInMemoryStore()
-	s := NewMemoryRetrievalStage(ret, store, nil)
+	turnState := NewTurnState()
+	s := NewMemoryRetrievalStageWithTurnState(ret, store, nil, turnState)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	msgs := []types.Message{{Role: "user", Content: "hello"}}
-	input <- StreamElement{Metadata: map[string]any{"messages": msgs}}
+	msg := types.Message{Role: "user", Content: "hello"}
+	input <- StreamElement{Message: &msg}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -45,9 +46,10 @@ func TestMemoryRetrievalStage_InjectsMemories(t *testing.T) {
 		t.Fatalf("Process: %v", err)
 	}
 
-	elem := <-output
-	if elem.Metadata["memory_context"] == nil {
-		t.Error("memory_context should be injected")
+	<-output // consume forwarded element
+
+	if turnState.Variables["memory_context"] == "" {
+		t.Error("memory_context should be injected onto TurnState.Variables")
 	}
 }
 
@@ -57,7 +59,8 @@ func TestMemoryRetrievalStage_NilRetrieverPassthrough(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	input <- StreamElement{Metadata: map[string]any{"test": "value"}}
+	msg := types.Message{Role: "user", Content: "test"}
+	input <- StreamElement{Message: &msg}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -66,7 +69,7 @@ func TestMemoryRetrievalStage_NilRetrieverPassthrough(t *testing.T) {
 	}
 
 	elem := <-output
-	if elem.Metadata["test"] != "value" {
+	if elem.Message.Content != "test" {
 		t.Error("element should pass through unchanged")
 	}
 }
@@ -81,14 +84,13 @@ func TestMemoryExtractionStage_ExtractsAndSaves(t *testing.T) {
 	scope := map[string]string{"user_id": "test"}
 	s := NewMemoryExtractionStage(ext, store, scope)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan StreamElement, 2)
+	output := make(chan StreamElement, 2)
 
-	msgs := []types.Message{
-		{Role: "user", Content: "I love Go"},
-		{Role: "assistant", Content: "Great choice!"},
-	}
-	input <- StreamElement{Metadata: map[string]any{"messages": msgs}}
+	user := types.Message{Role: "user", Content: "I love Go"}
+	assistant := types.Message{Role: "assistant", Content: "Great choice!"}
+	input <- StreamElement{Message: &user}
+	input <- StreamElement{Message: &assistant}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -96,9 +98,9 @@ func TestMemoryExtractionStage_ExtractsAndSaves(t *testing.T) {
 		t.Fatalf("Process: %v", err)
 	}
 
-	<-output // consume
+	<-output
+	<-output
 
-	// Verify memory was saved with provenance
 	saved, _ := store.List(context.Background(), scope, memory.ListOptions{})
 	if len(saved) != 1 {
 		t.Fatalf("expected 1 saved memory, got %d", len(saved))
@@ -109,7 +111,6 @@ func TestMemoryExtractionStage_ExtractsAndSaves(t *testing.T) {
 }
 
 func TestMemoryExtractionStage_PreservesExtractorProvenance(t *testing.T) {
-	// If the extractor already sets provenance, extractAndSave should not overwrite it
 	ext := &mockExtractor{
 		extracted: []*memory.Memory{
 			{Type: "fact", Content: "Operator-curated knowledge",
@@ -123,8 +124,8 @@ func TestMemoryExtractionStage_PreservesExtractorProvenance(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	msgs := []types.Message{{Role: "user", Content: "test"}}
-	input <- StreamElement{Metadata: map[string]any{"messages": msgs}}
+	msg := types.Message{Role: "user", Content: "test"}
+	input <- StreamElement{Message: &msg}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -137,7 +138,6 @@ func TestMemoryExtractionStage_PreservesExtractorProvenance(t *testing.T) {
 	if len(saved) != 1 {
 		t.Fatalf("expected 1 saved memory, got %d", len(saved))
 	}
-	// Extractor's provenance should be preserved
 	if saved[0].GetProvenance() != memory.ProvenanceOperatorCurated {
 		t.Errorf("provenance = %q, want %q (should not be overwritten)",
 			saved[0].GetProvenance(), memory.ProvenanceOperatorCurated)
@@ -157,8 +157,8 @@ func TestMemoryExtractionStage_NoMessagesSkipsExtraction(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	// No messages in metadata
-	input <- StreamElement{Metadata: map[string]any{}}
+	// Element with no message — extraction should skip
+	input <- StreamElement{}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -179,7 +179,8 @@ func TestMemoryExtractionStage_NilExtractorPassthrough(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
-	input <- StreamElement{Metadata: map[string]any{"test": "value"}}
+	msg := types.Message{Role: "user", Content: "test"}
+	input <- StreamElement{Message: &msg}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -188,7 +189,7 @@ func TestMemoryExtractionStage_NilExtractorPassthrough(t *testing.T) {
 	}
 
 	elem := <-output
-	if elem.Metadata["test"] != "value" {
+	if elem.Message.Content != "test" {
 		t.Error("element should pass through unchanged")
 	}
 }

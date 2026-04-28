@@ -156,10 +156,6 @@ func (e *ScriptedExecutor) executeStreamingPipeline(
 	// Create input element
 	inputElem := stage.StreamElement{
 		Message: &userMessage,
-		Metadata: map[string]interface{}{
-			"run_id":          req.RunID,
-			"conversation_id": req.ConversationID,
-		},
 	}
 
 	// Create input channel
@@ -190,26 +186,23 @@ func (e *ScriptedExecutor) buildStreamingStages(req *TurnRequest) (*stage.Stream
 	})
 }
 
-// extractFinishReason extracts finish reason from element metadata.
-func extractFinishReason(metadata map[string]interface{}) *string {
-	if metadata == nil {
+// elementFinishReason returns the typed finish reason recorded by the
+// upstream provider stage on the element's typed metadata, if any.
+func elementFinishReason(elem *stage.StreamElement) *string {
+	if elem == nil || elem.Meta.FinishReason == nil {
 		return nil
 	}
-	if fr, ok := metadata["finish_reason"].(string); ok {
-		return &fr
-	}
-	return nil
+	fr := *elem.Meta.FinishReason
+	return &fr
 }
 
-// extractTokenCount extracts token count from element metadata.
-func extractTokenCount(metadata map[string]interface{}) int {
-	if metadata == nil {
+// elementTokenCount returns the typed token count recorded by the
+// upstream provider stage on the element's typed metadata.
+func elementTokenCount(elem *stage.StreamElement) int {
+	if elem == nil {
 		return 0
 	}
-	if tc, ok := metadata["token_count"].(int); ok {
-		return tc
-	}
-	return 0
+	return elem.Meta.TokenCount
 }
 
 // forwardStageElements forwards stage elements from pipeline to output channel
@@ -254,7 +247,7 @@ func (e *ScriptedExecutor) processMessageElement(
 
 	*assistantMsg = *elem.Message
 	*messages = e.updateMessagesList(*messages, assistantMsg, assistantIndex)
-	finishReason := extractFinishReason(elem.Metadata)
+	finishReason := elementFinishReason(elem)
 
 	outChan <- MessageStreamChunk{
 		Messages:     *messages,
@@ -280,8 +273,8 @@ func (e *ScriptedExecutor) processStreamingElement(
 		Messages:     messages,
 		Delta:        *elem.Text,
 		MessageIndex: assistantIndex,
-		TokenCount:   extractTokenCount(elem.Metadata),
-		FinishReason: extractFinishReason(elem.Metadata),
+		TokenCount:   elementTokenCount(elem),
+		FinishReason: elementFinishReason(elem),
 	}
 }
 

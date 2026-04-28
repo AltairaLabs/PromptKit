@@ -65,8 +65,8 @@ func TestImageStreamer_SendFrame(t *testing.T) {
 		if elem.Priority != stage.PriorityHigh {
 			t.Errorf("Expected PriorityHigh, got %v", elem.Priority)
 		}
-		if elem.Metadata["passthrough"] != true {
-			t.Error("Expected passthrough metadata to be true")
+		if !elem.Meta.Passthrough {
+			t.Error("Expected Meta.Passthrough to be true")
 		}
 	default:
 		t.Fatal("Expected element in output channel")
@@ -237,9 +237,6 @@ func TestSendImageEndOfStream(t *testing.T) {
 	elem := <-output
 	if !elem.EndOfStream {
 		t.Error("Expected EndOfStream to be true")
-	}
-	if elem.Metadata["media_type"] != "image" {
-		t.Errorf("Expected media_type 'image', got %v", elem.Metadata["media_type"])
 	}
 }
 

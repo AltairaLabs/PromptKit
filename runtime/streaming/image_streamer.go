@@ -62,10 +62,8 @@ func (s *ImageStreamer) SendFrame(
 			Timestamp: timestamp,
 		},
 		Priority: stage.PriorityHigh,
-		Metadata: map[string]any{
-			"passthrough": true,
-		},
 	}
+	elem.Meta.Passthrough = true
 
 	select {
 	case output <- elem:
@@ -96,10 +94,8 @@ func (s *ImageStreamer) SendFrameWithDimensions(
 			Timestamp: timestamp,
 		},
 		Priority: stage.PriorityHigh,
-		Metadata: map[string]any{
-			"passthrough": true,
-		},
 	}
+	elem.Meta.Passthrough = true
 
 	select {
 	case output <- elem:
@@ -193,9 +189,6 @@ func SendImageEndOfStream(
 	logger.Debug("Sending image EndOfStream signal to trigger response")
 	elem := stage.StreamElement{
 		EndOfStream: true,
-		Metadata: map[string]any{
-			"media_type": "image",
-		},
 	}
 	select {
 	case output <- elem:

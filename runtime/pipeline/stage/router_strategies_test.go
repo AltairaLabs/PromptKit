@@ -215,10 +215,7 @@ func TestHashRouter(t *testing.T) {
 	router := NewHashRouter("hash-router",
 		[]string{"a", "b", "c"},
 		func(e StreamElement) string {
-			if s, ok := e.Metadata["session_id"].(string); ok {
-				return s
-			}
-			return ""
+			return e.Source
 		},
 	)
 
@@ -232,11 +229,11 @@ func TestHashRouter(t *testing.T) {
 	input := make(chan StreamElement, 100)
 	output := make(chan StreamElement, 100)
 
-	// Send elements with same session - should all go to same output
+	// Send elements with same hash key - should all go to same output
 	for i := 0; i < 10; i++ {
 		elem := StreamElement{
 			Sequence: int64(i),
-			Metadata: map[string]interface{}{"session_id": "session-123"},
+			Source:   "session-123",
 		}
 		input <- elem
 	}
