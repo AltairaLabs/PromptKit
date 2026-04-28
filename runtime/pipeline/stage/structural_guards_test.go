@@ -10,12 +10,20 @@ import (
 	"testing"
 )
 
-// TestNoBulkWriterInStageConfigs is a structural invariant: no struct field
-// declared in this package may have a type that mentions BulkWriter. Hot-path
-// stages must reach the store via MessageAppender, MetadataAccessor, or
-// SummaryAccessor — never via the bulk-write escape hatch. This test catches
-// regressions by walking the AST instead of relying on reflection (which
-// would miss un-instantiated config types).
+// TestNoBulkWriterInStageConfigs is a structural invariant: no struct
+// field declared in **this package** (runtime/pipeline/stage) may have a
+// type that mentions BulkWriter. Hot-path runtime stages must reach the
+// store via MessageAppender, MetadataAccessor, or SummaryAccessor —
+// never via the bulk-write escape hatch.
+//
+// Scope is intentionally limited to the runtime stages. Arena's stages
+// (tools/arena/stages) and admin tooling (tools/arena/cmd/) are explicit
+// consumers of BulkWriter and live outside this guard. If a parallel
+// hot-path stage is added in another directory, this test won't catch
+// it — extend the walk to that directory if/when that happens.
+//
+// Walks the AST rather than reflecting because the latter would miss
+// un-instantiated config types.
 func TestNoBulkWriterInStageConfigs(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {

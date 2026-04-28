@@ -50,9 +50,13 @@ func forkOrCreate(ctx context.Context, store statestore.Store, sourceID, forkID 
 		if !errors.Is(err, statestore.ErrNotFound) {
 			return fmt.Errorf(errFailedToForkState, err)
 		}
+		// Source doesn't exist yet (lazy-created). Try to create an empty
+		// fork target via BulkWriter; surface a precise error when the
+		// store can't help.
 		bulkWriter, ok := store.(statestore.BulkWriter)
 		if !ok {
-			return fmt.Errorf(errFailedToForkState, err)
+			return fmt.Errorf(
+				"fork: source conversation not found and store does not implement BulkWriter for fallback: %w", err)
 		}
 		if saveErr := bulkWriter.Save(ctx, &statestore.ConversationState{ID: forkID}); saveErr != nil {
 			return fmt.Errorf(errFailedToForkState, saveErr)
