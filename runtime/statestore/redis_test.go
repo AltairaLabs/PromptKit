@@ -2223,30 +2223,32 @@ func TestRedisStore_MergeMetadata_EmptyOrInvalid(t *testing.T) {
 		ErrInvalidID)
 }
 
-// TestRedisStore_MergeMetadata_CorruptMeta covers the unmarshal-error branch
-// in loadMetaTx: when the meta key holds invalid JSON, MergeMetadata must
-// surface a marshal error rather than silently overwriting the bad value.
-func TestRedisStore_MergeMetadata_CorruptMeta(t *testing.T) {
+// TestRedisStore_LoadMetadata_CorruptHashValue covers the unmarshal-error
+// branch in loadMetadataHash: when a hash field holds invalid JSON,
+// LoadMetadata must surface the error rather than silently dropping the
+// value.
+func TestRedisStore_LoadMetadata_CorruptHashValue(t *testing.T) {
 	store, mr := setupRedisStore(t)
 	ctx := context.Background()
 
-	// Plant invalid JSON at the meta key for "conv-corrupt".
-	require.NoError(t, mr.Set(store.metaKey("conv-corrupt"), "not-json{{"))
+	// Plant an invalid JSON value at one hash field.
+	mr.HSet(store.metadataKey("conv-corrupt"), userMetadataFieldPrefix+"k", "not-json{{")
 
-	err := store.MergeMetadata(ctx, "conv-corrupt", map[string]interface{}{"k": "v"})
+	_, err := store.LoadMetadata(ctx, "conv-corrupt")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unmarshal meta")
+	assert.Contains(t, err.Error(), "unmarshal")
 }
 
-func TestRedisStore_MergeMetadata_ConcurrentMergesSerialise(t *testing.T) {
+// TestRedisStore_MergeMetadata_ConcurrentMergesAllLand verifies that
+// concurrent MergeMetadata calls on the same conversation all succeed
+// without dropping updates. The hash-based implementation uses native
+// HSET (server-atomic per call) — no WATCH retry, no contention loss
+// even under pathological fan-out.
+func TestRedisStore_MergeMetadata_ConcurrentMergesAllLand(t *testing.T) {
 	store, _ := setupRedisStore(t)
 	ctx := context.Background()
 
-	// Realistic contention: a handful of stages writing concurrently to the
-	// same conversation. Pinning at the natural worst case (handful, not
-	// tens) keeps the test deterministic against miniredis's strict WATCH
-	// semantics.
-	const goroutines = 8
+	const goroutines = 50
 	var wg sync.WaitGroup
 	for i := range goroutines {
 		wg.Add(1)
