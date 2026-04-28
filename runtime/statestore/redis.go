@@ -463,15 +463,28 @@ func (s *RedisStore) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Pipeline: DEL all keys for this conversation + optional SRem from user index
-	pipe := s.client.Pipeline()
-	delCmd := pipe.Del(ctx,
+	// Enumerate any append-only list keys via the per-conversation index
+	// set so we can DEL them in the same pipeline (no SCAN required).
+	listNames, err := s.client.SMembers(ctx, s.listsIndexKey(id)).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return fmt.Errorf("redis smembers lists index failed: %w", err)
+	}
+
+	keys := []string{
 		s.conversationKey(id), // legacy monolithic key
 		s.metaKey(id),         // decomposed meta
 		s.messagesKey(id),     // decomposed messages list
 		s.summariesKey(id),    // decomposed summaries list
 		s.metadataKey(id),     // decomposed user metadata hash
-	)
+		s.listsIndexKey(id),   // per-conversation list-name index set
+	}
+	for _, name := range listNames {
+		keys = append(keys, s.listKey(id, name))
+	}
+
+	// Pipeline: DEL all keys for this conversation + optional SRem from user index
+	pipe := s.client.Pipeline()
+	delCmd := pipe.Del(ctx, keys...)
 
 	if state.UserID != "" {
 		indexKey := s.userIndexKey(state.UserID)
@@ -635,6 +648,20 @@ func (s *RedisStore) metadataKey(id string) string {
 	return fmt.Sprintf("%s:conversation:%s:metadata", s.prefix, id)
 }
 
+// listKey generates the Redis key for a named append-only list belonging
+// to a conversation. Each list lives in its own Redis list (RPUSH per
+// item), so per-write cost is O(new entries) rather than O(list length).
+func (s *RedisStore) listKey(id, listName string) string {
+	return fmt.Sprintf("%s:conversation:%s:list:%s", s.prefix, id, listName)
+}
+
+// listsIndexKey generates the Redis key for the per-conversation set of
+// list names that have been written. Used by Delete to enumerate list
+// keys for cleanup without a SCAN.
+func (s *RedisStore) listsIndexKey(id string) string {
+	return fmt.Sprintf("%s:conversation:%s:lists", s.prefix, id)
+}
+
 // LoadMetadata returns the user metadata map for the given conversation
 // by reading the dedicated metadata hash. Returns ErrNotFound when the
 // conversation doesn't exist (matches MemoryStore.LoadMetadata).
@@ -737,6 +764,117 @@ func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[s
 		return fmt.Errorf("redis merge metadata failed: %w", err)
 	}
 	return nil
+}
+
+// AppendList appends opaque items to the named per-conversation list using
+// RPUSH. The list name is also recorded in a per-conversation index set
+// (SADD) so Delete can enumerate list keys without a SCAN. All commands
+// run in a single pipeline; TTLs are refreshed on the list, the index
+// set, and the meta key so that long-running workflows that only append
+// list entries don't expire prematurely.
+//
+// Auto-creates the conversation if it doesn't exist — meta is touched on
+// the next interaction (or by an explicit Save). No Save is required.
+func (s *RedisStore) AppendList(ctx context.Context, id, listName string, items [][]byte) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+	if listName == "" {
+		return fmt.Errorf("redis append list: list name must not be empty")
+	}
+	if len(items) == 0 {
+		return nil
+	}
+
+	args := make([]interface{}, len(items))
+	for i, item := range items {
+		args[i] = item
+	}
+
+	listK := s.listKey(id, listName)
+	indexK := s.listsIndexKey(id)
+
+	pipe := s.client.Pipeline()
+	pipe.RPush(ctx, listK, args...)
+	pipe.SAdd(ctx, indexK, listName)
+	if s.ttl > 0 {
+		pipe.Expire(ctx, listK, s.ttl)
+		pipe.Expire(ctx, indexK, s.ttl)
+		// Touch the meta key so the conversation doesn't expire while
+		// only its lists are being written.
+		pipe.Expire(ctx, s.metaKey(id), s.ttl)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("redis append list failed: %w", err)
+	}
+	return nil
+}
+
+// LoadList returns all items of the named list in append order. Returns
+// (nil, nil) when the list is empty or has never been written and the
+// conversation exists. Returns ErrNotFound only when the conversation
+// itself doesn't exist (distinguished by an EXISTS check on the meta key).
+func (s *RedisStore) LoadList(ctx context.Context, id, listName string) ([][]byte, error) {
+	if id == "" {
+		return nil, ErrInvalidID
+	}
+	if listName == "" {
+		return nil, fmt.Errorf("redis load list: list name must not be empty")
+	}
+
+	// Pipeline LRANGE on the list with EXISTS on the meta key in one
+	// round-trip so we can distinguish "empty list" from "no conversation".
+	pipe := s.client.Pipeline()
+	rangeCmd := pipe.LRange(ctx, s.listKey(id, listName), 0, -1)
+	existsCmd := pipe.Exists(ctx, s.metaKey(id))
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("redis load list pipeline failed: %w", err)
+	}
+
+	vals, err := rangeCmd.Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis lrange list failed: %w", err)
+	}
+	if len(vals) == 0 {
+		if existsCmd.Val() == 0 {
+			return nil, ErrNotFound
+		}
+		return nil, nil
+	}
+
+	out := make([][]byte, len(vals))
+	for i, v := range vals {
+		out[i] = []byte(v)
+	}
+	return out, nil
+}
+
+// ListLen returns the current length of the named list. Returns 0 for
+// empty/missing lists; ErrNotFound only when the conversation itself
+// doesn't exist.
+func (s *RedisStore) ListLen(ctx context.Context, id, listName string) (int, error) {
+	if id == "" {
+		return 0, ErrInvalidID
+	}
+	if listName == "" {
+		return 0, fmt.Errorf("redis list len: list name must not be empty")
+	}
+
+	pipe := s.client.Pipeline()
+	lenCmd := pipe.LLen(ctx, s.listKey(id, listName))
+	existsCmd := pipe.Exists(ctx, s.metaKey(id))
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("redis list len pipeline failed: %w", err)
+	}
+
+	count, err := lenCmd.Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return 0, fmt.Errorf("redis llen list failed: %w", err)
+	}
+	if count == 0 && existsCmd.Val() == 0 {
+		return 0, ErrNotFound
+	}
+	return int(count), nil
 }
 
 // LoadRecentMessages returns the last n messages using LRANGE on the messages list.

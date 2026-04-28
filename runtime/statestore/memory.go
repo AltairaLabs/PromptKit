@@ -128,6 +128,11 @@ type MemoryStore struct {
 	mu     sync.RWMutex
 	states map[string]*ConversationState
 
+	// Append-only typed lists (ListAccessor). Keyed by conversation ID,
+	// then by list name. Values are deep-copied JSON bytes to match the
+	// store's existing immutability guarantees.
+	lists map[string]map[string][][]byte
+
 	// Index for efficient user-based lookups
 	userIndex map[string]map[string]struct{} // userID -> set of conversationIDs
 
@@ -154,6 +159,7 @@ type MemoryStore struct {
 func NewMemoryStore(opts ...MemoryStoreOption) *MemoryStore {
 	s := &MemoryStore{
 		states:    make(map[string]*ConversationState),
+		lists:     make(map[string]map[string][][]byte),
 		userIndex: make(map[string]map[string]struct{}),
 		heapIndex: make(map[string]*accessEntry),
 	}
@@ -684,12 +690,98 @@ func (s *MemoryStore) deleteStateLocked(id string, state *ConversationState) {
 		s.removeFromUserIndex(state.UserID, id)
 	}
 	delete(s.states, id)
+	delete(s.lists, id)
 
 	// Remove from LRU heap
 	if entry, ok := s.heapIndex[id]; ok {
 		heap.Remove(&s.lruHeap, entry.index)
 		delete(s.heapIndex, id)
 	}
+}
+
+// AppendList appends items to the named list for the conversation.
+// Auto-creates the conversation entry if missing. Items are deep-copied
+// so subsequent caller mutations don't affect stored state.
+func (s *MemoryStore) AppendList(ctx context.Context, id, listName string, items [][]byte) error {
+	if id == "" {
+		return ErrInvalidID
+	}
+	if len(items) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := s.getOrCreateStateLocked(id)
+	if s.lists[id] == nil {
+		s.lists[id] = make(map[string][][]byte)
+	}
+	cp := make([][]byte, len(items))
+	for i, item := range items {
+		cp[i] = make([]byte, len(item))
+		copy(cp[i], item)
+	}
+	s.lists[id][listName] = append(s.lists[id][listName], cp...)
+
+	now := time.Now()
+	state.LastAccessedAt = now
+	s.touchLRULocked(id, now)
+	return nil
+}
+
+// LoadList returns all items of the named list, deep-copied. Returns
+// (nil, nil) when the list is empty or never written. Returns
+// ErrNotFound when the conversation itself doesn't exist.
+func (s *MemoryStore) LoadList(ctx context.Context, id, listName string) ([][]byte, error) {
+	if id == "" {
+		return nil, ErrInvalidID
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, exists := s.states[id]
+	if !exists {
+		return nil, ErrNotFound
+	}
+	if s.isExpired(state) {
+		return nil, ErrNotFound
+	}
+	listMap, ok := s.lists[id]
+	if !ok {
+		return nil, nil
+	}
+	items := listMap[listName]
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([][]byte, len(items))
+	for i, item := range items {
+		out[i] = make([]byte, len(item))
+		copy(out[i], item)
+	}
+	return out, nil
+}
+
+// ListLen returns the length of the named list. ErrNotFound only when
+// the conversation itself doesn't exist.
+func (s *MemoryStore) ListLen(ctx context.Context, id, listName string) (int, error) {
+	if id == "" {
+		return 0, ErrInvalidID
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, exists := s.states[id]
+	if !exists {
+		return 0, ErrNotFound
+	}
+	if s.isExpired(state) {
+		return 0, ErrNotFound
+	}
+	return len(s.lists[id][listName]), nil
 }
 
 // touchLRULocked updates or inserts a key in the LRU heap with the given access time.

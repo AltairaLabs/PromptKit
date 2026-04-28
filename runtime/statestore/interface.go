@@ -113,6 +113,36 @@ type SummaryAccessor interface {
 	SaveSummary(ctx context.Context, id string, summary Summary) error
 }
 
+// ListAccessor allows storing append-only collections of opaque items
+// (JSON-encoded by the caller) per conversation. Each list is keyed by
+// a stable name (e.g. "workflow.history").
+//
+// Stores that implement this interface persist appends incrementally —
+// MemoryStore in a Go slice, RedisStore as a Redis list (RPUSH). This
+// keeps per-write cost O(new entries) regardless of how long the
+// collection has grown — the load-bearing property for long-running
+// workflows whose History/ArtifactHistory grow without bound.
+//
+// Optional. Callers (typically the SDK workflow code) type-assert; the
+// caller surfaces a clear error when the store doesn't satisfy.
+type ListAccessor interface {
+	// AppendList appends items to the named list for the conversation.
+	// Items are opaque bytes (typically JSON-encoded by the caller).
+	// Auto-creates the conversation and the list if either is missing.
+	AppendList(ctx context.Context, id, listName string, items [][]byte) error
+
+	// LoadList returns all items of the named list, in append order.
+	// Returns (nil, nil) — not an error — when the list is empty or
+	// has never been written. Returns ErrNotFound only when the
+	// conversation itself doesn't exist.
+	LoadList(ctx context.Context, id, listName string) ([][]byte, error)
+
+	// ListLen returns the current length of the named list. Returns 0
+	// for empty/missing lists; ErrNotFound only when the conversation
+	// doesn't exist.
+	ListLen(ctx context.Context, id, listName string) (int, error)
+}
+
 // ErrNotFound is returned when a conversation doesn't exist in the store.
 var ErrNotFound = errors.New("conversation not found")
 

@@ -510,25 +510,20 @@ func TestWorkflowConversation_NilEmitterSafe(t *testing.T) {
 func TestExtractWorkflowContext_Direct(t *testing.T) {
 	wfCtx := &workflow.Context{
 		CurrentState: "processing",
-		History: []workflow.StateTransition{
-			{From: "intake", To: "processing", Event: "Next"},
-		},
 	}
-	metadata := map[string]any{"workflow": wfCtx}
+	metadata := map[string]any{workflowCurrentKey: wfCtx}
 
 	result, err := extractWorkflowContext(metadata)
 	require.NoError(t, err)
 	assert.Equal(t, "processing", result.CurrentState)
-	assert.Len(t, result.History, 1)
+	// History/ArtifactHistory now live in lists, not in workflow.current.
+	assert.Nil(t, result.History)
 }
 
 func TestExtractWorkflowContext_FromJSON(t *testing.T) {
-	// Simulate what happens after JSON round-trip (e.g., Redis store)
+	// Simulate what happens after JSON round-trip (e.g., Redis store).
 	wfCtx := &workflow.Context{
 		CurrentState: "done",
-		History: []workflow.StateTransition{
-			{From: "start", To: "done", Event: "Finish"},
-		},
 	}
 	data, err := json.Marshal(wfCtx)
 	require.NoError(t, err)
@@ -536,11 +531,10 @@ func TestExtractWorkflowContext_FromJSON(t *testing.T) {
 	var rawMap map[string]any
 	require.NoError(t, json.Unmarshal(data, &rawMap))
 
-	metadata := map[string]any{"workflow": rawMap}
+	metadata := map[string]any{workflowCurrentKey: rawMap}
 	result, err := extractWorkflowContext(metadata)
 	require.NoError(t, err)
 	assert.Equal(t, "done", result.CurrentState)
-	assert.Len(t, result.History, 1)
 }
 
 func TestExtractWorkflowContext_Missing(t *testing.T) {
@@ -551,7 +545,7 @@ func TestExtractWorkflowContext_Missing(t *testing.T) {
 }
 
 func TestExtractWorkflowContext_InvalidType(t *testing.T) {
-	metadata := map[string]any{"workflow": "invalid"}
+	metadata := map[string]any{workflowCurrentKey: "invalid"}
 	_, err := extractWorkflowContext(metadata)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected workflow context type")
@@ -577,14 +571,12 @@ func TestPersistWorkflowContext(t *testing.T) {
 		packPath:     "/nonexistent/pack.json",
 	}
 
-	// Persist creates new state
 	wc.persistWorkflowContext()
 
 	ctx := context.Background()
-	state, err := store.Load(ctx, "wf-123")
+	meta, err := store.LoadMetadata(ctx, "wf-123")
 	require.NoError(t, err)
-	require.NotNil(t, state)
-	assert.NotNil(t, state.Metadata["workflow"])
+	require.NotNil(t, meta[workflowCurrentKey])
 }
 
 func TestPersistWorkflowContext_TransientSkips(t *testing.T) {
@@ -765,7 +757,7 @@ func TestResumeWorkflow_NoWorkflow(t *testing.T) {
 	ctx := context.Background()
 	_ = store.Save(ctx, &statestore.ConversationState{
 		ID:       "wf-no-wf",
-		Metadata: map[string]any{"workflow": &workflow.Context{CurrentState: "main"}},
+		Metadata: map[string]any{workflowCurrentKey: &workflow.Context{CurrentState: "main"}},
 	})
 
 	_, err := ResumeWorkflow("wf-no-wf", packPath,
@@ -801,17 +793,16 @@ func TestResumeWorkflow_ValidMetadataButOpenFails(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	ctx := context.Background()
 
-	// Save valid workflow context
-	wfCtx := &workflow.Context{
-		CurrentState: "processing",
-		History: []workflow.StateTransition{
-			{From: "intake", To: "processing", Event: "InfoComplete"},
-		},
-	}
+	// Save the workflow.current view in metadata, plus a single
+	// History entry in the workflow.history list — matches the split
+	// storage layout that ResumeWorkflow rebuilds from.
+	wfCtx := &workflow.Context{CurrentState: "processing"}
 	_ = store.Save(ctx, &statestore.ConversationState{
 		ID:       "wf-resume-test",
-		Metadata: map[string]any{"workflow": wfCtx},
+		Metadata: map[string]any{workflowCurrentKey: wfCtx},
 	})
+	historyEntry, _ := json.Marshal(workflow.StateTransition{From: "intake", To: "processing", Event: "InfoComplete"})
+	require.NoError(t, store.AppendList(ctx, "wf-resume-test", workflowHistoryListName, [][]byte{historyEntry}))
 
 	// ResumeWorkflow will succeed through metadata extraction and state machine
 	// creation, but fail at Open() because no provider is configured.
@@ -835,7 +826,7 @@ func TestResumeWorkflow_ValidMetadataButOpenFails(t *testing.T) {
 func TestExtractWorkflowContext_MarshalError(t *testing.T) {
 	// Test with a map that would fail JSON round-trip (channel value)
 	metadata := map[string]any{
-		"workflow": map[string]any{
+		workflowCurrentKey: map[string]any{
 			"current_state": make(chan int), // Can't marshal channels
 		},
 	}
@@ -1212,43 +1203,6 @@ func TestWorkflowConversation_ConcurrentSendAndTransition(t *testing.T) {
 	// No assertions needed — test validates absence of data races with -race flag
 }
 
-// errorStore is a statestore.Store that always returns errors on Save.
-type errorStore struct {
-	statestore.Store
-}
-
-func (s *errorStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
-	return &statestore.ConversationState{
-		ID:       "wf-1",
-		Metadata: make(map[string]any),
-	}, nil
-}
-
-func (s *errorStore) Save(_ context.Context, _ *statestore.ConversationState) error {
-	return errors.New("save failed")
-}
-
-func TestPersistWorkflowContext_SaveError(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		stateStore:   &errorStore{},
-		workflowID:   "wf-1",
-	}
-
-	// Should not panic — logs the error instead of discarding
-	wc.persistWorkflowContext()
-}
-
 func TestPersistWorkflowContext_TransientStateSkipped(t *testing.T) {
 	spec := &workflow.Spec{
 		Version: 1,
@@ -1269,49 +1223,14 @@ func TestPersistWorkflowContext_TransientStateSkipped(t *testing.T) {
 		workflowID:   "wf-1",
 	}
 
-	// Should be a no-op (transient state)
+	// Should be a no-op (transient state).
 	wc.persistWorkflowContext()
 }
 
-// loadErrorBulkStore implements Store + BulkWriter but its Load always
-// errors. Exercises the "Load failed → fresh state" branch in
-// persistWorkflowContext's BulkWriter fallback path.
-type loadErrorBulkStore struct{}
-
-func (loadErrorBulkStore) Load(_ context.Context, _ string) (*statestore.ConversationState, error) {
-	return nil, errors.New("simulated load failure")
-}
-func (loadErrorBulkStore) Fork(_ context.Context, _, _ string) error { return nil }
-func (loadErrorBulkStore) Save(_ context.Context, _ *statestore.ConversationState) error {
-	return nil
-}
-
-// TestPersistWorkflowContext_BulkWriterLoadFails covers the fallback branch
-// where the store is BulkWriter-only and Load errors — the function should
-// proceed with a fresh state and not panic.
-func TestPersistWorkflowContext_BulkWriterLoadFails(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		stateStore:   loadErrorBulkStore{},
-		workflowID:   "wf-1",
-	}
-
-	wc.persistWorkflowContext() // Must not panic.
-}
-
 // readOnlyStore implements only the bare Store interface (Load + Fork) —
-// no BulkWriter, no MetadataAccessor. Used to exercise the warning path
-// in persistWorkflowContext when neither typed nor bulk write is available.
+// no MetadataAccessor, no ListAccessor. Used to exercise the early-return
+// path in persistWorkflowContext when the store can't satisfy either of
+// the required typed-write interfaces.
 type readOnlyStore struct{}
 
 func (readOnlyStore) Load(_ context.Context, id string) (*statestore.ConversationState, error) {
@@ -1320,8 +1239,8 @@ func (readOnlyStore) Load(_ context.Context, id string) (*statestore.Conversatio
 func (readOnlyStore) Fork(_ context.Context, _, _ string) error { return nil }
 
 // TestPersistWorkflowContext_NoWriteCapability covers the branch where the
-// store implements neither MetadataAccessor nor BulkWriter — the function
-// must log a warning and return without panicking.
+// store implements neither MetadataAccessor nor ListAccessor — the
+// function must log an error and return without panicking.
 func TestPersistWorkflowContext_NoWriteCapability(t *testing.T) {
 	spec := &workflow.Spec{
 		Version: 1,
@@ -1340,6 +1259,56 @@ func TestPersistWorkflowContext_NoWriteCapability(t *testing.T) {
 	}
 
 	wc.persistWorkflowContext() // Must not panic.
+}
+
+// metadataOnlyStore satisfies MetadataAccessor but not ListAccessor —
+// exercises the requirement that persistWorkflowContext refuses to write
+// when the store can't store History/ArtifactHistory deltas.
+type metadataOnlyStore struct {
+	readOnlyStore
+	merged map[string]any
+}
+
+func (s *metadataOnlyStore) LoadMetadata(_ context.Context, _ string) (map[string]any, error) {
+	return s.merged, nil
+}
+func (s *metadataOnlyStore) MergeMetadata(_ context.Context, _ string, updates map[string]any) error {
+	if s.merged == nil {
+		s.merged = make(map[string]any)
+	}
+	for k, v := range updates {
+		s.merged[k] = v
+	}
+	return nil
+}
+
+// TestPersistWorkflowContext_FailsWhenStoreMissingListAccessor verifies
+// that a store with MetadataAccessor but no ListAccessor is rejected
+// up-front — no metadata is written, since a partial write would leave
+// the workflow unrecoverable.
+func TestPersistWorkflowContext_FailsWhenStoreMissingListAccessor(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	store := &metadataOnlyStore{}
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		stateStore:   store,
+		workflowID:   "wf-1",
+	}
+
+	wc.persistWorkflowContext()
+
+	// Nothing should have been written — the missing ListAccessor
+	// triggers an early return before MergeMetadata is called.
+	assert.Empty(t, store.merged)
 }
 
 func TestPersistWorkflowContext_Success(t *testing.T) {
@@ -1362,10 +1331,9 @@ func TestPersistWorkflowContext_Success(t *testing.T) {
 
 	wc.persistWorkflowContext()
 
-	// Verify the workflow context was saved
-	state, err := store.Load(context.Background(), "wf-1")
+	meta, err := store.LoadMetadata(context.Background(), "wf-1")
 	require.NoError(t, err)
-	require.NotNil(t, state.Metadata["workflow"])
+	require.NotNil(t, meta[workflowCurrentKey])
 }
 
 // TestCommitDeferredTransition_NoTransExec is a no-op when the workflow
@@ -1645,4 +1613,232 @@ func waitWithTimeout(t *testing.T, wg *sync.WaitGroup, d time.Duration, label st
 	case <-time.After(d):
 		t.Fatalf("timed out waiting for %s", label)
 	}
+}
+
+// pinHistory rewrites machine.Context().History (and ArtifactHistory)
+// in-place via a fresh state machine seeded with a synthetic context.
+// Used by the incremental-persistence tests to drive the delta logic
+// without going through real transitions.
+func pinHistory(spec *workflow.Spec, history []workflow.StateTransition, artHist []workflow.ArtifactSnapshot) *workflow.StateMachine {
+	wfCtx := &workflow.Context{
+		CurrentState:    spec.Entry,
+		History:         history,
+		ArtifactHistory: artHist,
+	}
+	return workflow.NewStateMachineFromContext(spec, wfCtx)
+}
+
+// TestPersistWorkflowContext_SecondPersistAppendsOnlyDelta drives the
+// per-transition delta logic: a second persist with one new History
+// entry appends exactly one item to the workflow.history list, not the
+// full slice.
+func TestPersistWorkflowContext_SecondPersistAppendsOnlyDelta(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1"},
+		},
+	}
+	store := statestore.NewMemoryStore()
+	ctx := context.Background()
+
+	wc := &WorkflowConversation{
+		machine:      pinHistory(spec, []workflow.StateTransition{{From: "a", To: "b", Event: "X"}}, nil),
+		workflowSpec: spec,
+		stateStore:   store,
+		workflowID:   "wf-1",
+	}
+
+	wc.persistWorkflowContext()
+	require.Equal(t, 1, wc.historyAppended)
+	n, err := store.ListLen(ctx, "wf-1", workflowHistoryListName)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	// Add a second history entry. persistWorkflowContext should RPUSH
+	// only the new tail entry — the list grows from 1 to 2, not from 1
+	// to 3 (which a "rewrite the whole slice" implementation would
+	// produce).
+	wc.machine = pinHistory(spec, []workflow.StateTransition{
+		{From: "a", To: "b", Event: "X"},
+		{From: "b", To: "c", Event: "Y"},
+	}, nil)
+	wc.persistWorkflowContext()
+	require.Equal(t, 2, wc.historyAppended)
+	n, err = store.ListLen(ctx, "wf-1", workflowHistoryListName)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+}
+
+// TestPersistWorkflowContext_NoArtifactChangeSkipsArtifactList confirms
+// that when ArtifactHistory's length is unchanged, no AppendList write
+// hits the artifact_history list.
+func TestPersistWorkflowContext_NoArtifactChangeSkipsArtifactList(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States:  map[string]*workflow.State{"start": {PromptTask: "p1"}},
+	}
+	store := statestore.NewMemoryStore()
+	ctx := context.Background()
+
+	// First persist seeds one history entry, no artifact entry.
+	wc := &WorkflowConversation{
+		machine:      pinHistory(spec, []workflow.StateTransition{{From: "a", To: "b"}}, nil),
+		workflowSpec: spec,
+		stateStore:   store,
+		workflowID:   "wf-1",
+	}
+	wc.persistWorkflowContext()
+
+	// Second persist adds one new history entry but no artifact change.
+	wc.machine = pinHistory(spec, []workflow.StateTransition{
+		{From: "a", To: "b"},
+		{From: "b", To: "c"},
+	}, nil)
+	wc.persistWorkflowContext()
+
+	// History list grew, artifact list never received any writes.
+	hN, err := store.ListLen(ctx, "wf-1", workflowHistoryListName)
+	require.NoError(t, err)
+	assert.Equal(t, 2, hN)
+	aN, err := store.ListLen(ctx, "wf-1", workflowArtifactListName)
+	require.NoError(t, err)
+	assert.Equal(t, 0, aN)
+	assert.Equal(t, 0, wc.artifactHistoryAppended)
+}
+
+// TestHydrateWorkflowContextLists_StoreMissingListAccessor exercises the
+// early-return path when the store can't satisfy the ListAccessor
+// contract — Resume should fail loudly rather than silently returning a
+// half-built context.
+func TestHydrateWorkflowContextLists_StoreMissingListAccessor(t *testing.T) {
+	wfCtx := &workflow.Context{CurrentState: "x"}
+	_, _, err := hydrateWorkflowContextLists(context.Background(), readOnlyStore{}, "wf-1", wfCtx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ListAccessor")
+}
+
+// listLoadErrorStore satisfies ListAccessor with LoadList always returning
+// a non-ErrNotFound failure — exercises the propagation path in
+// loadWorkflowList / hydrateWorkflowContextLists.
+type listLoadErrorStore struct{ readOnlyStore }
+
+func (listLoadErrorStore) AppendList(_ context.Context, _, _ string, _ [][]byte) error {
+	return nil
+}
+func (listLoadErrorStore) LoadList(_ context.Context, _, _ string) ([][]byte, error) {
+	return nil, errors.New("simulated list load failure")
+}
+func (listLoadErrorStore) ListLen(_ context.Context, _, _ string) (int, error) {
+	return 0, errors.New("simulated list len failure")
+}
+
+func TestHydrateWorkflowContextLists_LoadListError(t *testing.T) {
+	wfCtx := &workflow.Context{CurrentState: "x"}
+	_, _, err := hydrateWorkflowContextLists(context.Background(), listLoadErrorStore{}, "wf-1", wfCtx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load workflow history")
+}
+
+// TestAppendWorkflowListDelta_NoNewItemsSkipsWrite covers the early-return
+// branch when the in-memory slice length matches the tracker — no
+// AppendList call should be made and the tracker is unchanged.
+func TestAppendWorkflowListDelta_NoNewItemsSkipsWrite(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	ctx := context.Background()
+
+	// Seed the store so we can detect any unexpected write.
+	require.NoError(t, store.AppendList(ctx, "wf-1", "events", [][]byte{[]byte(`"x"`)}))
+
+	tracker := 1
+	err := appendWorkflowListDelta(ctx, store, "wf-1", "events",
+		[]string{"x"}, &tracker)
+	require.NoError(t, err)
+	assert.Equal(t, 1, tracker)
+
+	n, err := store.ListLen(ctx, "wf-1", "events")
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+}
+
+// listAppendErrorStore satisfies the interfaces needed by
+// persistWorkflowContext but every AppendList call fails — exercises the
+// warn-and-continue branches inside persistWorkflowContext.
+type listAppendErrorStore struct{ readOnlyStore }
+
+func (listAppendErrorStore) LoadMetadata(_ context.Context, _ string) (map[string]any, error) {
+	return nil, nil
+}
+func (listAppendErrorStore) MergeMetadata(_ context.Context, _ string, _ map[string]any) error {
+	return nil
+}
+func (listAppendErrorStore) AppendList(_ context.Context, _, _ string, _ [][]byte) error {
+	return errors.New("simulated append failure")
+}
+func (listAppendErrorStore) LoadList(_ context.Context, _, _ string) ([][]byte, error) {
+	return nil, nil
+}
+func (listAppendErrorStore) ListLen(_ context.Context, _, _ string) (int, error) {
+	return 0, nil
+}
+
+func TestPersistWorkflowContext_AppendErrorsLoggedNotFatal(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States:  map[string]*workflow.State{"start": {PromptTask: "p1"}},
+	}
+	wc := &WorkflowConversation{
+		machine: pinHistory(spec, []workflow.StateTransition{{From: "a", To: "b"}}, []workflow.ArtifactSnapshot{
+			{FromState: "a", ToState: "b"},
+		}),
+		workflowSpec: spec,
+		stateStore:   listAppendErrorStore{},
+		workflowID:   "wf-1",
+	}
+
+	// Both AppendList calls fail; persist must log and return without
+	// panicking, and the trackers must not advance past the failed write.
+	wc.persistWorkflowContext()
+	assert.Equal(t, 0, wc.historyAppended)
+	assert.Equal(t, 0, wc.artifactHistoryAppended)
+}
+
+// TestExtractWorkflowContext_ValueType covers the workflow.Context (by
+// value) branch of extractWorkflowContext, which complements the
+// pointer/map branches already exercised.
+func TestExtractWorkflowContext_ValueType(t *testing.T) {
+	metadata := map[string]any{workflowCurrentKey: workflow.Context{CurrentState: "v"}}
+	got, err := extractWorkflowContext(metadata)
+	require.NoError(t, err)
+	assert.Equal(t, "v", got.CurrentState)
+}
+
+// TestHydrateWorkflowContextLists_RebuildsFromLists exercises the
+// reverse half of the split-storage round-trip: after appending entries
+// to the lists, a fresh hydrate populates History/ArtifactHistory and
+// returns the lengths the caller needs to seed delta trackers.
+func TestHydrateWorkflowContextLists_RebuildsFromLists(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	ctx := context.Background()
+
+	histA, _ := json.Marshal(workflow.StateTransition{From: "a", To: "b", Event: "X"})
+	histB, _ := json.Marshal(workflow.StateTransition{From: "b", To: "c", Event: "Y"})
+	require.NoError(t, store.AppendList(ctx, "wf-1", workflowHistoryListName, [][]byte{histA, histB}))
+
+	artA, _ := json.Marshal(workflow.ArtifactSnapshot{FromState: "a", ToState: "b", Event: "X"})
+	require.NoError(t, store.AppendList(ctx, "wf-1", workflowArtifactListName, [][]byte{artA}))
+
+	wfCtx := &workflow.Context{CurrentState: "c"}
+	historyLen, artHistLen, err := hydrateWorkflowContextLists(ctx, store, "wf-1", wfCtx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, historyLen)
+	assert.Equal(t, 1, artHistLen)
+	require.Len(t, wfCtx.History, 2)
+	assert.Equal(t, "a", wfCtx.History[0].From)
+	assert.Equal(t, "Y", wfCtx.History[1].Event)
+	require.Len(t, wfCtx.ArtifactHistory, 1)
+	assert.Equal(t, "a", wfCtx.ArtifactHistory[0].FromState)
 }

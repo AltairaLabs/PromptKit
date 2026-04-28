@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -12,6 +13,20 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
+)
+
+// Persisted-state keys for split workflow context storage.
+//
+// `workflowCurrentKey` lives in the conversation's user metadata hash and
+// holds the small struct (current_state, visit_counts, artifacts, etc.).
+// History and ArtifactHistory live in their own append-only lists keyed
+// by `workflowHistoryListName` and `workflowArtifactListName`. Splitting
+// keeps per-transition write cost O(1 new entry) instead of O(full
+// History) every time. See plans/2026-04-28-workflow-context-incremental-history.md.
+const (
+	workflowCurrentKey       = "workflow.current"
+	workflowHistoryListName  = "workflow.history"
+	workflowArtifactListName = "workflow.artifact_history"
 )
 
 // WorkflowConversation manages a stateful workflow that transitions between
@@ -49,7 +64,13 @@ type WorkflowConversation struct {
 	workflowCap         *WorkflowCapability
 	transExec           *workflow.TransitionExecutor
 	artifactExec        *workflow.ArtifactExecutor
-	closed              bool
+	// historyAppended is the length of machine.Context().History at the
+	// last persistWorkflowContext call. Used to compute the per-transition
+	// delta — only the new tail is RPUSH'd to the workflow.history list.
+	historyAppended int
+	// artifactHistoryAppended is the analogous tracker for ArtifactHistory.
+	artifactHistoryAppended int
+	closed                  bool
 }
 
 // defaultMaxSummaryMessages is the max messages to include in a carry-forward summary.
@@ -178,10 +199,18 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 		return nil, ErrConversationNotFound
 	}
 
-	// Extract workflow context from metadata
+	// Extract the small workflow.current view from metadata.
 	wfCtx, err := extractWorkflowContext(state.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restore workflow context: %w", err)
+	}
+
+	// Hydrate the append-only History / ArtifactHistory collections from
+	// their dedicated lists. The returned lengths seed the per-instance
+	// delta trackers so subsequent persists only RPUSH new entries.
+	historyLen, artifactHistoryLen, err := hydrateWorkflowContextLists(ctx, cfg.stateStore, workflowID, wfCtx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hydrate workflow context lists: %w", err)
 	}
 
 	spec := convertWorkflowSpec(p.Workflow)
@@ -206,16 +235,18 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 	}
 
 	wc := &WorkflowConversation{
-		machine:             machine,
-		workflowSpec:        spec,
-		packPath:            packPath,
-		sdkPack:             p,
-		activeConv:          conv,
-		opts:                opts,
-		stateStore:          cfg.stateStore,
-		workflowID:          workflowID,
-		contextCarryForward: cfg.contextCarryForward,
-		workflowCap:         wfCap,
+		machine:                 machine,
+		workflowSpec:            spec,
+		packPath:                packPath,
+		sdkPack:                 p,
+		activeConv:              conv,
+		opts:                    opts,
+		stateStore:              cfg.stateStore,
+		workflowID:              workflowID,
+		contextCarryForward:     cfg.contextCarryForward,
+		workflowCap:             wfCap,
+		historyAppended:         historyLen,
+		artifactHistoryAppended: artifactHistoryLen,
 	}
 	wc.emitter = conv.newEmitter(cfg.eventBus)
 
@@ -482,14 +513,22 @@ func extractMessageText(msg *types.Message) string {
 	return ""
 }
 
-// persistWorkflowContext saves the workflow context to the state store.
-// It respects the persistence hint on the current state: transient states skip writes.
+// persistWorkflowContext saves the workflow context to the state store
+// using the split storage layout: the small "current" view (everything
+// except the unbounded history collections) goes to a single field of the
+// metadata hash, while History and ArtifactHistory deltas are RPUSH'd to
+// their own append-only lists. This keeps per-transition write cost
+// O(1 new entry) regardless of conversation length.
 //
-// Uses MetadataAccessor.MergeMetadata when available — the typed, race-safe
-// path. Falls back to load-modify-BulkWrite for stores that lack typed
-// metadata writes.
+// It respects the persistence hint on the current state: transient states
+// skip writes.
+//
+// Requires the state store to implement both MetadataAccessor and
+// ListAccessor. Stores that don't satisfy both interfaces log an error
+// and skip the write — the workflow continues in memory but won't be
+// recoverable. All built-in stores (MemoryStore, RedisStore, ArenaStateStore)
+// satisfy both.
 func (wc *WorkflowConversation) persistWorkflowContext() {
-	// Check if current state is transient
 	currentState := wc.machine.CurrentState()
 	if wc.workflowSpec != nil {
 		if st, ok := wc.workflowSpec.States[currentState]; ok {
@@ -502,54 +541,94 @@ func (wc *WorkflowConversation) persistWorkflowContext() {
 	ctx := context.Background()
 	wfCtx := wc.machine.Context()
 
-	if accessor, ok := wc.stateStore.(statestore.MetadataAccessor); ok {
-		if err := accessor.MergeMetadata(ctx, wc.workflowID, map[string]any{"workflow": wfCtx}); err != nil {
-			logger.Warn("failed to persist workflow context",
-				"workflow_id", wc.workflowID, "error", err)
-		}
+	accessor, hasMeta := wc.stateStore.(statestore.MetadataAccessor)
+	listAcc, hasList := wc.stateStore.(statestore.ListAccessor)
+	if !hasMeta || !hasList {
+		logger.Error("workflow context not persisted: state store missing required interfaces",
+			"workflow_id", wc.workflowID,
+			"has_metadata_accessor", hasMeta,
+			"has_list_accessor", hasList)
 		return
 	}
 
-	bulkWriter, ok := wc.stateStore.(statestore.BulkWriter)
-	if !ok {
-		logger.Warn("workflow context not persisted: store implements neither MetadataAccessor nor BulkWriter",
-			"workflow_id", wc.workflowID)
-		return
-	}
-
-	state, err := wc.stateStore.Load(ctx, wc.workflowID)
-	if err != nil {
-		logger.Warn("failed to load workflow state, creating fresh state",
+	// 1. Write the small "current" view — everything except the
+	// append-only history collections, which live in their own lists.
+	current := *wfCtx
+	current.History = nil
+	current.ArtifactHistory = nil
+	if err := accessor.MergeMetadata(ctx, wc.workflowID, map[string]any{
+		workflowCurrentKey: current,
+	}); err != nil {
+		logger.Warn("failed to persist workflow.current",
 			"workflow_id", wc.workflowID, "error", err)
 	}
-	if err != nil || state == nil {
-		state = &statestore.ConversationState{
-			ID:       wc.workflowID,
-			Metadata: make(map[string]any),
-		}
+
+	// 2. Append History delta — only entries added since the last persist.
+	if err := appendWorkflowListDelta(ctx, listAcc, wc.workflowID, workflowHistoryListName,
+		wfCtx.History, &wc.historyAppended,
+	); err != nil {
+		logger.Warn("failed to append workflow.history delta",
+			"workflow_id", wc.workflowID, "error", err)
 	}
-	if state.Metadata == nil {
-		state.Metadata = make(map[string]any)
-	}
-	state.Metadata["workflow"] = wfCtx
-	if err := bulkWriter.Save(ctx, state); err != nil {
-		logger.Warn("failed to persist workflow context", "workflow_id", wc.workflowID, "error", err)
+
+	// 3. Append ArtifactHistory delta.
+	if err := appendWorkflowListDelta(ctx, listAcc, wc.workflowID, workflowArtifactListName,
+		wfCtx.ArtifactHistory, &wc.artifactHistoryAppended,
+	); err != nil {
+		logger.Warn("failed to append workflow.artifact_history delta",
+			"workflow_id", wc.workflowID, "error", err)
 	}
 }
 
-// extractWorkflowContext extracts and deserializes workflow.Context from state metadata.
+// appendWorkflowListDelta marshals only the new tail of items (those past
+// *appended) and appends them to the named list. On success it advances
+// *appended to len(items) so the next call computes the correct delta.
+// Returns nil with no write when there are no new items.
+func appendWorkflowListDelta[T any](
+	ctx context.Context,
+	listAcc statestore.ListAccessor,
+	id, listName string,
+	items []T,
+	appended *int,
+) error {
+	if *appended >= len(items) {
+		return nil
+	}
+	delta := items[*appended:]
+	encoded := make([][]byte, len(delta))
+	for i, item := range delta {
+		b, err := json.Marshal(item)
+		if err != nil {
+			return fmt.Errorf("marshal item %d in %q: %w", *appended+i, listName, err)
+		}
+		encoded[i] = b
+	}
+	if err := listAcc.AppendList(ctx, id, listName, encoded); err != nil {
+		return err
+	}
+	*appended = len(items)
+	return nil
+}
+
+// extractWorkflowContext extracts and deserializes the small workflow
+// "current" view from state metadata. The returned Context has nil
+// History and ArtifactHistory — those are stored in append-only lists
+// and must be hydrated separately via hydrateWorkflowContextLists.
 func extractWorkflowContext(metadata map[string]any) (*workflow.Context, error) {
-	raw, ok := metadata["workflow"]
+	raw, ok := metadata[workflowCurrentKey]
 	if !ok {
 		return nil, fmt.Errorf("no workflow context in metadata")
 	}
 
-	// Handle both direct *workflow.Context and JSON-deserialized map
 	switch v := raw.(type) {
 	case *workflow.Context:
 		return v, nil
+	case workflow.Context:
+		return &v, nil
 	case map[string]any:
-		// Re-serialize and deserialize through JSON for type safety
+		// Re-serialize and deserialize through JSON for type safety —
+		// stores that round-trip through JSON (RedisStore) hand back a
+		// generic map.
 		data, err := json.Marshal(v)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal workflow context: %w", err)
@@ -562,6 +641,58 @@ func extractWorkflowContext(metadata map[string]any) (*workflow.Context, error) 
 	default:
 		return nil, fmt.Errorf("unexpected workflow context type: %T", raw)
 	}
+}
+
+// hydrateWorkflowContextLists loads History and ArtifactHistory from the
+// state store's append-only lists and assigns them onto wfCtx. Returns
+// the loaded slice lengths so the caller can initialize the per-instance
+// delta trackers (historyAppended, artifactHistoryAppended) — without
+// these the next persist would re-RPUSH the entire history.
+func hydrateWorkflowContextLists(
+	ctx context.Context,
+	store statestore.Store,
+	id string,
+	wfCtx *workflow.Context,
+) (historyLen, artifactHistoryLen int, err error) {
+	listAcc, ok := store.(statestore.ListAccessor)
+	if !ok {
+		return 0, 0, fmt.Errorf("workflow restore: state store does not implement ListAccessor")
+	}
+
+	history, err := loadWorkflowList[workflow.StateTransition](ctx, listAcc, id, workflowHistoryListName)
+	if err != nil {
+		return 0, 0, fmt.Errorf("load workflow history: %w", err)
+	}
+	wfCtx.History = history
+
+	artHist, err := loadWorkflowList[workflow.ArtifactSnapshot](ctx, listAcc, id, workflowArtifactListName)
+	if err != nil {
+		return 0, 0, fmt.Errorf("load workflow artifact history: %w", err)
+	}
+	wfCtx.ArtifactHistory = artHist
+
+	return len(history), len(artHist), nil
+}
+
+func loadWorkflowList[T any](
+	ctx context.Context,
+	listAcc statestore.ListAccessor,
+	id, listName string,
+) ([]T, error) {
+	items, err := listAcc.LoadList(ctx, id, listName)
+	if err != nil && !errors.Is(err, statestore.ErrNotFound) {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([]T, len(items))
+	for i, raw := range items {
+		if err := json.Unmarshal(raw, &out[i]); err != nil {
+			return nil, fmt.Errorf("decode item %d in %q: %w", i, listName, err)
+		}
+	}
+	return out, nil
 }
 
 // convertWorkflowSpec converts the SDK's internal pack.WorkflowSpec to a
