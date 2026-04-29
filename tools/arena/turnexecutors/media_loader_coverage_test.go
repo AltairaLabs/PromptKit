@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func newLocalServer(t *testing.T, handler http.Handler) *httptest.Server {
@@ -461,6 +462,11 @@ func TestLoadAudioFromFile_Success(t *testing.T) {
 	assert.Equal(t, types.ContentTypeAudio, part.Type)
 	assert.NotNil(t, part.Media)
 	assert.Equal(t, types.MIMETypeAudioWAV, part.Media.MIMEType)
+	// FilePath must be preserved alongside Data so the HTML report
+	// can resolve the audio source instead of falling through to
+	// the "inline data" placeholder. Regression for #1065.
+	require.NotNil(t, part.Media.FilePath)
+	assert.Equal(t, "audio.wav", *part.Media.FilePath)
 }
 
 func TestLoadAudioFromFile_FileNotFound(t *testing.T) {
@@ -484,6 +490,9 @@ func TestLoadVideoFromFile_Success(t *testing.T) {
 	assert.Equal(t, types.ContentTypeVideo, part.Type)
 	assert.NotNil(t, part.Media)
 	assert.Equal(t, types.MIMETypeVideoWebM, part.Media.MIMEType)
+	// FilePath preserved — see TestLoadAudioFromFile_Success.
+	require.NotNil(t, part.Media.FilePath)
+	assert.Equal(t, "video.webm", *part.Media.FilePath)
 }
 
 func TestLoadVideoFromFile_FileNotFound(t *testing.T) {

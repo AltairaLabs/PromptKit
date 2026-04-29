@@ -356,6 +356,10 @@ func loadAudioFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 	// renderer handles WAV wrapping for browser playback independently
 	// via the recording/externalization path.
 	part := types.NewAudioPartFromData(data, mimeType)
+	// Preserve original file path for the HTML report so the rendered
+	// <audio> tag can resolve to the file on disk instead of falling
+	// back to the "inline data" placeholder. Mirrors loadImageFromFile.
+	part.Media.FilePath = &filePath
 	return part, nil
 }
 
@@ -368,7 +372,10 @@ func loadVideoFromFile(filePath, baseDir string, index int) (types.ContentPart, 
 		return types.ContentPart{}, err
 	}
 
-	return types.NewVideoPartFromData(data, mimeType), nil
+	part := types.NewVideoPartFromData(data, mimeType)
+	// Preserve original file path for the HTML report — see loadAudioFromFile.
+	part.Media.FilePath = &filePath
+	return part, nil
 }
 
 // convertDocumentPart converts a document content part, loading from storage reference, file, or URL if needed
