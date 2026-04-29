@@ -122,6 +122,17 @@ const (
 	EventTemplateRendered EventType = "prompt.template.rendered"
 	// EventTemplateFailed marks a template rendering failure.
 	EventTemplateFailed EventType = "prompt.template.failed"
+
+	// EventMediaStored marks media bytes written to a MediaStorageService.
+	EventMediaStored EventType = "media.stored"
+	// EventMediaRetrieved marks media bytes read from a MediaStorageService.
+	EventMediaRetrieved EventType = "media.retrieved"
+	// EventMediaDeleted marks media bytes removed from a MediaStorageService
+	// (either explicitly or as a side effect of a retention policy).
+	EventMediaDeleted EventType = "media.deleted"
+	// EventMediaStoreError marks any failure on the four MediaStorageService
+	// operations (Store / Retrieve / Delete / GetURL).
+	EventMediaStoreError EventType = "media.store_error"
 )
 
 // EventData is a marker interface for event payloads.
@@ -368,6 +379,29 @@ type CustomEventData struct {
 	EventName      string
 	Data           map[string]interface{}
 	Message        string
+}
+
+// MediaStorageEventData is the unified payload for all four
+// MediaStorageService lifecycle events (stored, retrieved, deleted,
+// store_error). Fields like SizeBytes/Reason/Error are zero-valued
+// when not applicable to the current operation.
+//
+// `Operation` distinguishes the call (`store` / `retrieve` / `delete` /
+// `get_url`) so a single subscription can sort errors by op without
+// branching on event type.
+type MediaStorageEventData struct {
+	baseEventData
+	Operation  string        // "store" | "retrieve" | "delete" | "get_url"
+	Backend    string        // "local", "s3", etc. — set by the wrapper from the inner type
+	Reference  string        // storage reference (path or backend-specific)
+	MIMEType   string        // set on store/retrieve when known
+	SizeBytes  int64         // set on store/retrieve when known
+	Duration   time.Duration // wall-clock latency of the operation
+	Reason     string        // set on delete: "explicit" | "policy:<name>"
+	Error      error         // set on store_error
+	RunID      string        // from MediaMetadata when available
+	MessageIdx int           // from MediaMetadata
+	PartIdx    int           // from MediaMetadata
 }
 
 // MessageToolCall represents a tool call in a message event (mirrors runtime/types.MessageToolCall).
