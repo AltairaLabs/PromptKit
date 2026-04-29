@@ -313,6 +313,12 @@ func (e *Engine) SetEventBus(bus events.Bus, opts ...EventBusOption) {
 	if e.evalOrchestrator != nil {
 		e.evalOrchestrator.SetEventBus(bus)
 	}
+	// Late-bind the bus on the instrumented media storage so storage
+	// lifecycle events can flow through. Built before the bus exists,
+	// so the wrapper started with a nil bus.
+	if instrumented, ok := e.mediaStorage.(*storage.InstrumentedStorage); ok {
+		instrumented.SetBus(bus)
+	}
 	// Enable RecordingStage so message.created events flow to the bus
 	if cfg.emitMessages {
 		e.EnableMessageEvents()
@@ -620,6 +626,11 @@ func (e *Engine) GetStateStore() statestore.Store {
 // It stores media files in the <output_dir>/media/ subdirectory using run-based organization.
 // This enables automatic externalization of large media content to reduce memory usage and
 // improve performance when processing media-heavy scenarios.
+//
+// The returned service is wrapped with InstrumentedStorage so every
+// store/retrieve/delete emits a runtime event and OTel span. The
+// event bus is bound later via Engine.SetEventBus → SetBus on the
+// wrapper; until then events are no-ops but spans still emit.
 func buildMediaStorage(cfg *config.Config) (storage.MediaStorageService, error) {
 	// Determine the media storage directory
 	outDir := cfg.Defaults.Output.Dir
@@ -640,5 +651,5 @@ func buildMediaStorage(cfg *config.Config) (storage.MediaStorageService, error) 
 		return nil, fmt.Errorf("failed to create media file store: %w", err)
 	}
 
-	return fileStore, nil
+	return storage.NewInstrumentedStorage(fileStore, nil, "local"), nil
 }
