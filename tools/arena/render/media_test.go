@@ -654,6 +654,138 @@ func TestRenderInlineImage(t *testing.T) {
 	}
 }
 
+func TestIsInlineDataOnly(t *testing.T) {
+	tests := []struct {
+		name  string
+		media *types.MediaContent
+		want  bool
+	}{
+		{"nil media", nil, false},
+		{"no data", &types.MediaContent{MIMEType: "audio/wav"}, false},
+		{
+			"data only — true",
+			&types.MediaContent{MIMEType: "audio/wav", Data: testutil.Ptr("AAA")},
+			true,
+		},
+		{
+			"data + filepath — false",
+			&types.MediaContent{
+				MIMEType: "audio/wav",
+				Data:     testutil.Ptr("AAA"),
+				FilePath: testutil.Ptr("/tmp/foo.wav"),
+			},
+			false,
+		},
+		{
+			"data + url — false",
+			&types.MediaContent{
+				MIMEType: "audio/wav",
+				Data:     testutil.Ptr("AAA"),
+				URL:      testutil.Ptr("https://example.com/foo.wav"),
+			},
+			false,
+		},
+		{
+			"data + storage ref — false",
+			&types.MediaContent{
+				MIMEType:         "audio/wav",
+				Data:             testutil.Ptr("AAA"),
+				StorageReference: testutil.Ptr("out/media/run-1/abc.wav"),
+			},
+			false,
+		},
+		{
+			"empty data string — false",
+			&types.MediaContent{MIMEType: "audio/wav", Data: testutil.Ptr("")},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isInlineDataOnly(tt.media); got != tt.want {
+				t.Errorf("isInlineDataOnly() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderInlineAudio(t *testing.T) {
+	tests := []struct {
+		name    string
+		part    types.ContentPart
+		want    []string
+		wantNot []string
+	}{
+		{
+			// Inline-data audio must render as a playable <audio> with
+			// a base64 data: URL — without this fix the user-input
+			// audio fell through to the "inline data" placeholder and
+			// nothing actually played in the report.
+			name: "wav with inline base64 renders <audio> with data URL",
+			part: types.ContentPart{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					MIMEType: "audio/wav",
+					Data:     testutil.Ptr("AAAA"),
+				},
+			},
+			want:    []string{"<audio", `<source src="data:audio/wav;base64,AAAA" type="audio/wav"`, "audio-player"},
+			wantNot: []string{"inline data", "audio-not-playable"},
+		},
+		{
+			name: "missing mime type defaults to audio/wav",
+			part: types.ContentPart{
+				Type:  types.ContentTypeAudio,
+				Media: &types.MediaContent{Data: testutil.Ptr("AAAA")},
+			},
+			want:    []string{"audio/wav"},
+			wantNot: []string{"inline data"},
+		},
+		{
+			// Raw PCM is not playable in browsers — same behavior as
+			// the file-backed renderer's "(raw PCM ...)" hint.
+			name: "raw pcm renders not-playable hint",
+			part: types.ContentPart{
+				Type: types.ContentTypeAudio,
+				Media: &types.MediaContent{
+					MIMEType: "audio/pcm",
+					Data:     testutil.Ptr("AAAA"),
+				},
+			},
+			want:    []string{"audio-not-playable", "raw PCM"},
+			wantNot: []string{"<audio"},
+		},
+		{
+			name: "nil media returns empty",
+			part: types.ContentPart{Type: types.ContentTypeAudio, Media: nil},
+			want: []string{},
+		},
+		{
+			name: "empty data returns empty",
+			part: types.ContentPart{
+				Type:  types.ContentTypeAudio,
+				Media: &types.MediaContent{MIMEType: "audio/wav", Data: testutil.Ptr("")},
+			},
+			want: []string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderInlineAudio(tt.part)
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("renderInlineAudio() missing %q\nGot: %s", want, got)
+				}
+			}
+			for _, wantNot := range tt.wantNot {
+				if strings.Contains(got, wantNot) {
+					t.Errorf("renderInlineAudio() unexpectedly contains %q\nGot: %s", wantNot, got)
+				}
+			}
+		})
+	}
+}
+
 func TestReportRelativeMediaPath(t *testing.T) {
 	tests := []struct {
 		name string

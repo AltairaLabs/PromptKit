@@ -212,34 +212,53 @@ func renderMessageWithMedia(msg types.Message) string {
 		html.WriteString(fmt.Sprintf("<div class='message-text'>%s</div>", renderedContent))
 	}
 
-	// Render inline images directly from Parts (to get actual image data)
+	// Render inline images and inline-only audio directly from Parts —
+	// these need access to the raw Media (image bytes / data URLs) the
+	// summary form doesn't carry.
+	inlineDataAudioIdx := make(map[int]bool)
 	if len(msg.Parts) > 0 {
-		for _, part := range msg.Parts {
-			if part.Type == types.ContentTypeImage && part.Media != nil {
+		for i, part := range msg.Parts {
+			if part.Media == nil {
+				continue
+			}
+			switch part.Type {
+			case types.ContentTypeImage:
 				html.WriteString(renderInlineImage(part))
+			case types.ContentTypeAudio:
+				if isInlineDataOnly(part.Media) {
+					html.WriteString(renderInlineAudio(part))
+					inlineDataAudioIdx[i] = true
+				}
 			}
 		}
 	}
 
-	// Render other media items (audio, video) with metadata cards
+	// Render other media items (audio with a real source, video) with
+	// metadata cards. Inline-data audio handled above is skipped to
+	// avoid double-rendering.
 	var mediaSummary *types.MediaSummary
 	if len(msg.Parts) > 0 {
 		mediaSummary = getMediaSummaryFromParts(msg.Parts)
 	}
 	if mediaSummary != nil && len(mediaSummary.MediaItems) > 0 {
-		// Check if there are any non-image media items
-		hasNonImageMedia := false
-		for _, item := range mediaSummary.MediaItems {
-			if item.Type != types.ContentTypeImage {
-				hasNonImageMedia = true
-				break
+		hasOtherMedia := false
+		for i, item := range mediaSummary.MediaItems {
+			if item.Type == types.ContentTypeImage {
+				continue
 			}
+			if item.Type == types.ContentTypeAudio && inlineDataAudioIdx[i] {
+				continue
+			}
+			hasOtherMedia = true
+			break
 		}
-		if hasNonImageMedia {
+		if hasOtherMedia {
 			html.WriteString("<div class='media-items'>")
-			for _, item := range mediaSummary.MediaItems {
-				// Skip images - they're rendered inline above
+			for i, item := range mediaSummary.MediaItems {
 				if item.Type == types.ContentTypeImage {
+					continue
+				}
+				if item.Type == types.ContentTypeAudio && inlineDataAudioIdx[i] {
 					continue
 				}
 				html.WriteString(renderMediaItem(item))
@@ -317,6 +336,61 @@ func renderInlineImage(part types.ContentPart) string {
 			sizeStr,
 		)
 	}
+}
+
+// isInlineDataOnly reports whether the media content has inline base64
+// Data set but no playable/resolvable source (no FilePath, URL, or
+// StorageReference). The audio/video renderer uses this to fall back
+// to a `data:` URL instead of the unhelpful "inline data" placeholder.
+func isInlineDataOnly(media *types.MediaContent) bool {
+	if media == nil || media.Data == nil || *media.Data == "" {
+		return false
+	}
+	if media.FilePath != nil && *media.FilePath != "" {
+		return false
+	}
+	if media.URL != nil && *media.URL != "" {
+		return false
+	}
+	if media.StorageReference != nil && *media.StorageReference != "" {
+		return false
+	}
+	return true
+}
+
+// renderInlineAudio emits a playable HTML5 audio element backed by an
+// inline base64 data URL. Used when an audio part has only Media.Data
+// (no FilePath/URL/StorageReference) — without this, such parts fell
+// through to the "inline data" string label and were unplayable.
+//
+// The audio is embedded directly in the HTML rather than externalized.
+// For the typical user-input audio case this is fine; very large
+// payloads should be externalized upstream by MediaExternalizerStage.
+func renderInlineAudio(part types.ContentPart) string {
+	if part.Media == nil || part.Media.Data == nil || *part.Media.Data == "" {
+		return ""
+	}
+	mimeType := part.Media.MIMEType
+	if mimeType == "" {
+		mimeType = "audio/wav"
+	}
+	// Browsers can't play raw PCM via <audio>; render the same
+	// "(raw PCM - not directly playable)" hint as the file-backed path.
+	if getPlayableAudioMIME("", mimeType) == "" {
+		return `<div class="audio-not-playable">(raw PCM - not directly playable)</div>`
+	}
+	return fmt.Sprintf(`
+        <div class="audio-player">
+            <audio controls preload="metadata">
+                <source src="data:%s;base64,%s" type="%s">
+                Your browser does not support audio playback.
+            </audio>
+        </div>
+    `,
+		template.HTMLEscapeString(mimeType),
+		template.HTMLEscapeString(*part.Media.Data),
+		template.HTMLEscapeString(mimeType),
+	)
 }
 
 // getMediaSummaryFromParts generates a MediaSummary from ContentParts.
