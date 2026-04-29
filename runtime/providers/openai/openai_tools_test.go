@@ -1149,6 +1149,50 @@ func TestBuildToolRequest_AudioModalities(t *testing.T) {
 	}
 }
 
+// TestBuildToolRequest_AudioModalities_TextInput is the tools-path
+// regression for #1066. Without the fix, audio modality config was
+// dropped on text-only inputs, so the OpenAI request omitted both the
+// modalities slice and the audio block — and the API returned a 400.
+func TestBuildToolRequest_AudioModalities_TextInput(t *testing.T) {
+	provider := NewToolProvider(
+		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 100},
+		false, nil, nil,
+	)
+	provider.apiMode = APIModeCompletions
+	provider.additionalConfig = map[string]any{
+		"modalities":   []any{"text", "audio"},
+		"voice":        "alloy",
+		"audio_format": "wav",
+	}
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role:  "user",
+			Parts: []types.ContentPart{types.NewTextPart("Read this aloud")},
+		}},
+	}
+
+	result := provider.buildToolRequest(req, nil, "")
+
+	mods, ok := result["modalities"].([]string)
+	if !ok {
+		t.Fatalf("modalities missing or wrong type: %T %v", result["modalities"], result["modalities"])
+	}
+	hasAudio := false
+	for _, m := range mods {
+		if m == "audio" {
+			hasAudio = true
+		}
+	}
+	if !hasAudio {
+		t.Errorf("modalities = %v, should contain 'audio' on text-only input when configured", mods)
+	}
+	if _, ok := result["audio"].(map[string]interface{}); !ok {
+		t.Error("audio output config missing on text-only input when modalities configured")
+	}
+}
+
 // TestPredictStreamWithTools_AudioFormat_PCM16 verifies that the tools streaming
 // path overrides buildToolRequest's default "wav" audio format to "pcm16", which
 // is required by OpenAI when stream=true.

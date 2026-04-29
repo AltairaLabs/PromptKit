@@ -303,6 +303,14 @@ func hasModality(modalities []string, target string) bool {
 	return false
 }
 
+// hasAudioOutputConfigured reports whether additional_config explicitly
+// asks for audio output. Used by the request builders to honor the
+// configured modalities even on text-only inputs — without this check,
+// text-in / audio-out callers were silently dropped.
+func hasAudioOutputConfigured(additionalConfig map[string]any) bool {
+	return hasModality(getAudioModalities(additionalConfig), "audio")
+}
+
 // applyAudioModalities sets the "modalities" and optional "audio" fields on
 // an OpenAI request map. formatFallback is used when additional_config does
 // not specify audio_format (e.g. "wav" for non-streaming, "pcm16" for streaming).
@@ -326,7 +334,8 @@ func applyAudioModalities(openAIReq map[string]interface{}, additionalConfig map
 func (p *Provider) enrichRequest(
 	openAIReq map[string]interface{}, req *providers.PredictionRequest, audioFmtFallback string,
 ) {
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(req) {
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) &&
+		(requestContainsAudio(req) || hasAudioOutputConfigured(p.additionalConfig)) {
 		applyAudioModalities(openAIReq, p.additionalConfig, audioFmtFallback)
 	}
 	temperature, topP, maxTokens := p.applyRequestDefaults(*req)

@@ -1674,6 +1674,133 @@ func TestGetStringConfigOrDefault(t *testing.T) {
 	}
 }
 
+// TestPredict_AudioModel_TextInputAudioOutputConfig is the regression
+// test for #1066. Before the fix, the openai provider only forwarded
+// configured audio modalities when the input contained audio — so
+// text-in / audio-out callers (TTS-style use of gpt-4o-audio-preview)
+// hit a 400 from OpenAI: "this model requires that either input
+// content or output modality contain audio". With the explicit
+// modalities config now honored, the request must carry both the
+// modalities slice and the audio block even with a pure text input.
+func TestPredict_AudioModel_TextInputAudioOutputConfig(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{
+			"api_mode":     "completions",
+			"modalities":   []any{"text", "audio"},
+			"voice":        "alloy",
+			"audio_format": "wav",
+		},
+	)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Say hello aloud."),
+			},
+		}},
+	}
+
+	if _, err := provider.Predict(context.Background(), req); err != nil {
+		t.Fatalf("Predict failed: %v", err)
+	}
+
+	mods, ok := capturedReq["modalities"].([]any)
+	if !ok {
+		t.Fatalf("expected modalities in request, got: %v", capturedReq)
+	}
+	if len(mods) != 2 || mods[0] != "text" || mods[1] != "audio" {
+		t.Errorf("modalities = %v, want [text, audio]", mods)
+	}
+	audioCfg, ok := capturedReq["audio"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected audio block in request, got: %v", capturedReq)
+	}
+	if voice, _ := audioCfg["voice"].(string); voice != "alloy" {
+		t.Errorf("audio.voice = %q, want alloy", voice)
+	}
+	if format, _ := audioCfg["format"].(string); format != "wav" {
+		t.Errorf("audio.format = %q, want wav", format)
+	}
+}
+
+// TestPredict_AudioModel_TextInputNoModalitiesConfig pins the
+// default-off behavior: a text-only request with no modalities
+// configured must not get a "modalities" key at all (preserves the
+// pre-#1066 path for text-only callers).
+func TestPredict_AudioModel_TextInputNoModalitiesConfig(t *testing.T) {
+	var capturedReq map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+			t.Errorf("failed to decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-4o-audio-preview", server.URL,
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"}, // no "modalities" key
+	)
+
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{
+			Role: "user",
+			Parts: []types.ContentPart{
+				types.NewTextPart("Just text, no audio expected."),
+			},
+		}},
+	}
+
+	if _, err := provider.Predict(context.Background(), req); err != nil {
+		t.Fatalf("Predict failed: %v", err)
+	}
+
+	if _, has := capturedReq["modalities"]; has {
+		t.Errorf("modalities should be absent for text-only/no-config; got %v", capturedReq["modalities"])
+	}
+	if _, has := capturedReq["audio"]; has {
+		t.Errorf("audio block should be absent for text-only/no-config")
+	}
+}
+
+func TestHasAudioOutputConfigured(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  map[string]any
+		want bool
+	}{
+		{"nil config", nil, false},
+		{"no modalities key", map[string]any{"voice": "alloy"}, false},
+		{"text only", map[string]any{"modalities": []any{"text"}}, false},
+		{"text and audio", map[string]any{"modalities": []any{"text", "audio"}}, true},
+		{"audio only", map[string]any{"modalities": []any{"audio"}}, true},
+		{"case-insensitive Audio", map[string]any{"modalities": []any{"Text", "Audio"}}, true},
+		{"native []string", map[string]any{"modalities": []string{"text", "audio"}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasAudioOutputConfigured(tt.cfg); got != tt.want {
+				t.Errorf("hasAudioOutputConfigured() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHasModality(t *testing.T) {
 	tests := []struct {
 		name       string

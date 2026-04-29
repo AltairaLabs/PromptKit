@@ -256,8 +256,13 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 		openaiReq["seed"] = *req.Seed
 	}
 
-	// Apply audio output modalities from additional_config for audio models.
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) && requestContainsAudio(&req) {
+	// Apply audio output modalities for audio models. Two trigger conditions:
+	//   - request already contains audio input (legacy behavior), or
+	//   - additional_config explicitly asks for audio output (text-in/audio-out).
+	// Without the second clause, configured modalities were silently dropped on
+	// text-only inputs and OpenAI rejected the request as "must contain audio".
+	if p.apiMode == APIModeCompletions && isAudioModel(p.model) &&
+		(requestContainsAudio(&req) || hasAudioOutputConfigured(p.additionalConfig)) {
 		applyAudioModalities(openaiReq, p.additionalConfig, "wav")
 	}
 
