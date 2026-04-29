@@ -133,10 +133,6 @@ func renderAudioPlayer(source, mimeType string) string {
 		return `<div class="audio-not-playable">(raw PCM - not directly playable)</div>`
 	}
 
-	// Make path relative to report location (report is in out/, media is in out/media/)
-	// Strip "out/" prefix if present since report.html is served from out/
-	relativePath := strings.TrimPrefix(source, "out/")
-
 	return fmt.Sprintf(`
         <div class="audio-player">
             <audio controls preload="metadata">
@@ -144,7 +140,16 @@ func renderAudioPlayer(source, mimeType string) string {
                 Your browser does not support audio playback.
             </audio>
         </div>
-    `, template.HTMLEscapeString(relativePath), playableMIME)
+    `, template.HTMLEscapeString(reportRelativeMediaPath(source)), playableMIME)
+}
+
+// reportRelativeMediaPath converts a storage path or media file path into
+// a path that resolves relative to the rendered HTML report. The report
+// lives at <out_dir>/report.html and externalized media lives at
+// <out_dir>/media/...; the renderer strips the "out/" prefix so the
+// browser resolves "media/..." against the report's directory.
+func reportRelativeMediaPath(source string) string {
+	return strings.TrimPrefix(source, "out/")
 }
 
 // getPlayableAudioMIME returns the MIME type for playable audio, or empty if not playable.
@@ -260,21 +265,20 @@ func renderInlineImage(part types.ContentPart) string {
 		source = *part.Media.FilePath
 	} else if part.Media.URL != nil && *part.Media.URL != "" {
 		source = *part.Media.URL
+	} else if part.Media.StorageReference != nil && *part.Media.StorageReference != "" {
+		source = *part.Media.StorageReference
 	}
-
-	// Build the image HTML
-	var imgHTML string
 
 	// Image styling for inline display
 	const imgStyle = "max-width: 100%; max-height: 400px; border-radius: 4px; margin: 8px 0;"
 
-	// Check if we have inline data
-	if part.Media.Data != nil && *part.Media.Data != "" {
+	switch {
+	case part.Media.Data != nil && *part.Media.Data != "":
 		mimeType := part.Media.MIMEType
 		if mimeType == "" {
 			mimeType = "image/png" // Default
 		}
-		imgHTML = fmt.Sprintf(
+		return fmt.Sprintf(
 			`<div class="inline-image"><img src="data:%s;base64,%s" alt=%q title=%q style=%q /></div>`,
 			template.HTMLEscapeString(mimeType),
 			template.HTMLEscapeString(*part.Media.Data),
@@ -282,29 +286,37 @@ func renderInlineImage(part types.ContentPart) string {
 			source,
 			imgStyle,
 		)
-	} else if part.Media.URL != nil && *part.Media.URL != "" {
-		// Use URL directly if no inline data
-		imgHTML = fmt.Sprintf(
+	case part.Media.URL != nil && *part.Media.URL != "":
+		return fmt.Sprintf(
 			`<div class="inline-image"><img src=%q alt=%q title=%q style=%q /></div>`,
 			*part.Media.URL,
 			truncateSource(source, maxSourceLength),
 			source,
 			imgStyle,
 		)
-	} else {
+	case part.Media.StorageReference != nil && *part.Media.StorageReference != "":
+		// Externalized by MediaExternalizerStage: load from disk via the
+		// path the storage reference resolves to. The report sits next to
+		// the media directory, so a report-relative URL is enough.
+		return fmt.Sprintf(
+			`<div class="inline-image"><img src=%q alt=%q title=%q style=%q /></div>`,
+			template.HTMLEscapeString(reportRelativeMediaPath(*part.Media.StorageReference)),
+			truncateSource(source, maxSourceLength),
+			source,
+			imgStyle,
+		)
+	default:
 		// No displayable data - show placeholder with metadata
 		sizeStr := ""
 		if part.Media.SizeKB != nil {
 			sizeStr = fmt.Sprintf(" (%s)", formatBytes(int(*part.Media.SizeKB*bytesPerKB)))
 		}
-		imgHTML = fmt.Sprintf(
+		return fmt.Sprintf(
 			`<div class="inline-image-placeholder">🖼️ <span class="image-source">%s</span>%s</div>`,
 			template.HTMLEscapeString(truncateSource(source, maxSourceLength)),
 			sizeStr,
 		)
 	}
-
-	return imgHTML
 }
 
 // getMediaSummaryFromParts generates a MediaSummary from ContentParts.
