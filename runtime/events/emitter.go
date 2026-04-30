@@ -451,24 +451,6 @@ func (e *Emitter) ConversationStarted(systemPrompt string) {
 	})
 }
 
-// AudioInput emits the audio.input event for recording user/environment audio.
-func (e *Emitter) AudioInput(data *AudioInputData) {
-	if data == nil {
-		return
-	}
-	data.Direction = "input"
-	e.emit(EventAudioInput, data)
-}
-
-// AudioOutput emits the audio.output event for recording assistant/model audio.
-func (e *Emitter) AudioOutput(data *AudioOutputData) {
-	if data == nil {
-		return
-	}
-	data.Direction = "output"
-	e.emit(EventAudioOutput, data)
-}
-
 // ClientToolRequest emits the tool.client.request event.
 func (e *Emitter) ClientToolRequest(data *ClientToolRequestData) {
 	if data == nil {
