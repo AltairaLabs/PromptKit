@@ -304,10 +304,14 @@ func (e *Engine) SetEventBus(bus events.Bus, opts ...EventBusOption) {
 	}
 
 	e.eventBus = bus
-	// Subscribe event store to bus if both are configured
+	// Subscribe event store to bus if both are configured. The subscription is
+	// scoped to low-rate replay-essential events that don't flow through the
+	// pipeline as StreamElement; high-frequency events (audio, messages, tools)
+	// are picked up by the pipeline tap.
 	if e.eventStore != nil && bus != nil {
-		bus.SubscribeAll(e.eventStore.OnEvent)
-		logger.Debug("Subscribed event store for session recording")
+		bus.Subscribe(events.EventConversationStarted, e.eventStore.OnEvent)
+		bus.Subscribe(events.EventStreamInterrupted, e.eventStore.OnEvent)
+		logger.Debug("Subscribed event store for session recording (targeted)")
 	}
 	// Wire event bus to eval orchestrator for judge provider telemetry
 	if e.evalOrchestrator != nil {
@@ -373,22 +377,40 @@ func (e *Engine) EnableSessionRecording(recordingDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create event store: %w", err)
 	}
-	e.eventStore = store
 	e.recordingDir = recordingDir
+	if err := e.EnableSessionRecordingWithStore(store); err != nil {
+		return err
+	}
+	logger.Info("Session recording enabled", "directory", recordingDir)
+	return nil
+}
 
-	// Subscribe store to existing event bus if present
+// EnableSessionRecordingWithStore enables session recording using a caller-provided
+// EventStore. Programmatic Arena consumers can inject any implementation: in-memory,
+// S3-backed, sampled, ring-buffered, etc. The dir-based EnableSessionRecording is
+// a thin wrapper that constructs a FileEventStore.
+func (e *Engine) EnableSessionRecordingWithStore(store events.EventStore) error {
+	if store == nil {
+		return fmt.Errorf("event store is required")
+	}
+	e.eventStore = store
+
+	// Subscribe store to existing event bus for low-rate replay-essential events
+	// that don't flow through the pipeline as StreamElement.
 	if e.eventBus != nil {
-		e.eventBus.SubscribeAll(store.OnEvent)
-		logger.Debug("Subscribed event store for session recording")
+		e.eventBus.Subscribe(events.EventConversationStarted, store.OnEvent)
+		e.eventBus.Subscribe(events.EventStreamInterrupted, store.OnEvent)
+		logger.Debug("Subscribed event store for session recording (targeted)")
 	}
 
-	// Enable RecordingStage in pipelines so message.created events are published
+	// Enable RecordingStage in pipelines so audio/messages/tools flow into the store
+	// via the pipeline tap (synchronous, never drops under burst).
 	if e.recordingConfig == nil {
 		defaults := stage.DefaultRecordingStageConfig()
 		e.recordingConfig = &defaults
 	}
 
-	logger.Info("Session recording enabled", "directory", recordingDir)
+	logger.Debug("Session recording wired with custom store")
 	return nil
 }
 

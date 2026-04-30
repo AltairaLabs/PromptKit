@@ -69,7 +69,7 @@ func TestEnableSessionRecordingWithEventBus(t *testing.T) {
 
 	// Verify store receives events by publishing one
 	eventBus.Publish(&events.Event{
-		Type:      events.EventPipelineStarted,
+		Type:      events.EventConversationStarted,
 		SessionID: "verify-session",
 	})
 	eventBus.Close()
@@ -108,7 +108,7 @@ func TestEnableSessionRecordingBeforeEventBus(t *testing.T) {
 
 	// Verify store receives events by publishing one
 	eventBus.Publish(&events.Event{
-		Type:      events.EventPipelineStarted,
+		Type:      events.EventConversationStarted,
 		SessionID: "verify-session",
 	})
 	eventBus.Close()
@@ -143,16 +143,10 @@ func TestSessionRecordingWritesEvents(t *testing.T) {
 	}
 	engine.SetEventBus(eventBus)
 
-	// Emit an event
+	// Emit an event subscribed by the targeted bus subscription
 	testSessionID := "test-session-456"
 	emitter := events.NewEmitter(eventBus, "test-run", testSessionID, "test-conv")
-	emitter.EmitCustom(
-		events.EventType("test.event"),
-		"TestMiddleware",
-		"test_event",
-		map[string]interface{}{"key": "value"},
-		"Test event message",
-	)
+	emitter.ConversationStarted("test system prompt")
 
 	// Give the event time to be written
 	time.Sleep(100 * time.Millisecond)
@@ -219,19 +213,17 @@ func TestRecordingIntegrationWithEventStore(t *testing.T) {
 		t.Fatal("Event store should be available")
 	}
 
-	// Emit several events with the same session ID
+	// Emit several events with the same session ID. The bus subscription is
+	// scoped to ConversationStarted and StreamInterrupted, so emit a mix of
+	// these to verify the targeted subscription wires up correctly.
 	testSessionID := "integration-test-session"
 	emitter := events.NewEmitter(eventBus, "test-run", testSessionID, "test-conv")
 
-	for i := 0; i < 5; i++ {
-		emitter.EmitCustom(
-			events.EventType("test.event"),
-			"TestMiddleware",
-			"test_event",
-			map[string]interface{}{"index": i},
-			"Test event message",
-		)
-	}
+	emitter.ConversationStarted("system prompt 1")
+	emitter.ConversationStarted("system prompt 2")
+	emitter.ConversationStarted("system prompt 3")
+	emitter.StreamInterrupted("user-cancel")
+	emitter.StreamInterrupted("timeout")
 
 	// Give events time to be written
 	time.Sleep(200 * time.Millisecond)
