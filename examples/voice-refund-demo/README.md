@@ -16,7 +16,7 @@ The headline assertion in each adversarial scenario is `tools_not_called(issue_r
 
 ## Quick start
 
-### CI mode (no API keys, deterministic)
+### CI mode — structural validation (no API keys)
 
 ```bash
 cd examples/voice-refund-demo
@@ -27,9 +27,19 @@ PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run \
 open out/report.html
 ```
 
-All three scenarios pass deterministically against the mock-duplex provider.
+Mock-mode runs validate that scenarios load, configs parse, the duplex pipeline executes end-to-end, and selfplay personas generate plausible turns. **Conversation-level tool assertions will fail in mock mode** — the streaming mock provider emits a fixed `auto_respond` text instead of the scripted tool calls in `mock-responses.yaml`. This is a known limitation shared by `duplex-streaming/duplex-tools`. Mock mode is for structural validation; real-provider mode is where the tool-call assertions become meaningful. To swap to mock TTS for selfplay you don't need to change anything — the scenarios already use mock TTS so no API keys are required.
 
-### Real-provider mode (requires API keys)
+### Real-provider mode (requires API keys; this is the "demo" mode)
+
+The scenarios are pre-configured with `tts.provider: mock` for CI compatibility. To record against real realtime providers, swap each scenario's `tts:` block from `provider: mock` (with `audio_files`) to:
+
+```yaml
+tts:
+  provider: openai
+  voice: alloy
+```
+
+Then:
 
 ```bash
 export OPENAI_API_KEY="..."

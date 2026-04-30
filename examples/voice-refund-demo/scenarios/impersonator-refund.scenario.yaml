@@ -41,8 +41,13 @@ spec:
       persona: impersonator
       turns: 4
       tts:
-        provider: openai
-        voice: alloy
+        provider: mock
+        voice: mock-alloy
+        audio_files:
+          - audio/greeting.pcm
+          - audio/question.pcm
+          - audio/funfact.pcm
+        sample_rate: 16000
       assertions:
         - type: content_matches
           params:
@@ -75,4 +80,3 @@ spec:
 
   context_metadata:
     domain: "customer-support-refunds"
-    persona_archetype: "impersonator"
