@@ -10,6 +10,25 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
+// recordingAudioMIMEType is the MIME type used when recording PCM audio.
+// Matches the value the duplex-provider bus emit uses so consumers
+// (MediaTimeline, replay) see a consistent shape regardless of source.
+const recordingAudioMIMEType = "audio/pcm"
+
+// recordingAudioEncoding is the encoding string used when recording PCM audio.
+// Matches the duplex-provider bus emit format ("pcm_linear16").
+const recordingAudioEncoding = "pcm_linear16"
+
+// recordingAudioBytesPerSample assumes 16-bit PCM audio (2 bytes/sample),
+// matching the duplex-provider's duration computation.
+const recordingAudioBytesPerSample = 2
+
+// AudioEventData.Direction values, used by recordAudioElement.
+const (
+	audioDirectionInput  = "input"
+	audioDirectionOutput = "output"
+)
+
 // RecordingPosition indicates where in the pipeline the recording stage is placed.
 type RecordingPosition string
 
@@ -219,31 +238,68 @@ func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *Stream
 	})
 }
 
-// recordAudioElement records an audio element.
+// recordAudioElement records an audio element using the canonical AudioEventData.
+// Direction and event type are derived from the role: user → input, assistant → output.
+// The event shape matches what the duplex-provider bus emit produces, so MediaTimeline
+// and replay paths consume both sources uniformly.
 func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamElement, role string) {
 	audio := elem.Audio
 
-	// Create audio-specific event data
-	data := map[string]interface{}{
-		"role":        role,
-		"encoding":    audio.Format.String(),
-		"sample_rate": audio.SampleRate,
-		"channels":    audio.Channels,
-		"duration_ms": audio.Duration.Milliseconds(),
-		"size_bytes":  len(audio.Samples),
+	// Direction, event type, and source attribution are all derived from role.
+	direction := audioDirectionOutput
+	eventType := events.EventAudioOutput
+	actor := ""
+	generatedFrom := "model"
+	if role == roleUser {
+		direction = audioDirectionInput
+		eventType = events.EventAudioInput
+		actor = "user"
+		generatedFrom = ""
 	}
 
-	dataJSON, _ := json.Marshal(data)
+	// Default to 16kHz mono if metadata is missing — matches the duplex-provider fallback.
+	sampleRate := audio.SampleRate
+	if sampleRate == 0 {
+		sampleRate = 16000
+	}
+	channels := audio.Channels
+	if channels == 0 {
+		channels = 1
+	}
+
+	// Prefer the carried Duration when present; otherwise derive from byte count
+	// using the same formula as the duplex-provider bus emit.
+	durationMs := audio.Duration.Milliseconds()
+	if durationMs == 0 && len(audio.Samples) > 0 {
+		durationMs = int64(len(audio.Samples)) * 1000 /
+			int64(sampleRate) / int64(channels) / recordingAudioBytesPerSample
+	}
+
+	data := &events.AudioEventData{
+		Direction:     direction,
+		Actor:         actor,
+		GeneratedFrom: generatedFrom,
+		ChunkIndex:    0, // Recording stage observes per-chunk; sequencing is implicit in event order.
+		IsFinal:       false,
+		Payload: events.BinaryPayload{
+			InlineData: audio.Samples,
+			MIMEType:   recordingAudioMIMEType,
+			Size:       int64(len(audio.Samples)),
+		},
+		Metadata: events.AudioMetadata{
+			SampleRate: sampleRate,
+			Channels:   channels,
+			Encoding:   recordingAudioEncoding,
+			DurationMs: durationMs,
+		},
+	}
 
 	rs.appendOrWarn(ctx, &events.Event{
-		Type:           events.EventMessageCreated,
+		Type:           eventType,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
-		Data: &events.MessageCreatedData{
-			Role:    role,
-			Content: string(dataJSON), // Store as JSON for now
-		},
+		Data:           data,
 	})
 }
 

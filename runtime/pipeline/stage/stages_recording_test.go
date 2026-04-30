@@ -407,7 +407,7 @@ func TestDefaultRecordingStageConfig(t *testing.T) {
 	assert.True(t, cfg.IncludeImages)
 }
 
-func TestRecordingStage_AudioElement(t *testing.T) {
+func TestRecordingStage_AudioElement_InputProducesAudioInputEvent(t *testing.T) {
 	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:     RecordingPositionInput,
@@ -420,8 +420,9 @@ func TestRecordingStage_AudioElement(t *testing.T) {
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
+	samples := make([]byte, 1024)
 	audio := &AudioData{
-		Samples:    make([]byte, 1024),
+		Samples:    samples,
 		SampleRate: 16000,
 		Channels:   1,
 		Format:     AudioFormatPCM16,
@@ -433,12 +434,103 @@ func TestRecordingStage_AudioElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	captured := store.filterByType(events.EventMessageCreated)
+	// Recording-stage tap should produce EventAudioInput, not EventMessageCreated.
+	assert.Empty(t, store.filterByType(events.EventMessageCreated),
+		"audio recording must not be emitted as message.created")
+
+	captured := store.filterByType(events.EventAudioInput)
 	require.Len(t, captured, 1)
-	data := captured[0].Data.(*events.MessageCreatedData)
-	assert.Equal(t, "user", data.Role)
-	assert.Contains(t, data.Content, "sample_rate")
-	assert.Contains(t, data.Content, "16000")
+	data, ok := captured[0].Data.(*events.AudioEventData)
+	require.True(t, ok, "expected *events.AudioEventData, got %T", captured[0].Data)
+
+	assert.Equal(t, "input", data.Direction)
+	assert.Equal(t, "user", data.Actor)
+	assert.Empty(t, data.GeneratedFrom, "input events should not set GeneratedFrom")
+	assert.Equal(t, samples, data.Payload.InlineData)
+	assert.Equal(t, "audio/pcm", data.Payload.MIMEType)
+	assert.Equal(t, int64(len(samples)), data.Payload.Size)
+	assert.Equal(t, 16000, data.Metadata.SampleRate)
+	assert.Equal(t, 1, data.Metadata.Channels)
+	assert.Equal(t, "pcm_linear16", data.Metadata.Encoding)
+	assert.Equal(t, int64(100), data.Metadata.DurationMs)
+	assert.Equal(t, "test-session", captured[0].SessionID)
+}
+
+func TestRecordingStage_AudioElement_OutputProducesAudioOutputEvent(t *testing.T) {
+	store := &fakeEventStore{}
+	config := RecordingStageConfig{
+		Position:     RecordingPositionOutput,
+		SessionID:    "test-session",
+		IncludeAudio: true,
+	}
+
+	stage := NewRecordingStage(store, config)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	samples := make([]byte, 2048)
+	audio := &AudioData{
+		Samples:    samples,
+		SampleRate: 24000,
+		Channels:   1,
+		Format:     AudioFormatPCM16,
+		Duration:   200 * time.Millisecond,
+	}
+	input <- StreamElement{Audio: audio, Timestamp: time.Now()}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	assert.Empty(t, store.filterByType(events.EventAudioInput),
+		"output position should not produce audio.input events")
+	captured := store.filterByType(events.EventAudioOutput)
+	require.Len(t, captured, 1)
+	data, ok := captured[0].Data.(*events.AudioEventData)
+	require.True(t, ok, "expected *events.AudioEventData, got %T", captured[0].Data)
+
+	assert.Equal(t, "output", data.Direction)
+	assert.Empty(t, data.Actor, "output events should not set Actor")
+	assert.Equal(t, "model", data.GeneratedFrom)
+	assert.Equal(t, samples, data.Payload.InlineData)
+	assert.Equal(t, 24000, data.Metadata.SampleRate)
+	assert.Equal(t, "pcm_linear16", data.Metadata.Encoding)
+	assert.Equal(t, int64(200), data.Metadata.DurationMs)
+}
+
+func TestRecordingStage_AudioElement_DurationDerivedFromBytes(t *testing.T) {
+	store := &fakeEventStore{}
+	config := RecordingStageConfig{
+		Position:     RecordingPositionInput,
+		SessionID:    "test-session",
+		IncludeAudio: true,
+	}
+
+	stage := NewRecordingStage(store, config)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// 16kHz mono 16-bit PCM, 3200 bytes = 1600 samples = 100ms.
+	audio := &AudioData{
+		Samples:    make([]byte, 3200),
+		SampleRate: 16000,
+		Channels:   1,
+		Format:     AudioFormatPCM16,
+		// Duration intentionally zero — recorder should derive it from byte count.
+	}
+	input <- StreamElement{Audio: audio, Timestamp: time.Now()}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	captured := store.filterByType(events.EventAudioInput)
+	require.Len(t, captured, 1)
+	data := captured[0].Data.(*events.AudioEventData)
+	assert.Equal(t, int64(100), data.Metadata.DurationMs,
+		"duration should be derived from byte count when AudioData.Duration is zero")
 }
 
 func TestRecordingStage_AudioExcluded(t *testing.T) {
