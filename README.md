@@ -38,9 +38,10 @@ PromptPack  ── open spec for portable prompts (JSON, vendor-neutral)
 ## Install
 
 ```bash
-git clone https://github.com/AltairaLabs/PromptKit.git && cd PromptKit
-make install-tools-user
+npm install -g @altairalabs/promptarena @altairalabs/packc
 ```
+
+Building from source: see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Quick Start
 
