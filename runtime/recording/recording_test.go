@@ -371,48 +371,45 @@ func TestDeserializeEventData(t *testing.T) {
 			},
 		},
 		{
-			name:     "StageStartedData",
+			name:     "MessageCreatedData",
+			dataType: "*events.MessageCreatedData",
+			data:     `{"role":"user","content":"hello"}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				data, ok := result.(*events.MessageCreatedData)
+				require.True(t, ok)
+				assert.Equal(t, "user", data.Role)
+				assert.Equal(t, "hello", data.Content)
+			},
+		},
+		{
+			name:     "VideoFrameData",
+			dataType: "*events.VideoFrameData",
+			data:     `{"frame_index":3}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				_, ok := result.(*events.VideoFrameData)
+				require.True(t, ok)
+			},
+		},
+		{
+			name:     "ToolCallStartedData maps to ToolCallEventData",
+			dataType: "*events.ToolCallStartedData",
+			data:     `{"ToolName":"search","CallID":"c1"}`,
+			check: func(t *testing.T, result events.EventData, err error) {
+				require.NoError(t, err)
+				data, ok := result.(*events.ToolCallEventData)
+				require.True(t, ok)
+				assert.Equal(t, "search", data.ToolName)
+			},
+		},
+		{
+			name:     "lifecycle types dropped from registry return nil",
 			dataType: "*events.StageStartedData",
-			data:     `{"Name":"test-stage","StageType":"provider"}`,
+			data:     `{"Name":"test-stage"}`,
 			check: func(t *testing.T, result events.EventData, err error) {
 				require.NoError(t, err)
-				data, ok := result.(*events.StageStartedData)
-				require.True(t, ok)
-				assert.Equal(t, "test-stage", data.Name)
-				assert.Equal(t, "provider", data.StageType)
-			},
-		},
-		{
-			name:     "MiddlewareStartedData",
-			dataType: "*events.MiddlewareStartedData",
-			data:     `{"Name":"logger","Index":0}`,
-			check: func(t *testing.T, result events.EventData, err error) {
-				require.NoError(t, err)
-				data, ok := result.(*events.MiddlewareStartedData)
-				require.True(t, ok)
-				assert.Equal(t, "logger", data.Name)
-			},
-		},
-		{
-			name:     "ValidationStartedData",
-			dataType: "*events.ValidationStartedData",
-			data:     `{"ValidatorName":"schema-validator"}`,
-			check: func(t *testing.T, result events.EventData, err error) {
-				require.NoError(t, err)
-				data, ok := result.(*events.ValidationStartedData)
-				require.True(t, ok)
-				assert.Equal(t, "schema-validator", data.ValidatorName)
-			},
-		},
-		{
-			name:     "ContextBuiltData",
-			dataType: "*events.ContextBuiltData",
-			data:     `{"TokenCount":1000}`,
-			check: func(t *testing.T, result events.EventData, err error) {
-				require.NoError(t, err)
-				data, ok := result.(*events.ContextBuiltData)
-				require.True(t, ok)
-				assert.Equal(t, 1000, data.TokenCount)
+				assert.Nil(t, result, "stage lifecycle events were trimmed from the registry")
 			},
 		},
 		{
@@ -558,43 +555,32 @@ func TestDeserializeEventData_ConsolidatedCanonical(t *testing.T) {
 			},
 		},
 		{
-			name:     "StageEventData canonical",
-			dataType: "*events.StageEventData",
-			data:     `{"Name":"provider","StageType":"generate"}`,
+			name:     "MessageCreatedData canonical",
+			dataType: "*events.MessageCreatedData",
+			data:     `{"role":"user","content":"hi"}`,
 			check: func(t *testing.T, result events.EventData) {
-				data, ok := result.(*events.StageEventData)
+				data, ok := result.(*events.MessageCreatedData)
 				require.True(t, ok)
-				assert.Equal(t, "provider", data.Name)
+				assert.Equal(t, "user", data.Role)
 			},
 		},
 		{
-			name:     "MiddlewareEventData canonical",
-			dataType: "*events.MiddlewareEventData",
-			data:     `{"Name":"auth","Index":0}`,
+			name:     "ConversationStartedData canonical",
+			dataType: "*events.ConversationStartedData",
+			data:     `{"SystemPrompt":"you are helpful"}`,
 			check: func(t *testing.T, result events.EventData) {
-				data, ok := result.(*events.MiddlewareEventData)
+				data, ok := result.(*events.ConversationStartedData)
 				require.True(t, ok)
-				assert.Equal(t, "auth", data.Name)
+				assert.Equal(t, "you are helpful", data.SystemPrompt)
 			},
 		},
 		{
-			name:     "ValidationEventData canonical",
-			dataType: "*events.ValidationEventData",
-			data:     `{"ValidatorName":"guard","ValidatorType":"output"}`,
+			name:     "StreamInterruptedData canonical",
+			dataType: "*events.StreamInterruptedData",
+			data:     `{}`,
 			check: func(t *testing.T, result events.EventData) {
-				data, ok := result.(*events.ValidationEventData)
+				_, ok := result.(*events.StreamInterruptedData)
 				require.True(t, ok)
-				assert.Equal(t, "guard", data.ValidatorName)
-			},
-		},
-		{
-			name:     "StateEventData canonical",
-			dataType: "*events.StateEventData",
-			data:     `{"ConversationID":"conv","MessageCount":3}`,
-			check: func(t *testing.T, result events.EventData) {
-				data, ok := result.(*events.StateEventData)
-				require.True(t, ok)
-				assert.Equal(t, "conv", data.ConversationID)
 			},
 		},
 		{
@@ -800,6 +786,144 @@ func TestSaveTo_WriteErrorPath(t *testing.T) {
 	err := rec.SaveTo("/nonexistent/dir/file.json", FormatJSON)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "write file")
+}
+
+// TestExportRoundTrip_HistoricalRecording verifies that recordings produced
+// before the eventDataRegistry trim still load correctly. Pre-trim recordings
+// may contain events whose DataType is no longer registered (e.g.,
+// "*events.StageStartedData"). Load() must preserve their raw Data as JSON
+// and ToTypedEvents() must gracefully skip the unknown type without erroring.
+//
+// The recording also contains entries the trimmed registry DOES recognize
+// (ConversationStarted, AudioInput, MessageCreated) which must continue to
+// deserialize to typed structs.
+func TestExportRoundTrip_HistoricalRecording(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "historical.recording.json")
+
+	baseTime := time.Now()
+	rec := &SessionRecording{
+		Metadata: Metadata{
+			SessionID:      "historical-session",
+			ConversationID: "conv-historical",
+			StartTime:      baseTime,
+			EndTime:        baseTime.Add(time.Second),
+			Duration:       time.Second,
+			EventCount:     5,
+			Version:        recordingVersion,
+			CreatedAt:      baseTime,
+		},
+		Events: []RecordedEvent{
+			{
+				Sequence:       1,
+				Type:           events.EventConversationStarted,
+				Timestamp:      baseTime,
+				SessionID:      "historical-session",
+				ConversationID: "conv-historical",
+				DataType:       "*events.ConversationStartedData",
+				Data:           json.RawMessage(`{"SystemPrompt":"you are helpful"}`),
+			},
+			{
+				// Pre-trim recordings included stage lifecycle events under
+				// the bus.SubscribeAll strategy. After the trim this DataType
+				// is no longer registered, but the raw Data must still load.
+				Sequence:       2,
+				Type:           "stage.started",
+				Timestamp:      baseTime.Add(100 * time.Millisecond),
+				SessionID:      "historical-session",
+				ConversationID: "conv-historical",
+				DataType:       "*events.StageStartedData",
+				Data:           json.RawMessage(`{"Name":"provider","StageType":"generate"}`),
+			},
+			{
+				// A guaranteed-unknown DataType — exercises the
+				// graceful-degradation branch regardless of registry shape.
+				Sequence:       3,
+				Type:           "synthetic.never_registered",
+				Timestamp:      baseTime.Add(150 * time.Millisecond),
+				SessionID:      "historical-session",
+				ConversationID: "conv-historical",
+				DataType:       "*events.NeverRegisteredFakeData",
+				Data:           json.RawMessage(`{"foo":"bar"}`),
+			},
+			{
+				Sequence:       4,
+				Type:           events.EventAudioInput,
+				Timestamp:      baseTime.Add(200 * time.Millisecond),
+				SessionID:      "historical-session",
+				ConversationID: "conv-historical",
+				DataType:       "*events.AudioInputData",
+				Data: json.RawMessage(
+					`{"actor":"user","chunk_index":0,"payload":{"inline_data":"AQID","mime_type":"audio/pcm","size":3}}`,
+				),
+			},
+			{
+				Sequence:       5,
+				Type:           events.EventMessageCreated,
+				Timestamp:      baseTime.Add(300 * time.Millisecond),
+				SessionID:      "historical-session",
+				ConversationID: "conv-historical",
+				DataType:       "*events.MessageCreatedData",
+				Data:           json.RawMessage(`{"role":"user","content":"hi"}`),
+			},
+		},
+	}
+
+	require.NoError(t, rec.SaveTo(path, FormatJSON))
+
+	loaded, err := Load(path)
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+
+	// All events must round-trip — including the ones with unrecognized
+	// (current or future) DataTypes.
+	require.Len(t, loaded.Events, 5)
+
+	// Raw Data is preserved for every event regardless of registry coverage.
+	for i, ev := range loaded.Events {
+		require.NotEmpty(t, ev.Data, "event %d (%s) lost raw Data", i, ev.Type)
+		require.NotEmpty(t, ev.DataType, "event %d (%s) lost DataType", i, ev.Type)
+	}
+
+	// The pre-trim stage event keeps its raw JSON intact regardless of
+	// whether the registry still recognizes it.
+	stageEvent := loaded.Events[1]
+	assert.Equal(t, events.EventType("stage.started"), stageEvent.Type)
+	assert.Equal(t, "*events.StageStartedData", stageEvent.DataType)
+	var stageRaw map[string]any
+	require.NoError(t, json.Unmarshal(stageEvent.Data, &stageRaw))
+	assert.Equal(t, "provider", stageRaw["Name"])
+
+	// The guaranteed-unknown event also keeps its raw JSON.
+	unknownEvent := loaded.Events[2]
+	assert.Equal(t, "*events.NeverRegisteredFakeData", unknownEvent.DataType)
+	var unknownRaw map[string]any
+	require.NoError(t, json.Unmarshal(unknownEvent.Data, &unknownRaw))
+	assert.Equal(t, "bar", unknownRaw["foo"])
+
+	// ToTypedEvents must not error on unknown types. Recognized types
+	// deserialize to typed structs; unknown types result in nil Data
+	// (forward-compatibility contract).
+	typed, err := loaded.ToTypedEvents()
+	require.NoError(t, err)
+	require.Len(t, typed, 5)
+
+	convData, ok := typed[0].Data.(*events.ConversationStartedData)
+	require.True(t, ok, "expected *events.ConversationStartedData, got %T", typed[0].Data)
+	assert.Equal(t, "you are helpful", convData.SystemPrompt)
+
+	// The synthetic never-registered DataType must always degrade to nil.
+	// This is the load-bearing assertion that ToTypedEvents handles
+	// unknown types gracefully — true both pre- and post-trim.
+	assert.Nil(t, typed[2].Data, "unknown DataType must yield nil Data")
+
+	audioData, ok := typed[3].Data.(*events.AudioInputData)
+	require.True(t, ok, "expected *events.AudioInputData, got %T", typed[3].Data)
+	assert.Equal(t, "user", audioData.Actor)
+
+	msgData, ok := typed[4].Data.(*events.MessageCreatedData)
+	require.True(t, ok, "expected *events.MessageCreatedData, got %T", typed[4].Data)
+	assert.Equal(t, "user", msgData.Role)
 }
 
 func TestEndToEnd_RecordToMediaTimeline(t *testing.T) {

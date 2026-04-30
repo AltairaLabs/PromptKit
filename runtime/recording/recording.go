@@ -29,6 +29,15 @@ const filePermissions = 0600
 // This enables deserialization of recorded events back to their typed structs.
 // Entries for both canonical names and legacy alias names are included for
 // backward compatibility with old recordings.
+//
+// The registry is intentionally narrow: it contains only event types that are
+// relevant for replay (audio, video, images, messages, tool calls,
+// conversation lifecycle, transcriptions, custom events). Lifecycle /
+// observability events (stage / pipeline / provider-call / middleware /
+// validation / state / context-built) were removed once RecordingStage stopped
+// subscribing to the full bus. Older recordings that still contain those
+// types load fine — Data is preserved as raw JSON, just without a typed
+// factory (ToTypedEvents returns nil Data for unknown types).
 var eventDataRegistry = map[string]func() events.EventData{
 	// Audio events (consolidated into AudioEventData)
 	"*events.AudioEventData":         func() events.EventData { return &events.AudioEventData{} },
@@ -60,22 +69,6 @@ var eventDataRegistry = map[string]func() events.EventData{
 	"*events.ConversationStartedData": func() events.EventData { return &events.ConversationStartedData{} },
 	"events.ConversationStartedData":  func() events.EventData { return &events.ConversationStartedData{} },
 
-	// Pipeline events
-	"*events.PipelineStartedData":   func() events.EventData { return &events.PipelineStartedData{} },
-	"events.PipelineStartedData":    func() events.EventData { return &events.PipelineStartedData{} },
-	"*events.PipelineCompletedData": func() events.EventData { return &events.PipelineCompletedData{} },
-	"events.PipelineCompletedData":  func() events.EventData { return &events.PipelineCompletedData{} },
-	"*events.PipelineFailedData":    func() events.EventData { return &events.PipelineFailedData{} },
-	"events.PipelineFailedData":     func() events.EventData { return &events.PipelineFailedData{} },
-
-	// Provider events
-	"*events.ProviderCallStartedData":   func() events.EventData { return &events.ProviderCallStartedData{} },
-	"events.ProviderCallStartedData":    func() events.EventData { return &events.ProviderCallStartedData{} },
-	"*events.ProviderCallCompletedData": func() events.EventData { return &events.ProviderCallCompletedData{} },
-	"events.ProviderCallCompletedData":  func() events.EventData { return &events.ProviderCallCompletedData{} },
-	"*events.ProviderCallFailedData":    func() events.EventData { return &events.ProviderCallFailedData{} },
-	"events.ProviderCallFailedData":     func() events.EventData { return &events.ProviderCallFailedData{} },
-
 	// Tool events (consolidated into ToolCallEventData)
 	"*events.ToolCallEventData":     func() events.EventData { return &events.ToolCallEventData{} },
 	"events.ToolCallEventData":      func() events.EventData { return &events.ToolCallEventData{} },
@@ -90,49 +83,9 @@ var eventDataRegistry = map[string]func() events.EventData{
 	"*events.CustomEventData": func() events.EventData { return &events.CustomEventData{} },
 	"events.CustomEventData":  func() events.EventData { return &events.CustomEventData{} },
 
-	// Stage events (consolidated into StageEventData)
-	"*events.StageEventData":     func() events.EventData { return &events.StageEventData{} },
-	"events.StageEventData":      func() events.EventData { return &events.StageEventData{} },
-	"*events.StageStartedData":   func() events.EventData { return &events.StageEventData{} },
-	"events.StageStartedData":    func() events.EventData { return &events.StageEventData{} },
-	"*events.StageCompletedData": func() events.EventData { return &events.StageEventData{} },
-	"events.StageCompletedData":  func() events.EventData { return &events.StageEventData{} },
-	"*events.StageFailedData":    func() events.EventData { return &events.StageEventData{} },
-	"events.StageFailedData":     func() events.EventData { return &events.StageEventData{} },
-
-	// Middleware events (consolidated into MiddlewareEventData)
-	"*events.MiddlewareEventData":     func() events.EventData { return &events.MiddlewareEventData{} },
-	"events.MiddlewareEventData":      func() events.EventData { return &events.MiddlewareEventData{} },
-	"*events.MiddlewareStartedData":   func() events.EventData { return &events.MiddlewareEventData{} },
-	"events.MiddlewareStartedData":    func() events.EventData { return &events.MiddlewareEventData{} },
-	"*events.MiddlewareCompletedData": func() events.EventData { return &events.MiddlewareEventData{} },
-	"events.MiddlewareCompletedData":  func() events.EventData { return &events.MiddlewareEventData{} },
-	"*events.MiddlewareFailedData":    func() events.EventData { return &events.MiddlewareEventData{} },
-	"events.MiddlewareFailedData":     func() events.EventData { return &events.MiddlewareEventData{} },
-
-	// Validation events (consolidated into ValidationEventData)
-	"*events.ValidationEventData":   func() events.EventData { return &events.ValidationEventData{} },
-	"events.ValidationEventData":    func() events.EventData { return &events.ValidationEventData{} },
-	"*events.ValidationStartedData": func() events.EventData { return &events.ValidationEventData{} },
-	"events.ValidationStartedData":  func() events.EventData { return &events.ValidationEventData{} },
-	"*events.ValidationPassedData":  func() events.EventData { return &events.ValidationEventData{} },
-	"events.ValidationPassedData":   func() events.EventData { return &events.ValidationEventData{} },
-	"*events.ValidationFailedData":  func() events.EventData { return &events.ValidationEventData{} },
-	"events.ValidationFailedData":   func() events.EventData { return &events.ValidationEventData{} },
-
-	// Context/State events (StateLoadedData/StateSavedData consolidated into StateEventData)
-	"*events.ContextBuiltData":        func() events.EventData { return &events.ContextBuiltData{} },
-	"events.ContextBuiltData":         func() events.EventData { return &events.ContextBuiltData{} },
-	"*events.TokenBudgetExceededData": func() events.EventData { return &events.TokenBudgetExceededData{} },
-	"events.TokenBudgetExceededData":  func() events.EventData { return &events.TokenBudgetExceededData{} },
-	"*events.StateEventData":          func() events.EventData { return &events.StateEventData{} },
-	"events.StateEventData":           func() events.EventData { return &events.StateEventData{} },
-	"*events.StateLoadedData":         func() events.EventData { return &events.StateEventData{} },
-	"events.StateLoadedData":          func() events.EventData { return &events.StateEventData{} },
-	"*events.StateSavedData":          func() events.EventData { return &events.StateEventData{} },
-	"events.StateSavedData":           func() events.EventData { return &events.StateEventData{} },
-	"*events.StreamInterruptedData":   func() events.EventData { return &events.StreamInterruptedData{} },
-	"events.StreamInterruptedData":    func() events.EventData { return &events.StreamInterruptedData{} },
+	// Stream lifecycle (replay-relevant: stream interruption affects timing)
+	"*events.StreamInterruptedData": func() events.EventData { return &events.StreamInterruptedData{} },
+	"events.StreamInterruptedData":  func() events.EventData { return &events.StreamInterruptedData{} },
 }
 
 // SessionRecording is a self-contained artifact for replay and analysis.
