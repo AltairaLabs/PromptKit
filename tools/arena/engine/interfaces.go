@@ -78,6 +78,11 @@ type ConversationRequest struct {
 	// If nil, no recording stages are added.
 	RecordingConfig *stage.RecordingStageConfig
 
+	// EventStore is the destination for RecordingStage writes. Required when
+	// RecordingConfig is non-nil; without it, recording stages will not be added
+	// to the pipeline.
+	EventStore events.EventStore
+
 	// PostTurnHook is called after each turn completes. Used by the workflow
 	// engine to commit deferred transitions after the pipeline finishes.
 	PostTurnHook func() error

@@ -187,9 +187,10 @@ type Config struct {
 	// full binary content for session replay.
 	RecordingConfig *stage.RecordingStageConfig
 
-	// RecordingEventBus is the event bus used by recording stages.
-	// Required when RecordingConfig is set.
-	RecordingEventBus events.Bus
+	// RecordingStore is the destination for recording stage writes.
+	// Required when RecordingConfig is set; without it, recording stages
+	// will not be added to the pipeline.
+	RecordingStore events.EventStore
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -304,10 +305,10 @@ func collectPipelineStages(
 	stages = append(stages, stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState))
 
 	// 4.1 Input recording stage - captures user input with full binary data
-	if cfg.RecordingConfig != nil && cfg.RecordingEventBus != nil {
+	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
 		inputCfg := *cfg.RecordingConfig
 		inputCfg.Position = stage.RecordingPositionInput
-		stages = append(stages, stage.NewRecordingStage(cfg.RecordingEventBus, inputCfg))
+		stages = append(stages, stage.NewRecordingStage(cfg.RecordingStore, inputCfg))
 	}
 
 	// 4.5 Context builder stage - manages token budget and truncation
@@ -340,10 +341,10 @@ func collectPipelineStages(
 	stages = append(stages, providerStages...)
 
 	// 5.5 Output recording stage - captures assistant output with full binary data
-	if cfg.RecordingConfig != nil && cfg.RecordingEventBus != nil {
+	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
 		outputCfg := *cfg.RecordingConfig
 		outputCfg.Position = stage.RecordingPositionOutput
-		stages = append(stages, stage.NewRecordingStage(cfg.RecordingEventBus, outputCfg))
+		stages = append(stages, stage.NewRecordingStage(cfg.RecordingStore, outputCfg))
 	}
 
 	// 5.7 Memory extraction stage - extract memories from conversation

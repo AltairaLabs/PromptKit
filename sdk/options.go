@@ -775,33 +775,32 @@ func WithEventBus(bus events.Bus) Option {
 	}
 }
 
-// WithEventStore configures event persistence for session recording.
+// WithEventStore configures event persistence.
 //
-// When set, all events published through the conversation's event bus are
-// automatically persisted to the store. This enables session replay and
-// analysis.
+// The store serves two roles:
 //
-// The event store is automatically attached to the event bus. If no event bus
-// is provided via WithEventBus, a new one is created internally.
+//  1. The pipeline RecordingStage writes audio chunks, messages, tool calls,
+//     and other StreamElement-derived events directly to the store via the
+//     pipeline tap (synchronous, no bus drops).
 //
-// Example with file-based storage:
+//  2. Low-rate observability events that don't flow through the pipeline as
+//     StreamElement (currently EventConversationStarted, EventStreamInterrupted)
+//     are persisted via a targeted bus subscription.
+//
+// All events for a session are written to a single JSONL file by FileEventStore,
+// preserving the time-ordered single-stream replay format.
+//
+// Example:
 //
 //	store, _ := events.NewFileEventStore("/var/log/sessions")
 //	defer store.Close()
-//
-//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	conv, err := sdk.Open(ctx, pack,
 //	    sdk.WithEventStore(store),
+//	    sdk.WithRecording(nil), // use defaults
 //	)
 //
-// Example with shared bus and store:
-//
-//	store, _ := events.NewFileEventStore("/var/log/sessions")
-//	bus := events.NewEventBus()
-//	bus.SubscribeAll(store.OnEvent)
-//
-//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithEventBus(bus),
-//	)
+// For production at scale, supply a buffered or sampled EventStore implementation.
+// See runtime/events.EventStore for the interface contract.
 func WithEventStore(store events.EventStore) Option {
 	return func(c *config) error {
 		c.eventStore = store
@@ -833,18 +832,23 @@ func DefaultRecordingConfig() RecordingConfig {
 }
 
 // WithRecording enables session recording by inserting RecordingStages
-// into the pipeline. These stages capture full binary content and publish
-// events directly to the EventBus, bypassing the emitter's binary stripping.
+// into the pipeline. These stages capture full binary content and write
+// directly to the configured EventStore — no bus hop, no drop-under-burst.
 //
 // If cfg is nil, default settings are used (audio=true, video=false, images=true).
-// An EventBus is automatically created if none was provided via WithEventBus.
 //
+// An EventStore must be configured via WithEventStore for recording to take
+// effect. Without one the recording stages are skipped at pipeline build time.
+//
+//	store, _ := events.NewFileEventStore("/var/log/sessions")
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithEventStore(store),
 //	    sdk.WithRecording(nil), // use defaults
 //	)
 //
 //	// Or with custom config:
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithEventStore(store),
 //	    sdk.WithRecording(&sdk.RecordingConfig{
 //	        IncludeAudio:  true,
 //	        IncludeVideo:  true,
@@ -858,10 +862,6 @@ func WithRecording(cfg *RecordingConfig) Option {
 			cfg = &defaults
 		}
 		c.recordingConfig = cfg
-		// Ensure an event bus exists for recording stages
-		if c.eventBus == nil {
-			c.eventBus = events.NewEventBus()
-		}
 		return nil
 	}
 }

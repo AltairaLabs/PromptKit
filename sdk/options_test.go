@@ -1079,7 +1079,6 @@ func TestWithRecording(t *testing.T) {
 		assert.True(t, cfg.recordingConfig.IncludeAudio)
 		assert.False(t, cfg.recordingConfig.IncludeVideo)
 		assert.True(t, cfg.recordingConfig.IncludeImages)
-		assert.NotNil(t, cfg.eventBus, "should auto-create event bus")
 	})
 
 	t.Run("custom config is used", func(t *testing.T) {
@@ -1096,12 +1095,12 @@ func TestWithRecording(t *testing.T) {
 		assert.False(t, cfg.recordingConfig.IncludeImages)
 	})
 
-	t.Run("does not overwrite existing event bus", func(t *testing.T) {
+	t.Run("does not modify event bus", func(t *testing.T) {
 		bus := &events.EventBus{}
 		cfg := &config{eventBus: bus}
 		err := WithRecording(nil)(cfg)
 		require.NoError(t, err)
-		assert.Same(t, bus, cfg.eventBus, "should not overwrite existing event bus")
+		assert.Same(t, bus, cfg.eventBus, "should not modify existing event bus")
 	})
 }
 

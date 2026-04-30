@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 // RecordingPosition indicates where in the pipeline the recording stage is placed.
@@ -63,19 +64,24 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 
 // RecordingStage captures pipeline elements as events for session recording.
 // It observes elements flowing through without modifying them.
+//
+// Writes synchronously to the EventStore. Slow disk applies back-pressure
+// to upstream — recording correctness wins over pipeline throughput. For
+// production use cases where this trade-off is wrong, inject a buffered
+// EventStore implementation via Engine.EnableSessionRecordingWithStore.
 type RecordingStage struct {
 	BaseStage
-	eventBus  events.Bus
+	store     events.EventStore
 	config    RecordingStageConfig
 	startTime time.Time
 }
 
 // NewRecordingStage creates a new recording stage.
-func NewRecordingStage(eventBus events.Bus, config RecordingStageConfig) *RecordingStage {
+func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *RecordingStage {
 	name := "recording_" + string(config.Position)
 	return &RecordingStage{
 		BaseStage: NewBaseStage(name, StageTypeTransform),
-		eventBus:  eventBus,
+		store:     store,
 		config:    config,
 		startTime: time.Now(),
 	}
@@ -104,9 +110,9 @@ func (rs *RecordingStage) Process(
 	return nil
 }
 
-// recordElement converts a StreamElement to events and publishes them.
-func (rs *RecordingStage) recordElement(_ context.Context, elem *StreamElement) {
-	if rs.eventBus == nil {
+// recordElement converts a StreamElement to events and persists them.
+func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement) {
+	if rs.store == nil {
 		return
 	}
 
@@ -123,19 +129,19 @@ func (rs *RecordingStage) recordElement(_ context.Context, elem *StreamElement) 
 	// Complete messages are always recorded.
 	switch {
 	case elem.Text != nil && rs.config.IncludeStreamingText:
-		rs.recordTextElement(elem, role)
+		rs.recordTextElement(ctx, elem, role)
 	case elem.Message != nil:
-		rs.recordMessageElement(elem)
+		rs.recordMessageElement(ctx, elem)
 	case elem.Audio != nil && rs.config.IncludeAudio:
-		rs.recordAudioElement(elem, role)
+		rs.recordAudioElement(ctx, elem, role)
 	case elem.Image != nil && rs.config.IncludeImages:
-		rs.recordImageElement(elem, role)
+		rs.recordImageElement(ctx, elem, role)
 	case elem.Video != nil && rs.config.IncludeVideo:
-		rs.recordVideoElement(elem, role)
+		rs.recordVideoElement(ctx, elem, role)
 	case elem.ToolCall != nil:
-		rs.recordToolCallElement(elem)
+		rs.recordToolCallElement(ctx, elem)
 	case elem.Error != nil:
-		rs.recordErrorElement(elem)
+		rs.recordErrorElement(ctx, elem)
 	}
 }
 
@@ -147,9 +153,22 @@ func (rs *RecordingStage) determineRole() string {
 	return roleAssistant
 }
 
+// appendOrWarn writes the event to the store using the pipeline's context and
+// logs a warning on failure. Threading ctx ensures recording honors pipeline
+// cancellation (timeouts, client disconnects) instead of writing past it.
+func (rs *RecordingStage) appendOrWarn(ctx context.Context, evt *events.Event) {
+	if err := rs.store.Append(ctx, evt); err != nil {
+		logger.Warn("recording stage append failed",
+			"error", err,
+			"session_id", rs.config.SessionID,
+			"conversation_id", rs.config.ConversationID,
+			"event_type", string(evt.Type))
+	}
+}
+
 // recordTextElement records a streaming text delta.
-func (rs *RecordingStage) recordTextElement(elem *StreamElement, role string) {
-	rs.eventBus.Publish(&events.Event{
+func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamElement, role string) {
+	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
@@ -162,7 +181,7 @@ func (rs *RecordingStage) recordTextElement(elem *StreamElement, role string) {
 }
 
 // recordMessageElement records a complete message.
-func (rs *RecordingStage) recordMessageElement(elem *StreamElement) {
+func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement) {
 	msg := elem.Message
 	data := &events.MessageCreatedData{
 		Role:    msg.Role,
@@ -191,7 +210,7 @@ func (rs *RecordingStage) recordMessageElement(elem *StreamElement) {
 		}
 	}
 
-	rs.eventBus.Publish(&events.Event{
+	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
@@ -201,7 +220,7 @@ func (rs *RecordingStage) recordMessageElement(elem *StreamElement) {
 }
 
 // recordAudioElement records an audio element.
-func (rs *RecordingStage) recordAudioElement(elem *StreamElement, role string) {
+func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamElement, role string) {
 	audio := elem.Audio
 
 	// Create audio-specific event data
@@ -216,7 +235,7 @@ func (rs *RecordingStage) recordAudioElement(elem *StreamElement, role string) {
 
 	dataJSON, _ := json.Marshal(data)
 
-	rs.eventBus.Publish(&events.Event{
+	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
@@ -229,7 +248,7 @@ func (rs *RecordingStage) recordAudioElement(elem *StreamElement, role string) {
 }
 
 // recordImageElement records an image element.
-func (rs *RecordingStage) recordImageElement(elem *StreamElement, role string) {
+func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *StreamElement, role string) {
 	img := elem.Image
 
 	data := map[string]interface{}{
@@ -243,7 +262,7 @@ func (rs *RecordingStage) recordImageElement(elem *StreamElement, role string) {
 
 	dataJSON, _ := json.Marshal(data)
 
-	rs.eventBus.Publish(&events.Event{
+	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
@@ -256,7 +275,7 @@ func (rs *RecordingStage) recordImageElement(elem *StreamElement, role string) {
 }
 
 // recordVideoElement records a video element.
-func (rs *RecordingStage) recordVideoElement(elem *StreamElement, role string) {
+func (rs *RecordingStage) recordVideoElement(ctx context.Context, elem *StreamElement, role string) {
 	video := elem.Video
 
 	data := map[string]interface{}{
@@ -272,7 +291,7 @@ func (rs *RecordingStage) recordVideoElement(elem *StreamElement, role string) {
 
 	dataJSON, _ := json.Marshal(data)
 
-	rs.eventBus.Publish(&events.Event{
+	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
@@ -285,10 +304,10 @@ func (rs *RecordingStage) recordVideoElement(elem *StreamElement, role string) {
 }
 
 // recordToolCallElement records a tool call.
-func (rs *RecordingStage) recordToolCallElement(elem *StreamElement) {
+func (rs *RecordingStage) recordToolCallElement(ctx context.Context, elem *StreamElement) {
 	tc := elem.ToolCall
 
-	rs.eventBus.Publish(&events.Event{
+	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventToolCallStarted,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,
@@ -301,8 +320,8 @@ func (rs *RecordingStage) recordToolCallElement(elem *StreamElement) {
 }
 
 // recordErrorElement records an error.
-func (rs *RecordingStage) recordErrorElement(elem *StreamElement) {
-	rs.eventBus.Publish(&events.Event{
+func (rs *RecordingStage) recordErrorElement(ctx context.Context, elem *StreamElement) {
+	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventStreamInterrupted,
 		Timestamp:      elem.Timestamp,
 		SessionID:      rs.config.SessionID,

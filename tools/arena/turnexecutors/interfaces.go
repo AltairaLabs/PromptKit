@@ -105,6 +105,8 @@ type TurnRequest struct {
 	EventBus        events.Bus
 	RunID           string
 	RecordingConfig *stage.RecordingStageConfig // Optional — enables RecordingStage in pipeline
+	// EventStore is the destination for RecordingStage writes; required when RecordingConfig is set.
+	EventStore events.EventStore
 }
 
 // StateStoreConfig wraps the state store configuration for turn executors
