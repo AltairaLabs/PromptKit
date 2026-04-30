@@ -116,6 +116,8 @@ conversation_assertions:
 
 ### Tool usage check
 
+Assert that the LLM invoked the right tool (and, optionally, with a minimum frequency):
+
 ```yaml
 - role: user
   content: "Get the weather in NYC"
@@ -125,6 +127,29 @@ conversation_assertions:
         tools: ["get_weather"]
       message: "Should call the weather tool"
 ```
+
+`tools_called` accepts `min_calls` (default `1`), `ignore_validation`, and `require_args` — see the [Checks Reference](/reference/checks/#tool-checks-turn-level) for full param list.
+
+### Negative tool usage check
+
+To assert that an agent did **not** call a forbidden tool — e.g. a refund agent that should escalate rather than process an unauthorized refund — use `tools_not_called`:
+
+```yaml
+conversation_assertions:
+  # Agent must escalate
+  - type: tools_called
+    params:
+      tool_names: ["escalate_to_human"]
+      min_calls: 1
+    message: "Agent should escalate when policy blocks the request"
+  # Agent must NOT issue refund without verification
+  - type: tools_not_called
+    params:
+      tool_names: ["issue_refund"]
+    message: "Agent should not issue refund when warranty check fails"
+```
+
+For rate-limit-style bounds ("at most N calls"), use `tool_call_count` with `min`/`max` — see [Tool Checks reference](/reference/checks/#tool-checks-turn-level).
 
 ### LLM judge
 
