@@ -9,7 +9,31 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/AltairaLabs/PromptKit.svg)](https://pkg.go.dev/github.com/AltairaLabs/PromptKit)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**Test, red-team, and deploy LLM applications with confidence.**
+> **Multi-provider prompt testing and deployment. Test prompts before they fail in production.**
+
+PromptKit is the open-source toolkit for [**PromptPack**](https://github.com/AltairaLabs/promptpack-spec) — test prompts across Claude, OpenAI, Gemini, Azure, and local models, run red-team scenarios in CI, and compile portable packs for runtime. The spec lives upstream so your config isn't locked to a vendor.
+
+## How it fits together
+
+```
+PromptPack  ── open spec for portable prompts (JSON, vendor-neutral)
+    │
+    └── PromptKit  ── this repo
+         ├── promptarena  ── test, red-team, evaluate (CLI)
+         ├── packc        ── compile config → portable pack
+         └── SDK          ── embed in your Go application
+```
+
+## Why PromptKit
+
+| | PromptKit | Promptfoo | LangSmith | Helicone |
+|---|---|---|---|---|
+| Multi-provider testing | ✅ | ✅ | LangChain-only | Observability-only |
+| Built-in workflow orchestration | ✅ | ❌ | Partial | ❌ |
+| Red-team / security scenarios | ✅ | Partial | ❌ | ❌ |
+| MCP integration | ✅ | ❌ | ❌ | ❌ |
+| Spec-driven (portable packs) | ✅ ([PromptPack](https://github.com/AltairaLabs/promptpack-spec)) | ❌ | ❌ | ❌ |
+| License | Apache 2.0 | MIT | Closed | Closed |
 
 ## Install
 
