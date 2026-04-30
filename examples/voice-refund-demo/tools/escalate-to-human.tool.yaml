@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/tool.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: escalate_to_human
+spec:
+  name: escalate_to_human
+  description: Hand off the conversation to a human support agent. Use when policy prevents you from completing the customer's request.
+  input_schema:
+    type: object
+    properties:
+      reason:
+        type: string
+        description: Why escalation is needed
+      summary:
+        type: string
+        description: Brief summary of the conversation for the human agent
+    required:
+      - reason
+  output_schema:
+    type: object
+    properties:
+      ticket_id:
+        type: string
+      status:
+        type: string
+  mode: mock
+  timeout_ms: 1000
+  mock_result:
+    ticket_id: ESC-99001
+    status: queued
