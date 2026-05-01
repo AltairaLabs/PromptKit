@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui"
@@ -200,6 +201,19 @@ func setupEngine(cfg *config.Config, params *RunParameters) (*engine.Engine, *en
 	// Enable session recording if configured
 	if err = eng.ConfigureSessionRecordingFromConfig(); err != nil {
 		return nil, nil, fmt.Errorf("failed to configure session recording: %w", err)
+	}
+
+	// Wire up audio monitor from CLI flags. Pre-configured Options enable all
+	// surfaces (LocalSink, SSE relay, level meter); the engine itself decides
+	// per-run whether to actually attach the MonitorTap based on Mode and TTY.
+	if err = eng.EnableAudioMonitor(arenaaudio.Options{
+		Mode:        arenaaudio.MonitorMode(params.AudioMonitorMode),
+		Rate:        params.AudioMonitorRate,
+		LocalSink:   true,
+		SSEPlayback: true,
+		LevelMeter:  true,
+	}); err != nil {
+		return nil, nil, fmt.Errorf("failed to enable audio monitor: %w", err)
 	}
 
 	plan, err := eng.GenerateRunPlan(params.Regions, params.Providers, params.Scenarios, params.Evals)

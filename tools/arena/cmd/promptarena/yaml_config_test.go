@@ -365,6 +365,8 @@ func setupTestFlags(cmd *cobra.Command) {
 	cmd.Flags().IntP("seed", "s", 42, "Random seed")
 	cmd.Flags().Bool("skip-pack-evals", false, "Disable pack eval execution")
 	cmd.Flags().StringSlice("eval-types", []string{}, "Filter to specific eval types")
+	cmd.Flags().String("audio-monitor", "auto", "Audio monitoring mode")
+	cmd.Flags().Int("audio-rate", 24000, "Audio canonical sample rate")
 }
 
 // Helper function to convert slice to comma-separated string for flag setting

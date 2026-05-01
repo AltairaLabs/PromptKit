@@ -20,6 +20,22 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+func TestWithAudioMonitor_StoresOptions(t *testing.T) {
+	opts := AudioMonitorOptions{
+		Mode:       AudioMonitorOn,
+		Rate:       48000,
+		LocalSink:  true,
+		LevelMeter: true,
+	}
+	cfg := &config{}
+	require.NoError(t, WithAudioMonitor(opts)(cfg))
+	require.NotNil(t, cfg.audioMonitorOpts)
+	assert.Equal(t, 48000, cfg.audioMonitorOpts.Rate)
+	assert.Equal(t, AudioMonitorOn, cfg.audioMonitorOpts.Mode)
+	assert.True(t, cfg.audioMonitorOpts.LocalSink)
+	assert.True(t, cfg.audioMonitorOpts.LevelMeter)
+}
+
 func TestWithModel(t *testing.T) {
 	opt := WithModel("gpt-4")
 	assert.NotNil(t, opt)

@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results"
 	"github.com/AltairaLabs/PromptKit/tools/arena/results/html"
@@ -132,6 +133,10 @@ func init() {
 	runCmd.Flags().Bool("selfplay", false, "Enable self-play mode")
 	runCmd.Flags().StringSlice("roles", []string{}, "Self-play role configurations to use")
 
+	// Audio monitoring settings (real-time duplex audio)
+	runCmd.Flags().String("audio-monitor", string(arenaaudio.ModeAuto), "Audio monitoring: auto, on, off")
+	runCmd.Flags().Int("audio-rate", arenaaudio.Rate24k, "Audio canonical sample rate: 16000, 24000, or 48000")
+
 	// Bind flags to viper
 	_ = viper.BindPFlag("concurrency", runCmd.Flags().Lookup("concurrency"))
 	_ = viper.BindPFlag("out_dir", runCmd.Flags().Lookup("out"))
@@ -173,6 +178,10 @@ type RunParameters struct {
 	EvalTypes      []string // Filter to specific eval types
 	ConfigFile     string   // Configuration file name for TUI display
 	TotalRuns      int      // Total number of runs for TUI progress
+
+	// Audio monitor settings (real-time duplex audio)
+	AudioMonitorMode string // "auto" | "on" | "off"
+	AudioMonitorRate int    // 16000, 24000, or 48000
 }
 
 // loadConfiguration loads the configuration file and sets up viper
@@ -187,6 +196,11 @@ func extractRunParameters(cmd *cobra.Command, cfg *config.Config) (*RunParameter
 
 	// Extract mock provider flags
 	if err := extractMockFlags(cmd, params); err != nil {
+		return nil, err
+	}
+
+	// Extract audio monitor flags
+	if err := extractAudioMonitorFlags(cmd, params); err != nil {
 		return nil, err
 	}
 
@@ -246,6 +260,21 @@ func extractBasicFlags(cmd *cobra.Command, params *RunParameters) error {
 	if params.EvalTypes, err = cmd.Flags().GetStringSlice("eval-types"); err != nil {
 		return fmt.Errorf("failed to get eval-types flag: %w", err)
 	}
+	return nil
+}
+
+// extractAudioMonitorFlags extracts the audio monitoring flags.
+func extractAudioMonitorFlags(cmd *cobra.Command, params *RunParameters) error {
+	mode, err := cmd.Flags().GetString("audio-monitor")
+	if err != nil {
+		return fmt.Errorf("failed to get audio-monitor flag: %w", err)
+	}
+	rate, err := cmd.Flags().GetInt("audio-rate")
+	if err != nil {
+		return fmt.Errorf("failed to get audio-rate flag: %w", err)
+	}
+	params.AudioMonitorMode = mode
+	params.AudioMonitorRate = rate
 	return nil
 }
 

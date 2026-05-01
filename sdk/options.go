@@ -271,6 +271,13 @@ type config struct {
 
 	// Custom compaction rules (used with default ContextCompactor)
 	compactionRules []stage.CompactionRule
+
+	// Audio monitor configuration for real-time duplex audio surfaces.
+	// When set, SDK consumers embedding Arena programmatically can
+	// configure the audio monitoring stack. The option is currently
+	// stored only — wiring through to the SDK pipeline is a separate
+	// follow-up task.
+	audioMonitorOpts *AudioMonitorOptions
 }
 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.
@@ -862,6 +869,60 @@ func WithRecording(cfg *RecordingConfig) Option {
 			cfg = &defaults
 		}
 		c.recordingConfig = cfg
+		return nil
+	}
+}
+
+// AudioMonitorMode controls when audio monitoring is active in SDK conversations.
+type AudioMonitorMode string
+
+const (
+	// AudioMonitorAuto enables monitoring when running interactively (TTY attached)
+	// and a duplex scenario is in flight.
+	AudioMonitorAuto AudioMonitorMode = "auto"
+	// AudioMonitorOn forces monitoring on regardless of TTY state.
+	AudioMonitorOn AudioMonitorMode = "on"
+	// AudioMonitorOff disables monitoring; the audio stack is not constructed.
+	AudioMonitorOff AudioMonitorMode = "off"
+)
+
+// AudioMonitorOptions configures real-time audio monitoring for duplex SDK
+// conversations. Mirrors the canonical audio.Options shape but is defined here
+// so sdk/ stays independent of the tools/arena/audio package.
+//
+// Consumers who want full control of the audio stack (router, local sink, web
+// SSE, level meter) can supply this struct via WithAudioMonitor; the SDK
+// internally translates it into the audio package's types when wiring the
+// monitor pipeline.
+type AudioMonitorOptions struct {
+	// Mode is "auto" | "on" | "off". Defaults to "auto" when unset.
+	Mode AudioMonitorMode
+	// Rate is the canonical sample rate. Must be 16000, 24000, or 48000.
+	Rate int
+	// LocalSink enables host-audio playback via the system audio device.
+	LocalSink bool
+	// SSEPlayback enables audio relay over SSE for the embedded web UI.
+	SSEPlayback bool
+	// LevelMeter enables RMS-level frames for TUI / browser meters.
+	LevelMeter bool
+}
+
+// WithAudioMonitor configures real-time audio monitoring for duplex SDK
+// conversations.
+//
+// Example:
+//
+//	conv, err := sdk.Open(ctx, pack,
+//	    sdk.WithAudioMonitor(sdk.AudioMonitorOptions{
+//	        Mode:       sdk.AudioMonitorOn,
+//	        Rate:       24000,
+//	        LocalSink:  true,
+//	        LevelMeter: true,
+//	    }),
+//	)
+func WithAudioMonitor(opts AudioMonitorOptions) Option {
+	return func(c *config) error {
+		c.audioMonitorOpts = &opts
 		return nil
 	}
 }

@@ -256,6 +256,18 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "AudioMonitorSection": {
+      "properties": {
+        "enabled": {
+          "type": "string"
+        },
+        "rate": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ChangelogEntry": {
       "properties": {
         "version": {
@@ -567,6 +579,9 @@
         },
         "verbose": {
           "type": "boolean"
+        },
+        "monitor": {
+          "$ref": "#/$defs/MonitorSection"
         },
         "html_report": {
           "type": "string"
@@ -1390,6 +1405,15 @@
         "date",
         "success_rate"
       ]
+    },
+    "MonitorSection": {
+      "properties": {
+        "audio": {
+          "$ref": "#/$defs/AudioMonitorSection"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "MultimodalConfig": {
       "properties": {
