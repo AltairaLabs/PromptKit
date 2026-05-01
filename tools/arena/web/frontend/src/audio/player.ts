@@ -17,9 +17,9 @@ interface AudioFrame {
 }
 
 export class AudioPlayer {
-  private ctx: AudioContext;
-  private leftPanner: StereoPannerNode;
-  private rightPanner: StereoPannerNode;
+  private readonly ctx: AudioContext;
+  private readonly leftPanner: StereoPannerNode;
+  private readonly rightPanner: StereoPannerNode;
   private nextStartTime: Record<"input" | "output", number> = { input: 0, output: 0 };
   private source: EventSource | null = null;
   private readonly opts: AudioPlayerOptions;
@@ -45,7 +45,7 @@ export class AudioPlayer {
 
     const url = `${eventsUrl}?audio=1`;
     this.source = new EventSource(url);
-    this.source.addEventListener("audio", (ev) => this.onAudio(ev as MessageEvent));
+    this.source.addEventListener("audio", (ev) => this.onAudio(ev));
     this.source.addEventListener("error", () => {
       this.opts.onError?.("SSE connection error");
     });
@@ -95,16 +95,18 @@ export class AudioPlayer {
   }
 }
 
-function base64ToInt16(b64: string): Int16Array {
+// Exported so unit tests can exercise the pure decode/scale helpers without
+// instantiating an AudioContext.
+export function base64ToInt16(b64: string): Int16Array {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.codePointAt(i) ?? 0;
   // s16le: byte 0 = LSB, byte 1 = MSB. Int16Array on a little-endian
   // ArrayBuffer interprets pairs that way directly.
   return new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
 }
 
-function int16ToFloat32(input: Int16Array): Float32Array {
+export function int16ToFloat32(input: Int16Array): Float32Array {
   const out = new Float32Array(input.length);
   for (let i = 0; i < input.length; i++) {
     out[i] = input[i] / 32768;
