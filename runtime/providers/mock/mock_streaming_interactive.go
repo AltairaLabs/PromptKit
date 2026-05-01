@@ -574,13 +574,14 @@ func (m *MockStreamSession) emitAudioChunks(fixture *mockAudioFixture) {
 				FrameNum:   frameNum,
 			},
 		}
+		// Block on send — the mock provider is the producer, dropping its own
+		// emitted frames would silently lose response audio. Real providers
+		// pace their emission via the network frame rate; the mock relies on
+		// the consumer (DuplexProviderStage) to drain the channel.
 		select {
 		case m.responses <- chunk:
-		default:
-			// Channel full — drop the frame rather than block the audio path.
-			logger.Debug("MockStreamSession: dropping audio chunk; response channel full",
-				"frame", frameNum,
-				"bytes", end-offset)
+		case <-m.doneCh:
+			return
 		}
 		frameNum++
 	}
