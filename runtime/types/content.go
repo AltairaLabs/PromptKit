@@ -241,25 +241,26 @@ func (cp *ContentPart) Validate() error {
 	return nil
 }
 
-// Validate checks if the MediaContent is valid
+// Validate checks if the MediaContent is valid.
+//
+// At least one of Data, FilePath, or URL must be set. Data + FilePath is
+// permitted: Data is the canonical bytes and FilePath is an origin hint
+// (set by Arena's media loaders so the HTML renderer can resolve the
+// original file). URL is mutually exclusive with Data — a URL refers to
+// an external resource we don't carry inline.
 func (mc *MediaContent) Validate() error {
-	// Exactly one data source must be set
-	sourceCount := 0
-	if mc.Data != nil && *mc.Data != "" {
-		sourceCount++
-	}
-	if mc.FilePath != nil && *mc.FilePath != "" {
-		sourceCount++
-	}
-	if mc.URL != nil && *mc.URL != "" {
-		sourceCount++
-	}
+	hasData := mc.Data != nil && *mc.Data != ""
+	hasFilePath := mc.FilePath != nil && *mc.FilePath != ""
+	hasURL := mc.URL != nil && *mc.URL != ""
 
-	if sourceCount == 0 {
-		return fmt.Errorf("media content must have exactly one data source (data, file_path, or url)")
+	if !hasData && !hasFilePath && !hasURL {
+		return fmt.Errorf("media content must have a data source (data, file_path, or url)")
 	}
-	if sourceCount > 1 {
-		return fmt.Errorf("media content must have exactly one data source, found %d", sourceCount)
+	if hasURL && hasData {
+		return fmt.Errorf("media content cannot have both url and inline data")
+	}
+	if hasURL && hasFilePath {
+		return fmt.Errorf("media content cannot have both url and file_path")
 	}
 
 	// MIME type is required

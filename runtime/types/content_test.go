@@ -226,10 +226,28 @@ func TestMediaContentValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "invalid - multiple data sources",
+			name: "valid - data with file path origin hint",
 			media: MediaContent{
 				Data:     testutil.Ptr("base64data"),
 				FilePath: testutil.Ptr("/path/to/image.jpg"),
+				MIMEType: MIMETypeImageJPEG,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid - url with inline data",
+			media: MediaContent{
+				Data:     testutil.Ptr("base64data"),
+				URL:      testutil.Ptr("https://example.com/image.jpg"),
+				MIMEType: MIMETypeImageJPEG,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid - url with file path",
+			media: MediaContent{
+				FilePath: testutil.Ptr("/path/to/image.jpg"),
+				URL:      testutil.Ptr("https://example.com/image.jpg"),
 				MIMEType: MIMETypeImageJPEG,
 			},
 			wantErr: true,
