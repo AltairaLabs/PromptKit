@@ -41,6 +41,7 @@ spec:
     - file: scenarios/duplex-interactive.scenario.yaml
     - file: scenarios/duplex-tools.scenario.yaml
     - file: scenarios/duplex-replay.scenario.yaml
+    - file: scenarios/duplex-scripted-text.scenario.yaml
 
   # Tool definitions for voice assistant
   tools:
