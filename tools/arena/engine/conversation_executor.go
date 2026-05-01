@@ -332,6 +332,7 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		TurnEvalRunner:   ce.resolveEvalOrchestrator(&req),
 		RecordingConfig:  req.RecordingConfig,
 		EventStore:       req.EventStore,
+		AudioRouter:      req.AudioRouter,
 		Metadata:         metadata,
 	}
 }

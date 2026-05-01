@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -233,6 +234,14 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	}
 	stages = append(stages, stage.NewAudioResampleStage(resampleConfig))
 
+	// 0a. Input audio monitor tap (opt-in). Tapping after resample lets the
+	// router rely on a single canonical rate from the upstream pipeline.
+	if req.AudioRouter != nil {
+		stages = append(stages, arenaaudio.NewMonitorTap(req.AudioRouter, arenaaudio.MonitorTapConfig{
+			Position: stage.RecordingPositionInput,
+		}))
+	}
+
 	// Add VAD stage if using client-side turn detection
 	if de.shouldUseClientVAD(req) {
 		vadConfig := de.buildVADConfig(req)
@@ -277,6 +286,14 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	stages = append(stages, stage.NewDuplexProviderStageWithTurnState(
 		streamProvider, baseConfig, emitter, turnState,
 	))
+
+	// 2a. Output audio monitor tap (opt-in). Placed after the provider so
+	// generated agent audio flows through the tap to the router.
+	if req.AudioRouter != nil {
+		stages = append(stages, arenaaudio.NewMonitorTap(req.AudioRouter, arenaaudio.MonitorTapConfig{
+			Position: stage.RecordingPositionOutput,
+		}))
+	}
 
 	// NOTE: ResponseVADStage was removed. It was intended to delay EndOfStream until
 	// VAD confirmed response audio stopped, but it caused timing issues with selfplay:

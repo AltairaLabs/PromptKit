@@ -46,6 +46,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/AltairaLabs/PromptKit/tools/arena/adapters"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
@@ -88,6 +89,7 @@ type Engine struct {
 	skillExecutor        SkillFilterer                // Optional — set when skills are configured
 	memoryStore          *memory.InMemoryStore        // Optional memory store (set if config.Memory != nil)
 	recordingConfig      *stage.RecordingStageConfig  // Optional — enables RecordingStage in pipelines
+	audioMonitorOpts     *arenaaudio.Options          // Optional — enables audio monitoring on duplex runs
 	// mcpSourceScope manages source-backed MCP entries at run/scenario/session scopes.
 	mcpSourceScope  *mcpSourceScope
 	mcpConfig       []config.MCPServerConfig   // Source-backed MCP entries, re-read at each scope boundary
@@ -411,6 +413,35 @@ func (e *Engine) EnableSessionRecordingWithStore(store events.EventStore) error 
 	}
 
 	logger.Debug("Session recording wired with custom store")
+	return nil
+}
+
+// EnableAudioMonitor enables real-time audio monitoring for duplex scenarios.
+//
+// The monitor surfaces (LocalSink, SSE relay, TUI level meter) are added to
+// per-run pipelines only when at least one consumer is wired and the
+// scenario uses duplex streaming. CI / non-interactive runs (auto mode +
+// no TTY) do not construct any audio infrastructure.
+//
+// Options.Rate must be one of audio.Rate16k, Rate24k, Rate48k.
+//
+// This method only stores configuration; the per-run wiring happens in the
+// pipeline construction path (see duplex_executor_pipeline_integration.go).
+func (e *Engine) EnableAudioMonitor(opts arenaaudio.Options) error {
+	if !arenaaudio.IsValidRate(opts.Rate) {
+		return fmt.Errorf("invalid audio rate %d (valid: 16000, 24000, 48000)", opts.Rate)
+	}
+	if opts.Mode == "" {
+		opts.Mode = arenaaudio.ModeAuto
+	}
+	e.audioMonitorOpts = &opts
+	logger.Info("Audio monitor configured",
+		"mode", string(opts.Mode),
+		"rate", opts.Rate,
+		"local_sink", opts.LocalSink,
+		"sse_playback", opts.SSEPlayback,
+		"level_meter", opts.LevelMeter,
+	)
 	return nil
 }
 
