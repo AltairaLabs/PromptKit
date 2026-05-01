@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 )
 
 // ConversationExecutor orchestrates full conversation flows
@@ -90,6 +91,11 @@ type ConversationRequest struct {
 	// ContextEnricher is called before each turn to enrich the pipeline context.
 	// Used to inject per-run state (e.g., skill filters) into context for tool execution.
 	ContextEnricher func(ctx context.Context) context.Context
+
+	// AudioRouter, when non-nil, is the per-run AudioRouter for audio
+	// monitoring. MonitorTap stages added to the pipeline publish to this
+	// router. Lifetime is the run; the engine owns Close().
+	AudioRouter *arenaaudio.AudioRouter
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena

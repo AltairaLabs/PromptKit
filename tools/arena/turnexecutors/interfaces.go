@@ -28,6 +28,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 )
 
 // TurnExecutor executes one complete conversation turn (user message + AI response + tools)
@@ -107,6 +108,11 @@ type TurnRequest struct {
 	RecordingConfig *stage.RecordingStageConfig // Optional — enables RecordingStage in pipeline
 	// EventStore is the destination for RecordingStage writes; required when RecordingConfig is set.
 	EventStore events.EventStore
+
+	// AudioRouter, when non-nil, is the per-run AudioRouter for audio
+	// monitoring. MonitorTap stages added to the pipeline publish to this
+	// router. The engine owns lifecycle (Close).
+	AudioRouter *arenaaudio.AudioRouter
 }
 
 // StateStoreConfig wraps the state store configuration for turn executors

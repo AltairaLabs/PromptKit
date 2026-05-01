@@ -20,6 +20,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/chaos"
 	"github.com/AltairaLabs/PromptKit/tools/arena/consent"
 	arenastages "github.com/AltairaLabs/PromptKit/tools/arena/stages"
@@ -333,6 +334,9 @@ func (e *PipelineExecutor) buildStagePipeline(
 
 	// 5b. Input recording stage (opt-in via RecordingConfig)
 	stages = appendRecordingStage(stages, req, stage.RecordingPositionInput)
+	// 5c. Input audio monitor tap (opt-in via AudioRouter); after recording so
+	// the recording stage always sees every chunk before observers do.
+	stages = appendMonitorTap(stages, req, stage.RecordingPositionInput)
 
 	// 6. Provider stage (with consent simulation hook if overrides are present)
 	// 7. Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
@@ -344,6 +348,8 @@ func (e *PipelineExecutor) buildStagePipeline(
 
 	// 7a. Output recording stage (opt-in via RecordingConfig)
 	stages = appendRecordingStage(stages, req, stage.RecordingPositionOutput)
+	// 7b. Output audio monitor tap (opt-in via AudioRouter); after recording.
+	stages = appendMonitorTap(stages, req, stage.RecordingPositionOutput)
 
 	// 7b. Media externalization (if configured)
 	if mediaConfig := buildMediaConfig(req.ConversationID, e.mediaStorage); mediaConfig != nil {
@@ -392,6 +398,22 @@ func appendRecordingStage(stages []stage.Stage, req *TurnRequest, position stage
 	cfg.SessionID = req.RunID
 	cfg.ConversationID = req.ConversationID
 	return append(stages, stage.NewRecordingStage(req.EventStore, cfg))
+}
+
+// appendMonitorTap adds a MonitorTap stage at the given position when an
+// AudioRouter is wired into the request. No-op when req.AudioRouter is nil.
+//
+// Callers should invoke this AFTER appendRecordingStage so that recording
+// always observes every audio chunk first; the monitor tap is observational
+// and a misbehaving consumer (slow LocalSink, dropped SSE) cannot affect
+// recording correctness.
+func appendMonitorTap(stages []stage.Stage, req *TurnRequest, position stage.RecordingPosition) []stage.Stage {
+	if req == nil || req.AudioRouter == nil {
+		return stages
+	}
+	return append(stages, arenaaudio.NewMonitorTap(req.AudioRouter, arenaaudio.MonitorTapConfig{
+		Position: position,
+	}))
 }
 
 // emitterFromRequest creates an event emitter from a TurnRequest's event bus.
@@ -556,6 +578,8 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 
 	// Input recording stage (opt-in via RecordingConfig)
 	stages = appendRecordingStage(stages, req, stage.RecordingPositionInput)
+	// Input audio monitor tap (opt-in via AudioRouter); after recording.
+	stages = appendMonitorTap(stages, req, stage.RecordingPositionInput)
 
 	// Provider stage
 	providerConfig := buildProviderConfig(req)
@@ -575,6 +599,8 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 
 	// Output recording stage (opt-in via RecordingConfig)
 	stages = appendRecordingStage(stages, req, stage.RecordingPositionOutput)
+	// Output audio monitor tap (opt-in via AudioRouter); after recording.
+	stages = appendMonitorTap(stages, req, stage.RecordingPositionOutput)
 
 	// Media externalization (scripted only)
 	if cfg.IncludeMediaExternalizer && e.mediaStorage != nil {

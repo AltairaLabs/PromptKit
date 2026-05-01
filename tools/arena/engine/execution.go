@@ -437,6 +437,20 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		runOrch = e.evalOrchestrator.Clone()
 	}
 
+	// Construct per-run audio monitor (router + optional LocalSink) when
+	// EnableAudioMonitor is configured and the scenario is duplex. Both close
+	// idempotently and run unconditionally on run completion (success or
+	// failure) to release the LocalSink consumer goroutine.
+	audioRouter, audioSink := e.buildAudioMonitor(execScenario)
+	defer func() {
+		if audioRouter != nil {
+			audioRouter.Close()
+		}
+		if audioSink != nil {
+			audioSink.Close()
+		}
+	}()
+
 	// Execute conversation
 	req := ConversationRequest{
 		Provider:         provider,
@@ -448,6 +462,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		EvalOrchestrator: runOrch,
 		RecordingConfig:  e.recordingConfig,
 		EventStore:       e.eventStore,
+		AudioRouter:      audioRouter,
 	}
 	// Wire deferred workflow transition commit and per-run skill filtering
 	if e.workflowTransExec != nil {
