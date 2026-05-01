@@ -55,12 +55,16 @@ jobs:
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         fetch-depth: 0  # Shallow clones should be disabled for better relevancy of analysis
-    
+
+    - name: Install ALSA dev headers (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
         go-version: ${{ matrix.go-version }}
-    
+
     - name: Install dependencies
       run: make install
     
@@ -309,7 +313,11 @@ jobs:
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         fetch-depth: 0  # Needed for diff-based linting
-    
+
+    - name: Install ALSA dev headers (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
@@ -322,7 +330,7 @@ jobs:
           tools/arena/go.sum
           tools/packc/go.sum
           tools/inspect-state/go.sum
-    
+
     - name: Run golangci-lint in ${{ matrix.module }}
       uses: golangci/golangci-lint-action@v9
       with:
@@ -436,6 +444,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
+    - name: Install ALSA dev headers (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
@@ -450,16 +462,20 @@ jobs:
     if: github.actor != 'dependabot[bot]'
     env:
       PROMPTKIT_SCHEMA_SOURCE: local
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-    
+
+    - name: Install ALSA dev headers (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
         go-version: '1.25.1'
-    
+
     - name: Build Arena
       run: make build-arena
     
@@ -718,6 +734,10 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+    - name: Install ALSA dev headers (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
     - name: Run PromptArena Action
       id: arena
