@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
 
@@ -894,4 +895,53 @@ func TestEventAdapter_HandleEvent_NewEventTypes(t *testing.T) {
 		defer model.mu.Unlock()
 		assert.Equal(t, "You are a helpful assistant.", model.systemPrompts["run-2"])
 	})
+}
+
+func TestEventAdapter_AttachAudioRouter_DispatchesLevelMsg(t *testing.T) {
+	t.Parallel()
+
+	model := NewModel("cfg", 1)
+	adapter := NewEventAdapterWithModel(model)
+
+	router := arenaaudio.NewAudioRouter(arenaaudio.Rate24k)
+	defer router.Close()
+
+	adapter.AttachAudioRouter(router)
+
+	// Publish enough loud frames to drive at least one RMS emission cycle.
+	loud := make([]int16, 480) // 20ms @ 24kHz
+	for i := range loud {
+		loud[i] = 16000
+	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		router.Publish(arenaaudio.Frame{
+			Direction: arenaaudio.DirectionInput,
+			Samples:   loud,
+			Timestamp: time.Now(),
+		})
+		// AudioLevelMsg lands on model.audioActive via Update; check it.
+		model.mu.Lock()
+		active := model.audioActive
+		level := model.userAudioLevel
+		model.mu.Unlock()
+		if active && level > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("expected AudioLevelMsg with non-zero user level within 500ms")
+}
+
+func TestEventAdapter_AttachAudioRouter_NilSafe(t *testing.T) {
+	t.Parallel()
+
+	var nilAdapter *EventAdapter
+	// Must not panic on nil adapter
+	nilAdapter.AttachAudioRouter(nil)
+
+	model := NewModel("cfg", 1)
+	adapter := NewEventAdapterWithModel(model)
+	// Must not panic on nil router
+	adapter.AttachAudioRouter(nil)
 }

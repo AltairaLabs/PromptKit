@@ -90,10 +90,52 @@ type Engine struct {
 	memoryStore          *memory.InMemoryStore        // Optional memory store (set if config.Memory != nil)
 	recordingConfig      *stage.RecordingStageConfig  // Optional — enables RecordingStage in pipelines
 	audioMonitorOpts     *arenaaudio.Options          // Optional — enables audio monitoring on duplex runs
+	audioMonitorHooks    []AudioMonitorHook           // Subscribers fired when a per-run AudioRouter is built
+	audioMonitorMu       sync.RWMutex                 // Guards audioMonitorHooks
 	// mcpSourceScope manages source-backed MCP entries at run/scenario/session scopes.
 	mcpSourceScope  *mcpSourceScope
 	mcpConfig       []config.MCPServerConfig   // Source-backed MCP entries, re-read at each scope boundary
 	mcpSkillSources []prompt.SkillSourceConfig // Skill sources to mount into source-backed MCP servers
+}
+
+// AudioMonitorHook is invoked when the engine constructs a per-run AudioRouter.
+// Hooks can use the router to attach additional consumers (web SSE relay, TUI
+// level meter). The router lifecycle is the run; hooks must not retain the
+// pointer after the corresponding run completes and must not call Close (the
+// engine owns lifecycle).
+//
+// runID is the unique identifier for this run; rate is the canonical sample
+// rate of the router.
+type AudioMonitorHook func(runID string, router *arenaaudio.AudioRouter, rate int)
+
+// RegisterAudioMonitorHook registers a callback fired whenever the engine
+// constructs an AudioRouter for a run. Multiple hooks can be registered;
+// each fires in registration order. Nil hooks are ignored.
+//
+// Hooks should treat the router as borrowed — Subscribe / SubscribeRMS as
+// needed for the run's duration, but never call Close. Hook panics propagate
+// to the goroutine running the run; treat hook bodies as application code
+// and recover internally if needed.
+func (e *Engine) RegisterAudioMonitorHook(hook AudioMonitorHook) {
+	if hook == nil {
+		return
+	}
+	e.audioMonitorMu.Lock()
+	e.audioMonitorHooks = append(e.audioMonitorHooks, hook)
+	e.audioMonitorMu.Unlock()
+}
+
+// fireAudioMonitorHooks invokes all registered hooks in registration order.
+// The slice is snapshotted under the lock so a hook that registers another
+// hook does not race or deadlock with iteration.
+func (e *Engine) fireAudioMonitorHooks(runID string, router *arenaaudio.AudioRouter, rate int) {
+	e.audioMonitorMu.RLock()
+	hooks := make([]AudioMonitorHook, len(e.audioMonitorHooks))
+	copy(hooks, e.audioMonitorHooks)
+	e.audioMonitorMu.RUnlock()
+	for _, h := range hooks {
+		h(runID, router, rate)
+	}
 }
 
 // NewEngineFromConfigFile creates a new simulation engine from a configuration file.

@@ -451,6 +451,13 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		}
 	}()
 
+	// Notify external consumers (web SSE relay, TUI level meter) that a router
+	// exists for this run. Hooks Subscribe/SubscribeRMS for their needs; the
+	// engine retains lifecycle ownership.
+	if audioRouter != nil && e.audioMonitorOpts != nil {
+		e.fireAudioMonitorHooks(runID, audioRouter, e.audioMonitorOpts.Rate)
+	}
+
 	// Execute conversation
 	req := ConversationRequest{
 		Provider:         provider,

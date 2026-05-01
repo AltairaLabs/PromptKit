@@ -420,11 +420,31 @@ type Defaults struct {
 	FailOn    []string `yaml:"fail_on,omitempty" json:"fail_on,omitempty"`
 	Verbose   bool     `yaml:"verbose,omitempty" json:"verbose,omitempty"`
 
+	// Monitor groups runtime-monitor configuration (audio, future surfaces).
+	Monitor *MonitorSection `yaml:"monitor,omitempty" json:"monitor,omitempty"`
+
 	// Deprecated fields for backward compatibility (will be removed)
 	HTMLReport     string          `yaml:"html_report,omitempty" json:"html_report,omitempty"`
 	OutDir         string          `yaml:"out_dir,omitempty" json:"out_dir,omitempty"`
 	OutputFormats  []string        `yaml:"output_formats,omitempty" json:"output_formats,omitempty"`
 	MarkdownConfig *MarkdownConfig `yaml:"markdown_config,omitempty" json:"markdown_config,omitempty"`
+}
+
+// MonitorSection groups runtime-monitor configuration. Today only audio is
+// supported; future surfaces (transcript stream, video tap) can be added here.
+type MonitorSection struct {
+	Audio *AudioMonitorSection `yaml:"audio,omitempty" json:"audio,omitempty"`
+}
+
+// AudioMonitorSection configures real-time audio monitoring for duplex
+// scenarios. Values map to tools/arena/audio.Options at engine startup.
+type AudioMonitorSection struct {
+	// Enabled controls when monitoring is active. One of "auto", "on", "off".
+	// Defaults to "auto" when unset.
+	Enabled string `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// Rate is the canonical sample rate inside the router. Must be one of
+	// 16000, 24000, or 48000. Defaults to 24000 when unset.
+	Rate int `yaml:"rate,omitempty" json:"rate,omitempty"`
 }
 
 // JudgeDefaults configures default judge prompt selection.

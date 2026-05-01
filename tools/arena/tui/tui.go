@@ -99,6 +99,14 @@ type Model struct {
 	// Cache of messages by conversation ID for running conversations
 	// This allows real-time message accumulation regardless of which page is displayed
 	conversationMessages map[string][]types.Message
+
+	// Audio level meter state. audioActive is set on the first AudioLevelMsg
+	// (i.e. on duplex runs only) and gates rendering of the level meter in
+	// the conversation panel. Reset when a new run starts so stale levels
+	// from a prior run never display.
+	userAudioLevel  float32
+	agentAudioLevel float32
+	audioActive     bool
 }
 
 // RunInfo tracks information about a single run
@@ -211,6 +219,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mu.Unlock()
 		return m, nil
 
+	case AudioLevelMsg:
+		m.mu.Lock()
+		m.userAudioLevel = msg.UserLevel
+		m.agentAudioLevel = msg.AgentLevel
+		m.audioActive = true
+		if m.conversationPage != nil {
+			if panel := m.conversationPage.Panel(); panel != nil {
+				panel.SetAudioLevels(msg.UserLevel, msg.AgentLevel, true)
+			}
+		}
+		m.mu.Unlock()
+		return m, nil
+
 	case logging.Msg:
 		m.mu.Lock()
 		m.handleLogMsg(&msg)
@@ -233,6 +254,16 @@ func (m *Model) handleRunStarted(msg *RunStartedMsg) {
 		Status:    StatusRunning,
 		StartTime: msg.Time,
 	})
+
+	// Reset audio meter state so stale levels from a prior run don't display.
+	m.userAudioLevel = 0
+	m.agentAudioLevel = 0
+	m.audioActive = false
+	if m.conversationPage != nil {
+		if panel := m.conversationPage.Panel(); panel != nil {
+			panel.SetAudioLevels(0, 0, false)
+		}
+	}
 
 	// Log the event
 	m.logs = append(m.logs, LogEntry{

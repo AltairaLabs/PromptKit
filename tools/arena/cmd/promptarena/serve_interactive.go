@@ -16,6 +16,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 	"github.com/AltairaLabs/PromptKit/tools/arena/web"
@@ -57,6 +58,10 @@ var (
 func init() {
 	serveCmd.Flags().IntVarP(&servePort, "port", "p", defaultServePort, "Port to serve on")
 	serveCmd.Flags().BoolVarP(&serveOpen, "open", "o", false, "Open browser automatically")
+	serveCmd.Flags().String("audio-monitor", string(arenaaudio.ModeAuto),
+		"Audio monitoring: auto, on, off")
+	serveCmd.Flags().Int("audio-rate", arenaaudio.Rate24k,
+		"Audio canonical sample rate: 16000, 24000, or 48000")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -87,6 +92,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 	eng, err := engine.NewEngineFromConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create engine: %w", err)
+	}
+
+	// Wire audio monitor
+	mode, err := cmd.Flags().GetString("audio-monitor")
+	if err != nil {
+		return fmt.Errorf("failed to get audio-monitor flag: %w", err)
+	}
+	rate, err := cmd.Flags().GetInt("audio-rate")
+	if err != nil {
+		return fmt.Errorf("failed to get audio-rate flag: %w", err)
+	}
+	if monitorErr := eng.EnableAudioMonitor(arenaaudio.Options{
+		Mode:        arenaaudio.MonitorMode(mode),
+		Rate:        rate,
+		LocalSink:   true,
+		SSEPlayback: true,
+		LevelMeter:  true,
+	}); monitorErr != nil {
+		return fmt.Errorf("audio monitor: %w", monitorErr)
 	}
 
 	// Wire event bus

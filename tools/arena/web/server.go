@@ -2,6 +2,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,10 +16,15 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	jsonresults "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
+
+// audioSSEPrefix identifies pre-formatted SSE frames (audio relay messages)
+// vs raw JSON event payloads on the same client channel.
+var audioSSEPrefix = []byte("event:")
 
 // defaultRunTimeout is the maximum duration for background runs started via POST /api/run.
 const defaultRunTimeout = 30 * time.Minute
@@ -46,10 +52,20 @@ type Server struct {
 // NewServer creates a new web server.
 // eng and store may be nil (for testing SSE in isolation).
 // outputDir is the path to the results directory (for DELETE /api/results).
+//
+// When both eng and adapter are non-nil, the server registers an audio
+// monitor hook on the engine so per-run AudioRouters automatically attach
+// to the SSE relay. Audio monitoring still requires explicit opt-in via
+// engine.EnableAudioMonitor — without it, the hook never fires.
 func NewServer(adapter *EventAdapter, eng *engine.Engine, store *statestore.ArenaStateStore, outputDir string) *Server {
 	var runner engineRunner
 	if eng != nil {
 		runner = eng
+		if adapter != nil {
+			eng.RegisterAudioMonitorHook(func(runID string, router *arenaaudio.AudioRouter, rate int) {
+				adapter.AttachAudioRouter(runID, router, rate)
+			})
+		}
 	}
 	return newServerWithRunner(adapter, runner, store, outputDir)
 }
@@ -118,6 +134,13 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	ch := s.adapter.Register()
 	defer s.adapter.Unregister(ch)
 
+	// Audio opt-in: clients that pass ?audio=1 also receive audio SSE events
+	// on the same channel. Browser-side EventSource demuxes by event type.
+	if r.URL.Query().Get("audio") == "1" {
+		s.adapter.RegisterAudio(ch)
+		defer s.adapter.UnregisterAudio(ch)
+	}
+
 	// Send initial keepalive so client knows connection is established
 	_, _ = fmt.Fprintf(w, ": connected\n\n")
 	flusher.Flush()
@@ -130,10 +153,24 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
+			// Audio relay messages are pre-formatted SSE frames (they include
+			// their own `event: audio\ndata: ...\n\n` envelope). Regular
+			// events are raw JSON bytes that need wrapping with `data:`.
+			if isPreformattedSSE(msg) {
+				_, _ = w.Write(msg)
+			} else {
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", msg)
+			}
 			flusher.Flush()
 		}
 	}
+}
+
+// isPreformattedSSE reports whether msg already contains a complete SSE
+// frame (starts with an `event:` line). Used to distinguish audio relay
+// messages from raw JSON event bytes on the same client channel.
+func isPreformattedSSE(msg []byte) bool {
+	return bytes.HasPrefix(msg, audioSSEPrefix)
 }
 
 // RunRequest is the JSON body for POST /api/run.

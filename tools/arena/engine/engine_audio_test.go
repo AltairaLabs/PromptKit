@@ -147,6 +147,83 @@ func TestIsStdoutTTY_ReportsBoolean(t *testing.T) {
 	_ = isStdoutTTY()
 }
 
+// TestRegisterAudioMonitorHook_FiresOnRouterCreation verifies that hooks
+// registered via RegisterAudioMonitorHook receive the run ID, router, and
+// rate when fireAudioMonitorHooks is invoked. The actual fire happens in
+// executeRun; this test exercises the wiring directly.
+func TestRegisterAudioMonitorHook_FiresOnRouterCreation(t *testing.T) {
+	eng := &Engine{}
+	if err := eng.EnableAudioMonitor(arenaaudio.Options{
+		Rate: arenaaudio.Rate24k,
+		Mode: arenaaudio.ModeOn,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var seenRunID string
+	var seenRouter *arenaaudio.AudioRouter
+	var seenRate int
+	eng.RegisterAudioMonitorHook(func(runID string, router *arenaaudio.AudioRouter, rate int) {
+		seenRunID = runID
+		seenRouter = router
+		seenRate = rate
+	})
+
+	router := arenaaudio.NewAudioRouter(arenaaudio.Rate24k)
+	defer router.Close()
+	eng.fireAudioMonitorHooks("test-run-1", router, arenaaudio.Rate24k)
+
+	if seenRunID != "test-run-1" {
+		t.Fatalf("expected run id 'test-run-1', got %q", seenRunID)
+	}
+	if seenRouter != router {
+		t.Fatal("expected hook to receive the router pointer")
+	}
+	if seenRate != arenaaudio.Rate24k {
+		t.Fatalf("expected rate %d, got %d", arenaaudio.Rate24k, seenRate)
+	}
+}
+
+// TestRegisterAudioMonitorHook_MultipleHooks verifies that multiple hooks
+// fire in registration order.
+func TestRegisterAudioMonitorHook_MultipleHooks(t *testing.T) {
+	eng := &Engine{}
+	var calls []string
+	eng.RegisterAudioMonitorHook(func(runID string, _ *arenaaudio.AudioRouter, _ int) {
+		calls = append(calls, "hook1:"+runID)
+	})
+	eng.RegisterAudioMonitorHook(func(runID string, _ *arenaaudio.AudioRouter, _ int) {
+		calls = append(calls, "hook2:"+runID)
+	})
+	router := arenaaudio.NewAudioRouter(arenaaudio.Rate24k)
+	defer router.Close()
+	eng.fireAudioMonitorHooks("r", router, arenaaudio.Rate24k)
+	if len(calls) != 2 || calls[0] != "hook1:r" || calls[1] != "hook2:r" {
+		t.Fatalf("expected hooks fired in order [hook1:r hook2:r], got %v", calls)
+	}
+}
+
+// TestRegisterAudioMonitorHook_NilHookIgnored verifies that nil hooks are
+// silently ignored at registration time.
+func TestRegisterAudioMonitorHook_NilHookIgnored(t *testing.T) {
+	eng := &Engine{}
+	eng.RegisterAudioMonitorHook(nil)
+	router := arenaaudio.NewAudioRouter(arenaaudio.Rate24k)
+	defer router.Close()
+	// Should not panic.
+	eng.fireAudioMonitorHooks("r", router, arenaaudio.Rate24k)
+}
+
+// TestRegisterAudioMonitorHook_NoHooksNoOp verifies firing with zero hooks
+// is a safe no-op.
+func TestRegisterAudioMonitorHook_NoHooksNoOp(t *testing.T) {
+	eng := &Engine{}
+	router := arenaaudio.NewAudioRouter(arenaaudio.Rate24k)
+	defer router.Close()
+	// Should not panic.
+	eng.fireAudioMonitorHooks("r", router, arenaaudio.Rate24k)
+}
+
 // TestBuildAudioMonitor_RouterFanout verifies frames published to the router
 // reach a subscribed consumer end-to-end. Drives Task 14's wiring guarantee:
 // when the engine constructs a router, MonitorTap stages can publish to it

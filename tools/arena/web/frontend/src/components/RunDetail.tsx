@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { ConversationThread } from "@/components/ConversationThread";
 import { AssertionsPanel } from "@/components/AssertionsPanel";
 import { useArenaAPI } from "@/hooks/useArenaAPI";
+import { AudioPlayer } from "@/audio/player";
 import type { RunResult } from "@/types";
 
 import type { Message } from "@/types";
@@ -17,10 +18,35 @@ export function RunDetail({ runId, onBack, onSelectMessage }: RunDetailProps) {
   const { getResult } = useArenaAPI();
   const [result, setResult] = useState<RunResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const playerRef = useRef<AudioPlayer | null>(null);
 
   useEffect(() => {
     getResult(runId).then(setResult).catch((e: Error) => setError(e.message));
   }, [runId, getResult]);
+
+  useEffect(() => {
+    return () => {
+      playerRef.current?.close();
+      playerRef.current = null;
+    };
+  }, []);
+
+  const toggleListen = () => {
+    if (listening) {
+      playerRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    if (!playerRef.current) {
+      playerRef.current = new AudioPlayer({
+        runId,
+        onError: (msg) => console.warn("audio player:", msg),
+      });
+    }
+    playerRef.current.start("/api/events");
+    setListening(true);
+  };
 
   if (error) {
     return (
@@ -57,6 +83,17 @@ export function RunDetail({ runId, onBack, onSelectMessage }: RunDetailProps) {
         }>
           {result.Error ? "Failed" : "Passed"}
         </span>
+        <button
+          onClick={toggleListen}
+          className={
+            listening
+              ? "ml-auto rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-[#2563EB] hover:bg-blue-100 transition-colors"
+              : "ml-auto rounded-lg border border-mist bg-white px-3 py-1.5 text-xs font-medium text-deep-space hover:bg-[#F8FAFC] transition-colors"
+          }
+          title={listening ? "Stop audio playback" : "Listen to live audio (user → left, agent → right)"}
+        >
+          {listening ? "🔇 Stop" : "🔊 Listen"}
+        </button>
       </div>
 
       {/* Metadata grid */}

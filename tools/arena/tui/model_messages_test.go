@@ -203,3 +203,38 @@ func TestModel_handleRunFailed_NonExistentRun(t *testing.T) {
 	assert.Equal(t, 1, m.completedCount)
 	assert.Equal(t, 1, m.failedCount)
 }
+
+func TestModel_AudioLevelMsg_UpdatesState(t *testing.T) {
+	m := NewModel("test.yaml", 10)
+	m.isTUIMode = true
+
+	updated, cmd := m.Update(AudioLevelMsg{UserLevel: 0.5, AgentLevel: 0.25})
+	assert.Nil(t, cmd)
+	updatedModel := updated.(*Model)
+
+	assert.True(t, updatedModel.audioActive)
+	assert.InDelta(t, float32(0.5), updatedModel.userAudioLevel, 1e-6)
+	assert.InDelta(t, float32(0.25), updatedModel.agentAudioLevel, 1e-6)
+}
+
+func TestModel_RunStarted_ResetsAudioState(t *testing.T) {
+	m := NewModel("test.yaml", 10)
+	m.isTUIMode = true
+
+	// Prime audio state from a prior run.
+	_, _ = m.Update(AudioLevelMsg{UserLevel: 0.7, AgentLevel: 0.7})
+	require.True(t, m.audioActive)
+
+	// New run should reset audio state so stale levels don't display.
+	_, _ = m.Update(RunStartedMsg{
+		RunID:    "run-2",
+		Scenario: "scn",
+		Provider: "prov",
+		Region:   "us",
+		Time:     time.Now(),
+	})
+
+	assert.False(t, m.audioActive)
+	assert.Equal(t, float32(0), m.userAudioLevel)
+	assert.Equal(t, float32(0), m.agentAudioLevel)
+}
