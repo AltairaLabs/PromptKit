@@ -423,6 +423,11 @@ type Defaults struct {
 	// Monitor groups runtime-monitor configuration (audio, future surfaces).
 	Monitor *MonitorSection `yaml:"monitor,omitempty" json:"monitor,omitempty"`
 
+	// TTS configures arena-wide default text-to-speech settings used to convert
+	// scripted-text user turns into audio in duplex scenarios. Per-turn and
+	// per-scenario TTS configs take precedence over this default.
+	TTS *TTSConfig `yaml:"tts,omitempty" json:"tts,omitempty"`
+
 	// Deprecated fields for backward compatibility (will be removed)
 	HTMLReport     string          `yaml:"html_report,omitempty" json:"html_report,omitempty"`
 	OutDir         string          `yaml:"out_dir,omitempty" json:"out_dir,omitempty"`
@@ -642,6 +647,12 @@ type Scenario struct {
 	// Duplex enables bidirectional streaming mode for voice/audio scenarios.
 	Duplex *DuplexConfig `json:"duplex,omitempty" yaml:"duplex,omitempty"`
 
+	// TTS configures the scenario-level default text-to-speech settings used to
+	// convert scripted-text user turns into audio in duplex scenarios. A
+	// per-turn TTS config takes precedence over this; arena defaults fill in
+	// when both this and per-turn TTS are absent.
+	TTS *TTSConfig `json:"tts,omitempty" yaml:"tts,omitempty"`
+
 	// Variables are injected into the pack's template variables.
 	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty" jsonschema:"description=Template variables to inject into the pack"` //nolint:lll
 	// Trials is the number of times to execute this scenario for statistical evaluation.
@@ -695,6 +706,13 @@ func (s *Scenario) Validate() error {
 	if s.ContextPolicy != nil && s.ContextPolicy.Relevance != nil {
 		if err := s.ContextPolicy.Relevance.Validate(); err != nil {
 			return fmt.Errorf("scenario %s context policy: %w", s.ID, err)
+		}
+	}
+
+	// Validate scenario-level TTS config if present
+	if s.TTS != nil {
+		if err := s.TTS.Validate(); err != nil {
+			return fmt.Errorf("scenario %s tts: %w", s.ID, err)
 		}
 	}
 

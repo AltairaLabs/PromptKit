@@ -583,6 +583,9 @@
         "monitor": {
           "$ref": "#/$defs/MonitorSection"
         },
+        "tts": {
+          "$ref": "#/$defs/TTSConfig"
+        },
         "html_report": {
           "type": "string"
         },
@@ -2025,6 +2028,9 @@
         },
         "duplex": {
           "$ref": "#/$defs/DuplexConfig"
+        },
+        "tts": {
+          "$ref": "#/$defs/TTSConfig"
         },
         "variables": {
           "additionalProperties": {

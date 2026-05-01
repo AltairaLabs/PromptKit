@@ -15,10 +15,19 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/streaming"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
+
+// defaultTTSSampleRate is the assumed output sample rate for TTS providers when
+// the TTS config does not specify one. Mirrors the default in
+// selfplay/audio_generator.go.
+const defaultTTSSampleRate = 24000
+
+// turnPartTypeAudio is the TurnContentPart.Type value for audio parts.
+const turnPartTypeAudio = "audio"
 
 // turnLoopConfig holds configuration for the turn processing loop.
 type turnLoopConfig struct {
@@ -268,9 +277,18 @@ func (de *DuplexConversationExecutor) processSingleDuplexTurn(
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
-	// For user turns with audio, stream the audio file
-	if turn.Role == "user" && len(turn.Parts) > 0 {
-		return de.streamAudioTurn(ctx, turn, baseDir, inputChan, outputChan)
+	// User turns can take three shapes in duplex mode:
+	//   1. Audio parts (file-based) → stream the file directly
+	//   2. Text content with no audio parts → run through TTS (scripted-text)
+	//   3. Empty → error
+	if turn.Role == "user" {
+		if turnHasAudioPart(turn) {
+			return de.streamAudioTurn(ctx, turn, baseDir, inputChan, outputChan)
+		}
+		if turn.Content != "" {
+			return de.processScriptedTextDuplexTurn(ctx, req, turn, turnIdx, inputChan, outputChan)
+		}
+		return fmt.Errorf("duplex user turn %d must have audio parts or text content", turnIdx)
 	}
 
 	// For self-play turns, generate audio via TTS
@@ -279,6 +297,68 @@ func (de *DuplexConversationExecutor) processSingleDuplexTurn(
 	}
 
 	return fmt.Errorf("unsupported turn role for duplex: %s", turn.Role)
+}
+
+// turnHasAudioPart reports whether any of the turn's parts is audio.
+func turnHasAudioPart(turn *config.TurnDefinition) bool {
+	for i := range turn.Parts {
+		if turn.Parts[i].Type == turnPartTypeAudio {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveTTS picks the TTS config for a turn using a layered precedence:
+//
+//  1. turn.TTS (per-turn override)
+//  2. scenario.TTS (scenario-level default)
+//  3. arena defaults TTS (arena-wide default)
+//
+// Returns nil when no layer supplies a config. Callers decide whether nil is an
+// error for their codepath.
+func (de *DuplexConversationExecutor) resolveTTS(
+	turn *config.TurnDefinition,
+	scenario *config.Scenario,
+	cfg *config.Config,
+) *config.TTSConfig {
+	if turn != nil && turn.TTS != nil {
+		return turn.TTS
+	}
+	if scenario != nil && scenario.TTS != nil {
+		return scenario.TTS
+	}
+	if cfg != nil && cfg.Defaults.TTS != nil {
+		return cfg.Defaults.TTS
+	}
+	return nil
+}
+
+// processScriptedTextDuplexTurn handles user turns whose content is plain text
+// (no audio parts). The text is synthesized via TTS using layered config
+// resolution and streamed to the duplex provider.
+func (de *DuplexConversationExecutor) processScriptedTextDuplexTurn(
+	ctx context.Context,
+	req *ConversationRequest,
+	turn *config.TurnDefinition,
+	turnIdx int,
+	inputChan chan<- stage.StreamElement,
+	outputChan <-chan stage.StreamElement,
+) error {
+	if de.selfPlayRegistry == nil {
+		return fmt.Errorf("self-play registry not configured for duplex turn %d (required for TTS)", turnIdx)
+	}
+
+	ttsConfig := de.resolveTTS(turn, req.Scenario, req.Config)
+	if ttsConfig == nil {
+		return fmt.Errorf(
+			"TTS configuration required for scripted-text duplex turn %d "+
+				"(set turn.tts, scenario.spec.tts, or arena defaults.tts)",
+			turnIdx,
+		)
+	}
+
+	return de.streamTextAsAudio(ctx, turn.Content, ttsConfig, nil, inputChan, outputChan)
 }
 
 // streamAudioTurn streams audio from a file to the pipeline.
@@ -292,7 +372,7 @@ func (de *DuplexConversationExecutor) streamAudioTurn(
 	// Find audio part
 	var audioPart *config.TurnContentPart
 	for i := range turn.Parts {
-		if turn.Parts[i].Type == "audio" {
+		if turn.Parts[i].Type == turnPartTypeAudio {
 			audioPart = &turn.Parts[i]
 			break
 		}
@@ -478,6 +558,12 @@ func (de *DuplexConversationExecutor) ExecuteConversationStream(
 
 // processSelfPlayDuplexTurn handles self-play turns in duplex mode.
 // selfplayTurnNum is the 1-indexed selfplay turn number (first selfplay = 1).
+//
+// This is now a thin wrapper that:
+//  1. Resolves the TTS config (turn.TTS → scenario.TTS → arena defaults).
+//  2. Generates persona text via the self-play text generator.
+//  3. Builds selfplay-specific turn metadata.
+//  4. Delegates to streamTextAsAudio to synthesize + send + stream the audio.
 func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -487,71 +573,133 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
-	// For self-play in duplex mode:
-	// 1. Wait for assistant response (if not first turn)
-	// 2. Generate user message using self-play LLM
-	// 3. Convert to audio using TTS (if configured)
-	// 4. Stream audio to pipeline
-
 	// Validate self-play registry is available
 	if de.selfPlayRegistry == nil {
 		return fmt.Errorf("self-play registry not configured for duplex turn %d", turnIdx)
 	}
 
-	// Check if TTS is configured
-	if turn.TTS == nil {
-		return fmt.Errorf("TTS configuration required for self-play duplex turn %d", turnIdx)
+	// Resolve TTS via the layered precedence. Self-play has historically required
+	// a TTS config, and that's still true — but now scenario/arena defaults are
+	// allowed to satisfy the requirement.
+	ttsConfig := de.resolveTTS(turn, req.Scenario, req.Config)
+	if ttsConfig == nil {
+		return fmt.Errorf(
+			"TTS configuration required for self-play duplex turn %d "+
+				"(set turn.tts, scenario.spec.tts, or arena defaults.tts)",
+			turnIdx,
+		)
 	}
 
-	// Get audio generator from registry
-	audioGen, err := de.selfPlayRegistry.GetAudioContentGenerator(
-		turn.Role,
-		turn.Persona,
-		turn.TTS,
-	)
+	// Get the text content generator (no TTS — we'll synthesize inside the helper).
+	textGen, err := de.selfPlayRegistry.GetContentGenerator(turn.Role, turn.Persona)
 	if err != nil {
-		return fmt.Errorf("failed to get audio generator for turn %d: %w", turnIdx, err)
+		return fmt.Errorf("failed to get content generator for turn %d: %w", turnIdx, err)
 	}
 
 	// Collect conversation history from state store
 	history := de.getConversationHistory(ctx, req)
 
-	// Generate text and convert to audio
-	// Pass the selfplay turn number so the mock provider gets the correct turn response
+	// Generate text. Pass the selfplay turn number so the mock provider gets the
+	// correct turn response.
 	opts := &selfplay.GeneratorOptions{
 		SelfplayTurnIndex: selfplayTurnNum,
 	}
-	audioResult, err := audioGen.NextUserTurnAudio(ctx, history, req.Scenario.ID, opts)
+	textResult, err := textGen.NextUserTurn(ctx, history, req.Scenario.ID, opts)
 	if err != nil {
-		return fmt.Errorf("failed to generate audio for turn %d: %w", turnIdx, err)
+		return fmt.Errorf("failed to generate text for turn %d: %w", turnIdx, err)
+	}
+	if textResult == nil || textResult.Response == nil {
+		return fmt.Errorf("self-play turn %d produced no text response", turnIdx)
+	}
+	generatedText := textResult.Response.Content
+	if generatedText == "" {
+		return fmt.Errorf("self-play turn %d produced empty text", turnIdx)
 	}
 
-	// Get the generated text content
-	generatedText := audioResult.TextResult.Response.Content
+	// Build selfplay-specific user-message metadata. The shared helper writes
+	// turn_id itself; everything else here is caller-supplied.
+	turnMeta := map[string]any{
+		"self_play":           true,
+		"persona":             turn.Persona,
+		"selfplay_turn_index": selfplayTurnNum,
+	}
 
-	// Generate unique turn ID for this user message
-	// This is used to correlate transcription events with the correct user message
+	// Copy only relevant metadata from the text generation result. Avoid copying
+	// pipeline internal fields like system_prompt, base_variables, etc.
+	if textResult.Metadata != nil {
+		relevantFields := []string{
+			"self_play_provider",
+			"validation_warning",
+			"warning_type",
+		}
+		for _, field := range relevantFields {
+			if v, ok := textResult.Metadata[field]; ok {
+				turnMeta[field] = v
+			}
+		}
+	}
+
+	return de.streamTextAsAudio(ctx, generatedText, ttsConfig, turnMeta, inputChan, outputChan)
+}
+
+// streamTextAsAudio synthesizes text → audio via the configured TTS provider,
+// emits a user-role pipeline element with both text and audio parts, and
+// streams the audio bytes through the duplex pipeline using burst mode.
+//
+// turnMeta is merged into the user message's Meta map. Callers can pass
+// nil/empty when no extra metadata is needed (e.g. scripted-text turns); the
+// helper always writes turn_id so transcription events can be correlated.
+//
+// This is the shared entry point used by both self-play turns (after
+// generating persona text) and scripted-text user turns.
+func (de *DuplexConversationExecutor) streamTextAsAudio(
+	ctx context.Context,
+	text string,
+	ttsConfig *config.TTSConfig,
+	turnMeta map[string]any,
+	inputChan chan<- stage.StreamElement,
+	outputChan <-chan stage.StreamElement,
+) error {
+	if text == "" {
+		return errors.New("streamTextAsAudio: text is empty")
+	}
+	if ttsConfig == nil {
+		return errors.New("streamTextAsAudio: ttsConfig is nil")
+	}
+	if de.selfPlayRegistry == nil {
+		return errors.New("streamTextAsAudio: self-play registry not configured (TTS service unavailable)")
+	}
+
+	// Synthesize the text to PCM16 audio.
+	audioBytes, sampleRate, err := de.synthesizeTTS(ctx, text, ttsConfig)
+	if err != nil {
+		return fmt.Errorf("failed to synthesize audio: %w", err)
+	}
+
+	// Generate a unique turn ID for this user message so the DuplexProviderStage
+	// can correlate downstream transcription events back to the right turn.
 	turnID := uuid.New().String()
 
-	logger.Debug("Self-play audio generated",
-		"turn", turnIdx,
+	logger.Debug("Text-as-audio synthesized",
 		"turn_id", turnID,
-		"generated_text", generatedText,
-		"text_length", len(generatedText),
-		"audio_bytes", len(audioResult.Audio),
-		"sample_rate", audioResult.SampleRate,
+		"text", text,
+		"text_length", len(text),
+		"audio_bytes", len(audioBytes),
+		"sample_rate", sampleRate,
 	)
 
-	// Create user message element to capture in state store
-	// Include both the generated text and the TTS audio data (base64 encoded)
-	audioDataBase64 := base64.StdEncoding.EncodeToString(audioResult.Audio)
+	// Build the user message: text + audio parts, mirroring the shape that
+	// selfplay used to emit. Audio is base64-encoded inline so the state store
+	// can persist it.
+	audioDataBase64 := base64.StdEncoding.EncodeToString(audioBytes)
+	textCopy := text
 	userMsg := &types.Message{
 		Role:    "user",
-		Content: generatedText, // Include the selfplay-generated text
+		Content: textCopy,
 		Parts: []types.ContentPart{
 			{
 				Type: types.ContentTypeText,
-				Text: &generatedText,
+				Text: &textCopy,
 			},
 			{
 				Type: types.ContentTypeAudio,
@@ -561,37 +709,20 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 				},
 			},
 		},
+		Meta: map[string]interface{}{
+			"turn_id": turnID,
+		},
 	}
-
-	// Add selfplay metadata to the user message for reporting
-	// Include turn_id for correlating transcription events
-	// Only include essential selfplay fields, not pipeline internal metadata
-	userMsg.Meta = map[string]interface{}{
-		"turn_id":             turnID,
-		"self_play":           true,
-		"persona":             turn.Persona,
-		"selfplay_turn_index": selfplayTurnNum,
-	}
-
-	// Copy only relevant metadata from text generation result
-	// Avoid copying pipeline internal fields like system_prompt, base_variables, etc.
-	if audioResult.TextResult != nil && audioResult.TextResult.Metadata != nil {
-		// Only copy specific fields that are relevant to selfplay output
-		relevantFields := []string{
-			"self_play_provider",
-			"validation_warning",
-			"warning_type",
+	for k, v := range turnMeta {
+		// Don't let the caller overwrite turn_id — it's owned by this helper.
+		if k == "turn_id" {
+			continue
 		}
-		for _, field := range relevantFields {
-			if v, ok := audioResult.TextResult.Metadata[field]; ok {
-				userMsg.Meta[field] = v
-			}
-		}
+		userMsg.Meta[k] = v
 	}
 
-	// Send user message to pipeline for state store capture
 	userMsgElem := stage.NewMessageElement(userMsg)
-	// Also add turn_id to typed element metadata so DuplexProviderStage can track it
+	// Also add turn_id to typed element metadata so DuplexProviderStage can track it.
 	turnIDCopy := turnID
 	userMsgElem.Meta.TurnID = &turnIDCopy
 	select {
@@ -600,9 +731,53 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 		return ctx.Err()
 	}
 
-	// Stream audio chunks to the pipeline
-	// Pass sample rate so streaming can resample if needed
-	return de.streamSelfPlayAudio(ctx, audioResult.Audio, audioResult.SampleRate, inputChan, outputChan)
+	return de.streamSelfPlayAudio(ctx, audioBytes, sampleRate, inputChan, outputChan)
+}
+
+// synthesizeTTS converts text to PCM16 audio bytes using the configured TTS
+// service. Returns the audio bytes and the sample rate to assume for them.
+//
+//nolint:gocritic // Unnamed results are clearer for this signature: (audio, sampleRate, error)
+func (de *DuplexConversationExecutor) synthesizeTTS(
+	ctx context.Context,
+	text string,
+	ttsConfig *config.TTSConfig,
+) ([]byte, int, error) {
+	if err := ttsConfig.Validate(); err != nil {
+		return nil, 0, fmt.Errorf("invalid TTS configuration: %w", err)
+	}
+
+	ttsRegistry := de.selfPlayRegistry.GetTTSRegistry()
+	if ttsRegistry == nil {
+		return nil, 0, errors.New("TTS registry not available on self-play registry")
+	}
+
+	ttsService, err := ttsRegistry.GetWithConfig(ttsConfig)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get TTS service: %w", err)
+	}
+
+	synthConfig := tts.SynthesisConfig{
+		Voice:  ttsConfig.Voice,
+		Format: tts.FormatPCM16,
+		Speed:  1.0,
+	}
+	reader, err := ttsService.Synthesize(ctx, text, synthConfig)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer reader.Close()
+
+	audioBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read synthesized audio: %w", err)
+	}
+
+	sampleRate := defaultTTSSampleRate
+	if ttsConfig.SampleRate > 0 {
+		sampleRate = ttsConfig.SampleRate
+	}
+	return audioBytes, sampleRate, nil
 }
 
 // streamSelfPlayAudio streams synthesized audio to the duplex pipeline.

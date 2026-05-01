@@ -300,6 +300,9 @@
         "duplex": {
           "$ref": "#/$defs/DuplexConfig"
         },
+        "tts": {
+          "$ref": "#/$defs/TTSConfig"
+        },
         "variables": {
           "additionalProperties": {
             "type": "string"
