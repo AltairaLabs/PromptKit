@@ -33,14 +33,16 @@ const (
 // TTSRegistry manages TTS service instances by provider name.
 // It supports lazy initialization and caching of TTS services.
 type TTSRegistry struct {
-	services map[string]tts.Service
-	mu       sync.RWMutex
+	services    map[string]tts.Service
+	mockByFiles map[string]tts.Service
+	mu          sync.RWMutex
 }
 
 // NewTTSRegistry creates a new TTS registry.
 func NewTTSRegistry() *TTSRegistry {
 	return &TTSRegistry{
-		services: make(map[string]tts.Service),
+		services:    make(map[string]tts.Service),
+		mockByFiles: make(map[string]tts.Service),
 	}
 }
 
@@ -78,9 +80,27 @@ func (r *TTSRegistry) GetWithConfig(cfg *config.TTSConfig) (tts.Service, error) 
 		return nil, fmt.Errorf("TTS config is required")
 	}
 
-	// For mock provider with audio files, create a fresh instance (not cached)
+	// For mock provider with audio files, cache by the file-list identity so
+	// repeated calls with the same set of files reuse one MockTTSService — that
+	// preserves currentFileIndex across calls and lets rotation work.
 	if cfg.Provider == TTSProviderMock && len(cfg.AudioFiles) > 0 {
-		return NewMockTTSWithFiles(cfg.AudioFiles), nil
+		key := strings.Join(cfg.AudioFiles, "|")
+
+		r.mu.RLock()
+		if svc, exists := r.mockByFiles[key]; exists {
+			r.mu.RUnlock()
+			return svc, nil
+		}
+		r.mu.RUnlock()
+
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if svc, exists := r.mockByFiles[key]; exists {
+			return svc, nil
+		}
+		svc := NewMockTTSWithFiles(cfg.AudioFiles)
+		r.mockByFiles[key] = svc
+		return svc, nil
 	}
 
 	// For all other cases, use the standard cached lookup

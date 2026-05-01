@@ -347,8 +347,23 @@ func (de *DuplexConversationExecutor) buildBaseSessionConfig(
 	de.applySelfPlayVADConfig(cfg, req)
 	de.applyScenarioVADConfig(cfg, req)
 	de.applyToolsConfig(cfg)
+	de.applyMockScenarioContext(cfg, req)
 
 	return cfg
+}
+
+// applyMockScenarioContext threads the scenario ID through the streaming
+// session metadata so a mock provider with a configured response repository
+// can return per-turn scenario-mapped responses instead of a static
+// auto-respond text. No-op for real providers — they ignore the key.
+func (de *DuplexConversationExecutor) applyMockScenarioContext(
+	cfg *providers.StreamingInputConfig,
+	req *ConversationRequest,
+) {
+	if req.Scenario == nil || req.Scenario.ID == "" {
+		return
+	}
+	cfg.Metadata["mock_scenario_id"] = req.Scenario.ID
 }
 
 // applyResponseModalities adds response modalities from provider config.
