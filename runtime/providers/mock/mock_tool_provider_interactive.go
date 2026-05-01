@@ -21,9 +21,11 @@ type ToolProvider struct {
 
 // NewToolProvider creates a new mock provider with tool support and duplex streaming.
 // This uses default in-memory responses for backward compatibility.
+//
 //nolint:gocognit // complexity is inherent in config parsing
 func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]any) *ToolProvider {
 	var streamingProvider *StreamingProvider
+	var fileRepo *FileMockRepository
 
 	if additionalConfig != nil {
 		if mockConfigPath, ok := additionalConfig["mock_config"].(string); ok && mockConfigPath != "" {
@@ -33,6 +35,7 @@ func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig m
 				logger.Warn("failed to load mock config", "path", mockConfigPath, "error", err)
 				streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
 			} else {
+				fileRepo = repository
 				streamingProvider = NewStreamingProviderWithRepository(id, model, includeRawOutput, repository)
 			}
 		} else {
@@ -56,6 +59,19 @@ func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig m
 			}
 			logger.Info("Mock provider: auto-respond enabled", "response_text", responseText)
 			streamingProvider.WithAutoRespond(responseText)
+
+			// Wire scripted scenario lookup so duplex auto-respond can drive
+			// per-turn responses (and audio fixtures) from mock-responses.yaml.
+			if fileRepo != nil {
+				duplexScenario := ""
+				if s, ok := additionalConfig["duplex_scenario"].(string); ok {
+					duplexScenario = s
+				}
+				logger.Info("Mock provider: duplex scenario lookup enabled",
+					"scenario_id", duplexScenario,
+					"fixture_base_dir", fileRepo.BaseDir())
+				streamingProvider.WithMockResponses(fileRepo, duplexScenario, fileRepo.BaseDir())
+			}
 		}
 
 		// Configure simulation behaviors for testing duplex failure scenarios
