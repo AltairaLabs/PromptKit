@@ -7,8 +7,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
+
+// audioRMSSubscribeBuffer is the per-consumer buffer requested from the
+// AudioRouter for RMS frames. Slow consumers drop their own frames.
+const audioRMSSubscribeBuffer = 20
 
 // EventAdapter converts runtime events to bubbletea messages.
 type EventAdapter struct {
@@ -32,6 +37,25 @@ func (a *EventAdapter) Subscribe(bus events.Bus) {
 		return
 	}
 	bus.SubscribeAll(a.HandleEvent)
+}
+
+// AttachAudioRouter subscribes the TUI adapter to RMSFrame events from the
+// router. Levels are forwarded to the Bubble Tea program as AudioLevelMsg
+// at ~30 Hz. The subscription lives until the router closes (the goroutine
+// exits when the RMS channel is closed).
+func (a *EventAdapter) AttachAudioRouter(router *arenaaudio.AudioRouter) {
+	if a == nil || router == nil {
+		return
+	}
+	rms := router.SubscribeRMS(audioRMSSubscribeBuffer)
+	go func() {
+		for frame := range rms {
+			a.send(AudioLevelMsg{
+				UserLevel:  frame.UserLevel,
+				AgentLevel: frame.AgentLevel,
+			})
+		}
+	}()
 }
 
 // HandleEvent converts runtime events into TUI messages.

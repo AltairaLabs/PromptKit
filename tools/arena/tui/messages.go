@@ -83,3 +83,9 @@ type ConversationStartedMsg struct {
 	SystemPrompt   string
 	Time           time.Time
 }
+
+// AudioLevelMsg carries normalized RMS levels (0.0–1.0) for the level meter.
+type AudioLevelMsg struct {
+	UserLevel  float32
+	AgentLevel float32
+}

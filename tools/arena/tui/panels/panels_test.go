@@ -1,6 +1,7 @@
 package panels
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -508,4 +509,98 @@ func TestTruncateString(t *testing.T) {
 	result = truncateString("this is a very long string", 10, 7)
 	assert.Equal(t, "this is...", result)
 	assert.Equal(t, 10, len(result))
+}
+
+func TestRenderAudioMeters_Active(t *testing.T) {
+	out := renderAudioMeters(0.5, 0.0, true)
+	if !strings.Contains(out, "user") {
+		t.Fatalf("expected user label in meter, got: %q", out)
+	}
+	if !strings.Contains(out, "agent") {
+		t.Fatalf("expected agent label, got: %q", out)
+	}
+	// 0.5 -> 4 of 8 cells filled
+	userLine := strings.SplitN(out, "\n", 2)[0]
+	if got := strings.Count(userLine, "█"); got != 4 {
+		t.Fatalf("expected 4 filled cells for 0.5 level, got %d in %q", got, userLine)
+	}
+}
+
+func TestRenderAudioMeters_Inactive(t *testing.T) {
+	out := renderAudioMeters(0.5, 0.5, false)
+	if out != "" {
+		t.Fatalf("expected empty render when inactive, got: %q", out)
+	}
+}
+
+func TestRenderAudioMeter_ClampsBounds(t *testing.T) {
+	// Level 0 -> 0 filled cells
+	out := renderAudioMeter("user", 0)
+	if got := strings.Count(out, "█"); got != 0 {
+		t.Fatalf("expected 0 filled cells at level=0, got %d in %q", got, out)
+	}
+	// Level 1 -> 8 filled cells
+	out = renderAudioMeter("user", 1.0)
+	if got := strings.Count(out, "█"); got != audioMeterCells {
+		t.Fatalf("expected %d filled cells at level=1.0, got %d in %q", audioMeterCells, got, out)
+	}
+	// Level >1 clamps to 8
+	out = renderAudioMeter("user", 2.5)
+	if got := strings.Count(out, "█"); got != audioMeterCells {
+		t.Fatalf("expected clamp to %d cells at level>1, got %d in %q", audioMeterCells, got, out)
+	}
+	// Negative level clamps to 0
+	out = renderAudioMeter("user", -0.5)
+	if got := strings.Count(out, "█"); got != 0 {
+		t.Fatalf("expected 0 filled cells at level<0, got %d in %q", got, out)
+	}
+}
+
+func TestConversationPanel_RendersAudioMeterWhenActive(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(120, 40)
+	panel.SetAudioLevels(0.5, 0.25, true)
+
+	res := &statestore.RunResult{
+		RunID: "run-1",
+		Messages: []types.Message{
+			{Role: "user", Content: "hello"},
+		},
+	}
+	panel.SetData("run-1", "scn", "prov", res)
+
+	out := panel.View()
+	if !strings.Contains(out, "user") {
+		t.Fatalf("expected user label in panel view, got: %q", out)
+	}
+	if !strings.Contains(out, "agent") {
+		t.Fatalf("expected agent label in panel view, got: %q", out)
+	}
+	if !strings.Contains(out, "█") {
+		t.Fatalf("expected at least one filled cell in panel view, got: %q", out)
+	}
+}
+
+func TestConversationPanel_OmitsAudioMeterWhenInactive(t *testing.T) {
+	panel := NewConversationPanel()
+	panel.SetDimensions(120, 40)
+	// audioActive defaults to false; do not call SetAudioLevels.
+
+	res := &statestore.RunResult{
+		RunID: "run-1",
+		Messages: []types.Message{
+			{Role: "user", Content: "hello"},
+		},
+	}
+	panel.SetData("run-1", "scn", "prov", res)
+
+	out := panel.View()
+	// The level bar is "  user " followed by 8 cells; the unique signature
+	// is the two-char left padding + label. Empty conversations don't emit
+	// a "user " line elsewhere; we just verify no level-bar block exists by
+	// requiring that "  user" + meter chars never co-occur.
+	if strings.Contains(out, "  user "+strings.Repeat("█", 1)) ||
+		strings.Contains(out, "  user "+strings.Repeat(" ", audioMeterCells)) {
+		t.Fatalf("expected no audio meter when inactive, got: %q", out)
+	}
 }

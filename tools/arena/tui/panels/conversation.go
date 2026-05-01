@@ -27,6 +27,15 @@ const (
 )
 
 const (
+	// audioMeterCells is the width of each level bar in cells.
+	audioMeterCells = 8
+	// audioMeterFilled is the rune used for filled cells in the level bar.
+	audioMeterFilled = "█"
+	// audioMeterEmpty is the rune used for unfilled cells in the level bar.
+	audioMeterEmpty = " "
+)
+
+const (
 	conversationListWidth        = 40
 	conversationPanelPadding     = 1
 	conversationPanelGap         = 1
@@ -68,6 +77,12 @@ type ConversationPanel struct {
 	renderer         *glamour.TermRenderer
 	renderedCache    map[int]string // map[turnIndex]renderedContent
 	lastContentWidth int
+
+	// Audio level meter state. audioActive gates rendering — meters are
+	// only drawn when at least one AudioLevelMsg has been received.
+	audioUserLevel  float32
+	audioAgentLevel float32
+	audioActive     bool
 }
 
 // NewConversationPanel creates an empty conversation panel with defaults.
@@ -91,12 +106,23 @@ func (c *ConversationPanel) Reset() {
 	c.renderedCache = make(map[int]string)
 	c.renderer = nil
 	c.lastContentWidth = 0
+	c.audioUserLevel = 0
+	c.audioAgentLevel = 0
+	c.audioActive = false
 }
 
 // SetDimensions sets layout constraints.
 func (c *ConversationPanel) SetDimensions(width, height int) {
 	c.width = width
 	c.height = height
+}
+
+// SetAudioLevels updates the audio level meter state. Once active is true,
+// the meter is rendered in the conversation panel until Reset is called.
+func (c *ConversationPanel) SetAudioLevels(userLevel, agentLevel float32, active bool) {
+	c.audioUserLevel = userLevel
+	c.audioAgentLevel = agentLevel
+	c.audioActive = active
 }
 
 // SetData hydrates the panel with a run and result.
@@ -299,9 +325,15 @@ func (c *ConversationPanel) View() string {
 		detailView,
 	)
 
+	header := []string{title}
+	if meter := renderAudioMeters(c.audioUserLevel, c.audioAgentLevel, c.audioActive); meter != "" {
+		header = append(header, meter)
+	}
+	header = append(header, content)
+
 	return lipgloss.NewStyle().
 		Padding(conversationPanelPadding, conversationPanelHorizontal).
-		Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
+		Render(lipgloss.JoinVertical(lipgloss.Left, header...))
 }
 
 // buildEmptyConversationView renders the two-panel layout with empty table and waiting message
@@ -358,9 +390,43 @@ func (c *ConversationPanel) buildEmptyConversationView() string {
 		detailView,
 	)
 
+	header := []string{title}
+	if meter := renderAudioMeters(c.audioUserLevel, c.audioAgentLevel, c.audioActive); meter != "" {
+		header = append(header, meter)
+	}
+	header = append(header, content)
+
 	return lipgloss.NewStyle().
 		Padding(conversationPanelPadding, conversationPanelHorizontal).
-		Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
+		Render(lipgloss.JoinVertical(lipgloss.Left, header...))
+}
+
+// renderAudioMeter formats a single 8-cell level bar from a 0.0–1.0 level.
+func renderAudioMeter(label string, level float32) string {
+	clamped := level
+	if clamped < 0 {
+		clamped = 0
+	}
+	if clamped > 1 {
+		clamped = 1
+	}
+	filled := int(float32(audioMeterCells) * clamped)
+	if filled > audioMeterCells {
+		filled = audioMeterCells
+	}
+	bar := strings.Repeat(audioMeterFilled, filled) +
+		strings.Repeat(audioMeterEmpty, audioMeterCells-filled)
+	return fmt.Sprintf("  %-5s %s", label, bar)
+}
+
+// renderAudioMeters builds the two-line "user / agent" level meter block.
+// Empty string when no audio data has arrived yet.
+func renderAudioMeters(userLevel, agentLevel float32, active bool) string {
+	if !active {
+		return ""
+	}
+	return renderAudioMeter("user", userLevel) + "\n" +
+		renderAudioMeter("agent", agentLevel)
 }
 
 func (c *ConversationPanel) buildTitle() string {
