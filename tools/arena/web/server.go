@@ -16,6 +16,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 	jsonresults "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -51,10 +52,20 @@ type Server struct {
 // NewServer creates a new web server.
 // eng and store may be nil (for testing SSE in isolation).
 // outputDir is the path to the results directory (for DELETE /api/results).
+//
+// When both eng and adapter are non-nil, the server registers an audio
+// monitor hook on the engine so per-run AudioRouters automatically attach
+// to the SSE relay. Audio monitoring still requires explicit opt-in via
+// engine.EnableAudioMonitor — without it, the hook never fires.
 func NewServer(adapter *EventAdapter, eng *engine.Engine, store *statestore.ArenaStateStore, outputDir string) *Server {
 	var runner engineRunner
 	if eng != nil {
 		runner = eng
+		if adapter != nil {
+			eng.RegisterAudioMonitorHook(func(runID string, router *arenaaudio.AudioRouter, rate int) {
+				adapter.AttachAudioRouter(runID, router, rate)
+			})
+		}
 	}
 	return newServerWithRunner(adapter, runner, store, outputDir)
 }

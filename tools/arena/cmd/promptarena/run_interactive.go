@@ -303,6 +303,15 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 	adapter := tui.NewEventAdapter(program)
 	adapter.Subscribe(eventBus)
 
+	// Wire audio level meter: when the engine constructs a per-run AudioRouter
+	// it fires this hook, which subscribes the TUI adapter to RMS frames.
+	// Audio monitoring still requires --audio-monitor=on/auto and a duplex
+	// scenario; otherwise the engine never builds a router and the hook
+	// never fires.
+	eng.RegisterAudioMonitorHook(func(_ string, router *arenaaudio.AudioRouter, _ int) {
+		adapter.AttachAudioRouter(router)
+	})
+
 	// Setup log interceptor to capture logs in TUI
 	var logInterceptor *logging.Interceptor
 	var logFilePath string
