@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
+	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -473,5 +474,43 @@ func TestEnableSessionRecordingWithStore_BusSubscription(t *testing.T) {
 	}
 	if got[0].Type != events.EventConversationStarted {
 		t.Fatalf("expected ConversationStarted, got %s", got[0].Type)
+	}
+}
+
+func TestEnableAudioMonitor_RejectsInvalidRate(t *testing.T) {
+	eng := &Engine{}
+	err := eng.EnableAudioMonitor(arenaaudio.Options{Rate: 12345})
+	if err == nil {
+		t.Fatal("expected error for invalid rate")
+	}
+	if eng.audioMonitorOpts != nil {
+		t.Fatal("expected audioMonitorOpts to remain nil on validation failure")
+	}
+}
+
+func TestEnableAudioMonitor_AcceptsValidRates(t *testing.T) {
+	for _, r := range arenaaudio.ValidRates {
+		eng := &Engine{}
+		err := eng.EnableAudioMonitor(arenaaudio.Options{Rate: r, Mode: arenaaudio.ModeOn})
+		if err != nil {
+			t.Fatalf("rate %d: unexpected error: %v", r, err)
+		}
+		if eng.audioMonitorOpts == nil {
+			t.Fatalf("rate %d: expected audioMonitorOpts to be set", r)
+		}
+		if eng.audioMonitorOpts.Rate != r {
+			t.Fatalf("rate %d: stored rate is %d", r, eng.audioMonitorOpts.Rate)
+		}
+	}
+}
+
+func TestEnableAudioMonitor_DefaultsModeToAuto(t *testing.T) {
+	eng := &Engine{}
+	err := eng.EnableAudioMonitor(arenaaudio.Options{Rate: arenaaudio.Rate24k})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eng.audioMonitorOpts.Mode != arenaaudio.ModeAuto {
+		t.Fatalf("expected default mode auto, got %q", eng.audioMonitorOpts.Mode)
 	}
 }
