@@ -25,6 +25,16 @@ scenarios:
       2: "My name is Nova, your voice assistant."
       3: "Here's a fun fact: octopuses have three hearts and blue blood."
 
+  # Same shape as duplex-scripted-text but the user side runs through real
+  # OpenAI TTS (requires OPENAI_API_KEY). Mock-duplex still emits the agent
+  # text replies below so assertions can run without a real LLM provider.
+  duplex-scripted-text-openai:
+    defaultResponse: "Hello! Yes, I can hear you clearly."
+    turns:
+      1: "Hello! Yes, I can hear you. I'm Nova, ready to chat."
+      2: "My name is Nova, your voice assistant."
+      3: "Here's a fun fact: octopuses have three hearts and blue blood."
+
   # Self-play scenario responses (for the selfplay USER messages)
   # Note: These are what the simulated curious customer says, NOT the assistant
   # Important: Avoid exclamation marks mid-sentence as TTS pauses after them,
