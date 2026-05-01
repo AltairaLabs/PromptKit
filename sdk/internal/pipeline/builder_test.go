@@ -959,7 +959,7 @@ func TestBuildWithRecordingConfig(t *testing.T) {
 	t.Run("builds with recording stages", func(t *testing.T) {
 		registry := createTestRegistry("chat")
 		provider := mock.NewProvider("test", "test-model", false)
-		bus := events.NewEventBus()
+		store := &fakePipelineEventStore{}
 
 		cfg := &Config{
 			PromptRegistry: registry,
@@ -972,7 +972,7 @@ func TestBuildWithRecordingConfig(t *testing.T) {
 				IncludeVideo:   false,
 				IncludeImages:  true,
 			},
-			RecordingEventBus: bus,
+			RecordingStore: store,
 		}
 
 		pipeline, err := Build(cfg)
@@ -983,7 +983,7 @@ func TestBuildWithRecordingConfig(t *testing.T) {
 	t.Run("recording stages execute successfully", func(t *testing.T) {
 		registry := createTestRegistry("chat")
 		provider := mock.NewProvider("test", "test-model", false)
-		bus := events.NewEventBus()
+		store := &fakePipelineEventStore{}
 
 		cfg := &Config{
 			PromptRegistry: registry,
@@ -995,7 +995,7 @@ func TestBuildWithRecordingConfig(t *testing.T) {
 				IncludeAudio:   true,
 				IncludeImages:  true,
 			},
-			RecordingEventBus: bus,
+			RecordingStore: store,
 		}
 
 		pipe, err := Build(cfg)
@@ -1029,7 +1029,7 @@ func TestBuildWithRecordingConfig(t *testing.T) {
 		assert.NotNil(t, pipeline)
 	})
 
-	t.Run("no recording stages without event bus", func(t *testing.T) {
+	t.Run("no recording stages without event store", func(t *testing.T) {
 		registry := createTestRegistry("chat")
 		provider := mock.NewProvider("test", "test-model", false)
 
@@ -1040,7 +1040,7 @@ func TestBuildWithRecordingConfig(t *testing.T) {
 			RecordingConfig: &stage.RecordingStageConfig{
 				IncludeAudio: true,
 			},
-			// RecordingEventBus is nil — stages should not be added
+			// RecordingStore is nil — stages should not be added
 		}
 
 		pipeline, err := Build(cfg)
@@ -1150,3 +1150,23 @@ func TestBuildWithVideoStreamConfig(t *testing.T) {
 		assert.NotNil(t, pipeline)
 	})
 }
+
+// fakePipelineEventStore is a minimal events.EventStore for builder tests.
+type fakePipelineEventStore struct{}
+
+func (f *fakePipelineEventStore) Append(_ context.Context, _ *events.Event) error {
+	return nil
+}
+func (f *fakePipelineEventStore) OnEvent(*events.Event) {}
+func (f *fakePipelineEventStore) Query(_ context.Context, _ *events.EventFilter) ([]*events.Event, error) {
+	return nil, nil
+}
+func (f *fakePipelineEventStore) QueryRaw(
+	_ context.Context, _ *events.EventFilter,
+) ([]*events.StoredEvent, error) {
+	return nil, nil
+}
+func (f *fakePipelineEventStore) Stream(_ context.Context, _ string) (<-chan *events.Event, error) {
+	return nil, nil
+}
+func (f *fakePipelineEventStore) Close() error { return nil }

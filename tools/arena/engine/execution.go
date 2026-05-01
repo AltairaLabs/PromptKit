@@ -447,6 +447,7 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		EventBus:         e.eventBus,
 		EvalOrchestrator: runOrch,
 		RecordingConfig:  e.recordingConfig,
+		EventStore:       e.eventStore,
 	}
 	// Wire deferred workflow transition commit and per-run skill filtering
 	if e.workflowTransExec != nil {

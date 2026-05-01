@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
@@ -365,5 +367,111 @@ func TestEnableMockProviderMode_WithInvalidConfigFile(t *testing.T) {
 	expectedErrSubstring := "failed to load mock configuration"
 	if !strings.Contains(err.Error(), expectedErrSubstring) {
 		t.Errorf("Expected error to contain %q, got %q", expectedErrSubstring, err.Error())
+	}
+}
+
+// fakeEventStore is a test-only in-memory implementation of events.EventStore.
+// Kept inside _test.go so it doesn't ship as a public type.
+type fakeEventStore struct {
+	mu     sync.Mutex
+	events []*events.Event
+	closed bool
+}
+
+func (f *fakeEventStore) Append(_ context.Context, e *events.Event) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, e)
+	return nil
+}
+
+func (f *fakeEventStore) OnEvent(e *events.Event) {
+	if e == nil || e.SessionID == "" {
+		return
+	}
+	_ = f.Append(context.Background(), e)
+}
+
+func (f *fakeEventStore) Query(_ context.Context, _ *events.EventFilter) ([]*events.Event, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*events.Event, len(f.events))
+	copy(out, f.events)
+	return out, nil
+}
+
+func (f *fakeEventStore) QueryRaw(_ context.Context, _ *events.EventFilter) ([]*events.StoredEvent, error) {
+	return nil, nil
+}
+
+func (f *fakeEventStore) Stream(_ context.Context, _ string) (<-chan *events.Event, error) {
+	ch := make(chan *events.Event)
+	close(ch)
+	return ch, nil
+}
+
+func (f *fakeEventStore) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+	return nil
+}
+
+func TestEnableSessionRecordingWithStore_InjectsCustomStore(t *testing.T) {
+	eng := &Engine{}
+
+	memStore := &fakeEventStore{}
+	if err := eng.EnableSessionRecordingWithStore(memStore); err != nil {
+		t.Fatalf("EnableSessionRecordingWithStore: %v", err)
+	}
+
+	if eng.eventStore != memStore {
+		t.Fatalf("expected engine to hold the injected store, got %T", eng.eventStore)
+	}
+	if eng.recordingConfig == nil {
+		t.Fatal("expected recordingConfig to be set as a side effect")
+	}
+}
+
+func TestEnableSessionRecordingWithStore_NilStore(t *testing.T) {
+	eng := &Engine{}
+	if err := eng.EnableSessionRecordingWithStore(nil); err == nil {
+		t.Fatal("expected error for nil store")
+	}
+}
+
+// TestEnableSessionRecordingWithStore_BusSubscription verifies that the
+// targeted bus subscription wires up only the replay-essential events.
+func TestEnableSessionRecordingWithStore_BusSubscription(t *testing.T) {
+	eng := &Engine{}
+	bus := events.NewEventBus()
+	eng.SetEventBus(bus)
+
+	store := &fakeEventStore{}
+	if err := eng.EnableSessionRecordingWithStore(store); err != nil {
+		t.Fatalf("EnableSessionRecordingWithStore: %v", err)
+	}
+
+	// Publish a subscribed event — should be persisted by the store.
+	bus.Publish(&events.Event{
+		Type:      events.EventConversationStarted,
+		SessionID: "session-1",
+	})
+	// Publish a high-frequency event that is NOT in the targeted subscription.
+	bus.Publish(&events.Event{
+		Type:      events.EventPipelineStarted,
+		SessionID: "session-1",
+	})
+	bus.Close()
+
+	got, err := store.Query(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 event from targeted subscription, got %d", len(got))
+	}
+	if got[0].Type != events.EventConversationStarted {
+		t.Fatalf("expected ConversationStarted, got %s", got[0].Type)
 	}
 }

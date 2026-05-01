@@ -498,8 +498,10 @@ func (c *Conversation) buildPipelineConfig(
 		break
 	}
 
-	// Wire recording config if enabled
-	if c.config.recordingConfig != nil && c.config.eventBus != nil {
+	// Wire recording config if enabled. The recording stage requires an EventStore
+	// destination — when one isn't supplied via WithEventStore, the recording stage
+	// has nowhere to write and is skipped.
+	if c.config.recordingConfig != nil && c.config.eventStore != nil {
 		pipelineCfg.RecordingConfig = &stage.RecordingStageConfig{
 			SessionID:      conversationID,
 			ConversationID: conversationID,
@@ -507,7 +509,7 @@ func (c *Conversation) buildPipelineConfig(
 			IncludeVideo:   c.config.recordingConfig.IncludeVideo,
 			IncludeImages:  c.config.recordingConfig.IncludeImages,
 		}
-		pipelineCfg.RecordingEventBus = c.config.eventBus
+		pipelineCfg.RecordingStore = c.config.eventStore
 	}
 
 	// Wire up RAG context components from SDK options

@@ -13,37 +13,75 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// fakeEventStore captures appended events for assertions.
+// Implements events.EventStore.
+type fakeEventStore struct {
+	mu     sync.Mutex
+	events []*events.Event
+}
+
+func (f *fakeEventStore) Append(_ context.Context, e *events.Event) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, e)
+	return nil
+}
+func (f *fakeEventStore) OnEvent(*events.Event) {}
+func (f *fakeEventStore) Query(_ context.Context, _ *events.EventFilter) ([]*events.Event, error) {
+	return nil, nil
+}
+func (f *fakeEventStore) QueryRaw(_ context.Context, _ *events.EventFilter) ([]*events.StoredEvent, error) {
+	return nil, nil
+}
+func (f *fakeEventStore) Stream(_ context.Context, _ string) (<-chan *events.Event, error) {
+	return nil, nil
+}
+func (f *fakeEventStore) Close() error { return nil }
+
+// snapshot returns a copy of recorded events safe for inspection.
+func (f *fakeEventStore) snapshot() []*events.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]*events.Event, len(f.events))
+	copy(out, f.events)
+	return out
+}
+
+// filterByType returns events whose Type matches.
+func (f *fakeEventStore) filterByType(t events.EventType) []*events.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*events.Event
+	for _, e := range f.events {
+		if e.Type == t {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 func TestNewRecordingStage(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
+	stage := NewRecordingStage(store, config)
 
 	assert.Equal(t, "recording_input", stage.Name())
 	assert.Equal(t, StageTypeTransform, stage.Type())
 }
 
 func TestRecordingStage_TextElement_SkipsChunks(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:       RecordingPositionInput,
 		SessionID:      "test-session",
 		ConversationID: "conv-1",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	// Capture published events
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	// Run stage with text element (streaming chunk)
 	input := make(chan StreamElement, 1)
@@ -63,32 +101,19 @@ func TestRecordingStage_TextElement_SkipsChunks(t *testing.T) {
 	elem := <-output
 	assert.Equal(t, "Hello, world!", *elem.Text)
 
-	// Wait for async event delivery
-	time.Sleep(50 * time.Millisecond)
-
 	// Text elements (streaming chunks) should NOT produce message.created events.
 	// The complete message arrives as a Message element after streaming finishes.
-	mu.Lock()
-	assert.Empty(t, captured, "text chunks should not produce message.created events")
-	mu.Unlock()
+	assert.Empty(t, store.snapshot(), "text chunks should not produce message.created events")
 }
 
 func TestRecordingStage_OutputPosition(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionOutput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -103,31 +128,20 @@ func TestRecordingStage_OutputPosition(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
+	captured := store.filterByType(events.EventMessageCreated)
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.MessageCreatedData)
 	assert.Equal(t, "assistant", data.Role)
-	mu.Unlock()
 }
 
 func TestRecordingStage_MessageElement(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -145,9 +159,7 @@ func TestRecordingStage_MessageElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
+	captured := store.filterByType(events.EventMessageCreated)
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.MessageCreatedData)
 	assert.Equal(t, "assistant", data.Role)
@@ -155,25 +167,16 @@ func TestRecordingStage_MessageElement(t *testing.T) {
 	require.Len(t, data.ToolCalls, 1)
 	assert.Equal(t, "call_1", data.ToolCalls[0].ID)
 	assert.Equal(t, "search", data.ToolCalls[0].Name)
-	mu.Unlock()
 }
 
 func TestRecordingStage_ToolCallElement(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionOutput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventToolCallStarted, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -189,32 +192,21 @@ func TestRecordingStage_ToolCallElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
+	captured := store.filterByType(events.EventToolCallStarted)
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.ToolCallStartedData)
 	assert.Equal(t, "call_123", data.CallID)
 	assert.Equal(t, "get_weather", data.ToolName)
-	mu.Unlock()
 }
 
 func TestRecordingStage_ErrorElement(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionOutput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventStreamInterrupted, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -225,31 +217,20 @@ func TestRecordingStage_ErrorElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
+	captured := store.filterByType(events.EventStreamInterrupted)
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.StreamInterruptedData)
 	assert.Contains(t, data.Reason, "assert.AnError")
-	mu.Unlock()
 }
 
 func TestRecordingStage_SkipsEndOfStream(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var eventCount int
-	var mu sync.Mutex
-	bus.Subscribe("*", func(e *events.Event) {
-		mu.Lock()
-		eventCount++
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -264,22 +245,18 @@ func TestRecordingStage_SkipsEndOfStream(t *testing.T) {
 	elem := <-output
 	assert.True(t, elem.EndOfStream)
 
-	time.Sleep(50 * time.Millisecond)
-
-	// No events should be published for end-of-stream
-	mu.Lock()
-	assert.Equal(t, 0, eventCount)
-	mu.Unlock()
+	// No events should be persisted for end-of-stream
+	assert.Empty(t, store.snapshot())
 }
 
 func TestRecordingStage_ContextCancellation(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
+	stage := NewRecordingStage(store, config)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	input := make(chan StreamElement)
@@ -309,13 +286,13 @@ func TestRecordingStage_ContextCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestRecordingStage_NilEventBus(t *testing.T) {
+func TestRecordingStage_NilEventStore(t *testing.T) {
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
 		SessionID: "test-session",
 	}
 
-	// Create stage with nil event bus
+	// Create stage with nil event store
 	stage := NewRecordingStage(nil, config)
 
 	input := make(chan StreamElement, 1)
@@ -335,21 +312,13 @@ func TestRecordingStage_NilEventBus(t *testing.T) {
 }
 
 func TestRecordingStage_MultipleChunksProduceNoEvents(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 3)
 	output := make(chan StreamElement, 3)
@@ -371,16 +340,12 @@ func TestRecordingStage_MultipleChunksProduceNoEvents(t *testing.T) {
 	}
 	assert.Equal(t, 3, count)
 
-	time.Sleep(50 * time.Millisecond)
-
 	// No message.created events — chunks are skipped
-	mu.Lock()
-	assert.Empty(t, captured, "text chunks should not produce events")
-	mu.Unlock()
+	assert.Empty(t, store.snapshot(), "text chunks should not produce events")
 }
 
 func TestRecordingStage_StreamingTextOptIn(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:             RecordingPositionOutput,
 		SessionID:            "test-session",
@@ -388,15 +353,7 @@ func TestRecordingStage_StreamingTextOptIn(t *testing.T) {
 		IncludeStreamingText: true, // opt in to chunk recording
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 3)
 	output := make(chan StreamElement, 3)
@@ -413,12 +370,10 @@ func TestRecordingStage_StreamingTextOptIn(t *testing.T) {
 	for range output {
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
 	// With IncludeStreamingText enabled, each chunk produces an event
-	mu.Lock()
+	captured := store.filterByType(events.EventMessageCreated)
 	require.Len(t, captured, 3, "each chunk should produce an event")
-	// Verify all are assistant role with non-empty content (order not guaranteed)
+	// Verify all are assistant role with non-empty content (order is FIFO append)
 	contents := make(map[string]bool)
 	for _, e := range captured {
 		data := e.Data.(*events.MessageCreatedData)
@@ -428,14 +383,13 @@ func TestRecordingStage_StreamingTextOptIn(t *testing.T) {
 	assert.True(t, contents["Hello"])
 	assert.True(t, contents[" world"])
 	assert.True(t, contents["!"])
-	mu.Unlock()
 }
 
 func TestRecordingStage_WithSessionID(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := DefaultRecordingStageConfig()
 
-	stage := NewRecordingStage(bus, config).
+	stage := NewRecordingStage(store, config).
 		WithSessionID("my-session").
 		WithConversationID("my-conv")
 
@@ -453,29 +407,22 @@ func TestDefaultRecordingStageConfig(t *testing.T) {
 	assert.True(t, cfg.IncludeImages)
 }
 
-func TestRecordingStage_AudioElement(t *testing.T) {
-	bus := events.NewEventBus()
+func TestRecordingStage_AudioElement_InputProducesAudioInputEvent(t *testing.T) {
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:     RecordingPositionInput,
 		SessionID:    "test-session",
 		IncludeAudio: true,
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
 
+	samples := make([]byte, 1024)
 	audio := &AudioData{
-		Samples:    make([]byte, 1024),
+		Samples:    samples,
 		SampleRate: 16000,
 		Channels:   1,
 		Format:     AudioFormatPCM16,
@@ -487,34 +434,114 @@ func TestRecordingStage_AudioElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
+	// Recording-stage tap should produce EventAudioInput, not EventMessageCreated.
+	assert.Empty(t, store.filterByType(events.EventMessageCreated),
+		"audio recording must not be emitted as message.created")
 
-	mu.Lock()
+	captured := store.filterByType(events.EventAudioInput)
 	require.Len(t, captured, 1)
-	data := captured[0].Data.(*events.MessageCreatedData)
-	assert.Equal(t, "user", data.Role)
-	assert.Contains(t, data.Content, "sample_rate")
-	assert.Contains(t, data.Content, "16000")
-	mu.Unlock()
+	data, ok := captured[0].Data.(*events.AudioEventData)
+	require.True(t, ok, "expected *events.AudioEventData, got %T", captured[0].Data)
+
+	assert.Equal(t, "input", data.Direction)
+	assert.Equal(t, "user", data.Actor)
+	assert.Empty(t, data.GeneratedFrom, "input events should not set GeneratedFrom")
+	assert.Equal(t, samples, data.Payload.InlineData)
+	assert.Equal(t, "audio/pcm", data.Payload.MIMEType)
+	assert.Equal(t, int64(len(samples)), data.Payload.Size)
+	assert.Equal(t, 16000, data.Metadata.SampleRate)
+	assert.Equal(t, 1, data.Metadata.Channels)
+	assert.Equal(t, "pcm_linear16", data.Metadata.Encoding)
+	assert.Equal(t, int64(100), data.Metadata.DurationMs)
+	assert.Equal(t, "test-session", captured[0].SessionID)
+}
+
+func TestRecordingStage_AudioElement_OutputProducesAudioOutputEvent(t *testing.T) {
+	store := &fakeEventStore{}
+	config := RecordingStageConfig{
+		Position:     RecordingPositionOutput,
+		SessionID:    "test-session",
+		IncludeAudio: true,
+	}
+
+	stage := NewRecordingStage(store, config)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	samples := make([]byte, 2048)
+	audio := &AudioData{
+		Samples:    samples,
+		SampleRate: 24000,
+		Channels:   1,
+		Format:     AudioFormatPCM16,
+		Duration:   200 * time.Millisecond,
+	}
+	input <- StreamElement{Audio: audio, Timestamp: time.Now()}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	assert.Empty(t, store.filterByType(events.EventAudioInput),
+		"output position should not produce audio.input events")
+	captured := store.filterByType(events.EventAudioOutput)
+	require.Len(t, captured, 1)
+	data, ok := captured[0].Data.(*events.AudioEventData)
+	require.True(t, ok, "expected *events.AudioEventData, got %T", captured[0].Data)
+
+	assert.Equal(t, "output", data.Direction)
+	assert.Empty(t, data.Actor, "output events should not set Actor")
+	assert.Equal(t, "model", data.GeneratedFrom)
+	assert.Equal(t, samples, data.Payload.InlineData)
+	assert.Equal(t, 24000, data.Metadata.SampleRate)
+	assert.Equal(t, "pcm_linear16", data.Metadata.Encoding)
+	assert.Equal(t, int64(200), data.Metadata.DurationMs)
+}
+
+func TestRecordingStage_AudioElement_DurationDerivedFromBytes(t *testing.T) {
+	store := &fakeEventStore{}
+	config := RecordingStageConfig{
+		Position:     RecordingPositionInput,
+		SessionID:    "test-session",
+		IncludeAudio: true,
+	}
+
+	stage := NewRecordingStage(store, config)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+
+	// 16kHz mono 16-bit PCM, 3200 bytes = 1600 samples = 100ms.
+	audio := &AudioData{
+		Samples:    make([]byte, 3200),
+		SampleRate: 16000,
+		Channels:   1,
+		Format:     AudioFormatPCM16,
+		// Duration intentionally zero — recorder should derive it from byte count.
+	}
+	input <- StreamElement{Audio: audio, Timestamp: time.Now()}
+	close(input)
+
+	err := stage.Process(context.Background(), input, output)
+	require.NoError(t, err)
+
+	captured := store.filterByType(events.EventAudioInput)
+	require.Len(t, captured, 1)
+	data := captured[0].Data.(*events.AudioEventData)
+	assert.Equal(t, int64(100), data.Metadata.DurationMs,
+		"duration should be derived from byte count when AudioData.Duration is zero")
 }
 
 func TestRecordingStage_AudioExcluded(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:     RecordingPositionInput,
 		SessionID:    "test-session",
 		IncludeAudio: false, // Audio disabled
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var eventCount int
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		eventCount++
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -529,31 +556,19 @@ func TestRecordingStage_AudioExcluded(t *testing.T) {
 	// Element still passes through
 	<-output
 
-	time.Sleep(50 * time.Millisecond)
-
 	// But no event recorded
-	mu.Lock()
-	assert.Equal(t, 0, eventCount)
-	mu.Unlock()
+	assert.Empty(t, store.snapshot())
 }
 
 func TestRecordingStage_ImageElement(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:      RecordingPositionOutput,
 		SessionID:     "test-session",
 		IncludeImages: true,
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -571,33 +586,22 @@ func TestRecordingStage_ImageElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
+	captured := store.filterByType(events.EventMessageCreated)
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.MessageCreatedData)
 	assert.Equal(t, "assistant", data.Role)
 	assert.Contains(t, data.Content, "image/png")
-	mu.Unlock()
 }
 
 func TestRecordingStage_VideoElement(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:     RecordingPositionOutput,
 		SessionID:    "test-session",
 		IncludeVideo: true,
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -617,33 +621,22 @@ func TestRecordingStage_VideoElement(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
+	captured := store.filterByType(events.EventMessageCreated)
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.MessageCreatedData)
 	assert.Equal(t, "assistant", data.Role)
 	assert.Contains(t, data.Content, "video/mp4")
 	assert.Contains(t, data.Content, "640")
-	mu.Unlock()
 }
 
 func TestRecordingStage_MessageWithToolResult(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -660,34 +653,23 @@ func TestRecordingStage_MessageWithToolResult(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
+	captured := store.filterByType(events.EventMessageCreated)
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.MessageCreatedData)
 	assert.Equal(t, "tool", data.Role)
 	require.NotNil(t, data.ToolResult)
 	assert.Equal(t, "call_123", data.ToolResult.ID)
 	assert.Equal(t, "get_weather", data.ToolResult.Name)
-	mu.Unlock()
 }
 
 func TestRecordingStage_MessageWithMultimodalToolResult(t *testing.T) {
-	bus := events.NewEventBus()
+	store := &fakeEventStore{}
 	config := RecordingStageConfig{
 		Position:  RecordingPositionInput,
 		SessionID: "test-session",
 	}
 
-	stage := NewRecordingStage(bus, config)
-
-	var captured []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		mu.Lock()
-		captured = append(captured, e)
-		mu.Unlock()
-	})
+	stage := NewRecordingStage(store, config)
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 1)
@@ -714,10 +696,7 @@ func TestRecordingStage_MessageWithMultimodalToolResult(t *testing.T) {
 	err := stage.Process(context.Background(), input, output)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
+	captured := store.filterByType(events.EventMessageCreated)
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.MessageCreatedData)
 	assert.Equal(t, "tool", data.Role)

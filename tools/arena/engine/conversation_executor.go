@@ -331,6 +331,7 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		Assertions:       scenarioTurn.Assertions,
 		TurnEvalRunner:   ce.resolveEvalOrchestrator(&req),
 		RecordingConfig:  req.RecordingConfig,
+		EventStore:       req.EventStore,
 		Metadata:         metadata,
 	}
 }

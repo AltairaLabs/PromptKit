@@ -381,15 +381,17 @@ func (e *PipelineExecutor) handleExecutionError(provider providers.Provider, err
 }
 
 // appendRecordingStage adds a RecordingStage if recording is configured.
+// Recording is gated on a non-nil EventStore — without one, the stage
+// has no destination for its writes.
 func appendRecordingStage(stages []stage.Stage, req *TurnRequest, position stage.RecordingPosition) []stage.Stage {
-	if req.RecordingConfig == nil || req.EventBus == nil {
+	if req.RecordingConfig == nil || req.EventStore == nil {
 		return stages
 	}
 	cfg := *req.RecordingConfig
 	cfg.Position = position
 	cfg.SessionID = req.RunID
 	cfg.ConversationID = req.ConversationID
-	return append(stages, stage.NewRecordingStage(req.EventBus, cfg))
+	return append(stages, stage.NewRecordingStage(req.EventStore, cfg))
 }
 
 // emitterFromRequest creates an event emitter from a TurnRequest's event bus.

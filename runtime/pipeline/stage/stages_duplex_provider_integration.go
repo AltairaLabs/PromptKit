@@ -122,10 +122,6 @@ type DuplexProviderStage struct {
 
 	// Event emitter for recording audio events (optional, for session recording)
 	emitter *events.Emitter
-
-	// Chunk counters for ChunkIndex in audio events
-	inputChunkIndex  int
-	outputChunkIndex int
 }
 
 // NewDuplexProviderStage creates a new duplex provider stage. The session
@@ -553,7 +549,6 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 		s.inputTranscription.Reset()
 		s.transcriptionCaptured = false
 		s.turnIDPopped = false // Reset so we can pop turn_id for the new turn
-		s.inputChunkIndex = 0  // Reset chunk index for new turn
 		logger.Debug("DuplexProviderStage: reset transcription for new user turn")
 	}
 
@@ -599,39 +594,6 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 
 	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
 		logger.Error("DuplexProviderStage: failed to send chunk to session", "error", err)
-	}
-
-	// Emit audio.input event for session recording
-	if s.emitter != nil && elem.Audio != nil {
-		// Calculate duration: 16-bit audio = 2 bytes per sample
-		sampleRate := elem.Audio.SampleRate
-		if sampleRate == 0 {
-			sampleRate = 16000 // Default to 16kHz
-		}
-		channels := elem.Audio.Channels
-		if channels == 0 {
-			channels = 1 // Default to mono
-		}
-		bytesPerSample := 2 // 16-bit audio
-		durationMs := int64(len(elem.Audio.Samples)) * 1000 / int64(sampleRate) / int64(channels) / int64(bytesPerSample)
-
-		s.emitter.AudioInput(&events.AudioInputData{
-			Actor:      "user",
-			ChunkIndex: s.inputChunkIndex,
-			Payload: events.BinaryPayload{
-				InlineData: elem.Audio.Samples,
-				MIMEType:   mimeTypeAudioPCM,
-				Size:       int64(len(elem.Audio.Samples)),
-			},
-			Metadata: events.AudioMetadata{
-				SampleRate: sampleRate,
-				Channels:   channels,
-				Encoding:   "pcm_linear16",
-				DurationMs: durationMs,
-			},
-			IsFinal: false, // Individual chunks are not final
-		})
-		s.inputChunkIndex++
 	}
 }
 
@@ -963,39 +925,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Accumulate media content for this turn
 	// MediaData.Data is already raw bytes — providers decode base64 at source
 	if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
-		rawBytes := chunk.MediaData.Data
-		s.accumulatedMedia = append(s.accumulatedMedia, rawBytes...)
-
-		// Emit audio.output event for session recording
-		if s.emitter != nil {
-			outputSampleRate := 24000
-			if chunk.MediaData.SampleRate > 0 {
-				outputSampleRate = chunk.MediaData.SampleRate
-			}
-			outputChannels := 1
-			if chunk.MediaData.Channels > 0 {
-				outputChannels = chunk.MediaData.Channels
-			}
-			const bytesPerSample = 2
-			durationMs := int64(len(rawBytes)) * 1000 / int64(outputSampleRate) / int64(outputChannels) / bytesPerSample
-
-			s.emitter.AudioOutput(&events.AudioOutputData{
-				ChunkIndex: s.outputChunkIndex,
-				Payload: events.BinaryPayload{
-					InlineData: rawBytes,
-					MIMEType:   mimeTypeAudioPCM,
-					Size:       int64(len(rawBytes)),
-				},
-				Metadata: events.AudioMetadata{
-					SampleRate: outputSampleRate,
-					Channels:   outputChannels,
-					Encoding:   "pcm_linear16",
-					DurationMs: durationMs,
-				},
-				GeneratedFrom: "model",
-			})
-			s.outputChunkIndex++
-		}
+		s.accumulatedMedia = append(s.accumulatedMedia, chunk.MediaData.Data...)
 	}
 
 	// Convert chunk to element (uses accumulated content for final chunk)
@@ -1007,7 +937,6 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if chunk.FinishReason != nil && *chunk.FinishReason != "" && elem.EndOfStream {
 		s.accumulatedText.Reset()
 		s.accumulatedMedia = nil
-		s.outputChunkIndex = 0 // Reset chunk index for next turn
 		// Mark transcription as captured - don't reset yet!
 		// Late-arriving transcription chunks will be ignored until a new user turn starts.
 		// The transcription buffer will be reset when sendAudioElement is called.
