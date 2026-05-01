@@ -97,7 +97,7 @@ These checks evaluate tool usage within a single assistant turn.
 
 | Type | Aliases | Params | Surfaces |
 |------|---------|--------|----------|
-| `tools_called` | `tool_called` | `tool_names` (string[]) | A G E |
+| `tools_called` | `tool_called` | `tool_names` (string[]), `min_calls` (int, default 1), `ignore_validation` (bool), `require_args` (bool) | A G E |
 | `tools_not_called` | -- | `tool_names` (string[]) | A G E |
 | `tool_args` | -- | `tool_name` (string), `expected_args` (object) | A E |
 | `tool_calls_with_args` | -- | `tool_name`, `expected_args`, `result_includes` | A E |

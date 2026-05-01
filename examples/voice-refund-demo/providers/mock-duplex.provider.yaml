@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-duplex
+
+spec:
+  id: mock-duplex
+  type: mock
+  model: mock-duplex-model
+
+  defaults:
+    temperature: 0.0
+    top_p: 1.0
+    max_tokens: 500
+
+  additional_config:
+    mock_config: mock-responses.yaml
+    auto_respond: true
+    response_text: "Thanks for calling TechCorp support. This is Sam — how can I help you today?"

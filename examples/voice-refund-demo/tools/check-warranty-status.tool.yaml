@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/tool.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: check_warranty_status
+spec:
+  name: check_warranty_status
+  description: Check the warranty status of an order. Returns whether the order is currently in warranty and the warranty expiration date.
+  input_schema:
+    type: object
+    properties:
+      order_id:
+        type: string
+        description: The order ID to check warranty for
+    required:
+      - order_id
+  output_schema:
+    type: object
+    properties:
+      order_id:
+        type: string
+      in_warranty:
+        type: boolean
+      warranty_end:
+        type: string
+      reason:
+        type: string
+  mode: mock
+  timeout_ms: 1000
+  mock_result:
+    order_id: ORD-2023-7788
+    in_warranty: false
+    warranty_end: "2024-08-12"
+    reason: "Warranty expired 2024-08-12. Standard warranty is 12 months from purchase."

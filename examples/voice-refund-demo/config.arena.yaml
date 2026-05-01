@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/arena.json
+#
+# Voice Refund Demo
+# Hostile customer self-play against a refund agent with verification gates.
+# Drives realtime voice LLMs (Gemini Live, OpenAI Realtime) via TTS-synthesized
+# personas; mock-duplex provider runs the same scenarios in CI without API keys.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: voice-refund-demo
+
+spec:
+  prompt_configs:
+    - id: refund-agent
+      file: prompts/refund-agent.prompt.yaml
+
+  providers:
+    - file: providers/gemini-2-flash.provider.yaml
+    - file: providers/openai-gpt4o-realtime.provider.yaml
+    - file: providers/mock-duplex.provider.yaml
+
+  scenarios:
+    - file: scenarios/aggressive-refund.scenario.yaml
+    - file: scenarios/impersonator-refund.scenario.yaml
+    - file: scenarios/patient-baseline.scenario.yaml
+
+  tools:
+    - file: tools/lookup-order.tool.yaml
+    - file: tools/check-warranty-status.tool.yaml
+    - file: tools/issue-refund.tool.yaml
+    - file: tools/escalate-to-human.tool.yaml
+
+  self_play:
+    personas:
+      - file: personas/aggressive-entitled.persona.yaml
+      - file: personas/impersonator.persona.yaml
+      - file: personas/patient-customer.persona.yaml
+    roles:
+      - id: selfplay-user
+        provider: mock-duplex
+
+  defaults:
+    temperature: 0.7
+    max_tokens: 1000
+    seed: 42
+    concurrency: 1
+    output:
+      dir: out
+      formats:
+        - json
+        - html
+      html:
+        file: report.html
+      recording:
+        enabled: true
+        dir: recordings
