@@ -65,7 +65,7 @@ func TestStateStore_EndToEnd(t *testing.T) {
 	)
 
 	// Create engine
-	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil)
+	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}

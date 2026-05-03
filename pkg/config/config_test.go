@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1602,6 +1603,29 @@ func TestLoadConfig_SkillsInline(t *testing.T) {
 	require.Len(t, cfg.LoadedSkillSources, 1)
 	assert.Equal(t, "inline-skill", cfg.LoadedSkillSources[0].Name)
 	assert.Equal(t, "Do the thing", cfg.LoadedSkillSources[0].Instructions)
+}
+
+func TestLoadSkills_RelativeConfigPath(t *testing.T) {
+	// When promptarena is invoked from an example directory with a relative
+	// --config like "config.arena.yaml", filepath.Dir(...) returns ".",
+	// which historically tripped the path-containment check because
+	// filepath.Clean("./skills") == "skills" but the prefix comparison
+	// expected "./".
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skills", "test-skill")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: test-skill\ndescription: A test skill\n---\nInstructions here.\n"),
+		0o600,
+	))
+
+	t.Chdir(dir)
+
+	cfg := &Config{Skills: []prompt.SkillSourceConfig{{Path: "skills/"}}}
+	err := cfg.loadSkills("config.arena.yaml")
+	require.NoError(t, err)
+	require.Len(t, cfg.LoadedSkillSources, 1)
 }
 
 func TestLoadConfig_SkillsPathTraversal(t *testing.T) {
