@@ -182,11 +182,14 @@ type MCPServerConfig struct {
 	WorkingDir string            `yaml:"working_dir,omitempty" json:"working_dir,omitempty"`
 	URL        string            `yaml:"url,omitempty" json:"url,omitempty"`
 	Headers    map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
-	Source     string            `yaml:"source,omitempty" json:"source,omitempty"`
-	Scope      string            `yaml:"scope,omitempty" json:"scope,omitempty"`
-	SourceArgs map[string]any    `yaml:"source_args,omitempty" json:"source_args,omitempty"`
-	TimeoutMs  int               `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
-	ToolFilter *MCPToolFilter    `yaml:"tool_filter,omitempty" json:"tool_filter,omitempty"`
+	//nolint:lll // jsonschema tags require single line
+	Source string `yaml:"source,omitempty" json:"source,omitempty" jsonschema:"title=MCPSource Name,description=Name of a host-registered MCPSource that provisions the endpoint per scope (e.g. 'docker'). Mutually exclusive with command and url."`
+	//nolint:lll // jsonschema tags require single line
+	Scope string `yaml:"scope,omitempty" json:"scope,omitempty" jsonschema:"title=Source Scope,description=Lifecycle boundary at which the source opens and closes. Required when source is set.,enum=run,enum=scenario,enum=session"`
+	//nolint:lll // jsonschema tags require single line
+	SourceArgs map[string]any `yaml:"source_args,omitempty" json:"source_args,omitempty" jsonschema:"title=Source Args,description=Opaque arguments passed to the named MCPSource. Schema is source-specific. See the source's reference for accepted fields."`
+	TimeoutMs  int            `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty"`
+	ToolFilter *MCPToolFilter `yaml:"tool_filter,omitempty" json:"tool_filter,omitempty"`
 }
 
 // A2AAgentConfig defines an A2A agent for Arena testing.

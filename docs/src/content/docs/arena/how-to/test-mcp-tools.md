@@ -7,6 +7,11 @@ sidebar:
 
 Test MCP tool integrations in Arena by connecting real MCP servers and verifying tool calls in your scenarios.
 
+This guide covers **stdio** (`command`) and **static HTTP+SSE** (`url`)
+servers — long-lived processes shared across all scenarios. For per-scenario
+or per-session containers (e.g. codegen sandboxes), see
+[Provision an MCP Sandbox per Scenario](/arena/how-to/provision-mcp-sandbox/).
+
 ---
 
 ## Configure MCP Servers
@@ -248,6 +253,7 @@ promptarena run -c config.arena.yaml
 
 ## Next Steps
 
+- [Provision an MCP Sandbox per Scenario](/arena/how-to/provision-mcp-sandbox/) — host-managed servers with run / scenario / session lifecycle
 - [Configure MCP Servers (SDK)](/sdk/how-to/configure-mcp/) — use MCP servers in the Go SDK
 - [Integrate MCP (Runtime)](/runtime/how-to/integrate-mcp/) — low-level MCP registry API
 - [Test A2A Agents](/arena/how-to/test-a2a-agents/) — test agent-to-agent delegation
