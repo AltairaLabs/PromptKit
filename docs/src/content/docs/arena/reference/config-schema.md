@@ -277,25 +277,80 @@ tools:
 
 #### `mcp_servers`
 
-Optional map of MCP server configurations.
+Optional list of MCP (Model Context Protocol) server configurations. Each
+entry has exactly one transport selected by which fields are set.
 
-**Key**: Server name (string)
-**Value**: Server configuration object
+**Common fields**:
+- `name` (string, required): Registry key. Used as the server prefix in
+  qualified tool names (`mcp__<name>__<tool>`) for stdio/url entries.
+- `timeout_ms` (integer, optional): Per-request timeout in milliseconds.
+- `tool_filter` (object, optional): `allowlist` / `blocklist` of tool
+  names to include or exclude.
 
-**Server Configuration Fields**:
-- `command` (string, required): Executable to run
-- `args` (array, optional): Command-line arguments
-- `env` (object, optional): Environment variables
+**Transport — `command` (stdio)**
 
-**Example**:
+PromptArena spawns a local subprocess and speaks MCP over stdio.
+
+- `command` (string, required): Executable to run.
+- `args` (string array, optional): Command-line arguments.
+- `env` (string→string map, optional): Environment variables.
+- `working_dir` (string, optional): Working directory for the subprocess.
+
 ```yaml
 mcp_servers:
-  filesystem:
+  - name: filesystem
     command: npx
-    args: ["@modelcontextprotocol/server-filesystem", "/data"]
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/data"]
     env:
       NODE_ENV: production
 ```
+
+**Transport — `url` (HTTP+SSE)**
+
+PromptArena connects to an already-running server.
+
+- `url` (string, required): Base URL. The server must serve `GET /sse` and
+  `POST /message?sessionID=...` per the MCP HTTP+SSE transport.
+- `headers` (string→string map, optional): Headers added to every request
+  (e.g. `Authorization`).
+
+```yaml
+mcp_servers:
+  - name: hosted-tools
+    url: https://mcp.example.com
+    headers:
+      Authorization: "Bearer ${MCP_TOKEN}"
+```
+
+**Transport — `source` (host-provisioned)**
+
+A registered `MCPSource` opens the endpoint at a scope boundary and
+closes it when the boundary ends. See
+[Provision an MCP Sandbox per Scenario](/arena/how-to/provision-mcp-sandbox/)
+for the full guide.
+
+- `source` (string, required): Name of a registered `MCPSource`
+  (e.g. `docker`).
+- `scope` (string, required): One of `run`, `scenario`, `session`.
+- `source_args` (object, optional): Source-specific arguments. Schema
+  varies per source. The built-in `docker` source accepts `image`,
+  `repo`, `branch`, `env`, `mounts`. Templated against scenario
+  variables (`{{scenario.<key>}}`) before `Open()`.
+
+```yaml
+mcp_servers:
+  - name: sandbox
+    source: docker
+    scope: session
+    source_args:
+      image: ghcr.io/altairalabs/codegen-sandbox:latest
+      repo: "{{scenario.repo}}"
+      branch: "{{scenario.branch}}"
+```
+
+Tools discovered from a source-backed server are registered under their
+**raw** MCP name (`Read`, `Edit`, …) rather than the namespaced
+`mcp__<server>__<tool>` form used by stdio/url entries.
 
 #### `defaults.output`
 

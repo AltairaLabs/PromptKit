@@ -1127,13 +1127,24 @@
           "type": "object"
         },
         "source": {
-          "type": "string"
+          "type": "string",
+          "title": "MCPSource Name",
+          "description": "Name of a host-registered MCPSource that provisions the endpoint per scope (e.g. 'docker'). Mutually exclusive with command and url."
         },
         "scope": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "run",
+            "scenario",
+            "session"
+          ],
+          "title": "Source Scope",
+          "description": "Lifecycle boundary at which the source opens and closes. Required when source is set."
         },
         "source_args": {
-          "type": "object"
+          "type": "object",
+          "title": "Source Args",
+          "description": "Opaque arguments passed to the named MCPSource. Schema is source-specific. See the source's reference for accepted fields."
         },
         "timeout_ms": {
           "type": "integer"
