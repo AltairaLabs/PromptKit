@@ -48,6 +48,47 @@ func extractRegionFromPersonaID(personaID string) string {
 	return "us"
 }
 
+// sanitizeHistoryForText returns history suitable for a text-only LLM call.
+// Media parts that lack inline base64 data (i.e. only carry storage_reference,
+// file_path, or url) are stripped — text providers can't load them, and Gemini
+// rejects the whole request when parts[0] is an empty inline_data. Messages
+// that end up with neither Content nor any sendable Parts are dropped.
+func sanitizeHistoryForText(history []types.Message) []types.Message {
+	if len(history) == 0 {
+		return history
+	}
+	cleaned := make([]types.Message, 0, len(history))
+	for i := range history {
+		msg := history[i]
+		msg.Parts = sendableTextParts(msg.Parts)
+		if msg.Content == "" && len(msg.Parts) == 0 {
+			continue
+		}
+		cleaned = append(cleaned, msg)
+	}
+	return cleaned
+}
+
+// sendableTextParts returns the subset of parts a text-only LLM can load:
+// text parts unchanged, media parts only when they have inline base64 data.
+func sendableTextParts(parts []types.ContentPart) []types.ContentPart {
+	if len(parts) == 0 {
+		return parts
+	}
+	kept := make([]types.ContentPart, 0, len(parts))
+	for j := range parts {
+		part := parts[j]
+		if part.Type == types.ContentTypeText {
+			kept = append(kept, part)
+			continue
+		}
+		if part.Media != nil && part.Media.Data != nil && *part.Media.Data != "" {
+			kept = append(kept, part)
+		}
+	}
+	return kept
+}
+
 // NextUserTurn generates a user message using the LLM through a stage pipeline.
 // The opts parameter is optional and can be nil.
 func (cg *ContentGenerator) NextUserTurn(
@@ -62,6 +103,12 @@ func (cg *ContentGenerator) NextUserTurn(
 	if cg.persona == nil {
 		return nil, fmt.Errorf("ContentGenerator persona is nil")
 	}
+
+	// Strip media parts that the text-mode LLM can't load (storage refs,
+	// file paths, URLs). Without this, a duplex assistant message that
+	// carries an externalized audio Part poisons the next selfplay call —
+	// Gemini rejects the request when parts[0].inline_data has no bytes.
+	history = sanitizeHistoryForText(history)
 
 	// Extract region from persona ID (or default to "us")
 	region := extractRegionFromPersonaID(cg.persona.ID)

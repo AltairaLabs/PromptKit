@@ -498,74 +498,6 @@ func TestDuplexResilienceConfig_GetRetryDelayMs(t *testing.T) {
 	}
 }
 
-func TestDuplexResilienceConfig_GetInterTurnDelayMs(t *testing.T) {
-	defaultVal := 200
-	tests := []struct {
-		name     string
-		config   *DuplexResilienceConfig
-		expected int
-	}{
-		{
-			name:     "nil config returns default",
-			config:   nil,
-			expected: defaultVal,
-		},
-		{
-			name:     "zero value returns default",
-			config:   &DuplexResilienceConfig{InterTurnDelayMs: 0},
-			expected: defaultVal,
-		},
-		{
-			name:     "positive value returns configured value",
-			config:   &DuplexResilienceConfig{InterTurnDelayMs: 500},
-			expected: 500,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.config.GetInterTurnDelayMs(defaultVal)
-			if got != tt.expected {
-				t.Errorf("GetInterTurnDelayMs() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestDuplexResilienceConfig_GetSelfplayInterTurnDelayMs(t *testing.T) {
-	defaultVal := 1000
-	tests := []struct {
-		name     string
-		config   *DuplexResilienceConfig
-		expected int
-	}{
-		{
-			name:     "nil config returns default",
-			config:   nil,
-			expected: defaultVal,
-		},
-		{
-			name:     "zero value returns default",
-			config:   &DuplexResilienceConfig{SelfplayInterTurnDelayMs: 0},
-			expected: defaultVal,
-		},
-		{
-			name:     "positive value returns configured value",
-			config:   &DuplexResilienceConfig{SelfplayInterTurnDelayMs: 2000},
-			expected: 2000,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.config.GetSelfplayInterTurnDelayMs(defaultVal)
-			if got != tt.expected {
-				t.Errorf("GetSelfplayInterTurnDelayMs() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestDuplexResilienceConfig_GetPartialSuccessMinTurns(t *testing.T) {
 	defaultVal := 2
 	tests := []struct {
@@ -664,8 +596,6 @@ duplex:
   resilience:
     max_retries: 3
     retry_delay_ms: 500
-    inter_turn_delay_ms: 200
-    selfplay_inter_turn_delay_ms: 1500
     partial_success_min_turns: 2
     ignore_last_turn_session_end: true
 turns:
@@ -693,12 +623,6 @@ turns:
 	}
 	if resilience.RetryDelayMs != 500 {
 		t.Errorf("Expected retry_delay_ms 500, got %d", resilience.RetryDelayMs)
-	}
-	if resilience.InterTurnDelayMs != 200 {
-		t.Errorf("Expected inter_turn_delay_ms 200, got %d", resilience.InterTurnDelayMs)
-	}
-	if resilience.SelfplayInterTurnDelayMs != 1500 {
-		t.Errorf("Expected selfplay_inter_turn_delay_ms 1500, got %d", resilience.SelfplayInterTurnDelayMs)
 	}
 	if resilience.PartialSuccessMinTurns != 2 {
 		t.Errorf("Expected partial_success_min_turns 2, got %d", resilience.PartialSuccessMinTurns)

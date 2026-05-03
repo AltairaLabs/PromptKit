@@ -487,6 +487,21 @@ func (e *Engine) EnableAudioMonitor(opts arenaaudio.Options) error {
 	return nil
 }
 
+// AudioMonitorEnabled reports whether EnableAudioMonitor was called.
+// Callers use this to decide whether to construct an arenaaudio.Monitor.
+func (e *Engine) AudioMonitorEnabled() bool {
+	return e.audioMonitorOpts != nil
+}
+
+// AudioMonitorOptions returns the configured monitor options. Zero value
+// when monitoring is disabled — check AudioMonitorEnabled first.
+func (e *Engine) AudioMonitorOptions() arenaaudio.Options {
+	if e.audioMonitorOpts == nil {
+		return arenaaudio.Options{}
+	}
+	return *e.audioMonitorOpts
+}
+
 // GetRecordingDir returns the directory where session recordings are stored.
 // Returns empty string if recording is not enabled.
 func (e *Engine) GetRecordingDir() string {

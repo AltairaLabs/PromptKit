@@ -63,7 +63,7 @@ func TestMockStreamSession_SendChunk(t *testing.T) {
 	t.Run("sends chunk successfully", func(t *testing.T) {
 		session := NewMockStreamSession()
 		chunk := &types.MediaChunk{
-			Data:        []byte("test data"),
+			Data:        []byte("testdata"), // 8 bytes, PCM16-aligned
 			SequenceNum: 1,
 		}
 
@@ -224,11 +224,12 @@ func TestMockStreamSession_EmitChunk(t *testing.T) {
 func TestMockStreamSession_GetChunks(t *testing.T) {
 	session := NewMockStreamSession()
 
-	chunk1 := &types.MediaChunk{Data: []byte("data1")}
-	chunk2 := &types.MediaChunk{Data: []byte("data2")}
+	// 6-byte payloads keep the mock's PCM16 alignment guard happy.
+	chunk1 := &types.MediaChunk{Data: []byte("data01")}
+	chunk2 := &types.MediaChunk{Data: []byte("data02")}
 
-	session.SendChunk(context.Background(), chunk1)
-	session.SendChunk(context.Background(), chunk2)
+	require.NoError(t, session.SendChunk(context.Background(), chunk1))
+	require.NoError(t, session.SendChunk(context.Background(), chunk2))
 
 	chunks := session.GetChunks()
 	require.Len(t, chunks, 2)

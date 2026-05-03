@@ -136,6 +136,9 @@ func TestStreamTextAsAudio_HappyPath(t *testing.T) {
 	reg, fake := newRegistryWithFakeTTS("fake", pcmPayload)
 	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
 
+	// pumpTTSChunks emits the TTS body plus ~2s of silence-tail PCM chunks
+	// (~100 elements at 16kHz). The test must drain inputChan concurrently
+	// so streamTextAsAudio doesn't deadlock on a full channel.
 	in := make(chan stage.StreamElement, 16)
 	out := make(chan stage.StreamElement, 1)
 
@@ -158,18 +161,30 @@ func TestStreamTextAsAudio_HappyPath(t *testing.T) {
 		"self_play": true,
 	}
 
+	collected := make([]stage.StreamElement, 0, 256)
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		for elem := range in {
+			collected = append(collected, elem)
+		}
+	}()
+
 	err := de.streamTextAsAudio(ctx, "please refund my order", ttsCfg, turnMeta, in, out)
 	require.NoError(t, err)
+
+	// streamTextAsAudio doesn't close inputChan; the test does so after
+	// the helper returns to terminate the drain goroutine.
+	close(in)
+	<-drainDone
 
 	// TTS service was invoked with the supplied text.
 	assert.Equal(t, "please refund my order", fake.lastText)
 
-	// Drain the input channel and find the user message element.
-	close(in)
 	var userMsgElem *stage.StreamElement
 	var audioChunkCount int
-	for elem := range in {
-		e := elem
+	for i := range collected {
+		e := collected[i]
 		switch {
 		case e.Message != nil && e.Message.Role == "user":
 			userMsgElem = &e
@@ -192,8 +207,13 @@ func TestStreamTextAsAudio_HappyPath(t *testing.T) {
 	assert.Equal(t, "please refund my order", *msg.Parts[0].Text)
 	assert.Equal(t, types.ContentTypeAudio, msg.Parts[1].Type)
 	require.NotNil(t, msg.Parts[1].Media)
-	require.NotNil(t, msg.Parts[1].Media.Data)
-	assert.NotEmpty(t, *msg.Parts[1].Media.Data, "audio payload should be base64 encoded into Data")
+	// Audio is mirrored to a temp file as TTS chunks stream in; the user
+	// message points at that file via FilePath rather than carrying the
+	// bytes inline. The downstream MediaExternalizerStage copies the file
+	// into media storage and replaces FilePath with a StorageReference.
+	require.NotNil(t, msg.Parts[1].Media.FilePath)
+	assert.NotEmpty(t, *msg.Parts[1].Media.FilePath, "audio payload should be referenced by FilePath")
+	assert.Nil(t, msg.Parts[1].Media.Data, "audio payload must not be embedded inline anymore")
 
 	// Caller-supplied metadata threaded through, plus turn_id always set.
 	assert.Equal(t, "support-agent", msg.Meta["persona"])

@@ -1,12 +1,53 @@
 // Package audio provides real-time audio monitoring for Arena duplex runs.
 //
-// Lifecycle: per-run. Each scenario run gets its own AudioRouter goroutine,
+// # Observer model — read this before changing anything
+//
+// Audio in this package follows a strict observer model: this package
+// exposes a fan-out bus (AudioRouter) whose subscribers (LocalSink, RMS
+// level meters, SSE web playback, recording sinks) are read-only
+// observers. They watch the audio flowing through the data path; they
+// MUST NOT influence it.
+//
+// Cadence (the wall-clock rate at which audio chunks advance through
+// the pipeline) is owned by exactly one place — the
+// runtime/pipeline/stage.AudioPacingStage on the data path itself.
+// Everything in this package is downstream of that cadence authority
+// and is forbidden from feeding rate signals back to it. Specifically:
+//
+//   - Router.Publish drops on full intake. It does not block.
+//   - Router fan-out drops per-consumer on full inbox. It does not block.
+//   - LocalSink.Push drops on full sink buffer. It does not block.
+//
+// Drop-on-full is load-bearing, not a wart. If you change any of these
+// to block, you create a backchannel from a UI/observer surface into
+// the producer pipeline — and via the input branch's broadcast, into
+// the LLM provider's session. The provider's VAD timestamps arrival
+// cadence to time turn-end silence, so warping that cadence based on
+// "is anyone listening locally" produces wrong turn boundaries. Two
+// other reasons block-on-full doesn't work even before that:
+//
+//  1. Many parallel runs typically execute headlessly with no LocalSink
+//     attached at all. Sink-driven backpressure can't be the model
+//     when most runs have no sink to be back-pressured by.
+//  2. Even when a sink is attached, the operator may switch which run
+//     they're listening to — a run's correctness can't depend on
+//     whether someone happens to be tuned in.
+//
+// If you need cadence enforcement somewhere, the answer is another
+// AudioPacingStage instance on the data path, not "make the sink
+// blocking."
+//
+// # Lifecycle
+//
+// Per-run. Each scenario run gets its own AudioRouter goroutine,
 // started when MonitorTap is constructed and stopped at run completion.
 //
-// Audio chunks flow from the duplex provider stage through MonitorTap into
-// the router, which fans out to per-consumer bounded channels. Slow
-// consumers drop their own frames; the router and other consumers keep
-// flowing.
+// # Flow
+//
+// Audio chunks flow from the duplex provider stage through MonitorTap
+// into the router, which fans out to per-consumer bounded channels.
+// Slow consumers drop their own frames; the router and other consumers
+// keep flowing.
 package audio
 
 import "time"

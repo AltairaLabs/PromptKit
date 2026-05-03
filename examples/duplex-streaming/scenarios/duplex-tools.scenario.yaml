@@ -26,8 +26,6 @@ spec:
     resilience:
       max_retries: 2
       retry_delay_ms: 2000
-      inter_turn_delay_ms: 500
-      selfplay_inter_turn_delay_ms: 1000
       partial_success_min_turns: 3
       ignore_last_turn_session_end: true
 

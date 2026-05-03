@@ -16,9 +16,8 @@ graph TB
         S1["Stage 1<br/>StateStoreLoad"]
         S2["Stage 2<br/>PromptAssembly"]
         S3["Stage 3<br/>Template"]
-        S4["Stage 4<br/>Provider"]
-        S5["Stage 5<br/>Validation"]
-        S6["Stage 6<br/>StateStoreSave"]
+        S4["Stage 4<br/>Provider<br/>(hooks: validation,<br/>guardrails)"]
+        S5["Stage 5<br/>IncrementalSave"]
         Output["Output Element"]
     end
 
@@ -27,11 +26,12 @@ graph TB
     S2 --> S3
     S3 --> S4
     S4 --> S5
-    S5 --> S6
-    S6 --> Output
+    S5 --> Output
 
     style S4 fill:#f9f,stroke:#333,stroke-width:3px
 ```
+
+Validation does not have its own stage. It runs as `ProviderHook` chains (`BeforeCall`, `AfterCall`, `ChunkInterceptor`) invoked from inside `ProviderStage`, plus `ToolHook` chains around tool execution. See [Hook authoring layers](#) below.
 
 ## Core Concepts
 
@@ -110,7 +110,7 @@ pipeline := stage.NewPipelineBuilder().
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewPromptAssemblyStage(registry, taskType, vars),
         stage.NewProviderStage(provider, toolRegistry, toolPolicy, config),
-        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(stateConfig),
     ).
     Build()
 ```
@@ -213,23 +213,24 @@ providerStage := stage.NewProviderStage(
 )
 ```
 
-#### 5. ValidationStage
+#### 5. IncrementalSaveStage
 
-**Purpose**: Validates responses against schemas and constraints.
-
-**Behavior**:
-- Runs validators specified in metadata
-- Supports multiple validators in sequence
-- Can suppress or propagate validation errors
-
-#### 6. StateStoreSaveStage
-
-**Purpose**: Persists conversation state after processing.
+**Purpose**: Persists new messages produced by the turn.
 
 **Behavior**:
-- Saves new messages to the state store
-- Merges metadata from the conversation
-- Updates conversation state for continuity
+- Saves only the new messages via `MessageAppender` when the state store implements it
+- Falls back to a full state save when it does not
+- Replaces the original `StateStoreSaveStage` (removed in PR #461 alongside the introduction of the hook system)
+
+#### Validation (no longer a stage)
+
+`ValidationStage` was removed in PR #461. The accumulating-then-validating pattern was incompatible with streaming. Validation now runs as `ProviderHook` chains invoked from inside `ProviderStage`:
+
+- `BeforeCall` — input validation before the provider is called
+- `AfterCall` — output validation after the response
+- `ChunkInterceptor` — per-chunk validation for streaming, with the ability to abort via `HookDeniedError`
+
+Tool execution is wrapped by `ToolHook.BeforeExecution` / `AfterExecution`. All hooks live on a single `hooks.Registry` regardless of whether they originated from a pack `validators` block, an eval handler wrapped via `GuardrailHookAdapter`, or a user-registered `WithProviderHook` / `WithToolHook` call.
 
 ### Streaming/Speech Stages
 
@@ -375,7 +376,7 @@ The SDK supports three pipeline configurations for different use cases:
 Standard HTTP-based LLM interactions:
 
 ```
-Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → Provider → Validation → StateStoreSave → Output
+Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → Provider → IncrementalSave → Output
 ```
 
 **Use Cases**: Chat applications, content generation, text processing
@@ -385,7 +386,7 @@ Input → StateStoreLoad → VariableProvider → PromptAssembly → Template �
 For voice applications without native audio LLM support:
 
 ```
-Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → AudioTurn → STT → Provider → TTS → Validation → StateStoreSave → Output
+Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → AudioTurn → STT → Provider → TTS → IncrementalSave → Output
 ```
 
 **Use Cases**: Voice assistants using text-based LLMs, telephony integrations
@@ -395,7 +396,7 @@ Input → StateStoreLoad → VariableProvider → PromptAssembly → Template �
 For native multimodal LLMs with real-time audio:
 
 ```
-Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → DuplexProvider → Validation → StateStoreSave → Output
+Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → DuplexProvider → IncrementalSave → Output
 ```
 
 **Use Cases**: Gemini Live API, real-time voice conversations
@@ -645,7 +646,7 @@ The pipeline integrates with:
 - **Provider System**: For LLM interactions (see [Provider Architecture](/architecture/runtime-providers/))
 - **Tool System**: For tool execution (see [Tool & MCP Architecture](/architecture/runtime-tools-mcp/))
 - **State System**: For conversation persistence
-- **Validation System**: For response validation
+- **Hook System**: For pre/post-call validation, guardrails, and tool gating (runs inside `ProviderStage`)
 
 ## Best Practices
 

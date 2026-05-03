@@ -15,25 +15,53 @@ import (
 
 // AudioGenerator generates user messages with audio output for duplex self-play.
 // It wraps a text ContentGenerator and adds TTS synthesis.
+//
+// All audio output is streamed through io.ReadCloser — there is no
+// buffered shape. Memory stays bounded by the chunk size the caller
+// reads with, regardless of utterance length, which is required for any
+// production-like workload where TTS output can run minutes long.
+//
+// Implementations should ensure the reader returned by stream methods
+// arrives at TTS-source rate (faster than playback for real providers,
+// instant for mocks), letting downstream consumers buffer or pace as they
+// see fit.
 type AudioGenerator interface {
-	// NextUserTurnAudio generates a user message and converts it to audio.
-	// Returns the text result and audio data.
-	// The opts parameter is optional and can be nil.
-	NextUserTurnAudio(
+	// NextUserTurnAudioStream generates a user message and returns the
+	// synthesized audio as a streaming reader. Caller is responsible for
+	// closing the reader. The text result is available before the audio
+	// has finished streaming.
+	NextUserTurnAudioStream(
 		ctx context.Context,
 		history []types.Message,
 		scenarioID string,
 		opts *GeneratorOptions,
-	) (*AudioResult, error)
+	) (*AudioStreamResult, error)
+
+	// SynthesizeTextStream synthesizes pre-known text directly to audio
+	// (no LLM-driven text generation). Used by scripted-text duplex turns
+	// where the text is from the scenario YAML, not a persona.
+	// Caller is responsible for closing Reader.
+	SynthesizeTextStream(
+		ctx context.Context,
+		text string,
+	) (*AudioStreamResult, error)
 }
 
-// AudioResult contains both text and audio output from audio generation.
-type AudioResult struct {
-	// TextResult contains the text generation result with cost info and metadata.
+// AudioStreamResult is the result of an audio generation. The audio
+// hasn't been synthesized yet when this is returned — the caller drains
+// Reader to consume it as it arrives from the TTS provider.
+type AudioStreamResult struct {
+	// TextResult is the text generation result. Nil for SynthesizeTextStream
+	// where the text was supplied by the caller and no LLM ran.
 	TextResult *pipeline.ExecutionResult
 
-	// Audio contains the synthesized audio data.
-	Audio []byte
+	// Text is the synthesized utterance. For NextUserTurnAudioStream it
+	// matches TextResult.Response.Content; for SynthesizeTextStream it
+	// is the input text.
+	Text string
+
+	// Reader is the streaming audio body. Caller must Close it.
+	Reader io.ReadCloser
 
 	// AudioFormat describes the audio encoding.
 	AudioFormat tts.AudioFormat
@@ -43,6 +71,11 @@ type AudioResult struct {
 }
 
 // AudioContentGenerator wraps a ContentGenerator and adds TTS synthesis.
+//
+// textGenerator may be nil when constructed via GetTextSynthesisGenerator
+// (scripted-text turns where no LLM is involved). In that case
+// NextUserTurnAudioStream returns an error; SynthesizeTextStream still
+// works.
 type AudioContentGenerator struct {
 	textGenerator *ContentGenerator
 	ttsService    tts.Service
@@ -50,6 +83,7 @@ type AudioContentGenerator struct {
 }
 
 // NewAudioContentGenerator creates a new audio content generator.
+// textGenerator may be nil for TTS-only generators.
 func NewAudioContentGenerator(
 	textGenerator *ContentGenerator,
 	ttsService tts.Service,
@@ -62,78 +96,79 @@ func NewAudioContentGenerator(
 	}
 }
 
-// NextUserTurnAudio generates a user message and converts it to audio.
-func (g *AudioContentGenerator) NextUserTurnAudio(
-	ctx context.Context,
-	history []types.Message,
-	scenarioID string,
-	opts *GeneratorOptions,
-) (*AudioResult, error) {
-	// Generate text using the underlying generator
-	textResult, err := g.textGenerator.NextUserTurn(ctx, history, scenarioID, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate text: %w", err)
-	}
-
-	// Extract text content from result
-	text := ""
-	if textResult.Response != nil {
-		text = textResult.Response.Content
-	}
-
-	if text == "" {
-		return nil, fmt.Errorf("no text content generated for TTS synthesis")
-	}
-
-	// Synthesize audio
-	audioData, format, sampleRate, err := g.synthesize(ctx, text)
-	if err != nil {
-		return nil, fmt.Errorf("failed to synthesize audio: %w", err)
-	}
-
-	return &AudioResult{
-		TextResult:  textResult,
-		Audio:       audioData,
-		AudioFormat: format,
-		SampleRate:  sampleRate,
-	}, nil
-}
-
 // Default TTS output sample rate (most TTS services output at 24kHz).
 const defaultTTSSampleRate = 24000
 
-// synthesize converts text to audio using the TTS service.
-// Returns the audio data, format, sample rate, and any error.
-//
-//nolint:gocritic // Unnamed results are clearer for this signature
-func (g *AudioContentGenerator) synthesize(ctx context.Context, text string) ([]byte, tts.AudioFormat, int, error) {
-	// Build TTS configuration
+// openStream opens a TTS stream for text and returns the streaming
+// reader along with format/rate metadata. The single place that
+// translates (text, ttsConfig) → (reader, sample rate).
+func (g *AudioContentGenerator) openStream(ctx context.Context, text string) (*AudioStreamResult, error) {
 	synthConfig := tts.SynthesisConfig{
 		Voice:  g.ttsConfig.Voice,
-		Format: tts.FormatPCM16, // PCM16 for streaming to duplex provider
+		Format: tts.FormatPCM16,
 		Speed:  1.0,
 	}
-
-	// Synthesize audio
 	reader, err := g.ttsService.Synthesize(ctx, text, synthConfig)
 	if err != nil {
-		return nil, tts.AudioFormat{}, 0, err
+		return nil, err
 	}
-	defer reader.Close()
-
-	// Read all audio data
-	audioData, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, tts.AudioFormat{}, 0, fmt.Errorf("failed to read audio data: %w", err)
-	}
-
-	// Use sample rate from config if specified, otherwise default to 24kHz
 	sampleRate := defaultTTSSampleRate
 	if g.ttsConfig.SampleRate > 0 {
 		sampleRate = g.ttsConfig.SampleRate
 	}
+	return &AudioStreamResult{
+		Text:        text,
+		Reader:      reader,
+		AudioFormat: synthConfig.Format,
+		SampleRate:  sampleRate,
+	}, nil
+}
 
-	return audioData, synthConfig.Format, sampleRate, nil
+// SynthesizeTextStream implements AudioGenerator. Skips the LLM text
+// generation step — used for scripted-text duplex turns where the text
+// arrives pre-known from the scenario YAML.
+func (g *AudioContentGenerator) SynthesizeTextStream(
+	ctx context.Context,
+	text string,
+) (*AudioStreamResult, error) {
+	if text == "" {
+		return nil, fmt.Errorf("SynthesizeTextStream: text is empty")
+	}
+	return g.openStream(ctx, text)
+}
+
+// NextUserTurnAudioStream implements AudioGenerator. Generates user-turn
+// text via the underlying ContentGenerator and returns a streaming
+// reader for the synthesized audio. Memory consumption is bounded
+// regardless of utterance length.
+func (g *AudioContentGenerator) NextUserTurnAudioStream(
+	ctx context.Context,
+	history []types.Message,
+	scenarioID string,
+	opts *GeneratorOptions,
+) (*AudioStreamResult, error) {
+	if g.textGenerator == nil {
+		return nil, fmt.Errorf(
+			"NextUserTurnAudioStream: no text generator " +
+				"(use SynthesizeTextStream for scripted-text turns)")
+	}
+	textResult, err := g.textGenerator.NextUserTurn(ctx, history, scenarioID, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate text: %w", err)
+	}
+	text := ""
+	if textResult.Response != nil {
+		text = textResult.Response.Content
+	}
+	if text == "" {
+		return nil, fmt.Errorf("no text content generated for TTS synthesis")
+	}
+	stream, err := g.openStream(ctx, text)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open TTS stream: %w", err)
+	}
+	stream.TextResult = textResult
+	return stream, nil
 }
 
 // GetTTSService returns the TTS service for direct access if needed.

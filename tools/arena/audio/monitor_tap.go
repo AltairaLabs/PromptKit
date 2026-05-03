@@ -3,8 +3,10 @@ package audio
 import (
 	"context"
 	"encoding/binary"
+	"sync/atomic"
 
 	runtimeaudio "github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 )
 
@@ -20,12 +22,32 @@ type MonitorTapConfig struct {
 
 // MonitorTap is a pipeline stage that observes audio elements and forwards
 // them to the AudioRouter. Pure passthrough — elements flow to downstream
-// stages unmodified. Router publishing is non-blocking, so a slow router
-// or full consumer buffer never affects pipeline throughput.
+// stages unmodified. Router publishing is non-blocking by contract, so a
+// slow router or full consumer buffer never affects pipeline throughput.
+//
+// This is the *boundary* between the data path (Stage chain) and the
+// observer side (router + LocalSink + RMS subscribers + ...). Audio
+// flowing through here goes two places at once: forward to the next
+// pipeline stage (data path), and sideways onto the router (observers).
+// The observer side must not influence the data path — see the
+// observer-model doc in types.go. If a sink can't keep up, frames are
+// dropped at the router or sink, never propagated back as backpressure.
+//
+// If observer-side smooth playback matters (someone is listening live
+// to a bursty mock provider), the answer is to add another
+// AudioPacingStage on the data path upstream of this tap, not to make
+// the observer side blocking.
 type MonitorTap struct {
 	stage.BaseStage
 	router *AudioRouter
 	config MonitorTapConfig
+
+	// stereoWarned latches once so a non-mono input doesn't spam the
+	// log every chunk. The runtime resampler underneath assumes mono;
+	// stereo would resample at half-rate and the meter/playback would
+	// be wrong. We warn loudly the first time we see one rather than
+	// silently miscomputing.
+	stereoWarned atomic.Bool
 }
 
 // NewMonitorTap constructs a tap that publishes audio elements to the
@@ -63,6 +85,17 @@ func (t *MonitorTap) tap(elem *stage.StreamElement) {
 		return
 	}
 	audio := elem.Audio
+	if audio.Channels > 1 && !t.stereoWarned.Swap(true) {
+		// runtimeaudio.ResamplePCM16 takes only fromRate/toRate; the
+		// resample math here implicitly assumes mono, so non-mono
+		// inputs would resample at the wrong byte-per-sample ratio
+		// and produce off-pitch playback at the sink. We warn once
+		// per stage instance so a future change that ever wires
+		// stereo through here surfaces immediately rather than
+		// silently corrupting playback.
+		logger.Warn("audio monitor tap: non-mono input, resample assumes mono — playback may be incorrect",
+			"channels", audio.Channels)
+	}
 	samples, err := bytesToInt16Samples(audio.Samples, audio.SampleRate, t.router.rate)
 	if err != nil || len(samples) == 0 {
 		return

@@ -120,8 +120,9 @@ func TestDuplexProviderStage_InputForwarding(t *testing.T) {
 		// Send system prompt first (required for session creation)
 		input <- elementWithSystemPrompt("Test system prompt")
 
-		// Send test audio
-		audioData := []byte("test audio data")
+		// Send test audio (16 bytes — must be PCM16-aligned to satisfy
+		// MockStreamSession.SendChunk's alignment guard).
+		audioData := []byte("test audio data!")
 		input <- StreamElement{
 			Audio: &AudioData{
 				Samples:    audioData,

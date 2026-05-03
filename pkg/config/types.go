@@ -854,13 +854,6 @@ type DuplexResilienceConfig struct {
 	MaxRetries int `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
 	// RetryDelayMs is the delay in milliseconds between retries (default: 1000).
 	RetryDelayMs int `json:"retry_delay_ms,omitempty" yaml:"retry_delay_ms,omitempty"`
-	// InterTurnDelayMs is the delay in milliseconds between turns (default: 500).
-	// This allows the provider to fully process the previous response.
-	InterTurnDelayMs int `json:"inter_turn_delay_ms,omitempty" yaml:"inter_turn_delay_ms,omitempty"`
-	// SelfplayInterTurnDelayMs is the delay after selfplay turns (default: 1000).
-	// Longer delay needed because TTS audio can be lengthy.
-	//nolint:lll // JSON/YAML tag names must match field names for clarity
-	SelfplayInterTurnDelayMs int `json:"selfplay_inter_turn_delay_ms,omitempty" yaml:"selfplay_inter_turn_delay_ms,omitempty"`
 	// PartialSuccessMinTurns is the minimum completed turns to accept partial success (default: 1).
 	// If the session ends unexpectedly but this many turns completed, treat as success.
 	PartialSuccessMinTurns int `json:"partial_success_min_turns,omitempty" yaml:"partial_success_min_turns,omitempty"`
@@ -961,22 +954,6 @@ func (r *DuplexResilienceConfig) GetRetryDelayMs(defaultVal int) int {
 		return defaultVal
 	}
 	return r.RetryDelayMs
-}
-
-// GetInterTurnDelayMs returns the configured inter-turn delay or the default.
-func (r *DuplexResilienceConfig) GetInterTurnDelayMs(defaultVal int) int {
-	if r == nil || r.InterTurnDelayMs <= 0 {
-		return defaultVal
-	}
-	return r.InterTurnDelayMs
-}
-
-// GetSelfplayInterTurnDelayMs returns the configured selfplay inter-turn delay or the default.
-func (r *DuplexResilienceConfig) GetSelfplayInterTurnDelayMs(defaultVal int) int {
-	if r == nil || r.SelfplayInterTurnDelayMs <= 0 {
-		return defaultVal
-	}
-	return r.SelfplayInterTurnDelayMs
 }
 
 // GetPartialSuccessMinTurns returns the configured partial success threshold or the default.

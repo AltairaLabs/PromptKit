@@ -88,7 +88,7 @@ pipeline := stage.NewPipelineBuilder().
         stage.NewSTTStage(sttService, sttConfig),
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(stateConfig),
         stage.NewTTSStage(ttsService, ttsConfig),
     ).
     Build()
@@ -104,8 +104,10 @@ Each stage does one thing:
 
 **StateStoreLoadStage**: Only loads conversation history
 **PromptAssemblyStage**: Only assembles prompts
-**ValidationStage**: Only validates content
-**ProviderStage**: Only calls the LLM
+**ProviderStage**: Only calls the LLM and runs the tool loop
+**IncrementalSaveStage**: Only persists new messages
+
+Validation is not a stage. It runs as `ProviderHook` / `ToolHook` chains invoked from inside `ProviderStage` (`BeforeCall`, `AfterCall`, `ChunkInterceptor` for streaming). Three authoring sources — pack-declared validators, eval-handler-as-guardrail, and user-registered `WithProviderHook` / `WithToolHook` calls — all converge on a single `hooks.Registry`.
 
 ### 2. Composability
 
@@ -126,20 +128,14 @@ pipeline := stage.NewPipelineBuilder().
         stage.NewStateStoreLoadStage(stateConfig),  // Added
         stage.NewPromptAssemblyStage(registry, task, vars),
         stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewStateStoreSaveStage(stateConfig),  // Added
+        stage.NewIncrementalSaveStage(stateConfig),  // Added
     ).
     Build()
 
-// Add validation
-pipeline := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewPromptAssemblyStage(registry, task, vars),
-        stage.NewValidationStage(validators, config),  // Added
-        stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewStateStoreSaveStage(stateConfig),
-    ).
-    Build()
+// Add validation — registered on hooks.Registry, invoked from inside ProviderStage
+hookRegistry.RegisterProviderHook(guardrails.NewGuardrailHook(validatorConfig))
+// (the same pipeline as above; validators run inside ProviderStage via the hook chain,
+// not as a separate stage)
 ```
 
 ### 3. Explicit Ordering
@@ -151,9 +147,8 @@ pipeline := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),   // 1. Load history
         stage.NewPromptAssemblyStage(registry, task, vars), // 2. Assemble prompt
-        stage.NewValidationStage(validators, config), // 3. Validate
-        stage.NewProviderStage(provider, tools, policy, config), // 4. Execute
-        stage.NewStateStoreSaveStage(stateConfig),   // 5. Save state
+        stage.NewProviderStage(provider, tools, policy, config), // 3. Execute (hooks validate before/after)
+        stage.NewIncrementalSaveStage(stateConfig),  // 4. Save state
     ).
     Build()
 ```
@@ -283,11 +278,10 @@ func (s *LoggerStage) Process(ctx context.Context, input <-chan StreamElement, o
 | Stage | Purpose |
 |-------|---------|
 | `StateStoreLoadStage` | Load conversation history |
-| `StateStoreSaveStage` | Persist conversation state |
+| `IncrementalSaveStage` | Persist new messages (via `MessageAppender` if available, otherwise full save) |
 | `PromptAssemblyStage` | Assemble prompts from registry |
 | `TemplateStage` | Variable substitution |
-| `ValidationStage` | Content validation |
-| `ProviderStage` | LLM execution with tool support |
+| `ProviderStage` | LLM execution with tool support; validation runs here as `ProviderHook` chains |
 
 ### Streaming Stages
 
@@ -418,16 +412,18 @@ Stages that prepare input:
 - **StateStoreLoadStage**: Load conversation history
 - **PromptAssemblyStage**: Build prompt from registry
 - **TemplateStage**: Substitute variables
-- **ValidationStage**: Check input constraints
+
+Input validation runs inside `ProviderStage` via `ProviderHook.BeforeCall`, not as a separate stage.
 
 ### Post-Processing
 
 Stages that handle output:
 
-- **ValidationStage**: Check output constraints
-- **StateStoreSaveStage**: Persist conversation
+- **IncrementalSaveStage**: Persist new messages
 - **MetricsStage**: Record performance
 - **DebugStage**: Log for debugging
+
+Output validation runs inside `ProviderStage` via `ProviderHook.AfterCall` (and `ChunkInterceptor` for streaming), not as a separate stage.
 
 ### Branching
 
@@ -469,17 +465,12 @@ pipeline := stage.NewPipelineBuilder().
         // 4. Apply templates
         stage.NewTemplateStage(),
 
-        // 5. Validate input
-        stage.NewValidationStage(inputValidators, config),
-
-        // 6. Execute LLM
+        // 5. Execute LLM. Input/output validation runs here as ProviderHook chains
+        //    (BeforeCall / AfterCall / ChunkInterceptor), not as a separate stage.
         stage.NewProviderStage(provider, tools, policy, config),
 
-        // 7. Validate output
-        stage.NewValidationStage(outputValidators, config),
-
-        // 8. Save state
-        stage.NewStateStoreSaveStage(stateConfig),
+        // 6. Save state
+        stage.NewIncrementalSaveStage(stateConfig),
     ).
     Build()
 ```
@@ -488,7 +479,7 @@ pipeline := stage.NewPipelineBuilder().
 
 **State early**: Load history before prompt assembly
 **Variables before templates**: Resolve values, then substitute
-**Validation twice**: Before and after LLM execution
+**Validation via hooks**: Pre/post-call validation runs inside `ProviderStage` via the hook registry, not as separate stages
 **Save last**: Persist after all processing complete
 
 ## Performance Considerations

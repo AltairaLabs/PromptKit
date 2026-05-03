@@ -189,10 +189,10 @@ The principles above represent the target architecture. As of this document's da
 | Section | Status | Tracking |
 |---|---|---|
 | §1.1 Run-level services | In place. SDK adoption of `providers.Registry` pending. | PR 2 (`feat/sdk-provider-pool`) |
-| §1.2 `TurnState` | New type, not yet implemented. `StreamElement.Metadata map[string]any` is the current vehicle. | PR 3 (`feat/turnstate-runtime`) |
+| §1.2 `TurnState` | In place. Defined in `runtime/pipeline/stage/turn_state.go` and populated by the pipeline builder in `sdk/internal/pipeline/builder.go`. | landed |
 | §1.2 Event emitter / bus | In place. |  |
 | §3 Hook authoring layers | In place. Documented here for the first time. |  |
-| §4 Per-Turn data flow | Migration pending. `Metadata` bag deprecated through PR 3-5; deleted in PR 5. | PR 3, 4, 5 |
+| §4 Per-Turn data flow | Partially migrated. `TurnState` is the authoritative path for new code; legacy `StreamElement.Metadata map[string]any` still populated in some call sites and consumed where keys haven't moved yet. Final removal tracked separately. | in-flight |
 | §5 Add-new-X protocol | This document is the contract. New PRs cite specific sections. |  |
 
 The migration sequence is documented in [`docs/superpowers/specs/2026-04-27-pipeline-architecture-proposal.md`](../../../docs/superpowers/specs/2026-04-27-pipeline-architecture-proposal.md). Until §4's migration is complete, both `TurnState` (when it exists) and the deprecated `Metadata` field are populated; consumer code reads from whichever is authoritative for the relevant key. After PR 5, only `TurnState` and `Meta` remain.

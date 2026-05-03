@@ -49,6 +49,12 @@ func NewTTSRegistry() *TTSRegistry {
 // Get returns a TTS service for the given provider name.
 // Services are lazily initialized on first request and cached.
 // For mock provider with custom audio files, use GetWithConfig instead.
+//
+// When the TTS_CACHE_DIR environment variable is set, the returned
+// service is wrapped in a CachedTTSService rooted at that directory so
+// repeated synthesis of the same text doesn't re-bill the upstream
+// provider. Mock services are exempt — they're already deterministic
+// and would just bloat the cache.
 func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
 	// Check cache first
 	r.mu.RLock()
@@ -63,6 +69,7 @@ func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	svc = wrapWithDiskCache(provider, svc)
 
 	// Cache and return
 	r.mu.Lock()
@@ -70,6 +77,27 @@ func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
 	r.mu.Unlock()
 
 	return svc, nil
+}
+
+// wrapWithDiskCache wraps svc in a CachedTTSService when TTS_CACHE_DIR is
+// set, leaves it untouched otherwise. Mock providers always pass through —
+// they're already free and deterministic.
+func wrapWithDiskCache(provider string, svc tts.Service) tts.Service {
+	if provider == TTSProviderMock {
+		return svc
+	}
+	dir := resolveTTSCacheDir()
+	if dir == "" {
+		return svc
+	}
+	wrapped, err := NewCachedTTSService(svc, dir)
+	if err != nil {
+		// Cache directory unavailable — log and fall back to the bare
+		// backend so synthesis still works. Tests that depend on caching
+		// will catch the regression themselves.
+		return svc
+	}
+	return wrapped
 }
 
 // GetWithConfig returns a TTS service configured with the given TTSConfig.
@@ -170,12 +198,16 @@ func (r *TTSRegistry) createOpenAI() (tts.Service, error) {
 }
 
 // createElevenLabs creates an ElevenLabs TTS service.
+//
+// Selfplay uses turbo_v2_5 because it's optimized for real-time conversational
+// agents (~250ms TTFB vs ~1s for multilingual_v2). The default
+// multilingual_v2 model would dominate per-turn latency.
 func (r *TTSRegistry) createElevenLabs() (tts.Service, error) {
 	apiKey := os.Getenv(envElevenLabsAPIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("elevenLabs TTS requires %s environment variable", envElevenLabsAPIKey)
 	}
-	return tts.NewElevenLabs(apiKey), nil
+	return tts.NewElevenLabs(apiKey, tts.WithElevenLabsModel(tts.ElevenLabsModelTurbo)), nil
 }
 
 // createCartesia creates a Cartesia TTS service.

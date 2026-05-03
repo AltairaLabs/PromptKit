@@ -27,10 +27,6 @@ spec:
       max_retries: 2
       # Delay between retries (ms) to allow provider to recover
       retry_delay_ms: 2000
-      # Delay between turns (ms) to allow provider to finish processing
-      inter_turn_delay_ms: 500
-      # Longer delay after selfplay turns since TTS audio can be lengthy
-      selfplay_inter_turn_delay_ms: 1000
       # Accept partial success if at least this many turns completed
       partial_success_min_turns: 2
       # Don't fail if session ends on the final turn

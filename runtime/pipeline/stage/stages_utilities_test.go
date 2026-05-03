@@ -12,10 +12,48 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
+
+// fakeMediaStorage records what was passed to StoreMedia and returns a
+// canned reference. Sufficient for asserting the externalizer hands
+// FilePath-bearing media to the storage service rather than skipping it.
+type fakeMediaStorage struct {
+	stored      []*types.MediaContent
+	storedMeta  []*storage.MediaMetadata
+	returnedRef storage.Reference
+	storeErr    error
+}
+
+func (f *fakeMediaStorage) StoreMedia(
+	_ context.Context,
+	content *types.MediaContent,
+	meta *storage.MediaMetadata,
+) (storage.Reference, error) {
+	if f.storeErr != nil {
+		return "", f.storeErr
+	}
+	// Record a shallow copy so later mutations by the externalizer
+	// don't bleed into our recorded snapshot.
+	cp := *content
+	f.stored = append(f.stored, &cp)
+	f.storedMeta = append(f.storedMeta, meta)
+	if f.returnedRef == "" {
+		return storage.Reference("fake-ref"), nil
+	}
+	return f.returnedRef, nil
+}
+
+func (f *fakeMediaStorage) RetrieveMedia(_ context.Context, _ storage.Reference) (*types.MediaContent, error) {
+	return nil, nil
+}
+func (f *fakeMediaStorage) DeleteMedia(_ context.Context, _ storage.Reference) error { return nil }
+func (f *fakeMediaStorage) GetURL(_ context.Context, _ storage.Reference, _ time.Duration) (string, error) {
+	return "", nil
+}
 
 func TestTemplateStage_SubstitutesVariables(t *testing.T) {
 	tests := []struct {
@@ -983,6 +1021,56 @@ func TestMediaExternalizerStage_NoStoragePassthrough(t *testing.T) {
 
 	result := <-output
 	assert.NotNil(t, result.Message)
+}
+
+// TestMediaExternalizerStage_FilePathExternalized covers the regression
+// where the externalizer used to skip media that had FilePath set but
+// no inline Data — the temp-file mirror produced by streaming TTS.
+// Without this branch StoreMedia was never called and the producer's
+// cleanup defer would delete the file out from under any later reader.
+func TestMediaExternalizerStage_FilePathExternalized(t *testing.T) {
+	fake := &fakeMediaStorage{returnedRef: "stored://abc"}
+	cfg := &MediaExternalizerConfig{
+		Enabled:        true,
+		StorageService: fake,
+		DefaultPolicy:  "retain",
+		RunID:          "r1",
+	}
+	st := NewMediaExternalizerStage(cfg)
+
+	tempPath := "/tmp/some-tts-mirror.pcm"
+	mediaPath := tempPath
+	msg := &types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{{
+			Type: types.ContentTypeAudio,
+			Media: &types.MediaContent{
+				FilePath: &mediaPath,
+				MIMEType: "audio/pcm",
+			},
+		}},
+	}
+
+	in := make(chan StreamElement, 1)
+	out := make(chan StreamElement, 1)
+	in <- NewMessageElement(msg)
+	close(in)
+
+	require.NoError(t, st.Process(context.Background(), in, out))
+
+	require.Len(t, fake.stored, 1, "FilePath-bearing media should reach StoreMedia")
+	require.NotNil(t, fake.stored[0].FilePath)
+	assert.Equal(t, tempPath, *fake.stored[0].FilePath)
+
+	got := <-out
+	require.NotNil(t, got.Message)
+	require.Len(t, got.Message.Parts, 1)
+	media := got.Message.Parts[0].Media
+	require.NotNil(t, media)
+	require.NotNil(t, media.StorageReference)
+	assert.Equal(t, "stored://abc", *media.StorageReference)
+	assert.Nil(t, media.FilePath, "FilePath should be cleared so producer cleanup is safe")
+	assert.Nil(t, media.Data)
 }
 
 func TestMediaExternalizerStage_ContextCancellation(t *testing.T) {

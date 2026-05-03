@@ -18,20 +18,51 @@ type SessionUpdateEvent struct {
 }
 
 // SessionConfig is the session configuration sent in session.update.
-// Note: TurnDetection uses a pointer without omitempty so we can explicitly
-// send null to disable VAD. Omitting it causes OpenAI to use default (server_vad).
+// Shape matches the GA Realtime API: output_modalities replaces
+// modalities; codec, voice, VAD, and transcription all moved into a
+// nested audio.{input,output} object; the legacy beta-flat shape (with
+// top-level voice, input_audio_format, etc.) is no longer accepted by
+// gpt-realtime and other GA models.
 type SessionConfig struct {
-	Modalities              []string             `json:"modalities,omitempty"`
-	Instructions            string               `json:"instructions,omitempty"`
-	Voice                   string               `json:"voice,omitempty"`
-	InputAudioFormat        string               `json:"input_audio_format,omitempty"`
-	OutputAudioFormat       string               `json:"output_audio_format,omitempty"`
-	InputAudioTranscription *TranscriptionConfig `json:"input_audio_transcription,omitempty"`
-	TurnDetection           *TurnDetectionConfig `json:"turn_detection"` // No omitempty - null disables VAD
-	Tools                   []RealtimeToolDef    `json:"tools,omitempty"`
-	ToolChoice              interface{}          `json:"tool_choice,omitempty"`
-	Temperature             float64              `json:"temperature,omitempty"`
-	MaxResponseOutputTokens interface{}          `json:"max_response_output_tokens,omitempty"`
+	// Type distinguishes a speech-to-speech session ("realtime") from a
+	// transcription-only session ("transcription"). Required by GA.
+	Type             string               `json:"type,omitempty"`
+	Instructions     string               `json:"instructions,omitempty"`
+	OutputModalities []string             `json:"output_modalities,omitempty"`
+	Audio            *RealtimeAudioConfig `json:"audio,omitempty"`
+	Tools            []RealtimeToolDef    `json:"tools,omitempty"`
+	ToolChoice       interface{}          `json:"tool_choice,omitempty"`
+	MaxOutputTokens  interface{}          `json:"max_output_tokens,omitempty"`
+}
+
+// RealtimeAudioConfig groups the input and output audio configuration in
+// the GA schema. Either side may be nil to leave server defaults in place.
+type RealtimeAudioConfig struct {
+	Input  *RealtimeAudioInput  `json:"input,omitempty"`
+	Output *RealtimeAudioOutput `json:"output,omitempty"`
+}
+
+// RealtimeAudioInput configures the user-input side of the audio stream.
+// TurnDetection uses a pointer-without-omitempty so the caller can send
+// explicit null to disable server VAD (manual turn control).
+type RealtimeAudioInput struct {
+	Format        *RealtimeAudioFormat `json:"format,omitempty"`
+	TurnDetection *TurnDetectionConfig `json:"turn_detection"`
+	Transcription *TranscriptionConfig `json:"transcription,omitempty"`
+}
+
+// RealtimeAudioOutput configures the model-output side of the audio stream.
+type RealtimeAudioOutput struct {
+	Format *RealtimeAudioFormat `json:"format,omitempty"`
+	Voice  string               `json:"voice,omitempty"`
+	Speed  float64              `json:"speed,omitempty"`
+}
+
+// RealtimeAudioFormat is the GA-shape codec descriptor. For PCM, type is
+// "audio/pcm" and rate is the sample rate in Hz (24000 for gpt-realtime).
+type RealtimeAudioFormat struct {
+	Type string `json:"type"`
+	Rate int    `json:"rate,omitempty"`
 }
 
 // RealtimeToolDef is the tool definition format for session config.
@@ -442,16 +473,19 @@ func ParseServerEvent(data []byte) (interface{}, error) {
 	case "response.text.done":
 		var e ResponseTextDoneEvent
 		return &e, json.Unmarshal(data, &e)
-	case "response.audio.delta":
+	case "response.audio.delta", "response.output_audio.delta":
+		// GA renamed `response.audio.*` → `response.output_audio.*`. Both
+		// names accepted so we don't have to fork the parser by API version.
+		// Wire payload shape is unchanged.
 		var e ResponseAudioDeltaEvent
 		return &e, json.Unmarshal(data, &e)
-	case "response.audio.done":
+	case "response.audio.done", "response.output_audio.done":
 		var e ResponseAudioDoneEvent
 		return &e, json.Unmarshal(data, &e)
-	case "response.audio_transcript.delta":
+	case "response.audio_transcript.delta", "response.output_audio_transcript.delta":
 		var e ResponseAudioTranscriptDeltaEvent
 		return &e, json.Unmarshal(data, &e)
-	case "response.audio_transcript.done":
+	case "response.audio_transcript.done", "response.output_audio_transcript.done":
 		var e ResponseAudioTranscriptDoneEvent
 		return &e, json.Unmarshal(data, &e)
 	case "response.function_call_arguments.delta":

@@ -169,25 +169,35 @@ func (s *RealtimeSession) sendSessionUpdate() error {
 	return s.ws.Send(event)
 }
 
-// buildSessionConfig converts our config to the API format.
+// buildSessionConfig converts our internal RealtimeSessionConfig into
+// the GA Realtime session.update payload. Output modalities flatten
+// (audio implies text-too); codec, voice, VAD, and transcription nest
+// under audio.{input,output}; temperature dropped (GA moved it to
+// per-response.create); voice moved into audio.output.voice.
 func (s *RealtimeSession) buildSessionConfig() SessionConfig {
 	cfg := SessionConfig{
-		Modalities:        s.config.Modalities,
-		Instructions:      s.config.Instructions,
-		Voice:             s.config.Voice,
-		InputAudioFormat:  s.config.InputAudioFormat,
-		OutputAudioFormat: s.config.OutputAudioFormat,
-		Temperature:       s.config.Temperature,
+		Type:             "realtime",
+		Instructions:     s.config.Instructions,
+		OutputModalities: outputModalities(s.config.Modalities),
+		Audio: &RealtimeAudioConfig{
+			Input: &RealtimeAudioInput{
+				Format: pcmFormat(s.config.InputAudioFormat, DefaultRealtimeSampleRate),
+			},
+			Output: &RealtimeAudioOutput{
+				Format: pcmFormat(s.config.OutputAudioFormat, DefaultRealtimeSampleRate),
+				Voice:  s.config.Voice,
+			},
+		},
 	}
 
 	if s.config.InputAudioTranscription != nil {
-		cfg.InputAudioTranscription = &TranscriptionConfig{
+		cfg.Audio.Input.Transcription = &TranscriptionConfig{
 			Model: s.config.InputAudioTranscription.Model,
 		}
 	}
 
 	if s.config.TurnDetection != nil {
-		cfg.TurnDetection = &TurnDetectionConfig{
+		cfg.Audio.Input.TurnDetection = &TurnDetectionConfig{
 			Type:              s.config.TurnDetection.Type,
 			Threshold:         s.config.TurnDetection.Threshold,
 			PrefixPaddingMs:   s.config.TurnDetection.PrefixPaddingMs,
@@ -195,6 +205,9 @@ func (s *RealtimeSession) buildSessionConfig() SessionConfig {
 			CreateResponse:    s.config.TurnDetection.CreateResponse,
 		}
 	}
+	// When TurnDetection is nil we leave audio.input.turn_detection nil;
+	// the pointer-without-omitempty tag marshals it as
+	// `"turn_detection":null` — the GA signal for "manual turn control".
 
 	if len(s.config.Tools) > 0 {
 		cfg.Tools = make([]RealtimeToolDef, len(s.config.Tools))
@@ -209,10 +222,35 @@ func (s *RealtimeSession) buildSessionConfig() SessionConfig {
 	}
 
 	if s.config.MaxResponseOutputTokens != nil {
-		cfg.MaxResponseOutputTokens = s.config.MaxResponseOutputTokens
+		cfg.MaxOutputTokens = s.config.MaxResponseOutputTokens
 	}
 
 	return cfg
+}
+
+// outputModalities maps our internal modality list onto the GA
+// output_modalities field. The GA API accepts ["audio"] (which implies
+// text-too) or ["text"] for text-only.
+func outputModalities(in []string) []string {
+	for _, m := range in {
+		if m == "audio" {
+			return []string{"audio"}
+		}
+	}
+	if len(in) == 0 {
+		return []string{"audio"} // safe default for a Realtime session
+	}
+	return []string{"text"}
+}
+
+// pcmFormat returns the GA-shape audio format descriptor for a legacy
+// "pcm16"-style codec name. Empty / unknown formats fall through as nil
+// so the server uses its default.
+func pcmFormat(legacy string, rate int) *RealtimeAudioFormat {
+	if legacy != "" && legacy != "pcm16" {
+		return nil
+	}
+	return &RealtimeAudioFormat{Type: "audio/pcm", Rate: rate}
 }
 
 // nextEventID generates a unique event ID.
@@ -291,7 +329,10 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 	return s.ws.Send(responseEvent)
 }
 
-// SendSystemContext sends a text message as context without completing the turn.
+// SendSystemContext sends a partial session.update that only modifies
+// instructions, leaving codec/voice/VAD untouched. The GA API merges
+// partial session.update events; type is included because GA requires
+// it on every session.update.
 func (s *RealtimeSession) SendSystemContext(ctx context.Context, text string) error {
 	s.mu.Lock()
 	if s.closed {
@@ -300,14 +341,13 @@ func (s *RealtimeSession) SendSystemContext(ctx context.Context, text string) er
 	}
 	s.mu.Unlock()
 
-	// For OpenAI Realtime, we update the session instructions
-	// This provides context without triggering a response
 	event := SessionUpdateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
 			Type:    "session.update",
 		},
 		Session: SessionConfig{
+			Type:         "realtime",
 			Instructions: text,
 		},
 	}
@@ -441,20 +481,31 @@ func (s *RealtimeSession) Close() error {
 }
 
 // EndInput signals the end of user input.
-// For OpenAI Realtime with server VAD, this commits the audio buffer.
-// For manual turn control, this commits and triggers a response.
+//
+// In server_vad mode the server auto-commits when it detects end-of-speech
+// in the audio buffer and (with create_response: true) auto-creates a
+// response. Sending manual input_audio_buffer.commit + response.create from
+// the client races with that auto-handling and causes the server to reject
+// audio chunks with a cryptic "Invalid 'audio'... got an invalid value"
+// error (verified via integration bisection). Callers that want server_vad
+// behavior must include trailing silence in the streamed audio so the VAD
+// can detect end-of-speech — pumpTTSChunks already does this via
+// streamSilenceTail.
+//
+// In manual turn-control mode (TurnDetection == nil, i.e. vad_disabled),
+// the client owns turn boundaries: commit the buffer and trigger a response.
 func (s *RealtimeSession) EndInput() {
-	logger.Debug("OpenAI Realtime: EndInput called")
+	if s.config.TurnDetection != nil {
+		logger.Debug("OpenAI Realtime: EndInput no-op (server_vad mode — server auto-commits and auto-responds)")
+		return
+	}
+
+	logger.Debug("OpenAI Realtime: EndInput called (manual turn mode)")
 
 	if err := s.CommitAudioBuffer(); err != nil {
 		logger.Error("OpenAI Realtime: EndInput failed to commit audio", "error", err)
 		return
 	}
-
-	// Always trigger a response after committing. With server_vad,
-	// pre-recorded audio files lack trailing silence so VAD may never
-	// detect end-of-speech. TriggerResponse forces the model to
-	// process the committed buffer immediately.
 	if err := s.TriggerResponse(nil); err != nil {
 		logger.Error("OpenAI Realtime: EndInput failed to trigger response", "error", err)
 	}
@@ -723,35 +774,65 @@ func (s *RealtimeSession) handleRateLimits(e *RateLimitsUpdatedEvent) {
 	}
 }
 
+// gpt-realtime GA pricing per 1K tokens (USD). Audio costs an order of
+// magnitude more than text — pricing one against the other vastly mis-
+// estimates the bill. The wire `usage` payload includes a per-type
+// breakdown (input_token_details / output_token_details), and we use it.
+//
+// Cached input is billed at the same per-1K rate as fresh input on the
+// gpt-realtime GA model (10% discount for prompt-cached audio is folded
+// in by the server already; we don't double-count).
+//
+// Source: https://platform.openai.com/docs/pricing (gpt-realtime row).
+const (
+	defaultAudioInputCostPer1K  = 0.032 // $32 / 1M
+	defaultAudioOutputCostPer1K = 0.064 // $64 / 1M
+	defaultTextInputCostPer1K   = 0.004 // $4  / 1M
+	defaultTextOutputCostPer1K  = 0.016 // $16 / 1M
+)
+
 func (s *RealtimeSession) calculateCost(usage *UsageInfo) *types.CostInfo {
 	if usage == nil {
 		return nil
 	}
 
-	inputTokens := usage.InputTokens
-	outputTokens := usage.OutputTokens
-
-	// Use configured pricing or defaults
-	// OpenAI Realtime API pricing per 1K tokens (as of 2025-01):
-	// gpt-realtime: Audio input $32/1M = $0.032/1K, Audio output $64/1M = $0.064/1K
-	// gpt-4o-realtime-preview: Audio input $100/1M = $0.10/1K, Audio output $200/1M = $0.20/1K
-	// Using gpt-realtime pricing as default since it's the recommended production model
-	inputCostPer1K := s.inputCostPer1K
-	outputCostPer1K := s.outputCostPer1K
-
-	if inputCostPer1K == 0 {
-		inputCostPer1K = 0.032 // Default: gpt-realtime audio input $32/1M tokens
+	// Default to GA gpt-realtime rates. The provider config can override
+	// the audio rates via inputCostPer1K / outputCostPer1K — those are
+	// applied to AUDIO tokens, since that's where the bulk of the bill
+	// lives in a realtime session.
+	audioInRate := s.inputCostPer1K
+	if audioInRate == 0 {
+		audioInRate = defaultAudioInputCostPer1K
 	}
-	if outputCostPer1K == 0 {
-		outputCostPer1K = 0.064 // Default: gpt-realtime audio output $64/1M tokens
+	audioOutRate := s.outputCostPer1K
+	if audioOutRate == 0 {
+		audioOutRate = defaultAudioOutputCostPer1K
 	}
 
-	inputCost := float64(inputTokens) / tokensPerThousand * inputCostPer1K
-	outputCost := float64(outputTokens) / tokensPerThousand * outputCostPer1K
+	inAudio := usage.InputTokenDetails.AudioTokens
+	inText := usage.InputTokenDetails.TextTokens
+	outAudio := usage.OutputTokenDetails.AudioTokens
+	outText := usage.OutputTokenDetails.TextTokens
+
+	// Fall back to "all tokens are audio" if the breakdown is missing
+	// (older API responses, mock providers, etc.) so we don't silently
+	// report $0 — overcounting text at audio rates is preferable to
+	// undercounting audio at text rates for a Realtime session.
+	if inAudio == 0 && inText == 0 {
+		inAudio = usage.InputTokens
+	}
+	if outAudio == 0 && outText == 0 {
+		outAudio = usage.OutputTokens
+	}
+
+	inputCost := float64(inAudio)/tokensPerThousand*audioInRate +
+		float64(inText)/tokensPerThousand*defaultTextInputCostPer1K
+	outputCost := float64(outAudio)/tokensPerThousand*audioOutRate +
+		float64(outText)/tokensPerThousand*defaultTextOutputCostPer1K
 
 	return &types.CostInfo{
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
+		InputTokens:   usage.InputTokens,
+		OutputTokens:  usage.OutputTokens,
 		InputCostUSD:  inputCost,
 		OutputCostUSD: outputCost,
 		TotalCost:     inputCost + outputCost,

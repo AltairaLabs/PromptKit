@@ -21,6 +21,11 @@ import (
 	arenastore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
+// defaultPipelineIdleTimeout is the default duplex pipeline IdleTimeout when a
+// scenario does not declare its own duplex.timeout. Long enough to avoid
+// premature cancellation of multi-turn conversations.
+const defaultPipelineIdleTimeout = 30 * time.Second
+
 // executeDuplexConversation handles the main duplex conversation logic.
 // The pipeline is the single source of truth: PromptAssemblyStage loads the prompt,
 // then DuplexProviderStage creates the session using system_prompt from metadata.
@@ -209,7 +214,18 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 	// Create pipeline with no ExecutionTimeout - duplex conversations use the parent context's
 	// timeout (configured via scenario.duplex.timeout, default 10 minutes) for overall timing.
 	// The default 30-second ExecutionTimeout would prematurely cancel multi-turn conversations.
-	pipelineConfig := stage.DefaultPipelineConfig().WithExecutionTimeout(0)
+	// Pipeline IdleTimeout defaults to 30s — far too short for duplex
+	// scenarios where a single LLM-as-user / TTS / Gemini-response cycle
+	// can quietly take longer than 30s. Drive it from the scenario's
+	// `duplex.timeout` instead so a scenario declaring `timeout: 10m`
+	// gets a 10-minute idle ceiling, not 30s.
+	idleTimeout := defaultPipelineIdleTimeout
+	if req.Scenario != nil && req.Scenario.Duplex != nil {
+		idleTimeout = req.Scenario.Duplex.GetTimeoutDuration(idleTimeout)
+	}
+	pipelineConfig := stage.DefaultPipelineConfig().
+		WithExecutionTimeout(0).
+		WithIdleTimeout(idleTimeout)
 	builder := stage.NewPipelineBuilderWithConfig(pipelineConfig)
 	var stages []stage.Stage
 
@@ -226,21 +242,51 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 			"sample_rate", targetSampleRate)
 	}
 
-	// 0. Audio resample stage - normalizes all input audio to target sample rate
-	// This must be first so all downstream stages receive consistent sample rates.
-	resampleConfig := stage.AudioResampleConfig{
-		TargetSampleRate:      targetSampleRate,
-		PassthroughIfSameRate: true,
+	// 0a. Audio pacing stage — emits each audio element at the cadence
+	// implied by its byte count and sample rate, so chunks downstream
+	// (the input MonitorTap → local-sink playback, and the duplex
+	// provider's VAD) see the same arrival rhythm a microphone would
+	// produce. Without this, a TTS source that delivers chunks faster
+	// than realtime (or instantly, like the mock) collapses an entire
+	// utterance into a single instant, which causes oto playback
+	// underruns at the local sink and trips false turn-end detection at
+	// the provider.
+	//
+	// Skipped when there's no consumer that cares about cadence:
+	// selfplay (VAD disabled at the provider) AND no AudioRouter (no
+	// LocalSink listening). In that combination — typical of headless
+	// CI runs — pacing would just spend real wall-clock time sleeping
+	// for nothing, multiplying every test's runtime by the audio
+	// duration of every utterance.
+	//
+	// Placed first, before the input MonitorTap, so both the playback
+	// path and the provider path observe the paced flow when enabled.
+	if needsAudioPacing(req) {
+		stages = append(stages, stage.NewAudioPacingStage())
 	}
-	stages = append(stages, stage.NewAudioResampleStage(resampleConfig))
 
-	// 0a. Input audio monitor tap (opt-in). Tapping after resample lets the
-	// router rely on a single canonical rate from the upstream pipeline.
+	// 0b. Input audio monitor tap (opt-in) — placed BEFORE the resample
+	// stage so the router (and downstream LocalSink) hear the audio at
+	// its source sample rate. Going through resample first introduces
+	// chunk-boundary phase discontinuities that sound like consistent
+	// clicks during playback (24 kHz → 16 kHz → 24 kHz round-trips
+	// each round per-chunk sample counts independently).
+	//
+	// MonitorTap still resamples to the router's canonical rate inside
+	// the tap itself, so consumers continue to see one rate.
 	if req.AudioRouter != nil {
 		stages = append(stages, arenaaudio.NewMonitorTap(req.AudioRouter, arenaaudio.MonitorTapConfig{
 			Position: stage.RecordingPositionInput,
 		}))
 	}
+
+	// 1. Audio resample stage - normalizes all input audio to target sample rate
+	// for the provider. Downstream stages receive consistent sample rates.
+	resampleConfig := stage.AudioResampleConfig{
+		TargetSampleRate:      targetSampleRate,
+		PassthroughIfSameRate: true,
+	}
+	stages = append(stages, stage.NewAudioResampleStage(resampleConfig))
 
 	// Add VAD stage if using client-side turn detection
 	if de.shouldUseClientVAD(req) {
@@ -287,8 +333,33 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 		streamProvider, baseConfig, emitter, turnState,
 	))
 
+	// 2a-pre. Output audio pacing. Realtime providers (OpenAI, Gemini)
+	// stream assistant audio faster than playback rate — gpt-4o-realtime
+	// commonly delivers a 5-second utterance in ~1 second of wall clock.
+	// Without pacing on the output side:
+	//   - the LocalSink queue fills instantly and playback continues for
+	//     several seconds after response.done already arrived, so the
+	//     turn-end barrier (response.done from the wire) fires before the
+	//     audio has actually been heard.
+	//   - the next selfplay user turn's TTS starts streaming while the
+	//     previous assistant audio is still audibly playing — the
+	//     observed "turns are overlapping" symptom.
+	// Pacing here aligns the output flow with realtime, so the EndOfStream
+	// element naturally queues behind the last paced audio chunk and the
+	// response collector signals done at the same instant playback ends.
+	// Same gate as the input pacing — only when something downstream cares
+	// about cadence. Separate instance from input pacing per the
+	// AudioPacingStage "direction singularity" note. Distinct name from
+	// the input pacing stage so the pipeline builder doesn't reject the
+	// pair as duplicates.
+	if needsAudioPacing(req) {
+		stages = append(stages, stage.NewNamedAudioPacingStage("audio-pacing-output"))
+	}
+
 	// 2a. Output audio monitor tap (opt-in). Placed after the provider so
-	// generated agent audio flows through the tap to the router.
+	// generated agent audio flows through the tap to the router. With the
+	// pacing stage above, the tap (and downstream LocalSink) sees audio
+	// arriving at realtime rate.
 	if req.AudioRouter != nil {
 		stages = append(stages, arenaaudio.NewMonitorTap(req.AudioRouter, arenaaudio.MonitorTapConfig{
 			Position: stage.RecordingPositionOutput,
@@ -314,11 +385,18 @@ func (de *DuplexConversationExecutor) buildDuplexPipeline(
 		stages = append(stages, stage.NewMediaExternalizerStage(mediaConfig))
 	}
 
-	// 5. Arena state store save stage to capture conversation messages
-	// This stage handles system_prompt in metadata and prepends it as a system message
+	// 5. Arena state store save stage to capture conversation messages.
+	// This stage handles system_prompt in metadata and prepends it as a
+	// system message. When an event bus is available we wire an emitter so
+	// each Message element is also broadcast on the bus — that's what feeds
+	// the live TUI conversation panel during a duplex run.
 	if req.StateStoreConfig != nil && req.StateStoreConfig.Store != nil {
 		storeConfig := de.buildPipelineStateStoreConfig(req)
-		stages = append(stages, arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState))
+		saveStage := arenastages.NewArenaStateStoreSaveStageWithTurnState(storeConfig, turnState)
+		if emitter != nil {
+			saveStage = saveStage.WithEmitter(emitter)
+		}
+		stages = append(stages, saveStage)
 	}
 
 	return builder.Chain(stages...).Build()
@@ -384,7 +462,44 @@ func (de *DuplexConversationExecutor) applyResponseModalities(
 	}
 }
 
-// applySelfPlayVADConfig disables VAD for selfplay scenarios.
+// needsAudioPacing reports whether the data path actually needs cadence
+// enforcement on this run. The pacing stage is the sole cadence
+// authority (see runtime/pipeline/stage/stages_pacing.go and
+// tools/arena/audio/types.go on the observer model), so the only thing
+// to decide here is "is anyone on the data path going to interpret
+// arrival rate?" Two cases say yes:
+//
+//   - Provider VAD: any non-selfplay duplex run. The provider's session
+//     timestamps audio arrival to time turn-end silence, and that has
+//     to be wall-clock-correct regardless of who is listening locally.
+//   - Live observer attached (req.AudioRouter != nil): a LocalSink or
+//     SSE relay is fanning audio out for human listening. Pacing
+//     produces a smooth playback drain off the router. Observers
+//     themselves cannot exert backpressure — pacing is what gives them
+//     non-bursty input.
+//
+// The remaining case (selfplay, VAD off, no router attached — headless
+// CI selfplay) is the only combination where pacing wastes wall-clock
+// time on no consumer, so we skip it.
+func needsAudioPacing(req *ConversationRequest) bool {
+	if req.AudioRouter != nil {
+		return true
+	}
+	if req.Config == nil || req.Config.SelfPlay == nil || !req.Config.SelfPlay.IsEnabled() {
+		return true
+	}
+	return false
+}
+
+// applySelfPlayVADConfig disables provider-side VAD only when THIS
+// scenario actually uses selfplay (i.e. has at least one persona-driven
+// turn). Previously this checked whether selfplay was *configured* at
+// the arena level, which incorrectly disabled VAD for scripted-text
+// scenarios sharing the same arena config — see
+// `duplex-scripted-text-openai`, which declares
+// `turn_detection.mode: asm` but was getting `automaticActivityDetection.disabled=true`
+// pushed to Gemini, defeating ASM and causing long inter-turn delays
+// that looked like a playback bug.
 func (de *DuplexConversationExecutor) applySelfPlayVADConfig(
 	cfg *providers.StreamingInputConfig,
 	req *ConversationRequest,
@@ -392,9 +507,29 @@ func (de *DuplexConversationExecutor) applySelfPlayVADConfig(
 	if req.Config == nil || req.Config.SelfPlay == nil || !req.Config.SelfPlay.IsEnabled() {
 		return
 	}
+	if !scenarioUsesSelfPlay(req.Scenario) {
+		return
+	}
 	cfg.Metadata["vad_disabled"] = true
 	logger.Debug("buildBaseSessionConfig: VAD disabled for selfplay scenario",
 		"scenario_id", req.Scenario.ID)
+}
+
+// scenarioUsesSelfPlay reports whether the given scenario has at least
+// one turn driven by a persona. Scripted-text scenarios (turns with
+// only `content`) return false even when the arena's self_play block
+// is populated — those turns don't drive the LLM-as-user path and
+// must not trigger VAD-disabled overrides intended for selfplay.
+func scenarioUsesSelfPlay(scenario *config.Scenario) bool {
+	if scenario == nil {
+		return false
+	}
+	for i := range scenario.Turns {
+		if scenario.Turns[i].Persona != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // applyScenarioVADConfig adds VAD configuration from scenario.

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -37,6 +38,10 @@ const (
 
 	// filePermissions is the default file permission mode for created files.
 	filePermissions = 0600
+
+	// mediaDirPerm is the permission mode for media directories created
+	// during streaming stores (rwxr-x---).
+	mediaDirPerm = 0o750
 
 	// errInvalidMediaReference wraps an inner validatePath error for Retrieve/
 	// Delete/GetURL when the caller-supplied reference is outside the base dir.
@@ -190,6 +195,15 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 		return "", fmt.Errorf("invalid media content: %w", err)
 	}
 
+	// Streaming path for FilePath-only sources. Avoids buffering the
+	// whole file into memory — important for long audio recordings
+	// (e.g. multi-minute TTS turns) where the buffered path's 2× peak
+	// (raw + WAV-wrapped copy) would be >100 MB.
+	hasInline := content.Data != nil && *content.Data != ""
+	if !hasInline && content.FilePath != nil && *content.FilePath != "" {
+		return fs.storeMediaStreaming(ctx, content, metadata)
+	}
+
 	// Get the media data
 	data, err := fs.getMediaData(content)
 	if err != nil {
@@ -277,6 +291,191 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 	}
 
 	return storage.Reference(filePath), nil
+}
+
+// storeMediaStreaming is the streaming variant of StoreMedia, used when
+// content.FilePath is set and content.Data is not. It avoids holding
+// the entire payload in memory — essential for the duplex arena's
+// long-utterance recordings, where TTS audio for a multi-minute turn
+// can be tens of MB and the buffered path's WAV-wrap doubles the peak.
+//
+// Flow:
+//  1. Open source + stat for size.
+//  2. Compute final size (with optional WAV header for PCM).
+//  3. Stream from source → MultiWriter(temp dest, sha256) so we get
+//     the dedup hash in a single pass without re-reading.
+//  4. Once the hash is known, perform the same dedup check + atomic
+//     rename + index update as the buffered path.
+//
+//nolint:gocyclo,gocognit // sequential streaming flow with cleanup; splitting hurts readability
+func (fs *FileStore) storeMediaStreaming(
+	_ context.Context,
+	content *types.MediaContent,
+	metadata *storage.MediaMetadata,
+) (storage.Reference, error) {
+	// #nosec G304 -- FilePath validated by caller (turnAudioMirror writes
+	// to a private temp file under the OS temp dir; arbitrary paths are
+	// not exposed here).
+	src, err := os.Open(*content.FilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open source: %w", err)
+	}
+	defer src.Close()
+
+	info, err := src.Stat()
+	if err != nil {
+		return "", fmt.Errorf("failed to stat source: %w", err)
+	}
+	srcSize := info.Size()
+
+	// Compute final size (with optional WAV header) and check against
+	// the configured limit BEFORE writing anything.
+	pcm := isPCMAudio(content.MIMEType)
+	finalSize := srcSize
+	if pcm {
+		finalSize += int64(wavHeaderSize)
+	}
+	if sizeErr := fs.checkSize(finalSize); sizeErr != nil {
+		return "", fmt.Errorf("failed to store media: %w", sizeErr)
+	}
+
+	// Build the body reader — optionally prefixed with a WAV header.
+	var body io.Reader = src
+	if pcm {
+		body = &wavStreamReader{
+			header: buildWAVHeader(srcSize, geminiumSampleRate, geminiumBitDepth, geminiumChannels),
+			body:   src,
+		}
+	}
+
+	// Tee through a hasher only when dedup is enabled — otherwise the
+	// hash is unused, and skipping it lets us match the buffered path's
+	// "no hash, use messageIdx_partIdx_timestamp filename" behavior
+	// (without that fallback, two concurrent stores of identical
+	// content would race on an identical destination filename).
+	copyReader := body
+	var hasher hash.Hash
+	if fs.config.EnableDeduplication {
+		hasher = sha256.New()
+		copyReader = io.TeeReader(body, hasher)
+	}
+
+	// Write to a temp file under BaseDir so the eventual rename is on
+	// the same filesystem (atomic rename requirement). Cleanup happens
+	// on every error path AND on the dedup-hit path; the success path
+	// renames before the defer fires.
+	tempFile, err := os.CreateTemp(fs.config.BaseDir, "store-stream-*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	cleanupTemp := func() { _ = os.Remove(tempPath) }
+	// If tempPath still exists at function return, remove it.
+	// (If we successfully renamed, tempPath is gone and Remove is a
+	// no-op except for the syscall cost.)
+	defer cleanupTemp()
+
+	if _, copyErr := io.Copy(tempFile, copyReader); copyErr != nil {
+		_ = tempFile.Close()
+		return "", fmt.Errorf("failed to copy media: %w", copyErr)
+	}
+	if closeErr := tempFile.Close(); closeErr != nil {
+		return "", fmt.Errorf("failed to close temp file: %w", closeErr)
+	}
+
+	var hashStr string
+	if hasher != nil {
+		hashStr = hex.EncodeToString(hasher.Sum(nil))
+	}
+
+	// Dedup check (mirrors the buffered path's locking discipline).
+	if fs.config.EnableDeduplication {
+		fs.dedupMu.Lock()
+		if existingPath, exists := fs.dedupIndex[hashStr]; exists {
+			fs.dedupMu.Unlock()
+			fs.refMu.Lock()
+			fs.refCounts[existingPath]++
+			fs.refMu.Unlock()
+			// cleanupTemp will fire from the defer.
+			return storage.Reference(existingPath), nil
+		}
+		// Keep the lock held through index update below.
+	}
+
+	finalPath, err := fs.generateFilePath(metadata, hashStr, content.MIMEType)
+	if err != nil {
+		if fs.config.EnableDeduplication {
+			fs.dedupMu.Unlock()
+		}
+		return "", fmt.Errorf("failed to generate file path: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(finalPath), mediaDirPerm); err != nil {
+		if fs.config.EnableDeduplication {
+			fs.dedupMu.Unlock()
+		}
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Atomic rename — same filesystem because both paths are under
+	// BaseDir. After this, the temp path no longer exists, so the
+	// deferred cleanupTemp becomes a no-op.
+	if err := os.Rename(tempPath, finalPath); err != nil {
+		if fs.config.EnableDeduplication {
+			fs.dedupMu.Unlock()
+		}
+		return "", fmt.Errorf("failed to rename temp file: %w", err)
+	}
+	// Fix permissions to match writeFileAtomic's contract.
+	if err := os.Chmod(finalPath, filePermissions); err != nil {
+		logger.Warn("failed to chmod stored file", "path", finalPath, "error", err)
+	}
+
+	if fs.config.EnableDeduplication {
+		fs.dedupIndex[hashStr] = finalPath
+		fs.dedupDirty = true
+		fs.dedupMu.Unlock()
+
+		fs.refMu.Lock()
+		fs.refCounts[finalPath] = 1
+		fs.refMu.Unlock()
+
+		if err := fs.saveDedupIndex(); err != nil {
+			logger.Warn("failed to persist dedup index", "error", err)
+		}
+	}
+
+	if err := fs.storeMetadata(finalPath, metadata); err != nil {
+		logger.Warn("Failed to store metadata", "path", finalPath, "error", err)
+	}
+
+	// metadata.SizeBytes used elsewhere for SizeKB on MediaContent.
+	// Set it now since we have the final size in hand and the buffered
+	// path also fills it implicitly.
+	if metadata != nil && metadata.SizeBytes == 0 {
+		metadata.SizeBytes = finalSize
+	}
+
+	return storage.Reference(finalPath), nil
+}
+
+// wavStreamReader prepends a 44-byte WAV header in front of a body
+// reader without buffering the body. Reads return the header byte-by-byte
+// (or in chunks, depending on caller buffer) until exhausted, then
+// fall through to body reads.
+type wavStreamReader struct {
+	header []byte
+	off    int
+	body   io.Reader
+}
+
+func (w *wavStreamReader) Read(p []byte) (int, error) {
+	if w.off < len(w.header) {
+		n := copy(p, w.header[w.off:])
+		w.off += n
+		return n, nil
+	}
+	return w.body.Read(p)
 }
 
 // RetrieveMedia implements MediaStorageService.RetrieveMedia
@@ -717,15 +916,27 @@ func inferMIMETypeFromPath(path string) string {
 //nolint:gosec // Integer conversions are safe for audio parameters
 func wrapPCMInWAV(pcmData []byte, sampleRate, bitsPerSample, numChannels int) []byte {
 	dataSize := len(pcmData)
+	header := buildWAVHeader(int64(dataSize), sampleRate, bitsPerSample, numChannels)
+	wav := make([]byte, wavHeaderSize+dataSize)
+	copy(wav[0:wavHeaderSize], header)
+	copy(wav[wavHeaderSize:], pcmData)
+	return wav
+}
+
+// buildWAVHeader returns the 44-byte WAV header for a PCM payload of
+// the given size and audio params. Extracted from wrapPCMInWAV so the
+// streaming path (storeMediaStreaming) can write the header up-front
+// without buffering the body.
+func buildWAVHeader(dataSize int64, sampleRate, bitsPerSample, numChannels int) []byte {
 	byteRate := sampleRate * numChannels * bitsPerSample / audioBitsPerByte
 	blockAlign := numChannels * bitsPerSample / audioBitsPerByte
 
-	// WAV header is 44 bytes
 	header := make([]byte, wavHeaderSize)
 
 	// RIFF chunk descriptor
 	copy(header[0:4], "RIFF")
-	binary.LittleEndian.PutUint32(header[4:8], uint32(wavChunkSizeOffset+dataSize)) // ChunkSize
+	//nolint:gosec // dataSize is checked against MaxFileSize before reaching here
+	binary.LittleEndian.PutUint32(header[4:8], uint32(int64(wavChunkSizeOffset)+dataSize)) // ChunkSize
 	copy(header[8:12], "WAVE")
 
 	// "fmt " sub-chunk
@@ -740,14 +951,10 @@ func wrapPCMInWAV(pcmData []byte, sampleRate, bitsPerSample, numChannels int) []
 
 	// "data" sub-chunk
 	copy(header[36:40], "data")
+	//nolint:gosec // dataSize is checked against MaxFileSize before reaching here
 	binary.LittleEndian.PutUint32(header[40:44], uint32(dataSize)) // Subchunk2Size
 
-	// Combine header and data
-	wav := make([]byte, wavHeaderSize+dataSize)
-	copy(wav[0:wavHeaderSize], header)
-	copy(wav[wavHeaderSize:], pcmData)
-
-	return wav
+	return header
 }
 
 // isPCMAudio returns true if the MIME type represents raw PCM audio.

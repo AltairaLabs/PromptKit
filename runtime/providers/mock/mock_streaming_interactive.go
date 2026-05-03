@@ -3,12 +3,25 @@ package mock
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// isVideoOrImage returns true when the chunk metadata's mime_type field
+// indicates a non-audio media type, in which case PCM16 alignment doesn't
+// apply.
+func isVideoOrImage(meta map[string]string) bool {
+	if meta == nil {
+		return false
+	}
+	mt := meta["mime_type"]
+	return strings.HasPrefix(mt, "video/") || strings.HasPrefix(mt, "image/")
+}
 
 const (
 	defaultResponseBufferSize = 10
@@ -151,6 +164,14 @@ func (m *MockStreamSession) WithCloseAfterTurns(turns int, noResponse ...bool) *
 }
 
 // SendChunk implements StreamInputSession.SendChunk.
+//
+// Validates PCM16 alignment (even byte count) so tests catch upstream
+// chunking bugs before they reach a real provider. We learned this the
+// hard way — OpenAI Realtime rejected partial chunks from a buggy
+// pumpTTSChunks with a cryptic "Invalid 'audio'... got an invalid value"
+// that took a full bisection against the live API to track down. The
+// mock should fail loudly on the same input shape so a unit test would
+// have caught it.
 func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -160,6 +181,18 @@ func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChu
 	}
 	if m.sendChunkErr != nil {
 		return m.sendChunkErr
+	}
+
+	if chunk == nil || len(chunk.Data) == 0 {
+		// Match real providers (OpenAI SendChunk silently no-ops on empty).
+		return nil
+	}
+	// PCM16 alignment check — only applies to audio chunks. Video and image
+	// chunks have their own framing (annexed in metadata.mime_type).
+	if !isVideoOrImage(chunk.Metadata) && len(chunk.Data)%2 != 0 {
+		return fmt.Errorf("MockStreamSession.SendChunk: PCM16 alignment violation, "+
+			"chunk has %d bytes (odd). Producer is emitting partial samples — "+
+			"likely a reader.Read() that should be io.ReadFull()", len(chunk.Data))
 	}
 
 	m.chunks = append(m.chunks, chunk)

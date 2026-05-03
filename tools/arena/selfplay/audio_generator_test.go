@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -75,11 +74,23 @@ func (m *mockTTSServiceWithData) SupportedFormats() []tts.AudioFormat {
 	return []tts.AudioFormat{tts.FormatPCM16}
 }
 
-func TestAudioContentGenerator_NextUserTurnAudio(t *testing.T) {
-	// Create mock provider that returns text
+// drainStream reads the AudioStreamResult.Reader to completion and returns
+// the bytes. Closes the reader. Used by tests that want to assert on the
+// full synthesized payload without re-introducing a buffered codepath in
+// production code.
+func drainStream(t *testing.T, r io.ReadCloser) []byte {
+	t.Helper()
+	defer r.Close()
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("drain audio stream: %v", err)
+	}
+	return data
+}
+
+func TestAudioContentGenerator_NextUserTurnAudioStream(t *testing.T) {
 	mockProv := &mockProvider{response: "Hello, how can I help?"}
 
-	// Create persona config
 	defaultTemp := config.DefaultPersonaTemperature
 	persona := &config.UserPersonaPack{
 		ID: "test-persona",
@@ -88,46 +99,29 @@ func TestAudioContentGenerator_NextUserTurnAudio(t *testing.T) {
 		},
 		SystemPrompt: "You are a helpful assistant",
 	}
-
-	// Create text generator
 	textGen := NewContentGenerator(mockProv, persona)
 
-	// Create mock TTS service
 	mockTTS := &mockTTSServiceWithData{
 		audioData: []byte("fake-audio-data"),
 	}
-
-	// Create TTS config
-	ttsConfig := &config.TTSConfig{
-		Provider: "mock",
-		Voice:    "test-voice",
-	}
-
-	// Create audio generator
+	ttsConfig := &config.TTSConfig{Provider: "mock", Voice: "test-voice"}
 	audioGen := NewAudioContentGenerator(textGen, mockTTS, ttsConfig)
 
-	// Generate audio
-	result, err := audioGen.NextUserTurnAudio(
+	stream, err := audioGen.NextUserTurnAudioStream(
 		context.Background(),
 		[]types.Message{},
 		"test-scenario",
-		nil, // opts
+		nil,
 	)
-
 	if err != nil {
-		t.Fatalf("NextUserTurnAudio() error = %v", err)
+		t.Fatalf("NextUserTurnAudioStream() error = %v", err)
 	}
-
-	if result.TextResult == nil {
-		t.Error("NextUserTurnAudio() TextResult is nil")
+	if stream.TextResult == nil {
+		t.Error("NextUserTurnAudioStream() TextResult is nil")
 	}
-
-	if len(result.Audio) == 0 {
-		t.Error("NextUserTurnAudio() Audio is empty")
-	}
-
-	if string(result.Audio) != "fake-audio-data" {
-		t.Errorf("NextUserTurnAudio() Audio = %s, want 'fake-audio-data'", result.Audio)
+	got := drainStream(t, stream.Reader)
+	if string(got) != "fake-audio-data" {
+		t.Errorf("audio = %q, want %q", got, "fake-audio-data")
 	}
 }
 
@@ -142,26 +136,20 @@ func TestAudioContentGenerator_TTSError(t *testing.T) {
 	mockTTS := &mockTTSServiceWithData{
 		err: errors.New("TTS service unavailable"),
 	}
-
-	ttsConfig := &config.TTSConfig{
-		Provider: "mock",
-		Voice:    "test-voice",
-	}
-
+	ttsConfig := &config.TTSConfig{Provider: "mock", Voice: "test-voice"}
 	audioGen := NewAudioContentGenerator(textGen, mockTTS, ttsConfig)
 
-	_, err := audioGen.NextUserTurnAudio(
+	_, err := audioGen.NextUserTurnAudioStream(
 		context.Background(),
 		[]types.Message{},
 		"test-scenario",
-		nil, // opts
+		nil,
 	)
-
 	if err == nil {
-		t.Error("NextUserTurnAudio() expected error for TTS failure")
+		t.Fatal("expected error for TTS failure, got nil")
 	}
-	if !strings.Contains(err.Error(), "failed to synthesize audio") {
-		t.Errorf("NextUserTurnAudio() error = %v, want error containing 'failed to synthesize audio'", err)
+	if !strings.Contains(err.Error(), "TTS service unavailable") {
+		t.Errorf("error = %v, want one wrapping TTS service failure", err)
 	}
 }
 
@@ -175,26 +163,24 @@ func TestAudioContentGenerator_TextGenerationError(t *testing.T) {
 
 	mockTTS := &mockTTSServiceWithData{audioData: []byte("audio")}
 	ttsConfig := &config.TTSConfig{Provider: "mock", Voice: "test"}
-
 	audioGen := NewAudioContentGenerator(textGen, mockTTS, ttsConfig)
 
-	_, err := audioGen.NextUserTurnAudio(
+	_, err := audioGen.NextUserTurnAudioStream(
 		context.Background(),
 		[]types.Message{},
 		"test-scenario",
-		nil, // opts
+		nil,
 	)
-
 	if err == nil {
-		t.Error("NextUserTurnAudio() expected error for text generation failure")
+		t.Fatal("expected error for text generation failure")
 	}
 	if !strings.Contains(err.Error(), "failed to generate text") {
-		t.Errorf("NextUserTurnAudio() error = %v, want error containing 'failed to generate text'", err)
+		t.Errorf("error = %v, want one containing 'failed to generate text'", err)
 	}
 }
 
 func TestAudioContentGenerator_EmptyTextResponse(t *testing.T) {
-	mockProv := &mockProvider{response: ""} // Empty response
+	mockProv := &mockProvider{response: ""}
 	persona := &config.UserPersonaPack{
 		ID:           "test-persona",
 		SystemPrompt: "Test",
@@ -203,21 +189,37 @@ func TestAudioContentGenerator_EmptyTextResponse(t *testing.T) {
 
 	mockTTS := &mockTTSServiceWithData{audioData: []byte("audio")}
 	ttsConfig := &config.TTSConfig{Provider: "mock", Voice: "test"}
-
 	audioGen := NewAudioContentGenerator(textGen, mockTTS, ttsConfig)
 
-	_, err := audioGen.NextUserTurnAudio(
+	_, err := audioGen.NextUserTurnAudioStream(
 		context.Background(),
 		[]types.Message{},
 		"test-scenario",
-		nil, // opts
+		nil,
 	)
-
 	if err == nil {
-		t.Error("NextUserTurnAudio() expected error for empty text response")
+		t.Fatal("expected error for empty text response")
 	}
 	if !strings.Contains(err.Error(), "no text content generated") {
-		t.Errorf("NextUserTurnAudio() error = %v, want error containing 'no text content generated'", err)
+		t.Errorf("error = %v, want one containing 'no text content generated'", err)
+	}
+}
+
+func TestAudioContentGenerator_SynthesizeTextStream(t *testing.T) {
+	mockTTS := &mockTTSServiceWithData{audioData: []byte("scripted-audio")}
+	ttsConfig := &config.TTSConfig{Provider: "mock", Voice: "test"}
+	audioGen := NewAudioContentGenerator(nil, mockTTS, ttsConfig)
+
+	stream, err := audioGen.SynthesizeTextStream(context.Background(), "hello world")
+	if err != nil {
+		t.Fatalf("SynthesizeTextStream() error = %v", err)
+	}
+	if stream.TextResult != nil {
+		t.Error("SynthesizeTextStream() should not produce a TextResult (no LLM ran)")
+	}
+	got := drainStream(t, stream.Reader)
+	if string(got) != "scripted-audio" {
+		t.Errorf("audio = %q, want %q", got, "scripted-audio")
 	}
 }
 
@@ -238,27 +240,5 @@ func TestAudioContentGenerator_GetTextGenerator(t *testing.T) {
 	gen := audioGen.GetTextGenerator()
 	if gen != textGen {
 		t.Error("GetTextGenerator() returned wrong generator")
-	}
-}
-
-func TestAudioResult_Fields(t *testing.T) {
-	result := &AudioResult{
-		TextResult: &pipeline.ExecutionResult{
-			Response: &pipeline.Response{
-				Content: "test content",
-			},
-		},
-		Audio:       []byte("audio-data"),
-		AudioFormat: tts.FormatPCM16,
-	}
-
-	if result.TextResult.Response.Content != "test content" {
-		t.Error("AudioResult TextResult not set correctly")
-	}
-	if string(result.Audio) != "audio-data" {
-		t.Error("AudioResult Audio not set correctly")
-	}
-	if result.AudioFormat.Name != "pcm" {
-		t.Errorf("AudioResult AudioFormat = %s, want pcm", result.AudioFormat.Name)
 	}
 }
