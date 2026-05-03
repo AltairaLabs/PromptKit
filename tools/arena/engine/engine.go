@@ -186,7 +186,7 @@ func NewEngineFromConfig(cfg *config.Config, providerFilter ...string) (*Engine,
 	}
 
 	// Create engine with all components
-	eng, err := NewEngine(cfg, providerRegistry, promptRegistry, mcpRegistry, convExecutor, adapterRegistry)
+	eng, err := NewEngine(cfg, providerRegistry, promptRegistry, mcpRegistry, convExecutor, adapterRegistry, toolRegistry)
 	if err != nil {
 		if a2aCleanup != nil {
 			a2aCleanup()
@@ -194,7 +194,6 @@ func NewEngineFromConfig(cfg *config.Config, providerFilter ...string) (*Engine,
 		return nil, err
 	}
 	eng.a2aCleanup = a2aCleanup
-	eng.toolRegistry = toolRegistry
 	eng.skillExecutor = skillExec
 
 	// Initialize workflow state machine and register transition tool if configured
@@ -245,6 +244,7 @@ func NewEngine(
 	mcpRegistry *mcp.RegistryImpl,
 	convExecutor ConversationExecutor,
 	adapterRegistry *adapters.Registry,
+	toolRegistry *tools.Registry,
 ) (*Engine, error) {
 	// Build state store from config if configured
 	stateStore, err := buildStateStore(cfg)
@@ -267,6 +267,7 @@ func NewEngine(
 		mediaStorage:         mediaStorage,
 		conversationExecutor: convExecutor,
 		adapterRegistry:      adapterRegistry,
+		toolRegistry:         toolRegistry,
 		scenarios:            cfg.LoadedScenarios,
 		evals:                cfg.LoadedEvals,
 		providers:            cfg.LoadedProviders,
@@ -279,7 +280,7 @@ func NewEngine(
 	// Run-scoped sources open at engine construction; they're typically fast.
 	// If slow sources become common, thread ctx through NewEngine.
 	if mcpRegistry != nil {
-		eng.mcpSourceScope = newMCPSourceScope(mcpRegistry)
+		eng.mcpSourceScope = newMCPSourceScopeWithTools(mcpRegistry, toolRegistry)
 		if err := eng.mcpSourceScope.OpenAll(
 			context.Background(), mcpsource.ScopeRun, "run", nil,
 			eng.mcpSkillSources, eng.mcpConfig,

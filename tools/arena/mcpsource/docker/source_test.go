@@ -45,7 +45,7 @@ func TestSource_Open_RequiresImage(t *testing.T) {
 
 func TestSource_Open_StartsContainerAndReturnsURL(t *testing.T) {
 	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" {
+		if r.URL.Path == "/sse" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -65,6 +65,29 @@ func TestSource_Open_StartsContainerAndReturnsURL(t *testing.T) {
 
 	require.NoError(t, closer.Close())
 	assert.Equal(t, []string{"cid1"}, cli.stopCalls)
+}
+
+func TestSource_Open_ProbesSSEPath(t *testing.T) {
+	var probed []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probed = append(probed, r.URL.Path)
+		if r.URL.Path == "/sse" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	cli := &fakeCLI{runID: "cid-sse"}
+	s := &Source{cli: cli, urlForContainer: func(_, _ string) string { return srv.URL }}
+
+	_, closer, err := s.Open(context.Background(), map[string]any{"image": "x"})
+	require.NoError(t, err)
+	defer func() { _ = closer.Close() }()
+
+	require.NotEmpty(t, probed, "expected at least one HTTP probe")
+	assert.Contains(t, probed, "/sse", "source must probe /sse for SSE-MCP readiness")
 }
 
 func TestSource_Open_HealthTimeoutClosesContainer(t *testing.T) {

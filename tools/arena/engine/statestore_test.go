@@ -406,7 +406,7 @@ func TestEngine_WithStateStore(t *testing.T) {
 	}
 
 	// Create engine (this will call buildStateStore)
-	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil)
+	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestEngine_WithoutStateStore(t *testing.T) {
 	}
 
 	// Create engine (no StateStore in config, should default to MemoryStore)
-	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil)
+	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}

@@ -2,16 +2,25 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/tools/arena/mcpsource"
 )
+
+// discoveryTimeout bounds the per-server tools/list call made after a
+// source opens. The MCP client itself may also enforce a shorter timeout
+// based on the server's TimeoutMs.
+const discoveryTimeout = 30 * time.Second
 
 // openEntry tracks one open (scope, instance, server-name) triple so
 // CloseAll can find and tear it down.
@@ -24,15 +33,24 @@ type openEntry struct {
 // The zero value is not usable; use newMCPSourceScope.
 type mcpSourceScope struct {
 	registry mcp.Registry
+	// toolRegistry, when non-nil, receives MCP tool descriptors discovered
+	// for each server opened by this scope. Production wires this through
+	// newMCPSourceScopeWithTools; lifecycle-only unit tests pass nil.
+	toolRegistry *tools.Registry
 
 	mu    sync.Mutex
 	opens map[string][]openEntry // keyed by "<scope>|<instanceID>"
 }
 
 func newMCPSourceScope(registry mcp.Registry) *mcpSourceScope {
+	return newMCPSourceScopeWithTools(registry, nil)
+}
+
+func newMCPSourceScopeWithTools(registry mcp.Registry, toolReg *tools.Registry) *mcpSourceScope {
 	return &mcpSourceScope{
-		registry: registry,
-		opens:    map[string][]openEntry{},
+		registry:     registry,
+		toolRegistry: toolReg,
+		opens:        map[string][]openEntry{},
 	}
 }
 
@@ -97,8 +115,10 @@ func prepareEntryArgs(entry *config.MCPServerConfig, scenarioVars map[string]str
 	injectMountsIntoArgs(entry, mounts)
 }
 
-// openOne looks up the named source, calls Open, and registers the
-// resulting URL+Headers with the MCP registry.
+// openOne looks up the named source, calls Open, registers the resulting
+// URL+Headers with the MCP registry, and (when a toolRegistry is wired)
+// discovers and registers the server's tools so the runtime can dispatch
+// to them.
 func (m *mcpSourceScope) openOne(ctx context.Context, entry *config.MCPServerConfig) (openEntry, error) {
 	src, ok := mcpsource.LookupMCPSource(entry.Source)
 	if !ok {
@@ -111,17 +131,119 @@ func (m *mcpSourceScope) openOne(ctx context.Context, entry *config.MCPServerCon
 	if err != nil {
 		return openEntry{}, fmt.Errorf("mcp server %q: source %q Open failed: %w", entry.Name, entry.Source, err)
 	}
-	if err := m.registry.RegisterServer(mcp.ServerConfig{
+	serverCfg := mcp.ServerConfig{
 		Name:      entry.Name,
 		URL:       conn.URL,
 		Headers:   conn.Headers,
 		TimeoutMs: entry.TimeoutMs,
-	}); err != nil {
+	}
+	if entry.ToolFilter != nil {
+		serverCfg.ToolFilter = &mcp.ToolFilter{
+			Allowlist: entry.ToolFilter.Allowlist,
+			Blocklist: entry.ToolFilter.Blocklist,
+		}
+	}
+	if err := m.registry.RegisterServer(serverCfg); err != nil {
 		_ = closer.Close()
 		return openEntry{}, fmt.Errorf("mcp server %q: register after Open failed: %w", entry.Name, err)
 	}
+	if err := m.discoverAndRegisterServerTools(ctx, entry.Name); err != nil {
+		_ = m.registry.UnregisterServer(entry.Name)
+		_ = closer.Close()
+		return openEntry{}, fmt.Errorf("mcp server %q: discover tools after Open failed: %w", entry.Name, err)
+	}
 	return openEntry{serverName: entry.Name, closer: closer}, nil
 }
+
+// discoverAndRegisterServerTools lists tools from the just-registered MCP
+// server and adds each as a ToolDescriptor in the tools.Registry under the
+// qualified name "mcp__<server>__<tool>". This mirrors the construction-time
+// discovery done by discoverAndRegisterMCPTools, but for one server at a
+// time so it can run after a source-backed open.
+//
+// When the toolRegistry is nil (lifecycle-only tests) discovery is skipped.
+func (m *mcpSourceScope) discoverAndRegisterServerTools(ctx context.Context, serverName string) error {
+	if m.toolRegistry == nil {
+		return nil
+	}
+
+	// Bound the lookup so a slow server can't stall scope open.
+	ctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+
+	client, err := m.registry.GetClient(ctx, serverName)
+	if err != nil {
+		return fmt.Errorf("get MCP client: %w", err)
+	}
+
+	mcpTools, err := client.ListTools(ctx)
+	if err != nil {
+		return fmt.Errorf("list MCP tools: %w", err)
+	}
+
+	// Source-backed servers register tools under their raw MCP name
+	// (e.g. "Read") rather than the namespaced "mcp__<server>__<tool>"
+	// form used by static MCP discovery in builder_integration.go. The
+	// design goal is that a sandbox is "just another MCP server" from the
+	// pack author's perspective — allowed_tools and assertions reference
+	// "Read", not "mcp__sandbox__Read".
+	//
+	// Routing still works because MCPExecutor.callMCPTool runs each tool
+	// name through mcpRawToolName (a no-op when there's no namespace) and
+	// looks up the owning server via mcp.Registry.toolIndex, which is
+	// keyed by raw tool name.
+	for _, t := range mcpTools {
+		if filter, fok := m.lookupToolFilter(serverName); fok && filter != nil && !filter.Includes(t.Name) {
+			continue
+		}
+		desc := &tools.ToolDescriptor{
+			Name:         t.Name,
+			Description:  t.Description,
+			InputSchema:  t.InputSchema,
+			OutputSchema: mcpOutputSchema,
+			Mode:         "mcp",
+		}
+		if err := m.toolRegistry.Register(desc); err != nil {
+			return fmt.Errorf("register tool %q: %w", t.Name, err)
+		}
+	}
+	logger.Info("Discovered MCP tools (source-backed)", "server", serverName, "tools", len(mcpTools))
+	return nil
+}
+
+// lookupToolFilter returns the configured tool filter for a server, if any.
+func (m *mcpSourceScope) lookupToolFilter(serverName string) (*mcp.ToolFilter, bool) {
+	cfg, ok := m.registry.GetServerConfig(serverName)
+	if !ok {
+		return nil, false
+	}
+	return cfg.ToolFilter, true
+}
+
+// mcpOutputSchema is the generic shape MCP tool calls return — kept here
+// so the source-backed discovery path matches the construction-time path
+// in builder_integration.go.
+var mcpOutputSchema = json.RawMessage(`{
+    "type": "object",
+    "properties": {
+        "content": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string"},
+                    "text": {"type": "string"},
+                    "data": {"type": "string"},
+                    "mimeType": {"type": "string"},
+                    "uri": {"type": "string"}
+                },
+                "required": ["type"]
+            }
+        },
+        "isError": {"type": "boolean"}
+    },
+    "required": ["content"]
+}`)
 
 // CloseAll tears down every entry opened for (scope, instanceID). Close
 // errors are collected and returned; registry entries are removed regardless.

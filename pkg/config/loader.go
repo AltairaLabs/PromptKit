@@ -480,7 +480,16 @@ func (c *Config) loadSkills(configPath string) error {
 		return nil
 	}
 
+	// Resolve to absolute paths before the prefix comparison. When configPath
+	// is relative (e.g. "config.arena.yaml" run from the example dir), Dir
+	// returns "." and Clean("./skills") returns "skills" — the historical
+	// HasPrefix check then fails closed because "skills" doesn't start with
+	// "./". Anchoring both sides at filepath.Abs side-steps that.
 	configDir := filepath.Dir(configPath)
+	absBase, err := filepath.Abs(configDir)
+	if err != nil {
+		return fmt.Errorf("skills: resolve config dir %q: %w", configDir, err)
+	}
 
 	for _, src := range c.Skills {
 		dir := src.EffectiveDir()
@@ -493,13 +502,12 @@ func (c *Config) loadSkills(configPath string) error {
 		// Resolve relative path.
 		absDir := dir
 		if !filepath.IsAbs(absDir) {
-			absDir = filepath.Join(configDir, absDir)
+			absDir = filepath.Join(absBase, absDir)
 		}
 		absDir = filepath.Clean(absDir)
 
 		// Validate path containment.
-		cleanBase := filepath.Clean(configDir)
-		if absDir != cleanBase && !strings.HasPrefix(absDir, cleanBase+string(filepath.Separator)) {
+		if absDir != absBase && !strings.HasPrefix(absDir, absBase+string(filepath.Separator)) {
 			return fmt.Errorf("skills: path traversal detected: %q resolves outside config directory %q", dir, configDir)
 		}
 

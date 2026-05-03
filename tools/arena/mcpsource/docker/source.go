@@ -160,14 +160,20 @@ func pickFreePort() (int, error) {
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
+// waitForHealth polls baseURL+/sse until the server returns 2xx or the
+// timeout elapses. The mcp-go SSE server (used by codegen-sandbox and other
+// SSE-MCP images) does not expose a separate /health endpoint — /sse itself
+// is the readiness signal: it returns 200 the moment the server can accept
+// MCP clients, then begins streaming events. We close the body immediately
+// once headers are received; the streaming body is irrelevant to the probe.
 func waitForHealth(ctx context.Context, baseURL string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/health", http.NoBody)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/sse", http.NoBody)
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				return nil
 			}
 		}

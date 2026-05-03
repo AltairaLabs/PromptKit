@@ -64,7 +64,7 @@ func TestArenaStateStore_CapturesTelemetry(t *testing.T) {
 	)
 
 	// Create engine
-	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil)
+	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestArenaStateStore_MultipleRuns(t *testing.T) {
 	)
 
 	// Create engine
-	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil)
+	engine, err := NewEngine(cfg, providerRegistry, nil, nil, conversationExecutor, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
