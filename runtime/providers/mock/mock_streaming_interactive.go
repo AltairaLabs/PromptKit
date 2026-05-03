@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -38,7 +40,32 @@ const (
 	logPreviewMaxLen = 20
 	// partialTextDivisor is used to calculate partial text length (half the response).
 	partialTextDivisor = 2
+
+	// defaultAudioFixtureSampleRate is used when an audio_file does not declare a sample rate.
+	defaultAudioFixtureSampleRate = 24000
+	// defaultAudioFixtureMIMEType is used when an audio_file does not declare a mime type.
+	defaultAudioFixtureMIMEType = "audio/pcm"
+	// audioFrameMillis is the duration of a single emitted audio chunk in milliseconds (~20ms).
+	audioFrameMillis = 20
+	// bytesPerPCMSample is the byte width of one s16le sample (signed 16-bit little-endian).
+	bytesPerPCMSample = 2
+	// millisPerSecond converts millisecond durations to/from seconds when sizing PCM frames.
+	millisPerSecond = 1000
+	// fallbackFramesPerSecond is the safety divisor used to recover ~20ms framing
+	// when the configured sample rate is too low for the primary calculation to
+	// produce a positive sample count (1 second / 20ms = 50 frames).
+	fallbackFramesPerSecond = 50
 )
+
+// mockAudioFixture holds the in-memory bytes of a PCM audio fixture plus its
+// declared sample rate and MIME type. Fixtures are cached per session so a
+// scenario referencing the same file across multiple turns reads from disk
+// only once.
+type mockAudioFixture struct {
+	Bytes      []byte
+	SampleRate int
+	MIMEType   string
+}
 
 // MockStreamSession implements providers.StreamInputSession for testing duplex scenarios.
 //
@@ -61,6 +88,16 @@ type MockStreamSession struct {
 	closeAfterResponse bool                    // If true, close response channel after auto-responding
 	responseCount      int                     // Track number of responses sent
 
+	// Repository-driven auto-respond. When repo + scenarioID are set, auto-respond
+	// looks up the configured Turn for the current turn number from the repository
+	// and emits its text content (and audio fixture, if present) instead of the
+	// static responseText. fixtureBaseDir resolves relative audio_file paths.
+	repo            ResponseRepository
+	scenarioID      string
+	fixtureBaseDir  string
+	audioCache      map[string]*mockAudioFixture // file path -> loaded fixture
+	audioCacheGuard sync.Mutex
+
 	// Simulation: Interruption behavior (mimics Gemini detecting user speech during response)
 	interruptOnTurn int  // If > 0, simulate interruption on this turn number (1-indexed)
 	interrupted     bool // Track if current turn was interrupted
@@ -68,14 +105,6 @@ type MockStreamSession struct {
 	// Simulation: Session closure (mimics Gemini dropping connection unexpectedly)
 	closeAfterTurns int  // If > 0, close session after this many turns
 	closeNoResponse bool // If true with closeAfterTurns, close WITHOUT sending final response
-
-	// Scenario-mapped responses: when set, emitAutoResponse looks up the
-	// per-turn response from this repository instead of emitting responseText.
-	// Used by duplex sessions configured via mock-responses.yaml.
-	repository ResponseRepository
-	scenarioID string
-	providerID string
-	model      string
 }
 
 // NewMockStreamSession creates a new mock stream session.
@@ -87,6 +116,7 @@ func NewMockStreamSession() *MockStreamSession {
 		doneCh:       make(chan struct{}),
 		autoRespond:  false,
 		responseText: "Mock response",
+		audioCache:   make(map[string]*mockAudioFixture),
 	}
 }
 
@@ -96,20 +126,6 @@ func (m *MockStreamSession) WithAutoRespond(text string) *MockStreamSession {
 	m.autoRespond = true
 	m.responseText = text
 	m.closeAfterResponse = false // Keep session open for multiple turns
-	return m
-}
-
-// WithScenarioResponses wires a repository for per-turn scenario-mapped
-// responses. When set alongside WithAutoRespond, emitAutoResponse looks up
-// each turn's response from the repository keyed by scenarioID + 1-indexed
-// turn number, falling back to responseText on miss or error.
-func (m *MockStreamSession) WithScenarioResponses(
-	scenarioID, providerID, model string, repo ResponseRepository,
-) *MockStreamSession {
-	m.scenarioID = scenarioID
-	m.providerID = providerID
-	m.model = model
-	m.repository = repo
 	return m
 }
 
@@ -163,6 +179,25 @@ func (m *MockStreamSession) WithCloseAfterTurns(turns int, noResponse ...bool) *
 	return m
 }
 
+// WithRepository wires a ResponseRepository into the auto-respond path so that
+// per-turn responses (including optional audio fixtures) come from the same
+// scenario configuration used by the non-streaming mock provider. baseDir is
+// the directory used to resolve relative audio_file paths; pass an empty
+// string to use absolute paths only.
+func (m *MockStreamSession) WithRepository(repo ResponseRepository, baseDir string) *MockStreamSession {
+	m.repo = repo
+	m.fixtureBaseDir = baseDir
+	return m
+}
+
+// WithScenarioID selects which scenario the auto-respond path should consult
+// when looking up turns from the repository. Without a scenario ID the session
+// falls back to the static responseText.
+func (m *MockStreamSession) WithScenarioID(scenarioID string) *MockStreamSession {
+	m.scenarioID = scenarioID
+	return m
+}
+
 // SendChunk implements StreamInputSession.SendChunk.
 //
 // Validates PCM16 alignment (even byte count) so tests catch upstream
@@ -196,10 +231,6 @@ func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChu
 	}
 
 	m.chunks = append(m.chunks, chunk)
-
-	// Don't log every chunk - too noisy
-	// Only respond once per turn (not on every chunk)
-	// We respond when EndInput is called, not on each SendChunk
 
 	return nil
 }
@@ -311,25 +342,6 @@ func (m *MockStreamSession) GetTexts() []string {
 	return m.texts
 }
 
-// resolveTurnResponseText returns the text for this turn, preferring a
-// scenario-mapped response from the repository when configured. Falls back
-// to the session's static responseText on miss, error, or empty content.
-func (m *MockStreamSession) resolveTurnResponseText(turnNumber int) string {
-	if m.repository == nil || m.scenarioID == "" {
-		return m.responseText
-	}
-	turn, err := m.repository.GetTurn(context.Background(), ResponseParams{
-		ScenarioID: m.scenarioID,
-		TurnNumber: turnNumber,
-		ProviderID: m.providerID,
-		ModelName:  m.model,
-	})
-	if err != nil || turn == nil || turn.Content == "" {
-		return m.responseText
-	}
-	return turn.Content
-}
-
 // emitAutoResponse sends configured response chunks (must be called with lock held).
 func (m *MockStreamSession) emitAutoResponse() {
 	currentTurn := m.responseCount + 1 // 1-indexed turn number
@@ -391,22 +403,7 @@ func (m *MockStreamSession) emitAutoResponse() {
 			m.responses <- m.responseChunks[i]
 		}
 	} else {
-		// Resolve the response text for this turn — prefer scenario-mapped
-		// responses from the repository when configured, else fall back to the
-		// session's responseText.
-		text := m.resolveTurnResponseText(currentTurn)
-		finishReason := "stop"
-		chunk := providers.StreamChunk{
-			Content:      text,
-			Delta:        text,
-			FinishReason: &finishReason,
-		}
-		select {
-		case m.responses <- chunk:
-			// Sent successfully
-		default:
-			// Channel full or closed - this shouldn't happen with buffered channel
-		}
+		m.emitTurnResponse(currentTurn)
 	}
 
 	m.responseCount++
@@ -427,6 +424,169 @@ func (m *MockStreamSession) emitAutoResponse() {
 	}
 }
 
+// emitTurnResponse emits the response for the given turn. When a repository
+// and scenarioID are configured, the per-turn Turn record is consulted: any
+// configured audio fixture is emitted as MediaData chunks first, followed by
+// the text Content + FinishReason chunk. Without a repository it falls back
+// to the static responseText behavior.
+//
+// Must be called with m.mu held.
+func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
+	text, audioFixture := m.resolveTurn(turnNumber)
+
+	// Emit audio chunks first (if any) so consumers see them as part of the
+	// response stream — providers like Gemini interleave audio + transcript,
+	// but emitting audio before the final FinishReason chunk is the contract
+	// the duplex pipeline relies on.
+	if audioFixture != nil {
+		m.emitAudioChunks(audioFixture)
+	}
+
+	finishReason := "stop"
+	chunk := providers.StreamChunk{
+		Content:      text,
+		Delta:        text,
+		FinishReason: &finishReason,
+	}
+	select {
+	case m.responses <- chunk:
+		// Sent successfully
+	default:
+		// Channel full or closed - this shouldn't happen with buffered channel
+	}
+}
+
+// resolveTurn looks up the text + audio fixture for the given turn. If a
+// repository is configured it queries the repo for the turn; otherwise it
+// returns the static responseText with no audio.
+func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixture) {
+	if m.repo == nil || m.scenarioID == "" {
+		return m.responseText, nil
+	}
+
+	turn, err := m.repo.GetTurn(context.Background(), ResponseParams{
+		ScenarioID: m.scenarioID,
+		TurnNumber: turnNumber,
+	})
+	if err != nil || turn == nil {
+		if err != nil {
+			logger.Debug("MockStreamSession: repository GetTurn failed; falling back to responseText",
+				"scenario_id", m.scenarioID,
+				"turn", turnNumber,
+				"error", err)
+		}
+		return m.responseText, nil
+	}
+
+	text := turn.Content
+	if text == "" {
+		text = m.responseText
+	}
+
+	if turn.AudioFile == "" {
+		return text, nil
+	}
+
+	fixture, loadErr := m.loadAudioFixture(turn.AudioFile, turn.AudioSampleRate, turn.AudioMIMEType)
+	if loadErr != nil {
+		logger.Warn("MockStreamSession: failed to load audio fixture; emitting text-only response",
+			"file", turn.AudioFile,
+			"error", loadErr)
+		return text, nil
+	}
+	return text, fixture
+}
+
+// loadAudioFixture reads a PCM fixture from disk and caches it by resolved
+// path so multi-turn scenarios re-use a single read. Relative paths resolve
+// against fixtureBaseDir when set.
+func (m *MockStreamSession) loadAudioFixture(
+	filePath string, sampleRate int, mimeType string,
+) (*mockAudioFixture, error) {
+	resolved := filePath
+	if !filepath.IsAbs(resolved) && m.fixtureBaseDir != "" {
+		resolved = filepath.Join(m.fixtureBaseDir, resolved)
+	}
+
+	m.audioCacheGuard.Lock()
+	defer m.audioCacheGuard.Unlock()
+
+	if m.audioCache == nil {
+		m.audioCache = make(map[string]*mockAudioFixture)
+	}
+	if cached, ok := m.audioCache[resolved]; ok {
+		return cached, nil
+	}
+
+	data, err := os.ReadFile(resolved) //nolint:gosec // fixture path comes from a trusted local config file
+	if err != nil {
+		return nil, fmt.Errorf("read audio fixture %q: %w", resolved, err)
+	}
+
+	fixture := &mockAudioFixture{
+		Bytes:      data,
+		SampleRate: sampleRate,
+		MIMEType:   mimeType,
+	}
+	if fixture.SampleRate <= 0 {
+		fixture.SampleRate = defaultAudioFixtureSampleRate
+	}
+	if fixture.MIMEType == "" {
+		fixture.MIMEType = defaultAudioFixtureMIMEType
+	}
+
+	m.audioCache[resolved] = fixture
+	return fixture, nil
+}
+
+// emitAudioChunks pushes the fixture bytes onto the response channel as
+// MediaData chunks, sliced into ~20ms frames at the fixture's sample rate
+// (s16le mono). Emitting them as discrete chunks mirrors how real
+// duplex providers stream audio — small frames the consumer can pace.
+//
+// Must be called with m.mu held (writes to m.responses).
+func (m *MockStreamSession) emitAudioChunks(fixture *mockAudioFixture) {
+	if fixture == nil || len(fixture.Bytes) == 0 {
+		return
+	}
+
+	samplesPer20ms := fixture.SampleRate * audioFrameMillis / millisPerSecond
+	if samplesPer20ms <= 0 {
+		samplesPer20ms = fixture.SampleRate / fallbackFramesPerSecond
+	}
+	bytesPerChunk := samplesPer20ms * bytesPerPCMSample
+	if bytesPerChunk <= 0 {
+		bytesPerChunk = len(fixture.Bytes)
+	}
+
+	frameNum := int64(0)
+	for offset := 0; offset < len(fixture.Bytes); offset += bytesPerChunk {
+		end := offset + bytesPerChunk
+		if end > len(fixture.Bytes) {
+			end = len(fixture.Bytes)
+		}
+		chunk := providers.StreamChunk{
+			MediaData: &providers.StreamMediaData{
+				Data:       fixture.Bytes[offset:end],
+				MIMEType:   fixture.MIMEType,
+				SampleRate: fixture.SampleRate,
+				Channels:   1,
+				FrameNum:   frameNum,
+			},
+		}
+		// Block on send — the mock provider is the producer, dropping its own
+		// emitted frames would silently lose response audio. Real providers
+		// pace their emission via the network frame rate; the mock relies on
+		// the consumer (DuplexProviderStage) to drain the channel.
+		select {
+		case m.responses <- chunk:
+		case <-m.doneCh:
+			return
+		}
+		frameNum++
+	}
+}
+
 // StreamingProvider extends Provider with StreamInputSupport for duplex testing.
 type StreamingProvider struct {
 	*Provider
@@ -437,6 +597,13 @@ type StreamingProvider struct {
 	// Auto-respond configuration for duplex testing
 	autoRespond  bool   // If true, sessions auto-respond to inputs
 	responseText string // Text to respond with
+
+	// Repository-driven auto-respond plumbing (optional). When set, new sessions
+	// inherit these so they look up scripted Turn responses (including audio
+	// fixtures) instead of just emitting responseText each turn.
+	repo              ResponseRepository
+	defaultScenarioID string
+	fixtureBaseDir    string
 
 	// Simulation configuration (applied to new sessions)
 	interruptOnTurn int  // Turn number to interrupt (1-indexed)
@@ -496,16 +663,22 @@ func (p *StreamingProvider) WithCloseAfterTurns(turns int, noResponse ...bool) *
 	return p
 }
 
-// scenarioIDFromMetadata extracts mock_scenario_id from a streaming session's
-// request metadata. Returns "" when absent so callers fall back to auto-respond.
-func scenarioIDFromMetadata(req *providers.StreamingInputConfig) string {
-	if req == nil || req.Metadata == nil {
-		return ""
-	}
-	if v, ok := req.Metadata["mock_scenario_id"].(string); ok {
-		return v
-	}
-	return ""
+// WithMockResponses wires a ResponseRepository, default scenario ID and
+// fixture base directory into every session created by this provider. When
+// auto-respond is enabled, sessions will look up per-turn Turn responses
+// (including audio_file fixtures) from the repository instead of emitting
+// the static responseText.
+//
+// scenarioID may be overridden per session via the StreamingInputConfig
+// metadata key "mock_scenario_id".
+func (p *StreamingProvider) WithMockResponses(
+	repo ResponseRepository,
+	scenarioID, fixtureBaseDir string,
+) *StreamingProvider {
+	p.repo = repo
+	p.defaultScenarioID = scenarioID
+	p.fixtureBaseDir = fixtureBaseDir
+	return p
 }
 
 // CreateStreamSession implements StreamInputSupport.CreateStreamSession.
@@ -528,11 +701,19 @@ func (p *StreamingProvider) CreateStreamSession(
 		session.WithAutoRespond(responseText)
 	}
 
-	// If the request carries a scenario_id and the provider has a repository,
-	// route per-turn responses through the scenario lookup. The session
-	// transparently falls back to the auto-respond text on miss/empty.
-	if scenarioID := scenarioIDFromMetadata(req); scenarioID != "" && p.repository != nil {
-		session.WithScenarioResponses(scenarioID, p.id, p.model, p.repository)
+	// Wire repository-driven turn lookup when configured. The scenario ID
+	// can be overridden per-session via StreamingInputConfig.Metadata.
+	if p.repo != nil {
+		session.WithRepository(p.repo, p.fixtureBaseDir)
+		scenarioID := p.defaultScenarioID
+		if req != nil && req.Metadata != nil {
+			if override, ok := req.Metadata["mock_scenario_id"].(string); ok && override != "" {
+				scenarioID = override
+			}
+		}
+		if scenarioID != "" {
+			session.WithScenarioID(scenarioID)
+		}
 	}
 
 	// Apply simulation configurations

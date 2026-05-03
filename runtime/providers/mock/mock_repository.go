@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -47,6 +48,18 @@ type Turn struct {
 	Content   string        `yaml:"content,omitempty"`    // Text content for the response
 	Parts     []ContentPart `yaml:"parts,omitempty"`      // Multimodal content parts (text, image, audio, video)
 	ToolCalls []ToolCall    `yaml:"tool_calls,omitempty"` // Tool calls to simulate
+
+	// AudioFile is an optional path to a raw PCM audio file (signed 16-bit little-endian, mono).
+	// When set on a duplex auto-respond turn, the mock streaming provider will emit the file's
+	// contents as MediaData chunks alongside the text response. The path is resolved relative
+	// to the directory of the mock-responses.yaml file (when loaded via FileMockRepository).
+	AudioFile string `yaml:"audio_file,omitempty"`
+
+	// AudioSampleRate is the sample rate of the AudioFile in Hz. Defaults to 24000 when zero.
+	AudioSampleRate int `yaml:"audio_sample_rate,omitempty"`
+
+	// AudioMIMEType is the MIME type advertised on emitted audio chunks. Defaults to "audio/pcm".
+	AudioMIMEType string `yaml:"audio_mime_type,omitempty"`
 }
 
 // ContentPart represents a single content part in a multimodal mock response.
@@ -115,7 +128,8 @@ type ScenarioConfig struct {
 // FileMockRepository loads mock responses from a YAML configuration file.
 // This is the default implementation for file-based mock configurations.
 type FileMockRepository struct {
-	config *Config
+	config  *Config
+	baseDir string // Directory containing the mock config file (used to resolve relative fixture paths).
 }
 
 // NewFileMockRepository creates a repository that loads mock responses from a YAML file.
@@ -132,8 +146,16 @@ func NewFileMockRepository(configPath string) (*FileMockRepository, error) {
 	}
 
 	return &FileMockRepository{
-		config: &config,
+		config:  &config,
+		baseDir: filepath.Dir(configPath),
 	}, nil
+}
+
+// BaseDir returns the directory of the mock config file. Relative paths
+// referenced inside the config (e.g. audio_file fixtures) resolve against
+// this directory.
+func (r *FileMockRepository) BaseDir() string {
+	return r.baseDir
 }
 
 // GetResponse retrieves a mock response based on the provided parameters.
@@ -375,6 +397,24 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 		if turn.Type == turnTypeText {
 			turn.Type = "tool_calls"
 		}
+	}
+
+	// Parse audio fixture fields (used by mock streaming auto-respond mode).
+	if audioFile, ok := responseMap["audio_file"].(string); ok {
+		turn.AudioFile = audioFile
+	}
+	if rate, ok := responseMap["audio_sample_rate"]; ok {
+		switch v := rate.(type) {
+		case int:
+			turn.AudioSampleRate = v
+		case int64:
+			turn.AudioSampleRate = int(v)
+		case float64:
+			turn.AudioSampleRate = int(v)
+		}
+	}
+	if mime, ok := responseMap["audio_mime_type"].(string); ok {
+		turn.AudioMIMEType = mime
 	}
 
 	return &turn, nil

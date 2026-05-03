@@ -7,12 +7,28 @@ defaultResponse: "I'm here to help! How can I assist you today?"
 # Scenario-specific responses
 scenarios:
   # Basic duplex scenario responses
+  # Each turn references a PCM fixture (24kHz mono s16le) so the mock
+  # streaming provider emits real agent audio chunks alongside the text.
+  # This lets mock-duplex runs exercise the full audio output loop in CI
+  # without needing a real provider key.
   duplex-basic:
     defaultResponse: "I'm Nova, your voice assistant. I'm happy to help!"
     turns:
-      1: "Hello! Yes, I can hear you perfectly. I'm Nova, your voice assistant from TechCorp. How can I help you today?"
-      2: "My name is Nova, and I'm here to help you with a variety of tasks. I can answer questions, provide information, help with troubleshooting, or just have a friendly conversation. What would you like to know more about?"
-      3: "Here's a fun fact for you: Honey never spoils! Archaeologists have found 3,000-year-old honey in Egyptian tombs that was still perfectly edible. Pretty amazing, right?"
+      1:
+        text: "Hello! Yes, I can hear you perfectly. I'm Nova, your voice assistant from TechCorp. How can I help you today?"
+        audio_file: audio/greeting.pcm
+        audio_sample_rate: 24000
+        audio_mime_type: "audio/pcm"
+      2:
+        text: "My name is Nova, and I'm here to help you with a variety of tasks. I can answer questions, provide information, help with troubleshooting, or just have a friendly conversation. What would you like to know more about?"
+        audio_file: audio/question.pcm
+        audio_sample_rate: 24000
+        audio_mime_type: "audio/pcm"
+      3:
+        text: "Here's a fun fact for you: Honey never spoils! Archaeologists have found 3,000-year-old honey in Egyptian tombs that was still perfectly edible. Pretty amazing, right?"
+        audio_file: audio/funfact.pcm
+        audio_sample_rate: 24000
+        audio_mime_type: "audio/pcm"
 
   # Scripted-text duplex scenario — exercises the text-only user turn path
   # (Change 1: scenario `tts:` block routes user text content through TTS to
