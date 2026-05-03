@@ -375,6 +375,38 @@ func TestValidateSkillErrors_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestValidateSkillErrors_AbsolutePathInsideRelativeBaseDir(t *testing.T) {
+	// pkg/config.LoadConfig stores skill dirs as absolute paths in
+	// LoadedSkillSources, but packc's compiler invokes ValidateSkillErrors
+	// with a relative baseDir like "examples/foo". Without resolving both
+	// sides through filepath.Abs, the prefix check false-positives.
+	pack := &prompt.Pack{
+		Skills: []prompt.SkillSourceConfig{
+			{Dir: filepath.Join(".", "skills")}, // emulates the relative form actually held in YAML
+		},
+		Prompts: map[string]*prompt.PackPrompt{"p": {ID: "p"}},
+	}
+
+	tmpDir := t.TempDir()
+	skillDir := filepath.Join(tmpDir, "skills", "demo")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: demo\ndescription: demo skill\n---\nbody\n"),
+		0o600,
+	))
+
+	// Now simulate the post-loader form: skill dir is absolute, base dir is relative.
+	pack.Skills[0] = prompt.SkillSourceConfig{Dir: filepath.Join(tmpDir, "skills")}
+
+	t.Chdir(filepath.Dir(tmpDir))
+	relBase, err := filepath.Rel(filepath.Dir(tmpDir), tmpDir)
+	require.NoError(t, err)
+
+	errs := ValidateSkillErrors(pack, relBase)
+	assert.Empty(t, errs, "absolute skill dir inside relative base dir must not false-positive")
+}
+
 func TestValidateSkillErrors_PathTraversal_WorkflowState(t *testing.T) {
 	tmpDir := t.TempDir()
 

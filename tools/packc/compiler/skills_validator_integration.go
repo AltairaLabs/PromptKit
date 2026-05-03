@@ -17,16 +17,25 @@ const skillMDFilename = "SKILL.md"
 var errPathTraversal = fmt.Errorf("path traversal detected")
 
 // validatePathContainment checks that resolvedAbs is within or equal to baseDir.
+//
+// Both rawPath and baseDir are resolved to absolute paths before comparison
+// so a relative baseDir (e.g. "examples/foo") doesn't false-positive against
+// an already-absolute rawPath stored by the config loader.
 func validatePathContainment(rawPath, baseDir string) error {
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return fmt.Errorf("resolve base dir %q: %w", baseDir, err)
+	}
+	absBase = filepath.Clean(absBase)
+
 	absPath := rawPath
 	if !filepath.IsAbs(absPath) {
-		absPath = filepath.Join(baseDir, absPath)
+		absPath = filepath.Join(absBase, absPath)
 	}
 	absPath = filepath.Clean(absPath)
-	cleanBase := filepath.Clean(baseDir)
 
-	if absPath != cleanBase && !strings.HasPrefix(absPath, cleanBase+string(filepath.Separator)) {
-		return fmt.Errorf("%w: %q resolves outside pack directory %q", errPathTraversal, rawPath, cleanBase)
+	if absPath != absBase && !strings.HasPrefix(absPath, absBase+string(filepath.Separator)) {
+		return fmt.Errorf("%w: %q resolves outside pack directory %q", errPathTraversal, rawPath, baseDir)
 	}
 	return nil
 }
