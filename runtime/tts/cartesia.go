@@ -16,8 +16,11 @@ const (
 	cartesiaWSURL   = "wss://api.cartesia.ai/tts/websocket"
 	cartesiaRESTURL = "/tts/bytes"
 
-	// CartesiaModelSonic is the latest Sonic model for Cartesia TTS.
-	CartesiaModelSonic = "sonic-2024-10-01"
+	// CartesiaModelSonic is the current Sonic model alias for Cartesia
+	// TTS. Cartesia retired the dated `sonic-YYYY-MM-DD` IDs; "sonic-3"
+	// is the latest generation (better naturalness + faster TTFB than
+	// sonic-2 and the original sonic).
+	CartesiaModelSonic = "sonic-3"
 
 	// Default timeout for Cartesia requests.
 	defaultCartesiaTimeout = 30 * time.Second

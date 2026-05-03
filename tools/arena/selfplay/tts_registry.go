@@ -33,20 +33,28 @@ const (
 // TTSRegistry manages TTS service instances by provider name.
 // It supports lazy initialization and caching of TTS services.
 type TTSRegistry struct {
-	services map[string]tts.Service
-	mu       sync.RWMutex
+	services    map[string]tts.Service
+	mockByFiles map[string]tts.Service
+	mu          sync.RWMutex
 }
 
 // NewTTSRegistry creates a new TTS registry.
 func NewTTSRegistry() *TTSRegistry {
 	return &TTSRegistry{
-		services: make(map[string]tts.Service),
+		services:    make(map[string]tts.Service),
+		mockByFiles: make(map[string]tts.Service),
 	}
 }
 
 // Get returns a TTS service for the given provider name.
 // Services are lazily initialized on first request and cached.
 // For mock provider with custom audio files, use GetWithConfig instead.
+//
+// When the TTS_CACHE_DIR environment variable is set, the returned
+// service is wrapped in a CachedTTSService rooted at that directory so
+// repeated synthesis of the same text doesn't re-bill the upstream
+// provider. Mock services are exempt — they're already deterministic
+// and would just bloat the cache.
 func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
 	// Check cache first
 	r.mu.RLock()
@@ -61,6 +69,7 @@ func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	svc = wrapWithDiskCache(provider, svc)
 
 	// Cache and return
 	r.mu.Lock()
@@ -68,6 +77,27 @@ func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
 	r.mu.Unlock()
 
 	return svc, nil
+}
+
+// wrapWithDiskCache wraps svc in a CachedTTSService when TTS_CACHE_DIR is
+// set, leaves it untouched otherwise. Mock providers always pass through —
+// they're already free and deterministic.
+func wrapWithDiskCache(provider string, svc tts.Service) tts.Service {
+	if provider == TTSProviderMock {
+		return svc
+	}
+	dir := resolveTTSCacheDir()
+	if dir == "" {
+		return svc
+	}
+	wrapped, err := NewCachedTTSService(svc, dir)
+	if err != nil {
+		// Cache directory unavailable — log and fall back to the bare
+		// backend so synthesis still works. Tests that depend on caching
+		// will catch the regression themselves.
+		return svc
+	}
+	return wrapped
 }
 
 // GetWithConfig returns a TTS service configured with the given TTSConfig.
@@ -78,9 +108,27 @@ func (r *TTSRegistry) GetWithConfig(cfg *config.TTSConfig) (tts.Service, error) 
 		return nil, fmt.Errorf("TTS config is required")
 	}
 
-	// For mock provider with audio files, create a fresh instance (not cached)
+	// For mock provider with audio files, cache by the file-list identity so
+	// repeated calls with the same set of files reuse one MockTTSService — that
+	// preserves currentFileIndex across calls and lets rotation work.
 	if cfg.Provider == TTSProviderMock && len(cfg.AudioFiles) > 0 {
-		return NewMockTTSWithFiles(cfg.AudioFiles), nil
+		key := strings.Join(cfg.AudioFiles, "|")
+
+		r.mu.RLock()
+		if svc, exists := r.mockByFiles[key]; exists {
+			r.mu.RUnlock()
+			return svc, nil
+		}
+		r.mu.RUnlock()
+
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if svc, exists := r.mockByFiles[key]; exists {
+			return svc, nil
+		}
+		svc := NewMockTTSWithFiles(cfg.AudioFiles)
+		r.mockByFiles[key] = svc
+		return svc, nil
 	}
 
 	// For all other cases, use the standard cached lookup
@@ -150,12 +198,16 @@ func (r *TTSRegistry) createOpenAI() (tts.Service, error) {
 }
 
 // createElevenLabs creates an ElevenLabs TTS service.
+//
+// Selfplay uses turbo_v2_5 because it's optimized for real-time conversational
+// agents (~250ms TTFB vs ~1s for multilingual_v2). The default
+// multilingual_v2 model would dominate per-turn latency.
 func (r *TTSRegistry) createElevenLabs() (tts.Service, error) {
 	apiKey := os.Getenv(envElevenLabsAPIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("elevenLabs TTS requires %s environment variable", envElevenLabsAPIKey)
 	}
-	return tts.NewElevenLabs(apiKey), nil
+	return tts.NewElevenLabs(apiKey, tts.WithElevenLabsModel(tts.ElevenLabsModelTurbo)), nil
 }
 
 // createCartesia creates a Cartesia TTS service.

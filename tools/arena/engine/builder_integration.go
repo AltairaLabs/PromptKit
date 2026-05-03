@@ -183,6 +183,22 @@ func buildProviderRegistry(registry *providers.Registry, cfg *config.Config, pro
 	for _, id := range providerFilter {
 		filterSet[id] = true
 	}
+	// Selfplay-role providers are auxiliary (used by selfplay personas to
+	// drive simulated user turns); they are NOT test targets in the run
+	// matrix. The --provider filter scopes the run matrix; it must not
+	// strand selfplay roles whose providers happen to fall outside the
+	// filter. Always include selfplay-role providers in the loadable set
+	// so role wiring (buildSelfPlayComponents) can find them.
+	if cfg.SelfPlay != nil {
+		for _, role := range cfg.SelfPlay.Roles {
+			if role.Provider == "" {
+				continue
+			}
+			if len(filterSet) > 0 {
+				filterSet[role.Provider] = true
+			}
+		}
+	}
 	for _, provider := range cfg.LoadedProviders {
 		if len(filterSet) > 0 && !filterSet[provider.ID] {
 			continue
@@ -721,7 +737,10 @@ func buildSelfPlayComponents(
 			return nil, nil, fmt.Errorf("self-play role %s references unknown provider %s", role.ID, role.Provider)
 		}
 
-		// Reuse provider from main registry instead of creating a duplicate
+		// Reuse provider from main registry instead of creating a duplicate.
+		// Selfplay-role providers are always loaded regardless of the
+		// --provider run-matrix filter (see buildProviderRegistry); if
+		// they're missing here it's a real config error.
 		providerImpl, found := mainProviderRegistry.Get(provider.ID)
 		if !found {
 			return nil, nil, fmt.Errorf("self-play role %s: provider %s not found in main registry", role.ID, role.Provider)

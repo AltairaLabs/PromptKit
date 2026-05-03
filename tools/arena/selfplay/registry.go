@@ -112,12 +112,14 @@ func (r *Registry) GetContentGenerator(role, personaID string) (Generator, error
 
 // GetAudioContentGenerator implements AudioProvider interface.
 // Returns an AudioGenerator for the given role, persona, and TTS configuration.
+// The returned generator supports both NextUserTurnAudioStream (which
+// drives the persona LLM for selfplay turns) and SynthesizeTextStream.
+//
 // Unlike GetContentGenerator, audio generators are not cached since TTS config may vary.
 func (r *Registry) GetAudioContentGenerator(
 	role, personaID string,
 	ttsConfig *config.TTSConfig,
 ) (AudioGenerator, error) {
-	// Validate TTS config
 	if ttsConfig == nil {
 		return nil, fmt.Errorf("TTS configuration is required for audio generation")
 	}
@@ -125,20 +127,42 @@ func (r *Registry) GetAudioContentGenerator(
 		return nil, fmt.Errorf("invalid TTS configuration: %w", err)
 	}
 
-	// Get the text content generator (this may be cached)
 	textGen, err := r.createContentGenerator(role, personaID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create text generator: %w", err)
 	}
 
-	// Get TTS service from registry (uses full config for audio files support)
 	ttsService, err := r.ttsRegistry.GetWithConfig(ttsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get TTS service: %w", err)
 	}
 
-	// Create and return audio generator
 	return NewAudioContentGenerator(textGen, ttsService, ttsConfig), nil
+}
+
+// GetTextSynthesisGenerator returns an AudioGenerator that only knows
+// how to synthesize pre-known text — used by scripted-text duplex turns
+// where the text comes from the scenario YAML rather than a persona
+// LLM. Calling NextUserTurnAudioStream on the returned generator
+// errors because no role/persona was supplied.
+//
+// This sits alongside GetAudioContentGenerator as a sibling so the arena
+// has a single seam for "give me an AudioGenerator suited for this turn",
+// regardless of whether the turn is selfplay or scripted-text.
+func (r *Registry) GetTextSynthesisGenerator(ttsConfig *config.TTSConfig) (AudioGenerator, error) {
+	if ttsConfig == nil {
+		return nil, fmt.Errorf("TTS configuration is required for audio generation")
+	}
+	if err := ttsConfig.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid TTS configuration: %w", err)
+	}
+
+	ttsService, err := r.ttsRegistry.GetWithConfig(ttsConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TTS service: %w", err)
+	}
+
+	return NewAudioContentGenerator(nil, ttsService, ttsConfig), nil
 }
 
 // GetTTSRegistry returns the TTS registry for direct access if needed.

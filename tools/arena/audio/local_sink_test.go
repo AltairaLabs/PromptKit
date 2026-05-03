@@ -286,3 +286,74 @@ func TestLocalSink_StreamReaderCloseIdempotent(t *testing.T) {
 		t.Fatal("expected stream to remain closed after second close")
 	}
 }
+
+// captureCounter is a write-closer that counts writes for capture-writer
+// tests. Implements io.WriteCloser.
+type captureCounter struct {
+	bytes  int
+	writes int
+	closed bool
+}
+
+func (c *captureCounter) Write(p []byte) (int, error) {
+	c.bytes += len(p)
+	c.writes++
+	return len(p), nil
+}
+func (c *captureCounter) Close() error { c.closed = true; return nil }
+
+func TestCaptureWriter_FlushesPendingOnClose(t *testing.T) {
+	cc := &captureCounter{}
+	cw := newCaptureWriter(cc, 16)
+
+	for i := 0; i < 5; i++ {
+		_, _ = cw.Write([]byte{0x10, 0x20})
+	}
+	if err := cw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if cc.writes != 5 {
+		t.Errorf("expected 5 writes flushed, got %d", cc.writes)
+	}
+	if !cc.closed {
+		t.Error("expected underlying file closed")
+	}
+}
+
+// TestCaptureWriter_WriteAfterCloseIsSafe exercises the close-race fix.
+// Without the closed-flag guard a Write that lands after close(cw.ch)
+// would panic on send-to-closed-channel.
+func TestCaptureWriter_WriteAfterCloseIsSafe(t *testing.T) {
+	cw := newCaptureWriter(&captureCounter{}, 4)
+	if err := cw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		_, _ = cw.Write([]byte{0xff})
+	}
+}
+
+// TestCaptureWriter_ConcurrentWriteAndClose drives Write and Close on
+// separate goroutines and asserts the program does not panic.
+func TestCaptureWriter_ConcurrentWriteAndClose(t *testing.T) {
+	for trial := 0; trial < 20; trial++ {
+		cw := newCaptureWriter(&captureCounter{}, 4)
+		stop := make(chan struct{})
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_, _ = cw.Write([]byte{0xab})
+				}
+			}
+		}()
+		time.Sleep(time.Millisecond)
+		_ = cw.Close()
+		close(stop)
+		<-done
+	}
+}

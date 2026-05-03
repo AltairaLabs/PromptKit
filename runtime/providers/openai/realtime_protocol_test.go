@@ -451,9 +451,12 @@ func TestClientEventSerialization(t *testing.T) {
 					Type:    "session.update",
 				},
 				Session: SessionConfig{
-					Modalities:   []string{"text", "audio"},
-					Instructions: "You are a helpful assistant.",
-					Voice:        "alloy",
+					Type:             "realtime",
+					OutputModalities: []string{"audio"},
+					Instructions:     "You are a helpful assistant.",
+					Audio: &RealtimeAudioConfig{
+						Output: &RealtimeAudioOutput{Voice: "alloy"},
+					},
 				},
 			},
 			check: func(t *testing.T, data []byte) {
@@ -465,8 +468,10 @@ func TestClientEventSerialization(t *testing.T) {
 					t.Errorf("expected type session.update, got %v", parsed["type"])
 				}
 				session := parsed["session"].(map[string]interface{})
-				if session["voice"] != "alloy" {
-					t.Errorf("expected voice alloy, got %v", session["voice"])
+				audio, _ := session["audio"].(map[string]interface{})
+				output, _ := audio["output"].(map[string]interface{})
+				if output["voice"] != "alloy" {
+					t.Errorf("expected audio.output.voice alloy, got %v", output["voice"])
 				}
 			},
 		},

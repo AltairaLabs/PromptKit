@@ -2,6 +2,8 @@ package selfplay
 
 import (
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 func TestExtractRegionFromPersonaID(t *testing.T) {
@@ -141,6 +143,76 @@ func TestValidateUserResponse_AllProblematicPhrases(t *testing.T) {
 				t.Errorf("expected error for phrase %q, got nil", phrase)
 			}
 		})
+	}
+}
+
+func TestSanitizeHistoryForText(t *testing.T) {
+	storageRef := "out/media/runs/abc/xyz.wav"
+	inlineData := "Zm9vYmFy" // base64 "foobar"
+	textHello := "hello"
+	textHi := "hi"
+
+	history := []types.Message{
+		{
+			Role:    "user",
+			Content: "transcript text",
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeText, Text: &textHello},
+				{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+					StorageReference: &storageRef, MIMEType: "audio/pcm",
+				}},
+			},
+		},
+		{
+			Role: "assistant",
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+					StorageReference: &storageRef, MIMEType: "audio/pcm",
+				}},
+			},
+		},
+		{
+			Role: "user",
+			Parts: []types.ContentPart{
+				{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+					Data: &inlineData, MIMEType: "audio/pcm",
+				}},
+				{Type: types.ContentTypeText, Text: &textHi},
+			},
+		},
+	}
+
+	got := sanitizeHistoryForText(history)
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages after sanitize, got %d", len(got))
+	}
+	if len(got[0].Parts) != 1 || got[0].Parts[0].Type != types.ContentTypeText {
+		t.Fatalf("first message: expected single text part, got %#v", got[0].Parts)
+	}
+	if len(got[1].Parts) != 2 {
+		t.Fatalf("second message: expected 2 parts (audio with data + text), got %d", len(got[1].Parts))
+	}
+}
+
+func TestSanitizeHistoryForText_PreservesOrderAndDropsEmpty(t *testing.T) {
+	textA := "a"
+	textC := "c"
+	storageRef := "ref"
+
+	history := []types.Message{
+		{Role: "user", Parts: []types.ContentPart{{Type: types.ContentTypeText, Text: &textA}}},
+		{Role: "assistant", Parts: []types.ContentPart{{Type: types.ContentTypeAudio, Media: &types.MediaContent{StorageReference: &storageRef}}}},
+		{Role: "user", Content: "kept via content", Parts: nil},
+		{Role: "assistant", Parts: []types.ContentPart{{Type: types.ContentTypeText, Text: &textC}}},
+	}
+
+	got := sanitizeHistoryForText(history)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 messages (assistant audio-only dropped), got %d", len(got))
+	}
+	if got[0].Role != "user" || got[1].Role != "user" || got[2].Role != "assistant" {
+		t.Fatalf("unexpected role order: %v %v %v", got[0].Role, got[1].Role, got[2].Role)
 	}
 }
 

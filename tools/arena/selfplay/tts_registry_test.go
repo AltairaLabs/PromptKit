@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
@@ -174,6 +175,73 @@ func TestTTSRegistry_Clear(t *testing.T) {
 	_, err = registry.Get("custom")
 	if err == nil {
 		t.Error("Get() after Clear() expected error")
+	}
+}
+
+func TestTTSRegistry_GetWithConfig_NilConfig(t *testing.T) {
+	registry := NewTTSRegistry()
+	if _, err := registry.GetWithConfig(nil); err == nil {
+		t.Error("GetWithConfig(nil) expected error, got nil")
+	}
+}
+
+func TestTTSRegistry_GetWithConfig_MockNoFiles_DelegatesToGet(t *testing.T) {
+	registry := NewTTSRegistry()
+	cfg := &config.TTSConfig{Provider: TTSProviderMock}
+
+	// First call creates a cached mock service via the Get path.
+	svc1, err := registry.GetWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("GetWithConfig() error = %v", err)
+	}
+
+	// Second call must return the same instance from the standard cache.
+	svc2, err := registry.GetWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("GetWithConfig() error = %v", err)
+	}
+	if svc1 != svc2 {
+		t.Error("GetWithConfig with no audio_files should reuse Get cache")
+	}
+}
+
+func TestTTSRegistry_GetWithConfig_MockWithFiles_CachesByFilesIdentity(t *testing.T) {
+	registry := NewTTSRegistry()
+
+	cfgA := &config.TTSConfig{
+		Provider:   TTSProviderMock,
+		AudioFiles: []string{"a.pcm", "b.pcm"},
+	}
+	cfgADup := &config.TTSConfig{
+		Provider:   TTSProviderMock,
+		AudioFiles: []string{"a.pcm", "b.pcm"},
+	}
+	cfgB := &config.TTSConfig{
+		Provider:   TTSProviderMock,
+		AudioFiles: []string{"c.pcm"},
+	}
+
+	svcA1, err := registry.GetWithConfig(cfgA)
+	if err != nil {
+		t.Fatalf("GetWithConfig(cfgA) error = %v", err)
+	}
+	svcADup, err := registry.GetWithConfig(cfgADup)
+	if err != nil {
+		t.Fatalf("GetWithConfig(cfgADup) error = %v", err)
+	}
+	svcB, err := registry.GetWithConfig(cfgB)
+	if err != nil {
+		t.Fatalf("GetWithConfig(cfgB) error = %v", err)
+	}
+
+	// Same audio_files identity must reuse the same instance — otherwise
+	// MockTTSService.currentFileIndex would reset and rotation would break.
+	if svcA1 != svcADup {
+		t.Error("GetWithConfig should cache mock services by audio_files identity")
+	}
+	// Different audio_files must produce a separate instance.
+	if svcA1 == svcB {
+		t.Error("GetWithConfig should not share instances across different audio_files")
 	}
 }
 

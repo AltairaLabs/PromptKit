@@ -26,6 +26,13 @@ spec:
     # Real providers for local testing (require API keys)
     - file: providers/gemini-2-flash.provider.yaml
     - file: providers/openai-gpt4o-realtime.provider.yaml
+    # Fast text-only model for the selfplay-user role. The duplex-mode
+    # providers (gemini-2-flash, openai-gpt4o-realtime) return audio, so
+    # they're not suitable for generating user-side text. gpt-4o-mini
+    # was picked for selfplay because it's the lowest-latency text model
+    # we can wire here — gemini-2.5-flash-lite was the previous choice
+    # but its 3-7s median latency dominated the inter-turn pause.
+    - file: providers/openai-gpt4o-mini-text.provider.yaml
     # Mock provider for CI testing
     - file: providers/mock-duplex.provider.yaml
     # Mock provider with simulation (interruptions, session closures)
@@ -41,6 +48,8 @@ spec:
     - file: scenarios/duplex-interactive.scenario.yaml
     - file: scenarios/duplex-tools.scenario.yaml
     - file: scenarios/duplex-replay.scenario.yaml
+    - file: scenarios/duplex-scripted-text.scenario.yaml
+    - file: scenarios/duplex-scripted-text-openai.scenario.yaml
 
   # Tool definitions for voice assistant
   tools:
@@ -56,7 +65,7 @@ spec:
       - file: personas/busy-professional.persona.yaml
     roles:
       - id: selfplay-user
-        provider: mock-duplex  # Use mock for CI, switch to real provider for local testing
+        provider: openai-gpt4o-mini-text  # Low-latency text model; switch to mock-duplex for CI
 
   # Default settings
   defaults:

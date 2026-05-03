@@ -303,14 +303,39 @@ func executeWithTUI(ctx context.Context, eng *engine.Engine, plan *engine.RunPla
 	adapter := tui.NewEventAdapter(program)
 	adapter.Subscribe(eventBus)
 
-	// Wire audio level meter: when the engine constructs a per-run AudioRouter
-	// it fires this hook, which subscribes the TUI adapter to RMS frames.
-	// Audio monitoring still requires --audio-monitor=on/auto and a duplex
-	// scenario; otherwise the engine never builds a router and the hook
-	// never fires.
-	eng.RegisterAudioMonitorHook(func(_ string, router *arenaaudio.AudioRouter, _ int) {
-		adapter.AttachAudioRouter(router)
-	})
+	// Wire host-audio playback and the level meter through one process-wide
+	// Monitor. The engine still publishes per-run AudioRouters via the hook,
+	// but the Monitor decides which run is currently routed to oto so we
+	// don't try to open the audio device twice in concurrent runs.
+	//
+	// Lifecycle: the Monitor opens oto once here and stays alive for the
+	// duration of executeWithTUI. AttachRouter is called per run; the
+	// Monitor auto-detaches when each run's router closes.
+	var audioMonitor *arenaaudio.Monitor
+	if eng.AudioMonitorEnabled() {
+		opts := eng.AudioMonitorOptions()
+		monitor, monitorErr := arenaaudio.NewMonitor(arenaaudio.MonitorConfig{
+			Rate:            opts.Rate,
+			EnableLocalSink: opts.LocalSink,
+			// AUDIO_CAPTURE_PATH=/tmp/x.s16le opts every byte oto pulls
+			// from the sink to a file for offline inspection. Only useful
+			// for debugging; left empty in normal runs.
+			CapturePath: os.Getenv("AUDIO_CAPTURE_PATH"),
+		})
+		if monitorErr != nil {
+			logger.Warn("audio monitor: disabled (sink unavailable)", "error", monitorErr)
+		} else {
+			audioMonitor = monitor
+			defer audioMonitor.Close()
+
+			eng.RegisterAudioMonitorHook(func(runID string, router *arenaaudio.AudioRouter, _ int) {
+				audioMonitor.AttachRouter(runID, router)
+			})
+
+			adapter.AttachAudioMonitor(audioMonitor)
+			model.SetAudioMonitor(audioMonitor)
+		}
+	}
 
 	// Setup log interceptor to capture logs in TUI
 	var logInterceptor *logging.Interceptor
@@ -404,6 +429,30 @@ func executeSimple(ctx context.Context, eng *engine.Engine, plan *engine.RunPlan
 
 	eventBus := events.NewEventBus()
 	eng.SetEventBus(eventBus)
+
+	// In CI / headless mode we don't open an audio device, but if the
+	// caller asked for a capture (AUDIO_CAPTURE_PATH) we still wire a
+	// headless Monitor so the data path runs end-to-end and writes the
+	// stereo bytes to disk. Lets bash invocations produce sample-accurate
+	// audio captures without a TTY.
+	capturePath := os.Getenv("AUDIO_CAPTURE_PATH")
+	if capturePath != "" && eng.AudioMonitorEnabled() {
+		opts := eng.AudioMonitorOptions()
+		monitor, mErr := arenaaudio.NewMonitor(arenaaudio.MonitorConfig{
+			Rate:            opts.Rate,
+			EnableLocalSink: true,
+			Headless:        true,
+			CapturePath:     capturePath,
+		})
+		if mErr != nil {
+			logger.Warn("audio monitor: headless capture disabled", "error", mErr)
+		} else {
+			defer monitor.Close()
+			eng.RegisterAudioMonitorHook(func(runID string, router *arenaaudio.AudioRouter, _ int) {
+				monitor.AttachRouter(runID, router)
+			})
+		}
+	}
 
 	runIDs, err := eng.ExecuteRuns(ctx, plan, params.Concurrency)
 

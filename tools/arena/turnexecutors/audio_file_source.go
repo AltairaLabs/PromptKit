@@ -235,19 +235,40 @@ func (s *AudioFileSource) parseFmtChunk(size int64) error {
 	return nil
 }
 
-// ReadChunk reads up to size bytes of audio data.
-// Returns the audio data as raw bytes suitable for streaming.
-// Returns io.EOF when all data has been read.
+// ReadChunk reads exactly size bytes of audio data, or fewer on the
+// final chunk before EOF.
+//
+// We use io.ReadFull rather than reader.Read because downstream consumers
+// (provider WebSocket sessions, resamplers, AudioTurnStage) assume each
+// emitted chunk is a complete frame in the source format. Plain Read can
+// return short on every call (HTTP body buffering, OS read-ahead, etc.),
+// which would forward sub-frame chunks into the pipeline. With PCM16
+// sources, a 1-byte short read produces an odd-byte chunk that fails
+// resample validation; with multi-byte sample formats (24-bit, 32-bit,
+// float32) the convert* helpers silently drop partial trailing samples,
+// introducing audible gaps. ReadFull eliminates both classes of bug.
+//
+// Returns io.EOF when all data has been read. The final partial chunk
+// (when fewer than size bytes remain) is returned with err==nil; the
+// next call returns 0 bytes and io.EOF.
 func (s *AudioFileSource) ReadChunk(size int) ([]byte, error) {
 	if s.reader == nil {
 		return nil, errors.New("audio source not initialized")
 	}
 
 	buf := make([]byte, size)
-	n, err := s.reader.Read(buf)
-	if err != nil && err != io.EOF {
+	n, err := io.ReadFull(s.reader, buf)
+	switch {
+	case errors.Is(err, io.EOF):
+		// Reader had nothing left.
+		return nil, io.EOF
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		// Final partial chunk — return what we got, caller drains again
+		// and gets io.EOF.
+	case err != nil:
 		return nil, fmt.Errorf("failed to read audio data: %w", err)
 	}
+
 	if n == 0 {
 		return nil, io.EOF
 	}

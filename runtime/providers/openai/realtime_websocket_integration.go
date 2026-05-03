@@ -31,7 +31,11 @@ func NewRealtimeWebSocket(model, apiKey string) *RealtimeWebSocket {
 
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+apiKey)
-	headers.Set("OpenAI-Beta", RealtimeBetaHeader)
+	// Per OpenAI's GA migration guide: do NOT send the OpenAI-Beta header
+	// against the GA Realtime API (gpt-realtime and friends). The legacy
+	// beta header was required for the original 2024 preview but is now
+	// rejected — the server treats it as a legacy connection and serves
+	// pre-GA defaults that conflict with the current event schema.
 
 	return &RealtimeWebSocket{
 		conn: streaming.NewConn(&streaming.ConnConfig{

@@ -39,15 +39,15 @@ func (a *EventAdapter) Subscribe(bus events.Bus) {
 	bus.SubscribeAll(a.HandleEvent)
 }
 
-// AttachAudioRouter subscribes the TUI adapter to RMSFrame events from the
-// router. Levels are forwarded to the Bubble Tea program as AudioLevelMsg
-// at ~30 Hz. The subscription lives until the router closes (the goroutine
-// exits when the RMS channel is closed).
-func (a *EventAdapter) AttachAudioRouter(router *arenaaudio.AudioRouter) {
-	if a == nil || router == nil {
+// AttachAudioMonitor subscribes the TUI adapter to the process-wide audio
+// Monitor's RMS stream. Frames originate from the LocalSink as it consumes
+// samples, so the meter reflects whatever the user is actually hearing —
+// regardless of which run is currently routed to playback.
+func (a *EventAdapter) AttachAudioMonitor(monitor *arenaaudio.Monitor) {
+	if a == nil || monitor == nil {
 		return
 	}
-	rms := router.SubscribeRMS(audioRMSSubscribeBuffer)
+	rms := monitor.SubscribeRMS(audioRMSSubscribeBuffer)
 	go func() {
 		for frame := range rms {
 			a.send(AudioLevelMsg{
@@ -167,8 +167,20 @@ func (a *EventAdapter) handleStateSaved(event *events.Event) tea.Msg {
 }
 
 func (a *EventAdapter) handleMessageCreated(event *events.Event) tea.Msg {
-	data, ok := event.Data.(events.MessageCreatedData)
-	if !ok {
+	// emitter.MessageCreated emits *events.MessageCreatedData (pointer).
+	// Asserting to the value type returned a silent nil, which is why
+	// the conversation panel stopped updating mid-2026 — no message
+	// ever reached the model. Accept both shapes for safety.
+	var data events.MessageCreatedData
+	switch d := event.Data.(type) {
+	case *events.MessageCreatedData:
+		if d == nil {
+			return nil
+		}
+		data = *d
+	case events.MessageCreatedData:
+		data = d
+	default:
 		return nil
 	}
 	return MessageCreatedMsg{

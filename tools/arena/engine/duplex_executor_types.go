@@ -11,8 +11,6 @@ const (
 	geminiAudioBitDepth = 16 // Required for Gemini Live API
 
 	// Default timing constants - can be overridden via scenario.duplex.resilience config
-	defaultInterTurnDelayMS         = 500
-	defaultSelfplayInterTurnDelayMS = 1000
 	defaultRetryDelayMS             = 1000
 	defaultMaxRetries               = 0
 	defaultPartialSuccessMinTurns   = 1

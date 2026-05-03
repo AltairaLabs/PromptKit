@@ -519,10 +519,11 @@ func TestRenderAudioMeters_Active(t *testing.T) {
 	if !strings.Contains(out, "agent") {
 		t.Fatalf("expected agent label, got: %q", out)
 	}
-	// 0.5 -> 4 of 8 cells filled
+	// 0.5 -> half of audioMeterCells filled
 	userLine := strings.SplitN(out, "\n", 2)[0]
-	if got := strings.Count(userLine, "█"); got != 4 {
-		t.Fatalf("expected 4 filled cells for 0.5 level, got %d in %q", got, userLine)
+	want := audioMeterCells / 2
+	if got := strings.Count(userLine, "█"); got != want {
+		t.Fatalf("expected %d filled cells for 0.5 level, got %d in %q", want, got, userLine)
 	}
 }
 

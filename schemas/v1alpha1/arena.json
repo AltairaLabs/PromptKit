@@ -583,6 +583,9 @@
         "monitor": {
           "$ref": "#/$defs/MonitorSection"
         },
+        "tts": {
+          "$ref": "#/$defs/TTSConfig"
+        },
         "html_report": {
           "type": "string"
         },
@@ -653,12 +656,6 @@
           "type": "integer"
         },
         "retry_delay_ms": {
-          "type": "integer"
-        },
-        "inter_turn_delay_ms": {
-          "type": "integer"
-        },
-        "selfplay_inter_turn_delay_ms": {
           "type": "integer"
         },
         "partial_success_min_turns": {
@@ -2025,6 +2022,9 @@
         },
         "duplex": {
           "$ref": "#/$defs/DuplexConfig"
+        },
+        "tts": {
+          "$ref": "#/$defs/TTSConfig"
         },
         "variables": {
           "additionalProperties": {

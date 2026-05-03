@@ -132,9 +132,11 @@ func TestInterceptor_WithAttrs(t *testing.T) {
 	newHandler := interceptor.WithAttrs(attrs)
 
 	assert.NotNil(t, newHandler)
-	// Type assertion
-	_, ok := newHandler.(*Interceptor)
-	assert.True(t, ok)
+	// WithAttrs returns a sub-handler that shares the parent's TUI worker
+	// and file output but applies its own attribute scoping.
+	sub, ok := newHandler.(*subInterceptor)
+	require.True(t, ok)
+	assert.Same(t, interceptor, sub.parent)
 }
 
 func TestInterceptor_WithGroup(t *testing.T) {
@@ -147,9 +149,9 @@ func TestInterceptor_WithGroup(t *testing.T) {
 	newHandler := interceptor.WithGroup("test-group")
 
 	assert.NotNil(t, newHandler)
-	// Type assertion
-	_, ok := newHandler.(*Interceptor)
-	assert.True(t, ok)
+	sub, ok := newHandler.(*subInterceptor)
+	require.True(t, ok)
+	assert.Same(t, interceptor, sub.parent)
 }
 
 func TestLevelToString(t *testing.T) {
@@ -227,4 +229,69 @@ func TestInterceptor_FlushBuffer(t *testing.T) {
 
 	interceptor.FlushBuffer()
 	assert.Len(t, handler.records, 1)
+}
+
+// TestSubInterceptor exercises the WithAttrs / WithGroup paths on the
+// parent Interceptor and the resulting subInterceptor's Enabled / Handle /
+// WithAttrs / WithGroup methods. Subinterceptors share the parent's TUI
+// worker + log file but apply scoped slog attributes.
+func TestSubInterceptor(t *testing.T) {
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
+	interceptor, err := NewInterceptor(handler, nil, "", false)
+	require.NoError(t, err)
+	defer interceptor.Close()
+
+	t.Run("WithAttrs returns subInterceptor", func(t *testing.T) {
+		sub := interceptor.WithAttrs([]slog.Attr{slog.String("k", "v")})
+		assert.NotNil(t, sub)
+		assert.True(t, sub.Enabled(context.Background(), slog.LevelInfo))
+	})
+
+	t.Run("WithGroup returns subInterceptor", func(t *testing.T) {
+		sub := interceptor.WithGroup("ns")
+		assert.NotNil(t, sub)
+	})
+
+	t.Run("subInterceptor.Handle writes through", func(t *testing.T) {
+		sub := interceptor.WithAttrs([]slog.Attr{slog.String("scope", "test")})
+		rec := slog.NewRecord(time.Now(), slog.LevelInfo, "scoped log", 0)
+		err := sub.Handle(context.Background(), rec)
+		assert.NoError(t, err)
+	})
+
+	t.Run("subInterceptor.Handle buffers when suppressStderr", func(t *testing.T) {
+		// New interceptor with suppressStderr=true to exercise the
+		// buffering branch of subInterceptor.Handle.
+		sup, err := NewInterceptor(handler, nil, "", true)
+		require.NoError(t, err)
+		defer sup.Close()
+		sub := sup.WithAttrs([]slog.Attr{slog.String("k", "v")})
+		rec := slog.NewRecord(time.Now(), slog.LevelInfo, "buffered", 0)
+		require.NoError(t, sub.Handle(context.Background(), rec))
+		assert.Len(t, sup.logBuffer, 1, "suppressed log should land in parent buffer")
+	})
+
+	t.Run("subInterceptor.Handle writes to log file when present", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		logPath := filepath.Join(tmpDir, "sub.log")
+		withFile, err := NewInterceptor(handler, nil, logPath, false)
+		require.NoError(t, err)
+		defer withFile.Close()
+		sub := withFile.WithAttrs([]slog.Attr{slog.String("k", "v")})
+		rec := slog.NewRecord(time.Now(), slog.LevelInfo, "file-bound", 0)
+		require.NoError(t, sub.Handle(context.Background(), rec))
+		// Force flush/close to ensure buffered file writes hit disk.
+		withFile.Close()
+		data, err := os.ReadFile(logPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "file-bound")
+	})
+
+	t.Run("subInterceptor.WithAttrs / WithGroup chain", func(t *testing.T) {
+		sub := interceptor.WithAttrs([]slog.Attr{slog.String("a", "1")})
+		nested := sub.WithAttrs([]slog.Attr{slog.String("b", "2")})
+		assert.NotNil(t, nested)
+		grouped := sub.WithGroup("inner")
+		assert.NotNil(t, grouped)
+	})
 }

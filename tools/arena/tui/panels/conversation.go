@@ -28,11 +28,13 @@ const (
 
 const (
 	// audioMeterCells is the width of each level bar in cells.
-	audioMeterCells = 8
+	audioMeterCells = 16
 	// audioMeterFilled is the rune used for filled cells in the level bar.
 	audioMeterFilled = "█"
-	// audioMeterEmpty is the rune used for unfilled cells in the level bar.
-	audioMeterEmpty = " "
+	// audioMeterEmpty is the rune used for unfilled cells in the level bar — a
+	// visible glyph rather than a space so the empty bar's boundary stays
+	// readable when the level is 0.
+	audioMeterEmpty = "░"
 )
 
 const (
@@ -416,7 +418,8 @@ func renderAudioMeter(label string, level float32) string {
 	}
 	bar := strings.Repeat(audioMeterFilled, filled) +
 		strings.Repeat(audioMeterEmpty, audioMeterCells-filled)
-	return fmt.Sprintf("  %-5s %s", label, bar)
+	const percentScale = 100.0
+	return fmt.Sprintf("  %-5s [%s] %3.0f%%", label, bar, clamped*percentScale)
 }
 
 // renderAudioMeters builds the two-line "user / agent" level meter block.

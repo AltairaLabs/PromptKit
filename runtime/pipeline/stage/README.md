@@ -150,10 +150,10 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
    - Marks historical messages with `from_history` flag
    - Prepends history to current messages
 
-3. **StateStoreSaveStage** (`stages_core.go`)
-   - Saves conversation state after processing
-   - Merges metadata from messages
-   - Updates state store with new messages
+3. **IncrementalSaveStage** (`stages_save.go`)
+   - Saves new messages via `MessageAppender` when the state store supports it
+   - Falls back to a full state save when it does not
+   - Replaces the original `StateStoreSaveStage` (removed)
 
 4. **ProviderStage** (`stages_provider.go`)
    - Request/response LLM execution

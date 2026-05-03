@@ -498,6 +498,20 @@ func (s *MediaExternalizerStage) externalizeMessageMedia(
 }
 
 // externalizeMedia moves media content to external storage if it exceeds threshold.
+//
+// Handles two source shapes:
+//   - Inline base64 in media.Data — typical of provider responses
+//   - On-disk file at media.FilePath — produced by streaming consumers
+//     that mirror media into a temp file (e.g. arena's turnAudioMirror)
+//     and rely on this stage to copy it into managed storage before the
+//     temp file is deleted by the producer's cleanup defer.
+//
+// In both cases the storage service receives the MediaContent as-is and
+// is responsible for reading from whichever source is set; on success
+// we replace the source with a StorageReference and clear the inline
+// data (FilePath is intentionally left set — downstream consumers may
+// still want to read the file before the producer's cleanup fires, and
+// the StorageReference is the canonical handle going forward).
 func (s *MediaExternalizerStage) externalizeMedia(
 	ctx context.Context,
 	media *types.MediaContent,
@@ -508,13 +522,17 @@ func (s *MediaExternalizerStage) externalizeMedia(
 		return nil
 	}
 
-	// Skip if no inline data
-	if media.Data == nil || *media.Data == "" {
+	// Skip if there's no source to externalize
+	hasInline := media.Data != nil && *media.Data != ""
+	hasFilePath := media.FilePath != nil && *media.FilePath != ""
+	if !hasInline && !hasFilePath {
 		return nil
 	}
 
-	// Check size threshold
-	if s.config.SizeThresholdKB > 0 {
+	// Check size threshold (inline only — FilePath payloads are
+	// typically large by construction, and stat'ing the file just to
+	// re-confirm we want to externalize it is unnecessary).
+	if hasInline && s.config.SizeThresholdKB > 0 {
 		// Estimate size from base64 data (base64 is ~4/3 original size)
 		estimatedSizeKB := int64(len(*media.Data) * 3 / 4 / 1024)
 		if estimatedSizeKB < s.config.SizeThresholdKB {
@@ -545,8 +563,12 @@ func (s *MediaExternalizerStage) externalizeMedia(
 	refStr := string(ref)
 	media.StorageReference = &refStr
 
-	// Clear inline data to save memory
+	// Clear the original sources — StorageReference is canonical from
+	// here on. Clearing FilePath is what makes it safe for the producer
+	// to delete its temp file once externalization has run (the typical
+	// arena path is: TTS → temp file → externalize → producer cleanup).
 	media.Data = nil
+	media.FilePath = nil
 
 	// Set size if not already set
 	if media.SizeKB == nil && metadata.SizeBytes > 0 {

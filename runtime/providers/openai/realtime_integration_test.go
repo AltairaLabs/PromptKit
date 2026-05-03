@@ -34,7 +34,7 @@ func generateSineWave24k(freqHz float64, durationMs int, amplitude float64) []by
 func newRealtimeProvider() *Provider {
 	return NewProvider(
 		"openai-realtime-test",
-		"gpt-4o-realtime-preview",
+		"gpt-realtime",
 		"https://api.openai.com",
 		providers.ProviderDefaults{},
 		false,
@@ -296,7 +296,7 @@ func TestRealtimeIntegration_ErrorHandling(t *testing.T) {
 	t.Run("invalid API key", func(t *testing.T) {
 		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("openai-bad-key", false, nil),
-			model:        "gpt-4o-realtime-preview",
+			model:        "gpt-realtime",
 			baseURL:      "https://api.openai.com",
 			apiKey:       "sk-invalid-key-for-testing",
 			defaults:     providers.ProviderDefaults{},
@@ -327,7 +327,7 @@ func TestRealtimeIntegration_ErrorHandling(t *testing.T) {
 	t.Run("empty API key", func(t *testing.T) {
 		provider := &Provider{
 			BaseProvider: providers.NewBaseProvider("openai-empty-key", false, nil),
-			model:        "gpt-4o-realtime-preview",
+			model:        "gpt-realtime",
 			baseURL:      "https://api.openai.com",
 			apiKey:       "",
 			defaults:     providers.ProviderDefaults{},

@@ -363,6 +363,32 @@ func (s *DuplexProviderStage) forwardInputElements(
 			if !ok {
 				// Signal that input is done - we may be waiting for final response
 				// Don't close session here - let forwardResponseElements wait with timeout
+				//
+				// IMPORTANT — debugging "long delay between user-turn end
+				// and provider's turnComplete signal" with provider-native
+				// (ASM) turn detection:
+				//
+				// Do NOT add a session.CompleteTurn() call here when the
+				// scenario uses turn_detection.mode = "asm". CompleteTurn
+				// is the *client-side* turn-end signal, used only for
+				// VAD/manual turn-control mode. In ASM mode the provider
+				// (e.g. Gemini) decides turn boundaries from the audio
+				// stream content itself.
+				//
+				// What ASM expects: a continuous audio stream (silence
+				// inclusive). It detects end-of-turn when it observes
+				// silence *in the audio*. If we stop sending audio
+				// packets entirely after the user utterance, ASM has no
+				// audio to apply VAD to and falls back to a wall-clock
+				// timeout (~6s observed empirically with Gemini).
+				//
+				// The fix for that delay, if you ever need to chase it,
+				// is upstream — keep the audio stream alive with a tail
+				// of silent packets after the user utterance ends, long
+				// enough for ASM to detect end-of-turn from content. It
+				// is NOT a CompleteTurn call here. See also
+				// runtime/providers/gemini/stream_session_integration.go
+				// (CompleteTurn doc) for the same warning.
 				logger.Debug("DuplexProviderStage: input channel closed, signaling input done")
 				s.inputDoneOnce.Do(func() {
 					close(s.inputDoneCh)
@@ -470,6 +496,8 @@ func (s *DuplexProviderStage) replayAndMerge(
 func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *StreamElement) {
 	// Check for tool responses to send back to the provider.
 	// Tool responses are sent by the executor after executing tools requested by the model.
+	// Falls through to the rest of the function so the same element can also carry
+	// EndOfStream or other content — we don't want to silently drop those.
 	if toolResponses := elem.Meta.ToolResponses; len(toolResponses) > 0 {
 		if toolSession, ok := s.session.(providers.ToolResponseSupport); ok {
 			logger.Debug("DuplexProviderStage: sending tool responses to session",
@@ -483,7 +511,6 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 			logger.Warn("DuplexProviderStage: session does not support tool responses",
 				"sessionType", fmt.Sprintf("%T", s.session))
 		}
-		return
 	}
 
 	// Source the system prompt from TurnState.
@@ -530,9 +557,9 @@ func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *St
 		// Signal end of input to session to trigger model response
 		// This is critical for pre-recorded audio files without trailing silence
 		if endInputter, ok := s.session.(EndInputter); ok {
-			logger.Debug("DuplexProviderStage: calling EndInput() to trigger response")
+			logger.Debug("DuplexProviderStage: marking input done (provider decides what to send — no-op in ASM mode)")
 			endInputter.EndInput()
-			logger.Debug("DuplexProviderStage: EndInput() completed")
+			logger.Debug("DuplexProviderStage: input-done signal handled by provider")
 		} else {
 			logger.Debug("DuplexProviderStage: session does not implement EndInputter",
 				"sessionType", fmt.Sprintf("%T", s.session))

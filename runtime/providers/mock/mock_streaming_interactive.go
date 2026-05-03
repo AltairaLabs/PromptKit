@@ -3,12 +3,25 @@ package mock
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// isVideoOrImage returns true when the chunk metadata's mime_type field
+// indicates a non-audio media type, in which case PCM16 alignment doesn't
+// apply.
+func isVideoOrImage(meta map[string]string) bool {
+	if meta == nil {
+		return false
+	}
+	mt := meta["mime_type"]
+	return strings.HasPrefix(mt, "video/") || strings.HasPrefix(mt, "image/")
+}
 
 const (
 	defaultResponseBufferSize = 10
@@ -55,6 +68,14 @@ type MockStreamSession struct {
 	// Simulation: Session closure (mimics Gemini dropping connection unexpectedly)
 	closeAfterTurns int  // If > 0, close session after this many turns
 	closeNoResponse bool // If true with closeAfterTurns, close WITHOUT sending final response
+
+	// Scenario-mapped responses: when set, emitAutoResponse looks up the
+	// per-turn response from this repository instead of emitting responseText.
+	// Used by duplex sessions configured via mock-responses.yaml.
+	repository ResponseRepository
+	scenarioID string
+	providerID string
+	model      string
 }
 
 // NewMockStreamSession creates a new mock stream session.
@@ -75,6 +96,20 @@ func (m *MockStreamSession) WithAutoRespond(text string) *MockStreamSession {
 	m.autoRespond = true
 	m.responseText = text
 	m.closeAfterResponse = false // Keep session open for multiple turns
+	return m
+}
+
+// WithScenarioResponses wires a repository for per-turn scenario-mapped
+// responses. When set alongside WithAutoRespond, emitAutoResponse looks up
+// each turn's response from the repository keyed by scenarioID + 1-indexed
+// turn number, falling back to responseText on miss or error.
+func (m *MockStreamSession) WithScenarioResponses(
+	scenarioID, providerID, model string, repo ResponseRepository,
+) *MockStreamSession {
+	m.scenarioID = scenarioID
+	m.providerID = providerID
+	m.model = model
+	m.repository = repo
 	return m
 }
 
@@ -129,6 +164,14 @@ func (m *MockStreamSession) WithCloseAfterTurns(turns int, noResponse ...bool) *
 }
 
 // SendChunk implements StreamInputSession.SendChunk.
+//
+// Validates PCM16 alignment (even byte count) so tests catch upstream
+// chunking bugs before they reach a real provider. We learned this the
+// hard way — OpenAI Realtime rejected partial chunks from a buggy
+// pumpTTSChunks with a cryptic "Invalid 'audio'... got an invalid value"
+// that took a full bisection against the live API to track down. The
+// mock should fail loudly on the same input shape so a unit test would
+// have caught it.
 func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChunk) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -138,6 +181,18 @@ func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChu
 	}
 	if m.sendChunkErr != nil {
 		return m.sendChunkErr
+	}
+
+	if chunk == nil || len(chunk.Data) == 0 {
+		// Match real providers (OpenAI SendChunk silently no-ops on empty).
+		return nil
+	}
+	// PCM16 alignment check — only applies to audio chunks. Video and image
+	// chunks have their own framing (annexed in metadata.mime_type).
+	if !isVideoOrImage(chunk.Metadata) && len(chunk.Data)%2 != 0 {
+		return fmt.Errorf("MockStreamSession.SendChunk: PCM16 alignment violation, "+
+			"chunk has %d bytes (odd). Producer is emitting partial samples — "+
+			"likely a reader.Read() that should be io.ReadFull()", len(chunk.Data))
 	}
 
 	m.chunks = append(m.chunks, chunk)
@@ -256,6 +311,25 @@ func (m *MockStreamSession) GetTexts() []string {
 	return m.texts
 }
 
+// resolveTurnResponseText returns the text for this turn, preferring a
+// scenario-mapped response from the repository when configured. Falls back
+// to the session's static responseText on miss, error, or empty content.
+func (m *MockStreamSession) resolveTurnResponseText(turnNumber int) string {
+	if m.repository == nil || m.scenarioID == "" {
+		return m.responseText
+	}
+	turn, err := m.repository.GetTurn(context.Background(), ResponseParams{
+		ScenarioID: m.scenarioID,
+		TurnNumber: turnNumber,
+		ProviderID: m.providerID,
+		ModelName:  m.model,
+	})
+	if err != nil || turn == nil || turn.Content == "" {
+		return m.responseText
+	}
+	return turn.Content
+}
+
 // emitAutoResponse sends configured response chunks (must be called with lock held).
 func (m *MockStreamSession) emitAutoResponse() {
 	currentTurn := m.responseCount + 1 // 1-indexed turn number
@@ -317,11 +391,14 @@ func (m *MockStreamSession) emitAutoResponse() {
 			m.responses <- m.responseChunks[i]
 		}
 	} else {
-		// Emit simple text response
+		// Resolve the response text for this turn — prefer scenario-mapped
+		// responses from the repository when configured, else fall back to the
+		// session's responseText.
+		text := m.resolveTurnResponseText(currentTurn)
 		finishReason := "stop"
 		chunk := providers.StreamChunk{
-			Content:      m.responseText,
-			Delta:        m.responseText,
+			Content:      text,
+			Delta:        text,
 			FinishReason: &finishReason,
 		}
 		select {
@@ -419,6 +496,18 @@ func (p *StreamingProvider) WithCloseAfterTurns(turns int, noResponse ...bool) *
 	return p
 }
 
+// scenarioIDFromMetadata extracts mock_scenario_id from a streaming session's
+// request metadata. Returns "" when absent so callers fall back to auto-respond.
+func scenarioIDFromMetadata(req *providers.StreamingInputConfig) string {
+	if req == nil || req.Metadata == nil {
+		return ""
+	}
+	if v, ok := req.Metadata["mock_scenario_id"].(string); ok {
+		return v
+	}
+	return ""
+}
+
 // CreateStreamSession implements StreamInputSupport.CreateStreamSession.
 func (p *StreamingProvider) CreateStreamSession(
 	ctx context.Context,
@@ -437,6 +526,13 @@ func (p *StreamingProvider) CreateStreamSession(
 			responseText = DefaultMockStreamingResponse
 		}
 		session.WithAutoRespond(responseText)
+	}
+
+	// If the request carries a scenario_id and the provider has a repository,
+	// route per-turn responses through the scenario lookup. The session
+	// transparently falls back to the auto-respond text on miss/empty.
+	if scenarioID := scenarioIDFromMetadata(req); scenarioID != "" && p.repository != nil {
+		session.WithScenarioResponses(scenarioID, p.id, p.model, p.repository)
 	}
 
 	// Apply simulation configurations

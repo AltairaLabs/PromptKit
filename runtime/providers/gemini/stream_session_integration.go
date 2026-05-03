@@ -456,7 +456,38 @@ func (s *StreamSession) SendSystemContext(ctx context.Context, text string) erro
 	return ws.Send(msg)
 }
 
-// CompleteTurn signals that the current turn is complete
+// CompleteTurn signals that the current turn is complete by sending
+// client_content.turn_complete=true to Gemini.
+//
+// IMPORTANT — read before wiring this into the duplex pipeline:
+//
+// This is the *client-driven* turn-end signal. Use it ONLY when the
+// session has been configured for manual / client-side turn control —
+// e.g. when our pipeline runs its own VAD (turn_detection.mode = "vad")
+// and the client decides where turns begin and end.
+//
+// It is the WRONG mechanism for sessions configured with
+// turn_detection.mode = "asm" (Gemini's automatic speech management).
+// In ASM mode, Gemini decides turn boundaries from the content of the
+// audio stream itself (content-based VAD on the server). The
+// client doesn't tell Gemini "I'm done" — Gemini infers it. Sending
+// turn_complete in ASM mode is at best a no-op and at worst confuses
+// the session-state machine.
+//
+// If you're chasing a delay between the model finishing its response
+// (`generationComplete`) and Gemini emitting `turnComplete`, the cause
+// is NOT a missing CompleteTurn call — it's almost certainly that we
+// stopped sending the input audio stream entirely. Gemini's ASM
+// expects a continuous audio stream (silence inclusive); a silent
+// gap in the stream is what triggers its end-of-turn detection. If we
+// stop sending packets altogether, ASM has no audio to apply VAD to
+// and falls back to a wall-clock timeout. The fix in that case is
+// upstream — keep the stream alive with silence after the user
+// utterance ends — not a CompleteTurn here.
+//
+// Test references in this package call CompleteTurn directly to
+// exercise the protocol message; that does not imply production
+// callers should do the same.
 func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {
@@ -526,20 +557,45 @@ func (s *StreamSession) isVADDisabled() bool {
 // EndInput implements the EndInputter interface expected by DuplexProviderStage.
 // It signals that the user's input turn is complete and the model should respond.
 //
-// Always sends activityEnd — this is the explicit "your turn" signal that
-// works regardless of VAD configuration. Pre-recorded audio files (the
-// arena/testing use case) have no trailing silence, so relying on VAD
-// silence detection is unreliable and slow. In a real conversation with
-// a live mic, EndInput is never called — VAD handles turn-taking
-// naturally through the user's actual silence.
+// activityStart/activityEnd are valid ONLY in manual turn-control mode
+// (automaticActivityDetection.disabled = true). Sending activityEnd when
+// ASM is enabled puts Gemini's session into a conflicting state: it
+// expects to detect turn boundaries from audio content silence, and the
+// out-of-band signal is treated as a protocol error — empirically the
+// session goes quiet (no response) for the rest of the turn.
+//
+// So: only send activityEnd when we're actually in manual mode.
+// In ASM mode, end-of-turn is signaled by content silence — the
+// caller (e.g. arena's pumpTTSChunks) is responsible for emitting a
+// trailing silence tail before invoking EndInput.
 func (s *StreamSession) EndInput() {
-	logger.Debug("Gemini StreamSession: EndInput called", "vad_disabled", s.isVADDisabled())
-
-	if err := s.sendActivityEnd(); err != nil {
-		logger.Error("Gemini StreamSession: EndInput failed to send activityEnd", "error", err)
+	// Log with the actual mode rather than the "vad_disabled" flag,
+	// whose polarity is the opposite of what the name suggests
+	// (vad_disabled=true → manual mode; vad_disabled=false → ASM).
+	mode := "asm"
+	if s.isVADDisabled() {
+		mode = "manual"
 	}
 
-	// Reset for next turn
+	if s.isVADDisabled() {
+		logger.Debug("Gemini StreamSession: EndInput sending activityEnd",
+			"mode", mode)
+		if err := s.sendActivityEnd(); err != nil {
+			logger.Error("Gemini StreamSession: EndInput failed to send activityEnd",
+				"error", err)
+		}
+	} else {
+		// In ASM mode this is a no-op on the wire — Gemini decides
+		// turn boundaries from audio content silence, not from
+		// out-of-band signals. Logged so it's clear nothing went
+		// out, rather than the previous misleading "EndInput called"
+		// which sounded like a protocol message just got sent.
+		logger.Debug("Gemini StreamSession: EndInput no-op (ASM detects end-of-turn from audio silence)",
+			"mode", mode)
+	}
+
+	// Reset for next turn (only meaningful in manual mode but cheap to
+	// always reset).
 	s.mu.Lock()
 	s.activityStartSent = false
 	s.mu.Unlock()

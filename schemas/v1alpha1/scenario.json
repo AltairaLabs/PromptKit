@@ -138,12 +138,6 @@
         "retry_delay_ms": {
           "type": "integer"
         },
-        "inter_turn_delay_ms": {
-          "type": "integer"
-        },
-        "selfplay_inter_turn_delay_ms": {
-          "type": "integer"
-        },
         "partial_success_min_turns": {
           "type": "integer"
         },
@@ -299,6 +293,9 @@
         },
         "duplex": {
           "$ref": "#/$defs/DuplexConfig"
+        },
+        "tts": {
+          "$ref": "#/$defs/TTSConfig"
         },
         "variables": {
           "additionalProperties": {

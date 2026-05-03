@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -25,6 +26,7 @@ type ArenaStateStoreSaveStage struct {
 	stage.BaseStage
 	config    *pipeline.StateStoreConfig
 	turnState *stage.TurnState
+	emitter   *events.Emitter
 }
 
 // NewArenaStateStoreSaveStage creates a new Arena state store save stage.
@@ -44,6 +46,16 @@ func NewArenaStateStoreSaveStageWithTurnState(
 		config:    config,
 		turnState: turnState,
 	}
+}
+
+// WithEmitter wires an events.Emitter so the stage broadcasts each message
+// to the event bus the moment it arrives. Live UIs (TUI conversation panel,
+// web SSE relay) can then render turns as they happen instead of waiting
+// for run completion. Stage-level state save remains the source of truth
+// for replay and post-run results.
+func (s *ArenaStateStoreSaveStage) WithEmitter(emitter *events.Emitter) *ArenaStateStoreSaveStage {
+	s.emitter = emitter
+	return s
 }
 
 // collectedData holds all data collected from stream elements.
@@ -238,6 +250,7 @@ func (s *ArenaStateStoreSaveStage) Process(
 
 	for elem := range input {
 		data.collectFromElement(&elem)
+		s.broadcastMessage(&elem, len(data.messages)-1)
 		cachedState = s.maybeIncrementalSave(ctx, arenaStore, &elem, data, cachedState, ctxCanceled)
 
 		// Try to forward element, but if context is canceled, just drain remaining input
@@ -269,6 +282,24 @@ func (s *ArenaStateStoreSaveStage) Process(
 	}
 
 	return nil
+}
+
+// broadcastMessage publishes the just-arrived message to the event bus when
+// an emitter is configured. Skipped when the element carries no Message or
+// when the index is out of range. Live UI consumers (TUI, web SSE) subscribe
+// to the bus and update their views in real time.
+func (s *ArenaStateStoreSaveStage) broadcastMessage(elem *stage.StreamElement, idx int) {
+	if s.emitter == nil || elem.Message == nil || idx < 0 {
+		return
+	}
+	s.emitter.MessageCreated(
+		elem.Message.Role,
+		elem.Message.Content,
+		idx,
+		elem.Message.Parts,
+		nil, // tool calls converted upstream when present; live UI cares about role+text
+		nil,
+	)
 }
 
 // ctxOrBackground returns context.Background when the upstream context has

@@ -492,6 +492,59 @@ func TestBuildEngineComponents_ProviderFilterSkipsCredentialResolution(t *testin
 	})
 }
 
+// TestBuildEngineComponents_FilterIncludesSelfPlayRoleProviders is a
+// regression test for a real-world breakage: PR #944 added a provider
+// filter to skip credential resolution for unselected providers, but
+// selfplay roles look up their providers in the post-filter registry.
+// Filtering out a selfplay role's provider made engine init fail with
+// "self-play role X: provider Y not found in main registry" — even
+// when no scenario in the run actually used selfplay.
+//
+// Selfplay-role providers are auxiliary, not test targets; the
+// run-matrix filter must not strand them.
+func TestBuildEngineComponents_FilterIncludesSelfPlayRoleProviders(t *testing.T) {
+	cfg := &config.Config{
+		LoadedProviders: map[string]*config.Provider{
+			"gemini": {
+				ID:    "gemini",
+				Type:  "mock",
+				Model: "gemini-2-flash",
+				Defaults: config.ProviderDefaults{
+					Temperature: 0.1,
+					MaxTokens:   128,
+				},
+			},
+			"selfplay-mock": {
+				ID:    "selfplay-mock",
+				Type:  "mock",
+				Model: "mock",
+				Defaults: config.ProviderDefaults{
+					Temperature: 0.1,
+					MaxTokens:   128,
+				},
+			},
+		},
+		SelfPlay: &config.SelfPlayConfig{
+			Roles: []config.SelfPlayRoleGroup{
+				{ID: "selfplay-user", Provider: "selfplay-mock"},
+			},
+		},
+	}
+
+	// Filter the run matrix to gemini only. selfplay-mock is referenced
+	// by a role and must still be loaded so role wiring succeeds, even
+	// though no scenario in this filtered run uses selfplay.
+	providerReg, _, _, _, _, _, _, _, err := BuildEngineComponents(cfg, []string{"gemini"})
+	require.NoError(t, err)
+	require.NotNil(t, providerReg)
+
+	listed := providerReg.List()
+	// Both providers loaded: gemini (run matrix) + selfplay-mock (role).
+	require.Contains(t, listed, "gemini")
+	require.Contains(t, listed, "selfplay-mock",
+		"selfplay-role provider must be loaded regardless of run-matrix filter")
+}
+
 func TestDiscoverAndRegisterSkillTools_FromConfig(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "skills", "test-skill")

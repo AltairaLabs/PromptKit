@@ -11,9 +11,9 @@ import (
 func TestBuildAudioMonitor_NilWhenNotEnabled(t *testing.T) {
 	eng := &Engine{}
 	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
-	router, sink := eng.buildAudioMonitor(scenario)
-	if router != nil || sink != nil {
-		t.Fatalf("expected nil router and sink when monitor not enabled, got router=%v sink=%v", router, sink)
+	if router := eng.buildAudioMonitor(scenario); router != nil {
+		defer router.Close()
+		t.Fatalf("expected nil router when monitor not enabled, got %v", router)
 	}
 }
 
@@ -26,9 +26,9 @@ func TestBuildAudioMonitor_NilWhenScenarioNotDuplex(t *testing.T) {
 		t.Fatal(err)
 	}
 	scenario := &config.Scenario{Duplex: nil}
-	router, sink := eng.buildAudioMonitor(scenario)
-	if router != nil || sink != nil {
-		t.Fatalf("expected nil router and sink for non-duplex scenario, got router=%v sink=%v", router, sink)
+	if router := eng.buildAudioMonitor(scenario); router != nil {
+		defer router.Close()
+		t.Fatalf("expected nil router for non-duplex scenario, got %v", router)
 	}
 }
 
@@ -40,9 +40,9 @@ func TestBuildAudioMonitor_NilWhenScenarioNil(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	router, sink := eng.buildAudioMonitor(nil)
-	if router != nil || sink != nil {
-		t.Fatalf("expected nil router and sink for nil scenario, got router=%v sink=%v", router, sink)
+	if router := eng.buildAudioMonitor(nil); router != nil {
+		defer router.Close()
+		t.Fatalf("expected nil router for nil scenario, got %v", router)
 	}
 }
 
@@ -55,9 +55,9 @@ func TestBuildAudioMonitor_NilWhenModeOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
-	router, sink := eng.buildAudioMonitor(scenario)
-	if router != nil || sink != nil {
-		t.Fatalf("expected nil router and sink for ModeOff, got router=%v sink=%v", router, sink)
+	if router := eng.buildAudioMonitor(scenario); router != nil {
+		defer router.Close()
+		t.Fatalf("expected nil router for ModeOff, got %v", router)
 	}
 }
 
@@ -70,16 +70,11 @@ func TestBuildAudioMonitor_ConstructsRouterForDuplexModeOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
-	router, sink := eng.buildAudioMonitor(scenario)
+	router := eng.buildAudioMonitor(scenario)
 	if router == nil {
 		t.Fatal("expected router for ModeOn duplex scenario")
 	}
 	defer router.Close()
-	if sink != nil {
-		// LocalSink not requested in opts; should remain nil.
-		defer sink.Close()
-		t.Fatalf("expected nil sink (LocalSink not enabled), got %v", sink)
-	}
 }
 
 func TestBuildAudioMonitor_NilWhenAutoModeNonTTY(t *testing.T) {
@@ -94,51 +89,10 @@ func TestBuildAudioMonitor_NilWhenAutoModeNonTTY(t *testing.T) {
 		t.Fatal(err)
 	}
 	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
-	router, sink := eng.buildAudioMonitor(scenario)
-	if router != nil || sink != nil {
-		if router != nil {
-			defer router.Close()
-		}
-		if sink != nil {
-			defer sink.Close()
-		}
-		t.Fatalf("expected nil router and sink in non-TTY ModeAuto, got router=%v sink=%v", router, sink)
+	if router := eng.buildAudioMonitor(scenario); router != nil {
+		defer router.Close()
+		t.Fatalf("expected nil router in non-TTY ModeAuto, got %v", router)
 	}
-}
-
-func TestBuildAudioMonitor_LocalSinkSubscribed(t *testing.T) {
-	// When LocalSink is enabled, NewLocalSink returns a non-nil sink (noop in
-	// headless environments) and the engine subscribes a consumer goroutine to
-	// the router. The router teardown must close the consumer channel cleanly.
-	eng := &Engine{}
-	if err := eng.EnableAudioMonitor(arenaaudio.Options{
-		Rate:      arenaaudio.Rate24k,
-		Mode:      arenaaudio.ModeOn,
-		LocalSink: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
-	router, sink := eng.buildAudioMonitor(scenario)
-	if router == nil {
-		t.Fatal("expected router")
-	}
-	defer router.Close()
-	if sink == nil {
-		t.Fatal("expected non-nil LocalSink (noop fallback should still return a sink)")
-	}
-	defer sink.Close()
-
-	// Publish a frame; the consumer goroutine should receive it without
-	// blocking the router. We don't assert reception (the goroutine is
-	// internal) — just that publish + close are safe.
-	router.Publish(arenaaudio.Frame{
-		Direction: arenaaudio.DirectionOutput,
-		Samples:   []int16{1, 2, 3, 4},
-	})
-	// Give the dispatch loop a moment to process; the test passing indicates
-	// no deadlock between Publish, Subscribe, and Close.
-	time.Sleep(20 * time.Millisecond)
 }
 
 func TestIsStdoutTTY_ReportsBoolean(t *testing.T) {
@@ -237,7 +191,7 @@ func TestBuildAudioMonitor_RouterFanout(t *testing.T) {
 		t.Fatal(err)
 	}
 	scenario := &config.Scenario{Duplex: &config.DuplexConfig{}}
-	router, _ := eng.buildAudioMonitor(scenario)
+	router := eng.buildAudioMonitor(scenario)
 	if router == nil {
 		t.Fatal("expected router")
 	}

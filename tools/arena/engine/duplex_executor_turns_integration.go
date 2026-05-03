@@ -2,10 +2,11 @@ package engine
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,10 +21,25 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
 )
 
+// turnPartTypeAudio is the TurnContentPart.Type value for audio parts.
+const turnPartTypeAudio = "audio"
+
+// Audio chunking constants for streaming PCM s16le mono into providers that
+// expect ~20 ms frames.
+const (
+	// bytesPerSamplePCM16 is the byte size of one 16-bit PCM mono sample.
+	bytesPerSamplePCM16 = 2
+	// chunksPerSecond20ms is the chunk count per second when each chunk is
+	// 20 ms (1000 / 20 = 50).
+	chunksPerSecond20ms = 50
+	// minChunkBytes is the minimum byte size for an emitted audio chunk —
+	// chunks smaller than this are dropped to avoid overwhelming downstream
+	// VAD with sub-sample fragments.
+	minChunkBytes = 320
+)
+
 // turnLoopConfig holds configuration for the turn processing loop.
 type turnLoopConfig struct {
-	interTurnDelayMS         int
-	selfplayInterTurnDelayMS int
 	partialSuccessMinTurns   int
 	ignoreLastTurnSessionEnd bool
 }
@@ -80,8 +96,6 @@ func (de *DuplexConversationExecutor) getTurnLoopConfig(req *ConversationRequest
 		resilience = req.Scenario.Duplex.GetResilience()
 	}
 	return &turnLoopConfig{
-		interTurnDelayMS:         resilience.GetInterTurnDelayMs(defaultInterTurnDelayMS),
-		selfplayInterTurnDelayMS: resilience.GetSelfplayInterTurnDelayMs(defaultSelfplayInterTurnDelayMS),
 		partialSuccessMinTurns:   resilience.GetPartialSuccessMinTurns(defaultPartialSuccessMinTurns),
 		ignoreLastTurnSessionEnd: resilience.ShouldIgnoreLastTurnSessionEnd(defaultIgnoreLastTurnSessionEnd),
 	}
@@ -139,7 +153,7 @@ func (de *DuplexConversationExecutor) processTurnIterations(
 
 		isLastTurn := (iteration == turnsToExecute-1) && (scenarioTurnIdx == len(args.req.Scenario.Turns)-1)
 		if !isLastTurn {
-			de.applyInterTurnDelay(turn, args.cfg)
+			de.waitForLocalPlaybackDrained(ctx, args.req)
 		}
 
 		args.state.logicalTurnIdx++
@@ -201,14 +215,33 @@ func (de *DuplexConversationExecutor) handleTurnSuccess(
 	logger.Debug("Duplex turn completed", "turn", logicalTurnIdx, "role", turn.Role)
 }
 
-// applyInterTurnDelay adds a delay between turns to avoid interruption issues.
-func (de *DuplexConversationExecutor) applyInterTurnDelay(turn *config.TurnDefinition, cfg *turnLoopConfig) {
-	delayMS := cfg.interTurnDelayMS
-	if de.isSelfPlayRole(turn.Role) {
-		delayMS = cfg.selfplayInterTurnDelayMS
+// waitForLocalPlaybackDrained blocks until any registered audio
+// drain handlers (LocalSink, etc.) have caught up with the audio
+// they've been streamed. This replaces the magic-number inter-turn
+// sleeps that historically guarded against turn-N's assistant audio
+// still being audible when turn-N+1 began.
+//
+// Architectural note: the AudioRouter is an observer-style bus, not
+// a backpressure surface. The drain barrier is opt-in for subscribers
+// that physically play audio (LocalSink) and is invoked by the
+// CONTROLLER (this turn loop), never by the data-path. The pipeline
+// itself stays oblivious. When no one is listening (CI runs with no
+// router attached, or scenarios with no LocalSink subscribed), this
+// is a no-op.
+//
+// Output pacing on the duplex pipeline ensures the last assistant
+// audio chunk has actually been forwarded to the sink by the time
+// response.done fires; this drain barrier covers the additional ~tens
+// of ms the host audio device takes to drain its own output queue.
+func (de *DuplexConversationExecutor) waitForLocalPlaybackDrained(
+	ctx context.Context, req *ConversationRequest,
+) {
+	if req == nil || req.AudioRouter == nil {
+		return
 	}
-	logger.Debug("Inter-turn delay before next turn", "delay_ms", delayMS, "was_selfplay", de.isSelfPlayRole(turn.Role))
-	time.Sleep(time.Duration(delayMS) * time.Millisecond)
+	logger.Debug("Inter-turn drain: waiting for local playback to finish")
+	req.AudioRouter.WaitOutputDrained(ctx)
+	logger.Debug("Inter-turn drain: local playback finished")
 }
 
 // finalizeTurnProcessing sends completion signal and drains the output channel.
@@ -268,9 +301,18 @@ func (de *DuplexConversationExecutor) processSingleDuplexTurn(
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
-	// For user turns with audio, stream the audio file
-	if turn.Role == "user" && len(turn.Parts) > 0 {
-		return de.streamAudioTurn(ctx, turn, baseDir, inputChan, outputChan)
+	// User turns can take three shapes in duplex mode:
+	//   1. Audio parts (file-based) → stream the file directly
+	//   2. Text content with no audio parts → run through TTS (scripted-text)
+	//   3. Empty → error
+	if turn.Role == "user" {
+		if turnHasAudioPart(turn) {
+			return de.streamAudioTurn(ctx, turn, baseDir, inputChan, outputChan)
+		}
+		if turn.Content != "" {
+			return de.processScriptedTextDuplexTurn(ctx, req, turn, turnIdx, inputChan, outputChan)
+		}
+		return fmt.Errorf("duplex user turn %d must have audio parts or text content", turnIdx)
 	}
 
 	// For self-play turns, generate audio via TTS
@@ -279,6 +321,71 @@ func (de *DuplexConversationExecutor) processSingleDuplexTurn(
 	}
 
 	return fmt.Errorf("unsupported turn role for duplex: %s", turn.Role)
+}
+
+// turnHasAudioPart reports whether any of the turn's parts is audio.
+func turnHasAudioPart(turn *config.TurnDefinition) bool {
+	for i := range turn.Parts {
+		if turn.Parts[i].Type == turnPartTypeAudio {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveTTS picks the TTS config for a turn using a layered precedence:
+//
+//  1. turn.TTS (per-turn override)
+//  2. scenario.TTS (scenario-level default)
+//  3. arena defaults TTS (arena-wide default)
+//
+// Returns nil when no layer supplies a config. Callers decide whether nil is an
+// error for their codepath.
+func (de *DuplexConversationExecutor) resolveTTS(
+	turn *config.TurnDefinition,
+	scenario *config.Scenario,
+	cfg *config.Config,
+) *config.TTSConfig {
+	if turn != nil && turn.TTS != nil {
+		return turn.TTS
+	}
+	if scenario != nil && scenario.TTS != nil {
+		return scenario.TTS
+	}
+	if cfg != nil && cfg.Defaults.TTS != nil {
+		return cfg.Defaults.TTS
+	}
+	return nil
+}
+
+// processScriptedTextDuplexTurn handles user turns whose content is plain text
+// (no audio parts). The text is synthesized via TTS using layered config
+// resolution and streamed to the duplex provider.
+func (de *DuplexConversationExecutor) processScriptedTextDuplexTurn(
+	ctx context.Context,
+	req *ConversationRequest,
+	turn *config.TurnDefinition,
+	turnIdx int,
+	inputChan chan<- stage.StreamElement,
+	outputChan <-chan stage.StreamElement,
+) error {
+	if de.selfPlayRegistry == nil {
+		return fmt.Errorf("self-play registry not configured for duplex turn %d (required for TTS)", turnIdx)
+	}
+
+	ttsConfig := de.resolveTTS(turn, req.Scenario, req.Config)
+	if ttsConfig == nil {
+		return fmt.Errorf(
+			"TTS configuration required for scripted-text duplex turn %d "+
+				"(set turn.tts, scenario.spec.tts, or arena defaults.tts)",
+			turnIdx,
+		)
+	}
+
+	return de.streamTextAsAudio(
+		ctx, turn.Content, ttsConfig, nil,
+		inputChan, outputChan,
+	)
 }
 
 // streamAudioTurn streams audio from a file to the pipeline.
@@ -292,7 +399,7 @@ func (de *DuplexConversationExecutor) streamAudioTurn(
 	// Find audio part
 	var audioPart *config.TurnContentPart
 	for i := range turn.Parts {
-		if turn.Parts[i].Type == "audio" {
+		if turn.Parts[i].Type == turnPartTypeAudio {
 			audioPart = &turn.Parts[i]
 			break
 		}
@@ -363,19 +470,24 @@ func (de *DuplexConversationExecutor) streamAudioChunks(
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
+	logger.Debug("streamAudioChunks: drain start")
 	if err := de.drainStaleMessages(outputChan); err != nil {
 		return err
 	}
+	logger.Debug("streamAudioChunks: drain done; starting response collector")
 
 	responseDone := de.startResponseCollector(ctx, outputChan, inputChan, "Turn")
 
+	logger.Debug("streamAudioChunks: streaming from file source")
 	if err := de.streamFromFileSource(ctx, source, inputChan); err != nil {
 		return err
 	}
+	logger.Debug("streamAudioChunks: file source drained; sending EndOfStream")
 
 	if err := de.sendEndOfStream(ctx, inputChan, "streamAudioChunks"); err != nil {
 		return err
 	}
+	logger.Debug("streamAudioChunks: EndOfStream sent; waiting for response")
 
 	return de.waitForResponse(ctx, responseDone, "streamAudioChunks")
 }
@@ -407,12 +519,16 @@ func (de *DuplexConversationExecutor) streamFromFileSource(
 	source *turnexecutors.AudioFileSource,
 	inputChan chan<- stage.StreamElement,
 ) error {
+	chunkIdx := 0
+	totalBytes := 0
 	for {
 		chunk, err := source.ReadChunk(defaultAudioChunkSize)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				logger.Warn("Non-EOF error while streaming audio from file source", "error", err)
 			}
+			logger.Debug("streamFromFileSource: source exhausted",
+				"chunks_sent", chunkIdx, "bytes_sent", totalBytes)
 			return nil // EOF or error - stop streaming
 		}
 
@@ -427,7 +543,14 @@ func (de *DuplexConversationExecutor) streamFromFileSource(
 
 		select {
 		case inputChan <- elem:
+			chunkIdx++
+			totalBytes += len(chunk)
+			if chunkIdx == 1 {
+				logger.Debug("streamFromFileSource: first chunk sent")
+			}
 		case <-ctx.Done():
+			logger.Debug("streamFromFileSource: ctx canceled while sending chunk",
+				"chunk_idx", chunkIdx)
 			return ctx.Err()
 		}
 	}
@@ -478,6 +601,12 @@ func (de *DuplexConversationExecutor) ExecuteConversationStream(
 
 // processSelfPlayDuplexTurn handles self-play turns in duplex mode.
 // selfplayTurnNum is the 1-indexed selfplay turn number (first selfplay = 1).
+//
+// This is now a thin wrapper that:
+//  1. Resolves the TTS config (turn.TTS → scenario.TTS → arena defaults).
+//  2. Generates persona text via the self-play text generator.
+//  3. Builds selfplay-specific turn metadata.
+//  4. Delegates to streamTextAsAudio to synthesize + send + stream the audio.
 func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -487,172 +616,385 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
-	// For self-play in duplex mode:
-	// 1. Wait for assistant response (if not first turn)
-	// 2. Generate user message using self-play LLM
-	// 3. Convert to audio using TTS (if configured)
-	// 4. Stream audio to pipeline
-
 	// Validate self-play registry is available
 	if de.selfPlayRegistry == nil {
 		return fmt.Errorf("self-play registry not configured for duplex turn %d", turnIdx)
 	}
 
-	// Check if TTS is configured
-	if turn.TTS == nil {
-		return fmt.Errorf("TTS configuration required for self-play duplex turn %d", turnIdx)
+	// Resolve TTS via the layered precedence. Self-play has historically required
+	// a TTS config, and that's still true — but now scenario/arena defaults are
+	// allowed to satisfy the requirement.
+	ttsConfig := de.resolveTTS(turn, req.Scenario, req.Config)
+	if ttsConfig == nil {
+		return fmt.Errorf(
+			"TTS configuration required for self-play duplex turn %d "+
+				"(set turn.tts, scenario.spec.tts, or arena defaults.tts)",
+			turnIdx,
+		)
 	}
 
-	// Get audio generator from registry
-	audioGen, err := de.selfPlayRegistry.GetAudioContentGenerator(
-		turn.Role,
-		turn.Persona,
-		turn.TTS,
-	)
+	// Get the text content generator (no TTS — we'll synthesize inside the helper).
+	textGen, err := de.selfPlayRegistry.GetContentGenerator(turn.Role, turn.Persona)
 	if err != nil {
-		return fmt.Errorf("failed to get audio generator for turn %d: %w", turnIdx, err)
+		return fmt.Errorf("failed to get content generator for turn %d: %w", turnIdx, err)
 	}
 
 	// Collect conversation history from state store
 	history := de.getConversationHistory(ctx, req)
 
-	// Generate text and convert to audio
-	// Pass the selfplay turn number so the mock provider gets the correct turn response
+	// Generate text. Pass the selfplay turn number so the mock provider gets the
+	// correct turn response.
 	opts := &selfplay.GeneratorOptions{
 		SelfplayTurnIndex: selfplayTurnNum,
 	}
-	audioResult, err := audioGen.NextUserTurnAudio(ctx, history, req.Scenario.ID, opts)
+	textResult, err := textGen.NextUserTurn(ctx, history, req.Scenario.ID, opts)
 	if err != nil {
-		return fmt.Errorf("failed to generate audio for turn %d: %w", turnIdx, err)
+		return fmt.Errorf("failed to generate text for turn %d: %w", turnIdx, err)
+	}
+	if textResult == nil || textResult.Response == nil {
+		return fmt.Errorf("self-play turn %d produced no text response", turnIdx)
+	}
+	generatedText := textResult.Response.Content
+	if generatedText == "" {
+		return fmt.Errorf("self-play turn %d produced empty text", turnIdx)
 	}
 
-	// Get the generated text content
-	generatedText := audioResult.TextResult.Response.Content
-
-	// Generate unique turn ID for this user message
-	// This is used to correlate transcription events with the correct user message
-	turnID := uuid.New().String()
-
-	logger.Debug("Self-play audio generated",
-		"turn", turnIdx,
-		"turn_id", turnID,
-		"generated_text", generatedText,
-		"text_length", len(generatedText),
-		"audio_bytes", len(audioResult.Audio),
-		"sample_rate", audioResult.SampleRate,
-	)
-
-	// Create user message element to capture in state store
-	// Include both the generated text and the TTS audio data (base64 encoded)
-	audioDataBase64 := base64.StdEncoding.EncodeToString(audioResult.Audio)
-	userMsg := &types.Message{
-		Role:    "user",
-		Content: generatedText, // Include the selfplay-generated text
-		Parts: []types.ContentPart{
-			{
-				Type: types.ContentTypeText,
-				Text: &generatedText,
-			},
-			{
-				Type: types.ContentTypeAudio,
-				Media: &types.MediaContent{
-					Data:     &audioDataBase64,
-					MIMEType: "audio/pcm",
-				},
-			},
-		},
-	}
-
-	// Add selfplay metadata to the user message for reporting
-	// Include turn_id for correlating transcription events
-	// Only include essential selfplay fields, not pipeline internal metadata
-	userMsg.Meta = map[string]interface{}{
-		"turn_id":             turnID,
+	// Build selfplay-specific user-message metadata. The shared helper writes
+	// turn_id itself; everything else here is caller-supplied.
+	turnMeta := map[string]any{
 		"self_play":           true,
 		"persona":             turn.Persona,
 		"selfplay_turn_index": selfplayTurnNum,
 	}
 
-	// Copy only relevant metadata from text generation result
-	// Avoid copying pipeline internal fields like system_prompt, base_variables, etc.
-	if audioResult.TextResult != nil && audioResult.TextResult.Metadata != nil {
-		// Only copy specific fields that are relevant to selfplay output
+	// Copy only relevant metadata from the text generation result. Avoid copying
+	// pipeline internal fields like system_prompt, base_variables, etc.
+	if textResult.Metadata != nil {
 		relevantFields := []string{
 			"self_play_provider",
 			"validation_warning",
 			"warning_type",
 		}
 		for _, field := range relevantFields {
-			if v, ok := audioResult.TextResult.Metadata[field]; ok {
-				userMsg.Meta[field] = v
+			if v, ok := textResult.Metadata[field]; ok {
+				turnMeta[field] = v
 			}
 		}
 	}
 
-	// Send user message to pipeline for state store capture
-	userMsgElem := stage.NewMessageElement(userMsg)
-	// Also add turn_id to typed element metadata so DuplexProviderStage can track it
-	turnIDCopy := turnID
-	userMsgElem.Meta.TurnID = &turnIDCopy
-	select {
-	case inputChan <- userMsgElem:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	// Stream audio chunks to the pipeline
-	// Pass sample rate so streaming can resample if needed
-	return de.streamSelfPlayAudio(ctx, audioResult.Audio, audioResult.SampleRate, inputChan, outputChan)
+	return de.streamTextAsAudio(
+		ctx, generatedText, ttsConfig, turnMeta,
+		inputChan, outputChan,
+	)
 }
 
-// streamSelfPlayAudio streams synthesized audio to the duplex pipeline.
-// The audio is passed with its original sample rate - the AudioResampleStage
-// in the pipeline will normalize it to the provider's expected rate (16kHz for Gemini).
+// streamTextAsAudio synthesizes text → audio via the configured TTS provider,
+// emits a user-role pipeline element with both text and audio parts, and
+// streams the audio bytes through the duplex pipeline using burst mode.
 //
-// Audio is sent in burst mode (as fast as possible) to avoid interruption issues.
-// Real-time pacing was previously used but caused problems: Gemini would start
-// responding before all audio was sent (detecting speech pauses mid-utterance),
-// and when more audio arrived, Gemini treated it as "user interrupted" and
-// discarded its response. Burst mode avoids this by sending all audio before
-// Gemini can detect any turn boundaries.
-func (de *DuplexConversationExecutor) streamSelfPlayAudio(
+// turnMeta is merged into the user message's Meta map. Callers can pass
+// nil/empty when no extra metadata is needed (e.g. scripted-text turns); the
+// helper always writes turn_id so transcription events can be correlated.
+//
+// This is the shared entry point used by both self-play turns (after
+// generating persona text) and scripted-text user turns.
+//
+// Streams audio chunks straight from the TTS reader into the pipeline
+// without ever holding the full buffer in memory. Pacing happens
+// downstream in the AudioPacingStage, which emits each audio element at
+// the cadence its byte count and sample rate imply. The executor itself
+// does no time.After pacing — chunks are pushed onto the input channel
+// as fast as they arrive from the TTS service.
+//
+// Flow:
+//  1. Open the TTS stream (no ReadAll).
+//  2. Open a temp PCM file the chunks are mirrored into.
+//  3. Loop: read chunk → emit elem.Audio AND append to temp file.
+//  4. At EOF, close temp file and emit the user Message with a FilePath
+//     pointer. The MediaExternalizerStage downstream copies the file
+//     into media storage and replaces FilePath with a StorageReference.
+//  5. Send EndOfStream and wait for the provider's response.
+//
+// Memory ceiling: one TTS chunk at a time, regardless of turn length.
+//
+//nolint:gocyclo // sequential streaming flow with cleanup; splitting hurts readability
+func (de *DuplexConversationExecutor) streamTextAsAudio(
 	ctx context.Context,
-	audioData []byte,
-	sampleRate int,
+	text string,
+	ttsConfig *config.TTSConfig,
+	turnMeta map[string]any,
 	inputChan chan<- stage.StreamElement,
 	outputChan <-chan stage.StreamElement,
 ) error {
-	sourceSampleRate := de.getSourceSampleRate(sampleRate)
+	if text == "" {
+		return errors.New("streamTextAsAudio: text is empty")
+	}
+	if ttsConfig == nil {
+		return errors.New("streamTextAsAudio: ttsConfig is nil")
+	}
+	if de.selfPlayRegistry == nil {
+		return errors.New("streamTextAsAudio: self-play registry not configured (TTS service unavailable)")
+	}
 
-	responseDone := de.startResponseCollector(ctx, outputChan, inputChan, "Self-play")
+	stream, err := de.openTextSynthesisStream(ctx, text, ttsConfig)
+	if err != nil {
+		return fmt.Errorf("failed to open TTS stream: %w", err)
+	}
+	defer stream.Reader.Close()
+	reader := stream.Reader
+	sampleRate := stream.SampleRate
 
-	if err := de.streamAudioBurstMode(ctx, audioData, sourceSampleRate, inputChan); err != nil {
+	turnID := uuid.New().String()
+	logger.Debug("Text-as-audio streaming start",
+		"turn_id", turnID, "text", text, "text_length", len(text), "sample_rate", sampleRate)
+
+	// Start the response collector before audio flows so it doesn't miss
+	// an instant mock-duplex response that fires the moment EndOfStream
+	// reaches the provider.
+	responseDone := de.startResponseCollector(ctx, outputChan, inputChan, "streamTextAsAudio")
+
+	mirror, err := newTurnAudioMirror(turnID)
+	if err != nil {
+		return fmt.Errorf("create turn audio mirror: %w", err)
+	}
+	defer mirror.cleanup()
+
+	totalBytes, err := de.pumpTTSChunks(ctx, reader, sampleRate, turnID, inputChan, mirror)
+	if err != nil {
+		return fmt.Errorf("stream TTS to pipeline: %w", err)
+	}
+
+	mirrorPath, err := mirror.finalize()
+	if err != nil {
+		return fmt.Errorf("finalize turn audio mirror: %w", err)
+	}
+
+	logger.Debug("Text-as-audio streaming end",
+		"turn_id", turnID, "audio_bytes", totalBytes, "mirror_path", mirrorPath)
+
+	if err := de.sendUserMessage(ctx, text, turnID, mirrorPath, turnMeta, inputChan); err != nil {
 		return err
 	}
 
-	if err := de.sendEndOfStream(ctx, inputChan, "streamSelfPlayAudio"); err != nil {
+	if err := de.sendEndOfStream(ctx, inputChan, "streamTextAsAudio"); err != nil {
 		return err
 	}
 
-	return de.waitForResponse(ctx, responseDone, "streamSelfPlayAudio")
+	return de.waitForResponse(ctx, responseDone, "streamTextAsAudio")
 }
 
-// getSourceSampleRate returns the sample rate to use, defaulting if not specified.
-func (de *DuplexConversationExecutor) getSourceSampleRate(sampleRate int) int {
-	if sampleRate == 0 {
-		return defaultSampleRate
+// defaultSilenceTailDuration is how long a tail of silent PCM packets
+// we stream after the user's TTS audio ends, before signaling
+// EndOfStream. Provider-native turn detectors (Gemini ASM,
+// OpenAI Realtime server-side VAD) decide turn boundaries from
+// content silence in the audio stream — if we just *stop sending
+// packets* they have nothing to apply VAD to and fall back to a
+// wall-clock timeout (~6s observed empirically). Streaming a
+// tail of zero-filled PCM gives the server's VAD content to
+// detect end-of-turn promptly.
+//
+// 2s is empirical: 1s wasn't enough for Gemini's ASM to declare
+// end-of-turn when fed TTS audio (transcript came in mid-sentence
+// and the model never responded). 2s reliably triggers ASM. The
+// optimum varies per provider — proper config plumbing will
+// follow; for now this default is overridable via the
+// PROMPTKIT_SILENCE_TAIL_MS env var so we can sweep values
+// without recompiling.
+const defaultSilenceTailDuration = 2 * time.Second
+
+// silenceTailDurationEnv is the env var name used to override
+// defaultSilenceTailDuration at runtime. Value in milliseconds. Used
+// by the sweep harness in examples/duplex-streaming/sweep-silence-tail.sh
+// and by anyone tuning a new provider against ASM behavior.
+const silenceTailDurationEnv = "PROMPTKIT_SILENCE_TAIL_MS"
+
+// silenceTailDuration returns the configured silence-tail duration,
+// preferring the env var override when set and parseable.
+func silenceTailDuration() time.Duration {
+	if v := os.Getenv(silenceTailDurationEnv); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil && ms >= 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
 	}
-	return sampleRate
+	return defaultSilenceTailDuration
 }
 
-// streamAudioBurstMode streams audio data as fast as possible without pacing.
-// Uses the runtime/streaming.AudioStreamer for efficient audio streaming.
-func (de *DuplexConversationExecutor) streamAudioBurstMode(
+// pumpTTSChunks reads the TTS stream and emits each chunk as both an
+// elem.Audio pipeline element and a write to the on-disk mirror. After
+// the TTS body completes, it streams silenceTailDuration of zero-filled
+// PCM at the same sample rate so provider-native VAD can detect
+// end-of-user-speech from the audio stream content rather than from a
+// connection-level timeout. Returns the total number of audio bytes
+// streamed (TTS + silence tail).
+func (de *DuplexConversationExecutor) pumpTTSChunks(
 	ctx context.Context,
-	audioData []byte,
+	reader io.ReadCloser,
 	sampleRate int,
+	turnID string,
+	inputChan chan<- stage.StreamElement,
+	mirror *turnAudioMirror,
+) (int, error) {
+	// Read in 20 ms chunks at the source sample rate (PCM16 mono =
+	// 2 bytes per sample). Bounded to a sane minimum so a misconfigured
+	// sample rate doesn't degenerate to byte-at-a-time reads.
+	chunkBytes := sampleRate * bytesPerSamplePCM16 / chunksPerSecond20ms
+	if chunkBytes < minChunkBytes {
+		chunkBytes = minChunkBytes
+	}
+	// Use io.ReadFull so every emitted chunk is exactly chunkBytes wide.
+	// Plain reader.Read returns whatever bytes are available, which means
+	// when the upstream HTTP response trickles in (or the TTS service
+	// flushes a small block) we'd emit short chunks like 60 or 354 bytes.
+	// OpenAI Realtime's input_audio_buffer.append rejects the resulting
+	// burst of small + large appends with a cryptic
+	// "Invalid 'audio'... got an invalid value" error. Buffering each
+	// short read until we have a full chunk eliminates that.
+	buf := make([]byte, chunkBytes)
+	total := 0
+	turnIDCopy := turnID
+	for {
+		n, readErr := io.ReadFull(reader, buf)
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+
+			elem := stage.StreamElement{
+				Audio: &stage.AudioData{
+					Samples:    chunk,
+					SampleRate: sampleRate,
+					Channels:   1,
+					Format:     stage.AudioFormatPCM16,
+				},
+			}
+			elem.Meta.TurnID = &turnIDCopy
+			elem.Meta.Passthrough = true
+
+			select {
+			case inputChan <- elem:
+			case <-ctx.Done():
+				return total, ctx.Err()
+			}
+
+			if err := mirror.write(chunk); err != nil {
+				return total, fmt.Errorf("write to audio mirror: %w", err)
+			}
+			total += n
+		}
+		// io.ReadFull returns ErrUnexpectedEOF on the final partial read
+		// (when the reader ends in the middle of a chunkBytes window),
+		// and io.EOF only when there were zero bytes read. Both signal
+		// end-of-stream — fall through to the silence tail.
+		if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) {
+			tailBytes, tailErr := de.streamSilenceTail(
+				ctx, sampleRate, chunkBytes, turnIDCopy, inputChan, mirror)
+			return total + tailBytes, tailErr
+		}
+		if readErr != nil {
+			return total, readErr
+		}
+	}
+}
+
+// streamSilenceTail emits zero-filled PCM packets for silenceTailDuration
+// at the same chunk shape pumpTTSChunks uses for the TTS body. Provider-
+// native turn detectors apply VAD to the audio stream content; if we
+// just stop sending packets they fall back to a wall-clock timeout.
+// Streaming a tail of silence gives the server's VAD content to score
+// as "user has stopped speaking" and emit turnComplete promptly.
+//
+// Silence is also written to the on-disk mirror so the saved user-turn
+// audio reflects exactly what we sent over the wire.
+func (de *DuplexConversationExecutor) streamSilenceTail(
+	ctx context.Context,
+	sampleRate, chunkBytes int,
+	turnIDCopy string,
+	inputChan chan<- stage.StreamElement,
+	mirror *turnAudioMirror,
+) (int, error) {
+	tail := silenceTailDuration()
+	totalSilenceBytes := int(int64(sampleRate) * 2 * int64(tail) / int64(time.Second))
+	// Zero-filled buffer represents silence at PCM16.
+	silentChunk := make([]byte, chunkBytes)
+	written := 0
+	for written < totalSilenceBytes {
+		n := chunkBytes
+		if remaining := totalSilenceBytes - written; remaining < n {
+			n = remaining
+		}
+		// Fresh allocation per chunk so the pipeline doesn't share a
+		// buffer across in-flight elements.
+		chunk := make([]byte, n)
+		copy(chunk, silentChunk[:n])
+
+		elem := stage.StreamElement{
+			Audio: &stage.AudioData{
+				Samples:    chunk,
+				SampleRate: sampleRate,
+				Channels:   1,
+				Format:     stage.AudioFormatPCM16,
+			},
+		}
+		elem.Meta.TurnID = &turnIDCopy
+		elem.Meta.Passthrough = true
+
+		select {
+		case inputChan <- elem:
+		case <-ctx.Done():
+			return written, ctx.Err()
+		}
+
+		if err := mirror.write(chunk); err != nil {
+			return written, fmt.Errorf("write silence to audio mirror: %w", err)
+		}
+		written += n
+	}
+	logger.Debug("streamSilenceTail: emitted",
+		"turn_id", turnIDCopy, "bytes", written,
+		"duration", tail)
+	return written, nil
+}
+
+// sendUserMessage emits the per-turn user Message after the TTS stream
+// completes. The audio MediaContent points at the on-disk mirror file via
+// FilePath; downstream MediaExternalizerStage copies it into media storage
+// and replaces the FilePath with a StorageReference.
+func (de *DuplexConversationExecutor) sendUserMessage(
+	ctx context.Context,
+	text, turnID, mirrorPath string,
+	turnMeta map[string]any,
 	inputChan chan<- stage.StreamElement,
 ) error {
-	streamer := streaming.NewAudioStreamer()
-	return streamer.StreamBurst(ctx, audioData, sampleRate, inputChan)
+	textCopy := text
+	parts := []types.ContentPart{{Type: types.ContentTypeText, Text: &textCopy}}
+	if mirrorPath != "" {
+		mp := mirrorPath
+		parts = append(parts, types.ContentPart{
+			Type: types.ContentTypeAudio,
+			Media: &types.MediaContent{
+				FilePath: &mp,
+				MIMEType: "audio/pcm",
+			},
+		})
+	}
+	userMsg := &types.Message{
+		Role:    "user",
+		Content: textCopy,
+		Parts:   parts,
+		Meta:    map[string]interface{}{"turn_id": turnID},
+	}
+	for k, v := range turnMeta {
+		if k == "turn_id" {
+			continue // protected: owned by this helper
+		}
+		userMsg.Meta[k] = v
+	}
+	turnIDCopy := turnID
+	userElem := stage.NewMessageElement(userMsg)
+	userElem.Meta.TurnID = &turnIDCopy
+	select {
+	case inputChan <- userElem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

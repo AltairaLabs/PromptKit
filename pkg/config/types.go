@@ -423,6 +423,11 @@ type Defaults struct {
 	// Monitor groups runtime-monitor configuration (audio, future surfaces).
 	Monitor *MonitorSection `yaml:"monitor,omitempty" json:"monitor,omitempty"`
 
+	// TTS configures arena-wide default text-to-speech settings used to convert
+	// scripted-text user turns into audio in duplex scenarios. Per-turn and
+	// per-scenario TTS configs take precedence over this default.
+	TTS *TTSConfig `yaml:"tts,omitempty" json:"tts,omitempty"`
+
 	// Deprecated fields for backward compatibility (will be removed)
 	HTMLReport     string          `yaml:"html_report,omitempty" json:"html_report,omitempty"`
 	OutDir         string          `yaml:"out_dir,omitempty" json:"out_dir,omitempty"`
@@ -642,6 +647,12 @@ type Scenario struct {
 	// Duplex enables bidirectional streaming mode for voice/audio scenarios.
 	Duplex *DuplexConfig `json:"duplex,omitempty" yaml:"duplex,omitempty"`
 
+	// TTS configures the scenario-level default text-to-speech settings used to
+	// convert scripted-text user turns into audio in duplex scenarios. A
+	// per-turn TTS config takes precedence over this; arena defaults fill in
+	// when both this and per-turn TTS are absent.
+	TTS *TTSConfig `json:"tts,omitempty" yaml:"tts,omitempty"`
+
 	// Variables are injected into the pack's template variables.
 	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty" jsonschema:"description=Template variables to inject into the pack"` //nolint:lll
 	// Trials is the number of times to execute this scenario for statistical evaluation.
@@ -695,6 +706,13 @@ func (s *Scenario) Validate() error {
 	if s.ContextPolicy != nil && s.ContextPolicy.Relevance != nil {
 		if err := s.ContextPolicy.Relevance.Validate(); err != nil {
 			return fmt.Errorf("scenario %s context policy: %w", s.ID, err)
+		}
+	}
+
+	// Validate scenario-level TTS config if present
+	if s.TTS != nil {
+		if err := s.TTS.Validate(); err != nil {
+			return fmt.Errorf("scenario %s tts: %w", s.ID, err)
 		}
 	}
 
@@ -836,13 +854,6 @@ type DuplexResilienceConfig struct {
 	MaxRetries int `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
 	// RetryDelayMs is the delay in milliseconds between retries (default: 1000).
 	RetryDelayMs int `json:"retry_delay_ms,omitempty" yaml:"retry_delay_ms,omitempty"`
-	// InterTurnDelayMs is the delay in milliseconds between turns (default: 500).
-	// This allows the provider to fully process the previous response.
-	InterTurnDelayMs int `json:"inter_turn_delay_ms,omitempty" yaml:"inter_turn_delay_ms,omitempty"`
-	// SelfplayInterTurnDelayMs is the delay after selfplay turns (default: 1000).
-	// Longer delay needed because TTS audio can be lengthy.
-	//nolint:lll // JSON/YAML tag names must match field names for clarity
-	SelfplayInterTurnDelayMs int `json:"selfplay_inter_turn_delay_ms,omitempty" yaml:"selfplay_inter_turn_delay_ms,omitempty"`
 	// PartialSuccessMinTurns is the minimum completed turns to accept partial success (default: 1).
 	// If the session ends unexpectedly but this many turns completed, treat as success.
 	PartialSuccessMinTurns int `json:"partial_success_min_turns,omitempty" yaml:"partial_success_min_turns,omitempty"`
@@ -943,22 +954,6 @@ func (r *DuplexResilienceConfig) GetRetryDelayMs(defaultVal int) int {
 		return defaultVal
 	}
 	return r.RetryDelayMs
-}
-
-// GetInterTurnDelayMs returns the configured inter-turn delay or the default.
-func (r *DuplexResilienceConfig) GetInterTurnDelayMs(defaultVal int) int {
-	if r == nil || r.InterTurnDelayMs <= 0 {
-		return defaultVal
-	}
-	return r.InterTurnDelayMs
-}
-
-// GetSelfplayInterTurnDelayMs returns the configured selfplay inter-turn delay or the default.
-func (r *DuplexResilienceConfig) GetSelfplayInterTurnDelayMs(defaultVal int) int {
-	if r == nil || r.SelfplayInterTurnDelayMs <= 0 {
-		return defaultVal
-	}
-	return r.SelfplayInterTurnDelayMs
 }
 
 // GetPartialSuccessMinTurns returns the configured partial success threshold or the default.

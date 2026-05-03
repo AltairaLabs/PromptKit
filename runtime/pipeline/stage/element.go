@@ -135,6 +135,12 @@ const (
 	AudioFormatAAC
 )
 
+// Bytes-per-sample for fixed-rate uncompressed audio formats.
+const (
+	bytesPerSamplePCM16   = 2
+	bytesPerSampleFloat32 = 4
+)
+
 // String returns the string representation of the audio format.
 func (af AudioFormat) String() string {
 	switch af {
@@ -150,6 +156,25 @@ func (af AudioFormat) String() string {
 		return "aac"
 	default:
 		return "unknown"
+	}
+}
+
+// BytesPerSample returns the byte count of one mono sample at this format.
+// Compressed/variable-rate formats (Opus/MP3/AAC) have no fixed
+// bytes-per-sample on the wire, so 0 is returned — callers that need a
+// stable bytes/sample (e.g. duration math) should refuse those formats
+// rather than guess.
+func (af AudioFormat) BytesPerSample() int {
+	switch af {
+	case AudioFormatPCM16:
+		return bytesPerSamplePCM16
+	case AudioFormatFloat32:
+		return bytesPerSampleFloat32
+	case AudioFormatOpus, AudioFormatMP3, AudioFormatAAC:
+		// Compressed/variable-rate formats have no fixed bytes-per-sample on the wire.
+		return 0
+	default:
+		return 0
 	}
 }
 

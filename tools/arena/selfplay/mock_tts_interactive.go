@@ -1,10 +1,10 @@
 package selfplay
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
@@ -22,6 +22,13 @@ const (
 	mockTTSMinSamples = 4800
 	// mockTTSBytesPerSample is bytes per sample for 16-bit PCM audio.
 	mockTTSBytesPerSample = 2
+	// mockTTSReadChunkBytes caps how much one Read returns. Sized at 20 ms
+	// of mono s16le at the default sample rate so a caller passing a
+	// large buffer still drains the audio in audio-chunk-shaped reads
+	// rather than one giant read — matching how a real TTS HTTP body
+	// arrives in chunked-transfer frames. Pacing is the AudioPacingStage's
+	// job; this just keeps the read shape sane.
+	mockTTSReadChunkBytes = mockTTSDefaultSampleRate * mockTTSBytesPerSample / 50
 )
 
 // MockTTSService is a mock TTS service for testing.
@@ -34,14 +41,17 @@ type MockTTSService struct {
 	// If empty, falls back to generating silence.
 	AudioFiles []string
 
-	// currentFileIndex tracks which audio file to use next.
-	currentFileIndex int
-
 	// Latency simulates network/processing delay before returning audio.
 	Latency time.Duration
 
-	// cachedAudio stores loaded audio data from files.
-	cachedAudio [][]byte
+	// mu guards mutable state (cachedAudio + currentFileIndex). Synthesize
+	// is part of a public interface that may be called concurrently
+	// (multiple parallel scenario runs hitting the same mock instance);
+	// without this lock the file-rotation index races and
+	// `go test -race` fails.
+	mu               sync.Mutex
+	currentFileIndex int
+	cachedAudio      [][]byte
 }
 
 // NewMockTTS creates a new mock TTS service with default settings.
@@ -68,7 +78,9 @@ func NewMockTTSWithLatency(latency time.Duration) *MockTTSService {
 	return m
 }
 
-// loadAudioFiles loads audio data from configured files.
+// loadAudioFiles loads audio data from configured files. Called only
+// from constructors before the mock is exposed to other goroutines, so
+// no lock is needed here.
 func (m *MockTTSService) loadAudioFiles() {
 	m.cachedAudio = make([][]byte, 0, len(m.AudioFiles))
 	for _, file := range m.AudioFiles {
@@ -91,9 +103,14 @@ func (m *MockTTSService) Name() string {
 // If audio files are configured, returns audio from those files (rotating through them).
 // Otherwise falls back to generating silence.
 //
+// Returns a chunked reader that caps each Read at ~20 ms of audio so a
+// caller using a large buffer (e.g. io.ReadAll) still observes
+// chunk-shaped reads. Pacing — the actual wall-clock cadence — is the
+// AudioPacingStage's job, applied downstream by the duplex pipeline.
+//
 //nolint:gocritic // hugeParam: interface compliance requires value receiver for config
 func (m *MockTTSService) Synthesize(
-	ctx context.Context, text string, config tts.SynthesisConfig,
+	ctx context.Context, text string, _ tts.SynthesisConfig,
 ) (io.ReadCloser, error) {
 	// Simulate latency
 	if m.Latency > 0 {
@@ -104,17 +121,48 @@ func (m *MockTTSService) Synthesize(
 		}
 	}
 
-	// Use cached audio files if available
+	// Use cached audio files if available. Pick + advance the rotation
+	// index under the lock so concurrent Synthesize calls don't race.
+	m.mu.Lock()
 	if len(m.cachedAudio) > 0 {
 		audio := m.cachedAudio[m.currentFileIndex]
 		m.currentFileIndex = (m.currentFileIndex + 1) % len(m.cachedAudio)
-		return io.NopCloser(bytes.NewReader(audio)), nil
+		m.mu.Unlock()
+		return newChunkedBytesReadCloser(audio, mockTTSReadChunkBytes), nil
 	}
+	m.mu.Unlock()
 
-	// Fall back to generating silence
-	audio := m.generatePCMAudio(text)
+	// Fall back to generating silence (text-only — no shared state).
+	return newChunkedBytesReadCloser(m.generatePCMAudio(text), mockTTSReadChunkBytes), nil
+}
 
-	return io.NopCloser(bytes.NewReader(audio)), nil
+// chunkedBytesReader returns up to chunkSize bytes per Read so callers
+// drain the audio in audio-chunk-shaped reads rather than one giant
+// read. No pacing — that's the AudioPacingStage's job.
+type chunkedBytesReader struct {
+	data      []byte
+	chunkSize int
+	off       int
+}
+
+func newChunkedBytesReadCloser(data []byte, chunkSize int) io.ReadCloser {
+	return io.NopCloser(&chunkedBytesReader{data: data, chunkSize: chunkSize})
+}
+
+func (c *chunkedBytesReader) Read(p []byte) (int, error) {
+	if c.off >= len(c.data) {
+		return 0, io.EOF
+	}
+	n := len(p)
+	if n > c.chunkSize {
+		n = c.chunkSize
+	}
+	if c.off+n > len(c.data) {
+		n = len(c.data) - c.off
+	}
+	copy(p[:n], c.data[c.off:c.off+n])
+	c.off += n
+	return n, nil
 }
 
 // SupportedVoices returns available mock voices.

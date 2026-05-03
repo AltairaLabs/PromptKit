@@ -10,7 +10,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
-	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/tui/logging"
 )
 
@@ -568,6 +567,32 @@ func TestEventAdapter_HandleMessageCreated(t *testing.T) {
 
 	adapter := NewEventAdapter(nil)
 
+	// Regression test for the silent failure where handleMessageCreated
+	// type-asserted to value `events.MessageCreatedData`, but the
+	// production emitter (events/emitter.go: MessageCreated) emits
+	// `*events.MessageCreatedData` (pointer). The assertion failed,
+	// returned nil, and the TUI conversation panel never updated mid-run.
+	// This test uses the pointer form that production actually sends.
+	t.Run("pointer data (production shape)", func(t *testing.T) {
+		evt := &events.Event{
+			Type:           events.EventMessageCreated,
+			ConversationID: "conv-prod",
+			Timestamp:      time.Now(),
+			Data: &events.MessageCreatedData{
+				Role:    "user",
+				Content: "What's my schedule today?",
+				Index:   2,
+			},
+		}
+		msg := adapter.handleMessageCreated(evt)
+		require.NotNil(t, msg, "pointer-shaped Data must produce a MessageCreatedMsg")
+		got, ok := msg.(MessageCreatedMsg)
+		require.True(t, ok)
+		assert.Equal(t, "user", got.Role)
+		assert.Equal(t, "What's my schedule today?", got.Content)
+		assert.Equal(t, 2, got.Index)
+	})
+
 	t.Run("basic message", func(t *testing.T) {
 		evt := &events.Event{
 			Type:           events.EventMessageCreated,
@@ -895,53 +920,4 @@ func TestEventAdapter_HandleEvent_NewEventTypes(t *testing.T) {
 		defer model.mu.Unlock()
 		assert.Equal(t, "You are a helpful assistant.", model.systemPrompts["run-2"])
 	})
-}
-
-func TestEventAdapter_AttachAudioRouter_DispatchesLevelMsg(t *testing.T) {
-	t.Parallel()
-
-	model := NewModel("cfg", 1)
-	adapter := NewEventAdapterWithModel(model)
-
-	router := arenaaudio.NewAudioRouter(arenaaudio.Rate24k)
-	defer router.Close()
-
-	adapter.AttachAudioRouter(router)
-
-	// Publish enough loud frames to drive at least one RMS emission cycle.
-	loud := make([]int16, 480) // 20ms @ 24kHz
-	for i := range loud {
-		loud[i] = 16000
-	}
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		router.Publish(arenaaudio.Frame{
-			Direction: arenaaudio.DirectionInput,
-			Samples:   loud,
-			Timestamp: time.Now(),
-		})
-		// AudioLevelMsg lands on model.audioActive via Update; check it.
-		model.mu.Lock()
-		active := model.audioActive
-		level := model.userAudioLevel
-		model.mu.Unlock()
-		if active && level > 0 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("expected AudioLevelMsg with non-zero user level within 500ms")
-}
-
-func TestEventAdapter_AttachAudioRouter_NilSafe(t *testing.T) {
-	t.Parallel()
-
-	var nilAdapter *EventAdapter
-	// Must not panic on nil adapter
-	nilAdapter.AttachAudioRouter(nil)
-
-	model := NewModel("cfg", 1)
-	adapter := NewEventAdapterWithModel(model)
-	// Must not panic on nil router
-	adapter.AttachAudioRouter(nil)
 }

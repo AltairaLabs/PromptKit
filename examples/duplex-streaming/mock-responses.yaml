@@ -14,6 +14,27 @@ scenarios:
       2: "My name is Nova, and I'm here to help you with a variety of tasks. I can answer questions, provide information, help with troubleshooting, or just have a friendly conversation. What would you like to know more about?"
       3: "Here's a fun fact for you: Honey never spoils! Archaeologists have found 3,000-year-old honey in Egyptian tombs that was still perfectly edible. Pretty amazing, right?"
 
+  # Scripted-text duplex scenario — exercises the text-only user turn path
+  # (Change 1: scenario `tts:` block routes user text content through TTS to
+  # produce audio for the duplex provider). Mock-duplex replies with text;
+  # the path under test is user-side TTS, not agent audio output.
+  duplex-scripted-text:
+    defaultResponse: "Hello! Yes, I can hear you clearly."
+    turns:
+      1: "Hello! Yes, I can hear you. I'm Nova, ready to chat."
+      2: "My name is Nova, your voice assistant."
+      3: "Here's a fun fact: octopuses have three hearts and blue blood."
+
+  # Same shape as duplex-scripted-text but the user side runs through real
+  # OpenAI TTS (requires OPENAI_API_KEY). Mock-duplex still emits the agent
+  # text replies below so assertions can run without a real LLM provider.
+  duplex-scripted-text-openai:
+    defaultResponse: "Hello! Yes, I can hear you clearly."
+    turns:
+      1: "Hello! Yes, I can hear you. I'm Nova, ready to chat."
+      2: "My name is Nova, your voice assistant."
+      3: "Here's a fun fact: octopuses have three hearts and blue blood."
+
   # Self-play scenario responses (for the selfplay USER messages)
   # Note: These are what the simulated curious customer says, NOT the assistant
   # Important: Avoid exclamation marks mid-sentence as TTS pauses after them,

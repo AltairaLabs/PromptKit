@@ -1,0 +1,10 @@
+# Generated TTS audio cache (per-utterance .bin files).
+# Each entry is megabytes of synthesized PCM that's reproducible from the
+# scenario YAML, so there's no reason to track it.
+.tts-cache/
+
+# Local .env (real keys); .env.example is the committed template.
+.env
+
+# Run output (HTML/JSON reports, recorded sessions, externalized media).
+out/

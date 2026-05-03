@@ -437,23 +437,17 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 		runOrch = e.evalOrchestrator.Clone()
 	}
 
-	// Construct per-run audio monitor (router + optional LocalSink) when
-	// EnableAudioMonitor is configured and the scenario is duplex. Both close
-	// idempotently and run unconditionally on run completion (success or
-	// failure) to release the LocalSink consumer goroutine.
-	audioRouter, audioSink := e.buildAudioMonitor(execScenario)
+	// Build a per-run AudioRouter when monitoring is enabled and the
+	// scenario is duplex. The engine doesn't own host playback — the router
+	// is published to subscribers (web SSE relay, audio Monitor) via the
+	// AudioMonitorHook, and they decide what to do with it.
+	audioRouter := e.buildAudioMonitor(execScenario)
 	defer func() {
 		if audioRouter != nil {
 			audioRouter.Close()
 		}
-		if audioSink != nil {
-			audioSink.Close()
-		}
 	}()
 
-	// Notify external consumers (web SSE relay, TUI level meter) that a router
-	// exists for this run. Hooks Subscribe/SubscribeRMS for their needs; the
-	// engine retains lifecycle ownership.
 	if audioRouter != nil && e.audioMonitorOpts != nil {
 		e.fireAudioMonitorHooks(runID, audioRouter, e.audioMonitorOpts.Rate)
 	}

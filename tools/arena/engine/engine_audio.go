@@ -4,61 +4,43 @@ import (
 	"os"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 )
 
-// buildAudioMonitor returns a per-run AudioRouter and LocalSink when audio
-// monitoring is enabled and applicable to this scenario. Returns (nil, nil)
-// when monitoring is disabled, the scenario isn't duplex, or the auto-mode
-// gate (TTY) isn't satisfied.
+// buildAudioMonitor returns a per-run AudioRouter when audio monitoring is
+// enabled and applicable to this scenario. Returns nil when monitoring is
+// disabled, the scenario isn't duplex, or the auto-mode gate (TTY) isn't
+// satisfied.
 //
-// The caller is responsible for calling router.Close() and sink.Close() once
-// the run completes (or fails). Both are idempotent.
-func (e *Engine) buildAudioMonitor(scenario *config.Scenario) (*arenaaudio.AudioRouter, *arenaaudio.LocalSink) {
+// The engine doesn't own host-audio playback — that lives in
+// arenaaudio.Monitor and is wired by the caller via the AudioMonitorHook
+// (see RegisterAudioMonitorHook). Doing it that way keeps the engine
+// agnostic to whether anyone is listening; oto-singleton constraints,
+// run selection, and meter distribution are all the Monitor's problem.
+//
+// The caller is responsible for calling router.Close() once the run
+// completes.
+func (e *Engine) buildAudioMonitor(scenario *config.Scenario) *arenaaudio.AudioRouter {
 	if e.audioMonitorOpts == nil {
-		return nil, nil
+		return nil
 	}
 	opts := *e.audioMonitorOpts
 
 	// Skip explicit-off and non-duplex scenarios early.
 	if opts.Mode == arenaaudio.ModeOff {
-		return nil, nil
+		return nil
 	}
 	if scenario == nil || scenario.Duplex == nil {
-		return nil, nil
+		return nil
 	}
 
 	// Auto mode: only wire when stdout is a terminal (interactive).
 	if opts.Mode == arenaaudio.ModeAuto && !isStdoutTTY() {
-		return nil, nil
+		return nil
 	}
 
-	router := arenaaudio.NewAudioRouter(opts.Rate)
-
-	var sink *arenaaudio.LocalSink
-	if opts.LocalSink {
-		s, err := arenaaudio.NewLocalSink(arenaaudio.LocalSinkConfig{Rate: opts.Rate})
-		if err != nil {
-			logger.Warn("audio monitor: failed to create LocalSink", "error", err)
-		} else {
-			sink = s
-			ch := router.Subscribe("local-sink", localSinkSubscriberBufSize)
-			go func() {
-				for frame := range ch {
-					sink.Push(frame)
-				}
-			}()
-		}
-	}
-
-	return router, sink
+	return arenaaudio.NewAudioRouter(opts.Rate)
 }
-
-// localSinkSubscriberBufSize is the bounded queue depth between the router
-// and the LocalSink consumer goroutine. Drops at this layer mean the LocalSink
-// fell behind oto's pull cadence; rare in practice.
-const localSinkSubscriberBufSize = 50
 
 // isStdoutTTY returns true when stdout is connected to a terminal device.
 // Used by auto-mode to gate audio monitor construction in non-interactive

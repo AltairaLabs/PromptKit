@@ -107,6 +107,18 @@ type Model struct {
 	userAudioLevel  float32
 	agentAudioLevel float32
 	audioActive     bool
+
+	// audioMonitor lets the model switch host playback between concurrent
+	// runs. Nil when audio monitoring is disabled or unavailable.
+	audioMonitor audioMonitor
+}
+
+// audioMonitor is the slice of arenaaudio.Monitor the TUI actually uses.
+// Defined as an interface so model tests can fake it without pulling in
+// oto's audio device dependency.
+type audioMonitor interface {
+	SetActiveRun(runID string) bool
+	ActiveRunID() string
 }
 
 // RunInfo tracks information about a single run
@@ -304,6 +316,16 @@ func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
 	})
 	m.trimLogs()
 
+	// If the user is currently viewing this run's conversation page, reload
+	// the panel from the state store now that the run has finished. Without
+	// this the panel sticks on "Waiting for conversation to start..." because
+	// initializeConversationData only runs on selection toggle.
+	if m.currentPage == pageConversation {
+		if selected := m.selectedRun(); selected != nil && selected.RunID == msg.RunID {
+			m.initializeConversationData(selected)
+		}
+	}
+
 	// Clean up cached messages for this run (state store now has the data)
 	if m.conversationMessages != nil {
 		delete(m.conversationMessages, msg.RunID)
@@ -319,13 +341,22 @@ func (m *Model) handleRunCompleted(msg *RunCompletedMsg) {
 // handleRunFailed processes a run failed event from the observer.
 // Note: Called with mutex already locked by Update.
 func (m *Model) handleRunFailed(msg *RunFailedMsg) {
+	// msg.Error can be nil — the upstream arena.run.failed event
+	// sometimes lands without an "error" key (e.g. when a run aborts
+	// via context cancellation rather than a structured error). Nil
+	// here used to crash the TUI on the next .Error() call.
+	errStr := "unknown error"
+	if msg.Error != nil {
+		errStr = msg.Error.Error()
+	}
+
 	// Find and update the run in activeRuns
 	for i := range m.activeRuns {
 		if m.activeRuns[i].RunID != msg.RunID {
 			continue
 		}
 		m.activeRuns[i].Status = StatusFailed
-		m.activeRuns[i].Error = msg.Error.Error()
+		m.activeRuns[i].Error = errStr
 		m.activeRuns[i].CurrentTurnRole = ""
 		m.activeRuns[i].CurrentTurnIndex = 0
 		break
@@ -339,7 +370,7 @@ func (m *Model) handleRunFailed(msg *RunFailedMsg) {
 	m.logs = append(m.logs, LogEntry{
 		Timestamp: msg.Time,
 		Level:     "ERROR",
-		Message:   fmt.Sprintf("Failed: %s - %v", msg.RunID, msg.Error),
+		Message:   fmt.Sprintf("Failed: %s - %s", msg.RunID, errStr),
 	})
 	m.trimLogs()
 
@@ -914,6 +945,14 @@ func (m *Model) toggleSelection() {
 
 		// Initialize conversation data when switching to conversation page
 		m.initializeConversationData(&m.activeRuns[idx])
+
+		// Re-route host playback to the run we're now viewing. The Monitor
+		// silently ignores unknown run IDs (e.g. completed runs whose
+		// router has already closed), so this is safe at any lifecycle
+		// stage — we just stop hearing the previously selected run.
+		if m.audioMonitor != nil {
+			m.audioMonitor.SetActiveRun(m.activeRuns[idx].RunID)
+		}
 	}
 }
 
@@ -1124,6 +1163,14 @@ func (m *Model) SetStateStore(store runResultStorer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.stateStore = store
+}
+
+// SetAudioMonitor attaches an audio monitor so the TUI can re-route host
+// playback when the user navigates between concurrent runs. Nil-safe.
+func (m *Model) SetAudioMonitor(monitor audioMonitor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.audioMonitor = monitor
 }
 
 // CompletedCount returns the number of completed runs (success + failure).
