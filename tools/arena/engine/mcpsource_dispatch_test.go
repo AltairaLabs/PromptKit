@@ -28,12 +28,13 @@ import (
 // Lifted in spirit from runtime/mcp/sse_client_test.go's sseTestServer,
 // kept inline here so this test stays self-contained.
 type fakeSSEMCPServer struct {
-	URL      string
-	close    func()
-	tool     mcp.Tool
-	callsMu  sync.Mutex
-	calls    []recordedCall
-	callResp mcp.ToolCallResponse
+	URL           string
+	close         func()
+	tool          mcp.Tool
+	callsMu       sync.Mutex
+	calls         []recordedCall
+	callResp      mcp.ToolCallResponse
+	failListTools atomic.Bool // when true, tools/list returns a JSON-RPC error
 }
 
 type recordedCall struct {
@@ -121,6 +122,9 @@ func (s *fakeSSEMCPServer) handle(req mcp.JSONRPCMessage) mcp.JSONRPCMessage {
             "serverInfo": {"name": "fake", "version": "0.1"}
         }`)}
 	case "tools/list":
+		if s.failListTools.Load() {
+			return mcp.JSONRPCMessage{Error: &mcp.JSONRPCError{Code: -32000, Message: "tools/list disabled"}}
+		}
 		toolsJSON, _ := json.Marshal(map[string]any{"tools": []mcp.Tool{s.tool}})
 		return mcp.JSONRPCMessage{Result: toolsJSON}
 	case "tools/call":
@@ -268,4 +272,78 @@ func TestMCPSourceScope_ToolDispatchEndToEnd(t *testing.T) {
 	calls := srv.recordedCalls()
 	require.Len(t, calls, 1, "expected exactly one MCP tool call to reach the server")
 	assert.Equal(t, "Read", calls[0].Name, "MCP server should see the raw tool name")
+}
+
+// TestMCPSourceScope_DiscoveryRespectsToolFilter exercises the
+// allowlist branch of lookupToolFilter inside discoverAndRegisterServerTools.
+func TestMCPSourceScope_DiscoveryRespectsToolFilter(t *testing.T) {
+	srv := newFakeSSEMCPServer(t,
+		mcp.Tool{Name: "Read", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		mcp.ToolCallResponse{Content: []mcp.Content{{Type: "text", Text: "ok"}}},
+	)
+	sourceName := registerTestSource(t, srv.URL)
+
+	mcpReg := mcp.NewRegistry()
+	t.Cleanup(func() { _ = mcpReg.Close() })
+	toolReg := tools.NewRegistry()
+	toolReg.RegisterExecutor(tools.NewMCPExecutor(mcpReg))
+
+	scope := newMCPSourceScopeWithTools(mcpReg, toolReg)
+
+	cfg := []config.MCPServerConfig{{
+		Name:       "sandbox",
+		Source:     sourceName,
+		Scope:      string(mcpsource.ScopeSession),
+		ToolFilter: &config.MCPToolFilter{Blocklist: []string{"Read"}},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	require.NoError(t, scope.OpenAll(ctx, mcpsource.ScopeSession, "session-1", nil, nil, cfg))
+	t.Cleanup(func() { _ = scope.CloseAll(mcpsource.ScopeSession, "session-1") })
+
+	_, err := toolReg.GetTool("Read")
+	assert.Error(t, err, "blocklisted tool should not be registered")
+}
+
+// TestMCPSourceScope_DiscoveryFailureRollsBackOpen exercises the rollback
+// path in openOne: when discoverAndRegisterServerTools fails after
+// RegisterServer succeeds, the source is closed and the server is
+// unregistered so the host doesn't leak the (failed) Open.
+//
+// We point the source at an httptest server that has already been closed,
+// so the SSE client's Initialize fails — that surfaces as a GetClient
+// error inside discoverAndRegisterServerTools.
+func TestMCPSourceScope_DiscoveryFailureRollsBackOpen(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "gone", http.StatusGone)
+	}))
+	dead.Close() // dial will fail
+
+	sourceName := registerTestSource(t, dead.URL)
+
+	mcpReg := mcp.NewRegistry()
+	t.Cleanup(func() { _ = mcpReg.Close() })
+	toolReg := tools.NewRegistry()
+	toolReg.RegisterExecutor(tools.NewMCPExecutor(mcpReg))
+
+	scope := newMCPSourceScopeWithTools(mcpReg, toolReg)
+
+	cfg := []config.MCPServerConfig{{
+		Name:      "sandbox",
+		Source:    sourceName,
+		Scope:     string(mcpsource.ScopeSession),
+		TimeoutMs: 500, // bound the wait so the test is snappy
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := scope.OpenAll(ctx, mcpsource.ScopeSession, "session-1", nil, nil, cfg)
+	require.Error(t, err, "OpenAll should propagate the discovery failure")
+	assert.Contains(t, err.Error(), "discover tools after Open failed")
+
+	_, ok := mcpReg.GetServerConfig("sandbox")
+	assert.False(t, ok, "MCP server should be unregistered after discovery rollback")
 }

@@ -267,6 +267,7 @@ func NewEngine(
 		mediaStorage:         mediaStorage,
 		conversationExecutor: convExecutor,
 		adapterRegistry:      adapterRegistry,
+		toolRegistry:         toolRegistry,
 		scenarios:            cfg.LoadedScenarios,
 		evals:                cfg.LoadedEvals,
 		providers:            cfg.LoadedProviders,
@@ -279,7 +280,6 @@ func NewEngine(
 	// Run-scoped sources open at engine construction; they're typically fast.
 	// If slow sources become common, thread ctx through NewEngine.
 	if mcpRegistry != nil {
-		eng.toolRegistry = toolRegistry
 		eng.mcpSourceScope = newMCPSourceScopeWithTools(mcpRegistry, toolRegistry)
 		if err := eng.mcpSourceScope.OpenAll(
 			context.Background(), mcpsource.ScopeRun, "run", nil,

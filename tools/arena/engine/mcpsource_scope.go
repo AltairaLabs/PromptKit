@@ -131,12 +131,19 @@ func (m *mcpSourceScope) openOne(ctx context.Context, entry *config.MCPServerCon
 	if err != nil {
 		return openEntry{}, fmt.Errorf("mcp server %q: source %q Open failed: %w", entry.Name, entry.Source, err)
 	}
-	if err := m.registry.RegisterServer(mcp.ServerConfig{
+	serverCfg := mcp.ServerConfig{
 		Name:      entry.Name,
 		URL:       conn.URL,
 		Headers:   conn.Headers,
 		TimeoutMs: entry.TimeoutMs,
-	}); err != nil {
+	}
+	if entry.ToolFilter != nil {
+		serverCfg.ToolFilter = &mcp.ToolFilter{
+			Allowlist: entry.ToolFilter.Allowlist,
+			Blocklist: entry.ToolFilter.Blocklist,
+		}
+	}
+	if err := m.registry.RegisterServer(serverCfg); err != nil {
 		_ = closer.Close()
 		return openEntry{}, fmt.Errorf("mcp server %q: register after Open failed: %w", entry.Name, err)
 	}
