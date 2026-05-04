@@ -1,0 +1,61 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: go-add-bugfix
+  labels:
+    shape: bugfix
+    language: go
+    difficulty: easy
+    source: hand-rolled
+    category: arithmetic
+
+spec:
+  id: go-add-bugfix
+  task_type: codegen-agent
+  description: |
+    Classic off-by-sign bug in an arithmetic helper. Tests catch the
+    regression on negative inputs.
+
+  turns:
+    - role: user
+      content: |
+        Set up a Go module at /workspace with this content, then find and
+        fix the bug so the tests pass:
+
+        /workspace/go.mod:
+          module example.com/add
+          go 1.22
+
+        /workspace/add.go:
+          package add
+          func Add(a, b int) int {
+              if a < 0 {
+                  return a - b
+              }
+              return a + b
+          }
+
+        /workspace/add_test.go:
+          package add
+          import "testing"
+          func TestAdd(t *testing.T) {
+              cases := []struct{ a, b, want int }{
+                  {1, 2, 3}, {-3, 5, 2}, {-7, -2, -9}, {0, 0, 0},
+              }
+              for _, c := range cases {
+                  if got := Add(c.a, c.b); got != c.want {
+                      t.Errorf("Add(%d,%d)=%d want %d", c.a, c.b, got, c.want)
+                  }
+              }
+          }
+
+        Use the codegen tools to seed the files, fix the bug, and
+        verify the suite is green.
+
+  conversation_assertions:
+    - type: tool_exec
+      params:
+        tool: run_tests
+        timeout_seconds: 120
+      message: "Hidden test suite must pass"
