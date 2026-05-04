@@ -147,15 +147,18 @@ func (t *PackTemplate) openConversation(
 		return nil, err
 	}
 
+	// MCP registry must be initialized BEFORE the session/pipeline so the
+	// pipeline build can surface MCP tool descriptors. See sdk.go:Open for
+	// the same ordering invariant.
+	if err := initMCPRegistry(conv, cfg); err != nil {
+		return nil, err
+	}
+
 	if err := t.initSession(conv, cfg, prov, duplex); err != nil {
 		return nil, err
 	}
 
 	conv.evalMW = newEvalMiddleware(conv)
-
-	if err := initMCPRegistry(conv, cfg); err != nil {
-		return nil, err
-	}
 
 	conv.sessionHooks.SessionStart(context.Background())
 	return conv, nil

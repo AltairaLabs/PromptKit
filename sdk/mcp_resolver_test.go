@@ -1,9 +1,12 @@
 package sdk
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -126,4 +129,77 @@ func TestInitMCPRegistry_NameOnlyWithoutResolverErrors(t *testing.T) {
 	err := initMCPRegistry(conv, cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "MCP server \"codegen\"")
+}
+
+// writeMCPTestPack writes a minimal pack file usable by Open() in tests
+// that need the full conversation init path (e.g. covering the
+// initMCPRegistry hoist into Open and OpenDuplex).
+func writeMCPTestPack(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	packFile := filepath.Join(dir, "test.pack.json")
+	packContent := `{
+        "name": "test-pack",
+        "version": "v1",
+        "prompts": {
+            "main": {"system_template": "You are a helpful assistant."}
+        }
+    }`
+	require.NoError(t, os.WriteFile(packFile, []byte(packContent), 0o644))
+	return packFile
+}
+
+// TestOpen_NameOnlyMCPWithoutResolverErrors covers the Open() path
+// where initMCPRegistry now runs before pipeline construction and
+// surfaces a clear error when a name-only server has no resolver.
+func TestOpen_NameOnlyMCPWithoutResolverErrors(t *testing.T) {
+	packFile := writeMCPTestPack(t)
+	provider := mock.NewProvider("mock", "mock-model", false)
+
+	_, err := Open(packFile, "main",
+		WithProvider(provider),
+		WithSkipSchemaValidation(),
+		WithMCPServer(NewMCPServerByName("codegen")),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MCP server \"codegen\"")
+}
+
+// TestOpen_NameOnlyMCPWithResolverSucceeds covers the Open() happy path
+// for a resolver-backed MCP server: Open must complete cleanly even
+// though the resolver points at a URL that doesn't actually serve MCP
+// (the runtime client's tool listing degrades to an empty tool set
+// rather than failing the open).
+func TestOpen_NameOnlyMCPWithResolverSucceeds(t *testing.T) {
+	packFile := writeMCPTestPack(t)
+	provider := mock.NewProvider("mock", "mock-model", false)
+	resolver := &StaticMCPEndpointResolver{URL: "http://127.0.0.1:1"} // unreachable, intentionally
+
+	conv, err := Open(packFile, "main",
+		WithProvider(provider),
+		WithSkipSchemaValidation(),
+		WithMCPServer(NewMCPServerByName("codegen")),
+		WithMCPEndpoints(resolver),
+	)
+	require.NoError(t, err)
+	defer conv.Close()
+	assert.NotNil(t, conv)
+}
+
+// TestOpenDuplex_NameOnlyMCPWithoutResolverErrors covers the duplex
+// path's MCP-init hoist. With no resolver configured, OpenDuplex must
+// surface the MCP error before the streaming-support check — the
+// reorder keeps Open() and OpenDuplex() validating the same surface.
+func TestOpenDuplex_NameOnlyMCPWithoutResolverErrors(t *testing.T) {
+	packFile := writeMCPTestPack(t)
+	provider := mock.NewProvider("mock", "mock-model", false)
+
+	_, err := OpenDuplex(packFile, "main",
+		WithProvider(provider),
+		WithSkipSchemaValidation(),
+		WithMCPServer(NewMCPServerByName("codegen")),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MCP server \"codegen\"",
+		"MCP-init error must surface before the streaming-support check")
 }

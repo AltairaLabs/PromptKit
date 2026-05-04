@@ -87,16 +87,23 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 		return nil, err
 	}
 
+	// Initialize the MCP registry BEFORE the pipeline is built. The pipeline
+	// build path calls registerMCPExecutors, which queries the MCP registry
+	// to surface tool descriptors; if the registry is still nil at that
+	// point the conversation ends up with zero MCP tools regardless of how
+	// servers were declared.
+	if err := initMCPRegistry(conv, conv.config); err != nil {
+		return nil, err
+	}
+
 	// Initialize internal memory store for conversation history
 	// This is used by StateStoreLoad/Save middleware in the pipeline
 	if err := initInternalStateStore(conv, conv.config); err != nil {
 		return nil, err
 	}
 
-	// Finalize conversation (eval middleware, MCP, session start hooks)
-	if err := finalizeConversation(conv, conv.config); err != nil {
-		return nil, err
-	}
+	// Finalize conversation (eval middleware, session start hooks)
+	finalizeConversation(conv)
 
 	// Register with shutdown manager if configured
 	if conv.config.shutdownManager != nil {
@@ -144,6 +151,14 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		return nil, err
 	}
 
+	// Initialize the MCP registry BEFORE the streaming-support check so
+	// the same surface validates both Open() and OpenDuplex() consistently —
+	// a misconfigured MCP entry surfaces with the same error in either
+	// flavor, regardless of which provider was wired. (See note in Open().)
+	if err := initMCPRegistry(conv, conv.config); err != nil {
+		return nil, err
+	}
+
 	// Verify provider supports streaming input
 	streamProvider, ok := prov.(providers.StreamInputSupport)
 	if !ok {
@@ -158,10 +173,8 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		return nil, err
 	}
 
-	// Finalize conversation (eval middleware, MCP, session start hooks)
-	if err := finalizeConversation(conv, conv.config); err != nil {
-		return nil, err
-	}
+	// Finalize conversation (eval middleware, session start hooks)
+	finalizeConversation(conv)
 
 	// Register with shutdown manager if configured
 	if conv.config.shutdownManager != nil {
@@ -265,22 +278,16 @@ func initConversation(
 	return conv, prov, nil
 }
 
-// finalizeConversation completes the conversation setup after mode-specific
-// initialization (unary or duplex). It wires eval middleware, MCP servers,
-// and dispatches session start hooks.
-func finalizeConversation(conv *Conversation, cfg *config) error {
+// finalizeConversation completes the conversation setup after the MCP
+// registry and mode-specific session have been initialized. It wires
+// eval middleware and dispatches session start hooks. (MCP registry
+// initialization moved earlier so it precedes pipeline construction.)
+func finalizeConversation(conv *Conversation) {
 	// Initialize eval middleware
 	conv.evalMW = newEvalMiddleware(conv)
 
-	// Initialize MCP registry if configured
-	if err := initMCPRegistry(conv, cfg); err != nil {
-		return err
-	}
-
 	// Dispatch session start hooks
 	conv.sessionHooks.SessionStart(context.Background())
-
-	return nil
 }
 
 // applyOptions applies the configuration options and validates cross-option constraints.

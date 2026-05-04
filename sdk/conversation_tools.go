@@ -450,6 +450,13 @@ func (c *Conversation) registerMCPExecutors() {
 		return
 	}
 
+	// Register a single runtime MCP executor that dispatches every
+	// Mode="mcp" tool to the underlying MCP client. This is the canonical
+	// wiring used by arena (tools/arena/engine/builder_integration.go) —
+	// the runtime's tools.Registry.getExecutorForTool resolves Mode="mcp"
+	// to executor name "mcp", which only the runtime executor satisfies.
+	c.toolRegistry.RegisterExecutor(tools.NewMCPExecutor(c.mcpRegistry))
+
 	for serverName, serverTools := range mcpTools {
 		// Look up the server config to check for tool filters.
 		var toolFilter *mcp.ToolFilter
@@ -470,7 +477,9 @@ func (c *Conversation) registerMCPExecutors() {
 
 			qualifiedName := fmt.Sprintf("mcp__%s__%s", serverName, tool.Name)
 
-			// Register the MCP tool in the registry with qualified name
+			// Register the MCP tool in the registry with qualified name.
+			// The runtime MCPExecutor strips the namespace and looks up
+			// the owning server via mcp.Registry.toolIndex.
 			desc := &tools.ToolDescriptor{
 				Name:        qualifiedName,
 				Description: tool.Description,
@@ -478,13 +487,6 @@ func (c *Conversation) registerMCPExecutors() {
 				Mode:        "mcp",
 			}
 			_ = c.toolRegistry.Register(desc)
-
-			adapter := &mcpHandlerAdapter{
-				qualifiedName: qualifiedName,
-				rawName:       tool.Name,
-				registry:      c.mcpRegistry,
-			}
-			c.toolRegistry.RegisterExecutor(adapter)
 		}
 	}
 }
