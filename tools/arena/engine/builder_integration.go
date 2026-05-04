@@ -146,12 +146,17 @@ func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
 	}
 
 	// Inject judge metadata so eval handlers (llm_judge, llm_judge_session)
-	// can resolve judge providers from config targets.
+	// can resolve judge providers from config targets. Also expose the tool
+	// registry under a known key so the tool_exec handler can invoke
+	// pack-declared / MCP-discovered tools as conversation-level gates.
 	if evalOrchestrator != nil {
 		metadata := make(map[string]any)
 		attachJudgeMetadata(metadata, cfg)
 		if promptRegistry != nil {
 			metadata["prompt_registry"] = promptRegistry
+		}
+		if toolRegistry != nil {
+			metadata["tool_registry"] = toolRegistry
 		}
 		evalOrchestrator.SetMetadata(metadata)
 	}

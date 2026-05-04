@@ -1487,6 +1487,9 @@ func TestRegisterInit(t *testing.T) {
 		"a2a_eval",
 		"a2a_eval_session",
 
+		// Tool-invocation gate
+		"tool_exec",
+
 		// Length validation handlers
 		"min_length",
 		"max_length",
