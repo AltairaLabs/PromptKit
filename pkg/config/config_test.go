@@ -205,42 +205,27 @@ spec:
 }
 
 func TestLoadScenario_LabelsRoundTrip(t *testing.T) {
-	tmpDir := t.TempDir()
-	scenarioPath := filepath.Join(tmpDir, "labelled-scenario.yaml")
-
-	scenarioContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+	path := filepath.Join(t.TempDir(), "s.yaml")
+	yaml := `apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
 metadata:
-  name: labelled-scenario
-  labels:
-    difficulty: easy
-    category: bugfix
+  name: s
+  labels: {difficulty: easy, category: bugfix}
 spec:
-  id: labelled-scenario
+  id: s
   task_type: support
-  description: Scenario with metadata.labels for stratification
-  turns:
-    - role: user
-      content: "Hello"
+  description: x
+  turns: [{role: user, content: hi}]
 `
-
-	if err := os.WriteFile(scenarioPath, []byte(scenarioContent), 0644); err != nil {
-		t.Fatalf("Failed to write test scenario: %v", err)
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
 	}
-
-	scenario, err := LoadScenario(scenarioPath)
+	scenario, err := LoadScenario(path)
 	if err != nil {
-		t.Fatalf("LoadScenario failed: %v", err)
+		t.Fatal(err)
 	}
-	if scenario == nil {
-		t.Fatal("Scenario is nil")
-	}
-
-	if got := scenario.Labels["difficulty"]; got != "easy" {
-		t.Errorf("Expected Labels[difficulty]=easy, got %q (full: %v)", got, scenario.Labels)
-	}
-	if got := scenario.Labels["category"]; got != "bugfix" {
-		t.Errorf("Expected Labels[category]=bugfix, got %q (full: %v)", got, scenario.Labels)
+	if scenario.Labels["difficulty"] != "easy" || scenario.Labels["category"] != "bugfix" {
+		t.Errorf("labels=%v", scenario.Labels)
 	}
 }
 

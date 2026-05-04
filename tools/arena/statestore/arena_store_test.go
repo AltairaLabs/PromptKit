@@ -418,35 +418,18 @@ func TestArenaStateStore_SaveMetadata(t *testing.T) {
 }
 
 // TestArenaStateStore_SaveMetadata_LabelsRoundTrip ensures stratification
-// labels survive SaveMetadata → GetResult.
+// labels survive SaveMetadata → GetResult and that the deep clone isolates
+// post-save mutation of the source map.
 func TestArenaStateStore_SaveMetadata_LabelsRoundTrip(t *testing.T) {
 	store := NewArenaStateStore()
 	ctx := context.Background()
 
-	state := &statestore.ConversationState{
-		ID:       "run-labels",
-		UserID:   "test-user",
-		Messages: []types.Message{{Role: "user", Content: "Hello"}},
-	}
-	require.NoError(t, store.Save(ctx, state))
-
-	metadata := &RunMetadata{
-		RunID:      "run-labels",
-		Region:     "us-west",
-		ScenarioID: "labelled-scenario",
-		ProviderID: "test-provider",
-		StartTime:  time.Now().Add(-time.Second),
-		EndTime:    time.Now(),
-		Duration:   time.Second,
-		Labels: map[string]string{
-			"difficulty": "easy",
-			"category":   "bugfix",
-		},
-	}
-	require.NoError(t, store.SaveMetadata(ctx, "run-labels", metadata))
-
-	// Mutate the source map after save — the deep clone must isolate it.
-	metadata.Labels["difficulty"] = "hard"
+	src := map[string]string{"difficulty": "easy", "category": "bugfix"}
+	require.NoError(t, store.SaveMetadata(ctx, "run-labels", &RunMetadata{
+		RunID:  "run-labels",
+		Labels: src,
+	}))
+	src["difficulty"] = "hard"
 
 	result, err := store.GetResult(ctx, "run-labels")
 	require.NoError(t, err)
