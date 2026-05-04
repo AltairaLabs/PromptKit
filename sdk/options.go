@@ -188,6 +188,11 @@ type config struct {
 	// Multi-agent endpoint resolution
 	agentEndpointResolver EndpointResolver
 
+	// MCP endpoint resolution — fills URL/Headers for MCP servers
+	// declared by name only (no static URL/Command). Mirrors the A2A
+	// agent-endpoint resolver pattern.
+	mcpEndpointResolver MCPEndpointResolver
+
 	// Local agent executor for in-process multi-agent routing
 	localAgentExecutor *LocalAgentExecutor
 
@@ -1557,6 +1562,62 @@ func (b *MCPServerBuilder) Build() mcp.ServerConfig {
 func WithMCPServer(builder *MCPServerBuilder) Option {
 	return func(c *config) error {
 		c.mcpServers = append(c.mcpServers, builder.Build())
+		return nil
+	}
+}
+
+// NewMCPServerByName declares an MCP server by name only — no command,
+// no URL. The endpoint must be filled in at conversation open by an
+// [MCPEndpointResolver] registered via [WithMCPEndpoints]. Use this
+// when the host (e.g. Omnia, a sandbox pool, a service-discovery
+// layer) owns provisioning and the SDK consumer only needs to declare
+// "I want an MCP server called X".
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithMCPServer(sdk.NewMCPServerByName("codegen")),
+//	    sdk.WithMCPEndpoints(omniaResolver),
+//	)
+func NewMCPServerByName(name string) *MCPServerBuilder {
+	return &MCPServerBuilder{
+		config: mcp.ServerConfig{Name: name},
+	}
+}
+
+// WithMCPEndpoints configures endpoint resolution for MCP servers
+// declared by name only (no static URL or stdio Command).
+//
+// At conversation open the SDK calls Resolve once per name-only server
+// and plugs the returned URL+Headers into the runtime MCP registry.
+// Servers declared with a URL or Command bypass the resolver.
+//
+// Mirrors [WithAgentEndpoints] for A2A. The host injects a single
+// resolver; pack/agent authors stay oblivious to provisioning.
+//
+// Example with a single gateway:
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithMCPServer(sdk.NewMCPServerByName("codegen")),
+//	    sdk.WithMCPEndpoints(&sdk.StaticMCPEndpointResolver{
+//	        URL:     "http://localhost:9000",
+//	        Headers: map[string]string{"Authorization": "Bearer " + token},
+//	    }),
+//	)
+//
+// Example with per-server endpoints:
+//
+//	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+//	    sdk.WithMCPServer(sdk.NewMCPServerByName("codegen")),
+//	    sdk.WithMCPServer(sdk.NewMCPServerByName("filesystem")),
+//	    sdk.WithMCPEndpoints(&sdk.MapMCPEndpointResolver{
+//	        Endpoints: map[string]sdk.MCPEndpoint{
+//	            "codegen":    {URL: "http://codegen-pool.svc:8080"},
+//	            "filesystem": {URL: "http://fs.svc:8080"},
+//	        },
+//	    }),
+//	)
+func WithMCPEndpoints(resolver MCPEndpointResolver) Option {
+	return func(c *config) error {
+		c.mcpEndpointResolver = resolver
 		return nil
 	}
 }
