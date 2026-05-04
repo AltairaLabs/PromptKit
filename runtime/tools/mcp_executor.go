@@ -18,7 +18,10 @@ const (
 	mcpDefaultTimeoutSc = 30
 )
 
-// MCPExecutor executes tools using MCP (Model Context Protocol) servers
+// MCPExecutor executes tools using MCP (Model Context Protocol) servers.
+// The configured registry is used as a default; callers can attach a
+// per-call registry override via WithMCPRegistry to give each concurrent
+// run its own MCP routing without sharing tool-to-server mappings.
 type MCPExecutor struct {
 	registry mcp.Registry
 }
@@ -28,6 +31,37 @@ func NewMCPExecutor(registry mcp.Registry) *MCPExecutor {
 	return &MCPExecutor{
 		registry: registry,
 	}
+}
+
+type mcpRegistryCtxKeyType struct{}
+
+var mcpRegistryCtxKey mcpRegistryCtxKeyType
+
+// WithMCPRegistry attaches an MCP registry to the context. The
+// MCPExecutor reads this on each Execute and routes via that registry,
+// falling back to the executor's configured registry when absent.
+//
+// Use this to give each concurrent run its own per-run MCP registry
+// (typically a Fork of the engine's parent registry) so that
+// session-scoped servers registered under the same name (e.g. "sandbox")
+// resolve to different URLs without collision.
+func WithMCPRegistry(ctx context.Context, reg mcp.Registry) context.Context {
+	if reg == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, mcpRegistryCtxKey, reg)
+}
+
+// mcpRegistryFromCtx returns a per-call MCP registry override if present.
+// Returns nil when the context carries no override.
+func mcpRegistryFromCtx(ctx context.Context) mcp.Registry {
+	if ctx == nil {
+		return nil
+	}
+	if reg, ok := ctx.Value(mcpRegistryCtxKey).(mcp.Registry); ok {
+		return reg
+	}
+	return nil
 }
 
 // Name returns the executor name
@@ -67,7 +101,16 @@ func (e *MCPExecutor) callMCPTool(
 	// Use the raw MCP name (without namespace prefix) for server communication
 	rawName := mcpRawToolName(toolName)
 
-	client, err := e.registry.GetClientForTool(ctx, rawName)
+	// Per-run override (if the caller attached one via WithMCPRegistry)
+	// takes precedence over the executor's configured registry. This is
+	// what lets each concurrent run's MCP dispatch route to its own
+	// session-scoped server even though a single MCPExecutor is shared.
+	registry := mcpRegistryFromCtx(ctx)
+	if registry == nil {
+		registry = e.registry
+	}
+
+	client, err := registry.GetClientForTool(ctx, rawName)
 	if err != nil {
 		logger.Error("MCP tool failed to get client", "tool", toolName, "error", err)
 		return nil, fmt.Errorf("failed to get MCP client for tool %s: %w", toolName, err)

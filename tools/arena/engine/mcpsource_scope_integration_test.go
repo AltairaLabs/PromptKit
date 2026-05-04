@@ -84,7 +84,7 @@ func TestScenarioVariables_CopiesVariables(t *testing.T) {
 // helper is a no-op when either the scope manager or MCP config is empty.
 func TestOpenScenarioSessionMCPSources_NoOpWhenUnconfigured(t *testing.T) {
 	e := &Engine{}
-	cleanup, err := e.openScenarioSessionMCPSources(context.Background(), nil, "scn", "run1")
+	_, cleanup, err := e.openScenarioSessionMCPSources(context.Background(), nil, "scn", "run1")
 	require.NoError(t, err)
 	require.NotNil(t, cleanup)
 	cleanup() // must not panic
@@ -92,7 +92,7 @@ func TestOpenScenarioSessionMCPSources_NoOpWhenUnconfigured(t *testing.T) {
 	// With a scope manager but no config entries, still a no-op.
 	reg := mcp.NewRegistry()
 	e = &Engine{mcpSourceScope: newMCPSourceScope(reg)}
-	cleanup, err = e.openScenarioSessionMCPSources(context.Background(), nil, "scn", "run1")
+	_, cleanup, err = e.openScenarioSessionMCPSources(context.Background(), nil, "scn", "run1")
 	require.NoError(t, err)
 	cleanup()
 }
@@ -108,6 +108,7 @@ func TestOpenScenarioSessionMCPSources_OpensAndCloses(t *testing.T) {
 
 	reg := mcp.NewRegistry()
 	e := &Engine{
+		mcpRegistry:    reg,
 		mcpSourceScope: newMCPSourceScope(reg),
 		mcpConfig: []config.MCPServerConfig{
 			{Name: "a", Source: "rec-exec-open-scn", Scope: "scenario"},
@@ -116,17 +117,21 @@ func TestOpenScenarioSessionMCPSources_OpensAndCloses(t *testing.T) {
 	}
 
 	scenario := &config.Scenario{Variables: map[string]string{"k": "v"}}
-	cleanup, err := e.openScenarioSessionMCPSources(
+	_, cleanup, err := e.openScenarioSessionMCPSources(
 		context.Background(), scenario, "scenario-1", "run-xyz")
 	require.NoError(t, err)
-	assert.Contains(t, reg.ListServers(), "a")
-	assert.Contains(t, reg.ListServers(), "b")
+	// Open once each (counter on the fake source).
+	assert.Equal(t, int32(1), scn.opens.Load())
+	assert.Equal(t, int32(1), ses.opens.Load())
+	// Source-backed entries land on the per-run forked registry, not the
+	// parent — that's the isolation property that lets concurrent runs
+	// open the same name without colliding. The parent must stay clean.
+	assert.NotContains(t, reg.ListServers(), "a")
+	assert.NotContains(t, reg.ListServers(), "b")
 
 	cleanup()
 	assert.Equal(t, int32(1), scn.closes.Load())
 	assert.Equal(t, int32(1), ses.closes.Load())
-	assert.NotContains(t, reg.ListServers(), "a")
-	assert.NotContains(t, reg.ListServers(), "b")
 }
 
 // TestOpenScenarioSessionMCPSources_RollsBackScenarioOnSessionFailure
@@ -139,6 +144,7 @@ func TestOpenScenarioSessionMCPSources_RollsBackScenarioOnSessionFailure(t *test
 
 	reg := mcp.NewRegistry()
 	e := &Engine{
+		mcpRegistry:    reg,
 		mcpSourceScope: newMCPSourceScope(reg),
 		mcpConfig: []config.MCPServerConfig{
 			{Name: "a", Source: "rec-exec-rollback-scn", Scope: "scenario"},
@@ -147,7 +153,7 @@ func TestOpenScenarioSessionMCPSources_RollsBackScenarioOnSessionFailure(t *test
 		},
 	}
 
-	cleanup, err := e.openScenarioSessionMCPSources(
+	_, cleanup, err := e.openScenarioSessionMCPSources(
 		context.Background(), nil, "scenario-rb", "run-rb")
 	require.Error(t, err)
 	require.NotNil(t, cleanup) // always safe to call

@@ -407,11 +407,15 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	}
 
 	// Open scenario + session scoped MCPSource entries; cleanup runs via defer.
-	mcpCleanup, mcpErr := e.openScenarioSessionMCPSources(runCtx, scenario, combo.ScenarioID, runID)
+	// The returned context carries a per-run forked MCP registry so the
+	// pipeline's MCPExecutor routes to this run's session-scoped servers
+	// rather than the engine's shared registry.
+	mcpRunCtx, mcpCleanup, mcpErr := e.openScenarioSessionMCPSources(runCtx, scenario, combo.ScenarioID, runID)
 	if mcpErr != nil {
 		return saveError(mcpErr.Error())
 	}
 	defer mcpCleanup()
+	runCtx = mcpRunCtx
 
 	// Get provider
 	provider, exists := e.providerRegistry.Get(combo.ProviderID)
