@@ -755,6 +755,12 @@ func initDuplexSession(conv *Conversation, cfg *config, streamProvider providers
 }
 
 // initMCPRegistry initializes the MCP registry if servers are configured.
+//
+// Each server configured by name only (no URL, no Command) gets its
+// endpoint filled in by cfg.mcpEndpointResolver before it's registered.
+// Servers with a static URL or stdio Command bypass the resolver. A
+// name-only server with no resolver configured is a clear error rather
+// than a silent skip.
 func initMCPRegistry(conv *Conversation, cfg *config) error {
 	if len(cfg.mcpServers) == 0 {
 		return nil
@@ -764,9 +770,41 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 	conv.mcpRegistry = registry
 
 	for _, serverCfg := range cfg.mcpServers {
+		if err := resolveMCPEndpoint(&serverCfg, cfg.mcpEndpointResolver); err != nil {
+			_ = registry.Close()
+			return err
+		}
 		if err := registry.RegisterServer(serverCfg); err != nil {
 			_ = registry.Close()
 			return fmt.Errorf("failed to register MCP server %q: %w", serverCfg.Name, err)
+		}
+	}
+	return nil
+}
+
+// resolveMCPEndpoint fills serverCfg.URL/Headers via the resolver when
+// the server was declared by name only. Mutates serverCfg in place.
+func resolveMCPEndpoint(serverCfg *mcp.ServerConfig, resolver MCPEndpointResolver) error {
+	if serverCfg.URL != "" || serverCfg.Command != "" {
+		return nil
+	}
+	if resolver == nil {
+		return fmt.Errorf(
+			"MCP server %q declared by name only but no MCPEndpointResolver is configured (see WithMCPEndpoints)",
+			serverCfg.Name,
+		)
+	}
+	endpoint := resolver.Resolve(serverCfg.Name)
+	if endpoint.URL == "" {
+		return fmt.Errorf("MCP endpoint resolver returned no URL for server %q", serverCfg.Name)
+	}
+	serverCfg.URL = endpoint.URL
+	if len(endpoint.Headers) > 0 {
+		if serverCfg.Headers == nil {
+			serverCfg.Headers = make(map[string]string, len(endpoint.Headers))
+		}
+		for k, v := range endpoint.Headers {
+			serverCfg.Headers[k] = v
 		}
 	}
 	return nil
