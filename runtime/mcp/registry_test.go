@@ -225,11 +225,19 @@ func TestRegistry_GetServerNames(t *testing.T) {
 }
 
 func TestRegistry_TryGetExistingClient_NotRegistered(t *testing.T) {
+	// tryGetExistingClient returns (nil, nil) when no local client exists —
+	// the "not registered" error is reported by GetClient at the boundary.
+	// This loose contract lets child registries (Fork) fall through to a
+	// parent before the caller decides the lookup truly failed.
 	registry := NewRegistry()
 
 	client, err := registry.tryGetExistingClient("non-existent")
-	assert.Error(t, err)
+	require.NoError(t, err)
 	assert.Nil(t, client)
+
+	// GetClient surfaces the "not registered" error at the public boundary.
+	_, err = registry.GetClient(context.Background(), "non-existent")
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not registered")
 }
 
@@ -923,4 +931,82 @@ func TestRegistry_UnregisterServer_AfterClose(t *testing.T) {
 	err := reg.UnregisterServer("x")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "closed")
+}
+
+// TestRegistry_Fork_IsolatesRegistration verifies that two children of the
+// same parent can each register a server under the same name without
+// collision — the core property needed to run concurrent sandboxes that
+// each present at a different URL.
+func TestRegistry_Fork_IsolatesRegistration(t *testing.T) {
+	parent := NewRegistry()
+	childA := parent.Fork()
+	childB := parent.Fork()
+
+	cfgA := ServerConfig{Name: "sandbox", URL: "http://localhost:50001/sse"}
+	cfgB := ServerConfig{Name: "sandbox", URL: "http://localhost:50002/sse"}
+
+	require.NoError(t, childA.RegisterServer(cfgA))
+	require.NoError(t, childB.RegisterServer(cfgB), "both children must accept the same name")
+
+	// Each child resolves "sandbox" to its own URL.
+	gotA, ok := childA.GetServerConfig("sandbox")
+	require.True(t, ok)
+	assert.Equal(t, "http://localhost:50001/sse", gotA.URL)
+	gotB, ok := childB.GetServerConfig("sandbox")
+	require.True(t, ok)
+	assert.Equal(t, "http://localhost:50002/sse", gotB.URL)
+
+	// Parent does not see either child's registration.
+	_, ok = parent.GetServerConfig("sandbox")
+	assert.False(t, ok, "parent must not inherit child registrations")
+}
+
+// TestRegistry_Fork_FallsThroughToParent verifies that lookups for
+// parent-registered (static) servers succeed in the child without the
+// child needing to re-register them.
+func TestRegistry_Fork_FallsThroughToParent(t *testing.T) {
+	parent := NewRegistry()
+	require.NoError(t, parent.RegisterServer(ServerConfig{
+		Name: "shared-mcp",
+		URL:  "http://shared.example/sse",
+	}))
+
+	child := parent.Fork()
+	got, ok := child.GetServerConfig("shared-mcp")
+	require.True(t, ok, "child must see parent-registered servers via fall-through")
+	assert.Equal(t, "http://shared.example/sse", got.URL)
+
+	// ListServers includes both parent and child entries.
+	require.NoError(t, child.RegisterServer(ServerConfig{
+		Name: "own", URL: "http://x/sse",
+	}))
+	names := child.ListServers()
+	assert.Contains(t, names, "shared-mcp")
+	assert.Contains(t, names, "own")
+}
+
+// TestRegistry_Fork_UnregisterChildOnly verifies that unregistering on
+// the child does not affect the parent's static state.
+func TestRegistry_Fork_UnregisterChildOnly(t *testing.T) {
+	parent := NewRegistry()
+	require.NoError(t, parent.RegisterServer(ServerConfig{
+		Name: "shared-mcp", URL: "http://shared/sse",
+	}))
+
+	child := parent.Fork()
+	require.NoError(t, child.RegisterServer(ServerConfig{
+		Name: "own", URL: "http://own/sse",
+	}))
+
+	require.NoError(t, child.UnregisterServer("own"))
+	_, ok := child.GetServerConfig("own")
+	assert.False(t, ok, "child's own entry should be gone")
+
+	// Parent's static entry is untouched.
+	_, ok = parent.GetServerConfig("shared-mcp")
+	assert.True(t, ok, "parent's entry must remain after child unregister")
+
+	// Child can still see parent's entry via fall-through.
+	_, ok = child.GetServerConfig("shared-mcp")
+	assert.True(t, ok)
 }

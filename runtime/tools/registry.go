@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -118,6 +119,34 @@ func newRegistry(repository ToolRepository, opts ...RegistryOption) *Registry {
 	}
 
 	return registry
+}
+
+// Fork returns a child Registry that snapshots the parent's tool
+// descriptors and executors at the moment of the call. After Fork the
+// child and parent are independent: descriptors and executors registered
+// on the child do not leak to the parent (and vice versa).
+//
+// Use this to give each concurrent run its own per-run dispatch state —
+// a per-run MCPExecutor wired to a per-run mcp.Registry, plus per-run
+// MCP tool descriptors discovered from session-scoped sources, without
+// colliding with other runs that share the engine's parent Registry.
+//
+// Memory cost is two shallow map copies; descriptor and executor values
+// are pointer-typed so the underlying objects are shared.
+func (r *Registry) Fork() *Registry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return &Registry{
+		// Children intentionally don't carry over the repository: they
+		// represent ephemeral per-run state and shouldn't persist.
+		repository:        nil,
+		tools:             maps.Clone(r.tools),
+		validator:         r.validator,
+		executors:         maps.Clone(r.executors),
+		defaultTimeoutMs:  r.defaultTimeoutMs,
+		maxToolResultSize: r.maxToolResultSize,
+		rateLimiter:       r.rateLimiter,
+	}
 }
 
 // Register adds a tool descriptor to the registry with validation.
