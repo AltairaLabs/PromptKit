@@ -83,6 +83,11 @@ func init() {
 	evals.RegisterDefault(&A2AEvalHandler{})
 	evals.RegisterDefault(&A2AEvalSessionHandler{})
 
+	// Tool-invocation gate. Calls a registered tool by name and asserts
+	// the call succeeded — generic primitive for "did this side-effect
+	// pass" assertions (sandbox test runs, validation tools, …).
+	evals.RegisterDefault(&ToolExecHandler{})
+
 	// Behavioral testing handlers (Phase 6)
 	evals.RegisterDefault(&OutcomeEquivalentHandler{})
 	evals.RegisterDefault(&DirectionalHandler{})
