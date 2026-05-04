@@ -188,6 +188,55 @@ For a no-Docker variant against the canned LLM responses, use
 
 ---
 
+## Hard gating on a sandbox tool
+
+Once the sandbox is wired, the natural pairing is the [`tool_exec`
+check](/reference/checks/#tool-invocation-checks) — it invokes a
+registered tool at the end of the session and asserts the call
+succeeded. Codegen sandboxes typically expose `run_tests` /
+`run_lint` / `run_typecheck`, all of which return structured
+success/failure that `tool_exec` reads directly. The result is a
+hard "did the agent's edits actually pass tests" gate on the run:
+
+```yaml
+spec:
+  mcp_servers:
+    - name: sandbox
+      source: docker
+      scope: session
+      source_args:
+        image: ghcr.io/altairalabs/codegen-sandbox:latest
+
+  scenarios:
+    - file: scenarios/fix-the-bug.scenario.yaml
+```
+
+```yaml
+# scenarios/fix-the-bug.scenario.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: fix-the-bug
+spec:
+  id: fix-the-bug
+  task_type: codegen-agent
+  turns:
+    - role: user
+      content: "There's a bug in /workspace/add.go. Fix it."
+  conversation_assertions:
+    - type: tool_exec
+      params:
+        tool: run_tests
+      message: "Hidden test suite must pass"
+```
+
+The session-scoped MCP source keeps the container alive across both
+the agent's tool calls and the `tool_exec` gate's call — the gate
+just runs `run_tests` one more time after the agent declares done,
+and the test result drives the hard gate.
+
+---
+
 ## Skill staging
 
 When a pack declares skills and the source supports it, Arena

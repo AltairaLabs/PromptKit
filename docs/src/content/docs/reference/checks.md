@@ -139,6 +139,76 @@ Session-level tool checks use the `on_session_complete` or `on_conversation_comp
 
 ---
 
+## Tool Invocation Checks
+
+Unlike the tool checks above (which evaluate tools the agent already
+called), this check **invokes a tool itself** and asserts on the
+result. Typical use is to run a verification tool — a sandbox's
+`run_tests`, a render-and-diff utility, a custom HTTP probe — as the
+hard gate after the conversation completes.
+
+### `tool_exec`
+
+Invokes a registered tool by name through the runtime tool registry
+and passes if the call succeeded. The pass condition is:
+
+- `tools.Registry.Execute` returns no error, **and**
+- the resulting `ToolResult.Error` field is empty.
+
+This makes `tool_exec` a generic "is this tool happy" gate that works
+with any registered tool — MCP-discovered (e.g. a sandbox's
+`run_tests`), HTTP, local executors, custom client tools. The handler
+doesn't know or care about the transport.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tool` | string | Yes | Registry name of the tool to invoke. |
+| `args` | object | No | Arguments passed verbatim to the tool. Defaults to `{}`. |
+| `timeout_seconds` | int | No | Per-call timeout. Default `120`. Generous because the typical use case is a long-running test suite inside a sandbox. |
+
+**Surfaces:** A E (conversation-level / session-level — invoke at the end of the session, not per turn)
+
+**Example — gating on a sandbox's hidden test suite:**
+
+```yaml
+conversation_assertions:
+  - type: tool_exec
+    params:
+      tool: run_tests
+    message: "Hidden tests must pass"
+```
+
+Pair this with a [source-backed MCP entry](/arena/how-to/provision-mcp-sandbox/)
+that supplies the `run_tests` tool — the sandbox lives for the
+session, runs the agent's edits, and the gate checks them at the end.
+
+**Example — pack-shipped validation tool:**
+
+```yaml
+conversation_assertions:
+  - type: tool_exec
+    params:
+      tool: validate_invoice
+      args:
+        strict: true
+      timeout_seconds: 30
+    message: "Final invoice must validate"
+```
+
+**Notes**
+
+- The host (arena, SDK, …) must inject a `*tools.Registry` into
+  `EvalContext.Metadata["tool_registry"]`. Arena does this
+  automatically; SDK consumers using the runtime evals API directly
+  need to populate it themselves.
+- Because the gate _calls_ a tool, it counts toward whatever cost /
+  side-effect budget the tool implies (e.g. running the test suite
+  costs CPU time, an HTTP probe costs a request).
+- Errors from the tool surface in the assertion's `Explanation` so
+  failures are debuggable from the report without re-running.
+
+---
+
 ## Agent & Skill Checks
 
 | Type | Params | Surfaces |

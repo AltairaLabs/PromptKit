@@ -67,6 +67,7 @@ The table below lists the most commonly used assertion types. For full details a
 | `json_schema` | Response conforms to a JSON Schema |
 | `no_tool_errors` | All tool calls completed without errors |
 | `tool_call_chain` | Tools were called in a specific order |
+| `tool_exec` | Invoke a registered tool (e.g. a sandbox's `run_tests`) at session end and assert it succeeded |
 
 :::note[Type aliases]
 Assertions support both canonical and alias names. For example, `content_includes` is an alias for `contains`. See the [Checks Reference](/reference/checks/#assertion-aliases) for the full alias table.
