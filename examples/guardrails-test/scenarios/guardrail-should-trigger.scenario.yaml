@@ -2,6 +2,9 @@ apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
 metadata:
   name: guardrail-should-trigger
+  labels:
+    difficulty: medium
+    category: guardrail
 spec:
   id: "guardrail-should-trigger"
   task_type: assistant

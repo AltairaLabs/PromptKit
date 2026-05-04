@@ -246,6 +246,12 @@
         "description": {
           "type": "string"
         },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
         "context_metadata": {
           "$ref": "#/$defs/ContextMetadata"
         },

@@ -626,10 +626,14 @@ type ScenarioConfigK8s struct {
 // Workflow scenarios use the same turns format — the workflow state machine
 // (defined in config.arena.yaml) dynamically selects the prompt per turn.
 type Scenario struct {
-	ID              string                 `json:"id,omitempty" yaml:"id,omitempty"`
-	TaskType        string                 `json:"task_type,omitempty" yaml:"task_type,omitempty"`
-	Mode            string                 `json:"mode,omitempty" yaml:"mode,omitempty"`
-	Description     string                 `json:"description" yaml:"description"`
+	ID          string `json:"id,omitempty" yaml:"id,omitempty"`
+	TaskType    string `json:"task_type,omitempty" yaml:"task_type,omitempty"`
+	Mode        string `json:"mode,omitempty" yaml:"mode,omitempty"`
+	Description string `json:"description" yaml:"description"`
+	// Labels are key/value tags copied from the scenario manifest's metadata.labels
+	// (K8s-style). Used for stratified reporting in arena. Populated by LoadScenario;
+	// not read from the spec body itself.
+	Labels          map[string]string      `json:"labels,omitempty" yaml:"labels,omitempty"`
 	ContextMetadata *ContextMetadata       `json:"context_metadata,omitempty" yaml:"context_metadata,omitempty"`
 	Turns           []TurnDefinition       `json:"turns,omitempty" yaml:"turns,omitempty"`
 	Context         map[string]interface{} `json:"context,omitempty" yaml:"context,omitempty"`

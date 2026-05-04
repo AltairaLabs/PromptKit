@@ -432,6 +432,7 @@ func convertToEngineRunResult(sr *statestore.RunResult) engine.RunResult {
 		Region:       sr.Region,
 		ScenarioID:   sr.ScenarioID,
 		ProviderID:   sr.ProviderID,
+		Labels:       sr.Labels,
 		Params:       sr.Params,
 		Messages:     sr.Messages,
 		Commit:       sr.Commit,

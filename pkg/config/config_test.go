@@ -204,6 +204,31 @@ spec:
 	}
 }
 
+func TestLoadScenario_LabelsRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.yaml")
+	yaml := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: s
+  labels: {difficulty: easy, category: bugfix}
+spec:
+  id: s
+  task_type: support
+  description: x
+  turns: [{role: user, content: hi}]
+`
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	scenario, err := LoadScenario(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scenario.Labels["difficulty"] != "easy" || scenario.Labels["category"] != "bugfix" {
+		t.Errorf("labels=%v", scenario.Labels)
+	}
+}
+
 func TestLoadProvider(t *testing.T) {
 	tmpDir := t.TempDir()
 	providerPath := filepath.Join(tmpDir, "test-provider.yaml")

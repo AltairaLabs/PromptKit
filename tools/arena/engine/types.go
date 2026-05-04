@@ -36,11 +36,14 @@ type TrialGroupKey struct {
 
 // RunResult contains the complete results of a single test execution
 type RunResult struct {
-	RunID      string                  `json:"RunID"`
-	PromptPack string                  `json:"PromptPack"`
-	Region     string                  `json:"Region"`
-	ScenarioID string                  `json:"ScenarioID"`
-	ProviderID string                  `json:"ProviderID"`
+	RunID      string `json:"RunID"`
+	PromptPack string `json:"PromptPack"`
+	Region     string `json:"Region"`
+	ScenarioID string `json:"ScenarioID"`
+	ProviderID string `json:"ProviderID"`
+	// Labels are stratification tags copied from the scenario manifest's
+	// metadata.labels. Carried through to JSON/HTML reports for slicing.
+	Labels     map[string]string       `json:"Labels,omitempty"`
 	Params     map[string]interface{}  `json:"Params"`
 	Messages   []types.Message         `json:"Messages"`
 	Commit     map[string]interface{}  `json:"Commit"`

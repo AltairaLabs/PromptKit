@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -622,6 +623,7 @@ func (e *Engine) saveRunError(
 		Region:     combo.Region,
 		ScenarioID: combo.ScenarioID,
 		ProviderID: combo.ProviderID,
+		Labels:     e.scenarioLabels(combo.ScenarioID),
 		StartTime:  start,
 		EndTime:    time.Now(),
 		Duration:   time.Since(start),
@@ -647,6 +649,17 @@ func (e *Engine) saveRunError(
 	return runID, nil
 }
 
+// scenarioLabels returns a copy of the named scenario's metadata labels, or
+// nil if the scenario is unknown or has no labels. Returning a copy keeps the
+// statestore independent of the in-memory scenario map.
+func (e *Engine) scenarioLabels(scenarioID string) map[string]string {
+	scenario, ok := e.scenarios[scenarioID]
+	if !ok {
+		return nil
+	}
+	return maps.Clone(scenario.Labels)
+}
+
 func (e *Engine) saveRunMetadata(
 	ctx context.Context,
 	store *statestore.ArenaStateStore,
@@ -661,6 +674,7 @@ func (e *Engine) saveRunMetadata(
 		Region:                       combo.Region,
 		ScenarioID:                   combo.ScenarioID,
 		ProviderID:                   combo.ProviderID,
+		Labels:                       e.scenarioLabels(combo.ScenarioID),
 		StartTime:                    start,
 		EndTime:                      time.Now(),
 		Duration:                     duration,

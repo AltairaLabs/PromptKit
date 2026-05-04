@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -333,6 +334,13 @@ func LoadScenario(filename string) (*Scenario, error) {
 	// Validate nested configs (DuplexConfig, RelevanceConfig, etc.)
 	if err := config.Spec.Validate(); err != nil {
 		return nil, fmt.Errorf("scenario validation failed for %s: %w", filename, err)
+	}
+
+	// Copy K8s metadata.labels into the spec so downstream consumers
+	// (engine, statestore, report) carry stratification labels alongside
+	// the rest of the scenario.
+	if len(config.Metadata.Labels) > 0 {
+		config.Spec.Labels = maps.Clone(config.Metadata.Labels)
 	}
 
 	return &config.Spec, nil
