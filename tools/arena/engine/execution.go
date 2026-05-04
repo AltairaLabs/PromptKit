@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -653,14 +654,10 @@ func (e *Engine) saveRunError(
 // statestore independent of the in-memory scenario map.
 func (e *Engine) scenarioLabels(scenarioID string) map[string]string {
 	scenario, ok := e.scenarios[scenarioID]
-	if !ok || len(scenario.Labels) == 0 {
+	if !ok {
 		return nil
 	}
-	labels := make(map[string]string, len(scenario.Labels))
-	for k, v := range scenario.Labels {
-		labels[k] = v
-	}
-	return labels
+	return maps.Clone(scenario.Labels)
 }
 
 func (e *Engine) saveRunMetadata(

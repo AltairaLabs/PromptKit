@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -304,11 +305,7 @@ func firstNonEmptyLabels(results []engine.RunResult) map[string]string {
 		if len(results[i].Labels) == 0 {
 			continue
 		}
-		labels := make(map[string]string, len(results[i].Labels))
-		for k, v := range results[i].Labels {
-			labels[k] = v
-		}
-		return labels
+		return maps.Clone(results[i].Labels)
 	}
 	return nil
 }

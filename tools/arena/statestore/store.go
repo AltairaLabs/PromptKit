@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 	"time"
@@ -833,12 +834,7 @@ func (s *ArenaStateStore) deepCloneRunMetadata(m *RunMetadata) *RunMetadata {
 	cloned.Params = s.deepCloneMap(m.Params)
 	cloned.Commit = s.deepCloneMap(m.Commit)
 	cloned.TrialResults = m.TrialResults
-	if m.Labels != nil {
-		cloned.Labels = make(map[string]string, len(m.Labels))
-		for k, v := range m.Labels {
-			cloned.Labels[k] = v
-		}
-	}
+	cloned.Labels = maps.Clone(m.Labels)
 	s.cloneRunMetadataRoles(cloned, m)
 	s.cloneRunMetadataFeedback(cloned, m)
 	s.cloneRunMetadataSlices(cloned, m)

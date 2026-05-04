@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -339,10 +340,7 @@ func LoadScenario(filename string) (*Scenario, error) {
 	// (engine, statestore, report) carry stratification labels alongside
 	// the rest of the scenario.
 	if len(config.Metadata.Labels) > 0 {
-		config.Spec.Labels = make(map[string]string, len(config.Metadata.Labels))
-		for k, v := range config.Metadata.Labels {
-			config.Spec.Labels[k] = v
-		}
+		config.Spec.Labels = maps.Clone(config.Metadata.Labels)
 	}
 
 	return &config.Spec, nil
