@@ -30,6 +30,13 @@ type RegistryOptions struct {
 type RegistryImpl struct {
 	mu sync.RWMutex
 
+	// parent is non-nil when this registry was produced by Fork. Lookups
+	// for servers/clients/tool ownership fall through to the parent when
+	// not found locally, so per-conversation children can resolve static
+	// (parent-registered) servers without re-registering or re-dialing.
+	// Registration is always local to this registry.
+	parent *RegistryImpl
+
 	// Server configurations
 	servers map[string]ServerConfig
 
@@ -94,7 +101,38 @@ func NewRegistryWithOptions(opts RegistryOptions) *RegistryImpl {
 	return r
 }
 
-// RegisterServer adds a new MCP server configuration
+// Fork returns a child registry that shares this registry's static
+// servers and clients via lookup fall-through, but has its own
+// per-instance dynamic state. Children can register their own servers
+// (including names that exist in the parent) without colliding; this
+// is the mechanism that lets concurrent runs each open their own
+// session-scoped MCP source while sharing static client connections.
+//
+// Registration on the child is local-only: the parent never sees the
+// child's entries. Lookups (GetServerConfig, GetClient, GetClientForTool,
+// ListServers) try local state first, then fall through to the parent.
+// UnregisterServer is local-only.
+//
+// Cycle safety is the caller's responsibility; in practice forks only
+// chain one level deep (engine → run).
+func (r *RegistryImpl) Fork() *RegistryImpl {
+	return &RegistryImpl{
+		parent:        r,
+		servers:       make(map[string]ServerConfig),
+		clients:       make(map[string]Client),
+		toolIndex:     make(map[string]string),
+		options:       r.options,
+		newClientFunc: r.newClientFunc,
+		// processSem is intentionally not shared: child opens are subject
+		// to the same global limit only when the parent's semaphore is
+		// reachable via parent-level operations. Children of an unlimited
+		// parent are also unlimited.
+	}
+}
+
+// RegisterServer adds a new MCP server configuration. Child registries
+// (produced by Fork) accept names that exist in the parent — registration
+// is local-only.
 func (r *RegistryImpl) RegisterServer(config ServerConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -140,24 +178,40 @@ func (r *RegistryImpl) UnregisterServer(name string) error {
 	return nil
 }
 
-// GetClient returns an active client for the given server name
+// GetClient returns an active client for the given server name. For
+// child registries (Fork), if the name resolves only to the parent,
+// the parent's client is returned — preserving connection sharing for
+// static servers across all per-run forks.
 func (r *RegistryImpl) GetClient(ctx context.Context, serverName string) (Client, error) {
-	// Check if client exists and is alive
+	// Check if client exists and is alive (local first).
 	if client, err := r.tryGetExistingClient(serverName); err != nil {
 		return nil, err
 	} else if client != nil {
 		return client, nil
 	}
 
-	// Create new client with write lock
-	return r.createNewClient(ctx, serverName)
+	// If the name is registered locally, create a new local client.
+	r.mu.RLock()
+	_, hasLocal := r.servers[serverName]
+	r.mu.RUnlock()
+	if hasLocal {
+		return r.createNewClient(ctx, serverName)
+	}
+
+	// Fall through to parent. Parent owns the client; child shares it.
+	if r.parent != nil {
+		return r.parent.GetClient(ctx, serverName)
+	}
+	return nil, fmt.Errorf("server %s not registered", serverName)
 }
 
-// tryGetExistingClient attempts to return an existing alive client
+// tryGetExistingClient attempts to return an existing alive client from
+// this registry's local state. Returns (nil, nil) when no local client
+// exists (caller decides whether to create one or fall through to a
+// parent registry). Errors are reserved for the closed-registry case.
 func (r *RegistryImpl) tryGetExistingClient(serverName string) (Client, error) {
 	r.mu.RLock()
 	client, exists := r.clients[serverName]
-	_, hasConfig := r.servers[serverName]
 	closed := r.closed
 	r.mu.RUnlock()
 
@@ -165,16 +219,12 @@ func (r *RegistryImpl) tryGetExistingClient(serverName string) (Client, error) {
 		return nil, fmt.Errorf("registry is closed")
 	}
 
-	if !hasConfig {
-		return nil, fmt.Errorf("server %s not registered", serverName)
-	}
-
 	// If client exists and is alive, return it
 	if exists && client.IsAlive() {
 		return client, nil
 	}
 
-	return nil, nil // No existing client, need to create new one
+	return nil, nil // No existing client, caller decides next step
 }
 
 // createNewClient creates and initializes a new client.
@@ -273,48 +323,76 @@ func (r *RegistryImpl) ActiveProcessCount() int {
 	return len(r.processSem)
 }
 
-// GetClientForTool returns the client that provides the specified tool
+// GetClientForTool returns the client that provides the specified tool.
+// Child registries (Fork) check their own tool index first; if the tool
+// is not owned by a locally-registered server, the lookup falls through
+// to the parent's tool index.
 func (r *RegistryImpl) GetClientForTool(ctx context.Context, toolName string) (Client, error) {
 	r.mu.RLock()
 	serverName, exists := r.toolIndex[toolName]
 	r.mu.RUnlock()
 
-	if !exists {
-		// Tool not in index - try to refresh all tools
-		if err := r.refreshAllToolIndices(ctx); err != nil {
-			return nil, fmt.Errorf("tool %s not found and refresh failed: %w", toolName, err)
-		}
+	if exists {
+		return r.GetClient(ctx, serverName)
+	}
 
-		r.mu.RLock()
-		serverName, exists = r.toolIndex[toolName]
-		r.mu.RUnlock()
+	// Try refreshing local tool index before falling through.
+	if err := r.refreshAllToolIndices(ctx); err != nil {
+		return nil, fmt.Errorf("tool %s not found and refresh failed: %w", toolName, err)
+	}
+	r.mu.RLock()
+	serverName, exists = r.toolIndex[toolName]
+	r.mu.RUnlock()
+	if exists {
+		return r.GetClient(ctx, serverName)
+	}
 
-		if !exists {
-			return nil, fmt.Errorf("tool %s not found in any MCP server", toolName)
+	// Fall through to parent — the tool may be owned by a parent-registered
+	// (static) server.
+	if r.parent != nil {
+		return r.parent.GetClientForTool(ctx, toolName)
+	}
+	return nil, fmt.Errorf("tool %s not found in any MCP server", toolName)
+}
+
+// ListServers returns all registered server names. For child registries
+// (produced by Fork), this is the union of local and parent entries —
+// child names override parent names with the same key.
+func (r *RegistryImpl) ListServers() []string {
+	r.mu.RLock()
+	seen := make(map[string]struct{}, len(r.servers))
+	for name := range r.servers {
+		seen[name] = struct{}{}
+	}
+	r.mu.RUnlock()
+
+	if r.parent != nil {
+		for _, name := range r.parent.ListServers() {
+			seen[name] = struct{}{}
 		}
 	}
 
-	return r.GetClient(ctx, serverName)
-}
-
-// ListServers returns all registered server names
-func (r *RegistryImpl) ListServers() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	servers := make([]string, 0, len(r.servers))
-	for name := range r.servers {
+	servers := make([]string, 0, len(seen))
+	for name := range seen {
 		servers = append(servers, name)
 	}
 	return servers
 }
 
 // GetServerConfig returns the configuration for a registered server.
+// Child registries fall through to the parent when the name is not
+// registered locally.
 func (r *RegistryImpl) GetServerConfig(serverName string) (ServerConfig, bool) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	cfg, ok := r.servers[serverName]
-	return cfg, ok
+	r.mu.RUnlock()
+	if ok {
+		return cfg, true
+	}
+	if r.parent != nil {
+		return r.parent.GetServerConfig(serverName)
+	}
+	return ServerConfig{}, false
 }
 
 // ListAllTools returns all tools from all connected servers

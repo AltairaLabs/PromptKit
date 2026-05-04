@@ -1006,3 +1006,77 @@ func TestIterateTools(t *testing.T) {
 		t.Errorf("expected both tools visited, got %v", visited)
 	}
 }
+
+// TestRegistry_Fork_InheritsParentTools verifies that descriptors
+// registered on the parent are visible in the child after Fork.
+func TestRegistry_Fork_InheritsParentTools(t *testing.T) {
+	parent := tools.NewRegistry()
+	if err := parent.Register(&tools.ToolDescriptor{Name: "shared", Mode: "mock"}); err != nil {
+		t.Fatalf("parent register: %v", err)
+	}
+
+	child := parent.Fork()
+	if got := child.Get("shared"); got == nil {
+		t.Errorf("child should inherit parent's 'shared' descriptor")
+	}
+}
+
+// TestRegistry_Fork_LocalRegisterStaysLocal verifies that registering a
+// descriptor on the child does not leak into the parent — the core
+// concurrency-safety property for per-run forks.
+func TestRegistry_Fork_LocalRegisterStaysLocal(t *testing.T) {
+	parent := tools.NewRegistry()
+	child := parent.Fork()
+
+	if err := child.Register(&tools.ToolDescriptor{Name: "child-only", Mode: "mock"}); err != nil {
+		t.Fatalf("child register: %v", err)
+	}
+
+	if got := child.Get("child-only"); got == nil {
+		t.Errorf("child should see its own registration")
+	}
+	if got := parent.Get("child-only"); got != nil {
+		t.Errorf("parent should NOT see child's registration; got %v", got)
+	}
+}
+
+// TestRegistry_Fork_PerChildExecutor verifies that two children each
+// register their own executor under the same Mode without colliding —
+// each child's tools dispatch to its own executor instance. Verified by
+// behavior (Execute returns the executor's tag).
+func TestRegistry_Fork_PerChildExecutor(t *testing.T) {
+	parent := tools.NewRegistry()
+	if err := parent.Register(&tools.ToolDescriptor{Name: "ping", Mode: "fork-tag"}); err != nil {
+		t.Fatalf("parent register: %v", err)
+	}
+
+	childA := parent.Fork()
+	childB := parent.Fork()
+	childA.RegisterExecutor(&forkTagExecutor{tag: "A"})
+	childB.RegisterExecutor(&forkTagExecutor{tag: "B"})
+
+	exec := func(r *tools.Registry) string {
+		out, err := r.Execute(context.Background(), "ping", []byte("{}"))
+		if err != nil {
+			return "ERR:" + err.Error()
+		}
+		if out == nil {
+			return ""
+		}
+		return string(out.Result)
+	}
+
+	if got := exec(childA); got != `"A"` {
+		t.Errorf("childA Execute(ping) = %q, want %q", got, `"A"`)
+	}
+	if got := exec(childB); got != `"B"` {
+		t.Errorf("childB Execute(ping) = %q, want %q", got, `"B"`)
+	}
+}
+
+type forkTagExecutor struct{ tag string }
+
+func (e *forkTagExecutor) Execute(_ context.Context, _ *tools.ToolDescriptor, _ json.RawMessage) (json.RawMessage, error) {
+	return json.Marshal(e.tag)
+}
+func (e *forkTagExecutor) Name() string { return "fork-tag" }
