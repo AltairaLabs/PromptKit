@@ -1,0 +1,75 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+
+metadata:
+  name: go-counter-race
+  labels:
+    shape: bugfix
+    language: go
+    difficulty: medium
+    source: hand-rolled
+    category: concurrency
+
+spec:
+  id: go-counter-race
+  task_type: codegen-agent
+  description: |
+    Concurrent counter has a data race — the unprotected int field is
+    read-modify-written from N goroutines. Tests run with -race.
+
+  turns:
+    - role: user
+      content: |
+        Set up a Go module at /workspace with this content, then find and
+        fix the data race so the tests pass under -race:
+
+        /workspace/go.mod:
+          module example.com/counter
+          go 1.22
+
+        /workspace/counter.go:
+          package counter
+          type Counter struct {
+              n int
+          }
+          func (c *Counter) Inc() {
+              c.n++
+          }
+          func (c *Counter) Value() int {
+              return c.n
+          }
+
+        /workspace/counter_test.go:
+          package counter
+          import (
+              "sync"
+              "testing"
+          )
+          func TestCounterConcurrent(t *testing.T) {
+              const G, K = 100, 1000
+              c := &Counter{}
+              var wg sync.WaitGroup
+              for g := 0; g < G; g++ {
+                  wg.Add(1)
+                  go func() {
+                      defer wg.Done()
+                      for i := 0; i < K; i++ {
+                          c.Inc()
+                      }
+                  }()
+              }
+              wg.Wait()
+              if got := c.Value(); got != G*K {
+                  t.Errorf("Value()=%d want %d", got, G*K)
+              }
+          }
+
+        Note: the test runner here passes -race; the sandbox's
+        run_tests reports failure on race detection.
+
+  conversation_assertions:
+    - type: tool_exec
+      params:
+        tool: run_tests
+        timeout_seconds: 180
+      message: "Hidden test suite must pass under -race"
