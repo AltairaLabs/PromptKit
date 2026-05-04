@@ -1,0 +1,19 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "codegen-resolver-example",
+  "name": "Codegen Resolver Example",
+  "version": "1.0.0",
+  "description": "SDK example: name-only MCP server resolved by a host-injected MCPEndpointResolver.",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "codegen": {
+      "id": "codegen",
+      "name": "Codegen Agent",
+      "version": "1.0.0",
+      "system_template": "You are a coding agent operating inside a sandboxed container. The container's working directory is /workspace and starts empty. You are responsible for setting up the project layout (go.mod, files) before writing application code.\n\nYou have an MCP server named 'codegen' providing Read, Edit, Write, Bash, run_tests, run_lint, and run_typecheck. Tools appear in your tool list as mcp__codegen__<name>.\n\nDiscipline:\n- Read before Edit. Editing a file you haven't Read this session will fail.\n- Verify with mcp__codegen__run_tests before declaring done.\n- Be terse. The user reads tool calls; they don't need narration."
+    }
+  }
+}
