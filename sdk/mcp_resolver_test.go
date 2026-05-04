@@ -186,13 +186,11 @@ func TestOpen_NameOnlyMCPWithResolverSucceeds(t *testing.T) {
 	assert.NotNil(t, conv)
 }
 
-// TestOpenDuplex_InitMCPRegistryRunsBeforePipelineBuild covers the
-// duplex path's MCP-init hoist. The mock provider doesn't satisfy
-// providers.StreamInputSupport so OpenDuplex returns a clear "not
-// supported" error — but only after option application; the MCP init
-// runs first if the path got here. Negative test confirms ordering
-// without requiring a real streaming provider.
-func TestOpenDuplex_InitMCPRegistryReachable(t *testing.T) {
+// TestOpenDuplex_NameOnlyMCPWithoutResolverErrors covers the duplex
+// path's MCP-init hoist. With no resolver configured, OpenDuplex must
+// surface the MCP error before the streaming-support check — the
+// reorder keeps Open() and OpenDuplex() validating the same surface.
+func TestOpenDuplex_NameOnlyMCPWithoutResolverErrors(t *testing.T) {
 	packFile := writeMCPTestPack(t)
 	provider := mock.NewProvider("mock", "mock-model", false)
 
@@ -202,8 +200,6 @@ func TestOpenDuplex_InitMCPRegistryReachable(t *testing.T) {
 		WithMCPServer(NewMCPServerByName("codegen")),
 	)
 	require.Error(t, err)
-	// Either the duplex provider check fires first, or the MCP error does.
-	// Both are acceptable paths from this branch; the test exists to
-	// exercise OpenDuplex's option/init plumbing post-reorder.
-	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "MCP server \"codegen\"",
+		"MCP-init error must surface before the streaming-support check")
 }

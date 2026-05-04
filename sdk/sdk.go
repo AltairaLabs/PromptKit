@@ -151,6 +151,14 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 		return nil, err
 	}
 
+	// Initialize the MCP registry BEFORE the streaming-support check so
+	// the same surface validates both Open() and OpenDuplex() consistently —
+	// a misconfigured MCP entry surfaces with the same error in either
+	// flavor, regardless of which provider was wired. (See note in Open().)
+	if err := initMCPRegistry(conv, conv.config); err != nil {
+		return nil, err
+	}
+
 	// Verify provider supports streaming input
 	streamProvider, ok := prov.(providers.StreamInputSupport)
 	if !ok {
@@ -158,12 +166,6 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 			"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
 			prov,
 		)
-	}
-
-	// Initialize the MCP registry BEFORE building the duplex pipeline so
-	// registerMCPExecutors sees a populated registry. See note in Open().
-	if err := initMCPRegistry(conv, conv.config); err != nil {
-		return nil, err
 	}
 
 	// Initialize duplex session
