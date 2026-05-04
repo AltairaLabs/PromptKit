@@ -417,6 +417,43 @@ func TestArenaStateStore_SaveMetadata(t *testing.T) {
 	assert.Equal(t, "customer", arenaState.RunMetadata.PersonaID)
 }
 
+// TestArenaStateStore_SaveMetadata_LabelsRoundTrip ensures stratification
+// labels survive SaveMetadata → GetResult.
+func TestArenaStateStore_SaveMetadata_LabelsRoundTrip(t *testing.T) {
+	store := NewArenaStateStore()
+	ctx := context.Background()
+
+	state := &statestore.ConversationState{
+		ID:       "run-labels",
+		UserID:   "test-user",
+		Messages: []types.Message{{Role: "user", Content: "Hello"}},
+	}
+	require.NoError(t, store.Save(ctx, state))
+
+	metadata := &RunMetadata{
+		RunID:      "run-labels",
+		Region:     "us-west",
+		ScenarioID: "labelled-scenario",
+		ProviderID: "test-provider",
+		StartTime:  time.Now().Add(-time.Second),
+		EndTime:    time.Now(),
+		Duration:   time.Second,
+		Labels: map[string]string{
+			"difficulty": "easy",
+			"category":   "bugfix",
+		},
+	}
+	require.NoError(t, store.SaveMetadata(ctx, "run-labels", metadata))
+
+	// Mutate the source map after save — the deep clone must isolate it.
+	metadata.Labels["difficulty"] = "hard"
+
+	result, err := store.GetResult(ctx, "run-labels")
+	require.NoError(t, err)
+	assert.Equal(t, "easy", result.Labels["difficulty"])
+	assert.Equal(t, "bugfix", result.Labels["category"])
+}
+
 // TestArenaStateStore_SaveMetadata_WithError tests saving metadata with error
 func TestArenaStateStore_SaveMetadata_WithError(t *testing.T) {
 	store := NewArenaStateStore()

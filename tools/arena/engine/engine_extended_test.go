@@ -252,6 +252,37 @@ func TestGenerateRunPlan_WithFilters(t *testing.T) {
 	}
 }
 
+func TestEngine_ScenarioLabels(t *testing.T) {
+	cfg := &config.Config{Defaults: config.Defaults{Verbose: false}}
+	tmpDir := t.TempDir()
+	eng := newTestEngine(t, tmpDir, cfg)
+
+	src := map[string]string{"difficulty": "easy", "category": "bugfix"}
+	eng.scenarios = map[string]*config.Scenario{
+		"labeled":   {ID: "labeled", Labels: src},
+		"unlabeled": {ID: "unlabeled"},
+	}
+
+	got := eng.scenarioLabels("labeled")
+	if got["difficulty"] != "easy" || got["category"] != "bugfix" {
+		t.Errorf("scenarioLabels(labeled) = %v, want %v", got, src)
+	}
+
+	// Returned map must be a copy — mutating it shouldn't affect the engine's
+	// scenario map.
+	got["difficulty"] = "hard"
+	if eng.scenarios["labeled"].Labels["difficulty"] != "easy" {
+		t.Error("scenarioLabels returned a live reference; expected an isolated copy")
+	}
+
+	if got := eng.scenarioLabels("unlabeled"); got != nil {
+		t.Errorf("scenarioLabels(unlabeled) = %v, want nil", got)
+	}
+	if got := eng.scenarioLabels("missing"); got != nil {
+		t.Errorf("scenarioLabels(missing) = %v, want nil", got)
+	}
+}
+
 func TestGenerateRunPlan_RegionFilter(t *testing.T) {
 	cfg := &config.Config{
 		Defaults: config.Defaults{

@@ -61,6 +61,7 @@ type RunMetadata struct {
 	Region     string                 `json:"region"`
 	ScenarioID string                 `json:"scenario_id"`
 	ProviderID string                 `json:"provider_id"`
+	Labels     map[string]string      `json:"labels,omitempty"`
 	Params     map[string]interface{} `json:"params,omitempty"`
 	Commit     map[string]interface{} `json:"commit,omitempty"`
 	StartTime  time.Time              `json:"start_time"`
@@ -832,6 +833,12 @@ func (s *ArenaStateStore) deepCloneRunMetadata(m *RunMetadata) *RunMetadata {
 	cloned.Params = s.deepCloneMap(m.Params)
 	cloned.Commit = s.deepCloneMap(m.Commit)
 	cloned.TrialResults = m.TrialResults
+	if m.Labels != nil {
+		cloned.Labels = make(map[string]string, len(m.Labels))
+		for k, v := range m.Labels {
+			cloned.Labels[k] = v
+		}
+	}
 	s.cloneRunMetadataRoles(cloned, m)
 	s.cloneRunMetadataFeedback(cloned, m)
 	s.cloneRunMetadataSlices(cloned, m)
@@ -914,6 +921,7 @@ type RunResult struct {
 	Region       string                  `json:"Region"`
 	ScenarioID   string                  `json:"ScenarioID"`
 	ProviderID   string                  `json:"ProviderID"`
+	Labels       map[string]string       `json:"Labels,omitempty"`
 	Params       map[string]interface{}  `json:"Params"`
 	Messages     []types.Message         `json:"Messages"`
 	Commit       map[string]interface{}  `json:"Commit"`

@@ -78,6 +78,7 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 		Region:     arenaState.RunMetadata.Region,
 		ScenarioID: arenaState.RunMetadata.ScenarioID,
 		ProviderID: arenaState.RunMetadata.ProviderID,
+		Labels:     arenaState.RunMetadata.Labels,
 		Params:     params,
 		Messages:   arenaState.Messages,
 		Commit:     arenaState.RunMetadata.Commit,

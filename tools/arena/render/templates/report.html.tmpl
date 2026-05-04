@@ -189,7 +189,34 @@
             font-size: 1.3rem;
             font-weight: 600;
         }
-        
+
+        .scenario-labels {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            margin-left: auto;
+        }
+
+        .scenario-label-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.15rem 0.6rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.18);
+            color: white;
+            font-size: 0.78rem;
+            font-weight: 500;
+            line-height: 1.3;
+            white-space: nowrap;
+        }
+
+        .scenario-label-key {
+            opacity: 0.75;
+            font-weight: 400;
+        }
+
+
         .scenario-content {
             padding: 1.5rem;
             transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
@@ -1922,6 +1949,13 @@
             <div class="scenario-header" onclick="toggleScenario('scenario-{{$scenarioGroup.ScenarioID}}')">
                 <span class="collapse-icon">▼</span>
                 <div class="scenario-title">{{$scenarioGroup.ScenarioID}}</div>
+                {{if $scenarioGroup.Labels}}
+                <div class="scenario-labels">
+                    {{range $labelKey, $labelVal := $scenarioGroup.Labels}}
+                    <span class="scenario-label-chip"><span class="scenario-label-key">{{$labelKey}}:</span>{{$labelVal}}</span>
+                    {{end}}
+                </div>
+                {{end}}
             </div>
             <div class="scenario-content">
                 <div class="matrix-section" style="box-shadow: none; margin-bottom: 1rem;">

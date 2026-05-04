@@ -335,6 +335,16 @@ func LoadScenario(filename string) (*Scenario, error) {
 		return nil, fmt.Errorf("scenario validation failed for %s: %w", filename, err)
 	}
 
+	// Copy K8s metadata.labels into the spec so downstream consumers
+	// (engine, statestore, report) carry stratification labels alongside
+	// the rest of the scenario.
+	if len(config.Metadata.Labels) > 0 {
+		config.Spec.Labels = make(map[string]string, len(config.Metadata.Labels))
+		for k, v := range config.Metadata.Labels {
+			config.Spec.Labels[k] = v
+		}
+	}
+
 	return &config.Spec, nil
 }
 

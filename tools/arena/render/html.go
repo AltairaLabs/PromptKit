@@ -62,6 +62,10 @@ type ScenarioGroup struct {
 	Regions    []string           `json:"regions"`
 	Matrix     [][]MatrixCell     `json:"matrix"`
 	Results    []engine.RunResult `json:"results"`
+	// Labels surfaces stratification labels copied from the scenario manifest's
+	// metadata.labels. Picked from the first labeled result in the group; all
+	// repetitions of a scenario carry identical labels.
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // ReportSummary contains aggregate statistics
@@ -292,6 +296,23 @@ func updateMatrixCell(cell *MatrixCell, result engine.RunResult) {
 	}
 }
 
+// firstNonEmptyLabels returns a copy of the first non-empty Labels map across
+// the given results. All repetitions of the same scenario share labels, so the
+// first labeled result is authoritative.
+func firstNonEmptyLabels(results []engine.RunResult) map[string]string {
+	for i := range results {
+		if len(results[i].Labels) == 0 {
+			continue
+		}
+		labels := make(map[string]string, len(results[i].Labels))
+		for k, v := range results[i].Labels {
+			labels[k] = v
+		}
+		return labels
+	}
+	return nil
+}
+
 func generateScenarioGroups(results []engine.RunResult, scenarios []string) []ScenarioGroup {
 	groups := make([]ScenarioGroup, 0, len(scenarios))
 
@@ -344,6 +365,7 @@ func generateScenarioGroups(results []engine.RunResult, scenarios []string) []Sc
 			Regions:    regions,
 			Matrix:     matrix,
 			Results:    scenarioResults,
+			Labels:     firstNonEmptyLabels(scenarioResults),
 		})
 	}
 

@@ -1580,6 +1580,28 @@ func TestGenerateScenarioGroups_SingleScenario(t *testing.T) {
 	}
 }
 
+func TestGenerateScenarioGroups_PropagatesLabels(t *testing.T) {
+	r1 := createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1,
+		0.05, 100, 50, false, 500*time.Millisecond)
+	r1.Labels = map[string]string{"difficulty": "easy", "category": "bugfix"}
+	r2 := createTestResult(testRunID2, testProviderAnthropic, testRegionUSEast, testScenario1,
+		0.03, 80, 40, false, 300*time.Millisecond)
+	// r2 omits labels; the group should still surface them from r1.
+
+	groups := generateScenarioGroups([]engine.RunResult{r1, r2}, []string{testScenario1})
+
+	if len(groups) != 1 {
+		t.Fatalf("Expected 1 group, got %d", len(groups))
+	}
+	got := groups[0].Labels
+	if got["difficulty"] != "easy" {
+		t.Errorf("Expected Labels[difficulty]=easy, got %q (full: %v)", got["difficulty"], got)
+	}
+	if got["category"] != "bugfix" {
+		t.Errorf("Expected Labels[category]=bugfix, got %q (full: %v)", got["category"], got)
+	}
+}
+
 func TestGenerateScenarioGroups_MultipleScenarios(t *testing.T) {
 	results := []engine.RunResult{
 		createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond),
