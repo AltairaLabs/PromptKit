@@ -39,6 +39,22 @@ spec:
       path: skills/codegen-metrics
       preload: false
 
+  # Pack-level eval: a non-gating measurement that fires once per session.
+  # Captures the agent's workspace LOC stats into EvalResult.Details for
+  # jq aggregation. Both bundles run the same eval so per-scenario diffs
+  # are directly comparable in reporting.
+  pack_evals:
+    - id: diff_stats
+      type: tool_exec
+      trigger: on_session_complete
+      description: "Total/impl/test LOC and file count in /workspace at session end."
+      params:
+        tool: Bash
+        args:
+          command: "bash /skills/codegen-metrics/scripts/diff_stats.sh"
+          description: "Capture diff_stats soft-metric"
+        timeout_seconds: 10
+
   defaults:
     temperature: 0.1
     max_tokens: 4096

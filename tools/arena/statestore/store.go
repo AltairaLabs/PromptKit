@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -87,6 +88,12 @@ type RunMetadata struct {
 
 	// Conversation-level assertions (evaluated after conversation completes)
 	ConversationAssertionResults []ConversationValidationResult `json:"conv_assertions_results,omitempty"`
+
+	// EvalResults are the runtime's pack-level eval observations
+	// captured during the session. Stored as runtime EvalResult
+	// values directly — no test-shaped wrapper — so the report can
+	// render them as production observations rather than gates.
+	EvalResults []evals.EvalResult `json:"eval_results,omitempty"`
 
 	// A2A agent metadata (populated from config for report rendering)
 	A2AAgents []A2AAgentInfo `json:"a2a_agents,omitempty"`
@@ -889,6 +896,10 @@ func (s *ArenaStateStore) cloneRunMetadataSlices(cloned, m *RunMetadata) {
 		cloned.ConversationAssertionResults = make([]ConversationValidationResult, len(m.ConversationAssertionResults))
 		copy(cloned.ConversationAssertionResults, m.ConversationAssertionResults)
 	}
+	if m.EvalResults != nil {
+		cloned.EvalResults = make([]evals.EvalResult, len(m.EvalResults))
+		copy(cloned.EvalResults, m.EvalResults)
+	}
 	if m.A2AAgents != nil {
 		cloned.A2AAgents = make([]A2AAgentInfo, len(m.A2AAgents))
 		copy(cloned.A2AAgents, m.A2AAgents)
@@ -944,6 +955,12 @@ type RunResult struct {
 
 	// Conversation-level assertions evaluated after the conversation completes (summary format)
 	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
+
+	// EvalResults are pack-level eval observations captured during
+	// the session. Distinct channel from ConversationAssertions: evals
+	// are non-gating measurements (production observability), so they
+	// surface as raw runtime EvalResult values rather than gates.
+	EvalResults []evals.EvalResult `json:"eval_results,omitempty"`
 
 	// A2A agent metadata (populated from config for report rendering)
 	A2AAgents []A2AAgentInfo `json:"A2AAgents,omitempty"`

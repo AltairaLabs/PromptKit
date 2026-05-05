@@ -115,14 +115,24 @@ matrix sweep. Setting trials=1 for a first pass cuts that by 3×.
 
 ## Soft-metric capture
 
-Each scenario runs `diff_stats.sh` (in the host-only `codegen-metrics`
-skill) at conversation-end via `tool_exec`, capturing JSON
-`{total_loc, impl_loc, test_loc, files_count}` into the per-result
-`details.result` payload. Read with jq:
+The arena config declares a single `pack_evals:` entry — a `tool_exec`
+eval that runs `diff_stats.sh` (in the host-only `codegen-metrics`
+skill) at session-end, capturing JSON `{total_loc, impl_loc, test_loc,
+files_count}` as the eval's structured Value/Details payload.
+
+`pack_evals:` lives at the arena-config level on purpose: these are
+runtime evals that would also fire after `packc` compilation in
+production. Arena now reads them from `cfg.PackEvals` directly so they
+can be tested without compiling the pack first.
+
+Eval results land on a **separate channel** from conversation assertions
+in the per-run JSON: `eval_results: []` (production-shaped, no
+pass/fail) vs. `conversation_assertions.results: []` (test-time gates).
+Read with jq:
 
 ```bash
-jq -r '.conversation_assertions.results[]
-       | select(.details.tool == "Bash")
+jq -r '.eval_results[]
+       | select(.eval_id == "diff_stats")
        | .details.result | fromjson
        | "loc=\(.total_loc) impl=\(.impl_loc) tests=\(.test_loc)"' \
    out/<run-id>.json

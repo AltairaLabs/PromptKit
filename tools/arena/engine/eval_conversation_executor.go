@@ -65,16 +65,19 @@ func (e *EvalConversationExecutor) ExecuteConversation(
 	mergedEvalAssertions := mergeAssertionConfigs(req.Config, req.Eval.ConversationAssertions)
 	convResults := e.evaluateConversationAssertions(ctx, mergedEvalAssertions, convCtx)
 
-	// Run pack eval session-level evals if configured
+	// Run pack-level evals at session end. Non-gating observations
+	// surface on EvalResults; assertions stay in
+	// ConversationAssertionResults.
+	var packEvalResults []evals.EvalResult
 	if e.evalOrchestrator != nil && e.evalOrchestrator.HasEvals() {
-		packResults := e.evalOrchestrator.RunSessionEvals(ctx, messages, req.ConversationID)
-		convResults = append(convResults, packResults...)
+		packEvalResults = e.evalOrchestrator.RunSessionEvals(ctx, messages, req.ConversationID)
 	}
 
 	return &ConversationResult{
 		Messages:                     messages,
 		Cost:                         e.calculateCost(messages),
 		ConversationAssertionResults: convResults,
+		EvalResults:                  packEvalResults,
 		Failed:                       e.hasFailedAssertions(messages, convResults),
 	}
 }

@@ -107,6 +107,8 @@ func (s *ArenaStateStore) GetResult(ctx context.Context, runID string) (*RunResu
 	result.ConversationAssertions = buildConversationAssertionsSummary(
 		arenaState.RunMetadata.ConversationAssertionResults)
 
+	result.EvalResults = arenaState.RunMetadata.EvalResults
+
 	result.TrialResults = arenaState.RunMetadata.TrialResults
 
 	return result, nil

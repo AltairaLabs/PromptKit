@@ -112,7 +112,18 @@ func ConvertEvalResults(results []evals.EvalResult) []ConversationValidationResu
 
 // convertOneEvalResult converts a single EvalResult to ConversationValidationResult.
 func convertOneEvalResult(r *evals.EvalResult) ConversationValidationResult {
-	passed, _ := r.Value.(bool)
+	// AssertionEvalHandler wraps inner evals as assertions and sets
+	// r.Value = passed (bool). Direct (non-asserted) eval results
+	// keep their handler's structured Value, in which case "passed"
+	// derives from score and error state. Score >= 1.0 with no error
+	// means success for non-gating measurement evals.
+	var passed bool
+	switch v := r.Value.(type) {
+	case bool:
+		passed = v
+	default:
+		passed = r.Error == "" && r.Score != nil && *r.Score >= 1.0
+	}
 
 	msg := r.Explanation
 	if !passed && r.Error != "" {

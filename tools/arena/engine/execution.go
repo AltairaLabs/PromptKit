@@ -689,6 +689,7 @@ func (e *Engine) saveRunMetadata(
 		PersonaID:                    result.PersonaID,
 		RecordingPath:                e.GetRecordingPath(runID),
 		ConversationAssertionResults: result.ConversationAssertionResults,
+		EvalResults:                  result.EvalResults,
 		A2AAgents:                    e.getA2AAgentsFromConfig(),
 	}
 

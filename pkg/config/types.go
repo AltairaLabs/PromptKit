@@ -26,6 +26,20 @@ type AssertionConfig struct {
 	PassThreshold *float64 `json:"pass_threshold,omitempty" yaml:"pass_threshold,omitempty"`
 }
 
+// Globals holds arena-level cross-cutting config that applies to every
+// scenario in addition to its own definitions. Distinct from Defaults
+// (which are "values when unspecified") — Globals is for entries that
+// always merge in additively.
+type Globals struct {
+	// ConversationAssertions are appended to every scenario's own
+	// conversation_assertions list at evaluation time. Useful for the
+	// "DRY across scenarios" case (e.g. capture a metric on every run).
+	// For pass/fail gates that must apply to all scenarios — though if
+	// a gate truly belongs everywhere, an eval (in pack_evals) is the
+	// more honest expression.
+	ConversationAssertions []AssertionConfig `yaml:"conversation_assertions,omitempty" json:"conversation_assertions,omitempty"` //nolint:lll
+}
+
 // AssertionWhen specifies preconditions that must be met for an assertion to run.
 // If any condition is not met, the assertion is skipped (not failed).
 type AssertionWhen struct {
@@ -75,26 +89,30 @@ type ArenaConfigK8s struct {
 // Config represents the main configuration structure
 type Config struct {
 	// File references for YAML serialization
-	PromptConfigs  []PromptConfigRef          `yaml:"prompt_configs,omitempty" json:"prompt_configs,omitempty"`
-	Providers      []ProviderRef              `yaml:"providers" json:"providers"`
-	Judges         []JudgeRef                 `yaml:"judges,omitempty" json:"judges,omitempty"`
-	JudgeDefaults  *JudgeDefaults             `yaml:"judge_defaults,omitempty" json:"judge_defaults,omitempty"`
-	Scenarios      []ScenarioRef              `yaml:"scenarios,omitempty" json:"scenarios,omitempty"`
-	Evals          []EvalRef                  `yaml:"evals,omitempty" json:"evals,omitempty"`
-	Tools          []ToolRef                  `yaml:"tools,omitempty" json:"tools,omitempty"`
-	Skills         []prompt.SkillSourceConfig `yaml:"skills,omitempty" json:"skills,omitempty"`
-	PackEvals      []evals.EvalDef            `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
-	PackAssertions []AssertionConfig          `yaml:"pack_assertions,omitempty" json:"pack_assertions,omitempty"`
-	Workflow       interface{}                `yaml:"workflow,omitempty" json:"workflow,omitempty"`
-	Memory         interface{}                `yaml:"memory,omitempty" json:"memory,omitempty"`
-	Agents         interface{}                `yaml:"agents,omitempty" json:"agents,omitempty"`
-	Deploy         *DeployConfig              `yaml:"deploy,omitempty" json:"deploy,omitempty"`
-	MCPServers     []MCPServerConfig          `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
-	A2AAgents      []A2AAgentConfig           `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
-	StateStore     *StateStoreConfig          `yaml:"state_store,omitempty" json:"state_store,omitempty"`
-	Defaults       Defaults                   `yaml:"defaults" json:"defaults"`
-	SelfPlay       *SelfPlayConfig            `yaml:"self_play,omitempty" json:"self_play,omitempty"`
-	PackFile       string                     `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
+	PromptConfigs []PromptConfigRef          `yaml:"prompt_configs,omitempty" json:"prompt_configs,omitempty"`
+	Providers     []ProviderRef              `yaml:"providers" json:"providers"`
+	Judges        []JudgeRef                 `yaml:"judges,omitempty" json:"judges,omitempty"`
+	JudgeDefaults *JudgeDefaults             `yaml:"judge_defaults,omitempty" json:"judge_defaults,omitempty"`
+	Scenarios     []ScenarioRef              `yaml:"scenarios,omitempty" json:"scenarios,omitempty"`
+	Evals         []EvalRef                  `yaml:"evals,omitempty" json:"evals,omitempty"`
+	Tools         []ToolRef                  `yaml:"tools,omitempty" json:"tools,omitempty"`
+	Skills        []prompt.SkillSourceConfig `yaml:"skills,omitempty" json:"skills,omitempty"`
+	PackEvals     []evals.EvalDef            `yaml:"pack_evals,omitempty" json:"pack_evals,omitempty"`
+	// Globals holds arena-level cross-cutting config that applies to
+	// every scenario in addition to its own definitions. Distinct from
+	// Defaults (which are "values when unspecified") — Globals is for
+	// "always-additive" entries.
+	Globals    *Globals          `yaml:"globals,omitempty" json:"globals,omitempty"`
+	Workflow   interface{}       `yaml:"workflow,omitempty" json:"workflow,omitempty"`
+	Memory     interface{}       `yaml:"memory,omitempty" json:"memory,omitempty"`
+	Agents     interface{}       `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Deploy     *DeployConfig     `yaml:"deploy,omitempty" json:"deploy,omitempty"`
+	MCPServers []MCPServerConfig `yaml:"mcp_servers,omitempty" json:"mcp_servers,omitempty"`
+	A2AAgents  []A2AAgentConfig  `yaml:"a2a_agents,omitempty" json:"a2a_agents,omitempty"`
+	StateStore *StateStoreConfig `yaml:"state_store,omitempty" json:"state_store,omitempty"`
+	Defaults   Defaults          `yaml:"defaults" json:"defaults"`
+	SelfPlay   *SelfPlayConfig   `yaml:"self_play,omitempty" json:"self_play,omitempty"`
+	PackFile   string            `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
 
 	// Inline resource specs (alternative to file refs, merged into LoadedX during load)
 	ProviderSpecs map[string]*Provider    `yaml:"provider_specs,omitempty" json:"provider_specs,omitempty"`

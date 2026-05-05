@@ -724,12 +724,15 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(
 	// Evaluate conversation-level assertions, if any
 	convAssertionResults := ce.evaluateConversationAssertions(ctx, req, messages)
 
-	// Run pack eval session-level evals if configured
+	// Run pack-level evals at session end. These are non-gating
+	// observations — same machinery that fires in production. They
+	// land on EvalResults (raw runtime EvalResult), not in the
+	// assertion bucket, so the report can render them without
+	// pretending they have pass/fail semantics.
+	var packEvalResults []evals.EvalResult
 	orch := ce.resolveEvalOrchestrator(req)
 	if orch != nil && orch.HasEvals() {
-		packResults := orch.RunSessionEvals(
-			ctx, messages, req.ConversationID)
-		convAssertionResults = append(convAssertionResults, packResults...)
+		packEvalResults = orch.RunSessionEvals(ctx, messages, req.ConversationID)
 	}
 
 	return &ConversationResult{
@@ -741,30 +744,48 @@ func (ce *DefaultConversationExecutor) buildResultFromStateStore(
 		PersonaID:                    personaID,
 		MediaOutputs:                 mediaOutputs,
 		ConversationAssertionResults: convAssertionResults,
+		EvalResults:                  packEvalResults,
 	}
 }
 
-// mergeAssertionConfigs merges pack-level and source-level assertion configs into a single slice.
-// Returns AssertionConfig values (useful when the caller needs the raw config type).
-func mergeAssertionConfigs(cfg *config.Config, sourceAssertions []asrt.AssertionConfig) []asrt.AssertionConfig {
-	var merged []asrt.AssertionConfig
-	if cfg != nil {
-		merged = append(merged, cfg.PackAssertions...)
+// globalConversationAssertions returns the arena-level conversation
+// assertions configured under spec.globals.conversation_assertions.
+// These apply to every scenario in addition to its own assertions.
+// Returns nil when no globals are set.
+func globalConversationAssertions(cfg *config.Config) []asrt.AssertionConfig {
+	if cfg == nil || cfg.Globals == nil {
+		return nil
 	}
+	return cfg.Globals.ConversationAssertions
+}
+
+// mergeAssertionConfigs merges arena-level globals with source-level
+// (scenario / eval) assertions into a single slice. Globals come first
+// so per-scenario assertions can build on them.
+func mergeAssertionConfigs(cfg *config.Config, sourceAssertions []asrt.AssertionConfig) []asrt.AssertionConfig {
+	globals := globalConversationAssertions(cfg)
+	if len(globals) == 0 && len(sourceAssertions) == 0 {
+		return nil
+	}
+	merged := make([]asrt.AssertionConfig, 0, len(globals)+len(sourceAssertions))
+	merged = append(merged, globals...)
 	merged = append(merged, sourceAssertions...)
 	return merged
 }
 
-// collectConversationAssertions merges pack-level and source-level (scenario or eval) assertions
-// into a single slice of ConversationAssertion. Pack assertions come first, followed by source assertions.
+// collectConversationAssertions merges arena-level globals with
+// source-level (scenario or eval) assertions into a single slice of
+// ConversationAssertion. Globals come first, followed by source.
 func collectConversationAssertions(
 	cfg *config.Config, sourceAssertions []asrt.AssertionConfig,
 ) []asrt.ConversationAssertion {
-	var assertions []asrt.ConversationAssertion
-	if cfg != nil {
-		for _, a := range cfg.PackAssertions {
-			assertions = append(assertions, asrt.ConversationAssertion(a))
-		}
+	globals := globalConversationAssertions(cfg)
+	if len(globals) == 0 && len(sourceAssertions) == 0 {
+		return nil
+	}
+	assertions := make([]asrt.ConversationAssertion, 0, len(globals)+len(sourceAssertions))
+	for _, a := range globals {
+		assertions = append(assertions, asrt.ConversationAssertion(a))
 	}
 	for _, a := range sourceAssertions {
 		assertions = append(assertions, asrt.ConversationAssertion(a))

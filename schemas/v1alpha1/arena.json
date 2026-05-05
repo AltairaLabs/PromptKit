@@ -397,11 +397,8 @@
           },
           "type": "array"
         },
-        "pack_assertions": {
-          "items": {
-            "$ref": "#/$defs/AssertionConfig"
-          },
-          "type": "array"
+        "globals": {
+          "$ref": "#/$defs/Globals"
         },
         "workflow": true,
         "memory": true,
@@ -938,6 +935,18 @@
         "name",
         "required"
       ]
+    },
+    "Globals": {
+      "properties": {
+        "conversation_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "HTMLOutputConfig": {
       "properties": {

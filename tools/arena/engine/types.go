@@ -3,6 +3,7 @@ package engine
 import (
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -72,6 +73,14 @@ type RunResult struct {
 
 	// Conversation-level assertions evaluated after the conversation completes (summary format)
 	ConversationAssertions AssertionsSummary `json:"conversation_assertions,omitempty"`
+
+	// EvalResults are the runtime's pack-level eval observations
+	// captured during the session — same machinery that fires in
+	// production. These don't carry pass/fail; they carry structured
+	// Value/Details for jq aggregation. Distinct channel from
+	// ConversationAssertions so the report can render observations
+	// without the gating ceremony.
+	EvalResults []evals.EvalResult `json:"eval_results,omitempty"`
 
 	// A2A agent metadata (populated from config for report rendering)
 	A2AAgents []A2AAgentInfo `json:"A2AAgents,omitempty"`

@@ -789,9 +789,9 @@ func TestExecuteConversation_ValidationFailurePreservesMessages(t *testing.T) {
 
 func TestCollectConversationAssertions_PackAndScenario(t *testing.T) {
 	cfg := &config.Config{
-		PackAssertions: []arenaassertions.AssertionConfig{
+		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"pack-forbidden"}}},
-		},
+		}},
 	}
 	scenarioAssertions := []arenaassertions.AssertionConfig{
 		{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"scenario-forbidden"}}},
@@ -809,9 +809,9 @@ func TestCollectConversationAssertions_PackAndScenario(t *testing.T) {
 
 func TestCollectConversationAssertions_PackOnly(t *testing.T) {
 	cfg := &config.Config{
-		PackAssertions: []arenaassertions.AssertionConfig{
+		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
-		},
+		}},
 	}
 
 	result := collectConversationAssertions(cfg, nil)
@@ -840,9 +840,9 @@ func TestCollectConversationAssertions_Empty(t *testing.T) {
 
 func TestMergeAssertionConfigs_PackAndSource(t *testing.T) {
 	cfg := &config.Config{
-		PackAssertions: []arenaassertions.AssertionConfig{
+		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "cost_limit"},
-		},
+		}},
 	}
 	source := []arenaassertions.AssertionConfig{
 		{Type: "content_not_includes"},
@@ -864,9 +864,9 @@ func TestEvaluateConversationAssertions_PackAssertionsEvaluated(t *testing.T) {
 	// Without a evalOrchestrator, evaluateConversationAssertions marks assertions as failed.
 	ce := &DefaultConversationExecutor{}
 	cfg := &config.Config{
-		PackAssertions: []arenaassertions.AssertionConfig{
+		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"forbidden"}}},
-		},
+		}},
 	}
 	req := ConversationRequest{
 		Scenario: &config.Scenario{ID: "sc"},
@@ -891,9 +891,9 @@ func TestEvaluateConversationAssertions_PackAndScenarioBothProduceResults(t *tes
 	// Without a evalOrchestrator, evaluateConversationAssertions marks assertions as failed.
 	ce := &DefaultConversationExecutor{}
 	cfg := &config.Config{
-		PackAssertions: []arenaassertions.AssertionConfig{
+		Globals: &config.Globals{ConversationAssertions: []arenaassertions.AssertionConfig{
 			{Type: "content_not_includes", Params: map[string]interface{}{"patterns": []string{"pack-bad"}}},
-		},
+		}},
 	}
 	req := ConversationRequest{
 		Scenario: &config.Scenario{
