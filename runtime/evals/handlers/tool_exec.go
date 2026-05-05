@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -117,9 +118,11 @@ func (h *ToolExecHandler) Eval(
 }
 
 // parseToolPayload best-effort decodes the tool's response into a Go
-// value for inclusion on EvalResult.Value. Empty/null bodies and
-// unparseable bytes return nil, signaling "no structured payload to
-// surface" without failing the eval.
+// value for inclusion on EvalResult.Value/Details. When the decoded
+// value is itself a JSON string (common for shell-script wrappers
+// where stdout is the captured payload), it tries one more decode so
+// the metrics surface as structured fields rather than an escaped
+// string blob. Empty/null bodies and unparseable bytes return nil.
 func parseToolPayload(raw json.RawMessage) any {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -127,6 +130,19 @@ func parseToolPayload(raw json.RawMessage) any {
 	var decoded any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil
+	}
+	// Double-parse: if the outer decode produced a string and the
+	// string itself parses as JSON, prefer the structured form.
+	// Trims trailing whitespace because shell scripts often append
+	// a newline to JSON output.
+	if s, ok := decoded.(string); ok {
+		trimmed := strings.TrimSpace(s)
+		if len(trimmed) >= 2 && (trimmed[0] == '{' || trimmed[0] == '[') {
+			var inner any
+			if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
+				return inner
+			}
+		}
 	}
 	return decoded
 }

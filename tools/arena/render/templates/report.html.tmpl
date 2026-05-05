@@ -328,6 +328,63 @@
         .result-header:hover {
             background: #F1F5F9;
         }
+
+        .result-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            margin-left: auto;
+            margin-right: 0.75rem;
+            align-items: center;
+            justify-content: flex-end;
+            max-width: 60%;
+        }
+
+        .result-summary-group {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
+
+        .summary-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 999px;
+            font-family: var(--font-mono);
+            font-size: 0.72rem;
+            line-height: 1.4;
+            white-space: nowrap;
+        }
+
+        .summary-chip.assertion-chip.passed {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .summary-chip.assertion-chip.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .summary-chip.assertion-chip.skipped {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        .summary-chip.metric-chip {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .summary-chip .chip-key {
+            opacity: 0.7;
+        }
+
+        .summary-chip .chip-val {
+            font-weight: 600;
+        }
         
         .result-header-left {
             display: flex;
@@ -1206,6 +1263,92 @@
         }
         
         /* Conversation Assertions Styles */
+        .eval-results-section {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: #f5f7fa;
+            border: 1px solid var(--mist);
+            border-radius: 6px;
+        }
+
+        .eval-results-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .eval-results-badge {
+            font-size: 1rem;
+        }
+
+        .eval-results-title {
+            font-weight: 600;
+            color: var(--deep-space);
+        }
+
+        .eval-results-count {
+            margin-left: auto;
+            font-size: 0.8rem;
+            color: #6b7280;
+        }
+
+        .eval-results-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        .eval-results-table th,
+        .eval-results-table td {
+            padding: 0.4rem 0.6rem;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+            vertical-align: top;
+        }
+
+        .eval-results-table th {
+            font-weight: 600;
+            color: #4b5563;
+            background: #fafbfc;
+        }
+
+        .eval-id {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+        }
+
+        .eval-score {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .eval-metric-list {
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            gap: 0.15rem 0.6rem;
+            margin: 0;
+        }
+
+        .eval-metric {
+            display: contents;
+        }
+
+        .eval-metric dt {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            color: #6b7280;
+        }
+
+        .eval-metric dd {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            color: #1f2937;
+            margin: 0;
+            font-variant-numeric: tabular-nums;
+            word-break: break-all;
+        }
+
         .conversation-assertions-section {
             margin-top: 1rem;
             padding-top: 1rem;
@@ -2005,6 +2148,14 @@
                                 <span class="collapse-icon">▼</span>
                                 <div class="result-title">{{$result.ProviderID}} - {{$result.Region}}</div>
                             </div>
+                            <div class="result-summary">
+                                {{if hasConversationAssertions $result}}
+                                {{renderConversationAssertionsSummary (getConversationAssertionResults $result)}}
+                                {{end}}
+                                {{if hasEvalResults $result}}
+                                {{renderEvalResultsSummary (getEvalResults $result)}}
+                                {{end}}
+                            </div>
                             <div class="result-status {{if $result.Error}}error{{else}}success{{end}}">
                                 {{if $result.Error}}Error{{else}}Success{{end}}
                             </div>
@@ -2259,10 +2410,18 @@
                             {{renderMediaOutputs $result.MediaOutputs}}
                             {{end}}
                             
+                            {{/* Header chips give the at-a-glance summary;
+                                  the full tables here carry the per-row
+                                  context (messages, violations, payloads). */}}
+
                             {{if hasConversationAssertions $result}}
                             {{renderConversationAssertions (getConversationAssertionResults $result)}}
                             {{end}}
-                            
+
+                            {{if hasEvalResults $result}}
+                            {{renderEvalResults (getEvalResults $result)}}
+                            {{end}}
+
                             {{if $result.Error}}
                             <div class="error-message">
                                 <strong>Error:</strong> {{$result.Error}}

@@ -8,6 +8,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
 )
 
+// TestConversationAssertionsRendering exercises the helper that
+// produces the full table. The template no longer invokes it for the
+// per-result body — the body carries only the conversation now and the
+// summary chips live in the result-card header (see
+// TestConversationAssertionsSummaryRendering). The helper stays public
+// for any caller that wants the detailed table view.
 func TestConversationAssertionsRendering(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -94,14 +100,13 @@ func TestConversationAssertionsRendering(t *testing.T) {
 			},
 		},
 		{
-			name: "score column displayed",
+			name: "pack-eval rendered as Evaluations title",
 			results: []assertions.ConversationValidationResult{
 				{
 					Type:    "pack_eval:llm_judge",
 					Passed:  true,
 					Message: "Good response",
 					Details: map[string]interface{}{
-						"score":       0.85,
 						"eval_id":     "eval-1",
 						"duration_ms": int64(42),
 					},
@@ -113,9 +118,7 @@ func TestConversationAssertionsRendering(t *testing.T) {
 				},
 			},
 			expectInHTML: []string{
-				"assertion-score",
-				"0.85",
-				"Evaluations",   // dynamic title for pack evals
+				"Evaluations",    // dynamic title for pack evals
 				"Duration: 42ms", // inline duration
 			},
 		},
@@ -143,38 +146,73 @@ func TestConversationAssertionsRendering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a RunResult with conversation assertions
-			result := engine.RunResult{
-				RunID: "test-run-1",
-				ConversationAssertions: engine.AssertionsSummary{
-					Failed:  countFailures(tt.results),
-					Passed:  countFailures(tt.results) == 0 && len(tt.results) > 0,
-					Results: tt.results,
-					Total:   len(tt.results),
-				},
-			}
-
-			// Prepare report data with this result
-			data := HTMLReportData{
-				Title: "Test Report",
-				ScenarioGroups: []ScenarioGroup{
-					{
-						ScenarioID: "test-scenario",
-						Results:    []engine.RunResult{result},
-					},
-				},
-			}
-
-			// Generate HTML
-			html, err := generateHTML(&data)
-			if err != nil {
-				t.Fatalf("generateHTML() error = %v", err)
-			}
-
-			// Check for expected strings
+			// Test the helper directly — the template no longer invokes
+			// it for per-result rendering, but the helper remains public.
+			html := string(renderConversationAssertions(tt.results))
 			for _, expected := range tt.expectInHTML {
 				if !strings.Contains(html, expected) {
-					t.Errorf("Expected HTML to contain %q, but it didn't", expected)
+					t.Errorf("Expected HTML to contain %q, but it didn't.\nGot:\n%s", expected, html)
+				}
+			}
+		})
+	}
+}
+
+// TestConversationAssertionsSummaryRendering exercises the chip-based
+// header summary that surfaces alongside the result-card pass/fail
+// status. This is the rendering the template uses today.
+func TestConversationAssertionsSummaryRendering(t *testing.T) {
+	tests := []struct {
+		name         string
+		results      []assertions.ConversationValidationResult
+		expectInHTML []string
+	}{
+		{
+			name: "passing assertion produces a passed chip",
+			results: []assertions.ConversationValidationResult{
+				{Type: "tool_exec", Passed: true, Message: "all good"},
+			},
+			expectInHTML: []string{
+				"summary-chip assertion-chip passed",
+				"tool_exec",
+				"✓",
+			},
+		},
+		{
+			name: "failing assertion produces a failed chip with the message in the title",
+			results: []assertions.ConversationValidationResult{
+				{Type: "content_includes", Passed: false, Message: "missing keyword"},
+			},
+			expectInHTML: []string{
+				"summary-chip assertion-chip failed",
+				"missing keyword", // surfaced via title attribute
+				"✗",
+			},
+		},
+		{
+			name: "skipped assertion produces a skipped chip",
+			results: []assertions.ConversationValidationResult{
+				{
+					Type:   "tool_exec",
+					Passed: true,
+					Details: map[string]interface{}{
+						"skipped": true,
+					},
+				},
+			},
+			expectInHTML: []string{
+				"summary-chip assertion-chip skipped",
+				"⊘",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			html := string(renderConversationAssertionsSummary(tt.results))
+			for _, expected := range tt.expectInHTML {
+				if !strings.Contains(html, expected) {
+					t.Errorf("Expected summary HTML to contain %q.\nGot:\n%s", expected, html)
 				}
 			}
 		})

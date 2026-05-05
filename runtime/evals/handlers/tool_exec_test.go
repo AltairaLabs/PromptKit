@@ -174,6 +174,46 @@ func TestToolExec_CapturesToolResultPayload(t *testing.T) {
 	assert.Equal(t, float64(2), payload["files_changed"])
 }
 
+// TestToolExec_DoublePassParsesNestedJSONString verifies that when
+// the tool returns a JSON-encoded string whose contents are themselves
+// valid JSON (the common Bash-stdout case for shell metric scripts),
+// the captured payload surfaces as a structured map rather than an
+// escaped string blob.
+func TestToolExec_DoublePassParsesNestedJSONString(t *testing.T) {
+	// Outer encode: the tool returns "{\"loc\":12}\n" (a JSON string).
+	registry := newStubRegistry(t, "diff_stats", &stubExecutor{
+		name:   "stub-bash",
+		result: json.RawMessage(`"{\"loc\":12,\"files\":2}\n"`),
+	})
+	h := &ToolExecHandler{}
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool": "diff_stats",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res.Details)
+
+	payload, ok := res.Details["result"].(map[string]any)
+	require.True(t, ok, "expected double-decoded map, got %T", res.Details["result"])
+	assert.Equal(t, float64(12), payload["loc"])
+	assert.Equal(t, float64(2), payload["files"])
+}
+
+// TestToolExec_NonJSONStringStaysString verifies that a plain string
+// payload (not JSON) flows through as the original string instead of
+// being misclassified.
+func TestToolExec_NonJSONStringStaysString(t *testing.T) {
+	registry := newStubRegistry(t, "echo", &stubExecutor{
+		name:   "stub-text",
+		result: json.RawMessage(`"hello world"`),
+	})
+	h := &ToolExecHandler{}
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool": "echo",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "hello world", res.Details["result"])
+}
+
 // capturingExecutor records the args it received without erroring.
 type capturingExecutor struct {
 	name     string
