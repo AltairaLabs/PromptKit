@@ -119,13 +119,17 @@ func (h *EvalOrchestrator) RunTurnEvals(
 	return assertions.ConvertEvalResults(results)
 }
 
-// RunSessionEvals runs session-complete evals after conversation finishes.
-// Returns converted ConversationValidationResult entries.
+// RunSessionEvals runs session-complete evals after conversation
+// finishes and returns the runtime's raw EvalResult values. Pack-level
+// evals are observations (no pass/fail), so arena passes them through
+// to the report unchanged — same shape that would surface in
+// production. Use RunSessionAssertions for arena-only test assertions
+// that do go through the gating-shaped converter.
 func (h *EvalOrchestrator) RunSessionEvals(
 	ctx context.Context,
 	messages []types.Message,
 	sessionID string,
-) []assertions.ConversationValidationResult {
+) []evals.EvalResult {
 	if h == nil || !h.HasEvals() || h.runner == nil {
 		return nil
 	}
@@ -135,8 +139,7 @@ func (h *EvalOrchestrator) RunSessionEvals(
 		turnIndex = 0
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
-	results := h.runner.RunSessionEvals(ctx, h.defs, evalCtx)
-	return assertions.ConvertEvalResults(results)
+	return h.runner.RunSessionEvals(ctx, h.defs, evalCtx)
 }
 
 // RunConversationEvals runs conversation-complete evals after all turns finish.

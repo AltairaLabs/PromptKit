@@ -32,8 +32,30 @@ spec:
           DEV_MODE: "1"
 
   skills:
-    - path: skills/codegen-disciplined
+    - name: codegen-disciplined
+      path: skills/codegen-disciplined
       preload: true
+    # Host-only metric skill — mounted into the sandbox so the
+    # diff_stats.sh script is reachable from session-level evals,
+    # but not surfaced to the agent.
+    - name: codegen-metrics
+      path: skills/codegen-metrics
+      preload: false
+
+  # Same soft-metric eval as the baseline — see baseline config for
+  # the rationale. Both bundles produce the metric so per-scenario
+  # diffs are directly comparable.
+  pack_evals:
+    - id: diff_stats
+      type: tool_exec
+      trigger: on_session_complete
+      description: "Total/impl/test LOC and file count in /workspace at session end."
+      params:
+        tool: Bash
+        args:
+          command: "bash /skills/codegen-metrics/scripts/diff_stats.sh"
+          description: "Capture diff_stats soft-metric"
+        timeout_seconds: 10
 
   defaults:
     temperature: 0.1

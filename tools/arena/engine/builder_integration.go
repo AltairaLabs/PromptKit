@@ -106,17 +106,16 @@ func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
 		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to discover MCP tools: %w", mcpErr)
 	}
 
-	// Build pack eval hook if pack is loaded (before A2A/skill setup to fail fast on config errors)
-	var evalOrchestrator *EvalOrchestrator
-	if cfg.LoadedPack != nil {
-		evalOrchestrator, err = buildEvalOrchestrator(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
-		if err != nil {
-			return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
-		}
-	} else {
-		// Always create an eval-only hook when no pack is loaded.
-		// This ensures turn-level and conversation-level assertions can execute
-		// through the eval pipeline even without pack-defined evals.
+	// Build the eval orchestrator. Pack-level evals are sourced from
+	// (a) a loaded compiled pack and/or (b) cfg.PackEvals on the arena
+	// config — the latter lets arena fire evals during testing without
+	// requiring a packc compile step. When no eval defs exist, we still
+	// build an empty orchestrator so the assertion-as-eval path works.
+	evalOrchestrator, err := buildEvalOrchestrator(cfg, cfg.SkipPackEvals, cfg.EvalTypeFilter)
+	if err != nil {
+		return nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to build pack eval hook: %w", err)
+	}
+	if evalOrchestrator == nil {
 		evalOrchestrator = buildEvalOnlyOrchestrator()
 	}
 
@@ -665,22 +664,20 @@ func newConversationExecutor(
 	return NewCompositeConversationExecutor(defaultExecutor, duplexExecutor, evalExecutor), adapterRegistry, nil
 }
 
-// buildEvalOrchestrator creates a EvalOrchestrator from the loaded pack.
-// It resolves pack-level and prompt-level evals, creates a registry with default handlers,
-// and validates that all referenced eval types have registered handlers.
-// Returns an error if any eval references an unknown type.
+// buildEvalOrchestrator creates an EvalOrchestrator from the arena
+// config plus (optionally) a loaded compiled pack. Eval defs are
+// collected from three sources, in this priority order:
+//
+//  1. The compiled pack's prompt-level evals (override pack-level by ID)
+//  2. The compiled pack's pack-level evals
+//  3. The arena config's top-level pack_evals: block — this lets evals
+//     run during arena testing the same way they would after packc
+//     compilation, closing the "can't test pack evals without compiling"
+//     gap.
+//
+// The same handler registry validates all of them.
 func buildEvalOrchestrator(cfg *config.Config, skipEvals bool, evalTypeFilter []string) (*EvalOrchestrator, error) {
-	pack := cfg.LoadedPack
-
-	// Collect all eval defs from pack level
-	allDefs := pack.Evals
-
-	// Merge with prompt-level evals (prompt overrides by ID)
-	for _, pp := range pack.Prompts {
-		if len(pp.Evals) > 0 {
-			allDefs = evals.ResolveEvals(allDefs, pp.Evals)
-		}
-	}
+	allDefs, packID := collectAllEvalDefs(cfg)
 
 	if len(allDefs) == 0 && !skipEvals {
 		return nil, nil
@@ -694,7 +691,36 @@ func buildEvalOrchestrator(cfg *config.Config, skipEvals bool, evalTypeFilter []
 		return nil, fmt.Errorf("unknown eval types:\n  %s", strings.Join(typeErrs, "\n  "))
 	}
 
-	return NewEvalOrchestrator(registry, allDefs, skipEvals, evalTypeFilter, pack.ID), nil
+	return NewEvalOrchestrator(registry, allDefs, skipEvals, evalTypeFilter, packID), nil
+}
+
+// collectAllEvalDefs merges eval definitions from a loaded compiled
+// pack (when present) with the arena config's pack_evals block. This
+// lets arena fire pack-level evals during testing without going
+// through a packc compile step first.
+//
+// Returns (defs, packID). packID is empty when no compiled pack is
+// loaded — orchestrator code that emits pack-id-tagged events can
+// fall back to a sensible default.
+func collectAllEvalDefs(cfg *config.Config) (defs []evals.EvalDef, packID string) {
+	if cfg.LoadedPack != nil {
+		pack := cfg.LoadedPack
+		defs = pack.Evals
+		// Prompt-level evals override pack-level by ID.
+		for _, pp := range pack.Prompts {
+			if len(pp.Evals) > 0 {
+				defs = evals.ResolveEvals(defs, pp.Evals)
+			}
+		}
+		packID = pack.ID
+	}
+	// Arena-config pack_evals merge in: they're authored at the same
+	// layer the pack would publish them from. ResolveEvals dedups by
+	// ID, so authoring an eval in both places (rare) keeps the latter.
+	if len(cfg.PackEvals) > 0 {
+		defs = evals.ResolveEvals(defs, cfg.PackEvals)
+	}
+	return defs, packID
 }
 
 // buildEvalOnlyOrchestrator creates a EvalOrchestrator with an empty defs list and a fresh registry.

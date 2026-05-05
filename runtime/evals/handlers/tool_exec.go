@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -86,15 +87,64 @@ func (h *ToolExecHandler) Eval(
 		}, nil
 	}
 
+	value := map[string]any{
+		"tool":       toolName,
+		"latency_ms": result.LatencyMs,
+	}
+	// Surface the tool's parsed response on Details so this handler
+	// can serve as a non-gating measurement: tools that emit JSON
+	// metrics (e.g. a diff-stats script in a sandbox) flow into the
+	// report's per-result details for jq aggregation. We populate
+	// Details (not Value) because the AssertionEvalHandler wrapper
+	// overwrites Value with a boolean pass/fail when this eval is
+	// used as a conversation assertion, while Details survives.
+	// JSON parse failures are non-fatal — the handler still reports
+	// success on the binary score.
+	details := map[string]any{
+		"tool":       toolName,
+		"latency_ms": result.LatencyMs,
+	}
+	if payload := parseToolPayload(result.Result); payload != nil {
+		value["result"] = payload
+		details["result"] = payload
+	}
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("tool_exec: %q succeeded", toolName),
-		Value: map[string]any{
-			"tool":       toolName,
-			"latency_ms": result.LatencyMs,
-		},
+		Value:       value,
+		Details:     details,
 	}, nil
+}
+
+// parseToolPayload best-effort decodes the tool's response into a Go
+// value for inclusion on EvalResult.Value/Details. When the decoded
+// value is itself a JSON string (common for shell-script wrappers
+// where stdout is the captured payload), it tries one more decode so
+// the metrics surface as structured fields rather than an escaped
+// string blob. Empty/null bodies and unparseable bytes return nil.
+func parseToolPayload(raw json.RawMessage) any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	// Double-parse: if the outer decode produced a string and the
+	// string itself parses as JSON, prefer the structured form.
+	// Trims trailing whitespace because shell scripts often append
+	// a newline to JSON output.
+	if s, ok := decoded.(string); ok {
+		trimmed := strings.TrimSpace(s)
+		if len(trimmed) >= 2 && (trimmed[0] == '{' || trimmed[0] == '[') {
+			var inner any
+			if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
+				return inner
+			}
+		}
+	}
+	return decoded
 }
 
 // resolveRegistry pulls the tools.Registry out of EvalContext.Metadata.

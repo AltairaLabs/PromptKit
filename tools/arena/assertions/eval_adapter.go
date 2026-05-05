@@ -112,7 +112,18 @@ func ConvertEvalResults(results []evals.EvalResult) []ConversationValidationResu
 
 // convertOneEvalResult converts a single EvalResult to ConversationValidationResult.
 func convertOneEvalResult(r *evals.EvalResult) ConversationValidationResult {
-	passed, _ := r.Value.(bool)
+	// AssertionEvalHandler wraps inner evals as assertions and sets
+	// r.Value = passed (bool). Direct (non-asserted) eval results
+	// keep their handler's structured Value, in which case "passed"
+	// derives from score and error state. Score >= 1.0 with no error
+	// means success for non-gating measurement evals.
+	var passed bool
+	switch v := r.Value.(type) {
+	case bool:
+		passed = v
+	default:
+		passed = r.Error == "" && r.Score != nil && *r.Score >= 1.0
+	}
 
 	msg := r.Explanation
 	if !passed && r.Error != "" {
@@ -130,6 +141,16 @@ func convertOneEvalResult(r *evals.EvalResult) ConversationValidationResult {
 	}
 	if r.Value != nil {
 		details["value"] = r.Value
+	}
+	// Merge handler-supplied Details (e.g. tool_exec's parsed tool
+	// response) into the output. Handler-supplied keys win over the
+	// fixed fields above only when the handler explicitly chose the
+	// same key — typically Details carries handler-specific metric
+	// payloads that are otherwise unrepresentable on the typed fields.
+	for k, v := range r.Details {
+		if _, taken := details[k]; !taken {
+			details[k] = v
+		}
 	}
 	if r.Error != "" {
 		details["error"] = r.Error

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -53,11 +54,11 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 	// Evaluate conversation-level assertions
 	convAssertionResults := de.evaluateConversationAssertions(ctx, req, messages)
 
-	// Run pack eval session-level evals if configured
+	// Run pack-level evals at session end. Non-gating observations
+	// surface on EvalResults; assertions stay in ConversationAssertionResults.
+	var packEvalResults []evals.EvalResult
 	if de.evalOrchestrator != nil && de.evalOrchestrator.HasEvals() {
-		packResults := de.evalOrchestrator.RunSessionEvals(
-			ctx, messages, req.ConversationID)
-		convAssertionResults = append(convAssertionResults, packResults...)
+		packEvalResults = de.evalOrchestrator.RunSessionEvals(ctx, messages, req.ConversationID)
 	}
 
 	return &ConversationResult{
@@ -68,6 +69,7 @@ func (de *DuplexConversationExecutor) buildResultFromStateStore(
 		SelfPlay:                     de.containsSelfPlay(req.Scenario),
 		PersonaID:                    de.findFirstSelfPlayPersona(req.Scenario),
 		ConversationAssertionResults: convAssertionResults,
+		EvalResults:                  packEvalResults,
 	}
 }
 

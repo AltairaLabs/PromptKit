@@ -27,6 +27,7 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/russross/blackfriday/v2"
 
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/assertions"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
@@ -413,15 +414,22 @@ func getReportTemplate() *template.Template {
 			"getConversationAssertionResults": func(r engine.RunResult) []assertions.ConversationValidationResult {
 				return r.ConversationAssertions.Results
 			},
-			"renderToolResultMediaBadges": renderToolResultMediaBadges,
-			"isAgentTool":                 isAgentTool,
-			"isWorkflowTool":              isWorkflowTool,
-			"isMemoryTool":                isMemoryTool,
-			"hasA2AAgents":                hasA2AAgents,
-			"renderA2AAgentCards":         renderA2AAgentCards,
-			"consentStatus":               consentStatus,
-			"selfPlayPrompt":              selfPlayPrompt,
-			"selfPlayPersona":             selfPlayPersona,
+			"hasEvalResults":    hasEvalResults,
+			"renderEvalResults": renderEvalResults,
+			"getEvalResults": func(r engine.RunResult) []evals.EvalResult {
+				return r.EvalResults
+			},
+			"renderConversationAssertionsSummary": renderConversationAssertionsSummary,
+			"renderEvalResultsSummary":            renderEvalResultsSummary,
+			"renderToolResultMediaBadges":         renderToolResultMediaBadges,
+			"isAgentTool":                         isAgentTool,
+			"isWorkflowTool":                      isWorkflowTool,
+			"isMemoryTool":                        isMemoryTool,
+			"hasA2AAgents":                        hasA2AAgents,
+			"renderA2AAgentCards":                 renderA2AAgentCards,
+			"consentStatus":                       consentStatus,
+			"selfPlayPrompt":                      selfPlayPrompt,
+			"selfPlayPersona":                     selfPlayPersona,
 		}).Parse(reportTemplate))
 	})
 	return reportTmpl
@@ -1063,7 +1071,10 @@ func renderConversationAssertions(results []assertions.ConversationValidationRes
 	b.WriteString(`<div class="conversation-assertions-section">`)
 	b.WriteString(renderConversationHeader(results))
 	b.WriteString(`<table class="conversation-assertions-table">`)
-	b.WriteString(`<thead><tr><th>#</th><th>Type</th><th>Status</th><th class="assertion-score">Score</th>`)
+	// Assertions are pass/fail. Numeric "scores" only made sense when
+	// arena was repurposing the eval pipeline as a gating wrapper —
+	// the public contract is binary, so the column is gone.
+	b.WriteString(`<thead><tr><th>#</th><th>Type</th><th>Status</th>`)
 	b.WriteString(`<th>Message</th><th>Details</th></tr></thead>`)
 	b.WriteString(`<tbody>`)
 	for i, r := range results {
@@ -1143,12 +1154,6 @@ func renderConversationRow(index int, result assertions.ConversationValidationRe
 	b.WriteString(fmt.Sprintf(`<span class="status-icon %s">%s</span> `, rowClass, statusIcon))
 	b.WriteString(statusText)
 	b.WriteString(`</td>`)
-	// Score column
-	scoreText := "—"
-	if score, ok := assertions.ExtractScore(result.Details); ok {
-		scoreText = fmt.Sprintf("%.2f", score)
-	}
-	b.WriteString(fmt.Sprintf(`<td class="assertion-score">%s</td>`, scoreText))
 	msg := result.Message
 	if msg == "" {
 		msg = "—"
@@ -1158,6 +1163,235 @@ func renderConversationRow(index int, result assertions.ConversationValidationRe
 	b.WriteString(renderConversationDetails(result))
 	b.WriteString(`</td></tr>`)
 	return b.String()
+}
+
+// hasEvalResults checks if a result has pack-level eval observations.
+//
+//nolint:gocritic // hugeParam: template functions can't use pointers
+func hasEvalResults(result engine.RunResult) bool {
+	return len(result.EvalResults) > 0
+}
+
+// renderEvalResults renders pack-level eval observations as a table.
+// Distinct from renderConversationAssertions: evals are non-gating
+// measurements, so the table foregrounds the captured metrics rather
+// than a single pass/fail score. Each row shows the eval id, type,
+// and a "Metrics" column listing the structured key/value payload
+// (the eval handler's Details, with any nested JSON-string `result`
+// expanded so its keys surface as named metrics).
+func renderEvalResults(results []evals.EvalResult) template.HTML {
+	if len(results) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<div class="eval-results-section">`)
+	b.WriteString(renderEvalResultsHeader(results))
+	b.WriteString(`<table class="eval-results-table">`)
+	b.WriteString(`<thead><tr><th>#</th><th>Eval ID</th><th>Type</th><th>Metrics</th></tr></thead>`)
+	b.WriteString(`<tbody>`)
+	for i := range results {
+		b.WriteString(renderEvalResultRow(i, &results[i]))
+	}
+	b.WriteString(`</tbody></table></div>`)
+	//nolint:gosec // G203: HTML generation is intentional for template rendering
+	return template.HTML(b.String())
+}
+
+// renderEvalResultsHeader builds the header row (count, title).
+func renderEvalResultsHeader(results []evals.EvalResult) string {
+	var b strings.Builder
+	b.WriteString(`<div class="eval-results-header">`)
+	b.WriteString(`<span class="eval-results-badge">📊</span>`)
+	b.WriteString(`<span class="eval-results-title">Eval Observations</span>`)
+	b.WriteString(fmt.Sprintf(`<span class="eval-results-count">%d eval(s)</span>`, len(results)))
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
+// renderEvalResultRow renders a single eval result row.
+func renderEvalResultRow(index int, r *evals.EvalResult) string {
+	var b strings.Builder
+	b.WriteString(`<tr class="eval-row">`)
+	b.WriteString(fmt.Sprintf(`<td class="eval-index">%d</td>`, index+1))
+	id := r.EvalID
+	if id == "" {
+		id = "—"
+	}
+	b.WriteString(fmt.Sprintf(`<td class="eval-id">%s</td>`, template.HTMLEscapeString(id)))
+	etype := r.Type
+	if etype == "" {
+		etype = "—"
+	}
+	b.WriteString(fmt.Sprintf(`<td class="eval-type">%s</td>`, template.HTMLEscapeString(etype)))
+	b.WriteString(`<td class="eval-metrics">`)
+	b.WriteString(renderEvalMetrics(r))
+	b.WriteString(`</td></tr>`)
+	return b.String()
+}
+
+// renderEvalMetrics renders the eval's structured metrics as a
+// key=value list, preferring the handler's Details map. tool_exec's
+// `result` field carries the tool's parsed response — when it's a map
+// of metrics, those keys surface as top-level metrics; when it's a
+// scalar (string blob, number), it shows under the `result` label.
+// Falls back to a JSON-formatted Value blob, then em dash.
+func renderEvalMetrics(r *evals.EvalResult) string {
+	metrics := evalMetricsMap(r)
+	if len(metrics) == 0 {
+		return "—"
+	}
+	keys := make([]string, 0, len(metrics))
+	for k := range metrics {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(`<dl class="eval-metric-list">`)
+	for _, k := range keys {
+		b.WriteString(`<div class="eval-metric"><dt>`)
+		b.WriteString(template.HTMLEscapeString(k))
+		b.WriteString(`</dt><dd>`)
+		b.WriteString(template.HTMLEscapeString(formatMetricValue(metrics[k])))
+		b.WriteString(`</dd></div>`)
+	}
+	b.WriteString(`</dl>`)
+	return b.String()
+}
+
+// evalMetricsMap extracts the metric set from an EvalResult. Skips
+// transport-level fields (latency_ms, tool, eval_id, etc.) — these
+// describe the call, not the measurement. When `result` is a map,
+// its keys are promoted to top-level metric names.
+func evalMetricsMap(r *evals.EvalResult) map[string]any {
+	out := map[string]any{}
+	src := r.Details
+	if len(src) == 0 {
+		// Fall back to Value when no Details. Only use it when Value
+		// is itself a map (assertion wrappers replace Value with a
+		// boolean — that's not a metric).
+		if m, ok := r.Value.(map[string]any); ok {
+			src = m
+		}
+	}
+	skip := map[string]bool{"latency_ms": true, "tool": true, "eval_id": true, "duration_ms": true}
+	for k, v := range src {
+		if skip[k] {
+			continue
+		}
+		if k == "result" {
+			if inner, ok := v.(map[string]any); ok {
+				for ik, iv := range inner {
+					out[ik] = iv
+				}
+				continue
+			}
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// formatMetricValue renders a metric value into a compact display
+// string. Numbers and booleans inline; strings as-is; everything else
+// JSON-marshaled.
+func formatMetricValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return "—"
+	case string:
+		return t
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	case float64:
+		// JSON decode produces float64 for all numeric kinds. Render
+		// integers without a trailing decimal.
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%d", int64(t))
+		}
+		return fmt.Sprintf("%g", t)
+	}
+	body, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(body)
+}
+
+// renderConversationAssertionsSummary returns a compact pass/fail
+// chip set suitable for inclusion in the result-card header. One
+// chip per assertion, color-coded; truncated to a small budget when
+// many assertions are present.
+func renderConversationAssertionsSummary(results []assertions.ConversationValidationResult) template.HTML {
+	if len(results) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<span class="result-summary-group" title="Conversation assertions">`)
+	for _, r := range results {
+		cls := "passed"
+		icon := "✓"
+		if _, sk := assertions.IsSkipped(r.Details); sk {
+			cls = "skipped"
+			icon = "⊘"
+		} else if !r.Passed {
+			cls = "failed"
+			icon = "✗"
+		}
+		label := r.Type
+		if label == "" {
+			label = "assertion"
+		}
+		b.WriteString(fmt.Sprintf(
+			`<span class="summary-chip assertion-chip %s" title=%q>%s %s</span>`,
+			cls, template.HTMLEscapeString(r.Message), icon, template.HTMLEscapeString(label),
+		))
+	}
+	b.WriteString(`</span>`)
+	//nolint:gosec // G203: HTML generation is intentional for template rendering
+	return template.HTML(b.String())
+}
+
+// renderEvalResultsSummary returns a compact metrics chip strip for
+// the result-card header. Each eval contributes its key=value metrics
+// inline so the high-signal numbers are visible without expanding.
+func renderEvalResultsSummary(results []evals.EvalResult) template.HTML {
+	if len(results) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<span class="result-summary-group" title="Eval observations">`)
+	chipTpl := `<span class="summary-chip metric-chip" title=%q>` +
+		`<span class="chip-key">%s</span>=<span class="chip-val">%s</span></span>`
+	for i := range results {
+		r := &results[i]
+		metrics := evalMetricsMap(r)
+		if len(metrics) == 0 {
+			continue
+		}
+		keys := make([]string, 0, len(metrics))
+		for k := range metrics {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		title := r.EvalID
+		if title == "" {
+			title = r.Type
+		}
+		for _, k := range keys {
+			b.WriteString(fmt.Sprintf(
+				chipTpl,
+				template.HTMLEscapeString(title),
+				template.HTMLEscapeString(k),
+				template.HTMLEscapeString(formatMetricValue(metrics[k])),
+			))
+		}
+	}
+	b.WriteString(`</span>`)
+	//nolint:gosec // G203: HTML generation is intentional for template rendering
+	return template.HTML(b.String())
 }
 
 // renderConversationDetails renders violations and details JSON, or em dash.
