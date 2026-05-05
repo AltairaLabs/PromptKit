@@ -32,8 +32,15 @@ spec:
           DEV_MODE: "1"
 
   skills:
-    - path: skills/codegen-disciplined
+    - name: codegen-disciplined
+      path: skills/codegen-disciplined
       preload: true
+    # Host-only metric skill — mounted into the sandbox so the
+    # diff_stats.sh script is reachable from session-level evals,
+    # but not surfaced to the agent.
+    - name: codegen-metrics
+      path: skills/codegen-metrics
+      preload: false
 
   defaults:
     temperature: 0.1

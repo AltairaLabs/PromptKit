@@ -131,6 +131,16 @@ func convertOneEvalResult(r *evals.EvalResult) ConversationValidationResult {
 	if r.Value != nil {
 		details["value"] = r.Value
 	}
+	// Merge handler-supplied Details (e.g. tool_exec's parsed tool
+	// response) into the output. Handler-supplied keys win over the
+	// fixed fields above only when the handler explicitly chose the
+	// same key — typically Details carries handler-specific metric
+	// payloads that are otherwise unrepresentable on the typed fields.
+	for k, v := range r.Details {
+		if _, taken := details[k]; !taken {
+			details[k] = v
+		}
+	}
 	if r.Error != "" {
 		details["error"] = r.Error
 	}

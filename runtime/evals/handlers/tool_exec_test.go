@@ -148,6 +148,32 @@ func TestToolExec_PassesArgsToExecute(t *testing.T) {
 	assert.Equal(t, "smoke", got["description"])
 }
 
+// TestToolExec_CapturesToolResultPayload verifies that the eval result's
+// Details carries the parsed tool response under "result". This is what
+// lets tool_exec serve as a non-gating measurement: emit a JSON metric
+// from a tool (e.g. a diff-stats script in a sandbox), and the captured
+// payload flows into the report for jq aggregation. Details is the
+// right field because the AssertionEvalHandler wrapper overwrites Value
+// with a boolean pass/fail when this eval is used as a conversation
+// assertion — Details survives.
+func TestToolExec_CapturesToolResultPayload(t *testing.T) {
+	registry := newStubRegistry(t, "diff_stats", &stubExecutor{
+		name:   "stub-metric",
+		result: json.RawMessage(`{"loc_added": 12, "loc_removed": 3, "files_changed": 2}`),
+	})
+	h := &ToolExecHandler{}
+	res, err := h.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool": "diff_stats",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res.Details)
+	payload, ok := res.Details["result"].(map[string]any)
+	require.True(t, ok, "Details['result'] should be map[string]any, got %T", res.Details["result"])
+	assert.Equal(t, float64(12), payload["loc_added"])
+	assert.Equal(t, float64(3), payload["loc_removed"])
+	assert.Equal(t, float64(2), payload["files_changed"])
+}
+
 // capturingExecutor records the args it received without erroring.
 type capturingExecutor struct {
 	name     string

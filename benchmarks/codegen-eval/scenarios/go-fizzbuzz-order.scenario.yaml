@@ -67,3 +67,11 @@ spec:
         tool: run_tests
         timeout_seconds: 120
       message: "Hidden test suite must pass"
+    - type: tool_exec
+      params:
+        tool: Bash
+        args:
+          command: "bash /skills/codegen-metrics/scripts/diff_stats.sh"
+          description: "Capture diff_stats soft-metric"
+        timeout_seconds: 10
+      message: "Capture diff_stats payload"

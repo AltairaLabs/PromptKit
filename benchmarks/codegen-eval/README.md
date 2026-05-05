@@ -107,10 +107,43 @@ matrix sweep. Setting trials=1 for a first pass cuts that by 3×.
   baseline — directly readable from arena's existing cost tracker.
 
 **Won't (deferred to v1 / v2):**
-- Soft metrics (diff LOC, regression count) — needs a sandbox tool. See
-  proposal §10.2.
 - SWE-bench tasks — needs a differential gate (`FAIL_TO_PASS` /
   `PASS_TO_PASS`). See proposal §10.3.
 - Multi-agent bundles (planner + executor, panel-of-experts) — needs
   A2A token-accounting verification + orchestrator decision. See
   proposal §10.5.
+
+## Soft-metric capture
+
+Each scenario runs `diff_stats.sh` (in the host-only `codegen-metrics`
+skill) at conversation-end via `tool_exec`, capturing JSON
+`{total_loc, impl_loc, test_loc, files_count}` into the per-result
+`details.result` payload. Read with jq:
+
+```bash
+jq -r '.conversation_assertions.results[]
+       | select(.details.tool == "Bash")
+       | .details.result | fromjson
+       | "loc=\(.total_loc) impl=\(.impl_loc) tests=\(.test_loc)"' \
+   out/<run-id>.json
+```
+
+**Spike finding (single trial, both bundles 5/5 pass):** `total_loc`
+and `impl_loc` are **identical** across baseline and disciplined for
+every scenario at this difficulty — Sonnet at temp=0.1 converges on
+the same edit shape regardless of skill. The differentiating signal
+is **`run_lint` calls** (visible in `ToolStats.by_tool`):
+
+| Scenario | Baseline tool calls | Disciplined |
+|---|---|---|
+| go-add-bugfix | Edit=1 Write=3 run_tests=2 | + run_lint=1 |
+| go-binary-search | Edit=1 Write=3 run_tests=2 | + run_lint=1 |
+| go-fizzbuzz-order | Edit=1 Write=3 run_tests=2 | + run_lint=1 |
+| go-counter-race | Bash=2 Write=4 run_lint=1 run_tests=2 | (same) |
+| go-strings-reverse | Edit=1 Write=3 run_tests=2 | (same) |
+
+Disciplined runs lint on 3/5 scenarios that baseline skips — the
+"verify before done" discipline manifests as explicit lint checks,
+not different code shape. For harder tasks (where the agent has more
+room to disagree) the LOC metric should start to differentiate; the
+capture mechanism is in place for that.

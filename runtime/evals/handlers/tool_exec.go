@@ -86,15 +86,49 @@ func (h *ToolExecHandler) Eval(
 		}, nil
 	}
 
+	value := map[string]any{
+		"tool":       toolName,
+		"latency_ms": result.LatencyMs,
+	}
+	// Surface the tool's parsed response on Details so this handler
+	// can serve as a non-gating measurement: tools that emit JSON
+	// metrics (e.g. a diff-stats script in a sandbox) flow into the
+	// report's per-result details for jq aggregation. We populate
+	// Details (not Value) because the AssertionEvalHandler wrapper
+	// overwrites Value with a boolean pass/fail when this eval is
+	// used as a conversation assertion, while Details survives.
+	// JSON parse failures are non-fatal — the handler still reports
+	// success on the binary score.
+	details := map[string]any{
+		"tool":       toolName,
+		"latency_ms": result.LatencyMs,
+	}
+	if payload := parseToolPayload(result.Result); payload != nil {
+		value["result"] = payload
+		details["result"] = payload
+	}
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("tool_exec: %q succeeded", toolName),
-		Value: map[string]any{
-			"tool":       toolName,
-			"latency_ms": result.LatencyMs,
-		},
+		Value:       value,
+		Details:     details,
 	}, nil
+}
+
+// parseToolPayload best-effort decodes the tool's response into a Go
+// value for inclusion on EvalResult.Value. Empty/null bodies and
+// unparseable bytes return nil, signaling "no structured payload to
+// surface" without failing the eval.
+func parseToolPayload(raw json.RawMessage) any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	return decoded
 }
 
 // resolveRegistry pulls the tools.Registry out of EvalContext.Metadata.

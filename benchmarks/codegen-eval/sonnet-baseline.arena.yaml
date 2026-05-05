@@ -30,6 +30,15 @@ spec:
         env:
           DEV_MODE: "1"
 
+  # Host-only metric skill — mounted into the sandbox at /skills/codegen-metrics
+  # so session-level evals can run scripts like diff_stats.sh, but never
+  # surfaced to the agent (preload: false). The explicit `name` is what
+  # drives the in-container mount target.
+  skills:
+    - name: codegen-metrics
+      path: skills/codegen-metrics
+      preload: false
+
   defaults:
     temperature: 0.1
     max_tokens: 4096
