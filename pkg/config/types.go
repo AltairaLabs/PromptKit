@@ -1329,14 +1329,16 @@ type ToolConfigSchema struct {
 
 // ToolSpec represents a tool descriptor (re-exported from runtime/tools for schema generation)
 type ToolSpec struct {
-	Name         string         `json:"name,omitempty" yaml:"name,omitempty"`
-	Description  string         `json:"description" yaml:"description"`
-	InputSchema  interface{}    `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
-	OutputSchema interface{}    `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
-	Mode         string         `json:"mode" yaml:"mode"`                   // "mock" | "live" | "client"
+	Name        string `json:"name,omitempty" yaml:"name,omitempty"`
+	Description string `json:"description" yaml:"description"`
+	// InputSchema is a JSON Schema Draft-07 document for the tool's arguments.
+	InputSchema interface{} `json:"input_schema" yaml:"input_schema"`
+	// OutputSchema is a JSON Schema Draft-07 document for the tool's return value.
+	OutputSchema interface{}    `json:"output_schema" yaml:"output_schema"`
+	Mode         string         `json:"mode" yaml:"mode" jsonschema:"description=Execution mode. One of: 'mock' (use mock_result or mock_template) - 'live' (HTTP via 'http') - 'mcp' (MCP server) - 'exec' (subprocess) - 'client' (client-side handler)."` //nolint:lll
 	TimeoutMs    int            `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
-	MockResult   interface{}    `json:"mock_result,omitempty" yaml:"mock_result,omitempty"`
-	MockTemplate string         `json:"mock_template,omitempty" yaml:"mock_template,omitempty"`
+	MockResult   interface{}    `json:"mock_result,omitempty" yaml:"mock_result,omitempty" jsonschema:"description=Static mock response returned regardless of tool-call args. Use when the response does not depend on inputs. Mutually exclusive with mock_template."`                                                                                                                                                            //nolint:lll
+	MockTemplate string         `json:"mock_template,omitempty" yaml:"mock_template,omitempty" jsonschema:"description=Go text/template rendered against tool-call args (parsed as a JSON map). Rendered output is parsed back as JSON. Use this instead of mock_result when the response should depend on inputs (e.g. branching on order_id with {{ if eq .order_id \"X\" }}...{{ end }}). Mutually exclusive with mock_result."` //nolint:lll
 	MockParts    []MockPartSpec `json:"mock_parts,omitempty" yaml:"mock_parts,omitempty"`
 	HTTPConfig   *HTTPConfig    `json:"http,omitempty" yaml:"http,omitempty"`
 	// Exec subprocess configuration (mode: exec)

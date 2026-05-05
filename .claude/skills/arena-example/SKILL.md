@@ -231,6 +231,10 @@ spec:
 ```
 
 ### Tool Config (`tools/<name>.tool.yaml`)
+
+Two flavours of `mode: mock` — pick based on whether the response should depend on inputs.
+
+**Static mock** (same response regardless of args) — use `mock_result`:
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Tool
@@ -256,6 +260,23 @@ spec:
   mock_result:
     result: "static response"
 ```
+
+**Input-branching mock** (response depends on args) — use `mock_template`. Renders Go `text/template` against the tool-call args (parsed as a JSON map) and the rendered output is parsed back as JSON. **Do not write a custom executor** for this — the executor exists (`runtime/tools/executors.go` `MockScriptedExecutor`).
+
+```yaml
+spec:
+  mode: mock
+  mock_template: |
+    {{- if eq .order_id "ORD-2024-9999" -}}
+    {"in_warranty":true,"warranty_end":"2025-11-03"}
+    {{- else if eq .order_id "ORD-2023-7788" -}}
+    {"in_warranty":false,"warranty_end":"2024-08-12"}
+    {{- else -}}
+    {"error":"not_found"}
+    {{- end -}}
+```
+
+For long templates, use `mock_template_file: relative/path.tmpl` instead of inline. `mock_result` and `mock_template` are mutually exclusive on a single tool.
 
 ## Common Assertion Types
 

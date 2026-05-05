@@ -1097,14 +1097,18 @@
         "input_schema": true,
         "output_schema": true,
         "mode": {
-          "type": "string"
+          "type": "string",
+          "description": "Execution mode. One of: 'mock' (use mock_result or mock_template) - 'live' (HTTP via 'http') - 'mcp' (MCP server) - 'exec' (subprocess) - 'client' (client-side handler)."
         },
         "timeout_ms": {
           "type": "integer"
         },
-        "mock_result": true,
+        "mock_result": {
+          "description": "Static mock response returned regardless of tool-call args. Use when the response does not depend on inputs. Mutually exclusive with mock_template."
+        },
         "mock_template": {
-          "type": "string"
+          "type": "string",
+          "description": "Go text/template rendered against tool-call args (parsed as a JSON map). Rendered output is parsed back as JSON. Use this instead of mock_result when the response should depend on inputs (e.g. branching on order_id with {{ if eq .order_id \"X\" }}...{{ end }}). Mutually exclusive with mock_result."
         },
         "mock_parts": {
           "items": {

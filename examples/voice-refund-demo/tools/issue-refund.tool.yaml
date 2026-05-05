@@ -32,7 +32,9 @@ spec:
         type: string
   mode: mock
   timeout_ms: 1000
-  mock_result:
-    error: warranty_invalid
-    status: refused
-    refund_id: ""
+  mock_template: |
+    {{- if eq .order_id "ORD-2024-9999" -}}
+    {"refund_id":"REF-12345","status":"issued","error":""}
+    {{- else -}}
+    {"error":"warranty_invalid","status":"refused","refund_id":""}
+    {{- end -}}
