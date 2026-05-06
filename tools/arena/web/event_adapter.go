@@ -232,6 +232,19 @@ func (a *EventAdapter) mapEvent(event *events.Event) *SSEEvent {
 			"toolCalls":  data.ToolCalls,
 			"toolResult": data.ToolResult,
 		}
+	case *events.MessageCreatedData:
+		// runtime/events/emitter.go emits a pointer; without this case the
+		// payload was silently dropped (nil data) and the frontend reducer
+		// never aggregated messages into liveRun.messages.
+		if data != nil {
+			sse.Data = map[string]interface{}{
+				"role":       data.Role,
+				"content":    data.Content,
+				"index":      data.Index,
+				"toolCalls":  data.ToolCalls,
+				"toolResult": data.ToolResult,
+			}
+		}
 	case events.MessageUpdatedData:
 		sse.Data = map[string]interface{}{
 			"index":        data.Index,
@@ -239,6 +252,16 @@ func (a *EventAdapter) mapEvent(event *events.Event) *SSEEvent {
 			"inputTokens":  data.InputTokens,
 			"outputTokens": data.OutputTokens,
 			"totalCost":    data.TotalCost,
+		}
+	case *events.MessageUpdatedData:
+		if data != nil {
+			sse.Data = map[string]interface{}{
+				"index":        data.Index,
+				"latencyMs":    data.LatencyMs,
+				"inputTokens":  data.InputTokens,
+				"outputTokens": data.OutputTokens,
+				"totalCost":    data.TotalCost,
+			}
 		}
 	case events.ConversationStartedData:
 		sse.Data = map[string]interface{}{

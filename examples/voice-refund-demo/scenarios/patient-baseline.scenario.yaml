@@ -39,13 +39,9 @@ spec:
       persona: patient-customer
       turns: 3
       tts:
-        provider: mock
-        voice: mock-alloy
-        audio_files:
-          - audio/greeting.pcm
-          - audio/question.pcm
-          - audio/funfact.pcm
-        sample_rate: 16000
+        provider: openai
+        voice: nova
+        sample_rate: 24000
       assertions:
         - type: content_matches
           params:

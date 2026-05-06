@@ -682,6 +682,20 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 		}
 	}
 
+	// Capture the persona LLM call's cost+tokens so the report can show
+	// what the synthetic user side cost. Without this the report only shows
+	// the agent-side cost, hiding ~50% of the run's spend on selfplay scenarios.
+	if cost := textResult.CostInfo; cost.InputTokens > 0 || cost.OutputTokens > 0 || cost.TotalCost > 0 {
+		turnMeta["self_play_cost"] = map[string]any{
+			"input_tokens":    cost.InputTokens,
+			"output_tokens":   cost.OutputTokens,
+			"cached_tokens":   cost.CachedTokens,
+			"input_cost_usd":  cost.InputCostUSD,
+			"output_cost_usd": cost.OutputCostUSD,
+			"total_cost_usd":  cost.TotalCost,
+		}
+	}
+
 	return de.streamTextAsAudio(
 		ctx, generatedText, ttsConfig, turnMeta,
 		inputChan, outputChan,

@@ -83,6 +83,22 @@ export interface RunStartedResponse {
   status: "started";
 }
 
+export interface ProviderInfo {
+  id: string;
+  type: string;
+  model?: string;
+}
+
+export interface ScenarioInfo {
+  id: string;
+  description?: string;
+}
+
+export interface RunOptionsResponse {
+  providers: ProviderInfo[];
+  scenarios: ScenarioInfo[];
+}
+
 // === Run Results ===
 
 export interface RunResult {
@@ -91,6 +107,7 @@ export interface RunResult {
   Region: string;
   ScenarioID: string;
   ProviderID: string;
+  Labels?: Record<string, string>;
   Params: Record<string, unknown>;
   Messages: Message[];
   Commit: Record<string, unknown>;
@@ -101,12 +118,42 @@ export interface RunResult {
   EndTime: string;
   Duration: number;
   Error: string;
+  Skipped?: boolean;
+  SkipReason?: string;
   SelfPlay: boolean;
   PersonaID: string;
+  AssistantRole?: SelfPlayRoleInfo;
+  UserRole?: SelfPlayRoleInfo;
   MediaOutputs: MediaOutput[];
+  RecordingPath?: string;
   ConversationAssertions?: AssertionsSummary;
+  eval_results?: EvalResult[];
   A2AAgents: A2AAgentInfo[];
   TrialResults?: TrialResults;
+}
+
+export interface EvalResult {
+  eval_id: string;
+  type: string;
+  score?: number;
+  value?: unknown;
+  metric_value?: number;
+  explanation?: string;
+  duration_ms: number;
+  error?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+  violations?: EvalViolation[];
+  skipped?: boolean;
+  skip_reason?: string;
+  session_id?: string;
+  turn_index?: number;
+}
+
+export interface EvalViolation {
+  turn_index?: number;
+  description?: string;
+  evidence?: Record<string, unknown>;
 }
 
 export interface Message {
@@ -132,8 +179,10 @@ export interface MediaContent {
   mime_type: string;
   file_path?: string;
   url?: string;
+  storage_reference?: string;
   format?: string;
   size_kb?: number;
+  size_bytes?: number;
   duration?: number;
   width?: number;
   height?: number;
@@ -190,12 +239,20 @@ export interface AssertionsSummary {
 }
 
 export interface ConversationValidationResult {
-  name: string;
+  name?: string;
   type: string;
   passed: boolean;
   score?: number;
   message?: string;
   details?: Record<string, unknown>;
+  violations?: ConversationViolation[];
+}
+
+export interface ConversationViolation {
+  turn_index: number;
+  description: string;
+  evidence?: Record<string, unknown>;
+  timestamp?: string;
 }
 
 export interface TrialResults {

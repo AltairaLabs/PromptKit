@@ -5,10 +5,12 @@ import type { ActiveRun, MessageCreatedData } from "@/types";
 
 interface RunProgressProps {
   runs: ActiveRun[];
+  listeningRunId: string | null;
   onSelectRun?: (runId: string) => void;
+  onToggleListen: (runId: string) => void;
 }
 
-export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
+export function RunProgress({ runs, listeningRunId, onSelectRun, onToggleListen }: RunProgressProps) {
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const activeRuns = runs.filter((r) => r.status === "running");
   const doneRuns = runs.filter((r) => r.status !== "running");
@@ -34,7 +36,15 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
       {activeRuns.length > 0 && (
         <Section title="Active Runs" count={activeRuns.length}>
           {activeRuns.map((run) => (
-            <RunCard key={run.runId} run={run} expanded={expandedRun === run.runId} onToggle={() => toggleRun(run.runId)} />
+            <RunCard
+              key={run.runId}
+              run={run}
+              expanded={expandedRun === run.runId}
+              listening={listeningRunId === run.runId}
+              onToggle={() => toggleRun(run.runId)}
+              onToggleListen={() => onToggleListen(run.runId)}
+              onViewDetails={onSelectRun ? () => onSelectRun(run.runId) : undefined}
+            />
           ))}
         </Section>
       )}
@@ -45,6 +55,7 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
               key={run.runId}
               run={run}
               expanded={expandedRun === run.runId}
+              listening={listeningRunId === run.runId}
               onToggle={() => toggleRun(run.runId)}
               onViewDetails={() => onSelectRun?.(run.runId)}
             />
@@ -67,12 +78,15 @@ function Section({ title, count, children }: { title: string; count: number; chi
   );
 }
 
-function RunCard({ run, expanded, onToggle, onViewDetails }: {
+function RunCard({ run, expanded, listening, onToggle, onViewDetails, onToggleListen }: {
   run: ActiveRun;
   expanded: boolean;
+  listening?: boolean;
   onToggle: () => void;
   onViewDetails?: () => void;
+  onToggleListen?: () => void;
 }) {
+  const isRunning = run.status === "running";
   return (
     <div
       className={cn(
@@ -105,6 +119,20 @@ function RunCard({ run, expanded, onToggle, onViewDetails }: {
           )}
           {run.status === "failed" && (
             <span className="rounded-full bg-red-50 text-[#EF4444] px-2 py-0.5 text-[10px] font-semibold">Fail</span>
+          )}
+          {isRunning && onToggleListen && (
+            <button
+              className={cn(
+                "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                listening
+                  ? "border-blue-200 bg-blue-50 text-[#2563EB] hover:bg-blue-100"
+                  : "border-mist bg-white text-deep-space hover:bg-[#F8FAFC]"
+              )}
+              onClick={(e) => { e.stopPropagation(); onToggleListen(); }}
+              title={listening ? "Stop listening to this run" : "Listen to this run's audio"}
+            >
+              {listening ? "🔇 Stop" : "🔊 Listen"}
+            </button>
           )}
           {onViewDetails && (
             <button

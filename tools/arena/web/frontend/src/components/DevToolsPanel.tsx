@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { X } from "lucide-react";
 import type { Message, ActiveRun } from "@/types";
@@ -61,13 +61,33 @@ export function DevToolsPanel({ message, messageIndex, allMessages, run, open, o
   const [activeTab, setActiveTab] = useState<TabId>("info");
   const tabs = useMemo(() => buildTabs(message, allMessages), [message, allMessages]);
 
+  // Esc closes the panel — standard slide-over keyboard contract.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   // Reset to info if current tab isn't available
   const currentTab = tabs.find((t) => t.id === activeTab) ? activeTab : "info";
 
   if (!open) return null;
 
   return (
-    <div className="fixed top-0 right-0 h-screen w-[420px] z-40 flex flex-col border-l border-white/10 bg-[#1e1e2e] shadow-2xl">
+    <>
+      {/* Backdrop only kicks in below lg — at desktop widths the panel
+          docks beside content and the page is still interactive. On
+          narrow screens it's a true overlay; tap-to-dismiss closes it. */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close details"
+        className="lg:hidden fixed inset-0 z-30 bg-black/40"
+      />
+    <div className="fixed top-0 right-0 h-screen w-full max-w-[420px] z-40 flex flex-col border-l border-white/10 bg-[#1e1e2e] shadow-2xl">
       <div className="flex items-center justify-between px-4 py-3 bg-[#181825] border-b border-[#313244]">
         <div>
           <span className="text-sm font-medium text-[#cdd6f4]">Details</span>
@@ -123,6 +143,7 @@ export function DevToolsPanel({ message, messageIndex, allMessages, run, open, o
         </div>
       </div>
     </div>
+    </>
   );
 }
 

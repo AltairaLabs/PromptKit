@@ -614,6 +614,8 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 		}
 	}
 
+	validators := foldValidatorMessages(config.Spec.Validators)
+
 	return &PackPrompt{
 		ID:             config.Spec.TaskType,
 		Name:           config.Metadata.Name,
@@ -625,12 +627,36 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 		ToolPolicy:     config.Spec.ToolPolicy,
 		Parameters:     config.Spec.Parameters,
 		Evals:          config.Spec.Evals,
-		Validators:     config.Spec.Validators,
+		Validators:     validators,
 		MediaConfig:    config.Spec.MediaConfig,
 		TestedModels:   config.Spec.TestedModels,
 		ModelOverrides: config.Spec.ModelOverrides,
 		Pipeline:       GetDefaultPipelineConfig(),
 	}
+}
+
+// foldValidatorMessages moves ValidatorConfig.Message into Params["message"]
+// so the compiled pack conforms to the promptpack schema (which has no top-level
+// message field on Validator). Existing Params["message"] values are preserved.
+func foldValidatorMessages(validators []ValidatorConfig) []ValidatorConfig {
+	if len(validators) == 0 {
+		return validators
+	}
+	out := make([]ValidatorConfig, len(validators))
+	copy(out, validators)
+	for i := range out {
+		if out[i].Message == "" {
+			continue
+		}
+		if out[i].Params == nil {
+			out[i].Params = make(map[string]interface{})
+		}
+		if _, exists := out[i].Params["message"]; !exists {
+			out[i].Params["message"] = out[i].Message
+		}
+		out[i].Message = ""
+	}
+	return out
 }
 
 // collectFragments collects fragment references from config into pack

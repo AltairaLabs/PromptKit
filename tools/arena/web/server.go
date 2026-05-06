@@ -38,6 +38,8 @@ type engineRunner interface {
 	GenerateRunPlan(regionFilter, providerFilter, scenarioFilter, evalFilter []string) (*engine.RunPlan, error)
 	ExecuteRuns(ctx context.Context, plan *engine.RunPlan, concurrency int) ([]string, error)
 	GetConfig() *config.Config
+	ListProviders() []engine.ProviderInfo
+	ListScenarios() []engine.ScenarioInfo
 }
 
 // Server is the Arena web UI HTTP server.
@@ -83,8 +85,10 @@ func newServerWithRunner(
 	}
 	s.mux.HandleFunc("GET /api/events", s.handleSSE)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
+	s.mux.HandleFunc("GET /api/run-options", s.handleRunOptions)
 	s.mux.HandleFunc("GET /api/results", s.handleListResults)
 	s.mux.HandleFunc("GET /api/results/{id}", s.handleGetResult)
+	s.mux.HandleFunc("GET /api/media/{path...}", s.handleMedia)
 	s.mux.HandleFunc("DELETE /api/results", s.handleClearResults)
 	s.mux.HandleFunc("POST /api/run", s.handleStartRun)
 

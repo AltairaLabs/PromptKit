@@ -53,6 +53,12 @@ func extractRegionFromPersonaID(personaID string) string {
 // file_path, or url) are stripped — text providers can't load them, and Gemini
 // rejects the whole request when parts[0] is an empty inline_data. Messages
 // that end up with neither Content nor any sendable Parts are dropped.
+//
+// Tool-call plumbing (role=tool messages and tool_calls on assistant messages)
+// is also stripped: the persona LLM only needs to see what the agent SAID, not
+// how it called functions to figure things out. Without this, role-swapping
+// later would put tool_calls on a user-role message — which OpenAI rejects with
+// "messages.[N].role 'tool' must be a response to a preceding 'tool_calls'".
 func sanitizeHistoryForText(history []types.Message) []types.Message {
 	if len(history) == 0 {
 		return history
@@ -60,7 +66,15 @@ func sanitizeHistoryForText(history []types.Message) []types.Message {
 	cleaned := make([]types.Message, 0, len(history))
 	for i := range history {
 		msg := history[i]
+		// Drop tool-result messages — they're agent/Realtime plumbing, not
+		// part of the conversation the persona needs to see.
+		if strings.EqualFold(msg.Role, "tool") {
+			continue
+		}
 		msg.Parts = sendableTextParts(msg.Parts)
+		// Strip tool_calls — the persona doesn't act on them and they
+		// become invalid after role-swap (tool_calls only valid on assistant).
+		msg.ToolCalls = nil
 		if msg.Content == "" && len(msg.Parts) == 0 {
 			continue
 		}

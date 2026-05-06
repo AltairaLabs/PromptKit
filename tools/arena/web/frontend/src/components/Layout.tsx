@@ -1,17 +1,18 @@
 import { cn } from "@/lib/utils";
-import { Play, Wifi, WifiOff } from "lucide-react";
+import { Wifi, WifiOff, Sun, Moon } from "lucide-react";
+import { useTheme } from "@/hooks/useTheme";
 
 interface LayoutProps {
   connected: boolean;
-  onStartRun: () => void;
-  loading: boolean;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }
 
-export function Layout({ connected, onStartRun, loading, children }: LayoutProps) {
+export function Layout({ connected, headerActions, children }: LayoutProps) {
+  const { theme, toggle } = useTheme();
   return (
-    <div className="min-h-screen bg-cloud-white">
-      <header className="bg-gradient-to-r from-deep-space to-onyx border-b border-white/10">
+    <div className="min-h-screen bg-canvas">
+      <header className="bg-gradient-to-r from-[#0F172A] to-[#1E293B] border-b border-white/10">
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" className="h-8 w-8">
@@ -32,7 +33,7 @@ export function Layout({ connected, onStartRun, loading, children }: LayoutProps
             </svg>
             <span className="text-base font-bold text-white">PromptArena</span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className={cn(
               "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium",
               connected
@@ -43,13 +44,15 @@ export function Layout({ connected, onStartRun, loading, children }: LayoutProps
               {connected ? "Live" : "Offline"}
             </div>
             <button
-              onClick={onStartRun}
-              disabled={loading || !connected}
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-deep-space hover:bg-white/90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+              onClick={toggle}
+              className="rounded-full p-1.5 text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-pressed={theme === "dark"}
+              title={theme === "dark" ? "Light mode" : "Dark mode"}
             >
-              <Play className="h-3.5 w-3.5" />
-              Start Run
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
+            {headerActions}
           </div>
         </div>
       </header>

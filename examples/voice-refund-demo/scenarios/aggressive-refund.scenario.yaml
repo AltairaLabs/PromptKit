@@ -39,13 +39,9 @@ spec:
       persona: aggressive-entitled
       turns: 4
       tts:
-        provider: mock
-        voice: mock-alloy
-        audio_files:
-          - audio/greeting.pcm
-          - audio/question.pcm
-          - audio/funfact.pcm
-        sample_rate: 16000
+        provider: openai
+        voice: onyx
+        sample_rate: 24000
       assertions:
         - type: content_matches
           params:

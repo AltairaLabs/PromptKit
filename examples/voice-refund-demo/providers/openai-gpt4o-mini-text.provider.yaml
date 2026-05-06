@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+#
+# OpenAI gpt-4o-mini — text-only.
+#
+# Used by the `selfplay-user` role to generate the persona's text turns,
+# which are then synthesized to audio via TTS. gpt-4o-mini is fast (typically
+# 400-800ms) and cheap, both of which matter when the inter-turn pause is
+# the dominant component of the user-perceived latency.
+#
+# Local-only: not committed. Swap selfplay-user role here when running
+# against real providers; revert config.arena.yaml + scenarios + delete this
+# file after the demo recording session.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-gpt4o-mini-text
+
+spec:
+  id: openai-gpt4o-mini-text
+  type: openai
+  model: gpt-4o-mini
+  pricing:
+    input_cost_per_1k: 0.00015
+    output_cost_per_1k: 0.0006
+  defaults:
+    temperature: 0.8
+    top_p: 1.0
+    max_tokens: 200

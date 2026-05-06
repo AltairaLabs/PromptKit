@@ -36,6 +36,10 @@ type Action =
   | { type: "PROVIDER_CALL_COMPLETED"; runId: string; data: ProviderCallData; timestamp: string }
   | { type: "LOG"; entry: LogEntry };
 
+// Exported for tests so the reducer/mapper contracts are pinned without
+// having to mount the hook against a real EventSource.
+export { reducer as __reducer, mapSSEToAction as __mapSSEToAction, initialState as __initialState };
+
 function reducer(state: ArenaState, action: Action): ArenaState {
   switch (action.type) {
     case "CONNECTED":
@@ -169,9 +173,12 @@ function mapSSEToAction(event: SSEEvent): Action | null {
     case "arena.run.failed":
       return { type: "RUN_FAILED", runId, data: d as unknown as ArenaRunFailedData, timestamp: ts };
     case "arena.turn.started":
+    case "arena.duplex.turn.started":
       return { type: "TURN_STARTED", runId, data: d as unknown as ArenaTurnData, timestamp: ts };
     case "arena.turn.completed":
     case "arena.turn.failed":
+    case "arena.duplex.turn.completed":
+    case "arena.duplex.turn.failed":
       return { type: "TURN_COMPLETED", runId, data: d as unknown as ArenaTurnData, timestamp: ts };
     case "message.created":
       return { type: "MESSAGE_CREATED", runId, data: d as unknown as MessageCreatedData, timestamp: ts };

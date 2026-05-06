@@ -297,9 +297,44 @@ func (s *ArenaStateStoreSaveStage) broadcastMessage(elem *stage.StreamElement, i
 		elem.Message.Content,
 		idx,
 		elem.Message.Parts,
-		nil, // tool calls converted upstream when present; live UI cares about role+text
-		nil,
+		convertToolCalls(elem.Message.ToolCalls),
+		convertToolResult(elem.Message.ToolResult),
 	)
+}
+
+// convertToolCalls converts runtime tool calls to the wire-shaped events
+// type. Without this, assistant turns whose content IS a tool invocation
+// (i.e., empty Content + populated ToolCalls) arrive in the live UI as
+// empty bubbles — the conversation looks like turns are missing.
+func convertToolCalls(in []types.MessageToolCall) []events.MessageToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]events.MessageToolCall, len(in))
+	for i, c := range in {
+		out[i] = events.MessageToolCall{
+			ID:   c.ID,
+			Name: c.Name,
+			Args: string(c.Args),
+		}
+	}
+	return out
+}
+
+// convertToolResult converts a runtime tool result to the wire-shaped events
+// type. Tool result messages with no top-level Content are otherwise rendered
+// as blank turns in the live UI — the actual result lives in Parts/Error.
+func convertToolResult(in *types.MessageToolResult) *events.MessageToolResult {
+	if in == nil {
+		return nil
+	}
+	return &events.MessageToolResult{
+		ID:        in.ID,
+		Name:      in.Name,
+		Parts:     in.Parts,
+		Error:     in.Error,
+		LatencyMs: in.LatencyMs,
+	}
 }
 
 // ctxOrBackground returns context.Background when the upstream context has

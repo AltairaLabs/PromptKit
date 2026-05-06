@@ -170,6 +170,127 @@ func TestAdapter_MapMessageCreated(t *testing.T) {
 	}
 }
 
+// TestAdapter_MapMessageCreatedPtr regression-tests the contract between the
+// runtime emitter and the SSE adapter: emitter.go publishes
+// &MessageCreatedData{} (a pointer), so the adapter's type switch MUST handle
+// the pointer case. Without it the data field is nil, the frontend mapper
+// short-circuits on `!d`, and live messages never stream into the UI.
+func TestAdapter_MapMessageCreatedPtr(t *testing.T) {
+	adapter := NewEventAdapter()
+	ch := adapter.Register()
+
+	event := &events.Event{
+		Type:           events.EventMessageCreated,
+		Timestamp:      time.Now(),
+		ConversationID: "conv-ptr",
+		Data: &events.MessageCreatedData{
+			Role:    "user",
+			Content: "Hi from a pointer-typed payload",
+			Index:   1,
+		},
+	}
+	adapter.HandleEvent(event)
+
+	select {
+	case msg := <-ch:
+		var got SSEEvent
+		if err := json.Unmarshal(msg, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		data, ok := got.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want map[string]interface{} — pointer case was probably falling through to default", got.Data)
+		}
+		if data["role"] != "user" {
+			t.Errorf("role = %v, want user", data["role"])
+		}
+		if data["content"] != "Hi from a pointer-typed payload" {
+			t.Errorf("content = %v, want \"Hi from a pointer-typed payload\"", data["content"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for SSE broadcast")
+	}
+}
+
+// TestAdapter_MapMessageUpdatedPtr — same regression as MessageCreated above.
+func TestAdapter_MapMessageUpdatedPtr(t *testing.T) {
+	adapter := NewEventAdapter()
+	ch := adapter.Register()
+
+	event := &events.Event{
+		Type:           events.EventMessageUpdated,
+		Timestamp:      time.Now(),
+		ConversationID: "conv-ptr",
+		Data: &events.MessageUpdatedData{
+			Index:        2,
+			LatencyMs:    1234,
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalCost:    0.01,
+		},
+	}
+	adapter.HandleEvent(event)
+
+	select {
+	case msg := <-ch:
+		var got SSEEvent
+		if err := json.Unmarshal(msg, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		data, ok := got.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want map[string]interface{}", got.Data)
+		}
+		if v, _ := data["latencyMs"].(float64); v != 1234 {
+			t.Errorf("latencyMs = %v, want 1234", data["latencyMs"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for SSE broadcast")
+	}
+}
+
+// TestAdapter_EmitterContract round-trips a real runtime emitter through a
+// real bus into the adapter, so the test fails the moment runtime emission
+// shape diverges from what the adapter handles. This catches gaps the
+// individual mapEvent unit tests miss (they use crafted events that may not
+// match what the emitter actually publishes).
+func TestAdapter_EmitterContract(t *testing.T) {
+	adapter := NewEventAdapter()
+	ch := adapter.Register()
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	adapter.Subscribe(bus)
+
+	emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
+
+	// MessageCreated mirrors what the duplex executor calls during a real run.
+	emitter.MessageCreated("user", "round-trip test", 0, nil, nil, nil)
+
+	select {
+	case msg := <-ch:
+		var got SSEEvent
+		if err := json.Unmarshal(msg, &got); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if got.Type != "message.created" {
+			t.Errorf("type = %q, want message.created", got.Type)
+		}
+		if got.Data == nil {
+			t.Fatal("data is nil — adapter dropped the emitter's payload")
+		}
+		data, ok := got.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data is %T, want map[string]interface{}", got.Data)
+		}
+		if data["content"] != "round-trip test" {
+			t.Errorf("content = %v, want round-trip test", data["content"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out — emitter → bus → adapter round-trip didn't deliver")
+	}
+}
+
 func TestAdapter_Subscribe(t *testing.T) {
 	adapter := NewEventAdapter()
 	ch := adapter.Register()

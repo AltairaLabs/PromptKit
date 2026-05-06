@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -371,6 +370,21 @@ func TestStreamResponsesResponse_ToolCallAccumulation(t *testing.T) {
 	}
 }
 
-// Ensure unused imports are referenced
-var _ = json.Marshal
-var _ = context.Background
+func TestHandleFuncArgsDelta_NoMatchingID(t *testing.T) {
+	p := &Provider{}
+
+	idMap := make(itemIDMap)
+	toolCalls := p.handleOutputAdded(
+		`{"type":"response.output_item.added","item":{"type":"function_call","id":"fc_abc","call_id":"call_xyz","name":"test"}}`,
+		nil, idMap,
+	)
+
+	// Delta with an ID that doesn't match anything
+	deltaData := `{"type":"response.function_call_arguments.delta","item_id":"fc_UNKNOWN","delta":"{\"x\":1}"}`
+	toolCalls = p.handleFuncArgsDelta(deltaData, toolCalls, idMap)
+
+	// Args should remain empty — delta was silently dropped
+	if string(toolCalls[0].Args) != "" {
+		t.Errorf("unmatched delta should be dropped, got args = %q", string(toolCalls[0].Args))
+	}
+}
