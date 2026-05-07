@@ -15,10 +15,8 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
-	jsonresults "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -301,51 +299,6 @@ func (s *Server) handleClearResults(w http.ResponseWriter, _ *http.Request) {
 		"cleared": true,
 		"deleted": deleted,
 	})
-}
-
-// LoadResultsIntoStore loads existing JSON run results from outDir into the state store.
-// Returns the number of results successfully loaded.
-func LoadResultsIntoStore(outDir string, store *statestore.ArenaStateStore) int {
-	repo := jsonresults.NewJSONResultRepository(outDir)
-	results, err := repo.LoadResults()
-	if err != nil {
-		return 0
-	}
-
-	ctx := context.Background()
-	loaded := 0
-	for i := range results {
-		r := &results[i]
-		convState := &runtimestore.ConversationState{
-			ID:       r.RunID,
-			Messages: r.Messages,
-			Metadata: make(map[string]interface{}),
-		}
-		if store.Save(ctx, convState) != nil {
-			continue
-		}
-		meta := &statestore.RunMetadata{
-			RunID:                        r.RunID,
-			PromptPack:                   r.PromptPack,
-			Region:                       r.Region,
-			ScenarioID:                   r.ScenarioID,
-			ProviderID:                   r.ProviderID,
-			Params:                       r.Params,
-			Commit:                       r.Commit,
-			StartTime:                    r.StartTime,
-			EndTime:                      r.EndTime,
-			Duration:                     r.Duration,
-			Error:                        r.Error,
-			SelfPlay:                     r.SelfPlay,
-			PersonaID:                    r.PersonaID,
-			ConversationAssertionResults: r.ConversationAssertions.Results,
-		}
-		if store.SaveMetadata(ctx, r.RunID, meta) != nil {
-			continue
-		}
-		loaded++
-	}
-	return loaded
 }
 
 // writeJSON writes a JSON response with the given status code.
