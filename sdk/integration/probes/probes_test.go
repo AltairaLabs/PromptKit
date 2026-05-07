@@ -301,6 +301,18 @@ func TestProbedProvider_PredictAndStreamCount(t *testing.T) {
 	assert.Equal(t, 0, p.predicts())
 }
 
+func TestProbedProvider_BaseProviderDelegates(t *testing.T) {
+	inner := mock.NewProvider("test-mock", "test-model", false)
+	p := newProbedProvider(inner)
+
+	assert.Equal(t, inner.Name(), p.Name())
+	assert.Equal(t, inner.Type(), p.Type())
+	assert.Equal(t, inner.Pricing(), p.Pricing())
+	assert.NoError(t, p.Validate())
+	assert.NoError(t, p.Init(context.Background()))
+	assert.NoError(t, p.HealthCheck(context.Background()))
+}
+
 // ---------------------------------------------------------------------------
 // Probes (Snapshot / ResetCounters / Bus)
 // ---------------------------------------------------------------------------

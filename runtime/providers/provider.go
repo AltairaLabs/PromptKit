@@ -14,9 +14,11 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -130,11 +132,16 @@ type ProviderDefaults struct {
 	Pricing     Pricing
 }
 
-// Provider interface defines the contract for predict providers
+// Provider interface defines the contract for predict providers.
+// It embeds base.Provider for cross-cutting concerns (identity, lifecycle,
+// pricing) and adds inference-specific operations.
 type Provider interface {
+	base.Provider // adds Name, Type, Pricing, Validate, Init, HealthCheck, Close
+
+	// ID returns the provider ID. Deprecated alias for Name(); kept for back-compat.
 	ID() string
 
-	// Model returns the model name/identifier used by this provider
+	// Model returns the model name/identifier used by this provider.
 	Model() string
 
 	Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
@@ -146,10 +153,22 @@ type Provider interface {
 
 	ShouldIncludeRawOutput() bool
 
-	Close() error // Close cleans up provider resources (e.g., HTTP connections)
-
-	// CalculateCost calculates cost breakdown for given token counts
+	// CalculateCost calculates cost breakdown for given token counts.
 	CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo
+}
+
+// InferenceProvider is the unified name for predict-based LLM providers.
+// Provider remains as a deprecated alias for back-compat with existing call sites.
+type InferenceProvider = Provider
+
+// AssertInferenceProvider type-asserts a base.Provider as an InferenceProvider.
+// Returns an error if the provider is not an inference provider.
+func AssertInferenceProvider(p base.Provider) (InferenceProvider, error) {
+	inf, ok := p.(InferenceProvider)
+	if !ok {
+		return nil, fmt.Errorf("provider %q (type=%s) is not an InferenceProvider", p.Name(), p.Type())
+	}
+	return inf, nil
 }
 
 // ContextWindowProvider is an optional interface for providers that can report

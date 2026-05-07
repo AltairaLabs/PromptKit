@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// testMockProvider is a minimal mock provider for testing registry functionality
-// This is separate from the production mock provider in the mock subpackage
+// testMockProvider is a minimal mock provider for testing registry functionality.
+// It embeds base.Implementation by value so that struct literals remain valid.
+// This is separate from the production mock provider in the mock subpackage.
 type testMockProvider struct {
+	base.Implementation
 	id    string
 	value string
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -314,7 +315,9 @@ func (m *mockStore) Fork(_ context.Context, sourceID, newID string) error {
 }
 
 // mockProvider implements providers.Provider for testing
-type mockProvider struct{}
+type mockProvider struct {
+	base.Implementation
+}
 
 func (m *mockProvider) ID() string    { return "mock" }
 func (m *mockProvider) Model() string { return "mock-model" }

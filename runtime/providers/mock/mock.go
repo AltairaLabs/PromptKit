@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -20,6 +21,7 @@ import (
 //   - SDK examples: simple deterministic responses
 //   - Unit tests: programmatic response configuration
 type Provider struct {
+	*base.Implementation
 	id                string
 	model             string
 	value             string             // For backward compatibility with existing tests
@@ -35,6 +37,7 @@ func NewProvider(id, model string, includeRawOutput bool) *Provider {
 	repo := NewInMemoryMockRepository(response)
 
 	return &Provider{
+		Implementation:    base.NewImplementation(id, base.ProviderTypeInference, nil),
 		id:                id,
 		model:             model,
 		value:             response, // For backward compatibility
@@ -48,6 +51,7 @@ func NewProvider(id, model string, includeRawOutput bool) *Provider {
 // This allows for advanced scenarios like file-based or database-backed mock responses.
 func NewProviderWithRepository(id, model string, includeRawOutput bool, repo ResponseRepository) *Provider {
 	return &Provider{
+		Implementation:    base.NewImplementation(id, base.ProviderTypeInference, nil),
 		id:                id,
 		model:             model,
 		repository:        repo,

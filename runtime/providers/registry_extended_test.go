@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -113,8 +114,10 @@ func TestCreateProviderFromSpec_AppliesTimeouts(t *testing.T) {
 
 const testModelName = "test-model"
 
-// mockProviderForTest is a minimal provider implementation for registry testing
+// mockProviderForTest is a minimal provider implementation for registry testing.
+// It embeds base.Implementation by value so that struct literals remain valid.
 type mockProviderForTest struct {
+	base.Implementation
 	id string
 }
 

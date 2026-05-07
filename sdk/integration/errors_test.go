@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk"
@@ -22,7 +23,9 @@ import (
 
 var errProviderFault = errors.New("simulated provider fault")
 
-type errorProvider struct{}
+type errorProvider struct {
+	base.Implementation
+}
 
 func (e *errorProvider) ID() string    { return "error-provider" }
 func (e *errorProvider) Model() string { return "error-model" }

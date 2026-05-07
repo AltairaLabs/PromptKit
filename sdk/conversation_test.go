@@ -18,6 +18,7 @@ import (
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	mock "github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
@@ -829,6 +830,7 @@ func (m *audioMockStreamSession) Done() <-chan struct{} {
 
 // mockStreamProvider implements providers.StreamInputSupport for testing
 type mockStreamProvider struct {
+	base.Implementation
 	session    providers.StreamInputSession
 	sessionErr error
 }
@@ -870,7 +872,9 @@ func (m *mockStreamProvider) GetStreamingCapabilities() providers.StreamingCapab
 }
 
 // mockNonStreamProvider implements providers.Provider but not StreamInputSupport
-type mockNonStreamProvider struct{}
+type mockNonStreamProvider struct {
+	base.Implementation
+}
 
 func (m *mockNonStreamProvider) ID() string    { return "mock-non-stream" }
 func (m *mockNonStreamProvider) Model() string { return "mock-non-stream-model" }

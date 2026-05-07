@@ -4,11 +4,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// mockProvider is a test implementation of Provider interface
+// mockProvider is a test implementation of Provider interface.
+// It embeds base.Implementation by value so that zero-value literals
+// (&mockProvider{id: "x"}) compile and satisfy base.Provider without panicking.
 type mockProvider struct {
+	base.Implementation
 	id string
 }
 
