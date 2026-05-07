@@ -29,7 +29,7 @@ export function TrialResultsPanel({ trial }: TrialResultsPanelProps) {
           {trial.trial_count} trials
         </span>
       </h3>
-      <div className="rounded-lg bg-white border border-mist p-4 space-y-3">
+      <div className="rounded-lg bg-surfaceborder border-mist p-4 space-y-3">
         <div className="grid grid-cols-3 gap-3">
           <Stat label="Pass Rate" value={pct(trial.pass_rate)} tone={trial.pass_rate >= 0.9 ? "text-[#10B981]" : trial.pass_rate >= 0.5 ? "text-[#F59E0B]" : "text-[#EF4444]"} />
           <Stat label="Flakiness" value={trial.flakiness_score.toFixed(2)} tone={flakinessTone(trial.flakiness_score)} />

@@ -161,7 +161,7 @@ export function RunDetail({
               className={
                 isListening
                   ? "ml-auto rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-[#2563EB] hover:bg-blue-100 transition-colors"
-                  : "ml-auto rounded-lg border border-mist bg-white px-3 py-1.5 text-xs font-medium text-fg hover:bg-[var(--c-surface-2)] transition-colors"
+                  : "ml-auto rounded-lg border border-mist bg-surfacepx-3 py-1.5 text-xs font-medium text-fg hover:bg-[var(--c-surface-2)] transition-colors"
               }
               title={isListening ? "Stop audio playback" : "Listen to live audio (user → left, agent → right)"}
             >

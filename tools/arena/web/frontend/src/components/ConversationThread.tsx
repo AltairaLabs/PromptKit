@@ -348,7 +348,7 @@ function MessageBubble({
       )}
 
       {message.tool_result && (
-        <div className="mt-3 rounded-lg bg-white p-3 border border-mist">
+        <div className="mt-3 rounded-lg bg-surfacep-3 border border-mist">
           <div className="flex items-center gap-2 mb-1">
             <span className="rounded-full bg-amber-100 text-[#F59E0B] px-2 py-0.5 text-[10px] font-semibold">
               <span className="mr-1">{toolIcon(message.tool_result.name)}</span>
@@ -425,7 +425,7 @@ function ToolCallCard({ call }: { call: MessageToolCall }) {
   const argsText = typeof call.args === "string" ? call.args : JSON.stringify(call.args, null, 2);
   const hasArgs = argsText && argsText.trim() !== "" && argsText !== "{}" && argsText !== "null";
   return (
-    <div className="rounded-lg bg-white border border-mist overflow-hidden">
+    <div className="rounded-lg bg-surfaceborder border-mist overflow-hidden">
       <button
         type="button"
         onClick={(e) => {

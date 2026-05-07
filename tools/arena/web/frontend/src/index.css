@@ -24,16 +24,15 @@
   --color-border-subtle: var(--c-border-subtle);
 
   /* Legacy palette aliases (so bg-cloud-white, text-deep-space, etc.
-     still resolve and now respond to dark mode). */
+     still resolve and now respond to dark mode). `white` deliberately
+     stays as true white — translucent overlays (bg-white/10) and
+     button text (text-white) on colored backgrounds rely on it.
+     Card surfaces use `bg-surface` instead. */
   --color-cloud-white: var(--c-cloud-white);
   --color-deep-space: var(--c-deep-space);
   --color-onyx: var(--c-onyx);
   --color-mist: var(--c-mist);
   --color-slate-muted: var(--c-slate-muted);
-  /* `white` is hardcoded in many components for cards / chips; we
-     redefine it so cards flip to a dark surface in dark mode without
-     touching every component. */
-  --color-white: var(--c-white);
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -58,7 +57,6 @@
   --c-onyx: #1E293B;
   --c-mist: #E2E8F0;
   --c-slate-muted: #64748B;
-  --c-white: #FFFFFF;
 
   /* Role-tint backgrounds for conversation bubbles. Light tints in
      light mode; translucent role color in dark mode so foreground text
@@ -83,7 +81,6 @@
   --c-onyx: #1E293B;
   --c-mist: #1F2937;        /* borders → muted dark */
   --c-slate-muted: #94A3B8;
-  --c-white: #111827;       /* card surface */
 
   --c-bubble-user: rgba(37, 99, 235, 0.14);
   --c-bubble-assistant: rgba(16, 185, 129, 0.14);

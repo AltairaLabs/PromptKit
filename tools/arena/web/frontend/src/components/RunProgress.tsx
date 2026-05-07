@@ -21,7 +21,7 @@ export function RunProgress({ runs, listeningRunId, onSelectRun, onToggleListen 
 
   if (runs.length === 0) {
     return (
-      <div className="rounded-xl border border-mist bg-white p-10 text-center shadow-sm">
+      <div className="rounded-xl border border-mist bg-surfacep-10 text-center shadow-sm">
         <div className="mx-auto mb-3 h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center">
           <Activity className="h-5 w-5 text-[#2563EB]" />
         </div>
@@ -90,7 +90,7 @@ function RunCard({ run, expanded, listening, onToggle, onViewDetails, onToggleLi
   return (
     <div
       className={cn(
-        "rounded-xl border bg-white shadow-sm overflow-hidden cursor-pointer transition-colors",
+        "rounded-xl border bg-surfaceshadow-sm overflow-hidden cursor-pointer transition-colors",
         expanded ? "border-[#2563EB]/40" : "border-mist hover:border-[#2563EB]/20"
       )}
       onClick={onToggle}
@@ -126,7 +126,7 @@ function RunCard({ run, expanded, listening, onToggle, onViewDetails, onToggleLi
                 "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
                 listening
                   ? "border-blue-200 bg-blue-50 text-[#2563EB] hover:bg-blue-100"
-                  : "border-mist bg-white text-deep-space hover:bg-[#F8FAFC]"
+                  : "border-mist bg-surfacetext-deep-space hover:bg-[#F8FAFC]"
               )}
               onClick={(e) => { e.stopPropagation(); onToggleListen(); }}
               title={listening ? "Stop listening to this run" : "Listen to this run's audio"}
@@ -172,7 +172,7 @@ function MessagePreview({ msg }: { msg: MessageCreatedData }) {
     tool: "text-[#F59E0B]",
   };
   return (
-    <div className={cn("rounded-lg border-l-[3px] bg-white px-3 py-2", border[msg.role] || border.system)}>
+    <div className={cn("rounded-lg border-l-[3px] bg-surfacepx-3 py-2", border[msg.role] || border.system)}>
       <span className={cn("text-[10px] font-bold uppercase tracking-wider", label[msg.role] || label.system)}>{msg.role}</span>
       <p className="mt-1 text-sm text-deep-space/80 leading-relaxed whitespace-pre-wrap">
         {msg.content?.slice(0, 200)}{(msg.content?.length ?? 0) > 200 ? "…" : ""}

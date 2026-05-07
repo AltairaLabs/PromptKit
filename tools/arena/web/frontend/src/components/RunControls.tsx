@@ -103,7 +103,7 @@ export function RunControls({ connected, loading, startError, onStart }: RunCont
           onStart(providerId, scenarioId);
         }}
         disabled={!canStart}
-        className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-deep-space hover:bg-white/90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+        className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#0F172A] hover:bg-white/90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
         title={isMockSelected ? "Start a free run with the mock provider" : "Start a run — this will spend real tokens"}
       >
         <Play className="h-3.5 w-3.5" />
