@@ -141,15 +141,24 @@ func (de *DuplexConversationExecutor) buildVADConfig(req *ConversationRequest) s
 	return cfg
 }
 
-// calculateTotalCost sums cost info from all messages.
+// calculateTotalCost sums cost info from all messages, including the
+// per-message self_play_cost recorded in meta. Self-play user turns
+// store their LLM spend in Meta rather than message.CostInfo (which
+// is reserved for the assistant turn) — without folding it in, a duplex
+// run's headline cost would silently undercount the persona side.
 func (de *DuplexConversationExecutor) calculateTotalCost(messages []types.Message) types.CostInfo {
 	var total types.CostInfo
 	for i := range messages {
 		if messages[i].CostInfo != nil {
 			total.InputTokens += messages[i].CostInfo.InputTokens
 			total.OutputTokens += messages[i].CostInfo.OutputTokens
+			total.CachedTokens += messages[i].CostInfo.CachedTokens
+			total.InputCostUSD += messages[i].CostInfo.InputCostUSD
+			total.OutputCostUSD += messages[i].CostInfo.OutputCostUSD
+			total.CachedCostUSD += messages[i].CostInfo.CachedCostUSD
 			total.TotalCost += messages[i].CostInfo.TotalCost
 		}
+		addSelfPlayCostFromMeta(&total, messages[i].Meta)
 	}
 	return total
 }
