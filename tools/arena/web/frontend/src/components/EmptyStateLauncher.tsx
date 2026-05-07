@@ -87,7 +87,17 @@ export function EmptyStateLauncher({ connected, loading, startError, onStart }: 
         />
         <button
           onClick={() => {
-            if (!isMockSelected) {
+            if (isMockSelected) {
+              const ok = window.confirm(
+                `"${providerId}" mocks the assistant only.\n\n` +
+                  `Self-play user role and TTS are still wired to real providers in the ` +
+                  `arena config and WILL incur costs.\n\n` +
+                  `For a fully free run, restart the server with:\n` +
+                  `  promptarena serve --mock-provider\n\n` +
+                  `Continue anyway?`,
+              );
+              if (!ok) return;
+            } else {
               const ok = window.confirm(
                 `"${providerId}" is a real provider — this run will spend tokens. Continue?`,
               );

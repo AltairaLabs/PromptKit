@@ -94,7 +94,21 @@ export function RunControls({ connected, loading, startError, onStart }: RunCont
 
       <button
         onClick={() => {
-          if (!isMockSelected) {
+          if (isMockSelected) {
+            // The picker only swaps the assistant. Self-play user roles
+            // and TTS are wired in the arena config and keep hitting
+            // their original (real) providers — that bites users who
+            // pick "mock" expecting zero cost. Warn explicitly.
+            const ok = window.confirm(
+              `"${providerId}" mocks the assistant only.\n\n` +
+                `Self-play user role and TTS are still wired to real providers in the ` +
+                `arena config and WILL incur costs.\n\n` +
+                `For a fully free run, restart the server with:\n` +
+                `  promptarena serve --mock-provider\n\n` +
+                `Continue anyway?`,
+            );
+            if (!ok) return;
+          } else {
             const ok = window.confirm(
               `"${providerId}" is a real provider — this run will spend tokens. Continue?`,
             );
@@ -104,7 +118,7 @@ export function RunControls({ connected, loading, startError, onStart }: RunCont
         }}
         disabled={!canStart}
         className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#0F172A] hover:bg-white/90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
-        title={isMockSelected ? "Start a free run with the mock provider" : "Start a run — this will spend real tokens"}
+        title={isMockSelected ? "Mocks assistant only — self-play + TTS still cost money" : "Start a run — this will spend real tokens"}
       >
         <Play className="h-3.5 w-3.5" />
         Start Run
