@@ -15,10 +15,8 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
-	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	arenaaudio "github.com/AltairaLabs/PromptKit/tools/arena/audio"
 	"github.com/AltairaLabs/PromptKit/tools/arena/engine"
-	jsonresults "github.com/AltairaLabs/PromptKit/tools/arena/results/json"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -38,6 +36,8 @@ type engineRunner interface {
 	GenerateRunPlan(regionFilter, providerFilter, scenarioFilter, evalFilter []string) (*engine.RunPlan, error)
 	ExecuteRuns(ctx context.Context, plan *engine.RunPlan, concurrency int) ([]string, error)
 	GetConfig() *config.Config
+	ListProviders() []engine.ProviderInfo
+	ListScenarios() []engine.ScenarioInfo
 }
 
 // Server is the Arena web UI HTTP server.
@@ -83,8 +83,10 @@ func newServerWithRunner(
 	}
 	s.mux.HandleFunc("GET /api/events", s.handleSSE)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
+	s.mux.HandleFunc("GET /api/run-options", s.handleRunOptions)
 	s.mux.HandleFunc("GET /api/results", s.handleListResults)
 	s.mux.HandleFunc("GET /api/results/{id}", s.handleGetResult)
+	s.mux.HandleFunc("GET /api/media/{path...}", s.handleMedia)
 	s.mux.HandleFunc("DELETE /api/results", s.handleClearResults)
 	s.mux.HandleFunc("POST /api/run", s.handleStartRun)
 
@@ -297,51 +299,6 @@ func (s *Server) handleClearResults(w http.ResponseWriter, _ *http.Request) {
 		"cleared": true,
 		"deleted": deleted,
 	})
-}
-
-// LoadResultsIntoStore loads existing JSON run results from outDir into the state store.
-// Returns the number of results successfully loaded.
-func LoadResultsIntoStore(outDir string, store *statestore.ArenaStateStore) int {
-	repo := jsonresults.NewJSONResultRepository(outDir)
-	results, err := repo.LoadResults()
-	if err != nil {
-		return 0
-	}
-
-	ctx := context.Background()
-	loaded := 0
-	for i := range results {
-		r := &results[i]
-		convState := &runtimestore.ConversationState{
-			ID:       r.RunID,
-			Messages: r.Messages,
-			Metadata: make(map[string]interface{}),
-		}
-		if store.Save(ctx, convState) != nil {
-			continue
-		}
-		meta := &statestore.RunMetadata{
-			RunID:                        r.RunID,
-			PromptPack:                   r.PromptPack,
-			Region:                       r.Region,
-			ScenarioID:                   r.ScenarioID,
-			ProviderID:                   r.ProviderID,
-			Params:                       r.Params,
-			Commit:                       r.Commit,
-			StartTime:                    r.StartTime,
-			EndTime:                      r.EndTime,
-			Duration:                     r.Duration,
-			Error:                        r.Error,
-			SelfPlay:                     r.SelfPlay,
-			PersonaID:                    r.PersonaID,
-			ConversationAssertionResults: r.ConversationAssertions.Results,
-		}
-		if store.SaveMetadata(ctx, r.RunID, meta) != nil {
-			continue
-		}
-		loaded++
-	}
-	return loaded
 }
 
 // writeJSON writes a JSON response with the given status code.

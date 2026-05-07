@@ -1285,6 +1285,101 @@ func TestPack_ValidateWorkflowDetailed(t *testing.T) {
 	})
 }
 
+func TestCreatePackPrompt_ValidatorMessageFolding(t *testing.T) {
+	enabled := true
+	failOn := true
+
+	repo := newMockRepository()
+	testConfig := &Config{
+		Spec: Spec{
+			TaskType:       "msg-test",
+			Version:        "1.0.0",
+			SystemTemplate: "Hello",
+			TemplateEngine: &TemplateEngineInfo{
+				Version: "v1",
+				Syntax:  "handlebars",
+			},
+			Validators: []ValidatorConfig{
+				{
+					Type:            "banned_words",
+					Params:          map[string]any{"words": []string{"bad"}},
+					Enabled:         &enabled,
+					FailOnViolation: &failOn,
+					Message:         "Content blocked by policy",
+				},
+				{
+					Type:    "max_length",
+					Params:  map[string]any{"max_characters": 1000},
+					Enabled: &enabled,
+				},
+				{
+					Type:    "banned_words",
+					Params:  map[string]any{"words": []string{"worse"}, "message": "already in params"},
+					Enabled: &enabled,
+					Message: "", // empty — should not overwrite existing params["message"]
+				},
+			},
+		},
+		Metadata: metav1.ObjectMeta{Name: "Message Test"},
+	}
+	repo.prompts["msg-test"] = testConfig
+
+	registry := NewRegistryWithRepository(repo)
+	_ = registry.RegisterConfig("msg-test", testConfig)
+
+	fixedTime := time.Date(2025, 11, 6, 12, 0, 0, 0, time.UTC)
+	compiler := NewPackCompilerWithDeps(registry, mockTimeProvider{fixedTime: fixedTime}, newMockFileWriter())
+
+	pack, err := compiler.CompileFromRegistry("msg-pack", "packc-test")
+	require.NoError(t, err)
+
+	prompt := pack.Prompts["msg-test"]
+	require.NotNil(t, prompt)
+	require.Len(t, prompt.Validators, 3)
+
+	t.Run("folds Message into Params", func(t *testing.T) {
+		v := prompt.Validators[0]
+		assert.Equal(t, "Content blocked by policy", v.Params["message"],
+			"Message should be folded into Params")
+		assert.Empty(t, v.Message,
+			"top-level Message should be cleared after folding")
+	})
+
+	t.Run("no message means no params change", func(t *testing.T) {
+		v := prompt.Validators[1]
+		_, hasMsg := v.Params["message"]
+		assert.False(t, hasMsg, "should not inject message key when Message is empty")
+	})
+
+	t.Run("does not overwrite existing params message", func(t *testing.T) {
+		v := prompt.Validators[2]
+		assert.Equal(t, "already in params", v.Params["message"],
+			"existing params['message'] should not be overwritten")
+	})
+
+	t.Run("serialized JSON has no top-level message field", func(t *testing.T) {
+		data, err := json.MarshalIndent(pack, "", "  ")
+		require.NoError(t, err)
+
+		// Parse back and check the raw JSON for the first validator
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(data, &raw))
+
+		prompts := raw["prompts"].(map[string]any)
+		p := prompts["msg-test"].(map[string]any)
+		validators := p["validators"].([]any)
+		first := validators[0].(map[string]any)
+
+		_, hasTopLevelMessage := first["message"]
+		assert.False(t, hasTopLevelMessage,
+			"serialized validator should not have top-level 'message' key")
+
+		params := first["params"].(map[string]any)
+		assert.Equal(t, "Content blocked by policy", params["message"],
+			"message should appear inside params in serialized output")
+	})
+}
+
 func containsSubstring(s, sub string) bool {
 	for i := 0; i <= len(s)-len(sub); i++ {
 		if s[i:i+len(sub)] == sub {

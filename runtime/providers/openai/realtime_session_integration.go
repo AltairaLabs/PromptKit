@@ -59,6 +59,11 @@ type RealtimeSession struct {
 
 	// Session state
 	sessionInfo *SessionInfo // Received from session.created
+
+	// Tracks function-call item IDs already emitted on responseCh so that the
+	// GA dispatcher doesn't double-emit when both response.function_call_arguments.done
+	// and response.output_item.done arrive for the same call.
+	emittedToolCalls sync.Map
 }
 
 // NewRealtimeSession creates a new OpenAI Realtime streaming session.
@@ -598,6 +603,8 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		s.handleTranscriptDone(e)
 	case *ResponseFunctionCallArgumentsDoneEvent:
 		s.handleFunctionCallDone(e)
+	case *ResponseOutputItemDoneEvent:
+		s.handleOutputItemDone(e)
 	case *ResponseDoneEvent:
 		s.handleResponseDone(e)
 	case *InputAudioBufferSpeechStartedEvent:
@@ -722,6 +729,9 @@ func (s *RealtimeSession) handleTranscriptDone(e *ResponseAudioTranscriptDoneEve
 }
 
 func (s *RealtimeSession) handleFunctionCallDone(e *ResponseFunctionCallArgumentsDoneEvent) {
+	if s.markToolCallEmitted(e.ItemID) {
+		return
+	}
 	toolCall := types.MessageToolCall{
 		ID:   e.CallID,
 		Name: e.Name,
@@ -735,6 +745,48 @@ func (s *RealtimeSession) handleFunctionCallDone(e *ResponseFunctionCallArgument
 			"response_id": e.ResponseID,
 		},
 	}
+}
+
+// handleOutputItemDone extracts function calls carried on response.output_item.done.
+// The GA Realtime API surfaces tool calls via this event (with item.type=function_call)
+// and may not always emit response.function_call_arguments.done; we dedupe via item_id
+// so we don't double-emit when both events arrive.
+func (s *RealtimeSession) handleOutputItemDone(e *ResponseOutputItemDoneEvent) {
+	if e.Item.Type != typeFunctionCall {
+		return
+	}
+	if s.markToolCallEmitted(e.Item.ID) {
+		return
+	}
+
+	callID := e.Item.CallID
+	if callID == "" {
+		callID = e.Item.ID
+	}
+	toolCall := types.MessageToolCall{
+		ID:   callID,
+		Name: e.Item.Name,
+		Args: json.RawMessage(e.Item.Arguments),
+	}
+
+	s.responseCh <- providers.StreamChunk{
+		ToolCalls: []types.MessageToolCall{toolCall},
+		Metadata: map[string]interface{}{
+			"item_id":     e.Item.ID,
+			"response_id": e.ResponseID,
+		},
+	}
+}
+
+// markToolCallEmitted records that a tool call for the given item ID was already
+// emitted to responseCh; returns true if the caller should skip its emission.
+// Items with empty IDs are never deduped (best-effort emit).
+func (s *RealtimeSession) markToolCallEmitted(itemID string) bool {
+	if itemID == "" {
+		return false
+	}
+	_, alreadyEmitted := s.emittedToolCalls.LoadOrStore(itemID, struct{}{})
+	return alreadyEmitted
 }
 
 func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {

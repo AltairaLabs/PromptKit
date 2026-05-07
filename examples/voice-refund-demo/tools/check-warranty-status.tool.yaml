@@ -27,8 +27,11 @@ spec:
         type: string
   mode: mock
   timeout_ms: 1000
-  mock_result:
-    order_id: ORD-2023-7788
-    in_warranty: false
-    warranty_end: "2024-08-12"
-    reason: "Warranty expired 2024-08-12. Standard warranty is 12 months from purchase."
+  mock_template: |
+    {{- if eq .order_id "ORD-2023-7788" -}}
+    {"order_id":"ORD-2023-7788","in_warranty":false,"warranty_end":"2024-08-12","reason":"Warranty expired 2024-08-12. Standard warranty is 12 months from purchase."}
+    {{- else if eq .order_id "ORD-2024-9999" -}}
+    {"order_id":"ORD-2024-9999","in_warranty":true,"warranty_end":"2025-11-03","reason":"Within standard 12-month warranty."}
+    {{- else -}}
+    {"error":"not_found"}
+    {{- end -}}

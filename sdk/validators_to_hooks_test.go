@@ -1,12 +1,15 @@
 package sdk
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	promptpkg "github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
 
@@ -135,5 +138,60 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 		cfg := &config{}
 		convertPackValidatorsToHooks(prompt, cfg)
 		require.Len(t, cfg.providerHooks, 1)
+	})
+
+	t.Run("passes params message to guardrail hook", func(t *testing.T) {
+		prompt := &pack.Prompt{
+			Validators: []pack.Validator{
+				{
+					Type:            "banned_words",
+					Enabled:         true,
+					FailOnViolation: boolPtr(true),
+					Params: map[string]any{
+						"patterns": []any{"bad"},
+						"message":  "Custom blocked response",
+					},
+				},
+			},
+		}
+		cfg := &config{}
+		convertPackValidatorsToHooks(prompt, cfg)
+		require.Len(t, cfg.providerHooks, 1)
+
+		// Trigger the hook with violating content and verify the custom message
+		hook := cfg.providerHooks[0]
+		resp := &hooks.ProviderResponse{
+			Message: types.Message{Role: "assistant", Content: "this is bad content"},
+		}
+		decision := hook.AfterCall(context.Background(), nil, resp)
+		assert.True(t, decision.Enforced,
+			"guardrail should enforce on violating content")
+		assert.Equal(t, "Custom blocked response", resp.Message.Content,
+			"enforced message should use custom message from params")
+	})
+
+	t.Run("default message used when params has no message", func(t *testing.T) {
+		prompt := &pack.Prompt{
+			Validators: []pack.Validator{
+				{
+					Type:            "banned_words",
+					Enabled:         true,
+					FailOnViolation: boolPtr(true),
+					Params:          map[string]any{"patterns": []any{"bad"}},
+				},
+			},
+		}
+		cfg := &config{}
+		convertPackValidatorsToHooks(prompt, cfg)
+		require.Len(t, cfg.providerHooks, 1)
+
+		hook := cfg.providerHooks[0]
+		resp := &hooks.ProviderResponse{
+			Message: types.Message{Role: "assistant", Content: "this is bad content"},
+		}
+		decision := hook.AfterCall(context.Background(), nil, resp)
+		assert.True(t, decision.Enforced)
+		assert.Equal(t, promptpkg.DefaultBlockedMessage, resp.Message.Content,
+			"should use default blocked message when no custom message")
 	})
 }

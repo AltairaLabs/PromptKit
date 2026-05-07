@@ -78,8 +78,9 @@ type DuplexProviderStage struct {
 
 	// Response accumulation for the current turn
 	// Reset when turn completes (FinishReason received)
-	accumulatedText  strings.Builder
-	accumulatedMedia []byte
+	accumulatedText      strings.Builder
+	accumulatedMedia     []byte
+	accumulatedToolCalls []types.MessageToolCall
 
 	// Input transcription for the current turn (what user said)
 	// Captured from provider's inputTranscription events (if supported)
@@ -955,6 +956,15 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		s.accumulatedMedia = append(s.accumulatedMedia, chunk.MediaData.Data...)
 	}
 
+	// Accumulate tool calls for this turn. Tool calls and FinishReason can
+	// arrive in separate chunks (e.g. OpenAI Realtime emits ToolCalls on
+	// response.output_item.done and FinishReason on response.done) — without
+	// accumulation the message-build step at turn-complete reads chunk.ToolCalls
+	// from the FinishReason chunk and finds it empty.
+	if len(chunk.ToolCalls) > 0 {
+		s.accumulatedToolCalls = append(s.accumulatedToolCalls, chunk.ToolCalls...)
+	}
+
 	// Convert chunk to element (uses accumulated content for final chunk)
 	elem := s.chunkToElement(chunk)
 
@@ -964,6 +974,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if chunk.FinishReason != nil && *chunk.FinishReason != "" && elem.EndOfStream {
 		s.accumulatedText.Reset()
 		s.accumulatedMedia = nil
+		s.accumulatedToolCalls = nil
 		// Mark transcription as captured - don't reset yet!
 		// Late-arriving transcription chunks will be ignored until a new user turn starts.
 		// The transcription buffer will be reset when sendAudioElement is called.
@@ -1119,8 +1130,13 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			return elem
 		}
 
-		// Check if there are tool calls to capture
-		hasToolCalls := len(chunk.ToolCalls) > 0
+		// Check if there are tool calls to capture (accumulated across chunks
+		// for providers that emit ToolCalls and FinishReason in separate chunks)
+		toolCalls := s.accumulatedToolCalls
+		if len(toolCalls) == 0 && len(chunk.ToolCalls) > 0 {
+			toolCalls = chunk.ToolCalls
+		}
+		hasToolCalls := len(toolCalls) > 0
 
 		// Create Message if there's content, cost info, or tool calls
 		if hasContent || hasCostInfo || hasToolCalls {
@@ -1128,7 +1144,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 				Role:      "assistant",
 				Content:   accumulatedText,
 				Parts:     []types.ContentPart{},
-				ToolCalls: chunk.ToolCalls, // Capture tool calls from the chunk
+				ToolCalls: toolCalls,
 				CostInfo:  chunk.CostInfo,
 				Meta: map[string]interface{}{
 					"finish_reason": *chunk.FinishReason,

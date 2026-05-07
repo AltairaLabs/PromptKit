@@ -1,12 +1,16 @@
-import { useState, useEffect, Component } from "react";
+import { useCallback, useEffect, useRef, useState, Component } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { Layout } from "@/components/Layout";
 import { SummaryCards } from "@/components/SummaryCards";
 import { RunProgress } from "@/components/RunProgress";
 import { RunDetail } from "@/components/RunDetail";
 import { DevToolsPanel } from "@/components/DevToolsPanel";
+import { RunControls } from "@/components/RunControls";
+import { EmptyStateLauncher } from "@/components/EmptyStateLauncher";
+import { HistoricalResults } from "@/components/HistoricalResults";
 import { useArenaEvents } from "@/hooks/useArenaEvents";
 import { useArenaAPI } from "@/hooks/useArenaAPI";
+import { AudioPlayer } from "@/audio/player";
 import type { Message, RunResult } from "@/types";
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -19,10 +23,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   render() {
     if (this.state.error) {
       return (
-        <div className="min-h-screen bg-cloud-white flex items-center justify-center p-8">
-          <div className="rounded-xl border border-red-200 bg-white p-8 max-w-lg w-full text-center shadow-sm">
+        <div className="min-h-screen bg-canvas flex items-center justify-center p-8">
+          <div className="rounded-xl border border-red-200 bg-surface p-8 max-w-lg w-full text-center shadow-sm">
             <h2 className="text-lg font-semibold text-[#EF4444] mb-2">Something went wrong</h2>
-            <p className="text-sm text-slate-muted mb-6">{this.state.error.message}</p>
+            <p className="text-sm text-fg-muted mb-6">{this.state.error.message}</p>
             <button
               className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-2 text-sm font-medium text-[#2563EB] hover:bg-blue-100 transition-colors"
               onClick={() => this.setState({ error: null })}
@@ -48,7 +52,16 @@ export default function App() {
   const [startError, setStartError] = useState<string | null>(null);
   const [historicalResults, setHistoricalResults] = useState<RunResult[]>([]);
 
-  // Load results from the server on mount and when runs complete
+  // Single global AudioPlayer; rebuilt when the user switches Listen target.
+  const playerRef = useRef<AudioPlayer | null>(null);
+  const [listeningRunId, setListeningRunId] = useState<string | null>(null);
+
+  // Track runIds we've already seen so a freshly-spawned run can be auto-
+  // selected even when StartRun returns no runId.
+  const knownRunIdsRef = useRef<Set<string>>(new Set(Object.keys(state.runs)));
+  const [pendingAutoSelect, setPendingAutoSelect] = useState(false);
+
+  // Load historical results on mount and after each run completes.
   const completedCount = state.completedRunIds.length;
   useEffect(() => {
     getResults().then(async (ids) => {
@@ -57,6 +70,28 @@ export default function App() {
       setHistoricalResults(results.filter((r): r is RunResult => r !== null));
     }).catch(() => {});
   }, [getResults, getResult, completedCount]);
+
+  // When the user clicks Start Run we set pendingAutoSelect; the next new
+  // runId that lands in state.runs gets auto-selected so the demo flow is
+  // "click Run → page navigates to live conversation."
+  useEffect(() => {
+    const ids = Object.keys(state.runs);
+    if (pendingAutoSelect) {
+      const newId = ids.find((id) => !knownRunIdsRef.current.has(id));
+      if (newId) {
+        setSelectedRunId(newId);
+        setPendingAutoSelect(false);
+      }
+    }
+    knownRunIdsRef.current = new Set(ids);
+  }, [state.runs, pendingAutoSelect]);
+
+  useEffect(() => {
+    return () => {
+      playerRef.current?.close();
+      playerRef.current = null;
+    };
+  }, []);
 
   const liveRuns = Object.values(state.runs);
   const selectedRun = selectedRunId ? state.runs[selectedRunId] : undefined;
@@ -68,19 +103,80 @@ export default function App() {
     setDevToolsOpen(true);
   };
 
-  const handleStartRun = async () => {
+  const handleStartRun = useCallback(async (providerId: string, scenarioId: string) => {
     setStartError(null);
-    try { await startRun(); } catch (err) {
+    setPendingAutoSelect(true);
+    // If the user is currently viewing a previous run's detail, navigate
+    // them back to the dashboard immediately. Without this they'd stare
+    // at the old run until SSE delivered the first turn of the new one,
+    // which feels like nothing happened. The dashboard shows the live
+    // run appearing, then pendingAutoSelect kicks in and switches to
+    // the new RunDetail when the runId lands.
+    setSelectedRunId(null);
+    setDevToolsOpen(false);
+    try {
+      await startRun({ providers: [providerId], scenarios: [scenarioId] });
+    } catch (err) {
+      setPendingAutoSelect(false);
       setStartError(err instanceof Error ? err.message : "Failed to start run");
     }
-  };
+  }, [startRun]);
+
+  // Toggle audio playback for a run. Closes any prior EventSource before
+  // opening a new one so we never have two audio streams in flight.
+  const handleListen = useCallback((runId: string) => {
+    if (listeningRunId === runId) {
+      playerRef.current?.pause();
+      setListeningRunId(null);
+      return;
+    }
+    if (playerRef.current) {
+      playerRef.current.close();
+      playerRef.current = null;
+    }
+    playerRef.current = new AudioPlayer({
+      runId,
+      onError: (msg) => console.warn("audio:", msg),
+    });
+    playerRef.current.connect("/api/events");
+    playerRef.current.play();
+    setListeningRunId(runId);
+  }, [listeningRunId]);
+
+  const showEmptyHero = liveRuns.length === 0 && historicalResults.length === 0;
 
   return (
     <ErrorBoundary>
-      <Layout connected={state.connected} onStartRun={handleStartRun} loading={loading}>
-        <div className={devToolsOpen ? "mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
+      <Layout
+        connected={state.connected}
+        headerActions={
+          <RunControls
+            connected={state.connected}
+            loading={loading}
+            startError={startError}
+            onStart={handleStartRun}
+          />
+        }
+      >
+        <div className={devToolsOpen ? "lg:mr-[420px] transition-[margin] duration-200" : "transition-[margin] duration-200"}>
           {selectedRunId ? (
-            <RunDetail runId={selectedRunId} onBack={() => { setSelectedRunId(null); setDevToolsOpen(false); }} onSelectMessage={handleSelectMessage} />
+            <RunDetail
+              runId={selectedRunId}
+              liveRun={state.runs[selectedRunId]}
+              listeningRunId={listeningRunId}
+              onToggleListen={handleListen}
+              onBack={() => { setSelectedRunId(null); setDevToolsOpen(false); }}
+              onSelectMessage={handleSelectMessage}
+            />
+          ) : showEmptyHero ? (
+            <div className="max-w-2xl mx-auto">
+              <EmptyStateLauncher
+                connected={state.connected}
+                loading={loading}
+                startError={startError}
+                onStart={handleStartRun}
+              />
+            </div>
           ) : (
             <div className="space-y-8">
               {startError && (
@@ -94,96 +190,36 @@ export default function App() {
                 totalCost={state.totalCost + historicalResults.reduce((sum, r) => sum + (r.Cost?.total_cost_usd || 0), 0)}
                 totalTokens={state.totalTokens + historicalResults.reduce((sum, r) => sum + (r.Cost?.input_tokens || 0) + (r.Cost?.output_tokens || 0), 0)}
               />
-              <RunProgress runs={liveRuns} onSelectRun={setSelectedRunId} />
+              {liveRuns.length > 0 && (
+                <RunProgress
+                  runs={liveRuns}
+                  listeningRunId={listeningRunId}
+                  onSelectRun={setSelectedRunId}
+                  onToggleListen={handleListen}
+                />
+              )}
               {historicalResults.length > 0 && (
-                <HistoricalResults results={historicalResults} onSelectRun={setSelectedRunId} onClear={async () => {
-                  await clearResults();
-                  setHistoricalResults([]);
-                }} />
+                <HistoricalResults
+                  results={historicalResults}
+                  onSelectRun={setSelectedRunId}
+                  onClear={async () => {
+                    await clearResults();
+                    setHistoricalResults([]);
+                  }}
+                />
               )}
             </div>
           )}
         </div>
-        <DevToolsPanel message={devToolsMessage} messageIndex={devToolsIndex} allMessages={devToolsAllMessages} run={selectedRun} open={devToolsOpen} onClose={() => setDevToolsOpen(false)} />
+        <DevToolsPanel
+          message={devToolsMessage}
+          messageIndex={devToolsIndex}
+          allMessages={devToolsAllMessages}
+          run={selectedRun}
+          open={devToolsOpen}
+          onClose={() => setDevToolsOpen(false)}
+        />
       </Layout>
     </ErrorBoundary>
-  );
-}
-
-function timeAgo(dateStr: string): string {
-  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return `${Math.floor(days / 30)}mo ago`;
-}
-
-function HistoricalResults({ results, onSelectRun, onClear }: { results: RunResult[]; onSelectRun: (id: string) => void; onClear: () => void }) {
-  const sorted = [...results].sort((a, b) =>
-    new Date(b.EndTime || b.StartTime).getTime() - new Date(a.EndTime || a.StartTime).getTime()
-  );
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-slate-muted uppercase tracking-wider">Previous Runs</h3>
-        <button
-          onClick={onClear}
-          className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-[#EF4444] hover:bg-red-100 transition-colors"
-        >
-          Clear all
-        </button>
-      </div>
-      <div className="rounded-xl border border-mist bg-white shadow-sm overflow-hidden">
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b border-mist bg-[#F8FAFC]">
-              <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Scenario</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Provider</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Region</th>
-              <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Result</th>
-              <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Cost</th>
-              <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-muted uppercase tracking-wider">Msgs</th>
-              <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-slate-muted uppercase tracking-wider">When</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r) => {
-              const passed = !r.Error;
-              return (
-                <tr
-                  key={r.RunID}
-                  className="border-t border-mist/60 hover:bg-[#F8FAFC] cursor-pointer transition-colors"
-                  onClick={() => onSelectRun(r.RunID)}
-                >
-                  <td className="px-4 py-2.5 font-medium text-deep-space">{r.ScenarioID}</td>
-                  <td className="px-4 py-2.5 text-slate-muted">{r.ProviderID}</td>
-                  <td className="px-4 py-2.5 text-slate-muted">{r.Region}</td>
-                  <td className="px-4 py-2.5 text-center">
-                    <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold ${passed ? "text-[#10B981]" : "text-[#EF4444]"}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${passed ? "bg-[#10B981]" : "bg-[#EF4444]"}`} />
-                      {passed ? "Pass" : "Fail"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-right font-mono text-slate-muted">
-                    ${r.Cost?.total_cost_usd?.toFixed(4) ?? "0.0000"}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-slate-muted">
-                    {r.Messages?.length ?? 0}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-slate-muted">
-                    {r.EndTime ? timeAgo(r.EndTime) : r.StartTime ? timeAgo(r.StartTime) : "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
   );
 }

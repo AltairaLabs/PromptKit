@@ -2207,6 +2207,8 @@
                                 {{$selfPlayPrompt := selfPlayPrompt $msg.Meta}}
                                 {{$hasSelfPlayPrompt := ne $selfPlayPrompt ""}}
                                 {{$selfPlayPersonaID := selfPlayPersona $msg.Meta}}
+                                {{$selfPlayInfo := selfPlayDetails $msg.Meta}}
+                                {{$hasSelfPlayInfo := hasSelfPlayDetails $msg.Meta}}
                                 {{$hasDiagnostics := or $hasAssertions $hasValidators $hasAvailableTools $hasRawRequest $hasRawResponse $hasLLMTrace $hasPackEvals $hasWorkflowState $msg.CostInfo (not (not $msg.ToolCalls)) (eq $msg.Role "system") (eq $msg.Role "user")}}
                                 {{$assertionsFailed := not (assertionsPassed $assertions)}}
                                 {{$validatorsFailed := not (validatorsPassed $validators)}}
@@ -2317,6 +2319,9 @@
                                         {{end}}
                                         {{if eq $msg.Role "system"}}
                                         <div data-devtools="systemprompt">{{$msg.Content}}</div>
+                                        {{end}}
+                                        {{if $hasSelfPlayInfo}}
+                                        <div data-devtools="selfplay-info">{{prettyJSON $selfPlayInfo}}</div>
                                         {{end}}
                                         {{if $hasSelfPlayPrompt}}
                                         <div data-devtools="selfplay">{{$selfPlayPrompt}}</div>
@@ -2543,6 +2548,7 @@
             var workflowEl = data.querySelector('[data-devtools="workflow"]');
             var promptEl = data.querySelector('[data-devtools="systemprompt"]');
             var selfPlayEl = data.querySelector('[data-devtools="selfplay"]');
+            var selfPlayInfoEl = data.querySelector('[data-devtools="selfplay-info"]');
             var requestEl = data.querySelector('[data-devtools="request"]');
             var responseEl = data.querySelector('[data-devtools="response"]');
             var traceEl = data.querySelector('[data-devtools="trace"]');
@@ -2568,7 +2574,7 @@
             }
 
             if (promptEl) tabs.push({ id: 'prompt', label: 'Prompt', icon: '📝' });
-            if (selfPlayEl) tabs.push({ id: 'selfplay', label: 'Self-Play', icon: '🤖' });
+            if (selfPlayEl || selfPlayInfoEl) tabs.push({ id: 'selfplay', label: 'Self-Play', icon: '🤖' });
             if (requestEl) tabs.push({ id: 'request', label: 'Request', icon: '📡' });
             if (responseEl) tabs.push({ id: 'response', label: 'Response', icon: '📥' });
             if (traceEl) tabs.push({ id: 'trace', label: 'Trace', icon: '🔍' });
@@ -2836,11 +2842,36 @@
             }
 
             // --- Self-Play tab ---
-            if (selfPlayEl) {
+            if (selfPlayEl || selfPlayInfoEl) {
                 html += '<div class="devtools-tab-content' + (firstTab === 'selfplay' ? ' active' : '') + '" data-tab-content="selfplay">';
-                html += '<div class="devtools-section"><div class="devtools-section-title">Self-Play Persona Prompt</div>';
-                html += '<div class="devtools-json" style="white-space:pre-wrap;color:#cba6f7;">' + escapeHtml(selfPlayEl.textContent) + '</div>';
-                html += '</div></div>';
+                if (selfPlayInfoEl) {
+                    var info = null;
+                    try { info = JSON.parse(selfPlayInfoEl.textContent); } catch (e) {}
+                    if (info) {
+                        html += '<div class="devtools-section"><div class="devtools-section-title">Self-Play Turn</div>';
+                        html += '<div class="devtools-json" style="display:grid;grid-template-columns:max-content 1fr;gap:0.4rem 1rem;white-space:normal;">';
+                        if (info.persona) html += '<span style="color:#6c7086;">Persona</span><span style="color:#cba6f7;font-weight:600;">' + escapeHtml(info.persona) + '</span>';
+                        if (info.provider) html += '<span style="color:#6c7086;">Provider</span><span style="color:#89b4fa;font-family:monospace;">' + escapeHtml(String(info.provider)) + '</span>';
+                        if (info.turn_index !== undefined) html += '<span style="color:#6c7086;">Selfplay turn #</span><span>' + escapeHtml(String(info.turn_index)) + '</span>';
+                        if (info.cost) {
+                            var c = info.cost;
+                            var inT = c.input_tokens || 0, outT = c.output_tokens || 0;
+                            var costUSD = c.total_cost_usd != null ? c.total_cost_usd.toFixed(6) : null;
+                            html += '<span style="color:#6c7086;">Tokens</span><span>' + inT + ' in → ' + outT + ' out';
+                            if (c.cached_tokens) html += ' (' + c.cached_tokens + ' cached)';
+                            html += '</span>';
+                            if (costUSD != null) html += '<span style="color:#6c7086;">Cost</span><span style="color:#a6e3a1;">$' + costUSD + '</span>';
+                        }
+                        if (info.validation_warning) html += '<span style="color:#6c7086;">Warning</span><span style="color:#f9e2af;">' + escapeHtml(String(info.validation_warning)) + '</span>';
+                        html += '</div></div>';
+                    }
+                }
+                if (selfPlayEl) {
+                    html += '<div class="devtools-section"><div class="devtools-section-title">Persona Prompt</div>';
+                    html += '<div class="devtools-json" style="white-space:pre-wrap;color:#cba6f7;">' + escapeHtml(selfPlayEl.textContent) + '</div>';
+                    html += '</div>';
+                }
+                html += '</div>';
             }
 
             // --- Request tab ---

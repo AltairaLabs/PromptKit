@@ -922,9 +922,13 @@ func (ce *DefaultConversationExecutor) calculateTotalsFromMessages(messages []ty
 		ByTool:     make(map[string]int),
 	}
 
-	for _, msg := range messages {
-		ce.aggregateMessageCost(&totalCost, msg.CostInfo)
-		ce.aggregateToolStats(toolStats, msg.ToolCalls)
+	for i := range messages {
+		ce.aggregateMessageCost(&totalCost, messages[i].CostInfo)
+		// Self-play user turns store their LLM spend in Meta —
+		// folded into the same total so it shows up in the headline
+		// cost rather than hiding in per-turn metadata.
+		addSelfPlayCostFromMeta(&totalCost, messages[i].Meta)
+		ce.aggregateToolStats(toolStats, messages[i].ToolCalls)
 	}
 
 	if toolStats.TotalCalls == 0 {

@@ -30,6 +30,9 @@ Report generation formats (HTML, JSON, JUnit, Markdown).
 ### [Duplex Configuration](/arena/reference/duplex-config/)
 Complete duplex streaming configuration for voice testing scenarios.
 
+### [Tool Authoring](/arena/reference/tool-authoring/)
+Picking a tool `mode` (mock static / mock template / live / mcp / exec / client) and writing each one.
+
 ---
 
 ## Reference vs. How-To

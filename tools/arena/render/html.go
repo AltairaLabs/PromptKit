@@ -430,6 +430,8 @@ func getReportTemplate() *template.Template {
 			"consentStatus":                       consentStatus,
 			"selfPlayPrompt":                      selfPlayPrompt,
 			"selfPlayPersona":                     selfPlayPersona,
+			"selfPlayDetails":                     selfPlayDetails,
+			"hasSelfPlayDetails":                  hasSelfPlayDetails,
 		}).Parse(reportTemplate))
 	})
 	return reportTmpl
@@ -490,9 +492,17 @@ func extractValidationsViaReflection(msgOrMeta interface{}) map[string]interface
 	return nil
 }
 
-// selfPlayPrompt extracts the self-play system prompt from a message's meta.raw_response.system_prompt.
-// Returns empty string if not a self-play message.
+// selfPlayPrompt extracts the self-play system prompt from a message's metadata.
+// Looks at meta.system_prompt (duplex executor) and falls back to
+// meta.raw_response.system_prompt (legacy text-mode selfplay). Returns empty
+// string if not a self-play message.
 func selfPlayPrompt(meta map[string]interface{}) string {
+	if meta == nil {
+		return ""
+	}
+	if sp, ok := meta["system_prompt"].(string); ok && sp != "" {
+		return sp
+	}
 	rawResp := selfPlayRawResponse(meta)
 	if rawResp == nil {
 		return ""
@@ -501,15 +511,73 @@ func selfPlayPrompt(meta map[string]interface{}) string {
 	return sp
 }
 
-// selfPlayPersona extracts the persona ID from a message's meta.raw_response.persona.
-// Returns empty string if not a self-play message.
+// selfPlayPersona extracts the persona ID from a message's metadata.
+// Looks at meta.persona (duplex executor) and falls back to
+// meta.raw_response.persona (legacy text-mode selfplay). Returns empty string
+// if not a self-play message.
 func selfPlayPersona(meta map[string]interface{}) string {
+	if meta == nil {
+		return ""
+	}
+	if p, ok := meta["persona"].(string); ok && p != "" {
+		return p
+	}
 	rawResp := selfPlayRawResponse(meta)
 	if rawResp == nil {
 		return ""
 	}
 	p, _ := rawResp["persona"].(string)
 	return p
+}
+
+// hasSelfPlayDetails reports whether the message metadata carries any
+// selfplay information worth surfacing in the devtools panel.
+func hasSelfPlayDetails(meta map[string]interface{}) bool {
+	if meta == nil {
+		return false
+	}
+	if v, ok := meta["self_play"].(bool); ok && v {
+		return true
+	}
+	if p, ok := meta["persona"].(string); ok && p != "" {
+		return true
+	}
+	if selfPlayPrompt(meta) != "" {
+		return true
+	}
+	return false
+}
+
+// selfPlayDetails returns the structured selfplay metadata for rendering in
+// the Self-Play devtools tab. Fields are nil-safe; missing values are simply
+// omitted from the returned map.
+func selfPlayDetails(meta map[string]interface{}) map[string]interface{} {
+	if meta == nil {
+		return nil
+	}
+	out := map[string]interface{}{}
+	if p, ok := meta["persona"].(string); ok && p != "" {
+		out["persona"] = p
+	}
+	if p, ok := meta["self_play_provider"].(string); ok && p != "" {
+		out["provider"] = p
+	}
+	if idx, ok := meta["selfplay_turn_index"]; ok {
+		out["turn_index"] = idx
+	}
+	if w, ok := meta["validation_warning"].(string); ok && w != "" {
+		out["validation_warning"] = w
+	}
+	if cost, ok := meta["self_play_cost"].(map[string]interface{}); ok {
+		out["cost"] = cost
+	}
+	if prompt := selfPlayPrompt(meta); prompt != "" {
+		out["prompt"] = prompt
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // selfPlayRawResponse extracts the raw_response map from message metadata.

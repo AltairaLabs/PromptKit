@@ -20,9 +20,11 @@ import (
 
 // mockEngine implements engineRunner for unit tests.
 type mockEngine struct {
-	plan    *engine.RunPlan
-	planErr error
-	cfg     *config.Config
+	plan      *engine.RunPlan
+	planErr   error
+	cfg       *config.Config
+	providers []engine.ProviderInfo
+	scenarios []engine.ScenarioInfo
 }
 
 func (m *mockEngine) GenerateRunPlan(_, _, _, _ []string) (*engine.RunPlan, error) {
@@ -35,6 +37,14 @@ func (m *mockEngine) ExecuteRuns(_ context.Context, _ *engine.RunPlan, _ int) ([
 
 func (m *mockEngine) GetConfig() *config.Config {
 	return m.cfg
+}
+
+func (m *mockEngine) ListProviders() []engine.ProviderInfo {
+	return m.providers
+}
+
+func (m *mockEngine) ListScenarios() []engine.ScenarioInfo {
+	return m.scenarios
 }
 
 func TestSSEEndpoint(t *testing.T) {

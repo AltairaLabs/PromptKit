@@ -1068,6 +1068,9 @@ func convertPackValidatorsToHooks(prompt *pack.Prompt, cfg *config) {
 		if v.FailOnViolation == nil || !*v.FailOnViolation {
 			opts = append(opts, guardrails.WithMonitorOnly())
 		}
+		if msg, ok := v.Params["message"].(string); ok && msg != "" {
+			opts = append(opts, guardrails.WithMessage(msg))
+		}
 
 		hook, err := guardrails.NewGuardrailHook(v.Type, v.Params, opts...)
 		if err != nil {

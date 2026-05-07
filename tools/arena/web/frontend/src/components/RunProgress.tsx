@@ -5,10 +5,12 @@ import type { ActiveRun, MessageCreatedData } from "@/types";
 
 interface RunProgressProps {
   runs: ActiveRun[];
+  listeningRunId: string | null;
   onSelectRun?: (runId: string) => void;
+  onToggleListen: (runId: string) => void;
 }
 
-export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
+export function RunProgress({ runs, listeningRunId, onSelectRun, onToggleListen }: RunProgressProps) {
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
   const activeRuns = runs.filter((r) => r.status === "running");
   const doneRuns = runs.filter((r) => r.status !== "running");
@@ -19,7 +21,7 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
 
   if (runs.length === 0) {
     return (
-      <div className="rounded-xl border border-mist bg-white p-10 text-center shadow-sm">
+      <div className="rounded-xl border border-mist bg-surface p-10 text-center shadow-sm">
         <div className="mx-auto mb-3 h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center">
           <Activity className="h-5 w-5 text-[#2563EB]" />
         </div>
@@ -34,7 +36,15 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
       {activeRuns.length > 0 && (
         <Section title="Active Runs" count={activeRuns.length}>
           {activeRuns.map((run) => (
-            <RunCard key={run.runId} run={run} expanded={expandedRun === run.runId} onToggle={() => toggleRun(run.runId)} />
+            <RunCard
+              key={run.runId}
+              run={run}
+              expanded={expandedRun === run.runId}
+              listening={listeningRunId === run.runId}
+              onToggle={() => toggleRun(run.runId)}
+              onToggleListen={() => onToggleListen(run.runId)}
+              onViewDetails={onSelectRun ? () => onSelectRun(run.runId) : undefined}
+            />
           ))}
         </Section>
       )}
@@ -45,6 +55,7 @@ export function RunProgress({ runs, onSelectRun }: RunProgressProps) {
               key={run.runId}
               run={run}
               expanded={expandedRun === run.runId}
+              listening={listeningRunId === run.runId}
               onToggle={() => toggleRun(run.runId)}
               onViewDetails={() => onSelectRun?.(run.runId)}
             />
@@ -67,16 +78,19 @@ function Section({ title, count, children }: { title: string; count: number; chi
   );
 }
 
-function RunCard({ run, expanded, onToggle, onViewDetails }: {
+function RunCard({ run, expanded, listening, onToggle, onViewDetails, onToggleListen }: {
   run: ActiveRun;
   expanded: boolean;
+  listening?: boolean;
   onToggle: () => void;
   onViewDetails?: () => void;
+  onToggleListen?: () => void;
 }) {
+  const isRunning = run.status === "running";
   return (
     <div
       className={cn(
-        "rounded-xl border bg-white shadow-sm overflow-hidden cursor-pointer transition-colors",
+        "rounded-xl border bg-surface shadow-sm overflow-hidden cursor-pointer transition-colors",
         expanded ? "border-[#2563EB]/40" : "border-mist hover:border-[#2563EB]/20"
       )}
       onClick={onToggle}
@@ -105,6 +119,20 @@ function RunCard({ run, expanded, onToggle, onViewDetails }: {
           )}
           {run.status === "failed" && (
             <span className="rounded-full bg-red-50 text-[#EF4444] px-2 py-0.5 text-[10px] font-semibold">Fail</span>
+          )}
+          {isRunning && onToggleListen && (
+            <button
+              className={cn(
+                "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                listening
+                  ? "border-blue-200 bg-blue-50 text-[#2563EB] hover:bg-blue-100"
+                  : "border-mist bg-surface text-deep-space hover:bg-[#F8FAFC]"
+              )}
+              onClick={(e) => { e.stopPropagation(); onToggleListen(); }}
+              title={listening ? "Stop listening to this run" : "Listen to this run's audio"}
+            >
+              {listening ? "🔇 Stop" : "🔊 Listen"}
+            </button>
           )}
           {onViewDetails && (
             <button
@@ -144,7 +172,7 @@ function MessagePreview({ msg }: { msg: MessageCreatedData }) {
     tool: "text-[#F59E0B]",
   };
   return (
-    <div className={cn("rounded-lg border-l-[3px] bg-white px-3 py-2", border[msg.role] || border.system)}>
+    <div className={cn("rounded-lg border-l-[3px] bg-surface px-3 py-2", border[msg.role] || border.system)}>
       <span className={cn("text-[10px] font-bold uppercase tracking-wider", label[msg.role] || label.system)}>{msg.role}</span>
       <p className="mt-1 text-sm text-deep-space/80 leading-relaxed whitespace-pre-wrap">
         {msg.content?.slice(0, 200)}{(msg.content?.length ?? 0) > 200 ? "…" : ""}

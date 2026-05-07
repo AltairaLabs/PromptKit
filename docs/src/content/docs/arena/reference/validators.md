@@ -98,6 +98,12 @@ spec:
       fail_on_violation: true
 ```
 
+### The `message` Field
+
+The `message` field sets the user-facing text shown when a content-blocking guardrail fires. If omitted, a default policy message is used.
+
+During pack compilation, `packc` folds `message` into `params["message"]` to conform to the [PromptPack schema](https://promptpack.org/schema/latest/promptpack.schema.json), which does not have a top-level `message` property on validators. You should always declare `message` at the top level in your PromptConfig YAML — the compiler handles the rest.
+
 ### Enforcement Behavior
 
 When a guardrail triggers and `fail_on_violation` is `true` (the default):

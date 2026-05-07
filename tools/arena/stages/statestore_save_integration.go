@@ -248,6 +248,12 @@ func (s *ArenaStateStoreSaveStage) Process(
 	var cachedState *runtimeStatestore.ConversationState
 	ctxCanceled := false
 
+	// Broadcast the system prompt up-front so the live UI shows it as
+	// the first turn instead of waiting for the saved-result refresh.
+	// The persisted state already prepends a system message via
+	// persistState; this just mirrors that into the SSE stream.
+	cachedState = s.broadcastSystemPromptIfNeeded(ctx, arenaStore, cachedState)
+
 	for elem := range input {
 		data.collectFromElement(&elem)
 		s.broadcastMessage(&elem, len(data.messages)-1)
@@ -284,6 +290,46 @@ func (s *ArenaStateStoreSaveStage) Process(
 	return nil
 }
 
+// broadcastSystemPromptIfNeeded emits a synthetic system MessageCreated
+// event when the conversation has no prior messages and the rendered
+// system prompt is available on TurnState (or fallback config metadata).
+// Without this the live UI never sees the system turn until the run
+// completes and the saved result is refetched — confusing during a demo.
+//
+// The conversation state is loaded eagerly here so we can detect "first
+// turn" by checking len(state.Messages) == 0. The cached state is
+// returned so subsequent maybeIncrementalSave calls can reuse it.
+func (s *ArenaStateStoreSaveStage) broadcastSystemPromptIfNeeded(
+	ctx context.Context, arenaStore arenaSaveStore, cached *runtimeStatestore.ConversationState,
+) *runtimeStatestore.ConversationState {
+	if s.emitter == nil {
+		return cached
+	}
+	sp := ""
+	if s.turnState != nil {
+		sp = s.turnState.SystemPrompt
+	}
+	if sp == "" && s.config != nil && s.config.Metadata != nil {
+		if v, ok := s.config.Metadata["system_prompt"].(string); ok {
+			sp = v
+		}
+	}
+	if sp == "" {
+		return cached
+	}
+	loaded, err := s.ensureLoaded(ctx, arenaStore, cached)
+	if err != nil {
+		return cached
+	}
+	// Already have messages on this conversation — system prompt was
+	// emitted on a prior turn, don't double-broadcast.
+	if len(loaded.Messages) > 0 {
+		return loaded
+	}
+	s.emitter.MessageCreated("system", sp, 0, nil, nil, nil)
+	return loaded
+}
+
 // broadcastMessage publishes the just-arrived message to the event bus when
 // an emitter is configured. Skipped when the element carries no Message or
 // when the index is out of range. Live UI consumers (TUI, web SSE) subscribe
@@ -297,9 +343,44 @@ func (s *ArenaStateStoreSaveStage) broadcastMessage(elem *stage.StreamElement, i
 		elem.Message.Content,
 		idx,
 		elem.Message.Parts,
-		nil, // tool calls converted upstream when present; live UI cares about role+text
-		nil,
+		convertToolCalls(elem.Message.ToolCalls),
+		convertToolResult(elem.Message.ToolResult),
 	)
+}
+
+// convertToolCalls converts runtime tool calls to the wire-shaped events
+// type. Without this, assistant turns whose content IS a tool invocation
+// (i.e., empty Content + populated ToolCalls) arrive in the live UI as
+// empty bubbles — the conversation looks like turns are missing.
+func convertToolCalls(in []types.MessageToolCall) []events.MessageToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]events.MessageToolCall, len(in))
+	for i, c := range in {
+		out[i] = events.MessageToolCall{
+			ID:   c.ID,
+			Name: c.Name,
+			Args: string(c.Args),
+		}
+	}
+	return out
+}
+
+// convertToolResult converts a runtime tool result to the wire-shaped events
+// type. Tool result messages with no top-level Content are otherwise rendered
+// as blank turns in the live UI — the actual result lives in Parts/Error.
+func convertToolResult(in *types.MessageToolResult) *events.MessageToolResult {
+	if in == nil {
+		return nil
+	}
+	return &events.MessageToolResult{
+		ID:        in.ID,
+		Name:      in.Name,
+		Parts:     in.Parts,
+		Error:     in.Error,
+		LatencyMs: in.LatencyMs,
+	}
 }
 
 // ctxOrBackground returns context.Background when the upstream context has

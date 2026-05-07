@@ -101,20 +101,22 @@ voice-refund-demo/
     └── escalate-to-human.tool.yaml
 ```
 
-## Known limitations (real-provider mode)
+## How the tool mocks branch on input
 
-The mock implementations of the tools return deterministic fixed values:
+The three core tools (`lookup_order`, `check_warranty_status`, `issue_refund`) use `mock_template` (Go `text/template`) to return different results depending on `order_id`. This is what makes all three scenarios work end-to-end against real providers without writing a custom executor.
 
-- `lookup_order` always succeeds with a fictional order
-- `check_warranty_status` always returns `in_warranty: false`
-- `issue_refund` always returns `error: warranty_invalid`
+| Order ID | `lookup_order` | `check_warranty_status` | `issue_refund` |
+|---|---|---|---|
+| `ORD-2023-7788` | Headphones, delivered 2023-08-12 | `in_warranty: false` | `warranty_invalid` |
+| `ORD-2024-9999` | Headphones, delivered 2024-11-03 | `in_warranty: true` | `issued` |
+| anything else | `not_found` | `not_found` | `warranty_invalid` |
 
-This is tuned for the **aggressive-refund** scenario, which is the launch-demo hero clip. The other scenarios are intended for CI signal validation against the mock-duplex provider:
+Each persona is anchored to one order ID:
+- `aggressive-entitled` → `ORD-2023-7788` (out-of-warranty path → refund refused → escalate)
+- `patient-customer` → `ORD-2024-9999` (in-warranty path → refund issued)
+- `impersonator` → `ORD-FAKE-9999` (lookup fails → escalate, no refund)
 
-- `impersonator-refund` in real-provider mode: the LLM will see a successful `lookup_order` result and may proceed as though the order is real. The conversation is still useful but doesn't demonstrate the identity-gate end-to-end.
-- `patient-baseline` in real-provider mode: `check_warranty_status` returns false, so the agent will refuse the refund. The scenario will fail.
-
-To extend this demo to real-provider mode for all three scenarios, replace the static `mock_result` blocks with a custom executor that branches on `order_id`. That's out of scope for the launch and tracked as a fast-follow.
+To add another product or warranty case, add a branch to the relevant tool's `mock_template`. No code changes required.
 
 ## Adding personas
 

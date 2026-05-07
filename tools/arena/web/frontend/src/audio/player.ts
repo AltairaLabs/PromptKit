@@ -38,21 +38,37 @@ export class AudioPlayer {
     this.rightPanner.connect(this.ctx.destination);
   }
 
-  /** Connect and start playback. eventsUrl is typically '/api/events'. */
-  start(eventsUrl: string): void {
+  /** Open the audio EventSource without resuming the AudioContext.
+   * Use this to start receiving frames during an in-progress run before the
+   * user has clicked anything; frames arrive but stay silent until play(). */
+  connect(eventsUrl: string): void {
+    if (this.source) return;
     // Reset scheduling clocks each session.
     this.nextStartTime = { input: 0, output: 0 };
-
     const url = `${eventsUrl}?audio=1`;
     this.source = new EventSource(url);
     this.source.addEventListener("audio", (ev) => this.onAudio(ev));
     this.source.addEventListener("error", () => {
       this.opts.onError?.("SSE connection error");
     });
+  }
 
-    // Browsers gate AudioContext.resume() until a user gesture; the caller
-    // ensures start() is called from a click handler.
+  /** Resume the AudioContext so scheduled frames become audible.
+   * Browsers gate AudioContext.resume() until a user gesture; call this
+   * from a click handler. */
+  play(): void {
     void this.ctx.resume();
+  }
+
+  /** Connect and start playback in one call. Equivalent to connect()+play(). */
+  start(eventsUrl: string): void {
+    this.connect(eventsUrl);
+    this.play();
+  }
+
+  /** Pause playback (keep EventSource open so we can resume mid-run). */
+  pause(): void {
+    void this.ctx.suspend();
   }
 
   /** Stop playback and release resources. */

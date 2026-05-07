@@ -19,6 +19,7 @@ spec:
     - file: providers/gemini-2-flash.provider.yaml
     - file: providers/openai-gpt4o-realtime.provider.yaml
     - file: providers/mock-duplex.provider.yaml
+    - file: providers/openai-gpt4o-mini-text.provider.yaml
 
   scenarios:
     - file: scenarios/aggressive-refund.scenario.yaml
@@ -38,7 +39,7 @@ spec:
       - file: personas/patient-customer.persona.yaml
     roles:
       - id: selfplay-user
-        provider: mock-duplex
+        provider: openai-gpt4o-mini-text
 
   defaults:
     temperature: 0.7

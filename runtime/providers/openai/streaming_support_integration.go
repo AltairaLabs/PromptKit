@@ -3,6 +3,7 @@ package openai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -142,4 +143,25 @@ func (s *realtimeSessionBookkeeping) EndInput() {
 	if ei, ok := s.StreamInputSession.(interface{ EndInput() }); ok {
 		ei.EndInput()
 	}
+}
+
+// SendToolResponse forwards to the underlying session if it implements
+// providers.ToolResponseSupport. The wrapper embeds the StreamInputSession
+// interface (not the concrete *RealtimeSession), so methods outside that
+// interface aren't promoted automatically — this forward keeps tool-call
+// responses working when the pipeline holds the wrapper type.
+func (s *realtimeSessionBookkeeping) SendToolResponse(ctx context.Context, toolCallID, result string) error {
+	if trs, ok := s.StreamInputSession.(providers.ToolResponseSupport); ok {
+		return trs.SendToolResponse(ctx, toolCallID, result)
+	}
+	return errors.New("realtime session does not support tool responses")
+}
+
+// SendToolResponses is the multi-tool variant of SendToolResponse — same
+// reason for the explicit forward.
+func (s *realtimeSessionBookkeeping) SendToolResponses(ctx context.Context, responses []providers.ToolResponse) error {
+	if trs, ok := s.StreamInputSession.(providers.ToolResponseSupport); ok {
+		return trs.SendToolResponses(ctx, responses)
+	}
+	return errors.New("realtime session does not support tool responses")
 }

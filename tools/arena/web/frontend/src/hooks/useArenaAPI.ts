@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { RunResult, RunRequest } from "@/types";
+import type { RunOptionsResponse, RunResult, RunRequest } from "@/types";
 
 export function useArenaAPI() {
   const [loading, setLoading] = useState(false);
@@ -33,10 +33,15 @@ export function useArenaAPI() {
     return resp.json();
   }, []);
 
+  const getRunOptions = useCallback(async (): Promise<RunOptionsResponse> => {
+    const resp = await fetch("/api/run-options");
+    return resp.json();
+  }, []);
+
   const clearResults = useCallback(async () => {
     const resp = await fetch("/api/results", { method: "DELETE" });
     return resp.json();
   }, []);
 
-  return { startRun, getResults, getResult, getConfig, clearResults, loading };
+  return { startRun, getResults, getResult, getConfig, getRunOptions, clearResults, loading };
 }

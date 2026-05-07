@@ -968,6 +968,10 @@ export GOOGLE_API_KEY="..."
 
 Defines a function/tool that the LLM can call.
 
+:::tip[Choosing a mode]
+For task-oriented guidance on which `mode` to use and when to reach for `mock_template` instead of `mock_result`, see [Tool Authoring](/arena/reference/tool-authoring/).
+:::
+
 ### Complete Structure
 
 ```yaml
@@ -1053,16 +1057,21 @@ mock_result:
 
 #### Mock Mode (Template)
 
-Returns templated response with variables:
+Returns a response that depends on the tool-call arguments. The template is Go [`text/template`](https://pkg.go.dev/text/template); arguments are exposed as the template data context (e.g. `.order_id`). The rendered output is parsed back as JSON.
 
 ```yaml
 mode: mock
 mock_template: |
-  {
-    "input": "",
-    "result": "Mock result for "
-  }
+  {{- if eq .order_id "ORD-2024-9999" -}}
+  {"order_id":"ORD-2024-9999","in_warranty":true}
+  {{- else if eq .order_id "ORD-2023-7788" -}}
+  {"order_id":"ORD-2023-7788","in_warranty":false}
+  {{- else -}}
+  {"error":"not_found"}
+  {{- end -}}
 ```
+
+For longer templates, use `mock_template_file: <path>` (relative to the tool YAML). See [Tool Authoring](/arena/reference/tool-authoring/) for guidance on when to use template vs static.
 
 #### Live Mode (HTTP)
 
