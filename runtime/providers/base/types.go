@@ -158,9 +158,3 @@ type ImageResponse struct {
 	Cost     *types.CostInfo
 	Latency  time.Duration
 }
-
-// PricingDescriptor is defined in pricing.go (Task 3). This stub exists so
-// that types.go compiles independently. Task 3 will replace it with the
-// full definition; do not add fields here beyond what's needed for the
-// interface signatures to compile.
-type PricingDescriptor struct{}
