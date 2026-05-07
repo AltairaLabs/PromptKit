@@ -19,6 +19,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 // Connection pooling defaults for HTTP transports shared across providers.
@@ -147,6 +148,7 @@ func NewInstrumentedTransport(base http.RoundTripper) http.RoundTripper {
 // wrapping the response body (see StreamIdleTimeout) and by context
 // cancellation from the caller's deadline.
 type BaseProvider struct {
+	*base.Implementation
 	id                    string
 	includeRawOutput      bool
 	client                *http.Client // request/response calls
@@ -167,6 +169,7 @@ type BaseProvider struct {
 // extra wiring.
 func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) BaseProvider {
 	return BaseProvider{
+		Implementation:        base.NewImplementation(id, base.ProviderTypeInference, nil),
 		id:                    id,
 		includeRawOutput:      includeRawOutput,
 		client:                client,
