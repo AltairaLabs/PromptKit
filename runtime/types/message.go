@@ -123,6 +123,13 @@ type CostInfo struct {
 	OutputCostUSD float64 `json:"output_cost_usd"`           // Cost of output tokens in USD
 	CachedCostUSD float64 `json:"cached_cost_usd,omitempty"` // Cost savings from cached tokens
 	TotalCost     float64 `json:"total_cost_usd"`            // Total cost in USD
+
+	// unified-path fields (added for ancillary providers and post-migration Imagen)
+	Quantities     map[string]float64 `json:"quantities,omitempty"`      // Raw billable quantities by unit name
+	DimensionMatch map[string]string  `json:"dimension_match,omitempty"` // Dimension key-value pairs (e.g. size, quality)
+	ProviderName   string             `json:"provider_name,omitempty"`   // Provider that produced this cost entry
+	Capability     string             `json:"capability,omitempty"`      // ProviderType as string for JSON portability
+	Latency        time.Duration      `json:"latency_ns,omitempty"`      // Time taken by the provider call
 }
 
 // ToolStats tracks tool usage statistics across a conversation or run.

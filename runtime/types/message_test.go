@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMessage_JSONMarshaling(t *testing.T) {
@@ -608,6 +611,28 @@ func TestNewToolResultMessage_WithError(t *testing.T) {
 	if msg.ToolResult.Error != "Tool not found" {
 		t.Errorf("ToolResult.Error mismatch: got %q, want %q", msg.ToolResult.Error, "Tool not found")
 	}
+}
+
+func TestCostInfo_NewFields_JSONRoundTrip(t *testing.T) {
+	original := CostInfo{
+		InputTokens:    100,
+		OutputTokens:   50,
+		InputCostUSD:   0.001,
+		OutputCostUSD:  0.002,
+		TotalCost:      0.003,
+		Quantities:     map[string]float64{"image": 1, "input_token": 100, "output_token": 50},
+		DimensionMatch: map[string]string{"size": "1024x1024", "quality": "hd"},
+		ProviderName:   "imagen",
+		Capability:     "image",
+		Latency:        150 * time.Millisecond,
+	}
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var roundTripped CostInfo
+	require.NoError(t, json.Unmarshal(data, &roundTripped))
+
+	assert.Equal(t, original, roundTripped)
 }
 
 func TestNewMultimodalMessage(t *testing.T) {
