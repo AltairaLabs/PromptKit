@@ -206,7 +206,7 @@ export function ConversationPlayer({ messages, activeIdx, onActiveChange }: Conv
   const currentTurn = currentStepIdx >= 0 ? currentStepIdx + 1 : null;
 
   return (
-    <div className="rounded-xl border border-mist bg-surfaceshadow-sm p-3 space-y-2">
+    <div className="rounded-xl border border-mist bg-surface shadow-sm p-3 space-y-2">
       <div className="flex items-center gap-3">
         <button
           onClick={togglePlay}

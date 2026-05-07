@@ -40,7 +40,7 @@ export function SummaryCards(props: SummaryCardsProps) {
 function HeroCard({ passRate, completed, failed }: { passRate: string; completed: number; failed: number }) {
   const passing = failed === 0 && completed > 0;
   return (
-    <div className="rounded-xl border border-mist bg-surfacep-5 shadow-sm flex flex-col justify-between">
+    <div className="rounded-xl border border-mist bg-surface p-5 shadow-sm flex flex-col justify-between">
       <div className="flex items-center gap-2">
         <Activity className="h-4 w-4 text-[#2563EB]" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
@@ -92,7 +92,7 @@ function Stat({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-xl border border-mist bg-surfacep-3 shadow-sm", className)}>
+    <div className={cn("rounded-xl border border-mist bg-surface p-3 shadow-sm", className)}>
       <div className="flex items-center gap-1.5 mb-1">
         <div className={cn("rounded-md p-1", bg)}>
           <Icon className={cn("h-3 w-3", color)} />

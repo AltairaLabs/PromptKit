@@ -24,7 +24,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     if (this.state.error) {
       return (
         <div className="min-h-screen bg-canvas flex items-center justify-center p-8">
-          <div className="rounded-xl border border-red-200 bg-surfacep-8 max-w-lg w-full text-center shadow-sm">
+          <div className="rounded-xl border border-red-200 bg-surface p-8 max-w-lg w-full text-center shadow-sm">
             <h2 className="text-lg font-semibold text-[#EF4444] mb-2">Something went wrong</h2>
             <p className="text-sm text-fg-muted mb-6">{this.state.error.message}</p>
             <button
@@ -106,6 +106,14 @@ export default function App() {
   const handleStartRun = useCallback(async (providerId: string, scenarioId: string) => {
     setStartError(null);
     setPendingAutoSelect(true);
+    // If the user is currently viewing a previous run's detail, navigate
+    // them back to the dashboard immediately. Without this they'd stare
+    // at the old run until SSE delivered the first turn of the new one,
+    // which feels like nothing happened. The dashboard shows the live
+    // run appearing, then pendingAutoSelect kicks in and switches to
+    // the new RunDetail when the runId lands.
+    setSelectedRunId(null);
+    setDevToolsOpen(false);
     try {
       await startRun({ providers: [providerId], scenarios: [scenarioId] });
     } catch (err) {

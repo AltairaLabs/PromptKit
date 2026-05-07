@@ -55,7 +55,7 @@ export function EmptyStateLauncher({ connected, loading, startError, onStart }: 
   const canStart = connected && !loading && providerId !== "" && scenarioId !== "";
 
   return (
-    <div className="rounded-2xl border border-mist bg-surfaceshadow-sm p-10 text-center">
+    <div className="rounded-2xl border border-mist bg-surface shadow-sm p-10 text-center">
       <div className="mx-auto mb-4 inline-flex items-center justify-center h-12 w-12 rounded-full bg-violet-100">
         <Sparkles className="h-6 w-6 text-[#8B5CF6]" />
       </div>
@@ -143,7 +143,7 @@ function Picker({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={loading}
-        className="rounded-lg border border-mist bg-surfacepx-3 py-2 text-sm font-medium text-fg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB] disabled:opacity-40 min-w-[200px]"
+        className="rounded-lg border border-mist bg-surface px-3 py-2 text-sm font-medium text-fg focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB] disabled:opacity-40 min-w-[200px]"
       >
         {loading && <option value="">(loading…)</option>}
         {options.map((o) => (

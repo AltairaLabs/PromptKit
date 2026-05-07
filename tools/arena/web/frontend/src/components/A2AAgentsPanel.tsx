@@ -16,7 +16,7 @@ export function A2AAgentsPanel({ agents }: A2AAgentsPanelProps) {
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {agents.map((a, i) => (
-          <div key={i} className="rounded-lg bg-surfaceborder border-mist p-3">
+          <div key={i} className="rounded-lg bg-surface border border-mist p-3">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-base">🤖</span>
               <span className="text-sm font-semibold text-fg truncate">{a.name}</span>

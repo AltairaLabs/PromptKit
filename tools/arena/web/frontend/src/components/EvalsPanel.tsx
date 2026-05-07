@@ -14,7 +14,7 @@ export function EvalsPanel({ evals }: EvalsPanelProps) {
   if (!evals || evals.length === 0) return null;
   return (
     <Section title="Eval Observations" count={evals.length}>
-      <div className="rounded-lg border border-mist bg-surfaceoverflow-hidden">
+      <div className="rounded-lg border border-mist bg-surface overflow-hidden">
         {evals.map((e, i) => (
           <EvalRow key={`${e.eval_id}-${i}`} evalResult={e} />
         ))}

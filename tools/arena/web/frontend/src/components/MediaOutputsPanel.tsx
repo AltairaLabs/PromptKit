@@ -45,7 +45,7 @@ export function MediaOutputsPanel({ outputs }: MediaOutputsPanelProps) {
 function MediaCard({ output }: { output: MediaOutput }) {
   const url = output.FilePath ? mediaURL(output.FilePath) : null;
   return (
-    <div className="rounded-lg bg-surfaceborder border-mist overflow-hidden flex flex-col">
+    <div className="rounded-lg bg-surface border border-mist overflow-hidden flex flex-col">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-mist bg-[var(--c-surface-2)]">
         <span className="text-base leading-none">{mediaIcon(output.Type)}</span>
         <span className="text-xs font-medium text-fg capitalize">{output.Type}</span>

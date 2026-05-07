@@ -68,7 +68,7 @@ export function HistoricalResults({ results, onSelectRun, onClear }: HistoricalR
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter scenario, provider, region…"
-              className="w-full rounded-lg border border-mist bg-surfacepl-7 pr-7 py-1.5 text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-[#2563EB]/40 focus:border-[#2563EB]"
+              className="w-full rounded-lg border border-mist bg-surface pl-7 pr-7 py-1.5 text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-[#2563EB]/40 focus:border-[#2563EB]"
             />
             {filter && (
               <button
@@ -90,11 +90,11 @@ export function HistoricalResults({ results, onSelectRun, onClear }: HistoricalR
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-xl border border-mist bg-surfacepx-6 py-8 text-center text-xs text-fg-muted">
+        <div className="rounded-xl border border-mist bg-surface px-6 py-8 text-center text-xs text-fg-muted">
           No runs match "{filter}".
         </div>
       ) : (
-        <div className="rounded-xl border border-mist bg-surfaceshadow-sm overflow-hidden">
+        <div className="rounded-xl border border-mist bg-surface shadow-sm overflow-hidden">
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-mist bg-[var(--c-surface-2)]">

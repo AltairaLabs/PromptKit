@@ -248,6 +248,12 @@ func (s *ArenaStateStoreSaveStage) Process(
 	var cachedState *runtimeStatestore.ConversationState
 	ctxCanceled := false
 
+	// Broadcast the system prompt up-front so the live UI shows it as
+	// the first turn instead of waiting for the saved-result refresh.
+	// The persisted state already prepends a system message via
+	// persistState; this just mirrors that into the SSE stream.
+	cachedState = s.broadcastSystemPromptIfNeeded(ctx, arenaStore, cachedState)
+
 	for elem := range input {
 		data.collectFromElement(&elem)
 		s.broadcastMessage(&elem, len(data.messages)-1)
@@ -282,6 +288,46 @@ func (s *ArenaStateStoreSaveStage) Process(
 	}
 
 	return nil
+}
+
+// broadcastSystemPromptIfNeeded emits a synthetic system MessageCreated
+// event when the conversation has no prior messages and the rendered
+// system prompt is available on TurnState (or fallback config metadata).
+// Without this the live UI never sees the system turn until the run
+// completes and the saved result is refetched — confusing during a demo.
+//
+// The conversation state is loaded eagerly here so we can detect "first
+// turn" by checking len(state.Messages) == 0. The cached state is
+// returned so subsequent maybeIncrementalSave calls can reuse it.
+func (s *ArenaStateStoreSaveStage) broadcastSystemPromptIfNeeded(
+	ctx context.Context, arenaStore arenaSaveStore, cached *runtimeStatestore.ConversationState,
+) *runtimeStatestore.ConversationState {
+	if s.emitter == nil {
+		return cached
+	}
+	sp := ""
+	if s.turnState != nil {
+		sp = s.turnState.SystemPrompt
+	}
+	if sp == "" && s.config != nil && s.config.Metadata != nil {
+		if v, ok := s.config.Metadata["system_prompt"].(string); ok {
+			sp = v
+		}
+	}
+	if sp == "" {
+		return cached
+	}
+	loaded, err := s.ensureLoaded(ctx, arenaStore, cached)
+	if err != nil {
+		return cached
+	}
+	// Already have messages on this conversation — system prompt was
+	// emitted on a prior turn, don't double-broadcast.
+	if len(loaded.Messages) > 0 {
+		return loaded
+	}
+	s.emitter.MessageCreated("system", sp, 0, nil, nil, nil)
+	return loaded
 }
 
 // broadcastMessage publishes the just-arrived message to the event bus when

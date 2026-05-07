@@ -130,7 +130,7 @@ function AssertionRow({ result }: { result: ConversationValidationResult }) {
           {result.details && Object.keys(result.details).length > 0 && (
             <div>
               <div className="text-[10px] uppercase tracking-wider text-fg-muted mb-1 mt-2">Details</div>
-              <pre className="text-[10px] font-mono text-fg whitespace-pre-wrap overflow-x-auto bg-surfaceborder border-mist rounded px-2 py-1">
+              <pre className="text-[10px] font-mono text-fg whitespace-pre-wrap overflow-x-auto bg-surface border border-mist rounded px-2 py-1">
                 {JSON.stringify(result.details, null, 2)}
               </pre>
             </div>
