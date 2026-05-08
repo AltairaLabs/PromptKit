@@ -517,6 +517,10 @@ func (mc *MetricContext) OnEvent(event *events.Event) {
 		mc.handleTTSCallCompleted(event)
 	case events.EventTTSCallFailed:
 		mc.handleTTSCallFailed(event)
+	case events.EventSTTCallCompleted:
+		mc.handleSTTCallCompleted(event)
+	case events.EventSTTCallFailed:
+		mc.handleSTTCallFailed(event)
 	}
 }
 
@@ -785,6 +789,60 @@ func (mc *MetricContext) handleTTSCallFailed(event *events.Event) {
 
 	incWithExemplar(
 		mc.collector.ttsRequestsTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
+		),
+		exemplar,
+	)
+}
+
+func (mc *MetricContext) handleSTTCallCompleted(event *events.Event) {
+	data, ok := event.Data.(*events.STTCallCompletedData)
+	if !ok {
+		return
+	}
+	exemplar := traceExemplar(event.SpanContext)
+
+	observeWithExemplar(
+		mc.collector.sttRequestDuration.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
+		),
+		data.Duration.Seconds(),
+		exemplar,
+	)
+
+	incWithExemplar(
+		mc.collector.sttRequestsTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
+		),
+		exemplar,
+	)
+
+	mc.collector.sttAudioSecondsTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(data.AudioSeconds)
+
+	mc.collector.sttCostTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(data.Cost)
+}
+
+func (mc *MetricContext) handleSTTCallFailed(event *events.Event) {
+	data, ok := event.Data.(*events.STTCallFailedData)
+	if !ok {
+		return
+	}
+	exemplar := traceExemplar(event.SpanContext)
+
+	observeWithExemplar(
+		mc.collector.sttRequestDuration.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
+		),
+		data.Duration.Seconds(),
+		exemplar,
+	)
+
+	incWithExemplar(
+		mc.collector.sttRequestsTotal.WithLabelValues(
 			mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
 		),
 		exemplar,

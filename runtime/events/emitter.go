@@ -574,3 +574,19 @@ func (e *Emitter) TTSCallFailedCtx(ctx context.Context, data *TTSCallFailedData)
 	}
 	e.emitCtx(ctx, EventTTSCallFailed, data)
 }
+
+// STTCallCompletedCtx emits a stt.call.completed event with trace context for exemplar correlation.
+func (e *Emitter) STTCallCompletedCtx(ctx context.Context, data *STTCallCompletedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventSTTCallCompleted, data)
+}
+
+// STTCallFailedCtx emits a stt.call.failed event with trace context for exemplar correlation.
+func (e *Emitter) STTCallFailedCtx(ctx context.Context, data *STTCallFailedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventSTTCallFailed, data)
+}
