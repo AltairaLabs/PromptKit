@@ -996,6 +996,109 @@ func TestEmitter_ProviderCallFailedCtx_NilData(t *testing.T) {
 	emitter.ProviderCallFailedCtx(context.Background(), nil)
 }
 
+func TestEmitter_ImageGenCallCompletedCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ig1", "session-ig1", "conv-ig1")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventImageGenCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.ImageGenCallCompletedCtx(context.Background(), &ImageGenCallCompletedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "imagen",
+			Model:      "imagen-3.0",
+			Capability: "image",
+			Source:     "pipeline",
+			Duration:   100 * time.Millisecond,
+			Cost:       0.04,
+		},
+		Images: 1,
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for image_gen.call.completed event")
+	}
+
+	data, ok := got.Data.(*ImageGenCallCompletedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Provider != "imagen" {
+		t.Errorf("Provider = %q, want %q", data.Provider, "imagen")
+	}
+	if data.Images != 1 {
+		t.Errorf("Images = %d, want 1", data.Images)
+	}
+	if data.Cost != 0.04 {
+		t.Errorf("Cost = %f, want 0.04", data.Cost)
+	}
+}
+
+func TestEmitter_ImageGenCallFailedCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ig2", "session-ig2", "conv-ig2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventImageGenCallFailed, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.ImageGenCallFailedCtx(context.Background(), &ImageGenCallFailedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "imagen",
+			Model:      "imagen-3.0",
+			Capability: "image",
+			Source:     "pipeline",
+			Duration:   50 * time.Millisecond,
+		},
+		Error: "quota exceeded",
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for image_gen.call.failed event")
+	}
+
+	data, ok := got.Data.(*ImageGenCallFailedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Error != "quota exceeded" {
+		t.Errorf("Error = %q, want %q", data.Error, "quota exceeded")
+	}
+}
+
+func TestEmitter_ImageGenCallCompletedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ig3", "session-ig3", "conv-ig3")
+
+	// Should not panic when data is nil
+	emitter.ImageGenCallCompletedCtx(context.Background(), nil)
+}
+
+func TestEmitter_ImageGenCallFailedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-ig4", "session-ig4", "conv-ig4")
+
+	// Should not panic when data is nil
+	emitter.ImageGenCallFailedCtx(context.Background(), nil)
+}
+
 func TestEventBus_PublishStampsSequence(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/recording"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -85,6 +86,7 @@ type recordedTurn struct {
 
 // Provider replays recorded session responses without making LLM calls.
 type Provider struct {
+	*base.Implementation
 	id        string
 	recording *recording.SessionRecording
 	config    Config
@@ -107,10 +109,11 @@ func NewProvider(rec *recording.SessionRecording, cfg *Config) (*Provider, error
 	}
 
 	p := &Provider{
-		id:         "replay",
-		recording:  rec,
-		config:     config,
-		contentMap: make(map[string]int),
+		Implementation: base.NewImplementation("replay", base.ProviderTypeInference, nil),
+		id:             "replay",
+		recording:      rec,
+		config:         config,
+		contentMap:     make(map[string]int),
 	}
 
 	// Extract assistant responses from recorded events

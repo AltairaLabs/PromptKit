@@ -542,3 +542,19 @@ func (e *Emitter) TemplateFailed(taskType, errMsg string, unresolved []string) {
 		UnresolvedPlaceholders: unresolved,
 	})
 }
+
+// ImageGenCallCompletedCtx emits an image_gen.call.completed event with trace context for exemplar correlation.
+func (e *Emitter) ImageGenCallCompletedCtx(ctx context.Context, data *ImageGenCallCompletedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventImageGenCallCompleted, data)
+}
+
+// ImageGenCallFailedCtx emits an image_gen.call.failed event with trace context for exemplar correlation.
+func (e *Emitter) ImageGenCallFailedCtx(ctx context.Context, data *ImageGenCallFailedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventImageGenCallFailed, data)
+}

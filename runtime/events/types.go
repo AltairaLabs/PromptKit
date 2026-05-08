@@ -727,6 +727,108 @@ type WorkflowMaxVisitsExceededData struct {
 	Terminated bool `json:"terminated"`
 }
 
+// CapabilityCallData is the shared shape for per-capability call events.
+// Concrete event data structs embed this and add capability-specific fields.
+// It is used by image gen, TTS, STT, and embedding call events.
+type CapabilityCallData struct {
+	baseEventData
+	Provider   string
+	Model      string
+	Capability string // base.ProviderType as string for storage portability
+	Source     string
+	Duration   time.Duration
+	Cost       float64
+	Quantities map[string]float64
+	Dimensions map[string]string
+	Labels     map[string]string
+}
+
+const (
+	// EventImageGenCallStarted marks image generation call start.
+	EventImageGenCallStarted EventType = "image_gen.call.started"
+	// EventImageGenCallCompleted marks image generation call completion.
+	EventImageGenCallCompleted EventType = "image_gen.call.completed"
+	// EventImageGenCallFailed marks image generation call failure.
+	EventImageGenCallFailed EventType = "image_gen.call.failed"
+
+	// EventTTSCallStarted marks TTS call start.
+	// Declared so the collector can pre-register metric families before the TTS provider ships.
+	EventTTSCallStarted EventType = "tts.call.started"
+	// EventTTSCallCompleted marks TTS call completion.
+	EventTTSCallCompleted EventType = "tts.call.completed"
+	// EventTTSCallFailed marks TTS call failure.
+	EventTTSCallFailed EventType = "tts.call.failed"
+
+	// EventSTTCallStarted marks STT call start.
+	// Declared so the collector can pre-register metric families before the STT provider ships.
+	EventSTTCallStarted EventType = "stt.call.started"
+	// EventSTTCallCompleted marks STT call completion.
+	EventSTTCallCompleted EventType = "stt.call.completed"
+	// EventSTTCallFailed marks STT call failure.
+	EventSTTCallFailed EventType = "stt.call.failed"
+
+	// EventEmbeddingCallStarted marks embedding call start.
+	// Declared so the collector can pre-register metric families before the embedding provider ships.
+	EventEmbeddingCallStarted EventType = "embedding.call.started"
+	// EventEmbeddingCallCompleted marks embedding call completion.
+	EventEmbeddingCallCompleted EventType = "embedding.call.completed"
+	// EventEmbeddingCallFailed marks embedding call failure.
+	EventEmbeddingCallFailed EventType = "embedding.call.failed"
+)
+
+// ImageGenCallCompletedData carries image-gen-specific completion metrics.
+type ImageGenCallCompletedData struct {
+	CapabilityCallData
+	Images int
+}
+
+// ImageGenCallFailedData carries image-gen failure metrics.
+type ImageGenCallFailedData struct {
+	CapabilityCallData
+	Error string
+}
+
+// TTSCallCompletedData carries TTS completion metrics.
+// Defined so metric families can be pre-registered; emitter methods land in a future PR.
+type TTSCallCompletedData struct {
+	CapabilityCallData
+	Characters   int
+	AudioSeconds float64
+}
+
+// TTSCallFailedData carries TTS failure metrics.
+type TTSCallFailedData struct {
+	CapabilityCallData
+	Error string
+}
+
+// STTCallCompletedData carries STT completion metrics.
+// Defined so metric families can be pre-registered; emitter methods land in a future PR.
+type STTCallCompletedData struct {
+	CapabilityCallData
+	AudioSeconds float64
+}
+
+// STTCallFailedData carries STT failure metrics.
+type STTCallFailedData struct {
+	CapabilityCallData
+	Error string
+}
+
+// EmbeddingCallCompletedData carries embedding completion metrics.
+// Defined so metric families can be pre-registered; emitter methods land in a future PR.
+type EmbeddingCallCompletedData struct {
+	CapabilityCallData
+	InputTokens int
+	Vectors     int
+}
+
+// EmbeddingCallFailedData carries embedding failure metrics.
+type EmbeddingCallFailedData struct {
+	CapabilityCallData
+	Error string
+}
+
 // WorkflowBudgetExhaustedData contains data for the
 // workflow.budget_exhausted event. Emitted when a workflow-level budget
 // (max_total_visits, max_tool_calls, max_wall_time_sec) is reached.

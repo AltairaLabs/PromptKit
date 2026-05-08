@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -1032,7 +1033,9 @@ func (m *mockEmbeddingProvider) EmbeddingDimensions() int { return 1536 }
 func (m *mockEmbeddingProvider) MaxBatchSize() int        { return 100 }
 func (m *mockEmbeddingProvider) ID() string               { return "mock-embedding" }
 
-type mockSummarizeProvider struct{}
+type mockSummarizeProvider struct {
+	base.Implementation
+}
 
 func (m *mockSummarizeProvider) ID() string    { return "mock-summarize" }
 func (m *mockSummarizeProvider) Model() string { return "mock-summarize-model" }

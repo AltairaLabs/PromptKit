@@ -544,16 +544,35 @@ func (s *ArenaStateStore) cloneMessageToolResult(cloned, msg *types.Message) {
 
 // cloneMessageCostInfo clones the CostInfo
 func (s *ArenaStateStore) cloneMessageCostInfo(cloned, msg *types.Message) {
-	if msg.CostInfo != nil {
-		cloned.CostInfo = &types.CostInfo{
-			InputTokens:   msg.CostInfo.InputTokens,
-			OutputTokens:  msg.CostInfo.OutputTokens,
-			CachedTokens:  msg.CostInfo.CachedTokens,
-			InputCostUSD:  msg.CostInfo.InputCostUSD,
-			OutputCostUSD: msg.CostInfo.OutputCostUSD,
-			CachedCostUSD: msg.CostInfo.CachedCostUSD,
-			TotalCost:     msg.CostInfo.TotalCost,
+	if msg.CostInfo == nil {
+		return
+	}
+	cloned.CostInfo = &types.CostInfo{
+		InputTokens:   msg.CostInfo.InputTokens,
+		OutputTokens:  msg.CostInfo.OutputTokens,
+		CachedTokens:  msg.CostInfo.CachedTokens,
+		InputCostUSD:  msg.CostInfo.InputCostUSD,
+		OutputCostUSD: msg.CostInfo.OutputCostUSD,
+		CachedCostUSD: msg.CostInfo.CachedCostUSD,
+		TotalCost:     msg.CostInfo.TotalCost,
+		ProviderName:  msg.CostInfo.ProviderName,
+		Capability:    msg.CostInfo.Capability,
+		Latency:       msg.CostInfo.Latency,
+	}
+	if len(msg.CostInfo.Quantities) > 0 {
+		cloned.CostInfo.Quantities = make(map[string]float64, len(msg.CostInfo.Quantities))
+		for k, v := range msg.CostInfo.Quantities {
+			cloned.CostInfo.Quantities[k] = v
 		}
+	}
+	if len(msg.CostInfo.DimensionMatch) > 0 {
+		cloned.CostInfo.DimensionMatch = make(map[string]string, len(msg.CostInfo.DimensionMatch))
+		for k, v := range msg.CostInfo.DimensionMatch {
+			cloned.CostInfo.DimensionMatch[k] = v
+		}
+	}
+	if len(msg.CostInfo.Breakdown) > 0 {
+		cloned.CostInfo.Breakdown = append([]types.CostLineItem(nil), msg.CostInfo.Breakdown...)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
@@ -186,9 +187,13 @@ type MockStreamingProvider struct {
 	streamError  error
 }
 
-func (m *MockStreamingProvider) ID() string {
-	return "mock-streaming"
-}
+func (m *MockStreamingProvider) ID() string                          { return "mock-streaming" }
+func (m *MockStreamingProvider) Name() string                        { return "mock-streaming" }
+func (m *MockStreamingProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *MockStreamingProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *MockStreamingProvider) Validate() error                     { return nil }
+func (m *MockStreamingProvider) Init(_ context.Context) error        { return nil }
+func (m *MockStreamingProvider) HealthCheck(_ context.Context) error { return nil }
 
 func (m *MockStreamingProvider) Model() string {
 	return "mock-streaming-model"
@@ -241,9 +246,13 @@ func (m *MockStreamingProvider) CalculateCost(inputTokens, outputTokens, cachedT
 // MockNonStreamingProvider is a mock provider that doesn't support streaming
 type MockNonStreamingProvider struct{}
 
-func (m *MockNonStreamingProvider) ID() string {
-	return "mock-non-streaming"
-}
+func (m *MockNonStreamingProvider) ID() string                          { return "mock-non-streaming" }
+func (m *MockNonStreamingProvider) Name() string                        { return "mock-non-streaming" }
+func (m *MockNonStreamingProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *MockNonStreamingProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *MockNonStreamingProvider) Validate() error                     { return nil }
+func (m *MockNonStreamingProvider) Init(_ context.Context) error        { return nil }
+func (m *MockNonStreamingProvider) HealthCheck(_ context.Context) error { return nil }
 
 func (m *MockNonStreamingProvider) Model() string {
 	return "mock-non-streaming-model"

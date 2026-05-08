@@ -7,12 +7,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// testMockProvider is a minimal mock provider for testing registry functionality
-// This is separate from the production mock provider in the mock subpackage
+// testMockProvider is a minimal mock provider for testing registry functionality.
+// It embeds base.Implementation by value so that struct literals remain valid.
+// This is separate from the production mock provider in the mock subpackage.
 type testMockProvider struct {
+	base.Implementation
 	id    string
 	value string
 }
@@ -367,8 +370,9 @@ func TestNewRegistry(t *testing.T) {
 		t.Fatal("Expected non-nil registry")
 	}
 
-	if registry.providers == nil {
-		t.Error("Expected providers map to be initialized")
+	// Verify the registry is initialized and empty.
+	if ids := registry.List(); len(ids) != 0 {
+		t.Errorf("Expected empty registry, got %d providers", len(ids))
 	}
 }
 

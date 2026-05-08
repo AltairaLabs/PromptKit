@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 const (
@@ -13,9 +14,19 @@ const (
 	DefaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 )
 
-// Registry manages available providers
+// Registry manages available inference providers, backed by a (name, capability)-keyed
+// base.Registry for typed lookups and a legacy ID-keyed map for back-compat.
+//
+// Back-compat contract: Register(provider) and Get(id) continue to work as before,
+// keyed by provider.ID(). The typed API (Base, GetByType, GetAll) delegates to the
+// underlying base.Registry which is keyed by (provider.Name(), provider.Type()).
 type Registry struct {
+	// providers is the legacy ID-keyed map preserved for back-compat with
+	// existing call sites that use Get(id) and List().
 	providers map[string]Provider
+	// base holds the typed (name, capability)-keyed registry used for the
+	// new ancillary provider lookup API.
+	base *base.Registry
 }
 
 // ProviderFactory is a function that creates a provider from a spec
@@ -28,25 +39,53 @@ func RegisterProviderFactory(providerType string, factory ProviderFactory) {
 	providerFactories[providerType] = factory
 }
 
-// NewRegistry creates a new provider registry
+// NewRegistry creates a new provider registry.
 func NewRegistry() *Registry {
 	return &Registry{
 		providers: make(map[string]Provider),
+		base:      base.NewRegistry(),
 	}
 }
 
-// Register adds a provider to the registry using its ID as the key.
-func (r *Registry) Register(provider Provider) {
-	r.providers[provider.ID()] = provider
+// Base returns the underlying base.Registry. Useful for cross-cutting code
+// (config loaders, metric collectors) that needs the typed API.
+func (r *Registry) Base() *base.Registry {
+	return r.base
 }
 
-// Get retrieves a provider by ID, returning the provider and a boolean indicating if it was found.
+// Register adds a provider to the registry, keyed by provider.ID() for
+// back-compat. It also registers into the typed base.Registry (keyed by
+// provider.Name() + provider.Type()); duplicate base registrations are silently
+// accepted — the base entry is replaced to match the legacy overwrite semantics.
+func (r *Registry) Register(provider Provider) {
+	r.providers[provider.ID()] = provider
+	// Best-effort registration into the typed registry. Swallow duplicate errors
+	// so that callers which rely on Register silently overwriting a prior entry
+	// continue to work unchanged. Subsequent typed lookups via GetByType/GetAll
+	// will see the latest provider for a given (name, type) pair.
+	_ = r.base.Register(provider)
+}
+
+// Get retrieves an inference provider by ID. Returns the provider and a
+// boolean indicating if it was found, matching the legacy signature.
 func (r *Registry) Get(id string) (Provider, bool) {
 	provider, exists := r.providers[id]
 	return provider, exists
 }
 
-// List returns all registered provider IDs
+// GetByType retrieves a provider by (name, capability). For non-inference
+// types use this; for inference, the legacy single-arg Get(id) still works.
+func (r *Registry) GetByType(name string, typ base.ProviderType) (base.Provider, error) {
+	return r.base.Get(name, typ)
+}
+
+// GetAll returns every provider of the given capability registered in the
+// typed base.Registry.
+func (r *Registry) GetAll(typ base.ProviderType) []base.Provider {
+	return r.base.GetAll(typ)
+}
+
+// List returns all registered inference provider IDs (back-compat).
 func (r *Registry) List() []string {
 	ids := make([]string, 0, len(r.providers))
 	for id := range r.providers {
@@ -311,8 +350,8 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	// original transport when no overrides are set, with the added
 	// conn-tracking layer.
 	if htc, ok := provider.(httpTransportConfigurable); ok {
-		base := NewPooledTransportWithOptions(spec.HTTPTransport)
-		rt := NewInstrumentedTransport(base)
+		pooledTransport := NewPooledTransportWithOptions(spec.HTTPTransport)
+		rt := NewInstrumentedTransport(pooledTransport)
 		rt = newConnTrackingTransport(rt, DefaultStreamMetrics())
 		htc.SetHTTPTransport(rt)
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,7 @@ import (
 
 // mockSummarizerProvider implements providers.Provider for testing LLMSummarizer.
 type mockSummarizerProvider struct {
+	base.Implementation
 	predictFn func(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error)
 }
 

@@ -938,7 +938,10 @@ func (ce *DefaultConversationExecutor) calculateTotalsFromMessages(messages []ty
 	return totalCost, toolStats
 }
 
-// aggregateMessageCost adds message cost information to the total
+// aggregateMessageCost adds message cost information to the total. The
+// run-level Breakdown is built from messages by statestore.computeTotalCost
+// (which is what surfaces in the JSON report); this engine-side rollup is
+// kept lean.
 func (ce *DefaultConversationExecutor) aggregateMessageCost(totalCost, msgCost *types.CostInfo) {
 	if msgCost == nil {
 		return

@@ -676,6 +676,24 @@ func (s *ProviderStage) executeRound(
 		s.emitter.ProviderCallCompletedCtx(ctx, completedData)
 	}
 
+	// Stamp the unified CostInfo identity fields if the provider didn't fill
+	// them in itself. Most chat providers leave these empty since they only
+	// populate the legacy token-cost fields; Imagen and post-migration
+	// ancillary providers populate them at source. Either way, after this
+	// stamp every assistant message's cost_info carries the provider name
+	// and capability discriminator the breakdown / aggregation paths expect.
+	if resp.CostInfo != nil {
+		if resp.CostInfo.ProviderName == "" {
+			resp.CostInfo.ProviderName = s.provider.Name()
+		}
+		if resp.CostInfo.Capability == "" {
+			resp.CostInfo.Capability = string(s.provider.Type())
+		}
+		if resp.CostInfo.Latency == 0 {
+			resp.CostInfo.Latency = duration
+		}
+	}
+
 	// Build response message with latency and cost info
 	responseMsg := types.Message{
 		Role:      "assistant",
@@ -860,6 +878,21 @@ func (s *ProviderStage) executeStreamingRound(
 			completedData.Cost = costInfo.TotalCost
 		}
 		s.emitter.ProviderCallCompletedCtx(ctx, completedData)
+	}
+
+	// Stamp identity fields onto the streaming-path cost info; mirrors the
+	// non-streaming path above so every assistant message has a consistent
+	// provider/capability stamp.
+	if costInfo != nil {
+		if costInfo.ProviderName == "" {
+			costInfo.ProviderName = s.provider.Name()
+		}
+		if costInfo.Capability == "" {
+			costInfo.Capability = string(s.provider.Type())
+		}
+		if costInfo.Latency == 0 {
+			costInfo.Latency = duration
+		}
 	}
 
 	// Build final response message with latency and cost info

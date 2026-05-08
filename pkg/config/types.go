@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
@@ -1212,6 +1213,46 @@ type Provider struct {
 	// MaxConnsPerHost × SETTINGS_MAX_CONCURRENT_STREAMS per upstream.
 	// See AltairaLabs/PromptKit#873.
 	HTTPTransport *HTTPTransportConfig `json:"http_transport,omitempty" yaml:"http_transport,omitempty"`
+}
+
+// ProviderSpec is the unified, post-compat shape used internally for any
+// provider type (inference, TTS, STT, embedding, image).
+//
+// Loaded by config.LoadProviderSpec which accepts both legacy (top-level
+// type/model/pricing) and unified (impl + capabilities[]) YAML shapes.
+type ProviderSpec struct {
+	Name         string // from metadata.name
+	Impl         string // implementation discriminator (e.g. "openai", "imagen")
+	Endpoint     string // base URL
+	Auth         AuthSpec
+	Timeouts     TimeoutsSpec
+	Retry        RetrySpec
+	Capabilities []CapabilitySpec
+}
+
+// CapabilitySpec is one capability entry under a ProviderSpec.
+type CapabilitySpec struct {
+	Type     base.ProviderType
+	Model    string
+	Defaults map[string]any
+	Pricing  *base.PricingDescriptor
+}
+
+// AuthSpec describes how the provider authenticates.
+type AuthSpec struct {
+	Type string `yaml:"type,omitempty"` // "api_key" | "oauth" | etc.
+	Env  string `yaml:"env,omitempty"`  // env var name for api_key auth
+}
+
+// TimeoutsSpec holds request-level timeouts.
+type TimeoutsSpec struct {
+	Request time.Duration `yaml:"request,omitempty"`
+}
+
+// RetrySpec configures generic retry policy.
+type RetrySpec struct {
+	MaxAttempts int    `yaml:"max_attempts,omitempty"`
+	Backoff     string `yaml:"backoff,omitempty"`
 }
 
 // HTTPTransportConfig configures the per-provider HTTP connection pool

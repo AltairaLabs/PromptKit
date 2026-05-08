@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -152,11 +153,17 @@ func TestDuplexConversationExecutor_ImplementsInterface(t *testing.T) {
 // mockNonStreamingProvider is a mock provider that doesn't support streaming
 type mockNonStreamingProvider struct{}
 
-func (m *mockNonStreamingProvider) ID() string                   { return "mock" }
-func (m *mockNonStreamingProvider) Model() string                { return "mock-model" }
-func (m *mockNonStreamingProvider) SupportsStreaming() bool      { return false }
-func (m *mockNonStreamingProvider) ShouldIncludeRawOutput() bool { return false }
-func (m *mockNonStreamingProvider) Close() error                 { return nil }
+func (m *mockNonStreamingProvider) ID() string                          { return "mock" }
+func (m *mockNonStreamingProvider) Name() string                        { return "mock" }
+func (m *mockNonStreamingProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *mockNonStreamingProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *mockNonStreamingProvider) Validate() error                     { return nil }
+func (m *mockNonStreamingProvider) Init(_ context.Context) error        { return nil }
+func (m *mockNonStreamingProvider) HealthCheck(_ context.Context) error { return nil }
+func (m *mockNonStreamingProvider) Model() string                       { return "mock-model" }
+func (m *mockNonStreamingProvider) SupportsStreaming() bool             { return false }
+func (m *mockNonStreamingProvider) ShouldIncludeRawOutput() bool        { return false }
+func (m *mockNonStreamingProvider) Close() error                        { return nil }
 
 func (m *mockNonStreamingProvider) Predict(
 	_ context.Context,

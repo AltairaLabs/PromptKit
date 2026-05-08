@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	arenastatestore "github.com/AltairaLabs/PromptKit/tools/arena/statestore"
@@ -318,10 +319,15 @@ type testProvider struct {
 	id string
 }
 
-func (p *testProvider) ID() string              { return p.id }
-func (p *testProvider) Type() string            { return "test" }
-func (p *testProvider) Model() string           { return "test-model" }
-func (p *testProvider) SupportsStreaming() bool { return false }
+func (p *testProvider) ID() string                          { return p.id }
+func (p *testProvider) Name() string                        { return p.id }
+func (p *testProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (p *testProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (p *testProvider) Validate() error                     { return nil }
+func (p *testProvider) Init(_ context.Context) error        { return nil }
+func (p *testProvider) HealthCheck(_ context.Context) error { return nil }
+func (p *testProvider) Model() string                       { return "test-model" }
+func (p *testProvider) SupportsStreaming() bool             { return false }
 func (p *testProvider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.PredictionResponse{Content: "test response"}, nil
 }

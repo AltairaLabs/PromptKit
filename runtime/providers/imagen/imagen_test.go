@@ -7,8 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -777,6 +778,159 @@ func TestPredictLowLevelErrors(t *testing.T) {
 				t.Errorf("Expected error to contain %q, got %q", tt.wantErrMsg, err.Error())
 			}
 		})
+	}
+}
+
+// TestImagenProvider_TypeIsImage verifies that the provider reports ProviderTypeImage,
+// not the default ProviderTypeInference from the embedded BaseProvider.
+func TestImagenProvider_TypeIsImage(t *testing.T) {
+	p := NewProvider(Config{ID: "imagen-test", Model: "imagen-3.0", ApiKey: "fake"})
+	if p.Type() != base.ProviderTypeImage {
+		t.Errorf("Expected Type() = %q, got %q", base.ProviderTypeImage, p.Type())
+	}
+}
+
+// TestImagenProvider_Pricing verifies that Pricing() returns a non-nil inline descriptor
+// with the expected per-image price item.
+func TestImagenProvider_Pricing(t *testing.T) {
+	p := NewProvider(Config{ID: "imagen-test", Model: "imagen-3.0", ApiKey: "fake"})
+	desc := p.Pricing()
+	if desc == nil {
+		t.Fatal("Expected non-nil PricingDescriptor, got nil")
+	}
+	if desc.Source != base.PricingSourceInline {
+		t.Errorf("Expected PricingSource %q, got %q", base.PricingSourceInline, desc.Source)
+	}
+	if len(desc.Items) != 1 {
+		t.Fatalf("Expected 1 price item, got %d", len(desc.Items))
+	}
+	if desc.Items[0].Unit != "image" {
+		t.Errorf("Expected unit %q, got %q", "image", desc.Items[0].Unit)
+	}
+	if desc.Items[0].Rate != costPerImage {
+		t.Errorf("Expected rate %f, got %f", costPerImage, desc.Items[0].Rate)
+	}
+}
+
+// TestImagenProvider_SatisfiesBaseImageProvider is a compile-time assertion expressed
+// as a runtime test. If this test file compiles the interface is satisfied.
+func TestImagenProvider_SatisfiesBaseImageProvider(t *testing.T) {
+	var _ base.ImageProvider = NewProvider(Config{ID: "x", Model: "y", ApiKey: "z"})
+}
+
+// TestPredictCostInfoUnifiedFields verifies that the new unified CostInfo fields are
+// populated correctly on a successful Predict call.
+func TestPredictCostInfoUnifiedFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := imagenResponse{
+			Predictions: []imagenPrediction{
+				{
+					BytesBase64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+					MimeType:           "image/png",
+				},
+			},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	p := NewProvider(Config{
+		ID:      "imagen-unified-test",
+		Model:   "imagen-4.0-generate-001",
+		BaseURL: server.URL,
+		ApiKey:  "test-key",
+	})
+
+	ctx := context.Background()
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "a red square"}},
+	}
+
+	resp, err := p.Predict(ctx, req)
+	if err != nil {
+		t.Fatalf("Predict() error: %v", err)
+	}
+	if resp.CostInfo == nil {
+		t.Fatal("Expected non-nil CostInfo")
+	}
+
+	ci := resp.CostInfo
+	if ci.TotalCost != costPerImage {
+		t.Errorf("Expected TotalCost %f, got %f", costPerImage, ci.TotalCost)
+	}
+	if ci.ProviderName != "imagen-unified-test" {
+		t.Errorf("Expected ProviderName %q, got %q", "imagen-unified-test", ci.ProviderName)
+	}
+	if ci.Capability != string(base.ProviderTypeImage) {
+		t.Errorf("Expected Capability %q, got %q", string(base.ProviderTypeImage), ci.Capability)
+	}
+	if ci.Quantities == nil || ci.Quantities["image"] != 1 {
+		t.Errorf("Expected Quantities[image]=1, got %v", ci.Quantities)
+	}
+	if ci.DimensionMatch == nil || ci.DimensionMatch["size"] != "1024x1024" {
+		t.Errorf("Expected DimensionMatch[size]=1024x1024, got %v", ci.DimensionMatch)
+	}
+	if ci.Latency == 0 {
+		t.Error("Expected non-zero Latency in CostInfo")
+	}
+}
+
+// TestGenerate_DelegatesToPredict verifies that Generate() wraps Predict and returns
+// image bytes extracted from the content parts.
+func TestGenerate_DelegatesToPredict(t *testing.T) {
+	const b64Image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := imagenResponse{
+			Predictions: []imagenPrediction{
+				{BytesBase64Encoded: b64Image, MimeType: "image/png"},
+			},
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	p := NewProvider(Config{
+		ID:      "generate-test",
+		Model:   "imagen-4.0-generate-001",
+		BaseURL: server.URL,
+		ApiKey:  "test-key",
+	})
+
+	ctx := context.Background()
+	imgResp, err := p.Generate(ctx, base.ImageRequest{Prompt: "a blue circle"})
+	if err != nil {
+		t.Fatalf("Generate() error: %v", err)
+	}
+	if len(imgResp.Images) == 0 {
+		t.Fatal("Expected at least one image in ImageResponse")
+	}
+	if imgResp.MIMEType != "image/png" {
+		t.Errorf("Expected MIMEType %q, got %q", "image/png", imgResp.MIMEType)
+	}
+	if imgResp.Cost == nil {
+		t.Error("Expected non-nil Cost in ImageResponse")
+	}
+	if imgResp.Latency == 0 {
+		t.Error("Expected non-zero Latency in ImageResponse")
+	}
+}
+
+// TestGenerate_PropagatesError verifies that Generate() surfaces errors from Predict.
+func TestGenerate_PropagatesError(t *testing.T) {
+	p := NewProvider(Config{
+		ID:      "generate-err-test",
+		Model:   "imagen-4.0-generate-001",
+		BaseURL: "https://invalid.example.invalid",
+		ApiKey:  "test-key",
+	})
+
+	ctx := context.Background()
+	_, err := p.Generate(ctx, base.ImageRequest{Prompt: ""})
+	if err == nil {
+		t.Fatal("Expected error from Generate() with empty prompt, got nil")
 	}
 }
 

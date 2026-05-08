@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -345,8 +346,13 @@ func (m *mockMediaStorage) GetURL(ctx context.Context, reference storage.Referen
 type mockNonMockProvider struct{}
 
 func (m *mockNonMockProvider) ID() string                          { return "mock-non-mock" }
-func (m *mockNonMockProvider) Model() string                       { return "mock-non-mock-model" }
 func (m *mockNonMockProvider) Name() string                        { return "Mock Non-Mock Provider" }
+func (m *mockNonMockProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *mockNonMockProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *mockNonMockProvider) Validate() error                     { return nil }
+func (m *mockNonMockProvider) Init(_ context.Context) error        { return nil }
+func (m *mockNonMockProvider) HealthCheck(_ context.Context) error { return nil }
+func (m *mockNonMockProvider) Model() string                       { return "mock-non-mock-model" }
 func (m *mockNonMockProvider) SupportsStreaming() bool             { return false }
 func (m *mockNonMockProvider) SupportsJSONResponse() bool          { return false }
 func (m *mockNonMockProvider) SupportsTools() bool                 { return false }

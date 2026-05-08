@@ -8,23 +8,35 @@ import "github.com/AltairaLabs/PromptKit/runtime/types"
 // passes through JSON persistence between writer and reader.
 const selfPlayCostMetaKey = "self_play_cost"
 
-// addSelfPlayCostFromMeta folds a turn's recorded self_play_cost into
-// the running total. The persona-side LLM call cost is captured into
-// message metadata at the duplex turn boundary (see
-// duplex_executor_turns_integration.go) but lives outside
-// message.CostInfo, which is reserved for the assistant turn. Without
-// this fold, ConversationResult.Cost (and therefore the headline
-// cost shown in the dashboard) silently undercounts a duplex run by
-// roughly the persona side's spend.
+// ancillaryCostMetaKeys lists every Message.Meta key that holds an
+// ancillary cost contribution to fold into the total. Ordered
+// alphabetically. Future ancillary providers (TTS, STT, embedding,
+// image_gen) add their key here when their migrations land.
+var ancillaryCostMetaKeys = []string{
+	selfPlayCostMetaKey,
+	// Reserved for future migrations; harmless to keep the list short.
+}
+
+// addAncillaryCostFromMeta folds every recognized ancillary cost stored
+// in a message's Meta into the running total. The persona-side LLM call
+// cost (self_play_cost) is the original case — see #1105. Future
+// migrations (TTS, STT, embedding) extend the same pattern by adding to
+// ancillaryCostMetaKeys.
 //
 // Numeric values may arrive as float64 (post-JSON round-trip) or as
 // int / int64 (in-memory). Both forms are accepted; unknown types
 // contribute zero.
-func addSelfPlayCostFromMeta(total *types.CostInfo, meta map[string]interface{}) {
+func addAncillaryCostFromMeta(total *types.CostInfo, meta map[string]interface{}) {
 	if total == nil || meta == nil {
 		return
 	}
-	raw, ok := meta[selfPlayCostMetaKey]
+	for _, key := range ancillaryCostMetaKeys {
+		addCostFromMetaKey(total, meta, key)
+	}
+}
+
+func addCostFromMetaKey(total *types.CostInfo, meta map[string]interface{}, key string) {
+	raw, ok := meta[key]
 	if !ok {
 		return
 	}
@@ -38,6 +50,14 @@ func addSelfPlayCostFromMeta(total *types.CostInfo, meta map[string]interface{})
 	total.InputCostUSD += metaFloat(sc["input_cost_usd"])
 	total.OutputCostUSD += metaFloat(sc["output_cost_usd"])
 	total.TotalCost += metaFloat(sc["total_cost_usd"])
+}
+
+// addSelfPlayCostFromMeta is a back-compat alias for addAncillaryCostFromMeta.
+//
+// Deprecated: use addAncillaryCostFromMeta directly; this wrapper exists so
+// existing call sites continue to compile.
+func addSelfPlayCostFromMeta(total *types.CostInfo, meta map[string]interface{}) {
+	addAncillaryCostFromMeta(total, meta)
 }
 
 func metaInt(v interface{}) int {

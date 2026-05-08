@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -28,6 +29,24 @@ type probedProvider struct {
 func newProbedProvider(inner providers.Provider) *probedProvider {
 	return &probedProvider{inner: inner}
 }
+
+// Name delegates to the inner provider.
+func (p *probedProvider) Name() string { return p.inner.Name() }
+
+// Type delegates to the inner provider.
+func (p *probedProvider) Type() base.ProviderType { return p.inner.Type() }
+
+// Pricing delegates to the inner provider.
+func (p *probedProvider) Pricing() *base.PricingDescriptor { return p.inner.Pricing() }
+
+// Validate delegates to the inner provider.
+func (p *probedProvider) Validate() error { return p.inner.Validate() }
+
+// Init delegates to the inner provider.
+func (p *probedProvider) Init(ctx context.Context) error { return p.inner.Init(ctx) }
+
+// HealthCheck delegates to the inner provider.
+func (p *probedProvider) HealthCheck(ctx context.Context) error { return p.inner.HealthCheck(ctx) }
 
 // ID delegates to the inner provider.
 func (p *probedProvider) ID() string { return p.inner.ID() }

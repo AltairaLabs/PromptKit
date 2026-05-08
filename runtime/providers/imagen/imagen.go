@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -21,6 +22,16 @@ const (
 	// Cost per image in USD
 	costPerImage = 0.04
 )
+
+// defaultImagenPricing exposes Imagen's per-image cost as a PricingDescriptor
+// so the base registry and cost rollup can read it without hard-coding the rate.
+var defaultImagenPricing = &base.PricingDescriptor{
+	Source:   base.PricingSourceInline,
+	Currency: "usd",
+	Items: []base.PriceItem{
+		{Unit: "image", Rate: costPerImage},
+	},
+}
 
 // Provider implements the Provider interface for Google's Imagen image generation
 type Provider struct {
@@ -37,6 +48,18 @@ type Provider struct {
 // Model returns the model name/identifier used by this provider.
 func (p *Provider) Model() string {
 	return p.modelName
+}
+
+// Type returns base.ProviderTypeImage. Imagen is an image generation provider,
+// not an inference provider — overriding the default from the embedded
+// providers.BaseProvider helper.
+func (p *Provider) Type() base.ProviderType {
+	return base.ProviderTypeImage
+}
+
+// Pricing returns Imagen's per-image pricing descriptor.
+func (p *Provider) Pricing() *base.PricingDescriptor {
+	return defaultImagenPricing
 }
 
 // imagenRequest represents the request to Imagen API
@@ -231,6 +254,13 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		InputTokens:  0,
 		OutputTokens: 0,
 		TotalCost:    costPerImage,
+
+		// Unified cost fields for the new aggregation path:
+		Quantities:     map[string]float64{"image": 1},
+		DimensionMatch: map[string]string{"size": "1024x1024", "quality": "standard"},
+		ProviderName:   p.Name(),
+		Capability:     string(base.ProviderTypeImage),
+		Latency:        latency,
 	}
 
 	return providers.PredictionResponse{
@@ -239,6 +269,43 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		CostInfo: &costBreakdown,
 		Latency:  latency,
 		Raw:      respBody,
+	}, nil
+}
+
+// Generate satisfies base.ImageProvider. It delegates to Predict by translating
+// the ImageRequest into the legacy PredictionRequest shape internally, then
+// extracts the image bytes back into an ImageResponse.
+//
+// This is a thin shim — call sites that already use Predict continue to work.
+// Future PRs can migrate call sites to Generate directly.
+func (p *Provider) Generate(ctx context.Context, req base.ImageRequest) (base.ImageResponse, error) {
+	predReq := providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: req.Prompt}},
+	}
+	resp, err := p.Predict(ctx, predReq)
+	if err != nil {
+		return base.ImageResponse{}, err
+	}
+
+	// Extract image bytes from the response's content parts.
+	// Image parts use ContentPart.Media.Data (base64-encoded string).
+	var imageBytes [][]byte
+	var mime string
+	for i := range resp.Parts {
+		part := &resp.Parts[i]
+		if part.Type == types.ContentTypeImage && part.Media != nil && part.Media.Data != nil && *part.Media.Data != "" {
+			imageBytes = append(imageBytes, []byte(*part.Media.Data))
+			if mime == "" {
+				mime = part.Media.MIMEType
+			}
+		}
+	}
+
+	return base.ImageResponse{
+		Images:   imageBytes,
+		MIMEType: mime,
+		Cost:     resp.CostInfo,
+		Latency:  resp.Latency,
 	}, nil
 }
 
@@ -268,3 +335,6 @@ func (p *Provider) SupportsStreaming() bool {
 func (p *Provider) Close() error {
 	return nil
 }
+
+// Compile-time check that Imagen satisfies base.ImageProvider.
+var _ base.ImageProvider = (*Provider)(nil)

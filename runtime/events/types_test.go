@@ -177,6 +177,71 @@ func TestConsolidatedTypes_Aliases(t *testing.T) {
 	var _ EventData = &ImageEventData{}
 }
 
+func TestAncillaryEventTypes_Constants(t *testing.T) {
+	tests := []struct {
+		eventType EventType
+		expected  string
+	}{
+		{EventImageGenCallStarted, "image_gen.call.started"},
+		{EventImageGenCallCompleted, "image_gen.call.completed"},
+		{EventImageGenCallFailed, "image_gen.call.failed"},
+		{EventTTSCallStarted, "tts.call.started"},
+		{EventTTSCallCompleted, "tts.call.completed"},
+		{EventTTSCallFailed, "tts.call.failed"},
+		{EventSTTCallStarted, "stt.call.started"},
+		{EventSTTCallCompleted, "stt.call.completed"},
+		{EventSTTCallFailed, "stt.call.failed"},
+		{EventEmbeddingCallStarted, "embedding.call.started"},
+		{EventEmbeddingCallCompleted, "embedding.call.completed"},
+		{EventEmbeddingCallFailed, "embedding.call.failed"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.eventType), func(t *testing.T) {
+			if string(tt.eventType) != tt.expected {
+				t.Errorf("EventType = %v, want %v", tt.eventType, tt.expected)
+			}
+		})
+	}
+}
+
+func TestAncillaryEventData_Interfaces(t *testing.T) {
+	// All ancillary event data structs must satisfy EventData.
+	var _ EventData = &CapabilityCallData{}
+	var _ EventData = &ImageGenCallCompletedData{}
+	var _ EventData = &ImageGenCallFailedData{}
+	var _ EventData = &TTSCallCompletedData{}
+	var _ EventData = &TTSCallFailedData{}
+	var _ EventData = &STTCallCompletedData{}
+	var _ EventData = &STTCallFailedData{}
+	var _ EventData = &EmbeddingCallCompletedData{}
+	var _ EventData = &EmbeddingCallFailedData{}
+}
+
+func TestImageGenCallCompletedData_Fields(t *testing.T) {
+	d := &ImageGenCallCompletedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "imagen",
+			Model:      "imagen-3.0",
+			Capability: "image",
+			Source:     "pipeline",
+			Duration:   100 * time.Millisecond,
+			Cost:       0.04,
+		},
+		Images: 2,
+	}
+	if d.Provider != "imagen" {
+		t.Errorf("Provider = %q, want %q", d.Provider, "imagen")
+	}
+	if d.Images != 2 {
+		t.Errorf("Images = %d, want 2", d.Images)
+	}
+	if d.Cost != 0.04 {
+		t.Errorf("Cost = %f, want 0.04", d.Cost)
+	}
+	// Marker method must not panic.
+	d.eventData()
+}
+
 func TestMessageCreatedData_Parts(t *testing.T) {
 	// Test that MessageCreatedData can store multimodal content parts
 	textContent := "Check out this image"
