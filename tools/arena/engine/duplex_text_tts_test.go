@@ -3,40 +3,64 @@ package engine
 import (
 	"bytes"
 	"context"
-	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
 
-// fakeTTSService returns a fixed PCM audio payload for any synthesis call. It
-// captures the last text it was asked to synthesise so tests can assert the
-// helper plumbed the right input through.
+// fakeTTSService is a minimal base.TTSProvider that returns a fixed PCM audio
+// payload for any synthesis call. It captures the last text it was asked to
+// synthesise so tests can assert the helper plumbed the right input through.
 type fakeTTSService struct {
 	payload  []byte
 	lastText string
 }
 
-func (f *fakeTTSService) Name() string { return "fake-tts" }
+func (f *fakeTTSService) Name() string                        { return "fake-tts" }
+func (f *fakeTTSService) Type() base.ProviderType             { return base.ProviderTypeTTS }
+func (f *fakeTTSService) Pricing() *base.PricingDescriptor    { return nil }
+func (f *fakeTTSService) Validate() error                     { return nil }
+func (f *fakeTTSService) Init(_ context.Context) error        { return nil }
+func (f *fakeTTSService) HealthCheck(_ context.Context) error { return nil }
+func (f *fakeTTSService) Close() error                        { return nil }
 
-func (f *fakeTTSService) Synthesize(
-	_ context.Context,
-	text string,
-	_ tts.SynthesisConfig,
-) (io.ReadCloser, error) {
-	f.lastText = text
-	return io.NopCloser(bytes.NewReader(f.payload)), nil
+func (f *fakeTTSService) SynthesizeTTS(_ context.Context, req base.TTSRequest) (base.TTSStream, error) {
+	f.lastText = req.Text
+	return newFakeTTSStream(f.payload), nil
 }
 
-func (f *fakeTTSService) SupportedVoices() []tts.Voice        { return nil }
-func (f *fakeTTSService) SupportedFormats() []tts.AudioFormat { return nil }
+// fakeTTSStream wraps a byte slice as a base.TTSStream for testing.
+type fakeTTSStream struct {
+	ch chan audio.Chunk
+}
+
+func newFakeTTSStream(data []byte) base.TTSStream {
+	ch := make(chan audio.Chunk, 1)
+	s := &fakeTTSStream{ch: ch}
+	go func() {
+		defer close(ch)
+		if len(data) > 0 {
+			ch <- audio.Chunk{Data: data}
+		}
+	}()
+	return s
+}
+
+func (s *fakeTTSStream) Chunks() <-chan audio.Chunk { return s.ch }
+func (s *fakeTTSStream) Cost() *types.CostInfo      { return nil }
+func (s *fakeTTSStream) Close() error {
+	for range s.ch { //nolint:revive // drain
+	}
+	return nil
+}
 
 // newRegistryWithFakeTTS builds a self-play registry whose TTS sub-registry has
 // a pre-registered fake TTS service for the given provider name.

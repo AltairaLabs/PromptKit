@@ -10,7 +10,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -54,31 +53,25 @@ func (m *mockProvider) PredictStream(
 	return nil, errors.New("streaming not supported")
 }
 
-// mockTTSServiceWithData is a mock TTS service that returns specified audio data.
+// mockTTSServiceWithData is a minimal base.TTSProvider that returns specified audio data.
 type mockTTSServiceWithData struct {
 	audioData []byte
 	err       error
 }
 
-func (m *mockTTSServiceWithData) Name() string { return "mock-tts" }
+func (m *mockTTSServiceWithData) Name() string                        { return "mock-tts" }
+func (m *mockTTSServiceWithData) Type() base.ProviderType             { return base.ProviderTypeTTS }
+func (m *mockTTSServiceWithData) Pricing() *base.PricingDescriptor    { return nil }
+func (m *mockTTSServiceWithData) Validate() error                     { return nil }
+func (m *mockTTSServiceWithData) Init(_ context.Context) error        { return nil }
+func (m *mockTTSServiceWithData) HealthCheck(_ context.Context) error { return nil }
+func (m *mockTTSServiceWithData) Close() error                        { return nil }
 
-func (m *mockTTSServiceWithData) Synthesize(
-	_ context.Context,
-	_ string,
-	_ tts.SynthesisConfig,
-) (io.ReadCloser, error) {
+func (m *mockTTSServiceWithData) SynthesizeTTS(_ context.Context, _ base.TTSRequest) (base.TTSStream, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return io.NopCloser(strings.NewReader(string(m.audioData))), nil
-}
-
-func (m *mockTTSServiceWithData) SupportedVoices() []tts.Voice {
-	return []tts.Voice{{ID: "test-voice", Name: "Test"}}
-}
-
-func (m *mockTTSServiceWithData) SupportedFormats() []tts.AudioFormat {
-	return []tts.AudioFormat{tts.FormatPCM16}
+	return newMockTTSStream(io.NopCloser(strings.NewReader(string(m.audioData)))), nil
 }
 
 // drainStream reads the AudioStreamResult.Reader to completion and returns

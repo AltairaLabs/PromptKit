@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -78,7 +79,7 @@ type AudioStreamResult struct {
 // works.
 type AudioContentGenerator struct {
 	textGenerator *ContentGenerator
-	ttsService    tts.Service
+	ttsService    base.TTSProvider
 	ttsConfig     *config.TTSConfig
 }
 
@@ -86,7 +87,7 @@ type AudioContentGenerator struct {
 // textGenerator may be nil for TTS-only generators.
 func NewAudioContentGenerator(
 	textGenerator *ContentGenerator,
-	ttsService tts.Service,
+	ttsService base.TTSProvider,
 	ttsConfig *config.TTSConfig,
 ) *AudioContentGenerator {
 	return &AudioContentGenerator{
@@ -103,12 +104,13 @@ const defaultTTSSampleRate = 24000
 // reader along with format/rate metadata. The single place that
 // translates (text, ttsConfig) → (reader, sample rate).
 func (g *AudioContentGenerator) openStream(ctx context.Context, text string) (*AudioStreamResult, error) {
-	synthConfig := tts.SynthesisConfig{
+	req := base.TTSRequest{
+		Text:   text,
 		Voice:  g.ttsConfig.Voice,
-		Format: tts.FormatPCM16,
+		Format: tts.FormatPCM16.Name,
 		Speed:  1.0,
 	}
-	reader, err := g.ttsService.Synthesize(ctx, text, synthConfig)
+	stream, err := g.ttsService.SynthesizeTTS(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -118,11 +120,54 @@ func (g *AudioContentGenerator) openStream(ctx context.Context, text string) (*A
 	}
 	return &AudioStreamResult{
 		Text:        text,
-		Reader:      reader,
-		AudioFormat: synthConfig.Format,
+		Reader:      newTTSStreamReader(stream),
+		AudioFormat: tts.FormatPCM16,
 		SampleRate:  sampleRate,
 	}, nil
 }
+
+// ttsStreamReader adapts a base.TTSStream to io.ReadCloser. It buffers
+// the current chunk's unread bytes, advances to the next chunk when the
+// current one is exhausted, and drains remaining chunks on Close.
+type ttsStreamReader struct {
+	stream base.TTSStream
+	buf    []byte // unread bytes from the current chunk
+	done   bool
+}
+
+func newTTSStreamReader(stream base.TTSStream) io.ReadCloser {
+	return &ttsStreamReader{stream: stream}
+}
+
+func (r *ttsStreamReader) Read(p []byte) (int, error) {
+	for len(r.buf) == 0 {
+		if r.done {
+			return 0, io.EOF
+		}
+		chunk, ok := <-r.stream.Chunks()
+		if !ok {
+			r.done = true
+			return 0, io.EOF
+		}
+		if chunk.Error != nil {
+			return 0, chunk.Error
+		}
+		r.buf = chunk.Data
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	return n, nil
+}
+
+// Close implements io.Closer. Delegates to the underlying TTSStream's Close,
+// which drains any remaining chunks and releases the goroutine.
+func (r *ttsStreamReader) Close() error {
+	return r.stream.Close()
+}
+
+// ensure ttsStreamReader is only used via the io.ReadCloser interface —
+// type is unexported so callers always hold the interface.
+var _ io.ReadCloser = (*ttsStreamReader)(nil)
 
 // SynthesizeTextStream implements AudioGenerator. Skips the LLM text
 // generation step — used for scripted-text duplex turns where the text
@@ -171,8 +216,8 @@ func (g *AudioContentGenerator) NextUserTurnAudioStream(
 	return stream, nil
 }
 
-// GetTTSService returns the TTS service for direct access if needed.
-func (g *AudioContentGenerator) GetTTSService() tts.Service {
+// GetTTSService returns the TTS provider for direct access if needed.
+func (g *AudioContentGenerator) GetTTSService() base.TTSProvider {
 	return g.ttsService
 }
 

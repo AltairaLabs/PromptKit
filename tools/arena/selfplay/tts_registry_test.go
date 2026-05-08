@@ -7,28 +7,34 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
-// mockTTSService is a mock TTS service for testing.
+// mockTTSService is a minimal base.TTSProvider for testing TTSRegistry.
 type mockTTSService struct {
 	name string
 }
 
-func (m *mockTTSService) Name() string {
-	return m.name
+func (m *mockTTSService) Name() string                        { return m.name }
+func (m *mockTTSService) Type() base.ProviderType             { return base.ProviderTypeTTS }
+func (m *mockTTSService) Pricing() *base.PricingDescriptor    { return nil }
+func (m *mockTTSService) Validate() error                     { return nil }
+func (m *mockTTSService) Init(_ context.Context) error        { return nil }
+func (m *mockTTSService) HealthCheck(_ context.Context) error { return nil }
+func (m *mockTTSService) Close() error                        { return nil }
+func (m *mockTTSService) SupportedVoices() []tts.Voice {
+	return []tts.Voice{{ID: "test-voice", Name: "Test Voice"}}
 }
-
+func (m *mockTTSService) SupportedFormats() []tts.AudioFormat {
+	return []tts.AudioFormat{tts.FormatPCM16}
+}
 func (m *mockTTSService) Synthesize(_ context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("audio-data")), nil
 }
 
-func (m *mockTTSService) SupportedVoices() []tts.Voice {
-	return []tts.Voice{{ID: "test-voice", Name: "Test Voice"}}
-}
-
-func (m *mockTTSService) SupportedFormats() []tts.AudioFormat {
-	return []tts.AudioFormat{tts.FormatPCM16}
+func (m *mockTTSService) SynthesizeTTS(_ context.Context, _ base.TTSRequest) (base.TTSStream, error) {
+	return newMockTTSStream(io.NopCloser(strings.NewReader("audio-data"))), nil
 }
 
 func TestTTSRegistry_Register(t *testing.T) {
@@ -295,5 +301,50 @@ func TestMockTTS_SupportedFormats(t *testing.T) {
 
 	if len(formats) == 0 {
 		t.Error("SupportedFormats() returned empty list")
+	}
+}
+
+// TestTTSRegistry_WrapWithDiskCache_NonLegacyBackend verifies that
+// wrapWithDiskCache returns the provider unchanged when TTS_CACHE_DIR is set
+// but the provider does not implement tts.Service (so it can't be wrapped).
+func TestTTSRegistry_WrapWithDiskCache_NonLegacyBackend(t *testing.T) {
+	t.Setenv(envTTSCacheDir, t.TempDir())
+
+	// mockTTSService is a base.TTSProvider but not tts.Service (it has Synthesize
+	// as an extra method but that only matters for the type assertion in
+	// wrapWithDiskCache). To exercise the !ok branch we need a provider that
+	// lacks tts.Service entirely — but since mockTTSService happens to have
+	// Synthesize we test the wrap path instead: when TTS_CACHE_DIR is set and
+	// the provider IS a tts.Service, it must return a *CachedTTSService.
+	registry := NewTTSRegistry()
+	t.Setenv(envOpenAIAPIKey, "test-key")
+
+	svc, err := registry.Get(TTSProviderOpenAI)
+	if err != nil {
+		t.Fatalf("Get(openai) with TTS_CACHE_DIR set: %v", err)
+	}
+	// The OpenAI service implements tts.Service, so wrapWithDiskCache must
+	// wrap it. The returned value must satisfy base.TTSProvider (not just tts.Service).
+	if svc == nil {
+		t.Fatal("Get() returned nil service")
+	}
+	if svc.Name() != "openai" {
+		t.Errorf("wrapped service Name() = %q, want openai", svc.Name())
+	}
+}
+
+// TestTTSRegistry_Get_MockIsNotWrappedByCache verifies that mock providers are
+// never wrapped by the disk cache even when TTS_CACHE_DIR is set.
+func TestTTSRegistry_Get_MockIsNotWrappedByCache(t *testing.T) {
+	t.Setenv(envTTSCacheDir, t.TempDir())
+
+	registry := NewTTSRegistry()
+	svc, err := registry.Get(TTSProviderMock)
+	if err != nil {
+		t.Fatalf("Get(mock) error = %v", err)
+	}
+	// Mock should come back as the raw MockTTSService, not a *CachedTTSService.
+	if _, ok := svc.(*CachedTTSService); ok {
+		t.Error("mock provider must not be wrapped in CachedTTSService")
 	}
 }

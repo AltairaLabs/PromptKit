@@ -7,8 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
+
+// Compile-time check: MockTTSService must satisfy base.TTSProvider.
+var _ base.TTSProvider = (*MockTTSService)(nil)
 
 const (
 	// TTSProviderMock is the provider name for the mock TTS service.
@@ -180,6 +184,36 @@ func (m *MockTTSService) SupportedFormats() []tts.AudioFormat {
 		tts.FormatPCM16,
 		tts.FormatWAV,
 	}
+}
+
+// Type returns ProviderTypeTTS for MockTTSService.
+func (m *MockTTSService) Type() base.ProviderType { return base.ProviderTypeTTS }
+
+// Pricing returns nil for the mock (free provider, no billing).
+func (m *MockTTSService) Pricing() *base.PricingDescriptor { return nil }
+
+// Validate performs synchronous config validation (no-op for mock).
+func (m *MockTTSService) Validate() error { return nil }
+
+// Init performs asynchronous setup (no-op for mock).
+func (m *MockTTSService) Init(_ context.Context) error { return nil }
+
+// HealthCheck reports liveness (no-op for mock).
+func (m *MockTTSService) HealthCheck(_ context.Context) error { return nil }
+
+// Close releases resources (no-op for mock).
+func (m *MockTTSService) Close() error { return nil }
+
+// SynthesizeTTS implements base.TTSProvider. It bridges the base.TTSRequest
+// to the existing Synthesize method and wraps the response in a TTSStream.
+// Cost is nil because the mock has no pricing.
+func (m *MockTTSService) SynthesizeTTS(ctx context.Context, req base.TTSRequest) (base.TTSStream, error) {
+	reader, err := m.Synthesize(ctx, req.Text, tts.SynthesisConfig{Voice: req.Voice})
+	if err != nil {
+		return nil, err
+	}
+	// Wrap the io.ReadCloser in a TTSStream. Mock has no pricing so cost is nil.
+	return newMockTTSStream(reader), nil
 }
 
 // generatePCMAudio generates 16-bit PCM audio data.

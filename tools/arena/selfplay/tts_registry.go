@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
@@ -30,32 +31,32 @@ const (
 	envMockTTSAudioFiles = "MOCK_TTS_AUDIO_FILES" // Comma-separated list of .pcm files
 )
 
-// TTSRegistry manages TTS service instances by provider name.
-// It supports lazy initialization and caching of TTS services.
+// TTSRegistry manages TTS provider instances by provider name.
+// It supports lazy initialization and caching of TTS providers.
 type TTSRegistry struct {
-	services    map[string]tts.Service
-	mockByFiles map[string]tts.Service
+	services    map[string]base.TTSProvider
+	mockByFiles map[string]base.TTSProvider
 	mu          sync.RWMutex
 }
 
 // NewTTSRegistry creates a new TTS registry.
 func NewTTSRegistry() *TTSRegistry {
 	return &TTSRegistry{
-		services:    make(map[string]tts.Service),
-		mockByFiles: make(map[string]tts.Service),
+		services:    make(map[string]base.TTSProvider),
+		mockByFiles: make(map[string]base.TTSProvider),
 	}
 }
 
-// Get returns a TTS service for the given provider name.
-// Services are lazily initialized on first request and cached.
+// Get returns a TTS provider for the given provider name.
+// Providers are lazily initialized on first request and cached.
 // For mock provider with custom audio files, use GetWithConfig instead.
 //
 // When the TTS_CACHE_DIR environment variable is set, the returned
-// service is wrapped in a CachedTTSService rooted at that directory so
+// provider is wrapped in a CachedTTSService rooted at that directory so
 // repeated synthesis of the same text doesn't re-bill the upstream
-// provider. Mock services are exempt — they're already deterministic
+// provider. Mock providers are exempt — they're already deterministic
 // and would just bloat the cache.
-func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
+func (r *TTSRegistry) Get(provider string) (base.TTSProvider, error) {
 	// Check cache first
 	r.mu.RLock()
 	if svc, exists := r.services[provider]; exists {
@@ -64,7 +65,7 @@ func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
 	}
 	r.mu.RUnlock()
 
-	// Create service
+	// Create provider
 	svc, err := r.createService(provider)
 	if err != nil {
 		return nil, err
@@ -82,7 +83,7 @@ func (r *TTSRegistry) Get(provider string) (tts.Service, error) {
 // wrapWithDiskCache wraps svc in a CachedTTSService when TTS_CACHE_DIR is
 // set, leaves it untouched otherwise. Mock providers always pass through —
 // they're already free and deterministic.
-func wrapWithDiskCache(provider string, svc tts.Service) tts.Service {
+func wrapWithDiskCache(provider string, svc base.TTSProvider) base.TTSProvider {
 	if provider == TTSProviderMock {
 		return svc
 	}
@@ -90,20 +91,27 @@ func wrapWithDiskCache(provider string, svc tts.Service) tts.Service {
 	if dir == "" {
 		return svc
 	}
-	wrapped, err := NewCachedTTSService(svc, dir)
+	// NewCachedTTSService expects a tts.Service; type-assert so we can wrap
+	// providers that also satisfy the legacy interface (all three real impls do).
+	legacySvc, ok := svc.(tts.Service)
+	if !ok {
+		return svc
+	}
+	wrapped, err := NewCachedTTSService(legacySvc, dir)
 	if err != nil {
 		// Cache directory unavailable — log and fall back to the bare
 		// backend so synthesis still works. Tests that depend on caching
 		// will catch the regression themselves.
 		return svc
 	}
-	return wrapped
+	// CachedTTSService satisfies base.TTSProvider — the type assertion is safe.
+	return wrapped.(base.TTSProvider)
 }
 
-// GetWithConfig returns a TTS service configured with the given TTSConfig.
+// GetWithConfig returns a TTS provider configured with the given TTSConfig.
 // For mock provider, this allows specifying audio files directly in the config.
-// Services with custom configs are NOT cached since audio files may vary per scenario.
-func (r *TTSRegistry) GetWithConfig(cfg *config.TTSConfig) (tts.Service, error) {
+// Providers with custom configs are NOT cached since audio files may vary per scenario.
+func (r *TTSRegistry) GetWithConfig(cfg *config.TTSConfig) (base.TTSProvider, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("TTS config is required")
 	}
@@ -135,16 +143,16 @@ func (r *TTSRegistry) GetWithConfig(cfg *config.TTSConfig) (tts.Service, error) 
 	return r.Get(cfg.Provider)
 }
 
-// Register adds a pre-configured TTS service to the registry.
+// Register adds a pre-configured TTS provider to the registry.
 // This is useful for testing or when using custom configurations.
-func (r *TTSRegistry) Register(provider string, svc tts.Service) {
+func (r *TTSRegistry) Register(provider string, svc base.TTSProvider) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.services[provider] = svc
 }
 
-// createService creates a new TTS service for the given provider.
-func (r *TTSRegistry) createService(provider string) (tts.Service, error) {
+// createService creates a new TTS provider for the given provider name.
+func (r *TTSRegistry) createService(provider string) (base.TTSProvider, error) {
 	switch provider {
 	case TTSProviderOpenAI:
 		return r.createOpenAI()
@@ -160,8 +168,8 @@ func (r *TTSRegistry) createService(provider string) (tts.Service, error) {
 	}
 }
 
-// createMock creates a mock TTS service, optionally configured with audio files.
-func (r *TTSRegistry) createMock() (tts.Service, error) {
+// createMock creates a mock TTS provider, optionally configured with audio files.
+func (r *TTSRegistry) createMock() (base.TTSProvider, error) {
 	var audioFiles []string
 
 	// Check for explicit file list first
@@ -188,8 +196,8 @@ func (r *TTSRegistry) createMock() (tts.Service, error) {
 	return NewMockTTS(), nil
 }
 
-// createOpenAI creates an OpenAI TTS service.
-func (r *TTSRegistry) createOpenAI() (tts.Service, error) {
+// createOpenAI creates an OpenAI TTS provider.
+func (r *TTSRegistry) createOpenAI() (base.TTSProvider, error) {
 	apiKey := os.Getenv(envOpenAIAPIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("openAI TTS requires %s environment variable", envOpenAIAPIKey)
@@ -197,12 +205,12 @@ func (r *TTSRegistry) createOpenAI() (tts.Service, error) {
 	return tts.NewOpenAI(apiKey), nil
 }
 
-// createElevenLabs creates an ElevenLabs TTS service.
+// createElevenLabs creates an ElevenLabs TTS provider.
 //
 // Selfplay uses turbo_v2_5 because it's optimized for real-time conversational
 // agents (~250ms TTFB vs ~1s for multilingual_v2). The default
 // multilingual_v2 model would dominate per-turn latency.
-func (r *TTSRegistry) createElevenLabs() (tts.Service, error) {
+func (r *TTSRegistry) createElevenLabs() (base.TTSProvider, error) {
 	apiKey := os.Getenv(envElevenLabsAPIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("elevenLabs TTS requires %s environment variable", envElevenLabsAPIKey)
@@ -210,8 +218,8 @@ func (r *TTSRegistry) createElevenLabs() (tts.Service, error) {
 	return tts.NewElevenLabs(apiKey, tts.WithElevenLabsModel(tts.ElevenLabsModelTurbo)), nil
 }
 
-// createCartesia creates a Cartesia TTS service.
-func (r *TTSRegistry) createCartesia() (tts.Service, error) {
+// createCartesia creates a Cartesia TTS provider.
+func (r *TTSRegistry) createCartesia() (base.TTSProvider, error) {
 	apiKey := os.Getenv(envCartesiaAPIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("cartesia TTS requires %s environment variable", envCartesiaAPIKey)
@@ -228,5 +236,5 @@ func (r *TTSRegistry) SupportedProviders() []string {
 func (r *TTSRegistry) Clear() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.services = make(map[string]tts.Service)
+	r.services = make(map[string]base.TTSProvider)
 }
