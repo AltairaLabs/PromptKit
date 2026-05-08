@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
@@ -66,6 +67,7 @@ type CartesiaService struct {
 	wsURL   string
 	client  *http.Client
 	model   string
+	pricing *base.PricingDescriptor
 }
 
 // CartesiaOption configures the Cartesia TTS service.
@@ -99,6 +101,13 @@ func WithCartesiaModel(model string) CartesiaOption {
 	}
 }
 
+// WithCartesiaPricing overrides the default pricing descriptor for this instance.
+func WithCartesiaPricing(p *base.PricingDescriptor) CartesiaOption {
+	return func(s *CartesiaService) {
+		s.pricing = p
+	}
+}
+
 // NewCartesia creates a Cartesia TTS service.
 func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 	s := &CartesiaService{
@@ -107,6 +116,7 @@ func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 		wsURL:   cartesiaWSURL,
 		client:  &http.Client{Timeout: defaultCartesiaTimeout},
 		model:   CartesiaModelSonic,
+		pricing: cartesiaDefaultPricing,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -125,8 +135,10 @@ func (s *CartesiaService) ImplName() string { return "cartesia" }
 // ModelName returns the configured model name for cost tracking.
 func (s *CartesiaService) ModelName() string { return s.model }
 
-// Pricing returns the inline pricing descriptor for this implementation.
-func (s *CartesiaService) Pricing() *base.PricingDescriptor { return cartesiaDefaultPricing }
+// Pricing returns the pricing descriptor for this instance. Returns the
+// YAML-overridden value when WithCartesiaPricing was applied, otherwise the
+// compiled-in cartesiaDefaultPricing.
+func (s *CartesiaService) Pricing() *base.PricingDescriptor { return s.pricing }
 
 // cartesiaRequest is the request body for Cartesia TTS API.
 type cartesiaRequest struct {
@@ -232,7 +244,7 @@ type cartesiaWSResponse struct {
 // Returns error if processing fails or response contains an error.
 func (s *CartesiaService) processWSResponse(
 	resp *cartesiaWSResponse, index int,
-) (*AudioChunk, error) {
+) (*audio.Chunk, error) {
 	if resp.Error != "" {
 		return nil, NewSynthesisError("cartesia", "", resp.Error, nil, false)
 	}
@@ -246,7 +258,7 @@ func (s *CartesiaService) processWSResponse(
 		return nil, err
 	}
 
-	return &AudioChunk{
+	return &audio.Chunk{
 		Data:  audioData,
 		Index: index,
 		Final: resp.Done,

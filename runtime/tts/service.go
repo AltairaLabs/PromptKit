@@ -3,6 +3,8 @@ package tts
 import (
 	"context"
 	"io"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 // Common audio constants.
@@ -41,22 +43,7 @@ type StreamingService interface {
 	// SynthesizeStream converts text to audio with streaming output.
 	// Returns a channel that receives audio chunks as they're generated.
 	// The channel is closed when synthesis completes or an error occurs.
-	SynthesizeStream(ctx context.Context, text string, config SynthesisConfig) (<-chan AudioChunk, error)
-}
-
-// AudioChunk represents a chunk of synthesized audio data.
-type AudioChunk struct {
-	// Data is the raw audio bytes.
-	Data []byte
-
-	// Index is the chunk sequence number (0-indexed).
-	Index int
-
-	// Final indicates this is the last chunk.
-	Final bool
-
-	// Error is set if an error occurred during synthesis.
-	Error error
+	SynthesizeStream(ctx context.Context, text string, config SynthesisConfig) (<-chan audio.Chunk, error)
 }
 
 // SynthesisConfig configures text-to-speech synthesis.

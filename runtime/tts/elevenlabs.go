@@ -64,6 +64,7 @@ type ElevenLabsService struct {
 	baseURL string
 	client  *http.Client
 	model   string
+	pricing *base.PricingDescriptor
 }
 
 // ElevenLabsOption configures the ElevenLabs TTS service.
@@ -90,6 +91,13 @@ func WithElevenLabsModel(model string) ElevenLabsOption {
 	}
 }
 
+// WithElevenLabsPricing overrides the default pricing descriptor for this instance.
+func WithElevenLabsPricing(p *base.PricingDescriptor) ElevenLabsOption {
+	return func(s *ElevenLabsService) {
+		s.pricing = p
+	}
+}
+
 // NewElevenLabs creates an ElevenLabs TTS service.
 func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 	s := &ElevenLabsService{
@@ -97,6 +105,7 @@ func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 		baseURL: elevenLabsBaseURL,
 		client:  &http.Client{Timeout: defaultElevenLabsTimeout},
 		model:   ElevenLabsModelMultilingual,
+		pricing: elevenLabsDefaultPricing,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -115,8 +124,10 @@ func (s *ElevenLabsService) ImplName() string { return "elevenlabs" }
 // ModelName returns the configured model name for cost tracking.
 func (s *ElevenLabsService) ModelName() string { return s.model }
 
-// Pricing returns the inline pricing descriptor for this implementation.
-func (s *ElevenLabsService) Pricing() *base.PricingDescriptor { return elevenLabsDefaultPricing }
+// Pricing returns the pricing descriptor for this instance. Returns the
+// YAML-overridden value when WithElevenLabsPricing was applied, otherwise the
+// compiled-in elevenLabsDefaultPricing.
+func (s *ElevenLabsService) Pricing() *base.PricingDescriptor { return s.pricing }
 
 // elevenLabsRequest is the request body for ElevenLabs TTS API.
 type elevenLabsRequest struct {

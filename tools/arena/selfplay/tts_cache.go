@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
@@ -195,4 +196,104 @@ func writeCacheFile(path string, data []byte) error {
 // environment variable.
 func resolveTTSCacheDir() string {
 	return strings.TrimSpace(os.Getenv(envTTSCacheDir))
+}
+
+// --- base.Provider implementation for CachedTTSService ---
+
+// Type returns ProviderTypeTTS for CachedTTSService.
+func (c *CachedTTSService) Type() base.ProviderType { return base.ProviderTypeTTS }
+
+// Pricing proxies to the backend if it satisfies base.Provider; otherwise nil.
+func (c *CachedTTSService) Pricing() *base.PricingDescriptor {
+	if p, ok := c.backend.(base.Provider); ok {
+		return p.Pricing()
+	}
+	return nil
+}
+
+// Validate proxies to the backend if it satisfies base.Provider.
+func (c *CachedTTSService) Validate() error {
+	if p, ok := c.backend.(base.Provider); ok {
+		return p.Validate()
+	}
+	return nil
+}
+
+// Init proxies to the backend if it satisfies base.Provider.
+func (c *CachedTTSService) Init(ctx context.Context) error {
+	if p, ok := c.backend.(base.Provider); ok {
+		return p.Init(ctx)
+	}
+	return nil
+}
+
+// HealthCheck proxies to the backend if it satisfies base.Provider.
+func (c *CachedTTSService) HealthCheck(ctx context.Context) error {
+	if p, ok := c.backend.(base.Provider); ok {
+		return p.HealthCheck(ctx)
+	}
+	return nil
+}
+
+// Close proxies to the backend if it satisfies base.Provider.
+func (c *CachedTTSService) Close() error {
+	if p, ok := c.backend.(base.Provider); ok {
+		return p.Close()
+	}
+	return nil
+}
+
+// SynthesizeTTS implements base.TTSProvider. It serves cached bytes when
+// available (using the default PCM format key), otherwise delegates to the
+// backend's SynthesizeTTS. The returned stream is not itself cached.
+func (c *CachedTTSService) SynthesizeTTS(ctx context.Context, req base.TTSRequest) (base.TTSStream, error) {
+	// Use the disk cache if the format is deterministic (PCM default).
+	format := req.Format
+	if format == "" {
+		format = "pcm"
+	}
+	cacheFormat := tts.AudioFormat{Name: format, SampleRate: req.SampleRate}
+	key := cacheKey(c.backend.Name(), req.Voice, cacheFormat, req.Text)
+	path := filepath.Join(c.dir, key+cachedSynthesisExt)
+
+	if data, err := os.ReadFile(path); err == nil { //nolint:gosec // sandboxed cache path
+		logger.Debug("tts cache: hit (SynthesizeTTS)", "provider", c.backend.Name(), "key", key)
+		return newMockTTSStream(io.NopCloser(bytes.NewReader(data))), nil
+	}
+
+	// Cache miss — delegate to backend.
+	if bp, ok := c.backend.(base.TTSProvider); ok {
+		stream, err := bp.SynthesizeTTS(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		// Drain the stream, persist the bytes, then return a fresh stream.
+		// Cost from the original call is discarded — the cache hit path has no cost.
+		audioData, _, readErr := base.ReadAllAudio(stream)
+		if readErr != nil {
+			return nil, fmt.Errorf("tts cache: read backend stream: %w", readErr)
+		}
+		if writeErr := writeCacheFile(path, audioData); writeErr != nil {
+			logger.Warn("tts cache: write failed (SynthesizeTTS)", "path", path, "error", writeErr)
+		}
+		return newMockTTSStream(io.NopCloser(bytes.NewReader(audioData))), nil
+	}
+
+	// Backend does not satisfy base.TTSProvider — synthesize via legacy interface.
+	reader, err := c.backend.Synthesize(ctx, req.Text, tts.SynthesisConfig{
+		Voice:  req.Voice,
+		Format: tts.AudioFormat{Name: format},
+	})
+	if err != nil {
+		return nil, err
+	}
+	audioData, readErr := io.ReadAll(reader)
+	_ = reader.Close()
+	if readErr != nil {
+		return nil, fmt.Errorf("tts cache: read legacy stream: %w", readErr)
+	}
+	if writeErr := writeCacheFile(path, audioData); writeErr != nil {
+		logger.Warn("tts cache: write failed (SynthesizeTTS legacy)", "path", path, "error", writeErr)
+	}
+	return newMockTTSStream(io.NopCloser(bytes.NewReader(audioData))), nil
 }

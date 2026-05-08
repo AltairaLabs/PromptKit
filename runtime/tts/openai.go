@@ -12,6 +12,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
+// Compile-time checks: all three TTS service types must satisfy base.TTSProvider.
+var (
+	_ base.TTSProvider = (*OpenAIService)(nil)
+	_ base.TTSProvider = (*ElevenLabsService)(nil)
+	_ base.TTSProvider = (*CartesiaService)(nil)
+)
+
 const (
 	openAIBaseURL     = "https://api.openai.com/v1"
 	openAITTSEndpoint = "/audio/speech"
@@ -68,6 +75,7 @@ type OpenAIService struct {
 	baseURL string
 	client  *http.Client
 	model   string
+	pricing *base.PricingDescriptor
 }
 
 // OpenAIOption configures the OpenAI TTS service.
@@ -94,6 +102,14 @@ func WithOpenAIModel(model string) OpenAIOption {
 	}
 }
 
+// WithOpenAIPricing overrides the default pricing descriptor for this instance.
+// When set, Pricing() returns this value instead of openAIDefaultPricing.
+func WithOpenAIPricing(p *base.PricingDescriptor) OpenAIOption {
+	return func(s *OpenAIService) {
+		s.pricing = p
+	}
+}
+
 // NewOpenAI creates an OpenAI TTS service.
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 	s := &OpenAIService{
@@ -101,6 +117,7 @@ func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 		baseURL: openAIBaseURL,
 		client:  &http.Client{Timeout: defaultOpenAITimeout},
 		model:   ModelTTS1,
+		pricing: openAIDefaultPricing,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -119,8 +136,10 @@ func (s *OpenAIService) ImplName() string { return "openai" }
 // ModelName returns the configured model name for cost tracking.
 func (s *OpenAIService) ModelName() string { return s.model }
 
-// Pricing returns the inline pricing descriptor for this implementation.
-func (s *OpenAIService) Pricing() *base.PricingDescriptor { return openAIDefaultPricing }
+// Pricing returns the pricing descriptor for this instance. Returns the
+// YAML-overridden value when WithOpenAIPricing was applied, otherwise the
+// compiled-in openAIDefaultPricing.
+func (s *OpenAIService) Pricing() *base.PricingDescriptor { return s.pricing }
 
 // openAIRequest is the request body for OpenAI TTS API.
 type openAIRequest struct {
