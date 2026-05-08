@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 // closingProvider is a Provider that records Close invocations. The embedded
@@ -21,6 +23,15 @@ type closingProvider struct {
 
 func (p *closingProvider) ID() string   { return p.id }
 func (p *closingProvider) Close() error { p.closeN.Add(1); return nil }
+
+// Override the embedded interface's nil method receivers so the provider can
+// satisfy base.Provider without panicking when registered.
+func (p *closingProvider) Name() string                        { return p.id }
+func (p *closingProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (p *closingProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (p *closingProvider) Validate() error                     { return nil }
+func (p *closingProvider) Init(_ context.Context) error        { return nil }
+func (p *closingProvider) HealthCheck(_ context.Context) error { return nil }
 
 // TestSDK_ProviderPool_RegistersBothAgentAndSummarize pins the contract that
 // WithProvider and WithAutoSummarize both feed the same providers.Registry.
