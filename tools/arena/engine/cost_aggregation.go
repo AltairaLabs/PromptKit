@@ -8,13 +8,17 @@ import "github.com/AltairaLabs/PromptKit/runtime/types"
 // passes through JSON persistence between writer and reader.
 const selfPlayCostMetaKey = "self_play_cost"
 
+// ttsCostMetaKey is the Meta key under which TTS synthesis cost is recorded.
+// Set by stampTTSCostInMeta (duplex persona path) and by TTSStage.processElement
+// (pipeline path) after a successful Synthesize call.
+const ttsCostMetaKey = "tts_cost"
+
 // ancillaryCostMetaKeys lists every Message.Meta key that holds an
 // ancillary cost contribution to fold into the total. Ordered
-// alphabetically. Future ancillary providers (TTS, STT, embedding,
-// image_gen) add their key here when their migrations land.
+// alphabetically.
 var ancillaryCostMetaKeys = []string{
 	selfPlayCostMetaKey,
-	// Reserved for future migrations; harmless to keep the list short.
+	ttsCostMetaKey,
 }
 
 // addAncillaryCostFromMeta folds every recognized ancillary cost stored

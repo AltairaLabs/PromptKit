@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -1099,6 +1100,110 @@ func TestEmitter_ImageGenCallFailedCtx_NilData(t *testing.T) {
 	emitter.ImageGenCallFailedCtx(context.Background(), nil)
 }
 
+func TestEmitter_TTSCallCompletedCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-tts1", "session-tts1", "conv-tts1")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventTTSCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.TTSCallCompletedCtx(context.Background(), &TTSCallCompletedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "openai",
+			Model:      "tts-1",
+			Capability: "tts",
+			Source:     "pipeline",
+			Duration:   120 * time.Millisecond,
+			Cost:       0.0015,
+		},
+		Characters:   100,
+		AudioSeconds: 3.5,
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for tts.call.completed event")
+	}
+
+	data, ok := got.Data.(*TTSCallCompletedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Provider != "openai" {
+		t.Errorf("Provider = %q, want %q", data.Provider, "openai")
+	}
+	if data.Characters != 100 {
+		t.Errorf("Characters = %d, want 100", data.Characters)
+	}
+	if data.Cost != 0.0015 {
+		t.Errorf("Cost = %f, want 0.0015", data.Cost)
+	}
+}
+
+func TestEmitter_TTSCallFailedCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-tts2", "session-tts2", "conv-tts2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventTTSCallFailed, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.TTSCallFailedCtx(context.Background(), &TTSCallFailedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "openai",
+			Model:      "tts-1",
+			Capability: "tts",
+			Source:     "pipeline",
+			Duration:   30 * time.Millisecond,
+		},
+		Error: "rate limit exceeded",
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for tts.call.failed event")
+	}
+
+	data, ok := got.Data.(*TTSCallFailedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Error != "rate limit exceeded" {
+		t.Errorf("Error = %q, want %q", data.Error, "rate limit exceeded")
+	}
+}
+
+func TestEmitter_TTSCallCompletedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-tts3", "session-tts3", "conv-tts3")
+
+	// Should not panic when data is nil
+	emitter.TTSCallCompletedCtx(context.Background(), nil)
+}
+
+func TestEmitter_TTSCallFailedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-tts4", "session-tts4", "conv-tts4")
+
+	// Should not panic when data is nil
+	emitter.TTSCallFailedCtx(context.Background(), nil)
+}
+
 func TestEventBus_PublishStampsSequence(t *testing.T) {
 	t.Parallel()
 
@@ -1147,5 +1252,125 @@ func TestEventBus_PublishStampsSequence(t *testing.T) {
 			t.Fatalf("duplicate sequence: %d", s)
 		}
 		seen[s] = true
+	}
+}
+
+// TestEmitter_StageMethods provides coverage for the stage lifecycle emitter methods.
+func TestEmitter_StageMethods(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-stage", "session-stage", "conv-stage")
+
+	type stageTypeStr struct{}
+	// StageStarted (stageType without String())
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventStageStarted, func(e *Event) { wg.Done() })
+	emitter.StageStarted("my-stage", 0, stageTypeStr{})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for stage.started")
+	}
+
+	wg.Add(1)
+	bus.Subscribe(EventStageCompleted, func(e *Event) { wg.Done() })
+	emitter.StageCompleted("my-stage", 0, time.Millisecond)
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for stage.completed")
+	}
+
+	wg.Add(1)
+	bus.Subscribe(EventStageFailed, func(e *Event) { wg.Done() })
+	emitter.StageFailed("my-stage", 0, fmt.Errorf("fail"), time.Millisecond)
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for stage.failed")
+	}
+}
+
+// TestEmitter_EvalMethods provides coverage for the eval emitter methods.
+func TestEmitter_EvalMethods(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-eval", "session-eval", "conv-eval")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventEvalCompleted, func(e *Event) { wg.Done() })
+	emitter.EvalCompleted(&EvalCompletedData{EvalID: "e1", Passed: true})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for eval.completed")
+	}
+
+	wg.Add(1)
+	bus.Subscribe(EventEvalFailed, func(e *Event) { wg.Done() })
+	emitter.EvalFailed(&EvalFailedData{EvalID: "e2", Error: "crash"})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for eval.failed")
+	}
+}
+
+// TestEmitter_WorkflowAncillaryMethods provides coverage for the ancillary
+// workflow emitter methods not exercised by other tests.
+func TestEmitter_WorkflowAncillaryMethods(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-wf", "session-wf", "conv-wf")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventWorkflowMaxVisitsExceeded, func(e *Event) { wg.Done() })
+	emitter.WorkflowMaxVisitsExceeded(&WorkflowMaxVisitsExceededData{
+		FromState: "s1", OriginalTarget: "s2", MaxVisits: 3, VisitCount: 3,
+	})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for workflow.max_visits_exceeded")
+	}
+
+	wg.Add(1)
+	bus.Subscribe(EventWorkflowBudgetExhausted, func(e *Event) { wg.Done() })
+	emitter.WorkflowBudgetExhausted(&WorkflowBudgetExhaustedData{
+		Limit: "max_tool_calls", Current: 50, Max: 50, CurrentState: "s1",
+	})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for workflow.budget_exhausted")
+	}
+
+	wg.Add(1)
+	bus.Subscribe(EventContextCompacted, func(e *Event) { wg.Done() })
+	emitter.ContextCompacted(1, 1000, 400, 5, 2048)
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for context.compacted")
+	}
+}
+
+// TestEmitter_TemplateMethods provides coverage for the template emitter methods.
+func TestEmitter_TemplateMethods(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-tmpl", "session-tmpl", "conv-tmpl")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventTemplateStarted, func(e *Event) { wg.Done() })
+	emitter.TemplateStarted("chat", "Hello {{.name}}", 1, "")
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for prompt.template.started")
+	}
+
+	wg.Add(1)
+	bus.Subscribe(EventTemplateRendered, func(e *Event) { wg.Done() })
+	emitter.TemplateRendered(&TemplateRenderedData{TaskType: "chat", SystemPrompt: "Hello world"})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for prompt.template.rendered")
+	}
+
+	wg.Add(1)
+	bus.Subscribe(EventTemplateFailed, func(e *Event) { wg.Done() })
+	emitter.TemplateFailed("chat", "missing var", []string{"name"})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for prompt.template.failed")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/streaming"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 	"github.com/AltairaLabs/PromptKit/tools/arena/turnexecutors"
@@ -750,6 +751,7 @@ func (de *DuplexConversationExecutor) streamTextAsAudio(
 		return errors.New("streamTextAsAudio: self-play registry not configured (TTS service unavailable)")
 	}
 
+	ttsStart := time.Now()
 	stream, err := de.openTextSynthesisStream(ctx, text, ttsConfig)
 	if err != nil {
 		return fmt.Errorf("failed to open TTS stream: %w", err)
@@ -777,6 +779,12 @@ func (de *DuplexConversationExecutor) streamTextAsAudio(
 	if err != nil {
 		return fmt.Errorf("stream TTS to pipeline: %w", err)
 	}
+	ttsLatency := time.Since(ttsStart)
+
+	// Stamp TTS cost into turnMeta so it is carried through to the user
+	// message's Meta and picked up by the arena cost rollup under the
+	// ttsCostMetaKey key (mirrors the self_play_cost pattern).
+	stampTTSCostInMeta(de.selfPlayRegistry, ttsConfig, text, ttsLatency, turnMeta)
 
 	mirrorPath, err := mirror.finalize()
 	if err != nil {
@@ -1010,5 +1018,36 @@ func (de *DuplexConversationExecutor) sendUserMessage(
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// stampTTSCostInMeta writes the TTS cost for a synthesized turn into
+// turnMeta under ttsCostMetaKey. The value shape mirrors the self_play_cost
+// entry so addAncillaryCostFromMeta can fold it into the total without
+// special-casing.
+//
+// Errors are swallowed: a cost lookup failure must never abort the turn.
+func stampTTSCostInMeta(
+	registry *selfplay.Registry,
+	ttsConfig *config.TTSConfig,
+	text string,
+	latency time.Duration,
+	turnMeta map[string]any,
+) {
+	if registry == nil || ttsConfig == nil || turnMeta == nil {
+		return
+	}
+	gen, err := registry.GetTextSynthesisGenerator(ttsConfig)
+	if err != nil {
+		return
+	}
+	acg, ok := gen.(*selfplay.AudioContentGenerator)
+	if !ok {
+		return
+	}
+	svc := acg.GetTTSService()
+	costMeta := tts.CostInfoToMetaMap(tts.ComputeTTSCost(svc, text, latency))
+	if costMeta != nil {
+		turnMeta[ttsCostMetaKey] = costMeta
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 const (
@@ -41,7 +43,19 @@ const (
 	elevenLabsBitDepth16   = 16
 	elevenLabsSampleRate44 = 44100
 	elevenLabsSampleRate24 = 24000
+
+	// elevenLabsCharRatePerChar is the per-character rate for ElevenLabs TTS.
+	// Creator-tier: ~$180/1M chars (conservative hardcoded estimate).
+	elevenLabsCharRatePerChar = 180.0 / 1_000_000
 )
+
+// elevenLabsDefaultPricing is the inline pricing descriptor for ElevenLabs TTS.
+// Rate: Creator-tier ~$180/1M chars (hardcoded conservative estimate).
+var elevenLabsDefaultPricing = &base.PricingDescriptor{
+	Source:   base.PricingSourceInline,
+	Currency: "usd",
+	Items:    []base.PriceItem{{Unit: "character", Rate: elevenLabsCharRatePerChar}},
+}
 
 // ElevenLabsService implements TTS using ElevenLabs' API.
 // ElevenLabs specializes in high-quality voice cloning and natural-sounding speech.
@@ -94,6 +108,15 @@ func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 func (s *ElevenLabsService) Name() string {
 	return "elevenlabs"
 }
+
+// ImplName returns the implementation name for cost tracking.
+func (s *ElevenLabsService) ImplName() string { return "elevenlabs" }
+
+// ModelName returns the configured model name for cost tracking.
+func (s *ElevenLabsService) ModelName() string { return s.model }
+
+// Pricing returns the inline pricing descriptor for this implementation.
+func (s *ElevenLabsService) Pricing() *base.PricingDescriptor { return elevenLabsDefaultPricing }
 
 // elevenLabsRequest is the request body for ElevenLabs TTS API.
 type elevenLabsRequest struct {
