@@ -571,6 +571,9 @@ func (s *ArenaStateStore) cloneMessageCostInfo(cloned, msg *types.Message) {
 			cloned.CostInfo.DimensionMatch[k] = v
 		}
 	}
+	if len(msg.CostInfo.Breakdown) > 0 {
+		cloned.CostInfo.Breakdown = append([]types.CostLineItem(nil), msg.CostInfo.Breakdown...)
+	}
 }
 
 // cloneMessageMeta clones the Meta map

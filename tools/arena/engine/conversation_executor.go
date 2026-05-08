@@ -951,6 +951,80 @@ func (ce *DefaultConversationExecutor) aggregateMessageCost(totalCost, msgCost *
 	totalCost.OutputCostUSD += msgCost.OutputCostUSD
 	totalCost.CachedCostUSD += msgCost.CachedCostUSD
 	totalCost.TotalCost += msgCost.TotalCost
+
+	// Append per-line-item breakdown entries so the report can render
+	// per-(provider, capability, unit) detail without rederiving them.
+	totalCost.Breakdown = append(totalCost.Breakdown, breakdownItemsForMessage(msgCost)...)
+}
+
+// breakdownItemsForMessage converts a single message's CostInfo into the line
+// items it represents. Prefers Quantities (the unified path) when populated;
+// otherwise falls back to deriving items from the legacy token fields.
+func breakdownItemsForMessage(c *types.CostInfo) []types.CostLineItem {
+	if c == nil {
+		return nil
+	}
+	provider := c.ProviderName
+	capability := c.Capability
+
+	// Unified path: Quantities populated by the provider directly.
+	if len(c.Quantities) > 0 {
+		items := make([]types.CostLineItem, 0, len(c.Quantities))
+		// Single-quantity messages get the message's full TotalCost; for
+		// multi-quantity messages we have no per-unit USD without the
+		// provider's pricing items, so split the TotalCost across units
+		// proportional to quantity. Imagen is single-quantity ("image": 1).
+		var qtySum float64
+		for _, q := range c.Quantities {
+			qtySum += q
+		}
+		for unit, qty := range c.Quantities {
+			usd := 0.0
+			if qtySum > 0 {
+				usd = c.TotalCost * (qty / qtySum)
+			}
+			items = append(items, types.CostLineItem{
+				Provider:   provider,
+				Capability: capability,
+				Unit:       unit,
+				Quantity:   qty,
+				USD:        usd,
+				Dimensions: c.DimensionMatch,
+			})
+		}
+		return items
+	}
+
+	// Legacy path: derive items from token counters.
+	var items []types.CostLineItem
+	if c.InputTokens > 0 {
+		items = append(items, types.CostLineItem{
+			Provider:   provider,
+			Capability: capability,
+			Unit:       "input_token",
+			Quantity:   float64(c.InputTokens),
+			USD:        c.InputCostUSD,
+		})
+	}
+	if c.OutputTokens > 0 {
+		items = append(items, types.CostLineItem{
+			Provider:   provider,
+			Capability: capability,
+			Unit:       "output_token",
+			Quantity:   float64(c.OutputTokens),
+			USD:        c.OutputCostUSD,
+		})
+	}
+	if c.CachedTokens > 0 {
+		items = append(items, types.CostLineItem{
+			Provider:   provider,
+			Capability: capability,
+			Unit:       "cached_token",
+			Quantity:   float64(c.CachedTokens),
+			USD:        c.CachedCostUSD,
+		})
+	}
+	return items
 }
 
 // aggregateToolStats counts tool calls from the message

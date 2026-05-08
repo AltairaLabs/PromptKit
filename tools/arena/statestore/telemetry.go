@@ -40,19 +40,86 @@ func (s *ArenaStateStore) extractValidations(state *ArenaConversationState) []Va
 func (s *ArenaStateStore) computeTotalCost(state *ArenaConversationState) types.CostInfo {
 	var totalCost types.CostInfo
 
-	for _, msg := range state.Messages {
-		if msg.CostInfo != nil {
-			totalCost.InputTokens += msg.CostInfo.InputTokens
-			totalCost.OutputTokens += msg.CostInfo.OutputTokens
-			totalCost.CachedTokens += msg.CostInfo.CachedTokens
-			totalCost.InputCostUSD += msg.CostInfo.InputCostUSD
-			totalCost.OutputCostUSD += msg.CostInfo.OutputCostUSD
-			totalCost.CachedCostUSD += msg.CostInfo.CachedCostUSD
-			totalCost.TotalCost += msg.CostInfo.TotalCost
+	for i := range state.Messages {
+		msg := &state.Messages[i]
+		if msg.CostInfo == nil {
+			continue
 		}
+		totalCost.InputTokens += msg.CostInfo.InputTokens
+		totalCost.OutputTokens += msg.CostInfo.OutputTokens
+		totalCost.CachedTokens += msg.CostInfo.CachedTokens
+		totalCost.InputCostUSD += msg.CostInfo.InputCostUSD
+		totalCost.OutputCostUSD += msg.CostInfo.OutputCostUSD
+		totalCost.CachedCostUSD += msg.CostInfo.CachedCostUSD
+		totalCost.TotalCost += msg.CostInfo.TotalCost
+		totalCost.Breakdown = append(totalCost.Breakdown, breakdownItemsForMessage(msg.CostInfo)...)
 	}
 
 	return totalCost
+}
+
+// breakdownItemsForMessage converts a single message's CostInfo into the line
+// items it represents. Prefers Quantities (the unified path) when populated;
+// otherwise falls back to deriving items from the legacy token fields.
+func breakdownItemsForMessage(c *types.CostInfo) []types.CostLineItem {
+	if c == nil {
+		return nil
+	}
+	provider := c.ProviderName
+	capability := c.Capability
+
+	if len(c.Quantities) > 0 {
+		items := make([]types.CostLineItem, 0, len(c.Quantities))
+		var qtySum float64
+		for _, q := range c.Quantities {
+			qtySum += q
+		}
+		for unit, qty := range c.Quantities {
+			usd := 0.0
+			if qtySum > 0 {
+				usd = c.TotalCost * (qty / qtySum)
+			}
+			items = append(items, types.CostLineItem{
+				Provider:   provider,
+				Capability: capability,
+				Unit:       unit,
+				Quantity:   qty,
+				USD:        usd,
+				Dimensions: c.DimensionMatch,
+			})
+		}
+		return items
+	}
+
+	var items []types.CostLineItem
+	if c.InputTokens > 0 {
+		items = append(items, types.CostLineItem{
+			Provider:   provider,
+			Capability: capability,
+			Unit:       "input_token",
+			Quantity:   float64(c.InputTokens),
+			USD:        c.InputCostUSD,
+		})
+	}
+	if c.OutputTokens > 0 {
+		items = append(items, types.CostLineItem{
+			Provider:   provider,
+			Capability: capability,
+			Unit:       "output_token",
+			Quantity:   float64(c.OutputTokens),
+			USD:        c.OutputCostUSD,
+		})
+	}
+	if c.CachedTokens > 0 {
+		items = append(items, types.CostLineItem{
+			Provider:   provider,
+			Capability: capability,
+			Unit:       "cached_token",
+			Quantity:   float64(c.CachedTokens),
+			USD:        c.CachedCostUSD,
+		})
+	}
+	return items
 }
 
 // computeToolStats aggregates tool usage from all messages

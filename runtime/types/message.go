@@ -130,6 +130,25 @@ type CostInfo struct {
 	ProviderName   string             `json:"provider_name,omitempty"`   // Provider that produced this cost entry
 	Capability     string             `json:"capability,omitempty"`      // ProviderType as string for JSON portability
 	Latency        time.Duration      `json:"latency_ns,omitempty"`      // Time taken by the provider call
+
+	// Breakdown is a per-line-item view of the cost. On a per-message
+	// CostInfo it is left nil; on the aggregated rollup it is populated
+	// from every contributing message so the report can show per-(provider,
+	// capability, unit) detail. Aggregators are free to group or de-dup
+	// further; the runtime appends without aggregation.
+	Breakdown []CostLineItem `json:"breakdown,omitempty"`
+}
+
+// CostLineItem is one row of a cost breakdown, suitable for surfacing in
+// reports. Carries provider + capability tags so consumers can group across
+// the conversation without re-deriving them.
+type CostLineItem struct {
+	Provider   string            `json:"provider,omitempty"`
+	Capability string            `json:"capability,omitempty"`
+	Unit       string            `json:"unit"`
+	Quantity   float64           `json:"quantity"`
+	USD        float64           `json:"usd"`
+	Dimensions map[string]string `json:"dimensions,omitempty"`
 }
 
 // ToolStats tracks tool usage statistics across a conversation or run.
