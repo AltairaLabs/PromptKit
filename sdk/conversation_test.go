@@ -940,7 +940,7 @@ func (m *convMockTTSService) SupportedFormats() []tts.AudioFormat {
 // convMockStreamingTTSService implements tts.StreamingService for testing
 type convMockStreamingTTSService struct {
 	convMockTTSService
-	streamChunks []tts.AudioChunk
+	streamChunks []audio.Chunk
 	streamErr    error
 }
 
@@ -950,18 +950,18 @@ func newConvMockStreamingTTSService() *convMockStreamingTTSService {
 			synthData: []byte("audio-data"),
 			name:      "mock-streaming-tts",
 		},
-		streamChunks: []tts.AudioChunk{
+		streamChunks: []audio.Chunk{
 			{Data: []byte("chunk1"), Index: 0},
 			{Data: []byte("chunk2"), Index: 1, Final: true},
 		},
 	}
 }
 
-func (m *convMockStreamingTTSService) SynthesizeStream(_ context.Context, _ string, _ tts.SynthesisConfig) (<-chan tts.AudioChunk, error) {
+func (m *convMockStreamingTTSService) SynthesizeStream(_ context.Context, _ string, _ tts.SynthesisConfig) (<-chan audio.Chunk, error) {
 	if m.streamErr != nil {
 		return nil, m.streamErr
 	}
-	ch := make(chan tts.AudioChunk, len(m.streamChunks))
+	ch := make(chan audio.Chunk, len(m.streamChunks))
 	for _, chunk := range m.streamChunks {
 		ch <- chunk
 	}

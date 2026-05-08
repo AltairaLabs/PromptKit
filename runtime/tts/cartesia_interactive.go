@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 // SynthesizeStream converts text to audio with streaming output via WebSocket.
@@ -17,7 +19,7 @@ import (
 //nolint:gocritic // hugeParam: SynthesisConfig passed by value to satisfy StreamingService interface
 func (s *CartesiaService) SynthesizeStream(
 	ctx context.Context, text string, config SynthesisConfig,
-) (<-chan AudioChunk, error) {
+) (<-chan audio.Chunk, error) {
 	if text == "" {
 		return nil, ErrEmptyText
 	}
@@ -66,7 +68,7 @@ func (s *CartesiaService) SynthesizeStream(
 	}
 
 	// Create output channel
-	chunks := make(chan AudioChunk, streamChannelBuffer)
+	chunks := make(chan audio.Chunk, streamChannelBuffer)
 
 	// Start goroutine to read responses
 	go s.readStreamResponses(ctx, conn, chunks)
@@ -80,7 +82,7 @@ func (s *CartesiaService) SynthesizeStream(
 // connection. Sets a read deadline on each iteration so a silent
 // server doesn't block forever.
 func (s *CartesiaService) readStreamResponses(
-	ctx context.Context, conn *websocket.Conn, chunks chan<- AudioChunk,
+	ctx context.Context, conn *websocket.Conn, chunks chan<- audio.Chunk,
 ) {
 	defer close(chunks)
 	defer conn.Close()
@@ -98,7 +100,7 @@ func (s *CartesiaService) readStreamResponses(
 
 	for {
 		if ctx.Err() != nil {
-			chunks <- AudioChunk{Error: ctx.Err()}
+			chunks <- audio.Chunk{Error: ctx.Err()}
 			return
 		}
 
@@ -113,7 +115,7 @@ func (s *CartesiaService) readStreamResponses(
 				return
 			}
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-				chunks <- AudioChunk{Error: NewSynthesisError(
+				chunks <- audio.Chunk{Error: NewSynthesisError(
 					"cartesia", "", "websocket read failed", err, true,
 				)}
 			}
@@ -122,7 +124,7 @@ func (s *CartesiaService) readStreamResponses(
 
 		chunk, err := s.processWSResponse(&resp, index)
 		if err != nil {
-			chunks <- AudioChunk{Error: err}
+			chunks <- audio.Chunk{Error: err}
 			return
 		}
 

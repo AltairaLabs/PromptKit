@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
@@ -232,7 +233,7 @@ type cartesiaWSResponse struct {
 // Returns error if processing fails or response contains an error.
 func (s *CartesiaService) processWSResponse(
 	resp *cartesiaWSResponse, index int,
-) (*AudioChunk, error) {
+) (*audio.Chunk, error) {
 	if resp.Error != "" {
 		return nil, NewSynthesisError("cartesia", "", resp.Error, nil, false)
 	}
@@ -246,7 +247,7 @@ func (s *CartesiaService) processWSResponse(
 		return nil, err
 	}
 
-	return &AudioChunk{
+	return &audio.Chunk{
 		Data:  audioData,
 		Index: index,
 		Final: resp.Done,

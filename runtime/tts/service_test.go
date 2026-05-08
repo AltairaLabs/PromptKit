@@ -2,6 +2,8 @@ package tts
 
 import (
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 )
 
 func TestAudioFormat_String(t *testing.T) {
@@ -88,7 +90,7 @@ func TestAudioFormat_Fields(t *testing.T) {
 }
 
 func TestAudioChunk(t *testing.T) {
-	chunk := AudioChunk{
+	chunk := audio.Chunk{
 		Data:  []byte{0x00, 0x01, 0x02},
 		Index: 5,
 		Final: true,
