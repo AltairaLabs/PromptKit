@@ -2,6 +2,8 @@ package stt
 
 import (
 	"context"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 const (
@@ -19,13 +21,15 @@ const (
 // Service transcribes audio to text.
 // This interface abstracts different STT providers (OpenAI Whisper, Google, etc.)
 // enabling voice AI applications to use any provider interchangeably.
+//
+// Service extends base.STTProvider so the STT stage and retry layer work with
+// any implementation without requiring a double type-assertion.
 type Service interface {
-	// Name returns the provider identifier (for logging/debugging).
-	Name() string
+	base.STTProvider
 
-	// Transcribe converts audio to text.
-	// Returns the transcribed text or an error if transcription fails.
-	Transcribe(ctx context.Context, audio []byte, config TranscriptionConfig) (string, error)
+	// TranscribeBytes converts raw audio bytes to text using the given config.
+	// The returned string is the transcribed text, or an error if transcription fails.
+	TranscribeBytes(ctx context.Context, audio []byte, config TranscriptionConfig) (string, error)
 
 	// SupportedFormats returns supported audio input formats.
 	// Common values: "pcm", "wav", "mp3", "m4a", "webm"
