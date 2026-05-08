@@ -2,7 +2,6 @@ package stt
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -92,17 +91,5 @@ func APIKeyFromCredential(c credentials.Credential) string {
 //
 //nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
 func PricingFromSpec(spec ProviderSpec) *base.PricingDescriptor {
-	raw, ok := spec.AdditionalConfig["pricing"]
-	if !ok || raw == nil {
-		return nil
-	}
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return nil
-	}
-	var desc base.PricingDescriptor
-	if err := json.Unmarshal(data, &desc); err != nil {
-		return nil
-	}
-	return &desc
+	return base.PricingFromAdditionalConfig(spec.AdditionalConfig)
 }

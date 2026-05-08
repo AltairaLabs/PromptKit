@@ -1,6 +1,7 @@
 package base
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -95,6 +96,29 @@ func copyMap(m map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// PricingFromAdditionalConfig extracts a *PricingDescriptor from a provider
+// spec's AdditionalConfig map (under the "pricing" key) by JSON-round-tripping
+// the value into the typed descriptor. Returns nil when the key is absent or
+// the value can't be coerced — callers fall back to package-level defaults.
+//
+// Used by the TTS and STT factories that translate pkg/config provider specs
+// into runtime services.
+func PricingFromAdditionalConfig(additional map[string]any) *PricingDescriptor {
+	raw, ok := additional["pricing"]
+	if !ok || raw == nil {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var desc PricingDescriptor
+	if err := json.Unmarshal(data, &desc); err != nil {
+		return nil
+	}
+	return &desc
 }
 
 // MakeCostInfo builds a *types.CostInfo from raw quantities and runs

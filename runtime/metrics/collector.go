@@ -25,8 +25,10 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -683,35 +685,70 @@ func (mc *MetricContext) handleValidationFailed(event *events.Event) {
 	).Inc()
 }
 
+// observeAncillaryCallCompleted records the universal three observations
+// every ancillary capability success path emits: request-duration histogram,
+// total-requests counter (status=success), and total-cost counter. Per-unit
+// counters (characters, audio seconds, images) stay in the type-specific
+// handlers since they vary per capability.
+func (mc *MetricContext) observeAncillaryCallCompleted(
+	duration *prometheus.HistogramVec,
+	requests *prometheus.CounterVec,
+	costTotal *prometheus.CounterVec,
+	provider, model, source string,
+	callDuration time.Duration,
+	cost float64,
+	spanCtx trace.SpanContext,
+) {
+	exemplar := traceExemplar(spanCtx)
+	observeWithExemplar(
+		duration.WithLabelValues(mc.labelValues(provider, model, source)...),
+		callDuration.Seconds(),
+		exemplar,
+	)
+	incWithExemplar(
+		requests.WithLabelValues(mc.labelValues(provider, model, source, statusSuccess)...),
+		exemplar,
+	)
+	costTotal.WithLabelValues(mc.labelValues(provider, model, source)...).Add(cost)
+}
+
+// observeAncillaryCallFailed records the failure-path observations: duration
+// histogram + total-requests counter (status=error). No cost is recorded on
+// failures by convention.
+func (mc *MetricContext) observeAncillaryCallFailed(
+	duration *prometheus.HistogramVec,
+	requests *prometheus.CounterVec,
+	provider, model, source string,
+	callDuration time.Duration,
+	spanCtx trace.SpanContext,
+) {
+	exemplar := traceExemplar(spanCtx)
+	observeWithExemplar(
+		duration.WithLabelValues(mc.labelValues(provider, model, source)...),
+		callDuration.Seconds(),
+		exemplar,
+	)
+	incWithExemplar(
+		requests.WithLabelValues(mc.labelValues(provider, model, source, statusError)...),
+		exemplar,
+	)
+}
+
 func (mc *MetricContext) handleImageGenCallCompleted(event *events.Event) {
 	data, ok := event.Data.(*events.ImageGenCallCompletedData)
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.SpanContext)
-
-	observeWithExemplar(
-		mc.collector.imageGenRequestDuration.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		),
-		data.Duration.Seconds(),
-		exemplar,
+	mc.observeAncillaryCallCompleted(
+		mc.collector.imageGenRequestDuration,
+		mc.collector.imageGenRequestsTotal,
+		mc.collector.imageGenCostTotal,
+		data.Provider, data.Model, data.Source,
+		data.Duration, data.Cost, event.SpanContext,
 	)
-
-	incWithExemplar(
-		mc.collector.imageGenRequestsTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
-		),
-		exemplar,
-	)
-
 	mc.collector.imageGenImagesTotal.WithLabelValues(
 		mc.labelValues(data.Provider, data.Model, data.Source)...,
 	).Add(float64(data.Images))
-
-	mc.collector.imageGenCostTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source)...,
-	).Add(data.Cost)
 }
 
 func (mc *MetricContext) handleImageGenCallFailed(event *events.Event) {
@@ -719,21 +756,11 @@ func (mc *MetricContext) handleImageGenCallFailed(event *events.Event) {
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.SpanContext)
-
-	observeWithExemplar(
-		mc.collector.imageGenRequestDuration.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		),
-		data.Duration.Seconds(),
-		exemplar,
-	)
-
-	incWithExemplar(
-		mc.collector.imageGenRequestsTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
-		),
-		exemplar,
+	mc.observeAncillaryCallFailed(
+		mc.collector.imageGenRequestDuration,
+		mc.collector.imageGenRequestsTotal,
+		data.Provider, data.Model, data.Source,
+		data.Duration, event.SpanContext,
 	)
 }
 
@@ -742,34 +769,16 @@ func (mc *MetricContext) handleTTSCallCompleted(event *events.Event) {
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.SpanContext)
-
-	observeWithExemplar(
-		mc.collector.ttsRequestDuration.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		),
-		data.Duration.Seconds(),
-		exemplar,
+	mc.observeAncillaryCallCompleted(
+		mc.collector.ttsRequestDuration,
+		mc.collector.ttsRequestsTotal,
+		mc.collector.ttsCostTotal,
+		data.Provider, data.Model, data.Source,
+		data.Duration, data.Cost, event.SpanContext,
 	)
-
-	incWithExemplar(
-		mc.collector.ttsRequestsTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
-		),
-		exemplar,
-	)
-
-	mc.collector.ttsCharactersTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source)...,
-	).Add(float64(data.Characters))
-
-	mc.collector.ttsAudioSecondsTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source)...,
-	).Add(data.AudioSeconds)
-
-	mc.collector.ttsCostTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source)...,
-	).Add(data.Cost)
+	labels := mc.labelValues(data.Provider, data.Model, data.Source)
+	mc.collector.ttsCharactersTotal.WithLabelValues(labels...).Add(float64(data.Characters))
+	mc.collector.ttsAudioSecondsTotal.WithLabelValues(labels...).Add(data.AudioSeconds)
 }
 
 func (mc *MetricContext) handleTTSCallFailed(event *events.Event) {
@@ -777,21 +786,11 @@ func (mc *MetricContext) handleTTSCallFailed(event *events.Event) {
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.SpanContext)
-
-	observeWithExemplar(
-		mc.collector.ttsRequestDuration.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		),
-		data.Duration.Seconds(),
-		exemplar,
-	)
-
-	incWithExemplar(
-		mc.collector.ttsRequestsTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
-		),
-		exemplar,
+	mc.observeAncillaryCallFailed(
+		mc.collector.ttsRequestDuration,
+		mc.collector.ttsRequestsTotal,
+		data.Provider, data.Model, data.Source,
+		data.Duration, event.SpanContext,
 	)
 }
 
@@ -800,30 +799,16 @@ func (mc *MetricContext) handleSTTCallCompleted(event *events.Event) {
 	if !ok {
 		return
 	}
-	exemplar := traceExemplar(event.SpanContext)
-
-	observeWithExemplar(
-		mc.collector.sttRequestDuration.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source)...,
-		),
-		data.Duration.Seconds(),
-		exemplar,
+	mc.observeAncillaryCallCompleted(
+		mc.collector.sttRequestDuration,
+		mc.collector.sttRequestsTotal,
+		mc.collector.sttCostTotal,
+		data.Provider, data.Model, data.Source,
+		data.Duration, data.Cost, event.SpanContext,
 	)
-
-	incWithExemplar(
-		mc.collector.sttRequestsTotal.WithLabelValues(
-			mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
-		),
-		exemplar,
-	)
-
 	mc.collector.sttAudioSecondsTotal.WithLabelValues(
 		mc.labelValues(data.Provider, data.Model, data.Source)...,
 	).Add(data.AudioSeconds)
-
-	mc.collector.sttCostTotal.WithLabelValues(
-		mc.labelValues(data.Provider, data.Model, data.Source)...,
-	).Add(data.Cost)
 }
 
 func (mc *MetricContext) handleSTTCallFailed(event *events.Event) {
