@@ -733,8 +733,17 @@ func (noopTTS) SupportedFormats() []tts.AudioFormat { return nil }
 
 type noopSTT struct{}
 
-func (noopSTT) Name() string { return "noop" }
-func (noopSTT) Transcribe(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
+func (noopSTT) Name() string                        { return "noop" }
+func (noopSTT) Type() base.ProviderType             { return base.ProviderTypeSTT }
+func (noopSTT) Pricing() *base.PricingDescriptor    { return nil }
+func (noopSTT) Validate() error                     { return nil }
+func (noopSTT) Init(_ context.Context) error        { return nil }
+func (noopSTT) HealthCheck(_ context.Context) error { return nil }
+func (noopSTT) Close() error                        { return nil }
+func (noopSTT) Transcribe(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+	return base.STTResponse{}, nil
+}
+func (noopSTT) TranscribeBytes(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
 	return "", nil
 }
 func (noopSTT) SupportedFormats() []string { return nil }

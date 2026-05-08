@@ -1023,8 +1023,17 @@ func (m *convMockTurnDetector) Reset() {}
 // convMockSTTService implements stt.Service for testing
 type convMockSTTService struct{}
 
-func (m *convMockSTTService) Name() string { return "mock-stt" }
-func (m *convMockSTTService) Transcribe(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
+func (m *convMockSTTService) Name() string                        { return "mock-stt" }
+func (m *convMockSTTService) Type() base.ProviderType             { return base.ProviderTypeSTT }
+func (m *convMockSTTService) Pricing() *base.PricingDescriptor    { return nil }
+func (m *convMockSTTService) Validate() error                     { return nil }
+func (m *convMockSTTService) Init(_ context.Context) error        { return nil }
+func (m *convMockSTTService) HealthCheck(_ context.Context) error { return nil }
+func (m *convMockSTTService) Close() error                        { return nil }
+func (m *convMockSTTService) Transcribe(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+	return base.STTResponse{Text: "hello"}, nil
+}
+func (m *convMockSTTService) TranscribeBytes(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
 	return "hello", nil
 }
 func (m *convMockSTTService) SupportedFormats() []string { return []string{"pcm"} }

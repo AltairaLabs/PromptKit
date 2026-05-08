@@ -3,11 +3,13 @@ package stage
 import (
 	"context"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
@@ -413,12 +415,15 @@ func DefaultSTTStageConfig() STTStageConfig {
 // This is a Transform stage: audio element → text element (1:1)
 type STTStage struct {
 	BaseStage
-	service stt.Service
+	service base.STTProvider
 	config  STTStageConfig
 }
 
 // NewSTTStage creates a new STT stage.
-func NewSTTStage(service stt.Service, config STTStageConfig) *STTStage {
+// The service parameter accepts any base.STTProvider implementation.
+// The legacy stt.Service interface embeds base.STTProvider, so existing callers
+// that pass an stt.Service remain compatible without changes.
+func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage {
 	return &STTStage{
 		BaseStage: NewBaseStage("stt", StageTypeTransform),
 		service:   service,
@@ -452,13 +457,19 @@ func (s *STTStage) Process(
 			continue
 		}
 
+		// Build the base.STTRequest from the audio element.
+		req := base.STTRequest{
+			Audio:    elem.Audio.Samples,
+			MIMEType: "audio/pcm",
+			Hints: map[string]string{
+				"sample_rate": itoa(elem.Audio.SampleRate),
+				"channels":    itoa(elem.Audio.Channels),
+				"language":    s.config.Language,
+			},
+		}
+
 		// Transcribe (with retry on transient errors)
-		text, err := stt.TranscribeWithRetry(ctx, s.service, elem.Audio.Samples, stt.TranscriptionConfig{
-			Format:     stt.FormatPCM,
-			SampleRate: elem.Audio.SampleRate,
-			Channels:   elem.Audio.Channels,
-			Language:   s.config.Language,
-		}, s.config.Retry)
+		sttResp, err := stt.TranscribeWithRetry(ctx, s.service, req, s.config.Retry)
 		if err != nil {
 			logger.Error("STTStage: transcription failed", "error", err)
 			elem.Error = err
@@ -471,7 +482,7 @@ func (s *STTStage) Process(
 		}
 
 		// Skip empty transcriptions
-		text = strings.TrimSpace(text)
+		text := strings.TrimSpace(sttResp.Text)
 		if text == "" {
 			logger.Debug("STTStage: empty transcription, skipping")
 			continue
@@ -486,6 +497,15 @@ func (s *STTStage) Process(
 			Meta:      elem.Meta,
 		}
 
+		// Stamp STT cost onto a message element when present.
+		// The arena's cost rollup reads Message.Meta["stt_cost"] via ancillaryMetaCostKeys.
+		if outElem.Message != nil && sttResp.Cost != nil {
+			if outElem.Message.Meta == nil {
+				outElem.Message.Meta = make(map[string]interface{})
+			}
+			outElem.Message.Meta[sttCostMetaKey] = stt.CostInfoToMetaMap(sttResp.Cost)
+		}
+
 		select {
 		case output <- outElem:
 		case <-ctx.Done():
@@ -494,6 +514,19 @@ func (s *STTStage) Process(
 	}
 
 	return nil
+}
+
+// sttCostMetaKey is the Message.Meta key for STT ancillary cost.
+// Mirrors the constant in tools/arena/engine/cost_aggregation.go.
+const sttCostMetaKey = "stt_cost"
+
+// itoa converts an int to its decimal string representation.
+// Inlined here to avoid importing strconv in a hot path.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	return strconv.Itoa(n)
 }
 
 // TTSStageWithInterruptionConfig configures TTSStageWithInterruption.

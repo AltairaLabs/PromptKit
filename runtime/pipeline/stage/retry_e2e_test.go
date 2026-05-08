@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
@@ -120,12 +121,12 @@ func TestSTTStage_RetryOnTransientFailure(t *testing.T) {
 
 	var calls atomic.Int32
 	svc := &mockSTTService{
-		transcribeFunc: func(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
 			n := calls.Add(1)
 			if n <= 2 {
-				return "", stt.NewTranscriptionError("mock-stt", "503", "service unavailable", nil, true)
+				return base.STTResponse{}, stt.NewTranscriptionError("mock-stt", "503", "service unavailable", nil, true)
 			}
-			return "Hello world", nil
+			return base.STTResponse{Text: "Hello world"}, nil
 		},
 	}
 

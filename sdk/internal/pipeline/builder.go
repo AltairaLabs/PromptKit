@@ -14,9 +14,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/variables"
@@ -133,7 +133,7 @@ type Config struct {
 	VADConfig *stage.AudioTurnConfig
 
 	// STTService for speech-to-text in VAD mode
-	STTService stt.Service
+	STTService base.STTProvider
 
 	// STTConfig configures the STTStage
 	STTConfig *stage.STTStageConfig
