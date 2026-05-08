@@ -13,6 +13,9 @@ func init() {
 		if v, ok := spec.AdditionalConfig["ws_url"].(string); ok && v != "" {
 			opts = append(opts, WithCartesiaWSURL(v))
 		}
+		if p := PricingFromSpec(spec); p != nil {
+			opts = append(opts, WithCartesiaPricing(p))
+		}
 		return NewCartesia(APIKeyFromCredential(spec.Credential), opts...), nil
 	})
 }

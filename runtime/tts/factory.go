@@ -2,10 +2,12 @@ package tts
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 // ProviderSpec is the runtime form of a TTS-provider declaration,
@@ -86,4 +88,27 @@ func APIKeyFromCredential(c credentials.Credential) string {
 		return k.APIKey()
 	}
 	return ""
+}
+
+// PricingFromSpec extracts an optional pricing override from spec.AdditionalConfig.
+// When AdditionalConfig contains a "pricing" key with a map value, it is
+// JSON-round-tripped into a *base.PricingDescriptor and returned. If the key
+// is absent or the value cannot be decoded, nil is returned so callers can
+// fall back to the provider's compiled-in default.
+//
+//nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
+func PricingFromSpec(spec ProviderSpec) *base.PricingDescriptor {
+	raw, ok := spec.AdditionalConfig["pricing"]
+	if !ok || raw == nil {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var desc base.PricingDescriptor
+	if err := json.Unmarshal(data, &desc); err != nil {
+		return nil
+	}
+	return &desc
 }
