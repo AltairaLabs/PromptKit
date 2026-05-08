@@ -13,6 +13,7 @@ import (
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
@@ -942,3 +943,13 @@ type rtcMockProvider struct{ providers.Provider }
 // ID overrides the embedded interface's nil method so the provider can
 // be safely registered into a providers.Registry, which keys by ID().
 func (m *rtcMockProvider) ID() string { return "rtc-mock" }
+
+// The methods below override the embedded interface's nil method receivers
+// so the provider can satisfy base.Provider without panicking when registered.
+func (m *rtcMockProvider) Name() string                        { return "rtc-mock" }
+func (m *rtcMockProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *rtcMockProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *rtcMockProvider) Validate() error                     { return nil }
+func (m *rtcMockProvider) Init(_ context.Context) error        { return nil }
+func (m *rtcMockProvider) HealthCheck(_ context.Context) error { return nil }
+func (m *rtcMockProvider) Close() error                        { return nil }
