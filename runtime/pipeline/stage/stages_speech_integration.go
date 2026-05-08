@@ -503,7 +503,7 @@ func (s *STTStage) Process(
 			if outElem.Message.Meta == nil {
 				outElem.Message.Meta = make(map[string]interface{})
 			}
-			outElem.Message.Meta[sttCostMetaKey] = stt.CostInfoToMetaMap(sttResp.Cost)
+			outElem.Message.Meta[sttCostMetaKey] = base.CostInfoToMetaMap(sttResp.Cost)
 		}
 
 		select {

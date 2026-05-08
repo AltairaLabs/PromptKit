@@ -95,3 +95,29 @@ func copyMap(m map[string]string) map[string]string {
 	}
 	return out
 }
+
+// CostInfoToMetaMap serializes a CostInfo into the map[string]any shape
+// the arena statestore expects when reading ancillary cost from
+// Message.Meta keys (tts_cost, stt_cost, etc.). The keys and types must
+// match what tools/arena/statestore/telemetry.go's costInfoFromMeta reads.
+func CostInfoToMetaMap(ci *types.CostInfo) map[string]any {
+	if ci == nil {
+		return nil
+	}
+	m := map[string]any{
+		"total_cost_usd":  ci.TotalCost,
+		"input_cost_usd":  ci.InputCostUSD,
+		"output_cost_usd": ci.OutputCostUSD,
+		"input_tokens":    ci.InputTokens,
+		"output_tokens":   ci.OutputTokens,
+		"capability":      ci.Capability,
+		"provider_name":   ci.ProviderName,
+	}
+	if len(ci.Quantities) > 0 {
+		m["quantities"] = ci.Quantities
+	}
+	if len(ci.DimensionMatch) > 0 {
+		m["dimension_match"] = ci.DimensionMatch
+	}
+	return m
+}
