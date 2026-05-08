@@ -2,6 +2,7 @@ package base
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -94,6 +95,34 @@ func copyMap(m map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// MakeCostInfo builds a *types.CostInfo from raw quantities and runs
+// ComputeCost against the supplied descriptor to fill TotalCost. Returns
+// the CostInfo with quantities and identity tags populated even if pricing
+// is nil or doesn't match — callers can decide whether to drop a nil-cost
+// entry. This is the shared cost-construction path for ancillary providers
+// (TTS, STT, image gen) that report a single-quantity unit at call time.
+func MakeCostInfo(
+	desc *PricingDescriptor,
+	providerName string,
+	capability ProviderType,
+	quantities map[string]float64,
+	latency time.Duration,
+) *types.CostInfo {
+	info := &types.CostInfo{
+		Quantities:   quantities,
+		ProviderName: providerName,
+		Capability:   string(capability),
+		Latency:      latency,
+	}
+	if desc == nil {
+		return info
+	}
+	if usd, _, err := ComputeCost(desc, info); err == nil {
+		info.TotalCost = usd
+	}
+	return info
 }
 
 // CostInfoToMetaMap serializes a CostInfo into the map[string]any shape

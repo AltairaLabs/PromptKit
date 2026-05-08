@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
-	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // Compile-time check: OpenAIService must satisfy base.STTProvider and Service.
@@ -174,16 +173,13 @@ func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (ba
 	}
 
 	if s.pricing != nil && audioSeconds > 0 {
-		info := &types.CostInfo{
-			Quantities:   map[string]float64{"second": audioSeconds},
-			ProviderName: s.Name(),
-			Capability:   string(base.ProviderTypeSTT),
-			Latency:      latency,
-		}
-		if usd, _, costErr := base.ComputeCost(s.pricing, info); costErr == nil {
-			info.TotalCost = usd
-		}
-		resp.Cost = info
+		resp.Cost = base.MakeCostInfo(
+			s.pricing,
+			s.Name(),
+			base.ProviderTypeSTT,
+			map[string]float64{"second": audioSeconds},
+			latency,
+		)
 	}
 
 	return resp, nil

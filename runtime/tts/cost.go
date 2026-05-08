@@ -38,22 +38,13 @@ func ComputeTTSCost(svc any, text string, latency time.Duration) *types.CostInfo
 		return nil // free/local provider — no pricing configured
 	}
 	charCount := utf8.RuneCountInString(text)
-
-	info := &types.CostInfo{
-		Quantities:   map[string]float64{"character": float64(charCount)},
-		ProviderName: p.ImplName(),
-		Capability:   string(base.ProviderTypeTTS),
-		Latency:      latency,
-	}
-
-	usd, _, err := base.ComputeCost(desc, info)
-	if err != nil {
-		// Pricing mismatch — return the quantities without a dollar amount
-		// rather than dropping the cost entry entirely.
-		return info
-	}
-	info.TotalCost = usd
-	return info
+	return base.MakeCostInfo(
+		desc,
+		p.ImplName(),
+		base.ProviderTypeTTS,
+		map[string]float64{"character": float64(charCount)},
+		latency,
+	)
 }
 
 // CostInfoToMetaMap is kept here as a deprecated alias for back-compat with
