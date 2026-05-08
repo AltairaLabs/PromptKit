@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -73,10 +74,31 @@ type InferenceProvider interface {
 	Provider
 }
 
-// TTSProvider synthesizes audio from text.
+// TTSStream is the streaming output of a TTS provider's Synthesize call.
+// It exposes the chunk channel that downstream pipeline stages consume,
+// plus a typed accessor for the total cost (available once the chunk
+// channel closes) and a Close method for early cancellation.
+type TTSStream interface {
+	// Chunks returns the channel of audio chunks. Caller must drain to
+	// completion or call Close to release resources. The channel closes
+	// when synthesis completes successfully or on error.
+	Chunks() <-chan audio.Chunk
+	// Cost returns the total cost of this synthesis. Returns nil before
+	// the chunk channel has closed; returns a populated *types.CostInfo
+	// afterwards. Pricing comes from the provider's PricingDescriptor.
+	Cost() *types.CostInfo
+	// Close cancels an in-progress stream and releases resources.
+	// Safe to call multiple times.
+	Close() error
+}
+
+// TTSProvider produces audio from text. Streaming-first: every TTS call
+// returns a TTSStream regardless of whether the underlying provider
+// supports incremental synthesis. Buffered consumers can use ReadAllAudio
+// to collect all chunks into a []byte.
 type TTSProvider interface {
 	Provider
-	Synthesize(ctx context.Context, req TTSRequest) (TTSResponse, error)
+	Synthesize(ctx context.Context, req TTSRequest) (TTSStream, error)
 }
 
 // STTProvider transcribes audio to text.
@@ -101,18 +123,27 @@ type ImageProvider interface {
 
 // TTSRequest carries parameters for a text-to-speech synthesis call.
 type TTSRequest struct {
-	Text  string
-	Voice string
-	Speed float32
-	Hints map[string]string // additional dimension hints (e.g. format, sample_rate)
+	Text       string
+	Voice      string
+	Speed      float32
+	Format     string            // audio format hint, e.g. "mp3", "pcm" (provider-specific)
+	SampleRate int               // desired output sample rate in Hz (0 = provider default)
+	Hints      map[string]string // additional dimension hints passed to pricing
 }
 
-// TTSResponse holds synthesized audio and metadata from a TTS provider.
-type TTSResponse struct {
-	Audio    []byte
-	MIMEType string
-	Cost     *types.CostInfo
-	Latency  time.Duration
+// ReadAllAudio drains a TTSStream into a byte slice and returns it along
+// with the total cost. Convenience for callers that need the full audio
+// up front (tests, batch synthesis, mocks).
+func ReadAllAudio(stream TTSStream) ([]byte, *types.CostInfo, error) {
+	defer func() { _ = stream.Close() }()
+	var buf []byte
+	for chunk := range stream.Chunks() {
+		if chunk.Error != nil {
+			return nil, nil, chunk.Error
+		}
+		buf = append(buf, chunk.Data...)
+	}
+	return buf, stream.Cost(), nil
 }
 
 // STTRequest carries audio input for a speech-to-text transcription call.
