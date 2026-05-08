@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -387,9 +388,13 @@ type MockTestProvider struct {
 	id string
 }
 
-func (m *MockTestProvider) ID() string {
-	return m.id
-}
+func (m *MockTestProvider) ID() string                          { return m.id }
+func (m *MockTestProvider) Name() string                        { return m.id }
+func (m *MockTestProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *MockTestProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *MockTestProvider) Validate() error                     { return nil }
+func (m *MockTestProvider) Init(_ context.Context) error        { return nil }
+func (m *MockTestProvider) HealthCheck(_ context.Context) error { return nil }
 
 func (m *MockTestProvider) Model() string {
 	return "mock-test-model"

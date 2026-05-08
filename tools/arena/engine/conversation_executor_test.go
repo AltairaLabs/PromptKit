@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	arenaassertions "github.com/AltairaLabs/PromptKit/tools/arena/assertions"
@@ -255,9 +256,13 @@ type MockProvider struct {
 	id string
 }
 
-func (m *MockProvider) ID() string {
-	return m.id
-}
+func (m *MockProvider) ID() string                          { return m.id }
+func (m *MockProvider) Name() string                        { return m.id }
+func (m *MockProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *MockProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *MockProvider) Validate() error                     { return nil }
+func (m *MockProvider) Init(_ context.Context) error        { return nil }
+func (m *MockProvider) HealthCheck(_ context.Context) error { return nil }
 
 func (m *MockProvider) Model() string {
 	return "mock-model"

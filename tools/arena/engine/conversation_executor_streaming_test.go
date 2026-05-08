@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/pkg/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
@@ -363,9 +364,13 @@ func (m *MockStreamingTurnExecutor) ExecuteTurnStream(ctx context.Context, req t
 // MockStreamingProvider implements providers.Provider for tests
 type MockStreamingProvider struct{}
 
-func (m *MockStreamingProvider) ID() string {
-	return "mock-streaming"
-}
+func (m *MockStreamingProvider) ID() string                          { return "mock-streaming" }
+func (m *MockStreamingProvider) Name() string                        { return "mock-streaming" }
+func (m *MockStreamingProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *MockStreamingProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *MockStreamingProvider) Validate() error                     { return nil }
+func (m *MockStreamingProvider) Init(_ context.Context) error        { return nil }
+func (m *MockStreamingProvider) HealthCheck(_ context.Context) error { return nil }
 
 func (m *MockStreamingProvider) Model() string {
 	return "mock-streaming-model"

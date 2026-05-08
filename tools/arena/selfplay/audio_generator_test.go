@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -19,11 +20,17 @@ type mockProvider struct {
 	err      error
 }
 
-func (m *mockProvider) ID() string                   { return "mock" }
-func (m *mockProvider) Model() string                { return "mock-model" }
-func (m *mockProvider) SupportsStreaming() bool      { return false }
-func (m *mockProvider) ShouldIncludeRawOutput() bool { return false }
-func (m *mockProvider) Close() error                 { return nil }
+func (m *mockProvider) ID() string                          { return "mock" }
+func (m *mockProvider) Name() string                        { return "mock" }
+func (m *mockProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *mockProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *mockProvider) Validate() error                     { return nil }
+func (m *mockProvider) Init(_ context.Context) error        { return nil }
+func (m *mockProvider) HealthCheck(_ context.Context) error { return nil }
+func (m *mockProvider) Model() string                       { return "mock-model" }
+func (m *mockProvider) SupportsStreaming() bool             { return false }
+func (m *mockProvider) ShouldIncludeRawOutput() bool        { return false }
+func (m *mockProvider) Close() error                        { return nil }
 func (m *mockProvider) CalculateCost(_, _, _ int) types.CostInfo {
 	return types.CostInfo{}
 }

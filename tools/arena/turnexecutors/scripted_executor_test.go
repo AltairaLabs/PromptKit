@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -24,10 +25,13 @@ type MockProvider struct {
 	mock.Mock
 }
 
-func (m *MockProvider) ID() string {
-	args := m.Called()
-	return args.String(0)
-}
+func (m *MockProvider) ID() string                          { args := m.Called(); return args.String(0) }
+func (m *MockProvider) Name() string                        { return "mock-provider" }
+func (m *MockProvider) Type() base.ProviderType             { return base.ProviderTypeInference }
+func (m *MockProvider) Pricing() *base.PricingDescriptor    { return nil }
+func (m *MockProvider) Validate() error                     { return nil }
+func (m *MockProvider) Init(_ context.Context) error        { return nil }
+func (m *MockProvider) HealthCheck(_ context.Context) error { return nil }
 
 func (m *MockProvider) Model() string {
 	args := m.Called()
