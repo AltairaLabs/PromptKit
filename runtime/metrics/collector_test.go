@@ -932,6 +932,107 @@ func TestMetricContext_ToolCallFailed_Exemplar(t *testing.T) {
 	}
 }
 
+func TestCollector_HandlesImageGenCallCompleted(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventImageGenCallCompleted,
+		Data: &events.ImageGenCallCompletedData{
+			CapabilityCallData: events.CapabilityCallData{
+				Provider: "imagen",
+				Model:    "imagen-3.0",
+				Source:   "pipeline",
+				Duration: 250 * time.Millisecond,
+				Cost:     0.04,
+			},
+			Images: 1,
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	checks := []string{
+		"test_image_gen_request_duration_seconds",
+		"test_image_gen_requests_total",
+		"test_image_gen_images_total",
+		"test_image_gen_cost_total",
+		`provider="imagen"`,
+		`model="imagen-3.0"`,
+		`status="success"`,
+	}
+	for _, check := range checks {
+		if !strings.Contains(output, check) {
+			t.Errorf("expected %q in output:\n%s", check, output)
+		}
+	}
+}
+
+func TestCollector_HandlesImageGenCallFailed(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventImageGenCallFailed,
+		Data: &events.ImageGenCallFailedData{
+			CapabilityCallData: events.CapabilityCallData{
+				Provider: "imagen",
+				Model:    "imagen-3.0",
+				Source:   "pipeline",
+				Duration: 50 * time.Millisecond,
+			},
+			Error: "quota exceeded",
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	if !strings.Contains(output, "test_image_gen_requests_total") {
+		t.Error("expected test_image_gen_requests_total metric")
+	}
+	if !strings.Contains(output, `status="error"`) {
+		t.Error("expected status=error label in image_gen_requests_total")
+	}
+}
+
+func TestCollector_AncillaryMetricFamilies_Registered(t *testing.T) {
+	// Verify all four ancillary metric families are initialised (non-nil) on the collector.
+	// Prometheus only reports empty vec families in Gather() once observed; we check the
+	// struct fields directly since the test lives in the same package.
+	c, _ := newTestCollector()
+
+	type check struct {
+		name string
+		ptr  any
+	}
+	checks := []check{
+		{"ttsRequestDuration", c.ttsRequestDuration},
+		{"ttsRequestsTotal", c.ttsRequestsTotal},
+		{"ttsCharactersTotal", c.ttsCharactersTotal},
+		{"ttsAudioSecondsTotal", c.ttsAudioSecondsTotal},
+		{"ttsCostTotal", c.ttsCostTotal},
+		{"sttRequestDuration", c.sttRequestDuration},
+		{"sttRequestsTotal", c.sttRequestsTotal},
+		{"sttAudioSecondsTotal", c.sttAudioSecondsTotal},
+		{"sttCostTotal", c.sttCostTotal},
+		{"embeddingRequestDuration", c.embeddingRequestDuration},
+		{"embeddingRequestsTotal", c.embeddingRequestsTotal},
+		{"embeddingInputTokensTotal", c.embeddingInputTokensTotal},
+		{"embeddingVectorsTotal", c.embeddingVectorsTotal},
+		{"embeddingCostTotal", c.embeddingCostTotal},
+		{"imageGenRequestDuration", c.imageGenRequestDuration},
+		{"imageGenRequestsTotal", c.imageGenRequestsTotal},
+		{"imageGenImagesTotal", c.imageGenImagesTotal},
+		{"imageGenCostTotal", c.imageGenCostTotal},
+	}
+
+	for _, ch := range checks {
+		if ch.ptr == nil {
+			t.Errorf("expected %s to be non-nil after registration", ch.name)
+		}
+	}
+}
+
 func TestMetricContext_NilCtx_NoExemplar(t *testing.T) {
 	c, reg := newTestCollector()
 	ctx := c.Bind(nil)
