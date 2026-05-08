@@ -12,6 +12,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
+// Compile-time checks: all three TTS service types must satisfy base.TTSProvider.
+var (
+	_ base.TTSProvider = (*OpenAIService)(nil)
+	_ base.TTSProvider = (*ElevenLabsService)(nil)
+	_ base.TTSProvider = (*CartesiaService)(nil)
+)
+
 const (
 	openAIBaseURL     = "https://api.openai.com/v1"
 	openAITTSEndpoint = "/audio/speech"

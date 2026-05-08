@@ -96,9 +96,14 @@ type TTSStream interface {
 // returns a TTSStream regardless of whether the underlying provider
 // supports incremental synthesis. Buffered consumers can use ReadAllAudio
 // to collect all chunks into a []byte.
+//
+// The method is named SynthesizeTTS rather than Synthesize to avoid a
+// naming conflict with the legacy tts.Service.Synthesize method that takes
+// (text string, config SynthesisConfig). Both interfaces can be satisfied
+// by the same concrete type simultaneously.
 type TTSProvider interface {
 	Provider
-	Synthesize(ctx context.Context, req TTSRequest) (TTSStream, error)
+	SynthesizeTTS(ctx context.Context, req TTSRequest) (TTSStream, error)
 }
 
 // STTProvider transcribes audio to text.
