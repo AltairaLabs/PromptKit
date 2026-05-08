@@ -370,8 +370,9 @@ func TestNewRegistry(t *testing.T) {
 		t.Fatal("Expected non-nil registry")
 	}
 
-	if registry.providers == nil {
-		t.Error("Expected providers map to be initialized")
+	// Verify the registry is initialized and empty.
+	if ids := registry.List(); len(ids) != 0 {
+		t.Errorf("Expected empty registry, got %d providers", len(ids))
 	}
 }
 
