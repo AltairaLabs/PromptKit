@@ -1053,3 +1053,68 @@ func TestMetricContext_NilCtx_NoExemplar(t *testing.T) {
 		t.Error("expected metric to be recorded even without trace context")
 	}
 }
+
+func TestCollector_HandlesTTSCallCompleted(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventTTSCallCompleted,
+		Data: &events.TTSCallCompletedData{
+			CapabilityCallData: events.CapabilityCallData{
+				Provider: "openai",
+				Model:    "tts-1",
+				Source:   "pipeline",
+				Duration: 120 * time.Millisecond,
+				Cost:     0.0015,
+			},
+			Characters:   100,
+			AudioSeconds: 3.5,
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	checks := []string{
+		"test_tts_request_duration_seconds",
+		"test_tts_requests_total",
+		"test_tts_characters_total",
+		"test_tts_audio_seconds_total",
+		"test_tts_cost_total",
+		`provider="openai"`,
+		`model="tts-1"`,
+		`status="success"`,
+	}
+	for _, check := range checks {
+		if !strings.Contains(output, check) {
+			t.Errorf("expected %q in output:\n%s", check, output)
+		}
+	}
+}
+
+func TestCollector_HandlesTTSCallFailed(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventTTSCallFailed,
+		Data: &events.TTSCallFailedData{
+			CapabilityCallData: events.CapabilityCallData{
+				Provider: "openai",
+				Model:    "tts-1",
+				Source:   "pipeline",
+				Duration: 30 * time.Millisecond,
+			},
+			Error: "rate limit exceeded",
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	if !strings.Contains(output, "test_tts_requests_total") {
+		t.Error("expected test_tts_requests_total metric")
+	}
+	if !strings.Contains(output, `status="error"`) {
+		t.Error("expected status=error label in tts_requests_total")
+	}
+}

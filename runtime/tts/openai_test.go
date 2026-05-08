@@ -251,6 +251,43 @@ func TestOpenAIService_Synthesize_WithConfig(t *testing.T) {
 	}
 }
 
+func TestOpenAIService_Pricing(t *testing.T) {
+	svc := NewOpenAI("test-key")
+	desc := svc.Pricing()
+	if desc == nil {
+		t.Fatal("Pricing() returned nil descriptor")
+	}
+	if len(desc.Items) == 0 {
+		t.Error("Pricing() descriptor has no PriceItems")
+	}
+	for _, item := range desc.Items {
+		if item.Unit == "" {
+			t.Error("PriceItem has empty Unit")
+		}
+		if item.Rate <= 0 {
+			t.Errorf("PriceItem %q has non-positive rate: %v", item.Unit, item.Rate)
+		}
+	}
+}
+
+func TestOpenAIService_ImplName(t *testing.T) {
+	svc := NewOpenAI("test-key")
+	if got := svc.ImplName(); got != "openai" {
+		t.Errorf("ImplName() = %q, want %q", got, "openai")
+	}
+}
+
+func TestOpenAIService_ModelName(t *testing.T) {
+	svc := NewOpenAI("test-key")
+	if got := svc.ModelName(); got != ModelTTS1 {
+		t.Errorf("ModelName() = %q, want %q", got, ModelTTS1)
+	}
+	svc2 := NewOpenAI("test-key", WithOpenAIModel(ModelTTS1HD))
+	if got := svc2.ModelName(); got != ModelTTS1HD {
+		t.Errorf("ModelName() = %q, want %q after WithOpenAIModel", got, ModelTTS1HD)
+	}
+}
+
 // Helper to check error types
 func isError(err error, target interface{}) bool {
 	switch t := target.(type) {

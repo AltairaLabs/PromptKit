@@ -558,3 +558,19 @@ func (e *Emitter) ImageGenCallFailedCtx(ctx context.Context, data *ImageGenCallF
 	}
 	e.emitCtx(ctx, EventImageGenCallFailed, data)
 }
+
+// TTSCallCompletedCtx emits a tts.call.completed event with trace context for exemplar correlation.
+func (e *Emitter) TTSCallCompletedCtx(ctx context.Context, data *TTSCallCompletedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventTTSCallCompleted, data)
+}
+
+// TTSCallFailedCtx emits a tts.call.failed event with trace context for exemplar correlation.
+func (e *Emitter) TTSCallFailedCtx(ctx context.Context, data *TTSCallFailedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventTTSCallFailed, data)
+}

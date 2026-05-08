@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 const (
@@ -36,6 +38,9 @@ const (
 	// Audio format settings.
 	openAISampleRate24 = 24000
 	openAIBitDepth16   = 16
+
+	// openAICharRatePerChar is the per-character rate for OpenAI tts-1 ($15/1M chars).
+	openAICharRatePerChar = 15.0 / 1_000_000
 )
 
 // OpenAI voices.
@@ -47,6 +52,15 @@ const (
 	VoiceNova    = "nova"    // Female voice.
 	VoiceShimmer = "shimmer" // Soft female voice.
 )
+
+// openAIDefaultPricing is the inline pricing descriptor for OpenAI TTS.
+// Rates: tts-1 = $15/1M chars (OpenAI public pricing). Voice is tracked as a
+// dimension for forward-compat but does not differentiate rates today.
+var openAIDefaultPricing = &base.PricingDescriptor{
+	Source:   base.PricingSourceInline,
+	Currency: "usd",
+	Items:    []base.PriceItem{{Unit: "character", Rate: openAICharRatePerChar}},
+}
 
 // OpenAIService implements TTS using OpenAI's text-to-speech API.
 type OpenAIService struct {
@@ -98,6 +112,15 @@ func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 func (s *OpenAIService) Name() string {
 	return "openai"
 }
+
+// ImplName returns the implementation name for cost tracking.
+func (s *OpenAIService) ImplName() string { return "openai" }
+
+// ModelName returns the configured model name for cost tracking.
+func (s *OpenAIService) ModelName() string { return s.model }
+
+// Pricing returns the inline pricing descriptor for this implementation.
+func (s *OpenAIService) Pricing() *base.PricingDescriptor { return openAIDefaultPricing }
 
 // openAIRequest is the request body for OpenAI TTS API.
 type openAIRequest struct {

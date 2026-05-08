@@ -577,6 +577,44 @@ func TestCartesiaService_mapFormat_AllFormats(t *testing.T) {
 			if result.SampleRate != tt.wantRate {
 				t.Errorf("SampleRate = %v, want %v", result.SampleRate, tt.wantRate)
 			}
+
 		})
+	}
+}
+
+func TestCartesiaService_Pricing(t *testing.T) {
+	svc := NewCartesia("test-key")
+	desc := svc.Pricing()
+	if desc == nil {
+		t.Fatal("Pricing() returned nil descriptor")
+	}
+	if len(desc.Items) == 0 {
+		t.Error("Pricing() descriptor has no PriceItems")
+	}
+	for _, item := range desc.Items {
+		if item.Unit == "" {
+			t.Error("PriceItem has empty Unit")
+		}
+		if item.Rate <= 0 {
+			t.Errorf("PriceItem %q has non-positive rate: %v", item.Unit, item.Rate)
+		}
+	}
+}
+
+func TestCartesiaService_ImplName(t *testing.T) {
+	svc := NewCartesia("test-key")
+	if got := svc.ImplName(); got != "cartesia" {
+		t.Errorf("ImplName() = %q, want %q", got, "cartesia")
+	}
+}
+
+func TestCartesiaService_ModelName(t *testing.T) {
+	svc := NewCartesia("test-key")
+	if got := svc.ModelName(); got != CartesiaModelSonic {
+		t.Errorf("ModelName() = %q, want %q", got, CartesiaModelSonic)
+	}
+	svc2 := NewCartesia("test-key", WithCartesiaModel("sonic-2"))
+	if got := svc2.ModelName(); got != "sonic-2" {
+		t.Errorf("ModelName() = %q, want %q after WithCartesiaModel", got, "sonic-2")
 	}
 }

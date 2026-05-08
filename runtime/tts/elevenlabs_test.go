@@ -219,3 +219,40 @@ func TestElevenLabsService_Synthesize_WithDefaultVoice(t *testing.T) {
 		t.Errorf("Path should contain default voice ID, got %v", requestPath)
 	}
 }
+
+func TestElevenLabsService_Pricing(t *testing.T) {
+	svc := NewElevenLabs("test-key")
+	desc := svc.Pricing()
+	if desc == nil {
+		t.Fatal("Pricing() returned nil descriptor")
+	}
+	if len(desc.Items) == 0 {
+		t.Error("Pricing() descriptor has no PriceItems")
+	}
+	for _, item := range desc.Items {
+		if item.Unit == "" {
+			t.Error("PriceItem has empty Unit")
+		}
+		if item.Rate <= 0 {
+			t.Errorf("PriceItem %q has non-positive rate: %v", item.Unit, item.Rate)
+		}
+	}
+}
+
+func TestElevenLabsService_ImplName(t *testing.T) {
+	svc := NewElevenLabs("test-key")
+	if got := svc.ImplName(); got != "elevenlabs" {
+		t.Errorf("ImplName() = %q, want %q", got, "elevenlabs")
+	}
+}
+
+func TestElevenLabsService_ModelName(t *testing.T) {
+	svc := NewElevenLabs("test-key")
+	if got := svc.ModelName(); got != ElevenLabsModelMultilingual {
+		t.Errorf("ModelName() = %q, want %q", got, ElevenLabsModelMultilingual)
+	}
+	svc2 := NewElevenLabs("test-key", WithElevenLabsModel(ElevenLabsModelTurbo))
+	if got := svc2.ModelName(); got != ElevenLabsModelTurbo {
+		t.Errorf("ModelName() = %q, want %q after WithElevenLabsModel", got, ElevenLabsModelTurbo)
+	}
+}

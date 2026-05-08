@@ -2,8 +2,10 @@ package stage
 
 import (
 	"context"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
 // TTSService converts text to audio.
@@ -95,10 +97,12 @@ func (s *TTSStage) processElement(ctx context.Context, elem *StreamElement) erro
 	}
 
 	// Synthesize audio
+	start := time.Now()
 	audioData, err := s.tts.Synthesize(ctx, text)
 	if err != nil {
 		return err
 	}
+	latency := time.Since(start)
 
 	// Add audio to element
 	elem.Audio = &AudioData{
@@ -107,9 +111,25 @@ func (s *TTSStage) processElement(ctx context.Context, elem *StreamElement) erro
 		Format:     AudioFormatPCM16,
 	}
 
+	// Stamp TTS cost on the message when the element carries one.
+	// The arena's cost rollup reads Message.Meta["tts_cost"] via the
+	// ancillaryCostMetaKeys mechanism (same pattern as self_play_cost).
+	if elem.Message != nil {
+		if costMeta := tts.CostInfoToMetaMap(tts.ComputeTTSCost(s.tts, text, latency)); costMeta != nil {
+			if elem.Message.Meta == nil {
+				elem.Message.Meta = make(map[string]interface{})
+			}
+			elem.Message.Meta[ttsCostMetaKey] = costMeta
+		}
+	}
+
 	logger.Debug("TTS: synthesized audio", "text_length", len(text), "audio_bytes", len(audioData))
 	return nil
 }
+
+// ttsCostMetaKey is the Message.Meta key for TTS ancillary cost.
+// Mirrors the constant in tools/arena/engine/cost_aggregation.go.
+const ttsCostMetaKey = "tts_cost"
 
 // extractText extracts text content from an element.
 func (s *TTSStage) extractText(elem *StreamElement) string {

@@ -513,6 +513,10 @@ func (mc *MetricContext) OnEvent(event *events.Event) {
 		mc.handleImageGenCallCompleted(event)
 	case events.EventImageGenCallFailed:
 		mc.handleImageGenCallFailed(event)
+	case events.EventTTSCallCompleted:
+		mc.handleTTSCallCompleted(event)
+	case events.EventTTSCallFailed:
+		mc.handleTTSCallFailed(event)
 	}
 }
 
@@ -723,6 +727,64 @@ func (mc *MetricContext) handleImageGenCallFailed(event *events.Event) {
 
 	incWithExemplar(
 		mc.collector.imageGenRequestsTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
+		),
+		exemplar,
+	)
+}
+
+func (mc *MetricContext) handleTTSCallCompleted(event *events.Event) {
+	data, ok := event.Data.(*events.TTSCallCompletedData)
+	if !ok {
+		return
+	}
+	exemplar := traceExemplar(event.SpanContext)
+
+	observeWithExemplar(
+		mc.collector.ttsRequestDuration.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
+		),
+		data.Duration.Seconds(),
+		exemplar,
+	)
+
+	incWithExemplar(
+		mc.collector.ttsRequestsTotal.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source, statusSuccess)...,
+		),
+		exemplar,
+	)
+
+	mc.collector.ttsCharactersTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(float64(data.Characters))
+
+	mc.collector.ttsAudioSecondsTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(data.AudioSeconds)
+
+	mc.collector.ttsCostTotal.WithLabelValues(
+		mc.labelValues(data.Provider, data.Model, data.Source)...,
+	).Add(data.Cost)
+}
+
+func (mc *MetricContext) handleTTSCallFailed(event *events.Event) {
+	data, ok := event.Data.(*events.TTSCallFailedData)
+	if !ok {
+		return
+	}
+	exemplar := traceExemplar(event.SpanContext)
+
+	observeWithExemplar(
+		mc.collector.ttsRequestDuration.WithLabelValues(
+			mc.labelValues(data.Provider, data.Model, data.Source)...,
+		),
+		data.Duration.Seconds(),
+		exemplar,
+	)
+
+	incWithExemplar(
+		mc.collector.ttsRequestsTotal.WithLabelValues(
 			mc.labelValues(data.Provider, data.Model, data.Source, statusError)...,
 		),
 		exemplar,

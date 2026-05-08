@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 const (
@@ -43,7 +45,18 @@ const (
 	formatPCM = "pcm"
 	formatMP3 = "mp3"
 	formatWAV = "wav"
+
+	// cartesiaCharRatePerChar is the per-character rate for Cartesia Sonic ($15/1M chars).
+	cartesiaCharRatePerChar = 15.0 / 1_000_000
 )
+
+// cartesiaDefaultPricing is the inline pricing descriptor for Cartesia TTS.
+// Rate: $15/1M chars (Cartesia's published per-character rate for Sonic).
+var cartesiaDefaultPricing = &base.PricingDescriptor{
+	Source:   base.PricingSourceInline,
+	Currency: "usd",
+	Items:    []base.PriceItem{{Unit: "character", Rate: cartesiaCharRatePerChar}},
+}
 
 // CartesiaService implements TTS using Cartesia's ultra-low latency API.
 // Cartesia specializes in real-time streaming TTS with <100ms first-byte latency.
@@ -105,6 +118,15 @@ func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 func (s *CartesiaService) Name() string {
 	return "cartesia"
 }
+
+// ImplName returns the implementation name for cost tracking.
+func (s *CartesiaService) ImplName() string { return "cartesia" }
+
+// ModelName returns the configured model name for cost tracking.
+func (s *CartesiaService) ModelName() string { return s.model }
+
+// Pricing returns the inline pricing descriptor for this implementation.
+func (s *CartesiaService) Pricing() *base.PricingDescriptor { return cartesiaDefaultPricing }
 
 // cartesiaRequest is the request body for Cartesia TTS API.
 type cartesiaRequest struct {
