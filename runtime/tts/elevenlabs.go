@@ -182,88 +182,22 @@ func (s *ElevenLabsService) handleError(resp *http.Response) error {
 // Use the ElevenLabs API to get a complete list of available voices.
 func (s *ElevenLabsService) SupportedVoices() []Voice {
 	return []Voice{
-		{
-			ID:          "21m00Tcm4TlvDq8ikWAM",
-			Name:        "Rachel",
-			Language:    "en",
-			Gender:      "female",
-			Description: "American, calm, young",
-		},
-		{
-			ID:          "AZnzlk1XvdvUeBnXmlld",
-			Name:        "Domi",
-			Language:    "en",
-			Gender:      "female",
-			Description: "American, confident",
-		},
-		{
-			ID:          "EXAVITQu4vr4xnSDxMaL",
-			Name:        "Bella",
-			Language:    "en",
-			Gender:      "female",
-			Description: "American, soft",
-		},
-		{
-			ID:          "ErXwobaYiN019PkySvjV",
-			Name:        "Antoni",
-			Language:    "en",
-			Gender:      "male",
-			Description: "American, well-rounded",
-		},
-		{
-			ID:          "MF3mGyEYCl7XYWbV9V6O",
-			Name:        "Elli",
-			Language:    "en",
-			Gender:      "female",
-			Description: "American, young",
-		},
-		{
-			ID:          "TxGEqnHWrfWFTfGW9XjX",
-			Name:        "Josh",
-			Language:    "en",
-			Gender:      "male",
-			Description: "American, young, deep",
-		},
-		{
-			ID:          "VR6AewLTigWG4xSOukaG",
-			Name:        "Arnold",
-			Language:    "en",
-			Gender:      "male",
-			Description: "American, deep, professional",
-		},
-		{
-			ID:          "pNInz6obpgDQGcFmaJgB",
-			Name:        "Adam",
-			Language:    "en",
-			Gender:      "male",
-			Description: "American, deep, narrative",
-		},
-		{
-			ID:          "yoZ06aMxZJJ28mfd3POQ",
-			Name:        "Sam",
-			Language:    "en",
-			Gender:      "male",
-			Description: "American, young, casual",
-		},
+		makeVoice("21m00Tcm4TlvDq8ikWAM", "Rachel", "en", "female", "American, calm, young"),
+		makeVoice("AZnzlk1XvdvUeBnXmlld", "Domi", "en", "female", "American, confident"),
+		makeVoice("EXAVITQu4vr4xnSDxMaL", "Bella", "en", "female", "American, soft"),
+		makeVoice("ErXwobaYiN019PkySvjV", "Antoni", "en", "male", "American, well-rounded"),
+		makeVoice("MF3mGyEYCl7XYWbV9V6O", "Elli", "en", "female", "American, young"),
+		makeVoice("TxGEqnHWrfWFTfGW9XjX", "Josh", "en", "male", "American, young, deep"),
+		makeVoice("VR6AewLTigWG4xSOukaG", "Arnold", "en", "male", "American, deep, professional"),
+		makeVoice("pNInz6obpgDQGcFmaJgB", "Adam", "en", "male", "American, deep, narrative"),
+		makeVoice("yoZ06aMxZJJ28mfd3POQ", "Sam", "en", "male", "American, young, casual"),
 	}
 }
 
 // SupportedFormats returns audio formats supported by ElevenLabs.
 func (s *ElevenLabsService) SupportedFormats() []AudioFormat {
 	return []AudioFormat{
-		{
-			Name:       "mp3",
-			MIMEType:   "audio/mpeg",
-			SampleRate: elevenLabsSampleRate44,
-			BitDepth:   0,
-			Channels:   1,
-		},
-		{
-			Name:       "pcm",
-			MIMEType:   "audio/pcm",
-			SampleRate: elevenLabsSampleRate24,
-			BitDepth:   elevenLabsBitDepth16,
-			Channels:   1,
-		},
+		makeFormat("mp3", "audio/mpeg", elevenLabsSampleRate44, 0),
+		makeFormat("pcm", "audio/pcm", elevenLabsSampleRate24, elevenLabsBitDepth16),
 	}
 }
