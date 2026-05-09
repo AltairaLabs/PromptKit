@@ -1,9 +1,7 @@
 package tts
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,9 +24,6 @@ const (
 
 	// Default timeout for ElevenLabs requests.
 	defaultElevenLabsTimeout = 60 * time.Second
-
-	// HTTP status code threshold for server errors.
-	elevenLabsServerErrorThreshold = 500
 
 	// Default voice settings.
 	elevenLabsDefaultStability       = 0.5
@@ -113,13 +108,10 @@ func (s *ElevenLabsService) Synthesize(
 		return nil, ErrEmptyText
 	}
 
-	// Use config voice or default
 	voice := config.Voice
 	if voice == "" {
 		voice = elevenLabsDefaultVoice
 	}
-
-	// Use config model or service default
 	model := config.Model
 	if model == "" {
 		model = s.Model
@@ -134,44 +126,17 @@ func (s *ElevenLabsService) Synthesize(
 		},
 	}
 
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
 	endpoint := fmt.Sprintf("%s/text-to-speech/%s", s.BaseURL, voice)
-
-	// Add output format query parameter
-	format := s.mapFormat(config.Format)
-	if format != "" {
+	if format := s.mapFormat(config.Format); format != "" {
 		endpoint += "?output_format=" + format
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		endpoint,
-		bytes.NewReader(bodyBytes),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	headers := map[string]string{
+		"xi-api-key":   s.APIKey,
+		"Content-Type": "application/json",
+		"Accept":       "audio/mpeg",
 	}
-
-	req.Header.Set("xi-api-key", s.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "audio/mpeg")
-
-	resp, err := s.Client.Do(req)
-	if err != nil {
-		return nil, NewSynthesisError("elevenlabs", "", "request failed", err, true)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		return nil, s.handleError(resp)
-	}
-
-	return resp.Body, nil
+	return postJSONForAudio(ctx, s.Client, "elevenlabs", endpoint, reqBody, headers, s.handleError)
 }
 
 // mapFormat converts AudioFormat to ElevenLabs format string.
@@ -199,31 +164,10 @@ type elevenLabsErrorResponse struct {
 // handleError processes an error response from ElevenLabs.
 func (s *ElevenLabsService) handleError(resp *http.Response) error {
 	var errResp elevenLabsErrorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-		return NewSynthesisError(
-			"elevenlabs",
-			fmt.Sprintf("%d", resp.StatusCode),
-			"unknown error",
-			err,
-			resp.StatusCode >= elevenLabsServerErrorThreshold,
-		)
+	if e := decodeErrorBody("elevenlabs", resp, &errResp); e != nil {
+		return e
 	}
-
-	retryable := resp.StatusCode == http.StatusTooManyRequests ||
-		resp.StatusCode >= elevenLabsServerErrorThreshold
-
-	var cause error
-	switch resp.StatusCode {
-	case http.StatusTooManyRequests:
-		cause = ErrRateLimited
-	case http.StatusUnauthorized:
-		cause = fmt.Errorf("invalid API key")
-	case http.StatusBadRequest:
-		cause = fmt.Errorf("bad request")
-	case http.StatusNotFound:
-		cause = ErrInvalidVoice
-	}
-
+	retryable, cause := classifyHTTPStatus(resp.StatusCode, ErrInvalidVoice, fmt.Errorf("bad request"))
 	return NewSynthesisError(
 		"elevenlabs",
 		errResp.Detail.Status,

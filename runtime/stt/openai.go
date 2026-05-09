@@ -360,47 +360,53 @@ func (s *OpenAIService) writeOptionalFields(writer *multipart.Writer, config *Tr
 	return nil
 }
 
-// executeRequest sends the transcription request and parses the simple response.
-func (s *OpenAIService) executeRequest(
+// doTranscriptionRequest sends the multipart-form transcription request and
+// returns the raw response body. Non-200 responses are converted to errors via
+// handleError. Used by both the simple and verbose response-format paths.
+func (s *OpenAIService) doTranscriptionRequest(
 	ctx context.Context,
 	formData *bytes.Buffer,
 	contentType string,
-) (string, error) {
+) ([]byte, error) {
 	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		s.BaseURL+openAITranscribeEndpoint,
-		formData,
+		ctx, http.MethodPost, s.BaseURL+openAITranscribeEndpoint, formData,
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
 	req.Header.Set("Authorization", "Bearer "+s.APIKey)
 	req.Header.Set("Content-Type", contentType)
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
-		return "", NewTranscriptionError("openai", "", "request failed", err, true)
+		return nil, NewTranscriptionError("openai", "", "request failed", err, true)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-
 	if resp.StatusCode != http.StatusOK {
-		return "", s.handleError(resp.StatusCode, body)
+		return nil, s.handleError(resp.StatusCode, body)
 	}
+	return body, nil
+}
 
+// executeRequest sends the transcription request and parses the simple response.
+func (s *OpenAIService) executeRequest(
+	ctx context.Context, formData *bytes.Buffer, contentType string,
+) (string, error) {
+	body, err := s.doTranscriptionRequest(ctx, formData, contentType)
+	if err != nil {
+		return "", err
+	}
 	var result struct {
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
-
 	return result.Text, nil
 }
 
@@ -413,43 +419,16 @@ type verboseResponse struct {
 // executeRequestVerbose sends the transcription request and parses a verbose_json
 // response, extracting both the transcript text and the audio duration.
 func (s *OpenAIService) executeRequestVerbose(
-	ctx context.Context,
-	formData *bytes.Buffer,
-	contentType string,
+	ctx context.Context, formData *bytes.Buffer, contentType string,
 ) (text string, audioSeconds float64, err error) {
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		s.BaseURL+openAITranscribeEndpoint,
-		formData,
-	)
+	body, err := s.doTranscriptionRequest(ctx, formData, contentType)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to create request: %w", err)
+		return "", 0, err
 	}
-
-	req.Header.Set("Authorization", "Bearer "+s.APIKey)
-	req.Header.Set("Content-Type", contentType)
-
-	resp, err := s.Client.Do(req)
-	if err != nil {
-		return "", 0, NewTranscriptionError("openai", "", "request failed", err, true)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", 0, s.handleError(resp.StatusCode, body)
-	}
-
 	var result verboseResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", 0, fmt.Errorf("failed to parse response: %w", err)
 	}
-
 	return result.Text, result.Duration, nil
 }
 

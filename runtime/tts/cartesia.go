@@ -1,10 +1,8 @@
 package tts
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,9 +31,6 @@ const (
 
 	// streamChannelBuffer is the buffer size for streaming audio chunks.
 	streamChannelBuffer = 64
-
-	// HTTP status code threshold for server errors.
-	serverErrorThreshold = 500
 
 	// Audio sample rates.
 	sampleRate24000 = 24000
@@ -136,19 +131,14 @@ func (s *CartesiaService) Synthesize(
 		return nil, ErrEmptyText
 	}
 
-	// Use config voice or default
 	voice := config.Voice
 	if voice == "" {
 		voice = cartesiaDefaultVoice
 	}
-
-	// Use config model or service default
 	model := config.Model
 	if model == "" {
 		model = s.Model
 	}
-
-	outputFormat := s.mapFormat(config.Format)
 
 	reqBody := cartesiaRequest{
 		ModelID:    model,
@@ -157,40 +147,18 @@ func (s *CartesiaService) Synthesize(
 			Mode: "id",
 			ID:   voice,
 		},
-		OutputFormat: outputFormat,
+		OutputFormat: s.mapFormat(config.Format),
 		Language:     config.Language,
 	}
 
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	headers := map[string]string{
+		"X-API-Key":        s.APIKey,
+		"Content-Type":     "application/json",
+		"Cartesia-Version": "2024-06-10",
 	}
-
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		s.BaseURL+cartesiaRESTURL,
-		bytes.NewReader(bodyBytes),
+	return postJSONForAudio(
+		ctx, s.Client, "cartesia", s.BaseURL+cartesiaRESTURL, reqBody, headers, s.handleError,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("X-API-Key", s.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Cartesia-Version", "2024-06-10")
-
-	resp, err := s.Client.Do(req)
-	if err != nil {
-		return nil, NewSynthesisError("cartesia", "", "request failed", err, true)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		return nil, s.handleError(resp)
-	}
-
-	return resp.Body, nil
 }
 
 // cartesiaWSResponse represents a WebSocket response from Cartesia.
@@ -262,43 +230,15 @@ type cartesiaErrorResponse struct {
 // handleError processes an error response from Cartesia.
 func (s *CartesiaService) handleError(resp *http.Response) error {
 	var errResp cartesiaErrorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-		return NewSynthesisError(
-			"cartesia",
-			fmt.Sprintf("%d", resp.StatusCode),
-			"unknown error",
-			err,
-			resp.StatusCode >= serverErrorThreshold,
-		)
+	if e := decodeErrorBody("cartesia", resp, &errResp); e != nil {
+		return e
 	}
-
-	retryable := resp.StatusCode == http.StatusTooManyRequests ||
-		resp.StatusCode >= serverErrorThreshold
-
-	var cause error
-	switch resp.StatusCode {
-	case http.StatusTooManyRequests:
-		cause = ErrRateLimited
-	case http.StatusUnauthorized:
-		cause = fmt.Errorf("invalid API key")
-	case http.StatusBadRequest:
-		cause = fmt.Errorf("bad request")
-	case http.StatusNotFound:
-		cause = ErrInvalidVoice
-	}
-
+	retryable, cause := classifyHTTPStatus(resp.StatusCode, ErrInvalidVoice, fmt.Errorf("bad request"))
 	message := errResp.Message
 	if message == "" {
 		message = errResp.Error
 	}
-
-	return NewSynthesisError(
-		"cartesia",
-		errResp.Error,
-		message,
-		cause,
-		retryable,
-	)
+	return NewSynthesisError("cartesia", errResp.Error, message, cause, retryable)
 }
 
 // SupportedVoices returns a sample of available Cartesia voices.
