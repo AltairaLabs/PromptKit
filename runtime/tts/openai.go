@@ -252,48 +252,12 @@ func (s *OpenAIService) handleError(resp *http.Response) error {
 // SupportedVoices returns available OpenAI voices.
 func (s *OpenAIService) SupportedVoices() []Voice {
 	return []Voice{
-		{
-			ID:          VoiceAlloy,
-			Name:        "Alloy",
-			Language:    "en",
-			Gender:      "neutral",
-			Description: "Balanced, versatile voice",
-		},
-		{
-			ID:          VoiceEcho,
-			Name:        "Echo",
-			Language:    "en",
-			Gender:      "male",
-			Description: "Clear male voice",
-		},
-		{
-			ID:          VoiceFable,
-			Name:        "Fable",
-			Language:    "en",
-			Gender:      "female",
-			Description: "Expressive, British accent",
-		},
-		{
-			ID:          VoiceOnyx,
-			Name:        "Onyx",
-			Language:    "en",
-			Gender:      "male",
-			Description: "Deep, authoritative voice",
-		},
-		{
-			ID:          VoiceNova,
-			Name:        "Nova",
-			Language:    "en",
-			Gender:      "female",
-			Description: "Warm, friendly voice",
-		},
-		{
-			ID:          VoiceShimmer,
-			Name:        "Shimmer",
-			Language:    "en",
-			Gender:      "female",
-			Description: "Soft, calm voice",
-		},
+		makeVoice(VoiceAlloy, "Alloy", "en", "neutral", "Balanced, versatile voice"),
+		makeVoice(VoiceEcho, "Echo", "en", "male", "Clear male voice"),
+		makeVoice(VoiceFable, "Fable", "en", "female", "Expressive, British accent"),
+		makeVoice(VoiceOnyx, "Onyx", "en", "male", "Deep, authoritative voice"),
+		makeVoice(VoiceNova, "Nova", "en", "female", "Warm, friendly voice"),
+		makeVoice(VoiceShimmer, "Shimmer", "en", "female", "Soft, calm voice"),
 	}
 }
 
@@ -305,12 +269,6 @@ func (s *OpenAIService) SupportedFormats() []AudioFormat {
 		FormatAAC,
 		FormatFLAC,
 		FormatWAV,
-		{
-			Name:       "pcm",
-			MIMEType:   "audio/pcm",
-			SampleRate: openAISampleRate24,
-			BitDepth:   openAIBitDepth16,
-			Channels:   1,
-		},
+		makeFormat("pcm", "audio/pcm", openAISampleRate24, openAIBitDepth16),
 	}
 }

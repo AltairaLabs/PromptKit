@@ -244,67 +244,19 @@ func (s *CartesiaService) handleError(resp *http.Response) error {
 // SupportedVoices returns a sample of available Cartesia voices.
 func (s *CartesiaService) SupportedVoices() []Voice {
 	return []Voice{
-		{
-			ID:          "a0e99841-438c-4a64-b679-ae501e7d6091",
-			Name:        "Barbershop Man",
-			Language:    "en",
-			Gender:      "male",
-			Description: "Deep, warm male voice",
-		},
-		{
-			ID:          "156fb8d2-335b-4950-9cb3-a2d33befec77",
-			Name:        "British Lady",
-			Language:    "en",
-			Gender:      "female",
-			Description: "British accent, professional",
-		},
-		{
-			ID:          "79a125e8-cd45-4c13-8a67-188112f4dd22",
-			Name:        "California Girl",
-			Language:    "en",
-			Gender:      "female",
-			Description: "Casual, friendly American",
-		},
-		{
-			ID:          "bf991597-6c13-47e4-8411-91ec2de5c466",
-			Name:        "Confident Man",
-			Language:    "en",
-			Gender:      "male",
-			Description: "Clear, confident delivery",
-		},
-		{
-			ID:          "9121c0ae-12a6-4012-8158-6e4a72e6da91",
-			Name:        "Friendly Woman",
-			Language:    "en",
-			Gender:      "female",
-			Description: "Warm, approachable",
-		},
+		makeVoice("a0e99841-438c-4a64-b679-ae501e7d6091", "Barbershop Man", "en", "male", "Deep, warm male voice"),
+		makeVoice("156fb8d2-335b-4950-9cb3-a2d33befec77", "British Lady", "en", "female", "British accent, professional"),
+		makeVoice("79a125e8-cd45-4c13-8a67-188112f4dd22", "California Girl", "en", "female", "Casual, friendly American"),
+		makeVoice("bf991597-6c13-47e4-8411-91ec2de5c466", "Confident Man", "en", "male", "Clear, confident delivery"),
+		makeVoice("9121c0ae-12a6-4012-8158-6e4a72e6da91", "Friendly Woman", "en", "female", "Warm, approachable"),
 	}
 }
 
 // SupportedFormats returns audio formats supported by Cartesia.
 func (s *CartesiaService) SupportedFormats() []AudioFormat {
 	return []AudioFormat{
-		{
-			Name:       formatPCM,
-			MIMEType:   "audio/pcm",
-			SampleRate: sampleRate24000,
-			BitDepth:   bitDepth16,
-			Channels:   1,
-		},
-		{
-			Name:       formatMP3,
-			MIMEType:   "audio/mpeg",
-			SampleRate: sampleRate44100,
-			BitDepth:   0,
-			Channels:   1,
-		},
-		{
-			Name:       formatWAV,
-			MIMEType:   "audio/wav",
-			SampleRate: sampleRate44100,
-			BitDepth:   bitDepth16,
-			Channels:   1,
-		},
+		makeFormat(formatPCM, "audio/pcm", sampleRate24000, bitDepth16),
+		makeFormat(formatMP3, "audio/mpeg", sampleRate44100, 0),
+		makeFormat(formatWAV, "audio/wav", sampleRate44100, bitDepth16),
 	}
 }

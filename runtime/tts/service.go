@@ -183,3 +183,17 @@ var (
 func (f AudioFormat) String() string {
 	return f.Name
 }
+
+// makeVoice builds a Voice with the listed metadata. Used by provider
+// SupportedVoices implementations to keep entries on a single line.
+//
+//nolint:unparam // language is always "en" in current voice tables but is part of the schema for non-English voices.
+func makeVoice(id, name, language, gender, description string) Voice {
+	return Voice{ID: id, Name: name, Language: language, Gender: gender, Description: description}
+}
+
+// makeFormat builds a mono-channel AudioFormat with the listed parameters.
+// Used by provider SupportedFormats implementations to keep entries compact.
+func makeFormat(name, mime string, sampleRate, bitDepth int) AudioFormat {
+	return AudioFormat{Name: name, MIMEType: mime, SampleRate: sampleRate, BitDepth: bitDepth, Channels: 1}
+}
