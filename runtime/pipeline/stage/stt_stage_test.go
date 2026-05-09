@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,8 +28,8 @@ func TestDefaultSTTStageConfig(t *testing.T) {
 
 func TestSTTStage_TranscribesAudio(t *testing.T) {
 	mock := &mockSTTService{
-		transcribeFunc: func(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
-			return "Hello from transcription", nil
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			return base.STTResponse{Text: "Hello from transcription"}, nil
 		},
 	}
 	s := stage.NewSTTStage(mock, stage.DefaultSTTStageConfig())
@@ -46,8 +46,8 @@ func TestSTTStage_TranscribesAudio(t *testing.T) {
 
 func TestSTTStage_TranscriptionError(t *testing.T) {
 	mock := &mockSTTService{
-		transcribeFunc: func(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
-			return "", context.DeadlineExceeded
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			return base.STTResponse{}, context.DeadlineExceeded
 		},
 	}
 	s := stage.NewSTTStage(mock, stage.DefaultSTTStageConfig())
@@ -63,8 +63,8 @@ func TestSTTStage_TranscriptionError(t *testing.T) {
 
 func TestSTTStage_EmptyTranscription(t *testing.T) {
 	mock := &mockSTTService{
-		transcribeFunc: func(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
-			return "   ", nil // Whitespace only
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			return base.STTResponse{Text: "   "}, nil // Whitespace only
 		},
 	}
 	config := stage.DefaultSTTStageConfig()
@@ -85,9 +85,9 @@ func TestSTTStage_EmptyTranscription(t *testing.T) {
 func TestSTTStage_SkipsSmallAudio(t *testing.T) {
 	transcribeCalled := false
 	mock := &mockSTTService{
-		transcribeFunc: func(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
 			transcribeCalled = true
-			return "should not be called", nil
+			return base.STTResponse{Text: "should not be called"}, nil
 		},
 	}
 	config := stage.DefaultSTTStageConfig()
@@ -122,9 +122,9 @@ func TestSTTStage_PassesThroughNonAudio(t *testing.T) {
 func TestSTTStage_EndOfStream(t *testing.T) {
 	transcribeCalled := false
 	mock := &mockSTTService{
-		transcribeFunc: func(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
 			transcribeCalled = true
-			return "", nil
+			return base.STTResponse{}, nil
 		},
 	}
 	s := stage.NewSTTStage(mock, stage.DefaultSTTStageConfig())
@@ -141,8 +141,8 @@ func TestSTTStage_EndOfStream(t *testing.T) {
 
 func TestSTTStage_PreservesMetadata(t *testing.T) {
 	mock := &mockSTTService{
-		transcribeFunc: func(_ context.Context, _ []byte, _ stt.TranscriptionConfig) (string, error) {
-			return "Transcribed text", nil
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			return base.STTResponse{Text: "Transcribed text"}, nil
 		},
 	}
 	s := stage.NewSTTStage(mock, stage.DefaultSTTStageConfig())
@@ -167,11 +167,11 @@ func TestSTTStage_PreservesMetadata(t *testing.T) {
 }
 
 func TestSTTStage_PassesLanguageConfig(t *testing.T) {
-	var capturedConfig stt.TranscriptionConfig
+	var capturedLanguage string
 	mock := &mockSTTService{
-		transcribeFunc: func(_ context.Context, _ []byte, cfg stt.TranscriptionConfig) (string, error) {
-			capturedConfig = cfg
-			return "Hola", nil
+		transcribeFunc: func(_ context.Context, req base.STTRequest) (base.STTResponse, error) {
+			capturedLanguage = req.Hints["language"]
+			return base.STTResponse{Text: "Hola"}, nil
 		},
 	}
 	config := stage.DefaultSTTStageConfig()
@@ -184,5 +184,5 @@ func TestSTTStage_PassesLanguageConfig(t *testing.T) {
 	}
 	runStage(t, s, inputs, 2*time.Second)
 
-	assert.Equal(t, "es", capturedConfig.Language, "Language config should be passed to transcribe")
+	assert.Equal(t, "es", capturedLanguage, "Language hint should be passed to Transcribe request")
 }

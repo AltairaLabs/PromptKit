@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 // Retry defaults for STT transcription.
@@ -49,11 +50,10 @@ func DefaultRetryConfig() RetryConfig {
 //nolint:gocritic // hugeParam: config value is caller-owned and not modified
 func TranscribeWithRetry(
 	ctx context.Context,
-	svc Service,
-	audio []byte,
-	config TranscriptionConfig,
+	svc base.STTProvider,
+	req base.STTRequest,
 	retry RetryConfig,
-) (string, error) {
+) (base.STTResponse, error) {
 	maxAttempts := retry.MaxAttempts
 	if maxAttempts < 1 {
 		maxAttempts = 1
@@ -62,10 +62,10 @@ func TranscribeWithRetry(
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return base.STTResponse{}, err
 		}
 
-		result, err := svc.Transcribe(ctx, audio, config)
+		result, err := svc.Transcribe(ctx, req)
 		if err == nil {
 			return result, nil
 		}
@@ -86,11 +86,11 @@ func TranscribeWithRetry(
 
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return base.STTResponse{}, ctx.Err()
 		case <-time.After(delay):
 		}
 	}
-	return "", lastErr
+	return base.STTResponse{}, lastErr
 }
 
 // isRetryable checks if err is a TranscriptionError with Retryable set.

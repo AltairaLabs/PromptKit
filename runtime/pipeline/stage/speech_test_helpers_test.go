@@ -9,28 +9,32 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
-	"github.com/AltairaLabs/PromptKit/runtime/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 )
 
 // =============================================================================
-// Mock STT service
+// Mock STT provider
 // =============================================================================
 
-// mockSTTService implements stt.Service with a configurable transcribeFunc.
+// mockSTTService implements base.STTProvider with a configurable transcribeFunc.
 type mockSTTService struct {
-	transcribeFunc func(ctx context.Context, audio []byte, config stt.TranscriptionConfig) (string, error)
+	transcribeFunc func(ctx context.Context, req base.STTRequest) (base.STTResponse, error)
 }
 
-func (m *mockSTTService) Name() string { return "mock-stt" }
-func (m *mockSTTService) SupportedFormats() []string {
-	return []string{"pcm", "wav"}
-}
-func (m *mockSTTService) Transcribe(ctx context.Context, audioData []byte, config stt.TranscriptionConfig) (string, error) {
+func (m *mockSTTService) Name() string                        { return "mock-stt" }
+func (m *mockSTTService) Type() base.ProviderType             { return base.ProviderTypeSTT }
+func (m *mockSTTService) Pricing() *base.PricingDescriptor    { return nil }
+func (m *mockSTTService) Validate() error                     { return nil }
+func (m *mockSTTService) Init(_ context.Context) error        { return nil }
+func (m *mockSTTService) HealthCheck(_ context.Context) error { return nil }
+func (m *mockSTTService) Close() error                        { return nil }
+
+func (m *mockSTTService) Transcribe(ctx context.Context, req base.STTRequest) (base.STTResponse, error) {
 	if m.transcribeFunc != nil {
-		return m.transcribeFunc(ctx, audioData, config)
+		return m.transcribeFunc(ctx, req)
 	}
-	return "Test transcription", nil
+	return base.STTResponse{Text: "Test transcription"}, nil
 }
 
 // =============================================================================

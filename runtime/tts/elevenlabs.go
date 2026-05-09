@@ -1,9 +1,7 @@
 package tts
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,9 +24,6 @@ const (
 
 	// Default timeout for ElevenLabs requests.
 	defaultElevenLabsTimeout = 60 * time.Second
-
-	// HTTP status code threshold for server errors.
-	elevenLabsServerErrorThreshold = 500
 
 	// Default voice settings.
 	elevenLabsDefaultStability       = 0.5
@@ -60,74 +55,33 @@ var elevenLabsDefaultPricing = &base.PricingDescriptor{
 // ElevenLabsService implements TTS using ElevenLabs' API.
 // ElevenLabs specializes in high-quality voice cloning and natural-sounding speech.
 type ElevenLabsService struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
-	model   string
-	pricing *base.PricingDescriptor
+	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
 }
 
 // ElevenLabsOption configures the ElevenLabs TTS service.
-type ElevenLabsOption func(*ElevenLabsService)
-
-// WithElevenLabsBaseURL sets a custom base URL.
-func WithElevenLabsBaseURL(url string) ElevenLabsOption {
-	return func(s *ElevenLabsService) {
-		s.baseURL = url
-	}
-}
-
-// WithElevenLabsClient sets a custom HTTP client.
-func WithElevenLabsClient(client *http.Client) ElevenLabsOption {
-	return func(s *ElevenLabsService) {
-		s.client = client
-	}
-}
-
-// WithElevenLabsModel sets the TTS model.
-func WithElevenLabsModel(model string) ElevenLabsOption {
-	return func(s *ElevenLabsService) {
-		s.model = model
-	}
-}
-
-// WithElevenLabsPricing overrides the default pricing descriptor for this instance.
-func WithElevenLabsPricing(p *base.PricingDescriptor) ElevenLabsOption {
-	return func(s *ElevenLabsService) {
-		s.pricing = p
-	}
-}
+// It is a type alias for base.HTTPServiceOption so callers can pass
+// base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
+type ElevenLabsOption = base.HTTPServiceOption
 
 // NewElevenLabs creates an ElevenLabs TTS service.
 func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
-	s := &ElevenLabsService{
-		apiKey:  apiKey,
-		baseURL: elevenLabsBaseURL,
-		client:  &http.Client{Timeout: defaultElevenLabsTimeout},
-		model:   ElevenLabsModelMultilingual,
-		pricing: elevenLabsDefaultPricing,
-	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
-}
-
-// Name returns the provider identifier.
-func (s *ElevenLabsService) Name() string {
-	return "elevenlabs"
+	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
+		Name:    "elevenlabs",
+		Type:    base.ProviderTypeTTS,
+		Pricing: elevenLabsDefaultPricing,
+		BaseURL: elevenLabsBaseURL,
+		Model:   ElevenLabsModelMultilingual,
+		Timeout: defaultElevenLabsTimeout,
+	}, opts...)
+	return &ElevenLabsService{Implementation: impl, HTTPServiceFields: fields}
 }
 
 // ImplName returns the implementation name for cost tracking.
 func (s *ElevenLabsService) ImplName() string { return "elevenlabs" }
 
 // ModelName returns the configured model name for cost tracking.
-func (s *ElevenLabsService) ModelName() string { return s.model }
-
-// Pricing returns the pricing descriptor for this instance. Returns the
-// YAML-overridden value when WithElevenLabsPricing was applied, otherwise the
-// compiled-in elevenLabsDefaultPricing.
-func (s *ElevenLabsService) Pricing() *base.PricingDescriptor { return s.pricing }
+func (s *ElevenLabsService) ModelName() string { return s.Model }
 
 // elevenLabsRequest is the request body for ElevenLabs TTS API.
 type elevenLabsRequest struct {
@@ -154,16 +108,13 @@ func (s *ElevenLabsService) Synthesize(
 		return nil, ErrEmptyText
 	}
 
-	// Use config voice or default
 	voice := config.Voice
 	if voice == "" {
 		voice = elevenLabsDefaultVoice
 	}
-
-	// Use config model or service default
 	model := config.Model
 	if model == "" {
-		model = s.model
+		model = s.Model
 	}
 
 	reqBody := elevenLabsRequest{
@@ -175,44 +126,17 @@ func (s *ElevenLabsService) Synthesize(
 		},
 	}
 
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	endpoint := fmt.Sprintf("%s/text-to-speech/%s", s.baseURL, voice)
-
-	// Add output format query parameter
-	format := s.mapFormat(config.Format)
-	if format != "" {
+	endpoint := fmt.Sprintf("%s/text-to-speech/%s", s.BaseURL, voice)
+	if format := s.mapFormat(config.Format); format != "" {
 		endpoint += "?output_format=" + format
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		endpoint,
-		bytes.NewReader(bodyBytes),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	headers := map[string]string{
+		"xi-api-key":   s.APIKey,
+		"Content-Type": "application/json",
+		"Accept":       "audio/mpeg",
 	}
-
-	req.Header.Set("xi-api-key", s.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "audio/mpeg")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, NewSynthesisError("elevenlabs", "", "request failed", err, true)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		return nil, s.handleError(resp)
-	}
-
-	return resp.Body, nil
+	return postJSONForAudio(ctx, s.Client, "elevenlabs", endpoint, reqBody, headers, s.handleError)
 }
 
 // mapFormat converts AudioFormat to ElevenLabs format string.
@@ -240,31 +164,10 @@ type elevenLabsErrorResponse struct {
 // handleError processes an error response from ElevenLabs.
 func (s *ElevenLabsService) handleError(resp *http.Response) error {
 	var errResp elevenLabsErrorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-		return NewSynthesisError(
-			"elevenlabs",
-			fmt.Sprintf("%d", resp.StatusCode),
-			"unknown error",
-			err,
-			resp.StatusCode >= elevenLabsServerErrorThreshold,
-		)
+	if e := decodeErrorBody("elevenlabs", resp, &errResp); e != nil {
+		return e
 	}
-
-	retryable := resp.StatusCode == http.StatusTooManyRequests ||
-		resp.StatusCode >= elevenLabsServerErrorThreshold
-
-	var cause error
-	switch resp.StatusCode {
-	case http.StatusTooManyRequests:
-		cause = ErrRateLimited
-	case http.StatusUnauthorized:
-		cause = fmt.Errorf("invalid API key")
-	case http.StatusBadRequest:
-		cause = fmt.Errorf("bad request")
-	case http.StatusNotFound:
-		cause = ErrInvalidVoice
-	}
-
+	retryable, cause := classifyHTTPStatus(resp.StatusCode, ErrInvalidVoice, fmt.Errorf("bad request"))
 	return NewSynthesisError(
 		"elevenlabs",
 		errResp.Detail.Status,

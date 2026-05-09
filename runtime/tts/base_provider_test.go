@@ -24,7 +24,7 @@ func TestOpenAIService_BaseTTSProvider(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc := NewOpenAI("test-key", WithOpenAIBaseURL(server.URL))
+	svc := NewOpenAI("test-key", base.WithBaseURL(server.URL))
 
 	// Verify Provider identity methods.
 	assert.Equal(t, "openai", svc.Name())
@@ -62,7 +62,7 @@ func TestElevenLabsService_BaseTTSProvider(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc := NewElevenLabs("test-key", WithElevenLabsBaseURL(server.URL))
+	svc := NewElevenLabs("test-key", base.WithBaseURL(server.URL))
 
 	assert.Equal(t, "elevenlabs", svc.Name())
 	assert.Equal(t, base.ProviderTypeTTS, svc.Type())
@@ -92,7 +92,7 @@ func TestCartesiaService_BaseTTSProvider(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	svc := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	assert.Equal(t, "cartesia", svc.Name())
 	assert.Equal(t, base.ProviderTypeTTS, svc.Type())
@@ -122,7 +122,7 @@ func TestTTSStream_Close_DrainsSafely(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc := NewOpenAI("test-key", WithOpenAIBaseURL(server.URL))
+	svc := NewOpenAI("test-key", base.WithBaseURL(server.URL))
 	stream, err := svc.SynthesizeTTS(context.Background(), base.TTSRequest{Text: "test"})
 	require.NoError(t, err)
 

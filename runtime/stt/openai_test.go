@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 )
 
@@ -19,6 +20,59 @@ func TestNewOpenAI(t *testing.T) {
 	}
 	if service.Name() != "openai-whisper" {
 		t.Errorf("Name() = %q, want %q", service.Name(), "openai-whisper")
+	}
+}
+
+func TestOpenAIService_Type(t *testing.T) {
+	service := stt.NewOpenAI("test-api-key")
+	if service.Type() != base.ProviderTypeSTT {
+		t.Errorf("Type() = %q, want %q", service.Type(), base.ProviderTypeSTT)
+	}
+}
+
+func TestOpenAIService_Pricing_Default(t *testing.T) {
+	service := stt.NewOpenAI("test-api-key")
+	p := service.Pricing()
+	if p == nil {
+		t.Fatal("Pricing() returned nil for default pricing")
+	}
+	if len(p.Items) == 0 {
+		t.Fatal("Pricing().Items is empty")
+	}
+	if p.Items[0].Unit != "second" {
+		t.Errorf("pricing unit = %q, want %q", p.Items[0].Unit, "second")
+	}
+	if p.Items[0].Rate <= 0 {
+		t.Error("pricing rate must be > 0")
+	}
+}
+
+func TestOpenAIService_Pricing_Override(t *testing.T) {
+	custom := &base.PricingDescriptor{
+		Source:   base.PricingSourceInline,
+		Currency: "usd",
+		Items:    []base.PriceItem{{Unit: "second", Rate: 0.0002}},
+	}
+	service := stt.NewOpenAI("test-api-key")
+	service.SetPricing(custom)
+	if service.Pricing() != custom {
+		t.Error("SetPricing did not override pricing")
+	}
+}
+
+func TestOpenAIService_BaseProviderMethods(t *testing.T) {
+	service := stt.NewOpenAI("test-api-key")
+	if err := service.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil", err)
+	}
+	if err := service.Init(context.Background()); err != nil {
+		t.Errorf("Init() = %v, want nil", err)
+	}
+	if err := service.HealthCheck(context.Background()); err != nil {
+		t.Errorf("HealthCheck() = %v, want nil", err)
+	}
+	if err := service.Close(); err != nil {
+		t.Errorf("Close() = %v, want nil", err)
 	}
 }
 
@@ -46,7 +100,141 @@ func TestOpenAIService_SupportedFormats(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_Success(t *testing.T) {
+// TestOpenAIService_Transcribe_Request tests the base.STTProvider Transcribe method
+// with a mock server returning verbose_json with a duration field.
+func TestOpenAIService_Transcribe_Request_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/audio/transcriptions") {
+			t.Errorf("Unexpected path: %s", r.URL.Path)
+		}
+		authHeader := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			t.Errorf("Missing or invalid Authorization header: %s", authHeader)
+		}
+		// Return verbose_json response with duration
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"text":     "Hello, this is a test transcription.",
+			"duration": 1.5,
+		})
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
+
+	ctx := context.Background()
+	audio := generateTestAudio(16000, 1.0) // 1 second of audio
+
+	resp, err := service.Transcribe(ctx, base.STTRequest{
+		Audio:    audio,
+		MIMEType: "audio/pcm",
+		Hints:    map[string]string{"sample_rate": "16000", "language": "en"},
+	})
+
+	if err != nil {
+		t.Fatalf("Transcribe failed: %v", err)
+	}
+
+	expected := "Hello, this is a test transcription."
+	if resp.Text != expected {
+		t.Errorf("resp.Text = %q, want %q", resp.Text, expected)
+	}
+
+	// Cost must be computed from the duration returned by the API (1.5s).
+	if resp.Cost == nil {
+		t.Fatal("expected Cost to be populated")
+	}
+	if resp.Cost.TotalCost <= 0 {
+		t.Errorf("TotalCost = %v, want > 0", resp.Cost.TotalCost)
+	}
+	// 1.5 seconds * 0.0001 USD/s = 0.00015
+	wantCost := 1.5 * 0.0001
+	if diff := resp.Cost.TotalCost - wantCost; diff < -0.000001 || diff > 0.000001 {
+		t.Errorf("TotalCost = %v, want ~%v", resp.Cost.TotalCost, wantCost)
+	}
+	if resp.Cost.Quantities["second"] != 1.5 {
+		t.Errorf("Quantities[second] = %v, want 1.5", resp.Cost.Quantities["second"])
+	}
+}
+
+// TestOpenAIService_Transcribe_Request_FallbackEstimate tests cost estimation
+// from audio byte length when the API response omits the duration field.
+func TestOpenAIService_Transcribe_Request_FallbackEstimate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return verbose_json response WITHOUT duration (simulates older API or edge case)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"text": "Fallback estimate test.",
+			// duration intentionally absent — defaults to 0
+		})
+	}))
+	defer server.Close()
+
+	// 16000 Hz, 16-bit mono, 1 second = 32000 bytes
+	audio := generateTestAudio(16000, 1.0)
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
+
+	resp, err := service.Transcribe(context.Background(), base.STTRequest{
+		Audio:    audio,
+		MIMEType: "audio/pcm",
+		Hints:    map[string]string{"sample_rate": "16000"},
+	})
+	if err != nil {
+		t.Fatalf("Transcribe failed: %v", err)
+	}
+	if resp.Cost == nil {
+		t.Fatal("expected Cost to be populated via byte-length estimate")
+	}
+	// 32000 bytes / (16000 * 1 * 2 bytes/sample) = 1.0 second
+	wantCost := 1.0 * 0.0001
+	if diff := resp.Cost.TotalCost - wantCost; diff < -0.000001 || diff > 0.000001 {
+		t.Errorf("TotalCost = %v, want ~%v", resp.Cost.TotalCost, wantCost)
+	}
+}
+
+func TestOpenAIService_Transcribe_Request_EmptyAudio(t *testing.T) {
+	service := stt.NewOpenAI("test-api-key")
+	_, err := service.Transcribe(context.Background(), base.STTRequest{})
+	if err == nil {
+		t.Fatal("Expected error for empty audio, got nil")
+	}
+	if err != stt.ErrEmptyAudio {
+		t.Errorf("Expected ErrEmptyAudio, got: %v", err)
+	}
+}
+
+// TestOpenAIService_Transcribe_Request_NoPricing verifies that no-pricing returns nil Cost.
+func TestOpenAIService_Transcribe_Request_NoPricing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"text":     "No pricing test.",
+			"duration": 1.0,
+		})
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
+	service.SetPricing(nil)
+
+	resp, err := service.Transcribe(context.Background(), base.STTRequest{
+		Audio:    generateTestAudio(16000, 1.0),
+		MIMEType: "audio/pcm",
+	})
+	if err != nil {
+		t.Fatalf("Transcribe failed: %v", err)
+	}
+	if resp.Cost != nil {
+		t.Errorf("expected nil Cost for nil-pricing provider, got %+v", resp.Cost)
+	}
+}
+
+// --- Legacy TranscribeBytes tests ---
+
+func TestOpenAIService_TranscribeBytes_Success(t *testing.T) {
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify request
@@ -73,13 +261,13 @@ func TestOpenAIService_Transcribe_Success(t *testing.T) {
 	defer server.Close()
 
 	// Create service with mock URL
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	// Test transcription
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 1.0) // 1 second of audio
 
-	text, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	text, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format:     stt.FormatPCM,
 		SampleRate: 16000,
 		Channels:   1,
@@ -87,20 +275,20 @@ func TestOpenAIService_Transcribe_Success(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("Transcribe failed: %v", err)
+		t.Fatalf("TranscribeBytes failed: %v", err)
 	}
 
 	expected := "Hello, this is a test transcription."
 	if text != expected {
-		t.Errorf("Transcribe() = %q, want %q", text, expected)
+		t.Errorf("TranscribeBytes() = %q, want %q", text, expected)
 	}
 }
 
-func TestOpenAIService_Transcribe_EmptyAudio(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_EmptyAudio(t *testing.T) {
 	service := stt.NewOpenAI("test-api-key")
 
 	ctx := context.Background()
-	_, err := service.Transcribe(ctx, []byte{}, stt.TranscriptionConfig{})
+	_, err := service.TranscribeBytes(ctx, []byte{}, stt.TranscriptionConfig{})
 
 	if err == nil {
 		t.Fatal("Expected error for empty audio, got nil")
@@ -111,7 +299,7 @@ func TestOpenAIService_Transcribe_EmptyAudio(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_APIError(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_APIError(t *testing.T) {
 	// Create mock server that returns an error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -126,12 +314,12 @@ func TestOpenAIService_Transcribe_APIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 1.0)
 
-	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	_, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format:     stt.FormatPCM,
 		SampleRate: 16000,
 	})
@@ -147,7 +335,7 @@ func TestOpenAIService_Transcribe_APIError(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_RateLimited(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_RateLimited(t *testing.T) {
 	// Create mock server that returns rate limit error
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -162,12 +350,12 @@ func TestOpenAIService_Transcribe_RateLimited(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 1.0)
 
-	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	_, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format:     stt.FormatPCM,
 		SampleRate: 16000,
 	})
@@ -183,7 +371,7 @@ func TestOpenAIService_Transcribe_RateLimited(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_WithCustomClient(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_WithCustomClient(t *testing.T) {
 	// Create a custom client that tracks calls
 	callCount := 0
 	customClient := &http.Client{
@@ -200,18 +388,18 @@ func TestOpenAIService_Transcribe_WithCustomClient(t *testing.T) {
 		}),
 	}
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIClient(customClient))
+	service := stt.NewOpenAI("test-api-key", base.WithClient(customClient))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
 
-	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	_, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format:     stt.FormatPCM,
 		SampleRate: 16000,
 	})
 
 	if err != nil {
-		t.Fatalf("Transcribe failed: %v", err)
+		t.Fatalf("TranscribeBytes failed: %v", err)
 	}
 
 	if callCount != 1 {
@@ -307,7 +495,7 @@ func isTranscriptionError(err error, target **stt.TranscriptionError) bool {
 // Additional Helper Function Tests (for coverage)
 // =============================================================================
 
-func TestOpenAIService_Transcribe_WithPrompt(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_WithPrompt(t *testing.T) {
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify multipart form
@@ -329,12 +517,12 @@ func TestOpenAIService_Transcribe_WithPrompt(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
 
-	text, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	text, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format:     stt.FormatPCM,
 		SampleRate: 16000,
 		Channels:   1,
@@ -342,7 +530,7 @@ func TestOpenAIService_Transcribe_WithPrompt(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Fatalf("Transcribe failed: %v", err)
+		t.Fatalf("TranscribeBytes failed: %v", err)
 	}
 
 	if text != "Transcription with context" {
@@ -350,7 +538,7 @@ func TestOpenAIService_Transcribe_WithPrompt(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_WAVFormat(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_WAVFormat(t *testing.T) {
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -360,20 +548,20 @@ func TestOpenAIService_Transcribe_WAVFormat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	// Use WAV format (no wrapping needed)
 	audio := generateTestAudio(16000, 0.5)
 
-	text, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	text, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format:     "wav",
 		SampleRate: 16000,
 		Channels:   1,
 	})
 
 	if err != nil {
-		t.Fatalf("Transcribe failed: %v", err)
+		t.Fatalf("TranscribeBytes failed: %v", err)
 	}
 
 	if text != "WAV transcription" {
@@ -381,7 +569,7 @@ func TestOpenAIService_Transcribe_WAVFormat(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_DefaultsApplied(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_DefaultsApplied(t *testing.T) {
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -391,16 +579,16 @@ func TestOpenAIService_Transcribe_DefaultsApplied(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
 
 	// Use empty config - defaults should be applied
-	text, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{})
+	text, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{})
 
 	if err != nil {
-		t.Fatalf("Transcribe failed: %v", err)
+		t.Fatalf("TranscribeBytes failed: %v", err)
 	}
 
 	if text != "Default config test" {
@@ -408,7 +596,7 @@ func TestOpenAIService_Transcribe_DefaultsApplied(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_CustomModel(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_CustomModel(t *testing.T) {
 	// Create mock server
 	modelReceived := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -426,18 +614,18 @@ func TestOpenAIService_Transcribe_CustomModel(t *testing.T) {
 
 	// Create service with custom model
 	service := stt.NewOpenAI("test-api-key",
-		stt.WithOpenAIBaseURL(server.URL),
-		stt.WithOpenAIModel("custom-whisper-model"))
+		base.WithBaseURL(server.URL),
+		base.WithModel("custom-whisper-model"))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
 
-	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	_, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format: stt.FormatPCM,
 	})
 
 	if err != nil {
-		t.Fatalf("Transcribe failed: %v", err)
+		t.Fatalf("TranscribeBytes failed: %v", err)
 	}
 
 	if modelReceived != "custom-whisper-model" {
@@ -445,7 +633,7 @@ func TestOpenAIService_Transcribe_CustomModel(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_UnauthorizedError(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_UnauthorizedError(t *testing.T) {
 	// Create mock server that returns 401
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -460,12 +648,12 @@ func TestOpenAIService_Transcribe_UnauthorizedError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("invalid-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("invalid-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
 
-	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	_, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format: stt.FormatPCM,
 	})
 
@@ -480,7 +668,7 @@ func TestOpenAIService_Transcribe_UnauthorizedError(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_ServerError(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_ServerError(t *testing.T) {
 	// Create mock server that returns 500
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -495,12 +683,12 @@ func TestOpenAIService_Transcribe_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
 
-	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	_, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format: stt.FormatPCM,
 	})
 
@@ -515,7 +703,7 @@ func TestOpenAIService_Transcribe_ServerError(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_Transcribe_MalformedResponse(t *testing.T) {
+func TestOpenAIService_TranscribeBytes_MalformedResponse(t *testing.T) {
 	// Create mock server that returns invalid JSON
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -523,16 +711,82 @@ func TestOpenAIService_Transcribe_MalformedResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
 
-	_, err := service.Transcribe(ctx, audio, stt.TranscriptionConfig{
+	_, err := service.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{
 		Format: stt.FormatPCM,
 	})
 
 	if err == nil {
 		t.Fatal("Expected error for malformed response")
+	}
+}
+
+// TestOpenAIService_Transcribe_MP3MIMEType verifies that an MP3 MIME type is accepted
+// and the fallback estimate returns 0 (non-PCM/WAV formats rely on the API duration).
+func TestOpenAIService_Transcribe_MP3MIMEType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"text":     "MP3 test.",
+			"duration": 2.0,
+		})
+	}))
+	defer server.Close()
+
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
+	resp, err := service.Transcribe(context.Background(), base.STTRequest{
+		Audio:    generateTestAudio(16000, 1.0),
+		MIMEType: "audio/mpeg",
+	})
+	if err != nil {
+		t.Fatalf("Transcribe MP3 failed: %v", err)
+	}
+	if resp.Text != "MP3 test." {
+		t.Errorf("Text = %q, want %q", resp.Text, "MP3 test.")
+	}
+	// For non-PCM MIME, cost comes from API-reported duration (2.0s).
+	if resp.Cost == nil {
+		t.Fatal("expected Cost from API duration")
+	}
+	wantCost := 2.0 * 0.0001
+	if diff := resp.Cost.TotalCost - wantCost; diff < -0.000001 || diff > 0.000001 {
+		t.Errorf("TotalCost = %v, want ~%v", resp.Cost.TotalCost, wantCost)
+	}
+}
+
+// TestOpenAIService_Transcribe_WAVMIMEType verifies WAV MIME type routing and
+// that the byte-length fallback fires when the API omits duration.
+func TestOpenAIService_Transcribe_WAVMIMEType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// No "duration" field — fallback to byte-length estimate.
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"text": "WAV mime test.",
+		})
+	}))
+	defer server.Close()
+
+	// 16000 Hz, 16-bit mono, 0.5s → 16000 bytes
+	audio := generateTestAudio(16000, 0.5)
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
+	resp, err := service.Transcribe(context.Background(), base.STTRequest{
+		Audio:    audio,
+		MIMEType: "audio/wav",
+		Hints:    map[string]string{"sample_rate": "16000"},
+	})
+	if err != nil {
+		t.Fatalf("Transcribe WAV failed: %v", err)
+	}
+	if resp.Cost == nil {
+		t.Fatal("expected Cost from byte-length estimate for WAV")
+	}
+	// 16000 bytes / (16000 * 1 * 16 / 8) = 0.5s
+	wantCost := 0.5 * 0.0001
+	if diff := resp.Cost.TotalCost - wantCost; diff < -0.000001 || diff > 0.000001 {
+		t.Errorf("TotalCost = %v, want ~%v", resp.Cost.TotalCost, wantCost)
 	}
 }

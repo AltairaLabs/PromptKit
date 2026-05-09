@@ -1204,6 +1204,109 @@ func TestEmitter_TTSCallFailedCtx_NilData(t *testing.T) {
 	emitter.TTSCallFailedCtx(context.Background(), nil)
 }
 
+func TestEmitter_STTCallCompletedCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-stt1", "session-stt1", "conv-stt1")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventSTTCallCompleted, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.STTCallCompletedCtx(context.Background(), &STTCallCompletedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "openai-whisper",
+			Model:      "whisper-1",
+			Capability: "stt",
+			Source:     "pipeline",
+			Duration:   200 * time.Millisecond,
+			Cost:       0.0003,
+		},
+		AudioSeconds: 3.0,
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for stt.call.completed event")
+	}
+
+	data, ok := got.Data.(*STTCallCompletedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Provider != "openai-whisper" {
+		t.Errorf("Provider = %q, want %q", data.Provider, "openai-whisper")
+	}
+	if data.AudioSeconds != 3.0 {
+		t.Errorf("AudioSeconds = %f, want 3.0", data.AudioSeconds)
+	}
+	if data.Cost != 0.0003 {
+		t.Errorf("Cost = %f, want 0.0003", data.Cost)
+	}
+}
+
+func TestEmitter_STTCallFailedCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-stt2", "session-stt2", "conv-stt2")
+
+	var got *Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(EventSTTCallFailed, func(e *Event) {
+		got = e
+		wg.Done()
+	})
+
+	emitter.STTCallFailedCtx(context.Background(), &STTCallFailedData{
+		CapabilityCallData: CapabilityCallData{
+			Provider:   "openai-whisper",
+			Model:      "whisper-1",
+			Capability: "stt",
+			Source:     "pipeline",
+			Duration:   50 * time.Millisecond,
+		},
+		Error: "audio too short",
+	})
+
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for stt.call.failed event")
+	}
+
+	data, ok := got.Data.(*STTCallFailedData)
+	if !ok {
+		t.Fatalf("unexpected data type: %T", got.Data)
+	}
+	if data.Error != "audio too short" {
+		t.Errorf("Error = %q, want %q", data.Error, "audio too short")
+	}
+}
+
+func TestEmitter_STTCallCompletedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-stt3", "session-stt3", "conv-stt3")
+
+	// Should not panic when data is nil
+	emitter.STTCallCompletedCtx(context.Background(), nil)
+}
+
+func TestEmitter_STTCallFailedCtx_NilData(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-stt4", "session-stt4", "conv-stt4")
+
+	// Should not panic when data is nil
+	emitter.STTCallFailedCtx(context.Background(), nil)
+}
+
 func TestEventBus_PublishStampsSequence(t *testing.T) {
 	t.Parallel()
 

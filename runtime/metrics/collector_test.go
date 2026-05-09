@@ -1118,3 +1118,66 @@ func TestCollector_HandlesTTSCallFailed(t *testing.T) {
 		t.Error("expected status=error label in tts_requests_total")
 	}
 }
+
+func TestCollector_HandlesSTTCallCompleted(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventSTTCallCompleted,
+		Data: &events.STTCallCompletedData{
+			CapabilityCallData: events.CapabilityCallData{
+				Provider: "openai-whisper",
+				Model:    "whisper-1",
+				Source:   "pipeline",
+				Duration: 200 * time.Millisecond,
+				Cost:     0.0003,
+			},
+			AudioSeconds: 3.0,
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	checks := []string{
+		"test_stt_request_duration_seconds",
+		"test_stt_requests_total",
+		"test_stt_audio_seconds_total",
+		"test_stt_cost_total",
+		`provider="openai-whisper"`,
+		`model="whisper-1"`,
+		`status="success"`,
+	}
+	for _, check := range checks {
+		if !strings.Contains(output, check) {
+			t.Errorf("expected %q in output:\n%s", check, output)
+		}
+	}
+}
+
+func TestCollector_HandlesSTTCallFailed(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+
+	ctx.OnEvent(&events.Event{
+		Type: events.EventSTTCallFailed,
+		Data: &events.STTCallFailedData{
+			CapabilityCallData: events.CapabilityCallData{
+				Provider: "openai-whisper",
+				Model:    "whisper-1",
+				Source:   "pipeline",
+				Duration: 30 * time.Millisecond,
+			},
+			Error: "audio too short",
+		},
+	})
+
+	output := gatherMetrics(t, reg)
+
+	if !strings.Contains(output, "test_stt_requests_total") {
+		t.Error("expected test_stt_requests_total metric")
+	}
+	if !strings.Contains(output, `status="error"`) {
+		t.Error("expected status=error label in stt_requests_total")
+	}
+}

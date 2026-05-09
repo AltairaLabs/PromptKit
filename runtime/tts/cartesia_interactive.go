@@ -33,11 +33,11 @@ func (s *CartesiaService) SynthesizeStream(
 	// Use config model or service default
 	model := config.Model
 	if model == "" {
-		model = s.model
+		model = s.Model
 	}
 
 	// Connect to WebSocket
-	wsURL := fmt.Sprintf("%s?api_key=%s&cartesia_version=2024-06-10", s.wsURL, s.apiKey)
+	wsURL := fmt.Sprintf("%s?api_key=%s&cartesia_version=2024-06-10", s.wsURL, s.APIKey)
 
 	dialer := websocket.DefaultDialer
 	conn, resp, err := dialer.DialContext(ctx, wsURL, nil)

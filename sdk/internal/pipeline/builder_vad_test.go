@@ -8,22 +8,26 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
-	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// mockSTTService implements stt.Service for testing
+// mockSTTService implements base.STTProvider for testing
 type mockSTTService struct{}
 
-func (m *mockSTTService) Name() string { return "mock-stt" }
-func (m *mockSTTService) Transcribe(ctx context.Context, audioData []byte, config stt.TranscriptionConfig) (string, error) {
-	return "test transcription", nil
-}
-func (m *mockSTTService) SupportedFormats() []string {
-	return []string{"pcm", "wav"}
+func (m *mockSTTService) Name() string                        { return "mock-stt" }
+func (m *mockSTTService) Type() base.ProviderType             { return base.ProviderTypeSTT }
+func (m *mockSTTService) Pricing() *base.PricingDescriptor    { return nil }
+func (m *mockSTTService) Validate() error                     { return nil }
+func (m *mockSTTService) Init(_ context.Context) error        { return nil }
+func (m *mockSTTService) HealthCheck(_ context.Context) error { return nil }
+func (m *mockSTTService) Close() error                        { return nil }
+
+func (m *mockSTTService) Transcribe(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+	return base.STTResponse{Text: "test transcription"}, nil
 }
 
 // mockTTSService implements tts.Service for testing

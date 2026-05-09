@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 func TestNewElevenLabs(t *testing.T) {
@@ -16,37 +18,37 @@ func TestNewElevenLabs(t *testing.T) {
 		t.Fatal("NewElevenLabs() returned nil")
 	}
 
-	if service.apiKey != "test-key" {
-		t.Errorf("apiKey = %v, want test-key", service.apiKey)
+	if service.APIKey != "test-key" {
+		t.Errorf("APIKey = %v, want test-key", service.APIKey)
 	}
 
-	if service.baseURL != elevenLabsBaseURL {
-		t.Errorf("baseURL = %v, want %v", service.baseURL, elevenLabsBaseURL)
+	if service.BaseURL != elevenLabsBaseURL {
+		t.Errorf("BaseURL = %v, want %v", service.BaseURL, elevenLabsBaseURL)
 	}
 
-	if service.model != ElevenLabsModelMultilingual {
-		t.Errorf("model = %v, want %v", service.model, ElevenLabsModelMultilingual)
+	if service.Model != ElevenLabsModelMultilingual {
+		t.Errorf("Model = %v, want %v", service.Model, ElevenLabsModelMultilingual)
 	}
 }
 
 func TestNewElevenLabs_WithOptions(t *testing.T) {
 	customClient := &http.Client{}
 	service := NewElevenLabs("test-key",
-		WithElevenLabsBaseURL("https://custom.api.com"),
-		WithElevenLabsClient(customClient),
-		WithElevenLabsModel(ElevenLabsModelTurbo),
+		base.WithBaseURL("https://custom.api.com"),
+		base.WithClient(customClient),
+		base.WithModel(ElevenLabsModelTurbo),
 	)
 
-	if service.baseURL != "https://custom.api.com" {
-		t.Errorf("baseURL = %v, want https://custom.api.com", service.baseURL)
+	if service.BaseURL != "https://custom.api.com" {
+		t.Errorf("BaseURL = %v, want https://custom.api.com", service.BaseURL)
 	}
 
-	if service.client != customClient {
-		t.Error("client was not set correctly")
+	if service.Client != customClient {
+		t.Error("Client was not set correctly")
 	}
 
-	if service.model != ElevenLabsModelTurbo {
-		t.Errorf("model = %v, want %v", service.model, ElevenLabsModelTurbo)
+	if service.Model != ElevenLabsModelTurbo {
+		t.Errorf("Model = %v, want %v", service.Model, ElevenLabsModelTurbo)
 	}
 }
 
@@ -97,7 +99,7 @@ func TestElevenLabsService_Synthesize_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewElevenLabs("test-key", WithElevenLabsBaseURL(server.URL))
+	service := NewElevenLabs("test-key", base.WithBaseURL(server.URL))
 
 	reader, err := service.Synthesize(context.Background(), "Hello world", SynthesisConfig{
 		Voice: "test-voice-id",
@@ -129,7 +131,7 @@ func TestElevenLabsService_Synthesize_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewElevenLabs("test-key", WithElevenLabsBaseURL(server.URL))
+	service := NewElevenLabs("test-key", base.WithBaseURL(server.URL))
 
 	_, err := service.Synthesize(context.Background(), "Hello", SynthesisConfig{
 		Voice: "invalid-voice",
@@ -205,7 +207,7 @@ func TestElevenLabsService_Synthesize_WithDefaultVoice(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewElevenLabs("test-key", WithElevenLabsBaseURL(server.URL))
+	service := NewElevenLabs("test-key", base.WithBaseURL(server.URL))
 
 	// Use empty voice to test default
 	reader, err := service.Synthesize(context.Background(), "Test", SynthesisConfig{})
@@ -251,7 +253,7 @@ func TestElevenLabsService_ModelName(t *testing.T) {
 	if got := svc.ModelName(); got != ElevenLabsModelMultilingual {
 		t.Errorf("ModelName() = %q, want %q", got, ElevenLabsModelMultilingual)
 	}
-	svc2 := NewElevenLabs("test-key", WithElevenLabsModel(ElevenLabsModelTurbo))
+	svc2 := NewElevenLabs("test-key", base.WithModel(ElevenLabsModelTurbo))
 	if got := svc2.ModelName(); got != ElevenLabsModelTurbo {
 		t.Errorf("ModelName() = %q, want %q after WithElevenLabsModel", got, ElevenLabsModelTurbo)
 	}

@@ -38,46 +38,19 @@ func ComputeTTSCost(svc any, text string, latency time.Duration) *types.CostInfo
 		return nil // free/local provider — no pricing configured
 	}
 	charCount := utf8.RuneCountInString(text)
-
-	info := &types.CostInfo{
-		Quantities:   map[string]float64{"character": float64(charCount)},
-		ProviderName: p.ImplName(),
-		Capability:   string(base.ProviderTypeTTS),
-		Latency:      latency,
-	}
-
-	usd, _, err := base.ComputeCost(desc, info)
-	if err != nil {
-		// Pricing mismatch — return the quantities without a dollar amount
-		// rather than dropping the cost entry entirely.
-		return info
-	}
-	info.TotalCost = usd
-	return info
+	return base.MakeCostInfo(
+		desc,
+		p.ImplName(),
+		base.ProviderTypeTTS,
+		map[string]float64{"character": float64(charCount)},
+		latency,
+	)
 }
 
-// CostInfoToMetaMap serializes a CostInfo into the map[string]any shape
-// that addCostFromMetaKey (and the arena statestore) expect when reading
-// ancillary cost from Message.Meta. The keys and types must match exactly
-// what addCostFromMetaKey reads (see cost_aggregation.go).
+// CostInfoToMetaMap is kept here as a deprecated alias for back-compat with
+// existing call sites. Prefer base.CostInfoToMetaMap directly.
+//
+// Deprecated: use base.CostInfoToMetaMap.
 func CostInfoToMetaMap(ci *types.CostInfo) map[string]any {
-	if ci == nil {
-		return nil
-	}
-	m := map[string]any{
-		"total_cost_usd":  ci.TotalCost,
-		"input_cost_usd":  ci.InputCostUSD,
-		"output_cost_usd": ci.OutputCostUSD,
-		"input_tokens":    ci.InputTokens,
-		"output_tokens":   ci.OutputTokens,
-		"capability":      ci.Capability,
-		"provider_name":   ci.ProviderName,
-	}
-	if len(ci.Quantities) > 0 {
-		m["quantities"] = ci.Quantities
-	}
-	if len(ci.DimensionMatch) > 0 {
-		m["dimension_match"] = ci.DimensionMatch
-	}
-	return m
+	return base.CostInfoToMetaMap(ci)
 }

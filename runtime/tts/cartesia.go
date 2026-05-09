@@ -1,10 +1,8 @@
 package tts
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,9 +32,6 @@ const (
 	// streamChannelBuffer is the buffer size for streaming audio chunks.
 	streamChannelBuffer = 64
 
-	// HTTP status code threshold for server errors.
-	serverErrorThreshold = 500
-
 	// Audio sample rates.
 	sampleRate24000 = 24000
 	sampleRate44100 = 44100
@@ -62,83 +57,46 @@ var cartesiaDefaultPricing = &base.PricingDescriptor{
 // CartesiaService implements TTS using Cartesia's ultra-low latency API.
 // Cartesia specializes in real-time streaming TTS with <100ms first-byte latency.
 type CartesiaService struct {
-	apiKey  string
-	baseURL string
-	wsURL   string
-	client  *http.Client
-	model   string
-	pricing *base.PricingDescriptor
+	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
+	wsURL                   string
 }
 
 // CartesiaOption configures the Cartesia TTS service.
-type CartesiaOption func(*CartesiaService)
-
-// WithCartesiaBaseURL sets a custom base URL.
-func WithCartesiaBaseURL(url string) CartesiaOption {
-	return func(s *CartesiaService) {
-		s.baseURL = url
-	}
-}
+// It is a type alias for base.HTTPServiceOption so callers can pass
+// base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
+// Use WithCartesiaWSURL for Cartesia-specific options.
+type CartesiaOption = base.HTTPServiceOption
 
 // WithCartesiaWSURL sets a custom WebSocket URL.
-func WithCartesiaWSURL(url string) CartesiaOption {
+func WithCartesiaWSURL(url string) func(*CartesiaService) {
 	return func(s *CartesiaService) {
 		s.wsURL = url
 	}
 }
 
-// WithCartesiaClient sets a custom HTTP client.
-func WithCartesiaClient(client *http.Client) CartesiaOption {
-	return func(s *CartesiaService) {
-		s.client = client
-	}
-}
-
-// WithCartesiaModel sets the TTS model.
-func WithCartesiaModel(model string) CartesiaOption {
-	return func(s *CartesiaService) {
-		s.model = model
-	}
-}
-
-// WithCartesiaPricing overrides the default pricing descriptor for this instance.
-func WithCartesiaPricing(p *base.PricingDescriptor) CartesiaOption {
-	return func(s *CartesiaService) {
-		s.pricing = p
-	}
-}
-
 // NewCartesia creates a Cartesia TTS service.
 func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
-	s := &CartesiaService{
-		apiKey:  apiKey,
-		baseURL: cartesiaBaseURL,
-		wsURL:   cartesiaWSURL,
-		client:  &http.Client{Timeout: defaultCartesiaTimeout},
-		model:   CartesiaModelSonic,
-		pricing: cartesiaDefaultPricing,
+	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
+		Name:    "cartesia",
+		Type:    base.ProviderTypeTTS,
+		Pricing: cartesiaDefaultPricing,
+		BaseURL: cartesiaBaseURL,
+		Model:   CartesiaModelSonic,
+		Timeout: defaultCartesiaTimeout,
+	}, opts...)
+	return &CartesiaService{
+		Implementation:    impl,
+		HTTPServiceFields: fields,
+		wsURL:             cartesiaWSURL,
 	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
-}
-
-// Name returns the provider identifier.
-func (s *CartesiaService) Name() string {
-	return "cartesia"
 }
 
 // ImplName returns the implementation name for cost tracking.
 func (s *CartesiaService) ImplName() string { return "cartesia" }
 
 // ModelName returns the configured model name for cost tracking.
-func (s *CartesiaService) ModelName() string { return s.model }
-
-// Pricing returns the pricing descriptor for this instance. Returns the
-// YAML-overridden value when WithCartesiaPricing was applied, otherwise the
-// compiled-in cartesiaDefaultPricing.
-func (s *CartesiaService) Pricing() *base.PricingDescriptor { return s.pricing }
+func (s *CartesiaService) ModelName() string { return s.Model }
 
 // cartesiaRequest is the request body for Cartesia TTS API.
 type cartesiaRequest struct {
@@ -173,19 +131,14 @@ func (s *CartesiaService) Synthesize(
 		return nil, ErrEmptyText
 	}
 
-	// Use config voice or default
 	voice := config.Voice
 	if voice == "" {
 		voice = cartesiaDefaultVoice
 	}
-
-	// Use config model or service default
 	model := config.Model
 	if model == "" {
-		model = s.model
+		model = s.Model
 	}
-
-	outputFormat := s.mapFormat(config.Format)
 
 	reqBody := cartesiaRequest{
 		ModelID:    model,
@@ -194,40 +147,18 @@ func (s *CartesiaService) Synthesize(
 			Mode: "id",
 			ID:   voice,
 		},
-		OutputFormat: outputFormat,
+		OutputFormat: s.mapFormat(config.Format),
 		Language:     config.Language,
 	}
 
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	headers := map[string]string{
+		"X-API-Key":        s.APIKey,
+		"Content-Type":     "application/json",
+		"Cartesia-Version": "2024-06-10",
 	}
-
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		s.baseURL+cartesiaRESTURL,
-		bytes.NewReader(bodyBytes),
+	return postJSONForAudio(
+		ctx, s.Client, "cartesia", s.BaseURL+cartesiaRESTURL, reqBody, headers, s.handleError,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("X-API-Key", s.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Cartesia-Version", "2024-06-10")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, NewSynthesisError("cartesia", "", "request failed", err, true)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		return nil, s.handleError(resp)
-	}
-
-	return resp.Body, nil
 }
 
 // cartesiaWSResponse represents a WebSocket response from Cartesia.
@@ -299,43 +230,15 @@ type cartesiaErrorResponse struct {
 // handleError processes an error response from Cartesia.
 func (s *CartesiaService) handleError(resp *http.Response) error {
 	var errResp cartesiaErrorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
-		return NewSynthesisError(
-			"cartesia",
-			fmt.Sprintf("%d", resp.StatusCode),
-			"unknown error",
-			err,
-			resp.StatusCode >= serverErrorThreshold,
-		)
+	if e := decodeErrorBody("cartesia", resp, &errResp); e != nil {
+		return e
 	}
-
-	retryable := resp.StatusCode == http.StatusTooManyRequests ||
-		resp.StatusCode >= serverErrorThreshold
-
-	var cause error
-	switch resp.StatusCode {
-	case http.StatusTooManyRequests:
-		cause = ErrRateLimited
-	case http.StatusUnauthorized:
-		cause = fmt.Errorf("invalid API key")
-	case http.StatusBadRequest:
-		cause = fmt.Errorf("bad request")
-	case http.StatusNotFound:
-		cause = ErrInvalidVoice
-	}
-
+	retryable, cause := classifyHTTPStatus(resp.StatusCode, ErrInvalidVoice, fmt.Errorf("bad request"))
 	message := errResp.Message
 	if message == "" {
 		message = errResp.Error
 	}
-
-	return NewSynthesisError(
-		"cartesia",
-		errResp.Error,
-		message,
-		cause,
-		retryable,
-	)
+	return NewSynthesisError("cartesia", errResp.Error, message, cause, retryable)
 }
 
 // SupportedVoices returns a sample of available Cartesia voices.

@@ -71,75 +71,33 @@ var openAIDefaultPricing = &base.PricingDescriptor{
 
 // OpenAIService implements TTS using OpenAI's text-to-speech API.
 type OpenAIService struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
-	model   string
-	pricing *base.PricingDescriptor
+	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
 }
 
 // OpenAIOption configures the OpenAI TTS service.
-type OpenAIOption func(*OpenAIService)
-
-// WithOpenAIBaseURL sets a custom base URL (for testing or proxies).
-func WithOpenAIBaseURL(url string) OpenAIOption {
-	return func(s *OpenAIService) {
-		s.baseURL = url
-	}
-}
-
-// WithOpenAIClient sets a custom HTTP client.
-func WithOpenAIClient(client *http.Client) OpenAIOption {
-	return func(s *OpenAIService) {
-		s.client = client
-	}
-}
-
-// WithOpenAIModel sets the TTS model to use.
-func WithOpenAIModel(model string) OpenAIOption {
-	return func(s *OpenAIService) {
-		s.model = model
-	}
-}
-
-// WithOpenAIPricing overrides the default pricing descriptor for this instance.
-// When set, Pricing() returns this value instead of openAIDefaultPricing.
-func WithOpenAIPricing(p *base.PricingDescriptor) OpenAIOption {
-	return func(s *OpenAIService) {
-		s.pricing = p
-	}
-}
+// It is a type alias for base.HTTPServiceOption so callers can pass
+// base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
+type OpenAIOption = base.HTTPServiceOption
 
 // NewOpenAI creates an OpenAI TTS service.
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
-	s := &OpenAIService{
-		apiKey:  apiKey,
-		baseURL: openAIBaseURL,
-		client:  &http.Client{Timeout: defaultOpenAITimeout},
-		model:   ModelTTS1,
-		pricing: openAIDefaultPricing,
-	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
-}
-
-// Name returns the provider identifier.
-func (s *OpenAIService) Name() string {
-	return "openai"
+	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
+		Name:    "openai",
+		Type:    base.ProviderTypeTTS,
+		Pricing: openAIDefaultPricing,
+		BaseURL: openAIBaseURL,
+		Model:   ModelTTS1,
+		Timeout: defaultOpenAITimeout,
+	}, opts...)
+	return &OpenAIService{Implementation: impl, HTTPServiceFields: fields}
 }
 
 // ImplName returns the implementation name for cost tracking.
 func (s *OpenAIService) ImplName() string { return "openai" }
 
 // ModelName returns the configured model name for cost tracking.
-func (s *OpenAIService) ModelName() string { return s.model }
-
-// Pricing returns the pricing descriptor for this instance. Returns the
-// YAML-overridden value when WithOpenAIPricing was applied, otherwise the
-// compiled-in openAIDefaultPricing.
-func (s *OpenAIService) Pricing() *base.PricingDescriptor { return s.pricing }
+func (s *OpenAIService) ModelName() string { return s.Model }
 
 // openAIRequest is the request body for OpenAI TTS API.
 type openAIRequest struct {
@@ -181,7 +139,7 @@ func (s *OpenAIService) Synthesize(
 	// Use config model or service default
 	model := config.Model
 	if model == "" {
-		model = s.model
+		model = s.Model
 	}
 
 	reqBody := openAIRequest{
@@ -200,17 +158,17 @@ func (s *OpenAIService) Synthesize(
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		s.baseURL+openAITTSEndpoint,
+		s.BaseURL+openAITTSEndpoint,
 		bytes.NewReader(bodyBytes),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	req.Header.Set("Authorization", "Bearer "+s.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.client.Do(req)
+	resp, err := s.Client.Do(req)
 	if err != nil {
 		return nil, NewSynthesisError("openai", "", "request failed", err, true)
 	}
