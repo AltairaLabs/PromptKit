@@ -72,19 +72,15 @@ func WithOpenAIPricing(p *base.PricingDescriptor) func(*OpenAIService) {
 
 // NewOpenAI creates an OpenAI STT service using Whisper.
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
-	s := &OpenAIService{
-		Implementation: base.NewImplementation("openai-whisper", base.ProviderTypeSTT, openAIDefaultPricing),
-		HTTPServiceFields: &base.HTTPServiceFields{
-			APIKey:  apiKey,
-			BaseURL: openAIBaseURL,
-			Client:  &http.Client{Timeout: defaultOpenAITimeout},
-			Model:   ModelWhisper1,
-		},
-	}
-	for _, opt := range opts {
-		opt(s.HTTPServiceFields)
-	}
-	return s
+	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
+		Name:    "openai-whisper",
+		Type:    base.ProviderTypeSTT,
+		Pricing: openAIDefaultPricing,
+		BaseURL: openAIBaseURL,
+		Model:   ModelWhisper1,
+		Timeout: defaultOpenAITimeout,
+	}, opts...)
+	return &OpenAIService{Implementation: impl, HTTPServiceFields: fields}
 }
 
 // --- base.STTProvider ---

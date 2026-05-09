@@ -90,19 +90,15 @@ func WithOpenAIPricing(p *base.PricingDescriptor) func(*OpenAIService) {
 
 // NewOpenAI creates an OpenAI TTS service.
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
-	s := &OpenAIService{
-		Implementation: base.NewImplementation("openai", base.ProviderTypeTTS, openAIDefaultPricing),
-		HTTPServiceFields: &base.HTTPServiceFields{
-			APIKey:  apiKey,
-			BaseURL: openAIBaseURL,
-			Client:  &http.Client{Timeout: defaultOpenAITimeout},
-			Model:   ModelTTS1,
-		},
-	}
-	for _, opt := range opts {
-		opt(s.HTTPServiceFields)
-	}
-	return s
+	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
+		Name:    "openai",
+		Type:    base.ProviderTypeTTS,
+		Pricing: openAIDefaultPricing,
+		BaseURL: openAIBaseURL,
+		Model:   ModelTTS1,
+		Timeout: defaultOpenAITimeout,
+	}, opts...)
+	return &OpenAIService{Implementation: impl, HTTPServiceFields: fields}
 }
 
 // ImplName returns the implementation name for cost tracking.

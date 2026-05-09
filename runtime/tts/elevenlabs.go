@@ -78,19 +78,15 @@ func WithElevenLabsPricing(p *base.PricingDescriptor) func(*ElevenLabsService) {
 
 // NewElevenLabs creates an ElevenLabs TTS service.
 func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
-	s := &ElevenLabsService{
-		Implementation: base.NewImplementation("elevenlabs", base.ProviderTypeTTS, elevenLabsDefaultPricing),
-		HTTPServiceFields: &base.HTTPServiceFields{
-			APIKey:  apiKey,
-			BaseURL: elevenLabsBaseURL,
-			Client:  &http.Client{Timeout: defaultElevenLabsTimeout},
-			Model:   ElevenLabsModelMultilingual,
-		},
-	}
-	for _, opt := range opts {
-		opt(s.HTTPServiceFields)
-	}
-	return s
+	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
+		Name:    "elevenlabs",
+		Type:    base.ProviderTypeTTS,
+		Pricing: elevenLabsDefaultPricing,
+		BaseURL: elevenLabsBaseURL,
+		Model:   ElevenLabsModelMultilingual,
+		Timeout: defaultElevenLabsTimeout,
+	}, opts...)
+	return &ElevenLabsService{Implementation: impl, HTTPServiceFields: fields}
 }
 
 // ImplName returns the implementation name for cost tracking.

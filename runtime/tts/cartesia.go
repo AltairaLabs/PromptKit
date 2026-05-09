@@ -89,20 +89,19 @@ func WithCartesiaPricing(p *base.PricingDescriptor) func(*CartesiaService) {
 
 // NewCartesia creates a Cartesia TTS service.
 func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
-	s := &CartesiaService{
-		Implementation: base.NewImplementation("cartesia", base.ProviderTypeTTS, cartesiaDefaultPricing),
-		HTTPServiceFields: &base.HTTPServiceFields{
-			APIKey:  apiKey,
-			BaseURL: cartesiaBaseURL,
-			Client:  &http.Client{Timeout: defaultCartesiaTimeout},
-			Model:   CartesiaModelSonic,
-		},
-		wsURL: cartesiaWSURL,
+	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
+		Name:    "cartesia",
+		Type:    base.ProviderTypeTTS,
+		Pricing: cartesiaDefaultPricing,
+		BaseURL: cartesiaBaseURL,
+		Model:   CartesiaModelSonic,
+		Timeout: defaultCartesiaTimeout,
+	}, opts...)
+	return &CartesiaService{
+		Implementation:    impl,
+		HTTPServiceFields: fields,
+		wsURL:             cartesiaWSURL,
 	}
-	for _, opt := range opts {
-		opt(s.HTTPServiceFields)
-	}
-	return s
 }
 
 // ImplName returns the implementation name for cost tracking.

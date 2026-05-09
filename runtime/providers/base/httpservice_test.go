@@ -62,3 +62,60 @@ func TestHTTPServiceOption_Chaining(t *testing.T) {
 		t.Error("Client should not be nil after WithClient")
 	}
 }
+
+func TestNewHTTPService_Defaults(t *testing.T) {
+	pricing := &PricingDescriptor{Source: PricingSourceInline, Currency: "usd"}
+	impl, fields := NewHTTPService("sk-key", HTTPServiceDefaults{
+		Name:    "test-svc",
+		Type:    ProviderTypeTTS,
+		Pricing: pricing,
+		BaseURL: "https://api.example.com",
+		Model:   "v1",
+		Timeout: 30,
+	})
+	if impl == nil {
+		t.Fatal("NewHTTPService returned nil Implementation")
+	}
+	if impl.Name() != "test-svc" {
+		t.Errorf("Name = %q, want %q", impl.Name(), "test-svc")
+	}
+	if impl.Type() != ProviderTypeTTS {
+		t.Errorf("Type = %q, want %q", impl.Type(), ProviderTypeTTS)
+	}
+	if impl.Pricing() != pricing {
+		t.Error("Pricing not propagated")
+	}
+	if fields == nil {
+		t.Fatal("NewHTTPService returned nil HTTPServiceFields")
+	}
+	if fields.APIKey != "sk-key" {
+		t.Errorf("APIKey = %q", fields.APIKey)
+	}
+	if fields.BaseURL != "https://api.example.com" {
+		t.Errorf("BaseURL = %q", fields.BaseURL)
+	}
+	if fields.Model != "v1" {
+		t.Errorf("Model = %q", fields.Model)
+	}
+	if fields.Client == nil {
+		t.Error("Client should be created from defaults.Timeout")
+	}
+}
+
+func TestNewHTTPService_OptsOverrideDefaults(t *testing.T) {
+	_, fields := NewHTTPService("sk-key", HTTPServiceDefaults{
+		Name:    "test-svc",
+		Type:    ProviderTypeSTT,
+		BaseURL: "https://api.example.com",
+		Model:   "v1",
+	},
+		WithBaseURL("https://override.example.com"),
+		WithModel("v2"),
+	)
+	if fields.BaseURL != "https://override.example.com" {
+		t.Errorf("BaseURL = %q, want override", fields.BaseURL)
+	}
+	if fields.Model != "v2" {
+		t.Errorf("Model = %q, want override", fields.Model)
+	}
+}

@@ -1,6 +1,52 @@
 package base
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
+
+// HTTPServiceDefaults carries the construction-time defaults for an HTTP
+// service provider (TTS, STT impls). Used by NewHTTPService to produce the
+// standard *Implementation + *HTTPServiceFields pair every impl embeds.
+type HTTPServiceDefaults struct {
+	// Name is the provider's unique registry name (e.g. "openai-whisper").
+	Name string
+	// Type is the capability discriminator (inference, tts, stt, ...).
+	Type ProviderType
+	// Pricing is the compiled-in pricing descriptor.
+	Pricing *PricingDescriptor
+	// BaseURL is the default API endpoint.
+	BaseURL string
+	// Model is the default model identifier.
+	Model string
+	// Timeout is the default HTTP client timeout. Zero is treated as
+	// http.DefaultClient (no timeout) — pass a positive value.
+	Timeout time.Duration
+}
+
+// NewHTTPService produces the standard *Implementation + *HTTPServiceFields
+// pair every HTTP-backed provider impl embeds, applying any caller-supplied
+// HTTPServiceOption mutations on the way out. Eliminates per-impl
+// constructor boilerplate.
+//
+//nolint:gocritic // hugeParam: defaults passed by value to keep call sites composable.
+func NewHTTPService(
+	apiKey string,
+	defaults HTTPServiceDefaults,
+	opts ...HTTPServiceOption,
+) (*Implementation, *HTTPServiceFields) {
+	impl := NewImplementation(defaults.Name, defaults.Type, defaults.Pricing)
+	fields := &HTTPServiceFields{
+		APIKey:  apiKey,
+		BaseURL: defaults.BaseURL,
+		Model:   defaults.Model,
+		Client:  &http.Client{Timeout: defaults.Timeout},
+	}
+	for _, opt := range opts {
+		opt(fields)
+	}
+	return impl, fields
+}
 
 // HTTPServiceFields is the shared HTTP-call configuration embedded by
 // service-style providers (TTS, STT impls). Each impl embeds *HTTPServiceFields
