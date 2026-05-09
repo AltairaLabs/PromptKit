@@ -53,11 +53,11 @@ var openAIDefaultPricing = &base.PricingDescriptor{
 
 // OpenAIService implements STT using OpenAI's Whisper API.
 type OpenAIService struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
-	model   string
-	pricing *base.PricingDescriptor
+	*base.Implementation // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	apiKey               string
+	baseURL              string
+	client               *http.Client
+	model                string
 }
 
 // OpenAIOption configures the OpenAI STT service.
@@ -85,52 +85,27 @@ func WithOpenAIModel(model string) OpenAIOption {
 }
 
 // WithOpenAIPricing overrides the default pricing descriptor for this instance.
-// When set, Pricing() returns this value instead of openAIDefaultPricing.
+// Delegates to the embedded base.Implementation's SetPricing.
 func WithOpenAIPricing(p *base.PricingDescriptor) OpenAIOption {
 	return func(s *OpenAIService) {
-		s.pricing = p
+		s.SetPricing(p)
 	}
 }
 
 // NewOpenAI creates an OpenAI STT service using Whisper.
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 	s := &OpenAIService{
-		apiKey:  apiKey,
-		baseURL: openAIBaseURL,
-		client:  &http.Client{Timeout: defaultOpenAITimeout},
-		model:   ModelWhisper1,
-		pricing: openAIDefaultPricing,
+		Implementation: base.NewImplementation("openai-whisper", base.ProviderTypeSTT, openAIDefaultPricing),
+		apiKey:         apiKey,
+		baseURL:        openAIBaseURL,
+		client:         &http.Client{Timeout: defaultOpenAITimeout},
+		model:          ModelWhisper1,
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
 	return s
 }
-
-// --- base.Provider methods ---
-
-// Name returns the provider identifier.
-func (s *OpenAIService) Name() string { return "openai-whisper" }
-
-// Type returns the capability type for this provider.
-func (s *OpenAIService) Type() base.ProviderType { return base.ProviderTypeSTT }
-
-// Pricing returns the pricing descriptor for this instance.
-// Returns the YAML-overridden value when WithOpenAIPricing was applied, otherwise
-// the compiled-in openAIDefaultPricing.
-func (s *OpenAIService) Pricing() *base.PricingDescriptor { return s.pricing }
-
-// Validate performs synchronous config validation (no-op for Whisper).
-func (s *OpenAIService) Validate() error { return nil }
-
-// Init performs asynchronous setup (no-op for Whisper; HTTP client is shared).
-func (s *OpenAIService) Init(_ context.Context) error { return nil }
-
-// HealthCheck reports liveness (no-op for Whisper).
-func (s *OpenAIService) HealthCheck(_ context.Context) error { return nil }
-
-// Close releases resources (no-op for Whisper; HTTP client is shared).
-func (s *OpenAIService) Close() error { return nil }
 
 // --- base.STTProvider ---
 
@@ -172,9 +147,9 @@ func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (ba
 		Latency: latency,
 	}
 
-	if s.pricing != nil && audioSeconds > 0 {
+	if pricing := s.Pricing(); pricing != nil && audioSeconds > 0 {
 		resp.Cost = base.MakeCostInfo(
-			s.pricing,
+			pricing,
 			s.Name(),
 			base.ProviderTypeSTT,
 			map[string]float64{"second": audioSeconds},

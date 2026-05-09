@@ -62,12 +62,12 @@ var cartesiaDefaultPricing = &base.PricingDescriptor{
 // CartesiaService implements TTS using Cartesia's ultra-low latency API.
 // Cartesia specializes in real-time streaming TTS with <100ms first-byte latency.
 type CartesiaService struct {
-	apiKey  string
-	baseURL string
-	wsURL   string
-	client  *http.Client
-	model   string
-	pricing *base.PricingDescriptor
+	*base.Implementation // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	apiKey               string
+	baseURL              string
+	wsURL                string
+	client               *http.Client
+	model                string
 }
 
 // CartesiaOption configures the Cartesia TTS service.
@@ -104,19 +104,19 @@ func WithCartesiaModel(model string) CartesiaOption {
 // WithCartesiaPricing overrides the default pricing descriptor for this instance.
 func WithCartesiaPricing(p *base.PricingDescriptor) CartesiaOption {
 	return func(s *CartesiaService) {
-		s.pricing = p
+		s.SetPricing(p)
 	}
 }
 
 // NewCartesia creates a Cartesia TTS service.
 func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 	s := &CartesiaService{
-		apiKey:  apiKey,
-		baseURL: cartesiaBaseURL,
-		wsURL:   cartesiaWSURL,
-		client:  &http.Client{Timeout: defaultCartesiaTimeout},
-		model:   CartesiaModelSonic,
-		pricing: cartesiaDefaultPricing,
+		Implementation: base.NewImplementation("cartesia", base.ProviderTypeTTS, cartesiaDefaultPricing),
+		apiKey:         apiKey,
+		baseURL:        cartesiaBaseURL,
+		wsURL:          cartesiaWSURL,
+		client:         &http.Client{Timeout: defaultCartesiaTimeout},
+		model:          CartesiaModelSonic,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -124,21 +124,11 @@ func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 	return s
 }
 
-// Name returns the provider identifier.
-func (s *CartesiaService) Name() string {
-	return "cartesia"
-}
-
 // ImplName returns the implementation name for cost tracking.
 func (s *CartesiaService) ImplName() string { return "cartesia" }
 
 // ModelName returns the configured model name for cost tracking.
 func (s *CartesiaService) ModelName() string { return s.model }
-
-// Pricing returns the pricing descriptor for this instance. Returns the
-// YAML-overridden value when WithCartesiaPricing was applied, otherwise the
-// compiled-in cartesiaDefaultPricing.
-func (s *CartesiaService) Pricing() *base.PricingDescriptor { return s.pricing }
 
 // cartesiaRequest is the request body for Cartesia TTS API.
 type cartesiaRequest struct {

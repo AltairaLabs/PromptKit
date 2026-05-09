@@ -60,11 +60,11 @@ var elevenLabsDefaultPricing = &base.PricingDescriptor{
 // ElevenLabsService implements TTS using ElevenLabs' API.
 // ElevenLabs specializes in high-quality voice cloning and natural-sounding speech.
 type ElevenLabsService struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
-	model   string
-	pricing *base.PricingDescriptor
+	*base.Implementation // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	apiKey               string
+	baseURL              string
+	client               *http.Client
+	model                string
 }
 
 // ElevenLabsOption configures the ElevenLabs TTS service.
@@ -94,18 +94,18 @@ func WithElevenLabsModel(model string) ElevenLabsOption {
 // WithElevenLabsPricing overrides the default pricing descriptor for this instance.
 func WithElevenLabsPricing(p *base.PricingDescriptor) ElevenLabsOption {
 	return func(s *ElevenLabsService) {
-		s.pricing = p
+		s.SetPricing(p)
 	}
 }
 
 // NewElevenLabs creates an ElevenLabs TTS service.
 func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 	s := &ElevenLabsService{
-		apiKey:  apiKey,
-		baseURL: elevenLabsBaseURL,
-		client:  &http.Client{Timeout: defaultElevenLabsTimeout},
-		model:   ElevenLabsModelMultilingual,
-		pricing: elevenLabsDefaultPricing,
+		Implementation: base.NewImplementation("elevenlabs", base.ProviderTypeTTS, elevenLabsDefaultPricing),
+		apiKey:         apiKey,
+		baseURL:        elevenLabsBaseURL,
+		client:         &http.Client{Timeout: defaultElevenLabsTimeout},
+		model:          ElevenLabsModelMultilingual,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -113,21 +113,11 @@ func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 	return s
 }
 
-// Name returns the provider identifier.
-func (s *ElevenLabsService) Name() string {
-	return "elevenlabs"
-}
-
 // ImplName returns the implementation name for cost tracking.
 func (s *ElevenLabsService) ImplName() string { return "elevenlabs" }
 
 // ModelName returns the configured model name for cost tracking.
 func (s *ElevenLabsService) ModelName() string { return s.model }
-
-// Pricing returns the pricing descriptor for this instance. Returns the
-// YAML-overridden value when WithElevenLabsPricing was applied, otherwise the
-// compiled-in elevenLabsDefaultPricing.
-func (s *ElevenLabsService) Pricing() *base.PricingDescriptor { return s.pricing }
 
 // elevenLabsRequest is the request body for ElevenLabs TTS API.
 type elevenLabsRequest struct {

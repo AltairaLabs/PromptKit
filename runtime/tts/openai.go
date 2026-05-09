@@ -71,11 +71,11 @@ var openAIDefaultPricing = &base.PricingDescriptor{
 
 // OpenAIService implements TTS using OpenAI's text-to-speech API.
 type OpenAIService struct {
-	apiKey  string
-	baseURL string
-	client  *http.Client
-	model   string
-	pricing *base.PricingDescriptor
+	*base.Implementation // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	apiKey               string
+	baseURL              string
+	client               *http.Client
+	model                string
 }
 
 // OpenAIOption configures the OpenAI TTS service.
@@ -103,21 +103,21 @@ func WithOpenAIModel(model string) OpenAIOption {
 }
 
 // WithOpenAIPricing overrides the default pricing descriptor for this instance.
-// When set, Pricing() returns this value instead of openAIDefaultPricing.
+// Delegates to the embedded base.Implementation's SetPricing.
 func WithOpenAIPricing(p *base.PricingDescriptor) OpenAIOption {
 	return func(s *OpenAIService) {
-		s.pricing = p
+		s.SetPricing(p)
 	}
 }
 
 // NewOpenAI creates an OpenAI TTS service.
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 	s := &OpenAIService{
-		apiKey:  apiKey,
-		baseURL: openAIBaseURL,
-		client:  &http.Client{Timeout: defaultOpenAITimeout},
-		model:   ModelTTS1,
-		pricing: openAIDefaultPricing,
+		Implementation: base.NewImplementation("openai", base.ProviderTypeTTS, openAIDefaultPricing),
+		apiKey:         apiKey,
+		baseURL:        openAIBaseURL,
+		client:         &http.Client{Timeout: defaultOpenAITimeout},
+		model:          ModelTTS1,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -125,21 +125,11 @@ func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 	return s
 }
 
-// Name returns the provider identifier.
-func (s *OpenAIService) Name() string {
-	return "openai"
-}
-
 // ImplName returns the implementation name for cost tracking.
 func (s *OpenAIService) ImplName() string { return "openai" }
 
 // ModelName returns the configured model name for cost tracking.
 func (s *OpenAIService) ModelName() string { return s.model }
-
-// Pricing returns the pricing descriptor for this instance. Returns the
-// YAML-overridden value when WithOpenAIPricing was applied, otherwise the
-// compiled-in openAIDefaultPricing.
-func (s *OpenAIService) Pricing() *base.PricingDescriptor { return s.pricing }
 
 // openAIRequest is the request body for OpenAI TTS API.
 type openAIRequest struct {
