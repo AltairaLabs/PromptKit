@@ -60,39 +60,17 @@ var elevenLabsDefaultPricing = &base.PricingDescriptor{
 // ElevenLabsService implements TTS using ElevenLabs' API.
 // ElevenLabs specializes in high-quality voice cloning and natural-sounding speech.
 type ElevenLabsService struct {
-	*base.Implementation // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
-	apiKey               string
-	baseURL              string
-	client               *http.Client
-	model                string
+	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
 }
 
 // ElevenLabsOption configures the ElevenLabs TTS service.
-type ElevenLabsOption func(*ElevenLabsService)
-
-// WithElevenLabsBaseURL sets a custom base URL.
-func WithElevenLabsBaseURL(url string) ElevenLabsOption {
-	return func(s *ElevenLabsService) {
-		s.baseURL = url
-	}
-}
-
-// WithElevenLabsClient sets a custom HTTP client.
-func WithElevenLabsClient(client *http.Client) ElevenLabsOption {
-	return func(s *ElevenLabsService) {
-		s.client = client
-	}
-}
-
-// WithElevenLabsModel sets the TTS model.
-func WithElevenLabsModel(model string) ElevenLabsOption {
-	return func(s *ElevenLabsService) {
-		s.model = model
-	}
-}
+// It is a type alias for base.HTTPServiceOption so callers can pass
+// base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
+type ElevenLabsOption = base.HTTPServiceOption
 
 // WithElevenLabsPricing overrides the default pricing descriptor for this instance.
-func WithElevenLabsPricing(p *base.PricingDescriptor) ElevenLabsOption {
+func WithElevenLabsPricing(p *base.PricingDescriptor) func(*ElevenLabsService) {
 	return func(s *ElevenLabsService) {
 		s.SetPricing(p)
 	}
@@ -102,13 +80,15 @@ func WithElevenLabsPricing(p *base.PricingDescriptor) ElevenLabsOption {
 func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 	s := &ElevenLabsService{
 		Implementation: base.NewImplementation("elevenlabs", base.ProviderTypeTTS, elevenLabsDefaultPricing),
-		apiKey:         apiKey,
-		baseURL:        elevenLabsBaseURL,
-		client:         &http.Client{Timeout: defaultElevenLabsTimeout},
-		model:          ElevenLabsModelMultilingual,
+		HTTPServiceFields: &base.HTTPServiceFields{
+			APIKey:  apiKey,
+			BaseURL: elevenLabsBaseURL,
+			Client:  &http.Client{Timeout: defaultElevenLabsTimeout},
+			Model:   ElevenLabsModelMultilingual,
+		},
 	}
 	for _, opt := range opts {
-		opt(s)
+		opt(s.HTTPServiceFields)
 	}
 	return s
 }
@@ -117,7 +97,7 @@ func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 func (s *ElevenLabsService) ImplName() string { return "elevenlabs" }
 
 // ModelName returns the configured model name for cost tracking.
-func (s *ElevenLabsService) ModelName() string { return s.model }
+func (s *ElevenLabsService) ModelName() string { return s.Model }
 
 // elevenLabsRequest is the request body for ElevenLabs TTS API.
 type elevenLabsRequest struct {
@@ -153,7 +133,7 @@ func (s *ElevenLabsService) Synthesize(
 	// Use config model or service default
 	model := config.Model
 	if model == "" {
-		model = s.model
+		model = s.Model
 	}
 
 	reqBody := elevenLabsRequest{
@@ -170,7 +150,7 @@ func (s *ElevenLabsService) Synthesize(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	endpoint := fmt.Sprintf("%s/text-to-speech/%s", s.baseURL, voice)
+	endpoint := fmt.Sprintf("%s/text-to-speech/%s", s.BaseURL, voice)
 
 	// Add output format query parameter
 	format := s.mapFormat(config.Format)
@@ -188,11 +168,11 @@ func (s *ElevenLabsService) Synthesize(
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("xi-api-key", s.apiKey)
+	req.Header.Set("xi-api-key", s.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "audio/mpeg")
 
-	resp, err := s.client.Do(req)
+	resp, err := s.Client.Do(req)
 	if err != nil {
 		return nil, NewSynthesisError("elevenlabs", "", "request failed", err, true)
 	}

@@ -53,7 +53,8 @@ func TestOpenAIService_Pricing_Override(t *testing.T) {
 		Currency: "usd",
 		Items:    []base.PriceItem{{Unit: "second", Rate: 0.0002}},
 	}
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIPricing(custom))
+	service := stt.NewOpenAI("test-api-key")
+	stt.WithOpenAIPricing(custom)(service)
 	if service.Pricing() != custom {
 		t.Error("WithOpenAIPricing did not override pricing")
 	}
@@ -122,7 +123,7 @@ func TestOpenAIService_Transcribe_Request_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 1.0) // 1 second of audio
@@ -174,7 +175,7 @@ func TestOpenAIService_Transcribe_Request_FallbackEstimate(t *testing.T) {
 
 	// 16000 Hz, 16-bit mono, 1 second = 32000 bytes
 	audio := generateTestAudio(16000, 1.0)
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	resp, err := service.Transcribe(context.Background(), base.STTRequest{
 		Audio:    audio,
@@ -216,10 +217,8 @@ func TestOpenAIService_Transcribe_Request_NoPricing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key",
-		stt.WithOpenAIBaseURL(server.URL),
-		stt.WithOpenAIPricing(nil),
-	)
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
+	stt.WithOpenAIPricing(nil)(service)
 
 	resp, err := service.Transcribe(context.Background(), base.STTRequest{
 		Audio:    generateTestAudio(16000, 1.0),
@@ -262,7 +261,7 @@ func TestOpenAIService_TranscribeBytes_Success(t *testing.T) {
 	defer server.Close()
 
 	// Create service with mock URL
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	// Test transcription
 	ctx := context.Background()
@@ -315,7 +314,7 @@ func TestOpenAIService_TranscribeBytes_APIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 1.0)
@@ -351,7 +350,7 @@ func TestOpenAIService_TranscribeBytes_RateLimited(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 1.0)
@@ -389,7 +388,7 @@ func TestOpenAIService_TranscribeBytes_WithCustomClient(t *testing.T) {
 		}),
 	}
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIClient(customClient))
+	service := stt.NewOpenAI("test-api-key", base.WithClient(customClient))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
@@ -518,7 +517,7 @@ func TestOpenAIService_TranscribeBytes_WithPrompt(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
@@ -549,7 +548,7 @@ func TestOpenAIService_TranscribeBytes_WAVFormat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	// Use WAV format (no wrapping needed)
@@ -580,7 +579,7 @@ func TestOpenAIService_TranscribeBytes_DefaultsApplied(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
@@ -615,8 +614,8 @@ func TestOpenAIService_TranscribeBytes_CustomModel(t *testing.T) {
 
 	// Create service with custom model
 	service := stt.NewOpenAI("test-api-key",
-		stt.WithOpenAIBaseURL(server.URL),
-		stt.WithOpenAIModel("custom-whisper-model"))
+		base.WithBaseURL(server.URL),
+		base.WithModel("custom-whisper-model"))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
@@ -649,7 +648,7 @@ func TestOpenAIService_TranscribeBytes_UnauthorizedError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("invalid-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("invalid-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
@@ -684,7 +683,7 @@ func TestOpenAIService_TranscribeBytes_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
@@ -712,7 +711,7 @@ func TestOpenAIService_TranscribeBytes_MalformedResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-key", base.WithBaseURL(server.URL))
 
 	ctx := context.Background()
 	audio := generateTestAudio(16000, 0.5)
@@ -738,7 +737,7 @@ func TestOpenAIService_Transcribe_MP3MIMEType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 	resp, err := service.Transcribe(context.Background(), base.STTRequest{
 		Audio:    generateTestAudio(16000, 1.0),
 		MIMEType: "audio/mpeg",
@@ -773,7 +772,7 @@ func TestOpenAIService_Transcribe_WAVMIMEType(t *testing.T) {
 
 	// 16000 Hz, 16-bit mono, 0.5s → 16000 bytes
 	audio := generateTestAudio(16000, 0.5)
-	service := stt.NewOpenAI("test-api-key", stt.WithOpenAIBaseURL(server.URL))
+	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
 	resp, err := service.Transcribe(context.Background(), base.STTRequest{
 		Audio:    audio,
 		MIMEType: "audio/wav",

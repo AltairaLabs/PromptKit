@@ -1,21 +1,24 @@
 package tts
 
+import "github.com/AltairaLabs/PromptKit/runtime/providers/base"
+
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
 	RegisterFactory("cartesia", func(spec ProviderSpec) (Service, error) {
 		opts := []CartesiaOption{}
 		if spec.Model != "" {
-			opts = append(opts, WithCartesiaModel(spec.Model))
+			opts = append(opts, base.WithModel(spec.Model))
 		}
 		if spec.BaseURL != "" {
-			opts = append(opts, WithCartesiaBaseURL(spec.BaseURL))
+			opts = append(opts, base.WithBaseURL(spec.BaseURL))
 		}
+		svc := NewCartesia(APIKeyFromCredential(spec.Credential), opts...)
 		if v, ok := spec.AdditionalConfig["ws_url"].(string); ok && v != "" {
-			opts = append(opts, WithCartesiaWSURL(v))
+			WithCartesiaWSURL(v)(svc)
 		}
 		if p := PricingFromSpec(spec); p != nil {
-			opts = append(opts, WithCartesiaPricing(p))
+			WithCartesiaPricing(p)(svc)
 		}
-		return NewCartesia(APIKeyFromCredential(spec.Credential), opts...), nil
+		return svc, nil
 	})
 }

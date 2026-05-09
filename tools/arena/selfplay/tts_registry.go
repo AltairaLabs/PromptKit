@@ -215,7 +215,7 @@ func (r *TTSRegistry) createElevenLabs() (base.TTSProvider, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("elevenLabs TTS requires %s environment variable", envElevenLabsAPIKey)
 	}
-	return tts.NewElevenLabs(apiKey, tts.WithElevenLabsModel(tts.ElevenLabsModelTurbo)), nil
+	return tts.NewElevenLabs(apiKey, base.WithModel(tts.ElevenLabsModelTurbo)), nil
 }
 
 // createCartesia creates a Cartesia TTS provider.

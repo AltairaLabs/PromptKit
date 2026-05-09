@@ -53,40 +53,18 @@ var openAIDefaultPricing = &base.PricingDescriptor{
 
 // OpenAIService implements STT using OpenAI's Whisper API.
 type OpenAIService struct {
-	*base.Implementation // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
-	apiKey               string
-	baseURL              string
-	client               *http.Client
-	model                string
+	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
 }
 
 // OpenAIOption configures the OpenAI STT service.
-type OpenAIOption func(*OpenAIService)
-
-// WithOpenAIBaseURL sets a custom base URL (for testing or proxies).
-func WithOpenAIBaseURL(url string) OpenAIOption {
-	return func(s *OpenAIService) {
-		s.baseURL = url
-	}
-}
-
-// WithOpenAIClient sets a custom HTTP client.
-func WithOpenAIClient(client *http.Client) OpenAIOption {
-	return func(s *OpenAIService) {
-		s.client = client
-	}
-}
-
-// WithOpenAIModel sets the STT model to use.
-func WithOpenAIModel(model string) OpenAIOption {
-	return func(s *OpenAIService) {
-		s.model = model
-	}
-}
+// It is a type alias for base.HTTPServiceOption so callers can pass
+// base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
+type OpenAIOption = base.HTTPServiceOption
 
 // WithOpenAIPricing overrides the default pricing descriptor for this instance.
 // Delegates to the embedded base.Implementation's SetPricing.
-func WithOpenAIPricing(p *base.PricingDescriptor) OpenAIOption {
+func WithOpenAIPricing(p *base.PricingDescriptor) func(*OpenAIService) {
 	return func(s *OpenAIService) {
 		s.SetPricing(p)
 	}
@@ -96,13 +74,15 @@ func WithOpenAIPricing(p *base.PricingDescriptor) OpenAIOption {
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 	s := &OpenAIService{
 		Implementation: base.NewImplementation("openai-whisper", base.ProviderTypeSTT, openAIDefaultPricing),
-		apiKey:         apiKey,
-		baseURL:        openAIBaseURL,
-		client:         &http.Client{Timeout: defaultOpenAITimeout},
-		model:          ModelWhisper1,
+		HTTPServiceFields: &base.HTTPServiceFields{
+			APIKey:  apiKey,
+			BaseURL: openAIBaseURL,
+			Client:  &http.Client{Timeout: defaultOpenAITimeout},
+			Model:   ModelWhisper1,
+		},
 	}
 	for _, opt := range opts {
-		opt(s)
+		opt(s.HTTPServiceFields)
 	}
 	return s
 }
@@ -276,7 +256,7 @@ func (s *OpenAIService) normalizeConfig(config *TranscriptionConfig) *normalized
 		nc.bitDepth = DefaultBitDepth
 	}
 	if nc.model == "" {
-		nc.model = s.model
+		nc.model = s.Model
 	}
 	return nc
 }
@@ -401,17 +381,17 @@ func (s *OpenAIService) executeRequest(
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		s.baseURL+openAITranscribeEndpoint,
+		s.BaseURL+openAITranscribeEndpoint,
 		formData,
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	req.Header.Set("Authorization", "Bearer "+s.APIKey)
 	req.Header.Set("Content-Type", contentType)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.Client.Do(req)
 	if err != nil {
 		return "", NewTranscriptionError("openai", "", "request failed", err, true)
 	}
@@ -452,17 +432,17 @@ func (s *OpenAIService) executeRequestVerbose(
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		s.baseURL+openAITranscribeEndpoint,
+		s.BaseURL+openAITranscribeEndpoint,
 		formData,
 	)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	req.Header.Set("Authorization", "Bearer "+s.APIKey)
 	req.Header.Set("Content-Type", contentType)
 
-	resp, err := s.client.Do(req)
+	resp, err := s.Client.Do(req)
 	if err != nil {
 		return "", 0, NewTranscriptionError("openai", "", "request failed", err, true)
 	}

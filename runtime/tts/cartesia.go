@@ -62,47 +62,26 @@ var cartesiaDefaultPricing = &base.PricingDescriptor{
 // CartesiaService implements TTS using Cartesia's ultra-low latency API.
 // Cartesia specializes in real-time streaming TTS with <100ms first-byte latency.
 type CartesiaService struct {
-	*base.Implementation // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
-	apiKey               string
-	baseURL              string
-	wsURL                string
-	client               *http.Client
-	model                string
+	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
+	wsURL                   string
 }
 
 // CartesiaOption configures the Cartesia TTS service.
-type CartesiaOption func(*CartesiaService)
-
-// WithCartesiaBaseURL sets a custom base URL.
-func WithCartesiaBaseURL(url string) CartesiaOption {
-	return func(s *CartesiaService) {
-		s.baseURL = url
-	}
-}
+// It is a type alias for base.HTTPServiceOption so callers can pass
+// base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
+// Use WithCartesiaWSURL or WithCartesiaPricing for Cartesia-specific options.
+type CartesiaOption = base.HTTPServiceOption
 
 // WithCartesiaWSURL sets a custom WebSocket URL.
-func WithCartesiaWSURL(url string) CartesiaOption {
+func WithCartesiaWSURL(url string) func(*CartesiaService) {
 	return func(s *CartesiaService) {
 		s.wsURL = url
 	}
 }
 
-// WithCartesiaClient sets a custom HTTP client.
-func WithCartesiaClient(client *http.Client) CartesiaOption {
-	return func(s *CartesiaService) {
-		s.client = client
-	}
-}
-
-// WithCartesiaModel sets the TTS model.
-func WithCartesiaModel(model string) CartesiaOption {
-	return func(s *CartesiaService) {
-		s.model = model
-	}
-}
-
 // WithCartesiaPricing overrides the default pricing descriptor for this instance.
-func WithCartesiaPricing(p *base.PricingDescriptor) CartesiaOption {
+func WithCartesiaPricing(p *base.PricingDescriptor) func(*CartesiaService) {
 	return func(s *CartesiaService) {
 		s.SetPricing(p)
 	}
@@ -112,14 +91,16 @@ func WithCartesiaPricing(p *base.PricingDescriptor) CartesiaOption {
 func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 	s := &CartesiaService{
 		Implementation: base.NewImplementation("cartesia", base.ProviderTypeTTS, cartesiaDefaultPricing),
-		apiKey:         apiKey,
-		baseURL:        cartesiaBaseURL,
-		wsURL:          cartesiaWSURL,
-		client:         &http.Client{Timeout: defaultCartesiaTimeout},
-		model:          CartesiaModelSonic,
+		HTTPServiceFields: &base.HTTPServiceFields{
+			APIKey:  apiKey,
+			BaseURL: cartesiaBaseURL,
+			Client:  &http.Client{Timeout: defaultCartesiaTimeout},
+			Model:   CartesiaModelSonic,
+		},
+		wsURL: cartesiaWSURL,
 	}
 	for _, opt := range opts {
-		opt(s)
+		opt(s.HTTPServiceFields)
 	}
 	return s
 }
@@ -128,7 +109,7 @@ func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 func (s *CartesiaService) ImplName() string { return "cartesia" }
 
 // ModelName returns the configured model name for cost tracking.
-func (s *CartesiaService) ModelName() string { return s.model }
+func (s *CartesiaService) ModelName() string { return s.Model }
 
 // cartesiaRequest is the request body for Cartesia TTS API.
 type cartesiaRequest struct {
@@ -172,7 +153,7 @@ func (s *CartesiaService) Synthesize(
 	// Use config model or service default
 	model := config.Model
 	if model == "" {
-		model = s.model
+		model = s.Model
 	}
 
 	outputFormat := s.mapFormat(config.Format)
@@ -196,18 +177,18 @@ func (s *CartesiaService) Synthesize(
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		s.baseURL+cartesiaRESTURL,
+		s.BaseURL+cartesiaRESTURL,
 		bytes.NewReader(bodyBytes),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("X-API-Key", s.apiKey)
+	req.Header.Set("X-API-Key", s.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cartesia-Version", "2024-06-10")
 
-	resp, err := s.client.Do(req)
+	resp, err := s.Client.Do(req)
 	if err != nil {
 		return nil, NewSynthesisError("cartesia", "", "request failed", err, true)
 	}

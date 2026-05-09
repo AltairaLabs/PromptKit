@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 func TestNewOpenAI(t *testing.T) {
@@ -16,37 +18,37 @@ func TestNewOpenAI(t *testing.T) {
 		t.Fatal("NewOpenAI() returned nil")
 	}
 
-	if service.apiKey != "test-key" {
-		t.Errorf("apiKey = %v, want test-key", service.apiKey)
+	if service.APIKey != "test-key" {
+		t.Errorf("APIKey = %v, want test-key", service.APIKey)
 	}
 
-	if service.baseURL != openAIBaseURL {
-		t.Errorf("baseURL = %v, want %v", service.baseURL, openAIBaseURL)
+	if service.BaseURL != openAIBaseURL {
+		t.Errorf("BaseURL = %v, want %v", service.BaseURL, openAIBaseURL)
 	}
 
-	if service.model != ModelTTS1 {
-		t.Errorf("model = %v, want %v", service.model, ModelTTS1)
+	if service.Model != ModelTTS1 {
+		t.Errorf("Model = %v, want %v", service.Model, ModelTTS1)
 	}
 }
 
 func TestNewOpenAI_WithOptions(t *testing.T) {
 	customClient := &http.Client{}
 	service := NewOpenAI("test-key",
-		WithOpenAIBaseURL("https://custom.api.com"),
-		WithOpenAIClient(customClient),
-		WithOpenAIModel(ModelTTS1HD),
+		base.WithBaseURL("https://custom.api.com"),
+		base.WithClient(customClient),
+		base.WithModel(ModelTTS1HD),
 	)
 
-	if service.baseURL != "https://custom.api.com" {
-		t.Errorf("baseURL = %v, want https://custom.api.com", service.baseURL)
+	if service.BaseURL != "https://custom.api.com" {
+		t.Errorf("BaseURL = %v, want https://custom.api.com", service.BaseURL)
 	}
 
-	if service.client != customClient {
-		t.Error("client was not set correctly")
+	if service.Client != customClient {
+		t.Error("Client was not set correctly")
 	}
 
-	if service.model != ModelTTS1HD {
-		t.Errorf("model = %v, want %v", service.model, ModelTTS1HD)
+	if service.Model != ModelTTS1HD {
+		t.Errorf("Model = %v, want %v", service.Model, ModelTTS1HD)
 	}
 }
 
@@ -102,7 +104,7 @@ func TestOpenAIService_Synthesize_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewOpenAI("test-key", WithOpenAIBaseURL(server.URL))
+	service := NewOpenAI("test-key", base.WithBaseURL(server.URL))
 
 	reader, err := service.Synthesize(context.Background(), "Hello world", SynthesisConfig{
 		Voice: "alloy",
@@ -135,7 +137,7 @@ func TestOpenAIService_Synthesize_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewOpenAI("test-key", WithOpenAIBaseURL(server.URL))
+	service := NewOpenAI("test-key", base.WithBaseURL(server.URL))
 
 	_, err := service.Synthesize(context.Background(), "Hello", SynthesisConfig{})
 	if err == nil {
@@ -219,7 +221,7 @@ func TestOpenAIService_Synthesize_WithConfig(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewOpenAI("test-key", WithOpenAIBaseURL(server.URL))
+	service := NewOpenAI("test-key", base.WithBaseURL(server.URL))
 
 	config := SynthesisConfig{
 		Voice:  "nova",
@@ -282,7 +284,7 @@ func TestOpenAIService_ModelName(t *testing.T) {
 	if got := svc.ModelName(); got != ModelTTS1 {
 		t.Errorf("ModelName() = %q, want %q", got, ModelTTS1)
 	}
-	svc2 := NewOpenAI("test-key", WithOpenAIModel(ModelTTS1HD))
+	svc2 := NewOpenAI("test-key", base.WithModel(ModelTTS1HD))
 	if got := svc2.ModelName(); got != ModelTTS1HD {
 		t.Errorf("ModelName() = %q, want %q after WithOpenAIModel", got, ModelTTS1HD)
 	}

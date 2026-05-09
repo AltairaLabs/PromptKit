@@ -14,7 +14,8 @@ func TestCartesiaService_SynthesizeStream_EmptyText(t *testing.T) {
 }
 
 func TestCartesiaService_SynthesizeStream_InvalidWSURL(t *testing.T) {
-	service := NewCartesia("test-key", WithCartesiaWSURL("wss://invalid-host-that-does-not-exist:9999"))
+	service := NewCartesia("test-key")
+	WithCartesiaWSURL("wss://invalid-host-that-does-not-exist:9999")(service)
 
 	_, err := service.SynthesizeStream(context.Background(), "test", SynthesisConfig{})
 	if err == nil {

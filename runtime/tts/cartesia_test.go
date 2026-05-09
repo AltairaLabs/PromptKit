@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 )
 
 func TestNewCartesia(t *testing.T) {
@@ -15,42 +17,42 @@ func TestNewCartesia(t *testing.T) {
 		t.Fatal("NewCartesia() returned nil")
 	}
 
-	if service.apiKey != "test-key" {
-		t.Errorf("apiKey = %v, want test-key", service.apiKey)
+	if service.APIKey != "test-key" {
+		t.Errorf("APIKey = %v, want test-key", service.APIKey)
 	}
 
-	if service.baseURL != cartesiaBaseURL {
-		t.Errorf("baseURL = %v, want %v", service.baseURL, cartesiaBaseURL)
+	if service.BaseURL != cartesiaBaseURL {
+		t.Errorf("BaseURL = %v, want %v", service.BaseURL, cartesiaBaseURL)
 	}
 
-	if service.model != CartesiaModelSonic {
-		t.Errorf("model = %v, want %v", service.model, CartesiaModelSonic)
+	if service.Model != CartesiaModelSonic {
+		t.Errorf("Model = %v, want %v", service.Model, CartesiaModelSonic)
 	}
 }
 
 func TestNewCartesia_WithOptions(t *testing.T) {
 	customClient := &http.Client{}
 	service := NewCartesia("test-key",
-		WithCartesiaBaseURL("https://custom.api.com"),
-		WithCartesiaWSURL("wss://custom.ws.com"),
-		WithCartesiaClient(customClient),
-		WithCartesiaModel("custom-model"),
+		base.WithBaseURL("https://custom.api.com"),
+		base.WithClient(customClient),
+		base.WithModel("custom-model"),
 	)
+	WithCartesiaWSURL("wss://custom.ws.com")(service)
 
-	if service.baseURL != "https://custom.api.com" {
-		t.Errorf("baseURL = %v, want https://custom.api.com", service.baseURL)
+	if service.BaseURL != "https://custom.api.com" {
+		t.Errorf("BaseURL = %v, want https://custom.api.com", service.BaseURL)
 	}
 
 	if service.wsURL != "wss://custom.ws.com" {
 		t.Errorf("wsURL = %v, want wss://custom.ws.com", service.wsURL)
 	}
 
-	if service.client != customClient {
-		t.Error("client was not set correctly")
+	if service.Client != customClient {
+		t.Error("Client was not set correctly")
 	}
 
-	if service.model != "custom-model" {
-		t.Errorf("model = %v, want custom-model", service.model)
+	if service.Model != "custom-model" {
+		t.Errorf("Model = %v, want custom-model", service.Model)
 	}
 }
 
@@ -106,7 +108,7 @@ func TestCartesiaService_Synthesize_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	service := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	reader, err := service.Synthesize(context.Background(), "Hello world", SynthesisConfig{
 		Voice: "test-voice-id",
@@ -136,7 +138,7 @@ func TestCartesiaService_Synthesize_Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	service := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	_, err := service.Synthesize(context.Background(), "Hello", SynthesisConfig{
 		Voice: "invalid-voice",
@@ -205,7 +207,7 @@ func TestCartesiaService_Synthesize_WithDefaultVoice(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	service := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	// Use empty voice to test default
 	reader, err := service.Synthesize(context.Background(), "Test", SynthesisConfig{})
@@ -229,7 +231,7 @@ func TestCartesiaService_Synthesize_WithLanguage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	service := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	reader, err := service.Synthesize(context.Background(), "Bonjour", SynthesisConfig{
 		Language: "fr",
@@ -400,7 +402,7 @@ func TestCartesiaService_handleError_ErrorCases(t *testing.T) {
 			}))
 			defer server.Close()
 
-			testService := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+			testService := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 			_, err := testService.Synthesize(context.Background(), "test", SynthesisConfig{})
 			if err == nil {
@@ -426,7 +428,7 @@ func TestCartesiaService_handleError_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	service := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	_, err := service.Synthesize(context.Background(), "test", SynthesisConfig{})
 	if err == nil {
@@ -448,7 +450,7 @@ func TestCartesiaService_Synthesize_WithModel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	service := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	reader, err := service.Synthesize(context.Background(), "Test", SynthesisConfig{
 		Model: "custom-model",
@@ -472,7 +474,7 @@ func TestCartesiaService_Synthesize_WithFormat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	service := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	// Test with MP3 format
 	reader, err := service.Synthesize(context.Background(), "Test", SynthesisConfig{
@@ -500,7 +502,7 @@ func TestCartesiaService_Synthesize_WithWAVFormat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewCartesia("test-key", WithCartesiaBaseURL(server.URL))
+	service := NewCartesia("test-key", base.WithBaseURL(server.URL))
 
 	reader, err := service.Synthesize(context.Background(), "Test", SynthesisConfig{
 		Format: FormatWAV,
@@ -613,7 +615,7 @@ func TestCartesiaService_ModelName(t *testing.T) {
 	if got := svc.ModelName(); got != CartesiaModelSonic {
 		t.Errorf("ModelName() = %q, want %q", got, CartesiaModelSonic)
 	}
-	svc2 := NewCartesia("test-key", WithCartesiaModel("sonic-2"))
+	svc2 := NewCartesia("test-key", base.WithModel("sonic-2"))
 	if got := svc2.ModelName(); got != "sonic-2" {
 		t.Errorf("ModelName() = %q, want %q after WithCartesiaModel", got, "sonic-2")
 	}
