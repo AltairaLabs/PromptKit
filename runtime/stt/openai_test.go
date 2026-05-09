@@ -54,9 +54,9 @@ func TestOpenAIService_Pricing_Override(t *testing.T) {
 		Items:    []base.PriceItem{{Unit: "second", Rate: 0.0002}},
 	}
 	service := stt.NewOpenAI("test-api-key")
-	stt.WithOpenAIPricing(custom)(service)
+	service.SetPricing(custom)
 	if service.Pricing() != custom {
-		t.Error("WithOpenAIPricing did not override pricing")
+		t.Error("SetPricing did not override pricing")
 	}
 }
 
@@ -218,7 +218,7 @@ func TestOpenAIService_Transcribe_Request_NoPricing(t *testing.T) {
 	defer server.Close()
 
 	service := stt.NewOpenAI("test-api-key", base.WithBaseURL(server.URL))
-	stt.WithOpenAIPricing(nil)(service)
+	service.SetPricing(nil)
 
 	resp, err := service.Transcribe(context.Background(), base.STTRequest{
 		Audio:    generateTestAudio(16000, 1.0),

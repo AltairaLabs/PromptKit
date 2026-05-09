@@ -62,14 +62,6 @@ type OpenAIService struct {
 // base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
 type OpenAIOption = base.HTTPServiceOption
 
-// WithOpenAIPricing overrides the default pricing descriptor for this instance.
-// Delegates to the embedded base.Implementation's SetPricing.
-func WithOpenAIPricing(p *base.PricingDescriptor) func(*OpenAIService) {
-	return func(s *OpenAIService) {
-		s.SetPricing(p)
-	}
-}
-
 // NewOpenAI creates an OpenAI STT service using Whisper.
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{

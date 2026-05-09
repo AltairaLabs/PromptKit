@@ -14,7 +14,7 @@ func init() {
 		}
 		svc := NewOpenAI(APIKeyFromCredential(spec.Credential), opts...)
 		if p := PricingFromSpec(spec); p != nil {
-			WithOpenAIPricing(p)(svc)
+			svc.SetPricing(p)
 		}
 		return svc, nil
 	})

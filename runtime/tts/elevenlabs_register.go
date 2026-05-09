@@ -14,7 +14,7 @@ func init() {
 		}
 		svc := NewElevenLabs(APIKeyFromCredential(spec.Credential), opts...)
 		if p := PricingFromSpec(spec); p != nil {
-			WithElevenLabsPricing(p)(svc)
+			svc.SetPricing(p)
 		}
 		return svc, nil
 	})

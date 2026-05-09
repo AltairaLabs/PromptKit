@@ -15,7 +15,7 @@ func init() {
 		svc := NewOpenAI(APIKeyFromCredential(spec.Credential), opts...)
 		// Apply YAML-defined pricing override when present in additional_config.
 		if p := PricingFromSpec(spec); p != nil {
-			WithOpenAIPricing(p)(svc)
+			svc.SetPricing(p)
 		}
 		return svc, nil
 	})

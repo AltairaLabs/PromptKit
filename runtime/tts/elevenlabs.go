@@ -69,13 +69,6 @@ type ElevenLabsService struct {
 // base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
 type ElevenLabsOption = base.HTTPServiceOption
 
-// WithElevenLabsPricing overrides the default pricing descriptor for this instance.
-func WithElevenLabsPricing(p *base.PricingDescriptor) func(*ElevenLabsService) {
-	return func(s *ElevenLabsService) {
-		s.SetPricing(p)
-	}
-}
-
 // NewElevenLabs creates an ElevenLabs TTS service.
 func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{

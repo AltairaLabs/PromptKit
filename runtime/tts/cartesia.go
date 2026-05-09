@@ -70,20 +70,13 @@ type CartesiaService struct {
 // CartesiaOption configures the Cartesia TTS service.
 // It is a type alias for base.HTTPServiceOption so callers can pass
 // base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
-// Use WithCartesiaWSURL or WithCartesiaPricing for Cartesia-specific options.
+// Use WithCartesiaWSURL for Cartesia-specific options.
 type CartesiaOption = base.HTTPServiceOption
 
 // WithCartesiaWSURL sets a custom WebSocket URL.
 func WithCartesiaWSURL(url string) func(*CartesiaService) {
 	return func(s *CartesiaService) {
 		s.wsURL = url
-	}
-}
-
-// WithCartesiaPricing overrides the default pricing descriptor for this instance.
-func WithCartesiaPricing(p *base.PricingDescriptor) func(*CartesiaService) {
-	return func(s *CartesiaService) {
-		s.SetPricing(p)
 	}
 }
 

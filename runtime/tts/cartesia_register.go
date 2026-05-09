@@ -17,7 +17,7 @@ func init() {
 			WithCartesiaWSURL(v)(svc)
 		}
 		if p := PricingFromSpec(spec); p != nil {
-			WithCartesiaPricing(p)(svc)
+			svc.SetPricing(p)
 		}
 		return svc, nil
 	})
