@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/server/a2a
 
-go 1.25.1
+go 1.26.0
 
 require (
 	github.com/AltairaLabs/PromptKit/runtime v1.2.0

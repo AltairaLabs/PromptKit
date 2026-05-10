@@ -48,7 +48,7 @@ jobs:
       PROMPTKIT_SCHEMA_SOURCE: local
     strategy:
       matrix:
-        go-version: ['1.25.1']
+        go-version: ['1.26.0']
     
     steps:
     - name: Checkout code
@@ -274,7 +274,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
-        go-version: '1.25.1'
+        go-version: '1.26.0'
 
     - name: Install gotestsum
       run: go install gotest.tools/gotestsum@latest
@@ -321,7 +321,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
-        go-version: '1.25.1'
+        go-version: '1.26.0'
         cache-dependency-path: |
           runtime/go.sum
           sdk/go.sum
@@ -334,7 +334,7 @@ jobs:
     - name: Run golangci-lint in ${{ matrix.module }}
       uses: golangci/golangci-lint-action@v9
       with:
-        version: v2.6.0
+        version: v2.12.2
         working-directory: ${{ matrix.module }}
         args: --issues-exit-code=0
         only-new-issues: true
@@ -352,7 +352,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
-        go-version: '1.25.1'
+        go-version: '1.26.0'
     
     - name: Build runtime components
       run: make build
@@ -369,7 +369,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
-        go-version: '1.25.1'
+        go-version: '1.26.0'
 
     - name: Build benchmark binaries
       run: |
@@ -451,7 +451,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
-        go-version: '1.25.1'
+        go-version: '1.26.0'
 
     - name: Validate all example configs
       run: make validate-examples
@@ -474,7 +474,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
       with:
-        go-version: '1.25.1'
+        go-version: '1.26.0'
 
     - name: Build Arena
       run: make build-arena

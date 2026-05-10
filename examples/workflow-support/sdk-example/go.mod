@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/examples/workflow-support/sdk-example
 
-go 1.25.1
+go 1.26.0
 
 replace github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
 

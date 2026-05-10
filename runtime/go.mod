@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/runtime
 
-go 1.25.1
+go 1.26.0
 
 retract v1.4.0 // Published prematurely; missing StreamMediaData changes and breaking MediaDelta removal
 

@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/benchmarks/frameworks/genkit
 
-go 1.25.1
+go 1.26.0
 
 require github.com/firebase/genkit/go v1.6.1
 

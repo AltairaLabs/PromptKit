@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/tools/packc
 
-go 1.25.1
+go 1.26.0
 
 retract v1.4.0 // Published prematurely; use v1.4.1+
 

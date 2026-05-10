@@ -59,7 +59,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:
-          go-version: '1.25.1'
+          go-version: '1.26.0'
           cache: true
 
       # Required by oto/v3 (transitive via tools/arena/audio LocalSink).
