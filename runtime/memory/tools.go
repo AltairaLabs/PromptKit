@@ -89,7 +89,12 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 		Category   string         `json:"category,omitempty"`
 		Metadata   map[string]any `json:"metadata,omitempty"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// Decode typed fields and capture any unknown top-level args. Hosts use
+	// sdk.WithToolDescriptorOverride to extend memory__remember's input
+	// schema with deployment-specific fields (e.g. Omnia's `about` for
+	// dedup); without this passthrough those fields would be dropped.
+	extras, err := tools.DecodeArgsExtras(args, &a, "content", "type", "confidence", "category", "metadata")
+	if err != nil {
 		return nil, fmt.Errorf("memory remember: %w", err)
 	}
 	if a.Content == "" {
@@ -107,7 +112,7 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 		Type:       a.Type,
 		Content:    a.Content,
 		Confidence: a.Confidence,
-		Metadata:   a.Metadata,
+		Metadata:   tools.MergeExtrasIntoMetadata(a.Metadata, extras),
 		Scope:      e.scope,
 	}
 	// Stash the LLM-supplied consent category so downstream consumers

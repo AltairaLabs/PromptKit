@@ -186,7 +186,14 @@ func buildRequest(
 	cfg := descriptor.A2AConfig
 
 	var input a2aInput
-	if err := json.Unmarshal(args, &input); err != nil {
+	// Decode typed fields and capture any unknown top-level args. Hosts use
+	// sdk.WithToolDescriptorOverride to extend A2A tool input schemas with
+	// deployment-specific fields (e.g. correlation IDs, tenant tags); without
+	// this passthrough those fields would be dropped between the LLM and the
+	// outgoing A2A Message.Metadata.
+	extras, err := tools.DecodeArgsExtras(args, &input,
+		"query", "image_url", "image_data", "audio_data")
+	if err != nil {
 		return nil, nil, fmt.Errorf("a2a executor: parse args: %w", err)
 	}
 
@@ -204,11 +211,13 @@ func buildRequest(
 		parts = append(parts, Part{Raw: []byte(input.AudioData), MediaType: "audio/*"})
 	}
 
-	// Build metadata with skillId for mock server routing.
+	// Build metadata with skillId for mock server routing, then merge any
+	// host-supplied extras alongside without clobbering skillId.
 	var metadata map[string]any
 	if cfg.SkillID != "" {
 		metadata = map[string]any{"skillId": cfg.SkillID}
 	}
+	metadata = tools.MergeExtrasIntoMetadata(metadata, extras)
 
 	req := &SendMessageRequest{
 		Message: Message{
