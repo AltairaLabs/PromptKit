@@ -1,6 +1,6 @@
 module github.com/AltairaLabs/PromptKit/sdk/examples/eval-hooks
 
-go 1.25.1
+go 1.26.0
 
 replace github.com/AltairaLabs/PromptKit/runtime => ../../../runtime
 
