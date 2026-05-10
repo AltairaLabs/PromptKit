@@ -213,6 +213,57 @@ func TestExecutor_Execute_WithSkillIDMetadata(t *testing.T) {
 	}
 }
 
+func TestExecutor_Execute_PassesUnknownArgsAlongsideSkillID(t *testing.T) {
+	// Hosts use sdk.WithToolDescriptorOverride to extend A2A tool input
+	// schemas with deployment-specific fields (correlation IDs, tenant tags).
+	// Those fields must flow through to outgoing Message.Metadata, alongside
+	// any skillId set by the descriptor — without clobbering it.
+	var receivedMetadata map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		var params SendMessageRequest
+		raw, _ := json.Marshal(req.Params)
+		_ = json.Unmarshal(raw, &params)
+		receivedMetadata = params.Message.Metadata
+
+		text := "ok"
+		task := &Task{
+			ID: "task-passthrough",
+			Status: TaskStatus{
+				State:   TaskStateCompleted,
+				Message: &Message{Role: RoleAgent, Parts: []Part{{Text: &text}}},
+			},
+		}
+		rpcResult(w, req.ID, task)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor()
+	defer e.Close()
+	desc := &tools.ToolDescriptor{
+		Name: "test-tool",
+		A2AConfig: &tools.A2AConfig{
+			AgentURL: srv.URL,
+			SkillID:  "my_skill",
+		},
+	}
+
+	args := json.RawMessage(`{"query":"hello","trace_id":"abc-123","tenant":"acme"}`)
+	if _, err := e.Execute(context.Background(), desc, args); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if receivedMetadata["skillId"] != "my_skill" {
+		t.Errorf("skillId clobbered: got %v", receivedMetadata["skillId"])
+	}
+	if receivedMetadata["trace_id"] != "abc-123" {
+		t.Errorf("trace_id not passed through: got %v", receivedMetadata["trace_id"])
+	}
+	if receivedMetadata["tenant"] != "acme" {
+		t.Errorf("tenant not passed through: got %v", receivedMetadata["tenant"])
+	}
+}
+
 func TestExecutor_Execute_NoSkillIDMetadata(t *testing.T) {
 	var receivedMetadata map[string]any
 

@@ -48,17 +48,36 @@ type toolDescriptorOverride struct {
 // version skew (a tool removed upstream does not break the consumer's
 // override list).
 //
+// # Schema extension and metadata passthrough
+//
+// Extending the InputSchema with new top-level fields produces structured
+// LLM args, but the executor's typed decode would historically drop unknown
+// keys. As of issue #1072, executors that own a Metadata bag —
+// memory__remember (Memory.Metadata) and the A2A tools (Message.Metadata) —
+// pass any unknown top-level args through into that bag automatically.
+//
+// Conflict rule: typed fields win. If the LLM provides both a typed
+// `metadata: {x: 1}` arg and a top-level `x: 2` extra, the typed value
+// stays; the extra is dropped silently.
+//
+// Other capability tools (workflow transition/artifact, skills) have typed
+// outputs with no metadata sink — adding a new top-level field there has
+// no effect on the executor today.
+//
 // Example: customize the memory__remember tool's description for an Omnia
-// deployment that wants the LLM to tag a category alongside the memory.
+// deployment that wants the LLM to tag a category alongside the memory,
+// and extend the schema with an `about` field that flows into Memory.Metadata.
 //
 //	conv, err := sdk.Open(packPath, "chat",
 //	    sdk.WithMemory(store, scope),
 //	    sdk.WithToolDescriptorOverride("memory__remember",
 //	        func(d *tools.ToolDescriptor) {
 //	            d.Description = "Store something in memory ..."
-//	            d.InputSchema = customSchemaJSON
+//	            d.InputSchema = customSchemaJSON // adds top-level `about`
 //	        }),
 //	)
+//	// LLM calls memory__remember(content="...", about={kind:"preference",key:"seat"})
+//	// → Memory.Metadata["about"] = {kind:..., key:...}
 func WithToolDescriptorOverride(name string, fn ToolDescriptorPatchFn) Option {
 	return func(c *config) error {
 		if name == "" {

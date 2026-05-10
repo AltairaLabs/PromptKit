@@ -231,6 +231,80 @@ func TestMemoryExecutor_Remember_PreservesUserMetadata(t *testing.T) {
 	}
 }
 
+func TestMemoryExecutor_Remember_PassesUnknownArgsThroughToMetadata(t *testing.T) {
+	// Hosts use sdk.WithToolDescriptorOverride to extend memory__remember's
+	// schema with deployment-specific fields (Omnia adds `about` for dedup).
+	// Those fields must flow through into Memory.Metadata; previously the
+	// executor's typed decode dropped them silently.
+	store := NewInMemoryStore()
+	scope := map[string]string{"user_id": "u1"}
+	exec := NewExecutor(store, scope)
+	desc := &tools.ToolDescriptor{Name: RememberToolName}
+
+	args, _ := json.Marshal(map[string]any{
+		"content":    "Aisle seat",
+		"category":   "memory:preferences",
+		"about":      map[string]any{"kind": "preference", "key": "seat"},
+		"source_uri": "file:///settings/seat.txt",
+		"trace_id":   "abc-123",
+	})
+	if _, err := exec.Execute(context.Background(), desc, args); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+
+	all, _ := store.List(context.Background(), scope, ListOptions{})
+	if len(all) != 1 {
+		t.Fatalf("expected 1 memory, got %d", len(all))
+	}
+	m := all[0]
+
+	about, ok := m.Metadata["about"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected metadata[about] to be a map, got %T", m.Metadata["about"])
+	}
+	if about["kind"] != "preference" || about["key"] != "seat" {
+		t.Errorf("about not preserved: %+v", about)
+	}
+	if m.Metadata["source_uri"] != "file:///settings/seat.txt" {
+		t.Errorf("source_uri = %v", m.Metadata["source_uri"])
+	}
+	if m.Metadata["trace_id"] != "abc-123" {
+		t.Errorf("trace_id = %v", m.Metadata["trace_id"])
+	}
+	// Typed pipeline still works: provenance and category land as before.
+	if m.Metadata[MetaKeyProvenance] != string(ProvenanceUserRequested) {
+		t.Errorf("provenance lost: %v", m.Metadata[MetaKeyProvenance])
+	}
+	if m.Metadata[MetaKeyConsentCategory] != "memory:preferences" {
+		t.Errorf("consent category lost: %v", m.Metadata[MetaKeyConsentCategory])
+	}
+}
+
+func TestMemoryExecutor_Remember_TypedMetadataWinsOverPassthrough(t *testing.T) {
+	// If the host's schema extension produces a top-level key with the same
+	// name as something in the typed `metadata` arg, the typed value wins.
+	// Documented contract: extras only fill gaps, they never overwrite.
+	store := NewInMemoryStore()
+	scope := map[string]string{"user_id": "u1"}
+	exec := NewExecutor(store, scope)
+	desc := &tools.ToolDescriptor{Name: RememberToolName}
+
+	args, _ := json.Marshal(map[string]any{
+		"content":  "hello",
+		"metadata": map[string]any{"shared_key": "from-typed"},
+		// Unknown top-level field with the SAME key as the typed metadata above.
+		"shared_key": "from-extras",
+	})
+	if _, err := exec.Execute(context.Background(), desc, args); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+
+	all, _ := store.List(context.Background(), scope, ListOptions{})
+	if all[0].Metadata["shared_key"] != "from-typed" {
+		t.Errorf("typed metadata should win on conflict; got %v", all[0].Metadata["shared_key"])
+	}
+}
+
 func TestMemoryExecutor_Remember_StashesConsentCategory(t *testing.T) {
 	store := NewInMemoryStore()
 	scope := map[string]string{"user_id": "u1"}
