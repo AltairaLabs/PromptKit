@@ -117,14 +117,9 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 	}
 	// Stash the LLM-supplied consent category so downstream consumers
 	// (e.g. Omnia's PII redactor / per-category retention) can read it
-	// without re-classifying. Empty category is allowed and lets a
+	// without re-classifying. Empty input is a no-op and lets a
 	// server-side classifier act as the fallback.
-	if a.Category != "" {
-		if m.Metadata == nil {
-			m.Metadata = make(map[string]any)
-		}
-		m.Metadata[MetaKeyConsentCategory] = a.Category
-	}
+	m.SetConsentCategory(ConsentCategory(a.Category))
 	// Always set provenance — overwrites any LLM-provided value.
 	m.SetProvenance(ProvenanceUserRequested)
 

@@ -35,10 +35,19 @@ const (
 	MetaKeyProvenance = "provenance"
 
 	// MetaKeyConsentCategory is the well-known Metadata key for the
-	// consent category supplied by the calling LLM via memory__remember.
-	// Populated when present; consumers that classify server-side may
-	// fall back to their own classifier if absent. Values are not
-	// validated by PromptKit — semantics are owned by the consumer.
+	// consent category attached to a memory. Two write paths populate it:
+	//
+	//   - Explicit: the LLM calls memory__remember with a category arg,
+	//     which the executor stashes here verbatim.
+	//   - Implicit: an Extractor stage classifies and tags during write,
+	//     typically via [Memory.SetConsentCategory] driven by the
+	//     extracting LLM's structured output ([CategoryRubric] supplies
+	//     the prompt fragment).
+	//
+	// Consumers that classify server-side may fall back to their own
+	// classifier when this is absent. Values are not validated by
+	// PromptKit — see [IsKnownCategory] for an opt-in check against the
+	// canonical [ConsentCategory] taxonomy.
 	MetaKeyConsentCategory = "consent_category"
 
 	// ProvenanceUserRequested — user explicitly asked the agent to remember this.
