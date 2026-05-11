@@ -177,6 +177,11 @@ type Config struct {
 	// MemoryScope for memory isolation.
 	MemoryScope map[string]string
 
+	// MemoryContextFormatter overrides the rendering of retrieved memories
+	// into the "memory_context" template variable. Defaults to
+	// [memory.DefaultContextFormatter] when nil.
+	MemoryContextFormatter memory.ContextFormatter
+
 	// ExecutionTimeout overrides the default pipeline execution timeout.
 	// When non-nil, the pointed-to duration is used instead of the default 30s.
 	// A zero value disables timeout entirely.
@@ -329,8 +334,12 @@ func collectPipelineStages(
 
 	// 4.8 Memory retrieval stage - inject relevant memories before provider
 	if cfg.MemoryRetriever != nil && cfg.MemoryStore != nil {
-		stages = append(stages, stage.NewMemoryRetrievalStageWithTurnState(
-			cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope, turnState))
+		retrievalStage := stage.NewMemoryRetrievalStageWithTurnState(
+			cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope, turnState)
+		if cfg.MemoryContextFormatter != nil {
+			retrievalStage.WithContextFormatter(cfg.MemoryContextFormatter)
+		}
+		stages = append(stages, retrievalStage)
 	}
 
 	// 5. Provider stage - LLM calls with streaming and tool support

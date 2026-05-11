@@ -12,6 +12,7 @@ type MemoryCapability struct {
 	scope     map[string]string
 	extractor memory.Extractor
 	retriever memory.Retriever
+	formatter memory.ContextFormatter
 }
 
 // NewMemoryCapability creates a MemoryCapability with the given store and scope.

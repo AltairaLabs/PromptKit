@@ -495,6 +495,7 @@ func (c *Conversation) buildPipelineConfig(
 		pipelineCfg.MemoryScope = mc.scope
 		pipelineCfg.MemoryRetriever = mc.retriever
 		pipelineCfg.MemoryExtractor = mc.extractor
+		pipelineCfg.MemoryContextFormatter = mc.formatter
 		break
 	}
 
