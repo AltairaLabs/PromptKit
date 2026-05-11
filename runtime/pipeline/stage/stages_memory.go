@@ -2,7 +2,6 @@ package stage
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
@@ -22,6 +21,7 @@ type MemoryRetrievalStage struct {
 	store     memory.Store
 	scope     map[string]string
 	turnState *TurnState
+	formatter memory.ContextFormatter
 }
 
 // NewMemoryRetrievalStage creates a retrieval stage.
@@ -43,6 +43,14 @@ func NewMemoryRetrievalStageWithTurnState(
 		scope:     scope,
 		turnState: turnState,
 	}
+}
+
+// WithContextFormatter overrides the formatter used to render retrieved
+// memories into the "memory_context" template variable. Falls back to
+// [memory.DefaultContextFormatter] when nil.
+func (s *MemoryRetrievalStage) WithContextFormatter(fn memory.ContextFormatter) *MemoryRetrievalStage {
+	s.formatter = fn
+	return s
 }
 
 // Process implements Stage.
@@ -84,16 +92,17 @@ func (s *MemoryRetrievalStage) Process(
 }
 
 // injectMemoryContext formats the retrieved memories and writes them onto
-// TurnState.Variables["memory_context"].
+// TurnState.Variables["memory_context"]. Uses the stage's configured
+// formatter, or [memory.DefaultContextFormatter] when none is set.
 func (s *MemoryRetrievalStage) injectMemoryContext(memories []*memory.Memory) {
-	var ctx string
-	for _, m := range memories {
-		ctx += fmt.Sprintf("[%s] %s (confidence: %.1f)\n", m.Type, m.Content, m.Confidence)
+	formatter := s.formatter
+	if formatter == nil {
+		formatter = memory.DefaultContextFormatter
 	}
 	if s.turnState.Variables == nil {
 		s.turnState.Variables = make(map[string]string)
 	}
-	s.turnState.Variables["memory_context"] = ctx
+	s.turnState.Variables["memory_context"] = formatter(memories)
 }
 
 // MemoryExtractionStage extracts memories from the conversation after the

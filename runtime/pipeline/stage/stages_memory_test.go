@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/memory"
@@ -50,6 +51,77 @@ func TestMemoryRetrievalStage_InjectsMemories(t *testing.T) {
 
 	if turnState.Variables["memory_context"] == "" {
 		t.Error("memory_context should be injected onto TurnState.Variables")
+	}
+}
+
+func TestMemoryRetrievalStage_UsesDefaultFormatterWhenUnset(t *testing.T) {
+	ret := &mockRetriever{
+		memories: []*memory.Memory{
+			{Type: "fact", Content: "User likes Go", Confidence: 0.9},
+		},
+	}
+	store := memory.NewInMemoryStore()
+	turnState := NewTurnState()
+	s := NewMemoryRetrievalStageWithTurnState(ret, store, nil, turnState)
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+	msg := types.Message{Role: "user", Content: "hello"}
+	input <- StreamElement{Message: &msg}
+	close(input)
+
+	if err := s.Process(context.Background(), input, output); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	<-output
+	got := turnState.Variables["memory_context"]
+	want := "[fact] User likes Go (confidence: 0.9)\n"
+	if got != want {
+		t.Errorf("default format = %q, want %q", got, want)
+	}
+}
+
+func TestMemoryRetrievalStage_HostFormatterOverridesDefault(t *testing.T) {
+	ret := &mockRetriever{
+		memories: []*memory.Memory{
+			{Type: "fact", Content: "User likes Go", Confidence: 0.9,
+				Metadata: map[string]any{"category": "preferences"}},
+			{Type: "fact", Content: "User uses macOS",
+				Metadata: map[string]any{"category": "context"}},
+		},
+	}
+	store := memory.NewInMemoryStore()
+	turnState := NewTurnState()
+	// Host formatter that groups by metadata["category"] — proves the
+	// override receives the same memories the default would have, plus
+	// access to metadata fields the default ignores.
+	s := NewMemoryRetrievalStageWithTurnState(ret, store, nil, turnState).
+		WithContextFormatter(func(memories []*memory.Memory) string {
+			var b strings.Builder
+			for _, m := range memories {
+				cat, _ := m.Metadata["category"].(string)
+				b.WriteString(cat)
+				b.WriteString(":")
+				b.WriteString(m.Content)
+				b.WriteString("\n")
+			}
+			return b.String()
+		})
+
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+	msg := types.Message{Role: "user", Content: "hello"}
+	input <- StreamElement{Message: &msg}
+	close(input)
+
+	if err := s.Process(context.Background(), input, output); err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	<-output
+	got := turnState.Variables["memory_context"]
+	want := "preferences:User likes Go\ncontext:User uses macOS\n"
+	if got != want {
+		t.Errorf("custom format = %q, want %q", got, want)
 	}
 }
 

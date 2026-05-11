@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	memorystore "github.com/AltairaLabs/PromptKit/runtime/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -115,6 +116,53 @@ func TestBuild(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, pipe)
 	})
+
+	t.Run("with memory retriever and custom context formatter", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		store := memorystore.NewInMemoryStore()
+		retriever := &noopRetriever{}
+		formatter := func(_ []*memorystore.Memory) string { return "host-formatted" }
+
+		cfg := &Config{
+			PromptRegistry:         registry,
+			TaskType:               "chat",
+			MemoryStore:            store,
+			MemoryRetriever:        retriever,
+			MemoryContextFormatter: formatter,
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+
+	t.Run("with memory retriever but no formatter", func(t *testing.T) {
+		registry := createTestRegistry("chat")
+		store := memorystore.NewInMemoryStore()
+		retriever := &noopRetriever{}
+
+		cfg := &Config{
+			PromptRegistry:  registry,
+			TaskType:        "chat",
+			MemoryStore:     store,
+			MemoryRetriever: retriever,
+			// MemoryContextFormatter intentionally left nil; default applies.
+		}
+
+		pipe, err := Build(cfg)
+		require.NoError(t, err)
+		assert.NotNil(t, pipe)
+	})
+}
+
+// noopRetriever satisfies memorystore.Retriever for builder tests; it is
+// never actually invoked because Build() only wires the stage.
+type noopRetriever struct{}
+
+func (noopRetriever) RetrieveContext(
+	_ context.Context, _ map[string]string, _ []types.Message,
+) ([]*memorystore.Memory, error) {
+	return nil, nil
 }
 
 func TestConfig(t *testing.T) {

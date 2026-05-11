@@ -67,3 +67,43 @@ func TestWithMemoryOption(t *testing.T) {
 		t.Errorf("capability name = %q", cfg.capabilities[0].Name())
 	}
 }
+
+func TestWithMemoryContextFormatter_StoredOnCapability(t *testing.T) {
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"user_id": "test"}
+
+	sentinel := "from-host-formatter"
+	formatter := func(_ []*memory.Memory) string { return sentinel }
+
+	cfg := &config{}
+	opt := WithMemory(store, scope, WithMemoryContextFormatter(formatter))
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithMemory: %v", err)
+	}
+	cap, ok := cfg.capabilities[0].(*MemoryCapability)
+	if !ok {
+		t.Fatalf("expected *MemoryCapability, got %T", cfg.capabilities[0])
+	}
+	if cap.formatter == nil {
+		t.Fatal("expected formatter to be set on capability")
+	}
+	if got := cap.formatter(nil); got != sentinel {
+		t.Errorf("formatter returned %q, want %q", got, sentinel)
+	}
+}
+
+func TestWithMemoryContextFormatter_NilFormatterIsAccepted(t *testing.T) {
+	// Passing nil should be allowed — it just leaves the default in place.
+	store := memory.NewInMemoryStore()
+	scope := map[string]string{"user_id": "test"}
+
+	cfg := &config{}
+	opt := WithMemory(store, scope, WithMemoryContextFormatter(nil))
+	if err := opt(cfg); err != nil {
+		t.Fatalf("WithMemory: %v", err)
+	}
+	cap := cfg.capabilities[0].(*MemoryCapability)
+	if cap.formatter != nil {
+		t.Error("formatter should remain nil when WithMemoryContextFormatter(nil)")
+	}
+}

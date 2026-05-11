@@ -1078,6 +1078,27 @@ func WithMemoryRetriever(r memory.Retriever) MemoryOption {
 	return func(c *MemoryCapability) { c.retriever = r }
 }
 
+// WithMemoryContextFormatter overrides how retrieved memories are rendered
+// into the "memory_context" template variable that the system prompt sees.
+// Composes with [WithMemory] / [WithMemoryRetriever]; ignored when no
+// retriever is configured. Falls back to [memory.DefaultContextFormatter]
+// when fn is nil.
+//
+// Use this to surface metadata (consent category, dedup keys), group by
+// type or category, hedge confidence verbally, or otherwise tailor what
+// the LLM sees beyond the default "[type] content (confidence: N.N)"
+// line-per-memory format.
+//
+//	conv, _ := sdk.Open(packPath, "chat",
+//	    sdk.WithMemory(store, scope,
+//	        sdk.WithMemoryRetriever(myRetriever),
+//	        sdk.WithMemoryContextFormatter(myFormatter),
+//	    ),
+//	)
+func WithMemoryContextFormatter(fn memory.ContextFormatter) MemoryOption {
+	return func(c *MemoryCapability) { c.formatter = fn }
+}
+
 // WithExecutionTimeout overrides the default pipeline execution timeout (30s).
 // Use this for pipelines that need more time, such as multi-round tool-calling
 // with slower providers like Ollama. Pass 0 to disable the timeout entirely.
