@@ -1621,6 +1621,12 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "expressive": {
+          "type": "boolean"
+        },
+        "characterization_rubric": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
