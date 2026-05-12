@@ -27,6 +27,71 @@ func TestPersonaStyle_Structure(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptWithRubric_NoOpWhenNotExpressive(t *testing.T) {
+	// Personas that have not opted into expressive output must produce a
+	// system prompt that is byte-identical to BuildSystemPrompt regardless
+	// of what providerRubric the caller passes. This is the "zero-surprise"
+	// invariant from #1130.
+	p := &UserPersonaPack{
+		ID:           "p",
+		SystemPrompt: "You are a test persona.",
+	}
+	withRubric, err := p.BuildSystemPromptWithRubric("us", nil, "PROVIDER RUBRIC TEXT")
+	if err != nil {
+		t.Fatalf("BuildSystemPromptWithRubric: %v", err)
+	}
+	plain, _ := p.BuildSystemPrompt("us", nil)
+	if withRubric != plain {
+		t.Errorf("non-expressive persona should be byte-identical:\n  with    = %q\n  without = %q", withRubric, plain)
+	}
+}
+
+func TestBuildSystemPromptWithRubric_PrependsProviderRubric(t *testing.T) {
+	p := &UserPersonaPack{
+		ID:           "p",
+		SystemPrompt: "Body text.",
+		Style:        PersonaStyle{Expressive: true},
+	}
+	got, err := p.BuildSystemPromptWithRubric("us", nil, "PROVIDER")
+	if err != nil {
+		t.Fatalf("BuildSystemPromptWithRubric: %v", err)
+	}
+	want := "PROVIDER\n\nBody text."
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestBuildSystemPromptWithRubric_OverrideWinsOverProvider(t *testing.T) {
+	p := &UserPersonaPack{
+		ID:           "p",
+		SystemPrompt: "Body text.",
+		Style: PersonaStyle{
+			Expressive:             true,
+			CharacterizationRubric: "OVERRIDE",
+		},
+	}
+	got, _ := p.BuildSystemPromptWithRubric("us", nil, "PROVIDER")
+	want := "OVERRIDE\n\nBody text."
+	if got != want {
+		t.Errorf("override should win; got %q", got)
+	}
+}
+
+func TestBuildSystemPromptWithRubric_EmptyProviderRubricIsNoOp(t *testing.T) {
+	// Expressive=true but the provider returned empty (e.g., tts-1, mock).
+	// Result must NOT have a leading newline/blank from a phantom rubric.
+	p := &UserPersonaPack{
+		ID:           "p",
+		SystemPrompt: "Body text.",
+		Style:        PersonaStyle{Expressive: true},
+	}
+	got, _ := p.BuildSystemPromptWithRubric("us", nil, "")
+	if got != "Body text." {
+		t.Errorf("got %q, want %q", got, "Body text.")
+	}
+}
+
 func TestPersonaDefaults_Structure(t *testing.T) {
 	temp := float32(0.8)
 	seed := 123

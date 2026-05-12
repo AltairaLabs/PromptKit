@@ -99,6 +99,16 @@ func (s *CartesiaService) ImplName() string { return "cartesia" }
 // ModelName returns the configured model name for cost tracking.
 func (s *CartesiaService) ModelName() string { return s.Model }
 
+// PersonaRubric implements [PersonaRubricProvider]. Returns the
+// emotion-only rubric: Cartesia's experimental controls accept a narrow
+// vocabulary (positivity / sadness / anger), so we advertise only the
+// tags the adapter actually maps. Other tags (e.g. whispers, pause) would
+// be dropped by lowerCartesiaMarkup, so we omit them from the rubric to
+// keep persona tokens focused on directives that move audio.
+func (s *CartesiaService) PersonaRubric() string {
+	return markup.RubricEmotionOnly
+}
+
 // cartesiaRequest is the request body for Cartesia TTS API.
 type cartesiaRequest struct {
 	ModelID       string               `json:"model_id"`

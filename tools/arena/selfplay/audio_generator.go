@@ -85,11 +85,22 @@ type AudioContentGenerator struct {
 
 // NewAudioContentGenerator creates a new audio content generator.
 // textGenerator may be nil for TTS-only generators.
+//
+// When the TTS service exposes a PersonaRubric (see [tts.PersonaRubricProvider]),
+// it is forwarded to the underlying text generator so that personas opting in
+// via style.expressive get a provider-tuned rubric prepended to their system
+// prompt (issue #1130). Providers that do not implement the interface, or
+// implement it and return the empty string, are no-ops.
 func NewAudioContentGenerator(
 	textGenerator *ContentGenerator,
 	ttsService base.TTSProvider,
 	ttsConfig *config.TTSConfig,
 ) *AudioContentGenerator {
+	if textGenerator != nil {
+		if rp, ok := ttsService.(tts.PersonaRubricProvider); ok {
+			textGenerator.WithProviderRubric(rp.PersonaRubric())
+		}
+	}
 	return &AudioContentGenerator{
 		textGenerator: textGenerator,
 		ttsService:    ttsService,

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/tts/markup"
 )
 
 func TestNewOpenAI(t *testing.T) {
@@ -246,6 +247,31 @@ func TestOpenAIService_Synthesize_PlainTextUnchanged(t *testing.T) {
 
 	if strings.Contains(string(raw), `"instructions"`) {
 		t.Errorf("instructions field should be omitted for plain text; got body %s", raw)
+	}
+}
+
+func TestOpenAIService_PersonaRubric_PerModel(t *testing.T) {
+	// gpt-4o-mini-tts honors the `instructions` field — full rubric.
+	// tts-1 / tts-1-hd ignore it — empty so we don't waste persona tokens.
+	cases := map[string]bool{
+		ModelGPT4oMiniTTS: true,
+		ModelTTS1:         false,
+		ModelTTS1HD:       false,
+		"unknown-model":   false,
+	}
+	for model, wantRubric := range cases {
+		s := NewOpenAI("k", base.WithModel(model))
+		got := s.PersonaRubric()
+		if wantRubric {
+			if got == "" {
+				t.Errorf("model=%s: expected non-empty rubric", model)
+			}
+			if got != markup.RubricExpressiveFull {
+				t.Errorf("model=%s: rubric does not match RubricExpressiveFull", model)
+			}
+		} else if got != "" {
+			t.Errorf("model=%s: expected empty rubric, got %q", model, got)
+		}
 	}
 }
 

@@ -61,6 +61,21 @@ type PersonaStyle struct {
 	Verbosity      string   `json:"verbosity" yaml:"verbosity"`             // "short", "medium", "long"
 	ChallengeLevel string   `json:"challenge_level" yaml:"challenge_level"` // "low", "medium", "high"
 	FrictionTags   []string `json:"friction_tags" yaml:"friction_tags"`     // e.g., ["skeptical", "impatient", "detail-oriented"]
+
+	// Expressive opts the persona into TTS characterization markup. When
+	// true, [UserPersonaPack.BuildSystemPrompt] prepends a bracket-tag
+	// rubric (from the resolved TTS provider, or from
+	// CharacterizationRubric below) so the LLM emits "[whispers]" /
+	// "[excited]" / "[laughs]" etc. that downstream provider adapters
+	// lower into their native dialects. Default false — existing personas
+	// produce byte-identical prompts.
+	Expressive bool `json:"expressive,omitempty" yaml:"expressive,omitempty"`
+
+	// CharacterizationRubric is an optional override that replaces the
+	// provider-default rubric verbatim. Only consulted when Expressive is
+	// true. Use this when a persona has unusual delivery requirements
+	// (custom tag examples, narrower vocabulary, alternative phrasing).
+	CharacterizationRubric string `json:"characterization_rubric,omitempty" yaml:"characterization_rubric,omitempty"`
 }
 
 // PersonaDefaults contains default LLM parameters for the persona.
@@ -235,7 +250,59 @@ func validatePersonaStyle(style PersonaStyle) error {
 // 1. system_template + fragments (new, preferred)
 // 2. system_prompt (legacy, plain text)
 // 3. prompt_activity (deprecated, will be removed)
+//
+// Callers that want TTS characterization markup (issue #1130) should use
+// [UserPersonaPack.BuildSystemPromptWithRubric] instead.
 func (p *UserPersonaPack) BuildSystemPrompt(region string, contextVars map[string]string) (string, error) {
+	return p.BuildSystemPromptWithRubric(region, contextVars, "")
+}
+
+// BuildSystemPromptWithRubric builds the system prompt and optionally
+// prepends a TTS characterization rubric so the LLM emits bracket-tagged
+// expressive output the configured TTS provider can act on.
+//
+// Rubric selection (matches the build-path rules from issue #1130):
+//   - p.Style.Expressive is false → providerRubric is ignored; result is
+//     byte-identical to [UserPersonaPack.BuildSystemPrompt].
+//   - p.Style.CharacterizationRubric is non-empty → it replaces
+//     providerRubric verbatim.
+//   - Otherwise → providerRubric is used as supplied (callers pass the
+//     empty string when the resolved provider has no characterization
+//     support, which makes this method a no-op).
+//
+// The rubric is prepended to the rendered system prompt, separated by a
+// blank line. The base prompt body is unchanged.
+func (p *UserPersonaPack) BuildSystemPromptWithRubric(
+	region string, contextVars map[string]string, providerRubric string,
+) (string, error) {
+	body, err := p.buildSystemPromptBody(region, contextVars)
+	if err != nil {
+		return "", err
+	}
+	rubric := p.resolveRubric(providerRubric)
+	if rubric == "" {
+		return body, nil
+	}
+	return rubric + "\n\n" + body, nil
+}
+
+// resolveRubric picks the rubric to prepend per the precedence in
+// [UserPersonaPack.BuildSystemPromptWithRubric]. Returns "" when no
+// rubric should be injected.
+func (p *UserPersonaPack) resolveRubric(providerRubric string) string {
+	if !p.Style.Expressive {
+		return ""
+	}
+	if p.Style.CharacterizationRubric != "" {
+		return p.Style.CharacterizationRubric
+	}
+	return providerRubric
+}
+
+// buildSystemPromptBody renders the persona's base prompt (without any
+// characterization rubric prefix). Shared by BuildSystemPrompt and
+// BuildSystemPromptWithRubric.
+func (p *UserPersonaPack) buildSystemPromptBody(region string, contextVars map[string]string) (string, error) {
 	// NEW: Use template system if system_template is specified
 	if p.SystemTemplate != "" || len(p.Fragments) > 0 {
 		return p.buildTemplatedPrompt(region, contextVars)
