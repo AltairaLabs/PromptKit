@@ -139,6 +139,18 @@ func (r *TTSRegistry) GetWithConfig(cfg *config.TTSConfig) (base.TTSProvider, er
 		return svc, nil
 	}
 
+	// When the scenario pins a model, instantiate the provider directly
+	// and skip the per-provider singleton cache — different scenarios may
+	// pick different models (e.g. tts-1 for cheap takes, gpt-4o-mini-tts
+	// for expressive takes) and must not share one service.
+	if cfg.Model != "" {
+		svc, err := r.createServiceWithModel(cfg.Provider, cfg.Model)
+		if err != nil {
+			return nil, err
+		}
+		return wrapWithDiskCache(cfg.Provider, svc), nil
+	}
+
 	// For all other cases, use the standard cached lookup
 	return r.Get(cfg.Provider)
 }
@@ -151,15 +163,23 @@ func (r *TTSRegistry) Register(provider string, svc base.TTSProvider) {
 	r.services[provider] = svc
 }
 
-// createService creates a new TTS provider for the given provider name.
+// createService creates a new TTS provider for the given provider name
+// using the adapter's default model.
 func (r *TTSRegistry) createService(provider string) (base.TTSProvider, error) {
+	return r.createServiceWithModel(provider, "")
+}
+
+// createServiceWithModel creates a new TTS provider, optionally pinning a
+// specific model. Empty model = adapter default. Used by GetWithConfig
+// when a scenario / role pins a model via TTSConfig.Model.
+func (r *TTSRegistry) createServiceWithModel(provider, model string) (base.TTSProvider, error) {
 	switch provider {
 	case TTSProviderOpenAI:
-		return r.createOpenAI()
+		return r.createOpenAI(model)
 	case TTSProviderElevenLabs:
-		return r.createElevenLabs()
+		return r.createElevenLabs(model)
 	case TTSProviderCartesia:
-		return r.createCartesia()
+		return r.createCartesia(model)
 	case TTSProviderMock:
 		return r.createMock()
 	default:
@@ -196,35 +216,53 @@ func (r *TTSRegistry) createMock() (base.TTSProvider, error) {
 	return NewMockTTS(), nil
 }
 
-// createOpenAI creates an OpenAI TTS provider.
-func (r *TTSRegistry) createOpenAI() (base.TTSProvider, error) {
+// createOpenAI creates an OpenAI TTS provider. When model is empty, the
+// adapter's default (tts-1) applies; pass "gpt-4o-mini-tts" to unlock the
+// expressive instructions field and the persona characterization rubric.
+func (r *TTSRegistry) createOpenAI(model string) (base.TTSProvider, error) {
 	apiKey := os.Getenv(envOpenAIAPIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("openAI TTS requires %s environment variable", envOpenAIAPIKey)
 	}
-	return tts.NewOpenAI(apiKey), nil
+	opts := []base.HTTPServiceOption{}
+	if model != "" {
+		opts = append(opts, base.WithModel(model))
+	}
+	return tts.NewOpenAI(apiKey, opts...), nil
 }
 
 // createElevenLabs creates an ElevenLabs TTS provider.
 //
-// Selfplay uses turbo_v2_5 because it's optimized for real-time conversational
-// agents (~250ms TTFB vs ~1s for multilingual_v2). The default
-// multilingual_v2 model would dominate per-turn latency.
-func (r *TTSRegistry) createElevenLabs() (base.TTSProvider, error) {
+// Selfplay defaults to turbo_v2_5 because it's optimized for real-time
+// conversational agents (~250ms TTFB vs ~1s for multilingual_v2). The
+// default multilingual_v2 model would dominate per-turn latency. Pass
+// "eleven_v3" (or any "eleven_v3*") to unlock inline characterization
+// tags and the persona rubric.
+func (r *TTSRegistry) createElevenLabs(model string) (base.TTSProvider, error) {
 	apiKey := os.Getenv(envElevenLabsAPIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("elevenLabs TTS requires %s environment variable", envElevenLabsAPIKey)
 	}
-	return tts.NewElevenLabs(apiKey, base.WithModel(tts.ElevenLabsModelTurbo)), nil
+	if model == "" {
+		model = tts.ElevenLabsModelTurbo
+	}
+	return tts.NewElevenLabs(apiKey, base.WithModel(model)), nil
 }
 
-// createCartesia creates a Cartesia TTS provider.
-func (r *TTSRegistry) createCartesia() (base.TTSProvider, error) {
+// createCartesia creates a Cartesia TTS provider. Empty model = adapter
+// default (sonic-3); Cartesia's PersonaRubric returns the emotion-only
+// rubric regardless of model, so no model override is needed to unlock
+// expressive personas on Cartesia.
+func (r *TTSRegistry) createCartesia(model string) (base.TTSProvider, error) {
 	apiKey := os.Getenv(envCartesiaAPIKey)
 	if apiKey == "" {
 		return nil, fmt.Errorf("cartesia TTS requires %s environment variable", envCartesiaAPIKey)
 	}
-	return tts.NewCartesia(apiKey), nil
+	opts := []base.HTTPServiceOption{}
+	if model != "" {
+		opts = append(opts, base.WithModel(model))
+	}
+	return tts.NewCartesia(apiKey, opts...), nil
 }
 
 // SupportedProviders returns a list of supported TTS provider names.

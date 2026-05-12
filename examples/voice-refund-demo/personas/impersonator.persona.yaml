@@ -44,3 +44,7 @@ spec:
     friction_tags:
       - evasive
       - persistent
+    # Opt into TTS characterization markup so the LLM can emit "[sighs]"
+    # before a deflection or "[calm]" when feigning patience — the
+    # impersonator's tactic-shifting maps naturally to delivery shifts.
+    expressive: true

@@ -913,6 +913,14 @@ type TTSConfig struct {
 	Provider string `json:"provider" yaml:"provider"`
 	// Voice is the voice ID to use for synthesis.
 	Voice string `json:"voice" yaml:"voice"`
+	// Model overrides the provider's default TTS model. Examples:
+	//   openai: "tts-1", "tts-1-hd", "gpt-4o-mini-tts"
+	//   elevenlabs: "eleven_v3", "eleven_multilingual_v2", "eleven_turbo_v2_5"
+	//   cartesia: "sonic-3"
+	// When empty, each provider's adapter falls back to its own default.
+	// Picking gpt-4o-mini-tts / eleven_v3 also unlocks the persona
+	// characterization rubric (see PersonaStyle.Expressive).
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 	// AudioFiles is a list of PCM audio files to use for mock TTS provider.
 	// When provider is "mock", these files are loaded and rotated through for each synthesis call.
 	// Paths are relative to the scenario file location.

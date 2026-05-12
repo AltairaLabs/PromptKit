@@ -119,6 +119,49 @@ func TestTTSRegistry_Get_WithAPIKey(t *testing.T) {
 	}
 }
 
+func TestTTSRegistry_GetWithConfig_ModelOverride(t *testing.T) {
+	// Pinning a model via TTSConfig.Model should:
+	//   1. Bypass the per-provider singleton cache (a scenario picking
+	//      gpt-4o-mini-tts must not get the cached tts-1 instance).
+	//   2. Yield a service whose ModelName() reflects the override.
+	//   3. Expose the matching PersonaRubric for expressive personas.
+	registry := NewTTSRegistry()
+	t.Setenv(envOpenAIAPIKey, "test-key")
+
+	def, err := registry.Get(TTSProviderOpenAI)
+	if err != nil {
+		t.Fatalf("Get default: %v", err)
+	}
+
+	override, err := registry.GetWithConfig(&config.TTSConfig{
+		Provider: TTSProviderOpenAI,
+		Voice:    "alloy",
+		Model:    tts.ModelGPT4oMiniTTS,
+	})
+	if err != nil {
+		t.Fatalf("GetWithConfig override: %v", err)
+	}
+
+	if def == override {
+		t.Error("model-pinned service should be a separate instance from the default-cached one")
+	}
+
+	modelExposer, ok := override.(interface{ ModelName() string })
+	if !ok {
+		t.Skip("override service does not expose ModelName(); skipping detailed check")
+	} else if got := modelExposer.ModelName(); got != tts.ModelGPT4oMiniTTS {
+		t.Errorf("override ModelName = %q, want %q", got, tts.ModelGPT4oMiniTTS)
+	}
+
+	rp, ok := override.(tts.PersonaRubricProvider)
+	if !ok {
+		t.Fatal("override should still satisfy PersonaRubricProvider")
+	}
+	if rp.PersonaRubric() == "" {
+		t.Error("gpt-4o-mini-tts override should expose a non-empty PersonaRubric")
+	}
+}
+
 func TestTTSRegistry_Get_Caching(t *testing.T) {
 	registry := NewTTSRegistry()
 	t.Setenv(envOpenAIAPIKey, "test-key")

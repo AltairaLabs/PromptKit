@@ -57,7 +57,11 @@ spec:
       persona: busy-professional
       turns: 4
       tts:
+        # gpt-4o-mini-tts honors expressive instructions, so the
+        # busy-professional persona's "[sighs]" / "[smile]" markup
+        # gets passed through as delivery cues.
         provider: openai
+        model: gpt-4o-mini-tts
         voice: alloy
       assertions:
         # Each turn should get a substantive response
