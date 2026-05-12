@@ -39,7 +39,11 @@ spec:
       persona: impersonator
       turns: 4
       tts:
+        # gpt-4o-mini-tts unlocks expressive output for personas with
+        # style.expressive: true. The impersonator switches between
+        # sympathetic and threatening; markup tags carry that contrast.
         provider: openai
+        model: gpt-4o-mini-tts
         voice: shimmer
         sample_rate: 24000
       assertions:

@@ -356,6 +356,9 @@
         "voice": {
           "type": "string"
         },
+        "model": {
+          "type": "string"
+        },
         "audio_files": {
           "items": {
             "type": "string"

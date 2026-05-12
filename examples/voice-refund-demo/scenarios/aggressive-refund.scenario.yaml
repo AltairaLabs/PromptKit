@@ -39,7 +39,12 @@ spec:
       persona: aggressive-entitled
       turns: 4
       tts:
+        # gpt-4o-mini-tts unlocks the persona characterization rubric so the
+        # aggressive-entitled persona's "[shouts]" / "[sighs]" markup gets
+        # passed through as expressive `instructions`. tts-1 would strip
+        # tags and ignore directives.
         provider: openai
+        model: gpt-4o-mini-tts
         voice: onyx
         sample_rate: 24000
       assertions:

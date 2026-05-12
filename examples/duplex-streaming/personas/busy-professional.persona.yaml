@@ -54,3 +54,9 @@ spec:
     verbosity: short
     formality: casual
     challenge_level: low
+    # Opt into TTS characterization markup. The persona naturally hits
+    # moments of light impatience ("[sighs]") and brief warmth
+    # ("[smile]") — markup tags surface those shifts to the listener
+    # when paired with an expressive provider (gpt-4o-mini-tts /
+    # eleven_v3 / cartesia).
+    expressive: true
