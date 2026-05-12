@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/tts/markup"
 )
 
 // Compile-time checks: all three TTS service types must satisfy base.TTSProvider.
@@ -23,10 +25,19 @@ const (
 	openAIBaseURL     = "https://api.openai.com/v1"
 	openAITTSEndpoint = "/audio/speech"
 
-	// ModelTTS1 is the OpenAI TTS model optimized for speed.
+	// ModelTTS1 is the OpenAI TTS model optimized for speed. Does not
+	// support the `instructions` field — characterization tags supplied
+	// to this model are stripped from the spoken text and the LLM
+	// directives are dropped (with a debug log).
 	ModelTTS1 = "tts-1"
-	// ModelTTS1HD is the OpenAI TTS model optimized for quality.
+	// ModelTTS1HD is the OpenAI TTS model optimized for quality. Also
+	// has no `instructions` support; same behavior as ModelTTS1 for
+	// characterization tags.
 	ModelTTS1HD = "tts-1-hd"
+	// ModelGPT4oMiniTTS is the expressive OpenAI TTS model. Honors the
+	// `instructions` request field, which the adapter populates from
+	// markup tags in the input text (see runtime/tts/markup).
+	ModelGPT4oMiniTTS = "gpt-4o-mini-tts"
 
 	// Default timeout for TTS requests.
 	defaultOpenAITimeout = 30 * time.Second
@@ -106,6 +117,10 @@ type openAIRequest struct {
 	Voice          string  `json:"voice"`
 	ResponseFormat string  `json:"response_format,omitempty"`
 	Speed          float64 `json:"speed,omitempty"`
+	// Instructions steers expressive delivery on gpt-4o-mini-tts. Ignored
+	// by tts-1 / tts-1-hd; omitted when no markup tags are present in the
+	// input so cache keys for plain-text utterances stay stable.
+	Instructions string `json:"instructions,omitempty"`
 }
 
 // Synthesize converts text to audio using OpenAI's TTS API.
@@ -142,12 +157,21 @@ func (s *OpenAIService) Synthesize(
 		model = s.Model
 	}
 
+	// Lower markup tags into the model's native dialect:
+	//   - gpt-4o-mini-tts honors `instructions` — populate from the tags.
+	//   - tts-1 / tts-1-hd ignore `instructions` entirely; the tags get
+	//     stripped from the spoken text but the directives are dropped.
+	// Plain-text utterances (no tags) hit the same wire format as before
+	// so cache keys stay stable.
+	input, instructions := lowerOpenAIMarkup(text, model)
+
 	reqBody := openAIRequest{
 		Model:          model,
-		Input:          text,
+		Input:          input,
 		Voice:          voice,
 		ResponseFormat: format,
 		Speed:          speed,
+		Instructions:   instructions,
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -179,6 +203,29 @@ func (s *OpenAIService) Synthesize(
 	}
 
 	return resp.Body, nil
+}
+
+// lowerOpenAIMarkup translates characterization tags in the input text into
+// the OpenAI request shape. For gpt-4o-mini-tts (expressive), tags become
+// the `instructions` field and the spoken text is stripped. For tts-1 and
+// tts-1-hd, the tags are stripped from the spoken text and the directives
+// are dropped (with a debug log noting the lossy lowering). When no tags
+// are present, returns (text, "") so cache keys for plain-text utterances
+// stay byte-identical to the pre-markup wire format.
+func lowerOpenAIMarkup(text, model string) (input, instructions string) {
+	tags := markup.ParseTags(text)
+	if len(tags) == 0 {
+		return text, ""
+	}
+	if model == ModelGPT4oMiniTTS {
+		ins, stripped := markup.ExtractInstructions(text)
+		return stripped, ins
+	}
+	logger.Debug(
+		"openai tts: markup tags dropped on non-expressive model",
+		"model", model, "tag_count", len(tags),
+	)
+	return markup.StripTags(text), ""
 }
 
 // mapFormat converts AudioFormat to OpenAI format string.
