@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/tts/markup"
 )
 
 const (
@@ -110,8 +111,20 @@ type cartesiaRequest struct {
 }
 
 type cartesiaVoiceConfig struct {
-	Mode string `json:"mode"`
-	ID   string `json:"id,omitempty"`
+	Mode                 string                        `json:"mode"`
+	ID                   string                        `json:"id,omitempty"`
+	ExperimentalControls *cartesiaExperimentalControls `json:"__experimental_controls,omitempty"`
+}
+
+// cartesiaExperimentalControls carries Cartesia's experimental voice knobs.
+// Currently only `Emotion` is populated, derived from markup tags in the
+// input text. Other knobs (speed, etc.) live here when added.
+type cartesiaExperimentalControls struct {
+	// Emotion is Cartesia's emotion-array control. Each entry has the
+	// form "<name>:<level>" (e.g. "positivity:high"). Cartesia silently
+	// ignores unknown emotion names, so we map a conservative subset of
+	// our canonical tags and drop the rest.
+	Emotion []string `json:"emotion,omitempty"`
 }
 
 type cartesiaOutputFormat struct {
@@ -140,13 +153,22 @@ func (s *CartesiaService) Synthesize(
 		model = s.Model
 	}
 
+	// Lower markup tags into Cartesia's dialect: bracket directives are
+	// translated to entries in the experimental-controls `emotion` array,
+	// and stripped from the transcript so they are not spoken literally.
+	// Plain text (no tags) produces a request that's byte-identical to
+	// the pre-markup wire format, keeping the audio cache key stable.
+	transcript, emotions := lowerCartesiaMarkup(text)
+
+	voiceCfg := cartesiaVoiceConfig{Mode: "id", ID: voice}
+	if len(emotions) > 0 {
+		voiceCfg.ExperimentalControls = &cartesiaExperimentalControls{Emotion: emotions}
+	}
+
 	reqBody := cartesiaRequest{
-		ModelID:    model,
-		Transcript: text,
-		Voice: cartesiaVoiceConfig{
-			Mode: "id",
-			ID:   voice,
-		},
+		ModelID:      model,
+		Transcript:   transcript,
+		Voice:        voiceCfg,
 		OutputFormat: s.mapFormat(config.Format),
 		Language:     config.Language,
 	}
@@ -159,6 +181,59 @@ func (s *CartesiaService) Synthesize(
 	return postJSONForAudio(
 		ctx, s.Client, "cartesia", s.BaseURL+cartesiaRESTURL, reqBody, headers, s.handleError,
 	)
+}
+
+// lowerCartesiaMarkup translates characterization tags in text into the
+// Cartesia request shape: a stripped transcript and a slice of "emotion:level"
+// strings suitable for the experimental-controls emotion array. Returns the
+// raw text and a nil slice when no tags are present (cache key stable).
+//
+// The taxonomy mapping is conservative — Cartesia's emotion vocabulary is
+// narrow (positivity / sadness / anger / surprise / curiosity) so several
+// of our canonical tag names (whispers, pause, calm) have no analog and
+// are dropped. Cartesia silently ignores unrecognized emotion entries, so
+// the mapping degrades safely even if Cartesia's API changes.
+func lowerCartesiaMarkup(text string) (transcript string, emotions []string) {
+	tags := markup.ParseTags(text)
+	if len(tags) == 0 {
+		return text, nil
+	}
+	seen := make(map[string]struct{}, len(tags))
+	for _, t := range tags {
+		if t.IsClose() {
+			continue
+		}
+		e := cartesiaEmotionForTag(t)
+		if e == "" {
+			continue
+		}
+		if _, dup := seen[e]; dup {
+			continue
+		}
+		seen[e] = struct{}{}
+		emotions = append(emotions, e)
+	}
+	return markup.StripTags(text), emotions
+}
+
+// cartesiaEmotionForTag maps a canonical tag onto Cartesia's experimental
+// emotion vocabulary, or returns "" when there is no sensible analog (the
+// tag is then dropped). Levels follow Cartesia's "<emotion>:<level>" form
+// with levels lowest/low/medium/high/highest.
+func cartesiaEmotionForTag(t markup.Tag) string {
+	switch t.Name {
+	case "excited", "laughs", "laugh":
+		return "positivity:high"
+	case "smile", "smiles":
+		return "positivity:medium"
+	case "sad", "sighs", "sigh":
+		return "sadness:high"
+	case "shouts", "shout":
+		return "anger:high"
+	default:
+		// whispers/calm/pause and unknown names — no Cartesia analog.
+		return ""
+	}
 }
 
 // cartesiaWSResponse represents a WebSocket response from Cartesia.

@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/tts/markup"
 )
 
 func TestNewCartesia(t *testing.T) {
@@ -125,6 +127,102 @@ func TestCartesiaService_Synthesize_Success(t *testing.T) {
 
 	if string(data) != "mock audio data" {
 		t.Errorf("data = %v, want mock audio data", string(data))
+	}
+}
+
+func TestCartesiaService_Synthesize_LowersTagsToEmotion(t *testing.T) {
+	// Tags map to Cartesia's emotion array; transcript drops the brackets.
+	var got cartesiaRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	service := NewCartesia("k", base.WithBaseURL(server.URL))
+	reader, err := service.Synthesize(context.Background(),
+		"[excited]Surprise![smile]Hi.",
+		SynthesisConfig{Voice: "v"},
+	)
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	defer reader.Close()
+	_, _ = io.ReadAll(reader)
+
+	if got.Transcript != "Surprise!Hi." {
+		t.Errorf("Transcript = %q, want stripped %q", got.Transcript, "Surprise!Hi.")
+	}
+	if got.Voice.ExperimentalControls == nil {
+		t.Fatal("ExperimentalControls should be set when tags are present")
+	}
+	emo := got.Voice.ExperimentalControls.Emotion
+	if len(emo) != 2 {
+		t.Fatalf("emotion = %v, want 2 entries", emo)
+	}
+	if emo[0] != "positivity:high" || emo[1] != "positivity:medium" {
+		t.Errorf("emotion = %v, want [positivity:high positivity:medium]", emo)
+	}
+}
+
+func TestCartesiaService_Synthesize_PlainTextUnchanged(t *testing.T) {
+	// No tags ⇒ Transcript byte-identical, ExperimentalControls omitted.
+	var raw []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "audio/wav")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	service := NewCartesia("k", base.WithBaseURL(server.URL))
+	reader, err := service.Synthesize(context.Background(),
+		"Plain text without any tags.",
+		SynthesisConfig{Voice: "v"},
+	)
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	defer reader.Close()
+	_, _ = io.ReadAll(reader)
+
+	if strings.Contains(string(raw), `__experimental_controls`) {
+		t.Errorf("experimental_controls should be omitted for plain text; got %s", raw)
+	}
+}
+
+func TestCartesiaEmotionForTag(t *testing.T) {
+	cases := map[string]string{
+		"excited":  "positivity:high",
+		"laughs":   "positivity:high",
+		"smile":    "positivity:medium",
+		"smiles":   "positivity:medium",
+		"sad":      "sadness:high",
+		"sighs":    "sadness:high",
+		"shouts":   "anger:high",
+		"whispers": "", // no Cartesia analog
+		"calm":     "",
+		"pause":    "",
+		"mystery":  "", // unknown
+	}
+	for name, want := range cases {
+		got := cartesiaEmotionForTag(markup.Tag{Name: name})
+		if got != want {
+			t.Errorf("cartesiaEmotionForTag(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestLowerCartesiaMarkup_DedupesAndDropsCloseTags(t *testing.T) {
+	transcript, emotions := lowerCartesiaMarkup("[excited]a[excited]b[/]c")
+	if transcript != "abc" {
+		t.Errorf("transcript = %q, want %q", transcript, "abc")
+	}
+	if len(emotions) != 1 || emotions[0] != "positivity:high" {
+		t.Errorf("emotions = %v, want [positivity:high]", emotions)
 	}
 }
 
