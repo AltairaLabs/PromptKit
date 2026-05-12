@@ -13,16 +13,19 @@ import (
 // fragment/template system as PromptAssemblyStage.
 //
 // This stage mirrors the behavior of PromptAssemblyMiddleware but for personas:
-// - Uses persona's BuildSystemPrompt() which handles fragment assembly
-// - Supports template variable substitution with {{variable}} syntax
-// - Injects persona-specific variables (goals, constraints, style)
-// - Writes the rendered system prompt and base variables into TurnState
+//   - Uses persona's BuildSystemPrompt() which handles fragment assembly
+//   - Supports template variable substitution with {{variable}} syntax
+//   - Injects persona-specific variables (goals, constraints, style)
+//   - Optionally prepends a TTS characterization rubric when the persona
+//     has opted in via style.expressive (see issue #1130)
+//   - Writes the rendered system prompt and base variables into TurnState
 type PersonaAssemblyStage struct {
 	stage.BaseStage
-	persona       *config.UserPersonaPack
-	region        string
-	baseVariables map[string]string
-	turnState     *stage.TurnState
+	persona        *config.UserPersonaPack
+	region         string
+	baseVariables  map[string]string
+	turnState      *stage.TurnState
+	providerRubric string
 }
 
 // NewPersonaAssemblyStageWithTurnState creates a persona assembly stage that
@@ -42,6 +45,15 @@ func NewPersonaAssemblyStageWithTurnState(
 	}
 }
 
+// WithProviderRubric sets the TTS provider's characterization rubric. The
+// stage uses it as the default when the persona opts into expressive output
+// (style.expressive) and does not provide its own override. Empty string
+// disables the default and is the no-op path for non-expressive providers.
+func (s *PersonaAssemblyStage) WithProviderRubric(rubric string) *PersonaAssemblyStage {
+	s.providerRubric = rubric
+	return s
+}
+
 // Process assembles the persona prompt and writes it into TurnState. All input
 // elements are forwarded unchanged.
 //
@@ -49,11 +61,14 @@ func NewPersonaAssemblyStageWithTurnState(
 func (s *PersonaAssemblyStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
 	defer close(output)
 
-	// Use persona's BuildSystemPrompt which handles:
+	// Use persona's BuildSystemPromptWithRubric which handles:
 	// - Fragment assembly (if persona uses fragments)
 	// - Template variable substitution
 	// - Persona-specific variable injection (goals, constraints, style)
-	systemPrompt, err := s.persona.BuildSystemPrompt(s.region, s.baseVariables)
+	// - Optional TTS characterization rubric prefix (when style.expressive
+	//   is set on the persona; otherwise the rubric argument is ignored
+	//   and the result is byte-identical to BuildSystemPrompt)
+	systemPrompt, err := s.persona.BuildSystemPromptWithRubric(s.region, s.baseVariables, s.providerRubric)
 	if err != nil {
 		return fmt.Errorf("failed to assemble persona prompt: %w", err)
 	}

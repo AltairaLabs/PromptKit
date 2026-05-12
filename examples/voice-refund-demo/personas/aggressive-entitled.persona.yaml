@@ -36,3 +36,9 @@ spec:
       - hostile
       - entitled
       - persistent
+    # Opt this persona into TTS characterization markup. When the
+    # scenario's TTS provider supports it (gpt-4o-mini-tts, ElevenLabs v3,
+    # Cartesia), the runtime prepends a provider-tuned rubric to the
+    # system prompt so the LLM can emit "[shouts]", "[sighs]", etc.
+    # The TTS adapter then lowers those tags into its native dialect.
+    expressive: true

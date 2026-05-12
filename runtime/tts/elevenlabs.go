@@ -90,6 +90,17 @@ func (s *ElevenLabsService) ImplName() string { return "elevenlabs" }
 // ModelName returns the configured model name for cost tracking.
 func (s *ElevenLabsService) ModelName() string { return s.Model }
 
+// PersonaRubric implements [PersonaRubricProvider]. Returns the full markup
+// rubric on v3-class models (they consume bracket tags natively); older
+// models (v1, v2, turbo) speak the brackets literally, so we return the
+// empty string and the persona prompt is left untouched.
+func (s *ElevenLabsService) PersonaRubric() string {
+	if elevenLabsSupportsInlineTags(s.Model) {
+		return markup.RubricExpressiveFull
+	}
+	return ""
+}
+
 // elevenLabsRequest is the request body for ElevenLabs TTS API.
 type elevenLabsRequest struct {
 	Text          string                   `json:"text"`

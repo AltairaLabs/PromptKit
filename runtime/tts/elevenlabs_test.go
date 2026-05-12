@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/tts/markup"
 )
 
 func TestNewElevenLabs(t *testing.T) {
@@ -202,6 +203,28 @@ func TestElevenLabsService_Synthesize_PlainTextUnchanged(t *testing.T) {
 
 		if got.Text != "Plain text without any tags." {
 			t.Errorf("model=%s: Text should be unchanged, got %q", model, got.Text)
+		}
+	}
+}
+
+func TestElevenLabsService_PersonaRubric_PerModel(t *testing.T) {
+	cases := map[string]bool{
+		ElevenLabsModelV3:             true,
+		"eleven_v3_alpha":             true,
+		ElevenLabsModelMultilingual:   false,
+		ElevenLabsModelTurbo:          false,
+		ElevenLabsModelEnglish:        false,
+		ElevenLabsModelMultilingualV1: false,
+	}
+	for model, wantRubric := range cases {
+		s := NewElevenLabs("k", base.WithModel(model))
+		got := s.PersonaRubric()
+		if wantRubric {
+			if got != markup.RubricExpressiveFull {
+				t.Errorf("model=%s: expected RubricExpressiveFull, got len=%d", model, len(got))
+			}
+		} else if got != "" {
+			t.Errorf("model=%s: expected empty rubric, got %q", model, got)
 		}
 	}
 }

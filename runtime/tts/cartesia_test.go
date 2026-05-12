@@ -194,6 +194,17 @@ func TestCartesiaService_Synthesize_PlainTextUnchanged(t *testing.T) {
 	}
 }
 
+func TestCartesiaService_PersonaRubric_AlwaysEmotionOnly(t *testing.T) {
+	// Cartesia returns the narrow emotion-only rubric regardless of model
+	// (Cartesia's experimental controls work the same across model IDs).
+	for _, model := range []string{CartesiaModelSonic, "sonic-2", "sonic-future"} {
+		s := NewCartesia("k", base.WithModel(model))
+		if got := s.PersonaRubric(); got != markup.RubricEmotionOnly {
+			t.Errorf("model=%s: expected RubricEmotionOnly, got len=%d", model, len(got))
+		}
+	}
+}
+
 func TestCartesiaEmotionForTag(t *testing.T) {
 	cases := map[string]string{
 		"excited":  "positivity:high",

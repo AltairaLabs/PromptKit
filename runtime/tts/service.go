@@ -46,6 +46,19 @@ type StreamingService interface {
 	SynthesizeStream(ctx context.Context, text string, config SynthesisConfig) (<-chan audio.Chunk, error)
 }
 
+// PersonaRubricProvider is an optional extension interface that TTS adapters
+// implement to advertise the bracket-tag rubric an upstream persona / script
+// should splice into its system prompt. Implementations return the empty
+// string when the configured model cannot consume characterization markup —
+// callers MUST treat the empty string as "do not inject any rubric" so we
+// do not waste persona tokens on tags that would be silently dropped.
+//
+// See [github.com/AltairaLabs/PromptKit/runtime/tts/markup] for the canonical
+// rubric strings each adapter may return.
+type PersonaRubricProvider interface {
+	PersonaRubric() string
+}
+
 // SynthesisConfig configures text-to-speech synthesis.
 type SynthesisConfig struct {
 	// Voice is the voice ID to use for synthesis.

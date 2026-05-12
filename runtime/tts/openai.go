@@ -110,6 +110,18 @@ func (s *OpenAIService) ImplName() string { return "openai" }
 // ModelName returns the configured model name for cost tracking.
 func (s *OpenAIService) ModelName() string { return s.Model }
 
+// PersonaRubric implements [PersonaRubricProvider]. Returns the full
+// markup rubric on gpt-4o-mini-tts (the model honors arbitrary instructions
+// via the request's instructions field). Older models (tts-1, tts-1-hd) do
+// not understand the markup, so we return the empty string — emitting tags
+// would just waste persona tokens.
+func (s *OpenAIService) PersonaRubric() string {
+	if s.Model == ModelGPT4oMiniTTS {
+		return markup.RubricExpressiveFull
+	}
+	return ""
+}
+
 // openAIRequest is the request body for OpenAI TTS API.
 type openAIRequest struct {
 	Model          string  `json:"model"`

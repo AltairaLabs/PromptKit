@@ -20,8 +20,9 @@ const selfPlayUserRole = "self-play user"
 
 // ContentGenerator generates user messages using an LLM
 type ContentGenerator struct {
-	provider providers.Provider
-	persona  *config.UserPersonaPack
+	provider       providers.Provider
+	persona        *config.UserPersonaPack
+	providerRubric string
 }
 
 // NewContentGenerator creates a new content generator with a specific provider and persona
@@ -30,6 +31,16 @@ func NewContentGenerator(provider providers.Provider, persona *config.UserPerson
 		provider: provider,
 		persona:  persona,
 	}
+}
+
+// WithProviderRubric sets the TTS provider's characterization rubric that
+// will be prepended to the persona's system prompt when the persona has
+// opted in via style.expressive. Empty string disables the rubric (no-op
+// for personas that did not opt in, and the explicit "this provider does
+// not support characterization" signal otherwise). See issue #1130.
+func (cg *ContentGenerator) WithProviderRubric(rubric string) *ContentGenerator {
+	cg.providerRubric = rubric
+	return cg
 }
 
 // extractRegionFromPersonaID extracts the region suffix from a persona ID
@@ -196,7 +207,8 @@ func (cg *ContentGenerator) NextUserTurn(
 	}
 
 	stages := []stage.Stage{
-		arenastages.NewPersonaAssemblyStageWithTurnState(cg.persona, region, baseVariables, turnState),
+		arenastages.NewPersonaAssemblyStageWithTurnState(cg.persona, region, baseVariables, turnState).
+			WithProviderRubric(cg.providerRubric),
 	}
 
 	// Append natural termination instruction when enabled
