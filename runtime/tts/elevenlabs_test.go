@@ -119,6 +119,107 @@ func TestElevenLabsService_Synthesize_Success(t *testing.T) {
 	}
 }
 
+func TestElevenLabsService_Synthesize_V3PassesThroughTags(t *testing.T) {
+	// v3 model: the request Text should contain the bracket tags verbatim.
+	var got elevenLabsRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	service := NewElevenLabs("k", base.WithBaseURL(server.URL))
+	reader, err := service.Synthesize(context.Background(),
+		"[whispers]Come here[/]Did you hear that?",
+		SynthesisConfig{Voice: "v", Model: ElevenLabsModelV3},
+	)
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	defer reader.Close()
+	_, _ = io.ReadAll(reader)
+
+	want := "[whispers]Come here[/]Did you hear that?"
+	if got.Text != want {
+		t.Errorf("v3 should pass tags through verbatim; got Text = %q, want %q", got.Text, want)
+	}
+}
+
+func TestElevenLabsService_Synthesize_NonV3StripsTags(t *testing.T) {
+	// Non-v3 model: brackets get stripped so the model doesn't speak them.
+	var got elevenLabsRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	service := NewElevenLabs("k", base.WithBaseURL(server.URL))
+	reader, err := service.Synthesize(context.Background(),
+		"[excited]Surprise!",
+		SynthesisConfig{Voice: "v", Model: ElevenLabsModelMultilingual},
+	)
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	defer reader.Close()
+	_, _ = io.ReadAll(reader)
+
+	if got.Text != "Surprise!" {
+		t.Errorf("non-v3 should strip tags; got Text = %q, want %q", got.Text, "Surprise!")
+	}
+}
+
+func TestElevenLabsService_Synthesize_PlainTextUnchanged(t *testing.T) {
+	// No tags ⇒ Text is byte-identical regardless of model. Cache key stable.
+	for _, model := range []string{ElevenLabsModelV3, ElevenLabsModelMultilingual} {
+		var got elevenLabsRequest
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			w.Header().Set("Content-Type", "audio/mpeg")
+			_, _ = w.Write([]byte("audio"))
+		}))
+
+		service := NewElevenLabs("k", base.WithBaseURL(server.URL))
+		reader, err := service.Synthesize(context.Background(),
+			"Plain text without any tags.",
+			SynthesisConfig{Voice: "v", Model: model},
+		)
+		if err != nil {
+			t.Fatalf("Synthesize(%s): %v", model, err)
+		}
+		_, _ = io.ReadAll(reader)
+		reader.Close()
+		server.Close()
+
+		if got.Text != "Plain text without any tags." {
+			t.Errorf("model=%s: Text should be unchanged, got %q", model, got.Text)
+		}
+	}
+}
+
+func TestElevenLabsSupportsInlineTags(t *testing.T) {
+	for in, want := range map[string]bool{
+		"eleven_v3":              true,
+		"eleven_v3_alpha":        true,
+		"eleven_multilingual_v2": false,
+		"eleven_turbo_v2_5":      false,
+		"":                       false,
+	} {
+		if got := elevenLabsSupportsInlineTags(in); got != want {
+			t.Errorf("elevenLabsSupportsInlineTags(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 func TestElevenLabsService_Synthesize_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

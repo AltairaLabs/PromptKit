@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/tts/markup"
 )
 
 const (
@@ -21,6 +23,11 @@ const (
 	ElevenLabsModelEnglish = "eleven_monolingual_v1"
 	// ElevenLabsModelMultilingualV1 is the older multilingual v1 model.
 	ElevenLabsModelMultilingualV1 = "eleven_multilingual_v1"
+	// ElevenLabsModelV3 is the v3 expressive model that natively consumes
+	// inline characterization tags such as "[whispers]" / "[laughs]".
+	// Markup tags are passed through verbatim in the request body for
+	// any model whose ID starts with "eleven_v3".
+	ElevenLabsModelV3 = "eleven_v3"
 
 	// Default timeout for ElevenLabs requests.
 	defaultElevenLabsTimeout = 60 * time.Second
@@ -117,8 +124,14 @@ func (s *ElevenLabsService) Synthesize(
 		model = s.Model
 	}
 
+	// Lower markup tags into the model's dialect: v3 consumes inline
+	// "[whispers]" / "[laughs]" tags natively, so we pass the text
+	// through verbatim. Non-v3 models would speak the brackets literally,
+	// so strip them. Plain text (no tags) is byte-identical either way.
+	body := lowerElevenLabsMarkup(text, model)
+
 	reqBody := elevenLabsRequest{
-		Text:    text,
+		Text:    body,
 		ModelID: model,
 		VoiceSettings: &elevenLabsVoiceSettings{
 			Stability:       elevenLabsDefaultStability,
@@ -137,6 +150,26 @@ func (s *ElevenLabsService) Synthesize(
 		"Accept":       "audio/mpeg",
 	}
 	return postJSONForAudio(ctx, s.Client, "elevenlabs", endpoint, reqBody, headers, s.handleError)
+}
+
+// lowerElevenLabsMarkup returns the spoken-text body to send to ElevenLabs:
+// pass-through verbatim for v3-class models (they consume inline tags
+// natively), strip tags for older models so they don't literally speak
+// the brackets. No tags ⇒ identical wire output either way, so the
+// audio cache key for plain-text utterances stays stable.
+func lowerElevenLabsMarkup(text, model string) string {
+	if elevenLabsSupportsInlineTags(model) {
+		return text
+	}
+	return markup.StripTags(text)
+}
+
+// elevenLabsSupportsInlineTags reports whether the given model ID accepts
+// inline characterization tags in the request body. Currently true for
+// every model whose ID starts with "eleven_v3" (matches "eleven_v3",
+// "eleven_v3_alpha", etc.).
+func elevenLabsSupportsInlineTags(model string) bool {
+	return strings.HasPrefix(model, ElevenLabsModelV3)
 }
 
 // mapFormat converts AudioFormat to ElevenLabs format string.
