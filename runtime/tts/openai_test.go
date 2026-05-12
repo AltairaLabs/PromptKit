@@ -154,6 +154,101 @@ func TestOpenAIService_Synthesize_Error(t *testing.T) {
 	}
 }
 
+func TestOpenAIService_Synthesize_LowersMarkupToInstructions_GPT4oMiniTTS(t *testing.T) {
+	// Bracket tags on the expressive model should land in `instructions`,
+	// and the spoken text in `input` should be the stripped version.
+	var got openAIRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	service := NewOpenAI("k", base.WithBaseURL(server.URL))
+	reader, err := service.Synthesize(context.Background(),
+		"[whispers]Come here[/]Did you hear that?",
+		SynthesisConfig{Voice: VoiceAlloy, Model: ModelGPT4oMiniTTS},
+	)
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	defer reader.Close()
+	_, _ = io.ReadAll(reader)
+
+	if got.Input != "Come hereDid you hear that?" {
+		t.Errorf("Input = %q, want stripped spoken text", got.Input)
+	}
+	if got.Instructions != "whisper" {
+		t.Errorf("Instructions = %q, want %q", got.Instructions, "whisper")
+	}
+	if got.Model != ModelGPT4oMiniTTS {
+		t.Errorf("Model = %q, want %q", got.Model, ModelGPT4oMiniTTS)
+	}
+}
+
+func TestOpenAIService_Synthesize_StripsMarkup_TTS1(t *testing.T) {
+	// On tts-1, tags should still be stripped from `input` (so the model
+	// doesn't literally speak "[whispers]"), but `instructions` MUST be
+	// omitted because the model doesn't support it.
+	var got openAIRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	service := NewOpenAI("k", base.WithBaseURL(server.URL))
+	reader, err := service.Synthesize(context.Background(),
+		"[excited]Surprise!",
+		SynthesisConfig{Voice: VoiceAlloy, Model: ModelTTS1},
+	)
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	defer reader.Close()
+	_, _ = io.ReadAll(reader)
+
+	if got.Input != "Surprise!" {
+		t.Errorf("Input = %q, want stripped %q", got.Input, "Surprise!")
+	}
+	if got.Instructions != "" {
+		t.Errorf("Instructions should be empty on tts-1, got %q", got.Instructions)
+	}
+}
+
+func TestOpenAIService_Synthesize_PlainTextUnchanged(t *testing.T) {
+	// No tags ⇒ input is byte-identical to what callers passed in and
+	// `instructions` is omitted, so the JSON cache key is unchanged.
+	var raw []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	service := NewOpenAI("k", base.WithBaseURL(server.URL))
+	reader, err := service.Synthesize(context.Background(),
+		"Plain text without any tags.",
+		SynthesisConfig{Voice: VoiceAlloy, Model: ModelGPT4oMiniTTS},
+	)
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	defer reader.Close()
+	_, _ = io.ReadAll(reader)
+
+	if strings.Contains(string(raw), `"instructions"`) {
+		t.Errorf("instructions field should be omitted for plain text; got body %s", raw)
+	}
+}
+
 func TestOpenAIService_SupportedVoices(t *testing.T) {
 	service := NewOpenAI("test-key")
 	voices := service.SupportedVoices()
