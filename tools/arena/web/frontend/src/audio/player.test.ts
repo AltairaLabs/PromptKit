@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { base64ToInt16, int16ToFloat32 } from "./player";
+import {
+  base64ToInt16,
+  int16ToFloat32,
+  newPlaybackTimeline,
+  scheduleFrame,
+} from "./player";
 
 describe("base64ToInt16", () => {
   it("decodes empty string to empty Int16Array", () => {
@@ -45,5 +50,43 @@ describe("int16ToFloat32", () => {
     const b64 = btoa(String.fromCharCode(...bytes));
     const float = int16ToFloat32(base64ToInt16(b64));
     expect(float[0]).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe("scheduleFrame", () => {
+  it("schedules the first frame at now when timeline is empty", () => {
+    const r = scheduleFrame(newPlaybackTimeline(), "output", 0.5, 1.0);
+    expect(r.startAt).toBe(1.0);
+    expect(r.timeline.nextStart).toBe(1.5);
+  });
+
+  it("serializes back-to-back frames in the same direction", () => {
+    let t = newPlaybackTimeline();
+    let r = scheduleFrame(t, "output", 1.0, 0);
+    t = r.timeline;
+    r = scheduleFrame(t, "output", 0.5, 0.1);
+    expect(r.startAt).toBe(1.0); // not 0.1 — must follow first frame's tail
+    expect(r.timeline.nextStart).toBe(1.5);
+  });
+
+  // This is the demo overlap bug. With the old per-direction logic, a fresh
+  // input frame would start immediately even though output is still playing.
+  // The fix is to share one nextStart across directions so scripted turns
+  // serialize cleanly.
+  it("serializes frames regardless of direction (no left-right overlap)", () => {
+    let t = newPlaybackTimeline();
+    // 2s of agent output
+    let r = scheduleFrame(t, "output", 2.0, 0);
+    t = r.timeline;
+    // user input frame arrives at now=0.5 — must wait for output to finish
+    r = scheduleFrame(t, "input", 1.0, 0.5);
+    expect(r.startAt).toBe(2.0);
+    expect(r.timeline.nextStart).toBe(3.0);
+  });
+
+  it("falls back to now when the timeline has fallen into the past", () => {
+    const r = scheduleFrame({ nextStart: 1.0 }, "input", 0.5, 5.0);
+    expect(r.startAt).toBe(5.0);
+    expect(r.timeline.nextStart).toBe(5.5);
   });
 });
