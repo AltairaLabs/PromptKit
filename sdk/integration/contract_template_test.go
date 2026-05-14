@@ -51,10 +51,20 @@ func TestContract_TemplateStage(t *testing.T) {
 			_, err := conv.Send(context.Background(), "x")
 			require.NoError(t, err)
 
-			// EventBus is async; wait for the rendered event before snapshotting
-			// so we don't false-fail with count == 0 due to in-flight delivery.
-			require.True(t, p.WaitForCount("events.prompt.template.rendered", 1, 10*time.Second),
-				"timed out waiting for prompt.template.rendered to land")
+			// EventBus dispatches events through a 10-worker pool, so the
+			// `started` and `rendered` events the stage emits in order land
+			// at the listener in any order. Waiting only for `rendered`
+			// produced flakes where the snapshot saw rendered=1 but
+			// started=0 because the worker for `started` hadn't reached
+			// the increment yet. Wait for every event the contract demands
+			// before snapshotting.
+			for op, bound := range contract.PerSend {
+				if bound.Min <= 0 {
+					continue
+				}
+				require.Truef(t, p.WaitForCount(op, bound.Min, 10*time.Second),
+					"timed out waiting for %s to reach %d", op, bound.Min)
+			}
 
 			contract.AssertHolds(t, p.Snapshot())
 		})
