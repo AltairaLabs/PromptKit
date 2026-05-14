@@ -1,0 +1,76 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
+#
+# Anxious Delivery Scenario
+# Worried customer says a gift hasn't arrived; agent must look up the order,
+# see it was already delivered, and help the customer find it (escalate or
+# advise carrier follow-up). Pairs with ElevenLabs v3 to exercise the full
+# canonical markup taxonomy ([whispers] / [sighs] / [shouts] etc.) — a
+# wider emotional palette than the aggressive-refund / Cartesia pairing.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: anxious-delivery
+
+spec:
+  id: anxious-delivery
+  task_type: voice-assistant
+  description: "Anxious customer can't find a delivered parcel; agent must verify and help"
+
+  duplex:
+    timeout: "10m"
+    turn_detection:
+      mode: vad
+      vad:
+        silence_threshold_ms: 1200
+        min_speech_ms: 800
+    resilience:
+      max_retries: 2
+      retry_delay_ms: 2000
+      partial_success_min_turns: 3
+      ignore_last_turn_session_end: true
+
+  streaming: true
+
+  tool_policy:
+    tool_choice: auto
+    max_tool_calls_per_turn: 3
+    max_total_tool_calls: 10
+
+  turns:
+    - role: selfplay-user
+      persona: anxious-recipient
+      turns: 4
+      tts:
+        # ElevenLabs eleven_v3 unlocks inline characterization tags
+        # (RubricExpressiveFull) — the persona LLM can use [whispers],
+        # [sighs], [shouts], etc. Arnold (American, deep, professional)
+        # was picked via TestElevenLabsLive_ExpressiveTagsProbe: 1.5x
+        # whisper→shout dynamic range with a grounded delivery — none
+        # of the cartoon overshoot we got from Elli, none of the
+        # narrow-range monotone from Josh / Sam.
+        provider: elevenlabs
+        model: eleven_v3
+        voice: VR6AewLTigWG4xSOukaG
+        sample_rate: 24000
+      assertions:
+        - type: content_matches
+          params:
+            pattern: ".{20,}"
+            message: "Each agent reply should have substantive content"
+
+  conversation_assertions:
+    - type: tools_called
+      params:
+        tool_names:
+          - lookup_order
+        min_calls: 1
+      message: "Agent must look up the order to verify the delivery status"
+
+  context:
+    goal: "Anxious customer can't find a delivered parcel; agent reassures and verifies"
+    user_type: "anxious customer with a time-sensitive gift situation"
+    conversation_style: "emotional but not hostile"
+
+  context_metadata:
+    domain: "customer-support-delivery"

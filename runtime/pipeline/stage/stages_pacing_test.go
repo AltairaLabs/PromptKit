@@ -133,12 +133,15 @@ func TestAudioPacingStage_SecondChunkSleepsForFirstChunkDuration(t *testing.T) {
 	}
 }
 
-func TestAudioPacingStage_NonAudioElementsPassThroughAndResetClock(t *testing.T) {
+func TestAudioPacingStage_NonAudioElementsPassThroughWithoutResettingClock(t *testing.T) {
 	const sampleRate = 24000
 
-	// audio, then a non-audio element (which should reset the clock),
-	// then another audio chunk (which should NOT incur a sleep because
-	// the non-audio element broke the audio sequence).
+	// audio, then a non-audio element (transcript delta — must NOT
+	// reset the clock), then another audio chunk (which SHOULD incur a
+	// sleep because the audio sequence is still in progress). This
+	// guards against the bug where interleaved transcript chunks
+	// re-armed preroll mid-utterance and let downstream consumers
+	// accumulate seconds of buffered audio.
 	textCopy := "hello"
 	got, delays := runPacing(t, []StreamElement{
 		audioElem(2400, sampleRate),
@@ -148,8 +151,32 @@ func TestAudioPacingStage_NonAudioElementsPassThroughAndResetClock(t *testing.T)
 	if len(got) != 3 {
 		t.Fatalf("expected 3 forwarded elements, got %d", len(got))
 	}
+	if len(delays) != 1 {
+		t.Fatalf("expected one sleep (chunk 2 paced against chunk 1), got %v", delays)
+	}
+	want := 50 * time.Millisecond
+	if delays[0] != want {
+		t.Errorf("expected sleep of %v, got %v", want, delays[0])
+	}
+}
+
+// TestAudioPacingStage_EndOfStreamResetsClock verifies that the real
+// turn-boundary signal (EndOfStream) resets pacer state so the next
+// utterance starts fresh — preroll re-arms, and the first chunk of the
+// new sequence forwards without sleeping.
+func TestAudioPacingStage_EndOfStreamResetsClock(t *testing.T) {
+	const sampleRate = 24000
+
+	got, delays := runPacing(t, []StreamElement{
+		audioElem(2400, sampleRate), // primes the clock
+		{EndOfStream: true},         // turn boundary — resets pacer
+		audioElem(2400, sampleRate), // first chunk of new turn, no sleep
+	})
+	if len(got) != 3 {
+		t.Fatalf("expected 3 forwarded elements, got %d", len(got))
+	}
 	if len(delays) != 0 {
-		t.Errorf("non-audio reset should clear pacing clock, no sleep expected, got %v", delays)
+		t.Errorf("EndOfStream should reset clock, no sleep expected on next chunk, got %v", delays)
 	}
 }
 
@@ -289,20 +316,19 @@ func TestAudioPacingStage_PrerollChunksForwardImmediately(t *testing.T) {
 	}
 }
 
-// TestAudioPacingStage_NonAudioElementResetsPreroll verifies that a
-// non-audio element clears the preroll counter so the next utterance
-// gets fresh preroll headroom.
-func TestAudioPacingStage_NonAudioElementResetsPreroll(t *testing.T) {
+// TestAudioPacingStage_EndOfStreamResetsPreroll verifies that the
+// EndOfStream signal (the real turn boundary) clears the preroll
+// counter so the next utterance gets fresh preroll headroom.
+func TestAudioPacingStage_EndOfStreamResetsPreroll(t *testing.T) {
 	const sampleRate = 24000
 	const preroll = 2
 	clock := newFakeClock()
 
-	textCopy := "boundary"
 	in := []StreamElement{
 		audioElem(2400, sampleRate), // turn 1, preroll
 		audioElem(2400, sampleRate), // turn 1, preroll
 		audioElem(2400, sampleRate), // turn 1, paced (1 sleep)
-		{Text: &textCopy},           // resets preroll counter
+		{EndOfStream: true},         // turn boundary — resets pacer
 		audioElem(2400, sampleRate), // turn 2, preroll
 		audioElem(2400, sampleRate), // turn 2, preroll
 		audioElem(2400, sampleRate), // turn 2, paced (1 sleep)
@@ -313,6 +339,35 @@ func TestAudioPacingStage_NonAudioElementResetsPreroll(t *testing.T) {
 	}
 	if len(delays) != 2 {
 		t.Fatalf("expected 2 sleeps total (one per turn), got %v", delays)
+	}
+}
+
+// TestAudioPacingStage_InterleavedTextDoesNotRearmPreroll guards
+// against the OpenAI Realtime overlap regression: a transcript-text
+// chunk interleaved mid-utterance must not reset the preroll counter,
+// otherwise the next 3 audio chunks would forward immediately and the
+// downstream consumer (browser via SSE) accumulates seconds of buffered
+// audio that overlap with the next turn's user audio.
+func TestAudioPacingStage_InterleavedTextDoesNotRearmPreroll(t *testing.T) {
+	const sampleRate = 24000
+	const preroll = 2
+	clock := newFakeClock()
+
+	textCopy := "transcript delta"
+	in := []StreamElement{
+		audioElem(2400, sampleRate), // preroll
+		audioElem(2400, sampleRate), // preroll
+		audioElem(2400, sampleRate), // paced (1 sleep)
+		{Text: &textCopy},           // transcript delta — must NOT reset preroll
+		audioElem(2400, sampleRate), // paced (1 sleep), not a fresh preroll forward
+		audioElem(2400, sampleRate), // paced (1 sleep)
+	}
+	_, delays, err := runPacingWithPreroll(t, in, clock, preroll)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	if len(delays) != 3 {
+		t.Fatalf("expected 3 sleeps (preroll counts as 2, then 3 paced chunks), got %v", delays)
 	}
 }
 

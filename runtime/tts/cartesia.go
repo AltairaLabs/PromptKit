@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts/markup"
 )
@@ -29,6 +30,17 @@ const (
 
 	// cartesiaDefaultVoice is the default voice ID (Barbershop Man).
 	cartesiaDefaultVoice = "a0e99841-438c-4a64-b679-ae501e7d6091"
+
+	// tagShouts / tagShout are the markup tag names that map to anger +
+	// volume bump on Cartesia. Both spellings tolerated because the
+	// rubric documents "[shouts]" but the LLM occasionally emits the
+	// singular form.
+	tagShouts = "shouts"
+	tagShout  = "shout"
+
+	// logPreviewLen caps the transcript-preview string in our log lines
+	// so multi-sentence utterances don't flood the log.
+	logPreviewLen = 80
 
 	// streamChannelBuffer is the buffer size for streaming audio chunks.
 	streamChannelBuffer = 64
@@ -111,30 +123,35 @@ func (s *CartesiaService) PersonaRubric() string {
 
 // cartesiaRequest is the request body for Cartesia TTS API.
 type cartesiaRequest struct {
-	ModelID       string               `json:"model_id"`
-	Transcript    string               `json:"transcript"`
-	Voice         cartesiaVoiceConfig  `json:"voice"`
-	OutputFormat  cartesiaOutputFormat `json:"output_format"`
-	Language      string               `json:"language,omitempty"`
-	Duration      *float64             `json:"duration,omitempty"`
-	AddTimestamps bool                 `json:"add_timestamps,omitempty"`
+	ModelID          string                    `json:"model_id"`
+	Transcript       string                    `json:"transcript"`
+	Voice            cartesiaVoiceConfig       `json:"voice"`
+	OutputFormat     cartesiaOutputFormat      `json:"output_format"`
+	Language         string                    `json:"language,omitempty"`
+	Duration         *float64                  `json:"duration,omitempty"`
+	AddTimestamps    bool                      `json:"add_timestamps,omitempty"`
+	GenerationConfig *cartesiaGenerationConfig `json:"generation_config,omitempty"`
 }
 
 type cartesiaVoiceConfig struct {
-	Mode                 string                        `json:"mode"`
-	ID                   string                        `json:"id,omitempty"`
-	ExperimentalControls *cartesiaExperimentalControls `json:"__experimental_controls,omitempty"`
+	Mode string `json:"mode"`
+	ID   string `json:"id,omitempty"`
 }
 
-// cartesiaExperimentalControls carries Cartesia's experimental voice knobs.
-// Currently only `Emotion` is populated, derived from markup tags in the
-// input text. Other knobs (speed, etc.) live here when added.
-type cartesiaExperimentalControls struct {
-	// Emotion is Cartesia's emotion-array control. Each entry has the
-	// form "<name>:<level>" (e.g. "positivity:high"). Cartesia silently
-	// ignores unknown emotion names, so we map a conservative subset of
-	// our canonical tags and drop the rest.
-	Emotion []string `json:"emotion,omitempty"`
+// cartesiaGenerationConfig carries Cartesia's sonic-3 generation controls.
+// Replaces the legacy `voice.__experimental_controls` envelope, which
+// sonic-2+ models silently ignore. Documented at
+// https://docs.cartesia.ai/build-with-cartesia/sonic-3/volume-speed-emotion
+type cartesiaGenerationConfig struct {
+	// Emotion is a single canonical name (e.g. "angry", "sad", "excited").
+	// Sonic-3 accepts a fixed core set plus ~60 broader names; we only
+	// emit the conservative core mapping so the request is robust to
+	// silent server-side rejections of unknown names.
+	Emotion string `json:"emotion,omitempty"`
+	// Volume scales output gain in [0.5, 2.0]; 1.0 is neutral. Sonic-3
+	// honors volume; sonic-3.5 has it temporarily disabled. We bump
+	// volume for [shouts] to reinforce the anger envelope.
+	Volume float64 `json:"volume,omitempty"`
 }
 
 type cartesiaOutputFormat struct {
@@ -164,29 +181,39 @@ func (s *CartesiaService) Synthesize(
 	}
 
 	// Lower markup tags into Cartesia's dialect: bracket directives are
-	// translated to entries in the experimental-controls `emotion` array,
-	// and stripped from the transcript so they are not spoken literally.
-	// Plain text (no tags) produces a request that's byte-identical to
-	// the pre-markup wire format, keeping the audio cache key stable.
-	transcript, emotions := lowerCartesiaMarkup(text)
-
-	voiceCfg := cartesiaVoiceConfig{Mode: "id", ID: voice}
-	if len(emotions) > 0 {
-		voiceCfg.ExperimentalControls = &cartesiaExperimentalControls{Emotion: emotions}
+	// translated into the top-level `generation_config.emotion` field
+	// (sonic-3+ API; the legacy voice.__experimental_controls.emotion is
+	// silently ignored on current models) and stripped from the
+	// transcript so they are not spoken literally. Plain text (no tags)
+	// produces a request that omits generation_config, keeping the audio
+	// cache key stable.
+	transcript, genConfig := lowerCartesiaMarkup(text)
+	if genConfig != nil {
+		preview := transcript
+		if len(preview) > logPreviewLen {
+			preview = preview[:logPreviewLen] + "..."
+		}
+		logger.Info("cartesia: generation_config attached",
+			"model", model,
+			"voice", voice,
+			"emotion", genConfig.Emotion,
+			"volume", genConfig.Volume,
+			"transcript_preview", preview)
 	}
 
 	reqBody := cartesiaRequest{
-		ModelID:      model,
-		Transcript:   transcript,
-		Voice:        voiceCfg,
-		OutputFormat: s.mapFormat(config.Format),
-		Language:     config.Language,
+		ModelID:          model,
+		Transcript:       transcript,
+		Voice:            cartesiaVoiceConfig{Mode: "id", ID: voice},
+		OutputFormat:     s.mapFormat(config.Format),
+		Language:         config.Language,
+		GenerationConfig: genConfig,
 	}
 
 	headers := map[string]string{
 		"X-API-Key":        s.APIKey,
 		"Content-Type":     "application/json",
-		"Cartesia-Version": "2024-06-10",
+		"Cartesia-Version": "2026-03-01",
 	}
 	return postJSONForAudio(
 		ctx, s.Client, "cartesia", s.BaseURL+cartesiaRESTURL, reqBody, headers, s.handleError,
@@ -194,52 +221,58 @@ func (s *CartesiaService) Synthesize(
 }
 
 // lowerCartesiaMarkup translates characterization tags in text into the
-// Cartesia request shape: a stripped transcript and a slice of "emotion:level"
-// strings suitable for the experimental-controls emotion array. Returns the
-// raw text and a nil slice when no tags are present (cache key stable).
+// Cartesia request shape: a stripped transcript and an optional
+// *cartesiaGenerationConfig carrying the chosen emotion (single string)
+// and a volume bump for shout-style tags. Returns the raw text and a
+// nil config when no actionable tags are present, keeping the audio
+// cache key stable for plain text.
 //
-// The taxonomy mapping is conservative — Cartesia's emotion vocabulary is
-// narrow (positivity / sadness / anger / surprise / curiosity) so several
-// of our canonical tag names (whispers, pause, calm) have no analog and
-// are dropped. Cartesia silently ignores unrecognized emotion entries, so
-// the mapping degrades safely even if Cartesia's API changes.
-func lowerCartesiaMarkup(text string) (transcript string, emotions []string) {
+// Sonic-3 takes one emotion per utterance — if several tags appear, the
+// first actionable tag wins. Tags with no Cartesia analog (whispers /
+// calm / pause) drop out cleanly.
+func lowerCartesiaMarkup(text string) (transcript string, cfg *cartesiaGenerationConfig) {
 	tags := markup.ParseTags(text)
 	if len(tags) == 0 {
 		return text, nil
 	}
-	seen := make(map[string]struct{}, len(tags))
 	for _, t := range tags {
 		if t.IsClose() {
 			continue
 		}
-		e := cartesiaEmotionForTag(t)
-		if e == "" {
+		emotion := cartesiaEmotionForTag(t)
+		if emotion == "" {
 			continue
 		}
-		if _, dup := seen[e]; dup {
-			continue
+		cfg = &cartesiaGenerationConfig{Emotion: emotion}
+		// Shout-style tags push volume to the top of Cartesia's allowed
+		// range so the rage envelope is unambiguously audible on top of
+		// emotion=angry. Sub-2.0 values (we previously tried 1.6) read
+		// as polite annoyance on professional voices like Confident
+		// Man; 2.0 lands as actual shouting. Calibrated against the
+		// TestCartesiaShouts_ProbeVariants sweep.
+		if t.Name == tagShouts || t.Name == tagShout {
+			cfg.Volume = 2.0
 		}
-		seen[e] = struct{}{}
-		emotions = append(emotions, e)
+		break
 	}
-	return markup.StripTags(text), emotions
+	return markup.StripTags(text), cfg
 }
 
-// cartesiaEmotionForTag maps a canonical tag onto Cartesia's experimental
-// emotion vocabulary, or returns "" when there is no sensible analog (the
-// tag is then dropped). Levels follow Cartesia's "<emotion>:<level>" form
-// with levels lowest/low/medium/high/highest.
+// cartesiaEmotionForTag maps a canonical markup tag onto Cartesia's
+// sonic-3 emotion vocabulary, or returns "" when there is no sensible
+// analog (the tag is then dropped). Sonic-3 accepts a fixed core set
+// plus ~60 broader names; we map only the conservative core so the
+// request is robust to silent server-side rejection of unknown values.
 func cartesiaEmotionForTag(t markup.Tag) string {
 	switch t.Name {
 	case "excited", "laughs", "laugh":
-		return "positivity:high"
+		return "excited"
 	case "smile", "smiles":
-		return "positivity:medium"
+		return "content"
 	case "sad", "sighs", "sigh":
-		return "sadness:high"
-	case "shouts", "shout":
-		return "anger:high"
+		return "sad"
+	case tagShouts, tagShout:
+		return "angry"
 	default:
 		// whispers/calm/pause and unknown names — no Cartesia analog.
 		return ""

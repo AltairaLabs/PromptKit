@@ -63,6 +63,18 @@ func NewRegistryWithTTS(
 	return reg
 }
 
+// GetPersona returns the parsed persona pack for the given ID, or nil
+// if no persona by that ID is registered. Used by the duplex executor
+// to surface the persona definition on selfplay user messages so the
+// arena UI can show "what drove this turn?" alongside the generated
+// text.
+func (r *Registry) GetPersona(personaID string) *config.UserPersonaPack {
+	if personaID == "" {
+		return nil
+	}
+	return r.personas[personaID]
+}
+
 // GetContentGenerator implements Provider interface
 // Returns a Generator for the given role and persona (cached for efficiency).
 // Uses double-check locking to prevent duplicate creation under concurrency.
