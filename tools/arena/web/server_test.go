@@ -48,6 +48,8 @@ func (m *mockEngine) ListScenarios() []engine.ScenarioInfo {
 	return m.scenarios
 }
 
+func (m *mockEngine) RegisterRunCompletedHook(_ engine.RunCompletedHook) {}
+
 func TestSSEEndpoint(t *testing.T) {
 	adapter := NewEventAdapter()
 	srv := NewServer(adapter, nil, nil, "") // no engine or statestore needed for SSE test
@@ -266,12 +268,15 @@ func TestStartRunSuccess(t *testing.T) {
 }
 
 // persistingMockEngine returns a fixed runID from ExecuteRuns and seeds the
-// state store with matching metadata, so the server's persistence step has
-// something concrete to write to disk.
+// state store with matching metadata. The RunCompletedHook is invoked
+// after metadata is saved so the server's per-run persistence path can
+// observe the same end state the real engine produces.
 type persistingMockEngine struct {
-	plan  *engine.RunPlan
-	store *statestore.ArenaStateStore
-	runID string
+	plan      *engine.RunPlan
+	store     *statestore.ArenaStateStore
+	runID     string
+	hooks     []engine.RunCompletedHook
+	preReturn func() // optional: invoked just before ExecuteRuns returns
 }
 
 func (m *persistingMockEngine) GenerateRunPlan(_, _, _, _ []string) (*engine.RunPlan, error) {
@@ -284,12 +289,21 @@ func (m *persistingMockEngine) ExecuteRuns(ctx context.Context, _ *engine.RunPla
 		ScenarioID: "greeting",
 		ProviderID: "openai",
 	})
+	for _, h := range m.hooks {
+		h(m.runID, nil)
+	}
+	if m.preReturn != nil {
+		m.preReturn()
+	}
 	return []string{m.runID}, nil
 }
 
 func (m *persistingMockEngine) GetConfig() *config.Config            { return nil }
 func (m *persistingMockEngine) ListProviders() []engine.ProviderInfo { return nil }
 func (m *persistingMockEngine) ListScenarios() []engine.ScenarioInfo { return nil }
+func (m *persistingMockEngine) RegisterRunCompletedHook(h engine.RunCompletedHook) {
+	m.hooks = append(m.hooks, h)
+}
 
 // TestStartRun_PersistsResultsToDisk locks in the invariant that runs started
 // via POST /api/run are written to <outputDir>/<runID>.json. Without this,
@@ -345,6 +359,55 @@ func TestStartRun_PersistsResultsToDisk(t *testing.T) {
 	}
 	if got.ScenarioID != "greeting" {
 		t.Errorf("ScenarioID = %q, want %q", got.ScenarioID, "greeting")
+	}
+}
+
+// TestStartRun_PersistsEachRunBeforeExecuteRunsReturns locks in the
+// per-run persistence invariant: the JSON for a completed run must be on
+// disk by the time ExecuteRuns is finishing, not buffered until after.
+// Without this, killing the server mid-batch strands completed runs in
+// the in-memory state store with no on-disk record.
+func TestStartRun_PersistsEachRunBeforeExecuteRunsReturns(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := statestore.NewArenaStateStore()
+	runID := "run-per-hook-1"
+
+	expected := filepath.Join(tmpDir, runID+".json")
+	var sawOnDiskBeforeReturn bool
+
+	mock := &persistingMockEngine{
+		plan: &engine.RunPlan{
+			Combinations: []engine.RunCombination{{ScenarioID: "greeting", ProviderID: "openai"}},
+		},
+		store: store,
+		runID: runID,
+		preReturn: func() {
+			if _, err := os.Stat(expected); err == nil {
+				sawOnDiskBeforeReturn = true
+			}
+		},
+	}
+
+	adapter := NewEventAdapter()
+	srv := newServerWithRunner(adapter, mock, store, tmpDir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/run", "application/json", strings.NewReader("{}")) //nolint:noctx
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	resp.Body.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, statErr := os.Stat(expected); statErr == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sawOnDiskBeforeReturn {
+		t.Errorf("expected %s to exist before ExecuteRuns returned, but it didn't", expected)
 	}
 }
 
