@@ -39,13 +39,12 @@ spec:
       persona: impersonator
       turns: 4
       tts:
-        # Default OpenAI TTS (tts-1) has sub-second TTFB, so synthesis fits
-        # inside the 30s HTTP client timeout. gpt-4o-mini-tts unlocks
-        # expressive characterization but has 12-26s TTFB and blows the
-        # timeout on long self-play responses — not viable for the live
-        # demo path.
-        provider: openai
-        voice: shimmer
+        # Cartesia: sub-second TTFB (won't blow the 30s HTTP timeout) AND the
+        # markup parser ports the impersonator persona's contrast tags into
+        # Cartesia's emotion-array characterization. Voice: Friendly Woman
+        # (documented in runtime/tts/cartesia.go).
+        provider: cartesia
+        voice: 9121c0ae-12a6-4012-8158-6e4a72e6da91
         sample_rate: 24000
       assertions:
         - type: content_matches
