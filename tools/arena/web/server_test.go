@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -262,6 +263,127 @@ func TestStartRunSuccess(t *testing.T) {
 	if body["status"] != "started" {
 		t.Errorf("status = %v, want started", body["status"])
 	}
+}
+
+// persistingMockEngine returns a fixed runID from ExecuteRuns and seeds the
+// state store with matching metadata, so the server's persistence step has
+// something concrete to write to disk.
+type persistingMockEngine struct {
+	plan  *engine.RunPlan
+	store *statestore.ArenaStateStore
+	runID string
+}
+
+func (m *persistingMockEngine) GenerateRunPlan(_, _, _, _ []string) (*engine.RunPlan, error) {
+	return m.plan, nil
+}
+
+func (m *persistingMockEngine) ExecuteRuns(ctx context.Context, _ *engine.RunPlan, _ int) ([]string, error) {
+	_ = m.store.SaveMetadata(ctx, m.runID, &statestore.RunMetadata{
+		RunID:      m.runID,
+		ScenarioID: "greeting",
+		ProviderID: "openai",
+	})
+	return []string{m.runID}, nil
+}
+
+func (m *persistingMockEngine) GetConfig() *config.Config            { return nil }
+func (m *persistingMockEngine) ListProviders() []engine.ProviderInfo { return nil }
+func (m *persistingMockEngine) ListScenarios() []engine.ScenarioInfo { return nil }
+
+// TestStartRun_PersistsResultsToDisk locks in the invariant that runs started
+// via POST /api/run are written to <outputDir>/<runID>.json. Without this,
+// recorded playback breaks after a server restart — the state store is
+// in-memory and the file loader only sees runs that were saved to disk.
+func TestStartRun_PersistsResultsToDisk(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := statestore.NewArenaStateStore()
+	runID := "run-persist-1"
+
+	mock := &persistingMockEngine{
+		plan: &engine.RunPlan{
+			Combinations: []engine.RunCombination{{ScenarioID: "greeting", ProviderID: "openai"}},
+		},
+		store: store,
+		runID: runID,
+	}
+
+	adapter := NewEventAdapter()
+	srv := newServerWithRunner(adapter, mock, store, tmpDir)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/run", "application/json", strings.NewReader("{}")) //nolint:noctx
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusAccepted)
+	}
+
+	expected := filepath.Join(tmpDir, runID+".json")
+	deadline := time.Now().Add(2 * time.Second)
+	var data []byte
+	for time.Now().Before(deadline) {
+		if b, statErr := os.ReadFile(expected); statErr == nil {
+			data = b
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if data == nil {
+		t.Fatalf("expected %s to be written, but it was not", expected)
+	}
+
+	var got engine.RunResult
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal persisted JSON: %v", err)
+	}
+	if got.RunID != runID {
+		t.Errorf("RunID = %q, want %q", got.RunID, runID)
+	}
+	if got.ScenarioID != "greeting" {
+		t.Errorf("ScenarioID = %q, want %q", got.ScenarioID, "greeting")
+	}
+}
+
+// TestPersistRunResults_NoOpBranches exercises the bail-out branches of
+// persistRunResults so a missing store or unset outputDir can't surprise
+// us by panicking — they should silently skip work.
+func TestPersistRunResults_NoOpBranches(t *testing.T) {
+	ctx := context.Background()
+	t.Run("nil store skips", func(t *testing.T) {
+		srv := &Server{outputDir: t.TempDir()}
+		srv.persistRunResults(ctx, []string{"run-a"})
+	})
+	t.Run("empty outputDir skips", func(t *testing.T) {
+		srv := &Server{stateStore: statestore.NewArenaStateStore()}
+		srv.persistRunResults(ctx, []string{"run-a"})
+	})
+	t.Run("empty runIDs skips", func(t *testing.T) {
+		srv := &Server{stateStore: statestore.NewArenaStateStore(), outputDir: t.TempDir()}
+		srv.persistRunResults(ctx, nil)
+	})
+	t.Run("empty runID entry is skipped", func(t *testing.T) {
+		dir := t.TempDir()
+		srv := &Server{stateStore: statestore.NewArenaStateStore(), outputDir: dir}
+		srv.persistRunResults(ctx, []string{""})
+		// No file should have been written for an empty ID.
+		entries, _ := os.ReadDir(dir)
+		if len(entries) != 0 {
+			t.Errorf("expected empty dir, got %d entries", len(entries))
+		}
+	})
+	t.Run("missing run in store is skipped", func(t *testing.T) {
+		dir := t.TempDir()
+		srv := &Server{stateStore: statestore.NewArenaStateStore(), outputDir: dir}
+		srv.persistRunResults(ctx, []string{"never-seeded"})
+		entries, _ := os.ReadDir(dir)
+		if len(entries) != 0 {
+			t.Errorf("expected empty dir, got %d entries", len(entries))
+		}
+	})
 }
 
 func TestGetConfigWithEngine(t *testing.T) {

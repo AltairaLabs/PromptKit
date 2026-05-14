@@ -30,6 +30,11 @@ const defaultRunTimeout = 30 * time.Minute
 // defaultConcurrency is the number of concurrent runs for background execution.
 const defaultConcurrency = 4
 
+const (
+	resultsDirPerm  os.FileMode = 0o750
+	resultsFilePerm os.FileMode = 0o600
+)
+
 // engineRunner is the subset of engine.Engine used by the web server.
 // Defined as an interface to enable testing without a full engine.
 type engineRunner interface {
@@ -210,13 +215,40 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), defaultRunTimeout)
 		defer cancel()
-		_, _ = s.engine.ExecuteRuns(ctx, plan, defaultConcurrency)
+		runIDs, _ := s.engine.ExecuteRuns(ctx, plan, defaultConcurrency)
+		s.persistRunResults(ctx, runIDs)
 	}()
 
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{
 		"combinations": len(plan.Combinations),
 		"status":       "started",
 	})
+}
+
+// persistRunResults writes each completed run as <runID>.json under
+// outputDir, matching the format JSONResultRepository.SaveResult produces
+// so LoadResultsIntoStore can hydrate them on the next server boot.
+func (s *Server) persistRunResults(ctx context.Context, runIDs []string) {
+	if s.stateStore == nil || s.outputDir == "" || len(runIDs) == 0 {
+		return
+	}
+	if err := os.MkdirAll(s.outputDir, resultsDirPerm); err != nil {
+		return
+	}
+	for _, runID := range runIDs {
+		if runID == "" {
+			continue
+		}
+		result, err := s.stateStore.GetResult(ctx, runID)
+		if err != nil || result == nil {
+			continue
+		}
+		data, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			continue
+		}
+		_ = os.WriteFile(filepath.Join(s.outputDir, runID+".json"), data, resultsFilePerm)
+	}
 }
 
 // handleGetConfig returns the loaded arena config.
