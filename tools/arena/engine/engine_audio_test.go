@@ -168,6 +168,32 @@ func TestRegisterAudioMonitorHook_NilHookIgnored(t *testing.T) {
 	eng.fireAudioMonitorHooks("r", router, arenaaudio.Rate24k)
 }
 
+// TestRegisterRunCompletedHook_FiresInRegistrationOrder verifies hooks are
+// invoked in the order they were registered, with the runID and error
+// passed through unmodified. Nil hooks are dropped at registration.
+func TestRegisterRunCompletedHook_FiresInRegistrationOrder(t *testing.T) {
+	eng := &Engine{}
+	var calls []string
+	eng.RegisterRunCompletedHook(func(id string, err error) {
+		calls = append(calls, "first:"+id)
+	})
+	eng.RegisterRunCompletedHook(nil) // dropped
+	eng.RegisterRunCompletedHook(func(id string, err error) {
+		calls = append(calls, "second:"+id)
+	})
+	eng.fireRunCompletedHooks("run-abc", nil)
+	if len(calls) != 2 || calls[0] != "first:run-abc" || calls[1] != "second:run-abc" {
+		t.Fatalf("expected [first:run-abc second:run-abc], got %v", calls)
+	}
+}
+
+// TestRegisterRunCompletedHook_NoHooksNoOp verifies firing with zero hooks
+// is a safe no-op.
+func TestRegisterRunCompletedHook_NoHooksNoOp(t *testing.T) {
+	eng := &Engine{}
+	eng.fireRunCompletedHooks("r", nil) // should not panic
+}
+
 // TestRegisterAudioMonitorHook_NoHooksNoOp verifies firing with zero hooks
 // is a safe no-op.
 func TestRegisterAudioMonitorHook_NoHooksNoOp(t *testing.T) {

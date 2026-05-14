@@ -92,6 +92,8 @@ type Engine struct {
 	audioMonitorOpts     *arenaaudio.Options          // Optional — enables audio monitoring on duplex runs
 	audioMonitorHooks    []AudioMonitorHook           // Subscribers fired when a per-run AudioRouter is built
 	audioMonitorMu       sync.RWMutex                 // Guards audioMonitorHooks
+	runCompletedHooks    []RunCompletedHook           // Subscribers fired when each run finishes
+	runCompletedMu       sync.RWMutex                 // Guards runCompletedHooks
 	// mcpSourceScope manages source-backed MCP entries at run/scenario/session scopes.
 	mcpSourceScope  *mcpSourceScope
 	mcpConfig       []config.MCPServerConfig   // Source-backed MCP entries, re-read at each scope boundary
@@ -135,6 +137,39 @@ func (e *Engine) fireAudioMonitorHooks(runID string, router *arenaaudio.AudioRou
 	e.audioMonitorMu.RUnlock()
 	for _, h := range hooks {
 		h(runID, router, rate)
+	}
+}
+
+// RunCompletedHook fires after each individual run finishes (success or
+// failure). Used by the web server to persist completed runs to disk as
+// soon as they're done, so killing the server mid-batch doesn't strand
+// completed runs in the in-memory state store with no on-disk record.
+//
+// runID is the identifier of the run that just completed. err is the
+// run's error, or nil on success. Hooks should not retain runID across
+// calls — the next run uses a fresh ID.
+type RunCompletedHook func(runID string, err error)
+
+// RegisterRunCompletedHook registers a callback fired after each run
+// in ExecuteRuns completes. Multiple hooks are supported and fire in
+// registration order. Nil hooks are ignored. Hook panics propagate to
+// the worker goroutine; treat hook bodies as application code.
+func (e *Engine) RegisterRunCompletedHook(hook RunCompletedHook) {
+	if hook == nil {
+		return
+	}
+	e.runCompletedMu.Lock()
+	e.runCompletedHooks = append(e.runCompletedHooks, hook)
+	e.runCompletedMu.Unlock()
+}
+
+func (e *Engine) fireRunCompletedHooks(runID string, err error) {
+	e.runCompletedMu.RLock()
+	hooks := make([]RunCompletedHook, len(e.runCompletedHooks))
+	copy(hooks, e.runCompletedHooks)
+	e.runCompletedMu.RUnlock()
+	for _, h := range hooks {
+		h(runID, err)
 	}
 }
 
@@ -702,6 +737,10 @@ func (e *Engine) ExecuteRuns(ctx context.Context, plan *RunPlan, concurrency int
 				runIDs[item.idx] = runID
 				errors[item.idx] = err
 				mu.Unlock()
+
+				if runID != "" {
+					e.fireRunCompletedHooks(runID, err)
+				}
 			}
 		}()
 	}

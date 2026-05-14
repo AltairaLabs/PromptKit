@@ -43,6 +43,7 @@ type engineRunner interface {
 	GetConfig() *config.Config
 	ListProviders() []engine.ProviderInfo
 	ListScenarios() []engine.ScenarioInfo
+	RegisterRunCompletedHook(hook engine.RunCompletedHook)
 }
 
 // Server is the Arena web UI HTTP server.
@@ -85,6 +86,11 @@ func newServerWithRunner(
 		stateStore: store,
 		outputDir:  outputDir,
 		mux:        http.NewServeMux(),
+	}
+	if runner != nil && store != nil && outputDir != "" {
+		runner.RegisterRunCompletedHook(func(runID string, _ error) {
+			s.persistOneRun(context.Background(), runID)
+		})
 	}
 	s.mux.HandleFunc("GET /api/events", s.handleSSE)
 	s.mux.HandleFunc("GET /api/config", s.handleGetConfig)
@@ -228,27 +234,34 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 // persistRunResults writes each completed run as <runID>.json under
 // outputDir, matching the format JSONResultRepository.SaveResult produces
 // so LoadResultsIntoStore can hydrate them on the next server boot.
+// Used as a fallback after ExecuteRuns returns; the per-run RunCompletedHook
+// path is the primary persistence trigger so killing the server mid-batch
+// doesn't strand finished runs.
 func (s *Server) persistRunResults(ctx context.Context, runIDs []string) {
-	if s.stateStore == nil || s.outputDir == "" || len(runIDs) == 0 {
+	for _, runID := range runIDs {
+		s.persistOneRun(ctx, runID)
+	}
+}
+
+// persistOneRun writes a single run's JSON to outputDir. Called from the
+// engine's RunCompletedHook so each finished run lands on disk
+// immediately, not at the end of the batch.
+func (s *Server) persistOneRun(ctx context.Context, runID string) {
+	if s.stateStore == nil || s.outputDir == "" || runID == "" {
 		return
 	}
 	if err := os.MkdirAll(s.outputDir, resultsDirPerm); err != nil {
 		return
 	}
-	for _, runID := range runIDs {
-		if runID == "" {
-			continue
-		}
-		result, err := s.stateStore.GetResult(ctx, runID)
-		if err != nil || result == nil {
-			continue
-		}
-		data, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			continue
-		}
-		_ = os.WriteFile(filepath.Join(s.outputDir, runID+".json"), data, resultsFilePerm)
+	result, err := s.stateStore.GetResult(ctx, runID)
+	if err != nil || result == nil {
+		return
 	}
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(s.outputDir, runID+".json"), data, resultsFilePerm)
 }
 
 // handleGetConfig returns the loaded arena config.
