@@ -16,11 +16,45 @@ interface AudioFrame {
   samples: string; // base64 s16le
 }
 
+export type Direction = "input" | "output";
+
+// PlaybackTimeline holds a single shared "next start" instant across both
+// directions. Scripted self-play demos rely on this — without it the user
+// (left) and agent (right) timelines drift independently and consecutive
+// turns audibly overlap on the demo.
+export interface PlaybackTimeline {
+  nextStart: number;
+}
+
+export const newPlaybackTimeline = (): PlaybackTimeline => ({ nextStart: 0 });
+
+export interface FrameSchedule {
+  startAt: number;
+  timeline: PlaybackTimeline;
+}
+
+// scheduleFrame returns the AudioContext start time for a new frame and an
+// updated timeline. The same `nextStart` is used for both directions so a
+// user-side frame waits for an in-flight agent tail to finish instead of
+// stepping on it.
+export function scheduleFrame(
+  timeline: PlaybackTimeline,
+  _direction: Direction,
+  durationSec: number,
+  now: number,
+): FrameSchedule {
+  const startAt = Math.max(now, timeline.nextStart);
+  return {
+    startAt,
+    timeline: { nextStart: startAt + durationSec },
+  };
+}
+
 export class AudioPlayer {
   private readonly ctx: AudioContext;
   private readonly leftPanner: StereoPannerNode;
   private readonly rightPanner: StereoPannerNode;
-  private nextStartTime: Record<"input" | "output", number> = { input: 0, output: 0 };
+  private timeline: PlaybackTimeline = newPlaybackTimeline();
   private source: EventSource | null = null;
   private readonly opts: AudioPlayerOptions;
 
@@ -43,8 +77,8 @@ export class AudioPlayer {
    * user has clicked anything; frames arrive but stay silent until play(). */
   connect(eventsUrl: string): void {
     if (this.source) return;
-    // Reset scheduling clocks each session.
-    this.nextStartTime = { input: 0, output: 0 };
+    // Reset scheduling clock each session.
+    this.timeline = newPlaybackTimeline();
     const url = `${eventsUrl}?audio=1`;
     this.source = new EventSource(url);
     this.source.addEventListener("audio", (ev) => this.onAudio(ev));
@@ -101,10 +135,14 @@ export class AudioPlayer {
       const panner = frame.direction === "input" ? this.leftPanner : this.rightPanner;
       node.connect(panner);
 
-      const now = this.ctx.currentTime;
-      const startAt = Math.max(now, this.nextStartTime[frame.direction]);
+      const { startAt, timeline } = scheduleFrame(
+        this.timeline,
+        frame.direction,
+        buffer.duration,
+        this.ctx.currentTime,
+      );
       node.start(startAt);
-      this.nextStartTime[frame.direction] = startAt + buffer.duration;
+      this.timeline = timeline;
     } catch (err) {
       this.opts.onError?.(`audio decode error: ${err}`);
     }
