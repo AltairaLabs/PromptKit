@@ -39,12 +39,12 @@ spec:
       persona: aggressive-entitled
       turns: 4
       tts:
-        # gpt-4o-mini-tts unlocks the persona characterization rubric so the
-        # aggressive-entitled persona's "[shouts]" / "[sighs]" markup gets
-        # passed through as expressive `instructions`. tts-1 would strip
-        # tags and ignore directives.
+        # Default OpenAI TTS (tts-1) has sub-second TTFB, so synthesis fits
+        # inside the 30s HTTP client timeout. gpt-4o-mini-tts unlocks
+        # `[shouts]`/`[sighs]` characterization but has 12-26s TTFB and
+        # blows the timeout on long self-play responses — not viable for
+        # the live demo path.
         provider: openai
-        model: gpt-4o-mini-tts
         voice: onyx
         sample_rate: 24000
       assertions:

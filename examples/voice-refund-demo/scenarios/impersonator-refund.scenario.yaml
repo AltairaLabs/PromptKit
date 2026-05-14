@@ -39,11 +39,12 @@ spec:
       persona: impersonator
       turns: 4
       tts:
-        # gpt-4o-mini-tts unlocks expressive output for personas with
-        # style.expressive: true. The impersonator switches between
-        # sympathetic and threatening; markup tags carry that contrast.
+        # Default OpenAI TTS (tts-1) has sub-second TTFB, so synthesis fits
+        # inside the 30s HTTP client timeout. gpt-4o-mini-tts unlocks
+        # expressive characterization but has 12-26s TTFB and blows the
+        # timeout on long self-play responses — not viable for the live
+        # demo path.
         provider: openai
-        model: gpt-4o-mini-tts
         voice: shimmer
         sample_rate: 24000
       assertions:
