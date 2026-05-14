@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -427,12 +428,12 @@ func (m *MockStreamSession) emitAutoResponse() {
 // emitTurnResponse emits the response for the given turn. When a repository
 // and scenarioID are configured, the per-turn Turn record is consulted: any
 // configured audio fixture is emitted as MediaData chunks first, followed by
-// the text Content + FinishReason chunk. Without a repository it falls back
-// to the static responseText behavior.
+// the text Content + ToolCalls + FinishReason chunk. Without a repository it
+// falls back to the static responseText behavior.
 //
 // Must be called with m.mu held.
 func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
-	text, audioFixture := m.resolveTurn(turnNumber)
+	text, audioFixture, toolCalls := m.resolveTurn(turnNumber)
 
 	// Emit audio chunks first (if any) so consumers see them as part of the
 	// response stream — providers like Gemini interleave audio + transcript,
@@ -443,9 +444,13 @@ func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
 	}
 
 	finishReason := "stop"
+	if len(toolCalls) > 0 {
+		finishReason = turnTypeToolCalls
+	}
 	chunk := providers.StreamChunk{
 		Content:      text,
 		Delta:        text,
+		ToolCalls:    toolCalls,
 		FinishReason: &finishReason,
 	}
 	select {
@@ -456,12 +461,39 @@ func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
 	}
 }
 
-// resolveTurn looks up the text + audio fixture for the given turn. If a
-// repository is configured it queries the repo for the turn; otherwise it
-// returns the static responseText with no audio.
-func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixture) {
+// convertMockToolCalls maps the YAML Turn.ToolCalls list onto runtime
+// MessageToolCall values, marshaling each argument map into a JSON
+// RawMessage. Mirrors the conversion in mock_tool_provider_interactive.go's
+// PredictWithTools so duplex and non-duplex mock paths produce structurally
+// identical tool-call shapes.
+func convertMockToolCalls(turnToolCalls []ToolCall) []types.MessageToolCall {
+	if len(turnToolCalls) == 0 {
+		return nil
+	}
+	out := make([]types.MessageToolCall, 0, len(turnToolCalls))
+	for i, tc := range turnToolCalls {
+		argsBytes, err := json.Marshal(tc.Arguments)
+		if err != nil {
+			logger.Warn("MockStreamSession: failed to marshal tool call args; dropping",
+				"tool", tc.Name, "error", err)
+			continue
+		}
+		out = append(out, types.MessageToolCall{
+			ID:   fmt.Sprintf("call_%d_%s", i, tc.Name),
+			Name: tc.Name,
+			Args: json.RawMessage(argsBytes),
+		})
+	}
+	return out
+}
+
+// resolveTurn looks up the text + audio fixture + tool calls for the given
+// turn. If a repository is configured it queries the repo for the turn;
+// otherwise it returns the static responseText with no audio and no tool
+// calls.
+func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixture, []types.MessageToolCall) {
 	if m.repo == nil || m.scenarioID == "" {
-		return m.responseText, nil
+		return m.responseText, nil, nil
 	}
 
 	turn, err := m.repo.GetTurn(context.Background(), ResponseParams{
@@ -475,7 +507,7 @@ func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixtu
 				"turn", turnNumber,
 				"error", err)
 		}
-		return m.responseText, nil
+		return m.responseText, nil, nil
 	}
 
 	text := turn.Content
@@ -483,8 +515,10 @@ func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixtu
 		text = m.responseText
 	}
 
+	toolCalls := convertMockToolCalls(turn.ToolCalls)
+
 	if turn.AudioFile == "" {
-		return text, nil
+		return text, nil, toolCalls
 	}
 
 	fixture, loadErr := m.loadAudioFixture(turn.AudioFile, turn.AudioSampleRate, turn.AudioMIMEType)
@@ -492,9 +526,9 @@ func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixtu
 		logger.Warn("MockStreamSession: failed to load audio fixture; emitting text-only response",
 			"file", turn.AudioFile,
 			"error", loadErr)
-		return text, nil
+		return text, nil, toolCalls
 	}
-	return text, fixture
+	return text, fixture, toolCalls
 }
 
 // loadAudioFixture reads a PCM fixture from disk and caches it by resolved

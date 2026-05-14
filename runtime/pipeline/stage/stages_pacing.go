@@ -65,15 +65,21 @@ import (
 // defaultPrerollChunks is how many chunks the stage forwards
 // immediately at the start of a sequence before pacing kicks in. The
 // reason this matters: pacing at *exactly* playback rate means any
-// scheduler jitter (Go runtime, oto thread, OS) lands a sink pull on
-// an empty channel and the audio thread substitutes silence — audible
-// drops at consistent intervals. Forwarding a few chunks up-front
-// gives the sink a buffer ahead of real-time so jitter is absorbed.
+// scheduler jitter (Go runtime, oto thread, OS, SSE relay, browser
+// AudioContext) lands a sink pull on an empty channel and the audio
+// thread substitutes silence — audible drops at consistent intervals.
+// Forwarding a few chunks up-front gives the sink a buffer ahead of
+// real-time so jitter is absorbed for the rest of the sequence.
 //
-// 3 × 20 ms ≈ 60 ms is well under any provider VAD's
-// no-audio-arrival timeout (typically 500 ms+), so it doesn't trip
-// false turn-end on the LLM side either.
-const defaultPrerollChunks = 3
+// 5 chunks balances input and output direction needs:
+//   - Input (selfplay TTS at 20 ms chunks): 5 × 20 ms = 100 ms preroll,
+//     well under any provider VAD's no-audio-arrival timeout (typically
+//     500 ms+), so it doesn't trip false turn-end on the LLM side.
+//   - Output (realtime providers at ~250 ms chunks): 5 × 250 ms ≈ 1.2 s
+//     of head-buffer, absorbing the SSE-relay + browser-scheduler
+//     jitter envelope observed in production (occasional gaps of
+//     80–320 ms mid-utterance with 3-chunk preroll).
+const defaultPrerollChunks = 5
 
 // AudioPacingStage paces audio chunks toward downstream stages so they are
 // forwarded at roughly real-time rate, smoothing bursty producers (e.g. file
@@ -173,12 +179,15 @@ func (s *AudioPacingStage) Process(
 			if err := s.paceFor(ctx, &elem); err != nil {
 				return err
 			}
-		} else {
-			// Non-audio element — let the next audio element prime its
-			// own clock; don't anchor against this moment because there
-			// might be a long pause before the next audio chunk arrives.
-			// Reset the preroll counter too, so a turn boundary
-			// reintroduces preroll headroom for the next utterance.
+		}
+		// Reset pacer state only on the true turn-boundary signal
+		// (EndOfStream). Other non-audio elements — transcript deltas
+		// from Realtime providers, text chunks interleaved with audio —
+		// pass through without resetting. Resetting on every non-audio
+		// element re-arms preroll mid-utterance, so each interleaved
+		// transcript chunk releases another preroll burst and the
+		// downstream consumer accumulates seconds of buffered audio.
+		if elem.EndOfStream {
 			s.last = time.Time{}
 			s.chunksThisSequence = 0
 		}

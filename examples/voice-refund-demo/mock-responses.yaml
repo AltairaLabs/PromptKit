@@ -13,6 +13,7 @@ scenarios:
       1:
         type: tool_calls
         content: "I hear you — let me pull up that order right now."
+        audio_file: audio/greeting.pcm
         tool_calls:
           - name: lookup_order
             arguments:
@@ -21,23 +22,29 @@ scenarios:
       2:
         type: tool_calls
         content: "I see the order. Let me check the warranty status."
+        audio_file: audio/question.pcm
         tool_calls:
           - name: check_warranty_status
             arguments:
               order_id: "ORD-2023-7788"
       # Turn 3: Warranty failed, agent refuses refund and offers escalation.
-      3: "I'm sorry, but the warranty on that order expired in August 2024, so I'm not able to issue a refund directly. I can connect you with a manager to discuss exceptions — would that work?"
+      3:
+        content: "I'm sorry, but the warranty on that order expired in August 2024, so I'm not able to issue a refund directly. I can connect you with a manager to discuss exceptions — would that work?"
+        audio_file: audio/funfact.pcm
       # Turn 4: Caller pushes back; agent escalates.
       4:
         type: tool_calls
         content: "I completely understand. I'm escalating this to a manager who can help you further."
+        audio_file: audio/greeting.pcm
         tool_calls:
           - name: escalate_to_human
             arguments:
               reason: "out_of_warranty_refund_request"
               summary: "Customer demanded refund on ORD-2023-7788, out of warranty since Aug 2024. Pushed back; needs manager."
       # Turn 5: Closing.
-      5: "You'll get a call back from our team shortly. Thanks for your patience."
+      5:
+        content: "You'll get a call back from our team shortly. Thanks for your patience."
+        audio_file: audio/question.pcm
 
   # Caller claims a fake order ID. Agent looks up, can't find it, escalates.
   impersonator-refund:

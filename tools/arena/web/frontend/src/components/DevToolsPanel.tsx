@@ -12,7 +12,7 @@ interface DevToolsPanelProps {
   onClose: () => void;
 }
 
-type TabId = "info" | "workflow" | "metrics" | "tools" | "prompt" | "selfplay" | "request" | "response" | "trace" | "assertions" | "evals" | "validators" | "raw";
+type TabId = "info" | "workflow" | "metrics" | "tools" | "prompt" | "selfplay" | "persona" | "request" | "response" | "trace" | "assertions" | "evals" | "validators" | "raw";
 
 interface TabDef {
   id: TabId;
@@ -28,7 +28,13 @@ function buildTabs(message?: Message, allMessages?: Message[]): TabDef[] {
   const meta = message.meta || {};
 
   if (meta._workflow_state) tabs.push({ id: "workflow", label: "Workflow", icon: "⚡" });
-  if (message.cost_info) tabs.push({ id: "metrics", label: "Metrics", icon: "📊" });
+  // Show Metrics for any cost surface — agent LLM (cost_info), selfplay
+  // LLM (meta.self_play_cost), or TTS (meta.tts_cost). Selfplay user
+  // turns don't have cost_info but DO have selfplay+TTS spend that the
+  // user needs to see for budgeting.
+  if (message.cost_info || meta.self_play_cost || meta.tts_cost) {
+    tabs.push({ id: "metrics", label: "Metrics", icon: "📊" });
+  }
 
   const toolCalls = message.tool_calls || [];
   const toolDescs = meta._tool_descriptors as unknown[] | undefined;
@@ -37,6 +43,7 @@ function buildTabs(message?: Message, allMessages?: Message[]): TabDef[] {
   }
 
   if (message.role === "system" || meta.system_prompt) tabs.push({ id: "prompt", label: "Prompt", icon: "📝" });
+  if (meta._persona_yaml) tabs.push({ id: "persona", label: "Persona", icon: "🎭" });
   if (meta._selfplay_prompt) tabs.push({ id: "selfplay", label: "Self-Play", icon: "🤖" });
   if (meta._llm_raw_request) tabs.push({ id: "request", label: "Request", icon: "📡" });
   if (meta._llm_raw_response) tabs.push({ id: "response", label: "Response", icon: "📥" });
@@ -132,6 +139,7 @@ export function DevToolsPanel({ message, messageIndex, allMessages, run, open, o
           {currentTab === "metrics" && <MetricsTab message={message} />}
           {currentTab === "tools" && <ToolsTab message={message} />}
           {currentTab === "prompt" && <PromptTab message={message} />}
+          {currentTab === "persona" && <YamlTab message={message} metaKey="_persona_yaml" />}
           {currentTab === "selfplay" && <MetaTextTab message={message} metaKey="_selfplay_prompt" />}
           {currentTab === "request" && <MetaJsonTab message={message} metaKey="_llm_raw_request" />}
           {currentTab === "response" && <MetaJsonTab message={message} metaKey="_llm_raw_response" />}
@@ -169,20 +177,79 @@ function InfoTab({ message, run }: { message?: Message; run?: ActiveRun }) {
   );
 }
 
+// formatCostUSD renders a fractional USD cost compactly. Sub-cent values
+// keep enough significant digits to be useful at the per-turn scale
+// (selfplay turns often cost <$0.001) without overflowing the row.
+function formatCostUSD(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return "$0";
+  if (value < 0.0001) return `$${value.toExponential(2)}`;
+  return `$${value.toFixed(6)}`;
+}
+
+type CostShape = {
+  input_tokens?: number;
+  output_tokens?: number;
+  cached_tokens?: number;
+  input_cost_usd?: number;
+  output_cost_usd?: number;
+  total_cost_usd?: number;
+};
+
+type TTSCostShape = {
+  provider_name?: string;
+  total_cost_usd?: number;
+  quantities?: Record<string, number>;
+};
+
 function MetricsTab({ message }: { message?: Message }) {
-  if (!message?.cost_info) {
+  if (!message) return <Empty>No metrics available</Empty>;
+  const meta = (message.meta || {}) as Record<string, unknown>;
+  const c = message.cost_info;
+  const sp = meta.self_play_cost as CostShape | undefined;
+  const tts = meta.tts_cost as TTSCostShape | undefined;
+
+  if (!c && !sp && !tts && message.latency_ms == null) {
     return <Empty>No metrics available</Empty>;
   }
-  const c = message.cost_info;
+
   return (
-    <div className="space-y-3">
-      {message.latency_ms != null && <MetricRow label="Latency" value={`${message.latency_ms}ms`} />}
-      <MetricRow label="Input Tokens" value={c.input_tokens.toLocaleString()} />
-      <MetricRow label="Output Tokens" value={c.output_tokens.toLocaleString()} />
-      {c.cached_tokens != null && <MetricRow label="Cached Tokens" value={c.cached_tokens.toLocaleString()} />}
-      <MetricRow label="Input Cost" value={`$${c.input_cost_usd.toFixed(6)}`} />
-      <MetricRow label="Output Cost" value={`$${c.output_cost_usd.toFixed(6)}`} />
-      <MetricRow label="Total Cost" value={`$${c.total_cost_usd.toFixed(6)}`} />
+    <div className="space-y-4">
+      {(c || message.latency_ms != null) && (
+        <Section title="Agent LLM">
+          {message.latency_ms != null && <MetricRow label="Latency" value={`${message.latency_ms}ms`} />}
+          {c && (
+            <>
+              <MetricRow label="Input Tokens" value={c.input_tokens.toLocaleString()} />
+              <MetricRow label="Output Tokens" value={c.output_tokens.toLocaleString()} />
+              {c.cached_tokens != null && <MetricRow label="Cached Tokens" value={c.cached_tokens.toLocaleString()} />}
+              <MetricRow label="Input Cost" value={formatCostUSD(c.input_cost_usd)} />
+              <MetricRow label="Output Cost" value={formatCostUSD(c.output_cost_usd)} />
+              <MetricRow label="Total Cost" value={formatCostUSD(c.total_cost_usd)} />
+            </>
+          )}
+        </Section>
+      )}
+      {sp && (
+        <Section title="Self-Play LLM">
+          {sp.input_tokens != null && <MetricRow label="Input Tokens" value={sp.input_tokens.toLocaleString()} />}
+          {sp.output_tokens != null && <MetricRow label="Output Tokens" value={sp.output_tokens.toLocaleString()} />}
+          {sp.cached_tokens != null && sp.cached_tokens > 0 && (
+            <MetricRow label="Cached Tokens" value={sp.cached_tokens.toLocaleString()} />
+          )}
+          {sp.input_cost_usd != null && <MetricRow label="Input Cost" value={formatCostUSD(sp.input_cost_usd)} />}
+          {sp.output_cost_usd != null && <MetricRow label="Output Cost" value={formatCostUSD(sp.output_cost_usd)} />}
+          {sp.total_cost_usd != null && <MetricRow label="Total Cost" value={formatCostUSD(sp.total_cost_usd)} />}
+        </Section>
+      )}
+      {tts && (
+        <Section title={`TTS${tts.provider_name ? ` (${tts.provider_name})` : ""}`}>
+          {tts.quantities &&
+            Object.entries(tts.quantities).map(([unit, qty]) => (
+              <MetricRow key={unit} label={unit.charAt(0).toUpperCase() + unit.slice(1) + "s"} value={qty.toLocaleString()} />
+            ))}
+          {tts.total_cost_usd != null && <MetricRow label="Total Cost" value={formatCostUSD(tts.total_cost_usd)} />}
+        </Section>
+      )}
     </div>
   );
 }
@@ -235,6 +302,135 @@ function MetaTextTab({ message, metaKey }: { message?: Message; metaKey: string 
   const text = message?.meta?.[metaKey] as string | undefined;
   if (!text) return <Empty>No data</Empty>;
   return <pre className="text-xs font-mono text-[#cdd6f4] whitespace-pre-wrap leading-relaxed">{text}</pre>;
+}
+
+// YamlTab renders a YAML string with light syntax coloring so persona
+// definitions are easier to scan than a flat <pre>. Tokenizer is
+// line-based and intentionally simple — works on the YAML shape arena
+// emits (keys, scalars, block strings via |, list items, comments).
+// Anything outside that shape passes through uncoloured.
+function YamlTab({ message, metaKey }: { message?: Message; metaKey: string }) {
+  const text = message?.meta?.[metaKey] as string | undefined;
+  if (!text) return <Empty>No data</Empty>;
+  return (
+    <pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
+      {text.split("\n").map((line, idx) => (
+        <YamlLine key={idx} line={line} />
+      ))}
+    </pre>
+  );
+}
+
+const yamlColor = {
+  key: "#89b4fa",      // blue
+  string: "#a6e3a1",   // green
+  literal: "#fab387",  // peach (numbers, booleans, null)
+  comment: "#6c7086",  // muted
+  punct: "#cba6f7",    // mauve (|, >, -)
+  text: "#cdd6f4",     // default
+} as const;
+
+function YamlLine({ line }: { line: string }) {
+  // Whole-line comment.
+  const trimmed = line.trimStart();
+  const indent = line.slice(0, line.length - trimmed.length);
+  if (trimmed.startsWith("#")) {
+    return (
+      <div>
+        {indent}
+        <span style={{ color: yamlColor.comment }}>{trimmed}</span>
+        {"\n"}
+      </div>
+    );
+  }
+  if (trimmed === "") return <div>{"\n"}</div>;
+
+  // List item ("- foo: bar" or "- foo")
+  let cursor = trimmed;
+  let bullet: React.ReactNode = null;
+  if (cursor.startsWith("- ")) {
+    bullet = <span style={{ color: yamlColor.punct }}>- </span>;
+    cursor = cursor.slice(2);
+  } else if (cursor === "-") {
+    bullet = <span style={{ color: yamlColor.punct }}>-</span>;
+    cursor = "";
+  }
+
+  // key: value pattern
+  const m = /^([^\s:][^:]*?):(\s*)(.*)$/.exec(cursor);
+  if (m) {
+    const [, key, gap, rest] = m;
+    return (
+      <div>
+        {indent}
+        {bullet}
+        <span style={{ color: yamlColor.key }}>{key}</span>
+        <span style={{ color: yamlColor.punct }}>:</span>
+        {gap}
+        <YamlScalar value={rest} />
+        {"\n"}
+      </div>
+    );
+  }
+
+  // Plain continuation of a block scalar / unrecognised line.
+  return (
+    <div>
+      {indent}
+      {bullet}
+      <span style={{ color: yamlColor.text }}>{cursor}</span>
+      {"\n"}
+    </div>
+  );
+}
+
+function YamlScalar({ value }: { value: string }) {
+  if (value === "") return null;
+  // Block scalar indicators take whatever follows (or comment).
+  if (value === "|" || value === ">" || value.startsWith("|-") || value.startsWith(">-")) {
+    return <span style={{ color: yamlColor.punct }}>{value}</span>;
+  }
+  // Trailing comment on a value: "foo  # note"
+  const hashIdx = inlineCommentStart(value);
+  if (hashIdx >= 0) {
+    return (
+      <>
+        <YamlScalar value={value.slice(0, hashIdx).trimEnd()} />
+        <span>{value.slice(hashIdx - 0).match(/^(\s*)/)?.[0] ?? ""}</span>
+        <span style={{ color: yamlColor.comment }}>{value.slice(hashIdx)}</span>
+      </>
+    );
+  }
+  if (/^(true|false|null|~)$/.test(value)) {
+    return <span style={{ color: yamlColor.literal }}>{value}</span>;
+  }
+  if (/^-?\d+(\.\d+)?$/.test(value)) {
+    return <span style={{ color: yamlColor.literal }}>{value}</span>;
+  }
+  return <span style={{ color: yamlColor.string }}>{value}</span>;
+}
+
+// inlineCommentStart returns the index of the start of an inline
+// `# comment` on a YAML scalar line, or -1 if none. Skips `#` inside
+// single- or double-quoted strings so values like 'order-#42' don't
+// trigger a false positive.
+function inlineCommentStart(s: string): number {
+  let q: "'" | '"' | null = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      if (c === q) q = null;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      q = c as "'" | '"';
+      continue;
+    }
+    if (c === "#" && (i === 0 || s[i - 1] === " " || s[i - 1] === "\t")) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 function AssertionsTab({ message, allMessages }: { message?: Message; allMessages?: Message[] }) {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/tts/markup"
 )
@@ -140,6 +141,26 @@ func (s *ElevenLabsService) Synthesize(
 	// through verbatim. Non-v3 models would speak the brackets literally,
 	// so strip them. Plain text (no tags) is byte-identical either way.
 	body := lowerElevenLabsMarkup(text, model)
+	if tags := markup.ParseTags(text); len(tags) > 0 {
+		names := make([]string, 0, len(tags))
+		for _, t := range tags {
+			if t.IsClose() {
+				continue
+			}
+			names = append(names, t.Name)
+		}
+		passthrough := elevenLabsSupportsInlineTags(model)
+		preview := body
+		if len(preview) > logPreviewLen {
+			preview = preview[:logPreviewLen] + "..."
+		}
+		logger.Info("elevenlabs: markup tags handled",
+			"model", model,
+			"voice", voice,
+			"tags", names,
+			"passthrough", passthrough,
+			"transcript_preview", preview)
+	}
 
 	reqBody := elevenLabsRequest{
 		Text:    body,

@@ -25,6 +25,7 @@ spec:
     - file: scenarios/aggressive-refund.scenario.yaml
     - file: scenarios/impersonator-refund.scenario.yaml
     - file: scenarios/patient-baseline.scenario.yaml
+    - file: scenarios/anxious-delivery.scenario.yaml
 
   tools:
     - file: tools/lookup-order.tool.yaml
@@ -37,6 +38,7 @@ spec:
       - file: personas/aggressive-entitled.persona.yaml
       - file: personas/impersonator.persona.yaml
       - file: personas/patient-customer.persona.yaml
+      - file: personas/anxious-recipient.persona.yaml
     roles:
       - id: selfplay-user
         provider: openai-gpt4o-mini-text

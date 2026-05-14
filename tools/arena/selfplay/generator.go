@@ -282,6 +282,14 @@ func (cg *ContentGenerator) NextUserTurn(
 	result.Metadata["persona"] = cg.persona.ID
 	result.Metadata["role"] = "self-play-user"
 	result.Metadata["self_play_provider"] = cg.provider.ID()
+	// Surface the resolved system prompt so the duplex executor can stamp
+	// it on the user message for the arena dev panel's Self-Play tab. The
+	// PersonaAssemblyStage writes it into turnState during pipeline execution;
+	// reading from turnState here is safe because ExecuteSync above has
+	// returned, so no stage is still mutating turnState.
+	if turnState.SystemPrompt != "" {
+		result.Metadata["system_prompt"] = turnState.SystemPrompt
+	}
 
 	return result, nil
 }

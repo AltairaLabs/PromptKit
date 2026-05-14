@@ -13,7 +13,8 @@ import (
 
 // Turn type constants for mock responses.
 const (
-	turnTypeText = "text" // Text-only response type
+	turnTypeText      = "text"       // Text-only response type
+	turnTypeToolCalls = "tool_calls" // Tool-call response type
 )
 
 // ResponseRepository provides an interface for retrieving mock responses.

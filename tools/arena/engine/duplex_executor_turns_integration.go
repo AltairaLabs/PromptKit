@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -640,8 +642,30 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 		return fmt.Errorf("failed to get content generator for turn %d: %w", turnIdx, err)
 	}
 
-	// Collect conversation history from state store
-	history := de.getConversationHistory(ctx, req)
+	// Wire the TTS provider's persona rubric into the text generator so
+	// the selfplay LLM sees the [shouts]/[sighs] vocabulary in its system
+	// prompt. The audio path through GetAudioContentGenerator does this
+	// for free; the duplex executor splits text generation and synthesis
+	// across two registry calls, so we have to mirror the wiring here or
+	// the rubric never reaches the LLM and the persona's `expressive: true`
+	// opt-in is silently a no-op.
+	if cg, ok := textGen.(*selfplay.ContentGenerator); ok {
+		if ttsService, terr := de.selfPlayRegistry.GetTTSRegistry().GetWithConfig(ttsConfig); terr == nil {
+			if rp, ok := ttsService.(tts.PersonaRubricProvider); ok {
+				cg.WithProviderRubric(rp.PersonaRubric())
+			}
+		}
+	}
+
+	// Collect conversation history from state store and trim it to what
+	// the selfplay LLM actually needs: spoken turns only. Without this
+	// trim the LLM sees the agent's full system prompt, tool descriptors,
+	// tool-result JSON, and every internal flag on the agent messages.
+	// Two consequences: it bloats token count (we observed >1000 tokens
+	// of input on turn 4 of a 4-turn scenario, ≈90% of which is noise
+	// the persona was never told to ignore) and it bleeds non-persona
+	// context into the LLM's output ("stuff that isn't in the prompt").
+	history := selfplayHistoryView(de.getConversationHistory(ctx, req))
 
 	// Generate text. Pass the selfplay turn number so the mock provider gets the
 	// correct turn response.
@@ -667,6 +691,15 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 		"persona":             turn.Persona,
 		"selfplay_turn_index": selfplayTurnNum,
 	}
+
+	// Surface the persona definition and the resolved system prompt on the
+	// user message so the arena dev panel can show "what drove this turn?"
+	// alongside the generated text. Two distinct keys keep concerns
+	// separated: _persona_yaml is the source-of-truth spec; _selfplay_prompt
+	// is the rubric-prefixed, variable-substituted string actually sent to
+	// the selfplay LLM. Underscore prefix matches the existing convention
+	// for dev-only metadata that downstream consumers should ignore.
+	stampSelfplayDevMeta(turnMeta, de.selfPlayRegistry, turn.Persona, textResult.Metadata)
 
 	// Copy only relevant metadata from the text generation result. Avoid copying
 	// pipeline internal fields like system_prompt, base_variables, etc.
@@ -1023,6 +1056,84 @@ func (de *DuplexConversationExecutor) sendUserMessage(
 
 // stampTTSCostInMeta writes the TTS cost for a synthesized turn into
 // turnMeta under ttsCostMetaKey. The value shape mirrors the self_play_cost
+// selfplayHistoryView trims the agent-side conversation history down to
+// the minimum the selfplay LLM needs to plan its next reply: the spoken
+// content of prior user and assistant turns, in order, with every other
+// kind of message dropped.
+//
+// What we strip and why:
+//   - system messages — the agent's system prompt is irrelevant to the
+//     selfplay persona; it's also the largest single noise source
+//   - tool messages — tool results (often long JSON) aren't part of the
+//     spoken conversation; the persona only reacts to what was *said*
+//   - assistant messages with no text content — pure-tool-call rounds
+//     that produce nothing audible
+//
+// We also strip media parts and tool-call metadata from the kept
+// messages, leaving only Role + Content. Anything in the original
+// state-store Message that the selfplay LLM might over-interpret
+// (latency, cost info, audio refs, finish reasons) is dropped.
+//
+// Order is preserved so role swapping in the downstream
+// HistoryInjectionStageSwapped keeps producing a coherent dialog
+// from the selfplay LLM's perspective.
+func selfplayHistoryView(history []types.Message) []types.Message {
+	if len(history) == 0 {
+		return nil
+	}
+	out := make([]types.Message, 0, len(history))
+	for i := range history {
+		m := history[i]
+		role := strings.ToLower(m.Role)
+		if role != roleUser && role != roleAssistant {
+			continue
+		}
+		text := strings.TrimSpace(m.Content)
+		if text == "" {
+			continue
+		}
+		out = append(out, types.Message{Role: m.Role, Content: text})
+	}
+	return out
+}
+
+// stampSelfplayDevMeta surfaces dev-only metadata for the arena UI:
+// the persona's source spec (marshaled to YAML) and the resolved system
+// prompt that drove the selfplay LLM call. Both go on the user message
+// under underscore-prefixed keys so downstream consumers (cost rollup,
+// assertion eval, exporters) ignore them as internal-only.
+//
+// Errors are swallowed: a missing persona or marshal failure must never
+// abort the turn. The user just won't see the corresponding dev panel
+// tab — same fail-soft contract as stampTTSCostInMeta.
+func stampSelfplayDevMeta(
+	turnMeta map[string]any,
+	registry *selfplay.Registry,
+	personaID string,
+	textResultMetadata map[string]interface{},
+) {
+	if turnMeta == nil {
+		return
+	}
+	if textResultMetadata != nil {
+		if sp, ok := textResultMetadata["system_prompt"].(string); ok && sp != "" {
+			turnMeta["_selfplay_prompt"] = sp
+		}
+	}
+	if registry == nil || personaID == "" {
+		return
+	}
+	persona := registry.GetPersona(personaID)
+	if persona == nil {
+		return
+	}
+	yamlBytes, err := yaml.Marshal(persona)
+	if err != nil {
+		return
+	}
+	turnMeta["_persona_yaml"] = string(yamlBytes)
+}
+
 // entry so addAncillaryCostFromMeta can fold it into the total without
 // special-casing.
 //

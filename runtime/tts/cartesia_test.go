@@ -86,8 +86,8 @@ func TestCartesiaService_Synthesize_Success(t *testing.T) {
 		}
 
 		version := r.Header.Get("Cartesia-Version")
-		if version != "2024-06-10" {
-			t.Errorf("Cartesia-Version = %v, want 2024-06-10", version)
+		if version != "2026-03-01" {
+			t.Errorf("Cartesia-Version = %v, want 2026-03-01", version)
 		}
 
 		// Verify body
@@ -156,15 +156,15 @@ func TestCartesiaService_Synthesize_LowersTagsToEmotion(t *testing.T) {
 	if got.Transcript != "Surprise!Hi." {
 		t.Errorf("Transcript = %q, want stripped %q", got.Transcript, "Surprise!Hi.")
 	}
-	if got.Voice.ExperimentalControls == nil {
-		t.Fatal("ExperimentalControls should be set when tags are present")
+	if got.GenerationConfig == nil {
+		t.Fatal("GenerationConfig should be set when tags are present")
 	}
-	emo := got.Voice.ExperimentalControls.Emotion
-	if len(emo) != 2 {
-		t.Fatalf("emotion = %v, want 2 entries", emo)
+	// First actionable tag wins on sonic-3 (single emotion per utterance).
+	if got.GenerationConfig.Emotion != "excited" {
+		t.Errorf("emotion = %q, want %q", got.GenerationConfig.Emotion, "excited")
 	}
-	if emo[0] != "positivity:high" || emo[1] != "positivity:medium" {
-		t.Errorf("emotion = %v, want [positivity:high positivity:medium]", emo)
+	if got.GenerationConfig.Volume != 0 {
+		t.Errorf("volume should be unset (no shout tag); got %v", got.GenerationConfig.Volume)
 	}
 }
 
@@ -189,8 +189,11 @@ func TestCartesiaService_Synthesize_PlainTextUnchanged(t *testing.T) {
 	defer reader.Close()
 	_, _ = io.ReadAll(reader)
 
+	if strings.Contains(string(raw), `generation_config`) {
+		t.Errorf("generation_config should be omitted for plain text; got %s", raw)
+	}
 	if strings.Contains(string(raw), `__experimental_controls`) {
-		t.Errorf("experimental_controls should be omitted for plain text; got %s", raw)
+		t.Errorf("legacy __experimental_controls must never appear; got %s", raw)
 	}
 }
 
@@ -207,13 +210,13 @@ func TestCartesiaService_PersonaRubric_AlwaysEmotionOnly(t *testing.T) {
 
 func TestCartesiaEmotionForTag(t *testing.T) {
 	cases := map[string]string{
-		"excited":  "positivity:high",
-		"laughs":   "positivity:high",
-		"smile":    "positivity:medium",
-		"smiles":   "positivity:medium",
-		"sad":      "sadness:high",
-		"sighs":    "sadness:high",
-		"shouts":   "anger:high",
+		"excited":  "excited",
+		"laughs":   "excited",
+		"smile":    "content",
+		"smiles":   "content",
+		"sad":      "sad",
+		"sighs":    "sad",
+		"shouts":   "angry",
 		"whispers": "", // no Cartesia analog
 		"calm":     "",
 		"pause":    "",
@@ -227,13 +230,34 @@ func TestCartesiaEmotionForTag(t *testing.T) {
 	}
 }
 
-func TestLowerCartesiaMarkup_DedupesAndDropsCloseTags(t *testing.T) {
-	transcript, emotions := lowerCartesiaMarkup("[excited]a[excited]b[/]c")
+func TestLowerCartesiaMarkup_FirstActionableTagWins(t *testing.T) {
+	// Sonic-3 takes one emotion per utterance — first actionable tag wins,
+	// later tags are dropped. Close tags don't promote themselves to an
+	// emotion. Transcript drops all bracket markup.
+	transcript, cfg := lowerCartesiaMarkup("[excited]a[sad]b[/]c")
 	if transcript != "abc" {
 		t.Errorf("transcript = %q, want %q", transcript, "abc")
 	}
-	if len(emotions) != 1 || emotions[0] != "positivity:high" {
-		t.Errorf("emotions = %v, want [positivity:high]", emotions)
+	if cfg == nil {
+		t.Fatal("generation_config should be set when an actionable tag is present")
+	}
+	if cfg.Emotion != "excited" {
+		t.Errorf("emotion = %q, want %q", cfg.Emotion, "excited")
+	}
+}
+
+func TestLowerCartesiaMarkup_ShoutTagBumpsVolume(t *testing.T) {
+	// [shouts] sets emotion=angry AND bumps volume so the rage envelope
+	// is audible on top of the emotion characterization.
+	_, cfg := lowerCartesiaMarkup("[shouts]I want my money![/]")
+	if cfg == nil {
+		t.Fatal("generation_config should be set for shout tag")
+	}
+	if cfg.Emotion != "angry" {
+		t.Errorf("emotion = %q, want %q", cfg.Emotion, "angry")
+	}
+	if cfg.Volume <= 1.0 || cfg.Volume > 2.0 {
+		t.Errorf("shout should bump volume into (1.0, 2.0]; got %v", cfg.Volume)
 	}
 }
 

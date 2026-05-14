@@ -34,6 +34,8 @@ spec:
     {"order_id":"ORD-2023-7788","customer_email":"angry.customer@example.com","item":"TechCorp Wireless Headphones","purchase_date":"2023-08-12","status":"delivered"}
     {{- else if eq .order_id "ORD-2024-9999" -}}
     {"order_id":"ORD-2024-9999","customer_email":"calm.customer@example.com","item":"TechCorp Wireless Headphones","purchase_date":"2024-11-03","status":"delivered"}
+    {{- else if eq .order_id "ORD-2024-3357" -}}
+    {"order_id":"ORD-2024-3357","customer_email":"anxious.gifter@example.com","item":"TechCorp Wireless Headphones","purchase_date":"2024-12-08","status":"delivered","shipping_carrier":"UPS","tracking_last_scan":"Delivered to recipient address, 2024-12-15 14:22"}
     {{- else -}}
     {"error":"not_found","message":"No order found for that ID"}
     {{- end -}}
