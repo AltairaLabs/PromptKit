@@ -6,6 +6,7 @@ metadata:
 
 spec:
   id: anxious-recipient
+  voice: arnold-expressive
   description: "Anxious customer worried a parcel hasn't arrived; emotional, not hostile"
 
   system_template: |

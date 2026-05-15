@@ -38,10 +38,6 @@ spec:
     - role: selfplay-user
       persona: patient-customer
       turns: 3
-      tts:
-        provider: openai
-        voice: nova
-        sample_rate: 24000
       assertions:
         - type: content_matches
           params:
