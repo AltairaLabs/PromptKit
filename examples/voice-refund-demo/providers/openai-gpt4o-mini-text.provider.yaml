@@ -7,9 +7,11 @@
 # 400-800ms) and cheap, both of which matter when the inter-turn pause is
 # the dominant component of the user-perceived latency.
 #
-# Local-only: not committed. Swap selfplay-user role here when running
-# against real providers; revert config.arena.yaml + scenarios + delete this
-# file after the demo recording session.
+# Requires OPENAI_API_KEY in the environment. Selfplay drives every scenario
+# in this example — including mock-mode runs against `mock-duplex` — so this
+# key is required to execute the scenarios. The duplex-mode providers
+# (gemini-2-flash, openai-gpt4o-realtime, mock-duplex) return audio and
+# can't generate user-side text.
 #
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider

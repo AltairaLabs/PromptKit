@@ -150,6 +150,20 @@ Examples showcasing advanced PromptKit capabilities like human-in-the-loop workf
 - **Learn**: How to make prompts flexible and reusable with template variables
 - **Includes**: Restaurant bot and product support examples with detailed testing
 
+### 12. **voice-refund-demo** ⭐
+
+**Category**: Arena Testing
+**Purpose**: Voice-agent self-play testing — drive a realtime LLM (Gemini Live, OpenAI Realtime) with TTS-synthesized personality-driven callers and score whether the agent holds the line under pressure
+
+- **Features**:
+
+  - Four scenarios across distinct personas (aggressive, impersonator, anxious, patient)
+  - Multi-vendor expressive TTS (Cartesia, OpenAI nova, ElevenLabs v3) exercising the characterization markup taxonomy
+  - `tools_called` + `tools_not_called` conversation assertions enforcing a refund-policy gate (verify warranty → escalate, never refund out-of-policy)
+  - `mock_template`-based tool branching on `order_id` so all personas exercise distinct backend outcomes from one tool definition
+
+- **Requires**: `OPENAI_API_KEY` (selfplay text) plus per-scenario TTS keys (`CARTESIA_API_KEY`, `ELEVENLABS_API_KEY`). No fully-mocked CI path — see README for details.
+
 ---
 
 ## Getting Started
