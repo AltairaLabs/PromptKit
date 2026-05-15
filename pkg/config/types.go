@@ -128,9 +128,26 @@ type Config struct {
 	// ProviderCapabilities maps provider ID to its capabilities (populated during load)
 	ProviderCapabilities map[string][]string `yaml:"-" json:"provider_capabilities,omitempty"`
 
+	// TTSProviders lists provider files where Spec.Capability == "tts".
+	// Loaded but NOT included in the agent-under-test matrix.
+	TTSProviders []ProviderRef `yaml:"tts_providers,omitempty" json:"tts_providers,omitempty"`
+
+	// STTProviders lists provider files where Spec.Capability == "stt".
+	// Same matrix-exclusion as TTSProviders. No STT consumers exist yet;
+	// the field is present so STT can land later without a schema change.
+	STTProviders []ProviderRef `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty"`
+
+	// Voices binds voice IDs to loaded TTS provider IDs. Personas reference
+	// voice IDs (not provider IDs) so the same persona can run against a
+	// real Cartesia voice in recording mode and a mock TTS provider in CI
+	// just by editing this list.
+	Voices []VoiceBinding `yaml:"voices,omitempty" json:"voices,omitempty"`
+
 	// Loaded resources (populated by LoadConfig, included in JSON for adapter consumption)
 	LoadedPromptConfigs map[string]*PromptConfigData `yaml:"-" json:"loaded_prompt_configs,omitempty"`
 	LoadedProviders     map[string]*Provider         `yaml:"-" json:"loaded_providers,omitempty"`
+	LoadedTTSProviders  map[string]*Provider         `yaml:"-" json:"loaded_tts_providers,omitempty"`
+	LoadedSTTProviders  map[string]*Provider         `yaml:"-" json:"loaded_stt_providers,omitempty"`
 	LoadedJudges        map[string]*JudgeTarget      `yaml:"-" json:"loaded_judges,omitempty"`
 	LoadedScenarios     map[string]*Scenario         `yaml:"-" json:"loaded_scenarios,omitempty"`
 	LoadedEvals         map[string]*Eval             `yaml:"-" json:"loaded_evals,omitempty"`
