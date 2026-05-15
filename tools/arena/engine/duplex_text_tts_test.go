@@ -298,6 +298,35 @@ func TestStreamTextAsAudio_RejectsMissingRegistry(t *testing.T) {
 	assert.Contains(t, err.Error(), "self-play registry not configured")
 }
 
+func TestResolveTTSProvider_ViaPersona(t *testing.T) {
+	cfg := &config.Config{
+		Voices: []config.VoiceBinding{{ID: "v1", Provider: "p1"}},
+		LoadedTTSProviders: map[string]*config.Provider{
+			"p1": {ID: "p1", Type: "cartesia", Voice: "vid", Capability: config.CapabilityTTS},
+		},
+	}
+	persona := &config.UserPersonaPack{ID: "p", Voice: "v1"}
+	got, err := resolveTTSProvider(cfg, persona)
+	if err != nil {
+		t.Fatalf("resolveTTSProvider: %v", err)
+	}
+	if got == nil || got.Voice != "vid" {
+		t.Fatalf("got %+v, want voice=vid", got)
+	}
+}
+
+func TestResolveTTSProvider_PersonaWithoutVoice(t *testing.T) {
+	cfg := &config.Config{}
+	persona := &config.UserPersonaPack{ID: "p"}
+	got, err := resolveTTSProvider(cfg, persona)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected nil provider for persona without voice, got %+v", got)
+	}
+}
+
 func TestTurnHasAudioPart(t *testing.T) {
 	t.Run("no parts", func(t *testing.T) {
 		assert.False(t, turnHasAudioPart(&config.TurnDefinition{}))

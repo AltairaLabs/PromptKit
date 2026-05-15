@@ -32,6 +32,27 @@ func (de *DuplexConversationExecutor) openTextSynthesisStream(
 	return gen.SynthesizeTextStream(ctx, text)
 }
 
+// openTextSynthesisStreamForProvider returns the TTS stream for pre-known text
+// using the new provider-yaml path introduced in Task 3.1. It looks up the TTS
+// service from the registry's TTSRegistry using the loaded provider config
+// (capability=tts) and calls SynthesizeTextStream on an AudioContentGenerator
+// backed by that service.
+//
+// Parallel to openTextSynthesisStream (which takes a *config.TTSConfig). Phase 5
+// will remove the legacy function once all callers have been migrated.
+func (de *DuplexConversationExecutor) openTextSynthesisStreamForProvider(
+	ctx context.Context,
+	text string,
+	ttsProvider *config.Provider,
+) (*selfplay.AudioStreamResult, error) {
+	ttsService, err := de.selfPlayRegistry.GetTTSRegistry().GetForProvider(ttsProvider)
+	if err != nil {
+		return nil, fmt.Errorf("get TTS service for provider %s: %w", ttsProvider.ID, err)
+	}
+	gen := selfplay.NewAudioContentGeneratorForProvider(nil, ttsService, ttsProvider)
+	return gen.SynthesizeTextStream(ctx, text)
+}
+
 // turnAudioMirror is a temp file written incrementally as TTS chunks
 // flow through the executor. The streamed audio never lives in RAM as
 // a complete buffer — each chunk is written through to disk as soon as
