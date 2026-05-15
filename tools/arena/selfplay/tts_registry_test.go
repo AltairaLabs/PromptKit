@@ -307,6 +307,38 @@ func TestTTSRegistry_Get_MockProvider(t *testing.T) {
 	}
 }
 
+func TestTTSRegistry_GetForProvider_Mock(t *testing.T) {
+	p := &config.Provider{
+		ID:         "mock-tts",
+		Type:       TTSProviderMock,
+		Capability: config.CapabilityTTS,
+		AudioFiles: []string{"a.pcm", "b.pcm"},
+	}
+	r := NewTTSRegistry()
+	svc, err := r.GetForProvider(p)
+	if err != nil {
+		t.Fatalf("GetForProvider: %v", err)
+	}
+	if svc.Name() != TTSProviderMock {
+		t.Fatalf("expected mock service, got %q", svc.Name())
+	}
+}
+
+func TestTTSRegistry_GetForProvider_RejectsLLMCapability(t *testing.T) {
+	p := &config.Provider{ID: "llm", Type: "openai", Capability: config.CapabilityLLM}
+	r := NewTTSRegistry()
+	if _, err := r.GetForProvider(p); err == nil {
+		t.Fatal("expected error: capability is llm, not tts")
+	}
+}
+
+func TestTTSRegistry_GetForProvider_NilProvider(t *testing.T) {
+	r := NewTTSRegistry()
+	if _, err := r.GetForProvider(nil); err == nil {
+		t.Fatal("expected error: nil provider")
+	}
+}
+
 func TestMockTTS_Synthesize(t *testing.T) {
 	mock := NewMockTTS()
 

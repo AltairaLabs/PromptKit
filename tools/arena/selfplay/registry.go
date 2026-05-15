@@ -152,6 +152,38 @@ func (r *Registry) GetAudioContentGenerator(
 	return NewAudioContentGenerator(textGen, ttsService, ttsConfig), nil
 }
 
+// GetAudioContentGeneratorForProvider implements AudioProvider interface.
+// Returns an AudioGenerator backed by a loaded TTS provider config
+// (capability=tts). Replaces GetAudioContentGenerator which took a
+// *config.TTSConfig assembled per-turn from scenario/turn/defaults.
+//
+// Unlike GetContentGenerator, audio generators are not cached since the
+// provider config may vary across roles.
+func (r *Registry) GetAudioContentGeneratorForProvider(
+	role, personaID string,
+	ttsProvider *config.Provider,
+) (AudioGenerator, error) {
+	if ttsProvider == nil {
+		return nil, fmt.Errorf("TTS provider is required for audio generation")
+	}
+	if ttsProvider.GetCapability() != config.CapabilityTTS {
+		return nil, fmt.Errorf("provider %s has capability %q, expected tts",
+			ttsProvider.ID, ttsProvider.GetCapability())
+	}
+
+	textGen, err := r.createContentGenerator(role, personaID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create text generator: %w", err)
+	}
+
+	ttsService, err := r.ttsRegistry.GetForProvider(ttsProvider)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get TTS service: %w", err)
+	}
+
+	return NewAudioContentGeneratorForProvider(textGen, ttsService, ttsProvider), nil
+}
+
 // GetTextSynthesisGenerator returns an AudioGenerator that only knows
 // how to synthesize pre-known text — used by scripted-text duplex turns
 // where the text comes from the scenario YAML rather than a persona

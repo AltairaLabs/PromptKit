@@ -108,6 +108,56 @@ func wrapWithDiskCache(provider string, svc base.TTSProvider) base.TTSProvider {
 	return wrapped.(base.TTSProvider)
 }
 
+// GetForProvider returns a base.TTSProvider configured from a loaded TTS
+// provider yaml. Replaces the legacy GetWithConfig path which took a
+// *config.TTSConfig assembled per-turn from scenario/turn/defaults.
+// Provider routing is by Type (cartesia/elevenlabs/openai/mock); the
+// voice/sample_rate/audio_files/model fields on the provider populate
+// the synthesis config.
+//
+// Validates that the provider has Capability == "tts" — guards against
+// callers passing an LLM provider by mistake.
+func (r *TTSRegistry) GetForProvider(p *config.Provider) (base.TTSProvider, error) {
+	if p == nil {
+		return nil, fmt.Errorf("nil TTS provider")
+	}
+	if p.GetCapability() != config.CapabilityTTS {
+		return nil, fmt.Errorf("provider %s has capability %q, expected tts",
+			p.ID, p.GetCapability())
+	}
+
+	// For mock provider with audio files, cache by file-list identity
+	// so concurrent runs share one MockTTSService and rotation works.
+	if p.Type == TTSProviderMock && len(p.AudioFiles) > 0 {
+		key := strings.Join(p.AudioFiles, "|")
+		r.mu.RLock()
+		if svc, exists := r.mockByFiles[key]; exists {
+			r.mu.RUnlock()
+			return svc, nil
+		}
+		r.mu.RUnlock()
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if svc, exists := r.mockByFiles[key]; exists {
+			return svc, nil
+		}
+		svc := NewMockTTSWithFiles(p.AudioFiles)
+		r.mockByFiles[key] = svc
+		return svc, nil
+	}
+
+	// Real-vendor TTS: pin model if set on the provider yaml.
+	if p.Model != "" {
+		svc, err := r.createServiceWithModel(p.Type, p.Model)
+		if err != nil {
+			return nil, err
+		}
+		return wrapWithDiskCache(p.Type, svc), nil
+	}
+
+	return r.Get(p.Type)
+}
+
 // GetWithConfig returns a TTS provider configured with the given TTSConfig.
 // For mock provider, this allows specifying audio files directly in the config.
 // Providers with custom configs are NOT cached since audio files may vary per scenario.

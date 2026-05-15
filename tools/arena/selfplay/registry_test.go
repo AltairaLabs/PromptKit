@@ -1020,3 +1020,54 @@ func TestNewRegistryWithTTS_NilTTSRegistry(t *testing.T) {
 		t.Error("Expected TTS registry to be initialized even with nil input")
 	}
 }
+
+func TestSelfPlayRegistry_GetAudioContentGeneratorForProvider_Success(t *testing.T) {
+	providerRegistry := providers.NewRegistry()
+	provider := createMockProvider("provider1")
+	providerRegistry.Register(provider)
+
+	personas := map[string]*config.UserPersonaPack{
+		"persona1": createTestPersona("persona1", "You are helpful"),
+	}
+	roles := []config.SelfPlayRoleGroup{{ID: "user"}}
+	providerMap := map[string]string{"user": "provider1"}
+
+	ttsRegistry := NewTTSRegistry()
+	ttsRegistry.Register(TTSProviderMock, &mockTTSService{name: TTSProviderMock})
+
+	registry := NewRegistryWithTTS(providerRegistry, providerMap, personas, roles, ttsRegistry)
+
+	ttsProvider := &config.Provider{
+		ID:         "mock-tts",
+		Type:       TTSProviderMock,
+		Capability: config.CapabilityTTS,
+		Voice:      "test-voice",
+	}
+
+	audioGen, err := registry.GetAudioContentGeneratorForProvider("user", "persona1", ttsProvider)
+	if err != nil {
+		t.Fatalf("GetAudioContentGeneratorForProvider() error = %v", err)
+	}
+	if audioGen == nil {
+		t.Error("expected non-nil audio generator")
+	}
+}
+
+func TestSelfPlayRegistry_GetAudioContentGeneratorForProvider_NilProvider(t *testing.T) {
+	registry := NewRegistry(providers.NewRegistry(), nil, nil, nil)
+
+	_, err := registry.GetAudioContentGeneratorForProvider("user", "persona1", nil)
+	if err == nil {
+		t.Fatal("expected error for nil TTS provider")
+	}
+}
+
+func TestSelfPlayRegistry_GetAudioContentGeneratorForProvider_WrongCapability(t *testing.T) {
+	registry := NewRegistry(providers.NewRegistry(), nil, nil, nil)
+
+	llmProvider := &config.Provider{ID: "llm", Type: "openai", Capability: config.CapabilityLLM}
+	_, err := registry.GetAudioContentGeneratorForProvider("user", "persona1", llmProvider)
+	if err == nil {
+		t.Fatal("expected error: provider capability is llm, not tts")
+	}
+}

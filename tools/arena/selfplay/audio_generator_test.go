@@ -242,3 +242,93 @@ func TestAudioContentGenerator_GetTextGenerator(t *testing.T) {
 		t.Error("GetTextGenerator() returned wrong generator")
 	}
 }
+
+// TestNewAudioContentGeneratorForProvider_SynthesizeTextStream verifies that the
+// provider-path constructor wires voice and sample_rate from the *config.Provider.
+func TestNewAudioContentGeneratorForProvider_SynthesizeTextStream(t *testing.T) {
+	mockTTS := &mockTTSServiceWithData{audioData: []byte("provider-path-audio")}
+	p := &config.Provider{
+		ID:         "tts-test",
+		Type:       TTSProviderMock,
+		Capability: config.CapabilityTTS,
+		Voice:      "test-voice",
+		SampleRate: 16000,
+	}
+	audioGen := NewAudioContentGeneratorForProvider(nil, mockTTS, p)
+
+	stream, err := audioGen.SynthesizeTextStream(context.Background(), "hello from provider path")
+	if err != nil {
+		t.Fatalf("SynthesizeTextStream() error = %v", err)
+	}
+	got := drainStream(t, stream.Reader)
+	if string(got) != "provider-path-audio" {
+		t.Errorf("audio = %q, want %q", got, "provider-path-audio")
+	}
+	if stream.SampleRate != 16000 {
+		t.Errorf("SampleRate = %d, want 16000", stream.SampleRate)
+	}
+}
+
+// TestNewAudioContentGeneratorForProvider_NextUserTurnAudioStream verifies the
+// full text-generation + TTS synthesis path through the provider-path constructor.
+func TestNewAudioContentGeneratorForProvider_NextUserTurnAudioStream(t *testing.T) {
+	mockProv := &mockProvider{response: "response from provider path"}
+	defaultTemp := config.DefaultPersonaTemperature
+	persona := &config.UserPersonaPack{
+		ID: "persona-provider-path",
+		Defaults: config.PersonaDefaults{
+			Temperature: &defaultTemp,
+		},
+		SystemPrompt: "You are helpful",
+	}
+	textGen := NewContentGenerator(mockProv, persona)
+
+	mockTTS := &mockTTSServiceWithData{audioData: []byte("synthesized")}
+	p := &config.Provider{
+		ID:         "tts-provider",
+		Type:       TTSProviderMock,
+		Capability: config.CapabilityTTS,
+		Voice:      "nova",
+		SampleRate: 24000,
+	}
+	audioGen := NewAudioContentGeneratorForProvider(textGen, mockTTS, p)
+
+	stream, err := audioGen.NextUserTurnAudioStream(
+		context.Background(),
+		[]types.Message{},
+		"test-scenario",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NextUserTurnAudioStream() error = %v", err)
+	}
+	if stream.TextResult == nil {
+		t.Error("expected TextResult to be set")
+	}
+	got := drainStream(t, stream.Reader)
+	if string(got) != "synthesized" {
+		t.Errorf("audio = %q, want %q", got, "synthesized")
+	}
+}
+
+// TestNewAudioContentGeneratorForProvider_DefaultSampleRate verifies that a
+// provider with SampleRate == 0 falls back to the default 24 kHz value.
+func TestNewAudioContentGeneratorForProvider_DefaultSampleRate(t *testing.T) {
+	mockTTS := &mockTTSServiceWithData{audioData: []byte("audio")}
+	p := &config.Provider{
+		ID:         "tts-no-rate",
+		Type:       TTSProviderMock,
+		Capability: config.CapabilityTTS,
+		// SampleRate deliberately omitted — should use defaultTTSSampleRate
+	}
+	audioGen := NewAudioContentGeneratorForProvider(nil, mockTTS, p)
+
+	stream, err := audioGen.SynthesizeTextStream(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("SynthesizeTextStream() error = %v", err)
+	}
+	drainStream(t, stream.Reader)
+	if stream.SampleRate != defaultTTSSampleRate {
+		t.Errorf("SampleRate = %d, want %d", stream.SampleRate, defaultTTSSampleRate)
+	}
+}

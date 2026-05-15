@@ -23,6 +23,11 @@ type AudioProvider interface {
 	// GetAudioContentGenerator returns an audio generator for the given role and persona.
 	// The TTS config specifies the voice and provider for text-to-speech synthesis.
 	GetAudioContentGenerator(role, personaID string, ttsConfig *config.TTSConfig) (AudioGenerator, error)
+
+	// GetAudioContentGeneratorForProvider returns an AudioGenerator backed
+	// by a loaded TTS provider config (capability=tts). Replaces
+	// GetAudioContentGenerator which took a *config.TTSConfig.
+	GetAudioContentGeneratorForProvider(role, personaID string, ttsProvider *config.Provider) (AudioGenerator, error)
 }
 
 // Generator generates user messages for self-play scenarios.

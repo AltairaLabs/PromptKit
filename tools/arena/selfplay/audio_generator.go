@@ -77,10 +77,16 @@ type AudioStreamResult struct {
 // (scripted-text turns where no LLM is involved). In that case
 // NextUserTurnAudioStream returns an error; SynthesizeTextStream still
 // works.
+//
+// Either ttsConfig or ttsProvider is set, never both. ttsConfig is set by
+// the legacy NewAudioContentGenerator path; ttsProvider is set by the new
+// NewAudioContentGeneratorForProvider path introduced in Task 3.1. The
+// openStream method reads from whichever is non-nil.
 type AudioContentGenerator struct {
 	textGenerator *ContentGenerator
 	ttsService    base.TTSProvider
-	ttsConfig     *config.TTSConfig
+	ttsConfig     *config.TTSConfig // legacy path
+	ttsProvider   *config.Provider  // new provider-yaml path (Task 3.1+)
 }
 
 // NewAudioContentGenerator creates a new audio content generator.
@@ -108,26 +114,61 @@ func NewAudioContentGenerator(
 	}
 }
 
+// NewAudioContentGeneratorForProvider creates a new audio content generator
+// backed by a loaded TTS provider config (capability=tts). This is the new
+// Task 3.1+ path; the legacy NewAudioContentGenerator path (which takes a
+// *config.TTSConfig) remains for unmigrated callers.
+// textGenerator may be nil for TTS-only generators.
+func NewAudioContentGeneratorForProvider(
+	textGenerator *ContentGenerator,
+	ttsService base.TTSProvider,
+	ttsProvider *config.Provider,
+) *AudioContentGenerator {
+	if textGenerator != nil {
+		if rp, ok := ttsService.(tts.PersonaRubricProvider); ok {
+			textGenerator.WithProviderRubric(rp.PersonaRubric())
+		}
+	}
+	return &AudioContentGenerator{
+		textGenerator: textGenerator,
+		ttsService:    ttsService,
+		ttsProvider:   ttsProvider,
+	}
+}
+
 // Default TTS output sample rate (most TTS services output at 24kHz).
 const defaultTTSSampleRate = 24000
 
 // openStream opens a TTS stream for text and returns the streaming
 // reader along with format/rate metadata. The single place that
-// translates (text, ttsConfig) → (reader, sample rate).
+// translates (text, voice/sample_rate) → (reader, sample rate).
+// Reads voice and sample_rate from ttsProvider when set (new path),
+// otherwise falls back to ttsConfig (legacy path).
 func (g *AudioContentGenerator) openStream(ctx context.Context, text string) (*AudioStreamResult, error) {
+	var voice string
+	sampleRate := defaultTTSSampleRate
+
+	if g.ttsProvider != nil {
+		voice = g.ttsProvider.Voice
+		if g.ttsProvider.SampleRate > 0 {
+			sampleRate = g.ttsProvider.SampleRate
+		}
+	} else {
+		voice = g.ttsConfig.Voice
+		if g.ttsConfig.SampleRate > 0 {
+			sampleRate = g.ttsConfig.SampleRate
+		}
+	}
+
 	req := base.TTSRequest{
 		Text:   text,
-		Voice:  g.ttsConfig.Voice,
+		Voice:  voice,
 		Format: tts.FormatPCM16.Name,
 		Speed:  1.0,
 	}
 	stream, err := g.ttsService.SynthesizeTTS(ctx, req)
 	if err != nil {
 		return nil, err
-	}
-	sampleRate := defaultTTSSampleRate
-	if g.ttsConfig.SampleRate > 0 {
-		sampleRate = g.ttsConfig.SampleRate
 	}
 	return &AudioStreamResult{
 		Text:        text,
