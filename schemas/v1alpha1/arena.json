@@ -492,24 +492,6 @@
         "defaults"
       ]
     },
-    "VoiceBinding": {
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Voice id used by personas"
-        },
-        "provider": {
-          "type": "string",
-          "description": "TTS provider id (must exist in spec.tts_providers)"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "id",
-        "provider"
-      ]
-    },
     "ContextMetadata": {
       "properties": {
         "domain": {
@@ -1743,6 +1725,26 @@
         "model": {
           "type": "string"
         },
+        "voice": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "integer"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "capability": {
+          "type": "string",
+          "enum": [
+            "llm",
+            "tts",
+            "stt"
+          ]
+        },
         "base_url": {
           "type": "string"
         },
@@ -1807,8 +1809,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "type",
-        "model"
+        "type"
       ]
     },
     "ProviderDefaults": {
@@ -2748,6 +2749,9 @@
         "style": {
           "$ref": "#/$defs/PersonaStyle"
         },
+        "voice": {
+          "type": "string"
+        },
         "defaults": {
           "$ref": "#/$defs/PersonaDefaults"
         }
@@ -2886,6 +2890,22 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "VoiceBinding": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "provider"
+      ]
     }
   },
   "properties": {

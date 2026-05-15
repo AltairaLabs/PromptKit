@@ -144,6 +144,9 @@
         "style": {
           "$ref": "#/$defs/PersonaStyle"
         },
+        "voice": {
+          "type": "string"
+        },
         "defaults": {
           "$ref": "#/$defs/PersonaDefaults"
         }

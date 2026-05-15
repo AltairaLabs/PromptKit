@@ -112,6 +112,18 @@
         "model": {
           "type": "string"
         },
+        "voice": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "integer"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "capability": {
           "type": "string",
           "enum": [
@@ -179,21 +191,6 @@
         },
         "http_transport": {
           "$ref": "#/$defs/HTTPTransportConfig"
-        },
-        "voice": {
-          "type": "string",
-          "description": "Voice ID for TTS providers"
-        },
-        "sample_rate": {
-          "type": "integer",
-          "description": "Audio sample rate in Hz for TTS providers"
-        },
-        "audio_files": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "PCM audio fixture files for mock TTS provider"
         }
       },
       "additionalProperties": false,

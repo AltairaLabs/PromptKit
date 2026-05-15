@@ -1181,7 +1181,7 @@ type ProviderConfigK8s struct {
 type Provider struct {
 	ID    string `json:"id,omitempty" yaml:"id,omitempty"`
 	Type  string `json:"type" yaml:"type"`
-	Model string `json:"model" yaml:"model"`
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 	// Voice is the vendor-specific voice identifier used when Capability is
 	// "tts". For Cartesia it's the voice UUID; for ElevenLabs the voice ID;
 	// for OpenAI the voice name (alloy, nova, etc.). Ignored for LLM/STT
