@@ -1165,12 +1165,25 @@ type Provider struct {
 	ID    string `json:"id,omitempty" yaml:"id,omitempty"`
 	Type  string `json:"type" yaml:"type"`
 	Model string `json:"model" yaml:"model"`
+	// Voice is the vendor-specific voice identifier used when Capability is
+	// "tts". For Cartesia it's the voice UUID; for ElevenLabs the voice ID;
+	// for OpenAI the voice name (alloy, nova, etc.). Ignored for LLM/STT
+	// providers.
+	Voice string `json:"voice,omitempty" yaml:"voice,omitempty"`
+	// SampleRate is the audio sample rate in Hz for TTS providers. Common
+	// values: 16000 (telephony), 24000 (default for most TTS vendors),
+	// 48000 (high quality). Ignored for non-TTS providers.
+	SampleRate int `json:"sample_rate,omitempty" yaml:"sample_rate,omitempty"`
+	// AudioFiles is the list of PCM fixtures used by the mock TTS provider
+	// (capability=tts, type=mock). The mock service rotates through these
+	// files on each Synthesize() call. Paths are relative to the arena
+	// config directory. Ignored when type != "mock" or capability != "tts".
+	AudioFiles []string `json:"audio_files,omitempty" yaml:"audio_files,omitempty"`
 	// Capability tags the role this provider fills in the arena. One of "llm"
 	// (default), "tts", or "stt". The arena uses this to route the provider
 	// to the correct registry and to skip non-llm providers when building the
 	// agent-under-test matrix. Note: distinct from the older Capabilities
 	// field which lists per-model feature flags (vision, tools, etc.).
-	//nolint:lll // jsonschema tags require single line
 	Capability string `json:"capability,omitempty" yaml:"capability,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt"`
 	BaseURL    string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	// Headers specifies custom HTTP headers to include in every request to
