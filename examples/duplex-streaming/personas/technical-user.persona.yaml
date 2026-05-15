@@ -10,6 +10,7 @@ metadata:
 
 spec:
   id: technical-user
+  voice: echo
   description: "A user with technical knowledge troubleshooting an issue"
 
   # System prompt for generating user messages

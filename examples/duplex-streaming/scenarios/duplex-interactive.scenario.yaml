@@ -39,9 +39,6 @@ spec:
     - role: selfplay-user
       persona: technical-user
       turns: 2
-      tts:
-        provider: openai
-        voice: echo
       assertions:
         - type: content_matches
           params:

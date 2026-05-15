@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: elevenlabs-rachel
+spec:
+  id: elevenlabs-rachel
+  type: elevenlabs
+  capability: tts
+  voice: 21m00Tcm4TlvDq8ikWAM
+  sample_rate: 24000

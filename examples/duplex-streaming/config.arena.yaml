@@ -40,6 +40,22 @@ spec:
     # Replay provider for deterministic playback of recorded sessions
     # - file: providers/replay-duplex.provider.yaml  # Disabled until we have a recording
 
+  tts_providers:
+    - file: providers/elevenlabs-rachel.provider.yaml
+    - file: providers/openai-echo.provider.yaml
+    - file: providers/openai-alloy-expressive.provider.yaml
+    - file: providers/mock-tts.provider.yaml
+
+  voices:
+    # For real-provider mode (requires API keys). For keyless CI:
+    # change each `provider:` below to `mock-tts`.
+    - id: rachel
+      provider: elevenlabs-rachel
+    - id: echo
+      provider: openai-echo
+    - id: alloy-expressive
+      provider: openai-alloy-expressive
+
   # Scenario definitions
   scenarios:
     - file: scenarios/duplex-basic.scenario.yaml

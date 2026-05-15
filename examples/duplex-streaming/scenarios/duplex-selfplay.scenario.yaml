@@ -49,12 +49,6 @@ spec:
     - role: selfplay-user
       persona: curious-customer
       turns: 3
-      tts:
-        provider: elevenlabs
-        # ElevenLabs voice ID. Default below is "Rachel".
-        # Browse voices at https://elevenlabs.io/voice-library
-        voice: "21m00Tcm4TlvDq8ikWAM"
-        sample_rate: 24000
       assertions:
         - type: content_matches
           params:
