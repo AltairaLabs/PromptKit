@@ -119,49 +119,6 @@ func TestTTSRegistry_Get_WithAPIKey(t *testing.T) {
 	}
 }
 
-func TestTTSRegistry_GetWithConfig_ModelOverride(t *testing.T) {
-	// Pinning a model via TTSConfig.Model should:
-	//   1. Bypass the per-provider singleton cache (a scenario picking
-	//      gpt-4o-mini-tts must not get the cached tts-1 instance).
-	//   2. Yield a service whose ModelName() reflects the override.
-	//   3. Expose the matching PersonaRubric for expressive personas.
-	registry := NewTTSRegistry()
-	t.Setenv(envOpenAIAPIKey, "test-key")
-
-	def, err := registry.Get(TTSProviderOpenAI)
-	if err != nil {
-		t.Fatalf("Get default: %v", err)
-	}
-
-	override, err := registry.GetWithConfig(&config.TTSConfig{
-		Provider: TTSProviderOpenAI,
-		Voice:    "alloy",
-		Model:    tts.ModelGPT4oMiniTTS,
-	})
-	if err != nil {
-		t.Fatalf("GetWithConfig override: %v", err)
-	}
-
-	if def == override {
-		t.Error("model-pinned service should be a separate instance from the default-cached one")
-	}
-
-	modelExposer, ok := override.(interface{ ModelName() string })
-	if !ok {
-		t.Skip("override service does not expose ModelName(); skipping detailed check")
-	} else if got := modelExposer.ModelName(); got != tts.ModelGPT4oMiniTTS {
-		t.Errorf("override ModelName = %q, want %q", got, tts.ModelGPT4oMiniTTS)
-	}
-
-	rp, ok := override.(tts.PersonaRubricProvider)
-	if !ok {
-		t.Fatal("override should still satisfy PersonaRubricProvider")
-	}
-	if rp.PersonaRubric() == "" {
-		t.Error("gpt-4o-mini-tts override should expose a non-empty PersonaRubric")
-	}
-}
-
 func TestTTSRegistry_Get_Caching(t *testing.T) {
 	registry := NewTTSRegistry()
 	t.Setenv(envOpenAIAPIKey, "test-key")
@@ -227,73 +184,6 @@ func TestTTSRegistry_Clear(t *testing.T) {
 	}
 }
 
-func TestTTSRegistry_GetWithConfig_NilConfig(t *testing.T) {
-	registry := NewTTSRegistry()
-	if _, err := registry.GetWithConfig(nil); err == nil {
-		t.Error("GetWithConfig(nil) expected error, got nil")
-	}
-}
-
-func TestTTSRegistry_GetWithConfig_MockNoFiles_DelegatesToGet(t *testing.T) {
-	registry := NewTTSRegistry()
-	cfg := &config.TTSConfig{Provider: TTSProviderMock}
-
-	// First call creates a cached mock service via the Get path.
-	svc1, err := registry.GetWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("GetWithConfig() error = %v", err)
-	}
-
-	// Second call must return the same instance from the standard cache.
-	svc2, err := registry.GetWithConfig(cfg)
-	if err != nil {
-		t.Fatalf("GetWithConfig() error = %v", err)
-	}
-	if svc1 != svc2 {
-		t.Error("GetWithConfig with no audio_files should reuse Get cache")
-	}
-}
-
-func TestTTSRegistry_GetWithConfig_MockWithFiles_CachesByFilesIdentity(t *testing.T) {
-	registry := NewTTSRegistry()
-
-	cfgA := &config.TTSConfig{
-		Provider:   TTSProviderMock,
-		AudioFiles: []string{"a.pcm", "b.pcm"},
-	}
-	cfgADup := &config.TTSConfig{
-		Provider:   TTSProviderMock,
-		AudioFiles: []string{"a.pcm", "b.pcm"},
-	}
-	cfgB := &config.TTSConfig{
-		Provider:   TTSProviderMock,
-		AudioFiles: []string{"c.pcm"},
-	}
-
-	svcA1, err := registry.GetWithConfig(cfgA)
-	if err != nil {
-		t.Fatalf("GetWithConfig(cfgA) error = %v", err)
-	}
-	svcADup, err := registry.GetWithConfig(cfgADup)
-	if err != nil {
-		t.Fatalf("GetWithConfig(cfgADup) error = %v", err)
-	}
-	svcB, err := registry.GetWithConfig(cfgB)
-	if err != nil {
-		t.Fatalf("GetWithConfig(cfgB) error = %v", err)
-	}
-
-	// Same audio_files identity must reuse the same instance — otherwise
-	// MockTTSService.currentFileIndex would reset and rotation would break.
-	if svcA1 != svcADup {
-		t.Error("GetWithConfig should cache mock services by audio_files identity")
-	}
-	// Different audio_files must produce a separate instance.
-	if svcA1 == svcB {
-		t.Error("GetWithConfig should not share instances across different audio_files")
-	}
-}
-
 func TestTTSRegistry_Get_MockProvider(t *testing.T) {
 	registry := NewTTSRegistry()
 
@@ -304,6 +194,103 @@ func TestTTSRegistry_Get_MockProvider(t *testing.T) {
 	}
 	if svc.Name() != TTSProviderMock {
 		t.Errorf("Get(mock) returned service name %q, want %q", svc.Name(), TTSProviderMock)
+	}
+}
+
+func TestTTSRegistry_GetForProvider_Mock(t *testing.T) {
+	p := &config.Provider{
+		ID:         "mock-tts",
+		Type:       TTSProviderMock,
+		Capability: config.CapabilityTTS,
+		AudioFiles: []string{"a.pcm", "b.pcm"},
+	}
+	r := NewTTSRegistry()
+	svc, err := r.GetForProvider(p)
+	if err != nil {
+		t.Fatalf("GetForProvider: %v", err)
+	}
+	if svc.Name() != TTSProviderMock {
+		t.Fatalf("expected mock service, got %q", svc.Name())
+	}
+}
+
+func TestTTSRegistry_GetForProvider_RejectsLLMCapability(t *testing.T) {
+	p := &config.Provider{ID: "llm", Type: "openai", Capability: config.CapabilityLLM}
+	r := NewTTSRegistry()
+	if _, err := r.GetForProvider(p); err == nil {
+		t.Fatal("expected error: capability is llm, not tts")
+	}
+}
+
+func TestTTSRegistry_GetForProvider_NilProvider(t *testing.T) {
+	r := NewTTSRegistry()
+	if _, err := r.GetForProvider(nil); err == nil {
+		t.Fatal("expected error: nil provider")
+	}
+}
+
+func TestTTSRegistry_GetForProvider_ModelOverride(t *testing.T) {
+	// Pinning a model via Provider.Model should bypass the per-provider singleton
+	// cache and yield a service whose ModelName() reflects the override.
+	r := NewTTSRegistry()
+	t.Setenv(envOpenAIAPIKey, "test-key")
+
+	def, err := r.Get(TTSProviderOpenAI)
+	if err != nil {
+		t.Fatalf("Get default: %v", err)
+	}
+
+	override, err := r.GetForProvider(&config.Provider{
+		ID:         "openai-mini",
+		Type:       TTSProviderOpenAI,
+		Capability: config.CapabilityTTS,
+		Voice:      "alloy",
+		Model:      tts.ModelGPT4oMiniTTS,
+	})
+	if err != nil {
+		t.Fatalf("GetForProvider override: %v", err)
+	}
+
+	if def == override {
+		t.Error("model-pinned service should be a separate instance from the default-cached one")
+	}
+
+	modelExposer, ok := override.(interface{ ModelName() string })
+	if !ok {
+		t.Skip("override service does not expose ModelName(); skipping detailed check")
+	} else if got := modelExposer.ModelName(); got != tts.ModelGPT4oMiniTTS {
+		t.Errorf("override ModelName = %q, want %q", got, tts.ModelGPT4oMiniTTS)
+	}
+}
+
+func TestTTSRegistry_GetForProvider_MockWithFiles_CachesByFilesIdentity(t *testing.T) {
+	r := NewTTSRegistry()
+
+	pA := &config.Provider{Type: TTSProviderMock, Capability: config.CapabilityTTS,
+		AudioFiles: []string{"a.pcm", "b.pcm"}}
+	pADup := &config.Provider{Type: TTSProviderMock, Capability: config.CapabilityTTS,
+		AudioFiles: []string{"a.pcm", "b.pcm"}}
+	pB := &config.Provider{Type: TTSProviderMock, Capability: config.CapabilityTTS,
+		AudioFiles: []string{"c.pcm"}}
+
+	svcA, err := r.GetForProvider(pA)
+	if err != nil {
+		t.Fatalf("GetForProvider(pA): %v", err)
+	}
+	svcADup, err := r.GetForProvider(pADup)
+	if err != nil {
+		t.Fatalf("GetForProvider(pADup): %v", err)
+	}
+	svcB, err := r.GetForProvider(pB)
+	if err != nil {
+		t.Fatalf("GetForProvider(pB): %v", err)
+	}
+
+	if svcA != svcADup {
+		t.Error("same audio_files identity should return the same cached instance")
+	}
+	if svcA == svcB {
+		t.Error("different audio_files should produce separate instances")
 	}
 }
 

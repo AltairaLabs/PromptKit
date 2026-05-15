@@ -203,6 +203,8 @@ func LoadConfig(filename string) (*Config, error) {
 	cfg.LoadedEvals = make(map[string]*Eval, len(cfg.Evals))
 	cfg.LoadedTools = make([]ToolData, 0, len(cfg.Tools))
 	cfg.LoadedPersonas = make(map[string]*UserPersonaPack)
+	cfg.LoadedTTSProviders = make(map[string]*Provider, len(cfg.TTSProviders))
+	cfg.LoadedSTTProviders = make(map[string]*Provider, len(cfg.STTProviders))
 	cfg.ProviderGroups = make(map[string]string)
 	cfg.ProviderCapabilities = make(map[string][]string)
 
@@ -211,6 +213,15 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.mergeProviderSpecs(); err != nil {
+		return nil, err
+	}
+	if err := cfg.loadTTSProviders(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.loadSTTProviders(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.validateVoiceBindings(); err != nil {
 		return nil, err
 	}
 	if err := cfg.loadPromptConfigs(filename); err != nil {
@@ -223,6 +234,12 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.mergeScenarioSpecs(); err != nil {
+		return nil, err
+	}
+	// Validate that every scenario's voice (when set) resolves to an arena
+	// voice binding. Voice bindings were already validated above, so
+	// ResolveVoice will work correctly for valid scenario voices.
+	if err := cfg.validateScenarioVoices(); err != nil {
 		return nil, err
 	}
 	if err := cfg.loadEvals(filename); err != nil {
@@ -244,6 +261,12 @@ func LoadConfig(filename string) (*Config, error) {
 	// Load self-play resources if enabled
 	if cfg.SelfPlay != nil && cfg.SelfPlay.IsEnabled() {
 		if err := cfg.loadSelfPlayResources(filename); err != nil {
+			return nil, err
+		}
+		// Validate that every persona's voice (when set) resolves to an arena
+		// voice binding. Voice bindings were already validated above, so
+		// ResolveVoice will work correctly for valid persona voices.
+		if err := cfg.validatePersonaVoices(); err != nil {
 			return nil, err
 		}
 	}
@@ -443,6 +466,14 @@ func (c *Config) loadProviders(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to load provider %s: %w", ref.File, err)
 		}
+		if err := provider.ValidateCapability(); err != nil {
+			return fmt.Errorf("provider %s: %w", provider.ID, err)
+		}
+		if provCap := provider.GetCapability(); provCap != CapabilityLLM {
+			return fmt.Errorf("providers[%s]: capability must be %q (or empty), got %q; "+
+				"TTS providers belong under tts_providers, STT under stt_providers",
+				ref.File, CapabilityLLM, provCap)
+		}
 		c.LoadedProviders[provider.ID] = provider
 		group := ref.Group
 		if group == "" {
@@ -452,6 +483,97 @@ func (c *Config) loadProviders(configPath string) error {
 		// Populate provider capabilities from the provider spec
 		if len(provider.Capabilities) > 0 {
 			c.ProviderCapabilities[provider.ID] = provider.Capabilities
+		}
+	}
+	return nil
+}
+
+// loadTTSProviders loads all referenced TTS providers and validates that each
+// declares capability: tts.
+func (c *Config) loadTTSProviders(configPath string) error {
+	for _, ref := range c.TTSProviders {
+		fullPath := ResolveFilePath(configPath, ref.File)
+		provider, err := LoadProvider(fullPath)
+		if err != nil {
+			return fmt.Errorf("loading tts_providers[%s]: %w", ref.File, err)
+		}
+		if err := provider.ValidateCapability(); err != nil {
+			return fmt.Errorf("tts_providers[%s]: %w", ref.File, err)
+		}
+		if provider.GetCapability() != CapabilityTTS {
+			return fmt.Errorf("tts_providers[%s]: capability must be %q, got %q",
+				ref.File, CapabilityTTS, provider.GetCapability())
+		}
+		c.LoadedTTSProviders[provider.ID] = provider
+	}
+	return nil
+}
+
+// loadSTTProviders loads all referenced STT providers and validates that each
+// declares capability: stt.
+func (c *Config) loadSTTProviders(configPath string) error {
+	for _, ref := range c.STTProviders {
+		fullPath := ResolveFilePath(configPath, ref.File)
+		provider, err := LoadProvider(fullPath)
+		if err != nil {
+			return fmt.Errorf("loading stt_providers[%s]: %w", ref.File, err)
+		}
+		if err := provider.ValidateCapability(); err != nil {
+			return fmt.Errorf("stt_providers[%s]: %w", ref.File, err)
+		}
+		if provider.GetCapability() != CapabilitySTT {
+			return fmt.Errorf("stt_providers[%s]: capability must be %q, got %q",
+				ref.File, CapabilitySTT, provider.GetCapability())
+		}
+		c.LoadedSTTProviders[provider.ID] = provider
+	}
+	return nil
+}
+
+// validateVoiceBindings checks that every entry in spec.voices references a
+// provider id that was loaded into LoadedTTSProviders.
+func (c *Config) validateVoiceBindings() error {
+	for i := range c.Voices {
+		binding := &c.Voices[i]
+		if binding.ID == "" {
+			return fmt.Errorf("voices[%d]: id is required", i)
+		}
+		if binding.Provider == "" {
+			return fmt.Errorf("voices[%s]: provider is required", binding.ID)
+		}
+		if _, ok := c.LoadedTTSProviders[binding.Provider]; !ok {
+			return fmt.Errorf("voices[%s]: provider id %q not found in tts_providers",
+				binding.ID, binding.Provider)
+		}
+	}
+	return nil
+}
+
+// validateScenarioVoices checks that every scenario's voice (when set) resolves
+// to a valid arena voice binding. Scenarios without a voice field are allowed —
+// they use persona-driven voices (selfplay) resolved via the arena voice catalog.
+func (c *Config) validateScenarioVoices() error {
+	for name, scenario := range c.LoadedScenarios {
+		if scenario.Voice == "" {
+			continue
+		}
+		if _, err := c.ResolveVoice(scenario.Voice); err != nil {
+			return fmt.Errorf("scenario %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// validatePersonaVoices checks that every persona's voice (when set) resolves
+// to a valid arena voice binding. Personas without a voice field are allowed
+// (used by text-only scenarios).
+func (c *Config) validatePersonaVoices() error {
+	for name, persona := range c.LoadedPersonas {
+		if persona.Voice == "" {
+			continue
+		}
+		if _, err := c.ResolveVoice(persona.Voice); err != nil {
+			return fmt.Errorf("persona %s: %w", name, err)
 		}
 	}
 	return nil

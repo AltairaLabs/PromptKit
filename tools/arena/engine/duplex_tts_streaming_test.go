@@ -58,9 +58,15 @@ func TestTurnAudioMirror_WriteAfterFinalizeIsNoop(t *testing.T) {
 	assert.NoError(t, m.write([]byte("late")))
 }
 
-func TestOpenTextSynthesisStream_RegistryErrorPropagates(t *testing.T) {
-	// Empty registry → GetTextSynthesisGenerator returns an error
-	// because no providers are registered for "missing".
+func TestOpenTextSynthesisStream_HappyPath(t *testing.T) {
+	// A provider with Type=mock and Capability=tts — GetForProvider will
+	// return the default MockTTSService (no audio files → empty stream).
+	p := &config.Provider{
+		ID:         "mock-tts",
+		Type:       "mock",
+		Capability: config.CapabilityTTS,
+		Voice:      "v1",
+	}
 	reg := selfplay.NewRegistryWithTTS(
 		nil,
 		map[string]string{},
@@ -70,11 +76,31 @@ func TestOpenTextSynthesisStream_RegistryErrorPropagates(t *testing.T) {
 	)
 	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
 
-	_, err := de.openTextSynthesisStream(
-		context.Background(),
-		"hello",
-		&config.TTSConfig{Provider: "missing", Voice: "v1"},
+	result, err := de.openTextSynthesisStream(context.Background(), "hello", p)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Reader)
+	result.Reader.Close()
+}
+
+func TestOpenTextSynthesisStream_WrongCapabilityErrors(t *testing.T) {
+	// A provider with non-TTS capability should be rejected by GetForProvider.
+	p := &config.Provider{
+		ID:         "llm-provider",
+		Type:       "openai",
+		Capability: config.CapabilityLLM,
+		Voice:      "v1",
+	}
+	reg := selfplay.NewRegistryWithTTS(
+		nil,
+		map[string]string{},
+		map[string]*config.UserPersonaPack{},
+		[]config.SelfPlayRoleGroup{},
+		selfplay.NewTTSRegistry(),
 	)
+	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
+
+	_, err := de.openTextSynthesisStream(context.Background(), "hello", p)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "get audio generator")
+	assert.Contains(t, err.Error(), "get TTS service for provider")
 }

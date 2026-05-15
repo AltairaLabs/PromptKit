@@ -112,6 +112,26 @@
         "model": {
           "type": "string"
         },
+        "voice": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "integer"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "capability": {
+          "type": "string",
+          "enum": [
+            "llm",
+            "tts",
+            "stt"
+          ]
+        },
         "base_url": {
           "type": "string"
         },
@@ -176,8 +196,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "type",
-        "model"
+        "type"
       ]
     },
     "ProviderDefaults": {

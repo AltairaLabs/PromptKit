@@ -273,13 +273,11 @@ spec:
           params:
             pattern: "(?i)(help|assist)"
 
-    # Self-play: LLM generates questions, TTS converts to audio
+    # Self-play: LLM generates questions, TTS converts to audio.
+    # Voice is resolved from the persona via the arena voice catalog.
     - role: selfplay-user
       persona: curious-customer
       turns: 3  # Generate 3 follow-up turns
-      tts:
-        provider: openai
-        voice: alloy
       assertions:
         - type: content_matches
           params:
@@ -290,7 +288,7 @@ spec:
     user_type: "potential customer"
 ```
 
-Create the persona:
+Create the persona and assign a voice from the catalog:
 
 ```yaml
 # prompts/personas/curious-customer.persona.yaml
@@ -301,6 +299,7 @@ metadata:
 
 spec:
   id: curious-customer
+  voice: alloy   # references the voice catalog id in config.arena.yaml
   description: "A curious customer asking follow-up questions"
 
   system_prompt: |
@@ -309,20 +308,33 @@ spec:
     Keep questions brief and conversational.
 ```
 
-Configure the TTS provider:
+Declare the TTS provider and voice in the arena config:
 
 ```yaml
-# providers/openai-tts.provider.yaml
+# config.arena.yaml (additions)
+spec:
+  tts_providers:
+    - file: providers/openai-alloy.provider.yaml
+    - file: providers/mock-tts.provider.yaml  # for CI / keyless runs
+
+  voices:
+    # Real TTS (requires OPENAI_API_KEY). For CI: change provider to mock-tts.
+    - id: alloy
+      provider: openai-alloy
+```
+
+```yaml
+# providers/openai-alloy.provider.yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: openai-tts
-
+  name: openai-alloy
 spec:
-  id: openai
+  id: openai-alloy
   type: openai
-  api_key_env: OPENAI_API_KEY
-  model: gpt-4o-mini
+  capability: tts
+  voice: alloy
+  sample_rate: 24000
 ```
 
 Run the self-play test:

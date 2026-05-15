@@ -6,6 +6,7 @@ metadata:
 
 spec:
   id: aggressive-entitled
+  voice: confident-man
   description: "Angry customer who shifts manipulation tactics across the call"
 
   system_template: |

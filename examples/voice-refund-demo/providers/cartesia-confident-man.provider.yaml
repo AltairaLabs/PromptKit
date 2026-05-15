@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: cartesia-confident-man
+spec:
+  id: cartesia-confident-man
+  type: cartesia
+  capability: tts
+  voice: bf991597-6c13-47e4-8411-91ec2de5c466
+  sample_rate: 24000

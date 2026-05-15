@@ -38,14 +38,6 @@ spec:
     - role: selfplay-user
       persona: impersonator
       turns: 4
-      tts:
-        # Cartesia: sub-second TTFB (won't blow the 30s HTTP timeout) AND the
-        # markup parser ports the impersonator persona's contrast tags into
-        # Cartesia's emotion-array characterization. Voice: Friendly Woman
-        # (documented in runtime/tts/cartesia.go).
-        provider: cartesia
-        voice: 9121c0ae-12a6-4012-8158-6e4a72e6da91
-        sample_rate: 24000
       assertions:
         - type: content_matches
           params:

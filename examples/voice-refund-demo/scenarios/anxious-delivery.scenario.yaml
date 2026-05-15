@@ -41,18 +41,6 @@ spec:
     - role: selfplay-user
       persona: anxious-recipient
       turns: 4
-      tts:
-        # ElevenLabs eleven_v3 unlocks inline characterization tags
-        # (RubricExpressiveFull) — the persona LLM can use [whispers],
-        # [sighs], [shouts], etc. Arnold (American, deep, professional)
-        # was picked via TestElevenLabsLive_ExpressiveTagsProbe: 1.5x
-        # whisper→shout dynamic range with a grounded delivery — none
-        # of the cartoon overshoot we got from Elli, none of the
-        # narrow-range monotone from Josh / Sam.
-        provider: elevenlabs
-        model: eleven_v3
-        voice: VR6AewLTigWG4xSOukaG
-        sample_rate: 24000
       assertions:
         - type: content_matches
           params:

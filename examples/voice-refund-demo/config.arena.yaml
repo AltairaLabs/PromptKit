@@ -21,6 +21,25 @@ spec:
     - file: providers/mock-duplex.provider.yaml
     - file: providers/openai-gpt4o-mini-text.provider.yaml
 
+  tts_providers:
+    - file: providers/cartesia-confident-man.provider.yaml
+    - file: providers/cartesia-friendly-woman.provider.yaml
+    - file: providers/elevenlabs-arnold.provider.yaml
+    - file: providers/openai-nova.provider.yaml
+    - file: providers/mock-tts.provider.yaml
+
+  voices:
+    # For real-provider recording mode: each id binds to a vendor TTS provider.
+    # For keyless CI: re-point all four `provider:` lines below to `mock-tts`.
+    - id: confident-man
+      provider: cartesia-confident-man
+    - id: friendly-woman
+      provider: cartesia-friendly-woman
+    - id: arnold-expressive
+      provider: elevenlabs-arnold
+    - id: nova
+      provider: openai-nova
+
   scenarios:
     - file: scenarios/aggressive-refund.scenario.yaml
     - file: scenarios/impersonator-refund.scenario.yaml

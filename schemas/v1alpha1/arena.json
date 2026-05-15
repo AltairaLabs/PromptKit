@@ -465,6 +465,24 @@
             "$ref": "#/$defs/Spec"
           },
           "type": "object"
+        },
+        "tts_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "stt_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "voices": {
+          "items": {
+            "$ref": "#/$defs/VoiceBinding"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -579,9 +597,6 @@
         },
         "monitor": {
           "$ref": "#/$defs/MonitorSection"
-        },
-        "tts": {
-          "$ref": "#/$defs/TTSConfig"
         },
         "html_report": {
           "type": "string"
@@ -1707,6 +1722,26 @@
         "model": {
           "type": "string"
         },
+        "voice": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "integer"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "capability": {
+          "type": "string",
+          "enum": [
+            "llm",
+            "tts",
+            "stt"
+          ]
+        },
         "base_url": {
           "type": "string"
         },
@@ -1771,8 +1806,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "type",
-        "model"
+        "type"
       ]
     },
     "ProviderDefaults": {
@@ -2055,8 +2089,8 @@
         "duplex": {
           "$ref": "#/$defs/DuplexConfig"
         },
-        "tts": {
-          "$ref": "#/$defs/TTSConfig"
+        "voice": {
+          "type": "string"
         },
         "variables": {
           "additionalProperties": {
@@ -2321,34 +2355,6 @@
       "additionalProperties": false,
       "type": "object"
     },
-    "TTSConfig": {
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "voice": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        },
-        "audio_files": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "sample_rate": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "provider",
-        "voice"
-      ]
-    },
     "TemplateEngineInfo": {
       "properties": {
         "version": {
@@ -2583,9 +2589,6 @@
         "seed": {
           "type": "integer"
         },
-        "tts": {
-          "$ref": "#/$defs/TTSConfig"
-        },
         "streaming": {
           "type": "boolean"
         },
@@ -2711,6 +2714,9 @@
         },
         "style": {
           "$ref": "#/$defs/PersonaStyle"
+        },
+        "voice": {
+          "type": "string"
         },
         "defaults": {
           "$ref": "#/$defs/PersonaDefaults"
@@ -2850,6 +2856,22 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "VoiceBinding": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "provider"
+      ]
     }
   },
   "properties": {

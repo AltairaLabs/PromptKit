@@ -11,6 +11,7 @@ metadata:
 
 spec:
   id: busy-professional
+  voice: alloy-expressive
   description: "A busy professional checking weather, schedule, and setting reminders"
 
   # System prompt for generating user messages

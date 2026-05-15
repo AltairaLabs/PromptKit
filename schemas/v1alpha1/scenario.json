@@ -300,8 +300,8 @@
         "duplex": {
           "$ref": "#/$defs/DuplexConfig"
         },
-        "tts": {
-          "$ref": "#/$defs/TTSConfig"
+        "voice": {
+          "type": "string"
         },
         "variables": {
           "additionalProperties": {
@@ -346,34 +346,6 @@
       "type": "object",
       "required": [
         "content"
-      ]
-    },
-    "TTSConfig": {
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "voice": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        },
-        "audio_files": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "sample_rate": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "provider",
-        "voice"
       ]
     },
     "ToolPolicy": {
@@ -451,9 +423,6 @@
         },
         "seed": {
           "type": "integer"
-        },
-        "tts": {
-          "$ref": "#/$defs/TTSConfig"
         },
         "streaming": {
           "type": "boolean"

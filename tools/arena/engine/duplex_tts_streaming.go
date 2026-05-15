@@ -10,25 +10,24 @@ import (
 	"github.com/AltairaLabs/PromptKit/tools/arena/selfplay"
 )
 
-// openTextSynthesisStream returns the TTS stream for pre-known text via
-// the selfplay AudioGenerator interface — the same one used for
-// persona-driven selfplay turns. For scripted text the executor goes
-// through Registry.GetTextSynthesisGenerator (no LLM involved) and
-// calls SynthesizeTextStream on the resulting generator.
+// openTextSynthesisStream returns the TTS stream for pre-known text using the
+// arena voice catalog (capability=tts provider yaml). It looks up the TTS
+// service from the registry's TTSRegistry using the loaded provider config and
+// calls SynthesizeTextStream on an AudioContentGenerator backed by that service.
 //
-// Single seam: any time the arena needs TTS audio for a turn — whether
-// the text came from a persona LLM or a scenario YAML — it goes
-// through one of these two registry methods. No direct access to
-// ttsRegistry.
+// Single seam: any time the arena needs TTS audio for a scripted-text turn —
+// where the text came from the scenario YAML rather than a persona LLM — it
+// goes through this function. No direct access to ttsRegistry.
 func (de *DuplexConversationExecutor) openTextSynthesisStream(
 	ctx context.Context,
 	text string,
-	ttsConfig *config.TTSConfig,
+	ttsProvider *config.Provider,
 ) (*selfplay.AudioStreamResult, error) {
-	gen, err := de.selfPlayRegistry.GetTextSynthesisGenerator(ttsConfig)
+	ttsService, err := de.selfPlayRegistry.GetTTSRegistry().GetForProvider(ttsProvider)
 	if err != nil {
-		return nil, fmt.Errorf("get audio generator: %w", err)
+		return nil, fmt.Errorf("get TTS service for provider %s: %w", ttsProvider.ID, err)
 	}
+	gen := selfplay.NewAudioContentGenerator(nil, ttsService, ttsProvider)
 	return gen.SynthesizeTextStream(ctx, text)
 }
 

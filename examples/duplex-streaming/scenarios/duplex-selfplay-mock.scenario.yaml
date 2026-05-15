@@ -54,14 +54,6 @@ spec:
     - role: selfplay-user
       persona: curious-customer
       turns: 2
-      tts:
-        provider: mock
-        voice: mock-alloy
-        audio_files:
-          - audio/greeting.pcm
-          - audio/question.pcm
-          - audio/funfact.pcm
-        sample_rate: 16000  # Match the actual PCM file rate (no resampling needed)
       assertions:
         - type: content_matches
           params:

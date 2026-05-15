@@ -42,10 +42,15 @@ type UserPersonaPack struct {
 	// LEGACY: Backward compatibility
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"` // Plain text system prompt (no variables)
 
-	Goals       []string        `json:"goals" yaml:"goals"`
-	Constraints []string        `json:"constraints" yaml:"constraints"`
-	Style       PersonaStyle    `json:"style,omitempty" yaml:"style,omitempty"`
-	Defaults    PersonaDefaults `json:"defaults,omitempty" yaml:"defaults,omitempty"`
+	Goals       []string     `json:"goals" yaml:"goals"`
+	Constraints []string     `json:"constraints" yaml:"constraints"`
+	Style       PersonaStyle `json:"style,omitempty" yaml:"style,omitempty"`
+	// Voice references an arena-level voice id (see Config.Voices). When
+	// set, selfplay synthesis routes this persona's text through the bound
+	// TTS provider. Empty means the arena falls back to its default voice
+	// or fails fast if no default is configured.
+	Voice    string          `json:"voice,omitempty" yaml:"voice,omitempty"`
+	Defaults PersonaDefaults `json:"defaults,omitempty" yaml:"defaults,omitempty"`
 }
 
 // FragmentRef references a reusable prompt fragment

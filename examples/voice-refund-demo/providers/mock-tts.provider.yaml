@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-tts
+spec:
+  id: mock-tts
+  type: mock
+  capability: tts
+  audio_files:
+    - audio/greeting.pcm
+    - audio/question.pcm
+    - audio/funfact.pcm
+  sample_rate: 24000

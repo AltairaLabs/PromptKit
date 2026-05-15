@@ -128,9 +128,26 @@ type Config struct {
 	// ProviderCapabilities maps provider ID to its capabilities (populated during load)
 	ProviderCapabilities map[string][]string `yaml:"-" json:"provider_capabilities,omitempty"`
 
+	// TTSProviders lists provider files where Spec.Capability == "tts".
+	// Loaded but NOT included in the agent-under-test matrix.
+	TTSProviders []ProviderRef `yaml:"tts_providers,omitempty" json:"tts_providers,omitempty"`
+
+	// STTProviders lists provider files where Spec.Capability == "stt".
+	// Same matrix-exclusion as TTSProviders. No STT consumers exist yet;
+	// the field is present so STT can land later without a schema change.
+	STTProviders []ProviderRef `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty"`
+
+	// Voices binds voice IDs to loaded TTS provider IDs. Personas reference
+	// voice IDs (not provider IDs) so the same persona can run against a
+	// real Cartesia voice in recording mode and a mock TTS provider in CI
+	// just by editing this list.
+	Voices []VoiceBinding `yaml:"voices,omitempty" json:"voices,omitempty"`
+
 	// Loaded resources (populated by LoadConfig, included in JSON for adapter consumption)
 	LoadedPromptConfigs map[string]*PromptConfigData `yaml:"-" json:"loaded_prompt_configs,omitempty"`
 	LoadedProviders     map[string]*Provider         `yaml:"-" json:"loaded_providers,omitempty"`
+	LoadedTTSProviders  map[string]*Provider         `yaml:"-" json:"loaded_tts_providers,omitempty"`
+	LoadedSTTProviders  map[string]*Provider         `yaml:"-" json:"loaded_stt_providers,omitempty"`
 	LoadedJudges        map[string]*JudgeTarget      `yaml:"-" json:"loaded_judges,omitempty"`
 	LoadedScenarios     map[string]*Scenario         `yaml:"-" json:"loaded_scenarios,omitempty"`
 	LoadedEvals         map[string]*Eval             `yaml:"-" json:"loaded_evals,omitempty"`
@@ -445,11 +462,6 @@ type Defaults struct {
 	// Monitor groups runtime-monitor configuration (audio, future surfaces).
 	Monitor *MonitorSection `yaml:"monitor,omitempty" json:"monitor,omitempty"`
 
-	// TTS configures arena-wide default text-to-speech settings used to convert
-	// scripted-text user turns into audio in duplex scenarios. Per-turn and
-	// per-scenario TTS configs take precedence over this default.
-	TTS *TTSConfig `yaml:"tts,omitempty" json:"tts,omitempty"`
-
 	// Deprecated fields for backward compatibility (will be removed)
 	HTMLReport     string          `yaml:"html_report,omitempty" json:"html_report,omitempty"`
 	OutDir         string          `yaml:"out_dir,omitempty" json:"out_dir,omitempty"`
@@ -673,11 +685,13 @@ type Scenario struct {
 	// Duplex enables bidirectional streaming mode for voice/audio scenarios.
 	Duplex *DuplexConfig `json:"duplex,omitempty" yaml:"duplex,omitempty"`
 
-	// TTS configures the scenario-level default text-to-speech settings used to
-	// convert scripted-text user turns into audio in duplex scenarios. A
-	// per-turn TTS config takes precedence over this; arena defaults fill in
-	// when both this and per-turn TTS are absent.
-	TTS *TTSConfig `json:"tts,omitempty" yaml:"tts,omitempty"`
+	// Voice references an arena-level voice id (see Config.Voices) used to
+	// synthesize this scenario's scripted-text user turns. The duplex executor
+	// resolves the voice via Config.ResolveVoice.
+	//
+	// For selfplay scenarios (turns with role: selfplay-user) the persona owns
+	// voice choice; Scenario.Voice is ignored.
+	Voice string `yaml:"voice,omitempty" json:"voice,omitempty"`
 
 	// Variables are injected into the pack's template variables.
 	Variables map[string]string `json:"variables,omitempty" yaml:"variables,omitempty" jsonschema:"description=Template variables to inject into the pack"` //nolint:lll
@@ -732,22 +746,6 @@ func (s *Scenario) Validate() error {
 	if s.ContextPolicy != nil && s.ContextPolicy.Relevance != nil {
 		if err := s.ContextPolicy.Relevance.Validate(); err != nil {
 			return fmt.Errorf("scenario %s context policy: %w", s.ID, err)
-		}
-	}
-
-	// Validate scenario-level TTS config if present
-	if s.TTS != nil {
-		if err := s.TTS.Validate(); err != nil {
-			return fmt.Errorf("scenario %s tts: %w", s.ID, err)
-		}
-	}
-
-	// Validate TTS configs in turns
-	for i := range s.Turns {
-		if s.Turns[i].TTS != nil {
-			if err := s.Turns[i].TTS.Validate(); err != nil {
-				return fmt.Errorf("scenario %s turn %d: %w", s.ID, i, err)
-			}
 		}
 	}
 
@@ -907,30 +905,6 @@ type VADConfig struct {
 	MaxTurnDurationS int `json:"max_turn_duration_s,omitempty" yaml:"max_turn_duration_s,omitempty"`
 }
 
-// TTSConfig configures text-to-speech for self-play audio generation in duplex mode.
-type TTSConfig struct {
-	// Provider is the TTS provider (e.g., "openai", "elevenlabs", "cartesia", "mock").
-	Provider string `json:"provider" yaml:"provider"`
-	// Voice is the voice ID to use for synthesis.
-	Voice string `json:"voice" yaml:"voice"`
-	// Model overrides the provider's default TTS model. Examples:
-	//   openai: "tts-1", "tts-1-hd", "gpt-4o-mini-tts"
-	//   elevenlabs: "eleven_v3", "eleven_multilingual_v2", "eleven_turbo_v2_5"
-	//   cartesia: "sonic-3"
-	// When empty, each provider's adapter falls back to its own default.
-	// Picking gpt-4o-mini-tts / eleven_v3 also unlocks the persona
-	// characterization rubric (see PersonaStyle.Expressive).
-	Model string `json:"model,omitempty" yaml:"model,omitempty"`
-	// AudioFiles is a list of PCM audio files to use for mock TTS provider.
-	// When provider is "mock", these files are loaded and rotated through for each synthesis call.
-	// Paths are relative to the scenario file location.
-	AudioFiles []string `json:"audio_files,omitempty" yaml:"audio_files,omitempty"`
-	// SampleRate is the sample rate of the TTS output in Hz.
-	// Default is 24000 for most TTS providers. For mock provider with pre-recorded files,
-	// set this to match the actual file sample rate (e.g., 16000 for 16kHz PCM files).
-	SampleRate int `json:"sample_rate,omitempty" yaml:"sample_rate,omitempty"`
-}
-
 // Validate validates the DuplexConfig settings.
 func (d *DuplexConfig) Validate() error {
 	if d == nil {
@@ -1047,23 +1021,6 @@ func (v *VADConfig) Validate() error {
 	return nil
 }
 
-// Validate validates the TTSConfig settings.
-func (t *TTSConfig) Validate() error {
-	if t == nil {
-		return nil
-	}
-
-	if t.Provider == "" {
-		return fmt.Errorf("tts provider is required")
-	}
-	// Voice is optional for mock provider when audio_files are specified
-	if t.Voice == "" && t.Provider != "mock" {
-		return fmt.Errorf("tts voice is required")
-	}
-
-	return nil
-}
-
 // TurnDefinition represents a single conversation turn definition
 type TurnDefinition struct {
 	Role    string `json:"role" yaml:"role"` // "user", "assistant", or provider selector like "claude-user" (only for self-play turns)
@@ -1082,10 +1039,6 @@ type TurnDefinition struct {
 	AssistantTemp float32 `json:"assistant_temp,omitempty" yaml:"assistant_temp,omitempty"` // Override assistant temperature
 	UserTemp      float32 `json:"user_temp,omitempty" yaml:"user_temp,omitempty"`           // Override user temperature
 	Seed          int     `json:"seed,omitempty" yaml:"seed,omitempty"`                     // Override seed
-
-	// TTS configures text-to-speech for self-play audio generation in duplex mode.
-	// When set, self-play generates audio responses instead of text.
-	TTS *TTSConfig `json:"tts,omitempty" yaml:"tts,omitempty"`
 
 	// Streaming control - if nil, uses scenario-level streaming setting
 	Streaming *bool `json:"streaming,omitempty" yaml:"streaming,omitempty"` // Override streaming for this turn
@@ -1162,10 +1115,30 @@ type ProviderConfigK8s struct {
 
 // Provider defines API connection and defaults
 type Provider struct {
-	ID      string `json:"id,omitempty" yaml:"id,omitempty"`
-	Type    string `json:"type" yaml:"type"`
-	Model   string `json:"model" yaml:"model"`
-	BaseURL string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+	ID    string `json:"id,omitempty" yaml:"id,omitempty"`
+	Type  string `json:"type" yaml:"type"`
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
+	// Voice is the vendor-specific voice identifier used when Capability is
+	// "tts". For Cartesia it's the voice UUID; for ElevenLabs the voice ID;
+	// for OpenAI the voice name (alloy, nova, etc.). Ignored for LLM/STT
+	// providers.
+	Voice string `json:"voice,omitempty" yaml:"voice,omitempty"`
+	// SampleRate is the audio sample rate in Hz for TTS providers. Common
+	// values: 16000 (telephony), 24000 (default for most TTS vendors),
+	// 48000 (high quality). Ignored for non-TTS providers.
+	SampleRate int `json:"sample_rate,omitempty" yaml:"sample_rate,omitempty"`
+	// AudioFiles is the list of PCM fixtures used by the mock TTS provider
+	// (capability=tts, type=mock). The mock service rotates through these
+	// files on each Synthesize() call. Paths are relative to the arena
+	// config directory. Ignored when type != "mock" or capability != "tts".
+	AudioFiles []string `json:"audio_files,omitempty" yaml:"audio_files,omitempty"`
+	// Capability tags the role this provider fills in the arena. One of "llm"
+	// (default), "tts", or "stt". The arena uses this to route the provider
+	// to the correct registry and to skip non-llm providers when building the
+	// agent-under-test matrix. Note: distinct from the older Capabilities
+	// field which lists per-model feature flags (vision, tools, etc.).
+	Capability string `json:"capability,omitempty" yaml:"capability,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt"`
+	BaseURL    string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	// Headers specifies custom HTTP headers to include in every request to
 	// this provider. Useful for OpenAI-compatible gateways (OpenRouter,
 	// LiteLLM, etc.) that require app attribution or custom auth headers.

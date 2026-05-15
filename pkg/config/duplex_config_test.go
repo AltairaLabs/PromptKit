@@ -190,60 +190,6 @@ func TestDuplexConfig_GetTimeoutDuration(t *testing.T) {
 	}
 }
 
-func TestTTSConfig_Validate(t *testing.T) {
-	tests := []struct {
-		name    string
-		config  *TTSConfig
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name:    "nil config is valid",
-			config:  nil,
-			wantErr: false,
-		},
-		{
-			name: "valid config",
-			config: &TTSConfig{
-				Provider: "openai",
-				Voice:    "nova",
-			},
-			wantErr: false,
-		},
-		{
-			name: "missing provider",
-			config: &TTSConfig{
-				Voice: "nova",
-			},
-			wantErr: true,
-			errMsg:  "tts provider is required",
-		},
-		{
-			name: "missing voice",
-			config: &TTSConfig{
-				Provider: "openai",
-			},
-			wantErr: true,
-			errMsg:  "tts voice is required",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("Validate() expected error containing %q, got nil", tt.errMsg)
-				} else if tt.errMsg != "" && !containsStr(err.Error(), tt.errMsg) {
-					t.Errorf("Validate() error = %v, want error containing %q", err, tt.errMsg)
-				}
-			} else if err != nil {
-				t.Errorf("Validate() unexpected error = %v", err)
-			}
-		})
-	}
-}
-
 func TestScenario_DuplexParsing(t *testing.T) {
 	yamlContent := `
 id: voice-interview-test
@@ -309,52 +255,6 @@ turns:
 	}
 }
 
-func TestTurnDefinition_TTSParsing(t *testing.T) {
-	yamlContent := `
-id: selfplay-voice-test
-task_type: interviewer
-description: "Self-play voice interview"
-duplex:
-  timeout: "15m"
-  turn_detection:
-    mode: vad
-turns:
-  - role: gemini-user
-    persona: senior-engineer
-    turns: 5
-    tts:
-      provider: openai
-      voice: nova
-`
-
-	var scenario Scenario
-	err := yaml.Unmarshal([]byte(yamlContent), &scenario)
-	if err != nil {
-		t.Fatalf("Failed to parse scenario: %v", err)
-	}
-
-	if len(scenario.Turns) != 1 {
-		t.Fatalf("Expected 1 turn, got %d", len(scenario.Turns))
-	}
-
-	turn := scenario.Turns[0]
-	if turn.TTS == nil {
-		t.Fatal("Expected TTS config to be parsed")
-	}
-
-	if turn.TTS.Provider != "openai" {
-		t.Errorf("Expected provider 'openai', got %q", turn.TTS.Provider)
-	}
-	if turn.TTS.Voice != "nova" {
-		t.Errorf("Expected voice 'nova', got %q", turn.TTS.Voice)
-	}
-
-	// Validate the TTS config
-	if err := turn.TTS.Validate(); err != nil {
-		t.Errorf("Parsed TTS config validation failed: %v", err)
-	}
-}
-
 func TestScenario_BackwardCompatibility(t *testing.T) {
 	// Ensure scenarios without duplex config still parse correctly
 	yamlContent := `
@@ -380,9 +280,6 @@ turns:
 		t.Errorf("Expected 1 turn, got %d", len(scenario.Turns))
 	}
 
-	if scenario.Turns[0].TTS != nil {
-		t.Error("Expected TTS to be nil for standard turn")
-	}
 }
 
 func TestDuplexConfig_GetResilience(t *testing.T) {
@@ -887,39 +784,6 @@ func TestScenario_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "silence_threshold_ms must be non-negative",
-		},
-		{
-			name: "scenario with invalid TTS config in turn",
-			config: &Scenario{
-				ID: "test-scenario",
-				Turns: []TurnDefinition{
-					{
-						Role: "user",
-						TTS: &TTSConfig{
-							// Provider is required
-							Voice: "alloy",
-						},
-					},
-				},
-			},
-			wantErr: true,
-			errMsg:  "tts provider is required",
-		},
-		{
-			name: "scenario with valid TTS config in turn",
-			config: &Scenario{
-				ID: "test-scenario",
-				Turns: []TurnDefinition{
-					{
-						Role: "user",
-						TTS: &TTSConfig{
-							Provider: "openai",
-							Voice:    "alloy",
-						},
-					},
-				},
-			},
-			wantErr: false,
 		},
 	}
 

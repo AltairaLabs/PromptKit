@@ -6,6 +6,7 @@ metadata:
 
 spec:
   id: patient-customer
+  voice: nova
   description: "A genuine customer with a legitimate refund request — control case for the demo"
 
   system_template: |

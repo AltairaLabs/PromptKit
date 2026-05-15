@@ -6,6 +6,7 @@ metadata:
 
 spec:
   id: impersonator
+  voice: friendly-woman
   description: "A caller claiming an order ID that doesn't exist, attempting to extract a refund"
 
   system_template: |

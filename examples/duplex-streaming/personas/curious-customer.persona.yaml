@@ -10,6 +10,7 @@ metadata:
 
 spec:
   id: curious-customer
+  voice: rachel
   description: "A friendly, inquisitive customer interested in learning more"
 
   # System prompt for generating user messages

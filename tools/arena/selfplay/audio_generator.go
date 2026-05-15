@@ -73,28 +73,28 @@ type AudioStreamResult struct {
 
 // AudioContentGenerator wraps a ContentGenerator and adds TTS synthesis.
 //
-// textGenerator may be nil when constructed via GetTextSynthesisGenerator
-// (scripted-text turns where no LLM is involved). In that case
-// NextUserTurnAudioStream returns an error; SynthesizeTextStream still
-// works.
+// textGenerator may be nil when constructed for scripted-text turns where no
+// LLM is involved. In that case NextUserTurnAudioStream returns an error;
+// SynthesizeTextStream still works.
 type AudioContentGenerator struct {
 	textGenerator *ContentGenerator
 	ttsService    base.TTSProvider
-	ttsConfig     *config.TTSConfig
+	ttsProvider   *config.Provider
 }
 
-// NewAudioContentGenerator creates a new audio content generator.
+// NewAudioContentGenerator creates a new audio content generator backed by a
+// loaded TTS provider config (capability=tts).
 // textGenerator may be nil for TTS-only generators.
 //
 // When the TTS service exposes a PersonaRubric (see [tts.PersonaRubricProvider]),
 // it is forwarded to the underlying text generator so that personas opting in
 // via style.expressive get a provider-tuned rubric prepended to their system
-// prompt (issue #1130). Providers that do not implement the interface, or
-// implement it and return the empty string, are no-ops.
+// prompt. Providers that do not implement the interface, or implement it and
+// return the empty string, are no-ops.
 func NewAudioContentGenerator(
 	textGenerator *ContentGenerator,
 	ttsService base.TTSProvider,
-	ttsConfig *config.TTSConfig,
+	ttsProvider *config.Provider,
 ) *AudioContentGenerator {
 	if textGenerator != nil {
 		if rp, ok := ttsService.(tts.PersonaRubricProvider); ok {
@@ -104,7 +104,7 @@ func NewAudioContentGenerator(
 	return &AudioContentGenerator{
 		textGenerator: textGenerator,
 		ttsService:    ttsService,
-		ttsConfig:     ttsConfig,
+		ttsProvider:   ttsProvider,
 	}
 }
 
@@ -113,21 +113,27 @@ const defaultTTSSampleRate = 24000
 
 // openStream opens a TTS stream for text and returns the streaming
 // reader along with format/rate metadata. The single place that
-// translates (text, ttsConfig) → (reader, sample rate).
+// translates (text, voice/sample_rate) → (reader, sample rate).
 func (g *AudioContentGenerator) openStream(ctx context.Context, text string) (*AudioStreamResult, error) {
+	var voice string
+	sampleRate := defaultTTSSampleRate
+
+	if g.ttsProvider != nil {
+		voice = g.ttsProvider.Voice
+		if g.ttsProvider.SampleRate > 0 {
+			sampleRate = g.ttsProvider.SampleRate
+		}
+	}
+
 	req := base.TTSRequest{
 		Text:   text,
-		Voice:  g.ttsConfig.Voice,
+		Voice:  voice,
 		Format: tts.FormatPCM16.Name,
 		Speed:  1.0,
 	}
 	stream, err := g.ttsService.SynthesizeTTS(ctx, req)
 	if err != nil {
 		return nil, err
-	}
-	sampleRate := defaultTTSSampleRate
-	if g.ttsConfig.SampleRate > 0 {
-		sampleRate = g.ttsConfig.SampleRate
 	}
 	return &AudioStreamResult{
 		Text:        text,
