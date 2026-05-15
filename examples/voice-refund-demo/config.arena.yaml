@@ -60,7 +60,13 @@ spec:
       - file: personas/anxious-recipient.persona.yaml
     roles:
       - id: selfplay-user
-        provider: openai-gpt4o-mini-text
+        # Default to mock-duplex for keyless CI runs. The mock provider routes
+        # selfplay calls (which carry `mock_persona_id` in request metadata) to
+        # the per-persona `selfplay:` block in mock-responses.yaml; agent-side
+        # streaming calls fall through to the per-scenario `scenarios:` block.
+        # Swap to `openai-gpt4o-mini-text` for real-provider recording mode —
+        # see README "Real-provider mode" section.
+        provider: mock-duplex
 
   defaults:
     temperature: 0.7
