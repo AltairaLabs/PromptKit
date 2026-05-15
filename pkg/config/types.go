@@ -1162,10 +1162,16 @@ type ProviderConfigK8s struct {
 
 // Provider defines API connection and defaults
 type Provider struct {
-	ID      string `json:"id,omitempty" yaml:"id,omitempty"`
-	Type    string `json:"type" yaml:"type"`
-	Model   string `json:"model" yaml:"model"`
-	BaseURL string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+	ID    string `json:"id,omitempty" yaml:"id,omitempty"`
+	Type  string `json:"type" yaml:"type"`
+	Model string `json:"model" yaml:"model"`
+	// Capability tags the role this provider fills in the arena. One of "llm"
+	// (default), "tts", or "stt". The arena uses this to route the provider
+	// to the correct registry and to skip non-llm providers when building the
+	// agent-under-test matrix. Note: distinct from the older Capabilities
+	// field which lists per-model feature flags (vision, tools, etc.).
+	Capability string `json:"capability,omitempty" yaml:"capability,omitempty"`
+	BaseURL    string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	// Headers specifies custom HTTP headers to include in every request to
 	// this provider. Useful for OpenAI-compatible gateways (OpenRouter,
 	// LiteLLM, etc.) that require app attribution or custom auth headers.
