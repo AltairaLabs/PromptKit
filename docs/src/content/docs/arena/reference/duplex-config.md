@@ -190,55 +190,71 @@ Set to `false` if you need the final turn to complete normally without session t
 
 ---
 
-## TTSConfig
+## Voice Catalog
 
-[Text-to-speech (TTS)](/glossary#tts) configuration for self-play audio generation.
+[Text-to-speech (TTS)](/glossary#tts) for self-play audio generation is configured through the
+arena voice catalog rather than inline on individual turns. TTS providers are declared in
+`tts_providers:` and bound to voice IDs in `voices:`. Personas and scripted-text scenarios
+reference those IDs.
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `provider` | string | Yes | TTS provider: `"openai"`, `"elevenlabs"`, `"cartesia"`, `"mock"` |
-| `voice` | string | Yes* | Voice ID for synthesis (*optional for mock with audio_files) |
-| `audio_files` | []string | No | PCM audio files for mock provider (rotated through) |
-| `sample_rate` | int | No | Output sample rate in Hz (default: 24000) |
-
-### Example: OpenAI TTS
+### Arena-Level Declaration
 
 ```yaml
-turns:
-  - role: selfplay-user
-    persona: curious-customer
-    turns: 3
-    tts:
-      provider: openai
-      voice: alloy
+# config.arena.yaml
+spec:
+  tts_providers:
+    - file: providers/openai-alloy.provider.yaml
+    - file: providers/mock-tts.provider.yaml
+
+  voices:
+    # Real TTS (requires OPENAI_API_KEY). For CI: change provider to mock-tts.
+    - id: alloy
+      provider: openai-alloy
 ```
 
-### Example: Mock TTS with Pre-recorded Audio
+### Persona Voice Assignment
+
+Assign a voice ID to a persona. All selfplay turns using that persona will use the
+corresponding TTS provider.
 
 ```yaml
-turns:
-  - role: selfplay-user
-    persona: test-persona
-    turns: 3
-    tts:
-      provider: mock
-      audio_files:
-        - audio/question1.pcm
-        - audio/question2.pcm
-        - audio/question3.pcm
-      sample_rate: 16000  # Match your file sample rate
+# personas/curious-customer.persona.yaml
+spec:
+  id: curious-customer
+  voice: alloy   # references the voice catalog id above
+  system_template: |
+    You are a curious customer ...
 ```
 
-### Available OpenAI Voices
+### Scripted-Text Scenario Voice Assignment
 
-| Voice | Description |
-|-------|-------------|
-| `alloy` | Neutral, balanced |
-| `echo` | Warm, engaging |
-| `fable` | Expressive, dynamic |
-| `onyx` | Deep, authoritative |
-| `nova` | Friendly, conversational |
-| `shimmer` | Clear, professional |
+For scripted-text duplex scenarios (turns with `content:` instead of audio `parts:`),
+declare `voice:` at the scenario level:
+
+```yaml
+spec:
+  id: my-scripted-scenario
+  voice: alloy   # references the voice catalog id above
+  turns:
+    - role: user
+      content: "Hello, can you hear me?"
+```
+
+### CI vs Recording Mode
+
+A single edit to the `voices:` block in the arena config switches between real vendor
+TTS and mock TTS, with no changes required to personas or scenarios:
+
+```yaml
+voices:
+  # Recording mode (requires API key):
+  - id: alloy
+    provider: openai-alloy
+
+  # CI / keyless mode — swap to:
+  # - id: alloy
+  #   provider: mock-tts
+```
 
 ---
 
@@ -362,13 +378,10 @@ spec:
           params:
             pattern: "(?i)(hello|hi|welcome)"
 
-    # Self-play generates follow-up questions
+    # Self-play generates follow-up questions; voice is resolved from the persona
     - role: selfplay-user
       persona: curious-customer
       turns: 3
-      tts:
-        provider: openai
-        voice: nova
       assertions:
         - type: content_matches
           params:
@@ -394,8 +407,8 @@ Common configuration errors and solutions:
 | `invalid duplex timeout format` | Timeout not in Go duration format | Use format like `"5m"`, `"30s"`, `"1h30m"` |
 | `invalid turn detection mode` | Mode not `vad` or `asm` | Use `mode: vad` or `mode: asm` |
 | `silence_threshold_ms must be non-negative` | Negative VAD threshold | Use positive values |
-| `tts provider is required` | Missing TTS provider | Add `provider: openai` or similar |
-| `tts voice is required` | Missing voice ID | Add `voice: alloy` or similar |
+| `voices[N]: provider "X" not found` | Voice references an unknown TTS provider ID | Check that `tts_providers:` lists the provider file and the `id:` matches |
+| `persona "X": voice "Y" not found in catalog` | Persona references a voice ID not declared in `voices:` | Add the voice binding to the arena `voices:` list |
 
 ---
 

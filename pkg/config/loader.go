@@ -469,6 +469,11 @@ func (c *Config) loadProviders(configPath string) error {
 		if err := provider.ValidateCapability(); err != nil {
 			return fmt.Errorf("provider %s: %w", provider.ID, err)
 		}
+		if provCap := provider.GetCapability(); provCap != CapabilityLLM {
+			return fmt.Errorf("providers[%s]: capability must be %q (or empty), got %q; "+
+				"TTS providers belong under tts_providers, STT under stt_providers",
+				ref.File, CapabilityLLM, provCap)
+		}
 		c.LoadedProviders[provider.ID] = provider
 		group := ref.Group
 		if group == "" {

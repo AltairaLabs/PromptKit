@@ -1976,6 +1976,44 @@ spec:
 	}
 }
 
+func TestLoadConfig_RejectsTTSProviderInLLMProvidersList(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "wrong.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: wrong
+spec:
+  id: wrong
+  type: cartesia
+  capability: tts
+  voice: vid-1
+  sample_rate: 24000
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  defaults:
+    concurrency: 1
+  providers:
+    - file: wrong.provider.yaml
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected error: tts provider in spec.providers list")
+	}
+	if !strings.Contains(err.Error(), "capability") {
+		t.Fatalf("expected error mentioning capability, got: %v", err)
+	}
+}
+
 func TestLoadConfig_AcceptsScenarioWithoutVoice(t *testing.T) {
 	// Scenarios without a voice field are allowed.
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
