@@ -1564,6 +1564,51 @@ spec:
 	}
 }
 
+func TestLoadConfig_RejectsUnknownProviderCapability(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	arenaPath := filepath.Join(tmp, "config.arena.yaml")
+	providerPath := filepath.Join(tmp, "p.provider.yaml")
+
+	if err := os.WriteFile(providerPath, []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: bad
+spec:
+  id: bad
+  type: openai
+  model: gpt-4o-mini
+  capability: not-a-capability
+  defaults:
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 1000
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(arenaPath, []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  defaults:
+    concurrency: 1
+  providers:
+    - file: p.provider.yaml
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(arenaPath)
+	if err == nil {
+		t.Fatal("expected load error for unknown capability")
+	}
+	if !strings.Contains(err.Error(), "capability") {
+		t.Fatalf("expected error mentioning capability, got: %v", err)
+	}
+}
+
 func TestLoadPackFile_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	packPath := filepath.Join(tmpDir, "test.pack.json")

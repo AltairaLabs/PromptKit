@@ -443,6 +443,9 @@ func (c *Config) loadProviders(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to load provider %s: %w", ref.File, err)
 		}
+		if err := provider.ValidateCapability(); err != nil {
+			return fmt.Errorf("provider %s: %w", provider.ID, err)
+		}
 		c.LoadedProviders[provider.ID] = provider
 		group := ref.Group
 		if group == "" {

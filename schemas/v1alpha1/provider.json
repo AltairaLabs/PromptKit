@@ -112,6 +112,9 @@
         "model": {
           "type": "string"
         },
+        "capability": {
+          "type": "string"
+        },
         "base_url": {
           "type": "string"
         },
