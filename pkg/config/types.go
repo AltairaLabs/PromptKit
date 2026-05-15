@@ -1170,7 +1170,8 @@ type Provider struct {
 	// to the correct registry and to skip non-llm providers when building the
 	// agent-under-test matrix. Note: distinct from the older Capabilities
 	// field which lists per-model feature flags (vision, tools, etc.).
-	Capability string `json:"capability,omitempty" yaml:"capability,omitempty"`
+	//nolint:lll // jsonschema tags require single line
+	Capability string `json:"capability,omitempty" yaml:"capability,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt"`
 	BaseURL    string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	// Headers specifies custom HTTP headers to include in every request to
 	// this provider. Useful for OpenAI-compatible gateways (OpenRouter,

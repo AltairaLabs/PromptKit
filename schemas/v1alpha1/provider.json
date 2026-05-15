@@ -113,7 +113,12 @@
           "type": "string"
         },
         "capability": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "llm",
+            "tts",
+            "stt"
+          ]
         },
         "base_url": {
           "type": "string"
