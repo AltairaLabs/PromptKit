@@ -1818,3 +1818,107 @@ spec:
 		t.Fatal("expected error: voice binds to unloaded provider id")
 	}
 }
+
+func TestLoadConfig_RejectsPersonaWithUnknownVoice(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "p.persona.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Persona
+metadata:
+  name: p
+spec:
+  id: p
+  description: test
+  system_prompt: "You are a helpful assistant"
+  voice: nonexistent-voice
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "llm.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: llm
+spec:
+  id: llm
+  type: openai
+  model: gpt-4o-mini
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  defaults:
+    concurrency: 1
+  providers:
+    - file: llm.provider.yaml
+  self_play:
+    personas:
+      - file: p.persona.yaml
+    roles:
+      - id: u
+        provider: llm
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected error: persona references unknown voice id")
+	}
+	if !strings.Contains(err.Error(), "voice") {
+		t.Fatalf("expected error mentioning voice, got: %v", err)
+	}
+}
+
+func TestLoadConfig_AcceptsPersonaWithoutVoice(t *testing.T) {
+	// Personas without a voice are allowed — used by text-only scenarios.
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "p.persona.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Persona
+metadata:
+  name: p
+spec:
+  id: p
+  description: test
+  system_prompt: "You are a helpful assistant"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "llm.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: llm
+spec:
+  id: llm
+  type: openai
+  model: gpt-4o-mini
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  defaults:
+    concurrency: 1
+  providers:
+    - file: llm.provider.yaml
+  self_play:
+    personas:
+      - file: p.persona.yaml
+    roles:
+      - id: u
+        provider: llm
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml")); err != nil {
+		t.Fatalf("expected success for persona without voice, got: %v", err)
+	}
+}

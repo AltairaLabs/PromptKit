@@ -257,6 +257,12 @@ func LoadConfig(filename string) (*Config, error) {
 		if err := cfg.loadSelfPlayResources(filename); err != nil {
 			return nil, err
 		}
+		// Validate that every persona's voice (when set) resolves to an arena
+		// voice binding. Voice bindings were already validated above, so
+		// ResolveVoice will work correctly for valid persona voices.
+		if err := cfg.validatePersonaVoices(); err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate judge references against provider registry (mirrors self-play validation)
@@ -527,6 +533,21 @@ func (c *Config) validateVoiceBindings() error {
 		if _, ok := c.LoadedTTSProviders[binding.Provider]; !ok {
 			return fmt.Errorf("voices[%s]: provider id %q not found in tts_providers",
 				binding.ID, binding.Provider)
+		}
+	}
+	return nil
+}
+
+// validatePersonaVoices checks that every persona's voice (when set) resolves
+// to a valid arena voice binding. Personas without a voice field are allowed
+// (used by text-only scenarios).
+func (c *Config) validatePersonaVoices() error {
+	for name, persona := range c.LoadedPersonas {
+		if persona.Voice == "" {
+			continue
+		}
+		if _, err := c.ResolveVoice(persona.Voice); err != nil {
+			return fmt.Errorf("persona %s: %w", name, err)
 		}
 	}
 	return nil
