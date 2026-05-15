@@ -546,8 +546,7 @@ func (c *Config) validateVoiceBindings() error {
 
 // validateScenarioVoices checks that every scenario's voice (when set) resolves
 // to a valid arena voice binding. Scenarios without a voice field are allowed —
-// they use either persona-driven voices (selfplay) or the legacy scenario.TTS
-// field (scripted text, deprecated and removed in Phase 5).
+// they use persona-driven voices (selfplay) resolved via the arena voice catalog.
 func (c *Config) validateScenarioVoices() error {
 	for name, scenario := range c.LoadedScenarios {
 		if scenario.Voice == "" {

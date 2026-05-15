@@ -49,7 +49,6 @@ func NewTTSRegistry() *TTSRegistry {
 
 // Get returns a TTS provider for the given provider name.
 // Providers are lazily initialized on first request and cached.
-// For mock provider with custom audio files, use GetWithConfig instead.
 //
 // When the TTS_CACHE_DIR environment variable is set, the returned
 // provider is wrapped in a CachedTTSService rooted at that directory so
@@ -109,10 +108,8 @@ func wrapWithDiskCache(provider string, svc base.TTSProvider) base.TTSProvider {
 }
 
 // GetForProvider returns a base.TTSProvider configured from a loaded TTS
-// provider yaml. Replaces the legacy GetWithConfig path which took a
-// *config.TTSConfig assembled per-turn from scenario/turn/defaults.
-// Provider routing is by Type (cartesia/elevenlabs/openai/mock); the
-// voice/sample_rate/audio_files/model fields on the provider populate
+// provider yaml. Provider routing is by Type (cartesia/elevenlabs/openai/mock);
+// the voice/sample_rate/audio_files/model fields on the provider populate
 // the synthesis config.
 //
 // Validates that the provider has Capability == "tts" — guards against
@@ -158,53 +155,6 @@ func (r *TTSRegistry) GetForProvider(p *config.Provider) (base.TTSProvider, erro
 	return r.Get(p.Type)
 }
 
-// GetWithConfig returns a TTS provider configured with the given TTSConfig.
-// For mock provider, this allows specifying audio files directly in the config.
-// Providers with custom configs are NOT cached since audio files may vary per scenario.
-func (r *TTSRegistry) GetWithConfig(cfg *config.TTSConfig) (base.TTSProvider, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("TTS config is required")
-	}
-
-	// For mock provider with audio files, cache by the file-list identity so
-	// repeated calls with the same set of files reuse one MockTTSService — that
-	// preserves currentFileIndex across calls and lets rotation work.
-	if cfg.Provider == TTSProviderMock && len(cfg.AudioFiles) > 0 {
-		key := strings.Join(cfg.AudioFiles, "|")
-
-		r.mu.RLock()
-		if svc, exists := r.mockByFiles[key]; exists {
-			r.mu.RUnlock()
-			return svc, nil
-		}
-		r.mu.RUnlock()
-
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if svc, exists := r.mockByFiles[key]; exists {
-			return svc, nil
-		}
-		svc := NewMockTTSWithFiles(cfg.AudioFiles)
-		r.mockByFiles[key] = svc
-		return svc, nil
-	}
-
-	// When the scenario pins a model, instantiate the provider directly
-	// and skip the per-provider singleton cache — different scenarios may
-	// pick different models (e.g. tts-1 for cheap takes, gpt-4o-mini-tts
-	// for expressive takes) and must not share one service.
-	if cfg.Model != "" {
-		svc, err := r.createServiceWithModel(cfg.Provider, cfg.Model)
-		if err != nil {
-			return nil, err
-		}
-		return wrapWithDiskCache(cfg.Provider, svc), nil
-	}
-
-	// For all other cases, use the standard cached lookup
-	return r.Get(cfg.Provider)
-}
-
 // Register adds a pre-configured TTS provider to the registry.
 // This is useful for testing or when using custom configurations.
 func (r *TTSRegistry) Register(provider string, svc base.TTSProvider) {
@@ -220,8 +170,8 @@ func (r *TTSRegistry) createService(provider string) (base.TTSProvider, error) {
 }
 
 // createServiceWithModel creates a new TTS provider, optionally pinning a
-// specific model. Empty model = adapter default. Used by GetWithConfig
-// when a scenario / role pins a model via TTSConfig.Model.
+// specific model. Empty model = adapter default. Used by GetForProvider
+// when a provider yaml pins a specific model.
 func (r *TTSRegistry) createServiceWithModel(provider, model string) (base.TTSProvider, error) {
 	switch provider {
 	case TTSProviderOpenAI:

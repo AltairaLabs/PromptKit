@@ -73,53 +73,25 @@ type AudioStreamResult struct {
 
 // AudioContentGenerator wraps a ContentGenerator and adds TTS synthesis.
 //
-// textGenerator may be nil when constructed via GetTextSynthesisGenerator
-// (scripted-text turns where no LLM is involved). In that case
-// NextUserTurnAudioStream returns an error; SynthesizeTextStream still
-// works.
-//
-// Either ttsConfig or ttsProvider is set, never both. ttsConfig is set by
-// the legacy NewAudioContentGenerator path; ttsProvider is set by the new
-// NewAudioContentGeneratorForProvider path introduced in Task 3.1. The
-// openStream method reads from whichever is non-nil.
+// textGenerator may be nil when constructed for scripted-text turns where no
+// LLM is involved. In that case NextUserTurnAudioStream returns an error;
+// SynthesizeTextStream still works.
 type AudioContentGenerator struct {
 	textGenerator *ContentGenerator
 	ttsService    base.TTSProvider
-	ttsConfig     *config.TTSConfig // legacy path
-	ttsProvider   *config.Provider  // new provider-yaml path (Task 3.1+)
+	ttsProvider   *config.Provider
 }
 
-// NewAudioContentGenerator creates a new audio content generator.
+// NewAudioContentGenerator creates a new audio content generator backed by a
+// loaded TTS provider config (capability=tts).
 // textGenerator may be nil for TTS-only generators.
 //
 // When the TTS service exposes a PersonaRubric (see [tts.PersonaRubricProvider]),
 // it is forwarded to the underlying text generator so that personas opting in
 // via style.expressive get a provider-tuned rubric prepended to their system
-// prompt (issue #1130). Providers that do not implement the interface, or
-// implement it and return the empty string, are no-ops.
+// prompt. Providers that do not implement the interface, or implement it and
+// return the empty string, are no-ops.
 func NewAudioContentGenerator(
-	textGenerator *ContentGenerator,
-	ttsService base.TTSProvider,
-	ttsConfig *config.TTSConfig,
-) *AudioContentGenerator {
-	if textGenerator != nil {
-		if rp, ok := ttsService.(tts.PersonaRubricProvider); ok {
-			textGenerator.WithProviderRubric(rp.PersonaRubric())
-		}
-	}
-	return &AudioContentGenerator{
-		textGenerator: textGenerator,
-		ttsService:    ttsService,
-		ttsConfig:     ttsConfig,
-	}
-}
-
-// NewAudioContentGeneratorForProvider creates a new audio content generator
-// backed by a loaded TTS provider config (capability=tts). This is the new
-// Task 3.1+ path; the legacy NewAudioContentGenerator path (which takes a
-// *config.TTSConfig) remains for unmigrated callers.
-// textGenerator may be nil for TTS-only generators.
-func NewAudioContentGeneratorForProvider(
 	textGenerator *ContentGenerator,
 	ttsService base.TTSProvider,
 	ttsProvider *config.Provider,
@@ -142,8 +114,6 @@ const defaultTTSSampleRate = 24000
 // openStream opens a TTS stream for text and returns the streaming
 // reader along with format/rate metadata. The single place that
 // translates (text, voice/sample_rate) → (reader, sample rate).
-// Reads voice and sample_rate from ttsProvider when set (new path),
-// otherwise falls back to ttsConfig (legacy path).
 func (g *AudioContentGenerator) openStream(ctx context.Context, text string) (*AudioStreamResult, error) {
 	var voice string
 	sampleRate := defaultTTSSampleRate
@@ -152,11 +122,6 @@ func (g *AudioContentGenerator) openStream(ctx context.Context, text string) (*A
 		voice = g.ttsProvider.Voice
 		if g.ttsProvider.SampleRate > 0 {
 			sampleRate = g.ttsProvider.SampleRate
-		}
-	} else {
-		voice = g.ttsConfig.Voice
-		if g.ttsConfig.SampleRate > 0 {
-			sampleRate = g.ttsConfig.SampleRate
 		}
 	}
 

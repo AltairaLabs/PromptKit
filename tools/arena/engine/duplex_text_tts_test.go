@@ -79,60 +79,6 @@ func newRegistryWithFakeTTS(provider string, payload []byte) (*selfplay.Registry
 	return reg, fake
 }
 
-func TestResolveTTS_PerTurnWins(t *testing.T) {
-	de := &DuplexConversationExecutor{}
-
-	turn := &config.TurnDefinition{TTS: &config.TTSConfig{Provider: "turn", Voice: "v1"}}
-	scenario := &config.Scenario{TTS: &config.TTSConfig{Provider: "scenario", Voice: "v2"}}
-	cfg := &config.Config{Defaults: config.Defaults{TTS: &config.TTSConfig{Provider: "arena", Voice: "v3"}}}
-
-	got := de.resolveTTS(turn, scenario, cfg)
-	require.NotNil(t, got)
-	assert.Equal(t, "turn", got.Provider, "turn-level TTS must win over scenario and arena defaults")
-}
-
-func TestResolveTTS_ScenarioFillsIn(t *testing.T) {
-	de := &DuplexConversationExecutor{}
-
-	turn := &config.TurnDefinition{} // no TTS
-	scenario := &config.Scenario{TTS: &config.TTSConfig{Provider: "scenario", Voice: "v2"}}
-	cfg := &config.Config{Defaults: config.Defaults{TTS: &config.TTSConfig{Provider: "arena", Voice: "v3"}}}
-
-	got := de.resolveTTS(turn, scenario, cfg)
-	require.NotNil(t, got)
-	assert.Equal(t, "scenario", got.Provider, "scenario TTS must win over arena defaults when turn is unset")
-}
-
-func TestResolveTTS_ArenaDefaultsFillIn(t *testing.T) {
-	de := &DuplexConversationExecutor{}
-
-	turn := &config.TurnDefinition{}
-	scenario := &config.Scenario{}
-	cfg := &config.Config{Defaults: config.Defaults{TTS: &config.TTSConfig{Provider: "arena", Voice: "v3"}}}
-
-	got := de.resolveTTS(turn, scenario, cfg)
-	require.NotNil(t, got)
-	assert.Equal(t, "arena", got.Provider, "arena defaults must fill in when turn and scenario have no TTS")
-}
-
-func TestResolveTTS_NoneConfigured(t *testing.T) {
-	de := &DuplexConversationExecutor{}
-
-	turn := &config.TurnDefinition{}
-	scenario := &config.Scenario{}
-	cfg := &config.Config{}
-
-	got := de.resolveTTS(turn, scenario, cfg)
-	assert.Nil(t, got, "no TTS at any level should return nil")
-}
-
-func TestResolveTTS_NilCfgIsSafe(t *testing.T) {
-	de := &DuplexConversationExecutor{}
-
-	got := de.resolveTTS(&config.TurnDefinition{}, &config.Scenario{}, nil)
-	assert.Nil(t, got)
-}
-
 func TestProcessScriptedTextDuplexTurn_ErrorsWithoutTTS(t *testing.T) {
 	reg, _ := newRegistryWithFakeTTS("openai", []byte{0x00, 0x01})
 	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
@@ -150,6 +96,19 @@ func TestProcessScriptedTextDuplexTurn_ErrorsWithoutTTS(t *testing.T) {
 	err := de.processScriptedTextDuplexTurn(context.Background(), req, turn, 0, in, out)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "TTS configuration required")
+}
+
+// newTestTTSProvider builds a *config.Provider for the given registered
+// provider name — used by streamTextAsAudio tests that need a real
+// provider handle rather than the old TTSConfig shape.
+func newTestTTSProvider(providerName, voice string, sampleRate int) *config.Provider {
+	return &config.Provider{
+		ID:         providerName,
+		Type:       providerName,
+		Capability: config.CapabilityTTS,
+		Voice:      voice,
+		SampleRate: sampleRate,
+	}
 }
 
 // TestStreamTextAsAudio_HappyPath verifies that the helper synthesises the
@@ -179,7 +138,7 @@ func TestStreamTextAsAudio_HappyPath(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	ttsCfg := &config.TTSConfig{Provider: "fake", Voice: "v1", SampleRate: 16000}
+	ttsProvider := newTestTTSProvider("fake", "v1", 16000)
 	turnMeta := map[string]any{
 		"persona":   "support-agent",
 		"self_play": true,
@@ -194,7 +153,7 @@ func TestStreamTextAsAudio_HappyPath(t *testing.T) {
 		}
 	}()
 
-	err := de.streamTextAsAudio(ctx, "please refund my order", ttsCfg, turnMeta, in, out)
+	err := de.streamTextAsAudio(ctx, "please refund my order", ttsProvider, turnMeta, in, out)
 	require.NoError(t, err)
 
 	// streamTextAsAudio doesn't close inputChan; the test does so after
@@ -259,7 +218,7 @@ func TestStreamTextAsAudio_RejectsEmptyText(t *testing.T) {
 	err := de.streamTextAsAudio(
 		context.Background(),
 		"",
-		&config.TTSConfig{Provider: "fake", Voice: "v1"},
+		newTestTTSProvider("fake", "v1", 0),
 		nil,
 		in,
 		out,
@@ -268,7 +227,7 @@ func TestStreamTextAsAudio_RejectsEmptyText(t *testing.T) {
 	assert.Contains(t, err.Error(), "text is empty")
 }
 
-func TestStreamTextAsAudio_RejectsNilTTSConfig(t *testing.T) {
+func TestStreamTextAsAudio_RejectsNilProvider(t *testing.T) {
 	reg, _ := newRegistryWithFakeTTS("fake", []byte{0x01, 0x02})
 	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
 
@@ -277,7 +236,7 @@ func TestStreamTextAsAudio_RejectsNilTTSConfig(t *testing.T) {
 
 	err := de.streamTextAsAudio(context.Background(), "hi", nil, nil, in, out)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ttsConfig is nil")
+	assert.Contains(t, err.Error(), "ttsProvider is nil")
 }
 
 func TestStreamTextAsAudio_RejectsMissingRegistry(t *testing.T) {
@@ -289,7 +248,7 @@ func TestStreamTextAsAudio_RejectsMissingRegistry(t *testing.T) {
 	err := de.streamTextAsAudio(
 		context.Background(),
 		"hi",
-		&config.TTSConfig{Provider: "fake", Voice: "v1"},
+		newTestTTSProvider("fake", "v1", 0),
 		nil,
 		in,
 		out,
@@ -300,9 +259,8 @@ func TestStreamTextAsAudio_RejectsMissingRegistry(t *testing.T) {
 
 // TestProcessScriptedTextDuplexTurn_ViaScenarioVoice verifies that when
 // req.Scenario.Voice is set the scripted-text path resolves through the arena
-// voice catalog (new path) rather than the legacy resolveTTS chain.
-// Uses a mock TTS provider with audio files so GetForProvider returns a
-// MockTTSService without requiring real API credentials.
+// voice catalog. Uses a mock TTS provider with audio files so GetForProvider
+// returns a MockTTSService without requiring real API credentials.
 func TestProcessScriptedTextDuplexTurn_ViaScenarioVoice(t *testing.T) {
 	// Build a registry with the TTS registry's mock-with-files path.
 	ttsRegistry := selfplay.NewTTSRegistry()

@@ -337,39 +337,9 @@ func turnHasAudioPart(turn *config.TurnDefinition) bool {
 	return false
 }
 
-// resolveTTS picks the TTS config for a turn using a layered precedence:
-//
-//  1. turn.TTS (per-turn override)
-//  2. scenario.TTS (scenario-level default)
-//  3. arena defaults TTS (arena-wide default)
-//
-// Returns nil when no layer supplies a config. Callers decide whether nil is an
-// error for their codepath.
-func (de *DuplexConversationExecutor) resolveTTS(
-	turn *config.TurnDefinition,
-	scenario *config.Scenario,
-	cfg *config.Config,
-) *config.TTSConfig {
-	if turn != nil && turn.TTS != nil {
-		return turn.TTS
-	}
-	if scenario != nil && scenario.TTS != nil {
-		return scenario.TTS
-	}
-	if cfg != nil && cfg.Defaults.TTS != nil {
-		return cfg.Defaults.TTS
-	}
-	return nil
-}
-
 // resolveTTSProvider returns the loaded TTS provider for a turn by looking
 // up the persona's voice id in the arena's voice catalog. Returns nil, nil if
-// the turn has no associated persona or the persona declares no voice —
-// callers decide whether to fall back to a default or fail fast.
-//
-// Replaces the legacy turn.TTS → scenario.TTS → defaults.TTS chain for
-// selfplay turns. The legacy resolveTTS and its callers stay in place until all
-// callers are migrated (Phase 5).
+// the turn has no associated persona or the persona declares no voice.
 func resolveTTSProvider(
 	arenaConfig *config.Config,
 	persona *config.UserPersonaPack,
@@ -384,13 +354,8 @@ func resolveTTSProvider(
 // (no audio parts). The text is synthesized via TTS and streamed to the duplex
 // provider.
 //
-// Resolution order:
-//  1. New path: if req.Scenario.Voice is set, resolve it via the arena voice
-//     catalog (Config.ResolveVoice) and route through streamTextAsAudioForProvider.
-//  2. Legacy fallback: if Scenario.Voice is empty, resolve via the layered
-//     turn.TTS → scenario.TTS → arena defaults chain and route through
-//     streamTextAsAudio. This keeps unmigrated scenarios working until Phase 5
-//     removes the legacy fields.
+// The scenario must declare a voice via spec.voice, which is resolved through
+// the arena voice catalog (Config.ResolveVoice).
 func (de *DuplexConversationExecutor) processScriptedTextDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -403,30 +368,19 @@ func (de *DuplexConversationExecutor) processScriptedTextDuplexTurn(
 		return fmt.Errorf("self-play registry not configured for duplex turn %d (required for TTS)", turnIdx)
 	}
 
-	// New path: scenario.Voice → arena voice catalog.
-	if req.Scenario != nil && req.Scenario.Voice != "" {
-		ttsProvider, err := req.Config.ResolveVoice(req.Scenario.Voice)
-		if err != nil {
-			return fmt.Errorf("resolving voice for scripted-text turn %d: %w", turnIdx, err)
-		}
-		return de.streamTextAsAudioForProvider(
-			ctx, turn.Content, ttsProvider, nil,
-			inputChan, outputChan,
-		)
-	}
-
-	// Legacy fallback: turn.TTS → scenario.TTS → arena defaults.TTS.
-	ttsConfig := de.resolveTTS(turn, req.Scenario, req.Config)
-	if ttsConfig == nil {
+	if req.Scenario == nil || req.Scenario.Voice == "" {
 		return fmt.Errorf(
-			"TTS configuration required for scripted-text duplex turn %d "+
-				"(set scenario.spec.voice, turn.tts, scenario.spec.tts, or arena defaults.tts)",
+			"TTS configuration required for scripted-text duplex turn %d: set spec.voice on the scenario",
 			turnIdx,
 		)
 	}
 
+	ttsProvider, err := req.Config.ResolveVoice(req.Scenario.Voice)
+	if err != nil {
+		return fmt.Errorf("resolving voice for scripted-text turn %d: %w", turnIdx, err)
+	}
 	return de.streamTextAsAudio(
-		ctx, turn.Content, ttsConfig, nil,
+		ctx, turn.Content, ttsProvider, nil,
 		inputChan, outputChan,
 	)
 }
@@ -645,14 +599,11 @@ func (de *DuplexConversationExecutor) ExecuteConversationStream(
 // processSelfPlayDuplexTurn handles self-play turns in duplex mode.
 // selfplayTurnNum is the 1-indexed selfplay turn number (first selfplay = 1).
 //
-// This is now a thin wrapper that:
-//  1. Resolves the TTS provider via persona.voice → arena voice catalog (new path),
-//     falling back to the legacy turn.TTS → scenario.TTS → arena defaults chain
-//     when the persona has no voice declared.
+// This is a thin wrapper that:
+//  1. Resolves the TTS provider via persona.voice → arena voice catalog.
 //  2. Generates persona text via the self-play text generator.
 //  3. Builds selfplay-specific turn metadata.
-//  4. Delegates to streamTextAsAudioForProvider / streamTextAsAudio to synthesize,
-//     send, and stream the audio.
+//  4. Delegates to streamTextAsAudio to synthesize, send, and stream the audio.
 func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -667,32 +618,19 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 		return fmt.Errorf("self-play registry not configured for duplex turn %d", turnIdx)
 	}
 
-	// Resolve TTS via the new persona → voice catalog path. If the persona
-	// declares a voice id (persona.Voice != ""), we look it up in the arena's
-	// voice catalog and use the bound TTS provider yaml. If the persona has no
-	// voice, ttsProvider is nil and we fall back to the legacy layered resolution
-	// below so existing scenarios without voice ids keep working.
+	// Resolve TTS via the persona → voice catalog path. The persona must declare
+	// a voice id (persona.Voice != "") that maps to a loaded TTS provider yaml.
 	persona := de.selfPlayRegistry.GetPersona(turn.Persona)
 	ttsProvider, err := resolveTTSProvider(req.Config, persona)
 	if err != nil {
 		return fmt.Errorf("resolving voice for persona %s: %w", turn.Persona, err)
 	}
-
-	// Legacy fallback: if the new path produced no provider (persona has no voice
-	// or arena config is absent), fall back to the turn.TTS → scenario.TTS →
-	// arena defaults chain. This keeps unmigrated scenarios working until Phase 5
-	// removes the legacy fields.
-	var ttsConfig *config.TTSConfig
 	if ttsProvider == nil {
-		ttsConfig = de.resolveTTS(turn, req.Scenario, req.Config)
-		if ttsConfig == nil {
-			return fmt.Errorf(
-				"TTS configuration required for self-play duplex turn %d: "+
-					"persona %q has no voice and no legacy TTS config was found "+
-					"(set persona.voice or turn.tts/scenario.spec.tts/arena defaults.tts)",
-				turnIdx, turn.Persona,
-			)
-		}
+		return fmt.Errorf(
+			"TTS configuration required for self-play duplex turn %d: "+
+				"persona %q has no voice declared (set persona.voice to a voice catalog entry)",
+			turnIdx, turn.Persona,
+		)
 	}
 
 	// Get the text content generator (no TTS — we'll synthesize inside the helper).
@@ -709,19 +647,9 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 	// the rubric never reaches the LLM and the persona's `expressive: true`
 	// opt-in is silently a no-op.
 	if cg, ok := textGen.(*selfplay.ContentGenerator); ok {
-		if ttsProvider != nil {
-			// New path: use provider-backed TTS service for rubric wiring.
-			if ttsService, terr := de.selfPlayRegistry.GetTTSRegistry().GetForProvider(ttsProvider); terr == nil {
-				if rp, ok := ttsService.(tts.PersonaRubricProvider); ok {
-					cg.WithProviderRubric(rp.PersonaRubric())
-				}
-			}
-		} else {
-			// Legacy path: wire rubric from TTSConfig-backed service.
-			if ttsService, terr := de.selfPlayRegistry.GetTTSRegistry().GetWithConfig(ttsConfig); terr == nil {
-				if rp, ok := ttsService.(tts.PersonaRubricProvider); ok {
-					cg.WithProviderRubric(rp.PersonaRubric())
-				}
+		if ttsService, terr := de.selfPlayRegistry.GetTTSRegistry().GetForProvider(ttsProvider); terr == nil {
+			if rp, ok := ttsService.(tts.PersonaRubricProvider); ok {
+				cg.WithProviderRubric(rp.PersonaRubric())
 			}
 		}
 	}
@@ -799,93 +727,23 @@ func (de *DuplexConversationExecutor) processSelfPlayDuplexTurn(
 		}
 	}
 
-	// Route to the appropriate synthesis helper based on which resolution path
-	// succeeded. The new provider path uses streamTextAsAudioForProvider; the
-	// legacy path uses streamTextAsAudio. Both share the same turn metadata and
-	// downstream pipeline plumbing.
-	if ttsProvider != nil {
-		return de.streamTextAsAudioForProvider(
-			ctx, generatedText, ttsProvider, turnMeta,
-			inputChan, outputChan,
-		)
-	}
 	return de.streamTextAsAudio(
-		ctx, generatedText, ttsConfig, turnMeta,
+		ctx, generatedText, ttsProvider, turnMeta,
 		inputChan, outputChan,
 	)
 }
 
-// streamTextAsAudio synthesizes text → audio via the configured TTS provider,
-// emits a user-role pipeline element with both text and audio parts, and
-// streams the audio bytes through the duplex pipeline using burst mode.
+// streamTextAsAudio synthesizes text → audio via a loaded TTS provider config
+// (capability=tts), emits a user-role pipeline element with both text and audio
+// parts, and streams the audio bytes through the duplex pipeline using burst mode.
 //
-// turnMeta is merged into the user message's Meta map. Callers can pass
-// nil/empty when no extra metadata is needed (e.g. scripted-text turns); the
-// helper always writes turn_id so transcription events can be correlated.
+// turnMeta is merged into the user message's Meta map. Callers can pass nil/empty
+// when no extra metadata is needed; the helper always writes turn_id so
+// transcription events can be correlated.
 //
-// This is the shared entry point used by both self-play turns (after
-// generating persona text) and scripted-text user turns.
-//
-// Streams audio chunks straight from the TTS reader into the pipeline
-// without ever holding the full buffer in memory. Pacing happens
-// downstream in the AudioPacingStage, which emits each audio element at
-// the cadence its byte count and sample rate imply. The executor itself
-// does no time.After pacing — chunks are pushed onto the input channel
-// as fast as they arrive from the TTS service.
-//
-// Flow:
-//  1. Open the TTS stream (no ReadAll).
-//  2. Open a temp PCM file the chunks are mirrored into.
-//  3. Loop: read chunk → emit elem.Audio AND append to temp file.
-//  4. At EOF, close temp file and emit the user Message with a FilePath
-//     pointer. The MediaExternalizerStage downstream copies the file
-//     into media storage and replaces FilePath with a StorageReference.
-//  5. Send EndOfStream and wait for the provider's response.
-//
-// Memory ceiling: one TTS chunk at a time, regardless of turn length.
-//
-//nolint:gocyclo // sequential streaming flow with cleanup; splitting hurts readability
+// Used by both self-play turns (after generating persona text) and scripted-text
+// user turns resolved via the arena voice catalog.
 func (de *DuplexConversationExecutor) streamTextAsAudio(
-	ctx context.Context,
-	text string,
-	ttsConfig *config.TTSConfig,
-	turnMeta map[string]any,
-	inputChan chan<- stage.StreamElement,
-	outputChan <-chan stage.StreamElement,
-) error {
-	if text == "" {
-		return errors.New("streamTextAsAudio: text is empty")
-	}
-	if ttsConfig == nil {
-		return errors.New("streamTextAsAudio: ttsConfig is nil")
-	}
-	if de.selfPlayRegistry == nil {
-		return errors.New("streamTextAsAudio: self-play registry not configured (TTS service unavailable)")
-	}
-	stream, err := de.openTextSynthesisStream(ctx, text, ttsConfig)
-	if err != nil {
-		return fmt.Errorf("failed to open TTS stream: %w", err)
-	}
-	// Stamp TTS cost into turnMeta so it is carried through to the user
-	// message's Meta and picked up by the arena cost rollup under the
-	// ttsCostMetaKey key (mirrors the self_play_cost pattern).
-	costStamper := func(latency time.Duration) {
-		stampTTSCostInMeta(de.selfPlayRegistry, ttsConfig, text, latency, turnMeta)
-	}
-	return de.doStreamTextAsAudio(ctx, text, stream, turnMeta, costStamper, inputChan, outputChan)
-}
-
-// streamTextAsAudioForProvider synthesizes text → audio via a loaded TTS
-// provider config (capability=tts), emits a user-role pipeline element with
-// both text and audio parts, and streams the audio bytes through the duplex
-// pipeline using burst mode.
-//
-// This is the new-path parallel to streamTextAsAudio. It uses the arena's
-// voice catalog (provider yaml) rather than the legacy TTSConfig. Callers that
-// have resolved a persona.voice → *config.Provider should use this function;
-// callers on the legacy turn/scenario/defaults chain should continue to call
-// streamTextAsAudio until Phase 5 removes the legacy fields.
-func (de *DuplexConversationExecutor) streamTextAsAudioForProvider(
 	ctx context.Context,
 	text string,
 	ttsProvider *config.Provider,
@@ -894,28 +752,27 @@ func (de *DuplexConversationExecutor) streamTextAsAudioForProvider(
 	outputChan <-chan stage.StreamElement,
 ) error {
 	if text == "" {
-		return errors.New("streamTextAsAudioForProvider: text is empty")
+		return errors.New("streamTextAsAudio: text is empty")
 	}
 	if ttsProvider == nil {
-		return errors.New("streamTextAsAudioForProvider: ttsProvider is nil")
+		return errors.New("streamTextAsAudio: ttsProvider is nil")
 	}
 	if de.selfPlayRegistry == nil {
-		return errors.New("streamTextAsAudioForProvider: self-play registry not configured (TTS service unavailable)")
+		return errors.New("streamTextAsAudio: self-play registry not configured (TTS service unavailable)")
 	}
-	stream, err := de.openTextSynthesisStreamForProvider(ctx, text, ttsProvider)
+	stream, err := de.openTextSynthesisStream(ctx, text, ttsProvider)
 	if err != nil {
 		return fmt.Errorf("failed to open TTS stream: %w", err)
 	}
 	costStamper := func(latency time.Duration) {
-		stampTTSCostInMetaForProvider(de.selfPlayRegistry, ttsProvider, text, latency, turnMeta)
+		stampTTSCostInMeta(de.selfPlayRegistry, ttsProvider, text, latency, turnMeta)
 	}
 	return de.doStreamTextAsAudio(ctx, text, stream, turnMeta, costStamper, inputChan, outputChan)
 }
 
-// doStreamTextAsAudio is the shared streaming core used by both streamTextAsAudio
-// (legacy TTSConfig path) and streamTextAsAudioForProvider (new provider-yaml path).
-// It takes an already-opened TTS stream and a costStamper closure that writes cost
-// metadata into turnMeta after the stream completes.
+// doStreamTextAsAudio is the streaming core. It takes an already-opened TTS
+// stream and a costStamper closure that writes cost metadata into turnMeta
+// after the stream completes.
 //
 // Streams audio chunks straight from the TTS reader into the pipeline
 // without ever holding the full buffer in memory. Pacing happens
@@ -1287,41 +1144,12 @@ func stampSelfplayDevMeta(
 	turnMeta["_persona_yaml"] = string(yamlBytes)
 }
 
-// entry so addAncillaryCostFromMeta can fold it into the total without
-// special-casing.
+// stampTTSCostInMeta writes the TTS cost for a synthesized turn into turnMeta
+// under ttsCostMetaKey so addAncillaryCostFromMeta can fold it into the total
+// without special-casing.
 //
 // Errors are swallowed: a cost lookup failure must never abort the turn.
 func stampTTSCostInMeta(
-	registry *selfplay.Registry,
-	ttsConfig *config.TTSConfig,
-	text string,
-	latency time.Duration,
-	turnMeta map[string]any,
-) {
-	if registry == nil || ttsConfig == nil || turnMeta == nil {
-		return
-	}
-	gen, err := registry.GetTextSynthesisGenerator(ttsConfig)
-	if err != nil {
-		return
-	}
-	acg, ok := gen.(*selfplay.AudioContentGenerator)
-	if !ok {
-		return
-	}
-	svc := acg.GetTTSService()
-	costMeta := base.CostInfoToMetaMap(tts.ComputeTTSCost(svc, text, latency))
-	if costMeta != nil {
-		turnMeta[ttsCostMetaKey] = costMeta
-	}
-}
-
-// stampTTSCostInMetaForProvider writes the TTS cost for a synthesized turn into
-// turnMeta under ttsCostMetaKey, using the new provider-yaml path. Parallel to
-// stampTTSCostInMeta for callers that resolved TTS via persona.voice → catalog.
-//
-// Errors are swallowed: a cost lookup failure must never abort the turn.
-func stampTTSCostInMetaForProvider(
 	registry *selfplay.Registry,
 	ttsProvider *config.Provider,
 	text string,
