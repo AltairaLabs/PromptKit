@@ -465,6 +465,24 @@
             "$ref": "#/$defs/Spec"
           },
           "type": "object"
+        },
+        "tts_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "stt_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "voices": {
+          "items": {
+            "$ref": "#/$defs/VoiceBinding"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -472,6 +490,24 @@
       "required": [
         "providers",
         "defaults"
+      ]
+    },
+    "VoiceBinding": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Voice id used by personas"
+        },
+        "provider": {
+          "type": "string",
+          "description": "TTS provider id (must exist in spec.tts_providers)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "provider"
       ]
     },
     "ContextMetadata": {

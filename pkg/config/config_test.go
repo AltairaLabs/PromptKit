@@ -1710,3 +1710,111 @@ func TestLoadConfig_SkillsPathTraversal(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "path traversal")
 }
+
+func TestLoadConfig_LoadsTTSProviders(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "voice.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: cartesia-confident-man
+spec:
+  id: cartesia-confident-man
+  type: cartesia
+  capability: tts
+  voice: vid-1
+  sample_rate: 24000
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers: []
+  defaults:
+    concurrency: 1
+  tts_providers:
+    - file: voice.provider.yaml
+  voices:
+    - id: confident-man
+      provider: cartesia-confident-man
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.LoadedTTSProviders) != 1 {
+		t.Fatalf("expected 1 loaded TTS provider, got %d", len(cfg.LoadedTTSProviders))
+	}
+	p, err := cfg.ResolveVoice("confident-man")
+	if err != nil {
+		t.Fatalf("ResolveVoice: %v", err)
+	}
+	if p.Voice != "vid-1" {
+		t.Fatalf("resolved voice: got %q", p.Voice)
+	}
+}
+
+func TestLoadConfig_RejectsTTSProviderWithLLMCapability(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "wrong.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: wrong
+spec:
+  id: wrong
+  type: openai
+  model: gpt-4o-mini
+  capability: llm
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers: []
+  defaults:
+    concurrency: 1
+  tts_providers:
+    - file: wrong.provider.yaml
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected error: tts_providers entry has capability=llm")
+	}
+}
+
+func TestLoadConfig_RejectsVoiceBindingToUnknownProvider(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers: []
+  defaults:
+    concurrency: 1
+  voices:
+    - id: dangling
+      provider: ghost
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected error: voice binds to unloaded provider id")
+	}
+}

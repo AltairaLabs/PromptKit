@@ -203,6 +203,8 @@ func LoadConfig(filename string) (*Config, error) {
 	cfg.LoadedEvals = make(map[string]*Eval, len(cfg.Evals))
 	cfg.LoadedTools = make([]ToolData, 0, len(cfg.Tools))
 	cfg.LoadedPersonas = make(map[string]*UserPersonaPack)
+	cfg.LoadedTTSProviders = make(map[string]*Provider, len(cfg.TTSProviders))
+	cfg.LoadedSTTProviders = make(map[string]*Provider, len(cfg.STTProviders))
 	cfg.ProviderGroups = make(map[string]string)
 	cfg.ProviderCapabilities = make(map[string][]string)
 
@@ -211,6 +213,15 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.mergeProviderSpecs(); err != nil {
+		return nil, err
+	}
+	if err := cfg.loadTTSProviders(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.loadSTTProviders(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.validateVoiceBindings(); err != nil {
 		return nil, err
 	}
 	if err := cfg.loadPromptConfigs(filename); err != nil {
@@ -455,6 +466,67 @@ func (c *Config) loadProviders(configPath string) error {
 		// Populate provider capabilities from the provider spec
 		if len(provider.Capabilities) > 0 {
 			c.ProviderCapabilities[provider.ID] = provider.Capabilities
+		}
+	}
+	return nil
+}
+
+// loadTTSProviders loads all referenced TTS providers and validates that each
+// declares capability: tts.
+func (c *Config) loadTTSProviders(configPath string) error {
+	for _, ref := range c.TTSProviders {
+		fullPath := ResolveFilePath(configPath, ref.File)
+		provider, err := LoadProvider(fullPath)
+		if err != nil {
+			return fmt.Errorf("loading tts_providers[%s]: %w", ref.File, err)
+		}
+		if err := provider.ValidateCapability(); err != nil {
+			return fmt.Errorf("tts_providers[%s]: %w", ref.File, err)
+		}
+		if provider.GetCapability() != CapabilityTTS {
+			return fmt.Errorf("tts_providers[%s]: capability must be %q, got %q",
+				ref.File, CapabilityTTS, provider.GetCapability())
+		}
+		c.LoadedTTSProviders[provider.ID] = provider
+	}
+	return nil
+}
+
+// loadSTTProviders loads all referenced STT providers and validates that each
+// declares capability: stt.
+func (c *Config) loadSTTProviders(configPath string) error {
+	for _, ref := range c.STTProviders {
+		fullPath := ResolveFilePath(configPath, ref.File)
+		provider, err := LoadProvider(fullPath)
+		if err != nil {
+			return fmt.Errorf("loading stt_providers[%s]: %w", ref.File, err)
+		}
+		if err := provider.ValidateCapability(); err != nil {
+			return fmt.Errorf("stt_providers[%s]: %w", ref.File, err)
+		}
+		if provider.GetCapability() != CapabilitySTT {
+			return fmt.Errorf("stt_providers[%s]: capability must be %q, got %q",
+				ref.File, CapabilitySTT, provider.GetCapability())
+		}
+		c.LoadedSTTProviders[provider.ID] = provider
+	}
+	return nil
+}
+
+// validateVoiceBindings checks that every entry in spec.voices references a
+// provider id that was loaded into LoadedTTSProviders.
+func (c *Config) validateVoiceBindings() error {
+	for i := range c.Voices {
+		binding := &c.Voices[i]
+		if binding.ID == "" {
+			return fmt.Errorf("voices[%d]: id is required", i)
+		}
+		if binding.Provider == "" {
+			return fmt.Errorf("voices[%s]: provider is required", binding.ID)
+		}
+		if _, ok := c.LoadedTTSProviders[binding.Provider]; !ok {
+			return fmt.Errorf("voices[%s]: provider id %q not found in tts_providers",
+				binding.ID, binding.Provider)
 		}
 	}
 	return nil

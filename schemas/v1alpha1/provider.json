@@ -179,13 +179,27 @@
         },
         "http_transport": {
           "$ref": "#/$defs/HTTPTransportConfig"
+        },
+        "voice": {
+          "type": "string",
+          "description": "Voice ID for TTS providers"
+        },
+        "sample_rate": {
+          "type": "integer",
+          "description": "Audio sample rate in Hz for TTS providers"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "PCM audio fixture files for mock TTS provider"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "type",
-        "model"
+        "type"
       ]
     },
     "ProviderDefaults": {
