@@ -45,6 +45,30 @@ audio_files:
 	}
 }
 
+func TestScenario_VoiceFieldRoundTrip(t *testing.T) {
+	src := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: t
+spec:
+  id: t
+  task_type: voice-assistant
+  voice: alloy
+  turns:
+    - role: user
+      content: hi
+`
+	var sc struct {
+		Spec Scenario `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal([]byte(src), &sc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if sc.Spec.Voice != "alloy" {
+		t.Fatalf("voice: got %q, want alloy", sc.Spec.Voice)
+	}
+}
+
 func TestPersona_VoiceField(t *testing.T) {
 	src := `id: aggressive-entitled
 description: hostile caller

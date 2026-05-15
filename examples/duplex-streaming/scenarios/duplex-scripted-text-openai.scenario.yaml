@@ -2,8 +2,12 @@
 #
 # Scripted-Text Duplex Scenario — Real OpenAI TTS variant
 #
-# Same shape as duplex-scripted-text but uses OpenAI TTS to synthesize each
-# user turn into real audio. Requires OPENAI_API_KEY. Excluded from CI.
+# Same shape as duplex-scripted-text but uses OpenAI TTS (tts-1, alloy voice)
+# to synthesize each user turn into real audio. Requires OPENAI_API_KEY.
+# Excluded from CI.
+#
+# `voice:` references the arena voice catalog (scripted-alloy → openai-alloy
+# provider yaml). The duplex executor resolves it via Config.ResolveVoice.
 #
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
@@ -15,17 +19,15 @@ spec:
   task_type: voice-assistant
   description: "Scripted text user turns routed through real OpenAI TTS"
 
+  # Voice catalog reference — resolved to openai-alloy provider at runtime.
+  voice: scripted-alloy
+
   duplex:
     timeout: "30s"
     turn_detection:
       mode: asm
 
   streaming: true
-
-  tts:
-    provider: openai
-    voice: alloy
-    sample_rate: 24000
 
   turns:
     - role: user

@@ -2092,6 +2092,9 @@
         "duplex": {
           "$ref": "#/$defs/DuplexConfig"
         },
+        "voice": {
+          "type": "string"
+        },
         "tts": {
           "$ref": "#/$defs/TTSConfig"
         },

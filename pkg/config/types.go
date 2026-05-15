@@ -690,6 +690,15 @@ type Scenario struct {
 	// Duplex enables bidirectional streaming mode for voice/audio scenarios.
 	Duplex *DuplexConfig `json:"duplex,omitempty" yaml:"duplex,omitempty"`
 
+	// Voice references an arena-level voice id (see Config.Voices) used to
+	// synthesize this scenario's scripted-text user turns. The duplex executor
+	// resolves the voice via Config.ResolveVoice. Mutually exclusive with TTS
+	// — if both are set, Voice wins.
+	//
+	// For selfplay scenarios (turns with role: selfplay-user) the persona owns
+	// voice choice; Scenario.Voice is ignored.
+	Voice string `yaml:"voice,omitempty" json:"voice,omitempty"`
+
 	// TTS configures the scenario-level default text-to-speech settings used to
 	// convert scripted-text user turns into audio in duplex scenarios. A
 	// per-turn TTS config takes precedence over this; arena defaults fill in

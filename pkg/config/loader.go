@@ -236,6 +236,12 @@ func LoadConfig(filename string) (*Config, error) {
 	if err := cfg.mergeScenarioSpecs(); err != nil {
 		return nil, err
 	}
+	// Validate that every scenario's voice (when set) resolves to an arena
+	// voice binding. Voice bindings were already validated above, so
+	// ResolveVoice will work correctly for valid scenario voices.
+	if err := cfg.validateScenarioVoices(); err != nil {
+		return nil, err
+	}
 	if err := cfg.loadEvals(filename); err != nil {
 		return nil, err
 	}
@@ -533,6 +539,22 @@ func (c *Config) validateVoiceBindings() error {
 		if _, ok := c.LoadedTTSProviders[binding.Provider]; !ok {
 			return fmt.Errorf("voices[%s]: provider id %q not found in tts_providers",
 				binding.ID, binding.Provider)
+		}
+	}
+	return nil
+}
+
+// validateScenarioVoices checks that every scenario's voice (when set) resolves
+// to a valid arena voice binding. Scenarios without a voice field are allowed —
+// they use either persona-driven voices (selfplay) or the legacy scenario.TTS
+// field (scripted text, deprecated and removed in Phase 5).
+func (c *Config) validateScenarioVoices() error {
+	for name, scenario := range c.LoadedScenarios {
+		if scenario.Voice == "" {
+			continue
+		}
+		if _, err := c.ResolveVoice(scenario.Voice); err != nil {
+			return fmt.Errorf("scenario %s: %w", name, err)
 		}
 	}
 	return nil

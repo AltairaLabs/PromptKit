@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/scenario.json
 #
-# Scripted-Text Duplex Scenario (Change 1 demo)
+# Scripted-Text Duplex Scenario
 #
 # Demonstrates text-only user turns in duplex mode. Each turn's `content` is
 # routed through TTS to produce audio that's streamed to the duplex provider.
 # Uses mock TTS so the example runs without OPENAI_API_KEY / ElevenLabs keys.
 #
-# Scenario-level `tts:` block applies to every turn (the layered-config feature
-# from Change 1) — no need to repeat tts on each turn.
+# `voice:` references the arena voice catalog; the duplex executor resolves
+# it via Config.ResolveVoice and routes through the provider-yaml path.
 #
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Scenario
@@ -19,24 +19,16 @@ spec:
   task_type: voice-assistant
   description: "Scripted text user turns routed through TTS"
 
+  # Voice catalog reference — resolved to mock-tts at runtime.
+  # For real audio: change to a voice id backed by an OpenAI or ElevenLabs provider.
+  voice: scripted-mock
+
   duplex:
     timeout: "30s"
     turn_detection:
       mode: asm
 
   streaming: true
-
-  # Scenario-level TTS default. Without this each turn would need its own
-  # tts: block. Mock TTS loads pre-recorded PCM in lieu of synthesizing —
-  # the audio output isn't faithful to the text but exercises the wire path.
-  tts:
-    provider: mock
-    voice: mock-alloy
-    audio_files:
-      - audio/greeting.pcm
-      - audio/question.pcm
-      - audio/funfact.pcm
-    sample_rate: 16000
 
   turns:
     - role: user

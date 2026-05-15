@@ -381,8 +381,16 @@ func resolveTTSProvider(
 }
 
 // processScriptedTextDuplexTurn handles user turns whose content is plain text
-// (no audio parts). The text is synthesized via TTS using layered config
-// resolution and streamed to the duplex provider.
+// (no audio parts). The text is synthesized via TTS and streamed to the duplex
+// provider.
+//
+// Resolution order:
+//  1. New path: if req.Scenario.Voice is set, resolve it via the arena voice
+//     catalog (Config.ResolveVoice) and route through streamTextAsAudioForProvider.
+//  2. Legacy fallback: if Scenario.Voice is empty, resolve via the layered
+//     turn.TTS → scenario.TTS → arena defaults chain and route through
+//     streamTextAsAudio. This keeps unmigrated scenarios working until Phase 5
+//     removes the legacy fields.
 func (de *DuplexConversationExecutor) processScriptedTextDuplexTurn(
 	ctx context.Context,
 	req *ConversationRequest,
@@ -395,11 +403,24 @@ func (de *DuplexConversationExecutor) processScriptedTextDuplexTurn(
 		return fmt.Errorf("self-play registry not configured for duplex turn %d (required for TTS)", turnIdx)
 	}
 
+	// New path: scenario.Voice → arena voice catalog.
+	if req.Scenario != nil && req.Scenario.Voice != "" {
+		ttsProvider, err := req.Config.ResolveVoice(req.Scenario.Voice)
+		if err != nil {
+			return fmt.Errorf("resolving voice for scripted-text turn %d: %w", turnIdx, err)
+		}
+		return de.streamTextAsAudioForProvider(
+			ctx, turn.Content, ttsProvider, nil,
+			inputChan, outputChan,
+		)
+	}
+
+	// Legacy fallback: turn.TTS → scenario.TTS → arena defaults.TTS.
 	ttsConfig := de.resolveTTS(turn, req.Scenario, req.Config)
 	if ttsConfig == nil {
 		return fmt.Errorf(
 			"TTS configuration required for scripted-text duplex turn %d "+
-				"(set turn.tts, scenario.spec.tts, or arena defaults.tts)",
+				"(set scenario.spec.voice, turn.tts, scenario.spec.tts, or arena defaults.tts)",
 			turnIdx,
 		)
 	}

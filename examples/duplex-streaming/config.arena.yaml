@@ -44,6 +44,7 @@ spec:
     - file: providers/elevenlabs-rachel.provider.yaml
     - file: providers/openai-echo.provider.yaml
     - file: providers/openai-alloy-expressive.provider.yaml
+    - file: providers/openai-alloy.provider.yaml
     - file: providers/mock-tts.provider.yaml
 
   voices:
@@ -55,6 +56,11 @@ spec:
       provider: openai-echo
     - id: alloy-expressive
       provider: openai-alloy-expressive
+    # Scripted-text scenario voices. mock-tts serves CI runs without API keys.
+    - id: scripted-mock
+      provider: mock-tts
+    - id: scripted-alloy
+      provider: openai-alloy
 
   # Scenario definitions
   scenarios:

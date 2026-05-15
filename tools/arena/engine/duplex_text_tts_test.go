@@ -298,6 +298,71 @@ func TestStreamTextAsAudio_RejectsMissingRegistry(t *testing.T) {
 	assert.Contains(t, err.Error(), "self-play registry not configured")
 }
 
+// TestProcessScriptedTextDuplexTurn_ViaScenarioVoice verifies that when
+// req.Scenario.Voice is set the scripted-text path resolves through the arena
+// voice catalog (new path) rather than the legacy resolveTTS chain.
+// Uses a mock TTS provider with audio files so GetForProvider returns a
+// MockTTSService without requiring real API credentials.
+func TestProcessScriptedTextDuplexTurn_ViaScenarioVoice(t *testing.T) {
+	// Build a registry with the TTS registry's mock-with-files path.
+	ttsRegistry := selfplay.NewTTSRegistry()
+	reg := selfplay.NewRegistryWithTTS(
+		nil,
+		map[string]string{},
+		map[string]*config.UserPersonaPack{},
+		[]config.SelfPlayRoleGroup{},
+		ttsRegistry,
+	)
+	de := &DuplexConversationExecutor{selfPlayRegistry: reg}
+
+	const providerName = "scripted-mock"
+	// mock type + AudioFiles → GetForProvider returns a MockTTSService
+	// (no real API needed, and it handles SynthesizeTTS).
+	provider := &config.Provider{
+		ID:         providerName,
+		Type:       "mock",
+		Capability: config.CapabilityTTS,
+		AudioFiles: []string{}, // empty → MockTTSService with no rotation
+	}
+	cfg := &config.Config{
+		Voices: []config.VoiceBinding{{ID: "scripted", Provider: providerName}},
+		LoadedTTSProviders: map[string]*config.Provider{
+			providerName: provider,
+		},
+	}
+	scenario := &config.Scenario{
+		ID:    "scripted",
+		Voice: "scripted",
+		// No TTS field — new path must not require legacy config.
+	}
+	req := &ConversationRequest{Scenario: scenario, Config: cfg}
+	turn := &config.TurnDefinition{Role: "user", Content: "hello world"}
+
+	in := make(chan stage.StreamElement, 256)
+	out := make(chan stage.StreamElement, 1)
+	out <- stage.StreamElement{
+		EndOfStream: true,
+		Message:     &types.Message{Role: "assistant", Content: "ok"},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Drain inputChan concurrently so pumpTTSChunks never blocks on a full channel.
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		for range in { //nolint:revive // drain
+		}
+	}()
+
+	err := de.processScriptedTextDuplexTurn(ctx, req, turn, 0, in, out)
+	require.NoError(t, err, "scripted-text via scenario.Voice should succeed")
+
+	close(in)
+	<-drainDone
+}
+
 func TestResolveTTSProvider_ViaPersona(t *testing.T) {
 	cfg := &config.Config{
 		Voices: []config.VoiceBinding{{ID: "v1", Provider: "p1"}},
