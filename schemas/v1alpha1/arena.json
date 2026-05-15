@@ -598,9 +598,6 @@
         "monitor": {
           "$ref": "#/$defs/MonitorSection"
         },
-        "tts": {
-          "$ref": "#/$defs/TTSConfig"
-        },
         "html_report": {
           "type": "string"
         },
@@ -2095,9 +2092,6 @@
         "voice": {
           "type": "string"
         },
-        "tts": {
-          "$ref": "#/$defs/TTSConfig"
-        },
         "variables": {
           "additionalProperties": {
             "type": "string"
@@ -2361,34 +2355,6 @@
       "additionalProperties": false,
       "type": "object"
     },
-    "TTSConfig": {
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "voice": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        },
-        "audio_files": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "sample_rate": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "provider",
-        "voice"
-      ]
-    },
     "TemplateEngineInfo": {
       "properties": {
         "version": {
@@ -2622,9 +2588,6 @@
         },
         "seed": {
           "type": "integer"
-        },
-        "tts": {
-          "$ref": "#/$defs/TTSConfig"
         },
         "streaming": {
           "type": "boolean"
