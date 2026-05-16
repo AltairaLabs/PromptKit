@@ -49,6 +49,11 @@ Use assertions and custom validators to verify LLM response quality.
 Turn recorded Arena runs into mock provider YAML for deterministic, cost-free replays.
 </div>
 
+<div class="code-example" markdown="1">
+### [Gate model migrations on a regression suite](/arena/how-to/model-migration/)
+Walk through `examples/model-migration/`: run the same scenarios against the old and new model side by side. CI exits non-zero if the new model breaks an assertion the old one passed.
+</div>
+
 ## Voice Testing
 
 <div class="code-example" markdown="1">
