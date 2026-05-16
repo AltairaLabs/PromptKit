@@ -1481,6 +1481,14 @@ func TestRegisterInit(t *testing.T) {
 		"llm_judge_session",
 		"llm_judge_tool_calls",
 
+		// RAG-shape eval handlers
+		"faithfulness",
+		"answer_relevancy",
+		"contextual_precision",
+		"contextual_recall",
+		"contextual_relevancy",
+		"hallucination",
+
 		// External eval handlers
 		"rest_eval",
 		"rest_eval_session",
