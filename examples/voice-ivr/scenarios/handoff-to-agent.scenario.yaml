@@ -10,9 +10,17 @@ spec:
   turns:
     - role: user
       content: "Hello, I think someone made an unauthorised charge on my account."
+      assertions:
+        - type: state_is
+          params:
+            state: verifying
 
     - role: user
       content: "Yes, my account is ACC-12345."
+      assertions:
+        - type: transitioned_to
+          params:
+            state: handoff
 
     - role: user
       content: "Thank you, I'll hold."
@@ -32,3 +40,8 @@ spec:
       params:
         tool_names: ["check_balance"]
       message: "Agent must NOT call check_balance when caller requests human handoff"
+    - type: workflow_complete
+      params: {}
+    - type: workflow_transition_order
+      params:
+        sequence: ["handoff"]

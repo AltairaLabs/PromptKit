@@ -275,6 +275,163 @@ func TestWorkflowRunMetadataProvider(t *testing.T) {
 	assert.Equal(t, "intake", meta["workflow_current_state"])
 }
 
+// TestWorkflowRunMetadataProvider_EagerCommitsPending verifies that
+// WorkflowMetadata() commits any pending deferred transition before
+// returning metadata. Per-turn assertions run inside the pipeline (before
+// the post-turn commit hook fires), so without this eager commit the
+// assertion would observe pre-commit state. See #1169.
+func TestWorkflowRunMetadataProvider_EagerCommitsPending(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	exec.RegisterRun("test", scenario)
+
+	args, _ := json.Marshal(map[string]string{"event": "Escalate"})
+	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
+	require.NoError(t, err)
+
+	// Pre-commit: pending transition queued, state still intake on the SM.
+	assert.Equal(t, "intake", exec.StateMachine("test").CurrentState())
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run", "sess", "conv")
+	provider := &workflowRunMetadataProvider{exec: exec, scenarioID: "test", emitter: emitter}
+
+	transitioned := make(chan *events.Event, 1)
+	bus.Subscribe(events.EventWorkflowTransitioned, func(e *events.Event) { transitioned <- e })
+
+	meta := provider.WorkflowMetadata()
+	assert.Equal(t, "specialist", meta["workflow_current_state"],
+		"WorkflowMetadata must commit the pending transition so per-turn assertions see post-commit state")
+
+	select {
+	case <-transitioned:
+		// Expected: commit during metadata read emits the transition event.
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected workflow.transitioned event from eager commit")
+	}
+
+	// Second read with nothing pending is a no-op and returns the same state.
+	meta2 := provider.WorkflowMetadata()
+	assert.Equal(t, "specialist", meta2["workflow_current_state"])
+}
+
+// TestBuildEngineComponents_WiresEvalOrchestratorThroughComposite verifies
+// the type switch in BuildEngineComponents reaches through the
+// CompositeConversationExecutor wrapper. Before #1169, the type assertion
+// failed silently and eng.evalOrchestrator stayed nil for every workflow
+// run, breaking state-aware assertions.
+func TestBuildEngineComponents_WiresEvalOrchestratorThroughComposite(t *testing.T) {
+	composite := &CompositeConversationExecutor{
+		defaultExecutor: &DefaultConversationExecutor{
+			evalOrchestrator: &EvalOrchestrator{},
+		},
+	}
+
+	// Mimic the switch from engine.go.
+	var orch *EvalOrchestrator
+	switch ce := any(composite).(type) {
+	case *DefaultConversationExecutor:
+		orch = ce.evalOrchestrator
+	case *CompositeConversationExecutor:
+		if ce.defaultExecutor != nil {
+			orch = ce.defaultExecutor.evalOrchestrator
+		}
+	}
+	assert.NotNil(t, orch, "type switch must reach through CompositeConversationExecutor")
+}
+
+// TestWorkflowRunMetadataProvider_CommitErrorIsLoggedNotPanicked verifies
+// that a failing commit during a metadata read is logged and not propagated:
+// the assertion still gets a metadata map (with pre-commit state), and the
+// post-turn hook will retry the same commit and surface the error there.
+func TestWorkflowRunMetadataProvider_CommitErrorIsLoggedNotPanicked(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	exec.RegisterRun("test", scenario)
+
+	// Execute an invalid event — Execute succeeds (stores pending) but commit will fail.
+	args, _ := json.Marshal(map[string]string{"event": "NonExistent"})
+	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
+	require.NoError(t, err)
+
+	provider := &workflowRunMetadataProvider{exec: exec, scenarioID: "test"}
+	meta := provider.WorkflowMetadata()
+	assert.Equal(t, "intake", meta["workflow_current_state"],
+		"failing commit must not stop metadata from being returned")
+}
+
+// TestPrepareWorkflowScenario covers Engine.prepareWorkflowScenario across
+// all four combinations of (workflowSpec, evalOrchestrator) and verifies
+// the eventBus is threaded into the per-run provider's emitter so commits
+// fired from a metadata read still emit observability events.
+func TestPrepareWorkflowScenario(t *testing.T) {
+	spec := testWorkflowSpec()
+
+	t.Run("nil workflowSpec returns nil", func(t *testing.T) {
+		eng := &Engine{}
+		got := eng.prepareWorkflowScenario(&config.Scenario{ID: "r"}, "r")
+		assert.Nil(t, got)
+	})
+
+	t.Run("nil evalOrchestrator still registers the run but returns nil", func(t *testing.T) {
+		registry := tools.NewRegistry()
+		transExec := newWorkflowTransitionExecutor(spec, registry)
+		eng := &Engine{
+			workflowSpec:      spec,
+			workflowTransExec: transExec,
+		}
+		scenario := &config.Scenario{ID: "r"}
+		got := eng.prepareWorkflowScenario(scenario, "r")
+		assert.Nil(t, got, "no orch means assertions fall back to shared orch")
+		assert.Equal(t, "intake", scenario.TaskType, "TaskType must be set to entry state's prompt_task")
+		assert.NotNil(t, transExec.StateMachine("r"), "run must be registered for state-machine isolation")
+	})
+
+	t.Run("with everything wired returns cloned orch with provider", func(t *testing.T) {
+		registry := tools.NewRegistry()
+		transExec := newWorkflowTransitionExecutor(spec, registry)
+		baseOrch := &EvalOrchestrator{}
+		bus := events.NewEventBus()
+		eng := &Engine{
+			workflowSpec:      spec,
+			workflowTransExec: transExec,
+			evalOrchestrator:  baseOrch,
+			eventBus:          bus,
+		}
+
+		scenario := &config.Scenario{ID: "r", TaskType: ""}
+		runOrch := eng.prepareWorkflowScenario(scenario, "r")
+		require.NotNil(t, runOrch)
+		assert.NotSame(t, baseOrch, runOrch, "must clone, not mutate the shared orchestrator")
+		assert.Equal(t, "intake", scenario.TaskType)
+
+		// The metadata provider must commit pending transitions and emit
+		// the corresponding workflow.transitioned event through the bus.
+		transitioned := make(chan *events.Event, 1)
+		bus.Subscribe(events.EventWorkflowTransitioned, func(e *events.Event) { transitioned <- e })
+
+		args, _ := json.Marshal(map[string]string{"event": "Escalate"})
+		_, err := transExec.Execute(withWorkflowScenarioID(context.Background(), "r"), nil, args)
+		require.NoError(t, err)
+
+		require.NotNil(t, runOrch.workflowMetaProvider, "provider must be set on the clone")
+		meta := runOrch.workflowMetaProvider.WorkflowMetadata()
+		assert.Equal(t, "specialist", meta["workflow_current_state"])
+
+		select {
+		case <-transitioned:
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("eventBus must be threaded into provider so metadata-time commits emit events")
+		}
+	})
+}
+
 func TestCommitPendingTransition_SetsSkillFilter(t *testing.T) {
 	spec := &workflow.Spec{
 		Version: 1,

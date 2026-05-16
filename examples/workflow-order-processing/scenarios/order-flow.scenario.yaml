@@ -5,31 +5,39 @@ metadata:
 spec:
   id: order-flow
   task_type: new_order
-  description: "Full order lifecycle: new_order -> payment -> fulfillment -> complete. Asserts the agent fires the three workflow transitions across the conversation."
+  description: "Full order lifecycle: new_order -> payment -> fulfillment -> complete. Asserts each transition."
   turns:
     - role: user
       content: "I just placed an order for Wireless Headphones. Can you confirm?"
+      assertions:
+        # The mock agent transitions immediately on turn 1 (PaymentReceived).
+        # State assertions observe the post-commit state of the turn.
+        - type: transitioned_to
+          params:
+            state: payment
 
     - role: user
       content: "Has my payment gone through?"
+      assertions:
+        - type: state_is
+          params:
+            state: fulfillment
 
     - role: user
       content: "When will my order arrive?"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: fulfillment
 
     - role: user
       content: "I received the package. Thanks!"
-
-  conversation_assertions:
-    - type: tools_called
-      params:
-        tool_names: [workflow__transition]
-        min_calls: 3
-      message: "Agent must drive three workflow transitions across the order lifecycle"
-
-    - type: tool_call_sequence
-      params:
-        sequence:
-          - workflow__transition
-          - workflow__transition
-          - workflow__transition
-      message: "Three workflow transitions must occur in order"
+      assertions:
+        - type: transitioned_to
+          params:
+            state: complete
+        - type: workflow_complete
+          params: {}
+        - type: workflow_transition_order
+          params:
+            sequence: ["payment", "fulfillment", "complete"]
