@@ -82,6 +82,11 @@ Walk through `examples/voice-red-team/`: `pii_leakage` wired as a guardrail in t
 </div>
 
 <div class="code-example" markdown="1">
+### [PII-redaction guardrails for voice agents](/arena/how-to/voice-guardrails/)
+Walk through `examples/voice-guardrails/`: a focused single-scenario demo of the runtime + test bridge. The `pii_leakage` guardrail replaces the agent's would-be-spoken PII before reaching TTS; the test reads the firing from `validations:` on the recorded message via `guardrail_triggered`.
+</div>
+
+<div class="code-example" markdown="1">
 ### [Run the same scenario across multiple providers](/arena/how-to/voice-bake-off/)
 Walk through `examples/voice-bake-off/`: one scenario, two providers, side-by-side report. Adding a provider is one YAML line; per-provider thresholds use `when:` clauses. The fan-out shape stays the same whether you're comparing mocks or real duplex providers.
 </div>
