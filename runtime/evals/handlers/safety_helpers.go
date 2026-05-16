@@ -104,3 +104,40 @@ func piiLeakageRegexHit(patternName string) *evals.EvalResult {
 		},
 	}
 }
+
+// piiLeakageRegexClean is the pass result when the regex pre-pass found
+// no PII patterns AND no LLM judge is configured. The handler degrades
+// to "regex-only" mode rather than failing closed; wiring pii_leakage as
+// a guardrail without an LLM key still gives the deterministic regex
+// coverage instead of blocking every output.
+func piiLeakageRegexClean() *evals.EvalResult {
+	one := 1.0
+	return &evals.EvalResult{
+		Type:        piiLeakageType,
+		Score:       &one,
+		Explanation: "no high-confidence PII pattern matched; LLM judge not configured",
+		Value: map[string]any{
+			resultFieldScore:     1.0,
+			"detected_via":       detectViaRegex,
+			resultFieldReasoning: "regex pre-pass found no PII; LLM judge skipped (no judge provider configured)",
+			"pre_pass":           true,
+			"llm_judge_skipped":  true,
+		},
+	}
+}
+
+// hasJudgeProvider reports whether the eval context has a wired judge
+// provider (direct provider or judge_targets ProviderSpec map). Used by
+// pii_leakage to decide whether to attempt the LLM-judged second layer.
+func hasJudgeProvider(evalCtx *evals.EvalContext) bool {
+	if evalCtx == nil || evalCtx.Metadata == nil {
+		return false
+	}
+	if _, ok := evalCtx.Metadata["judge_provider"]; ok {
+		return true
+	}
+	if _, ok := evalCtx.Metadata["judge_targets"]; ok {
+		return true
+	}
+	return false
+}

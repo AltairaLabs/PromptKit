@@ -324,15 +324,12 @@ func TestSafetyHandlers_MissingProvider(t *testing.T) {
 	handlers := []evals.EvalTypeHandler{
 		&BiasHandler{},
 		&ToxicityHandler{},
-		&PIILeakageHandler{},
 		&RoleViolationHandler{},
 	}
 	for _, h := range handlers {
 		h := h
 		t.Run(h.Type(), func(t *testing.T) {
 			t.Parallel()
-			// pii_leakage with PII text would short-circuit before checking
-			// the provider; use a clean output for that handler.
 			evalCtx := &evals.EvalContext{CurrentOutput: "clean text"}
 			result, err := h.Eval(context.Background(), evalCtx, map[string]any{})
 			if err != nil {
@@ -342,6 +339,47 @@ func TestSafetyHandlers_MissingProvider(t *testing.T) {
 				t.Errorf("unexpected explanation: %s", result.Explanation)
 			}
 		})
+	}
+}
+
+func TestPIILeakageHandler_NoJudge_NoRegexHit_PassesCleanly(t *testing.T) {
+	// pii_leakage is the special case among safety handlers: it has a
+	// regex pre-pass, so when no judge is configured AND the regex
+	// finds nothing, the handler degrades to "regex-only" and passes
+	// (score 1.0). Wiring pii_leakage as a guardrail without an LLM
+	// key MUST NOT cause every output to be blocked — the regex still
+	// provides deterministic coverage, the LLM judge is optional.
+	t.Parallel()
+	h := &PIILeakageHandler{}
+	evalCtx := &evals.EvalContext{CurrentOutput: "clean text with no PII"}
+	result, err := h.Eval(context.Background(), evalCtx, map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Score == nil || *result.Score != 1.0 {
+		t.Errorf("score=%v, want 1.0", result.Score)
+	}
+	if !strings.Contains(result.Explanation, "LLM judge not configured") {
+		t.Errorf("unexpected explanation: %s", result.Explanation)
+	}
+}
+
+func TestPIILeakageHandler_NoJudge_RegexHit_StillFires(t *testing.T) {
+	// Sanity: the regex layer must still fire even when no judge is
+	// configured. The "degrade to pass" path only applies when the
+	// regex found nothing.
+	t.Parallel()
+	h := &PIILeakageHandler{}
+	evalCtx := &evals.EvalContext{CurrentOutput: "Email: jane@example.com"}
+	result, err := h.Eval(context.Background(), evalCtx, map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Score == nil || *result.Score != 0.0 {
+		t.Errorf("score=%v, want 0.0", result.Score)
+	}
+	if !strings.Contains(result.Explanation, "regex pre-pass detected email") {
+		t.Errorf("unexpected explanation: %s", result.Explanation)
 	}
 }
 
