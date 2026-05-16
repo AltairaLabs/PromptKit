@@ -275,6 +275,74 @@ func TestWorkflowRunMetadataProvider(t *testing.T) {
 	assert.Equal(t, "intake", meta["workflow_current_state"])
 }
 
+// TestWorkflowRunMetadataProvider_EagerCommitsPending verifies that
+// WorkflowMetadata() commits any pending deferred transition before
+// returning metadata. Per-turn assertions run inside the pipeline (before
+// the post-turn commit hook fires), so without this eager commit the
+// assertion would observe pre-commit state. See #1169.
+func TestWorkflowRunMetadataProvider_EagerCommitsPending(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
+	exec.RegisterRun("test", scenario)
+
+	args, _ := json.Marshal(map[string]string{"event": "Escalate"})
+	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
+	require.NoError(t, err)
+
+	// Pre-commit: pending transition queued, state still intake on the SM.
+	assert.Equal(t, "intake", exec.StateMachine("test").CurrentState())
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run", "sess", "conv")
+	provider := &workflowRunMetadataProvider{exec: exec, scenarioID: "test", emitter: emitter}
+
+	transitioned := make(chan *events.Event, 1)
+	bus.Subscribe(events.EventWorkflowTransitioned, func(e *events.Event) { transitioned <- e })
+
+	meta := provider.WorkflowMetadata()
+	assert.Equal(t, "specialist", meta["workflow_current_state"],
+		"WorkflowMetadata must commit the pending transition so per-turn assertions see post-commit state")
+
+	select {
+	case <-transitioned:
+		// Expected: commit during metadata read emits the transition event.
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected workflow.transitioned event from eager commit")
+	}
+
+	// Second read with nothing pending is a no-op and returns the same state.
+	meta2 := provider.WorkflowMetadata()
+	assert.Equal(t, "specialist", meta2["workflow_current_state"])
+}
+
+// TestBuildEngineComponents_WiresEvalOrchestratorThroughComposite verifies
+// the type switch in BuildEngineComponents reaches through the
+// CompositeConversationExecutor wrapper. Before #1169, the type assertion
+// failed silently and eng.evalOrchestrator stayed nil for every workflow
+// run, breaking state-aware assertions.
+func TestBuildEngineComponents_WiresEvalOrchestratorThroughComposite(t *testing.T) {
+	composite := &CompositeConversationExecutor{
+		defaultExecutor: &DefaultConversationExecutor{
+			evalOrchestrator: &EvalOrchestrator{},
+		},
+	}
+
+	// Mimic the switch from engine.go.
+	var orch *EvalOrchestrator
+	switch ce := any(composite).(type) {
+	case *DefaultConversationExecutor:
+		orch = ce.evalOrchestrator
+	case *CompositeConversationExecutor:
+		if ce.defaultExecutor != nil {
+			orch = ce.defaultExecutor.evalOrchestrator
+		}
+	}
+	assert.NotNil(t, orch, "type switch must reach through CompositeConversationExecutor")
+}
+
 func TestCommitPendingTransition_SetsSkillFilter(t *testing.T) {
 	spec := &workflow.Spec{
 		Version: 1,

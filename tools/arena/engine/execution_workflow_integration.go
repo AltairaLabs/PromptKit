@@ -84,7 +84,18 @@ func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string
 	// shared orchestrator.
 	var orch *EvalOrchestrator
 	if e.workflowTransExec != nil {
-		provider := &workflowRunMetadataProvider{exec: e.workflowTransExec, scenarioID: runID}
+		// Build the provider's emitter from the engine's event bus so any
+		// commit that fires from a metadata read emits the same observability
+		// events as the standard post-turn-hook commit.
+		var emitter *events.Emitter
+		if e.eventBus != nil {
+			emitter = events.NewEmitter(e.eventBus, runID, runID, runID)
+		}
+		provider := &workflowRunMetadataProvider{
+			exec:       e.workflowTransExec,
+			scenarioID: runID,
+			emitter:    emitter,
+		}
 		if e.evalOrchestrator != nil {
 			orch = e.evalOrchestrator.Clone()
 			orch.SetWorkflowMetadataProvider(provider)

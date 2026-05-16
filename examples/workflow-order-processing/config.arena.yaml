@@ -18,6 +18,7 @@ spec:
 
   scenarios:
     - file: scenarios/order-flow.scenario.yaml
+    - file: scenarios/validation-checks.scenario.yaml
 
   workflow:
     version: 1

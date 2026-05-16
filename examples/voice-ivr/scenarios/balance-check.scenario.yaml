@@ -10,9 +10,17 @@ spec:
   turns:
     - role: user
       content: "Hi, I'd like to check my account balance."
+      assertions:
+        - type: state_is
+          params:
+            state: verifying
 
     - role: user
       content: "My account ID is ACC-12345."
+      assertions:
+        - type: transitioned_to
+          params:
+            state: resolution
 
     - role: user
       content: "Thank you, that's all I needed."
@@ -32,3 +40,8 @@ spec:
       params:
         tool_names: ["transfer_to_agent"]
       message: "Agent must NOT transfer the caller — this is self-service"
+    - type: workflow_complete
+      params: {}
+    - type: workflow_transition_order
+      params:
+        sequence: ["resolution"]

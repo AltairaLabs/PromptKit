@@ -229,13 +229,37 @@ func buildRunMetadata(run *workflowRunState) map[string]any {
 }
 
 // workflowRunMetadataProvider wraps the executor for a specific scenario run.
+//
+// emitter is wired per-run when the provider is created so any commit
+// that fires from WorkflowMetadata() emits the same observability events
+// that a post-turn-hook commit would emit.
 type workflowRunMetadataProvider struct {
 	exec       *workflowTransitionExecutor
 	scenarioID string
+	emitter    *events.Emitter
 }
 
 // WorkflowMetadata returns metadata for the specific run.
+//
+// If a transition was queued earlier in this turn (the LLM called
+// workflow__transition and the executor deferred the commit), this
+// commits it eagerly before returning the metadata. Per-turn workflow
+// assertions (state_is, transitioned_to, workflow_complete) need to
+// see the result of the agent's just-fired transition; without this,
+// they observe pre-commit state because the assertion stage runs
+// inside the pipeline while the standard post-turn commit hook fires
+// after the pipeline returns.
+//
+// CommitPendingTransition is a no-op when nothing is pending, so the
+// post-turn hook still runs harmlessly. Errors during commit are
+// non-fatal here — the post-turn hook will surface the same error on
+// its retry — but they are logged so silent metadata-time failures
+// don't mask a real workflow problem.
 func (p *workflowRunMetadataProvider) WorkflowMetadata() map[string]any {
+	if err := p.exec.CommitPendingTransition(p.scenarioID, p.emitter); err != nil {
+		logger.Warn("workflow commit at metadata read time failed",
+			"scenario_id", p.scenarioID, "error", err)
+	}
 	return p.exec.RunMetadata(p.scenarioID)
 }
 

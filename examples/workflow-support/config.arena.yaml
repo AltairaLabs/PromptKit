@@ -16,6 +16,7 @@ spec:
 
   scenarios:
     - file: scenarios/basic-flow.scenario.yaml
+    - file: scenarios/state-assertions.scenario.yaml
 
   workflow:
     version: 1
