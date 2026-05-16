@@ -1,0 +1,41 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: standard-call
+spec:
+  id: standard-call
+  task_type: support
+  description: "Standard 3-turn call. Run side-by-side across registered providers; the report shows per-provider response + latency + assertion outcomes on one axis."
+
+  turns:
+    - role: user
+      content: "Hi, I need help with my account."
+      assertions:
+        - type: latency_budget
+          params:
+            max_ms: 2000
+          message: "Turn must respond within 2s"
+        - type: max_length
+          params:
+            max_characters: 600
+          message: "Reply should stay within 600 chars — voice replies over this start to feel robotic"
+
+    - role: user
+      content: "My account ID is ACC-12345."
+      assertions:
+        - type: latency_budget
+          params:
+            max_ms: 2000
+        - type: max_length
+          params:
+            max_characters: 600
+
+    - role: user
+      content: "Great, thank you."
+      assertions:
+        - type: latency_budget
+          params:
+            max_ms: 2000
+        - type: max_length
+          params:
+            max_characters: 600
