@@ -246,10 +246,11 @@ func (h *EvalOrchestrator) buildEvalContext(
 	turnIndex int,
 	sessionID string,
 ) *evals.EvalContext {
+	latencyMs, haveLatency := latestAssistantLatencyMs(messages)
 	metadata := h.metadata
-	needsCopy := h.eventBus != nil || h.workflowMetaProvider != nil
+	needsCopy := h.eventBus != nil || h.workflowMetaProvider != nil || haveLatency
 	if needsCopy {
-		merged := make(map[string]any, len(metadata)+4) //nolint:mnd // extra capacity for emitter + workflow keys
+		merged := make(map[string]any, len(metadata)+4) //nolint:mnd // extra capacity for emitter + workflow + latency keys
 		for k, v := range metadata {
 			merged[k] = v
 		}
@@ -267,9 +268,29 @@ func (h *EvalOrchestrator) buildEvalContext(
 				merged[k] = v
 			}
 		}
+		if haveLatency {
+			// Bridge per-turn provider latency from the assistant message
+			// into metadata so the latency_budget assertion can read it.
+			merged["latency_ms"] = float64(latencyMs)
+		}
 		metadata = merged
 	}
 	return evals.BuildEvalContext(messages, turnIndex, sessionID, h.taskType, metadata)
+}
+
+// latestAssistantLatencyMs returns the LatencyMs of the most recent
+// assistant message, and a flag indicating whether one was found.
+// The boolean lets callers distinguish a measured 0 ms (sub-millisecond
+// in-process mock) from "no latency available". Used to bridge per-turn
+// provider latency into the eval metadata for the latency_budget
+// assertion.
+func latestAssistantLatencyMs(messages []types.Message) (int64, bool) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == roleAssistant {
+			return messages[i].LatencyMs, true
+		}
+	}
+	return 0, false
 }
 
 // filterEvalDefs filters eval defs to only include types in the filter list.
