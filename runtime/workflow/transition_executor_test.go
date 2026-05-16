@@ -233,3 +233,162 @@ func newTestRegistry(t *testing.T) *tools.Registry {
 	t.Helper()
 	return tools.NewRegistry()
 }
+
+func TestTransitionExecutor_AgentControlEagerCommit(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t-a", OnEvent: map[string]string{"Go": "b"}},
+			"b": {
+				PromptTask:  "t-b",
+				Description: "B is agent-controlled — keep the turn",
+				Control:     ControlModeAgent,
+				OnEvent:     map[string]string{"Finish": "done"},
+			},
+			"done": {PromptTask: "t-done", Terminal: true},
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+
+	var committed []*TransitionResult
+	exec.SetOnCommit(func(tr *TransitionResult) {
+		committed = append(committed, tr)
+	})
+
+	args, _ := json.Marshal(map[string]string{"event": "Go", "context": "test"})
+	raw, err := exec.Execute(context.Background(), nil, args)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if sm.CurrentState() != "b" {
+		t.Errorf("state after eager commit = %q, want 'b'", sm.CurrentState())
+	}
+	if exec.Pending() != nil {
+		t.Error("pending must be nil after eager commit")
+	}
+	if len(committed) != 1 || committed[0].To != "b" {
+		t.Errorf("onCommit not fired correctly: %+v", committed)
+	}
+
+	// CommitPending must be a no-op now.
+	tr, err := exec.CommitPending()
+	if err != nil {
+		t.Fatalf("CommitPending: %v", err)
+	}
+	if tr != nil {
+		t.Errorf("CommitPending must return nil after eager commit, got %+v", tr)
+	}
+
+	// Response must include the new state's metadata so the LLM can act on it.
+	var resp map[string]any
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["status"] != "transitioned" {
+		t.Errorf("status = %q, want 'transitioned'", resp["status"])
+	}
+	if resp["to"] != "b" {
+		t.Errorf("to = %q, want 'b'", resp["to"])
+	}
+	if resp["prompt_task"] != "t-b" {
+		t.Errorf("prompt_task = %v, want 't-b'", resp["prompt_task"])
+	}
+	if resp["description"] == nil {
+		t.Errorf("description must be populated")
+	}
+	events, ok := resp["available_events"].([]any)
+	if !ok || len(events) != 1 || events[0] != "Finish" {
+		t.Errorf("available_events = %v, want ['Finish']", resp["available_events"])
+	}
+}
+
+func TestTransitionExecutor_UserControlStillDefers(t *testing.T) {
+	// Default Control ("") must behave exactly like the deferred-commit path.
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"}, // Control == "" → user (default)
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+
+	var committed int
+	exec.SetOnCommit(func(*TransitionResult) { committed++ })
+
+	args, _ := json.Marshal(map[string]string{"event": "Go", "context": ""})
+	_, err := exec.Execute(context.Background(), nil, args)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if sm.CurrentState() != "a" {
+		t.Errorf("state must not advance during deferred Execute")
+	}
+	if exec.Pending() == nil {
+		t.Error("pending must be set for user-controlled target")
+	}
+	if committed != 0 {
+		t.Errorf("onCommit must not fire on Execute for user-controlled targets, fired %d times", committed)
+	}
+
+	if _, err := exec.CommitPending(); err != nil {
+		t.Fatalf("CommitPending: %v", err)
+	}
+	if committed != 1 {
+		t.Errorf("onCommit must fire on CommitPending, fired %d times", committed)
+	}
+	if sm.CurrentState() != "b" {
+		t.Errorf("state after CommitPending = %q, want 'b'", sm.CurrentState())
+	}
+}
+
+func TestTransitionExecutor_AgentControlChainedTransitions(t *testing.T) {
+	// Two agent-controlled transitions in sequence — proves the executor stays
+	// usable after an eager commit and the second call uses the post-commit
+	// source state to resolve its target.
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"ToB": "b"}},
+			"b": {
+				PromptTask: "t",
+				Control:    ControlModeAgent,
+				OnEvent:    map[string]string{"ToC": "c"},
+			},
+			"c": {
+				PromptTask: "t",
+				Control:    ControlModeAgent,
+				OnEvent:    map[string]string{"ToDone": "done"},
+			},
+			"done": {PromptTask: "t", Terminal: true},
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+
+	first, _ := json.Marshal(map[string]string{"event": "ToB"})
+	if _, err := exec.Execute(context.Background(), nil, first); err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+	if sm.CurrentState() != "b" {
+		t.Fatalf("after first eager commit, state = %q want 'b'", sm.CurrentState())
+	}
+
+	second, _ := json.Marshal(map[string]string{"event": "ToC"})
+	if _, err := exec.Execute(context.Background(), nil, second); err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+	if sm.CurrentState() != "c" {
+		t.Fatalf("after second eager commit, state = %q want 'c'", sm.CurrentState())
+	}
+	if exec.Pending() != nil {
+		t.Error("pending must remain nil across chained eager commits")
+	}
+}

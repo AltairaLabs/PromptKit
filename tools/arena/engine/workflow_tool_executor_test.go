@@ -285,8 +285,11 @@ func TestWorkflowRunMetadataProvider_EagerCommitsPending(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run", "sess", "conv")
+
 	scenario := &config.Scenario{ID: "test", TaskType: "intake"}
-	exec.RegisterRun("test", scenario)
+	exec.RegisterRunWithEmitter("test", scenario, emitter)
 
 	args, _ := json.Marshal(map[string]string{"event": "Escalate"})
 	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "test"), nil, args)
@@ -295,8 +298,6 @@ func TestWorkflowRunMetadataProvider_EagerCommitsPending(t *testing.T) {
 	// Pre-commit: pending transition queued, state still intake on the SM.
 	assert.Equal(t, "intake", exec.StateMachine("test").CurrentState())
 
-	bus := events.NewEventBus()
-	emitter := events.NewEmitter(bus, "run", "sess", "conv")
 	provider := &workflowRunMetadataProvider{exec: exec, scenarioID: "test", emitter: emitter}
 
 	transitioned := make(chan *events.Event, 1)
@@ -584,6 +585,71 @@ func TestEmitWorkflowError_Arena(t *testing.T) {
 	}
 }
 
+// TestWorkflowTransitionExecutor_AgentControlAppliesPostCommitInline verifies
+// the arena-side wiring of the runtime executor's OnCommit hook: an
+// agent-controlled transition fires Execute, which commits inline, which
+// runs applyPostCommit — emitting events, updating scenario.TaskType, and
+// re-registering the transition tool for the new state — all without
+// CommitPendingTransition being called.
+func TestWorkflowTransitionExecutor_AgentControlAppliesPostCommitInline(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 2,
+		Entry:   "intake",
+		States: map[string]*workflow.State{
+			"intake": {
+				PromptTask: "intake",
+				OnEvent:    map[string]string{"Route": "agent_step"},
+			},
+			"agent_step": {
+				PromptTask: "agent-prompt",
+				Control:    workflow.ControlModeAgent,
+				OnEvent:    map[string]string{"Done": "closed"},
+			},
+			"closed": {PromptTask: "closed", Terminal: true},
+		},
+	}
+	registry := tools.NewRegistry()
+	exec := newWorkflowTransitionExecutor(spec, registry)
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run", "sess", "conv")
+	transitioned := make(chan *events.Event, 1)
+	bus.Subscribe(events.EventWorkflowTransitioned, func(e *events.Event) { transitioned <- e })
+
+	scenario := &config.Scenario{ID: "r", TaskType: "intake"}
+	exec.RegisterRunWithEmitter("r", scenario, emitter)
+
+	args, _ := json.Marshal(map[string]string{"event": "Route"})
+	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "r"), nil, args)
+	require.NoError(t, err)
+
+	// State advanced — no deferred commit needed.
+	assert.Equal(t, "agent_step", exec.StateMachine("r").CurrentState())
+
+	// scenario.TaskType reflects the new state's prompt_task so the next
+	// pipeline turn (or in-turn LLM call) renders the right system prompt.
+	assert.Equal(t, "agent-prompt", scenario.TaskType)
+
+	// Event fired through the per-run emitter wired at RegisterRun time.
+	select {
+	case e := <-transitioned:
+		assert.Equal(t, events.EventWorkflowTransitioned, e.Type)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("agent-controlled eager commit must emit workflow.transitioned")
+	}
+
+	// Transition recorded in the per-run metadata for workflow assertions.
+	meta := exec.RunMetadata("r")
+	transitions, ok := meta["workflow_transitions"].([]any)
+	require.True(t, ok)
+	require.Len(t, transitions, 1)
+	tr := transitions[0].(map[string]any)
+	assert.Equal(t, "agent_step", tr["to"])
+
+	// CommitPendingTransition is a no-op (nothing pending after eager commit).
+	require.NoError(t, exec.CommitPendingTransition("r", nil))
+}
+
 // TestCommitPendingTransition_EmitsRedirectedEvent verifies that a commit
 // that redirects (max_visits cap hit with on_max_visits fallback) emits
 // workflow.max_visits_exceeded alongside workflow.transitioned.
@@ -604,11 +670,11 @@ func TestCommitPendingTransition_EmitsRedirectedEvent(t *testing.T) {
 	registry := tools.NewRegistry()
 	exec := newWorkflowTransitionExecutor(spec, registry)
 
-	scenario := &config.Scenario{ID: "r", TaskType: "loop"}
-	exec.RegisterRun("r", scenario)
-
 	bus := events.NewEventBus()
 	emitter := events.NewEmitter(bus, "run", "sess", "conv")
+
+	scenario := &config.Scenario{ID: "r", TaskType: "loop"}
+	exec.RegisterRunWithEmitter("r", scenario, emitter)
 
 	received := make(chan *events.Event, 4)
 	bus.Subscribe(events.EventWorkflowMaxVisitsExceeded, func(e *events.Event) {
@@ -619,12 +685,12 @@ func TestCommitPendingTransition_EmitsRedirectedEvent(t *testing.T) {
 	args, _ := json.Marshal(map[string]string{"event": "Again"})
 	_, err := exec.Execute(withWorkflowScenarioID(context.Background(), "r"), nil, args)
 	require.NoError(t, err)
-	require.NoError(t, exec.CommitPendingTransition("r", emitter))
+	require.NoError(t, exec.CommitPendingTransition("r", nil))
 
 	// Second transition: visits[loop]=1 == MaxVisits, should redirect to exit.
 	_, err = exec.Execute(withWorkflowScenarioID(context.Background(), "r"), nil, args)
 	require.NoError(t, err)
-	require.NoError(t, exec.CommitPendingTransition("r", emitter))
+	require.NoError(t, exec.CommitPendingTransition("r", nil))
 
 	select {
 	case e := <-received:

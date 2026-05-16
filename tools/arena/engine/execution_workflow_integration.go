@@ -74,9 +74,18 @@ func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string
 		scenario.TaskType = entryState.PromptTask
 	}
 
+	// Build the per-run emitter once and reuse it for both the
+	// workflowTransitionExecutor (which fires events on every commit, eager
+	// or deferred) and the workflow metadata provider (which may eager-commit
+	// during a metadata read).
+	var emitter *events.Emitter
+	if e.eventBus != nil {
+		emitter = events.NewEmitter(e.eventBus, runID, runID, runID)
+	}
+
 	// Register a per-run state machine for concurrent scenario execution
 	if e.workflowTransExec != nil {
-		e.workflowTransExec.RegisterRun(runID, scenario)
+		e.workflowTransExec.RegisterRunWithEmitter(runID, scenario, emitter)
 	}
 
 	// Clone the eval orchestrator for this run with per-run workflow metadata.
@@ -84,13 +93,6 @@ func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string
 	// shared orchestrator.
 	var orch *EvalOrchestrator
 	if e.workflowTransExec != nil {
-		// Build the provider's emitter from the engine's event bus so any
-		// commit that fires from a metadata read emits the same observability
-		// events as the standard post-turn-hook commit.
-		var emitter *events.Emitter
-		if e.eventBus != nil {
-			emitter = events.NewEmitter(e.eventBus, runID, runID, runID)
-		}
 		provider := &workflowRunMetadataProvider{
 			exec:       e.workflowTransExec,
 			scenarioID: runID,
