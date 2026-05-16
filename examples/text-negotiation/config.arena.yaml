@@ -1,0 +1,31 @@
+# Text Self-Play Negotiation Demo
+#
+# A multi-turn rental-price negotiation. The default config uses a
+# mock provider for the counterparty (deterministic CI) and scripted
+# user turns for the negotiator side, so the scenario runs without
+# provider keys. The how-to documents the swap to a real LLM-driven
+# persona (role: selfplay-user with a real-text provider) for true
+# self-play.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: text-negotiation
+
+spec:
+  prompt_configs:
+    - id: landlord-agent
+      file: prompts/landlord-agent.yaml
+
+  providers:
+    - file: providers/mock-provider.yaml
+
+  scenarios:
+    - file: scenarios/rental-negotiation.scenario.yaml
+
+  defaults:
+    temperature: 0.1
+    max_tokens: 256
+    output:
+      dir: out
+      formats: ["json", "html"]

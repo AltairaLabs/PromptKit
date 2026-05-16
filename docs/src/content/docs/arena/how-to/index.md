@@ -122,6 +122,13 @@ Configure MCP servers in Arena for integration testing with tool filtering, time
 Test agent-to-agent delegation with mock or remote A2A agents, including authentication, headers, and skill filtering.
 </div>
 
+## Multi-Turn Testing
+
+<div class="code-example" markdown="1">
+### [Test agent negotiation with scripted or self-play opponents](/arena/how-to/text-negotiation/)
+Walk through `examples/text-negotiation/`: a four-turn rental-price negotiation with conversation-outcome assertions. Default runs deterministically against a mock landlord; the how-to documents the swap to real LLM-driven self-play via `role: selfplay-user` and a persona.
+</div>
+
 ## Automation
 
 <div class="code-example" markdown="1">
