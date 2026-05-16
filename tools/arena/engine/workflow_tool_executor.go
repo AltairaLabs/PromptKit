@@ -39,6 +39,7 @@ type workflowRunState struct {
 	scenario    *config.Scenario
 	transitions []map[string]any
 	skillFilter string // current skill glob filter for this run
+	emitter     *events.Emitter
 }
 
 // workflowTransitionExecutor routes workflow__transition tool calls to per-run
@@ -67,15 +68,36 @@ func newWorkflowTransitionExecutor(
 // Name implements tools.Executor.
 func (e *workflowTransitionExecutor) Name() string { return workflow.TransitionExecutorMode }
 
-// RegisterRun creates a fresh TransitionExecutor for a scenario run.
+// RegisterRun creates a fresh TransitionExecutor for a scenario run with no
+// observability emitter. Use RegisterRunWithEmitter when events should be
+// emitted on commits.
 func (e *workflowTransitionExecutor) RegisterRun(runID string, scenario *config.Scenario) {
+	e.RegisterRunWithEmitter(runID, scenario, nil)
+}
+
+// RegisterRunWithEmitter creates a fresh TransitionExecutor for a scenario run
+// and captures the per-run emitter.
+//
+// The emitter is shared between the eager (agent-controlled, fires inside
+// Execute) and deferred (user-controlled, fires from CommitPendingTransition)
+// commit paths through the OnCommit hook wired here. Pass nil for runs that
+// don't need observability events.
+func (e *workflowTransitionExecutor) RegisterRunWithEmitter(
+	runID string, scenario *config.Scenario, emitter *events.Emitter,
+) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	sm := workflow.NewStateMachine(e.wfSpec)
-	e.runs[runID] = &workflowRunState{
-		transExec: workflow.NewTransitionExecutor(sm, e.wfSpec),
+	transExec := workflow.NewTransitionExecutor(sm, e.wfSpec)
+	run := &workflowRunState{
+		transExec: transExec,
 		scenario:  scenario,
+		emitter:   emitter,
 	}
+	e.runs[runID] = run
+	transExec.SetOnCommit(func(tr *workflow.TransitionResult) {
+		e.applyPostCommit(runID, tr)
+	})
 }
 
 // Execute routes the tool call to the per-run TransitionExecutor.
@@ -96,15 +118,18 @@ func (e *workflowTransitionExecutor) Execute(
 	return run.transExec.Execute(ctx, desc, args)
 }
 
-// CommitPendingTransition commits the deferred transition for a run.
-// Called after the turn/pipeline completes. Updates scenario TaskType and
-// re-registers the transition tool for the new state's events.
+// CommitPendingTransition commits any pending deferred transition for a run.
+// Called from the PostTurnHook after the pipeline turn completes (user-control
+// path) and eagerly from WorkflowMetadata reads inside the pipeline. Returns
+// nil and is a no-op when nothing is pending.
 //
-// When emitter is non-nil, emits workflow observability events:
-// workflow.transitioned on every commit, workflow.max_visits_exceeded when
-// the transition redirected or a max-visits cap terminated the workflow,
-// workflow.budget_exhausted when a budget limit tripped, and
-// workflow.completed when the new state is terminal.
+// Post-commit work (transition history, observability events, scenario
+// TaskType update, tool re-registration, skill filter) runs via the
+// OnCommit hook wired in RegisterRun, so it is shared with the agent-control
+// path where the commit fires inside Execute.
+//
+// The emitter parameter is honored only when reporting commit errors. The
+// emitter for successful events is whichever was passed at RegisterRun time.
 func (e *workflowTransitionExecutor) CommitPendingTransition(
 	runID string, emitter *events.Emitter,
 ) error {
@@ -117,17 +142,35 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(
 	}
 
 	pending := run.transExec.Pending()
-	tr, err := run.transExec.CommitPending()
-	if err != nil {
+	if _, err := run.transExec.CommitPending(); err != nil {
 		e.emitWorkflowError(run, emitter, pending.Event, err)
 		return fmt.Errorf("transition commit failed: %w", err)
 	}
+	return nil
+}
+
+// applyPostCommit runs the work that's common to every successful commit
+// (eager or deferred): record the transition, log it, fire observability
+// events, update scenario TaskType, re-register the transition tool for
+// the new state's events, and store the new state's skill filter.
+//
+// Wired into the runtime TransitionExecutor's OnCommit hook from RegisterRun
+// so both control paths (eager from Execute, deferred from CommitPending)
+// run the same post-commit logic.
+func (e *workflowTransitionExecutor) applyPostCommit(
+	runID string, tr *workflow.TransitionResult,
+) {
 	if tr == nil {
-		return nil
+		return
 	}
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	run := e.runs[runID]
+	if run == nil {
+		return
+	}
 
 	transitionRecord := map[string]any{
 		"from": tr.From, "to": tr.To, "event": tr.Event,
@@ -141,11 +184,9 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(
 	logger.Info("workflow state transition", "from", tr.From, "to", tr.To,
 		"event", tr.Event, "redirected", tr.Redirected)
 
-	// Emit transition observability events before mutating state below, so
-	// listeners see the transition and any max_visits redirect in order.
-	if emitter != nil {
+	if run.emitter != nil {
 		if tr.Redirected {
-			emitter.WorkflowMaxVisitsExceeded(&events.WorkflowMaxVisitsExceededData{
+			run.emitter.WorkflowMaxVisitsExceeded(&events.WorkflowMaxVisitsExceededData{
 				FromState:      tr.From,
 				OriginalTarget: tr.OriginalTarget,
 				Event:          tr.Event,
@@ -155,26 +196,21 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(
 				Terminated:     false,
 			})
 		}
-		emitter.WorkflowTransitioned(tr.From, tr.To, tr.Event, "")
+		run.emitter.WorkflowTransitioned(tr.From, tr.To, tr.Event, "")
 		if newState := e.wfSpec.States[tr.To]; newState != nil &&
 			(newState.Terminal || len(newState.OnEvent) == 0) {
-			emitter.WorkflowCompleted(
+			run.emitter.WorkflowCompleted(
 				tr.To, run.transExec.StateMachine().Context().TransitionCount())
 		}
 	}
 
-	// Update scenario TaskType and re-register tool for the new state
 	if newState := e.wfSpec.States[tr.To]; newState != nil {
 		if run.scenario != nil {
 			run.scenario.TaskType = newState.PromptTask
 		}
 		run.transExec.RegisterForState(e.registry, newState)
-
-		// Store skill filter for this run (applied via context, not globally)
 		run.skillFilter = newState.Skills
 	}
-
-	return nil
 }
 
 // StateMachine returns the per-run state machine for direct access (e.g., metadata).
