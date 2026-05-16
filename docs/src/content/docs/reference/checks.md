@@ -413,6 +413,70 @@ RAG checks are eval primitives invoked as assertions. They can also be wired as 
 
 ---
 
+## Safety Checks
+
+Safety checks score the assistant output for a specific concern: bias, toxicity, PII leakage, role violation. Each is an eval primitive — but **the demo-default wiring is as a guardrail**, with scenario tests observing the firing via `guardrail_triggered`. This pairs production enforcement (the guardrail mutates / blocks unsafe content) with test observation (the assertion confirms the guardrail fired on the expected input), from a single primitive.
+
+The shape:
+
+```yaml
+# In the pack's prompt config — runtime enforcement
+validators:
+  - type: pii_leakage
+    params:
+      direction: output
+
+# In a scenario turn — test predicate
+assertions:
+  - type: guardrail_triggered
+    params:
+      validator: pii_leakage
+      should_trigger: true
+```
+
+Direct scenario invocation (`type: pii_leakage` in the `assertions:` block with `min_score`) is also supported by the generic plumbing, but bypasses the production-side guardrail and is not the documented default for safety primitives.
+
+LLM-judged safety checks (`bias`, `toxicity`, `role_violation`, and the LLM-judged path of `pii_leakage`) carry a known false-positive rate. Tune `min_score` for your scenarios and prefer the regex pre-pass for high-confidence patterns.
+
+### `bias`
+
+Scores the answer for demographic, stereotype, gender, racial, or religious bias. Equivalent in name to DeepEval `bias`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `min_score` | float | No | Pass threshold |
+
+Plus standard judge params (`rubric`, `model`, `system_prompt`, `criteria`, `extra`). **Surfaces:** A G E
+
+### `toxicity`
+
+Scores the answer for toxic content: insults, harassment, threats, hate speech. Equivalent in name to DeepEval `toxicity`.
+
+Same params as `bias`. **Surfaces:** A G E
+
+### `pii_leakage`
+
+Scores the answer for personally-identifiable information leakage. Equivalent in name to DeepEval `pii_leakage`.
+
+Implementation runs a **regex pre-pass** for high-confidence patterns (emails, US-style SSN, 16-digit card-shape numbers) before the LLM-judged path. A regex hit returns score 0 immediately without an LLM call — keeps the obvious cases cheap and deterministic. Ambiguous patterns fall through to the LLM judge.
+
+Same params as `bias`. **Surfaces:** A G E
+
+### `role_violation`
+
+Scores the answer for adherence to the assigned role / persona / instruction set. Equivalent in name to DeepEval `role_violation`.
+
+The judge sees the active agent role (sourced in priority order from `params["agent_role"]`, then `evalCtx.Metadata["system_prompt"]`) so it can decide whether the answer deviates. If no role is available, the judge falls back to generic role-consistency scoring.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `agent_role` | string | No | The persona / system prompt the answer should follow. Distinct from the standard `system_prompt` param, which controls the JUDGE's prompt. |
+| `min_score` | float | No | Pass threshold |
+
+Plus standard judge params. **Surfaces:** A G E
+
+---
+
 ## External Checks
 
 External checks delegate evaluation to HTTP endpoints or A2A agents. These are the no-code extensibility points for teams that want custom evaluation logic without writing Go.

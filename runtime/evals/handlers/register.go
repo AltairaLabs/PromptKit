@@ -82,6 +82,15 @@ func init() {
 	evals.RegisterDefault(&ContextualRelevancyHandler{})
 	evals.RegisterDefault(&HallucinationHandler{})
 
+	// Safety eval handlers — demo-default wiring is as guardrails via
+	// pack `validators:` block; scenarios observe firings via
+	// `guardrail_triggered`. Direct scenario invocation also works.
+	// See safety_helpers.go.
+	evals.RegisterDefault(&BiasHandler{})
+	evals.RegisterDefault(&ToxicityHandler{})
+	evals.RegisterDefault(&PIILeakageHandler{})
+	evals.RegisterDefault(&RoleViolationHandler{})
+
 	// Length validation handlers
 	evals.RegisterDefault(&MinLengthHandler{})
 	evals.RegisterDefault(&MaxLengthHandler{})
