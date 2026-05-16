@@ -1,0 +1,6 @@
+# Mock LLM judge — returns a high score for every RAG assertion. Each
+# of the named RAG primitives (faithfulness, answer_relevancy,
+# contextual_precision/recall/relevancy, hallucination) wraps llm_judge
+# with a hardened default prompt; the judge sees the rendered content
+# and returns JSON.
+defaultResponse: '{"passed": true, "score": 0.92, "reasoning": "Answer is grounded in the context with no unsupported claims."}'

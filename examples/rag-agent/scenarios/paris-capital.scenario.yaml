@@ -1,0 +1,64 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: paris-capital
+spec:
+  id: paris-capital
+  task_type: rag
+  description: "Single-turn RAG question with the full named-primitive suite asserted on the answer."
+
+  turns:
+    - role: user
+      content: "What is the capital of France?"
+      assertions:
+        - type: faithfulness
+          params:
+            contexts:
+              - "Paris is the capital and most populous city of France."
+              - "Located on the Seine River in north-central France."
+            judge: rag-judge
+            min_score: 0.8
+          message: "Answer must be grounded in the retrieved context"
+
+        - type: answer_relevancy
+          params:
+            judge: rag-judge
+            min_score: 0.8
+          message: "Answer must directly address the question"
+
+        - type: contextual_precision
+          params:
+            contexts:
+              - "Paris is the capital and most populous city of France."
+              - "Located on the Seine River in north-central France."
+            judge: rag-judge
+            min_score: 0.5
+          message: "Retrieved chunks must be relevant to the question"
+
+        - type: contextual_recall
+          params:
+            contexts:
+              - "Paris is the capital and most populous city of France."
+              - "Located on the Seine River in north-central France."
+            reference: "Paris is the capital of France."
+            judge: rag-judge
+            min_score: 0.8
+          message: "Retrieved chunks must cover the reference answer"
+
+        - type: contextual_relevancy
+          params:
+            contexts:
+              - "Paris is the capital and most populous city of France."
+              - "Located on the Seine River in north-central France."
+            judge: rag-judge
+            min_score: 0.5
+          message: "Average per-chunk relevance must clear the threshold"
+
+        - type: hallucination
+          params:
+            contexts:
+              - "Paris is the capital and most populous city of France."
+              - "Located on the Seine River in north-central France."
+            judge: rag-judge
+            min_score: 0.8
+          message: "Answer must be free of hallucinated claims (1.0 = no hallucination)"
