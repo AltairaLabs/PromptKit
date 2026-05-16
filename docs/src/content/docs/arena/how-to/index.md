@@ -71,6 +71,11 @@ Walk through `examples/voice-ivr/`: a workflow-driven bank IVR that routes calle
 Walk through `examples/voice-latency-budget/`: gate every turn against a `max_ms` budget. Arena bridges the assistant message's `LatencyMs` into eval context, so `latency_budget` reads real provider timing with no custom plumbing.
 </div>
 
+<div class="code-example" markdown="1">
+### [Test voice agents that call tools mid-conversation](/arena/how-to/voice-tool-calls/)
+Walk through `examples/duplex-streaming/scenarios/duplex-tools.scenario.yaml`: a busy-professional persona drives a voice agent through weather / calendar / reminder tool calls. Conversation-level assertions catch the tool-call pattern without leaving the audio pipeline.
+</div>
+
 ## Session Recording
 
 <div class="code-example" markdown="1">
