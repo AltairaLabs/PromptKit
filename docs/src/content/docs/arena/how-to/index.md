@@ -86,6 +86,11 @@ Walk through `examples/voice-red-team/`: `pii_leakage` wired as a guardrail in t
 Walk through `examples/voice-bake-off/`: one scenario, two providers, side-by-side report. Adding a provider is one YAML line; per-provider thresholds use `when:` clauses. The fan-out shape stays the same whether you're comparing mocks or real duplex providers.
 </div>
 
+<div class="code-example" markdown="1">
+### [Test expressive voice personas with characterization tags](/arena/how-to/voice-characterization/)
+Walk through the expressive path in `examples/voice-refund-demo/`. Personas opt in with `expressive: true` and emit canonical bracket tags (`[shouts]`, `[whispers]`, `[laughs]`); each TTS provider adapter lowers them into its native dialect (ElevenLabs v3 native, OpenAI instructions, Cartesia emotion, SSML).
+</div>
+
 ## Session Recording
 
 <div class="code-example" markdown="1">
