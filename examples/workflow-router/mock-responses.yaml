@@ -1,0 +1,57 @@
+# Mock responses for the workflow-router example.
+#
+# Each scenario exercises two workflow transitions inside a single pipeline
+# turn: the first into `routed` (control: agent — commits eagerly) and the
+# second out to the destination (`billing` or `technical`, control: user —
+# defers to end of turn). The mock LLM keeps producing tool calls until the
+# pipeline tool loop sees a plain text response.
+
+scenarios:
+  route-to-billing:
+    turns:
+      # --- Pipeline turn 1: triage routes to billing ---
+      1:
+        # Triage agent picks the routing path. workflow__transition(Routed)
+        # targets the routed state (control: agent) — the runtime commits
+        # eagerly and the tool response carries routed's available_events.
+        response: ""
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: Routed
+              context: "User reports a duplicate charge — routing for specialist handoff."
+      2:
+        # Same turn, now in routed: agent picks billing. ToBilling targets
+        # a user-controlled state so the transition defers to end-of-turn.
+        response: ""
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: ToBilling
+              context: "Duplicate-charge issue — billing specialist."
+      3: "I've routed you to our billing specialist who will help with the duplicate charge."
+
+      # --- Pipeline turn 2: billing specialist takes over ---
+      4: "Hello, I'm the billing specialist. Could you share the account number and the date of the duplicate charge?"
+
+  route-to-technical:
+    turns:
+      # --- Pipeline turn 1: triage routes to technical ---
+      1:
+        response: ""
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: Routed
+              context: "User reports a crash on launch — routing for technical handoff."
+      2:
+        response: ""
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: ToTechnical
+              context: "Crash-on-launch issue — technical specialist."
+      3: "I've connected you to our technical specialist who will help with the crash."
+
+      # --- Pipeline turn 2: technical specialist takes over ---
+      4: "Hello, I'm the technical specialist. What error or behavior are you seeing when the app launches?"
