@@ -50,6 +50,11 @@ Walk through `examples/guardrails-test/`. One primitive enforces in production A
 </div>
 
 <div class="code-example" markdown="1">
+### [Run workflow scenarios as a regression suite](/arena/how-to/workflow-regression/)
+Walk through `examples/workflow-support/` and `examples/workflow-order-processing/`. State machines as first-class test subjects: drive the agent through the lifecycle, assert the transitions, gate merges on the workflow reaching the expected end state.
+</div>
+
+<div class="code-example" markdown="1">
 ### [Generate Mock Responses from Arena Results](/arena/how-to/generate-mock-responses-from-arena/)
 Turn recorded Arena runs into mock provider YAML for deterministic, cost-free replays.
 </div>
