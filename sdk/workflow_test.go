@@ -1842,3 +1842,114 @@ func TestHydrateWorkflowContextLists_RebuildsFromLists(t *testing.T) {
 	require.Len(t, wfCtx.ArtifactHistory, 1)
 	assert.Equal(t, "a", wfCtx.ArtifactHistory[0].FromState)
 }
+
+// TestReconcileActiveConv_NoOpOnMatchingState verifies that when the
+// workflow machine's current prompt_task already matches the active
+// conversation's prompt name, reconcileActiveConv is a no-op — it must
+// not close the active conv or attempt to open a new one. This is the
+// hot path during normal Sends that don't trigger a transition.
+func TestReconcileActiveConv_NoOpOnMatchingState(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*workflow.State{
+			"a": {PromptTask: "task-a", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "task-b"},
+		},
+	}
+	wc := &WorkflowConversation{
+		machine:      workflow.NewStateMachine(spec),
+		workflowSpec: spec,
+		// activeConv already at task-a — matches machine's current prompt_task.
+		activeConv: &Conversation{promptName: "task-a"},
+		packPath:   "/nonexistent/pack.json", // would fail Open if reconcile tried
+	}
+	require.NoError(t, wc.reconcileActiveConv(""))
+	assert.False(t, wc.activeConv.closed, "active conv must remain open when no transition occurred")
+	assert.Equal(t, "task-a", wc.activeConv.promptName)
+}
+
+// TestReconcileActiveConv_NoActiveConv verifies the helper returns nil
+// when there is no active conversation yet (e.g., during initial open).
+func TestReconcileActiveConv_NoActiveConv(t *testing.T) {
+	spec := &workflow.Spec{Version: 1, Entry: "a", States: map[string]*workflow.State{
+		"a": {PromptTask: "task-a"},
+	}}
+	wc := &WorkflowConversation{
+		machine:      workflow.NewStateMachine(spec),
+		workflowSpec: spec,
+	}
+	require.NoError(t, wc.reconcileActiveConv(""))
+}
+
+// TestOnTransitionCommitted_EmitsEvent verifies the hook fires
+// workflow.transitioned for both eager (in-Send) and deferred (post-Send)
+// commits. This is the same signal Arena emits and what observability
+// consumers subscribe to.
+func TestOnTransitionCommitted_EmitsEvent(t *testing.T) {
+	bus := events.NewEventBus()
+	transitioned := make(chan *events.Event, 4)
+	bus.Subscribe(events.EventWorkflowTransitioned, func(e *events.Event) { transitioned <- e })
+
+	spec := &workflow.Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*workflow.State{
+			"a": {PromptTask: "p-a", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "p-b"},
+		},
+	}
+	wc := &WorkflowConversation{
+		machine:      workflow.NewStateMachine(spec),
+		workflowSpec: spec,
+		emitter:      events.NewEmitter(bus, "", "", ""),
+	}
+	wc.onTransitionCommitted(&workflow.TransitionResult{From: "a", To: "b", Event: "Go"})
+
+	select {
+	case e := <-transitioned:
+		assert.Equal(t, events.EventWorkflowTransitioned, e.Type)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected workflow.transitioned event")
+	}
+}
+
+// TestOnTransitionCommitted_NilResultIsNoOp verifies the hook does
+// nothing when called with a nil TransitionResult (matches CommitPending's
+// nil-on-noop semantics).
+func TestOnTransitionCommitted_NilResultIsNoOp(t *testing.T) {
+	wc := &WorkflowConversation{}
+	wc.onTransitionCommitted(nil) // must not panic
+}
+
+// TestReconcileActiveConv_StateDivergedOpenError verifies that when the
+// machine has moved past the active conv but Open() fails (e.g., bad
+// pack path), reconcileActiveConv closes the old conv and returns the
+// open error. This is the only failure surface added by the refactor —
+// the no-op path is the hot path and is covered separately.
+func TestReconcileActiveConv_StateDivergedOpenError(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "a",
+		States: map[string]*workflow.State{
+			"a": {PromptTask: "task-a", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "task-b"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+	// Advance machine to "b" so its CurrentPromptTask diverges from the
+	// active conv's promptName.
+	_, err := machine.ProcessEvent("Go")
+	require.NoError(t, err)
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		activeConv:   &Conversation{promptName: "task-a"},
+		packPath:     "/nonexistent/pack.json",
+	}
+	err = wc.reconcileActiveConv("a summary")
+	require.Error(t, err, "Open against a missing pack path must surface its error")
+	assert.Contains(t, err.Error(), "task-b")
+	assert.True(t, wc.activeConv.closed, "old conv must be closed even when opening the new one fails")
+}
