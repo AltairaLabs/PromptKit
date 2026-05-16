@@ -580,7 +580,7 @@ promptarena export | jq '.prompts | keys'
 ### Notes
 
 - The config must contain `prompt_configs` (inline prompts). Configs that reference pre-built pack files cannot be exported.
-- Schema validation is performed against the embedded PromptPack schema. Set `PROMPTKIT_SCHEMA_SOURCE=local` to use local schemas during development.
+- Schema validation is performed against the embedded PromptPack schema. The `PROMPTKIT_SCHEMA_SOURCE=local` environment variable can be used to validate against in-repo schemas when developing new fields that have not yet been published to the hosted schema location.
 - Skill validation and workflow validation are run automatically. Errors are fatal; warnings are printed to stderr.
 
 ---
@@ -976,9 +976,6 @@ promptarena serve ./examples/guardrails-test
 
 # Use a custom port and auto-open the browser
 promptarena serve -p 3000 --open
-
-# With local schema validation (for development)
-PROMPTKIT_SCHEMA_SOURCE=local promptarena serve ./my-scenario
 ```
 
 ### REST API

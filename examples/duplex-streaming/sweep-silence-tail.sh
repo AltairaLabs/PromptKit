@@ -70,7 +70,6 @@ for ms in "${SILENCES[@]}"; do
     # turn-complete + Gemini message lines. Discard stdout (TUI / progress).
     if PROMPTKIT_SILENCE_TAIL_MS="$ms" \
         TTS_CACHE_DIR="$(dirname "$0")/.tts-cache" \
-        PROMPTKIT_SCHEMA_SOURCE=local \
         "$ARENA" run \
         --scenario "$SCENARIO" \
         --provider "$PROVIDER" \

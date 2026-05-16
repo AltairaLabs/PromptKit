@@ -75,7 +75,7 @@ After building with `make build-arena`, run examples from their directory:
 ```bash
 # Run an example with mock provider (no API keys needed)
 cd examples/guardrails-test
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --mock-provider --mock-config mock-responses.yaml --ci --formats html,json
+../../bin/promptarena run --mock-provider --mock-config mock-responses.yaml --ci --formats html,json
 
 # Open the HTML report
 open out/report.html
@@ -83,18 +83,18 @@ open out/report.html
 # Examples with pre-configured mock providers (have their own providers/mock-provider.yaml):
 # Do NOT use --mock-provider flag — just run directly
 cd examples/customer-support
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+../../bin/promptarena run --ci --format html
 
-# Workflow examples (require local schema source)
+# Workflow examples run against published schemas as well
 cd examples/workflow-support
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+../../bin/promptarena run --ci --format html
 ```
 
 Key flags:
 - `--mock-provider`: Replaces all providers with generic mock (use `--mock-config` to specify response file)
 - `--ci`: Non-interactive mode, exits with code 0/1
 - `--formats html,json`: Output format(s)
-- `PROMPTKIT_SCHEMA_SOURCE=local`: Use local schemas instead of remote (needed when schema is ahead of published)
+- `PROMPTKIT_SCHEMA_SOURCE=local`: Only needed when developing schema fields that haven't been published yet. Shipped examples must validate against the published remote schemas without this flag.
 
 ## SDK Architecture
 
@@ -119,21 +119,21 @@ Interfaces like `Conversation` and `StreamingConversation` are defined in `a2a`;
 
 ### Running examples
 ```bash
-# Workflow examples (require PROMPTKIT_SCHEMA_SOURCE=local until remote schemas are updated)
 cd examples/workflow-support
-PROMPTKIT_SCHEMA_SOURCE=local promptarena run --ci --format html
+promptarena run --ci --format html
 
 cd examples/workflow-order-processing
-PROMPTKIT_SCHEMA_SOURCE=local promptarena run --ci --format html
+promptarena run --ci --format html
 
-# Regular examples (use remote schema)
 cd examples/customer-support
 promptarena run --ci --format html
 ```
 
+All shipped examples must validate against the published remote schemas without `PROMPTKIT_SCHEMA_SOURCE=local`. If you add a new example that requires the flag, the corresponding schema changes must be released before the example is merged.
+
 ### Schema validation
 - PromptArena validates scenario files against JSON schemas fetched from `https://promptkit.altairalabs.ai/schemas/v1alpha1/`
-- If new fields aren't published to the remote schema yet, set `PROMPTKIT_SCHEMA_SOURCE=local` to validate against local `schemas/v1alpha1/` files
+- `PROMPTKIT_SCHEMA_SOURCE=local` is a development tool for validating new fields against in-repo `schemas/v1alpha1/` before they are published. It should never appear in shipped example READMEs or docs.
 - Test init files (`engine/test_init.go`, `cmd/promptarena/test_init.go`) disable schema validation for unit tests
 
 ### Mock providers

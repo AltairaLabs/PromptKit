@@ -211,7 +211,7 @@ The `tools` section references the client-mode tool file. Arena registers the to
 Run the tests from your project directory:
 
 ```bash
-PROMPTKIT_SCHEMA_SOURCE=local promptarena run --ci --format html
+promptarena run --ci --format html
 ```
 
 You should see output indicating both scenarios were executed:

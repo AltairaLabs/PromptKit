@@ -19,7 +19,7 @@ A runnable demo of an agent doing real codegen inside a
 ```bash
 make -C ../.. build-arena
 docker pull ghcr.io/altairalabs/codegen-sandbox:latest
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+../../bin/promptarena run --ci --format html
 open out/report.html
 ```
 
@@ -39,7 +39,7 @@ What happens:
 ## Offline (CI) demo
 
 ```bash
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --mock-provider --ci --format html
+../../bin/promptarena run --mock-provider --ci --format html
 ```
 
 Uses `mock-responses.yaml` to simulate the LLM's decisions. The

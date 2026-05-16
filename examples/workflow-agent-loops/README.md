@@ -25,7 +25,7 @@ make build-arena
 
 # Run the example
 cd examples/workflow-agent-loops
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --formats html,json
+../../bin/promptarena run --ci --formats html,json
 
 # Open the HTML report
 open out/report.html

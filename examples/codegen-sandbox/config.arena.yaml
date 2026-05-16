@@ -10,10 +10,10 @@ metadata:
         make build-arena
         docker pull ghcr.io/altairalabs/codegen-sandbox:latest
         cd examples/codegen-sandbox
-        PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+        ../../bin/promptarena run --ci --format html
 
       Offline / CI (mock provider, no sandbox):
-        PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --mock-provider --ci --format html
+        ../../bin/promptarena run --mock-provider --ci --format html
 
 spec:
   prompt_configs:
