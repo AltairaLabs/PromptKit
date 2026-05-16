@@ -1270,6 +1270,11 @@
           "description": "How this state is orchestrated: internal (runtime manages), external (caller manages), or hybrid.",
           "enum": ["internal", "external", "hybrid"]
         },
+        "control": {
+          "type": "string",
+          "description": "Who holds control after a transition into this state. 'user' (default) ends the agent's turn; 'agent' lets the agent keep the turn so it can fire further transitions inside the same pipeline turn.",
+          "enum": ["user", "agent"]
+        },
         "skills": {
           "type": "string",
           "description": "Skill filter for this workflow state. A path to a skill directory/file that scopes which skills are available in this state, or the literal 'none' to disable skills.",
