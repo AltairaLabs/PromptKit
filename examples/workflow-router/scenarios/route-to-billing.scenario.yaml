@@ -1,0 +1,35 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: route-to-billing
+spec:
+  id: route-to-billing
+  task_type: triage
+  description: "Triage agent routes a billing complaint through routed (control: agent) to billing in a single pipeline turn."
+  turns:
+    - role: user
+      content: "Hi, I was charged twice for my subscription this month."
+      assertions:
+        # End-of-turn state observes the committed end state (billing).
+        # The eager commit to `routed` already happened during the turn, so
+        # state_is sees the final destination, not the transient state.
+        - type: state_is
+          params:
+            state: billing
+        - type: transitioned_to
+          params:
+            state: billing
+
+    - role: user
+      content: "Account AC-12345, both charges on the 14th."
+      assertions:
+        - type: content_matches
+          params:
+            pattern: "(?i)(billing|account|charge)"
+
+  conversation_assertions:
+    # Both transitions fire in turn 1; turn 2 fires no transitions. The
+    # transition order proves multi-transition turns committed correctly.
+    - type: workflow_transition_order
+      params:
+        sequence: ["routed", "billing"]

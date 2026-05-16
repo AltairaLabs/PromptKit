@@ -1,0 +1,20 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: routed
+spec:
+  task_type: "routed"
+  version: "v1.0.0"
+  description: "Transient routing state. The agent never speaks here."
+
+  # Agent-controlled state: the previous turn's eager-commit places the
+  # agent here, and the agent is expected to immediately fire the next
+  # transition (ToBilling / ToTechnical) inside the same pipeline turn.
+  #
+  # If a user message ever arrives while the workflow is in this state,
+  # something has gone wrong with routing; remind the agent to pick a
+  # destination and continue.
+  system_template: |
+    You are in the transient routing state. Choose a destination by calling
+    workflow__transition with either "ToBilling" or "ToTechnical". Do not
+    reply to the user from this state.
