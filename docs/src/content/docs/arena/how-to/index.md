@@ -76,6 +76,11 @@ Walk through `examples/voice-latency-budget/`: gate every turn against a `max_ms
 Walk through `examples/duplex-streaming/scenarios/duplex-tools.scenario.yaml`: a busy-professional persona drives a voice agent through weather / calendar / reminder tool calls. Conversation-level assertions catch the tool-call pattern without leaving the audio pipeline.
 </div>
 
+<div class="code-example" markdown="1">
+### [Red-team a voice agent with safety guardrails](/arena/how-to/voice-red-team/)
+Walk through `examples/voice-red-team/`: `pii_leakage` wired as a guardrail in the pack, scenarios assert the firing via `guardrail_triggered`. Same primitive enforces in production AND fires as a test signal — the three-role pattern (eval / guardrail / assertion) end-to-end.
+</div>
+
 ## Session Recording
 
 <div class="code-example" markdown="1">
