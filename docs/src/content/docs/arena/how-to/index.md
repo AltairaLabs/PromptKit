@@ -45,6 +45,11 @@ Use assertions and custom validators to verify LLM response quality.
 </div>
 
 <div class="code-example" markdown="1">
+### [Use guardrails as test signals (the three-role model)](/arena/how-to/guardrails-as-signals/)
+Walk through `examples/guardrails-test/`. One primitive enforces in production AND fires as an observable test signal. The canonical demo of the eval / guardrail / assertion bridge.
+</div>
+
+<div class="code-example" markdown="1">
 ### [Generate Mock Responses from Arena Results](/arena/how-to/generate-mock-responses-from-arena/)
 Turn recorded Arena runs into mock provider YAML for deterministic, cost-free replays.
 </div>
