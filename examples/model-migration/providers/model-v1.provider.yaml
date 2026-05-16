@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: model-v1
+spec:
+  id: model-v1
+  type: mock
+  model: gpt-4o-2024-08
+  additional_config:
+    mock_config: mock-responses-v1.yaml
+  defaults:
+    temperature: 0.0
+    max_tokens: 64
+    top_p: 1.0

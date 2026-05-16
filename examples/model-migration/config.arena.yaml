@@ -1,0 +1,33 @@
+# Model Migration Regression Demo
+#
+# Run the same scenario set against multiple model versions and gate
+# on a common assertion bar. If any model fails an assertion that
+# the others pass, you've caught a regression introduced by the model
+# swap. The default config uses two mock providers simulating an
+# upgrade ("gpt-4o" -> "gpt-4o-mini"); the how-to documents the
+# swap to real providers.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: model-migration
+
+spec:
+  prompt_configs:
+    - id: support-classifier
+      file: prompts/support-classifier.yaml
+
+  providers:
+    - file: providers/model-v1.provider.yaml
+    - file: providers/model-v2.provider.yaml
+
+  scenarios:
+    - file: scenarios/billing-inquiry.scenario.yaml
+    - file: scenarios/tech-inquiry.scenario.yaml
+
+  defaults:
+    temperature: 0.0
+    max_tokens: 64
+    output:
+      dir: out
+      formats: ["json", "html"]
