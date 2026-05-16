@@ -1,0 +1,33 @@
+# Voice Latency Budget Demo
+#
+# Assert per-turn provider latency against an explicit budget. Runs the
+# same scenario across providers (text mock for CI, real duplex
+# providers for live measurement).
+#
+# The latency_budget assertion reads `latency_ms` from the eval context
+# metadata. Arena bridges the per-turn provider latency from the
+# assistant message into the metadata so the assertion can read it
+# without any custom plumbing.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: voice-latency-budget
+
+spec:
+  prompt_configs:
+    - id: support-agent
+      file: prompts/support-agent.yaml
+
+  providers:
+    - file: providers/mock-provider.yaml
+
+  scenarios:
+    - file: scenarios/turn-budget.scenario.yaml
+
+  defaults:
+    temperature: 0.1
+    max_tokens: 256
+    output:
+      dir: out
+      formats: ["json", "html"]

@@ -66,6 +66,11 @@ Walk through `examples/voice-refund-demo/`: four scripted personas (hostile, imp
 Walk through `examples/voice-ivr/`: a workflow-driven bank IVR that routes callers via state transitions to self-service or human handoff. Pairs the workflow primitive with the voice harness and asserts the tool-call pattern of each path.
 </div>
 
+<div class="code-example" markdown="1">
+### [Assert per-turn latency budgets](/arena/how-to/voice-latency-budget/)
+Walk through `examples/voice-latency-budget/`: gate every turn against a `max_ms` budget. Arena bridges the assistant message's `LatencyMs` into eval context, so `latency_budget` reads real provider timing with no custom plumbing.
+</div>
+
 ## Session Recording
 
 <div class="code-example" markdown="1">

@@ -1,0 +1,6 @@
+scenarios:
+  turn-budget:
+    turns:
+      1: "Hi, I'd be happy to help. What's the issue?"
+      2: "Got it. Let me look that up for you."
+      3: "All set — anything else?"

@@ -130,6 +130,95 @@ func TestBuildEvalContext_ExtractsLastAssistantMessage(t *testing.T) {
 	assert.Len(t, evalCtx.Messages, 4)
 }
 
+func TestBuildEvalContext_BridgesLatencyMs(t *testing.T) {
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
+	messages := []types.Message{
+		types.NewUserMessage("hello"),
+		{Role: "assistant", Content: "reply", LatencyMs: 432},
+	}
+
+	evalCtx := hook.buildEvalContext(messages, 1, "session-1")
+
+	require.NotNil(t, evalCtx.Metadata)
+	assert.Equal(t, float64(432), evalCtx.Metadata["latency_ms"],
+		"buildEvalContext should bridge latest assistant LatencyMs into metadata so latency_budget can read it")
+}
+
+func TestBuildEvalContext_BridgesZeroLatency(t *testing.T) {
+	// Sub-millisecond mock provider calls produce LatencyMs == 0 but the
+	// metadata key should still be present — handlers may want to assert
+	// "latency was measured" distinct from "latency was over budget".
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
+	messages := []types.Message{
+		types.NewUserMessage("hello"),
+		{Role: "assistant", Content: "reply", LatencyMs: 0},
+	}
+
+	evalCtx := hook.buildEvalContext(messages, 1, "session-1")
+
+	require.NotNil(t, evalCtx.Metadata)
+	assert.Equal(t, float64(0), evalCtx.Metadata["latency_ms"])
+}
+
+func TestBuildEvalContext_NoAssistantNoLatency(t *testing.T) {
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
+	messages := []types.Message{types.NewUserMessage("hello")}
+
+	evalCtx := hook.buildEvalContext(messages, 0, "session-1")
+
+	if evalCtx.Metadata != nil {
+		_, has := evalCtx.Metadata["latency_ms"]
+		assert.False(t, has, "no latency should be reported when no assistant message exists")
+	}
+}
+
+func TestLatestAssistantLatencyMs(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		msgs    []types.Message
+		wantMs  int64
+		wantHas bool
+	}{
+		{name: "empty", msgs: nil, wantHas: false},
+		{
+			name: "no assistant",
+			msgs: []types.Message{types.NewUserMessage("u")},
+		},
+		{
+			name:    "single assistant",
+			msgs:    []types.Message{{Role: "assistant", LatencyMs: 250}},
+			wantMs:  250,
+			wantHas: true,
+		},
+		{
+			name: "uses latest assistant",
+			msgs: []types.Message{
+				{Role: "assistant", LatencyMs: 100},
+				types.NewUserMessage("u"),
+				{Role: "assistant", LatencyMs: 800},
+			},
+			wantMs:  800,
+			wantHas: true,
+		},
+		{
+			name:    "zero latency still reports has",
+			msgs:    []types.Message{{Role: "assistant", LatencyMs: 0}},
+			wantMs:  0,
+			wantHas: true,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotMs, gotHas := latestAssistantLatencyMs(tc.msgs)
+			assert.Equal(t, tc.wantMs, gotMs)
+			assert.Equal(t, tc.wantHas, gotHas)
+		})
+	}
+}
+
 func TestBuildEvalContext_NoMessages(t *testing.T) {
 	defs := []evals.EvalDef{
 		{ID: "eval-1", Type: "test_handler", Trigger: evals.TriggerEveryTurn},
