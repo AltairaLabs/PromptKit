@@ -20,7 +20,7 @@ Demonstrates tools that return **multimodal content** (text + images) alongside 
 
 ```bash
 # From this directory:
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --formats html,json
+../../bin/promptarena run --ci --formats html,json
 
 # Open the report to see media badges on tool results:
 open out/report.html

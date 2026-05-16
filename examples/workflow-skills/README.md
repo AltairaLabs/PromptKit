@@ -67,7 +67,6 @@ Skills can only grant tools that the pack declares. The pack is the ceiling.
 ## Running
 
 ```bash
-# Requires PROMPTKIT_SCHEMA_SOURCE=local until remote schemas are updated
 cd examples/workflow-skills
-PROMPTKIT_SCHEMA_SOURCE=local promptarena run --ci --format html
+promptarena run --ci --format html
 ```

@@ -20,13 +20,11 @@ The Eval config type allows you to:
 
 ```bash
 # From repo root, validate the eval config
-PROMPTKIT_SCHEMA_SOURCE=local ./bin/promptarena validate examples/eval-test/config.arena.yaml
+./bin/promptarena validate examples/eval-test/config.arena.yaml
 
 # Validate the eval file directly
-PROMPTKIT_SCHEMA_SOURCE=local ./bin/promptarena validate --type eval examples/eval-test/evals/basic-eval.eval.yaml
+./bin/promptarena validate --type eval examples/eval-test/evals/basic-eval.eval.yaml
 ```
-
-**Note:** Use `PROMPTKIT_SCHEMA_SOURCE=local` during development until schemas are published to the hosted location.
 
 ## Eval Configuration Format
 

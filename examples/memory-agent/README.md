@@ -15,14 +15,14 @@ With a real provider (API key required):
 
 ```bash
 cd examples/memory-agent
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --formats html,json
+../../bin/promptarena run --ci --formats html,json
 ```
 
 With mock provider (no API key, assertions will fail since mock doesn't call tools):
 
 ```bash
 cd examples/memory-agent
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --mock-provider --ci --formats json
+../../bin/promptarena run --mock-provider --ci --formats json
 ```
 
 ## Scenarios

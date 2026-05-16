@@ -13,7 +13,7 @@ metadata:
         make build-arena
         docker pull ghcr.io/altairalabs/codegen-sandbox:latest
         cd examples/codegen-anthropic
-        PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+        ../../bin/promptarena run --ci --format html
 
 spec:
   prompt_configs:

@@ -38,7 +38,7 @@ export OPENAI_API_KEY="..."
 export CARTESIA_API_KEY="..."   # for aggressive + impersonator
 export ELEVENLABS_API_KEY="..." # for anxious-delivery
 
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run \
+../../bin/promptarena run \
   --provider mock-duplex \
   --ci \
   --formats html,json

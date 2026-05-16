@@ -22,7 +22,7 @@ for the complete list of supported assertion types.
 
 ```bash
 make build-arena
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --formats html,json \
+../../bin/promptarena run --ci --formats html,json \
   -c examples/resilience-testing/config.arena.yaml \
   -o examples/resilience-testing/out
 open examples/resilience-testing/out/report.html

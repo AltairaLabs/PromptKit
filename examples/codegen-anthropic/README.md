@@ -25,7 +25,7 @@ make -C ../.. build-arena
 ## Run
 
 ```bash
-PROMPTKIT_SCHEMA_SOURCE=local ../../bin/promptarena run --ci --format html
+../../bin/promptarena run --ci --format html
 open out/report.html
 ```
 
