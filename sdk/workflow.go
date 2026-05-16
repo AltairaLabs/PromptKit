@@ -27,6 +27,9 @@ const (
 	workflowCurrentKey       = "workflow.current"
 	workflowHistoryListName  = "workflow.history"
 	workflowArtifactListName = "workflow.artifact_history"
+	// workflowContextVar is the template variable name that carries the
+	// previous state's conversation summary into the new state's prompt.
+	workflowContextVar = "workflow_context"
 )
 
 // WorkflowConversation manages a stateful workflow that transitions between
@@ -292,30 +295,81 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 	return resp, nil
 }
 
-// commitDeferredTransition commits any pending transition recorded by the
-// workflow__transition tool during the just-completed Send. Errors from
-// ProcessEvent are routed through emitWorkflowError before being returned
-// so observability events fire even when the transition aborts. Caller
-// must hold wc.mu.
+// commitDeferredTransition finalizes any workflow transitions that fired
+// during the just-completed Send. Two paths converge here:
+//
+//   - control: user (default) — the workflow__transition tool stored a
+//     pending transition during the pipeline; CommitPending now runs
+//     ProcessEvent and fires the OnCommit hook.
+//   - control: agent — the transition already committed eagerly inside
+//     Execute and the OnCommit hook has already run; CommitPending is a
+//     no-op.
+//
+// Either way, if the machine has moved past the active conversation's
+// prompt task, reconcileActiveConv closes the old conv and opens a new
+// one for the destination state's prompt. Errors from ProcessEvent are
+// routed through emitWorkflowError so observability events fire even
+// when a deferred transition aborts on commit. Caller must hold wc.mu.
 func (wc *WorkflowConversation) commitDeferredTransition() error {
 	if wc.transExec == nil {
 		return nil
 	}
-	pending := wc.transExec.Pending()
-	if pending == nil {
-		return nil
-	}
-	contextSummary := pending.ContextSummary
-	result, commitErr := wc.transExec.CommitPending()
-	if commitErr != nil {
-		wc.emitWorkflowError(pending.Event, commitErr)
-		return commitErr
-	}
-	if result != nil {
-		if _, transErr := wc.applyTransition(result, contextSummary); transErr != nil {
-			return transErr
+	var contextSummary string
+	if pending := wc.transExec.Pending(); pending != nil {
+		contextSummary = pending.ContextSummary
+		if _, commitErr := wc.transExec.CommitPending(); commitErr != nil {
+			wc.emitWorkflowError(pending.Event, commitErr)
+			return commitErr
 		}
 	}
+	return wc.reconcileActiveConv(contextSummary)
+}
+
+// reconcileActiveConv brings the active conversation in line with the
+// workflow machine's current state. If they already match (no transition
+// happened during the just-completed Send) this is a no-op. Otherwise the
+// active conv is closed and a new one is opened for the destination
+// state's prompt_task, with the optional context summary injected as the
+// {{workflow_context}} template variable.
+//
+// Multi-transition Sends (the agent fired one or more control: agent
+// eager commits and possibly a final deferred commit) all funnel through
+// here once at end-of-Send; intermediate states never get their own
+// conversation, which is the whole point of control: agent.
+func (wc *WorkflowConversation) reconcileActiveConv(contextSummary string) error {
+	if wc.activeConv == nil {
+		return nil
+	}
+	targetPrompt := wc.machine.CurrentPromptTask()
+	if targetPrompt == "" {
+		return nil
+	}
+	if wc.activeConv.promptName == targetPrompt {
+		return nil
+	}
+	_ = wc.activeConv.Close()
+
+	opts := wc.opts
+	if contextSummary != "" {
+		opts = append(append([]Option{}, wc.opts...), WithVariables(map[string]string{
+			workflowContextVar: contextSummary,
+		}))
+	}
+	if arts := wc.machine.Artifacts(); len(arts) > 0 {
+		artVars := make(map[string]string, len(arts))
+		for k, v := range arts {
+			artVars["artifacts."+k] = v
+		}
+		opts = append(append([]Option{}, opts...), WithVariables(artVars))
+	}
+
+	conv, err := Open(wc.packPath, targetPrompt, opts...)
+	if err != nil {
+		return fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
+			wc.machine.CurrentState(), targetPrompt, err)
+	}
+	wc.activeConv = conv
+	wc.registerWorkflowTools()
 	return nil
 }
 
@@ -351,6 +405,18 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 
 // registerWorkflowTools registers the workflow tool executors and descriptors
 // for the current state on the active conversation's tool registry.
+//
+// Also installs the OnCommit hook on the TransitionExecutor so post-commit
+// work (re-register transition tool for new state events, emit observability
+// events, persist workflow context) runs from a single place regardless of
+// whether the commit was eager (control: agent target, fires inside Execute)
+// or deferred (control: user target, fires from CommitPending after Send).
+//
+// The hook updates the active conversation's tool registry in place; the
+// active conv itself stays unchanged for the rest of the Send so the
+// pipeline tool loop can keep looking up the same registry. The post-Send
+// reconcileActiveConv step opens a new conversation if the workflow has
+// moved on.
 func (wc *WorkflowConversation) registerWorkflowTools() {
 	registry := wc.activeConv.ToolRegistry()
 	state := wc.workflowSpec.States[wc.machine.CurrentState()]
@@ -359,11 +425,37 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	wc.transExec = workflow.NewTransitionExecutor(wc.machine, wc.workflowSpec)
 	registry.RegisterExecutor(wc.transExec)
 	wc.transExec.RegisterForState(registry, state)
+	wc.transExec.SetOnCommit(wc.onTransitionCommitted)
 
 	// Create and register artifact executor if spec declares artifacts
 	wc.artifactExec = workflow.NewArtifactExecutor(wc.machine)
 	registry.RegisterExecutor(wc.artifactExec)
 	workflow.RegisterArtifactTool(registry, wc.workflowSpec)
+}
+
+// onTransitionCommitted runs the post-commit work shared between eager and
+// deferred commits. It updates the active conversation's transition tool
+// for the new state's events so subsequent tool-loop iterations in the same
+// pipeline turn can use them, fires observability events, and persists the
+// updated workflow context.
+//
+// Closing the active conversation and opening a new one for the destination
+// state's prompt is deferred to reconcileActiveConv, which runs once at the
+// end of Send / Transition so multi-transition pipeline turns don't churn
+// through intermediate convs.
+func (wc *WorkflowConversation) onTransitionCommitted(result *workflow.TransitionResult) {
+	if result == nil {
+		return
+	}
+	if wc.activeConv != nil && wc.transExec != nil {
+		if newState := wc.workflowSpec.States[result.To]; newState != nil {
+			wc.transExec.RegisterForState(wc.activeConv.ToolRegistry(), newState)
+		}
+	}
+	wc.emitTransitionEvents(result, result.To, wc.machine.CurrentPromptTask())
+	if wc.stateStore != nil && wc.workflowID != "" {
+		wc.persistWorkflowContext()
+	}
 }
 
 // applyTransition handles post-commit transition logic: close old conversation,
@@ -382,7 +474,7 @@ func (wc *WorkflowConversation) applyTransition(
 	opts := wc.opts
 	if contextSummary != "" {
 		opts = append(append([]Option{}, wc.opts...), WithVariables(map[string]string{
-			"workflow_context": contextSummary,
+			workflowContextVar: contextSummary,
 		}))
 	}
 
