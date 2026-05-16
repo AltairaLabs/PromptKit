@@ -1,0 +1,69 @@
+# Scripted mock responses for the voice-ivr example. Each pipeline turn
+# may consume multiple sequential mock turns: the ProviderStage loop
+# runs (tool call -> tool result -> next LLM call) until the LLM emits a
+# tool-free text response. Workflow transitions defer their commit until
+# end-of-pipeline-turn, so each pipeline turn fires at most one
+# workflow__transition.
+
+scenarios:
+  balance-check:
+    turns:
+      # Pipeline turn 1: caller asks for balance — agent asks for ID
+      1: "Welcome to BankCo voice services. I can help with that. Could you tell me your account ID?"
+
+      # Pipeline turn 2: caller provides ID. Agent verifies, runs balance,
+      # transitions to resolution.
+      2:
+        response: "Let me verify that for you."
+        tool_calls:
+          - name: lookup_account
+            arguments:
+              account_id: "ACC-12345"
+      3:
+        response: "Thanks Jane — you're verified. One moment, checking your balance."
+        tool_calls:
+          - name: check_balance
+            arguments:
+              account_id: "ACC-12345"
+      4:
+        response: "Your current balance is one thousand two hundred thirty-four dollars and fifty-six cents, with one thousand one hundred dollars available."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: ServeBalance
+              context: "Balance read out for ACC-12345 after identity verification."
+      5: "Is there anything else I can help with?"
+
+      # Pipeline turn 3: caller closes the call (no more transitions)
+      6: "You're welcome. Thanks for calling BankCo, have a great day."
+
+  handoff-to-agent:
+    turns:
+      # Pipeline turn 1: caller reports fraud — agent asks for ID
+      1: "Welcome to BankCo voice services. I'm sorry to hear that — I'll get a fraud specialist on the line. Could you tell me your account ID first?"
+
+      # Pipeline turn 2: caller provides ID. Agent verifies, transfers,
+      # transitions to handoff.
+      2:
+        response: "Let me verify that for you."
+        tool_calls:
+          - name: lookup_account
+            arguments:
+              account_id: "ACC-12345"
+      3:
+        response: "Thanks Jane — you're verified. I'm connecting you to a fraud specialist now."
+        tool_calls:
+          - name: transfer_to_agent
+            arguments:
+              reason: "Caller reports possible fraudulent charge on ACC-12345."
+      4:
+        response: "Please hold while I transfer you."
+        tool_calls:
+          - name: workflow__transition
+            arguments:
+              event: EscalateToAgent
+              context: "Caller suspects fraud; transferring to a human agent."
+      5: "You're in the queue — estimated wait is about ninety seconds. Stay on the line."
+
+      # Pipeline turn 3: caller acknowledges
+      6: "Thank you for your patience."

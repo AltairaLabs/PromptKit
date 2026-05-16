@@ -61,6 +61,11 @@ Configure automated voice testing using duplex streaming and self-play with TTS.
 Walk through `examples/voice-refund-demo/`: four scripted personas (hostile, impersonator, anxious, patient) driving a refund agent under voice, with conversation-level assertions on the tools the agent must (and must not) call.
 </div>
 
+<div class="code-example" markdown="1">
+### [Test a Voice IVR with a Workflow State Machine](/arena/how-to/voice-ivr/)
+Walk through `examples/voice-ivr/`: a workflow-driven bank IVR that routes callers via state transitions to self-service or human handoff. Pairs the workflow primitive with the voice harness and asserts the tool-call pattern of each path.
+</div>
+
 ## Session Recording
 
 <div class="code-example" markdown="1">

@@ -1,0 +1,30 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: check_balance
+spec:
+  name: check_balance
+  description: "Return the current balance for a verified account."
+  input_schema:
+    type: object
+    properties:
+      account_id:
+        type: string
+        description: "The verified account ID."
+    required: [account_id]
+  output_schema:
+    type: object
+    properties:
+      balance:
+        type: string
+      currency:
+        type: string
+      available:
+        type: string
+  mode: mock
+  mock_template: |
+    {{- if eq .account_id "ACC-12345" -}}
+    {"balance": "1234.56", "currency": "USD", "available": "1100.00"}
+    {{- else -}}
+    {"balance": "0.00", "currency": "USD", "available": "0.00"}
+    {{- end -}}
