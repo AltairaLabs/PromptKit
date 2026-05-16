@@ -1,0 +1,13 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: rag-assistant
+spec:
+  task_type: "rag"
+  version: "v1.0.0"
+  description: "RAG assistant — answers using retrieved context. Demo target for the faithfulness / answer_relevancy / contextual_* / hallucination assertions."
+
+  system_template: |
+    You are a research assistant. Answer the user's question using only
+    the supplied context. If the context does not contain the answer,
+    say so. Quote relevant snippets when useful.

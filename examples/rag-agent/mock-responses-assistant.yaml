@@ -1,0 +1,4 @@
+scenarios:
+  paris-capital:
+    turns:
+      1: "Paris is the capital of France."

@@ -1,0 +1,14 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: mock-rag-assistant
+spec:
+  id: mock-rag-assistant
+  type: mock
+  model: mock-rag-model
+  additional_config:
+    mock_config: mock-responses-assistant.yaml
+  defaults:
+    temperature: 0.0
+    max_tokens: 256
+    top_p: 1.0
