@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -373,7 +374,12 @@ func TestStartRun_PersistsEachRunBeforeExecuteRunsReturns(t *testing.T) {
 	runID := "run-per-hook-1"
 
 	expected := filepath.Join(tmpDir, runID+".json")
-	var sawOnDiskBeforeReturn bool
+	// preReturn runs on the server's background goroutine; the test polls
+	// from the goroutine running the test body. Use atomic.Bool so the read
+	// has happens-before with the write — without it the race detector
+	// rightly fires even when the file's existence proves the persistence
+	// hook ordering.
+	var sawOnDiskBeforeReturn atomic.Bool
 
 	mock := &persistingMockEngine{
 		plan: &engine.RunPlan{
@@ -383,7 +389,7 @@ func TestStartRun_PersistsEachRunBeforeExecuteRunsReturns(t *testing.T) {
 		runID: runID,
 		preReturn: func() {
 			if _, err := os.Stat(expected); err == nil {
-				sawOnDiskBeforeReturn = true
+				sawOnDiskBeforeReturn.Store(true)
 			}
 		},
 	}
@@ -406,7 +412,7 @@ func TestStartRun_PersistsEachRunBeforeExecuteRunsReturns(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !sawOnDiskBeforeReturn {
+	if !sawOnDiskBeforeReturn.Load() {
 		t.Errorf("expected %s to exist before ExecuteRuns returned, but it didn't", expected)
 	}
 }
