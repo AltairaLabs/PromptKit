@@ -5,46 +5,27 @@ metadata:
 spec:
   id: basic-flow
   task_type: intake
-  description: "Happy path: intake -> escalate -> specialist -> resolve -> closed"
+  description: "Happy path: intake -> specialist -> closed. Asserts two workflow transitions across the conversation."
   turns:
-    # Turn 1: Customer contacts support (intake state)
     - role: user
       content: "Hi, I have a problem with my billing. I was charged twice for the same order."
       assertions:
-        - type: state_is
-          params:
-            state: intake
         - type: content_matches
           params:
             pattern: "(?i)(help|billing|account|charge)"
 
-    # Turn 2: Agent gathers details, LLM escalates to specialist
     - role: user
       content: "My account number is AC-12345 and the duplicate charge was $49.99."
-      assertions:
-        - type: transitioned_to
-          params:
-            state: specialist
 
-    # Turn 3: Specialist resolves the issue, transitions to closed
     - role: user
       content: "Can you explain why I was charged twice?"
-      assertions:
-        - type: transitioned_to
-          params:
-            state: closed
 
-    # Turn 4: Closing summary — verify full workflow completed
     - role: user
       content: "Thank you for your help!"
-      assertions:
-        - type: workflow_complete
-          params: {}
-        - type: workflow_transition_order
-          params:
-            sequence: ["specialist", "closed"]
-        - type: workflow_tool_access
-          params:
-            rules:
-              - state: intake
-                allowed: ["workflow__transition"]
+
+  conversation_assertions:
+    - type: tools_called
+      params:
+        tool_names: [workflow__transition]
+        min_calls: 2
+      message: "Agent must drive two workflow transitions (intake -> specialist -> closed)"

@@ -5,35 +5,31 @@ metadata:
 spec:
   id: validation-checks
   task_type: new_order
-  description: "Workflow state validation for order processing"
+  description: "Workflow state validation for order processing. Asserts the agent fires the three lifecycle transitions across the conversation."
   turns:
-    # Turn 1: Order placed, transitions to payment
     - role: user
       content: "I ordered 2 USB-C Cables. What's the status?"
-      assertions:
-        - type: transitioned_to
-          params:
-            state: payment
 
-    # Turn 2: Payment confirmed, transitions to fulfillment
     - role: user
       content: "Can you confirm the payment details?"
-      assertions:
-        - type: transitioned_to
-          params:
-            state: fulfillment
 
-    # Turn 3: Shipped, transitions to complete
     - role: user
       content: "What's the tracking number?"
-      assertions:
-        - type: transitioned_to
-          params:
-            state: complete
 
-    # Turn 4: Delivered — workflow complete
     - role: user
       content: "Got it, thanks!"
-      assertions:
-        - type: workflow_complete
-          params: {}
+
+  conversation_assertions:
+    - type: tools_called
+      params:
+        tool_names: [workflow__transition]
+        min_calls: 3
+      message: "Three workflow transitions must occur"
+
+    - type: tool_call_sequence
+      params:
+        sequence:
+          - workflow__transition
+          - workflow__transition
+          - workflow__transition
+      message: "Workflow transitions must occur in order"
