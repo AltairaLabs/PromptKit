@@ -1,0 +1,21 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: tech-inquiry
+spec:
+  id: tech-inquiry
+  task_type: classify
+  description: "Both models should classify a technical inquiry as 'technical' and return one word."
+
+  turns:
+    - role: user
+      content: "The mobile app crashes every time I open it."
+      assertions:
+        - type: content_includes
+          params:
+            patterns: ["technical"]
+          message: "Output must classify as technical"
+        - type: max_length
+          params:
+            max_characters: 30
+          message: "Output must be a single category word (no explanation)"

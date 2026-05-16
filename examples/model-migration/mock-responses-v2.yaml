@@ -1,0 +1,12 @@
+# v2 (gpt-4o-mini-2024-12) — newer/cheaper model. Both responses pass
+# the assertion bar; the report shows the per-model results side by
+# side. The how-to walks through what a regression would look like —
+# remove "technical" from the tech-inquiry response, for instance —
+# and how CI would flag it.
+scenarios:
+  billing-inquiry:
+    turns:
+      1: "billing"
+  tech-inquiry:
+    turns:
+      1: "technical"

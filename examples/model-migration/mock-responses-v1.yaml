@@ -1,0 +1,9 @@
+# v1 (gpt-4o-2024-08) — well-behaved baseline. Classifies cleanly with
+# the one-word format the prompt asks for.
+scenarios:
+  billing-inquiry:
+    turns:
+      1: "billing"
+  tech-inquiry:
+    turns:
+      1: "technical"
