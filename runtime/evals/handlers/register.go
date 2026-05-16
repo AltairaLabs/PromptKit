@@ -73,6 +73,15 @@ func init() {
 	evals.RegisterDefault(&LLMJudgeSessionHandler{})
 	evals.RegisterDefault(&LLMJudgeToolCallsHandler{})
 
+	// RAG-shape eval handlers — thin wrappers over llm_judge with
+	// hardened default prompts. See rag_helpers.go.
+	evals.RegisterDefault(&FaithfulnessHandler{})
+	evals.RegisterDefault(&AnswerRelevancyHandler{})
+	evals.RegisterDefault(&ContextualPrecisionHandler{})
+	evals.RegisterDefault(&ContextualRecallHandler{})
+	evals.RegisterDefault(&ContextualRelevancyHandler{})
+	evals.RegisterDefault(&HallucinationHandler{})
+
 	// Length validation handlers
 	evals.RegisterDefault(&MinLengthHandler{})
 	evals.RegisterDefault(&MaxLengthHandler{})

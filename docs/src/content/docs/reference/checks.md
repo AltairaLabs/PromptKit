@@ -313,6 +313,106 @@ assertions:
 
 ---
 
+## RAG Checks
+
+RAG checks are named eval primitives for retrieval-augmented generation: they score the answer against retrieved context (`faithfulness`, `hallucination`), the answer against the question (`answer_relevancy`), or the retrieved chunks against the question / ground truth (`contextual_precision`, `contextual_recall`, `contextual_relevancy`).
+
+Each handler is a thin wrapper over `llm_judge` with a hardened default prompt drawn from public DeepEval / Ragas reference implementations (Apache 2.0). The standard judge params (`rubric`, `model`, `system_prompt`, `min_score`, `extra`) all apply; supplying `system_prompt` or `criteria` overrides the default.
+
+**Context sources** — every handler that needs retrieved chunks accepts them in three forms:
+
+| Form | Example |
+|------|---------|
+| `contexts: ["chunk-1", "chunk-2"]` | Canonical list form |
+| `context: "single chunk"` | Convenience form for one chunk |
+| `context_field: retrieved_chunks` | Looks up the named key in `evalCtx.Metadata` — use this when a retrieval tool writes chunks to metadata at runtime |
+
+### `faithfulness`
+
+Scores how directly the answer is supported by the supplied context. Equivalent in name to DeepEval / Ragas `faithfulness`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `contexts` \| `context` \| `context_field` | string[] / string / string | Yes (one of) | Retrieved context the answer should be grounded in |
+
+Plus standard judge params. **Surfaces:** A E
+
+```yaml
+assertions:
+  - type: faithfulness
+    params:
+      context_field: retrieved_chunks
+      min_score: 0.8
+```
+
+### `answer_relevancy`
+
+Scores how directly the answer addresses the user's question. Equivalent in name to DeepEval / Ragas `answer_relevancy`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `question` | string | No | Defaults to the last user turn in the session |
+
+Plus standard judge params. **Surfaces:** A E
+
+### `contextual_precision`
+
+Scores the fraction of retrieved chunks that are relevant to the question (relevant chunks / total chunks). Equivalent in name to DeepEval `contextual_precision`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `contexts` \| `context` \| `context_field` | — | Yes | Retrieved chunks |
+| `question` | string | No | Defaults to the last user turn |
+
+Plus standard judge params. **Surfaces:** A E
+
+### `contextual_recall`
+
+Scores how completely the retrieved chunks cover the information the ground-truth answer relies on. Equivalent in name to DeepEval / Ragas `contextual_recall`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `contexts` \| `context` \| `context_field` | — | Yes | Retrieved chunks |
+| `reference` \| `expected_output` | string | Yes | Ground-truth answer |
+
+Plus standard judge params. **Surfaces:** A E
+
+### `contextual_relevancy`
+
+Scores the mean per-chunk relevance of retrieved chunks to the question (distinct from `contextual_precision`: precision is binary relevant/not; relevancy is the mean of graded scores). Equivalent in name to DeepEval `contextual_relevancy`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `contexts` \| `context` \| `context_field` | — | Yes | Retrieved chunks |
+| `question` | string | No | Defaults to the last user turn |
+
+Plus standard judge params. **Surfaces:** A E
+
+### `hallucination`
+
+Scores how free the answer is of unsupported / contradicting claims relative to the context — the inverse framing of `faithfulness`, kept as a distinct handler so users coming from DeepEval find the vocabulary they expect. 1.0 = no hallucination; 0.0 = entirely hallucinated. Equivalent in name to DeepEval `hallucination`.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `contexts` \| `context` \| `context_field` | — | Yes | Retrieved context the answer should be grounded in |
+
+Plus standard judge params. **Surfaces:** A E
+
+```yaml
+assertions:
+  - type: hallucination
+    params:
+      contexts:
+        - "Paris is the capital of France."
+      min_score: 0.9
+```
+
+:::note[Three-role model]
+RAG checks are eval primitives invoked as assertions. They can also be wired as monitor-only guardrails via `runtime/hooks/guardrails/factory.go` — but for retrieval quality, the assertion shape is the natural default. See the [Validators reference](/arena/reference/validators/) for the guardrail-side wiring.
+:::
+
+---
+
 ## External Checks
 
 External checks delegate evaluation to HTTP endpoints or A2A agents. These are the no-code extensibility points for teams that want custom evaluation logic without writing Go.
