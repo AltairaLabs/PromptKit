@@ -146,6 +146,11 @@ Walk through `examples/text-negotiation/`: a four-turn rental-price negotiation 
 Automate LLM testing in GitHub Actions, GitLab CI, Jenkins, and other pipelines.
 </div>
 
+<div class="code-example" markdown="1">
+### [Run Arena as a CI quality gate](/arena/how-to/arena-ci-quality-gate/)
+Wire `promptarena run --ci` into GitHub Actions as a hard merge gate. Fork-safe defaults, real-provider keys via secrets, threshold-based pass/fail, report uploads for reviewers.
+</div>
+
 ## What's the Difference?
 
 **How-to guides** are goal-oriented recipes that show you **how to solve** specific problems:
