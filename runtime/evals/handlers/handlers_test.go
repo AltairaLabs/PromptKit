@@ -1489,6 +1489,12 @@ func TestRegisterInit(t *testing.T) {
 		"contextual_relevancy",
 		"hallucination",
 
+		// Safety eval handlers (guardrail-default wiring)
+		"bias",
+		"toxicity",
+		"pii_leakage",
+		"role_violation",
+
 		// External eval handlers
 		"rest_eval",
 		"rest_eval_session",
