@@ -56,6 +56,11 @@ Turn recorded Arena runs into mock provider YAML for deterministic, cost-free re
 Configure automated voice testing using duplex streaming and self-play with TTS.
 </div>
 
+<div class="code-example" markdown="1">
+### [Test a Voice Customer Support Agent](/arena/how-to/voice-customer-support/)
+Walk through `examples/voice-refund-demo/`: four scripted personas (hostile, impersonator, anxious, patient) driving a refund agent under voice, with conversation-level assertions on the tools the agent must (and must not) call.
+</div>
+
 ## Session Recording
 
 <div class="code-example" markdown="1">
