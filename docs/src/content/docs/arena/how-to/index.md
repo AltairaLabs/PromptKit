@@ -81,6 +81,11 @@ Walk through `examples/duplex-streaming/scenarios/duplex-tools.scenario.yaml`: a
 Walk through `examples/voice-red-team/`: `pii_leakage` wired as a guardrail in the pack, scenarios assert the firing via `guardrail_triggered`. Same primitive enforces in production AND fires as a test signal — the three-role pattern (eval / guardrail / assertion) end-to-end.
 </div>
 
+<div class="code-example" markdown="1">
+### [Run the same scenario across multiple providers](/arena/how-to/voice-bake-off/)
+Walk through `examples/voice-bake-off/`: one scenario, two providers, side-by-side report. Adding a provider is one YAML line; per-provider thresholds use `when:` clauses. The fan-out shape stays the same whether you're comparing mocks or real duplex providers.
+</div>
+
 ## Session Recording
 
 <div class="code-example" markdown="1">
