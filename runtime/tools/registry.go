@@ -173,6 +173,29 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error {
 	return nil
 }
 
+// Unregister removes a tool descriptor from the in-memory cache by name.
+// Returns true if a descriptor was removed, false if none was registered.
+//
+// Used when a workflow state machine transitions into a terminal state:
+// the previous state's workflow__transition descriptor (with its
+// now-stale enum of events) must be torn down so the LLM can't call it
+// against a dead state. Safe to call concurrently with Get/List.
+//
+// Note: tools persisted to a repository (file-loaded YAML/JSON tools)
+// will be re-loaded by Get on next lookup. Unregister is intended for
+// dynamically-registered descriptors like workflow__transition that
+// don't go through the repository path.
+func (r *Registry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	_, existed := r.tools[name]
+	if existed {
+		delete(r.tools, name)
+	}
+	return existed
+}
+
 // Get retrieves a tool descriptor by name with repository fallback.
 func (r *Registry) Get(name string) *ToolDescriptor {
 	// Check cache first

@@ -188,6 +188,38 @@ func TestTransitionExecutor_SkipsTerminalState(t *testing.T) {
 	}
 }
 
+// TestTransitionExecutor_UnregistersOnTerminalEntry verifies that
+// transitioning into a terminal state tears down the previous state's
+// workflow__transition descriptor. Without this, the LLM would still
+// see the stale tool (with the prior state's event enum) on the next
+// turn and try to call it against a state with no exits.
+func TestTransitionExecutor_UnregistersOnTerminalEntry(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a":    {PromptTask: "t", OnEvent: map[string]string{"Finish": "done"}},
+			"done": {PromptTask: "t", Terminal: true},
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+	registry := newTestRegistry(t)
+
+	// First register for the entry state — descriptor lands in the registry.
+	exec.RegisterForState(registry, spec.States["a"])
+	if registry.Get(TransitionToolName) == nil {
+		t.Fatal("transition tool should be registered for state a")
+	}
+
+	// Now register for the terminal state — the descriptor must be torn
+	// down so the LLM can't see it on the next turn.
+	exec.RegisterForState(registry, spec.States["done"])
+	if registry.Get(TransitionToolName) != nil {
+		t.Error("transition tool should be unregistered after entering terminal state")
+	}
+}
+
 func TestTransitionExecutor_MaxVisitsRedirect(t *testing.T) {
 	spec := &Spec{
 		Version: 2,
