@@ -17,9 +17,24 @@ import (
 // Params:
 //   - tool_names/tools []string — required tool names
 //   - min_calls int — minimum calls per tool (default 1)
+//   - max_calls int — maximum calls per tool (default unbounded, use 0 to forbid).
+//     When any listed tool exceeds max_calls the assertion fails hard with
+//     score 0, regardless of min_calls satisfaction.
 //   - ignore_validation bool — count validation failures as successful (default false)
 //   - require_args bool — only count calls with non-empty arguments (default false)
 type ToolsCalledHandler struct{}
+
+// maxCallsUnbounded is the sentinel meaning "no max_calls constraint."
+// Chosen as -1 so callers can pass 0 to mean "tool must not be called."
+const maxCallsUnbounded = -1
+
+// Result-value map keys for the ToolsCalledHandler result.
+const (
+	keyFound     = "found"
+	keyExpected  = "expected"
+	keyMissing   = "missing"
+	keyOverLimit = "over_limit"
+)
 
 // Type returns the eval type identifier.
 func (h *ToolsCalledHandler) Type() string { return "tools_called" }
@@ -43,33 +58,52 @@ func (h *ToolsCalledHandler) Eval(
 	}
 
 	minCalls := extractInt(params, "min_calls", 1)
+	maxCalls := extractInt(params, "max_calls", maxCallsUnbounded)
 	ignoreValidation := extractBool(params, "ignore_validation")
 	requireArgs := extractBool(params, "require_args")
 	callCounts := buildCallCounts(evalCtx.ToolCalls, ignoreValidation, requireArgs)
 
-	return h.checkToolCalls(toolNames, callCounts, minCalls)
+	return h.checkToolCalls(toolNames, callCounts, minCalls, maxCalls)
 }
 
-// checkToolCalls verifies each tool was called the minimum number
-// of times.
+// checkToolCalls verifies each tool was called within the configured
+// min/max bounds. min_calls is a ratio-scored check (partial credit);
+// max_calls is a hard pass/fail (any exceeded tool → score 0).
 func (h *ToolsCalledHandler) checkToolCalls(
 	toolNames []string,
 	callCounts map[string]int,
-	minCalls int,
+	minCalls, maxCalls int,
 ) (result *evals.EvalResult, err error) {
-	var missing []string
+	var missing, overLimit []string
 	for _, name := range toolNames {
-		if callCounts[name] < minCalls {
+		count := callCounts[name]
+		if count < minCalls {
 			missing = append(missing, fmt.Sprintf(
 				"%s (called %d, need %d)",
-				name, callCounts[name], minCalls,
+				name, count, minCalls,
+			))
+		}
+		if maxCalls >= 0 && count > maxCalls {
+			overLimit = append(overLimit, fmt.Sprintf(
+				"%s (called %d, max %d)",
+				name, count, maxCalls,
 			))
 		}
 	}
 
-	passed := len(missing) == 0
-	explanation := "all expected tools were called"
-	if !passed {
+	explanation := "all expected tools were called within bounds"
+	switch {
+	case len(overLimit) > 0 && len(missing) > 0:
+		explanation = fmt.Sprintf(
+			"tools called outside bounds: under min: %s; over max: %s",
+			strings.Join(missing, ", "), strings.Join(overLimit, ", "),
+		)
+	case len(overLimit) > 0:
+		explanation = fmt.Sprintf(
+			"tools called too many times: %s",
+			strings.Join(overLimit, ", "),
+		)
+	case len(missing) > 0:
 		explanation = fmt.Sprintf(
 			"tools not called enough: %s",
 			strings.Join(missing, ", "),
@@ -77,15 +111,23 @@ func (h *ToolsCalledHandler) checkToolCalls(
 	}
 
 	found := len(toolNames) - len(missing)
+	// Over-limit is a hard fail regardless of how many min_calls were
+	// satisfied — exceeding the cap means the agent did the wrong thing,
+	// not a partially-correct thing.
+	score := ratioScore(found, len(toolNames))
+	if len(overLimit) > 0 {
+		score = boolScore(false)
+	}
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Score:       ratioScore(found, len(toolNames)),
+		Score:       score,
 		Explanation: explanation,
 		Value: map[string]any{
-			"found":    found,
-			"expected": len(toolNames),
-			"missing":  missing,
+			keyFound:     found,
+			keyExpected:  len(toolNames),
+			keyMissing:   missing,
+			keyOverLimit: overLimit,
 		},
 	}, nil
 }
