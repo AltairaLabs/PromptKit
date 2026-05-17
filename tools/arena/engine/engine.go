@@ -247,28 +247,38 @@ func NewEngineFromConfig(cfg *config.Config, providerFilter ...string) (*Engine,
 		return nil, fmt.Errorf("failed to initialize memory: %w", err)
 	}
 
-	// Use the eval orchestrator from the conversation executor — it already has
-	// judge metadata, prompt_registry, and other config injected by BuildEngineComponents.
-	// Creating a separate orchestrator here would lose that metadata.
-	//
-	// BuildEngineComponents wraps the DefaultConversationExecutor in a
-	// CompositeConversationExecutor for routing between default / duplex /
-	// eval modes, so the type assertion must reach through the composite.
-	// Without this, eng.evalOrchestrator stays nil for every run; workflow
-	// scenarios in particular silently lose their per-run metadata provider
-	// because prepareWorkflowScenario short-circuits on nil evalOrchestrator
-	// and returns nil. That manifests as `state_is` / `transitioned_to`
-	// assertions reporting "no workflow state in context" even when the
-	// state machine is running correctly (#1169).
-	switch ce := convExecutor.(type) {
+	// Use the eval orchestrator from the conversation executor — it already
+	// has judge metadata, prompt_registry, and other config injected by
+	// BuildEngineComponents. Creating a separate orchestrator here would
+	// lose that metadata.
+	eng.evalOrchestrator = evalOrchestratorFrom(convExecutor)
+	return eng, nil
+}
+
+// evalOrchestratorFrom extracts the EvalOrchestrator out of whatever
+// ConversationExecutor shape BuildEngineComponents returned.
+//
+// BuildEngineComponents wraps the DefaultConversationExecutor in a
+// CompositeConversationExecutor for routing between default / duplex /
+// eval modes, so the type assertion must reach through the composite.
+// Without this, eng.evalOrchestrator stays nil for every run; workflow
+// scenarios in particular silently lose their per-run metadata provider
+// because prepareWorkflowScenario short-circuits on nil evalOrchestrator
+// and returns nil. That manifests as `state_is` / `transitioned_to`
+// assertions reporting "no workflow state in context" even when the
+// state machine is running correctly (#1169).
+//
+// Returns nil if no orchestrator can be reached — callers must guard.
+func evalOrchestratorFrom(executor ConversationExecutor) *EvalOrchestrator {
+	switch ce := executor.(type) {
 	case *DefaultConversationExecutor:
-		eng.evalOrchestrator = ce.evalOrchestrator
+		return ce.evalOrchestrator
 	case *CompositeConversationExecutor:
 		if ce.defaultExecutor != nil {
-			eng.evalOrchestrator = ce.defaultExecutor.evalOrchestrator
+			return ce.defaultExecutor.evalOrchestrator
 		}
 	}
-	return eng, nil
+	return nil
 }
 
 // NewEngine creates a new simulation engine from pre-built components.

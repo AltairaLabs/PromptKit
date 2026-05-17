@@ -259,6 +259,8 @@ When to use which:
 
 The destination state's `control` is what determines behavior, not the source. A user-controlled state may transition into an agent-controlled state and vice versa.
 
+**System-prompt scope inside an agent-controlled chain.** Because eager commits happen inside the pipeline tool loop, the LLM's *system prompt* stays anchored to the source state for the duration of the chain — the new state's `prompt_task`, `description`, and available events are surfaced to the model via the `workflow__transition` tool result, not by re-templating the system prompt. Treat agent-controlled states as transient: don't put substantive persona or behavior in their `prompt_task`. The conversation only opens a fresh prompt for the state the chain finally lands in (the first user-controlled state, or a terminal state).
+
 ## Best Practices
 
 ### Do's

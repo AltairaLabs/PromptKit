@@ -319,29 +319,31 @@ func TestWorkflowRunMetadataProvider_EagerCommitsPending(t *testing.T) {
 	assert.Equal(t, "specialist", meta2["workflow_current_state"])
 }
 
-// TestBuildEngineComponents_WiresEvalOrchestratorThroughComposite verifies
-// the type switch in BuildEngineComponents reaches through the
-// CompositeConversationExecutor wrapper. Before #1169, the type assertion
-// failed silently and eng.evalOrchestrator stayed nil for every workflow
-// run, breaking state-aware assertions.
-func TestBuildEngineComponents_WiresEvalOrchestratorThroughComposite(t *testing.T) {
-	composite := &CompositeConversationExecutor{
-		defaultExecutor: &DefaultConversationExecutor{
-			evalOrchestrator: &EvalOrchestrator{},
-		},
-	}
+// TestEvalOrchestratorFrom_ReachesThroughComposite verifies that the
+// extractor used by NewEngineFromConfig reaches the orchestrator through
+// both shapes BuildEngineComponents may return. Before #1169 the extraction
+// was a bare type assertion against *DefaultConversationExecutor only, so
+// the composite path returned nil and every workflow run lost its per-run
+// metadata provider.
+func TestEvalOrchestratorFrom_ReachesThroughComposite(t *testing.T) {
+	orch := &EvalOrchestrator{}
 
-	// Mimic the switch from engine.go.
-	var orch *EvalOrchestrator
-	switch ce := any(composite).(type) {
-	case *DefaultConversationExecutor:
-		orch = ce.evalOrchestrator
-	case *CompositeConversationExecutor:
-		if ce.defaultExecutor != nil {
-			orch = ce.defaultExecutor.evalOrchestrator
-		}
+	// Composite is what BuildEngineComponents returns today.
+	composite := &CompositeConversationExecutor{
+		defaultExecutor: &DefaultConversationExecutor{evalOrchestrator: orch},
 	}
-	assert.NotNil(t, orch, "type switch must reach through CompositeConversationExecutor")
+	assert.Same(t, orch, evalOrchestratorFrom(composite),
+		"must reach through CompositeConversationExecutor")
+
+	// Bare default executor is the historical shape; the extractor must
+	// keep handling it for tests and callers that wire executors directly.
+	bare := &DefaultConversationExecutor{evalOrchestrator: orch}
+	assert.Same(t, orch, evalOrchestratorFrom(bare),
+		"must handle bare DefaultConversationExecutor")
+
+	// Composite with no inner default → nil (callers must guard).
+	assert.Nil(t, evalOrchestratorFrom(&CompositeConversationExecutor{}),
+		"composite without defaultExecutor returns nil, not panic")
 }
 
 // TestWorkflowRunMetadataProvider_CommitErrorIsLoggedNotPanicked verifies

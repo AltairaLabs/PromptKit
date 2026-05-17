@@ -29,11 +29,12 @@ type PendingTransition struct {
 // post-commit work (re-register tool descriptor, update scenario TaskType,
 // emit observability events) from a single hook.
 type TransitionExecutor struct {
-	mu       sync.Mutex
-	sm       *StateMachine
-	spec     *Spec
-	pending  *PendingTransition
-	onCommit func(*TransitionResult)
+	mu            sync.Mutex
+	sm            *StateMachine
+	spec          *Spec
+	pending       *PendingTransition
+	onCommit      func(*TransitionResult)
+	onCommitError func(event string, err error)
 }
 
 // NewTransitionExecutor creates a TransitionExecutor for the given state machine.
@@ -49,6 +50,20 @@ func NewTransitionExecutor(sm *StateMachine, spec *Spec) *TransitionExecutor {
 func (e *TransitionExecutor) SetOnCommit(fn func(*TransitionResult)) {
 	e.mu.Lock()
 	e.onCommit = fn
+	e.mu.Unlock()
+}
+
+// SetOnCommitError registers a callback fired when ProcessEvent fails on
+// either commit path (eager from Execute, deferred from CommitPending).
+// Consumers wire their workflow observability error emit (e.g.,
+// workflow.max_visits_exceeded, workflow.budget_exhausted) through this
+// hook so eager-control failures are observable too. Pass nil to clear.
+//
+// Same locking contract as SetOnCommit: the callback runs while the
+// executor's internal lock is held; do not re-enter the executor.
+func (e *TransitionExecutor) SetOnCommitError(fn func(event string, err error)) {
+	e.mu.Lock()
+	e.onCommitError = fn
 	e.mu.Unlock()
 }
 
@@ -82,6 +97,9 @@ func (e *TransitionExecutor) Execute(
 	if e.isAgentControlledTargetLocked(a.Event) {
 		tr, err := e.sm.ProcessEvent(a.Event)
 		if err != nil {
+			if e.onCommitError != nil {
+				e.onCommitError(a.Event, err)
+			}
 			return nil, fmt.Errorf("agent-controlled transition failed: %w", err)
 		}
 		if e.onCommit != nil {
@@ -127,6 +145,9 @@ func (e *TransitionExecutor) CommitPending() (*TransitionResult, error) {
 
 	tr, err := e.sm.ProcessEvent(pt.Event)
 	if err != nil {
+		if e.onCommitError != nil {
+			e.onCommitError(pt.Event, err)
+		}
 		return nil, err
 	}
 	if e.onCommit != nil {
