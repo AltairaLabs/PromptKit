@@ -3,7 +3,6 @@ package providers_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -235,17 +234,26 @@ func TestStreamContextCancellation(t *testing.T) {
 		t.Fatalf("PredictStream failed: %v", err)
 	}
 
+	// The chunk error after context cancellation is implementation- and
+	// transport-specific: net/http2 may surface DeadlineExceeded,
+	// io.ErrUnexpectedEOF, "http2: response body closed", or similar. The
+	// test only cares that the stream was interrupted as a consequence of
+	// the context's deadline. Treat "any chunk-level error while ctx is
+	// done" as proof of cancellation, plus the explicit FinishReason path
+	// when the provider surfaces it directly.
 	gotCancellation := false
 	for chunk := range stream {
-		if chunk.Error != nil {
-			if errors.Is(chunk.Error, context.DeadlineExceeded) || chunk.FinishReason != nil && *chunk.FinishReason == "cancelled" {
-				gotCancellation = true
-			}
+		if chunk.FinishReason != nil && *chunk.FinishReason == "cancelled" {
+			gotCancellation = true
+			continue
+		}
+		if chunk.Error != nil && ctx.Err() != nil {
+			gotCancellation = true
 		}
 	}
 
 	if !gotCancellation {
-		t.Error("Expected context cancellation to be detected")
+		t.Errorf("Expected context cancellation to be detected (ctx.Err()=%v)", ctx.Err())
 	}
 }
 

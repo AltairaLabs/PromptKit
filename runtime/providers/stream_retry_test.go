@@ -598,7 +598,12 @@ func TestOpenStreamWithRetryRequest_BudgetAllowsRetry(t *testing.T) {
 	})
 	defer srv.Close()
 
-	budget := NewRetryBudget(100, 10)
+	// rate=1/s, burst=10 keeps the refill slow enough that CI scheduling
+	// delay between the retry returning and the Available() assertion
+	// can't refill enough tokens to mask the decrement. A faster rate
+	// (e.g. 100/s = 1 token / 10ms) reliably pushed Available() above
+	// 9.5 on slow runners.
+	budget := NewRetryBudget(1, 10)
 
 	result, err := OpenStreamWithRetryRequest(context.Background(), &StreamRetryRequest{
 		Policy: StreamRetryPolicy{
