@@ -1388,6 +1388,9 @@ func TestCommitDeferredTransition_FiresErrorEvent(t *testing.T) {
 		emitter:      events.NewEmitter(bus, "", "", ""),
 		transExec:    transExec,
 	}
+	// Production code wires this in registerWorkflowTools; mirror that
+	// here since the test bypasses Open and constructs the executor directly.
+	transExec.SetOnCommitError(wc.emitWorkflowError)
 
 	args, _ := json.Marshal(map[string]string{"event": "Go"})
 	_, err := transExec.Execute(context.Background(), nil, args)

@@ -348,6 +348,85 @@ func TestTransitionExecutor_UserControlStillDefers(t *testing.T) {
 	}
 }
 
+func TestTransitionExecutor_OnCommitErrorFiresOnEagerFailure(t *testing.T) {
+	// agent-controlled state "loop" with max_visits=1 (no on_max_visits).
+	// Entry to "loop" via a→loop consumes the only visit; a second eager
+	// loop→loop trips max_visits and surfaces via OnCommitError.
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Enter": "loop"}},
+			"loop": {
+				PromptTask: "t",
+				MaxVisits:  1,
+				Control:    ControlModeAgent,
+				OnEvent:    map[string]string{"Again": "loop"},
+			},
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+
+	type capture struct {
+		event string
+		err   error
+	}
+	var got []capture
+	exec.SetOnCommitError(func(event string, err error) {
+		got = append(got, capture{event, err})
+	})
+
+	enter, _ := json.Marshal(map[string]string{"event": "Enter"})
+	if _, err := exec.Execute(context.Background(), nil, enter); err != nil {
+		t.Fatalf("entering loop: %v", err)
+	}
+	// Second eager attempt loops back to "loop" — trips max_visits.
+	again, _ := json.Marshal(map[string]string{"event": "Again"})
+	if _, err := exec.Execute(context.Background(), nil, again); err == nil {
+		t.Fatal("expected eager re-entry to fail")
+	}
+	if len(got) != 1 || got[0].event != "Again" {
+		t.Fatalf("OnCommitError must fire once with event=Again, got %+v", got)
+	}
+	if !errors.Is(got[0].err, ErrMaxVisitsExceeded) {
+		t.Errorf("expected ErrMaxVisitsExceeded, got %v", got[0].err)
+	}
+}
+
+func TestTransitionExecutor_OnCommitErrorFiresOnDeferredFailure(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+
+	var fired int
+	var capturedEvent string
+	exec.SetOnCommitError(func(event string, _ error) {
+		fired++
+		capturedEvent = event
+	})
+
+	// Store a bad event (deferred path — target lookup at commit time
+	// would fail because "BadEvent" isn't in OnEvent).
+	args, _ := json.Marshal(map[string]string{"event": "BadEvent"})
+	if _, err := exec.Execute(context.Background(), nil, args); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if _, err := exec.CommitPending(); err == nil {
+		t.Fatal("expected commit to fail for invalid event")
+	}
+	if fired != 1 || capturedEvent != "BadEvent" {
+		t.Errorf("OnCommitError must fire once with event=BadEvent, got fired=%d event=%q", fired, capturedEvent)
+	}
+}
+
 func TestTransitionExecutor_AgentControlChainedTransitions(t *testing.T) {
 	// Two agent-controlled transitions in sequence — proves the executor stays
 	// usable after an eager commit and the second call uses the post-commit

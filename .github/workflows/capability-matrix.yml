@@ -81,6 +81,9 @@ jobs:
         # breaks the arithmetic and -gt comparison below. Use a pipe to wc
         # so the count is always a single integer and exit code is 0.
         ERROR_COUNT=$(grep 'level=ERROR.*Turn execution failed' run.log | wc -l | tr -d ' ')
+        # TOTAL uses grep -oP (no -c): on no match grep prints nothing and
+        # exits 1, so the `|| echo "0"` substitutes a clean single "0" — the
+        # specific footgun that bit ERROR_COUNT (above) doesn't apply here.
         TOTAL=$(grep -oP 'Generated \K[0-9]+' run.log || echo "0")
         PASSED=$((TOTAL - ERROR_COUNT))
         echo "error_count=$ERROR_COUNT" >> "$GITHUB_OUTPUT"

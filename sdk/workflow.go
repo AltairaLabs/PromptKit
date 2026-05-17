@@ -300,16 +300,20 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 //
 //   - control: user (default) — the workflow__transition tool stored a
 //     pending transition during the pipeline; CommitPending now runs
-//     ProcessEvent and fires the OnCommit hook.
+//     ProcessEvent and fires OnCommit (or OnCommitError on failure).
 //   - control: agent — the transition already committed eagerly inside
-//     Execute and the OnCommit hook has already run; CommitPending is a
-//     no-op.
+//     Execute and the hooks have already run; CommitPending is a no-op.
 //
 // Either way, if the machine has moved past the active conversation's
 // prompt task, reconcileActiveConv closes the old conv and opens a new
-// one for the destination state's prompt. Errors from ProcessEvent are
-// routed through emitWorkflowError so observability events fire even
-// when a deferred transition aborts on commit. Caller must hold wc.mu.
+// one for the destination state's prompt. Failure observability events
+// are emitted by the OnCommitError hook wired in registerWorkflowTools,
+// not from this function. Caller must hold wc.mu.
+//
+// Note: capturing pending.ContextSummary before CommitPending is safe —
+// the caller holds wc.mu and the runtime executor's only mutator under
+// its own lock is Execute, which can only be invoked by the pipeline
+// tool loop, and the pipeline is no longer running at this point.
 func (wc *WorkflowConversation) commitDeferredTransition() error {
 	if wc.transExec == nil {
 		return nil
@@ -318,7 +322,6 @@ func (wc *WorkflowConversation) commitDeferredTransition() error {
 	if pending := wc.transExec.Pending(); pending != nil {
 		contextSummary = pending.ContextSummary
 		if _, commitErr := wc.transExec.CommitPending(); commitErr != nil {
-			wc.emitWorkflowError(pending.Event, commitErr)
 			return commitErr
 		}
 	}
@@ -446,6 +449,10 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	registry.RegisterExecutor(wc.transExec)
 	wc.transExec.RegisterForState(registry, state)
 	wc.transExec.SetOnCommit(wc.onTransitionCommitted)
+	// OnCommitError covers both eager (control: agent) and deferred
+	// (control: user) ProcessEvent failures so max_visits_exceeded /
+	// budget_exhausted observability events fire regardless of path.
+	wc.transExec.SetOnCommitError(wc.emitWorkflowError)
 
 	// Create and register artifact executor if spec declares artifacts
 	wc.artifactExec = workflow.NewArtifactExecutor(wc.machine)

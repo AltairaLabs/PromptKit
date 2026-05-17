@@ -98,6 +98,18 @@ func (e *workflowTransitionExecutor) RegisterRunWithEmitter(
 	transExec.SetOnCommit(func(tr *workflow.TransitionResult) {
 		e.applyPostCommit(runID, tr)
 	})
+	// OnCommitError fires for both eager (control: agent) and deferred
+	// (control: user) ProcessEvent failures, so max_visits_exceeded /
+	// budget_exhausted events emit regardless of which path tripped them.
+	transExec.SetOnCommitError(func(event string, err error) {
+		e.mu.Lock()
+		run := e.runs[runID]
+		e.mu.Unlock()
+		if run == nil {
+			return
+		}
+		e.emitWorkflowError(run, run.emitter, event, err)
+	})
 }
 
 // Execute routes the tool call to the per-run TransitionExecutor.
@@ -124,14 +136,16 @@ func (e *workflowTransitionExecutor) Execute(
 // nil and is a no-op when nothing is pending.
 //
 // Post-commit work (transition history, observability events, scenario
-// TaskType update, tool re-registration, skill filter) runs via the
-// OnCommit hook wired in RegisterRun, so it is shared with the agent-control
-// path where the commit fires inside Execute.
+// TaskType update, tool re-registration, skill filter) runs via the OnCommit
+// hook wired in RegisterRunWithEmitter, so it is shared with the agent-control
+// path where the commit fires inside Execute. OnCommitError handles the
+// failure-path observability symmetrically.
 //
-// The emitter parameter is honored only when reporting commit errors. The
-// emitter for successful events is whichever was passed at RegisterRun time.
+// The emitter parameter is kept for source compatibility with older callers
+// but is no longer consulted — the per-run emitter captured at registration
+// is used for both success and failure events.
 func (e *workflowTransitionExecutor) CommitPendingTransition(
-	runID string, emitter *events.Emitter,
+	runID string, _ *events.Emitter,
 ) error {
 	e.mu.Lock()
 	run := e.runs[runID]
@@ -141,9 +155,9 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(
 		return nil
 	}
 
-	pending := run.transExec.Pending()
 	if _, err := run.transExec.CommitPending(); err != nil {
-		e.emitWorkflowError(run, emitter, pending.Event, err)
+		// OnCommitError already emitted the observability event; just wrap
+		// the underlying error for the caller.
 		return fmt.Errorf("transition commit failed: %w", err)
 	}
 	return nil
