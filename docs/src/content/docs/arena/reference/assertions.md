@@ -129,28 +129,48 @@ Assert that the LLM invoked the right tool (and, optionally, with a minimum freq
       message: "Should call the weather tool"
 ```
 
-`tools_called` accepts `min_calls` (default `1`), `ignore_validation`, and `require_args` — see the [Checks Reference](/reference/checks/#tool-checks-turn-level) for full param list.
+`tools_called` accepts these parameters:
 
-### Negative tool usage check
+| Param | Type | Default | Meaning |
+|---|---|---|---|
+| `tool_names` (or `tools`) | `[]string` | required | Names of tools to check |
+| `min_calls` | `int` | `1` | Minimum calls per tool. Under-called tools fail proportionally (ratio score). |
+| `max_calls` | `int` | unbounded | Maximum calls per tool. Over-called tools fail **hard** (score 0, regardless of `min_calls`). Use `max_calls: 0` to forbid a tool inline alongside positive expectations. |
+| `ignore_validation` | `bool` | `false` | Count argument-validation failures as successful calls |
+| `require_args` | `bool` | `false` | Only count calls with non-empty arguments |
 
-To assert that an agent did **not** call a forbidden tool — e.g. a refund agent that should escalate rather than process an unauthorized refund — use `tools_not_called`:
+See the [Checks Reference](/reference/checks/#tool-checks-turn-level) for the full surface.
+
+### Bounded tool usage with `max_calls`
+
+`max_calls` lets you express "at most N calls" inline with a positive expectation on the same assertion. The common case is `max_calls: 0` for a forbidden tool:
 
 ```yaml
 conversation_assertions:
-  # Agent must escalate
+  # Agent must escalate AND must not issue a refund — both in one assertion
   - type: tools_called
     params:
       tool_names: ["escalate_to_human"]
       min_calls: 1
     message: "Agent should escalate when policy blocks the request"
-  # Agent must NOT issue refund without verification
+  - type: tools_called
+    params:
+      tool_names: ["issue_refund"]
+      min_calls: 0
+      max_calls: 0
+    message: "Agent must NOT issue refund without warranty verification"
+```
+
+Equivalently, the dedicated `tools_not_called` assertion expresses the forbidden case alone:
+
+```yaml
   - type: tools_not_called
     params:
       tool_names: ["issue_refund"]
-    message: "Agent should not issue refund when warranty check fails"
+    message: "Agent must NOT issue refund without warranty verification"
 ```
 
-For rate-limit-style bounds ("at most N calls"), use `tool_call_count` with `min`/`max` — see [Tool Checks reference](/reference/checks/#tool-checks-turn-level).
+Pick whichever reads better. `max_calls > 0` (e.g. "at most 3 lookups per turn") is only available on `tools_called`.
 
 ### LLM judge
 

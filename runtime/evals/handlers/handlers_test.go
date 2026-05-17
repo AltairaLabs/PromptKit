@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -474,6 +475,135 @@ func TestToolsCalledHandler_MinCalls(t *testing.T) {
 	if result.Score != nil && *result.Score >= 1.0 {
 		t.Fatal("expected fail: only 1 call, need 3")
 	}
+}
+
+// TestToolsCalledHandler_MaxCalls verifies that a tool called within the
+// max_calls bound passes the assertion.
+func TestToolsCalledHandler_MaxCalls(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "search"},
+			{ToolName: "search"},
+		},
+	}
+	params := map[string]any{
+		"tool_names": []any{"search"},
+		"min_calls":  float64(1),
+		"max_calls":  float64(3),
+	}
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score == nil || *result.Score < 1.0 {
+		t.Fatalf("expected pass (2 calls, max 3), got score %v", result.Score)
+	}
+}
+
+// TestToolsCalledHandler_MaxCallsExceeded verifies that exceeding max_calls
+// fails hard with score 0 even when min_calls is satisfied, and that the
+// over-limit tool is named in the explanation.
+func TestToolsCalledHandler_MaxCallsExceeded(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			{ToolName: "issue_refund"},
+			{ToolName: "issue_refund"},
+			{ToolName: "issue_refund"},
+		},
+	}
+	params := map[string]any{
+		"tool_names": []any{"issue_refund"},
+		"min_calls":  float64(1),
+		"max_calls":  float64(2),
+	}
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score == nil || *result.Score != 0 {
+		t.Fatalf("expected hard fail score 0, got %v", result.Score)
+	}
+	if !strings.Contains(result.Explanation, "issue_refund") {
+		t.Errorf("explanation must name the offending tool, got %q", result.Explanation)
+	}
+	overLimit, ok := result.Value.(map[string]any)["over_limit"].([]string)
+	if !ok || len(overLimit) != 1 {
+		t.Errorf("over_limit value should list one tool, got %v", result.Value)
+	}
+}
+
+// TestToolsCalledHandler_MinAndMax verifies both constraints are honored
+// simultaneously: under-called fails, over-called also fails, the
+// explanation mentions both directions.
+func TestToolsCalledHandler_MinAndMax(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	evalCtx := &evals.EvalContext{
+		ToolCalls: []evals.ToolCallRecord{
+			// search is called 4 times (over max 2)
+			{ToolName: "search"}, {ToolName: "search"},
+			{ToolName: "search"}, {ToolName: "search"},
+			// escalate is never called (under min 1)
+		},
+	}
+	params := map[string]any{
+		"tool_names": []any{"search", "escalate"},
+		"min_calls":  float64(1),
+		"max_calls":  float64(2),
+	}
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Score == nil || *result.Score != 0 {
+		t.Fatalf("expected hard fail (over-limit wins), got %v", result.Score)
+	}
+	if !strings.Contains(result.Explanation, "search") ||
+		!strings.Contains(result.Explanation, "escalate") {
+		t.Errorf("explanation must mention both tools, got %q", result.Explanation)
+	}
+}
+
+// TestToolsCalledHandler_MaxCallsZero verifies the primary use case:
+// max_calls: 0 means "must NOT be called." Same semantics as
+// tools_not_called but expressible inline alongside min_calls assertions.
+func TestToolsCalledHandler_MaxCallsZero(t *testing.T) {
+	h := &ToolsCalledHandler{}
+	t.Run("tool not called passes", func(t *testing.T) {
+		evalCtx := &evals.EvalContext{
+			ToolCalls: []evals.ToolCallRecord{{ToolName: "lookup"}},
+		}
+		params := map[string]any{
+			"tool_names": []any{"issue_refund"},
+			"min_calls":  float64(0),
+			"max_calls":  float64(0),
+		}
+		result, err := h.Eval(context.Background(), evalCtx, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Score == nil || *result.Score < 1.0 {
+			t.Fatalf("max_calls: 0 with zero calls should pass, got %v", result.Score)
+		}
+	})
+	t.Run("single call fails", func(t *testing.T) {
+		evalCtx := &evals.EvalContext{
+			ToolCalls: []evals.ToolCallRecord{{ToolName: "issue_refund"}},
+		}
+		params := map[string]any{
+			"tool_names": []any{"issue_refund"},
+			"min_calls":  float64(0),
+			"max_calls":  float64(0),
+		}
+		result, err := h.Eval(context.Background(), evalCtx, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Score == nil || *result.Score != 0 {
+			t.Fatalf("max_calls: 0 with one call must fail, got %v", result.Score)
+		}
+	})
 }
 
 func TestToolsCalledHandler_NoToolNames(t *testing.T) {
