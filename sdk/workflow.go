@@ -271,10 +271,21 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 		wc.mu.Unlock()
 		return nil, ErrWorkflowClosed
 	}
-	conv := wc.activeConv
 	if wc.transExec != nil {
 		wc.transExec.ClearPending()
 	}
+	// Heal any state-machine / active-conv drift left over from a prior
+	// Send that errored mid-pipeline after an eager (control: agent)
+	// commit. Without this, the next Send runs in the stale conv for
+	// one full turn before end-of-Send reconciliation kicks in.
+	// Carry-forward summary intentionally empty here: the prior Send's
+	// conv history is what would have been summarized, and we don't
+	// retroactively rebuild it on the recovery path.
+	if err := wc.reconcileActiveConv(""); err != nil {
+		wc.mu.Unlock()
+		return nil, err
+	}
+	conv := wc.activeConv
 	wc.mu.Unlock()
 
 	resp, err := conv.Send(ctx, message, opts...)
@@ -341,6 +352,13 @@ func (wc *WorkflowConversation) commitDeferredTransition() error {
 // conversation, which is the whole point of control: agent.
 func (wc *WorkflowConversation) reconcileActiveConv(contextSummary string) error {
 	if wc.activeConv == nil {
+		return nil
+	}
+	// A closed activeConv is its own failure mode — the caller (typically
+	// Send) will observe ErrConversationClosed from the next operation.
+	// Don't conflate that with state drift; reconcile only when the conv
+	// is open but its prompt has fallen behind the machine.
+	if wc.activeConv.closed {
 		return nil
 	}
 	targetPrompt := wc.machine.CurrentPromptTask()

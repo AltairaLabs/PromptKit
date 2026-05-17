@@ -80,6 +80,17 @@ func (e *TransitionExecutor) Name() string { return TransitionExecutorMode }
 // Otherwise the request is stored as pending and CommitPending applies it
 // after the pipeline turn finishes. This is the historical (default)
 // behavior and matches RFC 0005's deferred-commit pattern.
+//
+// Context-summary handling differs between paths:
+//   - Deferred (control: user): the LLM's `context` argument is stored on
+//     the PendingTransition and surfaced to the new conversation as the
+//     `workflow_context` template variable when the consumer opens it.
+//   - Eager (control: agent): the `context` argument is **discarded**.
+//     Agent-controlled states are transient — the conversation never
+//     reopens for them — so there's no destination prompt to seed. If
+//     you need the LLM to summarize before handing off to a terminal
+//     state, do it on the *user-controlled* transition that ends the
+//     chain, not on the agent-controlled hops along the way.
 func (e *TransitionExecutor) Execute(
 	_ context.Context, _ *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
@@ -177,12 +188,23 @@ func (e *TransitionExecutor) ClearPending() {
 
 // RegisterForState registers the workflow__transition tool in the given
 // registry for the specified state, with Mode set for executor routing.
-// Skips terminal states and externally orchestrated states.
+//
+// When called with a terminal state (Terminal: true OR no on_event), the
+// previous descriptor — if any — is removed from the registry instead of
+// re-registered. Without this, the LLM would still see workflow__transition
+// in the tool list after entering a terminal state and could call it with
+// the previous state's now-stale events. Externally orchestrated states
+// skip both register and unregister: the caller owns the descriptor's
+// lifecycle.
 func (e *TransitionExecutor) RegisterForState(registry *tools.Registry, state *State) {
-	if registry == nil || state == nil || len(state.OnEvent) == 0 {
+	if registry == nil || state == nil {
 		return
 	}
-	if state.Terminal || state.Orchestration == OrchestrationExternal {
+	if state.Orchestration == OrchestrationExternal {
+		return
+	}
+	if state.Terminal || len(state.OnEvent) == 0 {
+		registry.Unregister(TransitionToolName)
 		return
 	}
 	evts := SortedEvents(state.OnEvent)

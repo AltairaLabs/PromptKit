@@ -53,6 +53,44 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestUnregister verifies Unregister removes a previously registered tool
+// and reports whether anything was actually torn down. Used by the workflow
+// transition executor to clear stale workflow__transition descriptors when
+// entering a terminal state.
+func TestUnregister(t *testing.T) {
+	registry := tools.NewRegistry()
+
+	descriptor := &tools.ToolDescriptor{
+		Name:         "to_remove",
+		Description:  "doomed",
+		InputSchema:  json.RawMessage(`{"type": "object"}`),
+		OutputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:         "mock",
+	}
+	if err := registry.Register(descriptor); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if registry.Get("to_remove") == nil {
+		t.Fatal("precondition: tool should be registered")
+	}
+
+	// First call removes and reports true.
+	if !registry.Unregister("to_remove") {
+		t.Error("Unregister should return true when a tool was removed")
+	}
+	if registry.Get("to_remove") != nil {
+		t.Error("tool should no longer be retrievable after Unregister")
+	}
+
+	// Second call is a no-op and reports false.
+	if registry.Unregister("to_remove") {
+		t.Error("Unregister should return false when nothing was registered")
+	}
+	if registry.Unregister("never_existed") {
+		t.Error("Unregister of an unknown name should return false")
+	}
+}
+
 // TestGet verifies tool retrieval
 func TestGet(t *testing.T) {
 	registry := tools.NewRegistry()
