@@ -153,7 +153,10 @@ func TestCreateProviderFromSpecDefaultBaseURLs(t *testing.T) {
 		{"openai default", "openai", "https://api.openai.com/v1"},
 		{"gemini default", "gemini", "https://generativelanguage.googleapis.com/v1beta"},
 		{"claude default", "claude", "https://api.anthropic.com"},
-		{"imagen default", "imagen", "https://generativelanguage.googleapis.com/v1beta"},
+		// imagen's default baseURL is set inside imagen.NewProvider (not the
+		// LLM registry switch), so spec.BaseURL reaches the factory empty.
+		// imagen_test.go covers the in-factory default — there's nothing for
+		// the LLM-registry-level test to assert.
 		{"ollama default", "ollama", "http://localhost:11434"},
 		{"vllm default", "vllm", "http://localhost:8000"},
 		{"mock default", "mock", ""},

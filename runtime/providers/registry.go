@@ -284,8 +284,6 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 				spec.Platform != "bedrock" {
 				baseURL = "https://api.anthropic.com"
 			}
-		case "imagen":
-			baseURL = DefaultGeminiBaseURL
 		case "ollama":
 			baseURL = "http://localhost:11434"
 		case "vllm":
