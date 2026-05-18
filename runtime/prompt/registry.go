@@ -219,8 +219,8 @@ type ValidatorConfig struct {
 	// FailOnViolation is part of the PromptPack spec but is ignored by
 	// this runtime — guardrails always enforce. Authors wanting
 	// observe-only behavior should declare an eval and assert on it
-	// instead. RFC to drop the field upstream is tracked at
-	// github.com/altairalabs/promptpack-spec.
+	// instead. Tracked upstream:
+	// https://github.com/AltairaLabs/promptpack-spec/issues/46
 	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
 	// User-facing message shown when content is blocked (default: DefaultBlockedMessage)
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`

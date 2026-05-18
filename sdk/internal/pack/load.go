@@ -185,8 +185,8 @@ type Validator struct {
 	// PromptKit always enforces a triggered validator (rewrites or
 	// truncates the assistant message). Pack authors who want
 	// observe-only behavior should declare an eval and assert on it
-	// instead. RFC to drop the field upstream is tracked at
-	// github.com/altairalabs/promptpack-spec.
+	// instead. Tracked upstream:
+	// https://github.com/AltairaLabs/promptpack-spec/issues/46
 	FailOnViolation *bool `json:"fail_on_violation,omitempty"`
 
 	// Params holds validator-specific parameters (e.g. {"max_characters": 2000}
