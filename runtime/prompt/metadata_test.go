@@ -94,11 +94,13 @@ func TestPopulateDefaults_ValidatorFlags(t *testing.T) {
 		t.Error("Validator should be enabled by default")
 	}
 
-	if config.Spec.Validators[0].FailOnViolation == nil {
-		t.Fatal("Validator FailOnViolation flag should be set")
-	}
-	if !*config.Spec.Validators[0].FailOnViolation {
-		t.Error("Validator should fail on violation by default")
+	// FailOnViolation is part of the PromptPack spec but ignored by this
+	// runtime — populateDefaults leaves the field as-is (nil if absent
+	// from YAML, explicit value if present). No defaulting either way.
+	if config.Spec.Validators[0].FailOnViolation != nil {
+		t.Errorf("populateDefaults must not set FailOnViolation; the runtime "+
+			"ignores the field regardless of value. Got %v",
+			*config.Spec.Validators[0].FailOnViolation)
 	}
 }
 

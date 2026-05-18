@@ -15,7 +15,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
-	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
@@ -1043,44 +1042,24 @@ func packToRuntimePack(p *pack.Pack) *rtprompt.Pack {
 }
 
 // convertPackValidatorsToHooks auto-converts pack prompt validators into
-// provider hooks, prepending them before any user-registered hooks.
-// This enables pack-defined guardrails (e.g., banned_words, max_length) to
-// run as enforcement hooks in the SDK pipeline.
-//
-// Validators are skipped (with a warning logged) when:
-//   - Enabled is false.
-//   - The validator type is not registered in the runtime registry.
-//   - The validator's params are unusable by its handler (missing required keys, etc.).
-func convertPackValidatorsToHooks(prompt *pack.Prompt, cfg *config) {
-	if len(prompt.Validators) == 0 {
+// provider hooks, prepending them before any user-registered hooks. The
+// per-validator translation lives in guardrails.ValidatorsToHooks so SDK and
+// Arena exercise identical conversion semantics — same defaults, same
+// skip-and-warn behavior, same enforcement.
+func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) {
+	if len(p.Validators) == 0 {
 		return
 	}
-	var packHooks []hooks.ProviderHook
-	for _, v := range prompt.Validators {
-		if !v.Enabled {
-			logger.Debug("Skipping disabled pack validator", "type", v.Type)
-			continue
-		}
-
-		var opts []guardrails.GuardrailOption
-		// Spec default for fail_on_violation is false (monitor-only). We enforce
-		// only when the pack explicitly sets fail_on_violation: true.
-		if v.FailOnViolation == nil || !*v.FailOnViolation {
-			opts = append(opts, guardrails.WithMonitorOnly())
-		}
-		if msg, ok := v.Params["message"].(string); ok && msg != "" {
-			opts = append(opts, guardrails.WithMessage(msg))
-		}
-
-		hook, err := guardrails.NewGuardrailHook(v.Type, v.Params, opts...)
-		if err != nil {
-			logger.Warn("Skipping unusable pack validator",
-				"type", v.Type, "error", err)
-			continue
-		}
-		packHooks = append(packHooks, hook)
+	specs := make([]rtprompt.ValidatorConfig, 0, len(p.Validators))
+	for _, v := range p.Validators {
+		enabled := v.Enabled
+		specs = append(specs, rtprompt.ValidatorConfig{
+			Type:    v.Type,
+			Params:  v.Params,
+			Enabled: &enabled,
+		})
 	}
-	// Prepend pack validators before user-registered hooks
+	packHooks := guardrails.ValidatorsToHooks(specs)
 	if len(packHooks) > 0 {
 		cfg.providerHooks = append(packHooks, cfg.providerHooks...)
 	}

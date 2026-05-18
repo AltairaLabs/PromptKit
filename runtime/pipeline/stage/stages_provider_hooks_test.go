@@ -648,58 +648,5 @@ func TestProviderStage_GuardrailEmitsValidationEvent(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "banned_words", data.ValidatorName)
 	assert.True(t, data.Enforced)
-	assert.False(t, data.MonitorOnly)
 	assert.Len(t, data.Violations, 1)
-}
-
-func TestProviderStage_MonitorOnlyGuardrailEmitsEvent(t *testing.T) {
-	baseProvider := mock.NewProvider("p", "m", false)
-	provider := &nonStreamingProvider{Provider: baseProvider}
-
-	bw, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
-		"words": []any{"Mock"},
-	}, guardrails.WithMonitorOnly())
-	require.NoError(t, err)
-	reg := hooks.NewRegistry(hooks.WithProviderHook(bw))
-
-	bus := events.NewEventBus()
-	defer bus.Close()
-	emitter := events.NewEmitter(bus, "run1", "sess1", "conv1")
-
-	var received []*events.Event
-	var mu sync.Mutex
-	bus.Subscribe(events.EventValidationFailed, func(e *events.Event) {
-		mu.Lock()
-		received = append(received, e)
-		mu.Unlock()
-	})
-
-	stage := NewProviderStageWithHooks(provider, nil, nil, &ProviderConfig{
-		MaxTokens: 100,
-	}, emitter, reg)
-
-	elems, runErr := runProviderStage(t, stage, "hello")
-	require.NoError(t, runErr)
-
-	// Monitor-only should NOT modify content
-	var assistantMsg *types.Message
-	for i := range elems {
-		if elems[i].Message != nil && elems[i].Message.Role == "assistant" {
-			assistantMsg = elems[i].Message
-		}
-	}
-	require.NotNil(t, assistantMsg)
-	assert.Contains(t, assistantMsg.Content, "Mock",
-		"monitor-only should not replace content")
-
-	bus.Close()
-
-	mu.Lock()
-	defer mu.Unlock()
-	require.Len(t, received, 1, "expected one validation.failed event")
-	data, ok := received[0].Data.(*events.ValidationEventData)
-	require.True(t, ok)
-	assert.Equal(t, "banned_words", data.ValidatorName)
-	assert.False(t, data.Enforced, "monitor-only should not be marked as enforced")
-	assert.True(t, data.MonitorOnly)
 }

@@ -22,15 +22,16 @@ const (
 // This bridges the unified eval system to the pipeline's hook infrastructure,
 // allowing any registered eval handler to be used as a guardrail.
 //
-// When a guardrail triggers, the adapter enforces in-place (truncating or
-// replacing content) and returns an Enforced decision so the pipeline continues.
+// Guardrails always enforce: on a hit the adapter mutates the response
+// (truncate or replace) and returns an Enforced decision so the pipeline
+// continues. If you want observe-only behavior, declare an eval — not a
+// guardrail — and assert on it in scenarios.
 type GuardrailHookAdapter struct {
-	handler     evals.EvalTypeHandler
-	evalType    string
-	params      map[string]any
-	direction   string // "input" | "output" | "both"
-	message     string // User-facing message when content is blocked
-	monitorOnly bool   // When true, evaluate but don't enforce (no content modification)
+	handler   evals.EvalTypeHandler
+	evalType  string
+	params    map[string]any
+	direction string // "input" | "output" | "both"
+	message   string // User-facing message when content is blocked
 }
 
 // Compile-time interface checks.
@@ -99,9 +100,7 @@ func (a *GuardrailHookAdapter) AfterCall(
 	}
 
 	if result.Score == nil || *result.Score < 1.0 {
-		if !a.monitorOnly {
-			a.enforce(&resp.Message, params)
-		}
+		a.enforce(&resp.Message, params)
 		return a.enforced(result)
 	}
 
@@ -150,11 +149,9 @@ func (a *GuardrailHookAdapter) OnChunk(
 	}
 
 	if result.Score == nil || *result.Score < 1.0 {
-		if !a.monitorOnly {
-			// Truncate chunk content for length validators
-			if maxLen := extractMaxLen(params); maxLen > 0 && len(chunk.Content) > maxLen {
-				chunk.Content = chunk.Content[:maxLen]
-			}
+		// Truncate chunk content for length validators
+		if maxLen := extractMaxLen(params); maxLen > 0 && len(chunk.Content) > maxLen {
+			chunk.Content = chunk.Content[:maxLen]
 		}
 		return a.enforced(result)
 	}
@@ -186,7 +183,6 @@ func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision
 		"validator_type": a.evalType,
 		"score":          result.Score,
 		"value":          result.Value,
-		"monitor_only":   a.monitorOnly,
 	})
 }
 

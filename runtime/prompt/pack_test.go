@@ -1287,7 +1287,6 @@ func TestPack_ValidateWorkflowDetailed(t *testing.T) {
 
 func TestCreatePackPrompt_ValidatorMessageFolding(t *testing.T) {
 	enabled := true
-	failOn := true
 
 	repo := newMockRepository()
 	testConfig := &Config{
@@ -1301,11 +1300,10 @@ func TestCreatePackPrompt_ValidatorMessageFolding(t *testing.T) {
 			},
 			Validators: []ValidatorConfig{
 				{
-					Type:            "banned_words",
-					Params:          map[string]any{"words": []string{"bad"}},
-					Enabled:         &enabled,
-					FailOnViolation: &failOn,
-					Message:         "Content blocked by policy",
+					Type:    "banned_words",
+					Params:  map[string]any{"words": []string{"bad"}},
+					Enabled: &enabled,
+					Message: "Content blocked by policy",
 				},
 				{
 					Type:    "max_length",

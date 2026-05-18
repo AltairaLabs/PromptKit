@@ -179,7 +179,6 @@ func (e *ScriptedExecutor) executeStreamingPipeline(
 func (e *ScriptedExecutor) buildStreamingStages(req *TurnRequest) (*stage.StreamPipeline, error) {
 	return e.pipelineExecutor.buildCommonStreamingStages(req, StreamingStagesConfig{
 		IncludeScenarioContextExtraction: true,
-		IncludeGuardrailEval:             true,
 		IncludeMediaExternalizer:         true,
 		IncludeAssertions:                true,
 		UseArenaStateStoreSave:           true,

@@ -216,7 +216,11 @@ type ValidatorConfig struct {
 	Params map[string]interface{} `yaml:"params" json:"params"`
 	// Enable/disable validator (default: true)
 	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	// Fail execution on violation (default: true)
+	// FailOnViolation is part of the PromptPack spec but is ignored by
+	// this runtime — guardrails always enforce. Authors wanting
+	// observe-only behavior should declare an eval and assert on it
+	// instead. Tracked upstream:
+	// https://github.com/AltairaLabs/promptpack-spec/issues/46
 	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
 	// User-facing message shown when content is blocked (default: DefaultBlockedMessage)
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
@@ -770,14 +774,14 @@ func (r *Registry) populateDefaults(config *Config) {
 
 	// Variables are now required in the new format - no auto-migration
 
-	// Set default validator flags if not specified
+	// Enabled defaults to true. FailOnViolation defaults are not applied
+	// here — the field is part of the PromptPack spec but ignored by this
+	// runtime (guardrails always enforce). See ValidatorConfig.FailOnViolation
+	// for the deviation rationale.
 	trueVal := true
 	for i := range config.Spec.Validators {
 		if config.Spec.Validators[i].Enabled == nil {
 			config.Spec.Validators[i].Enabled = &trueVal
-		}
-		if config.Spec.Validators[i].FailOnViolation == nil {
-			config.Spec.Validators[i].FailOnViolation = &trueVal
 		}
 	}
 }

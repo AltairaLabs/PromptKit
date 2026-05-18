@@ -181,9 +181,12 @@ type Validator struct {
 	// Enabled toggles the validator on/off without removing it. Required by the spec.
 	Enabled bool `json:"enabled"`
 
-	// FailOnViolation controls enforcement. When true, violations cause the
-	// guardrail adapter to enforce in-place. When false or absent (spec default),
-	// violations are logged but content is unchanged (monitor-only mode).
+	// FailOnViolation: required by the spec, ignored by this runtime.
+	// PromptKit always enforces a triggered validator (rewrites or
+	// truncates the assistant message). Pack authors who want
+	// observe-only behavior should declare an eval and assert on it
+	// instead. Tracked upstream:
+	// https://github.com/AltairaLabs/promptpack-spec/issues/46
 	FailOnViolation *bool `json:"fail_on_violation,omitempty"`
 
 	// Params holds validator-specific parameters (e.g. {"max_characters": 2000}
