@@ -1821,7 +1821,7 @@ spec:
 	}
 }
 
-func TestLoadConfig_RejectsEmbeddingProviderInLLMList(t *testing.T) {
+func TestLoadConfig_UnifiedProvidersList_RoutesByRole(t *testing.T) {
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	tmp := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmp, "embed.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -1849,12 +1849,17 @@ spec:
 		t.Fatal(err)
 	}
 
-	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
-	if err == nil {
-		t.Fatal("expected role mismatch error for embedding provider in providers: list")
+	cfg, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
 	}
-	if !strings.Contains(err.Error(), "embedding_providers") {
-		t.Errorf("error message must guide user to embedding_providers list; got: %v", err)
+	// role=embedding entry in unified providers: list must NOT enter the LLM
+	// matrix — it routes into LoadedEmbeddingProviders.
+	if _, inLLM := cfg.LoadedProviders["voyage-embed"]; inLLM {
+		t.Errorf("embedding provider must not appear in LoadedProviders (LLM matrix)")
+	}
+	if _, ok := cfg.LoadedEmbeddingProviders["voyage-embed"]; !ok {
+		t.Errorf("embedding provider must be routed into LoadedEmbeddingProviders")
 	}
 }
 
@@ -2201,15 +2206,15 @@ spec:
 	}
 }
 
-func TestLoadConfig_RejectsTTSProviderInLLMProvidersList(t *testing.T) {
+func TestLoadConfig_TTSProviderInUnifiedProvidersList(t *testing.T) {
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "wrong.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+	if err := os.WriteFile(filepath.Join(tmp, "voice.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: wrong
+  name: cartesia-voice
 spec:
-  id: wrong
+  id: cartesia-voice
   type: cartesia
   role: tts
   voice: vid-1
@@ -2225,17 +2230,22 @@ spec:
   defaults:
     concurrency: 1
   providers:
-    - file: wrong.provider.yaml
+    - file: voice.provider.yaml
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
-	if err == nil {
-		t.Fatal("expected error: tts provider in spec.providers list")
+	cfg, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
 	}
-	if !strings.Contains(err.Error(), "role") {
-		t.Fatalf("expected error mentioning role, got: %v", err)
+	// role=tts in the unified providers: list routes into LoadedTTSProviders
+	// (not LoadedProviders / the LLM matrix).
+	if _, inLLM := cfg.LoadedProviders["cartesia-voice"]; inLLM {
+		t.Errorf("tts provider must not appear in LoadedProviders (LLM matrix)")
+	}
+	if _, ok := cfg.LoadedTTSProviders["cartesia-voice"]; !ok {
+		t.Errorf("tts provider must be routed into LoadedTTSProviders")
 	}
 }
 
