@@ -24,10 +24,22 @@ func TestProviderRole_UnknownRejected(t *testing.T) {
 }
 
 func TestProviderRole_KnownAccepted(t *testing.T) {
-	for _, c := range []string{"", "llm", "tts", "stt"} {
+	for _, c := range []string{"", "llm", "tts", "stt", "embedding", "image"} {
 		p := &Provider{Role: c}
 		if err := p.ValidateRole(); err != nil {
 			t.Fatalf("role %q rejected unexpectedly: %v", c, err)
+		}
+	}
+}
+
+func TestProviderRole_EmbeddingAndImageGetRole(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"embedding", RoleEmbedding},
+		{"image", RoleImage},
+	} {
+		p := &Provider{Role: c.in}
+		if got := p.GetRole(); got != c.want {
+			t.Errorf("GetRole for %q = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

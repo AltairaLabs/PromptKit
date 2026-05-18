@@ -129,7 +129,9 @@
           "enum": [
             "llm",
             "tts",
-            "stt"
+            "stt",
+            "embedding",
+            "image"
           ]
         },
         "base_url": {
