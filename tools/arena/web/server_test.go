@@ -374,12 +374,15 @@ func TestStartRun_PersistsEachRunBeforeExecuteRunsReturns(t *testing.T) {
 	runID := "run-per-hook-1"
 
 	expected := filepath.Join(tmpDir, runID+".json")
-	// preReturn runs on the server's background goroutine; the test polls
-	// from the goroutine running the test body. Use atomic.Bool so the read
-	// has happens-before with the write — without it the race detector
-	// rightly fires even when the file's existence proves the persistence
-	// hook ordering.
+	// preReturn runs on the server's background goroutine, right after the
+	// RunCompletedHook fires and before ExecuteRuns returns. Closing the
+	// channel from inside preReturn lets the test body read sawOnDiskBeforeReturn
+	// only after the check has actually run — polling for file existence
+	// instead is racy because os.WriteFile's O_CREATE makes the path visible
+	// in the middle of the hook's write, before the hook returns and preReturn
+	// gets to fire.
 	var sawOnDiskBeforeReturn atomic.Bool
+	preReturnDone := make(chan struct{})
 
 	mock := &persistingMockEngine{
 		plan: &engine.RunPlan{
@@ -391,6 +394,7 @@ func TestStartRun_PersistsEachRunBeforeExecuteRunsReturns(t *testing.T) {
 			if _, err := os.Stat(expected); err == nil {
 				sawOnDiskBeforeReturn.Store(true)
 			}
+			close(preReturnDone)
 		},
 	}
 
@@ -405,12 +409,10 @@ func TestStartRun_PersistsEachRunBeforeExecuteRunsReturns(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, statErr := os.Stat(expected); statErr == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-preReturnDone:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("ExecuteRuns did not reach preReturn within 2s")
 	}
 	if !sawOnDiskBeforeReturn.Load() {
 		t.Errorf("expected %s to exist before ExecuteRuns returned, but it didn't", expected)
