@@ -572,8 +572,9 @@
           },
           "type": "array"
         },
-        "capability": {
+        "role": {
           "type": "string",
+          "description": "What this provider does. Defaults to 'llm' when unset.",
           "enum": [
             "llm",
             "tts",

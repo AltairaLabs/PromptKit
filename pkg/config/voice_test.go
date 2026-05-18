@@ -46,7 +46,7 @@ func TestConfig_ResolveVoice(t *testing.T) {
 	cfg := &Config{
 		Voices: []VoiceBinding{{ID: "confident-man", Provider: "cartesia-confident-man"}},
 		LoadedTTSProviders: map[string]*Provider{
-			"cartesia-confident-man": {ID: "cartesia-confident-man", Type: "cartesia", Voice: "vid-1", Capability: "tts"},
+			"cartesia-confident-man": {ID: "cartesia-confident-man", Type: "cartesia", Voice: "vid-1", Role: "tts"},
 		},
 	}
 	p, err := cfg.ResolveVoice("confident-man")

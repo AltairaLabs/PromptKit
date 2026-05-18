@@ -332,7 +332,7 @@ metadata:
 spec:
   id: openai-alloy
   type: openai
-  capability: tts
+  role: tts
   voice: alloy
   sample_rate: 24000
 ```

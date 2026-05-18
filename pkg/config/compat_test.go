@@ -98,7 +98,12 @@ spec:
 	assert.Equal(t, base.ProviderTypeInference, spec.Capabilities[0].Type)
 }
 
-func TestCompat_UnifiedYAML_PassesThroughUnchanged(t *testing.T) {
+// The "unified" multi-role provider YAML shape (spec.impl + spec.capabilities
+// as a list of {type, model, pricing}) was removed 2026-05-18. These tests
+// pin the rejection contract so a future migration accidentally re-enabling
+// the parser would fail.
+
+func TestCompat_RejectsRemovedImplField(t *testing.T) {
 	data := []byte(`
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
@@ -109,104 +114,72 @@ spec:
   capabilities:
     - type: tts
       model: tts-1
-      pricing:
-        items:
-          - { unit: character, rate: 0.000015 }
 `)
-	spec, err := config.LoadProviderSpec(data)
-	require.NoError(t, err)
-
-	assert.Equal(t, "openai", spec.Name)
-	assert.Equal(t, "openai", spec.Impl)
-	require.Len(t, spec.Capabilities, 1)
-	assert.Equal(t, base.ProviderTypeTTS, spec.Capabilities[0].Type)
-	assert.Equal(t, "tts-1", spec.Capabilities[0].Model)
-	require.NotNil(t, spec.Capabilities[0].Pricing)
-	require.Len(t, spec.Capabilities[0].Pricing.Items, 1)
-	assert.Equal(t, "character", spec.Capabilities[0].Pricing.Items[0].Unit)
-	assert.InDelta(t, 0.000015, spec.Capabilities[0].Pricing.Items[0].Rate, 1e-12)
+	_, err := config.LoadProviderSpec(data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "spec.impl")
+	assert.Contains(t, err.Error(), "spec.type")
 }
 
-func TestCompat_UnifiedYAML_MultipleCapabilities(t *testing.T) {
+func TestCompat_RejectsMultiRoleCapabilitiesList(t *testing.T) {
+	// capabilities as a list of mappings (the old unified shape) is rejected.
 	data := []byte(`
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
   name: acme-multi
 spec:
-  impl: acme
-  endpoint: https://api.acme.example/v1
-  auth:
-    type: api_key
-    env: ACME_API_KEY
+  type: acme
   capabilities:
     - type: inference
       model: acme-chat
     - type: embedding
       model: acme-embed
-    - type: image
-      model: acme-image
-`)
-	spec, err := config.LoadProviderSpec(data)
-	require.NoError(t, err)
-
-	assert.Equal(t, "acme-multi", spec.Name)
-	assert.Equal(t, "acme", spec.Impl)
-	assert.Equal(t, "https://api.acme.example/v1", spec.Endpoint)
-	assert.Equal(t, "api_key", spec.Auth.Type)
-	assert.Equal(t, "ACME_API_KEY", spec.Auth.Env)
-	require.Len(t, spec.Capabilities, 3)
-	assert.Equal(t, base.ProviderTypeInference, spec.Capabilities[0].Type)
-	assert.Equal(t, base.ProviderTypeEmbedding, spec.Capabilities[1].Type)
-	assert.Equal(t, base.ProviderTypeImage, spec.Capabilities[2].Type)
-}
-
-func TestCompat_UnifiedYAML_PricingCorrectAt(t *testing.T) {
-	data := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Provider
-metadata:
-  name: dated-provider
-spec:
-  impl: openai
-  capabilities:
-    - type: inference
-      model: gpt-4o
-      pricing:
-        correct_at: "2024-11-01"
-        currency: usd
-        items:
-          - { unit: input_token, rate: 0.0000025 }
-          - { unit: output_token, rate: 0.00001 }
-`)
-	spec, err := config.LoadProviderSpec(data)
-	require.NoError(t, err)
-	require.Len(t, spec.Capabilities, 1)
-	p := spec.Capabilities[0].Pricing
-	require.NotNil(t, p)
-	assert.Equal(t, "usd", p.Currency)
-	assert.Equal(t, 2024, p.PricingCorrectAt.Year())
-	assert.Equal(t, 11, int(p.PricingCorrectAt.Month()))
-}
-
-func TestCompat_RemotePricingSource_RejectedWithClearError(t *testing.T) {
-	data := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Provider
-metadata:
-  name: x
-spec:
-  impl: openai
-  capabilities:
-    - type: inference
-      model: m
-      pricing:
-        source: remote
 `)
 	_, err := config.LoadProviderSpec(data)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "remote")
-	assert.Contains(t, err.Error(), "not yet supported")
+	assert.Contains(t, err.Error(), "spec.capabilities")
+	assert.Contains(t, err.Error(), "spec.role")
+}
+
+func TestCompat_RejectsLegacyCapabilityFieldWithRenameMessage(t *testing.T) {
+	// The pre-2026-05-18 field name was `capability` (singular). New name is
+	// `role`. The loader rejects the old name with a rename hint rather than
+	// silently dropping it. (Note the literal "capability: tts" in the YAML
+	// here — this test fixture deliberately uses the OLD field name.)
+	data := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai-tts
+spec:
+  type: openai
+  capability: tts
+`)
+	_, err := config.LoadProviderSpec(data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "spec.capability")
+	assert.Contains(t, err.Error(), "spec.role")
+}
+
+func TestCompat_PreservesFeatureFlagsCapabilities(t *testing.T) {
+	// capabilities as a list of strings (per-model feature flags) must still
+	// load — that's distinct from the multi-role list and is unchanged.
+	data := []byte(`
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: openai
+spec:
+  type: openai
+  model: gpt-4o
+  capabilities: [text, streaming, vision, tools]
+`)
+	spec, err := config.LoadProviderSpec(data)
+	require.NoError(t, err)
+	assert.Equal(t, "openai", spec.Impl)
+	require.Len(t, spec.Capabilities, 1)
+	assert.Equal(t, base.ProviderTypeInference, spec.Capabilities[0].Type)
 }
 
 func TestCompat_UnknownKind_ReturnsError(t *testing.T) {
@@ -222,22 +195,10 @@ spec: {}
 	assert.Contains(t, err.Error(), "Provider")
 }
 
-func TestCompat_UnknownCapabilityType_ReturnsError(t *testing.T) {
-	data := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Provider
-metadata:
-  name: x
-spec:
-  impl: openai
-  capabilities:
-    - type: telepathy
-      model: m
-`)
-	_, err := config.LoadProviderSpec(data)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "telepathy")
-}
+// TestCompat_RemotePricingSource and TestCompat_UnknownCapabilityType
+// were removed 2026-05-18 along with the multi-role "unified" shape they
+// exercised. The replacement coverage is in
+// TestCompat_RejectsRemovedImplField + TestCompat_RejectsMultiRoleCapabilitiesList.
 
 func TestCompat_AllExistingExampleYAMLs_Load(t *testing.T) {
 	// Walk examples/*/providers/*.yaml — every file with `kind: Provider`

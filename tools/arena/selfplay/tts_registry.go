@@ -112,15 +112,15 @@ func wrapWithDiskCache(provider string, svc base.TTSProvider) base.TTSProvider {
 // the voice/sample_rate/audio_files/model fields on the provider populate
 // the synthesis config.
 //
-// Validates that the provider has Capability == "tts" — guards against
-// callers passing an LLM provider by mistake.
+// Validates that the provider has Role == "tts" — guards against callers
+// passing an LLM provider by mistake.
 func (r *TTSRegistry) GetForProvider(p *config.Provider) (base.TTSProvider, error) {
 	if p == nil {
 		return nil, fmt.Errorf("nil TTS provider")
 	}
-	if p.GetCapability() != config.CapabilityTTS {
-		return nil, fmt.Errorf("provider %s has capability %q, expected tts",
-			p.ID, p.GetCapability())
+	if p.GetRole() != config.RoleTTS {
+		return nil, fmt.Errorf("provider %s has role %q, expected tts",
+			p.ID, p.GetRole())
 	}
 
 	// For mock provider with audio files, cache by file-list identity

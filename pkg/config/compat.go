@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -16,7 +15,7 @@ const kindProvider = "Provider"
 const per1KScale = 1000.0
 
 // rawProviderDetect is used only to peek at the top-level YAML shape before
-// choosing the legacy or unified parse path.
+// running the field-rename sanity checks below.
 type rawProviderDetect struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
@@ -26,50 +25,21 @@ type rawProviderDetect struct {
 	Spec map[string]yaml.Node `yaml:"spec"`
 }
 
-// rawProviderUnified captures the new unified Provider YAML shape.
-type rawProviderUnified struct {
+// rawProvider captures the canonical Provider YAML shape. One provider yaml
+// declares one role (`spec.role`) and the implementation discriminator lives
+// on `spec.type`. There is no multi-role / unified-list shape — providers
+// that expose multiple roles (inference + embedding + image) are authored as
+// separate provider yamls sharing credentials via the credential block.
+type rawProvider struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Metadata   struct {
 		Name string `yaml:"name"`
 	} `yaml:"metadata"`
-	Spec rawSpecUnified `yaml:"spec"`
+	Spec rawSpec `yaml:"spec"`
 }
 
-type rawSpecUnified struct {
-	Impl         string              `yaml:"impl,omitempty"`
-	Endpoint     string              `yaml:"endpoint,omitempty"`
-	Auth         AuthSpec            `yaml:"auth,omitempty"`
-	Timeouts     TimeoutsSpec        `yaml:"timeouts,omitempty"`
-	Retry        RetrySpec           `yaml:"retry,omitempty"`
-	Capabilities []rawCapabilityYAML `yaml:"capabilities,omitempty"`
-}
-
-type rawCapabilityYAML struct {
-	Type     string          `yaml:"type"`
-	Model    string          `yaml:"model"`
-	Defaults map[string]any  `yaml:"defaults,omitempty"`
-	Pricing  *rawPricingYAML `yaml:"pricing,omitempty"`
-}
-
-type rawPricingYAML struct {
-	Source    string           `yaml:"source,omitempty"`
-	CorrectAt string           `yaml:"correct_at,omitempty"`
-	Currency  string           `yaml:"currency,omitempty"`
-	Items     []base.PriceItem `yaml:"items,omitempty"`
-}
-
-// rawProviderLegacy captures the legacy chat-only Provider YAML shape.
-type rawProviderLegacy struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Name string `yaml:"name"`
-	} `yaml:"metadata"`
-	Spec rawSpecLegacy `yaml:"spec"`
-}
-
-type rawSpecLegacy struct {
+type rawSpec struct {
 	ID               string             `yaml:"id,omitempty"`
 	LegacyType       string             `yaml:"type,omitempty"`
 	Model            string             `yaml:"model,omitempty"`
@@ -77,7 +47,9 @@ type rawSpecLegacy struct {
 	Pricing          *legacyPricingYAML `yaml:"pricing,omitempty"`
 	Defaults         map[string]any     `yaml:"defaults,omitempty"`
 	IncludeRawOutput *bool              `yaml:"include_raw_output,omitempty"`
-	// Capabilities is the decorative []string field present on legacy YAMLs; ignored.
+	// Capabilities is the per-model feature-flag list (e.g. vision, tools,
+	// streaming). Distinct from spec.role which is the singular role
+	// discriminator (llm/tts/stt).
 	Capabilities []string `yaml:"capabilities,omitempty"`
 }
 
@@ -86,14 +58,14 @@ type legacyPricingYAML struct {
 	OutputCostPer1K float64 `yaml:"output_cost_per_1k"`
 }
 
-// LoadProviderSpec reads a Provider YAML document (either legacy or unified
-// shape) and returns the unified ProviderSpec.
+// LoadProviderSpec reads a Provider YAML document and returns the canonical
+// ProviderSpec.
 //
-// Legacy shape: top-level spec.type / spec.model / spec.pricing fields.
-// Unified shape: spec.impl + spec.capabilities[] where each element is a
-// mapping node (not a scalar string).
+// The 2026-05-18 cleanup removed the multi-role "unified" shape
+// (spec.impl + spec.capabilities: [{type, model, pricing}, ...]) and the
+// singular spec.capability field. Yamls using either are rejected here with
+// an explicit migration message — there is no compat shim.
 func LoadProviderSpec(data []byte) (*ProviderSpec, error) {
-	// First pass: detect which shape we have.
 	var detect rawProviderDetect
 	if err := yaml.Unmarshal(data, &detect); err != nil {
 		return nil, fmt.Errorf("yaml unmarshal: %w", err)
@@ -101,42 +73,43 @@ func LoadProviderSpec(data []byte) (*ProviderSpec, error) {
 	if detect.Kind != kindProvider {
 		return nil, fmt.Errorf("expected kind=%s, got %q", kindProvider, detect.Kind)
 	}
-
-	unified := isUnifiedShape(detect.Spec)
-
-	if unified {
-		var raw rawProviderUnified
-		if err := yaml.Unmarshal(data, &raw); err != nil {
-			return nil, fmt.Errorf("yaml unmarshal (unified): %w", err)
-		}
-		return translateUnified(&raw)
+	if err := rejectRemovedShapes(detect.Spec); err != nil {
+		return nil, err
 	}
 
-	var raw rawProviderLegacy
+	var raw rawProvider
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("yaml unmarshal (legacy): %w", err)
+		return nil, fmt.Errorf("yaml unmarshal: %w", err)
 	}
 	return translateLegacy(&raw)
 }
 
-// isUnifiedShape returns true if the spec map indicates the new unified YAML
-// layout: either spec.impl is present, or spec.capabilities is a sequence
-// whose first element is a mapping node (not a scalar string).
-func isUnifiedShape(spec map[string]yaml.Node) bool {
-	if _, hasImpl := spec["impl"]; hasImpl {
-		return true
+// rejectRemovedShapes catches yamls authored against the pre-2026-05-18
+// schema and points the author at the rename instead of failing later with
+// a confusing schema-validation error.
+func rejectRemovedShapes(spec map[string]yaml.Node) error {
+	if _, ok := spec["capability"]; ok {
+		return fmt.Errorf("spec.capability has been renamed to spec.role " +
+			"(2026-05-18). Rename the field; the values (llm/tts/stt) are unchanged")
 	}
-	capsNode, ok := spec["capabilities"]
-	if !ok {
-		return false
+	if _, ok := spec["impl"]; ok {
+		return fmt.Errorf("spec.impl was part of the multi-role 'unified' " +
+			"shape, which was removed 2026-05-18. Use spec.type for the " +
+			"implementation discriminator and author one provider yaml per role")
 	}
-	if capsNode.Kind != yaml.SequenceNode || len(capsNode.Content) == 0 {
-		return false
+	if capsNode, ok := spec["capabilities"]; ok &&
+		capsNode.Kind == yaml.SequenceNode &&
+		len(capsNode.Content) > 0 &&
+		capsNode.Content[0].Kind == yaml.MappingNode {
+		return fmt.Errorf("spec.capabilities as a list of {type, model, pricing} " +
+			"entries (multi-role shape) was removed 2026-05-18. Use spec.role " +
+			"for the role and author one provider yaml per role. spec.capabilities " +
+			"as a list of feature-flag strings (vision, tools, ...) is unchanged")
 	}
-	return capsNode.Content[0].Kind == yaml.MappingNode
+	return nil
 }
 
-func translateLegacy(raw *rawProviderLegacy) (*ProviderSpec, error) {
+func translateLegacy(raw *rawProvider) (*ProviderSpec, error) {
 	capSpec := CapabilitySpec{
 		Type:     base.ProviderTypeInference,
 		Model:    raw.Spec.Model,
@@ -158,41 +131,6 @@ func translateLegacy(raw *rawProviderLegacy) (*ProviderSpec, error) {
 		Endpoint:     raw.Spec.BaseURL,
 		Capabilities: []CapabilitySpec{capSpec},
 	}, nil
-}
-
-func translateUnified(raw *rawProviderUnified) (*ProviderSpec, error) {
-	spec := &ProviderSpec{
-		Name:     raw.Metadata.Name,
-		Impl:     raw.Spec.Impl,
-		Endpoint: raw.Spec.Endpoint,
-		Auth:     raw.Spec.Auth,
-		Timeouts: raw.Spec.Timeouts,
-		Retry:    raw.Spec.Retry,
-	}
-	for _, c := range raw.Spec.Capabilities {
-		typ, err := base.ParseProviderType(c.Type)
-		if err != nil {
-			return nil, fmt.Errorf("capability: %w", err)
-		}
-		cs := CapabilitySpec{Type: typ, Model: c.Model, Defaults: c.Defaults}
-		if c.Pricing != nil {
-			if c.Pricing.Source == "remote" {
-				return nil, fmt.Errorf("pricing.source=remote is not yet supported; use source=inline or omit")
-			}
-			cs.Pricing = &base.PricingDescriptor{
-				Source:   base.PricingSourceInline,
-				Currency: pricingCurrency(c.Pricing.Currency),
-				Items:    c.Pricing.Items,
-			}
-			if c.Pricing.CorrectAt != "" {
-				if ts, perr := time.Parse("2006-01-02", c.Pricing.CorrectAt); perr == nil {
-					cs.Pricing.PricingCorrectAt = ts
-				}
-			}
-		}
-		spec.Capabilities = append(spec.Capabilities, cs)
-	}
-	return spec, nil
 }
 
 // pricingCurrency returns s if non-empty, otherwise "usd".

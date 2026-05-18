@@ -135,9 +135,9 @@ func (r *Registry) GetAudioContentGenerator(
 	if ttsProvider == nil {
 		return nil, fmt.Errorf("TTS provider is required for audio generation")
 	}
-	if ttsProvider.GetCapability() != config.CapabilityTTS {
-		return nil, fmt.Errorf("provider %s has capability %q, expected tts",
-			ttsProvider.ID, ttsProvider.GetCapability())
+	if ttsProvider.GetRole() != config.RoleTTS {
+		return nil, fmt.Errorf("provider %s has role %q, expected tts",
+			ttsProvider.ID, ttsProvider.GetRole())
 	}
 
 	textGen, err := r.createContentGenerator(role, personaID)

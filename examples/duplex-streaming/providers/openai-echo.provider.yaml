@@ -6,6 +6,6 @@ metadata:
 spec:
   id: openai-echo
   type: openai
-  capability: tts
+  role: tts
   voice: echo
   sample_rate: 24000

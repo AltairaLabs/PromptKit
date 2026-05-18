@@ -6,6 +6,6 @@ metadata:
 spec:
   id: openai-nova
   type: openai
-  capability: tts
+  role: tts
   voice: nova
   sample_rate: 24000

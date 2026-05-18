@@ -949,7 +949,7 @@ func TestSelfPlayRegistry_GetAudioContentGenerator_Success(t *testing.T) {
 	ttsProvider := &config.Provider{
 		ID:         "mock-tts",
 		Type:       TTSProviderMock,
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		Voice:      "test-voice",
 	}
 
@@ -974,7 +974,7 @@ func TestSelfPlayRegistry_GetAudioContentGenerator_NilProvider(t *testing.T) {
 func TestSelfPlayRegistry_GetAudioContentGenerator_WrongCapability(t *testing.T) {
 	registry := NewRegistry(providers.NewRegistry(), nil, nil, nil)
 
-	llmProvider := &config.Provider{ID: "llm", Type: "openai", Capability: config.CapabilityLLM}
+	llmProvider := &config.Provider{ID: "llm", Type: "openai", Role: config.RoleLLM}
 	_, err := registry.GetAudioContentGenerator("user", "persona1", llmProvider)
 	if err == nil {
 		t.Fatal("expected error: provider capability is llm, not tts")

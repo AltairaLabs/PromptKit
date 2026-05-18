@@ -466,13 +466,13 @@ func (c *Config) loadProviders(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to load provider %s: %w", ref.File, err)
 		}
-		if err := provider.ValidateCapability(); err != nil {
+		if err := provider.ValidateRole(); err != nil {
 			return fmt.Errorf("provider %s: %w", provider.ID, err)
 		}
-		if provCap := provider.GetCapability(); provCap != CapabilityLLM {
-			return fmt.Errorf("providers[%s]: capability must be %q (or empty), got %q; "+
+		if role := provider.GetRole(); role != RoleLLM {
+			return fmt.Errorf("providers[%s]: role must be %q (or empty), got %q; "+
 				"TTS providers belong under tts_providers, STT under stt_providers",
-				ref.File, CapabilityLLM, provCap)
+				ref.File, RoleLLM, role)
 		}
 		c.LoadedProviders[provider.ID] = provider
 		group := ref.Group
@@ -489,7 +489,7 @@ func (c *Config) loadProviders(configPath string) error {
 }
 
 // loadTTSProviders loads all referenced TTS providers and validates that each
-// declares capability: tts.
+// declares role: tts.
 func (c *Config) loadTTSProviders(configPath string) error {
 	for _, ref := range c.TTSProviders {
 		fullPath := ResolveFilePath(configPath, ref.File)
@@ -497,12 +497,12 @@ func (c *Config) loadTTSProviders(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("loading tts_providers[%s]: %w", ref.File, err)
 		}
-		if err := provider.ValidateCapability(); err != nil {
+		if err := provider.ValidateRole(); err != nil {
 			return fmt.Errorf("tts_providers[%s]: %w", ref.File, err)
 		}
-		if provider.GetCapability() != CapabilityTTS {
-			return fmt.Errorf("tts_providers[%s]: capability must be %q, got %q",
-				ref.File, CapabilityTTS, provider.GetCapability())
+		if provider.GetRole() != RoleTTS {
+			return fmt.Errorf("tts_providers[%s]: role must be %q, got %q",
+				ref.File, RoleTTS, provider.GetRole())
 		}
 		c.LoadedTTSProviders[provider.ID] = provider
 	}
@@ -510,7 +510,7 @@ func (c *Config) loadTTSProviders(configPath string) error {
 }
 
 // loadSTTProviders loads all referenced STT providers and validates that each
-// declares capability: stt.
+// declares role: stt.
 func (c *Config) loadSTTProviders(configPath string) error {
 	for _, ref := range c.STTProviders {
 		fullPath := ResolveFilePath(configPath, ref.File)
@@ -518,12 +518,12 @@ func (c *Config) loadSTTProviders(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("loading stt_providers[%s]: %w", ref.File, err)
 		}
-		if err := provider.ValidateCapability(); err != nil {
+		if err := provider.ValidateRole(); err != nil {
 			return fmt.Errorf("stt_providers[%s]: %w", ref.File, err)
 		}
-		if provider.GetCapability() != CapabilitySTT {
-			return fmt.Errorf("stt_providers[%s]: capability must be %q, got %q",
-				ref.File, CapabilitySTT, provider.GetCapability())
+		if provider.GetRole() != RoleSTT {
+			return fmt.Errorf("stt_providers[%s]: role must be %q, got %q",
+				ref.File, RoleSTT, provider.GetRole())
 		}
 		c.LoadedSTTProviders[provider.ID] = provider
 	}
