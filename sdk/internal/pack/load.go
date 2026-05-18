@@ -181,6 +181,14 @@ type Validator struct {
 	// Enabled toggles the validator on/off without removing it. Required by the spec.
 	Enabled bool `json:"enabled"`
 
+	// FailOnViolation: required by the spec, ignored by this runtime.
+	// PromptKit always enforces a triggered validator (rewrites or
+	// truncates the assistant message). Pack authors who want
+	// observe-only behavior should declare an eval and assert on it
+	// instead. RFC to drop the field upstream is tracked at
+	// github.com/altairalabs/promptpack-spec.
+	FailOnViolation *bool `json:"fail_on_violation,omitempty"`
+
 	// Params holds validator-specific parameters (e.g. {"max_characters": 2000}
 	// for max_length). Shape is handler-specific. Optional per the spec; each
 	// handler decides which keys it requires via the ParamValidator interface.

@@ -623,6 +623,12 @@
           "description": "Whether this validator is active. Allows temporarily disabling validators without removing them."
         },
 
+        "fail_on_violation": {
+          "type": "boolean",
+          "description": "If true, validation failures cause an error. If false, violations are logged but allowed.",
+          "default": false
+        },
+
         "params": {
           "type": "object",
           "description": "Validator-specific parameters",

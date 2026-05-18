@@ -216,6 +216,12 @@ type ValidatorConfig struct {
 	Params map[string]interface{} `yaml:"params" json:"params"`
 	// Enable/disable validator (default: true)
 	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// FailOnViolation is part of the PromptPack spec but is ignored by
+	// this runtime — guardrails always enforce. Authors wanting
+	// observe-only behavior should declare an eval and assert on it
+	// instead. RFC to drop the field upstream is tracked at
+	// github.com/altairalabs/promptpack-spec.
+	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
 	// User-facing message shown when content is blocked (default: DefaultBlockedMessage)
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
 }
@@ -768,10 +774,10 @@ func (r *Registry) populateDefaults(config *Config) {
 
 	// Variables are now required in the new format - no auto-migration
 
-	// Validator-level default: Enabled defaults to true. Enforce uses Go's
-	// zero value (false / observe-only) per the PromptPack spec — packs opt
-	// into rewriting by setting enforce: true. Earlier versions forced
-	// enforcement here, silently diverging from the SDK; that's gone.
+	// Enabled defaults to true. FailOnViolation defaults are not applied
+	// here — the field is part of the PromptPack spec but ignored by this
+	// runtime (guardrails always enforce). See ValidatorConfig.FailOnViolation
+	// for the deviation rationale.
 	trueVal := true
 	for i := range config.Spec.Validators {
 		if config.Spec.Validators[i].Enabled == nil {
