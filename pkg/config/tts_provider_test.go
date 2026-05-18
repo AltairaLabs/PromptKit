@@ -9,7 +9,7 @@ import (
 func TestProvider_TTSFieldsRoundTrip(t *testing.T) {
 	src := `id: cartesia-confident-man
 type: cartesia
-capability: tts
+role: tts
 voice: bf991597-6c13-47e4-8411-91ec2de5c466
 sample_rate: 24000
 `
@@ -17,8 +17,8 @@ sample_rate: 24000
 	if err := yaml.Unmarshal([]byte(src), &p); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
-	if p.GetCapability() != CapabilityTTS {
-		t.Fatalf("capability: got %q, want tts", p.GetCapability())
+	if p.GetRole() != RoleTTS {
+		t.Fatalf("capability: got %q, want tts", p.GetRole())
 	}
 	if p.Voice != "bf991597-6c13-47e4-8411-91ec2de5c466" {
 		t.Fatalf("voice: got %q", p.Voice)
@@ -31,7 +31,7 @@ sample_rate: 24000
 func TestProvider_MockTTSAudioFiles(t *testing.T) {
 	src := `id: mock-tts
 type: mock
-capability: tts
+role: tts
 audio_files:
   - audio/a.pcm
   - audio/b.pcm

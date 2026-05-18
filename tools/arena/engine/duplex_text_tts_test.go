@@ -105,7 +105,7 @@ func newTestTTSProvider(providerName, voice string, sampleRate int) *config.Prov
 	return &config.Provider{
 		ID:         providerName,
 		Type:       providerName,
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		Voice:      voice,
 		SampleRate: sampleRate,
 	}
@@ -279,7 +279,7 @@ func TestProcessScriptedTextDuplexTurn_ViaScenarioVoice(t *testing.T) {
 	provider := &config.Provider{
 		ID:         providerName,
 		Type:       "mock",
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		AudioFiles: []string{}, // empty → MockTTSService with no rotation
 	}
 	cfg := &config.Config{
@@ -325,7 +325,7 @@ func TestResolveTTSProvider_ViaPersona(t *testing.T) {
 	cfg := &config.Config{
 		Voices: []config.VoiceBinding{{ID: "v1", Provider: "p1"}},
 		LoadedTTSProviders: map[string]*config.Provider{
-			"p1": {ID: "p1", Type: "cartesia", Voice: "vid", Capability: config.CapabilityTTS},
+			"p1": {ID: "p1", Type: "cartesia", Voice: "vid", Role: config.RoleTTS},
 		},
 	}
 	persona := &config.UserPersonaPack{ID: "p", Voice: "v1"}

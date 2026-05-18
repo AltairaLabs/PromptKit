@@ -1734,7 +1734,7 @@
           },
           "type": "array"
         },
-        "capability": {
+        "role": {
           "type": "string",
           "enum": [
             "llm",

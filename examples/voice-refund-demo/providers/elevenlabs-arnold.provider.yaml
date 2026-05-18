@@ -6,7 +6,7 @@ metadata:
 spec:
   id: elevenlabs-arnold
   type: elevenlabs
-  capability: tts
+  role: tts
   voice: VR6AewLTigWG4xSOukaG
   model: eleven_v3
   sample_rate: 24000

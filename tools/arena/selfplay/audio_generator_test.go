@@ -94,7 +94,7 @@ func newTestTTSProvider(voice string, sampleRate int) *config.Provider {
 	return &config.Provider{
 		ID:         "tts-test",
 		Type:       TTSProviderMock,
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		Voice:      voice,
 		SampleRate: sampleRate,
 	}
@@ -264,7 +264,7 @@ func TestAudioContentGenerator_SynthesizeTextStream_WithProvider(t *testing.T) {
 	p := &config.Provider{
 		ID:         "tts-test",
 		Type:       TTSProviderMock,
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		Voice:      "test-voice",
 		SampleRate: 16000,
 	}
@@ -301,7 +301,7 @@ func TestAudioContentGenerator_NextUserTurnAudioStream_WithProvider(t *testing.T
 	p := &config.Provider{
 		ID:         "tts-provider",
 		Type:       TTSProviderMock,
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		Voice:      "nova",
 		SampleRate: 24000,
 	}
@@ -332,7 +332,7 @@ func TestAudioContentGenerator_DefaultSampleRate(t *testing.T) {
 	p := &config.Provider{
 		ID:         "tts-no-rate",
 		Type:       TTSProviderMock,
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		// SampleRate deliberately omitted — should use defaultTTSSampleRate
 	}
 	audioGen := NewAudioContentGenerator(nil, mockTTS, p)

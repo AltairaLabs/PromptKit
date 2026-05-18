@@ -6,7 +6,7 @@ metadata:
 spec:
   id: mock-tts
   type: mock
-  capability: tts
+  role: tts
   audio_files:
     - audio/greeting.pcm
     - audio/question.pcm

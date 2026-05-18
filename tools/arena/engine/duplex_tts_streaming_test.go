@@ -64,7 +64,7 @@ func TestOpenTextSynthesisStream_HappyPath(t *testing.T) {
 	p := &config.Provider{
 		ID:         "mock-tts",
 		Type:       "mock",
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		Voice:      "v1",
 	}
 	reg := selfplay.NewRegistryWithTTS(
@@ -88,7 +88,7 @@ func TestOpenTextSynthesisStream_WrongCapabilityErrors(t *testing.T) {
 	p := &config.Provider{
 		ID:         "llm-provider",
 		Type:       "openai",
-		Capability: config.CapabilityLLM,
+		Role: config.RoleLLM,
 		Voice:      "v1",
 	}
 	reg := selfplay.NewRegistryWithTTS(

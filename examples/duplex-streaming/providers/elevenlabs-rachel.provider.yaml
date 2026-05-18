@@ -6,6 +6,6 @@ metadata:
 spec:
   id: elevenlabs-rachel
   type: elevenlabs
-  capability: tts
+  role: tts
   voice: 21m00Tcm4TlvDq8ikWAM
   sample_rate: 24000

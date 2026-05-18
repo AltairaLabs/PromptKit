@@ -1132,13 +1132,17 @@ type Provider struct {
 	// files on each Synthesize() call. Paths are relative to the arena
 	// config directory. Ignored when type != "mock" or capability != "tts".
 	AudioFiles []string `json:"audio_files,omitempty" yaml:"audio_files,omitempty"`
-	// Capability tags the role this provider fills in the arena. One of "llm"
-	// (default), "tts", or "stt". The arena uses this to route the provider
-	// to the correct registry and to skip non-llm providers when building the
-	// agent-under-test matrix. Note: distinct from the older Capabilities
-	// field which lists per-model feature flags (vision, tools, etc.).
-	Capability string `json:"capability,omitempty" yaml:"capability,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt"`
-	BaseURL    string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
+	// Role tags what this provider does. One of "llm" (default), "tts", or
+	// "stt". The arena uses this to route the provider to the correct
+	// registry and to skip non-llm providers when building the
+	// agent-under-test matrix. Distinct from the Capabilities field which
+	// lists per-model feature flags (vision, tools, etc.).
+	//
+	// Renamed from "capability" 2026-05-18 to avoid singular/plural
+	// collision with Capabilities. The field is required for tts/stt
+	// providers; defaults to "llm" when empty.
+	Role    string `json:"role,omitempty" yaml:"role,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt"`
+	BaseURL string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	// Headers specifies custom HTTP headers to include in every request to
 	// this provider. Useful for OpenAI-compatible gateways (OpenRouter,
 	// LiteLLM, etc.) that require app attribution or custom auth headers.

@@ -1564,7 +1564,7 @@ spec:
 	}
 }
 
-func TestLoadConfig_RejectsUnknownProviderCapability(t *testing.T) {
+func TestLoadConfig_RejectsUnknownProviderRole(t *testing.T) {
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	tmp := t.TempDir()
 	arenaPath := filepath.Join(tmp, "config.arena.yaml")
@@ -1578,7 +1578,7 @@ spec:
   id: bad
   type: openai
   model: gpt-4o-mini
-  capability: not-a-capability
+  role: not-a-role
   defaults:
     temperature: 0.7
     top_p: 1.0
@@ -1602,10 +1602,10 @@ spec:
 
 	_, err := LoadConfig(arenaPath)
 	if err == nil {
-		t.Fatal("expected load error for unknown capability")
+		t.Fatal("expected load error for unknown role")
 	}
-	if !strings.Contains(err.Error(), "capability") {
-		t.Fatalf("expected error mentioning capability, got: %v", err)
+	if !strings.Contains(err.Error(), "role") {
+		t.Fatalf("expected error mentioning role, got: %v", err)
 	}
 }
 
@@ -1721,7 +1721,7 @@ metadata:
 spec:
   id: cartesia-confident-man
   type: cartesia
-  capability: tts
+  role: tts
   voice: vid-1
   sample_rate: 24000
 `), 0o600); err != nil {
@@ -1771,7 +1771,7 @@ spec:
   id: wrong
   type: openai
   model: gpt-4o-mini
-  capability: llm
+  role: llm
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1986,7 +1986,7 @@ metadata:
 spec:
   id: wrong
   type: cartesia
-  capability: tts
+  role: tts
   voice: vid-1
   sample_rate: 24000
 `), 0o600); err != nil {
@@ -2009,8 +2009,8 @@ spec:
 	if err == nil {
 		t.Fatal("expected error: tts provider in spec.providers list")
 	}
-	if !strings.Contains(err.Error(), "capability") {
-		t.Fatalf("expected error mentioning capability, got: %v", err)
+	if !strings.Contains(err.Error(), "role") {
+		t.Fatalf("expected error mentioning role, got: %v", err)
 	}
 }
 

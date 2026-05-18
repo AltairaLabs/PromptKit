@@ -201,7 +201,7 @@ func TestTTSRegistry_GetForProvider_Mock(t *testing.T) {
 	p := &config.Provider{
 		ID:         "mock-tts",
 		Type:       TTSProviderMock,
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		AudioFiles: []string{"a.pcm", "b.pcm"},
 	}
 	r := NewTTSRegistry()
@@ -215,7 +215,7 @@ func TestTTSRegistry_GetForProvider_Mock(t *testing.T) {
 }
 
 func TestTTSRegistry_GetForProvider_RejectsLLMCapability(t *testing.T) {
-	p := &config.Provider{ID: "llm", Type: "openai", Capability: config.CapabilityLLM}
+	p := &config.Provider{ID: "llm", Type: "openai", Role: config.RoleLLM}
 	r := NewTTSRegistry()
 	if _, err := r.GetForProvider(p); err == nil {
 		t.Fatal("expected error: capability is llm, not tts")
@@ -243,7 +243,7 @@ func TestTTSRegistry_GetForProvider_ModelOverride(t *testing.T) {
 	override, err := r.GetForProvider(&config.Provider{
 		ID:         "openai-mini",
 		Type:       TTSProviderOpenAI,
-		Capability: config.CapabilityTTS,
+		Role: config.RoleTTS,
 		Voice:      "alloy",
 		Model:      tts.ModelGPT4oMiniTTS,
 	})
@@ -266,11 +266,11 @@ func TestTTSRegistry_GetForProvider_ModelOverride(t *testing.T) {
 func TestTTSRegistry_GetForProvider_MockWithFiles_CachesByFilesIdentity(t *testing.T) {
 	r := NewTTSRegistry()
 
-	pA := &config.Provider{Type: TTSProviderMock, Capability: config.CapabilityTTS,
+	pA := &config.Provider{Type: TTSProviderMock, Role: config.RoleTTS,
 		AudioFiles: []string{"a.pcm", "b.pcm"}}
-	pADup := &config.Provider{Type: TTSProviderMock, Capability: config.CapabilityTTS,
+	pADup := &config.Provider{Type: TTSProviderMock, Role: config.RoleTTS,
 		AudioFiles: []string{"a.pcm", "b.pcm"}}
-	pB := &config.Provider{Type: TTSProviderMock, Capability: config.CapabilityTTS,
+	pB := &config.Provider{Type: TTSProviderMock, Role: config.RoleTTS,
 		AudioFiles: []string{"c.pcm"}}
 
 	svcA, err := r.GetForProvider(pA)

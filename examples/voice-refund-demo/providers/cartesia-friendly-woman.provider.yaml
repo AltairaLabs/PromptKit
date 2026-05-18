@@ -6,6 +6,6 @@ metadata:
 spec:
   id: cartesia-friendly-woman
   type: cartesia
-  capability: tts
+  role: tts
   voice: 9121c0ae-12a6-4012-8158-6e4a72e6da91
   sample_rate: 24000
