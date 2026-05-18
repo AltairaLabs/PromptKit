@@ -126,7 +126,6 @@
         },
         "role": {
           "type": "string",
-          "description": "What this provider does. Defaults to 'llm' when unset. TTS providers belong under tts_providers; STT under stt_providers.",
           "enum": [
             "llm",
             "tts",
