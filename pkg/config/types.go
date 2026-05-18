@@ -132,10 +132,20 @@ type Config struct {
 	// Loaded but NOT included in the agent-under-test matrix.
 	TTSProviders []ProviderRef `yaml:"tts_providers,omitempty" json:"tts_providers,omitempty"`
 
-	// STTProviders lists provider files where Spec.Capability == "stt".
+	// STTProviders lists provider files where Spec.Role == "stt".
 	// Same matrix-exclusion as TTSProviders. No STT consumers exist yet;
 	// the field is present so STT can land later without a schema change.
 	STTProviders []ProviderRef `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty"`
+
+	// EmbeddingProviders lists provider files where Spec.Role == "embedding".
+	// Loaded but NOT included in the agent-under-test matrix. Voyageai,
+	// OpenAI text-embedding-3, Gemini embedding, etc. live here.
+	EmbeddingProviders []ProviderRef `yaml:"embedding_providers,omitempty" json:"embedding_providers,omitempty"`
+
+	// ImageProviders lists provider files where Spec.Role == "image".
+	// Loaded but NOT included in the agent-under-test matrix. Imagen,
+	// OpenAI Images, future Stable Diffusion adapters live here.
+	ImageProviders []ProviderRef `yaml:"image_providers,omitempty" json:"image_providers,omitempty"`
 
 	// Voices binds voice IDs to loaded TTS provider IDs. Personas reference
 	// voice IDs (not provider IDs) so the same persona can run against a
@@ -144,17 +154,19 @@ type Config struct {
 	Voices []VoiceBinding `yaml:"voices,omitempty" json:"voices,omitempty"`
 
 	// Loaded resources (populated by LoadConfig, included in JSON for adapter consumption)
-	LoadedPromptConfigs map[string]*PromptConfigData `yaml:"-" json:"loaded_prompt_configs,omitempty"`
-	LoadedProviders     map[string]*Provider         `yaml:"-" json:"loaded_providers,omitempty"`
-	LoadedTTSProviders  map[string]*Provider         `yaml:"-" json:"loaded_tts_providers,omitempty"`
-	LoadedSTTProviders  map[string]*Provider         `yaml:"-" json:"loaded_stt_providers,omitempty"`
-	LoadedJudges        map[string]*JudgeTarget      `yaml:"-" json:"loaded_judges,omitempty"`
-	LoadedScenarios     map[string]*Scenario         `yaml:"-" json:"loaded_scenarios,omitempty"`
-	LoadedEvals         map[string]*Eval             `yaml:"-" json:"loaded_evals,omitempty"`
-	LoadedTools         []ToolData                   `yaml:"-" json:"loaded_tools,omitempty"`
-	LoadedSkillSources  []prompt.SkillSourceConfig   `yaml:"-" json:"loaded_skill_sources,omitempty"`
-	LoadedPersonas      map[string]*UserPersonaPack  `yaml:"-" json:"loaded_personas,omitempty"`
-	LoadedPack          *prompt.Pack                 `yaml:"-" json:"loaded_pack,omitempty"`
+	LoadedPromptConfigs      map[string]*PromptConfigData `yaml:"-" json:"loaded_prompt_configs,omitempty"`
+	LoadedProviders          map[string]*Provider         `yaml:"-" json:"loaded_providers,omitempty"`
+	LoadedTTSProviders       map[string]*Provider         `yaml:"-" json:"loaded_tts_providers,omitempty"`
+	LoadedSTTProviders       map[string]*Provider         `yaml:"-" json:"loaded_stt_providers,omitempty"`
+	LoadedEmbeddingProviders map[string]*Provider         `yaml:"-" json:"loaded_embedding_providers,omitempty"`
+	LoadedImageProviders     map[string]*Provider         `yaml:"-" json:"loaded_image_providers,omitempty"`
+	LoadedJudges             map[string]*JudgeTarget      `yaml:"-" json:"loaded_judges,omitempty"`
+	LoadedScenarios          map[string]*Scenario         `yaml:"-" json:"loaded_scenarios,omitempty"`
+	LoadedEvals              map[string]*Eval             `yaml:"-" json:"loaded_evals,omitempty"`
+	LoadedTools              []ToolData                   `yaml:"-" json:"loaded_tools,omitempty"`
+	LoadedSkillSources       []prompt.SkillSourceConfig   `yaml:"-" json:"loaded_skill_sources,omitempty"`
+	LoadedPersonas           map[string]*UserPersonaPack  `yaml:"-" json:"loaded_personas,omitempty"`
+	LoadedPack               *prompt.Pack                 `yaml:"-" json:"loaded_pack,omitempty"`
 
 	// Pack eval settings (set by CLI flags, not serialized)
 	SkipPackEvals  bool     `yaml:"-" json:"-"` // Disable pack eval execution
@@ -1141,7 +1153,7 @@ type Provider struct {
 	// Renamed from "capability" 2026-05-18 to avoid singular/plural
 	// collision with Capabilities. The field is required for tts/stt
 	// providers; defaults to "llm" when empty.
-	Role    string `json:"role,omitempty" yaml:"role,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt"`
+	Role    string `json:"role,omitempty" yaml:"role,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt,enum=embedding,enum=image"` //nolint:lll // enum list can't be split inside a struct tag
 	BaseURL string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	// Headers specifies custom HTTP headers to include in every request to
 	// this provider. Useful for OpenAI-compatible gateways (OpenRouter,

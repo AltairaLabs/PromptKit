@@ -478,6 +478,18 @@
           },
           "type": "array"
         },
+        "embedding_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "image_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
         "voices": {
           "items": {
             "$ref": "#/$defs/VoiceBinding"
@@ -1739,7 +1751,9 @@
           "enum": [
             "llm",
             "tts",
-            "stt"
+            "stt",
+            "embedding",
+            "image"
           ]
         },
         "base_url": {

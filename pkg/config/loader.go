@@ -205,6 +205,8 @@ func LoadConfig(filename string) (*Config, error) {
 	cfg.LoadedPersonas = make(map[string]*UserPersonaPack)
 	cfg.LoadedTTSProviders = make(map[string]*Provider, len(cfg.TTSProviders))
 	cfg.LoadedSTTProviders = make(map[string]*Provider, len(cfg.STTProviders))
+	cfg.LoadedEmbeddingProviders = make(map[string]*Provider, len(cfg.EmbeddingProviders))
+	cfg.LoadedImageProviders = make(map[string]*Provider, len(cfg.ImageProviders))
 	cfg.ProviderGroups = make(map[string]string)
 	cfg.ProviderCapabilities = make(map[string][]string)
 
@@ -219,6 +221,12 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.loadSTTProviders(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.loadEmbeddingProviders(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.loadImageProviders(filename); err != nil {
 		return nil, err
 	}
 	if err := cfg.validateVoiceBindings(); err != nil {
@@ -471,7 +479,8 @@ func (c *Config) loadProviders(configPath string) error {
 		}
 		if role := provider.GetRole(); role != RoleLLM {
 			return fmt.Errorf("providers[%s]: role must be %q (or empty), got %q; "+
-				"TTS providers belong under tts_providers, STT under stt_providers",
+				"TTS providers belong under tts_providers, STT under stt_providers, "+
+				"embedding under embedding_providers, image under image_providers",
 				ref.File, RoleLLM, role)
 		}
 		c.LoadedProviders[provider.ID] = provider
@@ -526,6 +535,48 @@ func (c *Config) loadSTTProviders(configPath string) error {
 				ref.File, RoleSTT, provider.GetRole())
 		}
 		c.LoadedSTTProviders[provider.ID] = provider
+	}
+	return nil
+}
+
+// loadEmbeddingProviders loads all referenced embedding providers and
+// validates that each declares role: embedding.
+func (c *Config) loadEmbeddingProviders(configPath string) error {
+	for _, ref := range c.EmbeddingProviders {
+		fullPath := ResolveFilePath(configPath, ref.File)
+		provider, err := LoadProvider(fullPath)
+		if err != nil {
+			return fmt.Errorf("loading embedding_providers[%s]: %w", ref.File, err)
+		}
+		if err := provider.ValidateRole(); err != nil {
+			return fmt.Errorf("embedding_providers[%s]: %w", ref.File, err)
+		}
+		if provider.GetRole() != RoleEmbedding {
+			return fmt.Errorf("embedding_providers[%s]: role must be %q, got %q",
+				ref.File, RoleEmbedding, provider.GetRole())
+		}
+		c.LoadedEmbeddingProviders[provider.ID] = provider
+	}
+	return nil
+}
+
+// loadImageProviders loads all referenced image providers and validates that
+// each declares role: image.
+func (c *Config) loadImageProviders(configPath string) error {
+	for _, ref := range c.ImageProviders {
+		fullPath := ResolveFilePath(configPath, ref.File)
+		provider, err := LoadProvider(fullPath)
+		if err != nil {
+			return fmt.Errorf("loading image_providers[%s]: %w", ref.File, err)
+		}
+		if err := provider.ValidateRole(); err != nil {
+			return fmt.Errorf("image_providers[%s]: %w", ref.File, err)
+		}
+		if provider.GetRole() != RoleImage {
+			return fmt.Errorf("image_providers[%s]: role must be %q, got %q",
+				ref.File, RoleImage, provider.GetRole())
+		}
+		c.LoadedImageProviders[provider.ID] = provider
 	}
 	return nil
 }

@@ -1760,6 +1760,142 @@ spec:
 	}
 }
 
+func TestLoadConfig_LoadsEmbeddingAndImageProviders(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "embed.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: voyage-embed
+spec:
+  id: voyage-embed
+  type: voyageai
+  role: embedding
+  model: voyage-3
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "image.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: imagen-test
+spec:
+  id: imagen-test
+  type: imagen
+  role: image
+  model: imagen-4.0-generate-001
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers: []
+  defaults:
+    concurrency: 1
+  embedding_providers:
+    - file: embed.provider.yaml
+  image_providers:
+    - file: image.provider.yaml
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.LoadedEmbeddingProviders) != 1 {
+		t.Fatalf("expected 1 loaded embedding provider, got %d", len(cfg.LoadedEmbeddingProviders))
+	}
+	if _, ok := cfg.LoadedEmbeddingProviders["voyage-embed"]; !ok {
+		t.Errorf("embedding provider not indexed by id")
+	}
+	if len(cfg.LoadedImageProviders) != 1 {
+		t.Fatalf("expected 1 loaded image provider, got %d", len(cfg.LoadedImageProviders))
+	}
+	if _, ok := cfg.LoadedImageProviders["imagen-test"]; !ok {
+		t.Errorf("image provider not indexed by id")
+	}
+}
+
+func TestLoadConfig_RejectsEmbeddingProviderInLLMList(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "embed.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: voyage-embed
+spec:
+  id: voyage-embed
+  type: voyageai
+  role: embedding
+  model: voyage-3
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers:
+    - file: embed.provider.yaml
+  defaults:
+    concurrency: 1
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected role mismatch error for embedding provider in providers: list")
+	}
+	if !strings.Contains(err.Error(), "embedding_providers") {
+		t.Errorf("error message must guide user to embedding_providers list; got: %v", err)
+	}
+}
+
+func TestLoadConfig_RejectsImageProviderWithLLMRole(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "image.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: imagen-bad
+spec:
+  id: imagen-bad
+  type: imagen
+  role: llm
+  model: imagen-4.0-generate-001
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers: []
+  defaults:
+    concurrency: 1
+  image_providers:
+    - file: image.provider.yaml
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected image_providers role validation error")
+	}
+	if !strings.Contains(err.Error(), "image_providers") || !strings.Contains(err.Error(), "image") {
+		t.Errorf("error must mention image_providers and required role; got: %v", err)
+	}
+}
+
 func TestLoadConfig_RejectsTTSProviderWithLLMCapability(t *testing.T) {
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	tmp := t.TempDir()

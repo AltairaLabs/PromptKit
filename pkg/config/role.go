@@ -11,17 +11,23 @@ import "fmt"
 // can this provider do" — the older name collided with the per-model
 // feature-flag list (Provider.Capabilities). One word per concept now.
 const (
-	RoleLLM = "llm"
-	RoleTTS = "tts"
-	RoleSTT = "stt"
+	RoleLLM       = "llm"
+	RoleTTS       = "tts"
+	RoleSTT       = "stt"
+	RoleEmbedding = "embedding"
+	RoleImage     = "image"
 )
 
 // knownRoles is the set accepted by ValidateRole. An empty string is
-// also accepted (treated as LLM by GetRole).
+// also accepted (treated as LLM by GetRole). The internal
+// runtime/providers/base.ProviderType enum already covers all five
+// values — these are the public-facing names the spec accepts.
 var knownRoles = map[string]struct{}{
-	RoleLLM: {},
-	RoleTTS: {},
-	RoleSTT: {},
+	RoleLLM:       {},
+	RoleTTS:       {},
+	RoleSTT:       {},
+	RoleEmbedding: {},
+	RoleImage:     {},
 }
 
 // GetRole returns the provider's role, defaulting to "llm".
@@ -39,8 +45,8 @@ func (p *Provider) ValidateRole() error {
 		return nil
 	}
 	if _, ok := knownRoles[p.Role]; !ok {
-		return fmt.Errorf("unknown provider role %q (valid: %s, %s, %s)",
-			p.Role, RoleLLM, RoleTTS, RoleSTT)
+		return fmt.Errorf("unknown provider role %q (valid: %s, %s, %s, %s, %s)",
+			p.Role, RoleLLM, RoleTTS, RoleSTT, RoleEmbedding, RoleImage)
 	}
 	return nil
 }
