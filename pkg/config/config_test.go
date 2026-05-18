@@ -1858,6 +1858,95 @@ spec:
 	}
 }
 
+func TestLoadConfig_RejectsEmbeddingProviderMissingFile(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers: []
+  defaults:
+    concurrency: 1
+  embedding_providers:
+    - file: nope.provider.yaml
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected error for missing embedding provider file")
+	}
+	if !strings.Contains(err.Error(), "embedding_providers") {
+		t.Errorf("error must name embedding_providers; got: %v", err)
+	}
+}
+
+func TestLoadConfig_RejectsImageProviderMissingFile(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers: []
+  defaults:
+    concurrency: 1
+  image_providers:
+    - file: nope.provider.yaml
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected error for missing image provider file")
+	}
+	if !strings.Contains(err.Error(), "image_providers") {
+		t.Errorf("error must name image_providers; got: %v", err)
+	}
+}
+
+func TestLoadConfig_RejectsEmbeddingProviderInvalidRole(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "embed.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: bad-embed
+spec:
+  id: bad-embed
+  type: voyageai
+  role: gibberish
+  model: voyage-3
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers: []
+  defaults:
+    concurrency: 1
+  embedding_providers:
+    - file: embed.provider.yaml
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err == nil {
+		t.Fatal("expected error for unknown role")
+	}
+	// "gibberish" fails schema validation at provider load time; the error
+	// is wrapped by the embedding loader.
+	if !strings.Contains(err.Error(), "embedding_providers") {
+		t.Errorf("error must name embedding_providers; got: %v", err)
+	}
+}
+
 func TestLoadConfig_RejectsImageProviderWithLLMRole(t *testing.T) {
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	tmp := t.TempDir()
