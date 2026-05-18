@@ -1863,6 +1863,86 @@ spec:
 	}
 }
 
+func TestLoadConfig_UnifiedProvidersList_RoutesImageRole(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "image.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: imagen-routed
+spec:
+  id: imagen-routed
+  type: imagen
+  role: image
+  model: imagen-4.0-generate-001
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers:
+    - file: image.provider.yaml
+  defaults:
+    concurrency: 1
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if _, inLLM := cfg.LoadedProviders["imagen-routed"]; inLLM {
+		t.Errorf("image provider must not appear in LoadedProviders (LLM matrix)")
+	}
+	if _, ok := cfg.LoadedImageProviders["imagen-routed"]; !ok {
+		t.Errorf("image provider must be routed into LoadedImageProviders")
+	}
+}
+
+func TestLoadConfig_UnifiedProvidersList_RoutesSTTRole(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "stt.provider.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: whisper-routed
+spec:
+  id: whisper-routed
+  type: openai
+  role: stt
+  model: whisper-1
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "config.arena.yaml"), []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: t
+spec:
+  providers:
+    - file: stt.provider.yaml
+  defaults:
+    concurrency: 1
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(filepath.Join(tmp, "config.arena.yaml"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if _, inLLM := cfg.LoadedProviders["whisper-routed"]; inLLM {
+		t.Errorf("stt provider must not appear in LoadedProviders (LLM matrix)")
+	}
+	if _, ok := cfg.LoadedSTTProviders["whisper-routed"]; !ok {
+		t.Errorf("stt provider must be routed into LoadedSTTProviders")
+	}
+}
+
 func TestLoadConfig_RejectsEmbeddingProviderMissingFile(t *testing.T) {
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	tmp := t.TempDir()
