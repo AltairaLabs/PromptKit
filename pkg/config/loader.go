@@ -466,7 +466,18 @@ func (c *Config) loadEvals(configPath string) error {
 	)
 }
 
-// loadProviders loads all referenced providers
+// loadProviders loads all referenced providers from the unified
+// `providers:` list and routes each into the appropriate Loaded* map
+// based on its `role:` value. role=llm (default) goes into the
+// agent-under-test matrix; non-llm roles populate role-specific
+// maps that consumers (TTS resolver, embedding bridge, etc.) look up
+// by ID.
+//
+// The dedicated `tts_providers:` / `stt_providers:` / `embedding_providers:`
+// / `image_providers:` slots are still honored for backward
+// compatibility and load via loadTTSProviders et al; pack authors are
+// encouraged to put every provider in the unified `providers:` list and
+// let role routing do the work.
 func (c *Config) loadProviders(configPath string) error {
 	for _, ref := range c.Providers {
 		fullPath := ResolveFilePath(configPath, ref.File)
@@ -477,21 +488,27 @@ func (c *Config) loadProviders(configPath string) error {
 		if err := provider.ValidateRole(); err != nil {
 			return fmt.Errorf("provider %s: %w", provider.ID, err)
 		}
-		if role := provider.GetRole(); role != RoleLLM {
-			return fmt.Errorf("providers[%s]: role must be %q (or empty), got %q; "+
-				"TTS providers belong under tts_providers, STT under stt_providers, "+
-				"embedding under embedding_providers, image under image_providers",
-				ref.File, RoleLLM, role)
-		}
-		c.LoadedProviders[provider.ID] = provider
-		group := ref.Group
-		if group == "" {
-			group = defaultProviderGroup
-		}
-		c.ProviderGroups[provider.ID] = group
-		// Populate provider capabilities from the provider spec
-		if len(provider.Capabilities) > 0 {
-			c.ProviderCapabilities[provider.ID] = provider.Capabilities
+		switch provider.GetRole() {
+		case RoleLLM:
+			c.LoadedProviders[provider.ID] = provider
+			group := ref.Group
+			if group == "" {
+				group = defaultProviderGroup
+			}
+			c.ProviderGroups[provider.ID] = group
+			if len(provider.Capabilities) > 0 {
+				c.ProviderCapabilities[provider.ID] = provider.Capabilities
+			}
+		case RoleTTS:
+			c.LoadedTTSProviders[provider.ID] = provider
+		case RoleSTT:
+			c.LoadedSTTProviders[provider.ID] = provider
+		case RoleEmbedding:
+			c.LoadedEmbeddingProviders[provider.ID] = provider
+		case RoleImage:
+			c.LoadedImageProviders[provider.ID] = provider
+		default:
+			return fmt.Errorf("providers[%s]: unhandled role %q", ref.File, provider.GetRole())
 		}
 	}
 	return nil

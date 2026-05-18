@@ -128,24 +128,17 @@ type Config struct {
 	// ProviderCapabilities maps provider ID to its capabilities (populated during load)
 	ProviderCapabilities map[string][]string `yaml:"-" json:"provider_capabilities,omitempty"`
 
-	// TTSProviders lists provider files where Spec.Capability == "tts".
-	// Loaded but NOT included in the agent-under-test matrix.
-	TTSProviders []ProviderRef `yaml:"tts_providers,omitempty" json:"tts_providers,omitempty"`
-
-	// STTProviders lists provider files where Spec.Role == "stt".
-	// Same matrix-exclusion as TTSProviders. No STT consumers exist yet;
-	// the field is present so STT can land later without a schema change.
-	STTProviders []ProviderRef `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty"`
-
-	// EmbeddingProviders lists provider files where Spec.Role == "embedding".
-	// Loaded but NOT included in the agent-under-test matrix. Voyageai,
-	// OpenAI text-embedding-3, Gemini embedding, etc. live here.
+	// TTSProviders / STTProviders / EmbeddingProviders / ImageProviders are
+	// the legacy role-specific slots. They still load correctly — every
+	// entry's `role:` is validated against the slot — but the preferred
+	// shape is a single unified `providers:` list where the loader routes
+	// each provider into the right Loaded* map based on its `role:` value.
+	// Mixing the legacy slots and the unified list is supported during
+	// migration; both populate the same Loaded* maps.
+	TTSProviders       []ProviderRef `yaml:"tts_providers,omitempty" json:"tts_providers,omitempty"`
+	STTProviders       []ProviderRef `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty"`
 	EmbeddingProviders []ProviderRef `yaml:"embedding_providers,omitempty" json:"embedding_providers,omitempty"`
-
-	// ImageProviders lists provider files where Spec.Role == "image".
-	// Loaded but NOT included in the agent-under-test matrix. Imagen,
-	// OpenAI Images, future Stable Diffusion adapters live here.
-	ImageProviders []ProviderRef `yaml:"image_providers,omitempty" json:"image_providers,omitempty"`
+	ImageProviders     []ProviderRef `yaml:"image_providers,omitempty" json:"image_providers,omitempty"`
 
 	// Voices binds voice IDs to loaded TTS provider IDs. Personas reference
 	// voice IDs (not provider IDs) so the same persona can run against a
