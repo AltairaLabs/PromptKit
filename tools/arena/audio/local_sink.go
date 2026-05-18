@@ -19,9 +19,16 @@ const (
 	// drain. Beyond this we accept losing the tail of the run rather than
 	// blocking shutdown indefinitely.
 	drainMaxWait = 8 * time.Second
-	// drainTailGrace is the small extra wait after the queues empty so
-	// oto's internal buffer can finish playing the last samples it pulled.
-	drainTailGrace = 500 * time.Millisecond
+	// drainTailGrace is the wait after the queues empty before the
+	// inter-turn drain barrier returns. Covers two delays the LocalSink's
+	// per-direction queue-empty signal does not: (1) oto's internal
+	// playback buffer finishing the last samples it pulled (typically
+	// ≤200 ms), and (2) the SSE relay still forwarding the tail to a
+	// browser listener whose audio scheduler hasn't finished consuming
+	// the frames yet (≈1 s observed empirically on the voice-refund
+	// demo). Too short → next-turn audio starts in the input ear while
+	// the previous turn's output is still audible in the right ear.
+	drainTailGrace = 1500 * time.Millisecond
 	// localSinkBufFrames is the channel buffer depth for each direction's
 	// pending mono frames. Frames overflow drop silently — the sink trails
 	// the run when the audio device can't keep up, but never blocks the
