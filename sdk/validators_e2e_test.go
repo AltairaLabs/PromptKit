@@ -65,12 +65,8 @@ func captureValidatorLogs(t *testing.T) *syncBuffer {
 
 // buildTestPackWithMaxLength returns promptpack JSON with a max_length
 // validator configured against the supplied parameters.
-func buildTestPackWithMaxLength(t *testing.T, maxChars int, failOnViolation bool) []byte {
+func buildTestPackWithMaxLength(t *testing.T, maxChars int) []byte {
 	t.Helper()
-	failField := ""
-	if failOnViolation {
-		failField = `"fail_on_violation": true,`
-	}
 	packJSON := fmt.Sprintf(`{
   "id": "test-pack-933",
   "version": "1.0.0",
@@ -84,13 +80,12 @@ func buildTestPackWithMaxLength(t *testing.T, maxChars int, failOnViolation bool
         {
           "type": "max_length",
           "enabled": true,
-          %s
           "params": {"max_characters": %d}
         }
       ]
     }
   }
-}`, failField, maxChars)
+}`, maxChars)
 	return []byte(packJSON)
 }
 
@@ -127,7 +122,7 @@ func TestIssue933_MaxLengthValidatorDoesNotBlockShortResponse(t *testing.T) {
 	logs := captureValidatorLogs(t)
 
 	const cannedResponse = "Hi there, this is a short reply." // 32 chars
-	packPath := writeTestPack(t, buildTestPackWithMaxLength(t, 2000, true))
+	packPath := writeTestPack(t, buildTestPackWithMaxLength(t, 2000))
 	conv := openWithMockResponse(t, packPath, cannedResponse)
 
 	resp, err := conv.Send(context.Background(), "Hello")
@@ -152,13 +147,14 @@ func TestIssue933_MaxLengthValidatorDoesNotBlockShortResponse(t *testing.T) {
 		"validator must be registered, not silently skipped (regression for #933)")
 }
 
-// TestValidatorEnforcesOnRealViolation verifies that fail_on_violation:true
-// still enforces when the response actually exceeds the limit. For
-// max_length the enforcement action is truncation.
+// TestValidatorEnforcesOnRealViolation verifies that the guardrail still
+// enforces when the response actually exceeds the limit. For max_length
+// the enforcement action is truncation. Guardrails always enforce —
+// observe-only is the eval path, not a guardrail mode.
 func TestValidatorEnforcesOnRealViolation(t *testing.T) {
 	const cannedResponse = "This response is definitely longer than ten characters."
 	const maxChars = 10
-	packPath := writeTestPack(t, buildTestPackWithMaxLength(t, maxChars, true))
+	packPath := writeTestPack(t, buildTestPackWithMaxLength(t, maxChars))
 	conv := openWithMockResponse(t, packPath, cannedResponse)
 
 	resp, err := conv.Send(context.Background(), "Hello")
@@ -169,105 +165,5 @@ func TestValidatorEnforcesOnRealViolation(t *testing.T) {
 	assert.NotEqual(t, cannedResponse, got,
 		"enforcement should have modified the response")
 	assert.LessOrEqual(t, len(got), maxChars,
-		"content must be truncated to at most max_characters when fail_on_violation=true")
-}
-
-// TestValidatorMonitorOnlyDoesNotEnforce verifies the spec-default behaviour:
-// with fail_on_violation absent, the validator logs violations but leaves
-// content untouched.
-func TestValidatorMonitorOnlyDoesNotEnforce(t *testing.T) {
-	const cannedResponse = "This response is definitely longer than ten characters."
-	packPath := writeTestPack(t, buildTestPackWithMaxLength(t, 10, false))
-	conv := openWithMockResponse(t, packPath, cannedResponse)
-
-	resp, err := conv.Send(context.Background(), "Hello")
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	got := resp.Text()
-	assert.Equal(t, cannedResponse, got,
-		"monitor-only mode must not modify content even on violation")
-}
-
-// TestIssue933_TicketExactReproducer mirrors the exact scenario from
-// https://github.com/AltairaLabs/PromptKit/issues/933 — a max_length
-// validator with fail_on_violation:false (monitor-only per spec default)
-// and max_characters:2000, sending a short response that should pass
-// through unchanged. Before the fix, params unmarshalled as nil, the
-// handler reported a violation every turn, and the guardrail adapter
-// replaced the response with DefaultBlockedMessage despite monitor-only
-// being set.
-//
-// This test simultaneously pins two fixes from this branch:
-//  1. The json:"params" struct tag (otherwise params drops to nil and
-//     the validator is filtered out by convertPackValidatorsToHooks —
-//     caught here by the log-capture assertion).
-//  2. The fail_on_violation:false → monitor-only mapping in
-//     convertPackValidatorsToHooks (otherwise even with a real violation,
-//     enforcement would run; here the response is well under the limit
-//     so enforcement is a no-op either way — this is covered by the
-//     sibling TestValidatorMonitorOnlyDoesNotEnforce test).
-//
-// The value of THIS test over the others is that it is the literal
-// reproducer from the issue: fail_on_violation is present explicitly
-// set to false, matching the ticket verbatim. Any future change that
-// breaks the ticket's exact scenario will fail this test by name.
-func TestIssue933_TicketExactReproducer(t *testing.T) {
-	logs := captureValidatorLogs(t)
-
-	// Inline pack JSON with fail_on_violation explicitly present and
-	// set to false — matches the JSON pasted in the issue verbatim.
-	// The shared helper omits the field when false, which would make
-	// this test a duplicate of TestValidatorMonitorOnlyDoesNotEnforce;
-	// building the JSON inline preserves fidelity to the reproducer.
-	packJSON := []byte(`{
-  "id": "test-pack-933-ticket",
-  "version": "1.0.0",
-  "description": "issue #933 ticket-exact reproducer",
-  "prompts": {
-    "default": {
-      "id": "default",
-      "name": "Default",
-      "system_template": "You are helpful.",
-      "validators": [
-        {
-          "type": "max_length",
-          "enabled": true,
-          "fail_on_violation": false,
-          "params": { "max_characters": 2000 }
-        }
-      ]
-    }
-  }
-}`)
-	packPath := writeTestPack(t, packJSON)
-
-	// Short canned response, well under the 2000-char limit. 25 characters
-	// to mirror the "25-character response" the issue mentions.
-	const canned = "Hi - 25 char reply exact."
-	require.Equal(t, 25, len(canned), "sanity: response length must match ticket scenario")
-
-	conv := openWithMockResponse(t, packPath, canned)
-	resp, err := conv.Send(context.Background(), "hello")
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	got := resp.Text()
-
-	// Assertion 1 — the response is unchanged. Before the fix, this was
-	// DefaultBlockedMessage because enforcement fired on the synthetic
-	// "missing param" violation.
-	assert.Equal(t, canned, got,
-		"response must be unchanged; before the fix it was replaced with DefaultBlockedMessage")
-
-	// Assertion 2 — the response does not contain the default blocked message text.
-	assert.NotEqual(t, prompt.DefaultBlockedMessage, got,
-		"response must not be DefaultBlockedMessage")
-
-	// Assertion 3 — the validator was actually registered, not silently
-	// skipped by the warn-and-skip layer. This is what catches a
-	// struct-tag regression (validator hook gets dropped entirely, so
-	// the content-equality assertion alone would be a tautology).
-	assert.NotContains(t, logs.String(), "Skipping unusable pack validator",
-		"validator hook must be registered — struct tag regression would cause it to be skipped")
+		"content must be truncated to at most max_characters on a real violation")
 }

@@ -31,7 +31,6 @@ func TestValidatorLoadsFromPromptPackJSON(t *testing.T) {
 					{
 						"type": "max_length",
 						"enabled": true,
-						"fail_on_violation": false,
 						"params": {"max_characters": 2000}
 					}
 				]
@@ -51,8 +50,6 @@ func TestValidatorLoadsFromPromptPackJSON(t *testing.T) {
 	v := prompt.Validators[0]
 	assert.Equal(t, "max_length", v.Type)
 	assert.True(t, v.Enabled, "enabled should be true")
-	require.NotNil(t, v.FailOnViolation, "fail_on_violation should be present (pointer non-nil)")
-	assert.False(t, *v.FailOnViolation, "fail_on_violation should be false")
 
 	// THIS IS THE BUG: params arrives as nil today because the struct tag
 	// is `json:"config"` instead of `json:"params"`.
@@ -64,11 +61,9 @@ func TestValidatorLoadsFromPromptPackJSON(t *testing.T) {
 // TestValidatorMarshalRoundTrip proves field-level fidelity: a Validator
 // marshalled to JSON and unmarshalled back must compare equal.
 func TestValidatorMarshalRoundTrip(t *testing.T) {
-	failOn := true
 	original := Validator{
-		Type:            "max_length",
-		Enabled:         true,
-		FailOnViolation: &failOn,
+		Type:    "max_length",
+		Enabled: true,
 		Params: map[string]any{
 			"max_characters": float64(2000),
 		},
@@ -82,8 +77,6 @@ func TestValidatorMarshalRoundTrip(t *testing.T) {
 
 	assert.Equal(t, original.Type, round.Type)
 	assert.Equal(t, original.Enabled, round.Enabled)
-	require.NotNil(t, round.FailOnViolation)
-	assert.Equal(t, *original.FailOnViolation, *round.FailOnViolation)
 	assert.Equal(t, original.Params, round.Params)
 }
 

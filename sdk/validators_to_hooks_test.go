@@ -13,8 +13,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/internal/pack"
 )
 
-func boolPtr(b bool) *bool { return &b }
-
 func TestConvertPackValidatorsToHooks(t *testing.T) {
 	t.Run("no validators is no-op", func(t *testing.T) {
 		prompt := &pack.Prompt{}
@@ -107,7 +105,7 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 		assert.Equal(t, "max_length", cfg.providerHooks[1].Name())
 	})
 
-	t.Run("fail_on_violation omitted defaults to monitor-only", func(t *testing.T) {
+	t.Run("guardrail always enforces — observe-only is the eval path", func(t *testing.T) {
 		prompt := &pack.Prompt{
 			Validators: []pack.Validator{
 				{
@@ -120,33 +118,22 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 		cfg := &config{}
 		convertPackValidatorsToHooks(prompt, cfg)
 		require.Len(t, cfg.providerHooks, 1)
-		// Monitor-only is an internal flag on the adapter; the behavioural
-		// assertion lives in the e2e test in a later task.
-	})
 
-	t.Run("fail_on_violation true enables enforcement", func(t *testing.T) {
-		prompt := &pack.Prompt{
-			Validators: []pack.Validator{
-				{
-					Type:            "banned_words",
-					Enabled:         true,
-					FailOnViolation: boolPtr(true),
-					Params:          map[string]any{"patterns": []any{"bad"}},
-				},
-			},
+		hook := cfg.providerHooks[0]
+		resp := &hooks.ProviderResponse{
+			Message: types.Message{Role: "assistant", Content: "this is bad content"},
 		}
-		cfg := &config{}
-		convertPackValidatorsToHooks(prompt, cfg)
-		require.Len(t, cfg.providerHooks, 1)
+		decision := hook.AfterCall(context.Background(), nil, resp)
+		assert.True(t, decision.Enforced, "guardrail must always enforce — there is no monitor-only mode")
+		assert.NotEqual(t, "this is bad content", resp.Message.Content, "content must be rewritten")
 	})
 
 	t.Run("passes params message to guardrail hook", func(t *testing.T) {
 		prompt := &pack.Prompt{
 			Validators: []pack.Validator{
 				{
-					Type:            "banned_words",
-					Enabled:         true,
-					FailOnViolation: boolPtr(true),
+					Type:    "banned_words",
+					Enabled: true,
 					Params: map[string]any{
 						"patterns": []any{"bad"},
 						"message":  "Custom blocked response",
@@ -174,10 +161,9 @@ func TestConvertPackValidatorsToHooks(t *testing.T) {
 		prompt := &pack.Prompt{
 			Validators: []pack.Validator{
 				{
-					Type:            "banned_words",
-					Enabled:         true,
-					FailOnViolation: boolPtr(true),
-					Params:          map[string]any{"patterns": []any{"bad"}},
+					Type:    "banned_words",
+					Enabled: true,
+					Params:  map[string]any{"patterns": []any{"bad"}},
 				},
 			},
 		}

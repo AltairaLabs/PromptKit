@@ -11,8 +11,69 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default handlers
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+func TestValidatorsToHooks_AlwaysEnforces(t *testing.T) {
+	// Guardrails always rewrite on a hit — there is no observe-only mode.
+	// If you want pure observation, declare an eval, not a guardrail.
+	hs := ValidatorsToHooks([]prompt.ValidatorConfig{
+		{Type: "banned_words", Params: map[string]any{"words": []any{"bad"}}},
+	})
+	require.Len(t, hs, 1)
+	adapter := hs[0].(*GuardrailHookAdapter)
+
+	resp := &hooks.ProviderResponse{Message: types.Message{Role: "assistant", Content: "this is bad"}}
+	decision := adapter.AfterCall(context.Background(), nil, resp)
+	require.False(t, decision.Allow)
+	require.True(t, decision.Enforced)
+	require.NotEqual(t, "this is bad", resp.Message.Content,
+		"guardrail must rewrite content (default blocked message)")
+}
+
+func TestValidatorsToHooks_SkipsDisabled(t *testing.T) {
+	disabled := false
+	hs := ValidatorsToHooks([]prompt.ValidatorConfig{
+		{Type: "banned_words", Enabled: &disabled, Params: map[string]any{"words": []any{"bad"}}},
+		{Type: "length", Params: map[string]any{"max_characters": 100}},
+	})
+	require.Len(t, hs, 1, "disabled validator should be dropped")
+	require.Equal(t, "length", hs[0].Name())
+}
+
+func TestValidatorsToHooks_SkipsUnknownTypes(t *testing.T) {
+	hs := ValidatorsToHooks([]prompt.ValidatorConfig{
+		{Type: "nonexistent", Params: map[string]any{}},
+		{Type: "length", Params: map[string]any{"max_characters": 100}},
+	})
+	require.Len(t, hs, 1, "unknown validator type should be skipped, not error")
+	require.Equal(t, "length", hs[0].Name())
+}
+
+func TestValidatorsToHooks_MessagePreferredOverParam(t *testing.T) {
+	// Message field takes precedence; params["message"] is the fallback.
+	hs := ValidatorsToHooks([]prompt.ValidatorConfig{
+		{
+			Type:    "banned_words",
+			Params:  map[string]any{"words": []any{"bad"}, "message": "from-params"},
+			Message: "from-field",
+		},
+	})
+	require.Len(t, hs, 1)
+	require.Equal(t, "from-field", hs[0].(*GuardrailHookAdapter).message)
+
+	hs = ValidatorsToHooks([]prompt.ValidatorConfig{
+		{Type: "banned_words", Params: map[string]any{"words": []any{"bad"}, "message": "from-params"}},
+	})
+	require.Len(t, hs, 1)
+	require.Equal(t, "from-params", hs[0].(*GuardrailHookAdapter).message)
+}
+
+func TestValidatorsToHooks_EmptyReturnsNil(t *testing.T) {
+	require.Nil(t, ValidatorsToHooks(nil))
+	require.Nil(t, ValidatorsToHooks([]prompt.ValidatorConfig{}))
+}
 
 func TestNewGuardrailHookRejectsMissingRequiredParams(t *testing.T) {
 	reg := evals.NewEvalTypeRegistry()
@@ -224,37 +285,6 @@ func TestWithMessage(t *testing.T) {
 	adapter := h.(*GuardrailHookAdapter)
 	if adapter.message != "Custom blocked message" {
 		t.Errorf("message = %q, want %q", adapter.message, "Custom blocked message")
-	}
-}
-
-func TestWithMonitorOnly(t *testing.T) {
-	h, err := NewGuardrailHook("banned_words", map[string]any{
-		"words": []any{"bad"},
-	}, WithMonitorOnly())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	adapter := h.(*GuardrailHookAdapter)
-	if !adapter.monitorOnly {
-		t.Error("expected monitorOnly=true")
-	}
-
-	// Monitor-only should not modify content
-	resp := &hooks.ProviderResponse{
-		Message: types.Message{
-			Role:    "assistant",
-			Content: "this is bad content",
-		},
-	}
-	decision := adapter.AfterCall(context.Background(), nil, resp)
-	if decision.Allow {
-		t.Error("expected non-Allow decision")
-	}
-	if !decision.Enforced {
-		t.Error("expected Enforced=true")
-	}
-	if resp.Message.Content != "this is bad content" {
-		t.Errorf("monitor-only should not modify content, got %q", resp.Message.Content)
 	}
 }
 

@@ -181,11 +181,6 @@ type Validator struct {
 	// Enabled toggles the validator on/off without removing it. Required by the spec.
 	Enabled bool `json:"enabled"`
 
-	// FailOnViolation controls enforcement. When true, violations cause the
-	// guardrail adapter to enforce in-place. When false or absent (spec default),
-	// violations are logged but content is unchanged (monitor-only mode).
-	FailOnViolation *bool `json:"fail_on_violation,omitempty"`
-
 	// Params holds validator-specific parameters (e.g. {"max_characters": 2000}
 	// for max_length). Shape is handler-specific. Optional per the spec; each
 	// handler decides which keys it requires via the ParamValidator interface.

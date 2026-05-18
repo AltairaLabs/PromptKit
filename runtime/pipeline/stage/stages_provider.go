@@ -842,7 +842,7 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	// Process all chunks and collect response
-	content, toolCalls, costInfo, err := s.processStreamChunks(ctx, streamChan, output)
+	content, toolCalls, costInfo, chunkValidations, err := s.processStreamChunks(ctx, streamChan, output)
 	duration := time.Since(startTime)
 
 	if err != nil {
@@ -895,14 +895,19 @@ func (s *ProviderStage) executeStreamingRound(
 		}
 	}
 
-	// Build final response message with latency and cost info
+	// Build final response message with latency and cost info. Stamp any
+	// chunk-interceptor firings up-front so downstream readers see streaming
+	// guardrail decisions in msg.Validations the same way they see AfterCall
+	// firings — without this, a guardrail that aborts mid-stream produces
+	// no observable validation record.
 	responseMsg := types.Message{
-		Role:      "assistant",
-		Content:   content,
-		ToolCalls: toolCalls,
-		Timestamp: timeNow(),
-		LatencyMs: duration.Milliseconds(),
-		CostInfo:  costInfo,
+		Role:        "assistant",
+		Content:     content,
+		ToolCalls:   toolCalls,
+		Timestamp:   timeNow(),
+		LatencyMs:   duration.Milliseconds(),
+		CostInfo:    costInfo,
+		Validations: chunkValidations,
 	}
 
 	// Run AfterCall hooks
@@ -988,15 +993,18 @@ func (s *ProviderStage) startStreamingRequest(
 }
 
 // processStreamChunks processes streaming chunks and emits elements to output.
-// Returns accumulated content, tool calls, cost info (from final chunk), and any error.
+// Returns accumulated content, tool calls, cost info (from final chunk),
+// any chunk-interceptor firings (ValidationResults the caller folds into
+// the final assistant message), and any error.
 func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
 	output chan<- StreamElement,
-) (string, []types.MessageToolCall, *types.CostInfo, error) {
+) (string, []types.MessageToolCall, *types.CostInfo, []types.ValidationResult, error) {
 	var content string
 	var toolCalls []types.MessageToolCall
 	var costInfo *types.CostInfo
+	var pendingValidations []types.ValidationResult
 
 	for chunk := range streamChan {
 		ResetIdleFromContext(ctx)
@@ -1014,7 +1022,7 @@ func (s *ProviderStage) processStreamChunks(
 
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
-			return "", nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
+			return "", nil, nil, nil, fmt.Errorf("stream chunk error: %w", chunk.Error)
 		}
 
 		content = chunk.Content
@@ -1027,20 +1035,32 @@ func (s *ProviderStage) processStreamChunks(
 		}
 
 		if err := s.emitChunkElement(ctx, &chunk, output); err != nil {
-			return "", nil, nil, err
+			return "", nil, nil, nil, err
 		}
 
 		// Run chunk interceptor hooks
 		if s.hookRegistry != nil && s.hookRegistry.HasChunkInterceptors() {
 			if d := s.hookRegistry.RunOnChunk(ctx, &chunk); !d.Allow {
 				s.emitGuardrailEvent(d, 0)
+				// Stamp the firing on a sentinel pending-validation slot so
+				// the AfterCall path below can fold it into responseMsg.
+				// Without this, streaming-only guardrails produce no
+				// observable Validations entry and the guardrail_triggered
+				// assertion would silently miss them.
+				if vType, ok := d.Metadata["validator_type"].(string); ok {
+					pendingValidations = append(pendingValidations, types.ValidationResult{
+						ValidatorType: vType,
+						Passed:        false,
+						Details:       d.Metadata,
+					})
+				}
 				if d.Enforced {
 					// Hook enforced (e.g., truncated content) — use the
 					// modified chunk content and stop reading the stream.
 					content = chunk.Content
 					break
 				}
-				return "", nil, nil, &providers.ValidationAbortError{
+				return "", nil, nil, nil, &providers.ValidationAbortError{
 					Reason: d.Reason,
 					Chunk:  chunk,
 				}
@@ -1048,7 +1068,7 @@ func (s *ProviderStage) processStreamChunks(
 		}
 	}
 
-	return content, toolCalls, costInfo, nil
+	return content, toolCalls, costInfo, pendingValidations, nil
 }
 
 // emitChunkElement creates and emits streaming element(s) for a chunk.
@@ -1321,13 +1341,11 @@ func (s *ProviderStage) emitGuardrailEvent(d hooks.Decision, duration time.Durat
 	}
 	vType, _ := d.Metadata["validator_type"].(string)
 	score, _ := d.Metadata["score"].(float64)
-	monitorOnly, _ := d.Metadata["monitor_only"].(bool)
 	data := &events.ValidationEventData{
 		ValidatorName: vType,
 		ValidatorType: vType,
 		Duration:      duration,
-		Enforced:      d.Enforced && !monitorOnly,
-		MonitorOnly:   monitorOnly,
+		Enforced:      d.Enforced,
 		Score:         score,
 	}
 	if !d.Allow {

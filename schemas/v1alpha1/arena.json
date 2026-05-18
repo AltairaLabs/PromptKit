@@ -2756,9 +2756,6 @@
         "enabled": {
           "type": "boolean"
         },
-        "fail_on_violation": {
-          "type": "boolean"
-        },
         "message": {
           "type": "string"
         }

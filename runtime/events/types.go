@@ -320,7 +320,6 @@ type ValidationEventData struct {
 	Error         error         // Set on failed
 	Violations    []string      // Set on failed
 	Enforced      bool          // True when the guardrail modified content (truncation/replacement)
-	MonitorOnly   bool          // True when the guardrail evaluated but did not enforce
 	Score         float64       // Evaluation score (0.0–1.0)
 }
 

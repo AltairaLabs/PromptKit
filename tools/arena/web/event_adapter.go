@@ -285,21 +285,9 @@ func (a *EventAdapter) mapEvent(event *events.Event) *SSEEvent {
 			"status":   data.Status,
 		}
 	case events.ValidationEventData:
-		sse.Data = map[string]interface{}{
-			"validatorName": data.ValidatorName,
-			"validatorType": data.ValidatorType,
-			"error":         errorString(data.Error),
-			"monitorOnly":   data.MonitorOnly,
-			"score":         data.Score,
-		}
+		sse.Data = validationPayload(&data)
 	case *events.ValidationEventData:
-		sse.Data = map[string]interface{}{
-			"validatorName": data.ValidatorName,
-			"validatorType": data.ValidatorType,
-			"error":         errorString(data.Error),
-			"monitorOnly":   data.MonitorOnly,
-			"score":         data.Score,
-		}
+		sse.Data = validationPayload(data)
 	case *events.TemplateStartedData:
 		sse.Data = map[string]interface{}{
 			"taskType":      data.TaskType,
@@ -337,4 +325,17 @@ func errorString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// validationPayload renders a guardrail firing for the SSE channel.
+// Two switch cases (value + pointer) used to inline the same map literal,
+// which trips goconst on the "enforced" key.
+func validationPayload(data *events.ValidationEventData) map[string]interface{} {
+	return map[string]interface{}{
+		"validatorName": data.ValidatorName,
+		"validatorType": data.ValidatorType,
+		"error":         errorString(data.Error),
+		"enforced":      data.Enforced,
+		"score":         data.Score,
+	}
 }

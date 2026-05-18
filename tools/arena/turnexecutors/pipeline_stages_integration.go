@@ -8,6 +8,7 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default eval handlers
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/media"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
@@ -338,12 +339,13 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// the recording stage always sees every chunk before observers do.
 	stages = appendMonitorTap(stages, req, stage.RecordingPositionInput)
 
-	// 6. Provider stage (with consent simulation hook if overrides are present)
-	// 7. Guardrail evaluation (evaluative, not enforcement — records pass/fail for assertions)
+	// 6. Provider stage — consent + chaos tool hooks and pack-declared
+	// guardrail provider hooks all live here. Guardrails run inline in
+	// ProviderStage's hook chain, identically to SDK; no separate stage.
 	providerConfig := buildProviderConfig(req)
+	guardrailHooks := loadGuardrailHooks(req, mergedVars)
 	stages = append(stages,
-		e.buildProviderStage(req, providerConfig, turnState),
-		arenastages.NewGuardrailEvalStageWithTurnState(turnState),
+		e.buildProviderStage(req, providerConfig, turnState, guardrailHooks),
 	)
 
 	// 7a. Output recording stage (opt-in via RecordingConfig)
@@ -426,10 +428,14 @@ func emitterFromRequest(req *TurnRequest) *events.Emitter {
 	return events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
 }
 
-// buildProviderStage creates a provider stage, attaching hooks
-// for consent simulation and/or chaos injection when configured.
+// buildProviderStage creates a provider stage, attaching hooks for consent
+// simulation, chaos injection, and pack-declared guardrails when configured.
+// guardrailHooks are produced by guardrails.ValidatorsToHooks in the caller —
+// passing them here keeps template lookup co-located with the rest of the
+// pipeline construction.
 func (e *PipelineExecutor) buildProviderStage(
 	req *TurnRequest, providerConfig *stage.ProviderConfig, turnState *stage.TurnState,
+	guardrailHooks []hooks.ProviderHook,
 ) stage.Stage {
 	toolPolicy := buildToolPolicy(req.Scenario)
 	emitter := emitterFromRequest(req)
@@ -443,8 +449,11 @@ func (e *PipelineExecutor) buildProviderStage(
 	}
 
 	var hookReg *hooks.Registry
-	if len(toolHooks) > 0 {
-		var opts []hooks.Option
+	if len(toolHooks) > 0 || len(guardrailHooks) > 0 {
+		opts := make([]hooks.Option, 0, len(toolHooks)+len(guardrailHooks))
+		for _, h := range guardrailHooks {
+			opts = append(opts, hooks.WithProviderHook(h))
+		}
 		for _, h := range toolHooks {
 			opts = append(opts, hooks.WithToolHook(h))
 		}
@@ -453,6 +462,29 @@ func (e *PipelineExecutor) buildProviderStage(
 	return stage.NewProviderStageWithTurnState(
 		req.Provider, e.toolRegistry, toolPolicy, providerConfig, emitter, hookReg, turnState,
 	)
+}
+
+// loadGuardrailHooks resolves pack-declared validators for this turn and
+// wraps them as ProviderHooks via the shared factory. Returns nil (no hooks)
+// when there's no prompt registry, no template, or the template has no
+// validators — those are normal cases, not errors. A template-load failure
+// is logged and treated the same as "no validators": the run continues with
+// guardrails disabled rather than failing the entire pipeline construction,
+// matching the previous GuardrailEvalStage's silent-no-op behavior.
+func loadGuardrailHooks(req *TurnRequest, vars map[string]string) []hooks.ProviderHook {
+	if req.PromptRegistry == nil {
+		return nil
+	}
+	tmpl, err := req.PromptRegistry.LoadTemplate(req.TaskType, vars, "")
+	if err != nil {
+		logger.Warn("Skipping pack guardrails: template load failed",
+			"task_type", req.TaskType, "error", err)
+		return nil
+	}
+	if tmpl == nil || len(tmpl.Validators) == 0 {
+		return nil
+	}
+	return guardrails.ValidatorsToHooks(tmpl.Validators)
 }
 
 // Execute runs the conversation through the pipeline and returns the new messages generated.
@@ -510,8 +542,6 @@ type StreamingStagesConfig struct {
 	IncludeScenarioContextExtraction bool
 	// IncludeStripToolMessages adds StripToolMessages after Template (self-play).
 	IncludeStripToolMessages bool
-	// IncludeGuardrailEval adds a GuardrailEval stage after the provider (scripted).
-	IncludeGuardrailEval bool
 	// IncludeMediaExternalizer adds media externalization (scripted).
 	IncludeMediaExternalizer bool
 	// IncludeAssertions adds the assertion stage (scripted).
@@ -581,20 +611,19 @@ func (e *PipelineExecutor) buildCommonStreamingStages(
 	// Input audio monitor tap (opt-in via AudioRouter); after recording.
 	stages = appendMonitorTap(stages, req, stage.RecordingPositionInput)
 
-	// Provider stage
+	// Provider stage — pack guardrails run inline as ProviderHooks (same as
+	// SDK), so there is no separate guardrail-eval stage anymore. We always
+	// resolve guardrail hooks here; buildProviderStage no-ops when there
+	// are no tool hooks AND no guardrail hooks.
 	providerConfig := buildProviderConfig(req)
-	if cfg.UseHooksProvider {
-		stages = append(stages, e.buildProviderStage(req, providerConfig, turnState))
+	guardrailHooks := loadGuardrailHooks(req, mergedVars)
+	if cfg.UseHooksProvider || len(guardrailHooks) > 0 {
+		stages = append(stages, e.buildProviderStage(req, providerConfig, turnState, guardrailHooks))
 	} else {
 		stages = append(stages, stage.NewProviderStageWithTurnState(
 			req.Provider, e.toolRegistry, buildToolPolicy(req.Scenario),
 			providerConfig, emitterFromRequest(req), nil, turnState,
 		))
-	}
-
-	// Guardrail evaluation (scripted only)
-	if cfg.IncludeGuardrailEval {
-		stages = append(stages, arenastages.NewGuardrailEvalStageWithTurnState(turnState))
 	}
 
 	// Output recording stage (opt-in via RecordingConfig)

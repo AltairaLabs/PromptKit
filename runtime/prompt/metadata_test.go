@@ -94,12 +94,6 @@ func TestPopulateDefaults_ValidatorFlags(t *testing.T) {
 		t.Error("Validator should be enabled by default")
 	}
 
-	if config.Spec.Validators[0].FailOnViolation == nil {
-		t.Fatal("Validator FailOnViolation flag should be set")
-	}
-	if !*config.Spec.Validators[0].FailOnViolation {
-		t.Error("Validator should fail on violation by default")
-	}
 }
 
 func TestPopulateDefaults_Integration(t *testing.T) {

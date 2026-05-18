@@ -11,10 +11,10 @@ import (
 // --- test doubles ---
 
 type stubProviderHook struct {
-	name     string
-	before   Decision
-	after    Decision
-	onChunk  Decision // only used if streaming is true
+	name      string
+	before    Decision
+	after     Decision
+	onChunk   Decision // only used if streaming is true
 	streaming bool
 }
 
@@ -47,10 +47,10 @@ func (h *stubToolHook) AfterExecution(_ context.Context, _ ToolRequest, _ ToolRe
 }
 
 type stubSessionHook struct {
-	name    string
-	startFn func(context.Context, SessionEvent) error
+	name     string
+	startFn  func(context.Context, SessionEvent) error
 	updateFn func(context.Context, SessionEvent) error
-	endFn   func(context.Context, SessionEvent) error
+	endFn    func(context.Context, SessionEvent) error
 }
 
 func (h *stubSessionHook) Name() string { return h.name }
@@ -199,6 +199,59 @@ func TestProviderHooks_SecondDenies(t *testing.T) {
 	if d.Reason != "post-denied" {
 		t.Errorf("expected reason 'post-denied', got %q", d.Reason)
 	}
+}
+
+// TestProviderHooks_EnforcedShortCircuits pins the production contract that
+// multi-guardrail chains stop at the first non-Allow decision, including the
+// Enforced variant. Pack with [length, banned_words]: if length enforces
+// first, banned_words must not run. Tests cannot rely on this firing in
+// non-deterministic order — they assert single-firing semantics here.
+func TestProviderHooks_EnforcedShortCircuits(t *testing.T) {
+	called := 0
+	counter := &providerHookOnly{
+		name:   "counter",
+		before: Allow,
+		after:  Deny("should-not-be-called"),
+	}
+	wrap := &providerHookOnly{
+		name:   "enforcing-guardrail",
+		before: Allow,
+		after:  Enforced("first-fired", map[string]any{"validator_type": "length"}),
+	}
+	// Wrap the second hook to actually count invocations
+	countingSecond := &countingProviderHook{providerHookOnly: counter, count: &called}
+	r := NewRegistry(WithProviderHook(wrap), WithProviderHook(countingSecond))
+
+	d := r.RunAfterProviderCall(context.Background(), &ProviderRequest{}, &ProviderResponse{})
+	if d.Allow {
+		t.Fatal("Enforced decision must propagate as non-Allow")
+	}
+	if !d.Enforced {
+		t.Error("first hook returned Enforced; decision must preserve Enforced=true")
+	}
+	if d.Reason != "first-fired" {
+		t.Errorf("Reason = %q, want first-fired", d.Reason)
+	}
+	if got, _ := d.Metadata["validator_type"].(string); got != "length" {
+		t.Errorf("Metadata[validator_type] = %q, want length", got)
+	}
+	if called != 0 {
+		t.Errorf("subsequent hook ran %d times, want 0 (short-circuit broken)", called)
+	}
+}
+
+// countingProviderHook wraps a providerHookOnly and increments count on
+// every AfterCall invocation. Used to confirm short-circuit semantics in
+// the multi-hook chain — if count != 0 after a prior Enforced fired, the
+// chain isn't stopping.
+type countingProviderHook struct {
+	*providerHookOnly
+	count *int
+}
+
+func (h *countingProviderHook) AfterCall(ctx context.Context, req *ProviderRequest, resp *ProviderResponse) Decision {
+	*h.count++
+	return h.providerHookOnly.AfterCall(ctx, req, resp)
 }
 
 // --- chunk interceptor ---

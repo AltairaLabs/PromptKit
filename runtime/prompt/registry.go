@@ -216,8 +216,6 @@ type ValidatorConfig struct {
 	Params map[string]interface{} `yaml:"params" json:"params"`
 	// Enable/disable validator (default: true)
 	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	// Fail execution on violation (default: true)
-	FailOnViolation *bool `yaml:"fail_on_violation,omitempty" json:"fail_on_violation,omitempty"`
 	// User-facing message shown when content is blocked (default: DefaultBlockedMessage)
 	Message string `yaml:"message,omitempty" json:"message,omitempty"`
 }
@@ -770,14 +768,14 @@ func (r *Registry) populateDefaults(config *Config) {
 
 	// Variables are now required in the new format - no auto-migration
 
-	// Set default validator flags if not specified
+	// Validator-level default: Enabled defaults to true. Enforce uses Go's
+	// zero value (false / observe-only) per the PromptPack spec — packs opt
+	// into rewriting by setting enforce: true. Earlier versions forced
+	// enforcement here, silently diverging from the SDK; that's gone.
 	trueVal := true
 	for i := range config.Spec.Validators {
 		if config.Spec.Validators[i].Enabled == nil {
 			config.Spec.Validators[i].Enabled = &trueVal
-		}
-		if config.Spec.Validators[i].FailOnViolation == nil {
-			config.Spec.Validators[i].FailOnViolation = &trueVal
 		}
 	}
 }
