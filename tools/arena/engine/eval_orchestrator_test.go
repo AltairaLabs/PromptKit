@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -534,6 +535,59 @@ func TestEvalOrchestrator_Clone_WithEventBus(t *testing.T) {
 func TestEvalOrchestrator_Clone_Nil(t *testing.T) {
 	var orch *EvalOrchestrator
 	assert.Nil(t, orch.Clone())
+}
+
+// classifyObservingHandler captures whatever classify.Registry is reachable
+// from the context at eval time. Used to verify the orchestrator threads the
+// registry from SetClassifyRegistry through to handlers.
+type classifyObservingHandler struct {
+	seen *classify.Registry
+}
+
+func (h *classifyObservingHandler) Type() string { return "classify_probe" }
+
+func (h *classifyObservingHandler) Eval(
+	ctx context.Context, _ *evals.EvalContext, _ map[string]any,
+) (*evals.EvalResult, error) {
+	h.seen = classify.FromContext(ctx)
+	return &evals.EvalResult{EvalID: "probe", Type: "classify_probe", Value: true}, nil
+}
+
+func TestEvalOrchestrator_ClassifyRegistryReachableFromHandlerContext(t *testing.T) {
+	probe := &classifyObservingHandler{}
+	reg := evals.NewEvalTypeRegistry()
+	reg.Register(probe)
+
+	defs := []evals.EvalDef{{ID: "probe", Type: "classify_probe", Trigger: evals.TriggerEveryTurn}}
+	orch := NewEvalOrchestrator(reg, defs, false, nil, "test")
+
+	want := classify.NewRegistry()
+	orch.SetClassifyRegistry(want)
+
+	results := orch.RunTurnEvals(context.Background(),
+		[]types.Message{{Role: "assistant", Content: "hi"}}, 0, "s1")
+	require.NotEmpty(t, results)
+	assert.Same(t, want, probe.seen, "handler must see the registry the orchestrator was configured with")
+}
+
+func TestEvalOrchestrator_NoClassifyRegistryLeavesContextUnchanged(t *testing.T) {
+	probe := &classifyObservingHandler{}
+	reg := evals.NewEvalTypeRegistry()
+	reg.Register(probe)
+
+	defs := []evals.EvalDef{{ID: "probe", Type: "classify_probe", Trigger: evals.TriggerEveryTurn}}
+	orch := NewEvalOrchestrator(reg, defs, false, nil, "test")
+	// No SetClassifyRegistry call.
+
+	orch.RunTurnEvals(context.Background(),
+		[]types.Message{{Role: "assistant", Content: "hi"}}, 0, "s1")
+	assert.Nil(t, probe.seen, "FromContext on an unconfigured orchestrator must return nil so handlers can produce a clean error")
+}
+
+func TestEvalOrchestrator_SetClassifyRegistry_NilReceiverSafe(t *testing.T) {
+	var orch *EvalOrchestrator
+	// Must not panic.
+	orch.SetClassifyRegistry(classify.NewRegistry())
 }
 
 func TestEvalOrchestrator_NilReceiver(t *testing.T) {
