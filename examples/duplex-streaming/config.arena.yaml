@@ -21,7 +21,9 @@ spec:
     - id: voice-assistant-tools
       file: prompts/voice-assistant-tools.prompt.yaml
 
-  # Provider configurations
+  # All providers — LLM and TTS — live in the unified `providers:` list.
+  # The loader routes each entry by its `role:` field; TTS entries skip
+  # the agent-under-test matrix and are looked up by voice bindings below.
   providers:
     # Real providers for local testing (require API keys)
     - file: providers/gemini-2-flash.provider.yaml
@@ -39,8 +41,7 @@ spec:
     - file: providers/mock-duplex-simulate.provider.yaml
     # Replay provider for deterministic playback of recorded sessions
     # - file: providers/replay-duplex.provider.yaml  # Disabled until we have a recording
-
-  tts_providers:
+    # TTS providers (role: tts) — bound to voice IDs below.
     - file: providers/elevenlabs-rachel.provider.yaml
     - file: providers/openai-echo.provider.yaml
     - file: providers/openai-alloy-expressive.provider.yaml
