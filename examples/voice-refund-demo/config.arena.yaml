@@ -28,6 +28,10 @@ spec:
     - file: providers/elevenlabs-arnold.provider.yaml
     - file: providers/openai-nova.provider.yaml
     - file: providers/mock-tts.provider.yaml
+    # Inference provider (role: inference) for audio_emotion scoring on
+    # the aggressive-refund scenario. Active when HF_TOKEN is exported;
+    # assertions skip cleanly otherwise.
+    - file: providers/hf.provider.yaml
 
   voices:
     # For real-provider recording mode: each id binds to a vendor TTS provider.

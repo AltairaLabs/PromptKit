@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
+#
+# HuggingFace Inference API client for non-LLM model inference (audio
+# emotion classification, etc.). Consumed by the `audio_emotion` assertion
+# in scenarios that score the selfplay user's voice tone.
+#
+# Auth: set HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) in the environment. In
+# runs without the token, audio_emotion assertions skip cleanly with a
+# "no api key configured" SkipReason — they don't fail the scenario.
+#
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: hf
+spec:
+  id: hf
+  type: huggingface
+  role: inference
+  credential:
+    credential_env: HF_TOKEN
