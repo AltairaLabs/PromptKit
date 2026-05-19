@@ -196,9 +196,11 @@ func TestAudioEmotion_MissingExpectedLabelParam(t *testing.T) {
 }
 
 func TestAudioEmotion_NoRegistryInContext(t *testing.T) {
-	// Plain context with no classify.Registry attached. The handler must
-	// surface this as a failed eval with a helpful explanation, not as a
-	// panic or a Go error to the runner.
+	// Plain context with no classify.Registry attached. Infrastructure
+	// absence (no inference provider declared) is Skipped — the assertion
+	// couldn't run, but nothing is broken. This is the keyless-CI path:
+	// the demo declares an HF provider but HF_TOKEN isn't set, so the
+	// engine never populates the registry, and the assertion skips.
 	h := &AudioEmotionHandler{}
 	res, err := h.Eval(context.Background(), &evals.EvalContext{}, map[string]any{
 		"model":          "x/y",
@@ -207,8 +209,11 @@ func TestAudioEmotion_NoRegistryInContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Eval should not return Go error; got %v", err)
 	}
-	if !strings.Contains(res.Error, "no classify registry configured") {
-		t.Errorf("error %q should point users at the missing wiring", res.Error)
+	if !res.Skipped {
+		t.Fatalf("expected Skipped when no registry; got Error=%q", res.Error)
+	}
+	if !strings.Contains(res.SkipReason, "no classify registry configured") {
+		t.Errorf("SkipReason %q should point users at the missing wiring", res.SkipReason)
 	}
 }
 
@@ -226,8 +231,14 @@ func TestAudioEmotion_NoAudioInMessages(t *testing.T) {
 		"model":          "x/y",
 		"expected_label": "angry",
 	})
-	if !strings.Contains(res.Error, "no audio part") {
-		t.Errorf("error %q should explain why no audio was scored", res.Error)
+	// Mock providers without audio output (or scenarios where the chosen
+	// role never speaks) should skip cleanly. The user can still see WHY
+	// via SkipReason.
+	if !res.Skipped {
+		t.Fatalf("expected Skipped when no audio in messages; got Error=%q", res.Error)
+	}
+	if !strings.Contains(res.SkipReason, "no audio part") {
+		t.Errorf("SkipReason %q should explain why no audio was scored", res.SkipReason)
 	}
 }
 
