@@ -1895,11 +1895,13 @@ spec:
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if _, inLLM := cfg.LoadedProviders["imagen-routed"]; inLLM {
-		t.Errorf("image provider must not appear in LoadedProviders (LLM matrix)")
+	// image is Predict-compatible — eligible for the matrix AND indexed
+	// in the typed image map.
+	if _, inMatrix := cfg.LoadedProviders["imagen-routed"]; !inMatrix {
+		t.Errorf("image provider must appear in LoadedProviders (matrix); image is Predict-compatible")
 	}
 	if _, ok := cfg.LoadedImageProviders["imagen-routed"]; !ok {
-		t.Errorf("image provider must be routed into LoadedImageProviders")
+		t.Errorf("image provider must also be routed into LoadedImageProviders")
 	}
 }
 

@@ -2,7 +2,6 @@
 package imagen
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -10,13 +9,16 @@ import (
 
 func init() {
 	providers.RegisterProviderFactory("imagen", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		// Get API key from environment
+		// Resolve API key. Construction must not fail when the key is
+		// absent — the provider is registered in the engine's provider
+		// registry at startup regardless of whether anyone will use it.
+		// Tooling that swaps in a mock (e.g. `promptarena run --mock-provider`)
+		// or scenarios that don't target imagen would otherwise be blocked
+		// by a key check for a provider they'll never call. Predict()
+		// surfaces the missing-key error when imagen is actually invoked.
 		apiKey := os.Getenv("GOOGLE_API_KEY")
 		if apiKey == "" {
 			apiKey = os.Getenv("GEMINI_API_KEY")
-		}
-		if apiKey == "" {
-			return nil, fmt.Errorf("GOOGLE_API_KEY or GEMINI_API_KEY environment variable not set")
 		}
 
 		// Project ID and location are no longer required when using Gemini API endpoint
