@@ -30,8 +30,14 @@ type AudioOptions struct {
 	// by backends that route by language.
 	Language string
 
-	// SampleRate is the source audio sample rate in Hz. Some
-	// backends require resampling and use this to drive it.
+	// SampleRate is the source audio sample rate in Hz. Backends
+	// that can resample internally use this to drive it. The
+	// shipped HuggingFace backend does NOT resample — handlers
+	// are expected to deliver audio at the rate the target model
+	// wants (typically 16 kHz mono for SER models). The field is
+	// kept on the options struct so future backends (ONNX, Hume,
+	// etc.) that do resample have a place to read the source rate
+	// from without growing a per-backend option type.
 	SampleRate int
 
 	// MIMEType is the audio container / codec hint (e.g. "audio/wav",

@@ -120,6 +120,86 @@ func TestRegistry_SetDefaultRejectsUnregistered(t *testing.T) {
 	}
 }
 
+// TestRegistry_SetDefaultHappyPaths_AllTasks pins that the SetDefault
+// methods on every task type successfully accept a registered id, and
+// that the subsequent empty-id lookup returns the registered instance.
+// Catches a symmetry bug where one task accidentally diverges from the
+// others.
+func TestRegistry_SetDefaultHappyPaths_AllTasks(t *testing.T) {
+	r := NewRegistry()
+	r.RegisterText("t", &stubText{id: "t"})
+	r.RegisterImage("i", &stubImage{id: "i"})
+	r.RegisterVideo("v", &stubVideo{id: "v"})
+	r.RegisterEmbedder("e", &stubEmbedder{id: "e"})
+
+	if err := r.SetDefaultText("t"); err != nil {
+		t.Errorf("SetDefaultText: %v", err)
+	}
+	if err := r.SetDefaultImage("i"); err != nil {
+		t.Errorf("SetDefaultImage: %v", err)
+	}
+	if err := r.SetDefaultVideo("v"); err != nil {
+		t.Errorf("SetDefaultVideo: %v", err)
+	}
+	if err := r.SetDefaultEmbedder("e"); err != nil {
+		t.Errorf("SetDefaultEmbedder: %v", err)
+	}
+
+	if got, _ := r.TextClassifier(""); got == nil {
+		t.Error("text default fallback returned nil")
+	}
+	if got, _ := r.ImageClassifier(""); got == nil {
+		t.Error("image default fallback returned nil")
+	}
+	if got, _ := r.VideoClassifier(""); got == nil {
+		t.Error("video default fallback returned nil")
+	}
+	if got, _ := r.Embedder(""); got == nil {
+		t.Error("embedder default fallback returned nil")
+	}
+}
+
+// TestRegistry_EmptyIDWithoutDefault pins the "no id supplied AND no
+// default configured" error path for every task type. The error must
+// be actionable — naming the task — so handlers can surface a useful
+// message rather than "nil pointer".
+func TestRegistry_EmptyIDWithoutDefault(t *testing.T) {
+	r := NewRegistry()
+	for _, tc := range []struct {
+		name string
+		fn   func() error
+	}{
+		{"audio", func() error { _, err := r.AudioClassifier(""); return err }},
+		{"text", func() error { _, err := r.TextClassifier(""); return err }},
+		{"image", func() error { _, err := r.ImageClassifier(""); return err }},
+		{"video", func() error { _, err := r.VideoClassifier(""); return err }},
+		{"embedder", func() error { _, err := r.Embedder(""); return err }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.fn()
+			if err == nil {
+				t.Fatalf("%s: empty id with no default must error", tc.name)
+			}
+			if !strings.Contains(err.Error(), "no default configured") {
+				t.Errorf("%s: error %q should mention missing default", tc.name, err.Error())
+			}
+		})
+	}
+}
+
+// TestRegistry_WithRegistryNilStored documents the contract that
+// attaching a nil *Registry to a context is intentional: handlers
+// that pull a nil out of FromContext treat it as "classification
+// disabled in this run" rather than panicking. A future change that
+// rejects nil at attach time would need to update this test.
+func TestRegistry_WithRegistryNilStored(t *testing.T) {
+	ctx := WithRegistry(context.Background(), nil)
+	got := FromContext(ctx)
+	if got != nil {
+		t.Errorf("FromContext(ctx with nil registry) = %v, want nil", got)
+	}
+}
+
 func TestRegistry_AllTaskRoundtrips(t *testing.T) {
 	r := NewRegistry()
 	r.RegisterText("t", &stubText{id: "t"})

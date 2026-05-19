@@ -45,12 +45,20 @@ func (c *Client) Embed(
 		return nil, err
 	}
 
-	// Batch shape: [[float, float, ...], [float, ...]]
+	// Batch shape: [[float, float, ...], [float, ...]]. The
+	// length-match check is intentional: a count mismatch between
+	// inputs and returned vectors is treated as malformed (and
+	// falls through to the error path below) rather than as
+	// partial success. Returning fewer-than-requested vectors
+	// without an explicit error would silently mis-align callers
+	// that index into the result by input position.
 	var batched [][]float32
 	if err := json.Unmarshal(body, &batched); err == nil && len(batched) == len(inputs) {
 		return batched, nil
 	}
-	// Single shape: [float, float, ...] — wrap.
+	// Single shape: [float, float, ...] — wrap. Only valid when
+	// the caller submitted exactly one input; otherwise we treat
+	// a flat array as malformed for a batch request.
 	var single []float32
 	if err := json.Unmarshal(body, &single); err == nil && len(inputs) == 1 {
 		return [][]float32{single}, nil

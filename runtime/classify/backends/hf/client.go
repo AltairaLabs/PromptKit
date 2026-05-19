@@ -52,11 +52,12 @@ const maxLoadingWaitCap = 15 * time.Second
 // platform-level failures.
 const errBodySnippetMax = 200
 
-// modelLoadingRetryMax bounds the wait for a cold HF model on first
-// call. HF returns 503 with an estimated_time payload; we retry that
-// many times then surface "model warming up" so the caller can treat
-// it as a skipped eval rather than a real failure.
-const modelLoadingRetryMax = 3
+// modelLoadingMaxRetries bounds the wait for a cold HF model on
+// first call. HF returns 503 with an estimated_time payload; we
+// retry that many times then surface "model warming up" so the
+// caller can treat it as a skipped eval rather than a real failure.
+// The total attempt count is 1 initial + N retries.
+const modelLoadingMaxRetries = 3
 
 // ErrModelLoading is returned when HF reports the model is still
 // warming up after exhausting retries. Eval handlers that see this
@@ -161,9 +162,21 @@ func (c *Client) modelURL(model string) (string, error) {
 //
 // Caller owns request encoding (audio bytes, JSON, etc.) — `do`
 // only handles auth + retry + error decoding.
+//
+// Retry policy: 503 is the model-loading signal and is retried
+// honoring HF's estimated_time (capped). 502/504 are NOT retried —
+// the HF Inference API surfaces real gateway errors with those
+// codes too, and a tight retry loop risks compounding upstream
+// load. If you want bounded gateway retries, add them at a higher
+// level via Config.HTTPClient transport middleware.
+//
+// TODO(#1214): no per-client rate limiting yet. HF free tier limits
+// per IP; the proposal calls for a token bucket sized from arena
+// config. Add when the first concurrent eval handler lands.
 func (c *Client) do(ctx context.Context, modelURL, contentType string, body []byte) ([]byte, error) {
-	var lastErr error
-	for attempt := 0; attempt <= modelLoadingRetryMax; attempt++ {
+	// Total attempts = 1 initial + modelLoadingMaxRetries.
+	totalAttempts := 1 + modelLoadingMaxRetries
+	for attempt := 0; attempt < totalAttempts; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, modelURL, bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("hf: build request: %w", err)
@@ -187,24 +200,26 @@ func (c *Client) do(ctx context.Context, modelURL, contentType string, body []by
 		case http.StatusServiceUnavailable:
 			// Model is loading. HF returns JSON with estimated_time
 			// in seconds; we honor a small chunk of that (capped)
-			// and retry. Once attempts run out we surface
-			// ErrModelLoading so the caller marks the eval skipped.
-			wait := parseEstimatedWait(respBody, defaultLoadingRetryWait)
-			if attempt == modelLoadingRetryMax {
-				lastErr = fmt.Errorf("%w: last 503 body: %s", ErrModelLoading, truncateBody(respBody))
-				break
+			// and retry. On the last attempt return ErrModelLoading
+			// so the caller marks the eval skipped, not failed.
+			if attempt == totalAttempts-1 {
+				return nil, fmt.Errorf("%w: last 503 body: %s", ErrModelLoading, truncateBody(respBody))
 			}
+			wait := parseEstimatedWait(respBody, defaultLoadingRetryWait)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			case <-time.After(wait):
 			}
-			continue
+			// Loop to next attempt.
 		default:
 			return nil, fmt.Errorf("hf: status %d: %s", resp.StatusCode, truncateBody(respBody))
 		}
 	}
-	return nil, lastErr
+	// Unreachable: every branch in the switch above either returns
+	// or continues the loop. Keep an explicit return so future
+	// refactors that add a fallthrough don't compile to nothing.
+	return nil, fmt.Errorf("hf: retry loop exited without resolution (internal bug)")
 }
 
 // parseEstimatedWait extracts {"estimated_time": <seconds>} from an

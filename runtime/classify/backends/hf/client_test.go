@@ -2,6 +2,7 @@ package hf
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -115,10 +116,12 @@ func TestClient_ClassifyAudio_RequiresModel(t *testing.T) {
 }
 
 func TestClient_ClassifyText_HappyPath(t *testing.T) {
+	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("text content-type = %q, want application/json", r.Header.Get("Content-Type"))
 		}
+		gotBody, _ = io.ReadAll(r.Body)
 		// HF nested shape — one inner array per input.
 		fmt.Fprintln(w, `[[{"label":"toxic","score":0.91},{"label":"clean","score":0.09}]]`)
 	}))
@@ -134,6 +137,23 @@ func TestClient_ClassifyText_HappyPath(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Label != "toxic" {
 		t.Errorf("got %v, want toxic first", got)
+	}
+
+	// Pin the request body shape so a refactor that drops Parameters
+	// (or breaks Inputs encoding) gets caught here rather than in a
+	// production HF call where the failure is harder to attribute.
+	var sent struct {
+		Inputs     string         `json:"inputs"`
+		Parameters map[string]any `json:"parameters"`
+	}
+	if err := json.Unmarshal(gotBody, &sent); err != nil {
+		t.Fatalf("request body must be valid JSON: %v (raw: %s)", err, gotBody)
+	}
+	if sent.Inputs != "you suck" {
+		t.Errorf("request inputs = %q, want %q", sent.Inputs, "you suck")
+	}
+	if v, ok := sent.Parameters["return_all_scores"].(bool); !ok || !v {
+		t.Errorf("MultiLabel=true must set parameters.return_all_scores=true; got params %v", sent.Parameters)
 	}
 }
 
