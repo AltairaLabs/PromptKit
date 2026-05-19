@@ -208,6 +208,7 @@ func LoadConfig(filename string) (*Config, error) {
 	cfg.LoadedSTTProviders = make(map[string]*Provider, len(cfg.STTProviders))
 	cfg.LoadedEmbeddingProviders = make(map[string]*Provider, len(cfg.EmbeddingProviders))
 	cfg.LoadedImageProviders = make(map[string]*Provider, len(cfg.ImageProviders))
+	cfg.LoadedInference = make(map[string]*InferenceConfig, len(cfg.Inference))
 	cfg.ProviderGroups = make(map[string]string)
 	cfg.ProviderCapabilities = make(map[string][]string)
 
@@ -228,6 +229,9 @@ func LoadConfig(filename string) (*Config, error) {
 		return nil, err
 	}
 	if err := cfg.loadImageProviders(filename); err != nil {
+		return nil, err
+	}
+	if err := cfg.loadInference(); err != nil {
 		return nil, err
 	}
 	if err := cfg.validateVoiceBindings(); err != nil {
@@ -592,6 +596,58 @@ func (c *Config) loadEmbeddingProviders(configPath string) error {
 				ref.File, RoleEmbedding, provider.GetRole())
 		}
 		c.LoadedEmbeddingProviders[provider.ID] = provider
+	}
+	return nil
+}
+
+// loadInference validates the inline inference list and populates
+// LoadedInference. Unlike providers/scenarios/evals, inference entries are
+// always inline (no file-ref shape) — they're small enough that splitting
+// them into separate YAML files would be ceremony without benefit. Default
+// references in cfg.Defaults.Inference are validated here too so unknown
+// ids fail at load time, not at first use.
+func (c *Config) loadInference() error {
+	for i := range c.Inference {
+		entry := &c.Inference[i]
+		if err := c.registerInferenceEntry(i, entry); err != nil {
+			return err
+		}
+	}
+	return c.validateInferenceDefaults()
+}
+
+func (c *Config) registerInferenceEntry(index int, entry *InferenceConfig) error {
+	if entry.ID == "" {
+		return fmt.Errorf("inference[%d]: id is required", index)
+	}
+	if entry.Type == "" {
+		return fmt.Errorf("inference[%s]: type is required", entry.ID)
+	}
+	if _, exists := c.LoadedInference[entry.ID]; exists {
+		return fmt.Errorf("inference[%s]: duplicate id", entry.ID)
+	}
+	c.LoadedInference[entry.ID] = entry
+	return nil
+}
+
+func (c *Config) validateInferenceDefaults() error {
+	if c.Defaults.Inference == nil {
+		return nil
+	}
+	defaults := c.Defaults.Inference
+	for label, id := range map[string]string{
+		"audio_classifier": defaults.AudioClassifier,
+		"text_classifier":  defaults.TextClassifier,
+		"image_classifier": defaults.ImageClassifier,
+		"video_classifier": defaults.VideoClassifier,
+		"embedder":         defaults.Embedder,
+	} {
+		if id == "" {
+			continue
+		}
+		if _, ok := c.LoadedInference[id]; !ok {
+			return fmt.Errorf("defaults.inference.%s: unknown inference id %q", label, id)
+		}
 	}
 	return nil
 }

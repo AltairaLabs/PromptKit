@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -23,6 +24,13 @@ type EvalOrchestrator struct {
 	metadata             map[string]any           // injected into every EvalContext (e.g. judge_targets)
 	eventBus             events.Bus               // optional event bus for provider call telemetry in evals
 	workflowMetaProvider WorkflowMetadataProvider // optional workflow state provider
+	// classifyRegistry, when non-nil, is attached to the context passed to
+	// every eval/assertion handler invocation via classify.WithRegistry.
+	// Handlers that need a classifier (audio_emotion, text_toxicity, ...)
+	// pull it back out with classify.FromContext. Nil registry is fine —
+	// classify.WithRegistry/FromContext are nil-safe and handlers that
+	// require one surface an explanatory error.
+	classifyRegistry *classify.Registry
 }
 
 // NewEvalOrchestrator creates a hook for executing pack evals during Arena runs.
@@ -84,6 +92,29 @@ func (h *EvalOrchestrator) SetMetadata(metadata map[string]any) {
 	h.metadata = metadata
 }
 
+// SetClassifyRegistry sets the classify.Registry that will be attached to the
+// context passed to every eval/assertion handler. Handlers that need a
+// classifier (audio_emotion, text_toxicity, ...) read it via
+// classify.FromContext. Safe to call with nil — the context attach is a no-op
+// and FromContext returns nil for handlers to surface their own error.
+func (h *EvalOrchestrator) SetClassifyRegistry(r *classify.Registry) {
+	if h == nil {
+		return
+	}
+	h.classifyRegistry = r
+}
+
+// withClassify returns ctx wrapped with the orchestrator's classify.Registry,
+// or the original ctx when no registry is configured. Called from every Run*
+// entry point so a handler's classify.FromContext lookup succeeds without
+// each caller plumbing the registry through manually.
+func (h *EvalOrchestrator) withClassify(ctx context.Context) context.Context {
+	if h == nil || h.classifyRegistry == nil {
+		return ctx
+	}
+	return classify.WithRegistry(ctx, h.classifyRegistry)
+}
+
 // SetEventBus configures the event bus for provider call telemetry in eval handlers.
 // When set, an emitter is injected into each EvalContext's metadata so that
 // LLM judge provider calls emit ProviderCallStarted/Completed/Failed events.
@@ -115,7 +146,7 @@ func (h *EvalOrchestrator) RunTurnEvals(
 	}
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
-	results := h.runner.RunTurnEvals(ctx, h.defs, evalCtx)
+	results := h.runner.RunTurnEvals(h.withClassify(ctx), h.defs, evalCtx)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -139,7 +170,7 @@ func (h *EvalOrchestrator) RunSessionEvals(
 		turnIndex = 0
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
-	return h.runner.RunSessionEvals(ctx, h.defs, evalCtx)
+	return h.runner.RunSessionEvals(h.withClassify(ctx), h.defs, evalCtx)
 }
 
 // RunConversationEvals runs conversation-complete evals after all turns finish.
@@ -158,7 +189,7 @@ func (h *EvalOrchestrator) RunConversationEvals(
 		turnIndex = 0
 	}
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
-	results := h.runner.RunConversationEvals(ctx, h.defs, evalCtx)
+	results := h.runner.RunConversationEvals(h.withClassify(ctx), h.defs, evalCtx)
 	return assertions.ConvertEvalResults(results)
 }
 
@@ -189,14 +220,15 @@ func (h *EvalOrchestrator) RunAssertionsAsEvals(
 	}
 
 	evalCtx := h.buildEvalContext(messages, turnIndex, sessionID)
+	classifyCtx := h.withClassify(ctx)
 
 	switch trigger { //nolint:exhaustive // Only conversation and turn triggers are meaningful here
 	case evals.TriggerOnConversationComplete:
-		return h.runner.RunConversationEvals(ctx, defs, evalCtx)
+		return h.runner.RunConversationEvals(classifyCtx, defs, evalCtx)
 	case evals.TriggerEveryTurn:
-		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
+		return h.runner.RunTurnEvals(classifyCtx, defs, evalCtx)
 	default:
-		return h.runner.RunTurnEvals(ctx, defs, evalCtx)
+		return h.runner.RunTurnEvals(classifyCtx, defs, evalCtx)
 	}
 }
 

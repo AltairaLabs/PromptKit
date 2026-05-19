@@ -158,6 +158,20 @@ func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
 			metadata["tool_registry"] = toolRegistry
 		}
 		evalOrchestrator.SetMetadata(metadata)
+
+		// Build the classify.Registry from cfg.Inference and inject it into
+		// the orchestrator so eval/assertion handlers can pull a classifier
+		// via classify.FromContext. Construction errors are non-fatal — an
+		// unparseable HF entry would block every run, even ones that don't
+		// touch classify, so we log and continue with an empty registry.
+		// Handlers that need one will surface a clean "no classifier
+		// configured" error rather than panic.
+		classifyReg, classifyErr := buildClassifyRegistry(cfg)
+		if classifyErr != nil {
+			logger.Warn("classify registry build failed; classify-backed handlers unavailable",
+				"error", classifyErr)
+		}
+		evalOrchestrator.SetClassifyRegistry(classifyReg)
 	}
 
 	// Build conversation executor (engine-specific, stays here)
