@@ -68,6 +68,10 @@ func init() {
 	evals.RegisterDefault(&VideoDurationHandler{})
 	evals.RegisterDefault(&VideoResolutionHandler{})
 
+	// Classify-backed media handlers — score model output (audio emotion,
+	// text toxicity, ...) using the classify.Registry from context.
+	evals.RegisterDefault(&AudioEmotionHandler{})
+
 	// LLM judge handlers
 	evals.RegisterDefault(&LLMJudgeHandler{})
 	evals.RegisterDefault(&LLMJudgeSessionHandler{})

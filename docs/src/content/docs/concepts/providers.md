@@ -36,6 +36,30 @@ A **provider** is an LLM service (OpenAI, Anthropic, Google) that generates text
 - **Features**: Function calling, vision, streaming, guided decoding, beam search, GPU-accelerated high-throughput
 - **Pricing**: Free (self-hosted, no API costs)
 
+## Provider Roles
+
+Every provider declares a `role:` that tells the runtime which interface
+it implements:
+
+- `llm` (default) — chat completion via `Predict()`. The matrix of
+  agents-under-test in arena scenarios is built from these.
+- `tts` — text-to-speech via `Synthesize()`.
+- `stt` — speech-to-text via `Transcribe()`.
+- `embedding` — vector embeddings via `Embed()`.
+- `image` — image generation; Predict-compatible, so eligible for the
+  arena matrix alongside `llm`.
+- `inference` — non-LLM inference (audio/text/image classifiers,
+  embedders) via the `runtime/classify` task interfaces. Powers
+  assertion handlers like `audio_emotion`. Today the only shipped
+  backend is HuggingFace; see
+  [Inference Providers](/arena/how-to/configure-providers/#inference-providers-audio--text--image-classification--embedding)
+  in the configure-providers how-to.
+
+Providers route into role-specific registries at load time. One backend
+can satisfy several roles if it implements multiple interfaces (e.g.
+the HuggingFace inference backend registers as audio, text, image, and
+embedder simultaneously).
+
 ## Platform Support
 
 PromptKit supports running models on cloud hyperscaler platforms in addition to direct API access:
