@@ -15,13 +15,14 @@ spec:
     - id: refund-agent
       file: prompts/refund-agent.prompt.yaml
 
+  # All providers — LLM and TTS — live in the unified `providers:` list.
+  # The loader routes each entry by its `role:` field; TTS entries skip the
+  # agent-under-test matrix and are looked up by voice bindings below.
   providers:
     - file: providers/gemini-2-flash.provider.yaml
     - file: providers/openai-gpt4o-realtime.provider.yaml
     - file: providers/mock-duplex.provider.yaml
     - file: providers/openai-gpt4o-mini-text.provider.yaml
-
-  tts_providers:
     - file: providers/cartesia-confident-man.provider.yaml
     - file: providers/cartesia-friendly-woman.provider.yaml
     - file: providers/elevenlabs-arnold.provider.yaml
