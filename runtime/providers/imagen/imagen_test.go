@@ -121,20 +121,10 @@ func TestProviderIDFromFactory(t *testing.T) {
 			wantID:  "my-imagen-gen",
 			wantErr: false,
 		},
-		{
-			name: "missing API key",
-			spec: providers.ProviderSpec{
-				ID:      "test-imagen",
-				Type:    "imagen",
-				Model:   "imagen-4.0-generate-001",
-				BaseURL: "https://aiplatform.googleapis.com/v1",
-				AdditionalConfig: map[string]interface{}{
-					"project_id": "test-project",
-				},
-			},
-			wantID:  "",
-			wantErr: true,
-		},
+		// (Construction without an API key is verified by
+		// TestProviderFactory_MissingAPIKeyConstructsOK below — covering
+		// the explicit "no env vars" setup that this table-driven test's
+		// shared setup can't express without conditional branching.)
 		{
 			name: "project_id now optional",
 			spec: providers.ProviderSpec{
@@ -180,6 +170,33 @@ func TestProviderIDFromFactory(t *testing.T) {
 				t.Errorf("Expected provider ID %q, got %q", tt.wantID, provider.ID())
 			}
 		})
+	}
+}
+
+// TestProviderFactory_MissingAPIKeyConstructsOK pins the contract that
+// imagen's factory must not fail on a missing API key. Engines (e.g.
+// arena's --mock-provider mode) register every declared provider in
+// the matrix at startup; if any factory fails fast on credentials,
+// the whole engine fails to come up — even when nobody will actually
+// invoke that provider. The error is deferred to Predict() instead.
+func TestProviderFactory_MissingAPIKeyConstructsOK(t *testing.T) {
+	t.Setenv("GOOGLE_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
+
+	provider, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID:    "imagen-no-key",
+		Type:  "imagen",
+		Model: "imagen-4.0-generate-001",
+	})
+	if err != nil {
+		t.Fatalf("factory must not fail on missing API key; got: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("provider must be non-nil even without API key")
+	}
+	if provider.ID() != "imagen-no-key" {
+		t.Errorf("provider ID = %q, want %q", provider.ID(), "imagen-no-key")
 	}
 }
 

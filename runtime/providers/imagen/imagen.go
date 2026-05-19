@@ -166,6 +166,11 @@ func extractPrompt(req providers.PredictionRequest) (string, error) {
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
+	if p.ApiKey == "" {
+		return providers.PredictionResponse{}, fmt.Errorf(
+			"imagen: GOOGLE_API_KEY or GEMINI_API_KEY environment variable not set")
+	}
+
 	prompt, err := extractPrompt(req)
 	if err != nil {
 		return providers.PredictionResponse{}, err

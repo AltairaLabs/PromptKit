@@ -5,4 +5,5 @@ metadata:
 spec:
   id: "imagen-provider"
   type: imagen
+  role: image
   model: imagen-4.0-generate-001

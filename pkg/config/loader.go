@@ -9,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
@@ -468,10 +469,16 @@ func (c *Config) loadEvals(configPath string) error {
 
 // loadProviders loads all referenced providers from the unified
 // `providers:` list and routes each into the appropriate Loaded* map
-// based on its `role:` value. role=llm (default) goes into the
-// agent-under-test matrix; non-llm roles populate role-specific
-// maps that consumers (TTS resolver, embedding bridge, etc.) look up
-// by ID.
+// based on its `role:` value.
+//
+// Matrix membership is by interface compatibility with the LLM-shaped
+// ProviderStage: role=llm and role=image both implement Predict and
+// flow through ProviderStage normally, so both go into LoadedProviders
+// (the agent-under-test matrix) AND each role's typed map. role=tts,
+// role=stt, role=embedding use different interfaces (Synthesize,
+// Transcribe, Embed) and never reach ProviderStage — they're routed
+// only to their typed map and a one-line warning is emitted explaining
+// they were loaded but excluded from the matrix.
 //
 // The dedicated `tts_providers:` / `stt_providers:` / `embedding_providers:`
 // / `image_providers:` slots are still honored for backward
@@ -488,8 +495,10 @@ func (c *Config) loadProviders(configPath string) error {
 		if err := provider.ValidateRole(); err != nil {
 			return fmt.Errorf("provider %s: %w", provider.ID, err)
 		}
-		switch provider.GetRole() {
-		case RoleLLM:
+		role := provider.GetRole()
+		switch role {
+		case RoleLLM, RoleImage:
+			// Predict-compatible — eligible for the agent-under-test matrix.
 			c.LoadedProviders[provider.ID] = provider
 			group := ref.Group
 			if group == "" {
@@ -499,16 +508,26 @@ func (c *Config) loadProviders(configPath string) error {
 			if len(provider.Capabilities) > 0 {
 				c.ProviderCapabilities[provider.ID] = provider.Capabilities
 			}
+			if role == RoleImage {
+				c.LoadedImageProviders[provider.ID] = provider
+			}
 		case RoleTTS:
 			c.LoadedTTSProviders[provider.ID] = provider
+			logger.Warn("Provider loaded but excluded from matrix",
+				"provider", provider.ID, "role", role,
+				"reason", "TTS uses Synthesize() interface, not Predict()")
 		case RoleSTT:
 			c.LoadedSTTProviders[provider.ID] = provider
+			logger.Warn("Provider loaded but excluded from matrix",
+				"provider", provider.ID, "role", role,
+				"reason", "STT uses Transcribe() interface, not Predict()")
 		case RoleEmbedding:
 			c.LoadedEmbeddingProviders[provider.ID] = provider
-		case RoleImage:
-			c.LoadedImageProviders[provider.ID] = provider
+			logger.Warn("Provider loaded but excluded from matrix",
+				"provider", provider.ID, "role", role,
+				"reason", "embedding providers use Embed() interface, not Predict()")
 		default:
-			return fmt.Errorf("providers[%s]: unhandled role %q", ref.File, provider.GetRole())
+			return fmt.Errorf("providers[%s]: unhandled role %q", ref.File, role)
 		}
 	}
 	return nil
