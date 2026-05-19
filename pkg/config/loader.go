@@ -208,7 +208,7 @@ func LoadConfig(filename string) (*Config, error) {
 	cfg.LoadedSTTProviders = make(map[string]*Provider, len(cfg.STTProviders))
 	cfg.LoadedEmbeddingProviders = make(map[string]*Provider, len(cfg.EmbeddingProviders))
 	cfg.LoadedImageProviders = make(map[string]*Provider, len(cfg.ImageProviders))
-	cfg.LoadedInference = make(map[string]*InferenceConfig, len(cfg.Inference))
+	cfg.LoadedInferenceProviders = make(map[string]*Provider)
 	cfg.ProviderGroups = make(map[string]string)
 	cfg.ProviderCapabilities = make(map[string][]string)
 
@@ -231,7 +231,9 @@ func LoadConfig(filename string) (*Config, error) {
 	if err := cfg.loadImageProviders(filename); err != nil {
 		return nil, err
 	}
-	if err := cfg.loadInference(); err != nil {
+	// validateInferenceDefaults must run AFTER loadProviders so the role:
+	// inference entries are already in LoadedInferenceProviders.
+	if err := cfg.validateInferenceDefaults(); err != nil {
 		return nil, err
 	}
 	if err := cfg.validateVoiceBindings(); err != nil {
@@ -530,6 +532,11 @@ func (c *Config) loadProviders(configPath string) error {
 			logger.Warn("Provider loaded but excluded from matrix",
 				"provider", provider.ID, "role", role,
 				"reason", "embedding providers use Embed() interface, not Predict()")
+		case RoleInference:
+			c.LoadedInferenceProviders[provider.ID] = provider
+			logger.Warn("Provider loaded but excluded from matrix",
+				"provider", provider.ID, "role", role,
+				"reason", "inference providers use runtime/classify task interfaces, not Predict()")
 		default:
 			return fmt.Errorf("providers[%s]: unhandled role %q", ref.File, role)
 		}
@@ -600,36 +607,11 @@ func (c *Config) loadEmbeddingProviders(configPath string) error {
 	return nil
 }
 
-// loadInference validates the inline inference list and populates
-// LoadedInference. Unlike providers/scenarios/evals, inference entries are
-// always inline (no file-ref shape) — they're small enough that splitting
-// them into separate YAML files would be ceremony without benefit. Default
-// references in cfg.Defaults.Inference are validated here too so unknown
-// ids fail at load time, not at first use.
-func (c *Config) loadInference() error {
-	for i := range c.Inference {
-		entry := &c.Inference[i]
-		if err := c.registerInferenceEntry(i, entry); err != nil {
-			return err
-		}
-	}
-	return c.validateInferenceDefaults()
-}
-
-func (c *Config) registerInferenceEntry(index int, entry *InferenceConfig) error {
-	if entry.ID == "" {
-		return fmt.Errorf("inference[%d]: id is required", index)
-	}
-	if entry.Type == "" {
-		return fmt.Errorf("inference[%s]: type is required", entry.ID)
-	}
-	if _, exists := c.LoadedInference[entry.ID]; exists {
-		return fmt.Errorf("inference[%s]: duplicate id", entry.ID)
-	}
-	c.LoadedInference[entry.ID] = entry
-	return nil
-}
-
+// validateInferenceDefaults ensures every id referenced by
+// cfg.Defaults.Inference resolves to an entry in LoadedInferenceProviders
+// (populated by loadProviders for entries declaring role: inference).
+// Called from LoadConfig after all providers are loaded so unknown ids
+// surface at load time, not at first eval.
 func (c *Config) validateInferenceDefaults() error {
 	if c.Defaults.Inference == nil {
 		return nil
@@ -645,8 +627,10 @@ func (c *Config) validateInferenceDefaults() error {
 		if id == "" {
 			continue
 		}
-		if _, ok := c.LoadedInference[id]; !ok {
-			return fmt.Errorf("defaults.inference.%s: unknown inference id %q", label, id)
+		if _, ok := c.LoadedInferenceProviders[id]; !ok {
+			return fmt.Errorf(
+				"defaults.inference.%s: unknown provider id %q (expected providers: entry with role: inference)",
+				label, id)
 		}
 	}
 	return nil

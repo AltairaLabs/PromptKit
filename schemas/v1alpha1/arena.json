@@ -430,12 +430,6 @@
         "pack_file": {
           "type": "string"
         },
-        "inference": {
-          "items": {
-            "$ref": "#/$defs/InferenceConfig"
-          },
-          "type": "array"
-        },
         "provider_specs": {
           "additionalProperties": {
             "$ref": "#/$defs/Provider"
@@ -1078,34 +1072,6 @@
       },
       "additionalProperties": false,
       "type": "object"
-    },
-    "InferenceConfig": {
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "type": {
-          "type": "string"
-        },
-        "api_key": {
-          "type": "string"
-        },
-        "api_key_env": {
-          "type": "string"
-        },
-        "base_url": {
-          "type": "string"
-        },
-        "dedicated": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "id",
-        "type"
-      ]
     },
     "InferenceDefaults": {
       "properties": {
@@ -1811,7 +1777,8 @@
             "tts",
             "stt",
             "embedding",
-            "image"
+            "image",
+            "inference"
           ]
         },
         "base_url": {

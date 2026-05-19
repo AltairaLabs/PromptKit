@@ -115,11 +115,6 @@ type Config struct {
 	SelfPlay   *SelfPlayConfig   `yaml:"self_play,omitempty" json:"self_play,omitempty"`
 	PackFile   string            `yaml:"pack_file,omitempty" json:"pack_file,omitempty"`
 
-	// Inference declares non-LLM inference clients used by assertion/eval
-	// handlers (audio_emotion, text_toxicity, ...). Backends implement the
-	// runtime/classify task interfaces. See InferenceConfig for the shape.
-	Inference []InferenceConfig `yaml:"inference,omitempty" json:"inference,omitempty"`
-
 	// Inline resource specs (alternative to file refs, merged into LoadedX during load)
 	ProviderSpecs map[string]*Provider    `yaml:"provider_specs,omitempty" json:"provider_specs,omitempty"`
 	ScenarioSpecs map[string]*Scenario    `yaml:"scenario_specs,omitempty" json:"scenario_specs,omitempty"`
@@ -158,7 +153,7 @@ type Config struct {
 	LoadedSTTProviders       map[string]*Provider         `yaml:"-" json:"loaded_stt_providers,omitempty"`
 	LoadedEmbeddingProviders map[string]*Provider         `yaml:"-" json:"loaded_embedding_providers,omitempty"`
 	LoadedImageProviders     map[string]*Provider         `yaml:"-" json:"loaded_image_providers,omitempty"`
-	LoadedInference          map[string]*InferenceConfig  `yaml:"-" json:"loaded_inference,omitempty"`
+	LoadedInferenceProviders map[string]*Provider         `yaml:"-" json:"loaded_inference_providers,omitempty"`
 	LoadedJudges             map[string]*JudgeTarget      `yaml:"-" json:"loaded_judges,omitempty"`
 	LoadedScenarios          map[string]*Scenario         `yaml:"-" json:"loaded_scenarios,omitempty"`
 	LoadedEvals              map[string]*Eval             `yaml:"-" json:"loaded_evals,omitempty"`
@@ -485,32 +480,10 @@ type Defaults struct {
 	MarkdownConfig *MarkdownConfig `yaml:"markdown_config,omitempty" json:"markdown_config,omitempty"`
 }
 
-// InferenceConfig declares a non-LLM inference client (audio/text/image
-// classifier or embedder) backing the runtime/classify task interfaces.
-// Eval handlers depend on the task interface; the backend is chosen by id.
-// Today the only supported Type is "huggingface".
-type InferenceConfig struct {
-	ID   string `yaml:"id" json:"id"`
-	Type string `yaml:"type" json:"type"`
-
-	// APIKey is the literal token. Prefer APIKeyEnv so secrets stay out of
-	// committed YAML; APIKey wins when both are set.
-	APIKey    string `yaml:"api_key,omitempty" json:"api_key,omitempty"`
-	APIKeyEnv string `yaml:"api_key_env,omitempty" json:"api_key_env,omitempty"`
-
-	// BaseURL overrides the backend's default endpoint. Used for HF
-	// Inference Endpoints (dedicated paid hosts) and the newer Inference
-	// Providers routing layer.
-	BaseURL string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
-
-	// Dedicated, when true, treats BaseURL as a fully-specified inference
-	// endpoint and skips the /models/{id} suffix that the public HF
-	// Inference API requires. Set for HF Inference Endpoints.
-	Dedicated bool `yaml:"dedicated,omitempty" json:"dedicated,omitempty"`
-}
-
-// InferenceDefaults pins which inference client id serves each
-// classify task by default. Handlers may override per-call.
+// InferenceDefaults pins which inference provider id serves each
+// runtime/classify task by default. Ids resolve into
+// cfg.LoadedInferenceProviders (populated from `providers:` entries
+// declaring `role: inference`). Handlers may override per-call.
 type InferenceDefaults struct {
 	AudioClassifier string `yaml:"audio_classifier,omitempty" json:"audio_classifier,omitempty"`
 	TextClassifier  string `yaml:"text_classifier,omitempty" json:"text_classifier,omitempty"`
@@ -1191,7 +1164,7 @@ type Provider struct {
 	// Renamed from "capability" 2026-05-18 to avoid singular/plural
 	// collision with Capabilities. The field is required for tts/stt
 	// providers; defaults to "llm" when empty.
-	Role    string `json:"role,omitempty" yaml:"role,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt,enum=embedding,enum=image"` //nolint:lll // enum list can't be split inside a struct tag
+	Role    string `json:"role,omitempty" yaml:"role,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt,enum=embedding,enum=image,enum=inference"` //nolint:lll // enum list can't be split inside a struct tag
 	BaseURL string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	// Headers specifies custom HTTP headers to include in every request to
 	// this provider. Useful for OpenAI-compatible gateways (OpenRouter,
