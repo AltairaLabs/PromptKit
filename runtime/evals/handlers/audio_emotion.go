@@ -47,6 +47,20 @@ func (h *AudioEmotionHandler) Type() string { return "audio_emotion" }
 // Eval pulls the AudioClassifier out of context, locates the target audio
 // part in the conversation, runs classification, and grades the requested
 // label against the configured threshold.
+//
+// Skipped vs Error distinction:
+//   - Skipped — the assertion couldn't run because preconditions weren't met.
+//     Used for infrastructure absence: no classify registry configured (e.g.
+//     CI runs without HF_TOKEN), no audio parts in the message log (e.g. a
+//     mock provider that doesn't emit audio), or HF returned ErrModelLoading.
+//     These are configuration / environment shapes, not assertion failures.
+//   - Error — the assertion is misconfigured at the call site (missing
+//     required param) or the classifier call failed at runtime. The user
+//     should fix something.
+//
+// The split lets a single arena config sit happily under both real-provider
+// runs (assertion exercises a real model) and keyless CI runs (assertion
+// skips cleanly) without needing per-environment scenario forks.
 func (h *AudioEmotionHandler) Eval(
 	ctx context.Context, evalCtx *evals.EvalContext, params map[string]any,
 ) (*evals.EvalResult, error) {
@@ -57,11 +71,21 @@ func (h *AudioEmotionHandler) Eval(
 
 	classifier, classifierErr := resolveAudioClassifier(ctx, cfg.classifierID)
 	if classifierErr != nil {
-		return errorResult(h.Type(), classifierErr.Error()), nil
+		return skippedResult(h.Type(), classifierErr.Error()), nil
 	}
 
-	media, partErr := findAudioMessageMedia(evalCtx.Messages, cfg.messageRole, cfg.messageIndex)
+	audioParts := collectAudioPartsByRole(evalCtx.Messages, cfg.messageRole)
+	if len(audioParts) == 0 {
+		// No audio at all in the chosen role's turns is an infrastructure
+		// shape (mock provider, text-only scenario), not a config error.
+		return skippedResult(h.Type(),
+			fmt.Sprintf("no audio part found with role %q", cfg.messageRole)), nil
+	}
+	media, partErr := pickAudioPart(audioParts, cfg.messageIndex)
 	if partErr != nil {
+		// Audio exists but the user picked a specific index that's out of
+		// range — that's a misconfiguration at the assertion call site,
+		// not an environmental absence. Fail with a clear message.
 		return errorResult(h.Type(), partErr.Error()), nil
 	}
 
@@ -77,17 +101,25 @@ func (h *AudioEmotionHandler) Eval(
 	scores, classifyErr := classifier.ClassifyAudio(ctx, audioBytes, opts)
 	if classifyErr != nil {
 		if errors.Is(classifyErr, classifyhf.ErrModelLoading) {
-			return &evals.EvalResult{
-				Type:       h.Type(),
-				Score:      boolScore(true),
-				Skipped:    true,
-				SkipReason: "model still loading after retries",
-			}, nil
+			return skippedResult(h.Type(), "model still loading after retries"), nil
 		}
 		return errorResult(h.Type(), fmt.Sprintf("classify failed: %v", classifyErr)), nil
 	}
 
 	return gradeAudioEmotion(h.Type(), &cfg, scores), nil
+}
+
+// skippedResult builds an EvalResult that records "didn't run, didn't fail"
+// — the SkipReason carries the actual cause so reports can show it. Score is
+// set to a pass-shaped boolean so any downstream consumer that pre-filters
+// on Score-passes treats skipped as non-failing.
+func skippedResult(handlerType, reason string) *evals.EvalResult {
+	return &evals.EvalResult{
+		Type:       handlerType,
+		Score:      boolScore(true),
+		Skipped:    true,
+		SkipReason: reason,
+	}
 }
 
 // audioEmotionConfig holds the validated params after parsing. Keeping it
@@ -151,21 +183,17 @@ func resolveAudioClassifier(ctx context.Context, id string) (classify.AudioClass
 	return reg.AudioClassifier(id)
 }
 
-// findAudioMessageMedia locates the audio part the handler should classify.
-// Walks messages in reverse so message_index = -1 picks the most recent.
-// Non-negative indices count forward through audio parts of the matching
-// role.
-func findAudioMessageMedia(messages []types.Message, role string, index int) (*types.MediaContent, error) {
-	audioParts := collectAudioPartsByRole(messages, role)
-	if len(audioParts) == 0 {
-		return nil, fmt.Errorf("no audio part found with role %q", role)
-	}
+// pickAudioPart selects one part from a non-empty slice of audio parts. A
+// negative index picks the most recent (-1 → last). Caller is responsible
+// for the empty-slice case so the absence-vs-out-of-range distinction can
+// be surfaced at the right semantic level (Skipped vs Error).
+func pickAudioPart(audioParts []*types.MediaContent, index int) (*types.MediaContent, error) {
 	if index < 0 {
 		return audioParts[len(audioParts)-1], nil
 	}
 	if index >= len(audioParts) {
-		return nil, fmt.Errorf("message_index %d out of range (found %d audio parts with role %q)",
-			index, len(audioParts), role)
+		return nil, fmt.Errorf("message_index %d out of range (found %d audio parts)",
+			index, len(audioParts))
 	}
 	return audioParts[index], nil
 }
