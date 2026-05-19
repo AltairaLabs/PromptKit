@@ -1,12 +1,27 @@
 // Package classify defines task-oriented inference interfaces for
-// non-LLM workloads — audio / text / image / video classifiers and
-// embedders. Backends (HuggingFace Inference API, ONNX, Replicate, …)
-// implement one or more of these; eval handlers depend on the task
-// interface, never on the backend.
+// non-LLM workloads. The primary surface is classifier interfaces —
+// audio / text / image / video — that each take input bytes and
+// return []LabelScore (categorical, ranked by confidence). Backends
+// (HuggingFace Inference API, ONNX, Replicate, …) implement one or
+// more of these; eval handlers depend on the task interface, never
+// on the backend.
 //
 // Parallel to runtime/tts and runtime/stt: each is a task interface
 // with multiple backends behind it. runtime/providers handles chat
-// completion (Predict); classify covers the rest.
+// completion (Predict); classify covers classification.
+//
+// Embedder lives here for convenience — the HuggingFace Inference
+// API exposes embedding (feature-extraction) models through the same
+// endpoint family as classification models, so the HF backend
+// satisfies Embedder as a side effect. It is NOT the canonical home
+// for embedding providers. OpenAI, VoyageAI, and similar dedicated
+// embedding APIs continue to register under `role: embedding` via
+// the runtime/providers Embed() interface; cosine-similarity-style
+// handlers depend on that path. Future embedder backends that
+// happen to live in runtime/classify (e.g. an HF-hosted embedding
+// model) are bridged into the same handler path via adapters, not
+// by relocating providers. Treat Embedder here as a convenience
+// surface, not a migration target.
 package classify
 
 // LabelScore pairs a classifier label with a confidence score in
