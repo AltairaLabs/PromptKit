@@ -27,8 +27,20 @@ Every scenario in this example uses selfplay (persona LLM → TTS → realtime a
 | `CARTESIA_API_KEY` | Cartesia TTS on `aggressive-refund` + `impersonator-refund` | Those two scenarios |
 | `ELEVENLABS_API_KEY` | ElevenLabs v3 TTS on `anxious-delivery` | That scenario |
 | `GEMINI_API_KEY` | Gemini Live (the realtime agent under test) | Real-provider runs against Gemini |
+| `HF_TOKEN` | HuggingFace Inference API (audio_emotion SER scoring on `aggressive-refund`) | Optional — assertion skips cleanly when unset |
 
 Selfplay drives the persona via a real text LLM — there is no fully-mocked CI path for this example. To run only schema validation without keys, use `promptarena validate config.arena.yaml`.
+
+### Speech-emotion-recognition on the aggressive caller
+
+`aggressive-refund` includes an `audio_emotion` assertion that scores the selfplay user's TTS audio against `superb/wav2vec2-base-superb-er` to verify the persona actually *sounds* angry, not just says angry words. This catches a class of failure where a hostile-text persona produces a flat, monotone TTS read — voice agents trained on tone may handle those two cases very differently.
+
+Gated on `HF_TOKEN`:
+
+- **With `HF_TOKEN` exported** — the assertion runs against the HuggingFace Inference API. Passes when the model returns `angry` with score ≥ 0.5. The first call on a cold model returns 503 (loading); the assertion is recorded as *skipped*, not failed.
+- **Without `HF_TOKEN`** — the assertion skips cleanly with a "no api key configured" SkipReason. Doesn't affect the scenario's overall pass/fail.
+
+Cost is a few cents per run against the free tier. To disable entirely, remove the `audio_emotion` block from `scenarios/aggressive-refund.scenario.yaml` or comment out the `providers/hf.provider.yaml` reference in `config.arena.yaml`.
 
 ### Mock-mode run (validates the pipeline; assertions will fail)
 

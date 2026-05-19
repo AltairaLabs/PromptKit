@@ -68,6 +68,18 @@ spec:
           - escalate_to_human
         min_calls: 1
       message: "Agent must escalate when caller demands an out-of-policy refund"
+    # Speech-emotion-recognition gate: the selfplay user's voice should
+    # actually sound angry, not just say angry words. Requires an
+    # `inference` provider (HF_TOKEN); skips cleanly without one or when
+    # the mock provider doesn't emit audio parts.
+    - type: audio_emotion
+      params:
+        model: superb/wav2vec2-base-superb-er
+        message_role: selfplay-user
+        expected_label: angry
+        min_score: 0.5
+        classifier_id: hf
+      message: "Aggressive caller should actually sound angry, not just say angry words"
 
   context:
     goal: "Hostile caller demands out-of-warranty refund; agent holds the line"
