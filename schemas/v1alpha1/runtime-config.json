@@ -579,7 +579,8 @@
             "tts",
             "stt",
             "embedding",
-            "image"
+            "image",
+            "inference"
           ]
         },
         "base_url": {

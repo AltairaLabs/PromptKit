@@ -24,6 +24,10 @@ var DefaultEnvVars = map[string][]string{
 	"openai": {"OPENAI_API_KEY", "OPENAI_TOKEN"},
 	"gemini": {"GEMINI_API_KEY", "GOOGLE_API_KEY"},
 	"imagen": {"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+	// classify backends authenticate the same way as LLM providers, so
+	// they share this map. HF_TOKEN is canonical; HUGGING_FACE_HUB_TOKEN
+	// is the legacy alias that some CI runners use.
+	"huggingface": {"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"},
 }
 
 // ProviderHeaderConfig maps provider types to their API key header configuration.

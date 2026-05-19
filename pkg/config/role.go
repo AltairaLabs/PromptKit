@@ -16,18 +16,25 @@ const (
 	RoleSTT       = "stt"
 	RoleEmbedding = "embedding"
 	RoleImage     = "image"
+	// RoleInference covers providers implementing the runtime/classify task
+	// interfaces (audio/text/image/video classifiers + embedders). A single
+	// inference provider can satisfy several of them — the HuggingFace
+	// backend covers four — so engine wiring registers each backend against
+	// every interface it implements rather than per-role-per-task.
+	RoleInference = "inference"
 )
 
 // knownRoles is the set accepted by ValidateRole. An empty string is
 // also accepted (treated as LLM by GetRole). The internal
 // runtime/providers/base.ProviderType enum already covers all five
-// values — these are the public-facing names the spec accepts.
+// LLM-compatible values — these are the public-facing names the spec accepts.
 var knownRoles = map[string]struct{}{
 	RoleLLM:       {},
 	RoleTTS:       {},
 	RoleSTT:       {},
 	RoleEmbedding: {},
 	RoleImage:     {},
+	RoleInference: {},
 }
 
 // GetRole returns the provider's role, defaulting to "llm".
@@ -45,8 +52,8 @@ func (p *Provider) ValidateRole() error {
 		return nil
 	}
 	if _, ok := knownRoles[p.Role]; !ok {
-		return fmt.Errorf("unknown provider role %q (valid: %s, %s, %s, %s, %s)",
-			p.Role, RoleLLM, RoleTTS, RoleSTT, RoleEmbedding, RoleImage)
+		return fmt.Errorf("unknown provider role %q (valid: %s, %s, %s, %s, %s, %s)",
+			p.Role, RoleLLM, RoleTTS, RoleSTT, RoleEmbedding, RoleImage, RoleInference)
 	}
 	return nil
 }

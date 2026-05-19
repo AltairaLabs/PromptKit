@@ -1,43 +1,45 @@
 package engine
 
 import (
+	"context"
 	"fmt"
-	"os"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	classifyhf "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf"
+	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 )
 
 // inferenceTypeHuggingFace is the type string for HuggingFace Inference API
-// entries in arena's `inference:` block. It's the only backend kind that
-// ships in this slice; ONNX and others are queued behind separate issues.
+// providers in arena's `providers:` list (role: inference). It's the only
+// backend kind that ships in this slice; ONNX and others are queued behind
+// separate issues.
 const inferenceTypeHuggingFace = "huggingface"
 
 // buildClassifyRegistry constructs a classify.Registry populated with the
-// task-interface implementations declared in cfg.Inference. Each loaded
-// entry instantiates one backend Client and registers it against every
-// task interface that backend implements (HF's Client satisfies all five —
-// audio/text/image classifiers + embedder). cfg.Defaults.Inference is then
-// applied to pin which id wins when a handler doesn't specify one.
+// task-interface implementations declared in cfg.LoadedInferenceProviders
+// (every `providers:` entry with `role: inference`). Each loaded provider
+// instantiates one backend Client and registers against every classify
+// task interface that backend implements (the HF backend covers four —
+// audio/text/image classifiers + embedder). cfg.Defaults.Inference is
+// then applied to pin which id wins when a handler doesn't specify one.
 //
-// Returns (nil, nil) when no inference entries are configured — handlers
-// that need a classifier will surface their own "no classifier configured"
-// error via classify.FromContext returning nil, which is the desired
-// behavior: arenas that don't use classify-backed assertions shouldn't
-// require an HF_TOKEN.
+// Returns (nil, nil) when no inference providers are configured. Handlers
+// that need a classifier will surface "no classifier configured" via
+// classify.FromContext returning nil — arenas that don't use
+// classify-backed assertions shouldn't require an HF token.
 //
-// Returns a non-nil error only when a configured entry is malformed
-// (unsupported type, missing api key). The caller logs and continues —
-// one broken entry must not block a run that doesn't reach a
-// classify-dependent handler.
+// Returns a non-nil error only when a configured provider is malformed
+// (unsupported type, unresolvable credential, missing api key). The
+// caller logs and continues — one broken entry must not block a run
+// that doesn't reach a classify-dependent handler.
 func buildClassifyRegistry(cfg *config.Config) (*classify.Registry, error) {
-	if cfg == nil || len(cfg.LoadedInference) == 0 {
+	if cfg == nil || len(cfg.LoadedInferenceProviders) == 0 {
 		return nil, nil
 	}
 	reg := classify.NewRegistry()
-	for id, entry := range cfg.LoadedInference {
-		if err := registerInferenceEntry(reg, id, entry); err != nil {
+	for id, provider := range cfg.LoadedInferenceProviders {
+		if err := registerInferenceProvider(reg, id, provider, cfg.ConfigDir); err != nil {
 			return reg, err
 		}
 	}
@@ -47,20 +49,20 @@ func buildClassifyRegistry(cfg *config.Config) (*classify.Registry, error) {
 	return reg, nil
 }
 
-func registerInferenceEntry(reg *classify.Registry, id string, entry *config.InferenceConfig) error {
-	switch entry.Type {
+func registerInferenceProvider(reg *classify.Registry, id string, provider *config.Provider, configDir string) error {
+	switch provider.Type {
 	case inferenceTypeHuggingFace:
-		apiKey, err := resolveInferenceAPIKey(entry)
+		apiKey, err := resolveProviderAPIKey(provider, configDir)
 		if err != nil {
-			return fmt.Errorf("inference[%s]: %w", id, err)
+			return fmt.Errorf("inference provider %s: %w", id, err)
 		}
 		client, err := classifyhf.NewClient(classifyhf.Config{
 			APIKey:    apiKey,
-			BaseURL:   entry.BaseURL,
-			Dedicated: entry.Dedicated,
+			BaseURL:   provider.BaseURL,
+			Dedicated: providerBoolFromConfig(provider, "dedicated"),
 		})
 		if err != nil {
-			return fmt.Errorf("inference[%s]: %w", id, err)
+			return fmt.Errorf("inference provider %s: %w", id, err)
 		}
 		// HF Client implements every task interface (compile-time checked in
 		// runtime/classify/backends/hf/client.go). Register against each so
@@ -74,29 +76,47 @@ func registerInferenceEntry(reg *classify.Registry, id string, entry *config.Inf
 		// (audio + frame-sampled images) is queued in #1214 Phase 5.
 		return nil
 	default:
-		return fmt.Errorf("inference[%s]: unsupported type %q (supported: %s)", id, entry.Type, inferenceTypeHuggingFace)
+		return fmt.Errorf("inference provider %s: unsupported type %q (supported: %s)",
+			id, provider.Type, inferenceTypeHuggingFace)
 	}
 }
 
-func resolveInferenceAPIKey(entry *config.InferenceConfig) (string, error) {
-	if entry.APIKey != "" {
-		return entry.APIKey, nil
+// resolveProviderAPIKey runs the configured credential through the shared
+// resolver and extracts the raw API key. Non-APIKey credentials (NoOp,
+// cloud platform credentials) are rejected — the classify backends today
+// need a bearer token, not a signed request.
+func resolveProviderAPIKey(provider *config.Provider, configDir string) (string, error) {
+	cred, err := credentials.Resolve(context.Background(), credentials.ResolverConfig{
+		ProviderType:     provider.Type,
+		CredentialConfig: provider.Credential,
+		ConfigDir:        configDir,
+	})
+	if err != nil {
+		return "", err
 	}
-	if entry.APIKeyEnv != "" {
-		if v := os.Getenv(entry.APIKeyEnv); v != "" {
-			return v, nil
-		}
-		return "", fmt.Errorf("env var %s is empty or unset", entry.APIKeyEnv)
+	// Resolver returns NoOpCredential when no key is configured AND no
+	// default env var is set. For HF we always need a bearer token —
+	// surface a message that names every resolvable source.
+	apiKey, ok := cred.(*credentials.APIKeyCredential)
+	if !ok || apiKey.APIKey() == "" {
+		return "", fmt.Errorf(
+			"no api key configured (set credential.api_key, credential.credential_env, " +
+				"or export HF_TOKEN / HUGGING_FACE_HUB_TOKEN)")
 	}
-	// HF canonical env var fallback so arenas with a single inference entry
-	// don't need an explicit api_key_env. HF_TOKEN is the documented name;
-	// HUGGING_FACE_HUB_TOKEN is the legacy alias that some CI runners use.
-	for _, name := range []string{"HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"} {
-		if v := os.Getenv(name); v != "" {
-			return v, nil
-		}
+	return apiKey.APIKey(), nil
+}
+
+// providerBoolFromConfig pulls a boolean flag out of Provider.AdditionalConfig.
+// Returns false when the key is absent or the value isn't a bool — the
+// backends already validate their own knobs at request time, so passing
+// through "false" for a misspelled flag won't cause a silent breakage in
+// practice (an unset Dedicated still hits the public HF endpoint).
+func providerBoolFromConfig(provider *config.Provider, key string) bool {
+	if provider == nil || provider.AdditionalConfig == nil {
+		return false
 	}
-	return "", fmt.Errorf("api_key or api_key_env required (HF_TOKEN / HUGGING_FACE_HUB_TOKEN also accepted as fallback)")
+	v, ok := provider.AdditionalConfig[key].(bool)
+	return ok && v
 }
 
 func applyInferenceDefaults(reg *classify.Registry, defaults *config.InferenceDefaults) error {

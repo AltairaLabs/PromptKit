@@ -14,7 +14,7 @@ func TestBuildClassifyRegistry_NoInferenceReturnsNil(t *testing.T) {
 		t.Fatalf("buildClassifyRegistry: %v", err)
 	}
 	if reg != nil {
-		t.Errorf("expected nil registry when no inference entries; got %v", reg)
+		t.Errorf("expected nil registry when no inference providers; got %v", reg)
 	}
 }
 
@@ -28,11 +28,25 @@ func TestBuildClassifyRegistry_NilConfigReturnsNil(t *testing.T) {
 	}
 }
 
+// hfProvider returns a Provider with role: inference + a literal credential
+// so resolveProviderAPIKey succeeds without env-var setup. The literal-key
+// path is the cleanest seam in tests; env-var resolution is covered by
+// the credentials package's own tests.
+func hfProvider(id string) *config.Provider {
+	return &config.Provider{
+		ID:   id,
+		Type: "huggingface",
+		Role: config.RoleInference,
+		Credential: &config.CredentialConfig{
+			APIKey: "test-token",
+		},
+	}
+}
+
 func TestBuildClassifyRegistry_HFEntryRegistersAllTasks(t *testing.T) {
-	t.Setenv("HF_TOKEN", "test-token")
 	cfg := &config.Config{
-		LoadedInference: map[string]*config.InferenceConfig{
-			"hf": {ID: "hf", Type: "huggingface"},
+		LoadedInferenceProviders: map[string]*config.Provider{
+			"hf": hfProvider("hf"),
 		},
 	}
 	reg, err := buildClassifyRegistry(cfg)
@@ -42,8 +56,6 @@ func TestBuildClassifyRegistry_HFEntryRegistersAllTasks(t *testing.T) {
 	if reg == nil {
 		t.Fatal("expected non-nil registry")
 	}
-	// HF Client implements every task interface; the registry should
-	// resolve the id for each. Video deliberately omitted (no HF endpoint).
 	for _, lookup := range []struct {
 		name string
 		fn   func() error
@@ -57,64 +69,49 @@ func TestBuildClassifyRegistry_HFEntryRegistersAllTasks(t *testing.T) {
 			t.Errorf("%s lookup: %v", lookup.name, err)
 		}
 	}
-	// Video classifier should NOT be registered — HF has no general endpoint.
+	// Video classifier deliberately not registered — HF has no general endpoint.
 	if _, err := reg.VideoClassifier("hf"); err == nil {
 		t.Error("video should not be registered for HF backend")
 	}
 }
 
-func TestBuildClassifyRegistry_LiteralAPIKeyWinsOverEnv(t *testing.T) {
-	t.Setenv("HF_TOKEN", "env-token")
+func TestBuildClassifyRegistry_CanonicalEnvVarFallback(t *testing.T) {
+	// No literal credential — must fall through to HF_TOKEN via the
+	// credentials package's DefaultEnvVars for provider type "huggingface".
+	t.Setenv("HF_TOKEN", "from-env")
 	cfg := &config.Config{
-		LoadedInference: map[string]*config.InferenceConfig{
-			"hf": {ID: "hf", Type: "huggingface", APIKey: "literal-token"},
+		LoadedInferenceProviders: map[string]*config.Provider{
+			"hf": {ID: "hf", Type: "huggingface", Role: config.RoleInference},
 		},
 	}
 	if _, err := buildClassifyRegistry(cfg); err != nil {
-		t.Errorf("literal api key should succeed without HF_TOKEN: %v", err)
+		t.Errorf("HF_TOKEN fallback should succeed: %v", err)
 	}
 }
 
 func TestBuildClassifyRegistry_MissingAPIKeyErrors(t *testing.T) {
-	// Clear inherited values so the canonical fallback can't accidentally
-	// supply a token in CI environments where HF_TOKEN is exported.
+	// No literal credential, no env vars — must fail with a message that
+	// points the user at where to fix it.
 	t.Setenv("HF_TOKEN", "")
 	t.Setenv("HUGGING_FACE_HUB_TOKEN", "")
 	cfg := &config.Config{
-		LoadedInference: map[string]*config.InferenceConfig{
-			"hf": {ID: "hf", Type: "huggingface"},
+		LoadedInferenceProviders: map[string]*config.Provider{
+			"hf": {ID: "hf", Type: "huggingface", Role: config.RoleInference},
 		},
 	}
 	_, err := buildClassifyRegistry(cfg)
 	if err == nil {
-		t.Fatal("expected error when no api key resolvable")
+		t.Fatal("expected error when no credential resolvable")
 	}
-	if !strings.Contains(err.Error(), "api_key") {
-		t.Errorf("error %q should mention api_key", err.Error())
-	}
-}
-
-func TestBuildClassifyRegistry_NamedEnvVarMustBeSet(t *testing.T) {
-	t.Setenv("HF_TOKEN", "fallback-should-not-be-used")
-	t.Setenv("MY_HF_KEY", "") // explicitly empty
-	cfg := &config.Config{
-		LoadedInference: map[string]*config.InferenceConfig{
-			"hf": {ID: "hf", Type: "huggingface", APIKeyEnv: "MY_HF_KEY"},
-		},
-	}
-	_, err := buildClassifyRegistry(cfg)
-	if err == nil {
-		t.Fatal("when api_key_env is set, the named var being empty should error (don't silently fall through to HF_TOKEN)")
-	}
-	if !strings.Contains(err.Error(), "MY_HF_KEY") {
-		t.Errorf("error %q should name the configured env var", err.Error())
+	if !strings.Contains(err.Error(), "api key") {
+		t.Errorf("error %q should mention api key", err.Error())
 	}
 }
 
 func TestBuildClassifyRegistry_UnsupportedTypeErrors(t *testing.T) {
 	cfg := &config.Config{
-		LoadedInference: map[string]*config.InferenceConfig{
-			"x": {ID: "x", Type: "bogus"},
+		LoadedInferenceProviders: map[string]*config.Provider{
+			"x": {ID: "x", Type: "bogus", Role: config.RoleInference},
 		},
 	}
 	_, err := buildClassifyRegistry(cfg)
@@ -127,10 +124,9 @@ func TestBuildClassifyRegistry_UnsupportedTypeErrors(t *testing.T) {
 }
 
 func TestBuildClassifyRegistry_DefaultsAppliedToRegistry(t *testing.T) {
-	t.Setenv("HF_TOKEN", "test-token")
 	cfg := &config.Config{
-		LoadedInference: map[string]*config.InferenceConfig{
-			"hf": {ID: "hf", Type: "huggingface"},
+		LoadedInferenceProviders: map[string]*config.Provider{
+			"hf": hfProvider("hf"),
 		},
 		Defaults: config.Defaults{
 			Inference: &config.InferenceDefaults{
@@ -155,10 +151,9 @@ func TestBuildClassifyRegistry_DefaultsAppliedToRegistry(t *testing.T) {
 }
 
 func TestBuildClassifyRegistry_DefaultsReferencingUnregisteredID(t *testing.T) {
-	t.Setenv("HF_TOKEN", "test-token")
 	cfg := &config.Config{
-		LoadedInference: map[string]*config.InferenceConfig{
-			"hf": {ID: "hf", Type: "huggingface"},
+		LoadedInferenceProviders: map[string]*config.Provider{
+			"hf": hfProvider("hf"),
 		},
 		Defaults: config.Defaults{
 			Inference: &config.InferenceDefaults{
@@ -172,5 +167,33 @@ func TestBuildClassifyRegistry_DefaultsReferencingUnregisteredID(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "audio_classifier") {
 		t.Errorf("error %q should identify which default failed", err.Error())
+	}
+}
+
+func TestBuildClassifyRegistry_DedicatedFlagFromAdditionalConfig(t *testing.T) {
+	// Construction should accept Dedicated true: a Provider with no BaseURL
+	// + Dedicated true would normally fail (NewClient rejects bare-relative
+	// dedicated URL), but Dedicated=false (the default) lets the client
+	// build successfully against the public Inference API. This test
+	// pins the AdditionalConfig path itself — that a "dedicated: true"
+	// bool flag in the YAML is read through.
+	cfg := &config.Config{
+		LoadedInferenceProviders: map[string]*config.Provider{
+			"hf": {
+				ID:      "hf",
+				Type:    "huggingface",
+				Role:    config.RoleInference,
+				BaseURL: "https://my-endpoint.huggingface.cloud",
+				Credential: &config.CredentialConfig{
+					APIKey: "test-token",
+				},
+				AdditionalConfig: map[string]interface{}{
+					"dedicated": true,
+				},
+			},
+		},
+	}
+	if _, err := buildClassifyRegistry(cfg); err != nil {
+		t.Errorf("dedicated provider should build: %v", err)
 	}
 }

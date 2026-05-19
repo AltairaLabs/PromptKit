@@ -5,104 +5,44 @@ import (
 	"testing"
 )
 
-// freshConfig returns a Config with LoadedInference initialized, matching
-// the state LoadConfig hands to loadInference. The other Loaded* maps are
-// not needed by loadInference.
-func freshConfig() *Config {
+// freshInferenceConfig returns a Config with LoadedInferenceProviders
+// pre-initialized, matching the state LoadConfig hands to
+// validateInferenceDefaults.
+func freshInferenceConfig() *Config {
 	return &Config{
-		LoadedInference: make(map[string]*InferenceConfig),
+		LoadedInferenceProviders: make(map[string]*Provider),
 	}
 }
 
-func TestLoadInference_EmptyList(t *testing.T) {
-	c := freshConfig()
-	if err := c.loadInference(); err != nil {
-		t.Fatalf("loadInference: %v", err)
+func TestRoleInference_AcceptedByValidator(t *testing.T) {
+	p := &Provider{Role: RoleInference}
+	if err := p.ValidateRole(); err != nil {
+		t.Fatalf("role: inference must validate cleanly: %v", err)
 	}
-	if len(c.LoadedInference) != 0 {
-		t.Errorf("LoadedInference = %d entries, want 0", len(c.LoadedInference))
-	}
-}
-
-func TestLoadInference_SingleEntryPopulatesMap(t *testing.T) {
-	c := freshConfig()
-	c.Inference = []InferenceConfig{
-		{ID: "hf", Type: "huggingface", APIKeyEnv: "HF_TOKEN"},
-	}
-	if err := c.loadInference(); err != nil {
-		t.Fatalf("loadInference: %v", err)
-	}
-	got, ok := c.LoadedInference["hf"]
-	if !ok {
-		t.Fatal("LoadedInference[hf] missing")
-	}
-	if got.Type != "huggingface" {
-		t.Errorf("Type = %q, want huggingface", got.Type)
-	}
-	if got.APIKeyEnv != "HF_TOKEN" {
-		t.Errorf("APIKeyEnv = %q, want HF_TOKEN", got.APIKeyEnv)
+	if p.GetRole() != RoleInference {
+		t.Errorf("GetRole = %q, want %q", p.GetRole(), RoleInference)
 	}
 }
 
-func TestLoadInference_MultipleEntries(t *testing.T) {
-	c := freshConfig()
-	c.Inference = []InferenceConfig{
-		{ID: "hf", Type: "huggingface"},
-		{ID: "hf-dedicated", Type: "huggingface", BaseURL: "https://my-endpoint.huggingface.cloud", Dedicated: true},
-	}
-	if err := c.loadInference(); err != nil {
-		t.Fatalf("loadInference: %v", err)
-	}
-	if len(c.LoadedInference) != 2 {
-		t.Fatalf("LoadedInference = %d entries, want 2", len(c.LoadedInference))
-	}
-	if !c.LoadedInference["hf-dedicated"].Dedicated {
-		t.Error("Dedicated flag not preserved on the dedicated entry")
+func TestValidateInferenceDefaults_NilSectionAccepted(t *testing.T) {
+	c := freshInferenceConfig()
+	// No Defaults.Inference set — must not error.
+	if err := c.validateInferenceDefaults(); err != nil {
+		t.Fatalf("validateInferenceDefaults: %v", err)
 	}
 }
 
-func TestLoadInference_MissingIDRejected(t *testing.T) {
-	c := freshConfig()
-	c.Inference = []InferenceConfig{{Type: "huggingface"}}
-	err := c.loadInference()
-	if err == nil {
-		t.Fatal("expected error for empty id")
-	}
-	if !strings.Contains(err.Error(), "id is required") {
-		t.Errorf("error %q should mention missing id", err.Error())
+func TestValidateInferenceDefaults_EmptyIDsAccepted(t *testing.T) {
+	c := freshInferenceConfig()
+	c.Defaults.Inference = &InferenceDefaults{} // all task fields empty
+	if err := c.validateInferenceDefaults(); err != nil {
+		t.Fatalf("zero-value InferenceDefaults must validate: %v", err)
 	}
 }
 
-func TestLoadInference_MissingTypeRejected(t *testing.T) {
-	c := freshConfig()
-	c.Inference = []InferenceConfig{{ID: "hf"}}
-	err := c.loadInference()
-	if err == nil {
-		t.Fatal("expected error for empty type")
-	}
-	if !strings.Contains(err.Error(), "type is required") {
-		t.Errorf("error %q should mention missing type", err.Error())
-	}
-}
-
-func TestLoadInference_DuplicateIDRejected(t *testing.T) {
-	c := freshConfig()
-	c.Inference = []InferenceConfig{
-		{ID: "hf", Type: "huggingface"},
-		{ID: "hf", Type: "huggingface"},
-	}
-	err := c.loadInference()
-	if err == nil {
-		t.Fatal("expected error for duplicate id")
-	}
-	if !strings.Contains(err.Error(), "duplicate") {
-		t.Errorf("error %q should mention duplicate", err.Error())
-	}
-}
-
-func TestLoadInference_DefaultsAcceptKnownIDs(t *testing.T) {
-	c := freshConfig()
-	c.Inference = []InferenceConfig{{ID: "hf", Type: "huggingface"}}
+func TestValidateInferenceDefaults_KnownIDsAccepted(t *testing.T) {
+	c := freshInferenceConfig()
+	c.LoadedInferenceProviders["hf"] = &Provider{ID: "hf", Type: "huggingface", Role: RoleInference}
 	c.Defaults.Inference = &InferenceDefaults{
 		AudioClassifier: "hf",
 		TextClassifier:  "hf",
@@ -110,12 +50,12 @@ func TestLoadInference_DefaultsAcceptKnownIDs(t *testing.T) {
 		VideoClassifier: "hf",
 		Embedder:        "hf",
 	}
-	if err := c.loadInference(); err != nil {
-		t.Fatalf("loadInference: %v", err)
+	if err := c.validateInferenceDefaults(); err != nil {
+		t.Fatalf("validateInferenceDefaults: %v", err)
 	}
 }
 
-func TestLoadInference_DefaultsRejectUnknownID(t *testing.T) {
+func TestValidateInferenceDefaults_UnknownIDRejected(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		mutate  func(d *InferenceDefaults)
@@ -128,12 +68,12 @@ func TestLoadInference_DefaultsRejectUnknownID(t *testing.T) {
 		{"embedder", func(d *InferenceDefaults) { d.Embedder = "nope" }, "embedder"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := freshConfig()
-			c.Inference = []InferenceConfig{{ID: "hf", Type: "huggingface"}}
+			c := freshInferenceConfig()
+			c.LoadedInferenceProviders["hf"] = &Provider{ID: "hf", Type: "huggingface", Role: RoleInference}
 			d := &InferenceDefaults{}
 			tc.mutate(d)
 			c.Defaults.Inference = d
-			err := c.loadInference()
+			err := c.validateInferenceDefaults()
 			if err == nil {
 				t.Fatalf("expected error for unknown %s id", tc.name)
 			}
@@ -143,15 +83,9 @@ func TestLoadInference_DefaultsRejectUnknownID(t *testing.T) {
 			if !strings.Contains(err.Error(), "nope") {
 				t.Errorf("error %q should name the offending id", err.Error())
 			}
+			if !strings.Contains(err.Error(), "role: inference") {
+				t.Errorf("error %q should mention role: inference so users know how to fix", err.Error())
+			}
 		})
-	}
-}
-
-func TestLoadInference_EmptyDefaultsAreAccepted(t *testing.T) {
-	c := freshConfig()
-	c.Inference = []InferenceConfig{{ID: "hf", Type: "huggingface"}}
-	c.Defaults.Inference = &InferenceDefaults{} // all fields empty
-	if err := c.loadInference(); err != nil {
-		t.Fatalf("loadInference rejected zero-value defaults: %v", err)
 	}
 }
