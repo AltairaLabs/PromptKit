@@ -400,6 +400,12 @@ func TestStartRun_PersistsEachRunBeforeExecuteRunsReturns(t *testing.T) {
 
 	adapter := NewEventAdapter()
 	srv := newServerWithRunner(adapter, mock, store, tmpDir)
+	// t.TempDir registers its RemoveAll cleanup first; t.Cleanup is LIFO,
+	// so registering WaitBackgroundRuns here runs it BEFORE RemoveAll. The
+	// server's handleStartRun goroutine writes to tmpDir AFTER ExecuteRuns
+	// returns (the persistRunResults fallback), so without this wait the
+	// goroutine races with RemoveAll and trips "directory not empty".
+	t.Cleanup(srv.WaitBackgroundRuns)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

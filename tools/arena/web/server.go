@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -53,6 +54,12 @@ type Server struct {
 	stateStore *statestore.ArenaStateStore
 	outputDir  string
 	mux        *http.ServeMux
+
+	// pending tracks background goroutines spawned by handleStartRun so
+	// tests can wait for outputDir writes to drain before TempDir
+	// cleanup runs. Without this the persistRunResults fallback racing
+	// with t.TempDir's RemoveAll produces a "directory not empty" error.
+	pending sync.WaitGroup
 }
 
 // NewServer creates a new web server.
@@ -129,6 +136,14 @@ func newServerWithRunner(
 // Handler returns the http.Handler for the server.
 func (s *Server) Handler() http.Handler {
 	return s.mux
+}
+
+// WaitBackgroundRuns blocks until all goroutines spawned by handleStartRun
+// have finished, including the post-ExecuteRuns persistRunResults fallback.
+// Tests that exercise the run path call this before t.TempDir cleanup so the
+// background goroutine doesn't race with RemoveAll.
+func (s *Server) WaitBackgroundRuns() {
+	s.pending.Wait()
 }
 
 // handleSSE streams events to the client via Server-Sent Events.
@@ -218,7 +233,9 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Start runs in background
+	s.pending.Add(1)
 	go func() {
+		defer s.pending.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), defaultRunTimeout)
 		defer cancel()
 		runIDs, _ := s.engine.ExecuteRuns(ctx, plan, defaultConcurrency)
