@@ -30,11 +30,14 @@ func TestMetrics_ProviderRequestsTotal(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Hello")
 	require.NoError(t, err)
 
-	// Allow async event dispatch to metrics collector.
-	waitForMetric(t, reg, "test_provider_requests_total", 2*time.Second)
+	// Wait for the {status=success} counter to land — matches the assertion
+	// below so we don't observe the half-state between WithLabelValues and Inc.
+	successLabels := map[string]string{"status": "success"}
+	waitForMetric(t, reg, "test_provider_requests_total",
+		counterReadyWithLabels(successLabels, 1), 2*time.Second)
 
 	family := mustGetMetricFamily(t, reg, "test_provider_requests_total")
-	val := counterValueWithLabels(family, map[string]string{"status": "success"})
+	val := counterValueWithLabels(family, successLabels)
 	assert.Equal(t, 1.0, val, "provider_requests_total{status=success} should be 1")
 }
 
@@ -49,7 +52,8 @@ func TestMetrics_ProviderRequestDuration(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Hello")
 	require.NoError(t, err)
 
-	waitForMetric(t, reg, "test_provider_request_duration_seconds", 2*time.Second)
+	waitForMetric(t, reg, "test_provider_request_duration_seconds",
+		histogramReady(1), 2*time.Second)
 
 	family := mustGetMetricFamily(t, reg, "test_provider_request_duration_seconds")
 	assert.Greater(t, histogramCount(family), uint64(0), "should have at least one observation")
@@ -66,7 +70,13 @@ func TestMetrics_TokenCounters(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Hello")
 	require.NoError(t, err)
 
-	waitForMetric(t, reg, "test_provider_input_tokens_total", 2*time.Second)
+	// Wait for BOTH token counters since the test asserts on both. The
+	// completion handler increments them back-to-back, but waiting on
+	// just one would race against the second.
+	waitForMetric(t, reg, "test_provider_input_tokens_total",
+		counterReady(1), 2*time.Second)
+	waitForMetric(t, reg, "test_provider_output_tokens_total",
+		counterReady(1), 2*time.Second)
 
 	inputFamily := mustGetMetricFamily(t, reg, "test_provider_input_tokens_total")
 	assert.Greater(t, counterValue(inputFamily), 0.0, "input tokens should be > 0")
@@ -86,7 +96,8 @@ func TestMetrics_PipelineDuration(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Hello")
 	require.NoError(t, err)
 
-	waitForMetric(t, reg, "test_pipeline_duration_seconds", 2*time.Second)
+	waitForMetric(t, reg, "test_pipeline_duration_seconds",
+		histogramReady(1), 2*time.Second)
 
 	family := mustGetMetricFamily(t, reg, "test_pipeline_duration_seconds")
 	assert.Greater(t, histogramCount(family), uint64(0), "should have at least one observation")
@@ -106,10 +117,12 @@ func TestMetrics_MultipleCallsAccumulate(t *testing.T) {
 	_, err = conv.Send(ctx, "Second")
 	require.NoError(t, err)
 
-	waitForMetric(t, reg, "test_provider_requests_total", 2*time.Second)
+	successLabels := map[string]string{"status": "success"}
+	waitForMetric(t, reg, "test_provider_requests_total",
+		counterReadyWithLabels(successLabels, 2), 2*time.Second)
 
 	family := mustGetMetricFamily(t, reg, "test_provider_requests_total")
-	val := counterValueWithLabels(family, map[string]string{"status": "success"})
+	val := counterValueWithLabels(family, successLabels)
 	assert.Equal(t, 2.0, val, "provider_requests_total should be 2 after two sends")
 }
 
@@ -146,10 +159,12 @@ func TestMetrics_ToolCallsTotal(t *testing.T) {
 	_, err := conv.Send(context.Background(), "What is the weather?")
 	require.NoError(t, err)
 
-	waitForMetric(t, reg, "test_tool_calls_total", 2*time.Second)
+	successLabels := map[string]string{"tool": "get_weather", "status": "success"}
+	waitForMetric(t, reg, "test_tool_calls_total",
+		counterReadyWithLabels(successLabels, 1), 2*time.Second)
 
 	family := mustGetMetricFamily(t, reg, "test_tool_calls_total")
-	val := counterValueWithLabels(family, map[string]string{"tool": "get_weather", "status": "success"})
+	val := counterValueWithLabels(family, successLabels)
 	assert.Equal(t, 1.0, val, "tool_calls_total{tool=get_weather,status=success} should be 1")
 }
 
@@ -182,7 +197,8 @@ func TestMetrics_ToolCallDuration(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Weather in Paris?")
 	require.NoError(t, err)
 
-	waitForMetric(t, reg, "test_tool_call_duration_seconds", 2*time.Second)
+	waitForMetric(t, reg, "test_tool_call_duration_seconds",
+		histogramReady(1), 2*time.Second)
 
 	family := mustGetMetricFamily(t, reg, "test_tool_call_duration_seconds")
 	assert.Greater(t, histogramCount(family), uint64(0), "should have at least one tool call duration observation")
@@ -208,7 +224,10 @@ func TestMetrics_EvalResultMetrics(t *testing.T) {
 	require.NoError(t, err)
 
 	// Eval metrics are recorded asynchronously after pipeline completes.
-	waitForMetric(t, reg, "test_eval_response_length", 3*time.Second)
+	// gaugeReady(0) waits until the gauge has been set to a positive value,
+	// not just registered (a gauge that exists with value 0 is the race we
+	// hit when only the family's appearance was being checked).
+	waitForMetric(t, reg, "test_eval_response_length", gaugeReady(0), 3*time.Second)
 
 	// Explicit metric: the pack defines response_length as a gauge.
 	lengthFam := mustGetMetricFamily(t, reg, "test_eval_response_length")
@@ -231,8 +250,10 @@ func TestMetrics_EvalResultMetrics_AutoGenerated(t *testing.T) {
 	_, err := conv.Send(context.Background(), "Hello")
 	require.NoError(t, err)
 
-	// Auto-generated metrics use the eval ID as the metric name.
-	waitForMetric(t, reg, "test_eval_check-response-length", 3*time.Second)
+	// Auto-generated metrics use the eval ID as the metric name. Wait for
+	// the gauge value > 0 directly so we don't race the auto-generation
+	// path setting it.
+	waitForMetric(t, reg, "test_eval_check-response-length", gaugeReady(0), 3*time.Second)
 
 	family := mustGetMetricFamily(t, reg, "test_eval_check-response-length")
 	assert.Greater(t, gaugeValue(family), 0.0,
@@ -265,21 +286,66 @@ const evalsPackWithMetricsJSON = `{
 	]
 }`
 
-// waitForMetric polls until the named metric appears in the registry or timeout expires.
+// waitForMetric polls reg.Gather() until the named metric family appears AND
+// the given predicate returns true, or t.Fatal's when the timeout expires.
+//
+// A predicate is required because the prometheus client's `WithLabelValues(...)`
+// materializes a child in the metric vec's children map BEFORE `.Observe(x)` /
+// `.Inc()` is called. If a concurrent `Gather()` interleaves between those two
+// operations, the family appears with the new child but its sampleCount /
+// counter value is still zero — the previous "wait until family exists"
+// pattern races with the very observation each test relies on. Passing a
+// predicate that mirrors the test's assertion (e.g. "sampleCount > 0") closes
+// that window.
+//
+// Failing on timeout (rather than silently returning, as the older shape did)
+// turns "metric never appeared" into a clear test failure instead of a
+// confusing assertion-on-zero a few lines down.
 func waitForMetric(t *testing.T, reg interface {
 	Gather() ([]*io_prometheus_client.MetricFamily, error)
-}, name string, timeout time.Duration) {
+}, name string, ready func(*io_prometheus_client.MetricFamily) bool, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		families, err := reg.Gather()
 		if err == nil {
 			for _, f := range families {
-				if f.GetName() == name {
+				if f.GetName() == name && (ready == nil || ready(f)) {
 					return
 				}
 			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	t.Fatalf("metric %q did not satisfy readiness predicate within %s", name, timeout)
+}
+
+// histogramReady returns a predicate that fires once the histogram has
+// recorded at least n observations. Used by tests that assert
+// histogramCount(family) > 0.
+func histogramReady(n uint64) func(*io_prometheus_client.MetricFamily) bool {
+	return func(f *io_prometheus_client.MetricFamily) bool { return histogramCount(f) >= n }
+}
+
+// counterReady returns a predicate that fires once the counter — summed
+// across all label sets — reaches at least v. Used by tests that compare
+// counterValue(family) to a known target.
+func counterReady(v float64) func(*io_prometheus_client.MetricFamily) bool {
+	return func(f *io_prometheus_client.MetricFamily) bool { return counterValue(f) >= v }
+}
+
+// counterReadyWithLabels returns a predicate that fires once the counter
+// child matching the given labels reaches at least v. Used by tests that
+// scope their assertion to a specific label combination.
+func counterReadyWithLabels(labels map[string]string, v float64) func(*io_prometheus_client.MetricFamily) bool {
+	return func(f *io_prometheus_client.MetricFamily) bool {
+		return counterValueWithLabels(f, labels) >= v
+	}
+}
+
+// gaugeReady returns a predicate that fires once the gauge value is > v.
+// Useful for tests asserting an eval gauge was populated (default zero
+// makes "set" indistinguishable from "unset" without a positive value).
+func gaugeReady(v float64) func(*io_prometheus_client.MetricFamily) bool {
+	return func(f *io_prometheus_client.MetricFamily) bool { return gaugeValue(f) > v }
 }

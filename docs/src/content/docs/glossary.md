@@ -65,6 +65,9 @@ A publish-subscribe system that distributes execution events to listeners. Used 
 ### Guardrail
 A validator that enforces policies on LLM outputs in real-time. Guardrails can detect and prevent policy violations (banned content, PII exposure, etc.) and abort responses early. Different from [assertions](#assertion), which are test-time checks.
 
+### Inference Provider
+A [provider](#provider) declared with `role: inference` that backs the non-LLM `runtime/classify` task interfaces — audio, text, image, and video classifiers, plus embedders. Powers assertion handlers such as `audio_emotion` (does the audio sound angry?), `text_toxicity`, etc. The HuggingFace Inference API backend ships today; ONNX and others are queued. Inference providers don't participate in the [agent-under-test](#provider) matrix because they don't implement `Predict()`.
+
 ### Middleware
 Historically referred to pluggable processing components in the pipeline. The current architecture uses a **stage-based** design (see [Stage](#stage)), where each stage is a discrete processing step in a [DAG](#dag) pipeline. The term "middleware" may still appear in event names and some documentation for backward compatibility.
 

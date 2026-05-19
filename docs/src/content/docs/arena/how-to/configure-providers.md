@@ -385,6 +385,82 @@ spec:
     guided_choice: ["yes", "no", "maybe"]
 ```
 
+## Inference Providers (Audio / Text / Image Classification + Embedding)
+
+Inference providers back the `runtime/classify` task interfaces — audio,
+text, image, and video classifiers, plus embedders. They power assertion
+handlers like `audio_emotion` that score model output against a target
+label, and don't participate in the LLM run matrix.
+
+Today the only shipped backend is the HuggingFace Inference API; the
+same shape extends to ONNX and other backends as they land.
+
+### HuggingFace Inference API
+
+```yaml
+# providers/hf.yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Provider
+metadata:
+  name: hf
+
+spec:
+  type: huggingface
+  role: inference                # routes into the classify registry
+  credential:
+    credential_env: HF_TOKEN     # or HUGGING_FACE_HUB_TOKEN
+```
+
+Reference it from the arena config like any other provider:
+
+```yaml
+# arena.yaml
+spec:
+  providers:
+    - id: hf
+      file: providers/hf.yaml
+
+  defaults:
+    inference:
+      audio_classifier: hf       # used when an assertion omits classifier_id
+      text_classifier: hf
+      image_classifier: hf
+      embedder: hf
+```
+
+Then use it in a scenario:
+
+```yaml
+conversation_assertions:
+  - type: audio_emotion
+    params:
+      model: superb/wav2vec2-base-superb-er
+      expected_label: angry
+      min_score: 0.6
+```
+
+When HuggingFace returns a 503 "model is loading" the assertion is
+recorded as **skipped**, not failed — the model isn't broken, it just
+hasn't initialized. Reruns after the model warms up will score normally.
+
+### Dedicated endpoints
+
+For HuggingFace [Inference Endpoints](https://huggingface.co/inference-endpoints)
+(dedicated paid hosts), set `dedicated: true` and point `base_url` at
+the endpoint URL. The classify client then skips the
+`/models/{owner}/{name}` suffix that the public Inference API requires.
+
+```yaml
+spec:
+  type: huggingface
+  role: inference
+  base_url: https://my-endpoint.huggingface.cloud
+  additional_config:
+    dedicated: true
+  credential:
+    credential_env: HF_TOKEN
+```
+
 ## OpenAI-Compatible Gateways
 
 Many third-party services expose an OpenAI-compatible API: **OpenRouter**, **Groq**, **Together AI**, **Fireworks AI**, **LiteLLM**, and self-hosted proxies. You can point the built-in `openai` provider at any of them with `base_url` and (optionally) `headers`.

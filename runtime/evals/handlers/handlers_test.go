@@ -1606,6 +1606,9 @@ func TestRegisterInit(t *testing.T) {
 		"video_duration",
 		"video_resolution",
 
+		// Classify-backed media handlers
+		"audio_emotion",
+
 		// LLM judge handlers
 		"llm_judge",
 		"llm_judge_session",
