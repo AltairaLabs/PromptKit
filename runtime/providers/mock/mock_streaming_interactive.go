@@ -461,11 +461,13 @@ func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
 		ToolCalls:    toolCalls,
 		FinishReason: &finishReason,
 	}
+	// Block on send (matching emitAudioChunks): the FinishReason chunk is
+	// the only signal the consumer has that the turn ended. Dropping it on
+	// a full buffer races into a deadlock — DuplexProviderStage parks on
+	// the response channel forever after draining the queued audio chunks.
 	select {
 	case m.responses <- chunk:
-		// Sent successfully
-	default:
-		// Channel full or closed - this shouldn't happen with buffered channel
+	case <-m.doneCh:
 	}
 }
 
