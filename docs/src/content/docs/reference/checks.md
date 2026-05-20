@@ -267,87 +267,123 @@ assertions:
 
 ## Classify-backed Checks
 
-These checks call an `inference` provider (HuggingFace today; ONNX in flight) via the `runtime/classify` task interfaces and grade the result against a configurable threshold. They depend on a provider with `role: inference` being declared in the arena config; without one — for example a keyless CI run with no `HF_TOKEN` — the check **skips cleanly** rather than failing.
+These eval primitives call an `inference` provider (HuggingFace today; ONNX in flight) via the `runtime/classify` task interfaces and emit the model's score for a configured label. They are **pure eval primitives** — they do **NOT** apply pass/fail thresholds themselves. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper.
 
-Common params (shared across the family):
+They depend on a provider with `role: inference` being declared in the arena config; without one — for example a keyless CI run with no `HF_TOKEN` — the check **skips cleanly** rather than failing.
+
+**Two declaration sites:**
+
+```yaml
+# As a pack-level runtime eval — emits the raw signal as a metric every turn.
+evals:
+  - id: response-toxicity
+    type: text_toxicity
+    trigger: every_turn
+    params: { model: unitary/toxic-bert, expected_label: toxic }
+
+# As an Arena assertion — wrap with `type: assertion` to apply a threshold.
+conversation_assertions:
+  - type: assertion
+    params:
+      eval_type: text_toxicity
+      eval_params: { model: unitary/toxic-bert, expected_label: toxic }
+      max_score: 0.3
+```
+
+Putting `min_score` or `max_score` directly on a classify-backed handler is rejected at parse time; the error points at the wrapper. This stops the eval and assertion roles from drifting into one undifferentiated blob.
+
+**Common params** (shared across the family):
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `model` | string | Yes | Backend model id (e.g. `unitary/toxic-bert`, `superb/wav2vec2-base-superb-er`) |
-| `expected_label` | string | Yes | Label to grade against |
-| `min_score` | float | No (default 0.5) | Pass when label score is at-or-above threshold |
+| `expected_label` | string | Yes | Label whose score is emitted |
 | `message_role` | string | No | Whose messages to score (`user` for audio, `assistant` for text by default) |
 | `message_index` | int | No (default -1) | Pick a specific message (`-1` = latest) |
 | `classifier_id` | string | No | Explicit registry id; empty uses `defaults.inference.<task>_classifier` |
 
 ### `audio_emotion`
 
-Speech-emotion-recognition gate. Picks an audio part from the chosen role's messages, runs it through an `AudioClassifier`, and grades the configured emotion label. Used in the voice-refund-demo to verify aggressive selfplay callers actually sound aggressive in their TTS audio.
+Speech-emotion-recognition gate. Picks an audio part from the chosen role's messages, runs it through an `AudioClassifier`, and emits the model's score for the chosen emotion label. Used in the voice-refund-demo (wrapped in `type: assertion`) to verify aggressive selfplay callers actually sound aggressive in their TTS audio.
 
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| (common params above) | | | |
+**Surfaces:** A E (conversation assertion when wrapped; runtime eval when declared in `evals:`)
 
-**Surfaces:** A E (conversation assertion)
-
-**Example:**
+**Example (Arena assertion with threshold):**
 
 ```yaml
 conversation_assertions:
-  - type: audio_emotion
+  - type: assertion
     params:
-      model: superb/wav2vec2-base-superb-er
-      message_role: user
-      expected_label: ang     # this model emits truncated labels: ang/neu/hap/sad
+      eval_type: audio_emotion
+      eval_params:
+        model: superb/wav2vec2-base-superb-er
+        message_role: user
+        expected_label: ang     # this model emits truncated labels: ang/neu/hap/sad
+        classifier_id: hf
       min_score: 0.5
-      classifier_id: hf
 ```
 
 ### `text_toxicity`
 
-Classifier-backed toxicity check. Distinct from the LLM-judge [`toxicity`](#toxicity) — `text_toxicity` is the deterministic path through a HuggingFace text-classification model. Supports two grading modes:
-
-- **`max_score`** (typical for safety assertions): pass when `expected_label` scores **below** the threshold. Natural framing for "this output should NOT be toxic".
-- **`min_score`** (inherited from the shared shape): pass when `expected_label` scores **at or above** the threshold. Useful when the model emits a positive label like `neutral` (e.g. `s-nlp/roberta_toxicity_classifier`).
-
-Specifying both `min_score` and `max_score` is rejected — pick one mode.
+Classifier-backed toxicity eval. Distinct from the LLM-judge [`toxicity`](#toxicity) — `text_toxicity` is the deterministic path through a HuggingFace text-classification model. Emits the model's score for `expected_label`; the `assertion` wrapper decides pass/fail based on `min_score` or `max_score`:
 
 **Surfaces:** A E
 
 **Examples:**
 
 ```yaml
-# Negative framing: toxic score must stay below 0.3
-- type: text_toxicity
+# Negative framing — "this output should NOT be toxic"
+- type: assertion
   params:
-    model: unitary/toxic-bert
-    expected_label: toxic
+    eval_type: text_toxicity
+    eval_params:
+      model: unitary/toxic-bert
+      expected_label: toxic
     max_score: 0.3
 
-# Positive framing: neutral score must stay at or above 0.7
-- type: text_toxicity
+# Positive framing — "this output should sit in the neutral class"
+- type: assertion
   params:
-    model: s-nlp/roberta_toxicity_classifier
-    expected_label: neutral
+    eval_type: text_toxicity
+    eval_params:
+      model: s-nlp/roberta_toxicity_classifier
+      expected_label: neutral
     min_score: 0.7
 ```
 
 ### `text_sentiment`
 
-Classifier-backed sentiment check. Mirrors `audio_emotion` exactly: pass when `expected_label` scores at-or-above `min_score`. The lower-bound framing fits "the assistant should sound positive" naturally; for inverse assertions, point at the opposing label and keep the same `min_score`.
+Classifier-backed sentiment eval. Emits the model's score for `expected_label`. Wrap with `type: assertion` and `min_score` for the typical "assistant should sound positive" framing; for inverse assertions point at the opposing label.
 
 **Surfaces:** A E
 
 **Example:**
 
 ```yaml
-- type: text_sentiment
+- type: assertion
   params:
-    model: cardiffnlp/twitter-roberta-base-sentiment-latest
-    message_role: assistant
-    expected_label: positive
+    eval_type: text_sentiment
+    eval_params:
+      model: cardiffnlp/twitter-roberta-base-sentiment-latest
+      message_role: assistant
+      expected_label: positive
     min_score: 0.7
 ```
+
+### `assertion` (wrapper) {#assertion-wrapper}
+
+Generic wrapper that turns any eval primitive into a thresholded pass/fail. Cleanest way to use any classify-backed eval as a scenario assertion.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `eval_type` | string | Yes | The inner eval handler's type (e.g. `text_toxicity`, `audio_emotion`, `cosine_similarity`) |
+| `eval_params` | object | Yes | Params passed verbatim to the inner eval |
+| `min_score` | float | No | Pass when inner Score is at-or-above this |
+| `max_score` | float | No | Pass when inner Score is at-or-below this |
+
+If both `min_score` and `max_score` are set, both must hold. If neither is set, the default is `min_score: 1.0` (inner eval must fully pass).
+
+Parallel handler: `guardrail` — same shape but consumes the eval at runtime to block, not assert.
 
 ---
 

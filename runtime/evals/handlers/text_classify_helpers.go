@@ -12,52 +12,14 @@ import (
 )
 
 // Text-specific infrastructure on top of classify_handler_base.go.
-// The shared base owns the model + expected_label + min_score +
-// message_role + message_index + classifier_id parsing and the label
-// lookup; this file adds the text-specific deltas: max_score
-// upper-bound mode (for toxicity-style "stay below X" framings) and
-// text extraction from the message log.
+// Pure eval primitives — see the convention note in
+// classify_handler_base.go: threshold judgment lives on the
+// `type: assertion` wrapper, not on these handlers.
 
 // textClassifyDefaultRole defaults text scoring to the assistant's
 // output. Toxicity and sentiment assertions are almost always about
 // what the model said, not what the user said.
 const textClassifyDefaultRole = "assistant"
-
-// textClassifyConfig extends the shared classifyConfig with the
-// max_score upper-bound mode. Only text_toxicity opts into it; sentiment
-// keeps the inherited min_score-only shape.
-type textClassifyConfig struct {
-	classifyConfig
-	maxScore    float64
-	hasMaxScore bool
-}
-
-// parseTextClassifyParams runs the shared classify-config parser, then
-// reads the text-specific max_score knob. allowMaxScore gates whether
-// max_score is even read — sentiment-style handlers reject it to keep
-// the param surface unambiguous. Combining min_score with max_score is
-// also rejected.
-func parseTextClassifyParams(params map[string]any, allowMaxScore bool) (textClassifyConfig, error) {
-	base, err := parseClassifyConfig(params, textClassifyDefaultRole)
-	if err != nil {
-		return textClassifyConfig{}, err
-	}
-	cfg := textClassifyConfig{classifyConfig: base}
-
-	_, minProvided := extractFloat64(params, classifyKeyMinScore)
-	_, maxProvided := extractFloat64(params, classifyKeyMaxScore)
-	if maxProvided && !allowMaxScore {
-		return cfg, errors.New("max_score is not supported for this handler; use min_score")
-	}
-	if minProvided && maxProvided {
-		return cfg, errors.New("min_score and max_score are mutually exclusive")
-	}
-	if v, ok := extractFloat64(params, classifyKeyMaxScore); ok {
-		cfg.maxScore = v
-		cfg.hasMaxScore = true
-	}
-	return cfg, nil
-}
 
 // resolveTextClassifier pulls the classify.Registry out of context and
 // looks up the requested classifier. An empty id resolves the
@@ -121,76 +83,59 @@ func pickText(texts []string, index int) (string, error) {
 	return texts[index], nil
 }
 
-// gradeTextClassify looks up the expected label in the classifier's
-// scored output and applies the configured threshold. With hasMaxScore
-// set the assertion passes when score < maxScore (upper-bound mode);
-// otherwise it passes when score >= minScore (the standard mode).
+// gradeTextClassify looks up the expected_label in the classifier's
+// scored output and emits its score. Pure eval primitive: no
+// threshold judgment — that lives on the `type: assertion` wrapper.
+//
+// "label not returned by model" emits Score = 0 with a louder
+// Explanation; downstream wrapper-driven thresholds compute the right
+// pass/fail outcome from the zero.
 func gradeTextClassify(
-	handlerType string, cfg *textClassifyConfig, scores []classify.LabelScore,
+	handlerType string, cfg *classifyConfig, scores []classify.LabelScore,
 ) *evals.EvalResult {
 	foundScore, foundLabel := findExpectedLabel(scores, cfg.expectedLabel)
 	if foundLabel == "" {
+		zero := 0.0
 		allLabels := strings.Join(labelsFromScores(scores), ", ")
 		return &evals.EvalResult{
-			Type:  handlerType,
-			Score: boolScore(false),
-			Value: map[string]any{
-				classifyKeyExpectedLabel: cfg.expectedLabel,
-				keyFound:                 false,
-			},
+			Type:        handlerType,
+			Score:       &zero,
+			MetricValue: &zero,
 			Explanation: fmt.Sprintf("label %q not returned by model; got: %s",
 				cfg.expectedLabel, allLabels),
-			Details: map[string]any{classifyKeyScores: scores},
+			Details: map[string]any{
+				classifyKeyExpectedLabel: cfg.expectedLabel,
+				classifyKeyActualScore:   0.0,
+				classifyKeyScores:        scores,
+				keyFound:                 false,
+			},
 		}
 	}
-
-	var (
-		passed      bool
-		threshold   float64
-		comparison  string
-		thresholdKy string
-	)
-	if cfg.hasMaxScore {
-		passed = foundScore < cfg.maxScore
-		threshold = cfg.maxScore
-		comparison = "<"
-		thresholdKy = classifyKeyMaxScore
-	} else {
-		passed = foundScore >= cfg.minScore
-		threshold = cfg.minScore
-		comparison = ">="
-		thresholdKy = classifyKeyMinScore
-	}
-
 	scoreCopy := foundScore
 	return &evals.EvalResult{
 		Type:        handlerType,
 		Score:       &scoreCopy,
 		MetricValue: &scoreCopy,
-		Value: map[string]any{
+		Explanation: fmt.Sprintf("%s score %.3f", foundLabel, foundScore),
+		Details: map[string]any{
 			classifyKeyExpectedLabel: cfg.expectedLabel,
-			thresholdKy:              threshold,
 			classifyKeyActualScore:   foundScore,
-			classifyKeyPassed:        passed,
+			classifyKeyScores:        scores,
 		},
-		Explanation: fmt.Sprintf("%s score %.3f (threshold %s %.3f)",
-			foundLabel, foundScore, comparison, threshold),
-		Details: map[string]any{classifyKeyScores: scores},
 	}
 }
 
 // runTextClassifyEval is the shared body for both text handlers. It
 // resolves the classifier, picks the target text, calls the backend,
-// and grades. Splitting into a helper keeps the per-handler files to
-// thin wrappers that just nominate the eval type and param mode.
+// and emits the score. Splits into a helper so per-handler files stay
+// thin wrappers that just nominate the eval type.
 func runTextClassifyEval(
 	ctx context.Context,
 	evalCtx *evals.EvalContext,
 	handlerType string,
 	params map[string]any,
-	allowMaxScore bool,
 ) *evals.EvalResult {
-	cfg, cfgErr := parseTextClassifyParams(params, allowMaxScore)
+	cfg, cfgErr := parseClassifyConfig(params, textClassifyDefaultRole)
 	if cfgErr != nil {
 		return errorResult(handlerType, cfgErr.Error())
 	}
@@ -221,7 +166,7 @@ func runTextClassifyEval(
 
 	opts := classify.TextOptions{
 		Model:      cfg.model,
-		MultiLabel: true, // request scores for every label so we can grade any expected_label
+		MultiLabel: true, // request scores for every label so any expected_label can be looked up
 	}
 	scores, classifyErr := classifier.ClassifyText(ctx, text, opts)
 	if classifyErr != nil {

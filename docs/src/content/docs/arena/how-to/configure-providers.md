@@ -428,16 +428,22 @@ spec:
       embedder: hf
 ```
 
-Then use it in a scenario:
+Then use it in a scenario. The classify-backed handler is a pure
+eval primitive that emits the model's score for `expected_label`;
+wrap it in `type: assertion` to apply the pass/fail threshold:
 
 ```yaml
 conversation_assertions:
-  - type: audio_emotion
+  - type: assertion
     params:
-      model: superb/wav2vec2-base-superb-er
-      expected_label: angry
+      eval_type: audio_emotion
+      eval_params:
+        model: superb/wav2vec2-base-superb-er
+        expected_label: angry
       min_score: 0.6
 ```
+
+(See [Classify-backed Checks](/reference/checks/#classify-backed-checks) for the full convention.)
 
 When HuggingFace returns a 503 "model is loading" the assertion is
 recorded as **skipped**, not failed — the model isn't broken, it just

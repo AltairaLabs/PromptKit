@@ -17,6 +17,19 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// audio_emotion is a PURE EVAL PRIMITIVE — it emits the score for the
+// configured expected_label and never applies a threshold. Threshold
+// judgment is the job of `type: assertion` wrappers; see
+// runtime/evals/wrappers.go and runtime/evals/handlers/CLAUDE.md.
+//
+// These tests assert the pure-eval contract:
+//   - Score = raw model score for expected_label (or 0 when absent)
+//   - Details carries the structured info (expected_label, actual_score, all scores)
+//   - min_score / max_score on the handler params is rejected
+//
+// Wrapper-driven pass/fail is exercised separately via the
+// AssertionEvalHandler tests (runtime/evals/wrappers_test.go).
+
 // hfTestServer returns an httptest.Server that hands back the provided
 // HF audio-classification response JSON (or a 503 model-loading payload
 // when loading is true). Keeping the helper close to the handler tests
@@ -69,7 +82,7 @@ func audioMessage(role, body string) types.Message {
 	}
 }
 
-func TestAudioEmotion_PassesWhenLabelMeetsThreshold(t *testing.T) {
+func TestAudioEmotion_EmitsScoreForExpectedLabel(t *testing.T) {
 	srv := hfTestServer(t, []classify.LabelScore{
 		{Label: "angry", Score: 0.82},
 		{Label: "neutral", Score: 0.10},
@@ -84,51 +97,31 @@ func TestAudioEmotion_PassesWhenLabelMeetsThreshold(t *testing.T) {
 	res, err := h.Eval(ctx, evalCtx, map[string]any{
 		"model":          "superb/wav2vec2-base-superb-er",
 		"expected_label": "angry",
-		"min_score":      0.6,
 	})
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
 	if res.Skipped {
-		t.Fatalf("expected pass, got skipped: %s", res.SkipReason)
+		t.Fatalf("expected emit, got skipped: %s", res.SkipReason)
 	}
 	if res.Error != "" {
-		t.Fatalf("expected pass, got error: %s", res.Error)
+		t.Fatalf("expected emit, got error: %s", res.Error)
 	}
-	if res.Score == nil || *res.Score < 0.6 {
-		t.Errorf("score = %v, want >= 0.6", res.Score)
+	if res.Score == nil || *res.Score != 0.82 {
+		t.Errorf("Score = %v, want 0.82 (raw model score for the expected label)", res.Score)
 	}
-}
-
-func TestAudioEmotion_FailsWhenLabelBelowThreshold(t *testing.T) {
-	srv := hfTestServer(t, []classify.LabelScore{
-		{Label: "angry", Score: 0.3},
-		{Label: "neutral", Score: 0.7},
-	}, false)
-	defer srv.Close()
-
-	ctx := ctxWithRegistry(t, srv.URL)
-	evalCtx := &evals.EvalContext{
-		Messages: []types.Message{audioMessage("user", "rawaudio")},
+	if res.MetricValue == nil || *res.MetricValue != 0.82 {
+		t.Errorf("MetricValue = %v, want 0.82", res.MetricValue)
 	}
-	h := &AudioEmotionHandler{}
-	res, _ := h.Eval(ctx, evalCtx, map[string]any{
-		"model":          "superb/wav2vec2-base-superb-er",
-		"expected_label": "angry",
-		"min_score":      0.6,
-	})
-	if res.Score == nil || *res.Score >= 0.6 {
-		t.Errorf("score = %v, want < 0.6 (model returned 0.3)", res.Score)
+	if res.Details["expected_label"] != "angry" {
+		t.Errorf("Details.expected_label = %v, want angry", res.Details["expected_label"])
 	}
-	// Even when the label is found but below threshold, we want the
-	// actual model score surfaced in Value so the report explains why.
-	val, _ := res.Value.(map[string]any)
-	if val["actual_score"].(float64) != 0.3 {
-		t.Errorf("actual_score = %v, want 0.3", val["actual_score"])
+	if res.Details["actual_score"].(float64) != 0.82 {
+		t.Errorf("Details.actual_score = %v, want 0.82", res.Details["actual_score"])
 	}
 }
 
-func TestAudioEmotion_FailsWhenLabelNotReturned(t *testing.T) {
+func TestAudioEmotion_EmitsZeroWhenLabelNotReturned(t *testing.T) {
 	srv := hfTestServer(t, []classify.LabelScore{
 		{Label: "happy", Score: 0.9},
 	}, false)
@@ -143,6 +136,13 @@ func TestAudioEmotion_FailsWhenLabelNotReturned(t *testing.T) {
 		"model":          "superb/wav2vec2-base-superb-er",
 		"expected_label": "angry",
 	})
+	// Label absent from the model output → emit Score = 0 (raw signal:
+	// the label's effective confidence is zero). Wrapper-supplied
+	// thresholds (any positive min_score) will compute pass/fail
+	// correctly from the zero.
+	if res.Score == nil || *res.Score != 0 {
+		t.Errorf("Score = %v, want 0 (label not returned)", res.Score)
+	}
 	if !strings.Contains(res.Explanation, "not returned by model") {
 		t.Errorf("explanation %q should call out missing label", res.Explanation)
 	}
@@ -175,6 +175,28 @@ func TestAudioEmotion_SkippedOnModelLoading(t *testing.T) {
 	}
 }
 
+func TestAudioEmotion_RejectsThresholdParams(t *testing.T) {
+	// Threshold judgment is the job of `type: assertion`. Putting
+	// min_score / max_score on the eval handler itself is a config
+	// mistake; the handler should surface it loudly, not silently
+	// accept a no-op param.
+	ctx := classify.WithRegistry(context.Background(), classify.NewRegistry())
+	h := &AudioEmotionHandler{}
+	for _, banned := range []string{"min_score", "max_score"} {
+		res, _ := h.Eval(ctx, &evals.EvalContext{}, map[string]any{
+			"model":          "superb/wav2vec2-base-superb-er",
+			"expected_label": "angry",
+			banned:           0.5,
+		})
+		if !strings.Contains(res.Error, banned+" is not a valid param") {
+			t.Errorf("%s should be rejected; got Error=%q", banned, res.Error)
+		}
+		if !strings.Contains(res.Error, "type: assertion") {
+			t.Errorf("error should point to the assertion wrapper: %q", res.Error)
+		}
+	}
+}
+
 func TestAudioEmotion_MissingModelParam(t *testing.T) {
 	ctx := classify.WithRegistry(context.Background(), classify.NewRegistry())
 	h := &AudioEmotionHandler{}
@@ -198,11 +220,8 @@ func TestAudioEmotion_MissingExpectedLabelParam(t *testing.T) {
 }
 
 func TestAudioEmotion_NoRegistryInContext(t *testing.T) {
-	// Plain context with no classify.Registry attached. Infrastructure
-	// absence (no inference provider declared) is Skipped — the assertion
-	// couldn't run, but nothing is broken. This is the keyless-CI path:
-	// the demo declares an HF provider but HF_TOKEN isn't set, so the
-	// engine never populates the registry, and the assertion skips.
+	// Keyless-CI path: no inference provider declared, registry is nil,
+	// assertion skips cleanly with a pointer at the missing wiring.
 	h := &AudioEmotionHandler{}
 	res, err := h.Eval(context.Background(), &evals.EvalContext{}, map[string]any{
 		"model":          "x/y",
@@ -233,9 +252,6 @@ func TestAudioEmotion_NoAudioInMessages(t *testing.T) {
 		"model":          "x/y",
 		"expected_label": "angry",
 	})
-	// Mock providers without audio output (or scenarios where the chosen
-	// role never speaks) should skip cleanly. The user can still see WHY
-	// via SkipReason.
 	if !res.Skipped {
 		t.Fatalf("expected Skipped when no audio in messages; got Error=%q", res.Error)
 	}
@@ -245,11 +261,6 @@ func TestAudioEmotion_NoAudioInMessages(t *testing.T) {
 }
 
 func TestAudioEmotion_MessageIndexPicksSpecificPart(t *testing.T) {
-	// Two audio messages with different scores. message_index 0 should
-	// pick the first; -1 picks the last. We test by using two scores per
-	// label tied to physical position via the body bytes (httptest
-	// server returns the same scores for any call, so verify selection
-	// indirectly by asserting we read SOME audio without erroring).
 	srv := hfTestServer(t, []classify.LabelScore{{Label: "angry", Score: 0.9}}, false)
 	defer srv.Close()
 	ctx := ctxWithRegistry(t, srv.URL)
@@ -263,7 +274,6 @@ func TestAudioEmotion_MessageIndexPicksSpecificPart(t *testing.T) {
 			"model":          "x/y",
 			"expected_label": "angry",
 			"message_index":  idx,
-			"min_score":      0.5,
 		})
 		if res.Error != "" {
 			t.Errorf("idx=%d unexpected error: %s", idx, res.Error)
@@ -292,9 +302,7 @@ func ptrString(s string) *string { return &s }
 // TestAudioEmotion_StorageReferencePath proves the handler can read audio
 // from a storage_reference that's a local-filesystem path — the shape the
 // duplex pipeline produces when the local-storage media backend persists
-// recordings. Without this support, audio_emotion can never fire in a
-// real voice-refund-demo run because the message log never carries inline
-// base64.
+// recordings.
 func TestAudioEmotion_StorageReferencePath(t *testing.T) {
 	dir := t.TempDir()
 	wavPath := filepath.Join(dir, "audio.wav")
@@ -321,7 +329,6 @@ func TestAudioEmotion_StorageReferencePath(t *testing.T) {
 	res, err := h.Eval(ctx, &evals.EvalContext{Messages: []types.Message{msg}}, map[string]any{
 		"model":          "superb/wav2vec2-base-superb-er",
 		"expected_label": "angry",
-		"min_score":      0.5,
 	})
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
@@ -332,8 +339,8 @@ func TestAudioEmotion_StorageReferencePath(t *testing.T) {
 	if res.Error != "" {
 		t.Fatalf("expected score result, got error: %s", res.Error)
 	}
-	if res.Score == nil || *res.Score < 0.5 {
-		t.Errorf("score = %v, want >= 0.5", res.Score)
+	if res.Score == nil || *res.Score != 0.91 {
+		t.Errorf("Score = %v, want 0.91", res.Score)
 	}
 }
 
@@ -356,8 +363,6 @@ func TestAudioEmotion_StorageReferenceMissingFile(t *testing.T) {
 		"model":          "x/y",
 		"expected_label": "angry",
 	})
-	// An unreadable storage reference is a real config error (path is
-	// wrong / file got cleaned up). Surface as Error, not Skipped.
 	if res.Error == "" {
 		t.Errorf("expected error for unreadable storage_reference; got %+v", res)
 	}
