@@ -79,7 +79,10 @@ spec:
         # runtime collapses selfplay-user into user after the persona
         # LLM generates the text and TTS synthesizes the audio).
         message_role: user
-        expected_label: angry
+        # The superb/wav2vec2-base-superb-er label set is truncated:
+        # ang / neu / hap / sad. Confirmed against a live deployment
+        # where the aggressive caller's TTS audio scored ang=0.609.
+        expected_label: ang
         min_score: 0.5
         classifier_id: hf
       message: "Aggressive caller should actually sound angry, not just say angry words"
