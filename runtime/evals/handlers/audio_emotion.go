@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
@@ -198,6 +199,23 @@ func pickAudioPart(audioParts []*types.MediaContent, index int) (*types.MediaCon
 	return audioParts[index], nil
 }
 
+// storageReferenceAsPath returns the storage reference iff it looks like
+// a local file path the handler can open directly. Cloud storage backends
+// would produce references like `s3://bucket/key` or `gs://...`; those
+// can't be read with os.ReadFile and need a real MediaLoader instead.
+// The duplex pipeline's local-storage backend writes references that ARE
+// filesystem paths, which is the case this handler shortcuts.
+func storageReferenceAsPath(media *types.MediaContent) string {
+	if media.StorageReference == nil || *media.StorageReference == "" {
+		return ""
+	}
+	ref := *media.StorageReference
+	if strings.Contains(ref, "://") {
+		return ""
+	}
+	return ref
+}
+
 func collectAudioPartsByRole(messages []types.Message, role string) []*types.MediaContent {
 	var out []*types.MediaContent
 	for i := range messages {
@@ -214,16 +232,36 @@ func collectAudioPartsByRole(messages []types.Message, role string) []*types.Med
 	return out
 }
 
-// readMediaBytes pulls the raw audio bytes out of a MediaContent. We
-// already require the data to be available locally (base64 inline or
-// file path) — URL / storage-reference parts would need a MediaLoader
-// and aren't supported here yet. Surfacing a clear error is better than
-// silently passing or failing the eval.
+// readMediaBytes pulls the raw audio bytes out of a MediaContent.
+// Supports inline base64 (Data), local file path, and storage_reference
+// when the reference resolves to a readable local file. Production setups
+// using cloud storage backends would need a full MediaLoader plumbed
+// through context — that's queued separately. URL sources are deferred:
+// they need an HTTP client and bound size limits the handler doesn't own.
+//
+// The duplex pipeline writes audio to disk via the media-storage backend
+// and persists the storage_reference into the message log. For local
+// storage (the demo's mode) that reference IS a path the handler can
+// open directly; treating it as such avoids round-tripping through a
+// storage service the eval handler doesn't have visibility into.
 func readMediaBytes(media *types.MediaContent) ([]byte, error) {
-	if media.URL != nil || media.StorageReference != nil {
+	if media.URL != nil {
 		return nil, errors.New(
-			"audio_emotion needs inline base64 data or a local file path; " +
-				"URL and storage-reference sources are not yet supported")
+			"audio_emotion can't yet fetch audio from a URL source; " +
+				"set up media-storage that resolves to a local path or use inline data")
+	}
+	// storage_reference is treated as a local path fall-through. Production
+	// setups using cloud storage would route through a MediaLoader; for
+	// the local-storage demo path the reference IS a readable file.
+	if storageRef := storageReferenceAsPath(media); storageRef != "" {
+		body, err := os.ReadFile(storageRef) //nolint:gosec // path comes from runtime media-storage backend, not user input
+		if err != nil {
+			return nil, fmt.Errorf("read audio from storage reference %q: %w", storageRef, err)
+		}
+		if len(body) == 0 {
+			return nil, errors.New("audio payload is empty")
+		}
+		return body, nil
 	}
 	reader, err := media.ReadData()
 	if err != nil {
