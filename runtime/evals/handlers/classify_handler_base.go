@@ -9,33 +9,37 @@ import (
 
 // Shared infrastructure for every classify-backed eval handler
 // (audio_emotion, text_toxicity, text_sentiment, … and the image /
-// video handlers queued behind #1228 / #1229). All of them take the
-// same shape of params — model + expected_label + min_score +
-// message_role + message_index + classifier_id — and the same
-// label-lookup logic, so factoring once keeps the per-handler files
-// down to "wire up the right task interface and call the registry".
+// video handlers queued behind #1228 / #1229).
+//
+// Convention — classify-backed handlers are PURE EVAL PRIMITIVES:
+// they call the configured TextClassifier / AudioClassifier / ...,
+// pick the score for the expected label, and emit it as
+// EvalResult.Score. They do NOT apply min_score / max_score
+// thresholds — that is the job of the `type: assertion` wrapper
+// (see runtime/evals/wrappers.go) which composes the eval with
+// pass/fail judgment. Threshold logic on the eval handler itself
+// is wrong: it conflates the eval and assertion roles and stops
+// the same handler from being declared in a pack's `evals:` block
+// (where it should emit a metric, not a verdict).
+//
+// See runtime/evals/handlers/CLAUDE.md for the full convention.
 
 // Param-map keys reused across handler Value / Details maps and
 // during param parsing. Hoisted so goconst stays happy and so a
 // future schema rename touches one place.
 const (
 	classifyKeyExpectedLabel = "expected_label"
-	classifyKeyMinScore      = "min_score"
-	classifyKeyMaxScore      = "max_score"
-	classifyKeyScores        = "scores"
 	classifyKeyActualScore   = "actual_score"
-	classifyKeyPassed        = "passed"
-
-	classifyDefaultMinScore = 0.5
+	classifyKeyScores        = "scores"
 )
 
 // classifyConfig is the validated, shared shape consumed by every
 // classify-backed handler. Per-handler configs embed this and add
-// their own deltas (e.g. text_toxicity's max_score upper-bound mode).
+// their own deltas (today: none; reserved for future handler-
+// specific params like sample_rate on audio).
 type classifyConfig struct {
 	model         string
 	expectedLabel string
-	minScore      float64
 	messageRole   string
 	messageIndex  int
 	classifierID  string
@@ -46,9 +50,11 @@ type classifyConfig struct {
 // (scoring the caller's speech) and text-shaped handlers default to
 // "assistant" (scoring the model's output) without each handler
 // re-doing the YAML map dance.
+//
+// Threshold params (min_score / max_score) are deliberately NOT
+// parsed here — see the package convention note above.
 func parseClassifyConfig(params map[string]any, defaultRole string) (classifyConfig, error) {
 	cfg := classifyConfig{
-		minScore:     classifyDefaultMinScore,
 		messageRole:  defaultRole,
 		messageIndex: -1,
 	}
@@ -64,9 +70,6 @@ func parseClassifyConfig(params map[string]any, defaultRole string) (classifyCon
 	}
 	cfg.expectedLabel = expected
 
-	if v, ok := extractFloat64(params, classifyKeyMinScore); ok {
-		cfg.minScore = v
-	}
 	if v, ok := params["message_role"].(string); ok && v != "" {
 		cfg.messageRole = v
 	}
@@ -78,13 +81,26 @@ func parseClassifyConfig(params map[string]any, defaultRole string) (classifyCon
 	if v, ok := params["classifier_id"].(string); ok {
 		cfg.classifierID = v
 	}
+
+	// Surface a clear error if the caller put a threshold on the
+	// inner eval. Threshold judgment lives on the assertion wrapper,
+	// not on the eval primitive — silently accepting a no-op param
+	// would hide a config mistake the user expected to be enforced.
+	for _, banned := range []string{"min_score", "max_score"} {
+		if _, present := params[banned]; present {
+			return cfg, errors.New(
+				banned + " is not a valid param on a classify-backed eval; " +
+					"wrap with `type: assertion` and put the threshold there " +
+					"(see runtime/evals/wrappers.go)")
+		}
+	}
 	return cfg, nil
 }
 
 // findExpectedLabel walks the classifier's scored output looking for
 // the configured expected_label (case-insensitive). foundLabel is empty
 // when the model didn't emit that label at all (a distinct outcome
-// from "found but below threshold").
+// from "found but low score").
 func findExpectedLabel(
 	scores []classify.LabelScore, expectedLabel string,
 ) (foundScore float64, foundLabel string) {

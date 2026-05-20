@@ -72,19 +72,26 @@ spec:
     # actually sound angry, not just say angry words. Requires an
     # `inference` provider (HF_TOKEN); skips cleanly without one or when
     # the mock provider doesn't emit audio parts.
-    - type: audio_emotion
+    #
+    # Pattern: the inner audio_emotion is a pure eval primitive that
+    # emits the model's score for `expected_label`. The outer
+    # `type: assertion` wrapper applies the threshold judgment. See
+    # runtime/evals/handlers/CLAUDE.md.
+    - type: assertion
       params:
-        model: superb/wav2vec2-base-superb-er
-        # Selfplay turns land in the message log as role: user (the
-        # runtime collapses selfplay-user into user after the persona
-        # LLM generates the text and TTS synthesizes the audio).
-        message_role: user
-        # The superb/wav2vec2-base-superb-er label set is truncated:
-        # ang / neu / hap / sad. Confirmed against a live deployment
-        # where the aggressive caller's TTS audio scored ang=0.609.
-        expected_label: ang
+        eval_type: audio_emotion
+        eval_params:
+          model: superb/wav2vec2-base-superb-er
+          # Selfplay turns land in the message log as role: user (the
+          # runtime collapses selfplay-user into user after the persona
+          # LLM generates the text and TTS synthesizes the audio).
+          message_role: user
+          # The superb/wav2vec2-base-superb-er label set is truncated:
+          # ang / neu / hap / sad. Confirmed against a live deployment
+          # where the aggressive caller's TTS audio scored ang=0.609.
+          expected_label: ang
+          classifier_id: hf
         min_score: 0.5
-        classifier_id: hf
       message: "Aggressive caller should actually sound angry, not just say angry words"
 
   context:

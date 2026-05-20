@@ -19,19 +19,32 @@ import (
 // text scoring which targets the assistant.
 const audioEmotionDefaultRole = "user"
 
-// AudioEmotionHandler scores whether the audio in a chosen message contains
-// a target emotion (e.g. "angry") above a configurable confidence
-// threshold. It calls the AudioClassifier resolved from the orchestrator's
-// classify registry, so the model/backend are arena-config decisions, not
-// handler decisions.
+// AudioEmotionHandler is a pure eval primitive: it calls the
+// AudioClassifier resolved from the orchestrator's classify registry,
+// picks the score for the chosen expected_label, and emits it as
+// EvalResult.Score. Threshold judgment (min_score / max_score) lives
+// on `type: assertion` wrappers — NOT on this handler.
+//
+// Wrap with `type: assertion` to assert against a threshold:
+//
+//   - type: assertion
+//     params:
+//     eval_type: audio_emotion
+//     eval_params: { model: "...", expected_label: "ang", message_role: user }
+//     min_score: 0.5
+//
+// Use directly in pack `evals:` to emit the raw signal at runtime
+// (for metrics / observability).
 //
 // Params:
 //   - model           string  (required) — backend model id, e.g. "superb/wav2vec2-base-superb-er"
-//   - expected_label  string  (required) — label that must appear with score >= min_score
-//   - min_score       float   (optional, default 0.5) — confidence threshold for pass
+//   - expected_label  string  (required) — label whose score is emitted
 //   - message_role    string  (optional, default "user") — which speaker's audio to score
 //   - message_index   int     (optional, default -1 = latest match) — pick a specific audio message
 //   - classifier_id   string  (optional) — explicit registry id; empty uses the configured default
+//
+// Putting min_score / max_score on this handler is rejected — the
+// assertion wrapper is the canonical home for thresholds.
 type AudioEmotionHandler struct{}
 
 // Type returns the eval type identifier.
@@ -232,42 +245,45 @@ func readMediaBytes(media *types.MediaContent) ([]byte, error) {
 }
 
 // gradeAudioEmotion looks up the requested label in the classifier's
-// scored output, applies the threshold, and assembles the result.
-// Wraps the shared label-lookup helper with audio-specific result
-// keys so reports remain stable for consumers that index by
-// `expected_label` / `min_score` / `actual_score`.
+// scored output and emits its score. Pure eval primitive: no
+// threshold judgment — that lives on the `type: assertion` wrapper.
+//
+// When the expected_label is absent from the classifier's output we
+// emit Score = 0 (the label's effective confidence is zero) plus a
+// clear Explanation; consumers comparing the resulting Score against
+// a wrapper-supplied threshold get the right outcome (any positive
+// min_score fails; "label not returned" is louder in the report).
 func gradeAudioEmotion(
 	handlerType string, cfg *classifyConfig, scores []classify.LabelScore,
 ) *evals.EvalResult {
 	foundScore, foundLabel := findExpectedLabel(scores, cfg.expectedLabel)
 	if foundLabel == "" {
+		zero := 0.0
 		allLabels := strings.Join(labelsFromScores(scores), ", ")
 		return &evals.EvalResult{
-			Type:  handlerType,
-			Score: boolScore(false),
-			Value: map[string]any{
+			Type:        handlerType,
+			Score:       &zero,
+			MetricValue: &zero,
+			Explanation: fmt.Sprintf("label %q not returned by model; got: %s", cfg.expectedLabel, allLabels),
+			Details: map[string]any{
 				classifyKeyExpectedLabel: cfg.expectedLabel,
-				classifyKeyMinScore:      cfg.minScore,
+				classifyKeyActualScore:   0.0,
+				classifyKeyScores:        scores,
 				keyFound:                 false,
 			},
-			Explanation: fmt.Sprintf("label %q not returned by model; got: %s", cfg.expectedLabel, allLabels),
-			Details:     map[string]any{classifyKeyScores: scores},
 		}
 	}
-	passed := foundScore >= cfg.minScore
 	scoreCopy := foundScore
 	return &evals.EvalResult{
 		Type:        handlerType,
 		Score:       &scoreCopy,
 		MetricValue: &scoreCopy,
-		Value: map[string]any{
+		Explanation: fmt.Sprintf("%s score %.3f", foundLabel, foundScore),
+		Details: map[string]any{
 			classifyKeyExpectedLabel: cfg.expectedLabel,
-			classifyKeyMinScore:      cfg.minScore,
 			classifyKeyActualScore:   foundScore,
-			classifyKeyPassed:        passed,
+			classifyKeyScores:        scores,
 		},
-		Explanation: fmt.Sprintf("%s score %.3f (threshold %.3f)", foundLabel, foundScore, cfg.minScore),
-		Details:     map[string]any{classifyKeyScores: scores},
 	}
 }
 
