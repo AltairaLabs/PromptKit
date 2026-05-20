@@ -75,7 +75,10 @@ spec:
     - type: audio_emotion
       params:
         model: superb/wav2vec2-base-superb-er
-        message_role: selfplay-user
+        # Selfplay turns land in the message log as role: user (the
+        # runtime collapses selfplay-user into user after the persona
+        # LLM generates the text and TTS synthesizes the audio).
+        message_role: user
         expected_label: angry
         min_score: 0.5
         classifier_id: hf
