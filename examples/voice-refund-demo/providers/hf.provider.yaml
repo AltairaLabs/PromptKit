@@ -41,3 +41,12 @@ spec:
   # base_url: https://YOUR-ENDPOINT.endpoints.huggingface.cloud
   # additional_config:
   #   dedicated: true
+  #
+  # KNOWN ISSUE: setting base_url currently causes the duplex pipeline
+  # to hang on turn 1 against mock-duplex (any non-empty value triggers
+  # it, even an unreachable URL). Tracked separately; real-provider mode
+  # (Gemini Live / OpenAI Realtime) is unaffected. Use `ser-probe` to
+  # verify your endpoint's SER scoring directly:
+  #   HF_TOKEN=... go run ./tools/arena/cmd/ser-probe \
+  #     -audio <wav-file> -model superb/wav2vec2-base-superb-er \
+  #     -label ang -base-url <endpoint-url>

@@ -79,7 +79,10 @@ spec:
         # runtime collapses selfplay-user into user after the persona
         # LLM generates the text and TTS synthesizes the audio).
         message_role: user
-        expected_label: angry
+        # The model's label set is truncated: ang / neu / hap / sad.
+        # Not "angry" / "neutral" / etc. Verify against the model's
+        # config.json if you swap to a different SER model.
+        expected_label: ang
         min_score: 0.5
         classifier_id: hf
       message: "Aggressive caller should actually sound angry, not just say angry words"
