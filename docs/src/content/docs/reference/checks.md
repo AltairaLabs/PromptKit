@@ -265,6 +265,92 @@ assertions:
 
 ---
 
+## Classify-backed Checks
+
+These checks call an `inference` provider (HuggingFace today; ONNX in flight) via the `runtime/classify` task interfaces and grade the result against a configurable threshold. They depend on a provider with `role: inference` being declared in the arena config; without one — for example a keyless CI run with no `HF_TOKEN` — the check **skips cleanly** rather than failing.
+
+Common params (shared across the family):
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model` | string | Yes | Backend model id (e.g. `unitary/toxic-bert`, `superb/wav2vec2-base-superb-er`) |
+| `expected_label` | string | Yes | Label to grade against |
+| `min_score` | float | No (default 0.5) | Pass when label score is at-or-above threshold |
+| `message_role` | string | No | Whose messages to score (`user` for audio, `assistant` for text by default) |
+| `message_index` | int | No (default -1) | Pick a specific message (`-1` = latest) |
+| `classifier_id` | string | No | Explicit registry id; empty uses `defaults.inference.<task>_classifier` |
+
+### `audio_emotion`
+
+Speech-emotion-recognition gate. Picks an audio part from the chosen role's messages, runs it through an `AudioClassifier`, and grades the configured emotion label. Used in the voice-refund-demo to verify aggressive selfplay callers actually sound aggressive in their TTS audio.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| (common params above) | | | |
+
+**Surfaces:** A E (conversation assertion)
+
+**Example:**
+
+```yaml
+conversation_assertions:
+  - type: audio_emotion
+    params:
+      model: superb/wav2vec2-base-superb-er
+      message_role: user
+      expected_label: ang     # this model emits truncated labels: ang/neu/hap/sad
+      min_score: 0.5
+      classifier_id: hf
+```
+
+### `text_toxicity`
+
+Classifier-backed toxicity check. Distinct from the LLM-judge [`toxicity`](#toxicity) — `text_toxicity` is the deterministic path through a HuggingFace text-classification model. Supports two grading modes:
+
+- **`max_score`** (typical for safety assertions): pass when `expected_label` scores **below** the threshold. Natural framing for "this output should NOT be toxic".
+- **`min_score`** (inherited from the shared shape): pass when `expected_label` scores **at or above** the threshold. Useful when the model emits a positive label like `neutral` (e.g. `s-nlp/roberta_toxicity_classifier`).
+
+Specifying both `min_score` and `max_score` is rejected — pick one mode.
+
+**Surfaces:** A E
+
+**Examples:**
+
+```yaml
+# Negative framing: toxic score must stay below 0.3
+- type: text_toxicity
+  params:
+    model: unitary/toxic-bert
+    expected_label: toxic
+    max_score: 0.3
+
+# Positive framing: neutral score must stay at or above 0.7
+- type: text_toxicity
+  params:
+    model: s-nlp/roberta_toxicity_classifier
+    expected_label: neutral
+    min_score: 0.7
+```
+
+### `text_sentiment`
+
+Classifier-backed sentiment check. Mirrors `audio_emotion` exactly: pass when `expected_label` scores at-or-above `min_score`. The lower-bound framing fits "the assistant should sound positive" naturally; for inverse assertions, point at the opposing label and keep the same `min_score`.
+
+**Surfaces:** A E
+
+**Example:**
+
+```yaml
+- type: text_sentiment
+  params:
+    model: cardiffnlp/twitter-roberta-base-sentiment-latest
+    message_role: assistant
+    expected_label: positive
+    min_score: 0.7
+```
+
+---
+
 ## LLM Judge Checks
 
 LLM judge checks send the assistant output (or full session) to a language model for evaluation. The judge returns a score (0.0--1.0) and reasoning.

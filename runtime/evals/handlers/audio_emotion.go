@@ -14,18 +14,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-const (
-	audioEmotionDefaultMinScore = 0.5
-	audioEmotionDefaultRole     = "user"
-
-	// keys reused in result Value / Details maps. Extracted so the
-	// linter doesn't flag duplication and so a future schema change
-	// (e.g. renaming "expected_label" to "label") only edits one
-	// place.
-	audioEmotionKeyExpectedLabel = "expected_label"
-	audioEmotionKeyMinScore      = "min_score"
-	audioEmotionKeyScores        = "scores"
-)
+// Audio-specific defaults override the classify-base ones. Audio
+// scoring usually targets the caller's speech (role: user), unlike
+// text scoring which targets the assistant.
+const audioEmotionDefaultRole = "user"
 
 // AudioEmotionHandler scores whether the audio in a chosen message contains
 // a target emotion (e.g. "angry") above a configurable confidence
@@ -123,51 +115,12 @@ func skippedResult(handlerType, reason string) *evals.EvalResult {
 	}
 }
 
-// audioEmotionConfig holds the validated params after parsing. Keeping it
-// separate from the YAML map lets later handlers reuse the same struct
-// shape without each one re-doing the key/type dance.
-type audioEmotionConfig struct {
-	model         string
-	expectedLabel string
-	minScore      float64
-	messageRole   string
-	messageIndex  int
-	classifierID  string
-}
-
-func parseAudioEmotionParams(params map[string]any) (audioEmotionConfig, error) {
-	cfg := audioEmotionConfig{
-		minScore:     audioEmotionDefaultMinScore,
-		messageRole:  audioEmotionDefaultRole,
-		messageIndex: -1,
-	}
-	model, _ := params["model"].(string)
-	if model == "" {
-		return cfg, errors.New("model is required (e.g. superb/wav2vec2-base-superb-er)")
-	}
-	cfg.model = model
-
-	expected, _ := params[audioEmotionKeyExpectedLabel].(string)
-	if expected == "" {
-		return cfg, errors.New("expected_label is required")
-	}
-	cfg.expectedLabel = expected
-
-	if v, ok := extractFloat64(params, "min_score"); ok {
-		cfg.minScore = v
-	}
-	if v, ok := params["message_role"].(string); ok && v != "" {
-		cfg.messageRole = v
-	}
-	if v, ok := params["message_index"].(int); ok {
-		cfg.messageIndex = v
-	} else if v, ok := extractFloat64(params, "message_index"); ok {
-		cfg.messageIndex = int(v)
-	}
-	if v, ok := params["classifier_id"].(string); ok {
-		cfg.classifierID = v
-	}
-	return cfg, nil
+// parseAudioEmotionParams returns the audio handler's view of the
+// validated config. Audio adds nothing on top of the shared classify
+// base today; the dedicated entry point is kept so future audio-only
+// params (e.g. sample-rate-resampling toggles) have a place to land.
+func parseAudioEmotionParams(params map[string]any) (classifyConfig, error) {
+	return parseClassifyConfig(params, audioEmotionDefaultRole)
 }
 
 // resolveAudioClassifier pulls the registry out of context and looks up the
@@ -279,33 +232,26 @@ func readMediaBytes(media *types.MediaContent) ([]byte, error) {
 }
 
 // gradeAudioEmotion looks up the requested label in the classifier's
-// scored output, applies the threshold, and assembles the result. The
-// Value/Details payload keeps every score the model returned so debug
-// reports can show why a 0.4-confidence "angry" missed a 0.6 threshold.
+// scored output, applies the threshold, and assembles the result.
+// Wraps the shared label-lookup helper with audio-specific result
+// keys so reports remain stable for consumers that index by
+// `expected_label` / `min_score` / `actual_score`.
 func gradeAudioEmotion(
-	handlerType string, cfg *audioEmotionConfig, scores []classify.LabelScore,
+	handlerType string, cfg *classifyConfig, scores []classify.LabelScore,
 ) *evals.EvalResult {
-	var foundScore float64
-	var foundLabel string
-	for _, s := range scores {
-		if strings.EqualFold(s.Label, cfg.expectedLabel) {
-			foundScore = s.Score
-			foundLabel = s.Label
-			break
-		}
-	}
+	foundScore, foundLabel := findExpectedLabel(scores, cfg.expectedLabel)
 	if foundLabel == "" {
 		allLabels := strings.Join(labelsFromScores(scores), ", ")
 		return &evals.EvalResult{
 			Type:  handlerType,
 			Score: boolScore(false),
 			Value: map[string]any{
-				audioEmotionKeyExpectedLabel: cfg.expectedLabel,
-				audioEmotionKeyMinScore:      cfg.minScore,
-				keyFound:                     false,
+				classifyKeyExpectedLabel: cfg.expectedLabel,
+				classifyKeyMinScore:      cfg.minScore,
+				keyFound:                 false,
 			},
 			Explanation: fmt.Sprintf("label %q not returned by model; got: %s", cfg.expectedLabel, allLabels),
-			Details:     map[string]any{audioEmotionKeyScores: scores},
+			Details:     map[string]any{classifyKeyScores: scores},
 		}
 	}
 	passed := foundScore >= cfg.minScore
@@ -315,22 +261,14 @@ func gradeAudioEmotion(
 		Score:       &scoreCopy,
 		MetricValue: &scoreCopy,
 		Value: map[string]any{
-			audioEmotionKeyExpectedLabel: cfg.expectedLabel,
-			audioEmotionKeyMinScore:      cfg.minScore,
-			"actual_score":               foundScore,
-			"passed":                     passed,
+			classifyKeyExpectedLabel: cfg.expectedLabel,
+			classifyKeyMinScore:      cfg.minScore,
+			classifyKeyActualScore:   foundScore,
+			classifyKeyPassed:        passed,
 		},
 		Explanation: fmt.Sprintf("%s score %.3f (threshold %.3f)", foundLabel, foundScore, cfg.minScore),
-		Details:     map[string]any{audioEmotionKeyScores: scores},
+		Details:     map[string]any{classifyKeyScores: scores},
 	}
-}
-
-func labelsFromScores(scores []classify.LabelScore) []string {
-	out := make([]string, len(scores))
-	for i, s := range scores {
-		out[i] = s.Label
-	}
-	return out
 }
 
 // errorResult builds an EvalResult that records the failure reason
