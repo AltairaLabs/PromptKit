@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -194,13 +195,18 @@ func (de *DuplexConversationExecutor) executeDuplexPipeline(
 }
 
 // isExpectedDuplexError checks if an error is expected (not a failure).
+// Uses errors.Is so wrapped errors (e.g. "turn failed: %w" around
+// context.DeadlineExceeded) are recognized — without that, a deadline
+// reached deep in the turn loop comes back wrapped and the duplex path
+// throws away an otherwise-complete result, skipping the assertion
+// evaluation that's the whole point of running the scenario.
 func isExpectedDuplexError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return err == context.DeadlineExceeded ||
-		err == context.Canceled ||
-		err == errPartialSuccess
+	return errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, errPartialSuccess)
 }
 
 // buildDuplexPipeline creates the streaming pipeline for duplex mode.

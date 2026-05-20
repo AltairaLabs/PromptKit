@@ -1,12 +1,31 @@
 # yaml-language-server: $schema=https://promptkit.altairalabs.ai/schemas/latest/provider.json
 #
-# HuggingFace Inference API client for non-LLM model inference (audio
-# emotion classification, etc.). Consumed by the `audio_emotion` assertion
-# in scenarios that score the selfplay user's voice tone.
+# HuggingFace Inference API client for non-LLM model inference. Consumed
+# by the `audio_emotion` assertion to score the selfplay user's voice
+# tone.
 #
-# Auth: set HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) in the environment. In
-# runs without the token, audio_emotion assertions skip cleanly with a
-# "no api key configured" SkipReason — they don't fail the scenario.
+# IMPORTANT — model availability:
+# HF retired most audio-classification models from the free serverless
+# tier (`provider hf-inference`) in early 2026. The demo's target model
+# `superb/wav2vec2-base-superb-er` is one of them. Two ways to reach a
+# working SER model:
+#
+#   1. HF Inference Endpoints (recommended) — dedicated paid host, CPU
+#      tier ~$0.03/hour, scales to zero when idle. Deploy the model at
+#      https://endpoints.huggingface.co/ then uncomment the `base_url`
+#      + `additional_config.dedicated: true` block below and paste the
+#      endpoint URL.
+#
+#   2. Free serverless (text only) — leave base_url unset; the backend
+#      defaults to `router.huggingface.co/hf-inference`. Works for text
+#      models like `SamLowe/roberta-base-go_emotions` but not for the
+#      SER models the audio_emotion handler is wired against.
+#
+# Without an inference endpoint deployed, audio_emotion will skip with
+# "Model not supported by provider hf-inference" rather than failing
+# the scenario. To test the inference foundation without an endpoint,
+# run `go run ./tools/arena/cmd/ser-probe -text "..."` against a text
+# emotion model.
 #
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
@@ -18,3 +37,7 @@ spec:
   role: inference
   credential:
     credential_env: HF_TOKEN
+  # Uncomment when running against a dedicated HF Inference Endpoint:
+  # base_url: https://YOUR-ENDPOINT.endpoints.huggingface.cloud
+  # additional_config:
+  #   dedicated: true

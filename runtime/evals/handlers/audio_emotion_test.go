@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -286,3 +288,77 @@ func TestAudioEmotion_MessageIndexOutOfRange(t *testing.T) {
 }
 
 func ptrString(s string) *string { return &s }
+
+// TestAudioEmotion_StorageReferencePath proves the handler can read audio
+// from a storage_reference that's a local-filesystem path — the shape the
+// duplex pipeline produces when the local-storage media backend persists
+// recordings. Without this support, audio_emotion can never fire in a
+// real voice-refund-demo run because the message log never carries inline
+// base64.
+func TestAudioEmotion_StorageReferencePath(t *testing.T) {
+	dir := t.TempDir()
+	wavPath := filepath.Join(dir, "audio.wav")
+	if err := os.WriteFile(wavPath, []byte("fake-wav-bytes"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	srv := hfTestServer(t, []classify.LabelScore{{Label: "angry", Score: 0.91}}, false)
+	defer srv.Close()
+	ctx := ctxWithRegistry(t, srv.URL)
+
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{{
+			Type: types.ContentTypeAudio,
+			Media: &types.MediaContent{
+				StorageReference: &wavPath,
+				MIMEType:         "audio/wav",
+			},
+		}},
+	}
+
+	h := &AudioEmotionHandler{}
+	res, err := h.Eval(ctx, &evals.EvalContext{Messages: []types.Message{msg}}, map[string]any{
+		"model":          "superb/wav2vec2-base-superb-er",
+		"expected_label": "angry",
+		"min_score":      0.5,
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Skipped {
+		t.Fatalf("expected score result, got skipped: %s", res.SkipReason)
+	}
+	if res.Error != "" {
+		t.Fatalf("expected score result, got error: %s", res.Error)
+	}
+	if res.Score == nil || *res.Score < 0.5 {
+		t.Errorf("score = %v, want >= 0.5", res.Score)
+	}
+}
+
+func TestAudioEmotion_StorageReferenceMissingFile(t *testing.T) {
+	srv := hfTestServer(t, nil, false)
+	defer srv.Close()
+	ctx := ctxWithRegistry(t, srv.URL)
+
+	missingPath := "/nonexistent/path/to.wav"
+	msg := types.Message{
+		Role: "user",
+		Parts: []types.ContentPart{{
+			Type:  types.ContentTypeAudio,
+			Media: &types.MediaContent{StorageReference: &missingPath, MIMEType: "audio/wav"},
+		}},
+	}
+
+	h := &AudioEmotionHandler{}
+	res, _ := h.Eval(ctx, &evals.EvalContext{Messages: []types.Message{msg}}, map[string]any{
+		"model":          "x/y",
+		"expected_label": "angry",
+	})
+	// An unreadable storage reference is a real config error (path is
+	// wrong / file got cleaned up). Surface as Error, not Skipped.
+	if res.Error == "" {
+		t.Errorf("expected error for unreadable storage_reference; got %+v", res)
+	}
+}

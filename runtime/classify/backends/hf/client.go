@@ -22,10 +22,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
 )
 
-// DefaultBaseURL is the canonical HF Inference API endpoint. Override
-// via Config.BaseURL for HF Inference Endpoints (dedicated paid hosts)
-// or the newer Inference Providers routing layer.
-const DefaultBaseURL = "https://api-inference.huggingface.co"
+// DefaultBaseURL is the canonical HF Inference API endpoint. HF deprecated
+// the older `api-inference.huggingface.co/models/{id}` URL in favor of the
+// Inference Providers router; `hf-inference` is the provider that serves
+// the same free-tier serverless models. Override via Config.BaseURL for HF
+// Inference Endpoints (dedicated paid hosts) or to pin a different provider
+// (e.g. replicate, fireworks).
+const DefaultBaseURL = "https://router.huggingface.co/hf-inference"
 
 // defaultContentType is the request Content-Type used when the caller
 // didn't tag the payload — HF accepts most media as raw bytes under

@@ -77,7 +77,7 @@ func newMockProviderRegistry(providerID string) *providers.Registry {
 func TestResolveRunTimeout(t *testing.T) {
 	t.Run("returns default when config is nil", func(t *testing.T) {
 		e := &Engine{}
-		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout())
+		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout(nil))
 	})
 
 	t.Run("returns default when run_timeout is empty", func(t *testing.T) {
@@ -88,7 +88,7 @@ func TestResolveRunTimeout(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout())
+		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout(nil))
 	})
 
 	t.Run("parses valid duration", func(t *testing.T) {
@@ -99,7 +99,7 @@ func TestResolveRunTimeout(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, 30*time.Second, e.resolveRunTimeout())
+		assert.Equal(t, 30*time.Second, e.resolveRunTimeout(nil))
 	})
 
 	t.Run("parses minutes", func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestResolveRunTimeout(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, 10*time.Minute, e.resolveRunTimeout())
+		assert.Equal(t, 10*time.Minute, e.resolveRunTimeout(nil))
 	})
 
 	t.Run("returns default for invalid duration", func(t *testing.T) {
@@ -121,7 +121,7 @@ func TestResolveRunTimeout(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout())
+		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout(nil))
 	})
 
 	t.Run("returns default for zero duration", func(t *testing.T) {
@@ -132,7 +132,7 @@ func TestResolveRunTimeout(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout())
+		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout(nil))
 	})
 
 	t.Run("returns default for negative duration", func(t *testing.T) {
@@ -143,7 +143,35 @@ func TestResolveRunTimeout(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout())
+		assert.Equal(t, DefaultRunTimeout, e.resolveRunTimeout(nil))
+	})
+
+	t.Run("scenario duplex timeout wins over defaults", func(t *testing.T) {
+		// Voice scenarios with selfplay routinely take longer than the 5m
+		// default — the scenario's declared duplex.timeout must override.
+		e := &Engine{
+			config: &config.Config{
+				Defaults: config.Defaults{
+					RunTimeout: "30s",
+				},
+			},
+		}
+		scenario := &config.Scenario{
+			Duplex: &config.DuplexConfig{Timeout: "12m"},
+		}
+		assert.Equal(t, 12*time.Minute, e.resolveRunTimeout(scenario))
+	})
+
+	t.Run("non-duplex scenario falls through to defaults", func(t *testing.T) {
+		// Pure-text scenarios don't have a Duplex block; we should still
+		// respect Defaults.RunTimeout from arena config.
+		e := &Engine{
+			config: &config.Config{
+				Defaults: config.Defaults{RunTimeout: "45s"},
+			},
+		}
+		scenario := &config.Scenario{}
+		assert.Equal(t, 45*time.Second, e.resolveRunTimeout(scenario))
 	})
 }
 

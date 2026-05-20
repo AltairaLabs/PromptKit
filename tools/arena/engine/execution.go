@@ -355,14 +355,14 @@ func (e *Engine) intersectProviders(scenarioProviders, providerFilter []string) 
 // Handles errors gracefully, always returning a RunID (with Error saved in StateStore if failed).
 // Returns the RunID. Results can be retrieved from StateStore using GetResult().
 func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, error) {
-	// Apply per-run timeout to prevent hanging provider calls from blocking indefinitely
-	runTimeout := e.resolveRunTimeout()
-	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
-	defer cancel()
-
+	// Defer per-run timeout setup until after scenario lookup so duplex
+	// scenarios can stretch the deadline to their declared
+	// `duplex.timeout` (typically 10m for voice). For the eval-run path
+	// and the no-scenario edge case we fall through to the config /
+	// DefaultRunTimeout ladder.
 	startTime := time.Now()
 	runID := generateRunID(combo)
-	runEmitter := e.createRunEmitter(runCtx, runID, &combo)
+	runEmitter := e.createRunEmitter(ctx, runID, &combo)
 
 	// Get Arena state store
 	arenaStore, ok := e.stateStore.(*statestore.ArenaStateStore)
@@ -377,6 +377,9 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	// Check if this is an eval run
 	if combo.EvalID != "" {
+		runTimeout := e.resolveRunTimeout(nil)
+		runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+		defer cancel()
 		return e.executeEvalRun(runCtx, combo, runID, startTime, arenaStore, runEmitter, saveError)
 	}
 
@@ -386,6 +389,11 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	if !exists {
 		return saveError(fmt.Sprintf("scenario not found: %s", combo.ScenarioID))
 	}
+
+	// Apply per-run timeout, now that we know the scenario shape.
+	runTimeout := e.resolveRunTimeout(scenario)
+	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
 
 	// Prepare workflow scenarios: shallow-copy to avoid mutating the shared
 	// scenario, then set TaskType from state machine and wire metadata.
@@ -490,13 +498,29 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 
 	convResult := e.conversationExecutor.ExecuteConversation(runCtx, req)
 
-	// Check if the run was canceled due to timeout
+	// Run timed out, but the executor may have produced a partial result
+	// (messages exchanged, conversation_assertions evaluated on what
+	// happened so far). Discarding it and synthesizing an error-only
+	// record loses signals that are useful even when the conversation
+	// didn't complete — e.g. an audio_emotion assertion on whichever
+	// turns DID happen, or tool-call counts up to the point of timeout.
+	// Stamp the timeout onto the result so the run is flagged as errored
+	// but the partial content survives to the report.
 	if runCtx.Err() != nil {
 		timeoutMsg := fmt.Sprintf("run timed out after %s", runTimeout)
-		if convResult != nil && convResult.Error != "" {
-			timeoutMsg = fmt.Sprintf("%s: %s", timeoutMsg, convResult.Error)
+		if convResult == nil || convResult.Messages == nil {
+			// No partial content to preserve — fall back to synthetic error.
+			if convResult != nil && convResult.Error != "" {
+				timeoutMsg = fmt.Sprintf("%s: %s", timeoutMsg, convResult.Error)
+			}
+			return saveError(timeoutMsg)
 		}
-		return saveError(timeoutMsg)
+		if convResult.Error != "" {
+			convResult.Error = fmt.Sprintf("%s: %s", timeoutMsg, convResult.Error)
+		} else {
+			convResult.Error = timeoutMsg
+		}
+		convResult.Failed = true
 	}
 
 	// Enrich conversation messages with tool descriptor metadata for reports
@@ -886,8 +910,21 @@ func convertA2AAgentsFromConfig(agents []config.A2AAgentConfig) []statestore.A2A
 	return result
 }
 
-// resolveRunTimeout returns the per-run timeout from config, or DefaultRunTimeout if not set.
-func (e *Engine) resolveRunTimeout() time.Duration {
+// resolveRunTimeout returns the per-run timeout. Precedence (highest first):
+//  1. Scenario.Duplex.Timeout — voice scenarios are inherently slow
+//     (selfplay LLM + TTS + realtime agent + tool round-trips); a 5m
+//     default truncates them before any meaningful scoring happens.
+//  2. Defaults.RunTimeout from arena config.
+//  3. DefaultRunTimeout (5m).
+//
+// The scenario parameter is optional — eval runs and other non-scenario
+// paths pass nil and fall through to the config / default ladder.
+func (e *Engine) resolveRunTimeout(scenario *config.Scenario) time.Duration {
+	if scenario != nil && scenario.Duplex != nil {
+		if d := scenario.Duplex.GetTimeoutDuration(0); d > 0 {
+			return d
+		}
+	}
 	if e.config != nil && e.config.Defaults.RunTimeout != "" {
 		d, err := time.ParseDuration(e.config.Defaults.RunTimeout)
 		if err == nil && d > 0 {
