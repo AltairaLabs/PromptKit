@@ -24,9 +24,22 @@ var _ providers.ToolResponseSupport = (*MockStreamSession)(nil)
 // responses by sending a `function_call_output` event followed by a
 // `response.create` trigger that wakes the model up to produce its
 // continuation. The mock equivalent is: store the response for test
-// introspection, then call emitAutoResponse — which advances
-// responseCount and emits whatever the repository has scripted as the
-// next turn (typically the agent's text follow-up after the tool result).
+// introspection, then call emitAutoResponse.
+//
+// Note: this delegates to the batch method intentionally. Real providers
+// send two separate websocket events per single-response call (one item
+// + one response.create) — assertion-wise a tester observing the mock
+// can't tell the difference, but a future contributor reading just this
+// function should know it's not a behavioral divergence.
+//
+// Scripted-turn convention: emitAutoResponse increments responseCount,
+// so a tool-result continuation occupies its OWN slot in the scenario's
+// scripted-turn space (different from real providers where the tool
+// continuation extends the original agent turn). Scenarios that script
+// tool flows against the mock should treat each tool round-trip as a
+// discrete scripted entry: e.g. turn 1 = agent emits text+tool_call,
+// turn 2 = agent's continuation after the tool result, turn 3 = agent's
+// response to the next user turn.
 func (m *MockStreamSession) SendToolResponse(ctx context.Context, toolCallID, result string) error {
 	return m.SendToolResponses(ctx, []providers.ToolResponse{
 		{ToolCallID: toolCallID, Result: result},

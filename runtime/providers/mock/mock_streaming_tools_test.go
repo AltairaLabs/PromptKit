@@ -3,9 +3,18 @@ package mock
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
+
+// drainChunkTimeout is the wall-clock budget for the producer to land a
+// chunk on the response channel. Today emitAutoResponse runs synchronously
+// under m.mu before SendText / SendToolResponses returns, so chunks are
+// already queued by the time the test reads — but encoding a small timeout
+// keeps the tests resilient if a future refactor moves emit to a goroutine
+// to model network jitter.
+const drainChunkTimeout = 50 * time.Millisecond
 
 func TestMockStreamSession_SendToolResponse_RecordsAndContinues(t *testing.T) {
 	session := NewMockStreamSession().WithAutoRespond("continued after tool")
@@ -82,6 +91,25 @@ func TestMockStreamSession_SendToolResponse_ClosedSessionErrors(t *testing.T) {
 	}
 }
 
+// TestMockStreamSession_SendToolResponse_TriggersWithoutAutoRespond pins
+// the documented behaviour that tool responses unconditionally trigger a
+// continuation, regardless of the autoRespond flag. Real providers don't
+// have a "should I respond" knob — the response.create event IS the
+// trigger — and the mock mirrors that. A previous version of this file
+// had the comment but no test; comments without tests rot.
+func TestMockStreamSession_SendToolResponse_TriggersWithoutAutoRespond(t *testing.T) {
+	// No WithAutoRespond — autoRespond stays false.
+	session := NewMockStreamSession()
+
+	if err := session.SendToolResponse(context.Background(), "call_0", "{}"); err != nil {
+		t.Fatalf("SendToolResponse: %v", err)
+	}
+
+	// A chunk should land even though autoRespond=false because the
+	// tool result itself is the trigger.
+	drainOne(t, session, "continuation without auto-respond")
+}
+
 func TestMockStreamSession_InterfaceAssertion(t *testing.T) {
 	// Compile-time check is in production code; this is the runtime
 	// check that DuplexProviderStage performs. If the assertion ever
@@ -101,8 +129,8 @@ func drainOne(t *testing.T, session *MockStreamSession, label string) providers.
 			t.Fatalf("%s: response channel closed", label)
 		}
 		return chunk
-	default:
-		t.Fatalf("%s: no chunk on response channel", label)
+	case <-time.After(drainChunkTimeout):
+		t.Fatalf("%s: no chunk on response channel within %s", label, drainChunkTimeout)
 	}
 	return providers.StreamChunk{}
 }
