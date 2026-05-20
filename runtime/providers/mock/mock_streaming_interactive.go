@@ -106,6 +106,14 @@ type MockStreamSession struct {
 	// Simulation: Session closure (mimics Gemini dropping connection unexpectedly)
 	closeAfterTurns int  // If > 0, close session after this many turns
 	closeNoResponse bool // If true with closeAfterTurns, close WITHOUT sending final response
+
+	// toolResponses collects every tool execution result the runtime has
+	// fed back into this session via SendToolResponse(s). Lets tests
+	// verify the runtime delivered the expected payload for a scripted
+	// tool_call. Implementation lives in mock_streaming_tools_integration.go
+	// so the file scoping makes the dependency on ToolResponseSupport
+	// obvious from the directory listing.
+	toolResponses []providers.ToolResponse
 }
 
 // NewMockStreamSession creates a new mock stream session.
