@@ -71,6 +71,8 @@ func init() {
 	// Classify-backed media handlers — score model output (audio emotion,
 	// text toxicity, ...) using the classify.Registry from context.
 	evals.RegisterDefault(&AudioEmotionHandler{})
+	evals.RegisterDefault(&TextToxicityHandler{})
+	evals.RegisterDefault(&TextSentimentHandler{})
 
 	// LLM judge handlers
 	evals.RegisterDefault(&LLMJudgeHandler{})
