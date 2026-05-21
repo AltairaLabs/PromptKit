@@ -82,17 +82,8 @@ func parseClassifyConfig(params map[string]any, defaultRole string) (classifyCon
 		cfg.classifierID = v
 	}
 
-	// Surface a clear error if the caller put a threshold on the
-	// inner eval. Threshold judgment lives on the assertion wrapper,
-	// not on the eval primitive — silently accepting a no-op param
-	// would hide a config mistake the user expected to be enforced.
-	for _, banned := range []string{"min_score", "max_score"} {
-		if _, present := params[banned]; present {
-			return cfg, errors.New(
-				banned + " is not a valid param on a classify-backed eval; " +
-					"wrap with `type: assertion` and put the threshold there " +
-					"(see runtime/evals/wrappers.go)")
-		}
+	if msg := rejectThresholdParams(params); msg != "" {
+		return cfg, errors.New(msg)
 	}
 	return cfg, nil
 }

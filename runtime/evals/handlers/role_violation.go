@@ -26,7 +26,6 @@ import (
 //   - system_prompt (string): the role / persona the answer should adhere
 //     to; overrides metadata. Distinct from the standard llm_judge
 //     `system_prompt` which controls the JUDGE's prompt.
-//   - min_score (float): pass threshold
 //   - rubric, model, criteria: standard llm_judge knobs
 type RoleViolationHandler struct{}
 

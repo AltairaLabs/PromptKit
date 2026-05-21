@@ -39,6 +39,6 @@ Every handler in this package that takes a measurement (classify-backed, embeddi
 - **Bundling "passed" boolean into the inner result.** Same problem — the wrapper decides pass/fail.
 - **Two thresholds modes on the same handler** (`min_score` AND `max_score` selectable via flag). Pick neither — both are wrapper concerns.
 
-## Legacy exceptions (do not propagate)
+## Legacy exceptions (none currently)
 
-The LLM-judge family (`bias`, `toxicity`, `pii_leakage`, `role_violation`) accepts `min_score` as a param, but only passes it through to the judge model as metadata for the model's own reasoning — they do not threshold the score themselves. This is grandfathered; do not add new self-grading handlers in this style.
+The LLM-judge family (`bias`, `toxicity`, `pii_leakage`, `role_violation`, `llm_judge`, `llm_judge_session`, the RAG primitives) used to accept `min_score` as a no-op param. That was cleaned up in #1233 — they now reject threshold params at parse time like every other classify-backed handler. There are no current exceptions to the convention.

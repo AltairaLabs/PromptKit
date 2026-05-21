@@ -381,7 +381,7 @@ Generic wrapper that turns any eval primitive into a thresholded pass/fail. Clea
 | `min_score` | float | No | Pass when inner Score is at-or-above this |
 | `max_score` | float | No | Pass when inner Score is at-or-below this |
 
-If both `min_score` and `max_score` are set, both must hold. If neither is set, the default is `min_score: 1.0` (inner eval must fully pass).
+If both `min_score` and `max_score` are set, both must hold. If neither is set, the default is `min_score: 1.0` (inner eval must fully pass). For LLM-judge and classify-backed evals that emit raw scores in `[0,1)`, **set an explicit `min_score`** on the wrapper — leaving it unset will report every result as failed.
 
 Parallel handler: `guardrail` — same shape but consumes the eval at runtime to block, not assert.
 
@@ -389,7 +389,7 @@ Parallel handler: `guardrail` — same shape but consumes the eval at runtime to
 
 ## LLM Judge Checks
 
-LLM judge checks send the assistant output (or full session) to a language model for evaluation. The judge returns a score (0.0--1.0) and reasoning.
+LLM judge checks are pure eval primitives: they send the assistant output (or full session) to a language model for evaluation. The judge returns a score (0.0–1.0) and reasoning; the handler emits the raw score as `EvalResult.Score` and preserves the judge's `passed` opinion in `Details`. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper — putting `min_score` / `max_score` directly on an LLM-judge handler is rejected at parse time.
 
 ### `llm_judge`
 
@@ -401,7 +401,6 @@ Turn-level LLM evaluation. The judge sees the current assistant response and eva
 | `rubric` | string | No | Detailed scoring guidance |
 | `model` | string | No | Model to use for judging |
 | `system_prompt` | string | No | Override the default judge system prompt |
-| `min_score` | float | No | Minimum score threshold for passing |
 | `extra` | object | No | Additional provider-specific parameters |
 
 **Surfaces:** A E
@@ -421,15 +420,17 @@ Evaluates tool usage patterns via an LLM judge.
 | `criteria` | string | Yes | What the judge should evaluate about tool usage |
 | `tools` | string[] | No | Filter to specific tools |
 
-Plus all standard judge params (`rubric`, `model`, `system_prompt`, `min_score`, `extra`). **Surfaces:** A E
+Plus all standard judge params (`rubric`, `model`, `system_prompt`, `extra`). **Surfaces:** A E
 
 **Example:**
 
 ```yaml
 assertions:
-  - type: llm_judge
+  - type: assertion
     params:
-      criteria: "Response is empathetic and addresses the customer's concern"
+      eval_type: llm_judge
+      eval_params:
+        criteria: "Response is empathetic and addresses the customer's concern"
       min_score: 0.7
 ```
 
@@ -439,7 +440,7 @@ assertions:
 
 RAG checks are named eval primitives for retrieval-augmented generation: they score the answer against retrieved context (`faithfulness`, `hallucination`), the answer against the question (`answer_relevancy`), or the retrieved chunks against the question / ground truth (`contextual_precision`, `contextual_recall`, `contextual_relevancy`).
 
-Each handler is a thin wrapper over `llm_judge` with a hardened default prompt drawn from public DeepEval / Ragas reference implementations (Apache 2.0). The standard judge params (`rubric`, `model`, `system_prompt`, `min_score`, `extra`) all apply; supplying `system_prompt` or `criteria` overrides the default.
+Each handler is a thin wrapper over `llm_judge` with a hardened default prompt drawn from public DeepEval / Ragas reference implementations (Apache 2.0). Like `llm_judge`, the RAG handlers are pure eval primitives — wrap with [`assertion`](#assertion-wrapper) to apply a threshold. The standard judge params (`rubric`, `model`, `system_prompt`, `extra`) all apply; supplying `system_prompt` or `criteria` overrides the default.
 
 **Context sources** — every handler that needs retrieved chunks accepts them in three forms:
 
@@ -461,9 +462,11 @@ Plus standard judge params. **Surfaces:** A E
 
 ```yaml
 assertions:
-  - type: faithfulness
+  - type: assertion
     params:
-      context_field: retrieved_chunks
+      eval_type: faithfulness
+      eval_params:
+        context_field: retrieved_chunks
       min_score: 0.8
 ```
 
@@ -522,10 +525,12 @@ Plus standard judge params. **Surfaces:** A E
 
 ```yaml
 assertions:
-  - type: hallucination
+  - type: assertion
     params:
-      contexts:
-        - "Paris is the capital of France."
+      eval_type: hallucination
+      eval_params:
+        contexts:
+          - "Paris is the capital of France."
       min_score: 0.9
 ```
 
@@ -556,23 +561,19 @@ assertions:
       should_trigger: true
 ```
 
-Direct scenario invocation (`type: pii_leakage` in the `assertions:` block with `min_score`) is also supported by the generic plumbing, but bypasses the production-side guardrail and is not the documented default for safety primitives.
+For direct scenario invocation as a pass/fail assertion, wrap the safety primitive with `type: assertion` and set `min_score` on the wrapper. Putting `min_score` / `max_score` directly on a safety handler is rejected — see the [eval/assertion wrapper](#assertion-wrapper) for the canonical shape.
 
-LLM-judged safety checks (`bias`, `toxicity`, `role_violation`, and the LLM-judged path of `pii_leakage`) carry a known false-positive rate. Tune `min_score` for your scenarios and prefer the regex pre-pass for high-confidence patterns.
+LLM-judged safety checks (`bias`, `toxicity`, `role_violation`, and the LLM-judged path of `pii_leakage`) carry a known false-positive rate. Tune the wrapper's `min_score` for your scenarios and prefer the regex pre-pass (`pii_leakage`) for high-confidence patterns.
 
 ### `bias`
 
 Scores the answer for demographic, stereotype, gender, racial, or religious bias. Equivalent in name to DeepEval `bias`.
 
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `min_score` | float | No | Pass threshold |
-
-Plus standard judge params (`rubric`, `model`, `system_prompt`, `criteria`, `extra`). **Surfaces:** A G E
+Standard judge params (`rubric`, `model`, `system_prompt`, `criteria`, `extra`) — all optional. **Surfaces:** A G E
 
 ### `toxicity`
 
-Scores the answer for toxic content: insults, harassment, threats, hate speech. Equivalent in name to DeepEval `toxicity`.
+Scores the answer for toxic content: insults, harassment, threats, hate speech. Equivalent in name to DeepEval `toxicity`. Distinct from the classifier-backed [`text_toxicity`](#text_toxicity); `toxicity` is the LLM-judge path.
 
 Same params as `bias`. **Surfaces:** A G E
 
@@ -593,7 +594,6 @@ The judge sees the active agent role (sourced in priority order from `params["ag
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `agent_role` | string | No | The persona / system prompt the answer should follow. Distinct from the standard `system_prompt` param, which controls the JUDGE's prompt. |
-| `min_score` | float | No | Pass threshold |
 
 Plus standard judge params. **Surfaces:** A G E
 

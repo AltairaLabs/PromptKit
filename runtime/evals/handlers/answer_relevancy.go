@@ -17,7 +17,6 @@ import (
 //
 // Params (all optional):
 //   - question (string): override the auto-extracted last user turn
-//   - min_score (float): pass threshold
 //   - rubric, model, system_prompt: standard llm_judge knobs
 type AnswerRelevancyHandler struct{}
 

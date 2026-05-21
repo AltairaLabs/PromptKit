@@ -86,9 +86,11 @@ The default assertion behaviour is binary: pass if every assertion in every scen
 
 ```yaml
 assertions:
-  - type: llm_judge
+  - type: assertion
     params:
-      criteria: "Agent stayed professional under pressure"
+      eval_type: llm_judge
+      eval_params:
+        criteria: "Agent stayed professional under pressure"
       min_score: 0.7
     pass_threshold: 0.8     # 80% of trials must pass
 
@@ -138,7 +140,7 @@ For tight gates, also require:
 | Safety guardrail regression | `guardrail_triggered` | Reads `validations:` on the recorded message; no LLM cost; deterministic |
 | Model migration | `content_includes` / `outcome_equivalent` / `max_length` | Compare per-model outputs side by side; CI fails if any cell regresses |
 | Latency budget | `latency_budget` | Reads `LatencyMs` from the assistant message via the Arena bridge |
-| LLM-judged quality | `llm_judge` / `llm_judge_session` with `min_score` + `pass_threshold` | Use `pass_threshold` to tolerate stochastic noise; pair with `trials` for stability |
+| LLM-judged quality | `type: assertion` wrapping `llm_judge` / `llm_judge_session`, with `min_score` on the wrapper + `pass_threshold` on the assertion | Use `pass_threshold` to tolerate stochastic noise; pair with `trials` for stability |
 | RAG quality | `faithfulness` / `answer_relevancy` / `contextual_*` / `hallucination` | LLM-judged; same noise considerations |
 
 ## Failure recipes

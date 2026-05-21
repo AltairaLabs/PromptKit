@@ -21,7 +21,6 @@ import (
 //
 // Params (all optional):
 //   - contexts ([]string) | context (string) | context_field (string)
-//   - min_score (float): pass threshold
 //   - rubric, model, system_prompt: standard llm_judge knobs
 type HallucinationHandler struct{}
 

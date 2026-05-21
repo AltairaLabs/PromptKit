@@ -20,7 +20,6 @@ import (
 //   - reference (string) | expected_output (string): the ground-truth
 //     answer (required)
 //   - question (string): override the auto-extracted last user turn
-//   - min_score (float): pass threshold
 //   - rubric, model, system_prompt: standard llm_judge knobs
 type ContextualRecallHandler struct{}
 

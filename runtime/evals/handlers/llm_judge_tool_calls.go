@@ -9,15 +9,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
-// LLMJudgeToolCallsHandler evaluates tool call behavior via an LLM judge.
-// Instead of judging the assistant's text response, it feeds tool call data
-// (names, arguments, results) to the judge for evaluation.
-// Params:
-//   - tools []string (optional): filter to specific tool names
-//   - criteria string: what to evaluate
-//   - rubric string (optional): detailed scoring guidance
-//   - model string (optional): model override
-//   - min_score float64 (optional): minimum score to pass
+// LLMJudgeToolCallsHandler is the tool-call counterpart of
+// LLMJudgeHandler — feeds tool call data (names, args, results)
+// instead of the assistant's text. Accepts the same base params plus
+// `tools []string` to filter to specific tool names.
 type LLMJudgeToolCallsHandler struct{}
 
 // Type returns the eval type identifier.
@@ -29,15 +24,9 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (*evals.EvalResult, error) {
-	provider, extractErr := extractJudgeProvider(evalCtx)
-	if extractErr != nil {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: extractErr.Error(),
-		}, nil
+	if msg := rejectThresholdParams(params); msg != "" {
+		return errorResult(h.Type(), msg), nil
 	}
-
 	filtered := filterToolCallViews(evalCtx.ToolCalls, extractStringSlice(params, "tools"))
 	if len(filtered) == 0 {
 		return &evals.EvalResult{
@@ -48,22 +37,14 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 			SkipReason:  "no matching tool calls",
 		}, nil
 	}
-
-	opts := buildJudgeOpts(formatToolCallViews(filtered), params)
-	opts.Emitter = emitterFromEvalCtx(evalCtx)
-	judgeResult, judgeErr := provider.Judge(ctx, opts)
-	if judgeErr != nil {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
-		}, nil
+	result := runJudgeEval(ctx, evalCtx, h.Type(), params, formatToolCallViews(filtered))
+	// Augment the shared judge Details with the tool-call count;
+	// merge (don't overwrite) so the standard score/passed/reasoning
+	// payload survives.
+	if result.Details == nil {
+		result.Details = map[string]any{}
 	}
-
-	result := buildEvalResult(h.Type(), judgeResult)
-	result.Details = map[string]any{
-		"tool_calls_sent": len(filtered),
-	}
+	result.Details["tool_calls_sent"] = len(filtered)
 	return result, nil
 }
 

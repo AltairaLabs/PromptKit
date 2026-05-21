@@ -20,7 +20,6 @@ import (
 // Params (all optional):
 //   - contexts ([]string) | context (string) | context_field (string)
 //   - question (string)
-//   - min_score (float)
 //   - rubric, model, system_prompt
 type ContextualRelevancyHandler struct{}
 

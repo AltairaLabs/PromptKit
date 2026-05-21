@@ -81,10 +81,16 @@ conversation_assertions:
      - type: pii_leakage
        params: { direction: output }
      - type: toxicity
-       params: { direction: output, min_score: 0.8 }
+       params: { direction: output }
      - type: role_violation
        params: { direction: output }
    ```
+
+   Thresholds (`min_score` / `max_score`) on the inner safety handler
+   are rejected — the underlying eval primitive emits a raw judge
+   score and the guardrail wrapper decides whether to fire. For
+   scenario-level pass/fail on the same primitive, wrap with
+   `type: assertion` and put the threshold there.
 
 3. Add scenarios that exercise each failure mode (toxic content, role-jailbreak attempts, bias probes).
 4. Run with `OPENAI_API_KEY` in your environment.

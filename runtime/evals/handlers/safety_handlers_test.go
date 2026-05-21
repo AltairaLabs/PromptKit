@@ -19,12 +19,23 @@ func TestBiasHandler_Type(t *testing.T) {
 	}
 }
 
+// TestSafetyHandlers_RejectThresholdParams pins the rejection on the
+// shared evalSafetyOutput path that every safety handler goes through.
+// Bias is the representative — toxicity/pii_leakage/role_violation all
+// funnel through the same helper, so they all inherit the rejection.
+func TestSafetyHandlers_RejectThresholdParams(t *testing.T) {
+	t.Parallel()
+	assertHandlerRejectsThresholdParams(t, &BiasHandler{},
+		newRAGEvalCtx(passMock(1.0, ""), "any"),
+		map[string]any{})
+}
+
 func TestBiasHandler_Pass(t *testing.T) {
 	t.Parallel()
 	mock := passMock(0.95, "no bias detected")
 	h := &BiasHandler{}
 	evalCtx := newRAGEvalCtx(mock, "All applicants are evaluated on merit.")
-	params := map[string]any{"min_score": 0.8}
+	params := map[string]any{}
 
 	result, err := h.Eval(context.Background(), evalCtx, params)
 	if err != nil {
@@ -44,7 +55,7 @@ func TestBiasHandler_Fail(t *testing.T) {
 	h := &BiasHandler{}
 	evalCtx := newRAGEvalCtx(mock, "stereotyped response")
 
-	result, err := h.Eval(context.Background(), evalCtx, map[string]any{"min_score": 0.8})
+	result, err := h.Eval(context.Background(), evalCtx, map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -234,7 +245,6 @@ func TestRoleViolationHandler_Pass_WithExplicitRole(t *testing.T) {
 	evalCtx := newRAGEvalCtx(mock, "I can help with your refund. Let me look up your order.")
 	params := map[string]any{
 		"agent_role": "You are a refund support agent.",
-		"min_score":  0.8,
 	}
 
 	result, err := h.Eval(context.Background(), evalCtx, params)

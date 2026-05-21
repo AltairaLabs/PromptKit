@@ -22,7 +22,10 @@ const (
 	// judgeMaxTokens is the maximum token limit for judge LLM calls.
 	judgeMaxTokens = 1024
 
-	// defaultPassThreshold is the default score threshold when no explicit passed field or minScore is set.
+	// defaultPassThreshold is the score threshold used as the fallback
+	// when the judge model didn't include an explicit `passed` field in
+	// its response. Threshold judgment proper lives on the
+	// `type: assertion` wrapper, not here.
 	defaultPassThreshold = 0.5
 )
 
@@ -37,9 +40,13 @@ type JudgeProvider interface {
 }
 
 // parseJudgeResponse parses the LLM judge response into a JudgeResult.
+// The handler emits Score = jr.Score as a pure eval primitive; threshold
+// judgment lives on the `type: assertion` wrapper, not here. We still
+// record jr.Passed when the model returned it so consumers that inspect
+// Details can see the model's own opinion alongside the score.
 //
 //nolint:unparam // error return kept for future extensibility
-func parseJudgeResponse(raw string, minScore *float64) (*JudgeResult, error) {
+func parseJudgeResponse(raw string) (*JudgeResult, error) {
 	var parsed struct {
 		Passed    *bool   `json:"passed"`
 		Score     float64 `json:"score"`
@@ -69,10 +76,11 @@ func parseJudgeResponse(raw string, minScore *float64) (*JudgeResult, error) {
 		Raw:       raw,
 	}
 
+	// Honor the model's explicit verdict when present; otherwise fall
+	// back to the default pass threshold (kept for reporting only —
+	// EvalResult.Score carries the raw signal to the wrapper).
 	if parsed.Passed != nil {
 		result.Passed = *parsed.Passed
-	} else if minScore != nil {
-		result.Passed = parsed.Score >= *minScore
 	} else {
 		result.Passed = parsed.Score >= defaultPassThreshold
 	}
@@ -96,9 +104,6 @@ type JudgeOpts struct {
 
 	// SystemPrompt overrides the default judge system prompt (optional).
 	SystemPrompt string
-
-	// MinScore is the minimum score threshold for passing (optional).
-	MinScore *float64
 
 	// Extra holds additional parameters for provider-specific features.
 	Extra map[string]any
@@ -206,7 +211,7 @@ func (sp *SpecJudgeProvider) Judge(ctx context.Context, opts JudgeOpts) (*JudgeR
 		opts.Emitter.ProviderCallCompletedCtx(ctx, completedData)
 	}
 
-	return parseJudgeResponse(resp.Content, opts.MinScore)
+	return parseJudgeResponse(resp.Content)
 }
 
 // Ensure SpecJudgeProvider implements JudgeProvider.

@@ -30,6 +30,9 @@ func evalSafetyOutput(
 	params map[string]any,
 	systemPrompt, criteria string,
 ) (*evals.EvalResult, error) {
+	if msg := rejectThresholdParams(params); msg != "" {
+		return errorResult(evalType, msg), nil
+	}
 	output := ""
 	if evalCtx != nil {
 		output = evalCtx.CurrentOutput

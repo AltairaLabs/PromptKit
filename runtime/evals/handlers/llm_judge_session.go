@@ -2,25 +2,14 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
-// LLMJudgeSessionHandler evaluates an entire conversation using
-// an LLM judge. It concatenates all assistant messages into a
-// single content string for evaluation.
-//
-// The JudgeProvider must be supplied in
-// evalCtx.Metadata["judge_provider"].
-//
-// Params:
-//   - criteria (string, required): what to evaluate
-//   - rubric (string, optional): detailed scoring guidance
-//   - model (string, optional): model override for the judge
-//   - system_prompt (string, optional): override default system prompt
-//   - min_score (float64, optional): minimum score to pass
+// LLMJudgeSessionHandler is the session-level counterpart of
+// LLMJudgeHandler — concatenates all assistant messages and runs the
+// judge once over the lot. Same params, same conventions.
 type LLMJudgeSessionHandler struct{}
 
 // Type returns the eval type identifier.
@@ -34,29 +23,7 @@ func (h *LLMJudgeSessionHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (result *evals.EvalResult, err error) {
-	provider, extractErr := extractJudgeProvider(evalCtx)
-	if extractErr != nil {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: extractErr.Error(),
-		}, nil
-	}
-
-	content := collectAssistantContent(evalCtx)
-	opts := buildJudgeOpts(content, params)
-	opts.Emitter = emitterFromEvalCtx(evalCtx)
-
-	judgeResult, judgeErr := provider.Judge(ctx, opts)
-	if judgeErr != nil {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
-		}, nil
-	}
-
-	return buildEvalResult(h.Type(), judgeResult), nil
+	return runJudgeEval(ctx, evalCtx, h.Type(), params, collectAssistantContent(evalCtx)), nil
 }
 
 // collectAssistantContent concatenates all assistant message

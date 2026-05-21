@@ -9,16 +9,16 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
-// LLMJudgeHandler evaluates a single assistant turn using an
-// LLM judge. The JudgeProvider must be supplied in
-// evalCtx.Metadata["judge_provider"].
+// LLMJudgeHandler evaluates a single assistant turn using an LLM judge.
+// Pure eval primitive (see docs/reference/checks.md for the
+// `type: assertion` wrapper pattern that adds thresholds). The
+// JudgeProvider must be supplied in evalCtx.Metadata["judge_provider"].
 //
 // Params:
 //   - criteria (string, required): what to evaluate
 //   - rubric (string, optional): detailed scoring guidance
 //   - model (string, optional): model override for the judge
 //   - system_prompt (string, optional): override default system prompt
-//   - min_score (float64, optional): minimum score to pass
 type LLMJudgeHandler struct{}
 
 // Type returns the eval type identifier.
@@ -30,28 +30,50 @@ func (h *LLMJudgeHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (result *evals.EvalResult, err error) {
+	return runJudgeEval(ctx, evalCtx, h.Type(), params, evalCtx.CurrentOutput), nil
+}
+
+// runJudgeEval is the shared body for every LLM-judge eval: reject
+// threshold params, resolve the JudgeProvider from context, build the
+// judge request, call it, and convert the JudgeResult to an EvalResult.
+// Handlers that need preprocessing (filtering tool calls, picking a
+// session-level content view) build the `content` arg and call this.
+//
+// Centralizing here keeps the three judge handlers (llm_judge,
+// llm_judge_session, llm_judge_tool_calls) from drifting and stops
+// Sonar's CPD flagging the otherwise-identical Eval bodies.
+func runJudgeEval(
+	ctx context.Context,
+	evalCtx *evals.EvalContext,
+	handlerType string,
+	params map[string]any,
+	content string,
+) *evals.EvalResult {
+	if msg := rejectThresholdParams(params); msg != "" {
+		return errorResult(handlerType, msg)
+	}
 	provider, extractErr := extractJudgeProvider(evalCtx)
 	if extractErr != nil {
 		return &evals.EvalResult{
-			Type:        h.Type(),
+			Type:        handlerType,
 			Score:       boolScore(false),
 			Explanation: extractErr.Error(),
-		}, nil
+		}
 	}
 
-	opts := buildJudgeOpts(evalCtx.CurrentOutput, params)
+	opts := buildJudgeOpts(content, params)
 	opts.Emitter = emitterFromEvalCtx(evalCtx)
 
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {
 		return &evals.EvalResult{
-			Type:        h.Type(),
+			Type:        handlerType,
 			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
-		}, nil
+		}
 	}
 
-	return buildEvalResult(h.Type(), judgeResult), nil
+	return buildEvalResult(handlerType, judgeResult)
 }
 
 // extractJudgeProvider retrieves the JudgeProvider from eval context metadata.
@@ -154,25 +176,50 @@ func buildJudgeOpts(
 	if v, ok := params["system_prompt"].(string); ok {
 		opts.SystemPrompt = v
 	}
-	if v, ok := params["min_score"].(float64); ok {
-		opts.MinScore = &v
-	}
 
 	return opts
 }
 
-// buildEvalResult converts a JudgeResult into an EvalResult,
-// applying the min_score threshold when provided.
+// buildEvalResult converts a JudgeResult into an EvalResult. The
+// handler is a pure eval primitive: it emits the judge's raw `score`
+// as EvalResult.Score and preserves the judge's `passed` opinion and
+// reasoning in Details for reporting. Threshold judgment lives on the
+// `type: assertion` wrapper, not here.
 func buildEvalResult(
 	evalType string,
 	jr *JudgeResult,
 ) *evals.EvalResult {
 	score := jr.Score
-
 	return &evals.EvalResult{
 		Type:        evalType,
 		Score:       &score,
+		MetricValue: &score,
 		Explanation: jr.Reasoning,
-		Value:       map[string]any{"score": score, "reasoning": jr.Reasoning},
+		Details: map[string]any{
+			resultFieldScore:     score,
+			"passed":             jr.Passed,
+			resultFieldReasoning: jr.Reasoning,
+		},
 	}
+}
+
+// rejectThresholdParams surfaces a clear Error when callers put a
+// threshold (min_score / max_score) on an eval handler. Threshold
+// judgment lives on the `type: assertion` wrapper — see
+// runtime/evals/wrappers.go and runtime/evals/handlers/CLAUDE.md.
+// Returns "" when the params pass.
+//
+// Shared by every eval handler family (classify-backed,
+// llm_judge, safety, RAG) — see parseClassifyConfig for the
+// classify-backed call site and llm_judge.go / ragJudgeCall /
+// evalSafetyOutput for the others.
+func rejectThresholdParams(params map[string]any) string {
+	for _, banned := range []string{"min_score", "max_score"} {
+		if _, present := params[banned]; present {
+			return banned + " is not a valid param on an eval handler; " +
+				"wrap with `type: assertion` and put the threshold there " +
+				"(see runtime/evals/wrappers.go)"
+		}
+	}
+	return ""
 }

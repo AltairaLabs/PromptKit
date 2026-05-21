@@ -14,6 +14,15 @@ func TestLLMJudgeToolCallsHandler_Type(t *testing.T) {
 	}
 }
 
+func TestLLMJudgeToolCallsHandler_RejectsThresholdParams(t *testing.T) {
+	// Same convention as llm_judge / llm_judge_session: threshold judgment
+	// lives on the `type: assertion` wrapper, not on the eval handler.
+	t.Parallel()
+	assertHandlerRejectsThresholdParams(t, &LLMJudgeToolCallsHandler{},
+		&evals.EvalContext{Metadata: map[string]any{}},
+		map[string]any{"criteria": "test"})
+}
+
 func TestLLMJudgeToolCallsHandler_NoProvider(t *testing.T) {
 	h := &LLMJudgeToolCallsHandler{}
 	evalCtx := &evals.EvalContext{

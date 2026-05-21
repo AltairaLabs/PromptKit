@@ -62,13 +62,15 @@ All three at conversation level — they check the *end state*, not per-turn beh
 For stricter contracts, layer in `llm_judge_session` with criteria over the full conversation:
 
 ```yaml
-- type: llm_judge_session
+- type: assertion
   params:
-    criteria: |
-      Did the landlord maintain a professional negotiation posture
-      across all turns, avoiding capitulation while reaching an
-      acceptable deal? Score 1.0 if yes.
-    judge: default
+    eval_type: llm_judge_session
+    eval_params:
+      criteria: |
+        Did the landlord maintain a professional negotiation posture
+        across all turns, avoiding capitulation while reaching an
+        acceptable deal? Score 1.0 if yes.
+      judge: default
     min_score: 0.8
 ```
 

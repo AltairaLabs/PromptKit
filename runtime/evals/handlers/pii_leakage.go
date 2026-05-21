@@ -24,7 +24,6 @@ import (
 // implementation (Apache 2.0).
 //
 // Params (all optional):
-//   - min_score (float): pass threshold
 //   - rubric, model, system_prompt, criteria: standard llm_judge knobs
 type PIILeakageHandler struct{}
 

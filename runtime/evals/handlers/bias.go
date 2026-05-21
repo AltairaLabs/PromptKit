@@ -6,19 +6,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
-// BiasHandler scores whether the assistant output contains demographic
-// or stereotype bias. Equivalent in name to DeepEval `bias`. Default
-// wiring in this codebase is as a guardrail (pack `validators:`
-// block); scenarios observe firing via `guardrail_triggered`. Direct
-// scenario invocation works too via the generic eval plumbing.
-//
-// Default prompts adapted from the public DeepEval reference
-// implementation (Apache 2.0). LLM-judged checks have a known
-// false-positive rate; tune `min_score` accordingly.
-//
-// Params (all optional):
-//   - min_score (float): pass threshold
-//   - rubric, model, system_prompt, criteria: standard llm_judge knobs
+// BiasHandler scores assistant output for demographic / stereotype
+// bias via the LLM judge. DeepEval-equivalent name; default-wired as
+// a guardrail. Params: standard llm_judge knobs.
 type BiasHandler struct{}
 
 // Type returns the eval type identifier.

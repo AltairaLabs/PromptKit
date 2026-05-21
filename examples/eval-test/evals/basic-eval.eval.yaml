@@ -27,11 +27,13 @@ spec:
           - "apologize"
         case_sensitive: false
     
-    - type: llm_judge_session
+    - type: assertion
       message: "Agent maintains professional tone throughout"
       params:
-        criteria: "Does the customer support agent maintain a professional, helpful, and courteous tone throughout the conversation?"
-        judge: gpt-4o-judge
+        eval_type: llm_judge_session
+        eval_params:
+          criteria: "Does the customer support agent maintain a professional, helpful, and courteous tone throughout the conversation?"
+          judge: gpt-4o-judge
         min_score: 0.8
   
   tags:
