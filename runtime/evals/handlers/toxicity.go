@@ -6,22 +6,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
-// ToxicityHandler is a pure eval primitive that scores whether the
-// assistant output contains toxic content — insults, harassment,
-// threats, hate speech. Equivalent in name to DeepEval `toxicity`.
-// Default wiring in this codebase is as a guardrail (pack
-// `validators:` block); scenarios observe firing via
-// `guardrail_triggered`. For direct scenario use, wrap with
-// `type: assertion` and set min_score on the wrapper. Distinct from
-// the classifier-backed `text_toxicity` handler.
-//
-// Default prompts adapted from the public DeepEval reference
-// implementation (Apache 2.0).
-//
-// Params (all optional):
-//   - rubric, model, system_prompt, criteria: standard llm_judge knobs
-//
-// Putting min_score / max_score on this handler is rejected.
+// ToxicityHandler scores the assistant output for insults, harassment,
+// threats, hate speech via the LLM judge. DeepEval-equivalent name;
+// distinct from the classifier-backed text_toxicity. Default-wired as a
+// guardrail. Standard llm_judge params.
 type ToxicityHandler struct{}
 
 // Type returns the eval type identifier.
