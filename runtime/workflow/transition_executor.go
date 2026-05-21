@@ -14,8 +14,9 @@ const TransitionExecutorMode = "workflow-transition"
 
 // PendingTransition captures a deferred workflow transition from a tool call.
 type PendingTransition struct {
-	Event          string `json:"event"`
-	ContextSummary string `json:"context"`
+	Event          string           `json:"event"`
+	ContextSummary string           `json:"context"`
+	HostExtras     tools.HostExtras `json:"host_extras,omitempty"`
 }
 
 // TransitionExecutor implements tools.Executor for workflow__transition.
@@ -98,8 +99,18 @@ func (e *TransitionExecutor) Execute(
 		Event   string `json:"event"`
 		Context string `json:"context"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil {
+	// Decode typed fields and capture any unknown top-level args. Hosts use
+	// sdk.WithToolDescriptorOverride to extend workflow__transition's input
+	// schema with deployment-specific fields; without this passthrough those
+	// fields would be silently dropped before the host's OnCommit callback
+	// could see them.
+	rawExtras, err := tools.DecodeArgsExtras(args, &a, "event", "context")
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse transition args: %w", err)
+	}
+	var extras tools.HostExtras
+	if len(rawExtras) > 0 {
+		extras = tools.HostExtras(rawExtras)
 	}
 
 	e.mu.Lock()
@@ -113,13 +124,18 @@ func (e *TransitionExecutor) Execute(
 			}
 			return nil, fmt.Errorf("agent-controlled transition failed: %w", err)
 		}
+		tr.HostExtras = extras
 		if e.onCommit != nil {
 			e.onCommit(tr)
 		}
 		return json.Marshal(buildEagerTransitionResponse(tr, e.spec))
 	}
 
-	e.pending = &PendingTransition{Event: a.Event, ContextSummary: a.Context}
+	e.pending = &PendingTransition{
+		Event:          a.Event,
+		ContextSummary: a.Context,
+		HostExtras:     extras,
+	}
 	return json.Marshal(buildTransitionResponse(a.Event, e.spec))
 }
 
@@ -161,6 +177,7 @@ func (e *TransitionExecutor) CommitPending() (*TransitionResult, error) {
 		}
 		return nil, err
 	}
+	tr.HostExtras = pt.HostExtras
 	if e.onCommit != nil {
 		e.onCommit(tr)
 	}

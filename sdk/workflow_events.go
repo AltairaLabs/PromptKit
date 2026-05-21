@@ -28,7 +28,7 @@ func (wc *WorkflowConversation) emitTransitionEvents(
 			Terminated:     false,
 		})
 	}
-	wc.emitter.WorkflowTransitioned(result.From, toState, result.Event, promptName)
+	wc.emitter.WorkflowTransitionedWithExtras(result.From, toState, result.Event, promptName, result.HostExtras)
 	if wc.machine.IsTerminal() {
 		wc.emitter.WorkflowCompleted(toState, wc.machine.Context().TransitionCount())
 	}
