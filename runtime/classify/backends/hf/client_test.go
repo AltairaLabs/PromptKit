@@ -288,6 +288,63 @@ func TestClient_NonRetryableHTTPError(t *testing.T) {
 	}
 }
 
+func TestClient_ModelNotSupported_JSONErrorBody(t *testing.T) {
+	// HF's canonical "this model isn't routable on the configured
+	// inference path" response: a 4xx with `{"error":"Model ... is
+	// not supported ..."}`. Routes through ErrModelNotSupported so
+	// eval handlers can map it to Skipped.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, `{"error":"Model superb/wav2vec2-base-superb-er is not supported for task audio-classification on provider hf-inference"}`)
+	}))
+	defer srv.Close()
+	c, _ := NewClient(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
+
+	_, err := c.ClassifyAudio(context.Background(), []byte("x"), classify.AudioOptions{Model: "superb/wav2vec2-base-superb-er"})
+	if !errors.Is(err, ErrModelNotSupported) {
+		t.Fatalf("err = %v, want ErrModelNotSupported", err)
+	}
+}
+
+func TestClient_ModelNotSupported_PlaintextBody(t *testing.T) {
+	// Fallback path: HF occasionally returns plaintext on platform
+	// errors. The marker-substring check applies to the raw body too.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintln(w, "Model not supported")
+	}))
+	defer srv.Close()
+	c, _ := NewClient(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
+
+	_, err := c.ClassifyAudio(context.Background(), []byte("x"), classify.AudioOptions{Model: "m"})
+	if !errors.Is(err, ErrModelNotSupported) {
+		t.Fatalf("err = %v, want ErrModelNotSupported", err)
+	}
+}
+
+func TestClient_GenericHTTPError_StaysAsError(t *testing.T) {
+	// Real backend errors (auth failures, etc.) don't contain "not
+	// supported" — they must continue to surface as Error so the user
+	// sees them, not get hidden by the unsupported-model heuristic.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprintln(w, `{"error":"invalid token"}`)
+	}))
+	defer srv.Close()
+	c, _ := NewClient(Config{APIKey: "k", BaseURL: srv.URL, HTTPClient: srv.Client()})
+
+	_, err := c.ClassifyAudio(context.Background(), []byte("x"), classify.AudioOptions{Model: "m"})
+	if err == nil {
+		t.Fatal("401 must surface as error")
+	}
+	if errors.Is(err, ErrModelNotSupported) {
+		t.Errorf("401 'invalid token' must NOT be classified as ErrModelNotSupported: %v", err)
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error must include status code; got %v", err)
+	}
+}
+
 func TestClient_ContextCancellationDuringRetry(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)

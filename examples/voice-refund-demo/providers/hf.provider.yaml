@@ -21,10 +21,13 @@
 #      models like `SamLowe/roberta-base-go_emotions` but not for the
 #      SER models the audio_emotion handler is wired against.
 #
-# Without an inference endpoint deployed, audio_emotion will skip with
-# "Model not supported by provider hf-inference" rather than failing
-# the scenario. To test the inference foundation without an endpoint,
-# run `go run ./tools/arena/cmd/ser-probe -text "..."` against a text
+# Without an inference endpoint deployed, audio_emotion skips with
+# "model not supported by the configured inference path" rather than
+# failing the scenario (the HF backend's ErrModelNotSupported sentinel
+# routes the response through Skipped — see runtime/classify/backends/
+# hf/client.go and runtime/evals/handlers/audio_emotion.go). To test
+# the inference foundation without an endpoint, run
+# `go run ./tools/arena/cmd/ser-probe -text "..."` against a text
 # emotion model.
 #
 apiVersion: promptkit.altairalabs.ai/v1alpha1

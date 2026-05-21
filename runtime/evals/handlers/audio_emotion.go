@@ -109,6 +109,17 @@ func (h *AudioEmotionHandler) Eval(
 		if errors.Is(classifyErr, classifyhf.ErrModelLoading) {
 			return skippedResult(h.Type(), "model still loading after retries"), nil
 		}
+		if errors.Is(classifyErr, classifyhf.ErrModelNotSupported) {
+			// The configured model can't be served on the configured
+			// inference path — typically a retired free-tier SER model
+			// on `router.huggingface.co/hf-inference`. Skip cleanly so
+			// keyless / free-tier demo runs don't fail the scenario;
+			// the user fixes the config by deploying an Inference
+			// Endpoint or picking a model the path supports.
+			return skippedResult(h.Type(),
+				"model not supported by the configured inference path "+
+					"(deploy an HF Inference Endpoint or pick a supported model)"), nil
+		}
 		return errorResult(h.Type(), fmt.Sprintf("classify failed: %v", classifyErr)), nil
 	}
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	classifyhf "github.com/AltairaLabs/PromptKit/runtime/classify/backends/hf"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -170,6 +171,18 @@ func runTextClassifyEval(
 	}
 	scores, classifyErr := classifier.ClassifyText(ctx, text, opts)
 	if classifyErr != nil {
+		if errors.Is(classifyErr, classifyhf.ErrModelLoading) {
+			return skippedResult(handlerType, "model still loading after retries")
+		}
+		if errors.Is(classifyErr, classifyhf.ErrModelNotSupported) {
+			// Symmetric with audio_emotion's handling — when the
+			// configured model can't be served on the configured
+			// inference path, skip cleanly so keyless / free-tier
+			// demo runs don't fail the scenario.
+			return skippedResult(handlerType,
+				"model not supported by the configured inference path "+
+					"(deploy an HF Inference Endpoint or pick a supported model)")
+		}
 		return errorResult(handlerType, fmt.Sprintf("classify failed: %v", classifyErr))
 	}
 
