@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -24,32 +23,7 @@ func (h *LLMJudgeSessionHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (result *evals.EvalResult, err error) {
-	if msg := rejectThresholdParams(params); msg != "" {
-		return errorResult(h.Type(), msg), nil
-	}
-	provider, extractErr := extractJudgeProvider(evalCtx)
-	if extractErr != nil {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: extractErr.Error(),
-		}, nil
-	}
-
-	content := collectAssistantContent(evalCtx)
-	opts := buildJudgeOpts(content, params)
-	opts.Emitter = emitterFromEvalCtx(evalCtx)
-
-	judgeResult, judgeErr := provider.Judge(ctx, opts)
-	if judgeErr != nil {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
-		}, nil
-	}
-
-	return buildEvalResult(h.Type(), judgeResult), nil
+	return runJudgeEval(ctx, evalCtx, h.Type(), params, collectAssistantContent(evalCtx)), nil
 }
 
 // collectAssistantContent concatenates all assistant message

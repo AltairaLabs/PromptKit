@@ -27,15 +27,6 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	if msg := rejectThresholdParams(params); msg != "" {
 		return errorResult(h.Type(), msg), nil
 	}
-	provider, extractErr := extractJudgeProvider(evalCtx)
-	if extractErr != nil {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: extractErr.Error(),
-		}, nil
-	}
-
 	filtered := filterToolCallViews(evalCtx.ToolCalls, extractStringSlice(params, "tools"))
 	if len(filtered) == 0 {
 		return &evals.EvalResult{
@@ -46,19 +37,7 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 			SkipReason:  "no matching tool calls",
 		}, nil
 	}
-
-	opts := buildJudgeOpts(formatToolCallViews(filtered), params)
-	opts.Emitter = emitterFromEvalCtx(evalCtx)
-	judgeResult, judgeErr := provider.Judge(ctx, opts)
-	if judgeErr != nil {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
-		}, nil
-	}
-
-	result := buildEvalResult(h.Type(), judgeResult)
+	result := runJudgeEval(ctx, evalCtx, h.Type(), params, formatToolCallViews(filtered))
 	// Augment the shared judge Details with the tool-call count;
 	// merge (don't overwrite) so the standard score/passed/reasoning
 	// payload survives.

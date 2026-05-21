@@ -30,31 +30,50 @@ func (h *LLMJudgeHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (result *evals.EvalResult, err error) {
+	return runJudgeEval(ctx, evalCtx, h.Type(), params, evalCtx.CurrentOutput), nil
+}
+
+// runJudgeEval is the shared body for every LLM-judge eval: reject
+// threshold params, resolve the JudgeProvider from context, build the
+// judge request, call it, and convert the JudgeResult to an EvalResult.
+// Handlers that need preprocessing (filtering tool calls, picking a
+// session-level content view) build the `content` arg and call this.
+//
+// Centralizing here keeps the three judge handlers (llm_judge,
+// llm_judge_session, llm_judge_tool_calls) from drifting and stops
+// Sonar's CPD flagging the otherwise-identical Eval bodies.
+func runJudgeEval(
+	ctx context.Context,
+	evalCtx *evals.EvalContext,
+	handlerType string,
+	params map[string]any,
+	content string,
+) *evals.EvalResult {
 	if msg := rejectThresholdParams(params); msg != "" {
-		return errorResult(h.Type(), msg), nil
+		return errorResult(handlerType, msg)
 	}
 	provider, extractErr := extractJudgeProvider(evalCtx)
 	if extractErr != nil {
 		return &evals.EvalResult{
-			Type:        h.Type(),
+			Type:        handlerType,
 			Score:       boolScore(false),
 			Explanation: extractErr.Error(),
-		}, nil
+		}
 	}
 
-	opts := buildJudgeOpts(evalCtx.CurrentOutput, params)
+	opts := buildJudgeOpts(content, params)
 	opts.Emitter = emitterFromEvalCtx(evalCtx)
 
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {
 		return &evals.EvalResult{
-			Type:        h.Type(),
+			Type:        handlerType,
 			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("judge error: %v", judgeErr),
-		}, nil
+		}
 	}
 
-	return buildEvalResult(h.Type(), judgeResult), nil
+	return buildEvalResult(handlerType, judgeResult)
 }
 
 // extractJudgeProvider retrieves the JudgeProvider from eval context metadata.
