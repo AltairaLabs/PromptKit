@@ -175,6 +175,37 @@ func TestAudioEmotion_SkippedOnModelLoading(t *testing.T) {
 	}
 }
 
+func TestAudioEmotion_SkippedOnModelNotSupported(t *testing.T) {
+	// HF retired most audio-classification models from the free
+	// serverless tier in early 2026. The HF client surfaces those
+	// as ErrModelNotSupported; the handler must route it to
+	// Skipped so keyless / free-tier demo runs don't fail the
+	// scenario (see #1234).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"Model superb/wav2vec2-base-superb-er is not supported for task audio-classification on provider hf-inference"}`))
+	}))
+	defer srv.Close()
+
+	ctx := ctxWithRegistry(t, srv.URL)
+	h := &AudioEmotionHandler{}
+	res, err := h.Eval(ctx, &evals.EvalContext{
+		Messages: []types.Message{audioMessage("user", "rawaudio")},
+	}, map[string]any{
+		"model":          "superb/wav2vec2-base-superb-er",
+		"expected_label": "angry",
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if !res.Skipped {
+		t.Fatalf("expected Skipped on model-not-supported; got Error=%q", res.Error)
+	}
+	if !strings.Contains(res.SkipReason, "not supported") {
+		t.Errorf("SkipReason %q should explain the model isn't supported", res.SkipReason)
+	}
+}
+
 func TestAudioEmotion_RejectsThresholdParams(t *testing.T) {
 	// Threshold judgment is the job of `type: assertion`. Putting
 	// min_score / max_score on the eval handler itself is a config

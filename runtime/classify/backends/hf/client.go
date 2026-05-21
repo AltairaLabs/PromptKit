@@ -68,6 +68,17 @@ const modelLoadingMaxRetries = 3
 // isn't broken, it just hasn't initialized yet.
 var ErrModelLoading = errors.New("hf: model still loading after retries")
 
+// ErrModelNotSupported is returned when HF rejects the request
+// because the configured model isn't supported on the targeted
+// inference path — typically a retired free-tier audio model on
+// `router.huggingface.co/hf-inference` (HF retired most audio
+// classifiers from serverless in early 2026). Distinct from
+// ErrModelLoading: the model isn't going to become available by
+// waiting. Eval handlers should treat it as Skipped so demos run
+// cleanly when no Inference Endpoint is deployed, rather than
+// failing the scenario.
+var ErrModelNotSupported = errors.New("hf: model not supported by the configured inference path")
+
 // Config holds construction parameters for Client.
 type Config struct {
 	// APIKey is the HF token. Falls back to HF_TOKEN /
@@ -216,6 +227,18 @@ func (c *Client) do(ctx context.Context, modelURL, contentType string, body []by
 			}
 			// Loop to next attempt.
 		default:
+			// Detect "model not supported by the configured inference
+			// path" responses up front. HF returns a structured 4xx
+			// body shape — the exact wording drifts over time, so we
+			// match on the error-message substring rather than the
+			// status code alone. Surfacing as a sentinel error lets
+			// eval handlers route this through Skipped instead of
+			// Error, which matters for keyless / free-tier demos
+			// where the user can't fix the underlying model
+			// availability.
+			if isUnsupportedModelResponse(respBody) {
+				return nil, fmt.Errorf("%w: %s", ErrModelNotSupported, truncateBody(respBody))
+			}
 			return nil, fmt.Errorf("hf: status %d: %s", resp.StatusCode, truncateBody(respBody))
 		}
 	}
@@ -240,6 +263,31 @@ func parseEstimatedWait(body []byte, fallback time.Duration) time.Duration {
 		return maxLoadingWaitCap
 	}
 	return wait
+}
+
+// isUnsupportedModelResponse heuristically detects HF responses that
+// mean "this model isn't routable on the configured inference path"
+// rather than "this is a real backend error". The known shapes (as
+// of 2026-05) are 4xx responses with a JSON body whose `error` field
+// contains "not supported" — for retired-from-serverless models this
+// is the canonical HF reply on the public router endpoint. We match
+// case-insensitively on the substring to absorb minor wording drift.
+//
+// Conservative on purpose: real backend errors (5xx, timeouts, auth
+// failures) don't carry "not supported" in the body and continue to
+// surface as Error so the user sees them. Two heuristics share the
+// detection budget — the JSON-typed `error` field and a raw-text
+// fallback for non-JSON bodies (HF occasionally returns plaintext on
+// platform errors).
+func isUnsupportedModelResponse(body []byte) bool {
+	const marker = "not supported"
+	var parsed struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err == nil && parsed.Error != "" {
+		return strings.Contains(strings.ToLower(parsed.Error), marker)
+	}
+	return strings.Contains(strings.ToLower(string(body)), marker)
 }
 
 // truncateBody trims a response body for inclusion in an error

@@ -184,6 +184,32 @@ func TestTextClassify_NoRegistryInContextSkips(t *testing.T) {
 	}
 }
 
+func TestTextClassify_SkippedOnModelNotSupported(t *testing.T) {
+	// Symmetric with audio_emotion: when HF surfaces ErrModelNotSupported,
+	// the handler must route it to Skipped so keyless / free-tier demos
+	// stay clean (see #1234).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"Model x/y is not supported for task text-classification on provider hf-inference"}`))
+	}))
+	defer srv.Close()
+	ctx := ctxWithTextRegistry(t, srv.URL)
+
+	h := &TextToxicityHandler{}
+	res, _ := h.Eval(ctx, &evals.EvalContext{
+		Messages: []types.Message{textMessage("assistant", "hello")},
+	}, map[string]any{
+		"model":          "x/y",
+		"expected_label": "toxic",
+	})
+	if !res.Skipped {
+		t.Fatalf("expected Skipped on model-not-supported; got Error=%q", res.Error)
+	}
+	if !strings.Contains(res.SkipReason, "not supported") {
+		t.Errorf("SkipReason %q should explain the model isn't supported", res.SkipReason)
+	}
+}
+
 func TestTextClassify_NoTextInMessagesSkips(t *testing.T) {
 	srv := hfTextTestServer(t, []classify.LabelScore{{Label: "POSITIVE", Score: 0.9}})
 	defer srv.Close()
