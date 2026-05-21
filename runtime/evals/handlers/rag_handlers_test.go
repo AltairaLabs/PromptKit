@@ -18,18 +18,9 @@ import (
 // / hallucination all flow through the same helper.
 func TestRAGHandlers_RejectThresholdParams(t *testing.T) {
 	t.Parallel()
-	h := &FaithfulnessHandler{}
-	evalCtx := newRAGEvalCtx(passMock(1.0, ""), "answer")
-	for _, banned := range []string{"min_score", "max_score"} {
-		res, _ := h.Eval(context.Background(), evalCtx, map[string]any{
-			"contexts": []string{"context"},
-			banned:     0.5,
-		})
-		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
-			t.Errorf("%s should be rejected at the rag helper layer; got Error=%q",
-				banned, res.Error)
-		}
-	}
+	assertHandlerRejectsThresholdParams(t, &FaithfulnessHandler{},
+		newRAGEvalCtx(passMock(1.0, ""), "answer"),
+		map[string]any{"contexts": []string{"context"}})
 }
 
 func newRAGEvalCtx(mock *llmJudgeMock, output string) *evals.EvalContext {

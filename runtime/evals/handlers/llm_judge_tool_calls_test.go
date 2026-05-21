@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -19,17 +18,9 @@ func TestLLMJudgeToolCallsHandler_RejectsThresholdParams(t *testing.T) {
 	// Same convention as llm_judge / llm_judge_session: threshold judgment
 	// lives on the `type: assertion` wrapper, not on the eval handler.
 	t.Parallel()
-	h := &LLMJudgeToolCallsHandler{}
-	evalCtx := &evals.EvalContext{Metadata: map[string]any{}}
-	for _, banned := range []string{"min_score", "max_score"} {
-		res, _ := h.Eval(context.Background(), evalCtx, map[string]any{
-			"criteria": "test",
-			banned:     0.5,
-		})
-		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
-			t.Errorf("%s should be rejected; got Error=%q", banned, res.Error)
-		}
-	}
+	assertHandlerRejectsThresholdParams(t, &LLMJudgeToolCallsHandler{},
+		&evals.EvalContext{Metadata: map[string]any{}},
+		map[string]any{"criteria": "test"})
 }
 
 func TestLLMJudgeToolCallsHandler_NoProvider(t *testing.T) {

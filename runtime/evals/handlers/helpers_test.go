@@ -1,8 +1,44 @@
 package handlers
 
 import (
+	"context"
+	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
+
+// assertHandlerRejectsThresholdParams calls h.Eval twice — once with
+// `min_score` and once with `max_score` mixed into baseParams — and
+// verifies both surface the "wrap with type: assertion" error.
+// Shared by every test that pins the eval/assertion separation
+// (TestLLMJudgeHandler_RejectsThresholdParams, the safety-family
+// representative, the RAG-family representative, etc.). Centralising
+// the assertion shape also stops Sonar's duplicated-lines detector
+// flagging the otherwise-identical bodies.
+func assertHandlerRejectsThresholdParams(
+	t *testing.T,
+	h evals.EvalTypeHandler,
+	evalCtx *evals.EvalContext,
+	baseParams map[string]any,
+) {
+	t.Helper()
+	for _, banned := range []string{"min_score", "max_score"} {
+		params := map[string]any{}
+		for k, v := range baseParams {
+			params[k] = v
+		}
+		params[banned] = 0.5
+		res, _ := h.Eval(context.Background(), evalCtx, params)
+		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
+			t.Errorf("%s should be rejected; got Error=%q", banned, res.Error)
+		}
+		if !strings.Contains(res.Error, "type: assertion") {
+			t.Errorf("%s rejection should point users at the assertion wrapper: %q",
+				banned, res.Error)
+		}
+	}
+}
 
 func TestAsString_NonString(t *testing.T) {
 	// Cover the fmt.Sprintf branch for non-string values.

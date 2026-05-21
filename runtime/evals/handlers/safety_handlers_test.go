@@ -25,15 +25,9 @@ func TestBiasHandler_Type(t *testing.T) {
 // funnel through the same helper, so they all inherit the rejection.
 func TestSafetyHandlers_RejectThresholdParams(t *testing.T) {
 	t.Parallel()
-	h := &BiasHandler{}
-	evalCtx := newRAGEvalCtx(passMock(1.0, ""), "any")
-	for _, banned := range []string{"min_score", "max_score"} {
-		res, _ := h.Eval(context.Background(), evalCtx, map[string]any{banned: 0.5})
-		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
-			t.Errorf("%s should be rejected at the safety helper layer; got Error=%q",
-				banned, res.Error)
-		}
-	}
+	assertHandlerRejectsThresholdParams(t, &BiasHandler{},
+		newRAGEvalCtx(passMock(1.0, ""), "any"),
+		map[string]any{})
 }
 
 func TestBiasHandler_Pass(t *testing.T) {

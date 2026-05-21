@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -391,35 +390,16 @@ func TestLLMJudgeHandler_RejectsThresholdParams(t *testing.T) {
 	// mistake; the handler surfaces it loudly per the package
 	// convention (runtime/evals/handlers/CLAUDE.md).
 	t.Parallel()
-	h := &LLMJudgeHandler{}
-	evalCtx := &evals.EvalContext{CurrentOutput: "x", Metadata: map[string]any{}}
-	for _, banned := range []string{"min_score", "max_score"} {
-		res, _ := h.Eval(context.Background(), evalCtx, map[string]any{
-			"criteria": "test",
-			banned:     0.5,
-		})
-		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
-			t.Errorf("%s should be rejected; got Error=%q", banned, res.Error)
-		}
-		if !strings.Contains(res.Error, "type: assertion") {
-			t.Errorf("error should point to the assertion wrapper: %q", res.Error)
-		}
-	}
+	assertHandlerRejectsThresholdParams(t, &LLMJudgeHandler{},
+		&evals.EvalContext{CurrentOutput: "x", Metadata: map[string]any{}},
+		map[string]any{"criteria": "test"})
 }
 
 func TestLLMJudgeSessionHandler_RejectsThresholdParams(t *testing.T) {
 	t.Parallel()
-	h := &LLMJudgeSessionHandler{}
-	evalCtx := &evals.EvalContext{Metadata: map[string]any{}}
-	for _, banned := range []string{"min_score", "max_score"} {
-		res, _ := h.Eval(context.Background(), evalCtx, map[string]any{
-			"criteria": "test",
-			banned:     0.5,
-		})
-		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
-			t.Errorf("%s should be rejected; got Error=%q", banned, res.Error)
-		}
-	}
+	assertHandlerRejectsThresholdParams(t, &LLMJudgeSessionHandler{},
+		&evals.EvalContext{Metadata: map[string]any{}},
+		map[string]any{"criteria": "test"})
 }
 
 func TestLLMJudgeSessionHandler_NoAssistantMessages(t *testing.T) {
