@@ -9,8 +9,11 @@ import (
 )
 
 // LLMJudgeSessionHandler evaluates an entire conversation using
-// an LLM judge. It concatenates all assistant messages into a
-// single content string for evaluation.
+// an LLM judge as a pure eval primitive. It concatenates all
+// assistant messages into a single content string, runs the judge,
+// and emits the judge's `score` as EvalResult.Score. Threshold
+// judgment lives on the `type: assertion` wrapper — see
+// LLMJudgeHandler for the full pattern.
 //
 // The JudgeProvider must be supplied in
 // evalCtx.Metadata["judge_provider"].
@@ -20,7 +23,8 @@ import (
 //   - rubric (string, optional): detailed scoring guidance
 //   - model (string, optional): model override for the judge
 //   - system_prompt (string, optional): override default system prompt
-//   - min_score (float64, optional): minimum score to pass
+//
+// Putting min_score / max_score on this handler is rejected.
 type LLMJudgeSessionHandler struct{}
 
 // Type returns the eval type identifier.
@@ -34,6 +38,9 @@ func (h *LLMJudgeSessionHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (result *evals.EvalResult, err error) {
+	if msg := rejectThresholdParams(params); msg != "" {
+		return errorResult(h.Type(), msg), nil
+	}
 	provider, extractErr := extractJudgeProvider(evalCtx)
 	if extractErr != nil {
 		return &evals.EvalResult{

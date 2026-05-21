@@ -26,8 +26,10 @@ import (
 //   - system_prompt (string): the role / persona the answer should adhere
 //     to; overrides metadata. Distinct from the standard llm_judge
 //     `system_prompt` which controls the JUDGE's prompt.
-//   - min_score (float): pass threshold
 //   - rubric, model, criteria: standard llm_judge knobs
+//
+// Putting min_score / max_score on this handler is rejected — wrap
+// with `type: assertion` and set the threshold on the wrapper.
 type RoleViolationHandler struct{}
 
 // Type returns the eval type identifier.

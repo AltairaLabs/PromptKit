@@ -11,20 +11,27 @@ spec:
     - role: user
       content: "How do I reset my device?"
       assertions:
-        - type: llm_judge
+        # llm_judge is a pure eval primitive — it emits the judge's
+        # score. `type: assertion` wraps it to apply the threshold.
+        # See runtime/evals/handlers/CLAUDE.md.
+        - type: assertion
           params:
-            criteria: |
-              Response gives clear, concise, actionable reset steps.
-            judge: mock-judge
-            prompt: judge-evidence
+            eval_type: llm_judge
+            eval_params:
+              criteria: |
+                Response gives clear, concise, actionable reset steps.
+              judge: mock-judge
+              prompt: judge-evidence
             min_score: 0.8
           message: "Assistant response should be helpful and actionable"
 
   conversation_assertions:
-    - type: llm_judge_conversation
+    - type: assertion
       params:
-        judge: mock-judge
-        criteria: |
-          Across the conversation, the assistant should stay on-topic and give a usable answer.
+        eval_type: llm_judge_conversation
+        eval_params:
+          judge: mock-judge
+          criteria: |
+            Across the conversation, the assistant should stay on-topic and give a usable answer.
         min_score: 0.8
       message: "Conversation should be helpful overall"

@@ -12,6 +12,26 @@ import (
 
 // --- shared helpers used by every RAG handler test ---
 
+// TestRAGHandlers_RejectThresholdParams pins the rejection on the
+// shared ragJudgeCall path that every RAG handler funnels through.
+// Faithfulness is the representative — answer_relevancy / contextual_*
+// / hallucination all flow through the same helper.
+func TestRAGHandlers_RejectThresholdParams(t *testing.T) {
+	t.Parallel()
+	h := &FaithfulnessHandler{}
+	evalCtx := newRAGEvalCtx(passMock(1.0, ""), "answer")
+	for _, banned := range []string{"min_score", "max_score"} {
+		res, _ := h.Eval(context.Background(), evalCtx, map[string]any{
+			"contexts": []string{"context"},
+			banned:     0.5,
+		})
+		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
+			t.Errorf("%s should be rejected at the rag helper layer; got Error=%q",
+				banned, res.Error)
+		}
+	}
+}
+
 func newRAGEvalCtx(mock *llmJudgeMock, output string) *evals.EvalContext {
 	return &evals.EvalContext{
 		CurrentOutput: output,
@@ -60,8 +80,7 @@ func TestFaithfulnessHandler_Pass(t *testing.T) {
 	h := &FaithfulnessHandler{}
 	evalCtx := newRAGEvalCtx(mock, "Paris is the capital of France.")
 	params := map[string]any{
-		"contexts":  []string{"Paris is the capital of France."},
-		"min_score": 0.8,
+		"contexts": []string{"Paris is the capital of France."},
 	}
 
 	result, err := h.Eval(context.Background(), evalCtx, params)
@@ -155,7 +174,7 @@ func TestAnswerRelevancyHandler_Pass(t *testing.T) {
 	mock := passMock(0.9, "directly addresses")
 	h := &AnswerRelevancyHandler{}
 	evalCtx := newRAGEvalCtx(mock, "Paris.")
-	result, err := h.Eval(context.Background(), evalCtx, map[string]any{"min_score": 0.7})
+	result, err := h.Eval(context.Background(), evalCtx, map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -409,8 +428,7 @@ func TestHallucinationHandler_Fail(t *testing.T) {
 	h := &HallucinationHandler{}
 	evalCtx := newRAGEvalCtx(mock, "Paris is the capital of France and has 100M residents.")
 	params := map[string]any{
-		"contexts":  []string{"Paris is the capital of France."},
-		"min_score": 0.9,
+		"contexts": []string{"Paris is the capital of France."},
 	}
 	result, err := h.Eval(context.Background(), evalCtx, params)
 	if err != nil {

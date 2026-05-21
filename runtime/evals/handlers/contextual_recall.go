@@ -20,8 +20,10 @@ import (
 //   - reference (string) | expected_output (string): the ground-truth
 //     answer (required)
 //   - question (string): override the auto-extracted last user turn
-//   - min_score (float): pass threshold
 //   - rubric, model, system_prompt: standard llm_judge knobs
+//
+// Putting min_score / max_score on this handler is rejected — wrap
+// with `type: assertion` and set the threshold on the wrapper.
 type ContextualRecallHandler struct{}
 
 // Type returns the eval type identifier.

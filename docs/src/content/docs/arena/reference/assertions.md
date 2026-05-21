@@ -94,9 +94,11 @@ turns:
 
 ```yaml
 conversation_assertions:
-  - type: llm_judge_session
+  - type: assertion
     params:
-      criteria: "The assistant maintained a helpful tone throughout"
+      eval_type: llm_judge_session
+      eval_params:
+        criteria: "The assistant maintained a helpful tone throughout"
       min_score: 0.8
     message: "Overall tone check"
 ```
@@ -178,12 +180,16 @@ Pick whichever reads better. `max_calls > 0` (e.g. "at most 3 lookups per turn")
 - role: user
   content: "Explain quantum computing to a child"
   assertions:
-    - type: llm_judge
+    - type: assertion
       params:
-        criteria: "The explanation is age-appropriate, avoids jargon, and uses analogies"
+        eval_type: llm_judge
+        eval_params:
+          criteria: "The explanation is age-appropriate, avoids jargon, and uses analogies"
         min_score: 0.7
       message: "Should be understandable by a child"
 ```
+
+`llm_judge` is a pure eval primitive — wrap with `type: assertion` to apply the threshold. Putting `min_score` directly on the inner handler is rejected at parse time.
 
 ### JSON Schema validation
 
@@ -226,11 +232,13 @@ All conditions are **AND-ed**: every specified field must be satisfied.
 - role: user
   content: "Search for recent papers on AI safety"
   assertions:
-    - type: llm_judge_tool_calls
+    - type: assertion
       when:
         tool_called: search_papers
       params:
-        criteria: "Search queries should be well-formed and specific"
+        eval_type: llm_judge_tool_calls
+        eval_params:
+          criteria: "Search queries should be well-formed and specific"
         min_score: 0.7
       message: "Search quality check"
 ```

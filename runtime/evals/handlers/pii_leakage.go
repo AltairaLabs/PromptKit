@@ -24,8 +24,10 @@ import (
 // implementation (Apache 2.0).
 //
 // Params (all optional):
-//   - min_score (float): pass threshold
 //   - rubric, model, system_prompt, criteria: standard llm_judge knobs
+//
+// Putting min_score / max_score on this handler is rejected — wrap
+// with `type: assertion` and set the threshold on the wrapper.
 type PIILeakageHandler struct{}
 
 // piiLeakageType is the canonical eval type identifier for

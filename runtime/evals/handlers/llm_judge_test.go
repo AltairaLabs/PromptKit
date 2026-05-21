@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
@@ -164,8 +165,7 @@ func TestLLMJudgeHandler_ReturnsRawScore(t *testing.T) {
 				},
 			}
 			params := map[string]any{
-				"criteria":  "test",
-				"min_score": 0.7,
+				"criteria": "test",
 			}
 
 			result, err := h.Eval(
@@ -350,7 +350,9 @@ func TestLLMJudgeSessionHandler_JudgeError(t *testing.T) {
 	}
 }
 
-func TestLLMJudgeSessionHandler_MinScore(t *testing.T) {
+func TestLLMJudgeSessionHandler_EmitsScore(t *testing.T) {
+	// Session-level eval emits the judge's raw score; threshold judgment
+	// lives on the type: assertion wrapper.
 	t.Parallel()
 	mock := &llmJudgeMock{
 		result: &JudgeResult{
@@ -368,8 +370,7 @@ func TestLLMJudgeSessionHandler_MinScore(t *testing.T) {
 		},
 	}
 	params := map[string]any{
-		"criteria":  "quality",
-		"min_score": 0.7,
+		"criteria": "quality",
 	}
 
 	result, err := h.Eval(context.Background(), evalCtx, params)
@@ -381,6 +382,43 @@ func TestLLMJudgeSessionHandler_MinScore(t *testing.T) {
 	}
 	if result.Score == nil || *result.Score != 0.5 {
 		t.Errorf("expected score 0.5, got %v", result.Score)
+	}
+}
+
+func TestLLMJudgeHandler_RejectsThresholdParams(t *testing.T) {
+	// Threshold judgment is the job of `type: assertion`. Putting
+	// min_score / max_score on the eval handler itself is a config
+	// mistake; the handler surfaces it loudly per the package
+	// convention (runtime/evals/handlers/CLAUDE.md).
+	t.Parallel()
+	h := &LLMJudgeHandler{}
+	evalCtx := &evals.EvalContext{CurrentOutput: "x", Metadata: map[string]any{}}
+	for _, banned := range []string{"min_score", "max_score"} {
+		res, _ := h.Eval(context.Background(), evalCtx, map[string]any{
+			"criteria": "test",
+			banned:     0.5,
+		})
+		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
+			t.Errorf("%s should be rejected; got Error=%q", banned, res.Error)
+		}
+		if !strings.Contains(res.Error, "type: assertion") {
+			t.Errorf("error should point to the assertion wrapper: %q", res.Error)
+		}
+	}
+}
+
+func TestLLMJudgeSessionHandler_RejectsThresholdParams(t *testing.T) {
+	t.Parallel()
+	h := &LLMJudgeSessionHandler{}
+	evalCtx := &evals.EvalContext{Metadata: map[string]any{}}
+	for _, banned := range []string{"min_score", "max_score"} {
+		res, _ := h.Eval(context.Background(), evalCtx, map[string]any{
+			"criteria": "test",
+			banned:     0.5,
+		})
+		if res.Error == "" || !strings.Contains(res.Error, banned+" is not a valid param") {
+			t.Errorf("%s should be rejected; got Error=%q", banned, res.Error)
+		}
 	}
 }
 

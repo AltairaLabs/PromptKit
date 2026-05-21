@@ -9,7 +9,7 @@ This how-to walks through `examples/rag-agent/` — the full named RAG primitive
 
 RAG eval frameworks compete on the primitive catalog: faithfulness, answer relevancy, contextual recall, hallucination. PromptArena ships those primitives in `runtime/evals/handlers/` (added in #1145) as thin wrappers over `llm_judge` with hardened default prompts adapted from public DeepEval / Ragas references (Apache 2.0).
 
-Each primitive is invokable as a scenario assertion with `min_score`. The demo runs all six against a single question + answer + retrieved context, with a mock LLM judge for keyless CI.
+Each primitive is a pure eval handler — it emits the judge's score. Wrap with `type: assertion` and a threshold to gate a scenario; the demo runs all six against a single question + answer + retrieved context, with a mock LLM judge for keyless CI.
 
 ## The assertion shape
 
@@ -18,29 +18,35 @@ turns:
   - role: user
     content: "What is the capital of France?"
     assertions:
-      - type: faithfulness
+      - type: assertion
         params:
-          contexts:
-            - "Paris is the capital and most populous city of France."
-            - "Located on the Seine River in north-central France."
-          judge: rag-judge
+          eval_type: faithfulness
+          eval_params:
+            contexts:
+              - "Paris is the capital and most populous city of France."
+              - "Located on the Seine River in north-central France."
+            judge: rag-judge
           min_score: 0.8
 
-      - type: answer_relevancy
+      - type: assertion
         params:
-          judge: rag-judge
+          eval_type: answer_relevancy
+          eval_params:
+            judge: rag-judge
           min_score: 0.8
 
-      - type: contextual_precision
+      - type: assertion
         params:
-          contexts: [...]
-          judge: rag-judge
+          eval_type: contextual_precision
+          eval_params:
+            contexts: [...]
+            judge: rag-judge
           min_score: 0.5
 
       # ... contextual_recall, contextual_relevancy, hallucination
 ```
 
-All six assertions share the same shape — the eval handler does the work; the assertion config supplies thresholds and (for the chunk-based primitives) the context.
+All six assertions share the same shape — the inner eval primitive does the work; the `type: assertion` wrapper supplies the threshold. See [the eval/assertion/guardrail split](/reference/checks/#classify-backed-checks) for why this layering matters.
 
 ## Three context sources
 
@@ -53,10 +59,12 @@ Every RAG handler accepts retrieved context in three forms (preference order):
 For a live RAG agent, the dynamic `context_field` form is the right shape:
 
 ```yaml
-- type: faithfulness
+- type: assertion
   params:
-    context_field: retrieved_chunks
-    judge: rag-judge
+    eval_type: faithfulness
+    eval_params:
+      context_field: retrieved_chunks
+      judge: rag-judge
     min_score: 0.8
 ```
 
@@ -76,7 +84,7 @@ promptarena run --ci --formats html,json
 open out/report.html
 ```
 
-Keyless: both the RAG assistant and the LLM judge are mock providers. The mock judge returns `{"passed": true, "score": 0.92, "reasoning": "..."}` for every call; all six assertions pass with the default `min_score` thresholds.
+Keyless: both the RAG assistant and the LLM judge are mock providers. The mock judge returns `{"passed": true, "score": 0.92, "reasoning": "..."}` for every call; all six assertions pass under the scenario's `min_score` thresholds (`0.8` for most, `0.5` for the contextual_precision / contextual_relevancy ratios).
 
 ## Swapping in a real judge
 

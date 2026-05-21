@@ -55,22 +55,17 @@ func TestJudgeProviderInterface(t *testing.T) {
 }
 
 func TestJudgeOptsFields(t *testing.T) {
-	minScore := 0.8
 	opts := JudgeOpts{
 		Content:      "test content",
 		Criteria:     "be helpful",
 		Rubric:       "detailed rubric",
 		Model:        "claude-sonnet-4-5-20250929",
 		SystemPrompt: "You are a judge",
-		MinScore:     &minScore,
 		Extra:        map[string]any{"temperature": 0.0},
 	}
 
 	if opts.Content != "test content" {
 		t.Error("Content not set correctly")
-	}
-	if opts.MinScore == nil || *opts.MinScore != 0.8 {
-		t.Error("MinScore not set correctly")
 	}
 	if opts.Extra["temperature"] != 0.0 {
 		t.Error("Extra not set correctly")
@@ -95,7 +90,7 @@ func TestJudgeProviderError(t *testing.T) {
 func TestParseJudgeResponse_ValidJSON(t *testing.T) {
 	t.Parallel()
 	raw := `{"passed": true, "score": 0.92, "reasoning": "Good quality"}`
-	result, err := parseJudgeResponse(raw, nil)
+	result, err := parseJudgeResponse(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,7 +108,7 @@ func TestParseJudgeResponse_ValidJSON(t *testing.T) {
 func TestParseJudgeResponse_WrappedInMarkdown(t *testing.T) {
 	t.Parallel()
 	raw := "```json\n{\"passed\": false, \"score\": 0.3, \"reasoning\": \"Poor\"}\n```"
-	result, err := parseJudgeResponse(raw, nil)
+	result, err := parseJudgeResponse(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,23 +120,10 @@ func TestParseJudgeResponse_WrappedInMarkdown(t *testing.T) {
 	}
 }
 
-func TestParseJudgeResponse_NoPassed_UsesMinScore(t *testing.T) {
-	t.Parallel()
-	raw := `{"score": 0.6, "reasoning": "OK"}`
-	minScore := 0.7
-	result, err := parseJudgeResponse(raw, &minScore)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Passed {
-		t.Error("expected Passed=false (0.6 < 0.7)")
-	}
-}
-
 func TestParseJudgeResponse_NoPassed_UsesDefaultThreshold(t *testing.T) {
 	t.Parallel()
 	raw := `{"score": 0.6, "reasoning": "OK"}`
-	result, err := parseJudgeResponse(raw, nil)
+	result, err := parseJudgeResponse(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +135,7 @@ func TestParseJudgeResponse_NoPassed_UsesDefaultThreshold(t *testing.T) {
 func TestParseJudgeResponse_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	raw := "This is not JSON at all"
-	result, err := parseJudgeResponse(raw, nil)
+	result, err := parseJudgeResponse(raw)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

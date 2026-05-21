@@ -102,7 +102,7 @@ Demos:
 
 ## Test RAG with the standard primitives
 
-The named RAG primitives every buyer searches for — `faithfulness`, `hallucination`, `contextual_precision`, `contextual_recall`, `contextual_relevancy`, `answer_relevancy` — ship as eval handlers and are exercisable as scenario assertions with `min_score` / `pass_threshold`. PromptArena's framing isn't "we ship the RAG primitives" — it's "we ship the testing framework that consumes them, on a live retrieval agent rather than a fixed transcript."
+The named RAG primitives every buyer searches for — `faithfulness`, `hallucination`, `contextual_precision`, `contextual_recall`, `contextual_relevancy`, `answer_relevancy` — ship as pure eval handlers and are exercisable as scenario assertions by wrapping each with `type: assertion` and a threshold. PromptArena's framing isn't "we ship the RAG primitives" — it's "we ship the testing framework that consumes them, on a live retrieval agent rather than a fixed transcript."
 
 Demos:
 

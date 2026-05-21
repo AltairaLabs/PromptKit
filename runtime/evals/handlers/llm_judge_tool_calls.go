@@ -9,15 +9,19 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
-// LLMJudgeToolCallsHandler evaluates tool call behavior via an LLM judge.
-// Instead of judging the assistant's text response, it feeds tool call data
-// (names, arguments, results) to the judge for evaluation.
+// LLMJudgeToolCallsHandler evaluates tool call behavior via an LLM judge
+// as a pure eval primitive. Instead of judging the assistant's text
+// response, it feeds tool call data (names, arguments, results) to the
+// judge and emits the judge's raw score. Threshold judgment lives on
+// the `type: assertion` wrapper — see LLMJudgeHandler.
+//
 // Params:
 //   - tools []string (optional): filter to specific tool names
 //   - criteria string: what to evaluate
 //   - rubric string (optional): detailed scoring guidance
 //   - model string (optional): model override
-//   - min_score float64 (optional): minimum score to pass
+//
+// Putting min_score / max_score on this handler is rejected.
 type LLMJudgeToolCallsHandler struct{}
 
 // Type returns the eval type identifier.
@@ -29,6 +33,9 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (*evals.EvalResult, error) {
+	if msg := rejectThresholdParams(params); msg != "" {
+		return errorResult(h.Type(), msg), nil
+	}
 	provider, extractErr := extractJudgeProvider(evalCtx)
 	if extractErr != nil {
 		return &evals.EvalResult{
@@ -61,9 +68,13 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	}
 
 	result := buildEvalResult(h.Type(), judgeResult)
-	result.Details = map[string]any{
-		"tool_calls_sent": len(filtered),
+	// Augment the shared judge Details with the tool-call count;
+	// merge (don't overwrite) so the standard score/passed/reasoning
+	// payload survives.
+	if result.Details == nil {
+		result.Details = map[string]any{}
 	}
+	result.Details["tool_calls_sent"] = len(filtered)
 	return result, nil
 }
 

@@ -72,13 +72,15 @@ The interesting tests are *cross-turn*: does the agent stay in role as the calle
 
 ```yaml
 conversation_assertions:
-  - type: llm_judge_session
+  - type: assertion
     params:
-      criteria: |
-        Did the agent maintain a calm, professional tone across all turns,
-        even when the caller escalated? Score 1.0 if yes, 0.0 if the agent
-        matched the caller's tone instead of staying composed.
-      judge: default
+      eval_type: llm_judge_session
+      eval_params:
+        criteria: |
+          Did the agent maintain a calm, professional tone across all turns,
+          even when the caller escalated? Score 1.0 if yes, 0.0 if the agent
+          matched the caller's tone instead of staying composed.
+        judge: default
       min_score: 0.8
 ```
 
