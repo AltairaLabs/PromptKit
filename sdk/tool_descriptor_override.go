@@ -48,21 +48,27 @@ type toolDescriptorOverride struct {
 // version skew (a tool removed upstream does not break the consumer's
 // override list).
 //
-// # Schema extension and metadata passthrough
+// # Schema extension and host passthrough
 //
 // Extending the InputSchema with new top-level fields produces structured
 // LLM args, but the executor's typed decode would historically drop unknown
-// keys. As of issue #1072, executors that own a Metadata bag —
-// memory__remember (Memory.Metadata) and the A2A tools (Message.Metadata) —
-// pass any unknown top-level args through into that bag automatically.
+// keys. Executors that have a host-facing callback now route unknown
+// top-level args into that callback's typed record:
 //
-// Conflict rule: typed fields win. If the LLM provides both a typed
-// `metadata: {x: 1}` arg and a top-level `x: 2` extra, the typed value
-// stays; the extra is dropped silently.
+//   - memory__remember           → Memory.Metadata          (host's MemoryStore.Save)
+//   - A2A outgoing tools         → Message.Metadata         (wire payload to remote agent)
+//   - workflow__transition       → TransitionResult.HostExtras (host's OnCommit callback)
 //
-// Other capability tools (workflow transition/artifact, skills) have typed
-// outputs with no metadata sink — adding a new top-level field there has
-// no effect on the executor today.
+// For memory and a2a the extras merge into the typed Metadata field with
+// typed-fields-win on conflict. For workflow they land on a separate
+// HostExtras field, which is reserved exclusively for this passthrough
+// channel — the runtime never writes to it from elsewhere.
+//
+// Tools without a host-facing callback (workflow__set_artifact, the skills
+// tools) currently drop unknown top-level fields. Extending those schemas
+// will pass the new field to the LLM but the data is not observable
+// host-side. If you need this for one of them, file an issue describing
+// the use case so the right observation point can be designed.
 //
 // Example: customize the memory__remember tool's description for an Omnia
 // deployment that wants the LLM to tag a category alongside the memory,
@@ -78,6 +84,24 @@ type toolDescriptorOverride struct {
 //	)
 //	// LLM calls memory__remember(content="...", about={kind:"preference",key:"seat"})
 //	// → Memory.Metadata["about"] = {kind:..., key:...}
+//
+// Workflow transitions follow the same shape but use the dedicated
+// HostExtras field on the workflow.transitioned event. Subscribe via the
+// event bus to read extras after a transition commits:
+//
+//	conv, err := sdk.OpenWorkflow(packPath, "chat",
+//	    sdk.WithEventBus(bus),
+//	    sdk.WithToolDescriptorOverride("workflow__transition",
+//	        func(d *tools.ToolDescriptor) {
+//	            d.InputSchema = schemaWithEscalationReason
+//	        }),
+//	)
+//	bus.Subscribe(events.EventWorkflowTransitioned, func(e events.Event) {
+//	    d := e.Data.(*events.WorkflowTransitionedData)
+//	    if reason, ok := d.HostExtras["escalation_reason"]; ok {
+//	        audit.Record(d.Event, reason)
+//	    }
+//	})
 func WithToolDescriptorOverride(name string, fn ToolDescriptorPatchFn) Option {
 	return func(c *config) error {
 		if name == "" {

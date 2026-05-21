@@ -503,3 +503,112 @@ func TestTransitionExecutor_AgentControlChainedTransitions(t *testing.T) {
 		t.Error("pending must remain nil across chained eager commits")
 	}
 }
+
+// TestTransitionExecutor_HostExtras_Deferred verifies that fields the LLM
+// supplies beyond the typed schema (e.g. via sdk.WithToolDescriptorOverride)
+// survive the deferred-commit path and reach the OnCommit callback on the
+// TransitionResult.
+func TestTransitionExecutor_HostExtras_Deferred(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+
+	var observed *TransitionResult
+	exec.SetOnCommit(func(tr *TransitionResult) { observed = tr })
+
+	args := json.RawMessage(`{"event":"Go","context":"ctx","escalation_reason":"vip","priority":3}`)
+	if _, err := exec.Execute(context.Background(), nil, args); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	pending := exec.Pending()
+	if pending == nil {
+		t.Fatal("expected pending transition")
+	}
+	if got := pending.HostExtras["escalation_reason"]; got != "vip" {
+		t.Errorf("PendingTransition.HostExtras[escalation_reason] = %v, want vip", got)
+	}
+
+	if _, err := exec.CommitPending(); err != nil {
+		t.Fatalf("CommitPending: %v", err)
+	}
+	if observed == nil {
+		t.Fatal("OnCommit was not called")
+	}
+	if got := observed.HostExtras["escalation_reason"]; got != "vip" {
+		t.Errorf("TransitionResult.HostExtras[escalation_reason] = %v, want vip", got)
+	}
+	if got, ok := observed.HostExtras["priority"].(float64); !ok || got != 3 {
+		t.Errorf("TransitionResult.HostExtras[priority] = %v (%T), want 3", observed.HostExtras["priority"], observed.HostExtras["priority"])
+	}
+}
+
+// TestTransitionExecutor_HostExtras_Eager verifies extras flow through the
+// agent-controlled (eager) commit path and reach OnCommit on the same
+// pipeline turn.
+func TestTransitionExecutor_HostExtras_Eager(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t", Control: ControlModeAgent},
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+
+	var observed *TransitionResult
+	exec.SetOnCommit(func(tr *TransitionResult) { observed = tr })
+
+	args := json.RawMessage(`{"event":"Go","escalation_reason":"vip"}`)
+	if _, err := exec.Execute(context.Background(), nil, args); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if observed == nil {
+		t.Fatal("OnCommit was not called on eager path")
+	}
+	if got := observed.HostExtras["escalation_reason"]; got != "vip" {
+		t.Errorf("eager TransitionResult.HostExtras[escalation_reason] = %v, want vip", got)
+	}
+}
+
+// TestTransitionExecutor_HostExtras_NoneWhenAbsent verifies that args
+// without extras leave HostExtras nil — the field is a passthrough channel,
+// not a side-effect of every call.
+func TestTransitionExecutor_HostExtras_NoneWhenAbsent(t *testing.T) {
+	spec := &Spec{
+		Version: 2,
+		Entry:   "a",
+		States: map[string]*State{
+			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
+			"b": {PromptTask: "t"},
+		},
+	}
+	sm := NewStateMachine(spec)
+	exec := NewTransitionExecutor(sm, spec)
+
+	var observed *TransitionResult
+	exec.SetOnCommit(func(tr *TransitionResult) { observed = tr })
+
+	args, _ := json.Marshal(map[string]string{"event": "Go", "context": "ctx"})
+	if _, err := exec.Execute(context.Background(), nil, args); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if exec.Pending().HostExtras != nil {
+		t.Errorf("expected nil HostExtras when no extras present, got %v", exec.Pending().HostExtras)
+	}
+	if _, err := exec.CommitPending(); err != nil {
+		t.Fatalf("CommitPending: %v", err)
+	}
+	if observed.HostExtras != nil {
+		t.Errorf("expected nil HostExtras on TransitionResult, got %v", observed.HostExtras)
+	}
+}

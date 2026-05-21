@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 )
 
 // Sentinel errors for workflow execution.
@@ -143,12 +145,13 @@ type ArtifactDef struct {
 // Redirects (e.g., max_visits exceeded → on_max_visits) are successful
 // transitions, not errors.
 type TransitionResult struct {
-	From           string `json:"from"`
-	To             string `json:"to"`
-	Event          string `json:"event"`
-	Redirected     bool   `json:"redirected,omitempty"`
-	RedirectReason string `json:"redirect_reason,omitempty"`
-	OriginalTarget string `json:"original_target,omitempty"`
+	From           string           `json:"from"`
+	To             string           `json:"to"`
+	Event          string           `json:"event"`
+	Redirected     bool             `json:"redirected,omitempty"`
+	RedirectReason string           `json:"redirect_reason,omitempty"`
+	OriginalTarget string           `json:"original_target,omitempty"`
+	HostExtras     tools.HostExtras `json:"host_extras,omitempty"`
 }
 
 // Persistence is the storage hint for a workflow state.

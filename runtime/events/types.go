@@ -5,6 +5,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -689,6 +690,10 @@ type WorkflowTransitionedData struct {
 	Event string `json:"event"`
 	// PromptTask is the prompt_task of the new state.
 	PromptTask string `json:"prompt_task"`
+	// HostExtras carries top-level fields the LLM supplied on workflow__transition
+	// beyond the typed schema — populated when a host extended the tool's
+	// InputSchema via sdk.WithToolDescriptorOverride. Nil otherwise.
+	HostExtras tools.HostExtras `json:"host_extras,omitempty"`
 }
 
 // WorkflowCompletedData contains data for workflow completion events.

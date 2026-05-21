@@ -6,6 +6,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -479,11 +480,21 @@ func (e *Emitter) EvalFailed(data *EvalFailedData) {
 
 // WorkflowTransitioned emits the workflow.transitioned event.
 func (e *Emitter) WorkflowTransitioned(fromState, toState, event, promptTask string) {
+	e.WorkflowTransitionedWithExtras(fromState, toState, event, promptTask, nil)
+}
+
+// WorkflowTransitionedWithExtras emits the workflow.transitioned event with
+// host-supplied extras populated from sdk.WithToolDescriptorOverride
+// schema extensions. Use WorkflowTransitioned when no extras are present.
+func (e *Emitter) WorkflowTransitionedWithExtras(
+	fromState, toState, event, promptTask string, hostExtras tools.HostExtras,
+) {
 	e.emit(EventWorkflowTransitioned, &WorkflowTransitionedData{
 		FromState:  fromState,
 		ToState:    toState,
 		Event:      event,
 		PromptTask: promptTask,
+		HostExtras: hostExtras,
 	})
 }
 
