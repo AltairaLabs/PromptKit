@@ -21,9 +21,6 @@ import (
 //   - contexts ([]string) | context (string) | context_field (string)
 //   - question (string)
 //   - rubric, model, system_prompt
-//
-// Putting min_score / max_score on this handler is rejected — wrap
-// with `type: assertion` and set the threshold on the wrapper.
 type ContextualRelevancyHandler struct{}
 
 // Type returns the eval type identifier.

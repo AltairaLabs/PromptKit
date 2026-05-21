@@ -19,9 +19,6 @@ import (
 //     retrieved chunks
 //   - question (string): override the auto-extracted last user turn
 //   - rubric, model, system_prompt: standard llm_judge knobs
-//
-// Putting min_score / max_score on this handler is rejected — wrap
-// with `type: assertion` and set the threshold on the wrapper.
 type ContextualPrecisionHandler struct{}
 
 // Type returns the eval type identifier.

@@ -20,9 +20,6 @@ import (
 //   - contexts ([]string) | context (string) | context_field (string):
 //     retrieved chunks the answer should be grounded in
 //   - rubric, model, system_prompt: standard llm_judge knobs
-//
-// Putting min_score / max_score on this handler is rejected — wrap
-// with `type: assertion` and set the threshold on the wrapper.
 type FaithfulnessHandler struct{}
 
 // Type returns the eval type identifier.
