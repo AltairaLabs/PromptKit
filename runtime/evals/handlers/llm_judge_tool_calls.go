@@ -9,19 +9,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
-// LLMJudgeToolCallsHandler evaluates tool call behavior via an LLM judge
-// as a pure eval primitive. Instead of judging the assistant's text
-// response, it feeds tool call data (names, arguments, results) to the
-// judge and emits the judge's raw score. Threshold judgment lives on
-// the `type: assertion` wrapper — see LLMJudgeHandler.
-//
-// Params:
-//   - tools []string (optional): filter to specific tool names
-//   - criteria string: what to evaluate
-//   - rubric string (optional): detailed scoring guidance
-//   - model string (optional): model override
-//
-// Putting min_score / max_score on this handler is rejected.
+// LLMJudgeToolCallsHandler is the tool-call counterpart of
+// LLMJudgeHandler — feeds tool call data (names, args, results)
+// instead of the assistant's text. Accepts the same base params plus
+// `tools []string` to filter to specific tool names.
 type LLMJudgeToolCallsHandler struct{}
 
 // Type returns the eval type identifier.

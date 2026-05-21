@@ -8,23 +8,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 )
 
-// LLMJudgeSessionHandler evaluates an entire conversation using
-// an LLM judge as a pure eval primitive. It concatenates all
-// assistant messages into a single content string, runs the judge,
-// and emits the judge's `score` as EvalResult.Score. Threshold
-// judgment lives on the `type: assertion` wrapper — see
-// LLMJudgeHandler for the full pattern.
-//
-// The JudgeProvider must be supplied in
-// evalCtx.Metadata["judge_provider"].
-//
-// Params:
-//   - criteria (string, required): what to evaluate
-//   - rubric (string, optional): detailed scoring guidance
-//   - model (string, optional): model override for the judge
-//   - system_prompt (string, optional): override default system prompt
-//
-// Putting min_score / max_score on this handler is rejected.
+// LLMJudgeSessionHandler is the session-level counterpart of
+// LLMJudgeHandler — concatenates all assistant messages and runs the
+// judge once over the lot. Same params, same conventions.
 type LLMJudgeSessionHandler struct{}
 
 // Type returns the eval type identifier.

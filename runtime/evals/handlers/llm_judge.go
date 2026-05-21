@@ -9,27 +9,16 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 )
 
-// LLMJudgeHandler evaluates a single assistant turn using an LLM judge
-// as a pure eval primitive. It emits the judge's `score` field as
-// EvalResult.Score and the judge's reasoning + `passed` opinion in
-// Details. Threshold judgment lives on the `type: assertion` wrapper:
-//
-//   - type: assertion
-//     params:
-//     eval_type: llm_judge
-//     eval_params: { criteria: "...", judge: my-judge }
-//     min_score: 0.7
-//
-// The JudgeProvider must be supplied in evalCtx.Metadata["judge_provider"].
+// LLMJudgeHandler evaluates a single assistant turn using an LLM judge.
+// Pure eval primitive (see docs/reference/checks.md for the
+// `type: assertion` wrapper pattern that adds thresholds). The
+// JudgeProvider must be supplied in evalCtx.Metadata["judge_provider"].
 //
 // Params:
 //   - criteria (string, required): what to evaluate
 //   - rubric (string, optional): detailed scoring guidance
 //   - model (string, optional): model override for the judge
 //   - system_prompt (string, optional): override default system prompt
-//
-// Putting min_score / max_score on this handler is rejected — the
-// assertion wrapper is the canonical home for thresholds.
 type LLMJudgeHandler struct{}
 
 // Type returns the eval type identifier.
@@ -195,23 +184,20 @@ func buildEvalResult(
 	}
 }
 
-// keyMinScore / keyMaxScore are the threshold-key constants the
-// rejection guard checks. Both keys are scenario-config sugar that
-// belong on the `type: assertion` wrapper, never on an eval handler.
-const (
-	keyMinScore = "min_score"
-	keyMaxScore = "max_score"
-)
-
-// rejectThresholdParams surfaces a clear Error when callers put
-// min_score / max_score on the inner eval. Threshold judgment
-// belongs on the `type: assertion` wrapper; silently accepting a
-// no-op param hides a config mistake. Returns "" when the params
-// pass.
+// rejectThresholdParams surfaces a clear Error when callers put a
+// threshold (min_score / max_score) on an eval handler. Threshold
+// judgment lives on the `type: assertion` wrapper — see
+// runtime/evals/wrappers.go and runtime/evals/handlers/CLAUDE.md.
+// Returns "" when the params pass.
+//
+// Shared by every eval handler family (classify-backed,
+// llm_judge, safety, RAG) — see parseClassifyConfig for the
+// classify-backed call site and llm_judge.go / ragJudgeCall /
+// evalSafetyOutput for the others.
 func rejectThresholdParams(params map[string]any) string {
-	for _, banned := range []string{keyMinScore, keyMaxScore} {
+	for _, banned := range []string{"min_score", "max_score"} {
 		if _, present := params[banned]; present {
-			return banned + " is not a valid param on an LLM-judge eval; " +
+			return banned + " is not a valid param on an eval handler; " +
 				"wrap with `type: assertion` and put the threshold there " +
 				"(see runtime/evals/wrappers.go)"
 		}
