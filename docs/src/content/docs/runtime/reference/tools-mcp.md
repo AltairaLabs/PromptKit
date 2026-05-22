@@ -353,11 +353,12 @@ Tools that are repeatedly rejected by hooks (2+ rejections) are automatically ex
 
 ### Overview
 
-MCP enables LLMs to interact with external systems through standardized JSON-RPC protocol over stdio.
+MCP enables LLMs to interact with external systems through a standardised JSON-RPC protocol.
 
 **Supported Transports**:
-- stdio (currently implemented)
-- HTTP/SSE (planned)
+- **stdio** — PromptKit spawns the MCP server as a local subprocess. Set `Command` (and optional `Args` / `Env`).
+- **HTTP+SSE** — legacy two-endpoint transport from the MCP 2024-11-05 spec. Set `URL`; the registry uses the SSE adapter by default.
+- **Streamable HTTP** — single-endpoint POST transport from the MCP 2025-03-26 spec. Explicit opt-in: set `URL` and `TransportName: TransportStreamableHTTP`.
 
 **Standard MCP Servers**:
 - `@modelcontextprotocol/server-filesystem`: File operations
@@ -376,11 +377,40 @@ type RegistryImpl struct {
 }
 
 type ServerConfig struct {
-    Name    string
-    Command string
-    Args    []string
-    Env     map[string]string
+    Name          string
+    Command       string            // stdio: command to spawn
+    Args          []string          // stdio: arguments to Command
+    Env           map[string]string // stdio: environment variables
+    WorkingDir    string            // stdio: working directory
+    URL           string            // HTTP transports: base URL
+    Headers       map[string]string // HTTP transports: custom headers
+    TransportName Transport         // explicit transport; empty falls back to URL→SSE / Command→stdio
+    TimeoutMs     int
+    ToolFilter    *ToolFilter
 }
+```
+
+Setting `TransportName: mcp.TransportStreamableHTTP` together with `URL` opts into the
+Streamable HTTP transport against a server that ships a single `POST /mcp` endpoint:
+
+```go
+cfg := mcp.ServerConfig{
+    Name:          "weather",
+    URL:           "https://weather.example.com/mcp",
+    TransportName: mcp.TransportStreamableHTTP,
+    Headers:       map[string]string{"Authorization": "Bearer ..."},
+}
+```
+
+The same opt-in is available declaratively via `RuntimeConfig`:
+
+```yaml
+mcp_servers:
+  - name: weather
+    url: https://weather.example.com/mcp
+    transport: streamable_http
+    headers:
+      Authorization: "Bearer ..."
 ```
 
 #### Constructor Functions
