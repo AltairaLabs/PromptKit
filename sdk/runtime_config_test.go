@@ -332,6 +332,34 @@ func TestCreateStateStoreFromConfig_InvalidTTL(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid TTL duration")
 }
 
+func TestCreateStateStoreFromConfig_File(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &pkgconfig.StateStoreConfig{
+		Type: "file",
+		File: &pkgconfig.FileStateStoreConfig{Root: dir, FSync: "on-save", TTLDays: 7},
+	}
+	store, err := createStateStoreFromConfig(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+}
+
+func TestCreateStateStoreFromConfig_File_MissingRoot(t *testing.T) {
+	cfg := &pkgconfig.StateStoreConfig{Type: "file", File: &pkgconfig.FileStateStoreConfig{}}
+	_, err := createStateStoreFromConfig(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "root")
+}
+
+func TestCreateStateStoreFromConfig_File_UnknownFSync(t *testing.T) {
+	cfg := &pkgconfig.StateStoreConfig{
+		Type: "file",
+		File: &pkgconfig.FileStateStoreConfig{Root: t.TempDir(), FSync: "bogus"},
+	}
+	_, err := createStateStoreFromConfig(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fsync")
+}
+
 func TestApplyRuntimeConfig_ExecTools(t *testing.T) {
 	spec := &pkgconfig.RuntimeConfigSpec{
 		Tools: map[string]*pkgconfig.ToolSpec{

@@ -324,11 +324,30 @@ type A2APartConfig struct {
 
 // StateStoreConfig represents configuration for conversation state storage
 type StateStoreConfig struct {
-	// Type specifies the state store implementation: "memory" or "redis"
+	// Type specifies the state store implementation: "memory", "redis", or "file"
 	Type string `yaml:"type" json:"type"`
 
 	// Redis configuration (only used when Type is "redis")
 	Redis *RedisConfig `yaml:"redis,omitempty" json:"redis,omitempty"`
+
+	// File configuration (only used when Type is "file")
+	File *FileStateStoreConfig `yaml:"file,omitempty" json:"file,omitempty"`
+}
+
+// FileStateStoreConfig configures the filesystem-backed statestore.
+// Required when StateStoreConfig.Type == "file".
+type FileStateStoreConfig struct {
+	// Root is the directory under which per-conversation directories live.
+	// Required. Created if absent.
+	Root string `yaml:"root" json:"root"`
+
+	// FSync controls fsync behavior: "off", "on-save" (default), "on-append".
+	//nolint:lll // jsonschema tags require single line
+	FSync string `yaml:"fsync,omitempty" json:"fsync,omitempty" jsonschema:"title=FSync Policy,enum=,enum=off,enum=on-save,enum=on-append"`
+
+	// TTLDays, if non-zero, removes conversation directories whose state.json
+	// mtime is older than now-TTLDays days at startup.
+	TTLDays int `yaml:"ttl_days,omitempty" json:"ttl_days,omitempty"`
 }
 
 // RedisConfig contains Redis-specific configuration

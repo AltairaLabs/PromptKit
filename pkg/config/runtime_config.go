@@ -277,6 +277,7 @@ type ExecHook struct {
 const (
 	storeTypeMemory = "memory"
 	storeTypeRedis  = "redis"
+	storeTypeFile   = "file"
 )
 
 // LoadRuntimeConfig loads and validates a RuntimeConfig from a YAML file.
@@ -373,10 +374,13 @@ func (s *RuntimeConfigSpec) validateStateStore() error {
 	if s.StateStore == nil {
 		return nil
 	}
-	if s.StateStore.Type != "" && s.StateStore.Type != storeTypeMemory && s.StateStore.Type != storeTypeRedis {
+	switch s.StateStore.Type {
+	case "", storeTypeMemory, storeTypeRedis, storeTypeFile:
+		// ok
+	default:
 		return &ValidationError{
 			Field:   "state_store.type",
-			Message: "must be one of: memory, redis",
+			Message: "must be one of: memory, redis, file",
 			Value:   s.StateStore.Type,
 		}
 	}
@@ -384,6 +388,14 @@ func (s *RuntimeConfigSpec) validateStateStore() error {
 		return &ValidationError{
 			Field:   "state_store.redis",
 			Message: "redis configuration is required when type is redis",
+		}
+	}
+	if s.StateStore.Type == storeTypeFile {
+		if s.StateStore.File == nil || s.StateStore.File.Root == "" {
+			return &ValidationError{
+				Field:   "state_store.file.root",
+				Message: "state_store.file.root is required when type is file",
+			}
 		}
 	}
 	return nil
