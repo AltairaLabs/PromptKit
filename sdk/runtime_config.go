@@ -26,6 +26,7 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
 	"github.com/AltairaLabs/PromptKit/runtime/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/statestore/file"
 	"github.com/AltairaLabs/PromptKit/runtime/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/tts"
@@ -604,7 +605,34 @@ func createStateStoreFromConfig(cfg *pkgconfig.StateStoreConfig) (statestore.Sto
 			opts = append(opts, statestore.WithPrefix(cfg.Redis.Prefix))
 		}
 		return statestore.NewRedisStore(client, opts...), nil
+	case "file":
+		return createFileStateStore(cfg.File)
 	default:
 		return nil, fmt.Errorf("unsupported state store type: %s", cfg.Type)
 	}
+}
+
+const hoursPerDay = 24
+
+// createFileStateStore builds a file-backed statestore from FileStateStoreConfig.
+func createFileStateStore(cfg *pkgconfig.FileStateStoreConfig) (statestore.Store, error) {
+	if cfg == nil || cfg.Root == "" {
+		return nil, fmt.Errorf("state_store.file.root is required when type is 'file'")
+	}
+	var fsync file.FSyncPolicy
+	switch cfg.FSync {
+	case "", "on-save":
+		fsync = file.FSyncOnSave
+	case "off":
+		fsync = file.FSyncOff
+	case "on-append":
+		fsync = file.FSyncOnAppend
+	default:
+		return nil, fmt.Errorf("unknown fsync policy %q (want off|on-save|on-append)", cfg.FSync)
+	}
+	return file.NewStore(file.Options{
+		Root:  cfg.Root,
+		FSync: fsync,
+		TTL:   time.Duration(cfg.TTLDays) * hoursPerDay * time.Hour,
+	})
 }

@@ -16,9 +16,20 @@ State stores provide persistent storage for conversation history, enabling:
 
 ## Supported Backends
 
-- **Redis**: Production-ready distributed state
-- **In-memory**: Development and testing
-- **Custom**: Implement `Store` interface
+- **Redis**: Production-ready distributed state.
+- **File**: Single-machine durable state, no daemon required (see [File-Backed Store](#file-backed-store)).
+- **In-memory**: Development and testing.
+- **Custom**: Implement `Store` interface.
+
+### Choosing a backend
+
+| Backend  | Durable across restarts | Multi-process | Ops surface          |
+|----------|-------------------------|---------------|----------------------|
+| In-memory | No                      | No            | None                 |
+| File     | Yes                      | No (single process per root) | Local disk only      |
+| Redis    | Yes                      | Yes           | Redis server         |
+
+File-backed state closes the gap between volatile memory and a network-attached Redis: solo developers, single-box deployments, and one-process-per-agent setups (e.g. Omnia function-mode AgentRuntimes) get crash-survivable mid-tool-loop state without standing up Redis. Two processes pointed at the same root will corrupt each other's data — use Redis for horizontally-scaled deployments.
 
 ## Core Interface
 
@@ -185,6 +196,57 @@ if err != nil {
     log.Fatal(err)
 }
 ```
+
+## File-Backed Store
+
+`statestore/file` persists each conversation to disk as a small `state.json` snapshot plus append-only JSONL files for messages, summaries, and `ListAccessor` lists. Single-machine durable, no daemon. Implements every interface (`Store`, `BulkWriter`, `MessageLog`, `MessageReader`, `MessageAppender`, `MetadataAccessor`, `SummaryAccessor`, `ListAccessor`).
+
+### Constructor
+
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/statestore/file"
+
+store, err := file.NewStore(file.Options{
+    Root:  "/var/lib/promptkit/conversations",
+    FSync: file.FSyncOnSave,    // off | on-save (default) | on-append
+    TTL:   30 * 24 * time.Hour, // optional; cleanup sweep at NewStore time
+})
+```
+
+### Configuration via RuntimeConfig
+
+```yaml
+state_store:
+  type: file
+  file:
+    root: /var/lib/promptkit/conversations
+    fsync: on-save
+    ttl_days: 30
+```
+
+### On-disk layout
+
+```
+<root>/
+  conv-<id>/
+    state.json
+    messages.jsonl
+    summaries.jsonl
+    lists/
+      <list-name>.jsonl
+```
+
+Files are plaintext — `cat`-friendly for debugging.
+
+### When to use
+
+- Solo developer / single-box deployments where Redis is overkill.
+- Per-process agents (e.g. Omnia function-mode AgentRuntimes) on a node with a persistent volume.
+- Anywhere mid-tool-loop crash recovery matters more than horizontal scale.
+
+### When NOT to use
+
+- Two PromptKit processes pointed at the same `Root` — undefined behaviour. Use Redis for horizontally-scaled state. A future revision may add OS-level file locking.
 
 ## In-Memory State Store
 

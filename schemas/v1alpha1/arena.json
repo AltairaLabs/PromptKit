@@ -947,6 +947,31 @@
         "command"
       ]
     },
+    "FileStateStoreConfig": {
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "fsync": {
+          "type": "string",
+          "enum": [
+            "",
+            "off",
+            "on-save",
+            "on-append"
+          ],
+          "title": "FSync Policy"
+        },
+        "ttl_days": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "root"
+      ]
+    },
     "FragmentRef": {
       "properties": {
         "name": {
@@ -2361,6 +2386,9 @@
         },
         "redis": {
           "$ref": "#/$defs/RedisConfig"
+        },
+        "file": {
+          "$ref": "#/$defs/FileStateStoreConfig"
         }
       },
       "additionalProperties": false,

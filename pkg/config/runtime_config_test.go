@@ -845,3 +845,46 @@ func TestRuntimeConfigSpec_Validate_MCPServerAcceptsSource(t *testing.T) {
 		t.Fatalf("unexpected error for source+scope config: %v", err)
 	}
 }
+
+func TestRuntimeConfigSpec_Validate_StateStoreFile_Valid(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		StateStore: &StateStoreConfig{
+			Type: "file",
+			File: &FileStateStoreConfig{Root: "/tmp/promptkit"},
+		},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_StateStoreFile_RequiresRoot(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		StateStore: &StateStoreConfig{Type: "file", File: &FileStateStoreConfig{}},
+	}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("expected error when root is missing")
+	}
+	if !strings.Contains(err.Error(), "root") {
+		t.Errorf("error %q should mention root", err.Error())
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_StateStoreFile_RequiresFileBlock(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		StateStore: &StateStoreConfig{Type: "file"},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error when file block is missing")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_StateStore_RejectsUnknownType(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		StateStore: &StateStoreConfig{Type: "sqlite"},
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("expected error for unknown store type")
+	}
+}
