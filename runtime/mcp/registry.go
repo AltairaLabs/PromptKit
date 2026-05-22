@@ -78,8 +78,16 @@ func newClientAdapter(config *ServerConfig) Client {
 	if config.TimeoutMs > 0 {
 		opts.RequestTimeout = time.Duration(config.TimeoutMs) * time.Millisecond
 	}
-	if config.Transport() == TransportSSE {
+	switch config.Transport() {
+	case TransportStreamableHTTP:
+		return NewStreamableClientWithOptions(*config, opts)
+	case TransportSSE:
 		return NewSSEClientWithOptions(*config, opts)
+	case TransportStdio, TransportUnknown:
+		// TransportUnknown falls through to stdio so the caller will see a
+		// clear error from StdioClient.Initialize. Upstream validation should
+		// prevent the unknown case from ever reaching here.
+		return NewStdioClientWithOptions(*config, opts)
 	}
 	return NewStdioClientWithOptions(*config, opts)
 }
