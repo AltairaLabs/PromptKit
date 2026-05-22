@@ -94,6 +94,47 @@ func TestApplyRuntimeConfig_MCPServers_AppendToExisting(t *testing.T) {
 	assert.Equal(t, "new-server", c.mcpServers[1].Name)
 }
 
+func TestApplyRuntimeConfig_MCPStreamableHTTP_Propagates(t *testing.T) {
+	spec := &pkgconfig.RuntimeConfigSpec{
+		MCPServers: []pkgconfig.MCPServerConfig{{
+			Name:      "weather",
+			URL:       "http://weather.local/mcp",
+			Transport: "streamable_http",
+			Headers:   map[string]string{"Authorization": "Bearer tok"},
+		}},
+	}
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	require.Len(t, c.mcpServers, 1)
+	got := c.mcpServers[0]
+	assert.Equal(t, "weather", got.Name)
+	assert.Equal(t, "http://weather.local/mcp", got.URL)
+	assert.Equal(t, mcp.TransportStreamableHTTP, got.TransportName)
+	assert.Equal(t, "Bearer tok", got.Headers["Authorization"])
+}
+
+func TestApplyRuntimeConfig_MCPSSEDefault_PropagatesURLAndHeaders(t *testing.T) {
+	// Without an explicit Transport, URL-only configs continue to default to
+	// the legacy SSE adapter. The previous SDK code dropped URL and Headers
+	// on the floor here; this test guards against regression.
+	spec := &pkgconfig.RuntimeConfigSpec{
+		MCPServers: []pkgconfig.MCPServerConfig{{
+			Name:    "legacy",
+			URL:     "http://legacy.local",
+			Headers: map[string]string{"X-Custom": "v"},
+		}},
+	}
+	c := &config{}
+	require.NoError(t, applyRuntimeConfig(c, spec))
+	require.Len(t, c.mcpServers, 1)
+	got := c.mcpServers[0]
+	assert.Equal(t, "http://legacy.local", got.URL)
+	assert.Equal(t, "v", got.Headers["X-Custom"])
+	assert.Equal(t, mcp.Transport(""), got.TransportName)
+	// Resolution falls back to SSE per ServerConfig.Transport().
+	assert.Equal(t, mcp.TransportSSE, got.Transport())
+}
+
 func TestApplyRuntimeConfig_StateStore_Memory(t *testing.T) {
 	spec := &pkgconfig.RuntimeConfigSpec{
 		StateStore: &pkgconfig.StateStoreConfig{Type: "memory"},

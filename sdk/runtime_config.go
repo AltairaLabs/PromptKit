@@ -171,12 +171,15 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	// Apply MCP servers
 	for _, mcpCfg := range spec.MCPServers {
 		serverCfg := mcp.ServerConfig{
-			Name:       mcpCfg.Name,
-			Command:    mcpCfg.Command,
-			Args:       mcpCfg.Args,
-			Env:        mcpCfg.Env,
-			WorkingDir: mcpCfg.WorkingDir,
-			TimeoutMs:  mcpCfg.TimeoutMs,
+			Name:          mcpCfg.Name,
+			Command:       mcpCfg.Command,
+			Args:          mcpCfg.Args,
+			Env:           mcpCfg.Env,
+			WorkingDir:    mcpCfg.WorkingDir,
+			URL:           mcpCfg.URL,
+			Headers:       mcpCfg.Headers,
+			TransportName: mcp.Transport(mcpCfg.Transport),
+			TimeoutMs:     mcpCfg.TimeoutMs,
 		}
 		if mcpCfg.ToolFilter != nil {
 			serverCfg.ToolFilter = &mcp.ToolFilter{
