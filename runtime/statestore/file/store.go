@@ -83,6 +83,11 @@ func NewStore(opts Options) (*Store, error) {
 		ttl:   opts.TTL,
 		locks: make(map[string]*sync.Mutex),
 	}
+	if opts.TTL > 0 {
+		if err := s.sweepStale(time.Now()); err != nil {
+			return nil, err
+		}
+	}
 	return s, nil
 }
 
