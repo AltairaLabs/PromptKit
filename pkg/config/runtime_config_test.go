@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -741,6 +742,80 @@ func TestRuntimeConfigSpec_Validate_MCPServerRejectsMultipleTransports(t *testin
 	err := s.Validate()
 	if err == nil {
 		t.Fatal("expected error for multiple transports")
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPStreamableHTTP_Valid(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{
+			Name:      "weather",
+			URL:       "http://weather.local/mcp",
+			Transport: "streamable_http",
+		}},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error for streamable_http config: %v", err)
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPStreamableHTTP_RequiresURL(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{
+			Name:      "weather",
+			Command:   "echo",
+			Transport: "streamable_http",
+		}},
+	}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("expected error when transport=streamable_http without url")
+	}
+	if !strings.Contains(err.Error(), "streamable_http") {
+		t.Errorf("error %q should mention streamable_http", err.Error())
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPTransport_RejectsUnknown(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{
+			Name:      "weather",
+			URL:       "http://weather.local/mcp",
+			Transport: "websocket",
+		}},
+	}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("expected error for unknown transport")
+	}
+	if !strings.Contains(err.Error(), "transport") {
+		t.Errorf("error %q should mention transport", err.Error())
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPTransport_SSEExplicit(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{
+			Name:      "legacy",
+			URL:       "http://legacy.local",
+			Transport: "sse",
+		}},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error for explicit sse config: %v", err)
+	}
+}
+
+func TestRuntimeConfigSpec_Validate_MCPTransport_StdioRequiresCommand(t *testing.T) {
+	s := &RuntimeConfigSpec{
+		MCPServers: []MCPServerConfig{{
+			Name:      "weather",
+			URL:       "http://weather.local",
+			Transport: "stdio",
+		}},
+	}
+	err := s.Validate()
+	if err == nil {
+		t.Fatal("expected error when transport=stdio without command")
 	}
 }
 
