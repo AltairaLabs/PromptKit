@@ -213,7 +213,9 @@ type MCPToolFilter struct {
 //
 // Exactly one transport must be specified:
 //   - Command: stdio (PromptKit spawns a local subprocess).
-//   - URL:     HTTP+SSE (connect to a running server).
+//   - URL:     HTTP transport — by default the legacy SSE adapter is
+//     used. Set Transport to "streamable_http" to opt into the modern
+//     Streamable HTTP transport (MCP 2025-03-26).
 //   - Source:  host-provisioned (a named MCPSource opens the endpoint at
 //     a scope boundary). Requires Scope.
 type MCPServerConfig struct {
@@ -224,6 +226,8 @@ type MCPServerConfig struct {
 	WorkingDir string            `yaml:"working_dir,omitempty" json:"working_dir,omitempty"`
 	URL        string            `yaml:"url,omitempty" json:"url,omitempty"`
 	Headers    map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+	//nolint:lll // jsonschema tags require single line
+	Transport string `yaml:"transport,omitempty" json:"transport,omitempty" jsonschema:"title=MCP Transport,description=Explicit transport adapter. Defaults: url→sse for back-compat; command→stdio. Set to 'streamable_http' to opt into the MCP 2025-03-26 Streamable HTTP transport.,enum=,enum=stdio,enum=sse,enum=streamable_http"`
 	//nolint:lll // jsonschema tags require single line
 	Source string `yaml:"source,omitempty" json:"source,omitempty" jsonschema:"title=MCPSource Name,description=Name of a host-registered MCPSource that provisions the endpoint per scope (e.g. 'docker'). Mutually exclusive with command and url."`
 	//nolint:lll // jsonschema tags require single line

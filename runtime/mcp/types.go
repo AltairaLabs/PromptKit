@@ -170,10 +170,12 @@ func (f ToolFilter) Includes(name string) bool {
 //
 // Exactly one transport should be specified:
 //   - Command: stdio transport — PromptKit spawns a local subprocess.
-//   - URL:     HTTP+SSE transport — PromptKit connects to a running server.
+//   - URL:     HTTP transport — by default the legacy SSE adapter is used.
+//     Set TransportName to TransportStreamableHTTP to opt into the
+//     modern Streamable HTTP transport (MCP 2025-03-26).
 //
-// The registry selects the adapter via Transport(). Headers applies only to
-// the SSE transport.
+// The registry selects the adapter via Transport(). Headers applies to all
+// HTTP transports (SSE and Streamable HTTP).
 type ServerConfig struct {
 	Name    string            `json:"name" yaml:"name"`
 	Command string            `json:"command,omitempty" yaml:"command,omitempty"`
@@ -181,11 +183,18 @@ type ServerConfig struct {
 	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	// WorkingDir sets the working directory for the server process (stdio only).
 	WorkingDir string `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
-	// URL is the base URL for HTTP+SSE servers. When set, the registry uses
-	// the SSE adapter and Command is ignored.
+	// URL is the base URL for an HTTP MCP server. When set without an
+	// explicit TransportName, the registry uses the legacy SSE adapter for
+	// back-compat. Set TransportName to TransportStreamableHTTP to opt into
+	// the modern transport.
 	URL string `json:"url,omitempty" yaml:"url,omitempty"`
-	// Headers are sent on both the initial GET /sse and subsequent POSTs.
+	// Headers are sent on HTTP transports (both SSE and Streamable HTTP).
 	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	// TransportName selects the transport adapter explicitly. When empty, the
+	// legacy inference applies (URL → SSE, Command → Stdio) for back-compat.
+	// Set to TransportStreamableHTTP to opt into the modern Streamable HTTP
+	// transport against a URL.
+	TransportName Transport `json:"transport,omitempty" yaml:"transport,omitempty"`
 	// TimeoutMs sets the per-request timeout in milliseconds.
 	TimeoutMs int `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
 	// ToolFilter controls which tools from this server are exposed.
@@ -200,15 +209,21 @@ const (
 	TransportUnknown Transport = ""
 	// TransportStdio is the local-subprocess transport.
 	TransportStdio Transport = "stdio"
-	// TransportSSE is the HTTP+SSE transport.
+	// TransportSSE is the legacy HTTP+SSE transport (MCP 2024-11-05 spec).
 	TransportSSE Transport = "sse"
+	// TransportStreamableHTTP is the Streamable HTTP transport
+	// (MCP 2025-03-26 spec). A single POST endpoint that returns either
+	// application/json or text/event-stream.
+	TransportStreamableHTTP Transport = "streamable_http"
 )
 
-// Transport returns the transport derived from which fields are populated.
-// URL takes precedence over Command; config validation upstream should
-// prevent both being set, but this function returns a deterministic answer
-// either way. Pointer receiver to avoid copying the (~120-byte) struct.
+// Transport returns the resolved transport. An explicit TransportName field
+// wins; otherwise URL → TransportSSE (back-compat), Command → TransportStdio.
+// Pointer receiver to avoid copying the (~120-byte) struct.
 func (c *ServerConfig) Transport() Transport {
+	if c.TransportName != "" {
+		return c.TransportName
+	}
 	if c.URL != "" {
 		return TransportSSE
 	}

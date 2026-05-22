@@ -834,6 +834,11 @@ func TestRegistry_NewClientFunc_DispatchesByTransport(t *testing.T) {
 	c = reg.newClientFunc(ServerConfig{Name: "x"})
 	_, ok = c.(*StdioClient)
 	assert.True(t, ok, "expected *StdioClient fallback, got %T", c)
+
+	// Explicit streamable_http transport yields a *StreamableClient.
+	c = reg.newClientFunc(ServerConfig{Name: "sh", URL: "https://x", TransportName: TransportStreamableHTTP})
+	_, ok = c.(*StreamableClient)
+	assert.True(t, ok, "expected *StreamableClient, got %T", c)
 }
 
 func TestRegistry_UnregisterServer(t *testing.T) {

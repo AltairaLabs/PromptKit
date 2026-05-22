@@ -1186,6 +1186,17 @@
           },
           "type": "object"
         },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "",
+            "stdio",
+            "sse",
+            "streamable_http"
+          ],
+          "title": "MCP Transport",
+          "description": "Explicit transport adapter. Defaults: url→sse for back-compat; command→stdio. Set to 'streamable_http' to opt into the MCP 2025-03-26 Streamable HTTP transport."
+        },
         "source": {
           "type": "string",
           "title": "MCPSource Name",

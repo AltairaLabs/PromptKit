@@ -541,6 +541,44 @@ func (s *RuntimeConfigSpec) validateMCPServers() error {
 				}
 			}
 		}
+		if err := validateMCPTransportField(i, &m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const (
+	mcpTransportStdio          = "stdio"
+	mcpTransportSSE            = "sse"
+	mcpTransportStreamableHTTP = "streamable_http"
+)
+
+func validateMCPTransportField(i int, m *MCPServerConfig) error {
+	switch m.Transport {
+	case "", mcpTransportStdio, mcpTransportSSE, mcpTransportStreamableHTTP:
+		// ok
+	default:
+		return &ValidationError{
+			Field:   fmt.Sprintf("mcp_servers[%d].transport", i),
+			Message: fmt.Sprintf("unknown transport %q; expected one of: stdio, sse, streamable_http", m.Transport),
+		}
+	}
+	switch m.Transport {
+	case mcpTransportSSE, mcpTransportStreamableHTTP:
+		if m.URL == "" {
+			return &ValidationError{
+				Field:   fmt.Sprintf("mcp_servers[%d]", i),
+				Message: fmt.Sprintf("transport: %s requires url", m.Transport),
+			}
+		}
+	case mcpTransportStdio:
+		if m.Command == "" {
+			return &ValidationError{
+				Field:   fmt.Sprintf("mcp_servers[%d]", i),
+				Message: "transport: stdio requires command",
+			}
+		}
 	}
 	return nil
 }

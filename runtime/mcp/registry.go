@@ -78,8 +78,16 @@ func newClientAdapter(config *ServerConfig) Client {
 	if config.TimeoutMs > 0 {
 		opts.RequestTimeout = time.Duration(config.TimeoutMs) * time.Millisecond
 	}
-	if config.Transport() == TransportSSE {
+	switch config.Transport() {
+	case TransportStreamableHTTP:
+		return NewStreamableClientWithOptions(*config, opts)
+	case TransportSSE:
 		return NewSSEClientWithOptions(*config, opts)
+	case TransportStdio, TransportUnknown:
+		// TransportUnknown falls through to stdio so the caller will see a
+		// clear error from StdioClient.Initialize. Upstream validation should
+		// prevent the unknown case from ever reaching here.
+		return NewStdioClientWithOptions(*config, opts)
 	}
 	return NewStdioClientWithOptions(*config, opts)
 }
@@ -564,15 +572,16 @@ func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Too
 // isn't on ServerConfig (or vice versa) breaks the direct conversion used in
 // NewRegistryWithServers.
 type ServerConfigData struct {
-	Name       string
-	Command    string
-	Args       []string
-	Env        map[string]string
-	WorkingDir string
-	URL        string
-	Headers    map[string]string
-	TimeoutMs  int
-	ToolFilter *ToolFilter
+	Name          string
+	Command       string
+	Args          []string
+	Env           map[string]string
+	WorkingDir    string
+	URL           string
+	Headers       map[string]string
+	TransportName Transport
+	TimeoutMs     int
+	ToolFilter    *ToolFilter
 }
 
 // NewRegistryWithServers creates a registry and registers multiple servers.
