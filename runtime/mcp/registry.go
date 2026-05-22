@@ -564,15 +564,16 @@ func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Too
 // isn't on ServerConfig (or vice versa) breaks the direct conversion used in
 // NewRegistryWithServers.
 type ServerConfigData struct {
-	Name       string
-	Command    string
-	Args       []string
-	Env        map[string]string
-	WorkingDir string
-	URL        string
-	Headers    map[string]string
-	TimeoutMs  int
-	ToolFilter *ToolFilter
+	Name          string
+	Command       string
+	Args          []string
+	Env           map[string]string
+	WorkingDir    string
+	URL           string
+	Headers       map[string]string
+	TransportName Transport
+	TimeoutMs     int
+	ToolFilter    *ToolFilter
 }
 
 // NewRegistryWithServers creates a registry and registers multiple servers.

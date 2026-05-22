@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestServerConfig_Transport_Stdio(t *testing.T) {
@@ -32,4 +34,25 @@ func TestServerConfig_Transport_Unknown(t *testing.T) {
 	if got := cfg.Transport(); got != TransportUnknown {
 		t.Errorf("Transport() = %q, want %q", got, TransportUnknown)
 	}
+}
+
+func TestServerConfig_Transport_ExplicitStreamable(t *testing.T) {
+	cfg := ServerConfig{Name: "x", URL: "http://h", TransportName: TransportStreamableHTTP}
+	assert.Equal(t, TransportStreamableHTTP, cfg.Transport())
+}
+
+func TestServerConfig_Transport_ExplicitSSE(t *testing.T) {
+	cfg := ServerConfig{Name: "x", URL: "http://h", TransportName: TransportSSE}
+	assert.Equal(t, TransportSSE, cfg.Transport())
+}
+
+func TestServerConfig_Transport_URLDefaultsToSSE_ForBackCompat(t *testing.T) {
+	cfg := ServerConfig{Name: "x", URL: "http://h"}
+	assert.Equal(t, TransportSSE, cfg.Transport())
+}
+
+func TestServerConfig_Transport_ExplicitStdioWithURL_HonoursExplicit(t *testing.T) {
+	// If a caller explicitly opts into stdio, that wins over URL inference.
+	cfg := ServerConfig{Name: "x", URL: "http://h", Command: "./foo", TransportName: TransportStdio}
+	assert.Equal(t, TransportStdio, cfg.Transport())
 }
