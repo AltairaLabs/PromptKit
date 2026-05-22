@@ -2269,3 +2269,213 @@ func TestRedisStore_MergeMetadata_ConcurrentMergesAllLand(t *testing.T) {
 		assert.Equal(t, float64(i), got[fmt.Sprintf("k%d", i)])
 	}
 }
+
+// MessageLog contract — mirrors TestMemoryStore_MessageLog_* in memory_test.go
+// so the two MessageLog implementations agree on semantics. The tool-loop
+// write-through path in ProviderStage relies on these holding identically
+// regardless of which backend is configured.
+
+func TestRedisStore_MessageLog_Append(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	msgs := []types.Message{
+		makeMsg("user", "hello"),
+		makeMsg("assistant", "hi"),
+		makeMsg("user", "how are you"),
+	}
+
+	total, err := store.LogAppend(ctx, "conv-1", 0, msgs)
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+
+	length, err := store.LogLen(ctx, "conv-1")
+	require.NoError(t, err)
+	assert.Equal(t, 3, length)
+
+	loaded, err := store.LogLoad(ctx, "conv-1", 0)
+	require.NoError(t, err)
+	require.Len(t, loaded, 3)
+	assert.Equal(t, "hello", loaded[0].Content)
+	assert.Equal(t, "hi", loaded[1].Content)
+	assert.Equal(t, "how are you", loaded[2].Content)
+}
+
+func TestRedisStore_MessageLog_AppendIdempotent(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	msgs1 := []types.Message{
+		makeMsg("user", "a"),
+		makeMsg("assistant", "b"),
+		makeMsg("user", "c"),
+	}
+	total, err := store.LogAppend(ctx, "conv-1", 0, msgs1)
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+
+	// Retry: same startSeq, partially overlapping payload. The first three
+	// must be deduplicated; only "d" and "e" should land.
+	msgs2 := []types.Message{
+		makeMsg("user", "a"),
+		makeMsg("assistant", "b"),
+		makeMsg("user", "c"),
+		makeMsg("assistant", "d"),
+		makeMsg("user", "e"),
+	}
+	total, err = store.LogAppend(ctx, "conv-1", 0, msgs2)
+	require.NoError(t, err)
+	assert.Equal(t, 5, total, "should have 5 total, not 8 (first 3 deduplicated)")
+
+	loaded, err := store.LogLoad(ctx, "conv-1", 0)
+	require.NoError(t, err)
+	require.Len(t, loaded, 5)
+	assert.Equal(t, "d", loaded[3].Content)
+	assert.Equal(t, "e", loaded[4].Content)
+}
+
+func TestRedisStore_MessageLog_AppendDelta(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	msgs1 := []types.Message{makeMsg("user", "a"), makeMsg("assistant", "b"), makeMsg("user", "c")}
+	total, err := store.LogAppend(ctx, "conv-1", 0, msgs1)
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+
+	msgs2 := []types.Message{makeMsg("assistant", "d"), makeMsg("user", "e")}
+	total, err = store.LogAppend(ctx, "conv-1", 3, msgs2)
+	require.NoError(t, err)
+	assert.Equal(t, 5, total)
+}
+
+func TestRedisStore_MessageLog_AppendClampsHighStartSeq(t *testing.T) {
+	// If a caller passes startSeq beyond the current length (e.g. crash
+	// recovery where the caller thinks more was persisted than actually was),
+	// behaviour mirrors MemoryStore: clamp to current length and append all.
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	_, err := store.LogAppend(ctx, "conv-1", 0, []types.Message{makeMsg("user", "a")})
+	require.NoError(t, err)
+
+	total, err := store.LogAppend(ctx, "conv-1", 99, []types.Message{makeMsg("user", "b")})
+	require.NoError(t, err)
+	assert.Equal(t, 2, total)
+}
+
+func TestRedisStore_MessageLog_LoadRecent(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	msgs := make([]types.Message, 10)
+	for i := range msgs {
+		msgs[i] = makeMsg("user", fmt.Sprintf("msg-%d", i))
+	}
+	_, err := store.LogAppend(ctx, "conv-1", 0, msgs)
+	require.NoError(t, err)
+
+	recent, err := store.LogLoad(ctx, "conv-1", 3)
+	require.NoError(t, err)
+	require.Len(t, recent, 3)
+	assert.Equal(t, "msg-7", recent[0].Content)
+	assert.Equal(t, "msg-8", recent[1].Content)
+	assert.Equal(t, "msg-9", recent[2].Content)
+}
+
+func TestRedisStore_MessageLog_EmptyConversation(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	loaded, err := store.LogLoad(ctx, "nonexistent", 0)
+	require.NoError(t, err)
+	assert.Empty(t, loaded)
+
+	length, err := store.LogLen(ctx, "nonexistent")
+	require.NoError(t, err)
+	assert.Equal(t, 0, length)
+}
+
+func TestRedisStore_MessageLog_AppendInvalidID(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	_, err := store.LogAppend(context.Background(), "", 0, []types.Message{makeMsg("user", "x")})
+	assert.ErrorIs(t, err, ErrInvalidID)
+}
+
+func TestRedisStore_MessageLog_SurvivesCrashThenLoad(t *testing.T) {
+	// The whole point: mid-loop appends must be visible to Load() after a
+	// restart, without the end-of-turn Save having ever run. We simulate the
+	// "restart" by allocating a fresh RedisStore against the same miniredis
+	// instance — no in-process state is preserved across the boundary.
+	store, mr := setupRedisStore(t)
+	ctx := context.Background()
+
+	_, err := store.LogAppend(ctx, "conv-1", 0, []types.Message{
+		makeMsg("user", "hello"),
+		makeMsg("assistant", "hi"),
+	})
+	require.NoError(t, err)
+
+	// Simulate process restart: new client + new store against same miniredis.
+	freshClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	freshStore := NewRedisStore(freshClient)
+
+	loaded, err := freshStore.Load(ctx, "conv-1")
+	require.NoError(t, err)
+	require.NotNil(t, loaded)
+	require.Len(t, loaded.Messages, 2)
+	assert.Equal(t, "hello", loaded.Messages[0].Content)
+	assert.Equal(t, "hi", loaded.Messages[1].Content)
+}
+
+func TestRedisStore_MessageLog_TTLApplied(t *testing.T) {
+	store, mr := setupRedisStore(t, WithTTL(10*time.Minute))
+	ctx := context.Background()
+
+	_, err := store.LogAppend(ctx, "conv-1", 0, []types.Message{makeMsg("user", "x")})
+	require.NoError(t, err)
+
+	msgTTL := mr.TTL(store.messagesKey("conv-1"))
+	assert.Greater(t, msgTTL.Seconds(), 0.0, "messages key should expire under WithTTL")
+
+	// The SETNX meta stub must also expire — otherwise an abandoned
+	// half-persisted conversation leaks the meta key indefinitely.
+	metaTTL := mr.TTL(store.metaKey("conv-1"))
+	assert.Greater(t, metaTTL.Seconds(), 0.0, "meta stub key should expire under WithTTL")
+}
+
+// LogAppend must coexist with the end-of-turn Save: after a write-through
+// append, a Save with the in-memory state (which knows about all the
+// already-persisted messages) must not duplicate them in Redis. Pins the
+// delta-append branch in Save (existingCount <= newCount) interoperating
+// with LogAppend's RPUSH.
+func TestRedisStore_MessageLog_AppendThenSaveNoDup(t *testing.T) {
+	store, _ := setupRedisStore(t)
+	ctx := context.Background()
+
+	persisted := []types.Message{
+		makeMsg("user", "a"),
+		makeMsg("assistant", "b"),
+		makeMsg("user", "c"),
+	}
+	total, err := store.LogAppend(ctx, "conv-1", 0, persisted)
+	require.NoError(t, err)
+	require.Equal(t, 3, total)
+
+	state := &ConversationState{
+		ID:     "conv-1",
+		UserID: "user-1",
+		Messages: append(persisted,
+			makeMsg("assistant", "d"),
+			makeMsg("user", "e"),
+		),
+	}
+	require.NoError(t, store.Save(ctx, state))
+
+	loaded, err := store.Load(ctx, "conv-1")
+	require.NoError(t, err)
+	require.Len(t, loaded.Messages, 5, "Save must not duplicate already-persisted messages")
+	assert.Equal(t, "e", loaded.Messages[4].Content)
+	// Save also fills in the user-id; the LogAppend meta stub had none.
+	assert.Equal(t, "user-1", loaded.UserID)
+}

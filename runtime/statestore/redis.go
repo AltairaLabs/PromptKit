@@ -175,15 +175,7 @@ func (s *RedisStore) loadMessagesList(ctx context.Context, id string) ([]types.M
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("redis lrange messages failed: %w", err)
 	}
-	messages := make([]types.Message, 0, len(vals))
-	for _, v := range vals {
-		var msg types.Message
-		if unmarshalErr := json.Unmarshal([]byte(v), &msg); unmarshalErr != nil {
-			return nil, fmt.Errorf("failed to unmarshal message: %w", unmarshalErr)
-		}
-		messages = append(messages, msg)
-	}
-	return messages, nil
+	return unmarshalMessages(vals)
 }
 
 // loadSummariesList loads summaries from a Redis list key.
@@ -327,6 +319,20 @@ func stateToMeta(state *ConversationState) redisStateMeta {
 		TokenCount:     state.TokenCount,
 		LastAccessedAt: state.LastAccessedAt,
 	}
+}
+
+// unmarshalMessages decodes a slice of JSON-encoded message strings (as
+// returned by Redis LRange against a messagesKey list).
+func unmarshalMessages(vals []string) ([]types.Message, error) {
+	msgs := make([]types.Message, 0, len(vals))
+	for _, v := range vals {
+		var m types.Message
+		if err := json.Unmarshal([]byte(v), &m); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal message: %w", err)
+		}
+		msgs = append(msgs, m)
+	}
+	return msgs, nil
 }
 
 // marshalMessages serializes messages to a list of JSON byte slices.
@@ -901,16 +907,7 @@ func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) (
 		return nil, fmt.Errorf("redis lrange failed: %w", err)
 	}
 
-	messages := make([]types.Message, 0, len(vals))
-	for _, v := range vals {
-		var msg types.Message
-		if err := json.Unmarshal([]byte(v), &msg); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal message: %w", err)
-		}
-		messages = append(messages, msg)
-	}
-
-	return messages, nil
+	return unmarshalMessages(vals)
 }
 
 // MessageCount returns the total number of messages.
@@ -1312,4 +1309,91 @@ func sortStatesByField(states []stateWithID, sortBy string, ascending bool) {
 		}
 		return !less
 	})
+}
+
+// LogAppend appends messages with sequence-based idempotent deduplication.
+// The on-disk layout matches what Save writes (a Redis list at messagesKey(id))
+// so messages persisted via the tool-loop write-through path are loaded back
+// transparently by Load. A minimal meta stub is written via SETNX so a
+// subsequent Load(id) does not return ErrNotFound after a crash recovery
+// before the end-of-turn Save has run; the next Save overwrites it.
+func (s *RedisStore) LogAppend(
+	ctx context.Context, id string, startSeq int, messages []types.Message,
+) (int, error) {
+	if id == "" {
+		return 0, ErrInvalidID
+	}
+
+	msgKey := s.messagesKey(id)
+	currentLen, err := s.client.LLen(ctx, msgKey).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return 0, fmt.Errorf("redis llen failed: %w", err)
+	}
+
+	// Clamp startSeq to current length (handles startSeq > currentLen gracefully)
+	// and skip the messages already persisted (idempotent dedup on retry).
+	skip := int(currentLen) - startSeq
+	if skip < 0 {
+		skip = 0
+	}
+	if skip >= len(messages) {
+		return int(currentLen), nil
+	}
+	delta := messages[skip:]
+
+	vals, err := marshalMessageSlice(delta)
+	if err != nil {
+		return 0, err
+	}
+
+	metaStub := redisStateMeta{ID: id, LastAccessedAt: time.Now()}
+	metaData, err := json.Marshal(metaStub)
+	if err != nil {
+		return 0, fmt.Errorf("marshal meta stub: %w", err)
+	}
+
+	pipe := s.client.Pipeline()
+	pipe.RPush(ctx, msgKey, vals...)
+	if s.ttl > 0 {
+		pipe.Expire(ctx, msgKey, s.ttl)
+	}
+	// SETNX so we never clobber a real meta written by a prior Save.
+	pipe.SetNX(ctx, s.metaKey(id), metaData, s.ttl)
+	s.pipeUpdateGlobalIndex(ctx, pipe, id)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("redis logappend pipeline failed: %w", err)
+	}
+
+	return int(currentLen) + len(delta), nil
+}
+
+// LogLoad returns messages for the conversation. Empty (not an error) when
+// the conversation doesn't exist. With recent > 0, returns only the last N.
+func (s *RedisStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error) {
+	msgKey := s.messagesKey(id)
+	var start int64
+	if recent > 0 {
+		start = int64(-recent)
+	}
+	vals, err := s.client.LRange(ctx, msgKey, start, -1).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("redis lrange messages failed: %w", err)
+	}
+	if len(vals) == 0 {
+		return nil, nil
+	}
+	return unmarshalMessages(vals)
+}
+
+// LogLen returns the message count for the conversation, or 0 if absent.
+func (s *RedisStore) LogLen(ctx context.Context, id string) (int, error) {
+	n, err := s.client.LLen(ctx, s.messagesKey(id)).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("redis llen failed: %w", err)
+	}
+	return int(n), nil
 }

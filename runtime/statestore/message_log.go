@@ -14,6 +14,11 @@ import (
 // The sequence number is the message index in the conversation (0-based).
 // AppendMessages with startSeq < current length skips already-persisted messages,
 // making retries safe.
+//
+// Implementations are not required to be safe against concurrent LogAppend
+// calls targeting the same conversation id. Callers must serialize writes
+// per conversation — the ProviderStage tool loop already does this via
+// per-conversation single-threading.
 type MessageLog interface {
 	// LogAppend appends messages starting at the given sequence number.
 	// If startSeq < current message count, the first (current - startSeq) input
