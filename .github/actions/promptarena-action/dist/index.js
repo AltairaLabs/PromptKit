@@ -220,6 +220,7 @@ async function run() {
         const providers = core.getInput('providers');
         const regions = core.getInput('regions');
         const outputDir = core.getInput('output-dir') || 'out';
+        const formats = core.getInput('formats') || 'json,junit';
         const junitOutput = core.getInput('junit-output');
         const failOnError = core.getInput('fail-on-error') !== 'false';
         const workingDirectory = core.getInput('working-directory') || '.';
@@ -240,6 +241,7 @@ async function run() {
             providers: providers || undefined,
             regions: regions || undefined,
             outputDir,
+            formats,
             junitOutput: junitOutput || undefined,
             workingDirectory,
         };
@@ -516,7 +518,13 @@ const exec = __importStar(__nccwpck_require__(5236));
 const path = __importStar(__nccwpck_require__(6760));
 async function runPromptArena(inputs) {
     // Initialize args with required options
-    const formats = ['json', 'junit'];
+    const configuredFormats = inputs.formats
+        ?.split(',')
+        .map((format) => format.trim())
+        .filter(Boolean);
+    const formats = configuredFormats && configuredFormats.length > 0
+        ? configuredFormats
+        : ['json', 'junit'];
     const args = [
         'run',
         '--config', inputs.configFile,

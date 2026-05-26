@@ -39,6 +39,7 @@ jobs:
 | `providers` | Comma-separated list of providers to use | No | - |
 | `regions` | Comma-separated list of regions to run | No | - |
 | `output-dir` | Directory for test results | No | `out` |
+| `formats` | Output formats (comma-separated, e.g. `json,junit,markdown,html`) | No | `json,junit` |
 | `junit-output` | Path for JUnit XML output file | No | - |
 | `fail-on-error` | Fail the action if tests fail | No | `true` |
 | `working-directory` | Working directory for running tests | No | `.` |

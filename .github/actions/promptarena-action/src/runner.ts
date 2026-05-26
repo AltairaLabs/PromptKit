@@ -8,6 +8,7 @@ export interface RunnerInputs {
   providers?: string;
   regions?: string;
   outputDir: string;
+  formats?: string;
   junitOutput?: string;
   workingDirectory: string;
 }
@@ -20,7 +21,13 @@ export interface RunResult {
 
 export async function runPromptArena(inputs: RunnerInputs): Promise<RunResult> {
   // Initialize args with required options
-  const formats = ['json', 'junit'];
+  const configuredFormats = inputs.formats
+    ?.split(',')
+    .map((format) => format.trim())
+    .filter(Boolean);
+  const formats = configuredFormats && configuredFormats.length > 0
+    ? configuredFormats
+    : ['json', 'junit'];
   const args: string[] = [
     'run',
     '--config', inputs.configFile,
