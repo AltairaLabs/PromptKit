@@ -34,6 +34,7 @@ describe('main', () => {
         providers: '',
         regions: '',
         'output-dir': 'out',
+        formats: 'json,junit',
         'junit-output': '',
         'fail-on-error': 'true',
         'working-directory': '.',
@@ -154,6 +155,7 @@ describe('main', () => {
         if (name === 'providers') return 'openai,anthropic';
         if (name === 'regions') return 'us-east-1';
         if (name === 'output-dir') return 'results';
+        if (name === 'formats') return 'json,junit,markdown';
         if (name === 'junit-output') return 'results/junit.xml';
         if (name === 'working-directory') return '/project';
         return '';
@@ -168,6 +170,7 @@ describe('main', () => {
         providers: 'openai,anthropic',
         regions: 'us-east-1',
         outputDir: 'results',
+        formats: 'json,junit,markdown',
         junitOutput: 'results/junit.xml',
         workingDirectory: '/project',
       });
@@ -187,6 +190,7 @@ describe('main', () => {
         providers: undefined,
         regions: undefined,
         outputDir: 'out',
+        formats: 'json,junit',
         junitOutput: undefined,
         workingDirectory: '.',
       });

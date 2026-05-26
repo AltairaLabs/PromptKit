@@ -96,6 +96,36 @@ describe('runner', () => {
       );
     });
 
+    it('should include configured output formats', async () => {
+      mockedExec.exec.mockResolvedValue(0);
+
+      await runPromptArena({
+        ...baseInputs,
+        formats: 'json, markdown ,html',
+      });
+
+      expect(mockedExec.exec).toHaveBeenCalledWith(
+        'promptarena',
+        expect.arrayContaining(['--format', 'json,markdown,html']),
+        expect.any(Object)
+      );
+    });
+
+    it('should fall back to default formats when configured formats are empty', async () => {
+      mockedExec.exec.mockResolvedValue(0);
+
+      await runPromptArena({
+        ...baseInputs,
+        formats: ' , ',
+      });
+
+      expect(mockedExec.exec).toHaveBeenCalledWith(
+        'promptarena',
+        expect.arrayContaining(['--format', 'json,junit']),
+        expect.any(Object)
+      );
+    });
+
     it('should capture stdout and stderr', async () => {
       mockedExec.exec.mockImplementation(async (_cmd, _args, options) => {
         options?.listeners?.stdout?.(Buffer.from('test output'));

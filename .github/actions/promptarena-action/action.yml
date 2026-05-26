@@ -27,6 +27,10 @@ inputs:
     description: 'Directory for test results'
     required: false
     default: 'out'
+  formats:
+    description: 'Output formats (comma-separated, e.g., json,junit,markdown,html)'
+    required: false
+    default: 'json,junit'
   junit-output:
     description: 'Path for JUnit XML output file'
     required: false

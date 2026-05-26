@@ -13,6 +13,7 @@ async function run(): Promise<void> {
     const providers = core.getInput('providers');
     const regions = core.getInput('regions');
     const outputDir = core.getInput('output-dir') || 'out';
+    const formats = core.getInput('formats') || 'json,junit';
     const junitOutput = core.getInput('junit-output');
     const failOnError = core.getInput('fail-on-error') !== 'false';
     const workingDirectory = core.getInput('working-directory') || '.';
@@ -36,6 +37,7 @@ async function run(): Promise<void> {
       providers: providers || undefined,
       regions: regions || undefined,
       outputDir,
+      formats,
       junitOutput: junitOutput || undefined,
       workingDirectory,
     };
