@@ -22,7 +22,7 @@ Use --section to focus on specific parts.
 Use --short/-s for quick validation-only output.`,
 	RunE:          runConfigInspect,
 	SilenceUsage:  true, // Don't show usage on error - keeps output clean
-	SilenceErrors: true, // We handle errors ourselves with cleaner messages
+	SilenceErrors: false,
 }
 
 const (
@@ -103,8 +103,10 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 	// Load configuration directly
 	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
-		return fmt.Errorf("'%s' is not a valid arena config file\n\nRun 'promptarena validate %s' for details",
-			configFile, configFile)
+		if validationErr := emitConfigInspectValidationDiagnostics(configFile); validationErr != nil {
+			return validationErr
+		}
+		return fmt.Errorf("config loading failed: %w", err)
 	}
 
 	// Collect inspection data
@@ -118,6 +120,7 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 		inspection.ValidationError = validationErr.Error()
 		inspection.ValidationErrors = validator.GetErrors()
 	}
+
 	inspection.ValidationWarnings = len(validator.GetWarnings())
 	inspection.ValidationWarningDetails = validator.GetWarnings()
 
@@ -143,6 +146,38 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 	default:
 		return fmt.Errorf("unsupported format: %s", inspectFormat)
 	}
+}
+
+func emitConfigInspectValidationDiagnostics(configFile string) error {
+	originalType := validateType
+	originalVerbose := validateVerbose
+	originalSchemaOnly := validateSchemaOnly
+	defer func() {
+		validateType = originalType
+		validateVerbose = originalVerbose
+		validateSchemaOnly = originalSchemaOnly
+	}()
+
+	validateType = "auto"
+	validateVerbose = false
+	validateSchemaOnly = false
+
+	data, configType, err := prepareValidation(configFile)
+	if err != nil {
+		return err
+	}
+
+	if err := performSchemaValidation(data, configType, configFile); err != nil {
+		return err
+	}
+
+	if configType == "arena" {
+		if err := performBusinessLogicValidation(configFile); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func outputJSON(data *InspectionData) error {

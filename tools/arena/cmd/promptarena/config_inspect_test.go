@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +12,58 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	fn()
+
+	require.NoError(t, writer.Close())
+
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, reader)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+
+	return buf.String()
+}
+
+func TestEmitConfigInspectValidationDiagnostics_MissingFile(t *testing.T) {
+	err := emitConfigInspectValidationDiagnostics(filepath.Join(t.TempDir(), "missing.arena.yaml"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "file not found")
+}
+
+func TestEmitConfigInspectValidationDiagnostics_InvalidConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.arena.yaml")
+	configContent := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test
+spec:
+  scenarios: "invalid"
+`)
+	require.NoError(t, os.WriteFile(configPath, configContent, 0600))
+
+	output := captureStdout(t, func() {
+		err := emitConfigInspectValidationDiagnostics(configPath)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "config loading failed")
+	})
+
+	assert.Contains(t, output, "Validating config.arena.yaml as type 'arena'")
+	assert.Contains(t, output, "Running business logic validation")
+}
 
 func TestCollectInspectionData_EmptyConfig(t *testing.T) {
 	// Create minimal valid config
