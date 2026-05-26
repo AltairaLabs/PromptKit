@@ -49,28 +49,40 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	filePath := args[0]
-	data, configType, err := prepareValidation(filePath)
-	if err != nil {
+	if err := runValidationChecks(filePath, validateType, validateVerbose, validateSchemaOnly); err != nil {
 		return err
-	}
-
-	// Schema validation
-	if err := performSchemaValidation(data, configType, filePath); err != nil {
-		return err
-	}
-
-	// Business logic validation (if requested)
-	if !validateSchemaOnly && configType == "arena" {
-		if err := performBusinessLogicValidation(filePath); err != nil {
-			return err
-		}
 	}
 
 	fmt.Printf("\n✅ %s is valid\n", filepath.Base(filePath))
 	return nil
 }
 
+func runValidationChecks(filePath, typeOption string, verbose, schemaOnly bool) error {
+	data, configType, err := prepareValidationWithType(filePath, typeOption)
+	if err != nil {
+		return err
+	}
+
+	// Schema validation
+	if err := performSchemaValidationWithVerbose(data, configType, filePath, verbose); err != nil {
+		return err
+	}
+
+	// Business logic validation (if requested)
+	if !schemaOnly && configType == "arena" {
+		if err := performBusinessLogicValidation(filePath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func prepareValidation(filePath string) ([]byte, string, error) {
+	return prepareValidationWithType(filePath, validateType)
+}
+
+func prepareValidationWithType(filePath, typeOption string) ([]byte, string, error) {
 	// Check if file exists
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil, "", fmt.Errorf("file not found: %s", filePath)
@@ -83,7 +95,7 @@ func prepareValidation(filePath string) ([]byte, string, error) {
 	}
 
 	// Determine config type
-	configType := validateType
+	configType := typeOption
 	if configType == "auto" {
 		detectedType, err := config.DetectConfigType(data)
 		if err != nil {
@@ -96,6 +108,10 @@ func prepareValidation(filePath string) ([]byte, string, error) {
 }
 
 func performSchemaValidation(data []byte, configType string, filePath string) error {
+	return performSchemaValidationWithVerbose(data, configType, filePath, validateVerbose)
+}
+
+func performSchemaValidationWithVerbose(data []byte, configType string, filePath string, verbose bool) error {
 	fmt.Printf("Validating %s as type '%s'...\n", filepath.Base(filePath), configType)
 
 	result, err := validateWithSchema(data, config.ConfigType(configType))
@@ -105,7 +121,7 @@ func performSchemaValidation(data []byte, configType string, filePath string) er
 
 	if !result.Valid {
 		fmt.Printf("❌ Schema validation failed for %s:\n", filePath)
-		displayErrors(result.Errors, validateVerbose)
+		displayErrors(result.Errors, verbose)
 		return fmt.Errorf("schema validation failed with %d error(s)", len(result.Errors))
 	}
 

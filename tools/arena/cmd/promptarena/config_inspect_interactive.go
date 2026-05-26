@@ -149,35 +149,7 @@ func runConfigInspect(cmd *cobra.Command, args []string) error {
 }
 
 func emitConfigInspectValidationDiagnostics(configFile string) error {
-	originalType := validateType
-	originalVerbose := validateVerbose
-	originalSchemaOnly := validateSchemaOnly
-	defer func() {
-		validateType = originalType
-		validateVerbose = originalVerbose
-		validateSchemaOnly = originalSchemaOnly
-	}()
-
-	validateType = "auto"
-	validateVerbose = false
-	validateSchemaOnly = false
-
-	data, configType, err := prepareValidation(configFile)
-	if err != nil {
-		return err
-	}
-
-	if err := performSchemaValidation(data, configType, configFile); err != nil {
-		return err
-	}
-
-	if configType == "arena" {
-		if err := performBusinessLogicValidation(configFile); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return runValidationChecks(configFile, "auto", false, false)
 }
 
 func outputJSON(data *InspectionData) error {

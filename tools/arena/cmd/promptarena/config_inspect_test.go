@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func captureStdout(t *testing.T, fn func()) string {
+func withCapturedStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
 	originalStdout := os.Stdout
@@ -55,11 +55,12 @@ spec:
 `)
 	require.NoError(t, os.WriteFile(configPath, configContent, 0600))
 
-	output := captureStdout(t, func() {
-		err := emitConfigInspectValidationDiagnostics(configPath)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "config loading failed")
+	var validationErr error
+	output := withCapturedStdout(t, func() {
+		validationErr = emitConfigInspectValidationDiagnostics(configPath)
 	})
+	require.Error(t, validationErr)
+	assert.Contains(t, validationErr.Error(), "config loading failed")
 
 	assert.Contains(t, output, "Validating config.arena.yaml as type 'arena'")
 	assert.Contains(t, output, "Running business logic validation")
