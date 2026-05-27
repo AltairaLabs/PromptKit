@@ -104,6 +104,39 @@ func TestConvertResult_Valid(t *testing.T) {
 	assert.Empty(t, vr.Errors)
 }
 
+func TestConvertResult_KeywordPopulated(t *testing.T) {
+	schemaJSON := `{
+		"type":"object",
+		"properties":{"name":{"type":"string"}},
+		"additionalProperties":false
+	}`
+	schemaLoader := gojsonschema.NewStringLoader(schemaJSON)
+	documentLoader := gojsonschema.NewStringLoader(`{"name":"x","extra":"y"}`)
+
+	result, err := gojsonschema.Validate(schemaLoader, documentLoader)
+	require.NoError(t, err)
+
+	vr := ConvertResult(result)
+	require.NotEmpty(t, vr.Errors)
+	assert.Equal(t, "additional_property_not_allowed", vr.Errors[0].Keyword)
+}
+
+func TestConvertResult_EnumKeyword(t *testing.T) {
+	schemaJSON := `{
+		"type":"object",
+		"properties":{"provider":{"type":"string","enum":["openai","mock"]}}
+	}`
+	schemaLoader := gojsonschema.NewStringLoader(schemaJSON)
+	documentLoader := gojsonschema.NewStringLoader(`{"provider":"anthrop"}`)
+
+	result, err := gojsonschema.Validate(schemaLoader, documentLoader)
+	require.NoError(t, err)
+
+	vr := ConvertResult(result)
+	require.NotEmpty(t, vr.Errors)
+	assert.Equal(t, "enum", vr.Errors[0].Keyword)
+}
+
 func TestConvertResult_Invalid(t *testing.T) {
 	schemaJSON := `{
 		"type": "object",
