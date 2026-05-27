@@ -769,8 +769,9 @@ func validatePrompt(taskType string, prompt *PackPrompt) []string {
 	if prompt.SystemTemplate == "" {
 		warnings = append(warnings, fmt.Sprintf("prompt '%s': missing system_template", taskType))
 	}
-	if len(prompt.Variables) == 0 {
-		warnings = append(warnings, fmt.Sprintf("prompt '%s': no variables defined", taskType))
+	if len(prompt.Variables) == 0 && strings.Contains(prompt.SystemTemplate, "{{") {
+		msg := "prompt '%s': system_template references variables, but none are declared"
+		warnings = append(warnings, fmt.Sprintf(msg, taskType))
 	}
 	if prompt.Version == "" {
 		warnings = append(warnings, fmt.Sprintf("prompt '%s': missing version", taskType))
