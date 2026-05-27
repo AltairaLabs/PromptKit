@@ -7,7 +7,154 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	fn()
+	_ = w.Close()
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	return string(buf[:n])
+}
+
+func TestDisplayError_AdditionalPropertyWithSuggestion(t *testing.T) {
+	e := config.SchemaValidationError{
+		Field:       "spec.judge_defaults",
+		Description: "Additional property judge is not allowed",
+		Value:       "tone-judge",
+		Keyword:     "additional_property_not_allowed",
+		ValidValues: []string{"prompt"},
+		Suggestions: []string{"prompt"},
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, "unknown property 'judge'. Did you mean 'prompt'?")
+	assert.Contains(t, out, "Valid keys: prompt")
+	assert.NotContains(t, out, "(value: tone-judge)", "old format should not appear")
+}
+
+func TestDisplayError_AdditionalPropertyNoSuggestionStillListsKeys(t *testing.T) {
+	e := config.SchemaValidationError{
+		Field:       "spec.judge_defaults",
+		Description: "Additional property xyz is not allowed",
+		Value:       "v",
+		Keyword:     "additional_property_not_allowed",
+		ValidValues: []string{"model", "prompt"},
+		Suggestions: nil,
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, "unknown property 'xyz'")
+	assert.NotContains(t, out, "Did you mean")
+	assert.Contains(t, out, "Valid keys: model, prompt")
+}
+
+func TestDisplayError_AdditionalPropertyDegraded(t *testing.T) {
+	// ValidValues nil → navigator couldn't resolve. Fall back to today's message.
+	e := config.SchemaValidationError{
+		Field:       "spec.judge_defaults",
+		Description: "Additional property judge is not allowed",
+		Value:       "tone-judge",
+		Keyword:     "additional_property_not_allowed",
+		ValidValues: nil,
+		Suggestions: nil,
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, "Additional property judge is not allowed")
+	assert.Contains(t, out, "(value: tone-judge)")
+}
+
+func TestDisplayError_EnumWithSuggestion(t *testing.T) {
+	e := config.SchemaValidationError{
+		Field:       "spec.provider",
+		Description: `spec.provider must be one of the following: "openai", "anthropic", "mock"`,
+		Value:       "anthrop",
+		Keyword:     "enum",
+		ValidValues: []string{"openai", "anthropic", "mock"},
+		Suggestions: []string{"anthropic"},
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, e.Description)
+	assert.Contains(t, out, "Did you mean: anthropic")
+}
+
+func TestPerformSchemaValidation_AdditionalPropertyHint(t *testing.T) {
+	// This package disables schema validation in tests (see
+	// schema_disable_init_test.go). Re-enable for this case so the real
+	// validator runs against the fixture schema.
+	config.SchemaValidationDisabled.Store(false)
+	t.Cleanup(func() { config.SchemaValidationDisabled.Store(true) })
+
+	// Reproduces the exemplar from issue #1251: judge_defaults.judge typo
+	// where the valid key is "prompt".
+	tmpDir := t.TempDir()
+	schemaDir := filepath.Join(tmpDir, "schemas", "v1alpha1")
+	require.NoError(t, os.MkdirAll(schemaDir, 0o755))
+	schemaJSON := `{
+		"$schema":"http://json-schema.org/draft-07/schema#",
+		"type":"object",
+		"properties":{
+			"spec":{
+				"type":"object",
+				"properties":{
+					"judge_defaults":{
+						"type":"object",
+						"additionalProperties":false,
+						"properties":{"prompt":{"type":"string"}}
+					}
+				}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(schemaDir, "arena.json"),
+		[]byte(schemaJSON), 0o600,
+	))
+
+	yamlData := []byte("spec:\n  judge_defaults:\n    judge: tone-judge\n")
+
+	result, err := config.ValidateWithLocalSchema(yamlData, config.ConfigTypeArena, schemaDir)
+	require.NoError(t, err)
+	require.False(t, result.Valid)
+
+	var addPropErr *config.SchemaValidationError
+	for i, e := range result.Errors {
+		if e.Keyword == "additional_property_not_allowed" {
+			addPropErr = &result.Errors[i]
+			break
+		}
+	}
+	require.NotNil(t, addPropErr, "expected additional_property_not_allowed error, got %+v", result.Errors)
+
+	out := captureStdout(t, func() { displayError(*addPropErr) })
+	// "judge" vs "prompt" Levenshtein distance is 6 — far beyond the
+	// did-you-mean threshold — so the valid-keys line is the helpful
+	// output for this exemplar. The did-you-mean is verified separately
+	// in TestSchemaValidationError_AdditionalPropertyWithCloseMatch.
+	assert.Contains(t, out, "unknown property 'judge'", "expected unknown-property phrase: %s", out)
+	assert.Contains(t, out, "Valid keys: prompt", "expected valid keys line: %s", out)
+	assert.NotContains(t, out, "Did you mean", "no close match exists for 'judge' vs 'prompt'")
+}
+
+func TestDisplayError_PassthroughForOtherKeywords(t *testing.T) {
+	e := config.SchemaValidationError{
+		Field:       "spec.name",
+		Description: "spec.name is required",
+		Value:       nil,
+		Keyword:     "required",
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, "spec.name is required")
+	assert.NotContains(t, out, "Did you mean")
+	assert.NotContains(t, out, "Valid keys")
+}
 
 func TestPrepareValidation(t *testing.T) {
 	// Create a temporary test file

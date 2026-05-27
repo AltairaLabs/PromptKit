@@ -12,6 +12,17 @@ type ValidationError struct {
 	Field       string
 	Description string
 	Value       interface{}
+
+	// Keyword is the JSON-schema keyword that failed (e.g. "enum",
+	// "additional_property_not_allowed", "required"). Sourced from
+	// gojsonschema's ResultError.Type(). Empty if unavailable.
+	Keyword string
+	// ValidValues lists allowed values when computable. Populated by
+	// higher-level callers that hold the raw schema document. Nil when
+	// not enumerable at this layer.
+	ValidValues []string
+	// Suggestions are nearest-match candidates from ValidValues.
+	Suggestions []string
 }
 
 // Error implements the error interface.
@@ -55,6 +66,7 @@ func ConvertResult(result *gojsonschema.Result) *ValidationResult {
 				Field:       e.Field(),
 				Description: e.Description(),
 				Value:       e.Value(),
+				Keyword:     e.Type(),
 			})
 		}
 	}

@@ -196,17 +196,49 @@ func displayErrors(errors []config.SchemaValidationError, verbose bool) {
 }
 
 func displayError(err config.SchemaValidationError) {
-	// Clean up the field path for better readability
 	field := err.Field
 	field = strings.TrimPrefix(field, "(root).")
 	if field == "(root)" {
 		field = "root"
 	}
 
-	// Format the error message
+	switch {
+	case err.Keyword == "additional_property_not_allowed" && len(err.ValidValues) > 0:
+		offending := extractAdditionalPropertyName(err.Description)
+		if offending == "" {
+			displayDefault(field, &err)
+			return
+		}
+		header := fmt.Sprintf("  - %s: unknown property '%s'", field, offending)
+		if len(err.Suggestions) > 0 {
+			header += fmt.Sprintf(". Did you mean '%s'?", err.Suggestions[0])
+		}
+		fmt.Println(header)
+		fmt.Printf("      Valid keys: %s\n", strings.Join(err.ValidValues, ", "))
+
+	case len(err.Suggestions) > 0:
+		displayDefault(field, &err)
+		fmt.Printf("      Did you mean: %s\n", strings.Join(err.Suggestions, ", "))
+
+	default:
+		displayDefault(field, &err)
+	}
+}
+
+func displayDefault(field string, err *config.SchemaValidationError) {
 	if err.Value != nil {
 		fmt.Printf("  - %s: %s (value: %v)\n", field, err.Description, err.Value)
 	} else {
 		fmt.Printf("  - %s: %s\n", field, err.Description)
 	}
+}
+
+// extractAdditionalPropertyName pulls X out of "Additional property X is not allowed".
+func extractAdditionalPropertyName(desc string) string {
+	const prefix = "Additional property "
+	const suffix = " is not allowed"
+	if !strings.HasPrefix(desc, prefix) || !strings.HasSuffix(desc, suffix) {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(desc, prefix), suffix)
 }
