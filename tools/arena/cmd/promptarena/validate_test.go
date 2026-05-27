@@ -85,6 +85,64 @@ func TestDisplayError_EnumWithSuggestion(t *testing.T) {
 	assert.Contains(t, out, "Did you mean: anthropic")
 }
 
+func TestPerformSchemaValidation_AdditionalPropertyHint(t *testing.T) {
+	// This package disables schema validation in tests (see
+	// schema_disable_init_test.go). Re-enable for this case so the real
+	// validator runs against the fixture schema.
+	config.SchemaValidationDisabled.Store(false)
+	t.Cleanup(func() { config.SchemaValidationDisabled.Store(true) })
+
+	// Reproduces the exemplar from issue #1251: judge_defaults.judge typo
+	// where the valid key is "prompt".
+	tmpDir := t.TempDir()
+	schemaDir := filepath.Join(tmpDir, "schemas", "v1alpha1")
+	require.NoError(t, os.MkdirAll(schemaDir, 0o755))
+	schemaJSON := `{
+		"$schema":"http://json-schema.org/draft-07/schema#",
+		"type":"object",
+		"properties":{
+			"spec":{
+				"type":"object",
+				"properties":{
+					"judge_defaults":{
+						"type":"object",
+						"additionalProperties":false,
+						"properties":{"prompt":{"type":"string"}}
+					}
+				}
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(schemaDir, "arena.json"),
+		[]byte(schemaJSON), 0o600,
+	))
+
+	yamlData := []byte("spec:\n  judge_defaults:\n    judge: tone-judge\n")
+
+	result, err := config.ValidateWithLocalSchema(yamlData, config.ConfigTypeArena, schemaDir)
+	require.NoError(t, err)
+	require.False(t, result.Valid)
+
+	var addPropErr *config.SchemaValidationError
+	for i, e := range result.Errors {
+		if e.Keyword == "additional_property_not_allowed" {
+			addPropErr = &result.Errors[i]
+			break
+		}
+	}
+	require.NotNil(t, addPropErr, "expected additional_property_not_allowed error, got %+v", result.Errors)
+
+	out := captureStdout(t, func() { displayError(*addPropErr) })
+	// "judge" vs "prompt" Levenshtein distance is 6 — far beyond the
+	// did-you-mean threshold — so the valid-keys line is the helpful
+	// output for this exemplar. The did-you-mean is verified separately
+	// in TestSchemaValidationError_AdditionalPropertyWithCloseMatch.
+	assert.Contains(t, out, "unknown property 'judge'", "expected unknown-property phrase: %s", out)
+	assert.Contains(t, out, "Valid keys: prompt", "expected valid keys line: %s", out)
+	assert.NotContains(t, out, "Did you mean", "no close match exists for 'judge' vs 'prompt'")
+}
+
 func TestDisplayError_PassthroughForOtherKeywords(t *testing.T) {
 	e := config.SchemaValidationError{
 		Field:       "spec.name",
