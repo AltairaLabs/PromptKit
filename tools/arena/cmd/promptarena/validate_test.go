@@ -7,7 +7,96 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	fn()
+	_ = w.Close()
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	return string(buf[:n])
+}
+
+func TestDisplayError_AdditionalPropertyWithSuggestion(t *testing.T) {
+	e := config.SchemaValidationError{
+		Field:       "spec.judge_defaults",
+		Description: "Additional property judge is not allowed",
+		Value:       "tone-judge",
+		Keyword:     "additional_property_not_allowed",
+		ValidValues: []string{"prompt"},
+		Suggestions: []string{"prompt"},
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, "unknown property 'judge'. Did you mean 'prompt'?")
+	assert.Contains(t, out, "Valid keys: prompt")
+	assert.NotContains(t, out, "(value: tone-judge)", "old format should not appear")
+}
+
+func TestDisplayError_AdditionalPropertyNoSuggestionStillListsKeys(t *testing.T) {
+	e := config.SchemaValidationError{
+		Field:       "spec.judge_defaults",
+		Description: "Additional property xyz is not allowed",
+		Value:       "v",
+		Keyword:     "additional_property_not_allowed",
+		ValidValues: []string{"model", "prompt"},
+		Suggestions: nil,
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, "unknown property 'xyz'")
+	assert.NotContains(t, out, "Did you mean")
+	assert.Contains(t, out, "Valid keys: model, prompt")
+}
+
+func TestDisplayError_AdditionalPropertyDegraded(t *testing.T) {
+	// ValidValues nil → navigator couldn't resolve. Fall back to today's message.
+	e := config.SchemaValidationError{
+		Field:       "spec.judge_defaults",
+		Description: "Additional property judge is not allowed",
+		Value:       "tone-judge",
+		Keyword:     "additional_property_not_allowed",
+		ValidValues: nil,
+		Suggestions: nil,
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, "Additional property judge is not allowed")
+	assert.Contains(t, out, "(value: tone-judge)")
+}
+
+func TestDisplayError_EnumWithSuggestion(t *testing.T) {
+	e := config.SchemaValidationError{
+		Field:       "spec.provider",
+		Description: `spec.provider must be one of the following: "openai", "anthropic", "mock"`,
+		Value:       "anthrop",
+		Keyword:     "enum",
+		ValidValues: []string{"openai", "anthropic", "mock"},
+		Suggestions: []string{"anthropic"},
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, e.Description)
+	assert.Contains(t, out, "Did you mean: anthropic")
+}
+
+func TestDisplayError_PassthroughForOtherKeywords(t *testing.T) {
+	e := config.SchemaValidationError{
+		Field:       "spec.name",
+		Description: "spec.name is required",
+		Value:       nil,
+		Keyword:     "required",
+	}
+	out := captureStdout(t, func() { displayError(e) })
+	assert.Contains(t, out, "spec.name is required")
+	assert.NotContains(t, out, "Did you mean")
+	assert.NotContains(t, out, "Valid keys")
+}
 
 func TestPrepareValidation(t *testing.T) {
 	// Create a temporary test file
