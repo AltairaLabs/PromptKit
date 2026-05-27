@@ -148,7 +148,11 @@ jobs:
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-    
+
+    - name: Fetch remote tags
+      # See update-tools/Fetch remote tags for rationale.
+      run: git fetch --tags --force origin
+
     - name: Tag runtime
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -264,6 +268,14 @@ jobs:
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Fetch remote tags
+      # Ensure local tag state reflects the remote. Without this, the per-tag
+      # `git rev-parse "<tag>" >/dev/null 2>&1` checks miss tags that exist on
+      # remote but weren't pulled into the local clone — which causes the
+      # workflow to try to create+push tags that already exist remotely and
+      # fail with "remote rejected" / "remote: fatal error in commit_refs".
+      run: git fetch --tags --force origin
 
     - name: Create release branch
       env:
