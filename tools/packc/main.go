@@ -11,11 +11,26 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 )
 
-const outputFilePerm = 0o600
+const (
+	outputFilePerm = 0o600
+	outputDirPerm  = 0o755
+)
 
 var version = "dev" //nolint:gochecknoglobals // overridden via ldflags at build time
 
 const warningFormat = "  - %s\n"
+
+// writePackFile writes data to path, creating the parent directory if it
+// does not already exist. Matches the behavior of `go build -o` so that
+// `packc compile -o dist/foo.pack.json` works in fresh CI checkouts.
+func writePackFile(path string, data []byte) error {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, outputDirPerm); err != nil {
+			return fmt.Errorf("creating output directory %s: %w", dir, err)
+		}
+	}
+	return os.WriteFile(path, data, outputFilePerm)
+}
 
 func buildMemoryRepo(cfg *config.Config) (*memory.PromptRepository, error) {
 	memRepo := memory.NewPromptRepository()

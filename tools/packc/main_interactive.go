@@ -188,7 +188,7 @@ func compileCommand() {
 	}
 
 	// Write the output file
-	if err := os.WriteFile(flags.outputFile, result.JSON, outputFilePerm); err != nil {
+	if err := writePackFile(flags.outputFile, result.JSON); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write pack file: %v\n", err)
 		os.Exit(1)
 	}
