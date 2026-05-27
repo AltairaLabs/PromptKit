@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -135,6 +136,53 @@ func TestPack_Validate(t *testing.T) {
 			} else {
 				// For invalid packs, should have at least the expected warnings
 				assert.GreaterOrEqual(t, len(warnings), tt.expectedErrors, "should have at least the expected warnings")
+			}
+		})
+	}
+}
+
+func TestValidatePrompt_VariablesWarning(t *testing.T) {
+	tests := []struct {
+		name       string
+		prompt     *PackPrompt
+		expectWarn bool
+	}{
+		{
+			name: "no variables, no placeholders — should not warn",
+			prompt: &PackPrompt{
+				SystemTemplate: "You are a judge. Score the user message from 0 to 1.",
+				Version:        "1.0.0",
+			},
+			expectWarn: false,
+		},
+		{
+			name: "no variables, template uses placeholders — should warn",
+			prompt: &PackPrompt{
+				SystemTemplate: "Hello {{name}}",
+				Version:        "1.0.0",
+			},
+			expectWarn: true,
+		},
+		{
+			name: "variables declared, template uses placeholders — should not warn",
+			prompt: &PackPrompt{
+				SystemTemplate: "Hello {{name}}",
+				Version:        "1.0.0",
+				Variables:      []VariableMetadata{{Name: "name", Required: true}},
+			},
+			expectWarn: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			warnings := validatePrompt("test", tt.prompt)
+			joined := strings.Join(warnings, "\n")
+			if tt.expectWarn {
+				assert.Contains(t, joined, "system_template references variables, but none are declared")
+			} else {
+				assert.NotContains(t, joined, "no variables defined")
+				assert.NotContains(t, joined, "references variables, but none are declared")
 			}
 		})
 	}
