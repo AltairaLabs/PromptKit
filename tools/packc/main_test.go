@@ -978,6 +978,30 @@ func TestPrintPackSummary(t *testing.T) {
 	})
 }
 
+func TestWritePackFile_CreatesMissingParentDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "nested", "deeper", "out.pack.json")
+	data := []byte(`{"id":"test"}`)
+
+	require.NoError(t, writePackFile(outPath, data))
+
+	got, err := os.ReadFile(outPath) //nolint:gosec // test file under t.TempDir
+	require.NoError(t, err)
+	assert.Equal(t, data, got)
+}
+
+func TestWritePackFile_ExistingDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "out.pack.json")
+	data := []byte(`{"id":"test"}`)
+
+	require.NoError(t, writePackFile(outPath, data))
+
+	got, err := os.ReadFile(outPath) //nolint:gosec // test file under t.TempDir
+	require.NoError(t, err)
+	assert.Equal(t, data, got)
+}
+
 func TestPrintAgents_Deterministic(t *testing.T) {
 	pack := &prompt.Pack{
 		Agents: &prompt.AgentsConfig{
