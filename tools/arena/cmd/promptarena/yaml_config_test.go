@@ -355,6 +355,7 @@ func setupTestFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("verbose", false, "Verbose mode")
 	cmd.Flags().Bool("mock-provider", false, "Use mock provider")
 	cmd.Flags().String("mock-config", "", "Mock config file")
+	cmd.Flags().StringArray("override-provider", nil, "Substitute a configured provider: from=to")
 	cmd.Flags().StringSlice("format", []string{}, "Output formats")
 	cmd.Flags().String("junit-file", "", "JUnit XML output file")
 	cmd.Flags().String("html-file", "", "HTML report output file")

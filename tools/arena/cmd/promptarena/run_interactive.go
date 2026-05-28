@@ -189,6 +189,13 @@ func setupEngine(cfg *config.Config, params *RunParameters) (*engine.Engine, *en
 	cfg.SkipPackEvals = params.SkipPackEvals
 	cfg.EvalTypeFilter = params.EvalTypes
 
+	// Apply provider substitutions before building the engine, so the new specs
+	// reach the candidate registry, self-play, and judges (which hold the cfg
+	// provider pointer) alike.
+	if err := applyProviderOverrides(cfg, params.ProviderOverrides); err != nil {
+		return nil, nil, err
+	}
+
 	eng, err := engine.NewEngineFromConfig(cfg, params.Providers...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create engine: %w", err)
