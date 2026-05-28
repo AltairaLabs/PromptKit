@@ -81,6 +81,24 @@ describe('runner', () => {
       );
     });
 
+    it('should expand override-provider pairs into repeated flags', async () => {
+      mockedExec.exec.mockResolvedValue(0);
+
+      await runPromptArena({
+        ...baseInputs,
+        overrideProviders: 'mock-judge=claude-haiku, mock-user=openai-mini',
+      });
+
+      expect(mockedExec.exec).toHaveBeenCalledWith(
+        'promptarena',
+        expect.arrayContaining([
+          '--override-provider', 'mock-judge=claude-haiku',
+          '--override-provider', 'mock-user=openai-mini',
+        ]),
+        expect.any(Object)
+      );
+    });
+
     it('should include junit output path when specified', async () => {
       mockedExec.exec.mockResolvedValue(0);
 

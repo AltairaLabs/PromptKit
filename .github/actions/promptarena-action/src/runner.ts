@@ -10,6 +10,7 @@ export interface RunnerInputs {
   outputDir: string;
   formats?: string;
   junitOutput?: string;
+  overrideProviders?: string;
   workingDirectory: string;
 }
 
@@ -64,6 +65,15 @@ export async function runPromptArena(inputs: RunnerInputs): Promise<RunResult> {
       .map((r) => r.trim())
       .flatMap((region) => ['--region', region]);
     args.push(...regionArgs);
+  }
+
+  if (inputs.overrideProviders) {
+    const overrideArgs = inputs.overrideProviders
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .flatMap((pair) => ['--override-provider', pair]);
+    args.push(...overrideArgs);
   }
 
   core.info(`Running: promptarena ${args.join(' ')}`);
