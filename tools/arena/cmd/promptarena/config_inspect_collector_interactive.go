@@ -283,15 +283,19 @@ func collectPersonas(cfg *config.Config) []PersonaInspectData {
 	return personas
 }
 
-// collectJudges extracts judge configuration details
+// collectJudges extracts judge configuration details. The judge's model is
+// inherited from its provider, surfaced here via the resolved judge target.
 func collectJudges(cfg *config.Config) []JudgeInspectData {
 	var judges []JudgeInspectData
 	for _, j := range cfg.Judges {
-		judges = append(judges, JudgeInspectData{
+		data := JudgeInspectData{
 			Name:     j.Name,
 			Provider: j.Provider,
-			Model:    j.Model,
-		})
+		}
+		if jt := cfg.LoadedJudges[j.Name]; jt != nil && jt.Provider != nil {
+			data.Model = jt.Provider.Model
+		}
+		judges = append(judges, data)
 	}
 	return judges
 }

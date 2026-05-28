@@ -406,23 +406,23 @@ type ProviderRef struct {
 
 // JudgeRef references a judge configuration mapped to a provider.
 // Mirrors self-play role/provider mapping to allow multiple judge targets.
+// The judge inherits its model from the referenced provider.
 type JudgeRef struct {
-	Name     string `yaml:"name" json:"name"`                       // Judge identifier used in assertions
-	Provider string `yaml:"provider" json:"provider"`               // Provider ID reference (must exist in spec.providers)
-	Model    string `yaml:"model,omitempty" json:"model,omitempty"` // Optional model override for the judge
+	Name     string `yaml:"name" json:"name"`         // Judge identifier used in assertions
+	Provider string `yaml:"provider" json:"provider"` // Provider ID reference (must exist in spec.providers)
 }
 
-// JudgeSpec defines an inline judge configuration.
+// JudgeSpec defines an inline judge configuration. The judge inherits its
+// model from the referenced provider.
 type JudgeSpec struct {
-	Provider string `yaml:"provider" json:"provider"`               // Provider ID reference
-	Model    string `yaml:"model,omitempty" json:"model,omitempty"` // Optional model override
+	Provider string `yaml:"provider" json:"provider"` // Provider ID reference
 }
 
-// JudgeTarget is a resolved judge reference with provider config and effective model.
+// JudgeTarget is a resolved judge reference with its provider config.
+// The effective model is the provider's model (Provider.Model).
 type JudgeTarget struct {
 	Name     string    `json:"name"`               // Judge identifier
-	Provider *Provider `json:"provider,omitempty"` // Resolved provider config
-	Model    string    `json:"model"`              // Effective model (judge override or provider model)
+	Provider *Provider `json:"provider,omitempty"` // Resolved provider config (carries the model)
 }
 
 // ScenarioRef references a scenario file

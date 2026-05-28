@@ -80,11 +80,10 @@ spec:
     - file: evals/customer-support-eval.yaml
     - file: evals/regression-eval.yaml
 
-  # Optional: Judges (map judge name -> provider)
+  # Optional: Judges (map judge name -> provider; judge inherits the provider's model)
   judges:
     - name: mock-judge
       provider: mock-judge
-      model: judge-model
   judge_defaults:
     prompt: judge-simple
     prompt_registry: ./prompts

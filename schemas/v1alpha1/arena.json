@@ -1152,9 +1152,6 @@
         },
         "provider": {
           "type": "string"
-        },
-        "model": {
-          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -1167,9 +1164,6 @@
     "JudgeSpec": {
       "properties": {
         "provider": {
-          "type": "string"
-        },
-        "model": {
           "type": "string"
         }
       },

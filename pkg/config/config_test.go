@@ -76,7 +76,6 @@ spec:
   judges:
     - name: test-judge
       provider: provider1
-      model: gpt-4o-mini
   judge_defaults:
     prompt: judge-simple-criteria
     prompt_registry: ./prompts
@@ -122,8 +121,8 @@ spec:
 		t.Errorf("Expected 1 loaded judge, got %d", len(config.LoadedJudges))
 	} else {
 		j := config.LoadedJudges["test-judge"]
-		if j == nil || j.Model != "gpt-4o-mini" {
-			t.Errorf("Expected loaded judge to resolve model override, got %#v", j)
+		if j == nil || j.Provider == nil || j.Provider.Model != "gpt-4" {
+			t.Errorf("Expected loaded judge to inherit provider model, got %#v", j)
 		}
 	}
 

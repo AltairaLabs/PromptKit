@@ -21,7 +21,7 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 			{File: "providers/openai.yaml", Group: "default"},
 		},
 		Judges: []JudgeRef{
-			{Name: "quality", Provider: "openai", Model: "gpt-4"},
+			{Name: "quality", Provider: "openai"},
 		},
 		JudgeDefaults: &JudgeDefaults{
 			Prompt:         "default-judge",
@@ -82,7 +82,7 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 			"inline-t": {Name: "inline-t", Description: "Inline tool", Mode: "mock"},
 		},
 		JudgeSpecs: map[string]*JudgeSpec{
-			"inline-j": {Provider: "openai", Model: "gpt-4o-mini"},
+			"inline-j": {Provider: "openai"},
 		},
 		PromptSpecs: map[string]*prompt.Spec{
 			"chat": {TaskType: "chat", SystemTemplate: "Hello"},
@@ -98,7 +98,7 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 			"openai": {ID: "openai", Type: "openai", Model: "gpt-4"},
 		},
 		LoadedJudges: map[string]*JudgeTarget{
-			"quality": {Name: "quality", Model: "gpt-4"},
+			"quality": {Name: "quality", Provider: &Provider{ID: "openai", Type: "openai", Model: "gpt-4"}},
 		},
 		LoadedTools: []ToolData{
 			{FilePath: "tools/t1.yaml", Data: []byte(`{"name":"tool1"}`)},
@@ -132,7 +132,8 @@ func TestConfig_JSONRoundTrip(t *testing.T) {
 	require.NotNil(t, restored.LoadedProviders["openai"])
 	assert.Equal(t, "gpt-4", restored.LoadedProviders["openai"].Model)
 	require.NotNil(t, restored.LoadedJudges["quality"])
-	assert.Equal(t, "gpt-4", restored.LoadedJudges["quality"].Model)
+	require.NotNil(t, restored.LoadedJudges["quality"].Provider)
+	assert.Equal(t, "gpt-4", restored.LoadedJudges["quality"].Provider.Model)
 	require.Len(t, restored.LoadedTools, 1)
 	assert.Equal(t, "tools/t1.yaml", restored.LoadedTools[0].FilePath)
 
