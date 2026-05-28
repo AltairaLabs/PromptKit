@@ -125,6 +125,10 @@ func init() {
 	runCmd.Flags().Bool("mock-provider", false, "Replace all providers with MockProvider (for CI/testing)")
 	runCmd.Flags().String("mock-config", "", "Path to mock provider configuration file (YAML)")
 
+	// Provider substitution: swap one configured provider's spec for another (repeatable)
+	runCmd.Flags().StringArray("override-provider", nil,
+		"Substitute a configured provider with another: from=to (repeatable)")
+
 	// Pack eval settings
 	runCmd.Flags().Bool("skip-pack-evals", false, "Disable pack eval execution")
 	runCmd.Flags().StringSlice("eval-types", []string{}, "Filter to specific eval types (e.g., contains,regex)")
@@ -174,10 +178,13 @@ type RunParameters struct {
 	MarkdownFile   string   // New: Markdown output file
 	MockProvider   bool     // Enable mock provider mode
 	MockConfig     string   // Path to mock provider configuration
-	SkipPackEvals  bool     // Disable pack eval execution
-	EvalTypes      []string // Filter to specific eval types
-	ConfigFile     string   // Configuration file name for TUI display
-	TotalRuns      int      // Total number of runs for TUI progress
+	// ProviderOverrides holds raw "from=to" pairs from --override-provider,
+	// substituting one configured provider's spec for another at invocation time.
+	ProviderOverrides []string
+	SkipPackEvals     bool     // Disable pack eval execution
+	EvalTypes         []string // Filter to specific eval types
+	ConfigFile        string   // Configuration file name for TUI display
+	TotalRuns         int      // Total number of runs for TUI progress
 
 	// Audio monitor settings (real-time duplex audio)
 	AudioMonitorMode string // "auto" | "on" | "off"
@@ -196,6 +203,11 @@ func extractRunParameters(cmd *cobra.Command, cfg *config.Config) (*RunParameter
 
 	// Extract mock provider flags
 	if err := extractMockFlags(cmd, params); err != nil {
+		return nil, err
+	}
+
+	// Extract provider override flags
+	if err := extractOverrideFlags(cmd, params); err != nil {
 		return nil, err
 	}
 
@@ -287,6 +299,17 @@ func extractMockFlags(cmd *cobra.Command, params *RunParameters) error {
 	if params.MockConfig, err = cmd.Flags().GetString("mock-config"); err != nil {
 		return fmt.Errorf("failed to get mock-config flag: %w", err)
 	}
+	return nil
+}
+
+// extractOverrideFlags extracts the repeatable --override-provider pairs.
+// Pairs are validated against the loaded providers later, in applyProviderOverrides.
+func extractOverrideFlags(cmd *cobra.Command, params *RunParameters) error {
+	overrides, err := cmd.Flags().GetStringArray("override-provider")
+	if err != nil {
+		return fmt.Errorf("failed to get override-provider flag: %w", err)
+	}
+	params.ProviderOverrides = overrides
 	return nil
 }
 

@@ -209,6 +209,32 @@ Run side-by-side:
 promptarena run --scenario customer-support
 ```
 
+## Substituting a Single Provider
+
+`--mock-provider` replaces *every* provider with a generic mock. When you need to
+swap just one configured provider for another at run time — without editing config —
+use `--override-provider from=to` (repeatable). It rewrites the `from` provider with
+the spec of the `to` provider, so every reference to `from` (candidate selection,
+self-play roles, **and judges**) picks up the new implementation.
+
+```bash
+# Tiered CI: mock judge in the cheap gate, real judge in the drift check —
+# same config, different invocation.
+promptarena run                                         # cheap tier: judge uses its mock provider
+promptarena run --override-provider mock-judge=claude   # drift tier: judge runs for real
+
+# Swap a self-play user-simulation model, or isolate one provider behind a mock
+promptarena run --override-provider mock-user=claude
+promptarena run --override-provider claude=mock         # requires a defined `mock` provider
+```
+
+Both `from` and `to` must be providers defined in `spec.providers`. A typo
+hard-errors rather than silently leaving the original provider in place:
+
+```
+--override-provider mock-judge=nonexistent: unknown target provider "nonexistent" (must be defined in spec.providers)
+```
+
 ## Development Workflow
 
 ### Phase 1: Build with Mocks
