@@ -42,6 +42,12 @@ scenarios:
       # Pipeline turn 4: Customer confirms
       7: "Thank you for shopping with ShopCo! We hope you enjoy your Wireless Headphones. If you need anything, we're here to help."
 
+  # Single-turn stage unit test. No transition — the turn stays in the pinned
+  # 'fulfillment' stage so the state_is assertion can observe it directly.
+  unit-fulfillment-stage:
+    turns:
+      1: "Your package has shipped and is on its way! Tracking number: TRACK-33333. Estimated delivery: 2-3 business days."
+
   validation-checks:
     turns:
       # Pipeline turn 1: Order placed -> transition to payment

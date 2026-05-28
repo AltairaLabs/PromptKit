@@ -409,7 +409,11 @@ func (e *Engine) executeRun(ctx context.Context, combo RunCombination) (string, 
 	if e.workflowSpec != nil {
 		wfScenario := *scenario
 		scenario = &wfScenario
-		workflowOrch = e.prepareWorkflowScenario(scenario, runID)
+		var prepErr error
+		workflowOrch, prepErr = e.prepareWorkflowScenario(scenario, runID)
+		if prepErr != nil {
+			return saveError(prepErr.Error())
+		}
 		runCtx = withWorkflowScenarioID(runCtx, runID)
 		defer e.workflowTransExec.UnregisterRun(runID)
 	}

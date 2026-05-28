@@ -101,6 +101,32 @@ jobs:
 
 Keyless: both examples use mock providers with scripted `workflow__transition` calls.
 
+## Unit-testing a single stage
+
+The scenarios above drive the whole lifecycle from the entry state. To exercise
+**one** stage in isolation — without first walking the agent through every earlier
+transition — pin the scenario's `task_type` to that stage's `prompt_task`:
+
+```yaml
+spec:
+  id: unit-fulfillment-stage
+  task_type: fulfillment   # start in the non-entry 'fulfillment' stage
+  turns:
+    - role: user
+      content: "Where is my package?"
+      assertions:
+        - type: state_is
+          params:
+            state: fulfillment
+```
+
+The per-run state machine starts in that stage instead of the workflow entry, so
+the turn runs the `fulfillment` prompt directly. Full-lifecycle scenarios (no
+`task_type`, or `task_type` set to the entry) and single-stage unit tests can live
+in the same config. A `task_type` that names no workflow state's `prompt_task` is a
+hard error at run time — it is never silently rerouted through the entry. See
+`examples/workflow-order-processing` for both shapes side by side.
+
 ## Extending it
 
 - **Add a new state**: drop it in the pack's `workflow:` block with `on_event:` mappings. Add a scenario that exercises the new path. Assertion shape stays the same — extend `min_calls` and the `sequence` to match.
