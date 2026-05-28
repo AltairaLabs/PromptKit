@@ -157,6 +157,7 @@ describe('main', () => {
         if (name === 'output-dir') return 'results';
         if (name === 'formats') return 'json,junit,markdown';
         if (name === 'junit-output') return 'results/junit.xml';
+        if (name === 'override-providers') return 'mock-judge=claude-haiku';
         if (name === 'working-directory') return '/project';
         return '';
       });
@@ -172,6 +173,7 @@ describe('main', () => {
         outputDir: 'results',
         formats: 'json,junit,markdown',
         junitOutput: 'results/junit.xml',
+        overrideProviders: 'mock-judge=claude-haiku',
         workingDirectory: '/project',
       });
     });
@@ -192,6 +194,7 @@ describe('main', () => {
         outputDir: 'out',
         formats: 'json,junit',
         junitOutput: undefined,
+        overrideProviders: undefined,
         workingDirectory: '.',
       });
     });

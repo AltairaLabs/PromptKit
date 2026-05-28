@@ -222,6 +222,7 @@ async function run() {
         const outputDir = core.getInput('output-dir') || 'out';
         const formats = core.getInput('formats') || 'json,junit';
         const junitOutput = core.getInput('junit-output');
+        const overrideProviders = core.getInput('override-providers');
         const failOnError = core.getInput('fail-on-error') !== 'false';
         const workingDirectory = core.getInput('working-directory') || '.';
         core.info('PromptArena Action starting...');
@@ -243,6 +244,7 @@ async function run() {
             outputDir,
             formats,
             junitOutput: junitOutput || undefined,
+            overrideProviders: overrideProviders || undefined,
             workingDirectory,
         };
         const runResult = await (0, runner_1.runPromptArena)(runnerInputs);
@@ -557,6 +559,14 @@ async function runPromptArena(inputs) {
             .map((r) => r.trim())
             .flatMap((region) => ['--region', region]);
         args.push(...regionArgs);
+    }
+    if (inputs.overrideProviders) {
+        const overrideArgs = inputs.overrideProviders
+            .split(',')
+            .map((p) => p.trim())
+            .filter(Boolean)
+            .flatMap((pair) => ['--override-provider', pair]);
+        args.push(...overrideArgs);
     }
     core.info(`Running: promptarena ${args.join(' ')}`);
     let stdout = '';

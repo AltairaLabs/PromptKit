@@ -15,6 +15,7 @@ async function run(): Promise<void> {
     const outputDir = core.getInput('output-dir') || 'out';
     const formats = core.getInput('formats') || 'json,junit';
     const junitOutput = core.getInput('junit-output');
+    const overrideProviders = core.getInput('override-providers');
     const failOnError = core.getInput('fail-on-error') !== 'false';
     const workingDirectory = core.getInput('working-directory') || '.';
 
@@ -39,6 +40,7 @@ async function run(): Promise<void> {
       outputDir,
       formats,
       junitOutput: junitOutput || undefined,
+      overrideProviders: overrideProviders || undefined,
       workingDirectory,
     };
 
