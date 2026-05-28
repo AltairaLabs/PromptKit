@@ -22,11 +22,10 @@ spec:
     - file: providers/mock-judge.yaml
       group: judge
 
-  # Judges map names to provider IDs and optional model overrides
+  # Judges map names to provider IDs; the judge inherits the provider's model
   judges:
     - name: mock-judge
       provider: mock-judge
-      model: judge-model
   judge_defaults:
     prompt: judge-simple
 

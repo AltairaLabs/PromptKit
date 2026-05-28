@@ -133,14 +133,9 @@ func (c *Config) mergeJudgeSpecs() error {
 		if !ok {
 			return fmt.Errorf("judge_specs %q references unknown provider %q", name, spec.Provider)
 		}
-		model := spec.Model
-		if model == "" {
-			model = provider.Model
-		}
 		c.LoadedJudges[name] = &JudgeTarget{
 			Name:     name,
 			Provider: provider,
-			Model:    model,
 		}
 	}
 	return nil
@@ -847,7 +842,8 @@ func (c *Config) validateJudgeReferences() error {
 	return nil
 }
 
-// buildJudgeTargets resolves judge references to provider configs and effective models.
+// buildJudgeTargets resolves judge references to their provider configs.
+// The judge's model is the provider's model.
 func (c *Config) buildJudgeTargets() error {
 	for _, judge := range c.Judges {
 		provider, exists := c.LoadedProviders[judge.Provider]
@@ -856,15 +852,9 @@ func (c *Config) buildJudgeTargets() error {
 				judge.Name, judge.Provider)
 		}
 
-		model := provider.Model
-		if judge.Model != "" {
-			model = judge.Model
-		}
-
 		c.LoadedJudges[judge.Name] = &JudgeTarget{
 			Name:     judge.Name,
 			Provider: provider,
-			Model:    model,
 		}
 	}
 	return nil

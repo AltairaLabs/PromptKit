@@ -80,7 +80,6 @@ func TestBuildConversationContext_IncludesExtras(t *testing.T) {
 					Type:  "mock",
 					Model: "judge-model",
 				},
-				Model: "judge-model",
 			},
 		},
 		JudgeDefaults: &config.JudgeDefaults{Prompt: "p", PromptRegistry: "./prompts"},

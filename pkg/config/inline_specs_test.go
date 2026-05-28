@@ -189,7 +189,6 @@ func TestInlineJudgeSpecs(t *testing.T) {
   judge_specs:
     quality:
       provider: judge-provider
-      model: gpt-4o-mini
   defaults:
     concurrency: 1
 `)
@@ -200,33 +199,9 @@ func TestInlineJudgeSpecs(t *testing.T) {
 	j, ok := cfg.LoadedJudges["quality"]
 	require.True(t, ok)
 	assert.Equal(t, "quality", j.Name)
-	assert.Equal(t, "gpt-4o-mini", j.Model)
-	assert.NotNil(t, j.Provider)
+	require.NotNil(t, j.Provider)
 	assert.Equal(t, "judge-provider", j.Provider.ID)
-}
-
-func TestInlineJudgeSpecs_FallbackToProviderModel(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
-	dir := t.TempDir()
-
-	configPath := writeArenaConfig(t, dir, `  providers: []
-  provider_specs:
-    jp:
-      type: openai
-      model: gpt-4o
-  judge_specs:
-    j1:
-      provider: jp
-  defaults:
-    concurrency: 1
-`)
-
-	cfg, err := LoadConfig(configPath)
-	require.NoError(t, err)
-
-	j, ok := cfg.LoadedJudges["j1"]
-	require.True(t, ok)
-	assert.Equal(t, "gpt-4o", j.Model, "should fall back to provider model")
+	assert.Equal(t, "gpt-4o", j.Provider.Model, "judge inherits the provider model")
 }
 
 func TestInlinePromptSpecs(t *testing.T) {
@@ -463,15 +438,15 @@ func TestMergeJudgeSpecs_Unit(t *testing.T) {
 		LoadedProviders: map[string]*Provider{"jp": provider},
 		LoadedJudges:    map[string]*JudgeTarget{},
 		JudgeSpecs: map[string]*JudgeSpec{
-			"j1": {Provider: "jp", Model: "gpt-4o-mini"},
+			"j1": {Provider: "jp"},
 		},
 	}
 
 	require.NoError(t, cfg.mergeJudgeSpecs())
 	j := cfg.LoadedJudges["j1"]
 	require.NotNil(t, j)
-	assert.Equal(t, "gpt-4o-mini", j.Model)
 	assert.Equal(t, provider, j.Provider)
+	assert.Equal(t, "gpt-4", j.Provider.Model, "judge inherits the provider model")
 }
 
 func TestMergePromptSpecs_Unit(t *testing.T) {

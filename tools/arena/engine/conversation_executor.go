@@ -666,7 +666,7 @@ func attachJudgeMetadata(metadata map[string]interface{}, cfg *config.Config) {
 			if jt == nil || jt.Provider == nil {
 				continue
 			}
-			targets[name] = providerSpecFromConfig(jt.Provider, jt.Model)
+			targets[name] = providerSpecFromConfig(jt.Provider)
 		}
 		if len(targets) > 0 {
 			metadata["judge_targets"] = targets
@@ -680,16 +680,12 @@ func attachJudgeMetadata(metadata map[string]interface{}, cfg *config.Config) {
 	}
 }
 
-// providerSpecFromConfig converts config.Provider to providers.ProviderSpec with optional model override.
-func providerSpecFromConfig(p *config.Provider, overrideModel string) providers.ProviderSpec {
-	model := p.Model
-	if overrideModel != "" {
-		model = overrideModel
-	}
+// providerSpecFromConfig converts config.Provider to providers.ProviderSpec.
+func providerSpecFromConfig(p *config.Provider) providers.ProviderSpec {
 	return providers.ProviderSpec{
 		ID:               p.ID,
 		Type:             p.Type,
-		Model:            model,
+		Model:            p.Model,
 		BaseURL:          p.BaseURL,
 		Headers:          p.Headers,
 		IncludeRawOutput: p.IncludeRawOutput,
