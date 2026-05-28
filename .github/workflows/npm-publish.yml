@@ -67,7 +67,20 @@ jobs:
         run: |
           npm pack --dry-run
 
+      - name: Check if version already published
+        id: published
+        run: |
+          PKG="@altairalabs/${{ matrix.package }}"
+          VER="${{ steps.version.outputs.version }}"
+          if npm view "${PKG}@${VER}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${PKG}@${VER} is already published — skipping publish."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm
+        if: steps.published.outputs.exists != 'true'
         working-directory: npm/${{ matrix.package }}
         run: npm publish --access public
         env:
@@ -75,7 +88,11 @@ jobs:
 
       - name: Create summary
         run: |
-          echo "### ✅ Published @altairalabs/${{ matrix.package }}@${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.published.outputs.exists }}" = "true" ]; then
+            echo "### ⏭️ Skipped @altairalabs/${{ matrix.package }}@${{ steps.version.outputs.version }} (already published)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ Published @altairalabs/${{ matrix.package }}@${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Package:** \`@altairalabs/${{ matrix.package }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
