@@ -3,6 +3,9 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -14,6 +17,62 @@ import (
 )
 
 const roleSystem = "system"
+
+// resolveWorkflowStartState maps a scenario's task_type to the workflow state it
+// should start in. An empty task_type defaults to the workflow entry. A task_type
+// matching the entry state's prompt_task resolves to the entry (which also
+// disambiguates when several states share a prompt_task). A task_type matching
+// exactly one non-entry state pins that state — enabling single-stage unit tests.
+// No match, or an ambiguous non-entry match, is a hard error so the previously
+// silent override surfaces as a clear config failure.
+func resolveWorkflowStartState(spec *workflow.Spec, taskType string) (string, error) {
+	if taskType == "" {
+		return spec.Entry, nil
+	}
+	if entry := spec.States[spec.Entry]; entry != nil && entry.PromptTask == taskType {
+		return spec.Entry, nil
+	}
+
+	var matches []string
+	for name, st := range spec.States {
+		if st != nil && st.PromptTask == taskType {
+			matches = append(matches, name)
+		}
+	}
+	sort.Strings(matches)
+
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf(
+			"scenario task_type %q matches no workflow state's prompt_task (valid: %s)",
+			taskType, strings.Join(workflowPromptTasks(spec), ", "))
+	default:
+		return "", fmt.Errorf(
+			"scenario task_type %q is ambiguous: matches workflow states %s (give them distinct prompt_task values)",
+			taskType, strings.Join(matches, ", "))
+	}
+}
+
+// workflowPromptTasks returns the sorted, de-duplicated prompt_task values
+// declared across a workflow spec's states, for error diagnostics.
+func workflowPromptTasks(spec *workflow.Spec) []string {
+	seen := make(map[string]struct{}, len(spec.States))
+	tasks := make([]string, 0, len(spec.States))
+	for _, st := range spec.States {
+		if st == nil {
+			continue
+		}
+		if _, ok := seen[st.PromptTask]; ok {
+			continue
+		}
+		seen[st.PromptTask] = struct{}{}
+		tasks = append(tasks, st.PromptTask)
+	}
+	sort.Strings(tasks)
+	return tasks
+}
 
 // initWorkflow parses the workflow config and registers the workflow__transition
 // tool in the tool registry. Called during engine initialization when config.Workflow
@@ -64,14 +123,21 @@ func (e *Engine) initWorkflow() error {
 // Called from executeRun before ConversationExecutor.ExecuteConversation().
 // prepareWorkflowScenario returns a per-run EvalOrchestrator clone with the
 // workflow metadata provider set. The caller should set it on the ConversationRequest.
-func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string) *EvalOrchestrator {
+func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string) (*EvalOrchestrator, error) {
 	if e.workflowSpec == nil {
-		return nil
+		return nil, nil
 	}
 
-	// Set TaskType to entry state's prompt_task
-	if entryState := e.workflowSpec.States[e.workflowSpec.Entry]; entryState != nil {
-		scenario.TaskType = entryState.PromptTask
+	// Resolve which workflow state this scenario starts in. An explicit
+	// task_type pins a stage (enabling single-stage unit tests); empty defaults
+	// to the entry. A task_type that names no state is a hard error rather than
+	// a silent reroute through the entry.
+	startState, err := resolveWorkflowStartState(e.workflowSpec, scenario.TaskType)
+	if err != nil {
+		return nil, fmt.Errorf("scenario %q: %w", scenario.ID, err)
+	}
+	if st := e.workflowSpec.States[startState]; st != nil {
+		scenario.TaskType = st.PromptTask
 	}
 
 	// Build the per-run emitter once and reuse it for both the
@@ -83,9 +149,10 @@ func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string
 		emitter = events.NewEmitter(e.eventBus, runID, runID, runID)
 	}
 
-	// Register a per-run state machine for concurrent scenario execution
+	// Register a per-run state machine for concurrent scenario execution,
+	// started at the resolved stage.
 	if e.workflowTransExec != nil {
-		e.workflowTransExec.RegisterRunWithEmitter(runID, scenario, emitter)
+		e.workflowTransExec.RegisterRunAtState(runID, scenario, emitter, startState)
 	}
 
 	// Clone the eval orchestrator for this run with per-run workflow metadata.
@@ -104,7 +171,7 @@ func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string
 		}
 	}
 
-	return orch
+	return orch, nil
 }
 
 // enrichMessagesWithWorkflowState adds _workflow_state metadata to assistant messages

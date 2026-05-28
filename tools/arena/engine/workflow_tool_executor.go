@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -85,9 +86,19 @@ func (e *workflowTransitionExecutor) RegisterRun(runID string, scenario *config.
 func (e *workflowTransitionExecutor) RegisterRunWithEmitter(
 	runID string, scenario *config.Scenario, emitter *events.Emitter,
 ) {
+	e.RegisterRunAtState(runID, scenario, emitter, e.wfSpec.Entry)
+}
+
+// RegisterRunAtState is like RegisterRunWithEmitter but starts the per-run state
+// machine at startState instead of the workflow entry. Used to pin a scenario to
+// a single stage for unit testing. Passing the entry is equivalent to
+// RegisterRunWithEmitter.
+func (e *workflowTransitionExecutor) RegisterRunAtState(
+	runID string, scenario *config.Scenario, emitter *events.Emitter, startState string,
+) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	sm := workflow.NewStateMachine(e.wfSpec)
+	sm := workflow.NewStateMachineFromContext(e.wfSpec, workflow.NewContext(startState, time.Now()))
 	transExec := workflow.NewTransitionExecutor(sm, e.wfSpec)
 	run := &workflowRunState{
 		transExec: transExec,

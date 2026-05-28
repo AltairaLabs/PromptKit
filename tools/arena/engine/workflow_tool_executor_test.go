@@ -378,7 +378,8 @@ func TestPrepareWorkflowScenario(t *testing.T) {
 
 	t.Run("nil workflowSpec returns nil", func(t *testing.T) {
 		eng := &Engine{}
-		got := eng.prepareWorkflowScenario(&config.Scenario{ID: "r"}, "r")
+		got, err := eng.prepareWorkflowScenario(&config.Scenario{ID: "r"}, "r")
+		require.NoError(t, err)
 		assert.Nil(t, got)
 	})
 
@@ -390,7 +391,8 @@ func TestPrepareWorkflowScenario(t *testing.T) {
 			workflowTransExec: transExec,
 		}
 		scenario := &config.Scenario{ID: "r"}
-		got := eng.prepareWorkflowScenario(scenario, "r")
+		got, err := eng.prepareWorkflowScenario(scenario, "r")
+		require.NoError(t, err)
 		assert.Nil(t, got, "no orch means assertions fall back to shared orch")
 		assert.Equal(t, "intake", scenario.TaskType, "TaskType must be set to entry state's prompt_task")
 		assert.NotNil(t, transExec.StateMachine("r"), "run must be registered for state-machine isolation")
@@ -409,7 +411,8 @@ func TestPrepareWorkflowScenario(t *testing.T) {
 		}
 
 		scenario := &config.Scenario{ID: "r", TaskType: ""}
-		runOrch := eng.prepareWorkflowScenario(scenario, "r")
+		runOrch, prepErr := eng.prepareWorkflowScenario(scenario, "r")
+		require.NoError(t, prepErr)
 		require.NotNil(t, runOrch)
 		assert.NotSame(t, baseOrch, runOrch, "must clone, not mutate the shared orchestrator")
 		assert.Equal(t, "intake", scenario.TaskType)
@@ -433,6 +436,35 @@ func TestPrepareWorkflowScenario(t *testing.T) {
 			t.Fatal("eventBus must be threaded into provider so metadata-time commits emit events")
 		}
 	})
+}
+
+func TestPrepareWorkflowScenario_PinsNonEntryStage(t *testing.T) {
+	spec := testWorkflowSpec() // entry "intake"; states intake/specialist/closed
+	registry := tools.NewRegistry()
+	transExec := newWorkflowTransitionExecutor(spec, registry)
+	eng := &Engine{workflowSpec: spec, workflowTransExec: transExec}
+
+	scenario := &config.Scenario{ID: "r", TaskType: "specialist"}
+	_, err := eng.prepareWorkflowScenario(scenario, "r")
+	require.NoError(t, err)
+
+	assert.Equal(t, "specialist", scenario.TaskType, "honors the pinned stage")
+	require.NotNil(t, transExec.StateMachine("r"))
+	assert.Equal(t, "specialist", transExec.StateMachine("r").CurrentState(),
+		"state machine starts at the pinned stage, not the entry")
+}
+
+func TestPrepareWorkflowScenario_UnknownTaskTypeErrors(t *testing.T) {
+	spec := testWorkflowSpec()
+	registry := tools.NewRegistry()
+	transExec := newWorkflowTransitionExecutor(spec, registry)
+	eng := &Engine{workflowSpec: spec, workflowTransExec: transExec}
+
+	scenario := &config.Scenario{ID: "r", TaskType: "bogus"}
+	_, err := eng.prepareWorkflowScenario(scenario, "r")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bogus")
+	assert.Nil(t, transExec.StateMachine("r"), "must not register the run on resolution failure")
 }
 
 func TestCommitPendingTransition_SetsSkillFilter(t *testing.T) {

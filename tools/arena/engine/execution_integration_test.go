@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	runtimestore "github.com/AltairaLabs/PromptKit/runtime/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/tools/arena/statestore"
 )
 
@@ -64,6 +65,31 @@ func TestEngine_ExecuteRun_ScenarioNotFound(t *testing.T) {
 	result, err := e.stateStore.(*statestore.ArenaStateStore).GetResult(ctx, runID)
 	require.NoError(t, err)
 	assert.Contains(t, result.Error, "scenario not found: missing-scenario")
+}
+
+func TestEngine_ExecuteRun_WorkflowBadTaskTypeFailsLoudly(t *testing.T) {
+	ctx := context.Background()
+	spec := testWorkflowSpec() // entry "intake"; states intake/specialist/closed
+	e := &Engine{
+		config:            &config.Config{},
+		scenarios:         map[string]*config.Scenario{"sc": {ID: "sc", TaskType: "bogus"}},
+		evals:             make(map[string]*config.Eval),
+		providers:         make(map[string]*config.Provider),
+		providerRegistry:  providers.NewRegistry(),
+		stateStore:        statestore.NewArenaStateStore(),
+		eventBus:          events.NewEventBus(),
+		workflowSpec:      spec,
+		workflowTransExec: newWorkflowTransitionExecutor(spec, tools.NewRegistry()),
+	}
+
+	combo := RunCombination{ScenarioID: "sc", ProviderID: "p", Region: "default"}
+	runID, err := e.executeRun(ctx, combo)
+	require.NoError(t, err) // resolution error is saved as a failed result, not returned
+	assert.NotEmpty(t, runID)
+
+	result, err := e.stateStore.(*statestore.ArenaStateStore).GetResult(ctx, runID)
+	require.NoError(t, err)
+	assert.Contains(t, result.Error, "bogus", "unknown task_type must surface as a run error, not a silent reroute")
 }
 
 func TestEngine_ExecuteRun_ProviderNotFound(t *testing.T) {
