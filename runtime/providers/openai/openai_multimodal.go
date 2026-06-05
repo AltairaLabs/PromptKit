@@ -29,9 +29,15 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxVideoSizeMB: 0,
 	}
 
-	// Audio models (gpt-4o-audio-preview) support audio input via both APIs:
-	// Chat Completions (non-streaming + streaming) and Responses API (streaming events).
-	if isAudioModel(p.model) {
+	// When the provider declares its capabilities, they are authoritative for
+	// images/vision too; otherwise images stay on by default (above).
+	if p.capabilities != nil {
+		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
+	}
+
+	// Audio models support audio input via both APIs: Chat Completions
+	// (non-streaming + streaming) and Responses API (streaming events).
+	if p.supportsAudioInput() {
 		caps.SupportsAudio = true
 		caps.AudioFormats = []string{
 			types.MIMETypeAudioWAV,
@@ -43,10 +49,17 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 	return caps
 }
 
-// isAudioModel checks if the model supports audio input
+// isAudioModel is the fallback heuristic used when a provider config does not
+// declare its capabilities. Prefer the declared `capabilities` list; this only
+// recognizes models by name for callers (e.g. some SDK usages) that omit it.
 func isAudioModel(model string) bool {
-	// Audio preview models support audio input via Chat Completions API
-	return model == "gpt-4o-audio-preview" || model == "gpt-4o-mini-audio-preview"
+	switch model {
+	case "gpt-4o-audio-preview", "gpt-4o-mini-audio-preview",
+		"gpt-audio-1.5", "gpt-audio-mini":
+		return true
+	default:
+		return false
+	}
 }
 
 // convertMessagesToOpenAI converts PromptKit messages to OpenAI format
@@ -111,7 +124,7 @@ func (p *Provider) convertMessageToOpenAI(msg types.Message) (openAIMessage, err
 
 		case types.ContentTypeAudio:
 			// Audio is only supported for audio models using Chat Completions API
-			if p.apiMode != APIModeCompletions || !isAudioModel(p.model) {
+			if p.apiMode != APIModeCompletions || !p.supportsAudioInput() {
 				return openAIMessage{}, fmt.Errorf("audio content requires audio model with Chat Completions API")
 			}
 			if part.Media == nil {

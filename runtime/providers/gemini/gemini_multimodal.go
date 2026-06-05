@@ -21,10 +21,12 @@ const (
 	finishReasonRecitation = "RECITATION"
 )
 
-// GetMultimodalCapabilities returns Gemini's multimodal support capabilities
+// GetMultimodalCapabilities returns Gemini's multimodal support capabilities.
+// When the provider config declares its capabilities, the declaration is
+// authoritative for which modalities are enabled; otherwise Gemini's built-in
+// defaults apply (images + audio + video + documents).
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
-	// Gemini supports images, audio, video, and documents (PDF)
-	return providers.MultimodalCapabilities{
+	caps := providers.MultimodalCapabilities{
 		SupportsImages:    true,
 		SupportsAudio:     true,
 		SupportsVideo:     true,
@@ -64,6 +66,13 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxVideoSizeMB:    20, //nolint:mnd // Gemini's documented media size limit
 		MaxDocumentSizeMB: 20, //nolint:mnd // Gemini's documented media size limit
 	}
+	if p.capabilities != nil {
+		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
+		caps.SupportsAudio = p.capabilities[providers.CapabilityAudio]
+		caps.SupportsVideo = p.capabilities[providers.CapabilityVideo]
+		caps.SupportsDocuments = p.capabilities[providers.CapabilityDocuments]
+	}
+	return caps
 }
 
 // convertMessagesToGemini converts PromptKit messages to Gemini format

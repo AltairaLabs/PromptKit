@@ -844,6 +844,8 @@ func TestIsAudioModel(t *testing.T) {
 	}{
 		{"gpt-4o-audio-preview", true},
 		{"gpt-4o-mini-audio-preview", true},
+		{"gpt-audio-1.5", true},
+		{"gpt-audio-mini", true},
 		{"gpt-4o", false},
 		{"gpt-4o-mini", false},
 		{"gpt-4-turbo", false},
@@ -861,6 +863,57 @@ func TestIsAudioModel(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMultimodal_DeclaredCapabilitiesAuthoritative verifies that when a
+// provider config declares its capabilities, the declaration drives audio
+// support instead of the hardcoded model-name heuristic. A future audio model
+// the heuristic has never heard of works purely from config; a model the
+// heuristic WOULD flag as audio is treated as non-audio when the declaration
+// omits it.
+func TestMultimodal_DeclaredCapabilitiesAuthoritative(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	t.Run("declared audio on unknown model", func(t *testing.T) {
+		spec := providers.ProviderSpec{
+			ID:               "future-audio",
+			Type:             "openai",
+			Model:            "gpt-audio-9-experimental", // unknown to isAudioModel
+			BaseURL:          "https://api.openai.com/v1",
+			AdditionalConfig: map[string]any{"api_mode": "completions"},
+			Capabilities:     []string{"text", "audio"},
+		}
+		provider, err := providers.CreateProviderFromSpec(spec)
+		if err != nil {
+			t.Fatalf("CreateProviderFromSpec: %v", err)
+		}
+		caps := provider.(providers.MultimodalCapabilityProvider).GetMultimodalCapabilities()
+		if !caps.SupportsAudio {
+			t.Error("declared audio capability should enable audio for an unknown model")
+		}
+	})
+
+	t.Run("declaration without audio overrides heuristic", func(t *testing.T) {
+		spec := providers.ProviderSpec{
+			ID:               "named-audio-but-not-declared",
+			Type:             "openai",
+			Model:            "gpt-4o-audio-preview", // heuristic would say audio
+			BaseURL:          "https://api.openai.com/v1",
+			AdditionalConfig: map[string]any{"api_mode": "completions"},
+			Capabilities:     []string{"text", "vision"}, // audio intentionally omitted
+		}
+		provider, err := providers.CreateProviderFromSpec(spec)
+		if err != nil {
+			t.Fatalf("CreateProviderFromSpec: %v", err)
+		}
+		caps := provider.(providers.MultimodalCapabilityProvider).GetMultimodalCapabilities()
+		if caps.SupportsAudio {
+			t.Error("declaration omitting audio should be authoritative over the model-name heuristic")
+		}
+		if !caps.SupportsImages {
+			t.Error("declared vision capability should enable images")
+		}
+	})
 }
 
 func TestGetAudioFormat(t *testing.T) {

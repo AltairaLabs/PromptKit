@@ -13,8 +13,11 @@ spec:
     - tools
     - json
     - documents
+  # Claude Opus 4.7+ deprecated the temperature parameter (API returns 400 if
+  # sent). The Claude provider drops params listed here before the request.
+  unsupported_params:
+    - temperature
   defaults:
-    temperature: 0.1
     top_p: 1.0
     max_tokens: 100
   pricing:

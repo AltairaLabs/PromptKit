@@ -51,11 +51,14 @@ func (p *Provider) PredictStream(
 	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
 	// We only send temperature to avoid the "cannot both be specified" error
 	claudeReq := map[string]any{
-		"model":       p.model,
-		"max_tokens":  maxTokens,
-		"messages":    messages,
-		"temperature": temperature,
-		"stream":      true,
+		reqFieldModel:     p.model,
+		reqFieldMaxTokens: maxTokens,
+		reqFieldMessages:  messages,
+		"stream":          true,
+	}
+	// Claude 4.7+ models reject temperature; omit it when unsupported.
+	if p.paramSupported("temperature") {
+		claudeReq["temperature"] = temperature
 	}
 
 	if req.System != "" {

@@ -116,6 +116,36 @@ type Provider struct {
 	defaults       providers.ProviderDefaults
 	platform       string
 	platformConfig *providers.PlatformConfig
+	// unsupportedParams holds model parameters the configured model rejects
+	// (e.g. Claude 4.7+ deprecated "temperature"). Populated from the spec.
+	unsupportedParams map[string]bool
+	// capabilities holds the declared capability set from the provider config.
+	// When non-nil it is authoritative for multimodal support; nil falls back
+	// to Claude's built-in defaults (images + documents, no audio/video).
+	capabilities map[string]bool
+}
+
+// setCapabilities records the declared capability set on the provider.
+func (p *Provider) setCapabilities(capabilities []string) {
+	p.capabilities = providers.CapabilitySet(capabilities)
+}
+
+// setUnsupportedParams records the model parameters that must be omitted from
+// requests. A no-op for an empty list so the common case stays nil.
+func (p *Provider) setUnsupportedParams(params []string) {
+	if len(params) == 0 {
+		return
+	}
+	p.unsupportedParams = make(map[string]bool, len(params))
+	for _, name := range params {
+		p.unsupportedParams[name] = true
+	}
+}
+
+// paramSupported reports whether the named request parameter may be sent to the
+// model. Parameters listed in the provider's UnsupportedParams are not.
+func (p *Provider) paramSupported(name string) bool {
+	return !p.unsupportedParams[name]
 }
 
 // NewProvider creates a new Claude provider
@@ -715,11 +745,15 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	// Create request
 	// Note: TopP is omitted to avoid the "cannot both be specified" error with newer Claude models
 	claudeReq := claudeRequest{
-		Model:       p.model,
-		MaxTokens:   maxTokens,
-		Messages:    messages,
-		System:      systemBlocks,
-		Temperature: temperature,
+		Model:     p.model,
+		MaxTokens: maxTokens,
+		Messages:  messages,
+		System:    systemBlocks,
+	}
+	// Claude 4.7+ models reject temperature; omit it when unsupported. With
+	// Temperature left at 0 the bedrock/vertex marshaler also drops it.
+	if p.paramSupported("temperature") {
+		claudeReq.Temperature = temperature
 	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)

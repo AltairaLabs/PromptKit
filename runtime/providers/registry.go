@@ -134,6 +134,13 @@ type ProviderSpec struct {
 	// For example, o-series OpenAI models don't support "temperature", "top_p", or "max_tokens".
 	UnsupportedParams []string
 
+	// Capabilities lists the modalities/features the configured model supports
+	// (e.g. "text", "vision", "audio", "video", "tools", "json"). When set, it
+	// is the source of truth for multimodal support, replacing per-model
+	// hardcoding inside providers. Empty means "not declared" — providers fall
+	// back to their built-in defaults.
+	Capabilities []string
+
 	// RequestTimeout caps the wall-clock duration of request/response HTTP
 	// calls (Predict, embeddings). Zero falls back to
 	// httputil.DefaultProviderTimeout. Does not apply to SSE streaming

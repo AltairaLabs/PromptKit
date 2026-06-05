@@ -4,6 +4,35 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// Declared capability names used in a provider's Capabilities list. These are
+// the source of truth for multimodal support when a provider config declares
+// them, replacing per-model hardcoding inside providers.
+const (
+	CapabilityText      = "text"
+	CapabilityStreaming = "streaming"
+	CapabilityVision    = "vision"
+	CapabilityAudio     = "audio"
+	CapabilityVideo     = "video"
+	CapabilityTools     = "tools"
+	CapabilityJSON      = "json"
+	CapabilityDocuments = "documents"
+)
+
+// CapabilitySet converts a declared capability list into a membership set for
+// O(1) lookup. It returns nil for an empty list so callers can distinguish
+// "not declared" (nil → fall back to built-in defaults) from a non-empty
+// declaration that is authoritative.
+func CapabilitySet(capabilities []string) map[string]bool {
+	if len(capabilities) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(capabilities))
+	for _, c := range capabilities {
+		set[c] = true
+	}
+	return set
+}
+
 // MultimodalCapabilities describes what types of multimodal content a provider supports
 type MultimodalCapabilities struct {
 	SupportsImages    bool     // Provider can process image inputs

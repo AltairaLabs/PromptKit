@@ -566,6 +566,7 @@ func createProviderFromConfig(p *pkgconfig.Provider) (providers.Provider, error)
 		Platform:          platform,
 		PlatformConfig:    platformCfg,
 		UnsupportedParams: p.UnsupportedParams,
+		Capabilities:      p.Capabilities,
 		Defaults: providers.ProviderDefaults{
 			Temperature: p.Defaults.Temperature,
 			TopP:        p.Defaults.TopP,

@@ -95,6 +95,10 @@ type Provider struct {
 	platform          string
 	platformConfig    *providers.PlatformConfig
 	unsupportedParams []string
+	// capabilities holds the declared capability set from the provider config.
+	// When non-nil it is authoritative for multimodal support; when nil the
+	// provider falls back to model-name heuristics.
+	capabilities map[string]bool
 	// reasoningEffort, when non-empty, is sent as reasoning.effort in
 	// Responses API requests. Accepted values: "minimal", "low", "medium",
 	// "high". Empty means do not emit the field and let OpenAI apply its
@@ -157,6 +161,7 @@ type ProviderConfig struct {
 	Platform          string
 	PlatformConfig    *providers.PlatformConfig
 	UnsupportedParams []string
+	Capabilities      []string
 }
 
 // NewProviderFromConfig creates a provider from a full config struct.
@@ -211,6 +216,7 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		platform:          cfg.Platform,
 		platformConfig:    cfg.PlatformConfig,
 		unsupportedParams: unsupported,
+		capabilities:      providers.CapabilitySet(cfg.Capabilities),
 		reasoningEffort:   getReasoningEffort(cfg.AdditionalConfig),
 	}
 	// Neither Azure OpenAI nor Bedrock OpenAI exposes the Responses API.
@@ -220,6 +226,23 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		p.apiMode = APIModeCompletions
 	}
 	return p
+}
+
+// setCapabilities records the declared capability set on the provider. Called
+// by the factory with spec.Capabilities so the declaration drives multimodal
+// support without threading another constructor parameter.
+func (p *Provider) setCapabilities(capabilities []string) {
+	p.capabilities = providers.CapabilitySet(capabilities)
+}
+
+// supportsAudioInput reports whether the model accepts audio input. The
+// declared capability list is authoritative when present; otherwise it falls
+// back to the model-name heuristic for callers that don't declare capabilities.
+func (p *Provider) supportsAudioInput() bool {
+	if p.capabilities != nil {
+		return p.capabilities[providers.CapabilityAudio]
+	}
+	return isAudioModel(p.model)
 }
 
 // getReasoningEffort resolves the reasoning.effort setting for the OpenAI
@@ -334,7 +357,7 @@ func applyAudioModalities(openAIReq map[string]interface{}, additionalConfig map
 func (p *Provider) enrichRequest(
 	openAIReq map[string]interface{}, req *providers.PredictionRequest, audioFmtFallback string,
 ) {
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) &&
+	if p.apiMode == APIModeCompletions && p.supportsAudioInput() &&
 		(requestContainsAudio(req) || hasAudioOutputConfigured(p.additionalConfig)) {
 		applyAudioModalities(openAIReq, p.additionalConfig, audioFmtFallback)
 	}
@@ -1146,7 +1169,7 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 // Audio models only support non-streaming responses (Predict) or the Realtime
 // API for bidirectional audio.
 func (p *Provider) SupportsStreaming() bool {
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) {
+	if p.apiMode == APIModeCompletions && p.supportsAudioInput() {
 		return false
 	}
 	return true

@@ -684,16 +684,20 @@ func init() {
 		map[string]bool{"bedrock": true, "azure": true},
 		providers.CredentialFactory(
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
-				return NewToolProviderWithCredential(
+				tp := NewToolProviderWithCredential(
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 					spec.IncludeRawOutput, spec.Credential,
 					spec.Platform, spec.PlatformConfig,
-				), nil
+				)
+				tp.setCapabilities(spec.Capabilities)
+				return tp, nil
 			},
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
-				return NewToolProvider(
+				tp := NewToolProvider(
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
-				), nil
+				)
+				tp.setCapabilities(spec.Capabilities)
+				return tp, nil
 			},
 		),
 	))

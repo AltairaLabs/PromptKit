@@ -53,6 +53,15 @@ type Provider struct {
 	platform           string
 	platformConfig     *providers.PlatformConfig
 	newStreamSessionFn streamSessionFactory // override for testing; nil means use NewStreamSession
+	// capabilities holds the declared capability set from the provider config.
+	// When non-nil it is authoritative for multimodal support; nil falls back
+	// to Gemini's built-in defaults (images + audio + video + documents).
+	capabilities map[string]bool
+}
+
+// setCapabilities records the declared capability set on the provider.
+func (p *Provider) setCapabilities(capabilities []string) {
+	p.capabilities = providers.CapabilitySet(capabilities)
 }
 
 // NewProvider creates a new Gemini provider
