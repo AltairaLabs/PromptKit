@@ -26,6 +26,7 @@ const (
 	defaultMaxRounds            = 50
 	defaultMaxParallelToolCalls = 10
 	toolChoiceAuto              = "auto"
+	toolChoiceNone              = "none"
 )
 
 // ProviderStage implementation notes:
@@ -1590,6 +1591,15 @@ func (s *ProviderStage) buildProviderTools(
 	// Check if provider supports tools
 	toolProvider, ok := s.provider.(providers.ToolSupport)
 	if !ok {
+		return nil, "", nil
+	}
+
+	// When tool calling is disabled for this turn (tool_choice: none), send no
+	// tool declarations at all. The model cannot call them, so shipping the
+	// declarations only wastes input tokens and — on some models — primes
+	// spurious tool calls. Returning nil routes the provider to its non-tool
+	// path, which omits both the declarations and any tool_config.
+	if s.toolPolicy != nil && s.toolPolicy.ToolChoice == toolChoiceNone {
 		return nil, "", nil
 	}
 
