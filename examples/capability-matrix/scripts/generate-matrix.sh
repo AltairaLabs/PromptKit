@@ -69,8 +69,6 @@ PROVIDER_CONFIG='{
       {"id": "openai-gpt5-mini", "name": "GPT-5 Mini"},
       {"id": "openai-gpt5-nano", "name": "GPT-5 Nano"},
       {"id": "openai-gpt5-pro", "name": "GPT-5 Pro"},
-      {"id": "openai-gpt-audio", "name": "GPT Audio", "note": "GA audio — replaces gpt-4o-audio-preview"},
-      {"id": "openai-gpt-audio-mini", "name": "GPT Audio Mini", "note": "GA audio — replaces gpt-4o-mini-audio-preview"},
       {"id": "openai-gpt41", "name": "GPT-4.1"},
       {"id": "openai-gpt41-mini", "name": "GPT-4.1 Mini"},
       {"id": "openai-gpt41-nano", "name": "GPT-4.1 Nano"},

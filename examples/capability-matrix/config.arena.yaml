@@ -50,13 +50,14 @@ spec:
     - file: providers/openai-gpt4o-mini.provider.yaml
       group: text,streaming,vision,tools,json
 
-    # Audio models - Require audio in input/output, audio-only capability.
-    # gpt-4o-audio-preview / gpt-4o-mini-audio-preview were retired 2026-05-07;
-    # replaced by the GA gpt-audio line (Chat Completions API).
-    - file: providers/openai-gpt-audio.provider.yaml
-      group: audio
-    - file: providers/openai-gpt-audio-mini.provider.yaml
-      group: audio
+    # OpenAI audio models are intentionally not in the matrix. The retired
+    # gpt-4o-audio-preview line was replaced by the GA gpt-audio models, but
+    # those don't fit this scenario's audio-in/text-out + text-assertion shape:
+    # gpt-audio-mini requires an audio OUTPUT modality, and gpt-audio-1.5 is
+    # inconsistent (intermittent 400 "requires input/output audio modality").
+    # Audio capability is covered by the Gemini providers below, which pass the
+    # audio scenario cleanly. Revisit if an output-modality-aware audio scenario
+    # is added.
 
     # o-series reasoning models (use max_completion_tokens, no temperature/top_p)
     - file: providers/openai-o1.provider.yaml

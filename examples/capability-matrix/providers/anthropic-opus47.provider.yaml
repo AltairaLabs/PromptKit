@@ -18,6 +18,9 @@ spec:
   unsupported_params:
     - temperature
   defaults:
+    # temperature is required by the schema; unsupported_params strips it from
+    # the request so Claude 4.7+ (which rejects it) never receives it.
+    temperature: 0.1
     top_p: 1.0
     max_tokens: 100
   pricing:

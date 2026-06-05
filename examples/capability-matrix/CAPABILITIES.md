@@ -20,8 +20,8 @@ This document tracks expected capabilities for each provider/model based on offi
 |----------|------|--------|--------|-------|-------|-------|------|-------|
 | gpt-4o | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | Standard multimodal (no audio) |
 | gpt-4o-mini | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | Smaller, faster version |
-| gpt-audio-1.5 | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | GA audio (replaces gpt-4o-audio-preview, retired 2026-05-07) |
-| gpt-audio-mini | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | GA audio mini (replaces gpt-4o-mini-audio-preview) |
+| gpt-audio-1.5 | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | GA audio (replaces gpt-4o-audio-preview, retired 2026-05-07). Not in the batch matrix — see audio note below. |
+| gpt-audio-mini | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | GA audio mini. Speech-to-speech; requires an audio output modality. |
 | gpt-4.1 | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | Updated GPT-4 |
 | gpt-4.1-mini | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | |
 | gpt-4.1-nano | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | Smallest 4.1 variant |
@@ -87,6 +87,7 @@ This document tracks expected capabilities for each provider/model based on offi
   - Implemented via Chat Completions API with `modalities: ["text", "audio"]` parameter
   - Requires `api_mode: completions` in provider config (Responses API doesn't support audio)
   - Supports WAV and MP3 formats only
+  - **Not included in the capability matrix.** The matrix's audio scenario is audio-in / text-out with text assertions; `gpt-audio-mini` requires an audio *output* modality, and `gpt-audio-1.5` returns an intermittent 400 (`requires that either input content or output modality contain audio`). Audio capability is exercised via the Gemini providers instead. Revisit if an output-modality-aware audio scenario is added.
   - See: https://platform.openai.com/docs/guides/audio
 
 ### Not Yet Implemented
