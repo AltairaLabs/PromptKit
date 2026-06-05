@@ -1,11 +1,11 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: openai-gpt4o-audio
+  name: openai-gpt-audio-mini
 spec:
-  id: openai-gpt4o-audio
+  id: openai-gpt-audio-mini
   type: openai
-  model: gpt-4o-audio-preview
+  model: gpt-audio-mini
   capabilities:
     - audio
     - duplex
@@ -14,9 +14,9 @@ spec:
     max_tokens: 100
     top_p: 1.0
   pricing:
-    # Audio tokens: ~$0.10 per minute input, ~$0.24 per minute output
-    input_cost_per_1k: 0.10
-    output_cost_per_1k: 0.20
+    # Audio tokens: ~$0.01 per minute input, ~$0.04 per minute output
+    input_cost_per_1k: 0.01
+    output_cost_per_1k: 0.04
   additional_config:
     # Audio models require Chat Completions API (not Responses API)
     api_mode: completions

@@ -1,28 +1,25 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: gemini-20-flash
+  name: anthropic-opus48
 spec:
-  id: gemini-20-flash
-  type: gemini
-  model: gemini-2.0-flash
+  id: anthropic-opus48
+  type: claude
+  model: claude-opus-4-8
   capabilities:
     - text
     - streaming
     - vision
     - tools
     - json
-    - audio
-    - video
     - documents
-    - duplex
   defaults:
     temperature: 0.1
-    max_tokens: 100
     top_p: 1.0
+    max_tokens: 100
   pricing:
-    input_cost_per_1k: 0.00015
-    output_cost_per_1k: 0.0006
+    input_cost_per_1k: 0.005
+    output_cost_per_1k: 0.025
   stream_retry:
     enabled: true
     max_attempts: 3
