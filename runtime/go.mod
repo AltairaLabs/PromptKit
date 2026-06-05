@@ -10,7 +10,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/aws/aws-sdk-go-v2 v1.41.12
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.13
 	github.com/aws/aws-sdk-go-v2/config v1.32.18
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.22
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.2
