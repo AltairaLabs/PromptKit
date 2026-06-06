@@ -6,6 +6,10 @@ spec:
   id: openai-o3
   type: openai
   model: o3
+  # o-series reject temperature/top_p (declared, not relying on the model-name fallback).
+  unsupported_params:
+    - temperature
+    - top_p
   capabilities:
     - text
     - streaming

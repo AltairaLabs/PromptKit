@@ -1234,30 +1234,46 @@ func TestOpenAIProvider_AudioNotSupportedOnNonAudioModel(t *testing.T) {
 func TestOpenAIProvider_APIMode_Configuration(t *testing.T) {
 	tests := []struct {
 		name             string
+		model            string
 		additionalConfig map[string]any
 		expectedAPIMode  string
 	}{
 		{
-			name:             "default is responses",
+			name:             "default is legacy completions when undeclared",
+			model:            "gpt-4o",
 			additionalConfig: nil,
-			expectedAPIMode:  "responses",
+			expectedAPIMode:  "completions",
 		},
 		{
 			name:             "explicit completions",
+			model:            "gpt-4o",
 			additionalConfig: map[string]any{"api_mode": "completions"},
 			expectedAPIMode:  "completions",
 		},
 		{
 			name:             "explicit responses",
+			model:            "gpt-4o",
 			additionalConfig: map[string]any{"api_mode": "responses"},
 			expectedAPIMode:  "responses",
+		},
+		{
+			name:             "responses-only model falls back to responses when undeclared",
+			model:            "gpt-5-pro",
+			additionalConfig: nil,
+			expectedAPIMode:  "responses",
+		},
+		{
+			name:             "explicit config wins over the model fallback",
+			model:            "gpt-5-pro",
+			additionalConfig: map[string]any{"api_mode": "completions"},
+			expectedAPIMode:  "completions",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := NewProviderWithConfig(
-				"test", "gpt-4o", "https://api.openai.com/v1",
+				"test", tt.model, "https://api.openai.com/v1",
 				providers.ProviderDefaults{}, false,
 				tt.additionalConfig,
 			)

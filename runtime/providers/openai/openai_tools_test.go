@@ -767,8 +767,8 @@ func TestOpenAIToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				t.Errorf("Expected top_p %.2f, got %v", tt.expectedTopP, request["top_p"])
 			}
 
-			if maxTokens, ok := request["max_tokens"].(int); !ok || maxTokens != tt.expectedMaxTokens {
-				t.Errorf("Expected max_tokens %d, got %v", tt.expectedMaxTokens, request["max_tokens"])
+			if maxTokens, ok := request["max_completion_tokens"].(int); !ok || maxTokens != tt.expectedMaxTokens {
+				t.Errorf("Expected max_completion_tokens %d, got %v", tt.expectedMaxTokens, request["max_completion_tokens"])
 			}
 		})
 	}

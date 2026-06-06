@@ -6,6 +6,14 @@ spec:
   id: openai-o1-pro
   type: openai
   model: o1-pro
+  # Declared explicitly so behavior is data-driven, not reliant on the provider's
+  # model-name fallbacks: o-series reject temperature/top_p, and the pro models
+  # are only served by the Responses API.
+  unsupported_params:
+    - temperature
+    - top_p
+  additional_config:
+    api_mode: responses
   capabilities:
     - text
     - streaming

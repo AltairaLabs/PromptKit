@@ -43,7 +43,8 @@ const (
 const oSeriesMinLen = 2
 
 // isOSeriesModel checks if a model is an OpenAI o-series reasoning model.
-// O-series models (o1, o3, o4, etc.) don't support temperature, top_p, or max_tokens.
+// O-series models (o1, o3, o4, etc.) don't support temperature or top_p. Used
+// only as a fallback when a provider config doesn't declare unsupported_params.
 func isOSeriesModel(model string) bool {
 	if len(model) < oSeriesMinLen {
 		return false
@@ -61,13 +62,17 @@ func hasUnsupportedParam(unsupported []string, param string) bool {
 	return false
 }
 
-// addMaxTokensToRequest adds the appropriate max tokens parameter to the request.
-// If "max_tokens" is in unsupportedParams, uses "max_completion_tokens" instead.
+// addMaxTokensToRequest sets the output-token limit using OpenAI's current
+// parameter name, "max_completion_tokens". Newer models (GPT-5, o-series)
+// require it and every current model accepts it, so it is the default rather
+// than something gated on a hardcoded model-family check. Legacy or
+// OpenAI-compatible backends that only accept the deprecated "max_tokens" opt
+// out via unsupported_params: ["max_completion_tokens"].
 func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []string, maxTokens int) {
-	if hasUnsupportedParam(unsupportedParams, "max_tokens") {
-		req["max_completion_tokens"] = maxTokens
-	} else {
+	if hasUnsupportedParam(unsupportedParams, "max_completion_tokens") {
 		req["max_tokens"] = maxTokens
+	} else {
+		req["max_completion_tokens"] = maxTokens
 	}
 }
 
@@ -179,18 +184,20 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 	}
 
 	unsupported := cfg.UnsupportedParams
+	// Fallback for configs that don't declare unsupported_params: o-series
+	// reasoning models don't accept temperature/top_p. Prefer declaring this in
+	// the provider config; the model-name check is only a best-effort default.
+	// (The output token limit is handled uniformly by addMaxTokensToRequest,
+	// which defaults to max_completion_tokens, so it's not listed here.)
 	if len(unsupported) == 0 && isOSeriesModel(cfg.Model) {
-		unsupported = []string{"temperature", "top_p", "max_tokens"}
+		unsupported = []string{"temperature", "top_p"}
 	}
-	// Bedrock-hosted OpenAI (gpt-oss family) requires max_completion_tokens
-	// instead of max_tokens, and rejects `top_p: 0.0` (must be in (0, 1]).
-	// Skip both fields by default so the model picks its own; operators
-	// can still override the full unsupported set via UnsupportedParams.
+	// Bedrock-hosted OpenAI (gpt-oss family) rejects `top_p: 0.0` (must be in
+	// (0, 1]). Skip it by default so the model picks its own; operators can
+	// still override the full unsupported set via UnsupportedParams.
 	if len(cfg.UnsupportedParams) == 0 && cfg.Platform == bedrockPlatform {
-		for _, param := range []string{"max_tokens", "top_p"} {
-			if !hasUnsupportedParam(unsupported, param) {
-				unsupported = append(unsupported, param)
-			}
+		if !hasUnsupportedParam(unsupported, "top_p") {
+			unsupported = append(unsupported, "top_p")
 		}
 	}
 
@@ -591,6 +598,14 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 
 // Predict sends a predict request to OpenAI
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	// Route to the Responses API when selected (config or the requiresResponsesAPI
+	// fallback, via getAPIMode), mirroring PredictWithTools. Responses-only
+	// models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
+	if p.apiMode == APIModeResponses {
+		resp, _, err := p.predictWithResponses(ctx, req, nil, "")
+		return resp, err
+	}
+
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
 	if err != nil {
@@ -666,6 +681,13 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	if p.isBedrock() {
 		return p.predictStreamBedrockFallback(ctx, req)
+	}
+
+	// Route to the Responses API when selected (config or the requiresResponsesAPI
+	// fallback, via getAPIMode), mirroring PredictStreamWithTools. Responses-only
+	// models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
+	if p.apiMode == APIModeResponses {
+		return p.predictStreamWithResponses(ctx, req, nil, "")
 	}
 
 	// Convert messages to OpenAI format

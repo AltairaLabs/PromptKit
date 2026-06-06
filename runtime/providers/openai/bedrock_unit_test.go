@@ -126,10 +126,11 @@ func TestNewProviderFromConfig_Bedrock(t *testing.T) {
 		}
 	})
 
-	t.Run("auto-adds max_tokens and top_p to unsupportedParams", func(t *testing.T) {
-		// max_tokens — Bedrock OpenAI uses max_completion_tokens.
-		// top_p    — gpt-oss rejects 0.0 and the framework default is 0;
-		//            skipping leaves the model default in place.
+	t.Run("auto-adds top_p to unsupportedParams", func(t *testing.T) {
+		// top_p — gpt-oss rejects 0.0 and the framework default is 0; skipping
+		//         leaves the model default in place.
+		// (The token limit is sent as max_completion_tokens by default for all
+		// OpenAI requests, so it no longer needs to be flagged here.)
 		p := NewProviderFromConfig(&ProviderConfig{
 			ID:       "test",
 			Model:    "openai.gpt-oss-20b-1:0",
@@ -139,11 +140,11 @@ func TestNewProviderFromConfig_Bedrock(t *testing.T) {
 			},
 			Credential: cred,
 		})
-		for _, param := range []string{"max_tokens", "top_p"} {
-			if !hasUnsupportedParam(p.unsupportedParams, param) {
-				t.Errorf("Bedrock provider must mark %s unsupported, got %v",
-					param, p.unsupportedParams)
-			}
+		if !hasUnsupportedParam(p.unsupportedParams, "top_p") {
+			t.Errorf("Bedrock provider must mark top_p unsupported, got %v", p.unsupportedParams)
+		}
+		if hasUnsupportedParam(p.unsupportedParams, "max_tokens") {
+			t.Errorf("Bedrock provider should no longer flag max_tokens, got %v", p.unsupportedParams)
 		}
 	})
 

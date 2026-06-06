@@ -6,12 +6,58 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// TestPredictStream_RoutesToResponsesAPI verifies that the non-tool streaming
+// path honors api_mode: responses and hits /responses, not /chat/completions.
+// Regression: Responses-only models (gpt5-pro, o1-pro) 404 on chat/completions,
+// and PredictStream (unlike PredictStreamWithTools) never routed to Responses.
+func TestPredictStream_RoutesToResponsesAPI(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
+	}))
+	defer server.Close()
+
+	provider := NewProviderWithConfig(
+		"test", "gpt-5-pro", server.URL,
+		providers.ProviderDefaults{MaxTokens: 100}, false,
+		map[string]any{"api_mode": "responses"},
+	)
+
+	ch, err := provider.PredictStream(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("PredictStream: %v", err)
+	}
+	var content string
+	for chunk := range ch {
+		if chunk.Content != "" {
+			content = chunk.Content
+		}
+	}
+
+	if gotPath != "/responses" {
+		t.Errorf("expected request to /responses, got %q", gotPath)
+	}
+	if content != "hi" {
+		t.Errorf("expected content %q, got %q", "hi", content)
+	}
+}
 
 // TestBuildResponsesRequest_ReasoningEffort verifies that reasoning_effort
 // configured via additional_config is sent as reasoning.effort in Responses
