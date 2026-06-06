@@ -61,13 +61,17 @@ func hasUnsupportedParam(unsupported []string, param string) bool {
 	return false
 }
 
-// addMaxTokensToRequest adds the appropriate max tokens parameter to the request.
-// If "max_tokens" is in unsupportedParams, uses "max_completion_tokens" instead.
+// addMaxTokensToRequest sets the output-token limit using OpenAI's current
+// parameter name, "max_completion_tokens". Newer models (GPT-5, o-series)
+// require it and every current model accepts it, so it is the default rather
+// than something gated on a hardcoded model-family check. Legacy or
+// OpenAI-compatible backends that only accept the deprecated "max_tokens" opt
+// out via unsupported_params: ["max_completion_tokens"].
 func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []string, maxTokens int) {
-	if hasUnsupportedParam(unsupportedParams, "max_tokens") {
-		req["max_completion_tokens"] = maxTokens
-	} else {
+	if hasUnsupportedParam(unsupportedParams, "max_completion_tokens") {
 		req["max_tokens"] = maxTokens
+	} else {
+		req["max_completion_tokens"] = maxTokens
 	}
 }
 
@@ -179,18 +183,18 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 	}
 
 	unsupported := cfg.UnsupportedParams
+	// o-series reasoning models don't accept temperature/top_p. (The output
+	// token limit is handled uniformly by addMaxTokensToRequest, which already
+	// defaults to max_completion_tokens, so it's not listed here.)
 	if len(unsupported) == 0 && isOSeriesModel(cfg.Model) {
-		unsupported = []string{"temperature", "top_p", "max_tokens"}
+		unsupported = []string{"temperature", "top_p"}
 	}
-	// Bedrock-hosted OpenAI (gpt-oss family) requires max_completion_tokens
-	// instead of max_tokens, and rejects `top_p: 0.0` (must be in (0, 1]).
-	// Skip both fields by default so the model picks its own; operators
-	// can still override the full unsupported set via UnsupportedParams.
+	// Bedrock-hosted OpenAI (gpt-oss family) rejects `top_p: 0.0` (must be in
+	// (0, 1]). Skip it by default so the model picks its own; operators can
+	// still override the full unsupported set via UnsupportedParams.
 	if len(cfg.UnsupportedParams) == 0 && cfg.Platform == bedrockPlatform {
-		for _, param := range []string{"max_tokens", "top_p"} {
-			if !hasUnsupportedParam(unsupported, param) {
-				unsupported = append(unsupported, param)
-			}
+		if !hasUnsupportedParam(unsupported, "top_p") {
+			unsupported = append(unsupported, "top_p")
 		}
 	}
 

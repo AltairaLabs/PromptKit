@@ -755,18 +755,27 @@ func TestAddMaxTokensToRequest(t *testing.T) {
 		unsupportedParams []string
 		maxTokens         int
 		wantKey           string
+		absentKey         string
 	}{
 		{
-			name:              "no unsupported params — uses max_tokens",
+			// max_completion_tokens is OpenAI's current token param: newer
+			// models (GPT-5, o-series) require it and every current model
+			// accepts it. It is the default so we don't have to enumerate
+			// model families.
+			name:              "default — uses max_completion_tokens",
 			unsupportedParams: nil,
 			maxTokens:         500,
-			wantKey:           "max_tokens",
+			wantKey:           "max_completion_tokens",
+			absentKey:         "max_tokens",
 		},
 		{
-			name:              "max_tokens unsupported — uses max_completion_tokens",
-			unsupportedParams: []string{"max_tokens"},
+			// Legacy / OpenAI-compatible backends that only speak max_tokens
+			// opt out explicitly.
+			name:              "max_completion_tokens opted out — uses legacy max_tokens",
+			unsupportedParams: []string{"max_completion_tokens"},
 			maxTokens:         500,
-			wantKey:           "max_completion_tokens",
+			wantKey:           "max_tokens",
+			absentKey:         "max_completion_tokens",
 		},
 	}
 
@@ -780,6 +789,9 @@ func TestAddMaxTokensToRequest(t *testing.T) {
 			}
 			if req[tt.wantKey] != tt.maxTokens {
 				t.Errorf("%s = %v, want %d", tt.wantKey, req[tt.wantKey], tt.maxTokens)
+			}
+			if _, ok := req[tt.absentKey]; ok {
+				t.Errorf("did not expect key %q in request, got keys: %v", tt.absentKey, req)
 			}
 		})
 	}
