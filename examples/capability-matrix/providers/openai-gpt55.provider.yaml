@@ -1,28 +1,27 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: gemini-25-flash-lite
+  name: openai-gpt55
 spec:
-  id: gemini-25-flash-lite
-  type: gemini
-  model: gemini-2.5-flash-lite
+  id: openai-gpt55
+  type: openai
+  model: gpt-5.5
   capabilities:
     - text
     - streaming
     - vision
     - tools
     - json
-    - audio
-    - video
-    - documents
-    - duplex
+  unsupported_params:
+    - temperature
+    - top_p
   defaults:
     temperature: 0.1
     max_tokens: 100
     top_p: 1.0
   pricing:
-    input_cost_per_1k: 0.0001
-    output_cost_per_1k: 0.0004
+    input_cost_per_1k: 0.00125
+    output_cost_per_1k: 0.01
   stream_retry:
     enabled: true
     max_attempts: 3

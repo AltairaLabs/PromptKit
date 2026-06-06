@@ -261,7 +261,7 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 	//   - additional_config explicitly asks for audio output (text-in/audio-out).
 	// Without the second clause, configured modalities were silently dropped on
 	// text-only inputs and OpenAI rejected the request as "must contain audio".
-	if p.apiMode == APIModeCompletions && isAudioModel(p.model) &&
+	if p.apiMode == APIModeCompletions && p.supportsAudioInput() &&
 		(requestContainsAudio(&req) || hasAudioOutputConfigured(p.additionalConfig)) {
 		applyAudioModalities(openaiReq, p.additionalConfig, "wav")
 	}
@@ -666,17 +666,21 @@ func init() {
 		map[string]bool{"vertex": true},
 		providers.CredentialFactory(
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
-				return NewToolProviderWithCredential(
+				tp := NewToolProviderWithCredential(
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 					spec.IncludeRawOutput, spec.AdditionalConfig, spec.Credential,
 					spec.Platform, spec.PlatformConfig, spec.UnsupportedParams,
-				), nil
+				)
+				tp.setCapabilities(spec.Capabilities)
+				return tp, nil
 			},
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
-				return NewToolProvider(
+				tp := NewToolProvider(
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 					spec.IncludeRawOutput, spec.AdditionalConfig, spec.UnsupportedParams,
-				), nil
+				)
+				tp.setCapabilities(spec.Capabilities)
+				return tp, nil
 			},
 		),
 	))

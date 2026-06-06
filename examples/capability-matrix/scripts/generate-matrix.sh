@@ -54,9 +54,14 @@ cat > "$MATRIX_FILE" << 'HEADER'
 HEADER
 
 # Define provider groups and display names as JSON for jq processing
+# Each provider may carry an optional "note" surfaced in the Notes column —
+# used to flag deprecation / retirement timelines and replacement models.
 PROVIDER_CONFIG='{
   "OpenAI": {
     "providers": [
+      {"id": "openai-gpt55", "name": "GPT-5.5", "note": "Current frontier"},
+      {"id": "openai-gpt54", "name": "GPT-5.4"},
+      {"id": "openai-gpt54-mini", "name": "GPT-5.4 Mini"},
       {"id": "openai-gpt52", "name": "GPT-5.2"},
       {"id": "openai-gpt52-pro", "name": "GPT-5.2 Pro"},
       {"id": "openai-gpt51", "name": "GPT-5.1"},
@@ -69,34 +74,35 @@ PROVIDER_CONFIG='{
       {"id": "openai-gpt41-nano", "name": "GPT-4.1 Nano"},
       {"id": "openai-gpt4o", "name": "GPT-4o"},
       {"id": "openai-gpt4o-mini", "name": "GPT-4o Mini"},
-      {"id": "openai-o1", "name": "o1"},
-      {"id": "openai-o1-pro", "name": "o1-pro"},
-      {"id": "openai-o3", "name": "o3"},
-      {"id": "openai-o3-mini", "name": "o3-mini"},
-      {"id": "openai-o4-mini", "name": "o4-mini"}
+      {"id": "openai-o1", "name": "o1", "note": "Deprecated — retires 2026-10-23"},
+      {"id": "openai-o1-pro", "name": "o1-pro", "note": "Deprecated — retires 2026-10-23"},
+      {"id": "openai-o3", "name": "o3", "note": "Deprecated — retires 2026-10-23"},
+      {"id": "openai-o3-mini", "name": "o3-mini", "note": "Deprecated — retires 2026-10-23"},
+      {"id": "openai-o4-mini", "name": "o4-mini", "note": "Deprecated — retires 2026-10-23"}
     ]
   },
   "Anthropic": {
     "providers": [
+      {"id": "anthropic-opus48", "name": "Claude Opus 4.8", "note": "Latest"},
+      {"id": "anthropic-opus47", "name": "Claude Opus 4.7"},
       {"id": "anthropic-opus46", "name": "Claude Opus 4.6"},
       {"id": "anthropic-sonnet46", "name": "Claude Sonnet 4.6"},
       {"id": "anthropic-opus45", "name": "Claude Opus 4.5"},
       {"id": "anthropic-sonnet45", "name": "Claude Sonnet 4.5"},
       {"id": "anthropic-haiku45", "name": "Claude Haiku 4.5"},
       {"id": "anthropic-opus41", "name": "Claude Opus 4.1"},
-      {"id": "anthropic-opus4", "name": "Claude Opus 4"},
-      {"id": "anthropic-sonnet4", "name": "Claude Sonnet 4"}
+      {"id": "anthropic-opus4", "name": "Claude Opus 4", "note": "Deprecated — retires 2026-06-15"},
+      {"id": "anthropic-sonnet4", "name": "Claude Sonnet 4", "note": "Deprecated — retires 2026-06-15"}
     ]
   },
   "Google": {
     "providers": [
-      {"id": "gemini-3-pro", "name": "Gemini 3 Pro"},
-      {"id": "gemini-3-flash", "name": "Gemini 3 Flash"},
-      {"id": "gemini-25-pro", "name": "Gemini 2.5 Pro"},
-      {"id": "gemini-25-flash", "name": "Gemini 2.5 Flash"},
-      {"id": "gemini-25-flash-lite", "name": "Gemini 2.5 Flash Lite"},
-      {"id": "gemini-20-flash", "name": "Gemini 2.0 Flash"},
-      {"id": "gemini-20-flash-lite", "name": "Gemini 2.0 Flash Lite"}
+      {"id": "gemini-31-pro", "name": "Gemini 3.1 Pro", "note": "Replaces gemini-3-pro-preview (retired)"},
+      {"id": "gemini-35-flash", "name": "Gemini 3.5 Flash", "note": "Replaces gemini-3-flash-preview"},
+      {"id": "gemini-31-flash-lite", "name": "Gemini 3.1 Flash Lite", "note": "Replaces gemini-2.0-flash-lite (retired)"},
+      {"id": "gemini-25-pro", "name": "Gemini 2.5 Pro", "note": "Deprecated — retires 2026-10-16"},
+      {"id": "gemini-25-flash", "name": "Gemini 2.5 Flash", "note": "Deprecated — retires 2026-10-16"},
+      {"id": "gemini-25-flash-lite", "name": "Gemini 2.5 Flash Lite", "note": "Deprecated — retires 2026-10-16"}
     ]
   }
 }'
@@ -114,15 +120,15 @@ generate_table() {
     # Header row
     printf "| Model |" >> "$MATRIX_FILE"
     echo "$HEADERS" | jq -r '.[] | " \(.) |"' | tr -d '\n' >> "$MATRIX_FILE"
-    echo "" >> "$MATRIX_FILE"
+    printf " Notes |\n" >> "$MATRIX_FILE"
 
     # Separator row
     printf "|-------|" >> "$MATRIX_FILE"
     echo "$HEADERS" | jq -r '.[] | "------|"' | tr -d '\n' >> "$MATRIX_FILE"
-    echo "" >> "$MATRIX_FILE"
+    printf -- "-------|\n" >> "$MATRIX_FILE"
 
     # Data rows
-    echo "$PROVIDER_CONFIG" | jq -r --arg group "$group_name" '.[$group].providers[] | "\(.id)|\(.name)"' | while IFS='|' read -r provider_id provider_name; do
+    echo "$PROVIDER_CONFIG" | jq -r --arg group "$group_name" '.[$group].providers[] | "\(.id)|\(.name)|\(.note // "")"' | while IFS='|' read -r provider_id provider_name provider_note; do
         printf "| %s |" "$provider_name" >> "$MATRIX_FILE"
 
         echo "$SCENARIOS" | jq -r '.[]' | while read -r scenario; do
@@ -141,7 +147,7 @@ generate_table() {
 
             printf " %s |" "$result" >> "$MATRIX_FILE"
         done
-        echo "" >> "$MATRIX_FILE"
+        printf " %s |\n" "$provider_note" >> "$MATRIX_FILE"
     done
 
     echo "" >> "$MATRIX_FILE"

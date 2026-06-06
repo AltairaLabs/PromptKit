@@ -6,7 +6,7 @@ metadata:
 
 spec:
   id: tools-vision
-  task_type: capability-test
+  task_type: capability-test-tools
   description: "Test tool calls with image input (non-streaming)"
   required_capabilities:
     - tools
@@ -14,7 +14,7 @@ spec:
   providers:
     - openai-gpt41-mini
     - anthropic-sonnet4
-    - gemini-20-flash
+    - gemini-35-flash
 
   turns:
     - role: user

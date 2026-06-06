@@ -8,6 +8,23 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+func TestCapabilitySet(t *testing.T) {
+	if got := CapabilitySet(nil); got != nil {
+		t.Errorf("CapabilitySet(nil) = %v, want nil", got)
+	}
+	if got := CapabilitySet([]string{}); got != nil {
+		t.Errorf("CapabilitySet(empty) = %v, want nil", got)
+	}
+
+	set := CapabilitySet([]string{CapabilityText, CapabilityAudio, CapabilityVision})
+	if !set[CapabilityAudio] || !set[CapabilityText] || !set[CapabilityVision] {
+		t.Errorf("declared capabilities missing from set: %v", set)
+	}
+	if set[CapabilityVideo] {
+		t.Error("undeclared capability should not be present")
+	}
+}
+
 // mockProvider is a test implementation of Provider interface.
 // It embeds base.Implementation by value so that zero-value literals
 // (&mockProvider{id: "x"}) compile and satisfy base.Provider without panicking.

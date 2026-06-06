@@ -6,7 +6,7 @@ metadata:
 
 spec:
   id: tools
-  task_type: capability-test
+  task_type: capability-test-tools
   description: "Test function/tool calling capability"
   required_capabilities:
     - tools

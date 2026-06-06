@@ -9,10 +9,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
-// GetMultimodalCapabilities returns Claude's multimodal support capabilities
+// GetMultimodalCapabilities returns Claude's multimodal support capabilities.
+// When the provider config declares its capabilities, the declaration is
+// authoritative for which modalities are enabled; otherwise Claude's built-in
+// defaults apply (images + documents, no audio/video).
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
-	// Claude supports images and PDFs (documents)
-	return providers.MultimodalCapabilities{
+	caps := providers.MultimodalCapabilities{
 		SupportsImages:    true,
 		SupportsAudio:     false,
 		SupportsVideo:     false,
@@ -33,6 +35,13 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxVideoSizeMB:    0,  // Not supported
 		MaxDocumentSizeMB: 32, //nolint:mnd // Claude's documented PDF size limit
 	}
+	if p.capabilities != nil {
+		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
+		caps.SupportsAudio = p.capabilities[providers.CapabilityAudio]
+		caps.SupportsVideo = p.capabilities[providers.CapabilityVideo]
+		caps.SupportsDocuments = p.capabilities[providers.CapabilityDocuments]
+	}
+	return caps
 }
 
 // claudeImageSource represents an image or document source in Claude's format

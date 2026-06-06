@@ -26,6 +26,11 @@ const (
 	// Shared error-wrapping formats for tool-path request building.
 	errMarshalRequestFailed = "failed to marshal request: %w"
 	errCreateRequestFailed  = "failed to create request: %w"
+
+	// Shared Claude request body field names.
+	reqFieldModel     = "model"
+	reqFieldMaxTokens = "max_tokens"
+	reqFieldMessages  = "messages"
 )
 
 // ToolProvider extends ClaudeProvider with tool support
@@ -380,10 +385,13 @@ func (p *ToolProvider) buildToolRequest(req providers.PredictionRequest, tools i
 	// Note: Anthropic's newer models (Claude 4+) don't support both temperature and top_p
 	// We only send temperature to avoid the "cannot both be specified" error
 	request := map[string]interface{}{
-		"model":       p.model,
-		"max_tokens":  maxTokens,
-		"messages":    messages,
-		"temperature": temperature,
+		reqFieldModel:     p.model,
+		reqFieldMaxTokens: maxTokens,
+		reqFieldMessages:  messages,
+	}
+	// Claude 4.7+ models reject temperature; omit it when unsupported.
+	if p.paramSupported("temperature") {
+		request["temperature"] = temperature
 	}
 
 	if req.System != "" {
@@ -735,16 +743,22 @@ func (p *ToolProvider) buildDirectStreamingRequestFn(
 func init() {
 	providers.RegisterProviderFactory("claude", providers.CredentialFactory(
 		func(spec providers.ProviderSpec) (providers.Provider, error) {
-			return NewToolProviderWithCredential(
+			tp := NewToolProviderWithCredential(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 				spec.IncludeRawOutput, spec.Credential,
 				spec.Platform, spec.PlatformConfig,
-			), nil
+			)
+			tp.setUnsupportedParams(spec.UnsupportedParams)
+			tp.setCapabilities(spec.Capabilities)
+			return tp, nil
 		},
 		func(spec providers.ProviderSpec) (providers.Provider, error) {
-			return NewToolProvider(
+			tp := NewToolProvider(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
-			), nil
+			)
+			tp.setUnsupportedParams(spec.UnsupportedParams)
+			tp.setCapabilities(spec.Capabilities)
+			return tp, nil
 		},
 	))
 }

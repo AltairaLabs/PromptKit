@@ -1,11 +1,11 @@
 apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: Provider
 metadata:
-  name: gemini-20-flash
+  name: gemini-31-flash-lite
 spec:
-  id: gemini-20-flash
+  id: gemini-31-flash-lite
   type: gemini
-  model: gemini-2.0-flash
+  model: gemini-3.1-flash-lite
   capabilities:
     - text
     - streaming
@@ -21,8 +21,8 @@ spec:
     max_tokens: 100
     top_p: 1.0
   pricing:
-    input_cost_per_1k: 0.00015
-    output_cost_per_1k: 0.0006
+    input_cost_per_1k: 0.0001
+    output_cost_per_1k: 0.0004
   stream_retry:
     enabled: true
     max_attempts: 3

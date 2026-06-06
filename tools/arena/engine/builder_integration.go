@@ -283,6 +283,7 @@ func createProviderImpl(configDir string, provider *config.Provider) (providers.
 		Platform:            platform,
 		PlatformConfig:      platformConfig,
 		UnsupportedParams:   provider.UnsupportedParams,
+		Capabilities:        provider.Capabilities,
 		RequestTimeout:      requestTimeout,
 		StreamIdleTimeout:   streamIdleTimeout,
 		StreamRetry:         streamRetry,
