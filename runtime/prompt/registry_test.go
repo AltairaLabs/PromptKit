@@ -716,6 +716,28 @@ func TestRegistry_MergeVars(t *testing.T) {
 				"var1": "value1",
 			},
 		},
+		{
+			// Issue #1292: an optional var with an explicit empty-string
+			// default must register (as empty), so a {{var}} reference renders
+			// to "" instead of the renderer hard-erroring on an unresolved
+			// placeholder. A var with no default at all (nil) still doesn't
+			// register.
+			name: "optional var with empty-string default registers as empty",
+			config: &Config{
+				Spec: Spec{
+					Variables: []VariableMetadata{
+						{Name: "opt_empty", Required: false, Type: "string", Default: ""},
+						{Name: "opt_nodefault", Required: false, Type: "string"},
+						{Name: "opt_set", Required: false, Type: "string", Default: "x"},
+					},
+				},
+			},
+			vars: map[string]string{},
+			expected: map[string]string{
+				"opt_empty": "",
+				"opt_set":   "x",
+			},
+		},
 	}
 
 	for _, tt := range tests {

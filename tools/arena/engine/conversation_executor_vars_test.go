@@ -381,6 +381,70 @@ func TestBuildTurnRequest_StateStoreConfig(t *testing.T) {
 	}
 }
 
+// TestBuildTurnRequest_ScenarioVariablesMerged covers issue #1292: a scenario's
+// own Variables block must be merged into the render vars (scenario wins over
+// arena prompt-config vars), including empty-string values — which is how a
+// prompt fragment gets scoped to specific scenarios.
+func TestBuildTurnRequest_ScenarioVariablesMerged(t *testing.T) {
+	executor := NewDefaultConversationExecutor(nil, nil, nil, createTestPromptRegistry(t), nil)
+
+	tests := []struct {
+		name          string
+		loadedConfigs map[string]*config.PromptConfigData
+		taskType      string
+		scenarioVars  map[string]string
+		expectedVars  map[string]string
+	}{
+		{
+			name: "scenario variables override arena prompt-config vars",
+			loadedConfigs: map[string]*config.PromptConfigData{
+				"support": {TaskType: "support", Vars: map[string]string{
+					"tone":    "formal",
+					"product": "CloudSync",
+				}},
+			},
+			taskType:     "support",
+			scenarioVars: map[string]string{"tone": "casual", "extra": "y"},
+			expectedVars: map[string]string{"tone": "casual", "product": "CloudSync", "extra": "y"},
+		},
+		{
+			name:          "scenario variables apply with no arena prompt-config (incl. empty value)",
+			loadedConfigs: map[string]*config.PromptConfigData{},
+			taskType:      "support",
+			scenarioVars:  map[string]string{"tool_instructions": ""},
+			expectedVars:  map[string]string{"tool_instructions": ""},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := ConversationRequest{
+				Config: &config.Config{
+					LoadedPromptConfigs: tt.loadedConfigs,
+					ConfigDir:           "/test",
+					Defaults:            config.Defaults{Temperature: 0.7},
+				},
+				Scenario: &config.Scenario{
+					TaskType:  tt.taskType,
+					Variables: tt.scenarioVars,
+				},
+				Provider: &MockProvider{id: "test"},
+			}
+
+			turnReq := executor.buildTurnRequest(req, config.TurnDefinition{Role: "user", Content: "x"})
+
+			if len(turnReq.PromptVars) != len(tt.expectedVars) {
+				t.Fatalf("expected %d vars, got %d (%v)", len(tt.expectedVars), len(turnReq.PromptVars), turnReq.PromptVars)
+			}
+			for k, v := range tt.expectedVars {
+				if got, ok := turnReq.PromptVars[k]; !ok || got != v {
+					t.Errorf("var %q: expected %q, got %q (present=%v)", k, v, got, ok)
+				}
+			}
+		})
+	}
+}
+
 // MockProvider for testing (reuse from conversation_executor_test.go)
 var _ providers.Provider = (*MockTestProvider)(nil)
 

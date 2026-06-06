@@ -298,14 +298,28 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		maxTokens = 0
 	}
 
-	// Look up variable overrides from arena.yaml for this scenario's task_type
+	// Build template vars: arena.yaml prompt-config vars (matched by task_type)
+	// overlaid with the scenario's own Variables block (scenario wins). Issue
+	// #1292: Scenario.Variables was previously ignored here. Copy into a fresh
+	// map so the shared LoadedPromptConfigs vars are never mutated.
 	var promptVars map[string]string
 	if req.Config != nil && req.Scenario != nil {
 		for _, promptConfigData := range req.Config.LoadedPromptConfigs {
 			if promptConfigData.TaskType == req.Scenario.TaskType {
-				promptVars = promptConfigData.Vars
+				promptVars = make(map[string]string, len(promptConfigData.Vars))
+				for k, v := range promptConfigData.Vars {
+					promptVars[k] = v
+				}
 				break
 			}
+		}
+	}
+	if scenarioVars := scenarioVariables(req.Scenario); len(scenarioVars) > 0 {
+		if promptVars == nil {
+			promptVars = make(map[string]string, len(scenarioVars))
+		}
+		for k, v := range scenarioVars {
+			promptVars[k] = v
 		}
 	}
 

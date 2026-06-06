@@ -630,11 +630,14 @@ func (r *Registry) mergeVars(config *Config, vars map[string]string) map[string]
 	// Pre-allocate with known capacity for better performance
 	result := make(map[string]string, len(config.Spec.Variables)+len(vars))
 
-	// Start with variable defaults
+	// Start with variable defaults. An optional variable with an explicitly-set
+	// default (including an empty string) registers so a {{var}} reference
+	// renders to that value instead of the renderer hard-erroring on an
+	// unresolved placeholder. A nil Default means "no default given" and is
+	// skipped.
 	for _, v := range config.Spec.Variables {
 		if !v.Required && v.Default != nil {
-			// Convert default value to string (skip empty strings)
-			if defaultStr, ok := v.Default.(string); ok && defaultStr != "" {
+			if defaultStr, ok := v.Default.(string); ok {
 				result[v.Name] = defaultStr
 			}
 		}
