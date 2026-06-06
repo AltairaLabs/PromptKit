@@ -31,9 +31,14 @@ PromptPack  ── open spec for portable prompts (JSON, vendor-neutral)
 | Multi-provider testing | ✅ | ✅ | LangChain-only | Observability-only |
 | Built-in workflow orchestration | ✅ | ❌ | Partial | ❌ |
 | Red-team / security scenarios | ✅ | Partial | ❌ | ❌ |
+| Voice self-play (persona callers → realtime agent) | ✅ | ❌¹ | ❌ | ❌ |
+| Speech-emotion / paralinguistic checks | ✅ | ❌ | ❌ | ❌ |
+| Multimodal scenarios (audio + vision + video) | ✅ | Partial | ❌ | ❌ |
 | MCP integration | ✅ | ❌ | ❌ | ❌ |
 | Spec-driven (portable packs) | ✅ ([PromptPack](https://github.com/AltairaLabs/promptpack-spec)) | ❌ | ❌ | ❌ |
 | License | Apache 2.0 | MIT | Closed | Closed |
+
+<sub>¹ Promptfoo has a text-only [simulated user](https://www.promptfoo.dev/docs/providers/simulated-user/) and separate audio testing, but doesn't combine them — it can't drive a persona-driven caller through a realtime voice agent.</sub>
 
 ## Install
 
@@ -96,6 +101,20 @@ packc compile -c config.arena.yaml -o app.pack.json
 
 ![sdk demo](recordings/gifs/08-sdk-demo.gif)
 
+## Voice-agent self-play
+
+You can't unit-test a voice agent — so PromptKit has AI personas *call it*. Synthetic, personality-driven callers (hostile, evasive, anxious) are driven through TTS into your realtime agent (Gemini Live, OpenAI Realtime), and structured assertions score whether it holds policy under pressure — never issuing an unauthorized refund, escalating when it should. It even checks the caller *sounds* angry (speech-emotion recognition), not just says angry words.
+
+Try it in one command — keyless, runs green out of the box:
+
+```bash
+promptarena init my-refund-demo --template voice-refund-demo
+cd my-refund-demo
+promptarena run --provider mock-duplex --ci   # no API keys needed
+```
+
+Swap in `--provider gemini-2-flash` or `openai-gpt4o-realtime` (plus TTS keys) to run it against a live voice agent — pass rates vary, and that variation is the test. Full breakdown: [voice-refund walkthrough](https://altairalabs.github.io/PromptKit/arena/examples/voice-refund-demo/).
+
 ## Features
 
 | Feature | Description |
@@ -107,6 +126,7 @@ packc compile -c config.arena.yaml -o app.pack.json
 | **MCP Integration** | Native Model Context Protocol for real tool execution |
 | **Deploy Adapters** | Plan, apply, and manage deployments via pluggable adapter SDK |
 | **Self-Play Testing** | AI personas for adversarial and user simulation |
+| **Voice Self-Play** | Adversarial TTS personas stress-test realtime voice agents (Gemini Live, OpenAI Realtime), scored on behavior + speech-emotion |
 | **Red-Team** | Security testing with prompt injection detection |
 | **Tool Validation** | Mock or live tool call verification with three-level scoping |
 | **SDK Deployment** | Compile prompts to portable packs for production |
