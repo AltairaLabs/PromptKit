@@ -595,6 +595,12 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 
 // Predict sends a predict request to OpenAI
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	// Responses-only models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
+	if requiresResponsesAPI(p.model) {
+		resp, _, err := p.predictWithResponses(ctx, req, nil, "")
+		return resp, err
+	}
+
 	// Convert messages to OpenAI format
 	messages, err := p.prepareOpenAIMessages(req)
 	if err != nil {
@@ -670,6 +676,13 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
 	if p.isBedrock() {
 		return p.predictStreamBedrockFallback(ctx, req)
+	}
+
+	// Responses-only models (gpt-5-pro, o1-pro, ...) 404 on chat/completions,
+	// so the non-tool streaming path must use the Responses API for them too
+	// (the tool path already does).
+	if requiresResponsesAPI(p.model) {
+		return p.predictStreamWithResponses(ctx, req, nil, "")
 	}
 
 	// Convert messages to OpenAI format

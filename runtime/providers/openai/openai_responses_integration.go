@@ -53,11 +53,13 @@ const (
 // APIMode represents the OpenAI API mode to use
 type APIMode string
 
-// requiresResponsesAPI returns true if the model only works with the Responses API.
-// Some models like o1-pro are only available via v1/responses.
+// requiresResponsesAPI returns true if the model is only served by the Responses
+// API. OpenAI's "pro" reasoning models (o1-pro, gpt-5-pro, gpt-5.2-pro, ...) all
+// 404 on v1/chat/completions and must use v1/responses. This is a genuine,
+// OpenAI-defined model property (not a behavior we can default), so it's keyed
+// off the "-pro" suffix that those models share rather than enumerated one by one.
 func requiresResponsesAPI(model string) bool {
-	// o1-pro requires the Responses API
-	return model == "o1-pro"
+	return strings.HasSuffix(model, "-pro")
 }
 
 // transformToResponsesCallID converts a call ID to Responses API format.
