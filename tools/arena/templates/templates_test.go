@@ -422,6 +422,39 @@ spec:
 	assert.Equal(t, "Hello world", string(data))
 }
 
+func TestCheckVersionRequirement(t *testing.T) {
+	tests := []struct {
+		name      string
+		required  string
+		current   string
+		wantError bool
+	}{
+		{"no requirement", "", "1.0.0", false},
+		{"equal", "1.5.0", "1.5.0", false},
+		{"current newer", "1.5.0", "1.6.0", false},
+		{"current newer patch", "1.5.0", "1.5.1", false},
+		{"current older", "1.5.0", "1.4.12", true},
+		{"current older minor", "1.5.0", "1.4.99", true},
+		{">= prefix, older", ">=1.5.0", "1.4.0", true},
+		{">= prefix, satisfied", ">=1.5.0", "1.5.0", false},
+		{"v prefix on current", "1.5.0", "v1.5.0", false},
+		{"v prefix on both, older", "v1.5.0", "v1.4.0", true},
+		{"dev build passes", "1.5.0", "dev", false},
+		{"pseudo/pre-release passes", "1.5.0", "v0.0.0-20240101000000-abcdef", false},
+		{"empty current passes", "1.5.0", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkVersionRequirement(tt.required, tt.current)
+			if tt.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestGenerator_RawBinarySource(t *testing.T) {
 	dir := t.TempDir()
 	// Bytes that text/template would corrupt or outright fail to parse: a

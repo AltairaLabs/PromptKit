@@ -11,6 +11,8 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/version"
 )
 
 // Generator handles template generation and file creation
@@ -34,6 +36,17 @@ func (g *Generator) Generate(config *TemplateConfig) (*GenerationResult, error) 
 	result := g.initializeResult(config)
 	g.config = config
 
+	// Fail fast — before creating anything — if this promptarena is too old for
+	// the template (e.g. lacks raw-file support). Better a clear error than a
+	// silently broken scaffold.
+	if g.template.Spec.Requires != nil {
+		if err := checkVersionRequirement(g.template.Spec.Requires.CLIVersion, version.GetVersion()); err != nil {
+			result.Errors = append(result.Errors, err)
+			result.Duration = time.Since(startTime)
+			return result, err
+		}
+	}
+
 	if err := g.createProjectDirectory(result); err != nil {
 		result.Duration = time.Since(startTime)
 		return result, err
@@ -48,6 +61,29 @@ func (g *Generator) Generate(config *TemplateConfig) (*GenerationResult, error) 
 	result.Success = len(result.Errors) == 0
 
 	return result, nil
+}
+
+// checkVersionRequirement returns an error when the running promptarena version
+// is older than the template's required minimum (spec.requires.cli_version).
+// An empty requirement is satisfied. A dev / untagged / pseudo / pre-release
+// current version can't be compared cleanly, so it's allowed rather than risk a
+// false rejection. The requirement may be a bare "1.5.0" or ">=1.5.0".
+func checkVersionRequirement(required, current string) error {
+	required = strings.TrimSpace(required)
+	if required == "" {
+		return nil
+	}
+	if current == "" || strings.Contains(current, "dev") || strings.Contains(current, "-") {
+		return nil
+	}
+	minVer := strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(required, ">=")), "v")
+	cur := strings.TrimPrefix(current, "v")
+	if compareSemver(cur, minVer) < 0 {
+		return fmt.Errorf(
+			"this template requires promptarena >= %s, but the current version is %s; please upgrade promptarena",
+			minVer, current)
+	}
+	return nil
 }
 
 func (g *Generator) initializeResult(config *TemplateConfig) *GenerationResult {
