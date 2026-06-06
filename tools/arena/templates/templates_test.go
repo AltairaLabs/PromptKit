@@ -422,6 +422,46 @@ spec:
 	assert.Equal(t, "Hello world", string(data))
 }
 
+func TestGenerator_RawBinarySource(t *testing.T) {
+	dir := t.TempDir()
+	// Bytes that text/template would corrupt or outright fail to parse: a
+	// template action, invalid UTF-8, a NUL byte, and an unterminated "{{".
+	// With raw:true the file must be copied byte-for-byte regardless.
+	blob := []byte("{{.name}}\xff\xfe\x00 binary tail {{")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "blob.bin"), blob, 0o644))
+
+	templateContent := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Template
+metadata:
+  name: raw-test
+spec:
+  files:
+    - path: blob.bin
+      source: blob.bin
+      raw: true
+`
+	templatePath := filepath.Join(dir, "template.yaml")
+	require.NoError(t, os.WriteFile(templatePath, []byte(templateContent), 0o644))
+
+	loader := NewLoader("")
+	tmpl, err := loader.LoadFromFile(templatePath)
+	require.NoError(t, err)
+
+	generator := NewGenerator(tmpl, loader)
+	result, err := generator.Generate(&TemplateConfig{
+		ProjectName: "proj",
+		OutputDir:   dir,
+		Variables:   map[string]interface{}{"name": "world"},
+		Template:    tmpl,
+	})
+	require.NoError(t, err)
+	require.True(t, result.Success)
+
+	got, err := os.ReadFile(filepath.Join(dir, "proj", "blob.bin"))
+	require.NoError(t, err)
+	assert.Equal(t, blob, got, "raw source must be copied byte-for-byte")
+}
+
 func TestGenerator_Hooks(t *testing.T) {
 	tmpl := &Template{
 		APIVersion: "promptkit.altairalabs.ai/v1alpha1",

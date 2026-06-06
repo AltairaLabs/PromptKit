@@ -248,6 +248,14 @@ func (g *Generator) resolveSourceContent(
 		return "", err
 	}
 
+	// Raw sources (binary fixtures: audio, images) are copied byte-for-byte.
+	// Go strings preserve arbitrary bytes, and os.WriteFile writes them back
+	// verbatim, so this round-trip is lossless — unlike template rendering,
+	// which would mangle non-UTF-8 bytes and misparse any {{ }} sequences.
+	if fileSpec.Raw {
+		return string(data), nil
+	}
+
 	content, err := g.renderTemplate("source", string(data), vars)
 	if err != nil {
 		return "", fmt.Errorf("failed to render source content for %s: %w", outputPath, err)
