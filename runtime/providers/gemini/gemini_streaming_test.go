@@ -257,6 +257,44 @@ func TestStreamResponse_IncrementalParsing(t *testing.T) {
 		}
 	})
 
+	// Regression: a terminal chunk that carries a finishReason but no content
+	// parts must surface as an error, not a silent empty success. Gemini emits
+	// this for UNEXPECTED_TOOL_CALL / SAFETY / RECITATION / MAX_TOKENS. The
+	// non-streaming path (handleGeminiFinishReason) already errors on these;
+	// the streaming path used to swallow them.
+	t.Run("terminal finish reason with no content surfaces an error", func(t *testing.T) {
+		for _, reason := range []string{"UNEXPECTED_TOOL_CALL", "SAFETY", "RECITATION", "MAX_TOKENS"} {
+			t.Run(reason, func(t *testing.T) {
+				responses := []geminiResponse{
+					{
+						Candidates:    []geminiCandidate{{FinishReason: reason}},
+						UsageMetadata: &geminiUsage{PromptTokenCount: 224},
+					},
+				}
+				body := marshalJSONArray(t, responses)
+				outChan := make(chan providers.StreamChunk, 10)
+
+				provider.streamResponse(context.Background(), io.NopCloser(body), outChan)
+
+				chunks := collectChunks(t, outChan)
+
+				var errChunk *providers.StreamChunk
+				for i := range chunks {
+					if chunks[i].Error != nil {
+						errChunk = &chunks[i]
+					}
+				}
+				if errChunk == nil {
+					t.Fatalf("expected an error chunk for content-less %s, got %d chunks: %+v", reason, len(chunks), chunks)
+				}
+				// The surfaced error must name the finish reason for diagnosis.
+				if !strings.Contains(errChunk.Error.Error(), reason) {
+					t.Errorf("error should name finish reason %q, got: %v", reason, errChunk.Error)
+				}
+			})
+		}
+	})
+
 	t.Run("handles tool calls", func(t *testing.T) {
 		responses := []geminiResponse{
 			{

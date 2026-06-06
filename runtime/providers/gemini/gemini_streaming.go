@@ -84,11 +84,9 @@ func (p *Provider) processGeminiStreamChunk(
 	}
 
 	candidate := chunk.Candidates[0]
-	if len(candidate.Content.Parts) == 0 {
-		return totalTokens, toolCalls, false
-	}
 
-	// Process all parts in the candidate
+	// Process all parts in the candidate (a no-op when Parts is empty — an
+	// empty-parts chunk may still carry a terminal finishReason, handled below).
 	for i, part := range candidate.Content.Parts {
 		// Handle text content
 		if part.Text != "" {
@@ -124,6 +122,23 @@ func (p *Provider) processGeminiStreamChunk(
 	}
 
 	if candidate.FinishReason != "" {
+		// A terminal chunk that produced no text and no tool calls across the
+		// whole stream means the model was blocked or refused (SAFETY,
+		// RECITATION, MAX_TOKENS, UNEXPECTED_TOOL_CALL, ...). Surface it as an
+		// error instead of silently emitting an empty success — this mirrors
+		// the non-streaming handleGeminiFinishReason path, which already errors
+		// on a content-less terminal response.
+		if sb.Len() == 0 && len(toolCalls) == 0 {
+			outChan <- providers.StreamChunk{
+				Error: fmt.Errorf(
+					"gemini stream ended with finish reason %q and no content",
+					candidate.FinishReason,
+				),
+				FinishReason: &candidate.FinishReason,
+			}
+			return totalTokens, toolCalls, true
+		}
+
 		finalChunk := providers.StreamChunk{
 			Content:      sb.String(),
 			TokenCount:   totalTokens,

@@ -1366,6 +1366,28 @@ func TestProviderStage_BuildProviderTools_EmptyAllowedTools(t *testing.T) {
 	assert.Empty(t, toolChoice)
 }
 
+func TestProviderStage_BuildProviderTools_ToolChoiceNoneSendsNoTools(t *testing.T) {
+	// tool_choice: none means the model cannot call tools this turn. Sending
+	// the tool declarations anyway wastes tokens and, on some models, primes
+	// spurious tool calls. buildProviderTools must return nil so the provider
+	// uses the non-tool path and sends no declarations / tool_config.
+	registry := tools.NewRegistry()
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "Test",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	toolPolicy := &pipeline.ToolPolicy{ToolChoice: "none"}
+	stage := NewProviderStage(provider, registry, toolPolicy, nil)
+
+	providerTools, _, err := stage.buildProviderTools([]string{"test_tool"}, nil)
+
+	require.NoError(t, err)
+	assert.Nil(t, providerTools, "tool_choice=none must not send tool declarations")
+}
+
 func TestProviderStage_BuildProviderTools_NilRegistry(t *testing.T) {
 	// Test that nil registry returns nil tools
 	provider := mock.NewToolProvider("test", "model", false, nil)
