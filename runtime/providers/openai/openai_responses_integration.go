@@ -78,18 +78,15 @@ func transformToResponsesCallID(callID string) string {
 	return "fc_" + callID
 }
 
-// getAPIMode determines which API to use based on config and model.
-// Priority:
-//  1. Model requirement (o1-pro requires responses)
-//  2. Explicit config setting
-//  3. Default to Responses API
+// getAPIMode determines which OpenAI API to use. Priority:
+//  1. Explicit config (additional_config.api_mode) — data-driven, always wins.
+//  2. requiresResponsesAPI fallback — for Responses-only models when the
+//     config doesn't declare a mode.
+//  3. Default to the legacy Chat Completions API.
+//
+// Config-first ordering means a provider config is the source of truth; the
+// model-name heuristic is only a best-effort default for undeclared configs.
 func getAPIMode(model string, additionalConfig map[string]any) APIMode {
-	// If model requires Responses API, use it regardless of config
-	if requiresResponsesAPI(model) {
-		return APIModeResponses
-	}
-
-	// Check explicit config for legacy API
 	if additionalConfig != nil {
 		if mode, ok := additionalConfig["api_mode"].(string); ok {
 			switch strings.ToLower(mode) {
@@ -101,8 +98,11 @@ func getAPIMode(model string, additionalConfig map[string]any) APIMode {
 		}
 	}
 
-	// Default to Responses API
-	return APIModeResponses
+	if requiresResponsesAPI(model) {
+		return APIModeResponses
+	}
+
+	return APIModeCompletions
 }
 
 // Responses API response structures

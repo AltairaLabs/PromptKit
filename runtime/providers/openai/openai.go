@@ -43,7 +43,8 @@ const (
 const oSeriesMinLen = 2
 
 // isOSeriesModel checks if a model is an OpenAI o-series reasoning model.
-// O-series models (o1, o3, o4, etc.) don't support temperature, top_p, or max_tokens.
+// O-series models (o1, o3, o4, etc.) don't support temperature or top_p. Used
+// only as a fallback when a provider config doesn't declare unsupported_params.
 func isOSeriesModel(model string) bool {
 	if len(model) < oSeriesMinLen {
 		return false
@@ -183,9 +184,11 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 	}
 
 	unsupported := cfg.UnsupportedParams
-	// o-series reasoning models don't accept temperature/top_p. (The output
-	// token limit is handled uniformly by addMaxTokensToRequest, which already
-	// defaults to max_completion_tokens, so it's not listed here.)
+	// Fallback for configs that don't declare unsupported_params: o-series
+	// reasoning models don't accept temperature/top_p. Prefer declaring this in
+	// the provider config; the model-name check is only a best-effort default.
+	// (The output token limit is handled uniformly by addMaxTokensToRequest,
+	// which defaults to max_completion_tokens, so it's not listed here.)
 	if len(unsupported) == 0 && isOSeriesModel(cfg.Model) {
 		unsupported = []string{"temperature", "top_p"}
 	}
@@ -595,8 +598,10 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 
 // Predict sends a predict request to OpenAI
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	// Responses-only models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
-	if requiresResponsesAPI(p.model) {
+	// Route to the Responses API when selected (config or the requiresResponsesAPI
+	// fallback, via getAPIMode), mirroring PredictWithTools. Responses-only
+	// models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
+	if p.apiMode == APIModeResponses {
 		resp, _, err := p.predictWithResponses(ctx, req, nil, "")
 		return resp, err
 	}
@@ -678,10 +683,10 @@ func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 		return p.predictStreamBedrockFallback(ctx, req)
 	}
 
-	// Responses-only models (gpt-5-pro, o1-pro, ...) 404 on chat/completions,
-	// so the non-tool streaming path must use the Responses API for them too
-	// (the tool path already does).
-	if requiresResponsesAPI(p.model) {
+	// Route to the Responses API when selected (config or the requiresResponsesAPI
+	// fallback, via getAPIMode), mirroring PredictStreamWithTools. Responses-only
+	// models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
+	if p.apiMode == APIModeResponses {
 		return p.predictStreamWithResponses(ctx, req, nil, "")
 	}
 
