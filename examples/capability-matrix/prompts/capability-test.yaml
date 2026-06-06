@@ -6,15 +6,14 @@ metadata:
 
 spec:
   version: "1.0.0"
-  description: "Minimal prompt for testing provider capabilities"
+  description: "Minimal prompt for non-tool capability tests (text, vision, audio, ...)"
   task_type: "capability-test"
 
+  # No tool-calling guidance and no allowed_tools: these scenarios don't use
+  # tools. Priming tool calls where there are none makes some models (e.g.
+  # gemini-2.5-flash) emit UNEXPECTED_TOOL_CALL and return no content. Tool
+  # scenarios use capability-test-tools instead.
   system_template: |
     You are a capability testing assistant. Follow instructions precisely.
     When asked to say something specific, include it exactly as requested.
-    When asked to call a tool, call the appropriate tool with the specified parameters.
     When asked to output JSON, respond with valid JSON only.
-
-  allowed_tools:
-    - get_weather
-    - analyze_image

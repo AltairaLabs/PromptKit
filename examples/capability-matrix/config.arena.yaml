@@ -8,6 +8,8 @@ spec:
   prompt_configs:
     - id: capability-test
       file: prompts/capability-test.yaml
+    - id: capability-test-tools
+      file: prompts/capability-test-tools.yaml
 
   providers:
     # ==========================================================================

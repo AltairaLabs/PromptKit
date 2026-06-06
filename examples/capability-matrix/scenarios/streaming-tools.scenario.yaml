@@ -6,7 +6,7 @@ metadata:
 
 spec:
   id: streaming-tools
-  task_type: capability-test
+  task_type: capability-test-tools
   description: "Test streaming with tool calls"
   required_capabilities:
     - streaming
@@ -15,7 +15,7 @@ spec:
   providers:
     - openai-gpt41-mini
     - anthropic-sonnet4
-    - gemini-20-flash
+    - gemini-35-flash
 
   turns:
     - role: user
