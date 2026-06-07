@@ -203,7 +203,7 @@ func TestIntFromConfig(t *testing.T) {
 
 func TestResolveEmbeddingCredential_FromEnv(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-env-test")
-	cred, err := providers.ResolveEmbeddingCredential(context.Background(), "openai", "", nil)
+	cred, err := providers.ResolveEmbeddingCredential(context.Background(), "openai", "", nil, nil)
 	if err != nil {
 		t.Fatalf("ResolveEmbeddingCredential: %v", err)
 	}

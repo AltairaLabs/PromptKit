@@ -105,6 +105,14 @@ func WithHTTPClient(client *http.Client) EmbeddingOption {
 	}
 }
 
+// WithPlatformAuth marks the provider as authenticated by its HTTP
+// client's transport, skipping the empty-API-key guard.
+func WithPlatformAuth() EmbeddingOption {
+	return func(p *EmbeddingProvider) {
+		p.PlatformAuth = true
+	}
+}
+
 // WithInputType sets the input type for retrieval optimization.
 // Use "query" for search queries and "document" for documents to be indexed.
 func WithInputType(inputType string) EmbeddingOption {
@@ -131,13 +139,15 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 		opt(p)
 	}
 
-	// Get API key from environment if not set
-	if p.APIKey == "" {
-		p.APIKey = os.Getenv("VOYAGE_API_KEY")
-	}
-
-	if p.APIKey == "" {
-		return nil, fmt.Errorf("voyage AI API key not found: set VOYAGE_API_KEY environment variable")
+	// Platform auth is applied by the HTTP client's transport; static key
+	// path only applies when not in platform mode.
+	if !p.PlatformAuth {
+		if p.APIKey == "" {
+			p.APIKey = os.Getenv("VOYAGE_API_KEY")
+		}
+		if p.APIKey == "" {
+			return nil, fmt.Errorf("voyage AI API key not found: set VOYAGE_API_KEY environment variable")
+		}
 	}
 
 	return p, nil

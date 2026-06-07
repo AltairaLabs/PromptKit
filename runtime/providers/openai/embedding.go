@@ -83,6 +83,15 @@ func WithEmbeddingHTTPClient(client *http.Client) EmbeddingOption {
 	}
 }
 
+// WithEmbeddingPlatformAuth marks the provider as authenticated by its
+// HTTP client's transport (hyperscaler platform auth), so the empty-API-key
+// guard in NewEmbeddingProvider is skipped.
+func WithEmbeddingPlatformAuth() EmbeddingOption {
+	return func(p *EmbeddingProvider) {
+		p.PlatformAuth = true
+	}
+}
+
 // NewEmbeddingProvider creates an OpenAI embedding provider.
 func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	p := &EmbeddingProvider{
@@ -101,14 +110,16 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 		opt(p)
 	}
 
-	// Get API key from environment if not set
-	if p.APIKey == "" {
-		_, apiKey := providers.NewBaseProviderWithAPIKey("", false, "OPENAI_API_KEY", "OPENAI_TOKEN")
-		p.APIKey = apiKey
-	}
-
-	if p.APIKey == "" {
-		return nil, fmt.Errorf("OpenAI API key not found: set OPENAI_API_KEY environment variable")
+	// Platform auth is applied by the HTTP client's transport; the static
+	// key path (env fallback + guard) only applies when not in platform mode.
+	if !p.PlatformAuth {
+		if p.APIKey == "" {
+			_, apiKey := providers.NewBaseProviderWithAPIKey("", false, "OPENAI_API_KEY", "OPENAI_TOKEN")
+			p.APIKey = apiKey
+		}
+		if p.APIKey == "" {
+			return nil, fmt.Errorf("OpenAI API key not found: set OPENAI_API_KEY environment variable")
+		}
 	}
 
 	return p, nil

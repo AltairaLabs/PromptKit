@@ -166,6 +166,11 @@ type EmbeddingProviderConfig struct {
 	// chat-provider credential block.
 	//nolint:lll // jsonschema tags require single line
 	Credential *CredentialConfig `yaml:"credential,omitempty" json:"credential,omitempty" jsonschema:"title=Credential,description=API key resolution"`
+	// Platform identifies hyperscaler hosting (azure/bedrock/vertex) for
+	// keyless auth, mirroring the chat Provider.Platform block. Only
+	// "azure" (with an OpenAI-wire provider) is functional today.
+	//nolint:lll // jsonschema tags require single line
+	Platform *PlatformConfig `yaml:"platform,omitempty" json:"platform,omitempty" jsonschema:"title=Platform,description=Hyperscaler platform hosting for keyless auth (azure/bedrock/vertex)"`
 	// AdditionalConfig carries provider-specific extras (e.g. VoyageAI
 	// dimensions, input_type). Each provider documents its own keys.
 	//nolint:lll // jsonschema tags require single line

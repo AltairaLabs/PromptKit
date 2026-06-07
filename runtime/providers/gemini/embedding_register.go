@@ -6,15 +6,25 @@ import "github.com/AltairaLabs/PromptKit/runtime/providers"
 func init() {
 	providers.RegisterEmbeddingProviderFactory("gemini",
 		func(spec providers.EmbeddingProviderSpec) (providers.EmbeddingProvider, error) {
+			tr, err := providers.ResolveEmbeddingTransport(spec)
+			if err != nil {
+				return nil, err
+			}
 			opts := []EmbeddingOption{}
 			if spec.Model != "" {
 				opts = append(opts, WithGeminiEmbeddingModel(spec.Model))
 			}
-			if spec.BaseURL != "" {
-				opts = append(opts, WithGeminiEmbeddingBaseURL(spec.BaseURL))
+			if tr.BaseURL != "" {
+				opts = append(opts, WithGeminiEmbeddingBaseURL(tr.BaseURL))
 			}
-			if k := providers.APIKeyFromCredential(spec.Credential); k != "" {
-				opts = append(opts, WithGeminiEmbeddingAPIKey(k))
+			if tr.Client != nil {
+				opts = append(opts, WithGeminiEmbeddingHTTPClient(tr.Client))
+			}
+			if tr.APIKey != "" {
+				opts = append(opts, WithGeminiEmbeddingAPIKey(tr.APIKey))
+			}
+			if tr.PlatformAuth {
+				opts = append(opts, WithGeminiEmbeddingPlatformAuth())
 			}
 			return NewEmbeddingProvider(opts...)
 		},

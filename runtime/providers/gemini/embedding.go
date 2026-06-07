@@ -80,6 +80,14 @@ func WithGeminiEmbeddingHTTPClient(client *http.Client) EmbeddingOption {
 	}
 }
 
+// WithGeminiEmbeddingPlatformAuth marks the provider as authenticated by
+// its HTTP client's transport, skipping the empty-API-key guard.
+func WithGeminiEmbeddingPlatformAuth() EmbeddingOption {
+	return func(p *EmbeddingProvider) {
+		p.PlatformAuth = true
+	}
+}
+
 // NewEmbeddingProvider creates a Gemini embedding provider.
 func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	p := &EmbeddingProvider{
@@ -98,14 +106,16 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 		opt(p)
 	}
 
-	// Get API key from environment if not set
-	if p.APIKey == "" {
-		_, apiKey := providers.NewBaseProviderWithAPIKey("", false, "GEMINI_API_KEY", "GOOGLE_API_KEY")
-		p.APIKey = apiKey
-	}
-
-	if p.APIKey == "" {
-		return nil, fmt.Errorf("gemini API key not found: set GEMINI_API_KEY environment variable")
+	// Platform auth is applied by the HTTP client's transport; static key
+	// path only applies when not in platform mode.
+	if !p.PlatformAuth {
+		if p.APIKey == "" {
+			_, apiKey := providers.NewBaseProviderWithAPIKey("", false, "GEMINI_API_KEY", "GOOGLE_API_KEY")
+			p.APIKey = apiKey
+		}
+		if p.APIKey == "" {
+			return nil, fmt.Errorf("gemini API key not found: set GEMINI_API_KEY environment variable")
+		}
 	}
 
 	return p, nil

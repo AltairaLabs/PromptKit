@@ -17,6 +17,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/sandbox"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+
 	// Side-effect imports register embedding-provider factories so
 	// CreateEmbeddingProviderFromSpec can resolve declarative entries.
 	// Chat-provider factories register through other SDK paths.
@@ -324,7 +325,11 @@ func applyEmbeddingProviders(c *config, specs []pkgconfig.EmbeddingProviderConfi
 		if _, exists := c.embeddingProviders[id]; exists {
 			return fmt.Errorf("embedding provider %q: duplicate ID", id)
 		}
-		cred, err := providers.ResolveEmbeddingCredential(context.Background(), ep.Type, "", ep.Credential)
+		var platform string
+		if ep.Platform != nil {
+			platform = ep.Platform.Type
+		}
+		cred, err := providers.ResolveEmbeddingCredential(context.Background(), ep.Type, "", ep.Credential, ep.Platform)
 		if err != nil {
 			return fmt.Errorf("embedding provider %q: resolving credential: %w", id, err)
 		}
@@ -334,6 +339,8 @@ func applyEmbeddingProviders(c *config, specs []pkgconfig.EmbeddingProviderConfi
 			Model:            ep.Model,
 			BaseURL:          ep.BaseURL,
 			Credential:       cred,
+			Platform:         platform,
+			PlatformConfig:   ep.Platform,
 			AdditionalConfig: ep.AdditionalConfig,
 		})
 		if err != nil {

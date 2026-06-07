@@ -50,6 +50,11 @@
           "title": "Credential",
           "description": "API key resolution"
         },
+        "platform": {
+          "$ref": "#/$defs/PlatformConfig",
+          "title": "Platform",
+          "description": "Hyperscaler platform hosting for keyless auth (azure/bedrock/vertex)"
+        },
         "additional_config": {
           "type": "object",
           "title": "Additional Config",

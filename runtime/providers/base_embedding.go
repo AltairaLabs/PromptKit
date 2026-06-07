@@ -29,6 +29,10 @@ type BaseEmbeddingProvider struct {
 	Dimensions    int
 	ProviderID    string
 	BatchSize     int
+	// PlatformAuth indicates the HTTPClient's transport applies
+	// hyperscaler-platform auth (Azure Bearer, etc.) per request, so the
+	// per-provider empty-API-key guard must be skipped.
+	PlatformAuth bool
 }
 
 // NewBaseEmbeddingProvider creates a base embedding provider with defaults.
