@@ -79,14 +79,17 @@ func CreateEmbeddingProviderFromSpec(spec EmbeddingProviderSpec) (EmbeddingProvi
 // ResolveEmbeddingCredential resolves an embedding provider's
 // credential block into a concrete Credential, applying the same
 // fallback chain as chat providers (api_key → file → env → default
-// env vars). Exposed as a helper for the SDK runtime-config layer.
+// env vars). When platform is non-empty, the platform branch produces a
+// platform credential (e.g. AzureCredential) instead of an API key.
+// Exposed as a helper for the SDK runtime-config layer.
 func ResolveEmbeddingCredential(ctx context.Context, providerType string,
-	cfgDir string, cred *credentials.CredentialConfig,
+	cfgDir string, cred *credentials.CredentialConfig, platform *credentials.PlatformConfig,
 ) (credentials.Credential, error) {
 	return credentials.Resolve(ctx, credentials.ResolverConfig{
 		ProviderType:     providerType,
 		CredentialConfig: cred,
 		ConfigDir:        cfgDir,
+		PlatformConfig:   platform,
 	})
 }
 
