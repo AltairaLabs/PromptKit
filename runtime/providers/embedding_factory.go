@@ -29,6 +29,13 @@ type EmbeddingProviderSpec struct {
 	// AdditionalConfig carries provider-specific extras (voyage
 	// dimensions/input_type, etc.). Unknown keys are ignored.
 	AdditionalConfig map[string]any
+	// Platform identifies the hosting platform ("azure", "bedrock",
+	// "vertex"). Empty means direct API access via Credential. Mirrors
+	// ProviderSpec.Platform on the chat path.
+	Platform string
+	// PlatformConfig holds platform-specific settings (endpoint, region,
+	// api_version). Only set when Platform != "".
+	PlatformConfig *PlatformConfig
 }
 
 // EmbeddingProviderFactory builds an EmbeddingProvider from a spec.
