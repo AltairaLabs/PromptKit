@@ -1085,6 +1085,39 @@ func findSubstring(s, substr string) bool {
 	return false
 }
 
+func TestCalculateCost_UnknownModelReportsZero(t *testing.T) {
+	// A local / self-hosted model (custom base_url, unknown model name, no
+	// pricing configured) has no real per-token cost. Reporting a fabricated
+	// dollar figure from GPT-4o rates is misleading — it must report zero.
+	provider := NewProvider("local", "llama-3.1-70b-instruct", "http://localhost:8000/v1", providers.ProviderDefaults{}, false)
+
+	cost := provider.CalculateCost(1000, 1000, 0)
+
+	if cost.TotalCost != 0 {
+		t.Errorf("expected zero cost for unknown/local model, got %v", cost.TotalCost)
+	}
+	if cost.InputCostUSD != 0 || cost.OutputCostUSD != 0 {
+		t.Errorf("expected zero input/output cost, got in=%v out=%v", cost.InputCostUSD, cost.OutputCostUSD)
+	}
+	// Token accounting must still be correct.
+	if cost.InputTokens != 1000 || cost.OutputTokens != 1000 {
+		t.Errorf("token accounting wrong: in=%d out=%d", cost.InputTokens, cost.OutputTokens)
+	}
+}
+
+func TestCalculateCost_KnownGPT4oStillPriced(t *testing.T) {
+	// Regression guard: gpt-4o is a known model and must keep real pricing even
+	// though it previously shared the unknown-model default branch.
+	provider := NewProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+
+	cost := provider.CalculateCost(1000, 1000, 0)
+
+	expected := 0.0025 + 0.01
+	if diff := cost.TotalCost - expected; diff < -0.0001 || diff > 0.0001 {
+		t.Errorf("gpt-4o TotalCost = %v, want %v", cost.TotalCost, expected)
+	}
+}
+
 func TestCalculateCost_FallbackPricing(t *testing.T) {
 	// Test fallback pricing for different models (no pricing configured)
 	tests := []struct {
@@ -1128,12 +1161,12 @@ func TestCalculateCost_FallbackPricing(t *testing.T) {
 			expectedTotal: 0.0025 + 0.01, // default pricing
 		},
 		{
-			name:          "unknown model uses default pricing",
+			name:          "unknown model reports zero (no fabricated pricing)",
 			model:         "unknown-model",
 			inputTokens:   1000,
 			outputTokens:  1000,
 			cachedTokens:  0,
-			expectedTotal: 0.0025 + 0.01, // default pricing
+			expectedTotal: 0, // unknown models have no reliable price; report zero
 		},
 		{
 			name:          "gpt-4 with cached tokens",

@@ -627,9 +627,6 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 		// Assume cached tokens cost 50% of input tokens
 		cachedCostPer1K = inputCostPer1K * 0.5
 	} else {
-		// Fallback to hardcoded pricing with warning
-		logger.Warn("No pricing configured, using fallback pricing", "provider", p.ID(), "model", p.model)
-
 		switch p.model {
 		case "gpt-4":
 			inputCostPer1K = 0.03   // $0.03 per 1K input tokens
@@ -644,12 +641,19 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 			outputCostPer1K = 0.002   // $0.002 per 1K output tokens
 			cachedCostPer1K = 0.00075 // $0.00075 per 1K cached tokens (50% discount)
 		case "gpt-4o":
-			fallthrough // Use default GPT-4o pricing
-		default:
-			// Default to GPT-4o pricing for unknown models
 			inputCostPer1K = defaultInputCostPer1K
 			outputCostPer1K = defaultOutputCostPer1K
 			cachedCostPer1K = defaultCachedCostPer1K
+		default:
+			// Unknown model (e.g. a local/self-hosted server behind a custom
+			// base_url): there is no reliable price. Report zero rather than
+			// fabricate a cost from GPT-4o rates. Configure `pricing` on the
+			// provider to get real cost numbers for unrecognized models.
+			logger.Warn("No pricing configured for unknown model; reporting zero cost",
+				"provider", p.ID(), "model", p.model)
+			inputCostPer1K = 0
+			outputCostPer1K = 0
+			cachedCostPer1K = 0
 		}
 	}
 
