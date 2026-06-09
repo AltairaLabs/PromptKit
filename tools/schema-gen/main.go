@@ -245,17 +245,19 @@ func formatExistingSchemas(outputPath string) error {
 			return fmt.Errorf("failed to read %s: %w", file, err)
 		}
 
-		var schema interface{}
-		if unmarshalErr := json.Unmarshal(data, &schema); unmarshalErr != nil {
-			return fmt.Errorf("failed to parse %s: %w", file, unmarshalErr)
+		// Re-indent in place with json.Indent, which preserves the original key
+		// order. Round-tripping through a map (Unmarshal → MarshalIndent) sorts
+		// keys alphabetically, which diverges from the canonical invopop-ordered
+		// generate output and silently rewrites every schema — breaking the
+		// `--check` CI guard.
+		var buf bytes.Buffer
+		if indentErr := json.Indent(&buf, data, "", "  "); indentErr != nil {
+			return fmt.Errorf("failed to format %s: %w", file, indentErr)
 		}
-
-		formatted, err := json.MarshalIndent(schema, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format %s: %w", file, err)
-		}
-
-		formatted = append(formatted, '\n')
+		// json.Indent preserves any trailing newline from the source; normalise
+		// to exactly one so the result matches the canonical generate output
+		// (MarshalIndent + a single "\n") byte-for-byte.
+		formatted := append(bytes.TrimRight(buf.Bytes(), "\n"), '\n')
 
 		if err := os.WriteFile(file, formatted, filePermissions); err != nil {
 			return fmt.Errorf("failed to write %s: %w", file, err)
