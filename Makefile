@@ -71,7 +71,16 @@ build-arena: ## Build promptarena CLI (includes frontend if node_modules present
 
 build-packc: ## Build packc CLI
 	@echo "Building packc..."
-	@cd tools/packc && go build -o ../../bin/packc .
+	@COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
+	BRANCH=$$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown"); \
+	LATEST_TAG=$$(git tag -l "tools/packc/v*" --sort=-v:refname | head -1 | sed 's|^tools/packc/||'); \
+	if git describe --tags --match "tools/packc/v*" --dirty 2>/dev/null | grep -q "tools/packc"; then \
+		VERSION=$$(git describe --tags --match "tools/packc/v*" --dirty 2>/dev/null | sed 's|^tools/packc/||'); \
+	else \
+		DIRTY=$$(git diff --quiet 2>/dev/null || echo "-dirty"); \
+		VERSION="$$LATEST_TAG-$$BRANCH+$$COMMIT$$DIRTY"; \
+	fi; \
+	cd tools/packc && go build -ldflags "-X main.version=$$VERSION" -o ../../bin/packc .
 	@echo "packc built successfully -> bin/packc"
 
 build-inspect-state: ## Build inspect-state utility
