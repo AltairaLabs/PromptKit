@@ -54,6 +54,12 @@ type StreamChunk struct {
 	// Delta is the new content in this chunk
 	Delta string `json:"delta"`
 
+	// Reasoning carries reasoning/thinking tokens emitted by reasoning models
+	// (e.g. OpenAI o-series) before any visible content. Reasoning chunks act
+	// as keepalives that reset the idle timer; they carry no visible Delta and
+	// must not be appended to the content stream.
+	Reasoning string `json:"reasoning,omitempty"`
+
 	// MediaData contains raw streaming media bytes (audio, video, images).
 	// Data is always raw bytes, never base64. Providers decode at source.
 	MediaData *StreamMediaData `json:"-"`

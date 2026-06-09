@@ -2,6 +2,7 @@ package providers
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -18,8 +19,9 @@ type IdleTimeoutReader struct {
 	timeout time.Duration
 	timer   *time.Timer
 
-	mu     sync.Mutex
-	closed bool
+	mu       sync.Mutex
+	closed   bool
+	timedOut bool
 }
 
 // NewIdleTimeoutReader wraps the given reader with idle timeout detection.
@@ -37,6 +39,7 @@ func NewIdleTimeoutReader(r io.ReadCloser, timeout time.Duration) *IdleTimeoutRe
 		defer itr.mu.Unlock()
 		if !itr.closed {
 			itr.closed = true
+			itr.timedOut = true
 			itr.inner.Close()
 		}
 	})
@@ -45,10 +48,21 @@ func NewIdleTimeoutReader(r io.ReadCloser, timeout time.Duration) *IdleTimeoutRe
 }
 
 // Read reads from the underlying reader and resets the idle timer on success.
+// If the idle timer fired and closed the underlying reader, the resulting read
+// error is reported as ErrStreamIdleTimeout so callers can distinguish a
+// deliberate idle abort from a transient network drop.
 func (r *IdleTimeoutReader) Read(p []byte) (int, error) {
 	n, err := r.inner.Read(p)
 	if n > 0 {
 		r.timer.Reset(r.timeout)
+	}
+	if err != nil {
+		r.mu.Lock()
+		timedOut := r.timedOut
+		r.mu.Unlock()
+		if timedOut {
+			return n, fmt.Errorf("%w: %v", ErrStreamIdleTimeout, err)
+		}
 	}
 	return n, err
 }

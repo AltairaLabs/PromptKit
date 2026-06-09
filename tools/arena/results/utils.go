@@ -53,6 +53,7 @@ func (b *SummaryBuilder) BuildSummary(results []engine.RunResult) *ResultSummary
 
 	// Count results by status
 	passed, failed := CountResultsByStatus(results)
+	skipped := CountSkipped(results)
 	totalTests := len(results)
 
 	// Calculate performance metrics
@@ -74,7 +75,7 @@ func (b *SummaryBuilder) BuildSummary(results []engine.RunResult) *ResultSummary
 		Passed:        passed,
 		Failed:        failed,
 		Errors:        0, // Arena doesn't distinguish between failures and errors currently
-		Skipped:       0, // Arena doesn't have skipped tests currently
+		Skipped:       skipped,
 		TotalDuration: totalDuration,
 		AverageCost:   averageCost,
 		TotalCost:     totalCost,
@@ -101,6 +102,13 @@ func (b *SummaryBuilder) BuildSummary(results []engine.RunResult) *ResultSummary
 //  3. There are violations AND some assertions fail
 func CountResultsByStatus(results []engine.RunResult) (passed, failed int) {
 	for _, result := range results {
+		if result.Skipped {
+			// Skipped runs produced no result. They are neither a pass nor a
+			// hard failure — counting them as passed is the false-green that
+			// hides aborted runs. They are surfaced separately as skipped.
+			continue
+		}
+
 		if result.Error != "" {
 			// Any error = failed
 			failed++
@@ -122,6 +130,19 @@ func CountResultsByStatus(results []engine.RunResult) (passed, failed int) {
 		}
 	}
 	return passed, failed
+}
+
+// CountSkipped counts results that were skipped (e.g. a transient provider
+// error that was deliberately skipped rather than failed). Skipped runs are
+// reported separately so they are never silently folded into the pass count.
+func CountSkipped(results []engine.RunResult) int {
+	skipped := 0
+	for i := range results {
+		if results[i].Skipped {
+			skipped++
+		}
+	}
+	return skipped
 }
 
 // AllAssertionsPassed checks if all assertions in the result passed.

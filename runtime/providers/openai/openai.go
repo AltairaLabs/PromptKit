@@ -734,8 +734,12 @@ func (p *Provider) predictStreamBedrockFallback(
 type openAIStreamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content string `json:"content"`
+			// ReasoningContent carries reasoning/thinking tokens streamed by
+			// reasoning models (o-series) before any visible content. Parsing
+			// it lets us emit keepalives that reset the idle timer.
+			ReasoningContent string `json:"reasoning_content"`
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id,omitempty"`
 				Type     string `json:"type,omitempty"`
@@ -879,6 +883,19 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		}
 
 		choice := chunk.Choices[0]
+
+		// Handle reasoning deltas: reasoning models stream reasoning_content
+		// before any visible token. Emit a keepalive carrying the current
+		// content snapshot (no visible Delta) so the pipeline idle timer is
+		// reset and a long reasoning phase does not trip the idle timeout.
+		if choice.Delta.ReasoningContent != "" {
+			outChan <- providers.StreamChunk{
+				Content:    sb.String(),
+				ToolCalls:  accumulatedToolCalls,
+				TokenCount: totalTokens,
+				Reasoning:  choice.Delta.ReasoningContent,
+			}
+		}
 
 		// Handle content delta
 		if choice.Delta.Content != "" {
