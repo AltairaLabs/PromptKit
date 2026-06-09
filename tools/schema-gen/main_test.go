@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -121,6 +123,76 @@ func TestFormatExistingSchemas(t *testing.T) {
 	var result map[string]interface{}
 	if err := json.Unmarshal(formatted, &result); err != nil {
 		t.Errorf("Formatted data is not valid JSON: %v", err)
+	}
+}
+
+func TestFormatExistingSchemas_PreservesKeyOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "ordered.json")
+
+	// Canonical schema ordering is NOT alphabetical: $schema and $id come first,
+	// and property keys follow struct-declaration order (here "type" before
+	// "message"). Formatting must preserve this byte order — re-marshalling via a
+	// generic map sorts keys alphabetically, which silently rewrites every schema
+	// and breaks the `--check` CI guard.
+	original := []byte(`{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://example.com/ordered.json",
+  "type": "object",
+  "message": "x"
+}
+`)
+	if err := os.WriteFile(testFile, original, filePermissions); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := formatExistingSchemas(tmpDir); err != nil {
+		t.Fatalf("format: %v", err)
+	}
+
+	got, err := os.ReadFile(testFile)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	s := string(got)
+
+	if strings.Index(s, "$schema") > strings.Index(s, "$id") {
+		t.Errorf("key order not preserved: $schema must precede $id\n%s", s)
+	}
+	if strings.Index(s, `"type"`) > strings.Index(s, `"message"`) {
+		t.Errorf("key order not preserved: type must precede message\n%s", s)
+	}
+}
+
+func TestFormatExistingSchemas_IdempotentOnCanonicalOutput(t *testing.T) {
+	// Formatting must be byte-identical to the canonical generate output so the
+	// `--check` CI guard stays green. marshalSchema is exactly what the generate
+	// path writes; re-formatting it must not change a single byte (no key
+	// reordering, no extra trailing newline).
+	canonical, err := marshalSchema(map[string]interface{}{
+		"type":    "object",
+		"message": "x",
+	}, "test")
+	if err != nil {
+		t.Fatalf("marshalSchema: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "canonical.json")
+	if err := os.WriteFile(testFile, canonical, filePermissions); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := formatExistingSchemas(tmpDir); err != nil {
+		t.Fatalf("format: %v", err)
+	}
+
+	got, err := os.ReadFile(testFile)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !bytes.Equal(got, canonical) {
+		t.Errorf("format changed canonical output:\nwant: %q\ngot:  %q", canonical, got)
 	}
 }
 
