@@ -16,6 +16,7 @@ func GenerateScenarioSchema() (interface{}, error) {
 		Customize: func(schema *jsonschema.Schema) {
 			addScenarioOneOf(schema)
 			addScenarioExample(schema)
+			applyKnownTypeSuggestions(schema)
 		},
 	})
 }
