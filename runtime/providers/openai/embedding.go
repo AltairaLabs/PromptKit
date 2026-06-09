@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -117,7 +118,11 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 			_, apiKey := providers.NewBaseProviderWithAPIKey("", false, "OPENAI_API_KEY", "OPENAI_TOKEN")
 			p.APIKey = apiKey
 		}
-		if p.APIKey == "" {
+		// Require a key only for the canonical OpenAI endpoint. A custom base
+		// URL (a local/self-hosted server or proxy) may be keyless;
+		// DoEmbeddingRequest omits the Authorization header when no key is set,
+		// so a dummy key is never needed for keyless local servers.
+		if p.APIKey == "" && strings.Contains(p.BaseURL, "api.openai.com") {
 			return nil, fmt.Errorf("OpenAI API key not found: set OPENAI_API_KEY environment variable")
 		}
 	}
