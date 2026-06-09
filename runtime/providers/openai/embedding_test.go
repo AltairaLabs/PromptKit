@@ -48,6 +48,18 @@ func TestNewEmbeddingProvider(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "API key not found")
 	})
+
+	t.Run("keyless allowed with custom base URL", func(t *testing.T) {
+		// A local / self-hosted OpenAI-compatible embedding server (custom base
+		// URL, no auth) must not require a dummy API key. The request layer omits
+		// the Authorization header when no key is set.
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("OPENAI_TOKEN", "")
+
+		p, err := NewEmbeddingProvider(WithEmbeddingBaseURL("http://localhost:1234/v1"))
+		require.NoError(t, err, "keyless custom base URL must be allowed")
+		assert.Empty(t, p.APIKey)
+	})
 }
 
 func TestEmbeddingProvider_Embed(t *testing.T) {
