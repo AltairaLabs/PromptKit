@@ -4,6 +4,12 @@ import (
 	"github.com/invopop/jsonschema"
 )
 
+// draftSchemaVersion is the JSON Schema draft all generated schemas declare.
+const draftSchemaVersion = "https://json-schema.org/draft-07/schema"
+
+// jsonTypeString is the JSON Schema primitive type name for strings.
+const jsonTypeString = "string"
+
 // SchemaConfig holds the configuration for generating a JSON schema from a Go type.
 type SchemaConfig struct {
 	// Target is the Go struct instance to reflect (e.g., &config.ArenaConfig{}).
@@ -45,7 +51,7 @@ func Generate(cfg *SchemaConfig) (interface{}, error) {
 
 	schema := reflector.Reflect(cfg.Target)
 
-	schema.Version = "https://json-schema.org/draft-07/schema"
+	schema.Version = draftSchemaVersion
 	schema.ID = jsonschema.ID(schemaBaseURL + "/" + cfg.Filename)
 	schema.Title = cfg.Title
 	schema.Description = cfg.Description

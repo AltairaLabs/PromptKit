@@ -3,6 +3,8 @@ package generators
 import (
 	"github.com/invopop/jsonschema"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/AltairaLabs/PromptKit/pkg/config"
 )
 
 // GenerateMetadataSchema generates the JSON Schema for Kubernetes ObjectMeta
@@ -18,14 +20,22 @@ func GenerateMetadataSchema() (interface{}, error) {
 	return schema, nil
 }
 
-// GenerateAssertionsSchema generates a placeholder for assertions schema
+// GenerateAssertionsSchema generates the standalone schema for a single
+// PromptArena assertion (config.AssertionConfig). The `type` field is an open
+// enum: PromptKit-known handler types are suggested, but any string is accepted
+// so a different runtime's types are not rejected.
 func GenerateAssertionsSchema() (interface{}, error) {
-	schema := &jsonschema.Schema{
-		ID:          jsonschema.ID(schemaBaseURL + "/common/assertions.json"),
-		Title:       "PromptArena Assertions",
-		Description: "Assertion types for PromptArena scenarios",
-		Type:        "object",
-	}
+	reflector := newReflector("yaml")
+	schema := reflector.Reflect(&config.AssertionConfig{})
+
+	schema.Version = draftSchemaVersion
+	schema.ID = jsonschema.ID(schemaBaseURL + "/common/assertions.json")
+	schema.Title = "PromptArena Assertion"
+	schema.Description = "A single assertion (type + optional params) for PromptArena scenarios"
+
+	// ExpandedStruct puts AssertionConfig's fields at the top level, so apply
+	// the open type enum directly to the root schema.
+	applyOpenTypeEnum(schema, "type", knownEvalTypes(), typeEnumDescription)
 
 	return schema, nil
 }

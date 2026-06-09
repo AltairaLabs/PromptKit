@@ -95,6 +95,51 @@ func TestGenerateScenarioSchema_AssertionParamsOptional(t *testing.T) {
 	}
 }
 
+func TestScenarioSchema_AssertionTypeIsOpenEnum(t *testing.T) {
+	schema, err := GenerateScenarioSchema()
+	if err != nil {
+		t.Fatalf("GenerateScenarioSchema() error = %v", err)
+	}
+	js, ok := schema.(*jsonschema.Schema)
+	if !ok {
+		t.Fatal("GenerateScenarioSchema() did not return *jsonschema.Schema")
+	}
+
+	def, ok := js.Definitions["AssertionConfig"]
+	if !ok {
+		t.Fatal("AssertionConfig definition not found")
+	}
+	typeProp, ok := def.Properties.Get("type")
+	if !ok {
+		t.Fatal("AssertionConfig.type property not found")
+	}
+
+	// The type field must be an OPEN enum: known PromptKit handler types are
+	// offered as suggestions, but any string is still accepted so a different
+	// runtime's types are never rejected.
+	if len(typeProp.AnyOf) != 2 {
+		t.Fatalf("expected type to be an open enum (anyOf with 2 branches), got %d", len(typeProp.AnyOf))
+	}
+
+	var hasKnownEnum, hasOpenString bool
+	for _, branch := range typeProp.AnyOf {
+		for _, v := range branch.Enum {
+			if v == "contains" {
+				hasKnownEnum = true
+			}
+		}
+		if branch.Type == "string" && len(branch.Enum) == 0 {
+			hasOpenString = true
+		}
+	}
+	if !hasKnownEnum {
+		t.Error("expected an enum branch listing known handler types (e.g. 'contains')")
+	}
+	if !hasOpenString {
+		t.Error("expected an open {type:string} branch so arbitrary types are still allowed")
+	}
+}
+
 func TestGenerateProviderSchema(t *testing.T) {
 	schema, err := GenerateProviderSchema()
 	if err != nil {

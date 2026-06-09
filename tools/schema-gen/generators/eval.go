@@ -13,7 +13,10 @@ func GenerateEvalSchema() (interface{}, error) {
 		Filename:    "eval.json",
 		Title:       "PromptArena Eval Configuration",
 		Description: "Eval configuration for replaying and validating saved conversations",
-		Customize:   addEvalExample,
+		Customize: func(schema *jsonschema.Schema) {
+			addEvalExample(schema)
+			applyKnownTypeSuggestions(schema)
+		},
 	})
 }
 

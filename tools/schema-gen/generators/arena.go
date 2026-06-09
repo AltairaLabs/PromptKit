@@ -22,7 +22,10 @@ func GenerateArenaSchema() (interface{}, error) {
 		Filename:    "arena.json",
 		Title:       "PromptArena Configuration",
 		Description: "Main configuration for PromptArena test suites",
-		Customize:   addArenaExample,
+		Customize: func(schema *jsonschema.Schema) {
+			addArenaExample(schema)
+			applyKnownTypeSuggestions(schema)
+		},
 	})
 }
 
