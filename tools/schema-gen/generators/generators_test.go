@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/invopop/jsonschema"
@@ -65,6 +66,32 @@ func TestGenerateScenarioSchema(t *testing.T) {
 	expectedID := schemaBaseURL + "/scenario.json"
 	if string(jsonSchema.ID) != expectedID {
 		t.Errorf("Schema ID = %v, want %v", jsonSchema.ID, expectedID)
+	}
+}
+
+func TestGenerateScenarioSchema_AssertionParamsOptional(t *testing.T) {
+	schema, err := GenerateScenarioSchema()
+	if err != nil {
+		t.Fatalf("GenerateScenarioSchema() error = %v", err)
+	}
+	js, ok := schema.(*jsonschema.Schema)
+	if !ok {
+		t.Fatal("GenerateScenarioSchema() did not return *jsonschema.Schema")
+	}
+
+	def, ok := js.Definitions["AssertionConfig"]
+	if !ok {
+		t.Fatal("AssertionConfig definition not found in scenario schema")
+	}
+
+	// `type` is genuinely required — every assertion names a handler.
+	if !slices.Contains(def.Required, "type") {
+		t.Errorf("AssertionConfig should require 'type', got required=%v", def.Required)
+	}
+	// `params` must be OPTIONAL: param-less assertions are valid and must not
+	// need an explicit `params: {}` stub.
+	if slices.Contains(def.Required, "params") {
+		t.Errorf("AssertionConfig must not require 'params' (param-less assertions are valid), got required=%v", def.Required)
 	}
 }
 

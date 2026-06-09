@@ -23,8 +23,7 @@
       "additionalProperties": false,
       "type": "object",
       "required": [
-        "type",
-        "params"
+        "type"
       ]
     },
     "AssertionWhen": {

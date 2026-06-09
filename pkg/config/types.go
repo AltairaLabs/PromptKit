@@ -17,8 +17,11 @@ import (
 // This type is defined here (rather than in tools/arena/assertions) to avoid
 // an inverted dependency from the shared pkg/config package to the arena tool.
 type AssertionConfig struct {
-	Type    string                 `json:"type" yaml:"type"`
-	Params  map[string]interface{} `json:"params" yaml:"params"`
+	Type string `json:"type" yaml:"type"`
+	// Params is optional: many assertion types take no parameters, so an
+	// entry with only `type:` is valid and must not require an empty
+	// `params: {}` stub. omitempty also drops it from the schema's required set.
+	Params  map[string]interface{} `json:"params,omitempty" yaml:"params,omitempty"`
 	Message string                 `json:"message,omitempty" yaml:"message,omitempty"`
 	When    *AssertionWhen         `json:"when,omitempty" yaml:"when,omitempty"`
 	// PassThreshold is the minimum pass rate (0.0-1.0) required across trials.
