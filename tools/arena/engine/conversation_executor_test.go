@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
@@ -67,6 +68,26 @@ func TestConversationExecutor_HandleTurnExecutionError_NonTransientFails(t *test
 	require.False(t, result.Skipped, "non-transient error should not mark result as skipped")
 	require.Equal(t, "validation failed", result.Error)
 	require.Empty(t, result.SkipReason)
+}
+
+func TestConversationExecutor_HandleTurnExecutionError_IdleTimeoutFails(t *testing.T) {
+	// Regression guard for the false-green bug: a stream idle timeout (e.g. a
+	// reasoning model that stalled past the idle window) reaches the executor
+	// wrapped as a ProviderTransportError. It must be treated as a real failure
+	// — NOT skipped — otherwise the error is cleared and a run that never
+	// executed is reported as a green PASS.
+	ce := &DefaultConversationExecutor{}
+	req := ConversationRequest{Scenario: &config.Scenario{}}
+	idleErr := &providers.ProviderTransportError{
+		Cause:    fmt.Errorf("%w: use of closed network connection", providers.ErrStreamIdleTimeout),
+		Provider: "openai",
+	}
+
+	result := ce.handleTurnExecutionError(context.Background(), &req, idleErr, 0, config.TurnDefinition{Role: "user"})
+
+	require.True(t, result.Failed, "idle timeout must mark result as failed")
+	require.False(t, result.Skipped, "idle timeout must not be skipped (that is the false green)")
+	require.NotEmpty(t, result.Error, "idle timeout must set the Error field")
 }
 
 func TestBuildConversationContext_IncludesExtras(t *testing.T) {

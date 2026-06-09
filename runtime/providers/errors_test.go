@@ -235,6 +235,29 @@ func TestIsTransient_ContextErrorsNeverTransient(t *testing.T) {
 	}
 }
 
+func TestIsTransient_IdleTimeoutNeverTransient(t *testing.T) {
+	t.Parallel()
+	// A stream idle timeout is a deadline, not a retryable infra blip. It must
+	// never be classified as transient — otherwise Arena skips the aborted turn,
+	// clears the error, and reports a green PASS for a run that never executed.
+	if IsTransient(ErrStreamIdleTimeout) {
+		t.Error("IsTransient(ErrStreamIdleTimeout) = true, want false")
+	}
+
+	// The idle timeout reaches the executor wrapped as a ProviderTransportError
+	// (the stream classifier wraps the read failure). It must still be non-transient.
+	wrapped := &ProviderTransportError{Cause: ErrStreamIdleTimeout, Provider: "openai"}
+	if IsTransient(wrapped) {
+		t.Error("IsTransient(ErrStreamIdleTimeout wrapped in ProviderTransportError) = true, want false")
+	}
+
+	// Double-wrapped should also not be transient.
+	doubleWrapped := fmt.Errorf("stream read failed: %w", wrapped)
+	if IsTransient(doubleWrapped) {
+		t.Error("IsTransient(double-wrapped ErrStreamIdleTimeout) = true, want false")
+	}
+}
+
 func TestIsTransient_WrappedErrors(t *testing.T) {
 	t.Parallel()
 	httpErr := fmt.Errorf("outer: %w", &ProviderHTTPError{StatusCode: 503})

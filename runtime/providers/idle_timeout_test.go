@@ -79,6 +79,41 @@ func TestIdleTimeoutReader_TimeoutClosesBody(t *testing.T) {
 	}
 }
 
+func TestIdleTimeoutReader_TimeoutReturnsIdleTimeoutError(t *testing.T) {
+	sr := newSlowReader()
+	reader := NewIdleTimeoutReader(sr, 50*time.Millisecond)
+	defer reader.Close()
+
+	// No data arrives: the timer fires and closes the body. The resulting read
+	// error must be identifiable as a stream idle timeout, so it can be
+	// classified non-transient rather than mistaken for a retryable network drop.
+	buf := make([]byte, 1024)
+	_, err := reader.Read(buf)
+	if err == nil {
+		t.Fatal("expected error from idle timeout, got nil")
+	}
+	if !IsStreamIdleTimeout(err) {
+		t.Fatalf("expected error to be identifiable as ErrStreamIdleTimeout, got %v", err)
+	}
+}
+
+func TestIdleTimeoutReader_CleanEOFIsNotIdleTimeout(t *testing.T) {
+	// A normal end-of-stream (inner returns io.EOF without the timer firing)
+	// must NOT be reported as an idle timeout.
+	inner := nopCloser{strings.NewReader("")}
+	reader := NewIdleTimeoutReader(inner, 5*time.Second)
+	defer reader.Close()
+
+	buf := make([]byte, 16)
+	_, err := reader.Read(buf)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("expected io.EOF, got %v", err)
+	}
+	if IsStreamIdleTimeout(err) {
+		t.Fatal("clean EOF must not be reported as an idle timeout")
+	}
+}
+
 func TestIdleTimeoutReader_ResetOnData(t *testing.T) {
 	sr := newSlowReader()
 	reader := NewIdleTimeoutReader(sr, 100*time.Millisecond)

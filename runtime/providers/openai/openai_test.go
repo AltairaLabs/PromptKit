@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,51 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+func TestStreamResponse_ReasoningContentEmitsKeepalive(t *testing.T) {
+	// Reasoning models (o-series) stream reasoning_content deltas before any
+	// visible token. The provider must surface these as keepalive chunks so the
+	// pipeline idle timer is reset — otherwise a >30s reasoning phase trips the
+	// idle timeout and aborts the run. Reasoning deltas carry no visible text,
+	// so they must not pollute the content stream.
+	sse := strings.Join([]string{
+		`data: {"choices":[{"delta":{"reasoning_content":"Let me "}}]}`,
+		``,
+		`data: {"choices":[{"delta":{"reasoning_content":"think."}}]}`,
+		``,
+		`data: {"choices":[{"delta":{"content":"Answer"}}]}`,
+		``,
+		`data: [DONE]`,
+		``,
+		``,
+	}, "\n")
+
+	p := NewProvider("test", "o1", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
+	out := make(chan providers.StreamChunk, 16)
+	go p.streamResponse(context.Background(), io.NopCloser(strings.NewReader(sse)), out)
+
+	var reasoningChunks int
+	var lastContent string
+	for c := range out {
+		if c.Reasoning != "" {
+			reasoningChunks++
+			// A reasoning keepalive must not introduce visible text deltas.
+			if c.Delta != "" {
+				t.Errorf("reasoning keepalive carried a visible delta %q", c.Delta)
+			}
+		}
+		if c.Content != "" {
+			lastContent = c.Content
+		}
+	}
+
+	if reasoningChunks != 2 {
+		t.Fatalf("expected 2 reasoning keepalive chunks, got %d", reasoningChunks)
+	}
+	if lastContent != "Answer" {
+		t.Fatalf("expected accumulated content %q, got %q", "Answer", lastContent)
+	}
+}
 
 func TestNewProvider(t *testing.T) {
 	defaults := providers.ProviderDefaults{

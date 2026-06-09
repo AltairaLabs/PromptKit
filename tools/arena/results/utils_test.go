@@ -138,6 +138,34 @@ func TestCountResultsByStatus(t *testing.T) {
 	assert.Equal(t, 3, failed)
 }
 
+func TestCountResultsByStatus_SkippedNotCountedAsPassed(t *testing.T) {
+	// A skipped run (e.g. a transient provider error that was deliberately
+	// skipped) produced no result. It must NOT be counted as a clean pass —
+	// that is the false-green that hides aborted runs. It is also not a hard
+	// failure; it belongs in its own skipped bucket.
+	testResults := []engine.RunResult{
+		{Error: "", Skipped: true, SkipReason: "provider returned 503"},
+	}
+
+	passed, failed := results.CountResultsByStatus(testResults)
+
+	assert.Equal(t, 0, passed, "a skipped run must not be counted as passed")
+	assert.Equal(t, 0, failed, "a transient skip is not a hard failure")
+}
+
+func TestSummaryBuilder_BuildSummary_SkippedSurfaced(t *testing.T) {
+	testResults := []engine.RunResult{
+		{RunID: "r1", ScenarioID: "s1", ProviderID: "openai", Error: ""},                        // pass
+		{RunID: "r2", ScenarioID: "s1", ProviderID: "openai", Skipped: true, SkipReason: "503"}, // skipped
+	}
+
+	summary := results.NewSummaryBuilder("c.yaml").BuildSummary(testResults)
+
+	assert.Equal(t, 1, summary.Passed, "only the non-skipped run passed")
+	assert.Equal(t, 0, summary.Failed)
+	assert.Equal(t, 1, summary.Skipped, "the skipped run must be surfaced as skipped, not passed")
+}
+
 func TestCountResultsByStatus_ViolationsWithPassingAssertions(t *testing.T) {
 	// Tests the guardrail scenario: violations exist but assertions passed (guardrail_triggered)
 	testResults := []engine.RunResult{

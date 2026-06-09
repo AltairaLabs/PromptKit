@@ -51,6 +51,12 @@ func IsTransient(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	// A stream idle timeout is a deadline, not a retryable infra blip. Treating
+	// it as transient causes Arena to skip the aborted turn and report a false
+	// green, so it must never be classified as transient.
+	if IsStreamIdleTimeout(err) {
+		return false
+	}
 	var httpErr *ProviderHTTPError
 	if errors.As(err, &httpErr) {
 		return IsRetryableStreamStatus(httpErr.StatusCode)
