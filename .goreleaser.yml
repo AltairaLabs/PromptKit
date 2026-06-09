@@ -19,9 +19,10 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena/version.Version={{.Version}}
-      - -X github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena/version.Commit={{.Commit}}
-      - -X github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena/version.Date={{.Date}}
+      # main package vars (linker names package main as "main" regardless of import path)
+      - -X main.version={{.Version}}
+      - -X main.gitCommit={{.Commit}}
+      - -X main.buildDate={{.Date}}
     mod_timestamp: '{{ .CommitTimestamp }}'
 
   - id: packc
@@ -38,9 +39,8 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/AltairaLabs/PromptKit/tools/packc/version.Version={{.Version}}
-      - -X github.com/AltairaLabs/PromptKit/tools/packc/version.Commit={{.Commit}}
-      - -X github.com/AltairaLabs/PromptKit/tools/packc/version.Date={{.Date}}
+      # packc only declares main.version (no commit/date vars)
+      - -X main.version={{.Version}}
     mod_timestamp: '{{ .CommitTimestamp }}'
 
 # Archive configuration
