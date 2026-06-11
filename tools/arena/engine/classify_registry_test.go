@@ -109,9 +109,18 @@ func TestBuildClassifyRegistry_MissingAPIKeyErrors(t *testing.T) {
 }
 
 func TestBuildClassifyRegistry_UnsupportedTypeErrors(t *testing.T) {
+	// Provide a literal API key so the credential check passes and the
+	// unsupported-type error surfaces from classify.BuildRegistry.
 	cfg := &config.Config{
 		LoadedInferenceProviders: map[string]*config.Provider{
-			"x": {ID: "x", Type: "bogus", Role: config.RoleInference},
+			"x": {
+				ID:   "x",
+				Type: "bogus",
+				Role: config.RoleInference,
+				Credential: &config.CredentialConfig{
+					APIKey: "test-token",
+				},
+			},
 		},
 	}
 	_, err := buildClassifyRegistry(cfg)
@@ -165,8 +174,11 @@ func TestBuildClassifyRegistry_DefaultsReferencingUnregisteredID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when default references an unknown id")
 	}
-	if !strings.Contains(err.Error(), "audio_classifier") {
-		t.Errorf("error %q should identify which default failed", err.Error())
+	// The shared factory surfaces "audio classifier" (with space) in its
+	// error; the old bespoke code used "audio_classifier" (with underscore).
+	// Either form identifies the failing default — check for the id itself.
+	if !strings.Contains(err.Error(), "doesnotexist") {
+		t.Errorf("error %q should identify the unregistered default id", err.Error())
 	}
 }
 
