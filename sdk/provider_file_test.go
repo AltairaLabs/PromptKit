@@ -58,6 +58,29 @@ func TestApplyProviderConfig_Inference(t *testing.T) {
 	}
 }
 
+func TestApplyProviderConfig_STT(t *testing.T) {
+	c := &config{}
+	if err := c.applyProviderConfig(&pkgconfig.Provider{Type: "openai", Role: pkgconfig.RoleSTT, Credential: cred("tok")}); err != nil {
+		t.Fatalf("stt: %v", err)
+	}
+	if c.sttService == nil {
+		t.Fatal("expected sttService set")
+	}
+}
+
+func TestApplyProviderConfig_ImagePooledAsAgent(t *testing.T) {
+	c := &config{}
+	if err := c.applyProviderConfig(&pkgconfig.Provider{
+		ID: "img", Type: "imagen", Model: "imagen-4.0-generate-001",
+		Role: pkgconfig.RoleImage, Credential: cred("tok"),
+	}); err != nil {
+		t.Fatalf("image: %v", err)
+	}
+	if c.getAgentProvider() == nil {
+		t.Fatal("expected image provider to be set as the agent provider")
+	}
+}
+
 func TestApplyProviderConfig_EmbeddingPlatformRejected(t *testing.T) {
 	c := &config{}
 	err := c.applyProviderConfig(&pkgconfig.Provider{

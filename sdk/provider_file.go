@@ -61,6 +61,9 @@ func (c *config) applyProviderConfig(p *pkgconfig.Provider) error {
 	case pkgconfig.RoleInference:
 		return WithInferenceProvider(providerSpecFromConfig(p))(c)
 	default:
+		// Unreachable in practice: ValidateRole() above rejects any role not in
+		// the known set, and every known role is handled. Kept as a defensive
+		// guard against a future role being added to pkg/config without a route.
 		return fmt.Errorf("provider %q: unsupported role %q", id, p.GetRole())
 	}
 }
