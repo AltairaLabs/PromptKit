@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
@@ -18,10 +19,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
 
-	// Side-effect imports register embedding-provider factories so
-	// CreateEmbeddingProviderFromSpec can resolve declarative entries.
+	// Side-effect imports register provider factories so CreateFromSpec
+	// can resolve declarative entries.
 	// Chat-provider factories register through other SDK paths.
+	_ "github.com/AltairaLabs/PromptKit/runtime/classify/backends/all"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/imagen"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
@@ -168,6 +171,9 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	}
 	if err := applySTTProviders(c, spec.STTProviders); err != nil {
 		return fmt.Errorf("applying STT providers from runtime config: %w", err)
+	}
+	if err := applyInferenceProviders(c, spec.InferenceProviders); err != nil {
+		return fmt.Errorf("applying inference providers from runtime config: %w", err)
 	}
 
 	// Apply MCP servers
@@ -441,6 +447,80 @@ func applySTTProviders(c *config, specs []pkgconfig.STTProviderConfig) error {
 	}
 	if c.sttService == nil && len(c.sttProviderIDs) > 0 {
 		c.sttService = c.sttProviders[c.sttProviderIDs[0]]
+	}
+	return nil
+}
+
+// applyInferenceProviders builds classify backends from the declarative
+// inference_providers block and registers them on the SDK's classify
+// registry. The first declared provider implementing a task becomes that
+// task's default (first-wins, matching tts/stt service defaults). Merges
+// into any registry already created by WithInferenceProvider /
+// WithClassifier (programmatic registration runs first).
+func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfig) error {
+	if len(specs) == 0 {
+		return nil
+	}
+	c.ensureClassifyRegistry()
+	seen := make(map[string]bool, len(specs))
+	first := make(map[string]string)
+	for i := range specs {
+		ip := &specs[i]
+		id := ip.ID
+		if id == "" {
+			id = ip.Type
+		}
+		if seen[id] {
+			return fmt.Errorf("inference provider %q: duplicate ID", id)
+		}
+		seen[id] = true
+		cred, err := classify.ResolveCredential(context.Background(), ip.Type, "", ip.Credential)
+		if err != nil {
+			return fmt.Errorf("inference provider %q: resolving credential: %w", id, err)
+		}
+		backend, err := classify.CreateFromSpec(classify.ProviderSpec{
+			ID:               id,
+			Type:             ip.Type,
+			Model:            ip.Model,
+			BaseURL:          ip.BaseURL,
+			Credential:       cred,
+			AdditionalConfig: ip.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("inference provider %q: %w", id, err)
+		}
+		for _, task := range classify.RegisterBackend(c.classifyRegistry, id, backend) {
+			if _, ok := first[task]; !ok {
+				first[task] = id
+			}
+		}
+	}
+	return applyInferenceFirstWins(c.classifyRegistry, first)
+}
+
+// applyInferenceFirstWins sets each task's default to the first declared
+// provider that implements it. Ignores SetDefault errors that can only
+// occur from an unregistered id (impossible here — ids come from the
+// registration loop).
+func applyInferenceFirstWins(reg *classify.Registry, first map[string]string) error {
+	type taskSetter struct {
+		task string
+		set  func(string) error
+	}
+	for _, ts := range []taskSetter{
+		{"audio", reg.SetDefaultAudio},
+		{contentTypeText, reg.SetDefaultText},
+		{"image", reg.SetDefaultImage},
+		{"video", reg.SetDefaultVideo},
+		{"embedder", reg.SetDefaultEmbedder},
+	} {
+		id, ok := first[ts.task]
+		if !ok {
+			continue
+		}
+		if err := ts.set(id); err != nil {
+			return err
+		}
 	}
 	return nil
 }

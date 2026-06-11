@@ -1,14 +1,17 @@
 package sdk
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
 
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -117,6 +120,10 @@ type config struct {
 	ttsProviderIDs []string
 	sttProviders   map[string]stt.Service
 	sttProviderIDs []string
+
+	// Inference (classify) registry, built from declarative
+	// inference_providers and/or WithInferenceProvider / WithClassifier.
+	classifyRegistry *classify.Registry
 
 	// Auto-summarization for RAG context. The summarize provider is held
 	// in the providers pool; summarizeProviderID points at it.
@@ -397,6 +404,15 @@ func (c *config) getSummarizeProvider() providers.Provider {
 	}
 	p, _ := c.providers.Get(c.summarizeProviderID)
 	return p
+}
+
+// ensureClassifyRegistry lazy-initializes the classify registry.
+// Called by applyInferenceProviders and the WithInferenceProvider /
+// WithClassifier options before registering any backend.
+func (c *config) ensureClassifyRegistry() {
+	if c.classifyRegistry == nil {
+		c.classifyRegistry = classify.NewRegistry()
+	}
 }
 
 // CredentialOption configures credentials for a provider.
@@ -1897,6 +1913,214 @@ func WithTTS(service tts.Service) Option {
 func WithTurnDetector(detector audio.TurnDetector) Option {
 	return func(c *config) error {
 		c.turnDetector = detector
+		return nil
+	}
+}
+
+// ProviderSpec is the uniform, SDK-facing declaration for any capability
+// provider, used by WithInferenceProvider and the WithXProvider option family.
+// Fields mirror runtime base.CapabilitySpec; Credential is an unresolved
+// config that the option resolves before construction.
+type ProviderSpec struct {
+	ID               string
+	Type             string
+	Model            string
+	BaseURL          string
+	Credential       *pkgconfig.CredentialConfig
+	AdditionalConfig map[string]any
+}
+
+// idOrType returns the spec ID, falling back to Type.
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func (s ProviderSpec) idOrType() string {
+	if s.ID != "" {
+		return s.ID
+	}
+	return s.Type
+}
+
+// WithInferenceProvider registers an inference (classify) provider that the
+// SDK constructs and credential-resolves. The backend is registered against
+// every classify task interface it implements (AudioClassifier, TextClassifier,
+// etc.). The HuggingFace factory is available via the backends/all blank import
+// in runtime_config.go (same package).
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func WithInferenceProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		id := spec.idOrType()
+		cred, err := classify.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
+		if err != nil {
+			return fmt.Errorf("WithInferenceProvider %q: resolving credential: %w", id, err)
+		}
+		backend, err := classify.CreateFromSpec(classify.ProviderSpec{
+			ID:               id,
+			Type:             spec.Type,
+			Model:            spec.Model,
+			BaseURL:          spec.BaseURL,
+			Credential:       cred,
+			AdditionalConfig: spec.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
+		}
+		c.ensureClassifyRegistry()
+		if len(classify.RegisterBackend(c.classifyRegistry, id, backend)) == 0 {
+			return fmt.Errorf("WithInferenceProvider %q: backend implements no classify task interface", id)
+		}
+		return nil
+	}
+}
+
+// WithClassifier registers an already-constructed classify backend (a value
+// implementing one or more of classify's task interfaces) under id. Escape
+// hatch for in-process classifiers and test doubles; no credential resolution.
+func WithClassifier(id string, backend classify.Backend) Option {
+	return func(c *config) error {
+		if id == "" {
+			return fmt.Errorf("WithClassifier: id is required")
+		}
+		c.ensureClassifyRegistry()
+		if len(classify.RegisterBackend(c.classifyRegistry, id, backend)) == 0 {
+			return fmt.Errorf("WithClassifier %q: backend implements no classify task interface", id)
+		}
+		return nil
+	}
+}
+
+// toPkgProvider adapts a ProviderSpec to the pkgconfig.Provider shape
+// consumed by createProviderFromConfig (agent/LLM + image path).
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
+	return &pkgconfig.Provider{
+		ID:               s.idOrType(),
+		Type:             s.Type,
+		Model:            s.Model,
+		BaseURL:          s.BaseURL,
+		Credential:       s.Credential,
+		AdditionalConfig: s.AdditionalConfig,
+	}
+}
+
+// WithLLMProvider sets the conversation's agent (completion) provider from a
+// spec. Sugar over WithProvider for the uniform spec-based option family.
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func WithLLMProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		prov, err := createProviderFromConfig(spec.toPkgProvider())
+		if err != nil {
+			return fmt.Errorf("WithLLMProvider %q: %w", spec.idOrType(), err)
+		}
+		registerAgentProvider(c, prov)
+		return nil
+	}
+}
+
+// WithImageProvider sets an image-generation provider as the agent (completion)
+// provider. Image providers are Predict-compatible: the generated image is the
+// turn's response. Wired identically to WithLLMProvider; both target the single
+// agent slot (last writer wins).
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func WithImageProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		prov, err := createProviderFromConfig(spec.toPkgProvider())
+		if err != nil {
+			return fmt.Errorf("WithImageProvider %q: %w", spec.idOrType(), err)
+		}
+		registerAgentProvider(c, prov)
+		return nil
+	}
+}
+
+// WithTTSProvider builds a TTS service from a spec and sets it as the default
+// ttsService (first-wins; does not overwrite one already set by WithTTS or a
+// prior WithTTSProvider call).
+//
+//nolint:gocritic,dupl // value-semantics builder; WithSTTProvider is structurally identical on a different type.
+func WithTTSProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		cred, err := tts.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
+		if err != nil {
+			return fmt.Errorf("WithTTSProvider %q: resolving credential: %w", spec.idOrType(), err)
+		}
+		svc, err := tts.CreateFromSpec(tts.ProviderSpec{
+			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
+			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("WithTTSProvider %q: %w", spec.idOrType(), err)
+		}
+		if c.ttsProviders == nil {
+			c.ttsProviders = make(map[string]tts.Service)
+		}
+		c.ttsProviders[spec.idOrType()] = svc
+		c.ttsProviderIDs = append(c.ttsProviderIDs, spec.idOrType())
+		if c.ttsService == nil {
+			c.ttsService = svc
+		}
+		return nil
+	}
+}
+
+// WithSTTProvider builds an STT service from a spec and sets it as the default
+// sttService (first-wins; does not overwrite one already set).
+//
+//nolint:gocritic,dupl // value-semantics builder; WithTTSProvider is structurally identical on a different type.
+func WithSTTProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		cred, err := stt.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
+		if err != nil {
+			return fmt.Errorf("WithSTTProvider %q: resolving credential: %w", spec.idOrType(), err)
+		}
+		svc, err := stt.CreateFromSpec(stt.ProviderSpec{
+			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
+			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("WithSTTProvider %q: %w", spec.idOrType(), err)
+		}
+		if c.sttProviders == nil {
+			c.sttProviders = make(map[string]stt.Service)
+		}
+		c.sttProviders[spec.idOrType()] = svc
+		c.sttProviderIDs = append(c.sttProviderIDs, spec.idOrType())
+		if c.sttService == nil {
+			c.sttService = svc
+		}
+		return nil
+	}
+}
+
+// WithEmbeddingProvider builds an embedding provider from a spec and sets it as
+// the default RAG retrievalProvider (first-wins; does not overwrite one already
+// set by WithContextRetrieval or a prior WithEmbeddingProvider call).
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func WithEmbeddingProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		cred, err := providers.ResolveEmbeddingCredential(context.Background(), spec.Type, "", spec.Credential, nil)
+		if err != nil {
+			return fmt.Errorf("WithEmbeddingProvider %q: resolving credential: %w", spec.idOrType(), err)
+		}
+		ep, err := providers.CreateEmbeddingProviderFromSpec(providers.EmbeddingProviderSpec{
+			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
+			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("WithEmbeddingProvider %q: %w", spec.idOrType(), err)
+		}
+		if c.embeddingProviders == nil {
+			c.embeddingProviders = make(map[string]providers.EmbeddingProvider)
+		}
+		c.embeddingProviders[spec.idOrType()] = ep
+		c.embeddingProviderIDs = append(c.embeddingProviderIDs, spec.idOrType())
+		if c.retrievalProvider == nil {
+			c.retrievalProvider = ep
+		}
 		return nil
 	}
 }

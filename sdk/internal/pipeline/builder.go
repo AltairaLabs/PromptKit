@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -196,6 +197,11 @@ type Config struct {
 	// Required when RecordingConfig is set; without it, recording stages
 	// will not be added to the pipeline.
 	RecordingStore events.EventStore
+
+	// ClassifyRegistry is attached to the pipeline execution context.
+	// When non-nil, stages and downstream consumers can resolve inference
+	// backends via classify.FromContext.
+	ClassifyRegistry *classify.Registry
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -255,19 +261,17 @@ func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 
 // newPipelineBuilder creates the appropriate pipeline builder for the config.
 func newPipelineBuilder(cfg *Config) *stage.PipelineBuilder {
-	if cfg.StreamInputProvider != nil {
+	pc := stage.DefaultPipelineConfig()
+	pc.ClassifyRegistry = cfg.ClassifyRegistry
+	switch {
+	case cfg.StreamInputProvider != nil:
 		// For duplex streaming (ASM mode), disable execution timeout
-		// since the session runs indefinitely until user ends it
-		pipelineConfig := stage.DefaultPipelineConfig()
-		pipelineConfig.ExecutionTimeout = 0 // Disable timeout for duplex
-		return stage.NewPipelineBuilderWithConfig(pipelineConfig)
+		// since the session runs indefinitely until user ends it.
+		pc.ExecutionTimeout = 0
+	case cfg.ExecutionTimeout != nil:
+		pc.ExecutionTimeout = *cfg.ExecutionTimeout
 	}
-	if cfg.ExecutionTimeout != nil {
-		pipelineConfig := stage.DefaultPipelineConfig()
-		pipelineConfig.ExecutionTimeout = *cfg.ExecutionTimeout
-		return stage.NewPipelineBuilderWithConfig(pipelineConfig)
-	}
-	return stage.NewPipelineBuilder()
+	return stage.NewPipelineBuilderWithConfig(pc)
 }
 
 // buildStateStoreConfig creates a state store config if a state store is configured.

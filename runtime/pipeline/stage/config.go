@@ -2,6 +2,8 @@ package stage
 
 import (
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 )
 
 const (
@@ -51,6 +53,11 @@ type PipelineConfig struct {
 	// GracefulShutdownTimeout sets the maximum time to wait for in-flight executions during shutdown.
 	// Default: 10 seconds
 	GracefulShutdownTimeout time.Duration
+
+	// ClassifyRegistry, when non-nil, is attached to the execution
+	// context (via classify.WithRegistry) so stages and downstream
+	// consumers resolve inference backends with classify.FromContext.
+	ClassifyRegistry *classify.Registry
 }
 
 // DefaultPipelineConfig returns a PipelineConfig with sensible defaults.

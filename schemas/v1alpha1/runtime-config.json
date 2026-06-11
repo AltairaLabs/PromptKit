@@ -284,6 +284,48 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "InferenceProviderConfig": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "ID",
+          "description": "Stable identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "huggingface"
+          ],
+          "title": "Type",
+          "description": "Inference provider type"
+        },
+        "model": {
+          "type": "string",
+          "title": "Model",
+          "description": "Classification model name"
+        },
+        "base_url": {
+          "type": "string",
+          "title": "BaseURL",
+          "description": "API endpoint override"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig",
+          "title": "Credential",
+          "description": "API key resolution"
+        },
+        "additional_config": {
+          "type": "object",
+          "title": "Additional Config",
+          "description": "Provider-specific extras"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
     "LoggingConfigSpec": {
       "properties": {
         "defaultLevel": {
@@ -835,6 +877,14 @@
           "type": "array",
           "title": "STT Providers",
           "description": "Speech-to-text provider configurations"
+        },
+        "inference_providers": {
+          "items": {
+            "$ref": "#/$defs/InferenceProviderConfig"
+          },
+          "type": "array",
+          "title": "Inference Providers",
+          "description": "Inference (classify) provider configurations"
         },
         "tools": {
           "additionalProperties": {

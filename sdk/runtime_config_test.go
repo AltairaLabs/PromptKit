@@ -1031,3 +1031,40 @@ func (m *rtcMockProvider) Validate() error                     { return nil }
 func (m *rtcMockProvider) Init(_ context.Context) error        { return nil }
 func (m *rtcMockProvider) HealthCheck(_ context.Context) error { return nil }
 func (m *rtcMockProvider) Close() error                        { return nil }
+
+func TestApplyInferenceProviders_BuildsRegistry(t *testing.T) {
+	c := &config{}
+	err := applyInferenceProviders(c, []pkgconfig.InferenceProviderConfig{
+		{ID: "hf", Type: "huggingface", Credential: &pkgconfig.CredentialConfig{APIKey: "tok"}},
+	})
+	if err != nil {
+		t.Fatalf("applyInferenceProviders: %v", err)
+	}
+	if c.classifyRegistry == nil {
+		t.Fatal("expected classifyRegistry to be set")
+	}
+	if _, err := c.classifyRegistry.TextClassifier("hf"); err != nil {
+		t.Fatalf("hf text classifier should resolve: %v", err)
+	}
+}
+
+func TestApplyInferenceProviders_DuplicateID(t *testing.T) {
+	c := &config{}
+	err := applyInferenceProviders(c, []pkgconfig.InferenceProviderConfig{
+		{ID: "hf", Type: "huggingface", Credential: &pkgconfig.CredentialConfig{APIKey: "a"}},
+		{ID: "hf", Type: "huggingface", Credential: &pkgconfig.CredentialConfig{APIKey: "b"}},
+	})
+	if err == nil {
+		t.Fatal("expected duplicate-id error")
+	}
+}
+
+func TestApplyInferenceProviders_Empty(t *testing.T) {
+	c := &config{}
+	if err := applyInferenceProviders(c, nil); err != nil {
+		t.Fatalf("empty should be a no-op: %v", err)
+	}
+	if c.classifyRegistry != nil {
+		t.Fatal("expected no registry for empty config")
+	}
+}

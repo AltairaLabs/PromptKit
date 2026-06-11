@@ -483,6 +483,7 @@ func (c *Conversation) buildPipelineConfig(
 		CompactionStrategy:    c.config.compactionStrategy,
 		CompactionRules:       c.config.compactionRules,
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
+		ClassifyRegistry:      c.config.classifyRegistry,
 	}
 
 	// Wire memory stages from MemoryCapability if present
