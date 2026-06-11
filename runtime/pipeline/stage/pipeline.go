@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -66,6 +67,12 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 		logger.Debug("Pipeline IdleTimeout configured",
 			"timeout", p.config.IdleTimeout,
 			"stages", len(p.stages))
+	}
+
+	// Attach the classify registry so stages resolve inference backends
+	// via classify.FromContext, mirroring Arena's eval-orchestrator wiring.
+	if p.config.ClassifyRegistry != nil {
+		execCtx = classify.WithRegistry(execCtx, p.config.ClassifyRegistry)
 	}
 
 	// Track execution for graceful shutdown
