@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -117,6 +118,10 @@ type config struct {
 	ttsProviderIDs []string
 	sttProviders   map[string]stt.Service
 	sttProviderIDs []string
+
+	// Inference (classify) registry, built from declarative
+	// inference_providers and/or WithInferenceProvider / WithClassifier.
+	classifyRegistry *classify.Registry
 
 	// Auto-summarization for RAG context. The summarize provider is held
 	// in the providers pool; summarizeProviderID points at it.
@@ -397,6 +402,15 @@ func (c *config) getSummarizeProvider() providers.Provider {
 	}
 	p, _ := c.providers.Get(c.summarizeProviderID)
 	return p
+}
+
+// ensureClassifyRegistry lazy-initializes the classify registry.
+// Called by applyInferenceProviders and the WithInferenceProvider /
+// WithClassifier options before registering any backend.
+func (c *config) ensureClassifyRegistry() {
+	if c.classifyRegistry == nil {
+		c.classifyRegistry = classify.NewRegistry()
+	}
 }
 
 // CredentialOption configures credentials for a provider.
