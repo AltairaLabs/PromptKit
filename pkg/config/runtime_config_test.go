@@ -888,3 +888,36 @@ func TestRuntimeConfigSpec_Validate_StateStore_RejectsUnknownType(t *testing.T) 
 		t.Fatal("expected error for unknown store type")
 	}
 }
+
+func TestValidateInferenceProviders_TypeRequired(t *testing.T) {
+	s := &RuntimeConfigSpec{InferenceProviders: []InferenceProviderConfig{{Model: "x"}}}
+	if err := s.validateInferenceProviders(); err == nil {
+		t.Fatal("expected error when type is empty")
+	}
+}
+
+func TestValidateInferenceProviders_UnknownType(t *testing.T) {
+	s := &RuntimeConfigSpec{InferenceProviders: []InferenceProviderConfig{{Type: "bogus"}}}
+	if err := s.validateInferenceProviders(); err == nil {
+		t.Fatal("expected error for unknown inference provider type")
+	}
+}
+
+func TestValidateInferenceProviders_DuplicateID(t *testing.T) {
+	s := &RuntimeConfigSpec{InferenceProviders: []InferenceProviderConfig{
+		{ID: "hf", Type: "huggingface"},
+		{ID: "hf", Type: "huggingface"},
+	}}
+	if err := s.validateInferenceProviders(); err == nil {
+		t.Fatal("expected duplicate-id error")
+	}
+}
+
+func TestValidateInferenceProviders_Valid(t *testing.T) {
+	s := &RuntimeConfigSpec{InferenceProviders: []InferenceProviderConfig{
+		{ID: "hf", Type: "huggingface"},
+	}}
+	if err := s.validateInferenceProviders(); err != nil {
+		t.Fatalf("valid inference provider rejected: %v", err)
+	}
+}

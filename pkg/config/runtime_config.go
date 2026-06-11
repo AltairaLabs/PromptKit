@@ -50,6 +50,13 @@ type RuntimeConfigSpec struct {
 	//nolint:lll // jsonschema tags require single line
 	STTProviders []STTProviderConfig `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty" jsonschema:"title=STT Providers,description=Speech-to-text provider configurations"`
 
+	// InferenceProviders configures inference (classify) providers
+	// (HuggingFace). Used by classify-backed eval handlers
+	// (audio_emotion, text_toxicity, …). First declared provider
+	// implementing a task becomes that task's default.
+	//nolint:lll // jsonschema tags require single line
+	InferenceProviders []InferenceProviderConfig `yaml:"inference_providers,omitempty" json:"inference_providers,omitempty" jsonschema:"title=Inference Providers,description=Inference (classify) provider configurations"`
+
 	// Tools binds pack tool names to implementations (HTTP, mock, or exec).
 	//nolint:lll // jsonschema tags require single line
 	Tools map[string]*ToolSpec `yaml:"tools,omitempty" json:"tools,omitempty" jsonschema:"title=Tools,description=Tool implementation bindings keyed by tool name"`
@@ -223,6 +230,29 @@ type STTProviderConfig struct {
 	AdditionalConfig map[string]any `yaml:"additional_config,omitempty" json:"additional_config,omitempty" jsonschema:"title=Additional Config,description=Provider-specific extras"`
 }
 
+// InferenceProviderConfig declares an inference (classify) provider —
+// the SDK twin of Arena's `providers:` entry with role: inference. Used
+// by classify-backed eval handlers (audio_emotion, text_toxicity, …).
+type InferenceProviderConfig struct {
+	// ID is a stable identifier; defaults to the type when empty.
+	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
+	// Type selects the implementation. Today only "huggingface".
+	Type string `yaml:"type" json:"type" jsonschema:"enum=huggingface,title=Type,description=Inference provider type"`
+	// Model overrides the provider's default classification model.
+	//nolint:lll // jsonschema tags require single line
+	Model string `yaml:"model,omitempty" json:"model,omitempty" jsonschema:"title=Model,description=Classification model name"`
+	// BaseURL overrides the provider's default API endpoint.
+	//nolint:lll // jsonschema tags require single line
+	BaseURL string `yaml:"base_url,omitempty" json:"base_url,omitempty" jsonschema:"title=BaseURL,description=API endpoint override"`
+	// Credential names how to obtain the API key.
+	//nolint:lll // jsonschema tags require single line
+	Credential *CredentialConfig `yaml:"credential,omitempty" json:"credential,omitempty" jsonschema:"title=Credential,description=API key resolution"`
+	// AdditionalConfig carries provider-specific extras (e.g. dedicated
+	// endpoint flag for HuggingFace).
+	//nolint:lll // jsonschema tags require single line
+	AdditionalConfig map[string]any `yaml:"additional_config,omitempty" json:"additional_config,omitempty" jsonschema:"title=Additional Config,description=Provider-specific extras"`
+}
+
 // SandboxConfig declares a named sandbox backend. Mode selects a
 // factory registered via runtime/hooks/sandbox.RegisterFactory; every
 // other field is passed to the factory as its config map.
@@ -331,6 +361,9 @@ func (s *RuntimeConfigSpec) Validate() error {
 		return err
 	}
 	if err := s.validateSTTProviders(); err != nil {
+		return err
+	}
+	if err := s.validateInferenceProviders(); err != nil {
 		return err
 	}
 	if err := s.validateStateStore(); err != nil {
@@ -509,6 +542,43 @@ func (s *RuntimeConfigSpec) validateSTTProviders() error {
 			return &ValidationError{
 				Field:   fmt.Sprintf("stt_providers[%d].id", i),
 				Message: "duplicate STT provider id",
+				Value:   id,
+			}
+		}
+		seen[id] = true
+	}
+	return nil
+}
+
+var validInferenceTypes = map[string]bool{
+	"huggingface": true,
+}
+
+func (s *RuntimeConfigSpec) validateInferenceProviders() error {
+	seen := make(map[string]bool, len(s.InferenceProviders))
+	for i := range s.InferenceProviders {
+		ip := &s.InferenceProviders[i]
+		if ip.Type == "" {
+			return &ValidationError{
+				Field:   fmt.Sprintf("inference_providers[%d].type", i),
+				Message: "inference provider type is required",
+			}
+		}
+		if !validInferenceTypes[ip.Type] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("inference_providers[%d].type", i),
+				Message: "must be one of: huggingface",
+				Value:   ip.Type,
+			}
+		}
+		id := ip.ID
+		if id == "" {
+			id = ip.Type
+		}
+		if seen[id] {
+			return &ValidationError{
+				Field:   fmt.Sprintf("inference_providers[%d].id", i),
+				Message: "duplicate inference provider id",
 				Value:   id,
 			}
 		}
