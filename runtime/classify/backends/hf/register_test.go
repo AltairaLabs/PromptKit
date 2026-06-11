@@ -23,6 +23,9 @@ func TestHuggingFaceFactoryRegistered(t *testing.T) {
 	if _, ok := b.(classify.TextClassifier); !ok {
 		t.Fatal("HF backend should implement TextClassifier")
 	}
+	if _, ok := b.(classify.ImageClassifier); !ok {
+		t.Fatal("HF backend should implement ImageClassifier")
+	}
 	// HF deliberately does NOT implement VideoClassifier.
 	if _, ok := b.(classify.VideoClassifier); ok {
 		t.Fatal("HF backend should NOT implement VideoClassifier")
