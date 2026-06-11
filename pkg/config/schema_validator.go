@@ -121,6 +121,7 @@ func findLocalSchemaPath(configType string) string {
 	// This works when running tests or when the module is in the current directory
 	possiblePaths := []string{
 		filepath.Join(SchemaLocalPath, configType+".json"),
+		filepath.Join("..", SchemaLocalPath, configType+".json"),        // From a top-level module (sdk, runtime, server)
 		filepath.Join("../../", SchemaLocalPath, configType+".json"),    // From pkg/config
 		filepath.Join("../../../", SchemaLocalPath, configType+".json"), // From deeper nested packages
 	}

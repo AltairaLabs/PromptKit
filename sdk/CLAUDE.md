@@ -68,6 +68,10 @@ Capabilities are auto-detected from pack structure. Explicit `WithCapability()` 
 
 `sdk/internal/pack/` defines its own `WorkflowSpec`, `WorkflowState`, etc. rather than importing `runtime/workflow`. This decouples the SDK's package graph from runtime evolution. Conversion happens via `packToRuntimePack()`.
 
+## Providers
+
+Providers can be supplied three ways: programmatic instances (`WithProvider`, `WithTTS`, …), the uniform spec-based family (`WithLLMProvider`/`WithImageProvider`/`WithTTSProvider`/`WithSTTProvider`/`WithEmbeddingProvider`/`WithInferenceProvider`), or **declarative files** (`WithProviderFile(path)` / `WithProvidersDir(dir)`). The file loaders parse Arena-format `*.provider.yaml` via `pkgconfig.LoadProvider` and route each by `role:` (`sdk/provider_file.go`): `llm`/`image` → agent pool (first declared becomes the agent; the rest stay pooled by ID), `tts`/`stt` → service slots, `embedding` → retrieval, `inference` → classify registry. Paths are CWD-relative; no auto-discovery. Platform-auth (Bedrock/Vertex/Azure) embedding via file isn't supported yet — use the programmatic options for those.
+
 ## Adding New Functionality
 
 - **New SDK option**: Add to `options.go` config struct + `With*` function. Wire through `conversation.go` → `internal/pipeline/builder.go`.
