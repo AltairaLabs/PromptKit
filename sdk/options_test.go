@@ -1365,3 +1365,56 @@ func TestWithInferenceProvider_BuildsBackend(t *testing.T) {
 	_, err = c.classifyRegistry.AudioClassifier("hf")
 	require.NoError(t, err, "hf audio classifier should resolve")
 }
+
+func TestWithLLMProvider_SetsAgentProvider(t *testing.T) {
+	c := &config{}
+	err := WithLLMProvider(ProviderSpec{
+		Type:       "openai",
+		Model:      "gpt-4o-mini",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.NoError(t, err)
+	require.NotNil(t, c.getAgentProvider(), "expected agent provider to be set")
+}
+
+func TestWithEmbeddingProvider_SetsRetrievalProvider(t *testing.T) {
+	c := &config{}
+	err := WithEmbeddingProvider(ProviderSpec{
+		Type:       "openai",
+		Model:      "text-embedding-3-small",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.NoError(t, err)
+	require.NotNil(t, c.retrievalProvider, "expected retrievalProvider to be set")
+}
+
+func TestWithTTSProvider_SetsService(t *testing.T) {
+	c := &config{}
+	err := WithTTSProvider(ProviderSpec{
+		Type:       "openai",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.NoError(t, err)
+	require.NotNil(t, c.ttsService, "expected ttsService to be set")
+}
+
+func TestWithSTTProvider_SetsService(t *testing.T) {
+	c := &config{}
+	err := WithSTTProvider(ProviderSpec{
+		Type:       "openai",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.NoError(t, err)
+	require.NotNil(t, c.sttService, "expected sttService to be set")
+}
+
+func TestWithImageProvider_SetsAgentProvider(t *testing.T) {
+	c := &config{}
+	err := WithImageProvider(ProviderSpec{
+		Type:       "imagen",
+		Model:      "imagen-4.0-generate-001",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.NoError(t, err)
+	require.NotNil(t, c.getAgentProvider(), "expected image provider to be set as the agent provider")
+}

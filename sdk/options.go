@@ -1989,6 +1989,142 @@ func WithClassifier(id string, backend classify.Backend) Option {
 	}
 }
 
+// toPkgProvider adapts a ProviderSpec to the pkgconfig.Provider shape
+// consumed by createProviderFromConfig (agent/LLM + image path).
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
+	return &pkgconfig.Provider{
+		ID:               s.idOrType(),
+		Type:             s.Type,
+		Model:            s.Model,
+		BaseURL:          s.BaseURL,
+		Credential:       s.Credential,
+		AdditionalConfig: s.AdditionalConfig,
+	}
+}
+
+// WithLLMProvider sets the conversation's agent (completion) provider from a
+// spec. Sugar over WithProvider for the uniform spec-based option family.
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func WithLLMProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		prov, err := createProviderFromConfig(spec.toPkgProvider())
+		if err != nil {
+			return fmt.Errorf("WithLLMProvider %q: %w", spec.idOrType(), err)
+		}
+		registerAgentProvider(c, prov)
+		return nil
+	}
+}
+
+// WithImageProvider sets an image-generation provider as the agent (completion)
+// provider. Image providers are Predict-compatible: the generated image is the
+// turn's response. Wired identically to WithLLMProvider; both target the single
+// agent slot (last writer wins).
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func WithImageProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		prov, err := createProviderFromConfig(spec.toPkgProvider())
+		if err != nil {
+			return fmt.Errorf("WithImageProvider %q: %w", spec.idOrType(), err)
+		}
+		registerAgentProvider(c, prov)
+		return nil
+	}
+}
+
+// WithTTSProvider builds a TTS service from a spec and sets it as the default
+// ttsService (first-wins; does not overwrite one already set by WithTTS or a
+// prior WithTTSProvider call).
+//
+//nolint:gocritic,dupl // value-semantics builder; WithSTTProvider is structurally identical on a different type.
+func WithTTSProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		cred, err := tts.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
+		if err != nil {
+			return fmt.Errorf("WithTTSProvider %q: resolving credential: %w", spec.idOrType(), err)
+		}
+		svc, err := tts.CreateFromSpec(tts.ProviderSpec{
+			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
+			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("WithTTSProvider %q: %w", spec.idOrType(), err)
+		}
+		if c.ttsProviders == nil {
+			c.ttsProviders = make(map[string]tts.Service)
+		}
+		c.ttsProviders[spec.idOrType()] = svc
+		c.ttsProviderIDs = append(c.ttsProviderIDs, spec.idOrType())
+		if c.ttsService == nil {
+			c.ttsService = svc
+		}
+		return nil
+	}
+}
+
+// WithSTTProvider builds an STT service from a spec and sets it as the default
+// sttService (first-wins; does not overwrite one already set).
+//
+//nolint:gocritic,dupl // value-semantics builder; WithTTSProvider is structurally identical on a different type.
+func WithSTTProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		cred, err := stt.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
+		if err != nil {
+			return fmt.Errorf("WithSTTProvider %q: resolving credential: %w", spec.idOrType(), err)
+		}
+		svc, err := stt.CreateFromSpec(stt.ProviderSpec{
+			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
+			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("WithSTTProvider %q: %w", spec.idOrType(), err)
+		}
+		if c.sttProviders == nil {
+			c.sttProviders = make(map[string]stt.Service)
+		}
+		c.sttProviders[spec.idOrType()] = svc
+		c.sttProviderIDs = append(c.sttProviderIDs, spec.idOrType())
+		if c.sttService == nil {
+			c.sttService = svc
+		}
+		return nil
+	}
+}
+
+// WithEmbeddingProvider builds an embedding provider from a spec and sets it as
+// the default RAG retrievalProvider (first-wins; does not overwrite one already
+// set by WithContextRetrieval or a prior WithEmbeddingProvider call).
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func WithEmbeddingProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		cred, err := providers.ResolveEmbeddingCredential(context.Background(), spec.Type, "", spec.Credential, nil)
+		if err != nil {
+			return fmt.Errorf("WithEmbeddingProvider %q: resolving credential: %w", spec.idOrType(), err)
+		}
+		ep, err := providers.CreateEmbeddingProviderFromSpec(providers.EmbeddingProviderSpec{
+			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
+			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("WithEmbeddingProvider %q: %w", spec.idOrType(), err)
+		}
+		if c.embeddingProviders == nil {
+			c.embeddingProviders = make(map[string]providers.EmbeddingProvider)
+		}
+		c.embeddingProviders[spec.idOrType()] = ep
+		c.embeddingProviderIDs = append(c.embeddingProviderIDs, spec.idOrType())
+		if c.retrievalProvider == nil {
+			c.retrievalProvider = ep
+		}
+		return nil
+	}
+}
+
 // WithStreamingConfig configures streaming for duplex mode.
 // When set, enables ASM (Audio Streaming Model) mode with continuous bidirectional streaming.
 // When nil (default), uses VAD (Voice Activity Detection) mode with turn-based streaming.

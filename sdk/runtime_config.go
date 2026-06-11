@@ -24,6 +24,7 @@ import (
 	// Chat-provider factories register through other SDK paths.
 	_ "github.com/AltairaLabs/PromptKit/runtime/classify/backends/all"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
+	_ "github.com/AltairaLabs/PromptKit/runtime/providers/imagen"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/ollama"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/openai"
 	_ "github.com/AltairaLabs/PromptKit/runtime/providers/voyageai"
