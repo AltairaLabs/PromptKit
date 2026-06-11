@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/classify"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -1330,4 +1332,36 @@ func TestWithSelector(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already registered")
 	})
+}
+
+// stubText is a minimal TextClassifier for WithClassifier tests.
+type stubText struct{}
+
+func (stubText) ClassifyText(_ context.Context, _ string, _ classify.TextOptions) ([]classify.LabelScore, error) {
+	return nil, nil
+}
+
+func TestWithClassifier_RegistersBackend(t *testing.T) {
+	c := &config{}
+	require.NoError(t, WithClassifier("stub", stubText{})(c))
+	_, err := c.classifyRegistry.TextClassifier("stub")
+	require.NoError(t, err, "stub text classifier should resolve")
+}
+
+func TestWithClassifier_RejectsNonBackend(t *testing.T) {
+	c := &config{}
+	err := WithClassifier("nope", struct{}{})(c)
+	require.Error(t, err, "expected error: value implements no classify task interface")
+}
+
+func TestWithInferenceProvider_BuildsBackend(t *testing.T) {
+	c := &config{}
+	err := WithInferenceProvider(ProviderSpec{
+		ID:         "hf",
+		Type:       "huggingface",
+		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
+	})(c)
+	require.NoError(t, err)
+	_, err = c.classifyRegistry.AudioClassifier("hf")
+	require.NoError(t, err, "hf audio classifier should resolve")
 }

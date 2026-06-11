@@ -1,12 +1,14 @@
 package sdk
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
 
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
@@ -1911,6 +1913,78 @@ func WithTTS(service tts.Service) Option {
 func WithTurnDetector(detector audio.TurnDetector) Option {
 	return func(c *config) error {
 		c.turnDetector = detector
+		return nil
+	}
+}
+
+// ProviderSpec is the uniform, SDK-facing declaration for any capability
+// provider, used by WithInferenceProvider and the WithXProvider option family.
+// Fields mirror runtime base.CapabilitySpec; Credential is an unresolved
+// config that the option resolves before construction.
+type ProviderSpec struct {
+	ID               string
+	Type             string
+	Model            string
+	BaseURL          string
+	Credential       *pkgconfig.CredentialConfig
+	AdditionalConfig map[string]any
+}
+
+// idOrType returns the spec ID, falling back to Type.
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func (s ProviderSpec) idOrType() string {
+	if s.ID != "" {
+		return s.ID
+	}
+	return s.Type
+}
+
+// WithInferenceProvider registers an inference (classify) provider that the
+// SDK constructs and credential-resolves. The backend is registered against
+// every classify task interface it implements (AudioClassifier, TextClassifier,
+// etc.). The HuggingFace factory is available via the backends/all blank import
+// in runtime_config.go (same package).
+//
+//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
+func WithInferenceProvider(spec ProviderSpec) Option {
+	return func(c *config) error {
+		id := spec.idOrType()
+		cred, err := classify.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
+		if err != nil {
+			return fmt.Errorf("WithInferenceProvider %q: resolving credential: %w", id, err)
+		}
+		backend, err := classify.CreateFromSpec(classify.ProviderSpec{
+			ID:               id,
+			Type:             spec.Type,
+			Model:            spec.Model,
+			BaseURL:          spec.BaseURL,
+			Credential:       cred,
+			AdditionalConfig: spec.AdditionalConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
+		}
+		c.ensureClassifyRegistry()
+		if len(classify.RegisterBackend(c.classifyRegistry, id, backend)) == 0 {
+			return fmt.Errorf("WithInferenceProvider %q: backend implements no classify task interface", id)
+		}
+		return nil
+	}
+}
+
+// WithClassifier registers an already-constructed classify backend (a value
+// implementing one or more of classify's task interfaces) under id. Escape
+// hatch for in-process classifiers and test doubles; no credential resolution.
+func WithClassifier(id string, backend classify.Backend) Option {
+	return func(c *config) error {
+		if id == "" {
+			return fmt.Errorf("WithClassifier: id is required")
+		}
+		c.ensureClassifyRegistry()
+		if len(classify.RegisterBackend(c.classifyRegistry, id, backend)) == 0 {
+			return fmt.Errorf("WithClassifier %q: backend implements no classify task interface", id)
+		}
 		return nil
 	}
 }
