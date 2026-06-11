@@ -81,15 +81,22 @@ func TestApplyProviderConfig_ImagePooledAsAgent(t *testing.T) {
 	}
 }
 
-func TestApplyProviderConfig_EmbeddingPlatformRejected(t *testing.T) {
-	c := &config{}
-	err := c.applyProviderConfig(&pkgconfig.Provider{
+func TestProviderSpecFromConfig_CarriesPlatform(t *testing.T) {
+	pc := &pkgconfig.PlatformConfig{Type: "azure", Endpoint: "https://my-resource.openai.azure.com"}
+	spec := providerSpecFromConfig(&pkgconfig.Provider{
+		ID:       "emb",
 		Type:     "openai",
 		Role:     pkgconfig.RoleEmbedding,
-		Platform: &pkgconfig.PlatformConfig{Type: "azure"},
+		Platform: pc,
 	})
-	if err == nil {
-		t.Fatal("expected platform-auth embedding via file to be rejected")
+	if spec.Platform == nil {
+		t.Fatal("expected Platform to be carried through providerSpecFromConfig, got nil")
+	}
+	if spec.Platform.Type != "azure" {
+		t.Fatalf("expected Platform.Type %q, got %q", "azure", spec.Platform.Type)
+	}
+	if spec.Platform.Endpoint != "https://my-resource.openai.azure.com" {
+		t.Fatalf("expected Platform.Endpoint carried through, got %q", spec.Platform.Endpoint)
 	}
 }
 

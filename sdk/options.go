@@ -1928,6 +1928,12 @@ type ProviderSpec struct {
 	BaseURL          string
 	Credential       *pkgconfig.CredentialConfig
 	AdditionalConfig map[string]any
+	// Platform carries hyperscaler platform configuration for keyless auth
+	// (azure/bedrock/vertex). When set, WithLLMProvider/WithImageProvider route
+	// through createProviderFromConfig's platform branch; WithEmbeddingProvider
+	// passes it to ResolveEmbeddingCredential and CreateEmbeddingProviderFromSpec.
+	// nil means direct API-key auth.
+	Platform *pkgconfig.PlatformConfig
 }
 
 // idOrType returns the spec ID, falling back to Type.
@@ -2001,6 +2007,7 @@ func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
 		BaseURL:          s.BaseURL,
 		Credential:       s.Credential,
 		AdditionalConfig: s.AdditionalConfig,
+		Platform:         s.Platform,
 	}
 }
 
@@ -2102,13 +2109,18 @@ func WithSTTProvider(spec ProviderSpec) Option {
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithEmbeddingProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
-		cred, err := providers.ResolveEmbeddingCredential(context.Background(), spec.Type, "", spec.Credential, nil)
+		var platform string
+		if spec.Platform != nil {
+			platform = spec.Platform.Type
+		}
+		cred, err := providers.ResolveEmbeddingCredential(context.Background(), spec.Type, "", spec.Credential, spec.Platform)
 		if err != nil {
 			return fmt.Errorf("WithEmbeddingProvider %q: resolving credential: %w", spec.idOrType(), err)
 		}
 		ep, err := providers.CreateEmbeddingProviderFromSpec(providers.EmbeddingProviderSpec{
 			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
 			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
+			Platform: platform, PlatformConfig: spec.Platform,
 		})
 		if err != nil {
 			return fmt.Errorf("WithEmbeddingProvider %q: %w", spec.idOrType(), err)

@@ -9,8 +9,7 @@ import (
 )
 
 // providerSpecFromConfig maps a loaded *pkgconfig.Provider onto the SDK's
-// uniform ProviderSpec. Platform is intentionally not carried — ProviderSpec
-// has no platform field; platform-auth providers are handled separately.
+// uniform ProviderSpec, including any platform-auth configuration.
 func providerSpecFromConfig(p *pkgconfig.Provider) ProviderSpec {
 	return ProviderSpec{
 		ID:               p.ID,
@@ -19,6 +18,7 @@ func providerSpecFromConfig(p *pkgconfig.Provider) ProviderSpec {
 		BaseURL:          p.BaseURL,
 		Credential:       p.Credential,
 		AdditionalConfig: p.AdditionalConfig,
+		Platform:         p.Platform,
 	}
 }
 
@@ -52,11 +52,6 @@ func (c *config) applyProviderConfig(p *pkgconfig.Provider) error {
 	case pkgconfig.RoleSTT:
 		return WithSTTProvider(providerSpecFromConfig(p))(c)
 	case pkgconfig.RoleEmbedding:
-		if p.Platform != nil {
-			return fmt.Errorf(
-				"provider %q: platform-auth embedding providers are not yet supported via "+
-					"file loading; use WithBedrock/WithVertex/WithAzure", id)
-		}
 		return WithEmbeddingProvider(providerSpecFromConfig(p))(c)
 	case pkgconfig.RoleInference:
 		return WithInferenceProvider(providerSpecFromConfig(p))(c)
