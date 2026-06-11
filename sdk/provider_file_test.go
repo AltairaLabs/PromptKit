@@ -124,6 +124,9 @@ spec:
 `
 
 func TestWithProviderFile_LoadsTTS(t *testing.T) {
+	// LoadProvider schema-validates; pin to the in-repo schema so the test is
+	// hermetic (no network fetch of the published schema).
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	dir := t.TempDir()
 	path := writeProviderYAML(t, dir, "tts.provider.yaml", ttsProviderYAML)
 
@@ -144,6 +147,7 @@ func TestWithProviderFile_MissingFile(t *testing.T) {
 }
 
 func TestWithProvidersDir_LoadsAllFirstWinsAgent(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	dir := t.TempDir()
 	// Two llm providers + one tts; glob is sorted, so "a-llm" sorts before "b-llm".
 	writeProviderYAML(t, dir, "a-llm.provider.yaml", `apiVersion: promptkit.altairalabs.ai/v1alpha1
