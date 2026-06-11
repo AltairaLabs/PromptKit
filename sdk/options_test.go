@@ -1418,3 +1418,17 @@ func TestWithImageProvider_SetsAgentProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c.getAgentProvider(), "expected image provider to be set as the agent provider")
 }
+
+func TestProviderSpec_ToPkgProviderCarriesPlatform(t *testing.T) {
+	pc := &pkgconfig.PlatformConfig{Type: "bedrock", Region: "us-east-1"}
+	spec := ProviderSpec{
+		ID:       "llm-bedrock",
+		Type:     "anthropic",
+		Model:    "claude-3-5-sonnet-20241022",
+		Platform: pc,
+	}
+	p := spec.toPkgProvider()
+	require.NotNil(t, p.Platform, "expected Platform to be carried through toPkgProvider")
+	require.Equal(t, "bedrock", p.Platform.Type)
+	require.Equal(t, "us-east-1", p.Platform.Region)
+}
