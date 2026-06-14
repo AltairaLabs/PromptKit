@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks/guardrails"
@@ -904,6 +905,67 @@ func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conve
 	// The session now has the correct conversation ID from WithConversationID option
 
 	return conv, nil
+}
+
+// OpenComposition loads a pack and creates a Conversation that runs the named
+// composition directly (RFC 0010 function-mode surface).
+//
+// Unlike [OpenWorkflow], no workflow state machine is involved — the composition
+// is active from the first [Conversation.Send] call onward. The named composition
+// must be present in the pack's "compositions" map; if it is absent an error is
+// returned before any further initialisation.
+//
+// Basic usage:
+//
+//	conv, err := sdk.OpenComposition("./pack.json", "my-flow",
+//	    sdk.WithProvider(myProvider),
+//	)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer conv.Close()
+//
+//	conv.OnTool("my-tool", func(args map[string]any) (any, error) { ... })
+//
+//	resp, _ := conv.Send(ctx, `{"text":"hello"}`)
+//	fmt.Println(string(resp.CompositionOutput()))
+func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error) {
+	// Peek at the pack to resolve the composition before calling Open so we
+	// can return a clear "not found" error without triggering full init.
+	absPath, err := resolvePackPath(packPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve pack path: %w", err)
+	}
+
+	// Derive skip-schema from options (best-effort; Open will apply all opts again).
+	cfg := &config{}
+	for _, opt := range opts {
+		if optErr := opt(cfg); optErr != nil {
+			return nil, fmt.Errorf("failed to apply option: %w", optErr)
+		}
+	}
+
+	p, err := pack.Load(absPath, pack.LoadOptions{
+		SkipSchemaValidation: cfg.skipSchemaValidation,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load pack: %w", err)
+	}
+
+	raw, ok := p.Compositions[name]
+	if !ok {
+		return nil, fmt.Errorf("composition %q not found in pack", name)
+	}
+
+	var comp composition.Composition
+	if err := json.Unmarshal(raw, &comp); err != nil {
+		return nil, fmt.Errorf("failed to parse composition %q: %w", name, err)
+	}
+
+	// Open a regular Conversation with the composition active. The empty prompt
+	// name is correct — loadAndValidatePack skips the prompt-not-found check
+	// when cfg.activeComposition is non-nil.
+	return Open(packPath, "", append(opts, withResolvedComposition(name, &comp))...)
 }
 
 // ensureA2ACapability adds an A2ACapability if the config has a bridge or
