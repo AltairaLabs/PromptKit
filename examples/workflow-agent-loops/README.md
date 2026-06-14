@@ -86,6 +86,32 @@ the runtime injects on each transition:
 {{artifacts.findings}}
 ```
 
+## Exposing the loop as an agent (RFC 0011)
+
+The same looping workflow is also exposed as an agent via
+[RFC 0011 — Workflow States as Agents](https://promptpack.org/docs/rfcs/workflow-states-as-agents).
+The `agents` block backs the `researcher` agent with the `research` workflow
+state — invoking it runs the whole research → summarize loop, not a single
+prompt. `summarizer` is a plain prompt-backed agent (RFC 0007); the only
+difference is the one extra line, `state: research`.
+
+```yaml
+# config.arena.yaml excerpt
+agents:
+  entry: research
+  members:
+    research:
+      state: research     # RFC 0011: this agent runs the workflow loop
+      tags: [research]
+    summarize:
+      tags: [summarize]
+```
+
+A state-backed agent is just the workflow pipeline entered at the named state,
+so it behaves identically to running the workflow directly. Validation requires
+the `state` to reference a real `workflow.states` key and a top-level `workflow`
+to be present.
+
 ## Why this example exists
 
 The three features exercised here are each individually simple, but their

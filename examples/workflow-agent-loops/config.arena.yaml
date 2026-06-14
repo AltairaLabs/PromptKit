@@ -70,6 +70,25 @@ spec:
         description: "Workflow complete"
         terminal: true
 
+  # RFC 0011: Workflow States as Agents.
+  #
+  # The `researcher` agent is backed by the looping `research` workflow state
+  # (state: research) — invoking it runs the research→summarize loop above,
+  # following the workflow's transitions and max_visits brake, instead of
+  # executing a single prompt once. The `summarizer` agent is a plain
+  # prompt-backed agent (RFC 0007), unchanged. Adding `state` is the only
+  # difference between the two.
+  agents:
+    entry: research
+    members:
+      research:
+        state: research
+        description: "Iterative researcher — runs the research loop to completion"
+        tags: [research]
+      summarize:
+        description: "One-shot summarizer"
+        tags: [summarize]
+
   defaults:
     temperature: 0.1
     max_tokens: 512
