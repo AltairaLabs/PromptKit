@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
@@ -31,6 +32,11 @@ const (
 	// workflowContextVar is the template variable name that carries the
 	// previous state's conversation summary into the new state's prompt.
 	workflowContextVar = "workflow_context"
+
+	// orchestrationComposition is the string value of orchestration: composition in pack
+	// workflow states. Kept as a local constant to avoid importing runtime/workflow into
+	// this package just for the constant (runtime → sdk import is forbidden).
+	orchestrationComposition = "composition"
 )
 
 // WorkflowConversation manages a stateful workflow that transitions between
@@ -54,12 +60,16 @@ const (
 //	newState, _ := wc.Transition("Escalate")
 //	fmt.Println("Moved to:", newState)
 type WorkflowConversation struct {
-	mu                  sync.RWMutex
-	machine             *workflow.StateMachine
-	workflowSpec        *workflow.Spec
-	packPath            string
-	sdkPack             *pack.Pack
-	activeConv          *Conversation
+	mu           sync.RWMutex
+	machine      *workflow.StateMachine
+	workflowSpec *workflow.Spec
+	packPath     string
+	sdkPack      *pack.Pack
+	activeConv   *Conversation
+	// activeStateName is the workflow state name for which activeConv was
+	// opened. It is set by openConvForCurrentState so reconcileActiveConv can
+	// detect drift on composition states whose prompt_task is "".
+	activeStateName     string
 	opts                []Option
 	emitter             *events.Emitter
 	stateStore          statestore.Store
@@ -133,9 +143,18 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 		machine = workflow.NewStateMachineFromContext(spec, workflow.NewContext(startState, time.Now()))
 	}
 
-	// Open initial conversation for the current state's prompt_task
+	// Open initial conversation for the current state's prompt_task.
+	// For composition states (RFC 0010), promptName is empty and a composition
+	// option is prepended so the pipeline runs CompositionStage instead.
 	promptName := machine.CurrentPromptTask()
-	conv, err := Open(packPath, promptName, opts...)
+	initOpts := opts
+	if compOpt, compErr := resolveCompositionOptForState(p, machine.CurrentState()); compErr != nil {
+		return nil, fmt.Errorf("failed to resolve composition for initial state %q: %w",
+			machine.CurrentState(), compErr)
+	} else if compOpt != nil {
+		initOpts = append(append([]Option{}, opts...), compOpt)
+	}
+	conv, err := Open(packPath, promptName, initOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open initial conversation for state %q (prompt %q): %w",
 			machine.CurrentState(), promptName, err)
@@ -154,6 +173,7 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 		packPath:            packPath,
 		sdkPack:             p,
 		activeConv:          conv,
+		activeStateName:     machine.CurrentState(),
 		opts:                opts,
 		emitter:             conv.newEmitter(cfg.eventBus),
 		stateStore:          cfg.stateStore,
@@ -166,6 +186,29 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 	wc.registerWorkflowTools()
 
 	return wc, nil
+}
+
+// resolveCompositionOptForState is the package-level variant of
+// WorkflowConversation.resolveCompositionOpt, used during initial workflow
+// construction before a WorkflowConversation exists.
+func resolveCompositionOptForState(p *pack.Pack, stateName string) (Option, error) {
+	if p == nil || p.Workflow == nil {
+		return nil, nil
+	}
+	state, ok := p.Workflow.States[stateName]
+	if !ok || state.Orchestration != orchestrationComposition {
+		return nil, nil
+	}
+	compName := state.Composition
+	raw, ok := p.Compositions[compName]
+	if !ok {
+		return nil, fmt.Errorf("composition %q not found in pack", compName)
+	}
+	var comp composition.Composition
+	if err := json.Unmarshal(raw, &comp); err != nil {
+		return nil, fmt.Errorf("failed to parse composition %q: %w", compName, err)
+	}
+	return withResolvedComposition(compName, &comp), nil
 }
 
 // ResumeWorkflow restores a WorkflowConversation from a previously persisted state.
@@ -231,11 +274,19 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 	spec := convertWorkflowSpec(p.Workflow)
 	machine := workflow.NewStateMachineFromContext(spec, wfCtx)
 
-	// Open conversation for current state's prompt_task
+	// Open conversation for current state's prompt_task.
+	// For composition states (RFC 0010) promptName is empty; a composition
+	// option is appended so the pipeline runs CompositionStage instead.
 	promptName := machine.CurrentPromptTask()
-	optsWithID := make([]Option, len(opts), len(opts)+1)
+	optsWithID := make([]Option, len(opts))
 	copy(optsWithID, opts)
 	optsWithID = append(optsWithID, WithConversationID(workflowID))
+	if compOpt, compErr := resolveCompositionOptForState(p, machine.CurrentState()); compErr != nil {
+		return nil, fmt.Errorf("failed to resolve composition for state %q: %w",
+			machine.CurrentState(), compErr)
+	} else if compOpt != nil {
+		optsWithID = append(optsWithID, compOpt)
+	}
 	conv, err := Open(packPath, promptName, optsWithID...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
@@ -255,6 +306,7 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 		packPath:                packPath,
 		sdkPack:                 p,
 		activeConv:              conv,
+		activeStateName:         machine.CurrentState(),
 		opts:                    opts,
 		stateStore:              cfg.stateStore,
 		workflowID:              workflowID,
@@ -373,12 +425,27 @@ func (wc *WorkflowConversation) reconcileActiveConv(contextSummary string) error
 	if wc.activeConv.closed {
 		return nil
 	}
-	targetPrompt := wc.machine.CurrentPromptTask()
-	if targetPrompt == "" {
-		return nil
-	}
-	if wc.activeConv.promptName == targetPrompt {
-		return nil
+	// Primary comparison: by state name. This handles composition states whose
+	// prompt_task is "" — prompt-name comparison would return early on "" == ""
+	// even when the machine moved to a different composition state, or would
+	// skip reconciliation when transitioning between a normal state and a
+	// composition state.
+	//
+	// When activeStateName is not set (e.g. WorkflowConversation constructed
+	// directly in tests without going through openConvForCurrentState), fall
+	// back to prompt-name comparison so existing tests remain valid.
+	if wc.activeStateName != "" {
+		if wc.activeStateName == wc.machine.CurrentState() {
+			return nil
+		}
+	} else {
+		targetPrompt := wc.machine.CurrentPromptTask()
+		if targetPrompt == "" {
+			return nil
+		}
+		if wc.activeConv.promptName == targetPrompt {
+			return nil
+		}
 	}
 	return wc.openConvForCurrentState(contextSummary)
 }
@@ -416,14 +483,49 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 		opts = append(append([]Option{}, opts...), WithVariables(artVars))
 	}
 
+	// RFC 0010: composition states have no prompt_task — resolve and thread the
+	// composition so the pipeline runs CompositionStage instead of the normal
+	// prompt-assembly → LLM path.
+	if compOpt, err := wc.resolveCompositionOpt(wc.machine.CurrentState()); err != nil {
+		return fmt.Errorf("failed to resolve composition for state %q: %w",
+			wc.machine.CurrentState(), err)
+	} else if compOpt != nil {
+		opts = append(append([]Option{}, opts...), compOpt)
+	}
+
 	conv, err := Open(wc.packPath, targetPrompt, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
 			wc.machine.CurrentState(), targetPrompt, err)
 	}
 	wc.activeConv = conv
+	wc.activeStateName = wc.machine.CurrentState()
 	wc.registerWorkflowTools()
 	return nil
+}
+
+// resolveCompositionOpt returns a withResolvedComposition option when the named
+// workflow state has orchestration: composition, or nil when it does not.
+// Returns an error when the state references a composition name that is absent
+// from the pack or that fails to parse.
+func (wc *WorkflowConversation) resolveCompositionOpt(stateName string) (Option, error) {
+	if wc.sdkPack == nil || wc.sdkPack.Workflow == nil {
+		return nil, nil
+	}
+	state, ok := wc.sdkPack.Workflow.States[stateName]
+	if !ok || state.Orchestration != orchestrationComposition {
+		return nil, nil
+	}
+	compName := state.Composition
+	raw, ok := wc.sdkPack.Compositions[compName]
+	if !ok {
+		return nil, fmt.Errorf("composition %q not found in pack", compName)
+	}
+	var comp composition.Composition
+	if err := json.Unmarshal(raw, &comp); err != nil {
+		return nil, fmt.Errorf("failed to parse composition %q: %w", compName, err)
+	}
+	return withResolvedComposition(compName, &comp), nil
 }
 
 // Transition processes an event and moves to the next state.

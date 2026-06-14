@@ -318,11 +318,17 @@ func collectPipelineStages(
 	// 3. Prompt assembly stage - loads raw template (no rendering)
 	// 4. Template stage - single render point, emits events. With turnState,
 	// rendering happens once per Send rather than once per element.
-	stages = append(stages,
-		stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
-		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
-		stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState),
-	)
+	//
+	// For composition states (RFC 0010), these three stages are skipped: the
+	// CompositionStage builds its own per-step sub-pipelines and there is no
+	// top-level prompt_task to assemble.
+	if cfg.ActiveComposition == nil {
+		stages = append(stages,
+			stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
+			stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
+			stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState),
+		)
+	}
 
 	// 4.1 Input recording stage - captures user input with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {

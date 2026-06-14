@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
@@ -290,6 +291,24 @@ type config struct {
 	// stored only — wiring through to the SDK pipeline is a separate
 	// follow-up task.
 	audioMonitorOpts *AudioMonitorOptions
+
+	// RFC 0010 — composition execution. Set by withResolvedComposition when
+	// the workflow's current state has orchestration: composition. Non-nil
+	// causes the pipeline to run a CompositionStage instead of the normal
+	// prompt-assembly → LLM path.
+	activeComposition *composition.Composition
+	compositionName   string
+}
+
+// withResolvedComposition is an internal option that carries a pre-resolved
+// composition into the pipeline config. It is set by openConvForCurrentState
+// when the current workflow state has orchestration: composition.
+func withResolvedComposition(name string, comp *composition.Composition) Option {
+	return func(c *config) error {
+		c.compositionName = name
+		c.activeComposition = comp
+		return nil
+	}
 }
 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.

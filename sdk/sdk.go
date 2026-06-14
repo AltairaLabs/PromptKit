@@ -321,6 +321,10 @@ var packCache sync.Map // map[string]*pack.Pack
 // loadAndValidatePack loads the pack and validates the prompt exists.
 // Packs are cached by absolute path so repeated Open() calls for the
 // same pack file skip disk I/O and schema validation.
+//
+// When cfg.activeComposition is non-nil the caller is opening a composition
+// state (RFC 0010) — prompt_task is intentionally empty for these states, so
+// the prompt-not-found check is skipped and a zero-value Prompt is returned.
 func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, *pack.Prompt, error) {
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
@@ -330,6 +334,10 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 	// Check cache first.
 	if cached, ok := packCache.Load(absPath); ok {
 		p := cached.(*pack.Pack)
+		if cfg.activeComposition != nil {
+			// Composition state: no prompt_task required.
+			return p, &pack.Prompt{}, nil
+		}
 		prompt, ok := p.Prompts[promptName]
 		if !ok {
 			available := make([]string, 0, len(p.Prompts))
@@ -354,6 +362,11 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 	// Store in cache. If another goroutine raced us, that's fine —
 	// both loaded the same file and the result is identical.
 	packCache.Store(absPath, p)
+
+	if cfg.activeComposition != nil {
+		// Composition state: no prompt_task required.
+		return p, &pack.Prompt{}, nil
+	}
 
 	prompt, ok := p.Prompts[promptName]
 	if !ok {

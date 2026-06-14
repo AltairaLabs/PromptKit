@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -529,6 +530,18 @@ func (c *Conversation) buildPipelineConfig(
 		}
 		if c.prompt.Parameters.Temperature != nil {
 			pipelineCfg.Temperature = float32(*c.prompt.Parameters.Temperature)
+		}
+	}
+
+	// RFC 0010 — composition execution. When the active config carries a
+	// resolved composition (set by withResolvedComposition in workflow.go),
+	// thread it into the pipeline so CompositionStage runs instead of the
+	// normal prompt-assembly → LLM path.
+	if c.config.activeComposition != nil {
+		pipelineCfg.ActiveComposition = c.config.activeComposition
+		pipelineCfg.CompositionName = c.config.compositionName
+		if c.pack != nil && c.pack.FilePath != "" {
+			pipelineCfg.SchemaResolver = intpipeline.NewSchemaResolver(filepath.Dir(c.pack.FilePath))
 		}
 	}
 

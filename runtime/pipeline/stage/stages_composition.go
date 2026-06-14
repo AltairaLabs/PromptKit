@@ -75,11 +75,16 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 // the composition input; any other content (including bare scalars like `true`
 // or `42` that happen to be valid JSON) is encoded as a JSON string, since a
 // user message's Content is always text.
+//
+// GetContent() is used to unify the Content field with the Parts fallback so
+// that SDK messages built via AddTextPart (which set Parts instead of Content)
+// are handled correctly.
 func compositionInput(msg *types.Message) json.RawMessage {
-	c := []byte(strings.TrimSpace(msg.Content))
+	text := msg.GetContent()
+	c := []byte(strings.TrimSpace(text))
 	if len(c) > 0 && (c[0] == '{' || c[0] == '[') && json.Valid(c) {
 		return c
 	}
-	enc, _ := json.Marshal(msg.Content)
+	enc, _ := json.Marshal(text)
 	return enc
 }
