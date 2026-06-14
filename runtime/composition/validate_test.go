@@ -296,3 +296,33 @@ func TestValidate_JoinWarning(t *testing.T) {
 		t.Fatalf("want join-point warning, got warnings %v", r.Warnings)
 	}
 }
+
+func TestValidate_FullValidCompositionNoErrors(t *testing.T) {
+	c := &Composition{
+		Version: 1, Output: "synthesize",
+		Steps: []*Step{
+			{ID: "classify", Kind: KindPrompt, PromptTask: "doc_classifier", Input: "${input.text}"},
+			{ID: "route", Kind: KindBranch,
+				Predicate: &Predicate{Path: "${classify.output.type}", Op: "equals", Value: "paper"},
+				Then:      "paper", Else: "general"},
+			{ID: "paper", Kind: KindPrompt, PromptTask: "paper_extractor", Input: "${input.text}", DependsOn: []string{"route"}},
+			{ID: "general", Kind: KindPrompt, PromptTask: "general_extractor", Input: "${input.text}", DependsOn: []string{"route"}},
+			{ID: "meta", Kind: KindParallel, DependsOn: []string{"paper", "general"},
+				Branches: []*Step{
+					{ID: "structure", Kind: KindTool, Tool: "doc.parse", Args: map[string]any{"content": "${input.text}"}},
+					{ID: "citations", Kind: KindTool, Tool: "doc.cite", Args: map[string]any{"content": "${input.text}"}},
+				},
+				Reduce: &Reducer{Strategy: ReduceBarrier, Into: "metadata"}},
+			{ID: "synthesize", Kind: KindAgent, PromptTask: "doc_analyzer", Input: "${meta.output.metadata}",
+				Tools: []string{"ref.search"}, Termination: &Termination{MaxSteps: 10}, DependsOn: []string{"meta"},
+				Modifiers: &StepModifiers{Eval: []string{"analysis_quality"}}},
+		},
+	}
+	r := Validate("analyze", c,
+		av([]string{"doc_classifier", "paper_extractor", "general_extractor", "doc_analyzer"},
+			[]string{"doc.parse", "doc.cite", "ref.search"},
+			[]string{"analysis_quality"}))
+	if r.HasErrors() {
+		t.Fatalf("expected no errors, got %v (warnings %v)", r.Errors, r.Warnings)
+	}
+}
