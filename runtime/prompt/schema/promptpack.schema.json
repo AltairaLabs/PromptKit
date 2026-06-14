@@ -1383,6 +1383,10 @@
           },
           "default": ["text/plain"],
           "examples": [["text/plain"], ["text/plain", "application/json"]]
+        },
+        "state": {
+          "type": "string",
+          "description": "RFC 0011: reference to a state key in the pack's workflow.states. When set, invoking this agent runs the pack workflow starting at the named state (following its transitions and loops) instead of executing the member-key prompt once. Requires a top-level workflow. If omitted, the agent is a single-prompt agent (RFC 0007)."
         }
       }
     },
