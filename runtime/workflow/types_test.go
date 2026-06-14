@@ -359,3 +359,17 @@ func TestParseConfig_Invalid(t *testing.T) {
 		t.Error("expected error for invalid input")
 	}
 }
+
+func TestState_CompositionJSONRoundTrip(t *testing.T) {
+	raw := `{"orchestration":"composition","composition":"analyze_doc","terminal":true}`
+	var s State
+	if err := json.Unmarshal([]byte(raw), &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.Orchestration != OrchestrationComposition {
+		t.Errorf("orchestration = %q, want composition", s.Orchestration)
+	}
+	if s.Composition != "analyze_doc" {
+		t.Errorf("composition = %q, want analyze_doc", s.Composition)
+	}
+}

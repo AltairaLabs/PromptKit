@@ -119,17 +119,20 @@ type Spec struct {
 
 // State defines a single state in the workflow state machine.
 type State struct {
-	PromptTask    string                  `json:"prompt_task"`
-	Description   string                  `json:"description,omitempty"`
-	OnEvent       map[string]string       `json:"on_event,omitempty"`
-	Persistence   Persistence             `json:"persistence,omitempty"`
-	Orchestration Orchestration           `json:"orchestration,omitempty"`
-	Control       ControlMode             `json:"control,omitempty"` // user (default) or agent
-	Skills        string                  `json:"skills,omitempty"`
-	Terminal      bool                    `json:"terminal,omitempty"`      // RFC 0009: explicit terminal marker
-	MaxVisits     int                     `json:"max_visits,omitempty"`    // RFC 0009: max times this state can be entered
-	OnMaxVisits   string                  `json:"on_max_visits,omitempty"` // RFC 0009: redirect on max_visits
-	Artifacts     map[string]*ArtifactDef `json:"artifacts,omitempty"`     // RFC 0009: artifact slot declarations
+	PromptTask    string            `json:"prompt_task"`
+	Description   string            `json:"description,omitempty"`
+	OnEvent       map[string]string `json:"on_event,omitempty"`
+	Persistence   Persistence       `json:"persistence,omitempty"`
+	Orchestration Orchestration     `json:"orchestration,omitempty"`
+	Control       ControlMode       `json:"control,omitempty"` // user (default) or agent
+	Skills        string            `json:"skills,omitempty"`
+	// Composition names the composition (in the pack's compositions map) that a
+	// composition-orchestrated state runs. Required when Orchestration == composition.
+	Composition string                  `json:"composition,omitempty"`
+	Terminal    bool                    `json:"terminal,omitempty"`      // RFC 0009: explicit terminal marker
+	MaxVisits   int                     `json:"max_visits,omitempty"`    // RFC 0009: max times this state can be entered
+	OnMaxVisits string                  `json:"on_max_visits,omitempty"` // RFC 0009: redirect on max_visits
+	Artifacts   map[string]*ArtifactDef `json:"artifacts,omitempty"`     // RFC 0009: artifact slot declarations
 }
 
 // ArtifactDef declares a named artifact slot on a workflow state.
@@ -171,6 +174,9 @@ const (
 	OrchestrationInternal Orchestration = "internal"
 	OrchestrationExternal Orchestration = "external"
 	OrchestrationHybrid   Orchestration = "hybrid"
+	// OrchestrationComposition runs a declarative composition step-graph for the
+	// state instead of an LLM-driven turn (RFC 0010).
+	OrchestrationComposition Orchestration = "composition"
 )
 
 // ControlMode describes who holds control after a transition into this state.
