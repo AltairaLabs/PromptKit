@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
 // registerSimplePrompt adds a trivial prompt template under taskID to reg.
@@ -401,7 +402,8 @@ func TestCompositionExecutor_CancelledContext(t *testing.T) {
 
 func TestCompositionExecutor_ResponseJSONPassthrough(t *testing.T) {
 	// Covers the responseToJSON JSON-passthrough path: when the mock returns
-	// content that is already valid JSON, responseToJSON returns it unchanged.
+	// content that is already valid JSON AND the step has an OutputSchema
+	// (structured=true), responseToJSON returns it unchanged.
 	repo := mock.NewInMemoryMockRepository(`{"answer":42}`)
 	prov := mock.NewProviderWithRepository("test-id", "test-model", false, repo)
 	mockRepo := newMockRepo()
@@ -413,7 +415,8 @@ func TestCompositionExecutor_ResponseJSONPassthrough(t *testing.T) {
 		Provider:       prov,
 		ToolRegistry:   tools.NewRegistry(),
 	})
-	step := &composition.Step{ID: "s", Kind: composition.KindPrompt, PromptTask: "p"}
+	// OutputSchema non-empty → structured=true → JSON passthrough applies.
+	step := &composition.Step{ID: "s", Kind: composition.KindPrompt, PromptTask: "p", OutputSchema: "schemas/x.json"}
 	out, err := exec(context.Background(), step, json.RawMessage(`"hello"`))
 	if err != nil {
 		t.Fatal(err)
@@ -425,5 +428,84 @@ func TestCompositionExecutor_ResponseJSONPassthrough(t *testing.T) {
 	var got map[string]any
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("expected JSON object passthrough, got: %s", out)
+	}
+}
+
+func TestCompositionExecutor_TextStepNullLiteralEncodedAsString(t *testing.T) {
+	// I2 regression test: a TEXT step (no OutputSchema) whose provider returns
+	// the literal text "null" must produce the JSON string "\"null\"", NOT raw
+	// JSON null. Without the fix, json.Valid("null") is true and the old code
+	// would pass through null, making the output ambiguous/corrupt.
+	repo := mock.NewInMemoryMockRepository("null")
+	prov := mock.NewProviderWithRepository("test-id", "test-model", false, repo)
+	mockRepo := newMockRepo()
+	reg := prompt.NewRegistryWithRepository(mockRepo)
+	registerSimplePrompt(t, reg, "p")
+
+	exec := NewCompositionStepExecutor(CompositionExecutorDeps{
+		PromptRegistry: reg,
+		Provider:       prov,
+		ToolRegistry:   tools.NewRegistry(),
+	})
+	// No OutputSchema → structured=false → plain text encoding required.
+	step := &composition.Step{ID: "s", Kind: composition.KindPrompt, PromptTask: "p"}
+	out, err := exec(context.Background(), step, json.RawMessage(`"hello"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(out) {
+		t.Fatalf("output is not valid JSON: %s", out)
+	}
+	// Must be a JSON string, not raw null.
+	var s string
+	if err := json.Unmarshal(out, &s); err != nil {
+		t.Fatalf("expected JSON string encoding of text, got: %s (err: %v)", out, err)
+	}
+}
+
+func TestCompositionExecutor_AllowedToolsOverrideStage(t *testing.T) {
+	// C1 regression test: proves that allowedToolsStage overrides whatever
+	// AllowedTools the prompt template declares, so the step's tool policy wins.
+	//
+	// The observable: after allowedToolsStage.Process runs over a channel,
+	// turnState.AllowedTools equals the configured list, regardless of what
+	// PromptAssemblyStage wrote to it first.
+	//
+	// This is a focused unit test of the override stage itself (fallback
+	// approach from the spec), because the ProviderStage snapshots AllowedTools
+	// inside its own goroutine and does not expose which tools it offered to
+	// the mock provider via the public StreamElement surface.
+	turnState := &TurnState{}
+
+	// Simulate what PromptAssemblyStage does: sets AllowedTools from the template.
+	turnState.AllowedTools = []string{"template-tool"}
+
+	stage := &allowedToolsStage{
+		turnState: turnState,
+		tools:     []string{"step-tool"},
+	}
+
+	input := make(chan StreamElement, 1)
+	userMsg := &types.Message{Role: roleUser, Content: "hi"}
+	input <- NewMessageElement(userMsg)
+	close(input)
+
+	output := make(chan StreamElement, 1)
+	if err := stage.Process(context.Background(), input, output); err != nil {
+		t.Fatalf("allowedToolsStage.Process: %v", err)
+	}
+
+	// Drain output to confirm the element was forwarded.
+	var forwarded int
+	for range output {
+		forwarded++
+	}
+	if forwarded != 1 {
+		t.Errorf("expected 1 forwarded element, got %d", forwarded)
+	}
+
+	// The override must have replaced the template's AllowedTools with step-tool.
+	if len(turnState.AllowedTools) != 1 || turnState.AllowedTools[0] != "step-tool" {
+		t.Errorf("AllowedTools after override = %v, want [step-tool]", turnState.AllowedTools)
 	}
 }

@@ -20,6 +20,35 @@ import (
 // Go error so composition step execution stops.
 var errToolFailed = fmt.Errorf("tool reported failure")
 
+// allowedToolsStage overrides TurnState.AllowedTools after prompt assembly so a
+// composition step's own tool policy governs the provider (agent → step.Tools;
+// prompt → none), instead of the prompt template's AllowedTools which
+// PromptAssemblyStage would otherwise impose.
+type allowedToolsStage struct {
+	turnState *TurnState
+	tools     []string
+}
+
+func (s *allowedToolsStage) Name() string    { return "composition-allowed-tools" } //nolint:revive
+func (s *allowedToolsStage) Type() StageType { return StageTypeTransform }          //nolint:revive
+
+func (s *allowedToolsStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error { //nolint:revive,lll
+	defer close(out)
+	applied := false
+	for elem := range in {
+		if !applied {
+			s.turnState.AllowedTools = s.tools
+			applied = true
+		}
+		select {
+		case out <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
 // CompositionExecutorDeps carries the runtime collaborators a composition step
 // needs to execute. Injected once; reused for every step of every Execute call.
 type CompositionExecutorDeps struct {
@@ -90,9 +119,11 @@ func (deps CompositionExecutorDeps) execLLM(
 	}
 	cfg.ResponseFormat = rf
 
+	// Per-step tool policy: agent steps use step.Tools; prompt steps get no tools.
+	var allowed []string
 	policy := &pipeline.ToolPolicy{}
 	if step.Kind == composition.KindAgent {
-		turnState.AllowedTools = step.Tools
+		allowed = step.Tools
 		if step.Termination != nil {
 			if step.Termination.MaxSteps > 0 {
 				policy.MaxRounds = step.Termination.MaxSteps
@@ -101,13 +132,18 @@ func (deps CompositionExecutorDeps) execLLM(
 		}
 	} else {
 		policy.MaxRounds = 1
+		// allowed stays nil — prompt steps run with no tools.
 	}
+
+	// allowedToolsStage runs after PromptAssemblyStage so the step's tool policy
+	// overwrites whatever AllowedTools the prompt template imposed on turnState.
+	toolsOverride := &allowedToolsStage{turnState: turnState, tools: allowed}
 
 	provStage := NewProviderStageWithTurnState(
 		deps.Provider, deps.ToolRegistry, policy, cfg, deps.Emitter, deps.HookRegistry, turnState,
 	)
 
-	pipe, err := NewPipelineBuilder().Chain(promptStage, templateStage, provStage).Build()
+	pipe, err := NewPipelineBuilder().Chain(promptStage, templateStage, toolsOverride, provStage).Build()
 	if err != nil {
 		return nil, fmt.Errorf("step %q: building sub-pipeline: %w", step.ID, err)
 	}
@@ -120,7 +156,7 @@ func (deps CompositionExecutorDeps) execLLM(
 	if res == nil || res.Response == nil {
 		return nil, fmt.Errorf("step %q: sub-pipeline produced no response", step.ID)
 	}
-	return responseToJSON(res.Response)
+	return responseToJSON(res.Response, step.OutputSchema != "")
 }
 
 // responseFormat builds a structured-output ResponseFormat from the step's
@@ -159,10 +195,19 @@ func stepInputToText(input json.RawMessage) string {
 	return string(input)
 }
 
-// responseToJSON returns the sub-pipeline response as JSON: a Content that is
-// already valid JSON passes through; plain text is JSON-encoded as a string.
-func responseToJSON(resp *Response) (json.RawMessage, error) {
-	if json.Valid([]byte(resp.Content)) {
+// responseToJSON returns the sub-pipeline response as JSON.
+//
+// When structured is true (the step declared an output_schema), content that is
+// already valid JSON is passed through as-is — the provider was instructed to
+// return structured JSON and the raw payload must be preserved.
+//
+// When structured is false (a plain text step), the content is always
+// JSON-encoded as a string, even if it happens to be valid JSON (e.g. the
+// literal "null", "42", or "true"). This prevents ambiguity in downstream
+// ${step.output} resolution where a bare JSON primitive would be
+// indistinguishable from a structured value.
+func responseToJSON(resp *Response, structured bool) (json.RawMessage, error) {
+	if structured && json.Valid([]byte(resp.Content)) {
 		return json.RawMessage(resp.Content), nil
 	}
 	enc, err := json.Marshal(resp.Content)
