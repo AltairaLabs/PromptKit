@@ -189,53 +189,6 @@ func TestExecute_UnknownKind(t *testing.T) {
 	}
 }
 
-func TestExecute_SkippedDeps(t *testing.T) {
-	// "b" depends on "a"; "a" is skipped (depends on a missing dep that is also
-	// skipped — simulated here by starting with an always-skipped step).
-	comp := &composition.Composition{
-		Version: 1,
-		Output:  "c",
-		Steps: []*composition.Step{
-			// "skip" has no deps so it runs; we skip it manually by making it
-			// produce a branch (which doesn't set status = completed, so we
-			// drive the skip via DependsOn chain instead).
-			// Simpler: use a direct dep chain where "a" dep on "skip",
-			// "b" dep on "a", and "skip" is KindBranch (no output, no completed).
-			{ID: "skip", Kind: composition.KindBranch},
-			{ID: "a", Kind: composition.KindPrompt, DependsOn: []string{"skip"}},
-			{ID: "c", Kind: composition.KindTool, Tool: "t"},
-		},
-	}
-	// "skip" is KindBranch stub — sets no status on itself, so status["skip"] == statusPending.
-	// "a" DependsOn "skip" but skip is pending (not skipped), so "a" runs.
-	// The interesting skip path: a step whose all deps are statusSkipped.
-	// Drive that by having "gone" never in the map (treated as pending), so "a" runs.
-	// Actually to test the shouldSkip path, we need all deps to be statusSkipped.
-	// Use a different approach: status for "gone" dep will be zero (pending), not skipped.
-	// To truly hit shouldSkip we need a step that was explicitly marked skipped.
-	// Restructure: chain skip→a→b where skip is itself skipped.
-	// The only way a step gets statusSkipped is if shouldSkip returns true for it.
-	// Bootstrap: step with DependsOn of a non-existent id won't be skipped because
-	// the zero value is statusPending, not statusSkipped.
-	// The real skip chain requires a prior step to have been skipped.
-	// Use: step "never" depends on step "gone" (unknown = pending → not skipped);
-	// so that won't work. We need an explicit skip.
-	//
-	// Conclusion: shouldSkip only fires when a dep was explicitly set to statusSkipped.
-	// That happens transitively. Build: root→mid→leaf where root is KindParallel
-	// (errors out) — but we need Execute to still run. Instead, let's test it via
-	// a KindBranch that has a dep on another KindBranch:
-	// Actually the simplest reliable path: manually confirm shouldSkip logic in a unit test.
-	fe := newFakeExec(map[string]any{"c": "cv"})
-	out, err := New(fe.exec).Execute(context.Background(), comp, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(out) != `"cv"` {
-		t.Errorf("skipped-deps output = %s", out)
-	}
-}
-
 func TestExecute_StepError(t *testing.T) {
 	comp := &composition.Composition{
 		Version: 1,

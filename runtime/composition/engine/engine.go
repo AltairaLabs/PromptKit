@@ -11,7 +11,9 @@ import (
 // StepExecutor runs one leaf step (prompt|agent|tool) and returns its raw output.
 // input is the step's resolved Input (prompt/agent) or resolved Args (tool),
 // marshaled to JSON. Injected so the orchestrator core is testable without a
-// pipeline; the production implementation is supplied in a later phase.
+// pipeline; Plan 2b supplies the production implementation.
+// For an arg-less tool (nil Args) or nil Input, input is the JSON literal `null`;
+// production executors must treat `null` as "no input/args".
 type StepExecutor func(ctx context.Context, step *composition.Step, input json.RawMessage) (json.RawMessage, error)
 
 // Engine is the deterministic composition scheduler.
@@ -36,6 +38,8 @@ const scopeOutputKey = "output"
 
 // Execute walks the composition's step DAG to completion and returns the bound
 // output (comp.Output, or the last output-producing step).
+// The scope map is not safe for concurrent mutation; parallel branches (Task 7)
+// read it during fan-out and their merged result is written back only at the join.
 func (e *Engine) Execute(
 	ctx context.Context, comp *composition.Composition, input json.RawMessage,
 ) (json.RawMessage, error) {
@@ -105,8 +109,15 @@ func (e *Engine) runStep(
 	}
 }
 
-// shouldSkip reports whether a step is unreachable because every dependency was
-// skipped. A step with no depends_on is never skipped by this rule.
+// shouldSkip reports whether a step is unreachable: it has depends_on and every
+// dependency was skipped. A skipped dependency otherwise counts as satisfied.
+//
+// Soundness note: this reads status[dep] during an array-order walk and treats an
+// unset (pending) status as "not skipped". That is only correct because validation
+// guarantees every depends_on target precedes the step in array order (forward
+// deps are rejected by the validator's acyclic check over the sequential backbone).
+// If that invariant ever changes, a forward dep could read as pending and a skip
+// would fail to propagate.
 func shouldSkip(step *composition.Step, status map[string]stepStatus) bool {
 	if len(step.DependsOn) == 0 {
 		return false
@@ -142,8 +153,9 @@ func (e *Engine) runLeaf(ctx context.Context, step *composition.Step, scope Scop
 	return decodeOutput(out)
 }
 
-// decodeOutput turns a step's raw JSON output into a scope value.
-// Empty output decodes to nil.
+// decodeOutput turns a step's raw JSON output into a scope value. Empty output and
+// a literal JSON null both decode to nil; downstream ${step.output.x} resolution
+// against a nil value fails closed (resolves to not-found), which is intended.
 func decodeOutput(raw json.RawMessage) (any, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -166,7 +178,8 @@ func bindOutput(comp *composition.Composition, scope Scope, lastOutputStep strin
 	}
 	entry, ok := scope[target].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("output step %q did not complete", target)
+		return nil, fmt.Errorf("output step %q produced no bindable output "+
+			"(it did not complete, or is a branch/control step)", target)
 	}
 	return json.Marshal(entry[scopeOutputKey])
 }
