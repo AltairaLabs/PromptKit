@@ -17,14 +17,10 @@ import (
 type Scope map[string]any
 
 // refWholeRe matches a string that is exactly a single ${...} reference.
-//
-//nolint:unused // transitively called by resolveInput; wired to non-test callers in Task 5
 var refWholeRe = regexp.MustCompile(`^\$\{\s*([a-zA-Z_][a-zA-Z0-9_.]*?)\s*\}$`)
 
 // stripRef returns the inner dotted path of a string that is exactly a ${...}
 // reference, and whether the input was such a reference.
-//
-//nolint:unused // transitively called by resolveInput; wired to non-test callers in Task 5
 func stripRef(s string) (string, bool) {
 	m := refWholeRe.FindStringSubmatch(s)
 	if m == nil {
@@ -36,8 +32,6 @@ func stripRef(s string) (string, bool) {
 // resolvePath resolves a ${...} reference to its value in scope, walking dotted
 // segments through nested maps. Returns (nil, false) if the input is not a
 // whole-string reference or any segment is missing.
-//
-//nolint:unused // transitively called by resolveInput; wired to non-test callers in Task 5
 func resolvePath(ref string, scope Scope) (any, bool) {
 	inner, ok := stripRef(ref)
 	if !ok {
@@ -58,15 +52,11 @@ func resolvePath(ref string, scope Scope) (any, bool) {
 }
 
 // embeddedRefRe finds ${...} references anywhere inside a string (for interpolation).
-//
-//nolint:unused // transitively called by resolveInput; wired to non-test callers in Task 5
 var embeddedRefRe = regexp.MustCompile(`\$\{\s*[a-zA-Z_][a-zA-Z0-9_.]*?\s*\}`)
 
 // resolveInputString handles the string branch of resolveInput: a pure whole-string
 // reference is returned as its typed value; otherwise embedded references are
 // interpolated as text.
-//
-//nolint:unused // called only by resolveInput; wired to non-test callers in Task 5
 func resolveInputString(v string, scope Scope) (any, error) {
 	if _, ok := stripRef(v); ok {
 		val, ok := resolvePath(v, scope)
@@ -97,8 +87,6 @@ func resolveInputString(v string, scope Scope) (any, error) {
 //   - any other value passes through unchanged
 //
 // An unresolvable reference returns an error.
-//
-//nolint:unused // wired in by the engine scheduler in Task 5
 func resolveInput(in any, scope Scope) (any, error) {
 	switch v := in.(type) {
 	case string:

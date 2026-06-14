@@ -1,0 +1,182 @@
+package engine
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
+)
+
+// StepExecutor runs one leaf step (prompt|agent|tool) and returns its raw output.
+// input is the step's resolved Input (prompt/agent) or resolved Args (tool),
+// marshaled to JSON. Injected so the orchestrator core is testable without a
+// pipeline; the production implementation is supplied in a later phase.
+type StepExecutor func(ctx context.Context, step *composition.Step, input json.RawMessage) (json.RawMessage, error)
+
+// Engine is the deterministic composition scheduler.
+type Engine struct {
+	exec StepExecutor
+}
+
+// New builds an Engine around a StepExecutor.
+func New(exec StepExecutor) *Engine { return &Engine{exec: exec} }
+
+// stepStatus tracks scheduling state across the array walk.
+type stepStatus int
+
+const (
+	statusPending   stepStatus = iota // zero value; set on map miss
+	statusCompleted stepStatus = iota
+	statusSkipped   stepStatus = iota
+)
+
+// scopeOutputKey is the map key used to store a step's decoded output in scope.
+const scopeOutputKey = "output"
+
+// Execute walks the composition's step DAG to completion and returns the bound
+// output (comp.Output, or the last output-producing step).
+func (e *Engine) Execute(
+	ctx context.Context, comp *composition.Composition, input json.RawMessage,
+) (json.RawMessage, error) {
+	if comp == nil {
+		return nil, fmt.Errorf("nil composition")
+	}
+
+	var decodedInput any
+	if len(input) > 0 {
+		if err := json.Unmarshal(input, &decodedInput); err != nil {
+			return nil, fmt.Errorf("decoding composition input: %w", err)
+		}
+	}
+	scope := Scope{"input": decodedInput}
+	status := make(map[string]stepStatus, len(comp.Steps))
+	var lastOutputStep string
+
+	for _, step := range comp.Steps {
+		if status[step.ID] == statusSkipped {
+			continue
+		}
+		if shouldSkip(step, status) {
+			status[step.ID] = statusSkipped
+			continue
+		}
+		last, err := e.runStep(ctx, step, scope, status)
+		if err != nil {
+			return nil, err
+		}
+		if last != "" {
+			lastOutputStep = last
+		}
+	}
+
+	return bindOutput(comp, scope, lastOutputStep)
+}
+
+// runStep dispatches a single step to its handler, updates scope and status, and
+// returns the step ID if it produced an output (empty string if it did not).
+func (e *Engine) runStep(
+	ctx context.Context, step *composition.Step, scope Scope, status map[string]stepStatus,
+) (string, error) {
+	switch step.Kind {
+	case composition.KindBranch:
+		if err := e.runBranch(step, scope, status); err != nil {
+			return "", err
+		}
+		return "", nil
+	case composition.KindParallel:
+		out, err := e.runParallel(ctx, step, scope)
+		if err != nil {
+			return "", fmt.Errorf("step %q: %w", step.ID, err)
+		}
+		scope[step.ID] = map[string]any{scopeOutputKey: out}
+		status[step.ID] = statusCompleted
+		return step.ID, nil
+	case composition.KindPrompt, composition.KindAgent, composition.KindTool:
+		out, err := e.runLeaf(ctx, step, scope)
+		if err != nil {
+			return "", fmt.Errorf("step %q: %w", step.ID, err)
+		}
+		scope[step.ID] = map[string]any{scopeOutputKey: out}
+		status[step.ID] = statusCompleted
+		return step.ID, nil
+	default:
+		return "", fmt.Errorf("step %q: unknown kind %q", step.ID, step.Kind)
+	}
+}
+
+// shouldSkip reports whether a step is unreachable because every dependency was
+// skipped. A step with no depends_on is never skipped by this rule.
+func shouldSkip(step *composition.Step, status map[string]stepStatus) bool {
+	if len(step.DependsOn) == 0 {
+		return false
+	}
+	for _, dep := range step.DependsOn {
+		if status[dep] != statusSkipped {
+			return false
+		}
+	}
+	return true
+}
+
+// runLeaf resolves a leaf step's input/args, executes it, and decodes the output.
+func (e *Engine) runLeaf(ctx context.Context, step *composition.Step, scope Scope) (any, error) {
+	var raw any
+	if step.Kind == composition.KindTool {
+		raw = step.Args
+	} else {
+		raw = step.Input
+	}
+	resolved, err := resolveInput(raw, scope)
+	if err != nil {
+		return nil, err
+	}
+	resolvedJSON, err := json.Marshal(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling resolved input: %w", err)
+	}
+	out, err := e.exec(ctx, step, resolvedJSON)
+	if err != nil {
+		return nil, err
+	}
+	return decodeOutput(out)
+}
+
+// decodeOutput turns a step's raw JSON output into a scope value.
+// Empty output decodes to nil.
+func decodeOutput(raw json.RawMessage) (any, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, fmt.Errorf("decoding step output: %w", err)
+	}
+	return v, nil
+}
+
+// bindOutput resolves the composition's output value to JSON.
+func bindOutput(comp *composition.Composition, scope Scope, lastOutputStep string) (json.RawMessage, error) {
+	target := comp.Output
+	if target == "" {
+		target = lastOutputStep
+	}
+	if target == "" {
+		return nil, fmt.Errorf("composition produced no output")
+	}
+	entry, ok := scope[target].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("output step %q did not complete", target)
+	}
+	return json.Marshal(entry[scopeOutputKey])
+}
+
+// runBranch is a stub completed in Task 6.
+func (e *Engine) runBranch(_ *composition.Step, _ Scope, _ map[string]stepStatus) error {
+	return nil
+}
+
+// runParallel is a stub completed in Task 7.
+func (e *Engine) runParallel(_ context.Context, _ *composition.Step, _ Scope) (any, error) {
+	return nil, fmt.Errorf("parallel not yet implemented")
+}
