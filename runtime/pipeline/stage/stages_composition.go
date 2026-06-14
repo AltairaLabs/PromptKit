@@ -16,9 +16,10 @@ import (
 // step DAG via the engine, and emits one assistant element carrying the
 // structured output.
 type CompositionStage struct {
-	name string
-	comp *composition.Composition
-	eng  *engine.Engine
+	name     string
+	comp     *composition.Composition
+	eng      *engine.Engine
+	recorder *CompositionRecorder
 }
 
 // NewCompositionStage builds a CompositionStage from a composition spec and the
@@ -28,6 +29,22 @@ func NewCompositionStage(name string, comp *composition.Composition, deps Compos
 		name: name,
 		comp: comp,
 		eng:  engine.New(NewCompositionStepExecutor(deps)),
+	}
+}
+
+// NewCompositionStageWithRecorder builds a CompositionStage that records
+// step-level execution data via rec for Arena observability. rec.Reset() is
+// called before each composition execution so that each turn's metadata is
+// independent. A nil rec is equivalent to calling NewCompositionStage.
+func NewCompositionStageWithRecorder(
+	name string, comp *composition.Composition,
+	deps CompositionExecutorDeps, rec *CompositionRecorder,
+) *CompositionStage {
+	return &CompositionStage{
+		name:     name,
+		comp:     comp,
+		eng:      engine.NewWithRecorder(NewCompositionStepExecutor(deps), rec),
+		recorder: rec,
 	}
 }
 
@@ -54,6 +71,9 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 				return ctx.Err()
 			}
 			continue
+		}
+		if s.recorder != nil {
+			s.recorder.Reset()
 		}
 		result, err := s.eng.Execute(ctx, s.comp, compositionInput(elem.Message))
 		if err != nil {
