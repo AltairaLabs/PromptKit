@@ -227,8 +227,6 @@ func BuildStreamPipeline(cfg *Config) (*stage.StreamPipeline, error) {
 
 // buildStreamPipelineInternal creates a stage pipeline directly without wrapping.
 // Used by DuplexSession which handles streaming at the session level.
-//
-//nolint:gocognit // Complex pipeline construction logic
 func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	logger.Info("Building stage-based pipeline",
 		"task_type", cfg.TaskType,
@@ -304,14 +302,13 @@ func collectPipelineStages(
 
 	// 2. Variable provider stage - always present, handles static + dynamic vars
 	// 3. Prompt assembly stage - loads raw template (no rendering)
+	// 4. Template stage - single render point, emits events. With turnState,
+	// rendering happens once per Send rather than once per element.
 	stages = append(stages,
 		stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
 		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
+		stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState),
 	)
-
-	// 4. Template stage - single render point, emits events. With turnState,
-	// rendering happens once per Send rather than once per element.
-	stages = append(stages, stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState))
 
 	// 4.1 Input recording stage - captures user input with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
