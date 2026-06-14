@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -45,6 +46,17 @@ type Response struct {
 
 	// Client tools awaiting caller fulfillment (deferred mode)
 	clientTools []PendingClientTool
+}
+
+// CompositionOutput returns the composition's structured output for a turn that
+// ran a composition state (RFC 0010), as raw JSON. For non-composition turns it
+// returns the assistant message content encoded as a JSON string. Nil when there
+// is no message.
+func (r *Response) CompositionOutput() json.RawMessage {
+	if r == nil || r.message == nil {
+		return nil
+	}
+	return json.RawMessage(r.message.GetContent())
 }
 
 // Text returns the text content of the response.
