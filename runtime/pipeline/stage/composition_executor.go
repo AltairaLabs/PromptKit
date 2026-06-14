@@ -20,24 +20,25 @@ import (
 // Go error so composition step execution stops.
 var errToolFailed = fmt.Errorf("tool reported failure")
 
-// allowedToolsStage overrides TurnState.AllowedTools after prompt assembly so a
-// composition step's own tool policy governs the provider (agent → step.Tools;
-// prompt → none), instead of the prompt template's AllowedTools which
-// PromptAssemblyStage would otherwise impose.
-type allowedToolsStage struct {
+// toolScopeStage narrows TurnState.AllowedTools, after prompt assembly, to the
+// intersection of the prompt template's allowed tools and the composition step's
+// tools — matching how skill tools are scoped. A prompt step (no tools) therefore
+// ends up with no tools; an agent step gets only tools allowed by BOTH its
+// prompt_task and its own tools[] list.
+type toolScopeStage struct {
 	turnState *TurnState
-	tools     []string
+	stepTools []string
 }
 
-func (s *allowedToolsStage) Name() string    { return "composition-allowed-tools" } //nolint:revive
-func (s *allowedToolsStage) Type() StageType { return StageTypeTransform }          //nolint:revive
+func (s *toolScopeStage) Name() string    { return "composition-allowed-tools" } //nolint:revive
+func (s *toolScopeStage) Type() StageType { return StageTypeTransform }          //nolint:revive
 
-func (s *allowedToolsStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error { //nolint:revive,lll
+func (s *toolScopeStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error { //nolint:revive,lll
 	defer close(out)
 	applied := false
 	for elem := range in {
 		if !applied {
-			s.turnState.AllowedTools = s.tools
+			s.turnState.AllowedTools = intersectInOrder(s.turnState.AllowedTools, s.stepTools)
 			applied = true
 		}
 		select {
@@ -119,11 +120,13 @@ func (deps CompositionExecutorDeps) execLLM(
 	}
 	cfg.ResponseFormat = rf
 
-	// Per-step tool policy: agent steps use step.Tools; prompt steps get no tools.
-	var allowed []string
+	// Per-step tool policy: agent steps configure MaxRounds/StopOnTool from
+	// Termination; prompt steps are always single-round.
+	// Tool scoping is handled uniformly by toolScopeStage: it intersects the
+	// prompt template's AllowedTools with step.Tools, so a prompt step (empty
+	// Tools) yields no tools regardless of what the template declares.
 	policy := &pipeline.ToolPolicy{}
 	if step.Kind == composition.KindAgent {
-		allowed = step.Tools
 		if step.Termination != nil {
 			if step.Termination.MaxSteps > 0 {
 				policy.MaxRounds = step.Termination.MaxSteps
@@ -132,12 +135,11 @@ func (deps CompositionExecutorDeps) execLLM(
 		}
 	} else {
 		policy.MaxRounds = 1
-		// allowed stays nil — prompt steps run with no tools.
 	}
 
-	// allowedToolsStage runs after PromptAssemblyStage so the step's tool policy
-	// overwrites whatever AllowedTools the prompt template imposed on turnState.
-	toolsOverride := &allowedToolsStage{turnState: turnState, tools: allowed}
+	// toolScopeStage runs after PromptAssemblyStage and narrows AllowedTools to
+	// the intersection of the prompt template's tools and the step's tools.
+	toolsOverride := &toolScopeStage{turnState: turnState, stepTools: step.Tools}
 
 	provStage := NewProviderStageWithTurnState(
 		deps.Provider, deps.ToolRegistry, policy, cfg, deps.Emitter, deps.HookRegistry, turnState,

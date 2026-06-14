@@ -463,49 +463,56 @@ func TestCompositionExecutor_TextStepNullLiteralEncodedAsString(t *testing.T) {
 	}
 }
 
-func TestCompositionExecutor_AllowedToolsOverrideStage(t *testing.T) {
-	// C1 regression test: proves that allowedToolsStage overrides whatever
-	// AllowedTools the prompt template declares, so the step's tool policy wins.
-	//
-	// The observable: after allowedToolsStage.Process runs over a channel,
-	// turnState.AllowedTools equals the configured list, regardless of what
-	// PromptAssemblyStage wrote to it first.
-	//
-	// This is a focused unit test of the override stage itself (fallback
-	// approach from the spec), because the ProviderStage snapshots AllowedTools
-	// inside its own goroutine and does not expose which tools it offered to
-	// the mock provider via the public StreamElement surface.
-	turnState := &TurnState{}
-
-	// Simulate what PromptAssemblyStage does: sets AllowedTools from the template.
-	turnState.AllowedTools = []string{"template-tool"}
-
-	stage := &allowedToolsStage{
-		turnState: turnState,
-		tools:     []string{"step-tool"},
+// runStageOverChannel drives a single stage through one StreamElement and drains
+// the output channel. It is used by focused unit tests that need to observe
+// side-effects on shared state (e.g. TurnState) after Process completes.
+func runStageOverChannel(t *testing.T, s Stage) {
+	t.Helper()
+	in := make(chan StreamElement, 1)
+	in <- NewMessageElement(&types.Message{Role: roleUser, Content: "x"})
+	close(in)
+	out := make(chan StreamElement, 1)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), in, out) }()
+	for range out {
 	}
-
-	input := make(chan StreamElement, 1)
-	userMsg := &types.Message{Role: roleUser, Content: "hi"}
-	input <- NewMessageElement(userMsg)
-	close(input)
-
-	output := make(chan StreamElement, 1)
-	if err := stage.Process(context.Background(), input, output); err != nil {
-		t.Fatalf("allowedToolsStage.Process: %v", err)
+	if err := <-done; err != nil {
+		t.Fatalf("stage.Process: %v", err)
 	}
+}
 
-	// Drain output to confirm the element was forwarded.
-	var forwarded int
-	for range output {
-		forwarded++
+func TestCompositionExecutor_ToolScopeIntersection(t *testing.T) {
+	// C1 regression test: proves that toolScopeStage narrows AllowedTools to the
+	// intersection of the prompt template's tools and the step's tools, NOT a
+	// plain replacement. A replace-semantics implementation would fail the
+	// "overlap" case (it would return ["b","c","d"] instead of ["b","c"]).
+	cases := []struct {
+		name        string
+		promptTools []string
+		stepTools   []string
+		want        []string
+	}{
+		{"overlap", []string{"a", "b", "c"}, []string{"b", "c", "d"}, []string{"b", "c"}},
+		{"no overlap", []string{"a"}, []string{"z"}, []string{}},
+		{"empty step tools (prompt step)", []string{"a", "b"}, nil, []string{}},
+		{"empty prompt tools", nil, []string{"a"}, []string{}},
 	}
-	if forwarded != 1 {
-		t.Errorf("expected 1 forwarded element, got %d", forwarded)
-	}
-
-	// The override must have replaced the template's AllowedTools with step-tool.
-	if len(turnState.AllowedTools) != 1 || turnState.AllowedTools[0] != "step-tool" {
-		t.Errorf("AllowedTools after override = %v, want [step-tool]", turnState.AllowedTools)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ts := &TurnState{AllowedTools: c.promptTools}
+			st := &toolScopeStage{turnState: ts, stepTools: c.stepTools}
+			runStageOverChannel(t, st)
+			got := ts.AllowedTools
+			// intersectInOrder may return nil for empty results; treat nil and
+			// []string{} as equal by comparing lengths then elements.
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v, want %v", got, c.want)
+			}
+			for i := range c.want {
+				if got[i] != c.want[i] {
+					t.Fatalf("got %v, want %v", got, c.want)
+				}
+			}
+		})
 	}
 }
