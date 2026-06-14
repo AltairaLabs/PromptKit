@@ -287,6 +287,54 @@ func TestValidate_RedirectChainWarns(t *testing.T) {
 	assertContains(t, r.Warnings, "redirect chain")
 }
 
+func TestValidate_CompositionStateNoPromptTaskOK(t *testing.T) {
+	spec := &Spec{
+		Version: 1, Entry: "analyze",
+		States: map[string]*State{
+			"analyze": {Orchestration: OrchestrationComposition, Composition: "analyze_doc", Terminal: true},
+		},
+	}
+	res := Validate(spec, []string{})
+	if res.HasErrors() {
+		t.Errorf("composition state should validate without prompt_task: %v", res.Errors)
+	}
+}
+
+func TestValidate_CompositionStateMissingCompositionErrors(t *testing.T) {
+	spec := &Spec{
+		Version: 1, Entry: "analyze",
+		States: map[string]*State{"analyze": {Orchestration: OrchestrationComposition, Terminal: true}},
+	}
+	res := Validate(spec, []string{})
+	if !res.HasErrors() {
+		t.Error("composition state without composition must error")
+	}
+	assertContains(t, res.Errors, "composition")
+}
+
+func TestValidate_CompositionSetOnNonCompositionStateErrors(t *testing.T) {
+	spec := &Spec{
+		Version: 1, Entry: "chat",
+		States: map[string]*State{"chat": {PromptTask: "p", Composition: "x"}},
+	}
+	res := Validate(spec, []string{"p"})
+	if !res.HasErrors() {
+		t.Error("composition set on a non-composition state must error")
+	}
+	assertContains(t, res.Errors, "composition")
+}
+
+func TestValidate_NonCompositionStateStillRequiresPromptTask(t *testing.T) {
+	spec := &Spec{
+		Version: 1, Entry: "chat",
+		States: map[string]*State{"chat": {}},
+	}
+	res := Validate(spec, []string{})
+	if !res.HasErrors() {
+		t.Error("non-composition state without prompt_task must still error")
+	}
+}
+
 // --- helpers ---
 
 func assertContains(t *testing.T, strs []string, substr string) {

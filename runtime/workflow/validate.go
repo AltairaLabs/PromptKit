@@ -53,17 +53,18 @@ func validateEntry(spec *Spec, promptSet map[string]bool, r *ValidationResult) {
 			"workflow.entry %q does not reference a key in states", spec.Entry))
 		return
 	}
-	if !promptSet[spec.States[spec.Entry].PromptTask] {
+	state := spec.States[spec.Entry]
+	if state.Orchestration != OrchestrationComposition && !promptSet[state.PromptTask] {
 		r.Errors = append(r.Errors, fmt.Sprintf(
 			"workflow.states[%q].prompt_task %q does not reference a valid prompt",
-			spec.Entry, spec.States[spec.Entry].PromptTask))
+			spec.Entry, state.PromptTask))
 	}
 }
 
 // validateStates checks rules 5-9 for each state.
 func validateStates(spec *Spec, promptSet map[string]bool, r *ValidationResult) {
 	for name, state := range spec.States {
-		if name != spec.Entry && !promptSet[state.PromptTask] {
+		if name != spec.Entry && state.Orchestration != OrchestrationComposition && !promptSet[state.PromptTask] {
 			r.Errors = append(r.Errors, fmt.Sprintf(
 				"workflow.states[%q].prompt_task %q does not reference a valid prompt",
 				name, state.PromptTask))
@@ -71,6 +72,7 @@ func validateStates(spec *Spec, promptSet map[string]bool, r *ValidationResult) 
 		validateEvents(spec, name, state, r)
 		validatePersistence(name, state, r)
 		validateOrchestration(name, state, r)
+		validateCompositionFields(name, state, r)
 		validateLoopGuards(spec, name, state, r)
 	}
 }
@@ -107,10 +109,31 @@ func validateOrchestration(name string, state *State, r *ValidationResult) {
 	if state.Orchestration != "" &&
 		state.Orchestration != OrchestrationInternal &&
 		state.Orchestration != OrchestrationExternal &&
-		state.Orchestration != OrchestrationHybrid {
+		state.Orchestration != OrchestrationHybrid &&
+		state.Orchestration != OrchestrationComposition {
 		r.Errors = append(r.Errors, fmt.Sprintf(
-			"workflow.states[%q].orchestration %q is not valid (must be \"internal\", \"external\", or \"hybrid\")",
+			"workflow.states[%q].orchestration %q is not valid"+
+				" (must be \"internal\", \"external\", \"hybrid\", or \"composition\")",
 			name, state.Orchestration))
+	}
+}
+
+// validateCompositionFields enforces RFC 0010 composition field rules:
+// - composition states must set Composition
+// - non-composition states must not set Composition
+func validateCompositionFields(name string, state *State, r *ValidationResult) {
+	if state.Orchestration == OrchestrationComposition {
+		if state.Composition == "" {
+			r.Errors = append(r.Errors, fmt.Sprintf(
+				"workflow.states[%q]: orchestration composition requires a composition",
+				name))
+		}
+	} else {
+		if state.Composition != "" {
+			r.Errors = append(r.Errors, fmt.Sprintf(
+				"workflow.states[%q]: composition is only valid with orchestration composition",
+				name))
+		}
 	}
 }
 
