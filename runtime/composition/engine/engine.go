@@ -184,8 +184,22 @@ func bindOutput(comp *composition.Composition, scope Scope, lastOutputStep strin
 	return json.Marshal(entry[scopeOutputKey])
 }
 
-// runBranch is a stub completed in Task 6.
-func (e *Engine) runBranch(_ *composition.Step, _ Scope, _ map[string]stepStatus) error {
+// runBranch evaluates the branch predicate and marks the not-taken target
+// skipped. Predicate true -> the else target (if any) is skipped; predicate
+// false -> the then target is skipped (empty else just falls through).
+func (e *Engine) runBranch(step *composition.Step, scope Scope, status map[string]stepStatus) error {
+	taken, err := evalPredicate(step.Predicate, scope)
+	if err != nil {
+		return fmt.Errorf("step %q: %w", step.ID, err)
+	}
+	notTaken := step.Then
+	if taken {
+		notTaken = step.Else
+	}
+	if notTaken != "" {
+		status[notTaken] = statusSkipped
+	}
+	status[step.ID] = statusCompleted
 	return nil
 }
 

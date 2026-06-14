@@ -144,24 +144,24 @@ func TestExecute_AgentKind(t *testing.T) {
 	}
 }
 
-func TestExecute_BranchKind_Stub(t *testing.T) {
-	// runBranch is a stub that does nothing; the branch step produces no output.
-	// Output must be set explicitly — using a preceding leaf step here.
+func TestExecute_BranchKind_NoOutput(t *testing.T) {
+	// A branch step produces no scope output; Output must be set explicitly.
 	comp := &composition.Composition{
 		Version: 1,
 		Output:  "before",
 		Steps: []*composition.Step{
 			{ID: "before", Kind: composition.KindPrompt, Input: "x"},
-			{ID: "br", Kind: composition.KindBranch},
+			{ID: "br", Kind: composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${input.v}", Op: "equals", Value: true}},
 		},
 	}
 	fe := newFakeExec(map[string]any{"before": "done"})
-	out, err := New(fe.exec).Execute(context.Background(), comp, nil)
+	out, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"v": false}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(out) != `"done"` {
-		t.Errorf("branch stub output = %s", out)
+		t.Errorf("branch no-output = %s", out)
 	}
 }
 
@@ -258,5 +258,95 @@ func TestDecodeOutput_Empty(t *testing.T) {
 	v, err := decodeOutput(nil)
 	if err != nil || v != nil {
 		t.Errorf("empty decodeOutput = (%v, %v), want (nil, nil)", v, err)
+	}
+}
+
+// branchComp builds: classify -> route(branch) -> paper|general -> join(depends_on both).
+func branchComp(predValue string) *composition.Composition {
+	return &composition.Composition{
+		Version: 1,
+		Output:  "join",
+		Steps: []*composition.Step{
+			{ID: "classify", Kind: composition.KindPrompt, PromptTask: "c", Input: "${input.text}"},
+			{ID: "route", Kind: composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${classify.output.type}", Op: "equals", Value: predValue},
+				Then:      "paper", Else: "general"},
+			{ID: "paper", Kind: composition.KindPrompt, PromptTask: "pp", Input: "${input.text}"},
+			{ID: "general", Kind: composition.KindPrompt, PromptTask: "gg", Input: "${input.text}"},
+			{ID: "join", Kind: composition.KindPrompt, PromptTask: "j",
+				DependsOn: []string{"paper", "general"}, Input: "${input.text}"},
+		},
+	}
+}
+
+func TestExecute_BranchThen(t *testing.T) {
+	comp := branchComp("paper") // predicate true -> take 'then' (paper), skip 'general'
+	fe := newFakeExec(map[string]any{
+		"classify": map[string]any{"type": "paper"},
+		"paper":    "P", "general": "G", "join": "J",
+	})
+	if _, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"text": "x"})); err != nil {
+		t.Fatal(err)
+	}
+	if !reflectDeepEqual(fe.calls, []string{"classify", "paper", "join"}) {
+		t.Errorf("calls = %v, want classify,paper,join", fe.calls)
+	}
+}
+
+func TestExecute_BranchElse(t *testing.T) {
+	comp := branchComp("memo") // predicate false -> take 'else' (general), skip 'paper'
+	fe := newFakeExec(map[string]any{
+		"classify": map[string]any{"type": "paper"},
+		"paper":    "P", "general": "G", "join": "J",
+	})
+	if _, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"text": "x"})); err != nil {
+		t.Fatal(err)
+	}
+	if !reflectDeepEqual(fe.calls, []string{"classify", "general", "join"}) {
+		t.Errorf("calls = %v, want classify,general,join", fe.calls)
+	}
+}
+
+func TestExecute_EmptyElseFallThrough(t *testing.T) {
+	// predicate false, empty else -> skip 'then' target, fall through to next step.
+	comp := &composition.Composition{
+		Version: 1, Output: "after",
+		Steps: []*composition.Step{
+			{ID: "route", Kind: composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${input.go}", Op: "equals", Value: true},
+				Then:      "optional"},
+			{ID: "optional", Kind: composition.KindPrompt, PromptTask: "o", Input: "${input.x}"},
+			{ID: "after", Kind: composition.KindPrompt, PromptTask: "a", Input: "${input.x}"},
+		},
+	}
+	fe := newFakeExec(map[string]any{"optional": "O", "after": "A"})
+	if _, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"go": false, "x": 1})); err != nil {
+		t.Fatal(err)
+	}
+	if !reflectDeepEqual(fe.calls, []string{"after"}) {
+		t.Errorf("calls = %v, want after only (optional skipped)", fe.calls)
+	}
+}
+
+func TestExecute_JoinSkippedWhenAllDepsSkipped(t *testing.T) {
+	// A step depending only on a skipped target is itself skipped.
+	comp := &composition.Composition{
+		Version: 1, Output: "tail",
+		Steps: []*composition.Step{
+			{ID: "route", Kind: composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${input.go}", Op: "equals", Value: true},
+				Then:      "only"},
+			{ID: "only", Kind: composition.KindPrompt, PromptTask: "o", Input: "${input.x}"},
+			{ID: "dependent", Kind: composition.KindPrompt, PromptTask: "d",
+				DependsOn: []string{"only"}, Input: "${input.x}"},
+			{ID: "tail", Kind: composition.KindPrompt, PromptTask: "t", Input: "${input.x}"},
+		},
+	}
+	fe := newFakeExec(map[string]any{"only": "O", "dependent": "D", "tail": "T"})
+	if _, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"go": false, "x": 1})); err != nil {
+		t.Fatal(err)
+	}
+	if !reflectDeepEqual(fe.calls, []string{"tail"}) {
+		t.Errorf("calls = %v, want tail only (only+dependent skipped)", fe.calls)
 	}
 }

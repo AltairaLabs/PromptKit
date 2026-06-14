@@ -8,7 +8,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 )
 
-//nolint:unused // used by evalCompare and compareOrdered; wired to non-test callers in Task 5
 const (
 	opLessThan            = "less_than"
 	opLessThanOrEquals    = "less_than_or_equals"
@@ -19,8 +18,6 @@ const (
 // evalPredicate evaluates a constrained predicate against scope. Exactly one
 // variant is set on p (enforced by composition.Validate); precedence here favors
 // composites, then exists, then compare.
-//
-//nolint:unused // wired to non-test callers in Task 5
 func evalPredicate(p *composition.Predicate, scope Scope) (bool, error) {
 	if p == nil {
 		return false, fmt.Errorf("nil predicate")
@@ -45,7 +42,6 @@ func evalPredicate(p *composition.Predicate, scope Scope) (bool, error) {
 	return evalCompare(p, scope)
 }
 
-//nolint:unused // called by evalPredicate; wired to non-test callers in Task 5
 func evalAllOf(preds []*composition.Predicate, scope Scope) (bool, error) {
 	for _, sub := range preds {
 		ok, err := evalPredicate(sub, scope)
@@ -59,7 +55,6 @@ func evalAllOf(preds []*composition.Predicate, scope Scope) (bool, error) {
 	return true, nil
 }
 
-//nolint:unused // called by evalPredicate; wired to non-test callers in Task 5
 func evalAnyOf(preds []*composition.Predicate, scope Scope) (bool, error) {
 	for _, sub := range preds {
 		ok, err := evalPredicate(sub, scope)
@@ -73,7 +68,6 @@ func evalAnyOf(preds []*composition.Predicate, scope Scope) (bool, error) {
 	return false, nil
 }
 
-//nolint:unused // called by evalPredicate; wired to non-test callers in Task 5
 func evalCompare(p *composition.Predicate, scope Scope) (bool, error) {
 	actual, found := resolvePath(p.Path, scope)
 	if !found {
@@ -103,8 +97,6 @@ func evalCompare(p *composition.Predicate, scope Scope) (bool, error) {
 
 // jsonEqual compares two decoded-JSON values. Numbers compare numerically; other
 // values use reflect.DeepEqual.
-//
-//nolint:unused // called by evalCompare; wired to non-test callers in Task 5
 func jsonEqual(a, b any) bool {
 	af, aok := toFloat(a)
 	bf, bok := toFloat(b)
@@ -114,7 +106,6 @@ func jsonEqual(a, b any) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-//nolint:unused // called by evalCompare; wired to non-test callers in Task 5
 func inList(actual, value any) (bool, error) {
 	list, ok := value.([]any)
 	if !ok {
@@ -128,7 +119,6 @@ func inList(actual, value any) (bool, error) {
 	return false, nil
 }
 
-//nolint:unused // called by evalCompare; wired to non-test callers in Task 5
 func compareOrdered(op string, actual, value any) (bool, error) {
 	af, aok := toFloat(actual)
 	bf, bok := toFloat(value)
@@ -149,8 +139,6 @@ func compareOrdered(op string, actual, value any) (bool, error) {
 }
 
 // toFloat coerces JSON-decoded numerics (float64, plus int kinds for safety) to float64.
-//
-//nolint:unused // called by jsonEqual and compareOrdered; wired to non-test callers in Task 5
 func toFloat(v any) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
