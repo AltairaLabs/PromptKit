@@ -23,6 +23,21 @@ func triageSDKWorkflow() *WorkflowSpec {
 	}
 }
 
+// The SDK validator must accept workflow version 2 (RFC 0009), matching the
+// runtime validator. Surfaced because RFC 0011 loads workflows via the SDK.
+func TestSDKValidateWorkflow_AcceptsVersion2(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*Prompt{"a": {}},
+		Workflow: &WorkflowSpec{
+			Version: 2, Entry: "s",
+			States: map[string]*WorkflowState{"s": {PromptTask: "a"}},
+		},
+	}
+	if err := p.ValidateWorkflow(); err != nil {
+		t.Fatalf("workflow version 2 should validate, got %v", err)
+	}
+}
+
 // RFC 0011: a state-backed agent whose state resolves is valid.
 func TestSDKValidateAgents_StateResolves(t *testing.T) {
 	if err := stateBackedSDKPack(triageSDKWorkflow(), "triage").ValidateAgents(); err != nil {

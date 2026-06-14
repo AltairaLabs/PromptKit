@@ -1,0 +1,211 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "workflow-agent-loops",
+  "name": "workflow-agent-loops",
+  "version": "v1.0.0",
+  "description": "Pack containing 3 prompts",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}",
+    "features": [
+      "basic_substitution"
+    ]
+  },
+  "prompts": {
+    "done": {
+      "id": "done",
+      "name": "done",
+      "description": "Workflow complete",
+      "version": "v1.0.0",
+      "system_template": "The workflow is complete. Confirm to the user that their question has\nbeen answered.\n",
+      "pipeline": {
+        "middleware": [
+          {
+            "config": {
+              "allow_undefined": true,
+              "strict_mode": false
+            },
+            "type": "template"
+          },
+          {
+            "config": {
+              "retry_policy": {
+                "backoff": "exponential",
+                "initial_delay_ms": 100,
+                "max_retries": 3
+              },
+              "timeout_ms": 30000
+            },
+            "type": "provider"
+          },
+          {
+            "config": {
+              "collect_all_errors": true,
+              "fail_fast": false
+            },
+            "type": "validator"
+          }
+        ],
+        "stages": [
+          "template",
+          "provider",
+          "validator"
+        ]
+      }
+    },
+    "research": {
+      "id": "research",
+      "name": "research",
+      "description": "One iteration of a research loop",
+      "version": "v1.0.0",
+      "system_template": "You are a research agent running in a bounded loop.\n\nOn each iteration:\n- Gather one new piece of information about the user's question.\n- Record it by calling `workflow__set_artifact` with name `findings`\n  and a short one-line value. The artifact is declared `mode: append`\n  so each call adds to the accumulated notes.\n- Then call `workflow__transition` with event `More` to loop back, or\n  `Done` once you have enough.\n\nYou have a hard cap on iterations — if you exceed it, the workflow will\nredirect you to the summariser regardless of what you decide.\n",
+      "pipeline": {
+        "middleware": [
+          {
+            "config": {
+              "allow_undefined": true,
+              "strict_mode": false
+            },
+            "type": "template"
+          },
+          {
+            "config": {
+              "retry_policy": {
+                "backoff": "exponential",
+                "initial_delay_ms": 100,
+                "max_retries": 3
+              },
+              "timeout_ms": 30000
+            },
+            "type": "provider"
+          },
+          {
+            "config": {
+              "collect_all_errors": true,
+              "fail_fast": false
+            },
+            "type": "validator"
+          }
+        ],
+        "stages": [
+          "template",
+          "provider",
+          "validator"
+        ]
+      }
+    },
+    "summarize": {
+      "id": "summarize",
+      "name": "summarize",
+      "description": "Produce a final answer from accumulated findings",
+      "version": "v1.0.0",
+      "system_template": "You are the summariser. The research loop has finished; your job is to\nturn the accumulated findings into a clear, concise final answer for\nthe user. The findings were recorded as a `findings` artifact during\nthe research loop.\n\nWhen you are done, call `workflow__transition` with event `Complete`.\n",
+      "pipeline": {
+        "middleware": [
+          {
+            "config": {
+              "allow_undefined": true,
+              "strict_mode": false
+            },
+            "type": "template"
+          },
+          {
+            "config": {
+              "retry_policy": {
+                "backoff": "exponential",
+                "initial_delay_ms": 100,
+                "max_retries": 3
+              },
+              "timeout_ms": 30000
+            },
+            "type": "provider"
+          },
+          {
+            "config": {
+              "collect_all_errors": true,
+              "fail_fast": false
+            },
+            "type": "validator"
+          }
+        ],
+        "stages": [
+          "template",
+          "provider",
+          "validator"
+        ]
+      }
+    }
+  },
+  "compilation": {
+    "compiled_with": "packc-v1.4.16-feat/rfc-0011-workflow-states-as-agents+cc9dddc8-dirty",
+    "created_at": "2026-06-14T12:14:19+01:00",
+    "schema": "v1"
+  },
+  "workflow": {
+    "version": 2,
+    "entry": "research",
+    "states": {
+      "done": {
+        "prompt_task": "done",
+        "description": "Workflow complete",
+        "terminal": true
+      },
+      "research": {
+        "prompt_task": "research",
+        "description": "One iteration of the research loop",
+        "on_event": {
+          "Done": "summarize",
+          "More": "research"
+        },
+        "max_visits": 3,
+        "on_max_visits": "summarize",
+        "artifacts": {
+          "findings": {
+            "type": "text/plain",
+            "description": "Accumulated research notes across iterations",
+            "mode": "append"
+          }
+        }
+      },
+      "summarize": {
+        "prompt_task": "summarize",
+        "description": "Produce a final answer from accumulated findings",
+        "on_event": {
+          "Complete": "done"
+        },
+        "artifacts": {
+          "findings": {
+            "type": "text/plain",
+            "description": "Accumulated research notes (read-only here)",
+            "mode": "append"
+          }
+        }
+      }
+    },
+    "engine": {
+      "budget": {
+        "max_tool_calls": 50,
+        "max_total_visits": 10,
+        "max_wall_time_sec": 60
+      }
+    }
+  },
+  "agents": {
+    "entry": "research",
+    "members": {
+      "research": {
+        "description": "Iterative researcher — runs the research loop to completion",
+        "tags": [
+          "research"
+        ],
+        "state": "research"
+      },
+      "summarize": {
+        "description": "One-shot summarizer",
+        "tags": [
+          "summarize"
+        ]
+      }
+    }
+  }
+}

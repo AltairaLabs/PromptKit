@@ -8,6 +8,7 @@ use (
 	./examples/a2a-auth-test
 	./examples/a2a-demo
 	./examples/programmatic-arena
+	./examples/workflow-agent-loops/sdk-example
 	./examples/workflow-support/sdk-example
 	./pkg
 	./runtime
