@@ -1,4 +1,4 @@
-package pipeline
+package stage
 
 import (
 	"os"
@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-func TestNewSchemaResolver(t *testing.T) {
+func TestNewFileSchemaResolver(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "s.json"), []byte(`{"type":"object"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r := NewSchemaResolver(dir)
+	r := NewFileSchemaResolver(dir)
 
 	got, err := r("s.json")
 	if err != nil {
