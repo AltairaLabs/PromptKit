@@ -65,7 +65,7 @@ func TestMultiAgentSession_Close_NilMembers(t *testing.T) {
 	// Test that Close handles empty members map gracefully
 	session := &MultiAgentSession{
 		entry:   &Conversation{config: &config{}},
-		members: map[string]*Conversation{},
+		members: map[string]Agent{},
 	}
 	// Close on a zero-value Conversation will just set closed=true
 	err := session.Close()
@@ -77,7 +77,7 @@ func TestMultiAgentSession_Members_ReturnsCopy(t *testing.T) {
 	conv2 := &Conversation{config: &config{}}
 	session := &MultiAgentSession{
 		entry: &Conversation{config: &config{}},
-		members: map[string]*Conversation{
+		members: map[string]Agent{
 			"a": conv1,
 			"b": conv2,
 		},
@@ -97,7 +97,7 @@ func TestMultiAgentSession_Entry(t *testing.T) {
 	entry := &Conversation{config: &config{}}
 	session := &MultiAgentSession{
 		entry:   entry,
-		members: map[string]*Conversation{},
+		members: map[string]Agent{},
 	}
 	assert.Equal(t, entry, session.Entry())
 }
@@ -106,9 +106,9 @@ func TestMultiAgentSession_Close_CollectsErrors(t *testing.T) {
 	// Close on a Conversation with both unary and duplex nil sessions should succeed.
 	session := &MultiAgentSession{
 		entry: &Conversation{config: &config{}},
-		members: map[string]*Conversation{
-			"m1": {config: &config{}},
-			"m2": {config: &config{}},
+		members: map[string]Agent{
+			"m1": &Conversation{config: &config{}},
+			"m2": &Conversation{config: &config{}},
 		},
 	}
 	err := session.Close()
@@ -126,7 +126,7 @@ func TestMultiAgentSession_Close_WithMembers(t *testing.T) {
 	m2 := &Conversation{config: &config{}, handlers: make(map[string]ToolHandler)}
 	session := &MultiAgentSession{
 		entry:   entry,
-		members: map[string]*Conversation{"m1": m1, "m2": m2},
+		members: map[string]Agent{"m1": m1, "m2": m2},
 	}
 	err := session.Close()
 	assert.NoError(t, err)
@@ -141,7 +141,7 @@ func TestMultiAgentSession_Close_EntryError(t *testing.T) {
 	}
 	session := &MultiAgentSession{
 		entry:   entry,
-		members: map[string]*Conversation{},
+		members: map[string]Agent{},
 	}
 	err := session.Close()
 	require.Error(t, err)
@@ -157,7 +157,7 @@ func TestMultiAgentSession_Close_MemberError(t *testing.T) {
 	}
 	session := &MultiAgentSession{
 		entry:   entry,
-		members: map[string]*Conversation{"m1": m1},
+		members: map[string]Agent{"m1": m1},
 	}
 	err := session.Close()
 	require.Error(t, err)
@@ -177,7 +177,7 @@ func TestMultiAgentSession_Close_EntryAndMemberErrors(t *testing.T) {
 	}
 	session := &MultiAgentSession{
 		entry:   entry,
-		members: map[string]*Conversation{"m1": m1},
+		members: map[string]Agent{"m1": m1},
 	}
 	err := session.Close()
 	require.Error(t, err)

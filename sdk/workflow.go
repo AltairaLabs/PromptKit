@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -88,6 +89,14 @@ const defaultMaxSummaryMessages = 10
 //	    sdk.WithModel("gpt-4o"),
 //	)
 func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error) {
+	return openWorkflowAtState(packPath, "", opts...)
+}
+
+// openWorkflowAtState builds a WorkflowConversation whose state machine starts
+// at startState. When startState is empty it starts at the workflow's entry
+// (the OpenWorkflow behavior). RFC 0011 state-backed agents enter the workflow
+// at the agent's declared state via this helper.
+func openWorkflowAtState(packPath, startState string, opts ...Option) (*WorkflowConversation, error) {
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve pack path: %w", err)
@@ -120,8 +129,11 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 	// Convert SDK workflow spec to runtime workflow spec
 	spec := convertWorkflowSpec(p.Workflow)
 	machine := workflow.NewStateMachine(spec)
+	if startState != "" {
+		machine = workflow.NewStateMachineFromContext(spec, workflow.NewContext(startState, time.Now()))
+	}
 
-	// Open initial conversation for entry state's prompt_task
+	// Open initial conversation for the current state's prompt_task
 	promptName := machine.CurrentPromptTask()
 	conv, err := Open(packPath, promptName, opts...)
 	if err != nil {

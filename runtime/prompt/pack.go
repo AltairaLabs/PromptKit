@@ -193,6 +193,10 @@ type AgentDef struct {
 	Tags        []string `json:"tags,omitempty"`
 	InputModes  []string `json:"input_modes,omitempty"`
 	OutputModes []string `json:"output_modes,omitempty"`
+	// State (RFC 0011) optionally backs this agent with a workflow state instead
+	// of its member prompt. When set, invoking the agent runs the pack's workflow
+	// starting at the named state. Requires a top-level workflow.
+	State string `json:"state,omitempty"`
 }
 
 // CompileOption configures optional fields for CompileFromRegistryWithOptions.
@@ -814,12 +818,35 @@ func (p *Pack) ValidateAgents() (errors, warnings []string) {
 		}
 	}
 
+	// RFC 0011: state-backed agents must reference a valid workflow state and
+	// require a top-level workflow.
+	for key, agent := range p.Agents.Members {
+		errors = append(errors, validateAgentState(p, key, agent)...)
+	}
+
 	// Validate individual agent definitions
 	for key, agent := range p.Agents.Members {
 		warnings = append(warnings, validateAgentDef(key, agent)...)
 	}
 
 	return errors, warnings
+}
+
+// validateAgentState checks RFC 0011 rules for a state-backed agent member:
+// the referenced state must exist in the pack's workflow, which must be present.
+func validateAgentState(p *Pack, key string, agent *AgentDef) []string {
+	if agent.State == "" {
+		return nil
+	}
+	if p.Workflow == nil {
+		return []string{fmt.Sprintf(
+			"agents: member %q sets state %q but requires a top-level workflow", key, agent.State)}
+	}
+	if _, ok := p.Workflow.States[agent.State]; !ok {
+		return []string{fmt.Sprintf(
+			"agents: member %q state %q does not reference a valid workflow state", key, agent.State)}
+	}
+	return nil
 }
 
 // validateAgentDef validates modes and tags for a single agent member definition.

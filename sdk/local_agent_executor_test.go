@@ -17,7 +17,7 @@ func TestLocalAgentExecutor_Name(t *testing.T) {
 }
 
 func TestLocalAgentExecutor_Execute_UnknownMember(t *testing.T) {
-	exec := NewLocalAgentExecutor(map[string]*Conversation{})
+	exec := NewLocalAgentExecutor(map[string]Agent{})
 
 	desc := &tools.ToolDescriptor{Name: "nonexistent"}
 	args := json.RawMessage(`{"query":"hello"}`)
@@ -28,8 +28,8 @@ func TestLocalAgentExecutor_Execute_UnknownMember(t *testing.T) {
 }
 
 func TestLocalAgentExecutor_Execute_InvalidArgs(t *testing.T) {
-	exec := NewLocalAgentExecutor(map[string]*Conversation{
-		"agent1": {},
+	exec := NewLocalAgentExecutor(map[string]Agent{
+		"agent1": &Conversation{},
 	})
 
 	desc := &tools.ToolDescriptor{Name: "agent1"}
@@ -44,7 +44,7 @@ func TestLocalAgentExecutor_Execute_SendError(t *testing.T) {
 	// A closed conversation returns ErrConversationClosed on Send,
 	// exercising the send path and timeout wrapping.
 	closedConv := &Conversation{closed: true}
-	exec := NewLocalAgentExecutor(map[string]*Conversation{
+	exec := NewLocalAgentExecutor(map[string]Agent{
 		"worker": closedConv,
 	})
 
@@ -59,7 +59,7 @@ func TestLocalAgentExecutor_Execute_SendError(t *testing.T) {
 func TestLocalAgentExecutor_Execute_WithDeadline(t *testing.T) {
 	// When context already has a deadline, the executor should NOT add its own timeout.
 	closedConv := &Conversation{closed: true}
-	exec := NewLocalAgentExecutor(map[string]*Conversation{
+	exec := NewLocalAgentExecutor(map[string]Agent{
 		"worker": closedConv,
 	})
 
@@ -83,7 +83,7 @@ func TestResolveMemberName(t *testing.T) {
 func TestCloseAll(t *testing.T) {
 	conv1 := &Conversation{config: &config{}, handlers: make(map[string]ToolHandler)}
 	conv2 := &Conversation{config: &config{}, handlers: make(map[string]ToolHandler)}
-	members := map[string]*Conversation{
+	members := map[string]Agent{
 		"a": conv1,
 		"b": conv2,
 	}
@@ -94,6 +94,6 @@ func TestCloseAll(t *testing.T) {
 
 func TestCloseAll_Empty(t *testing.T) {
 	// Should not panic on empty map
-	closeAll(map[string]*Conversation{})
+	closeAll(map[string]Agent{})
 	closeAll(nil)
 }

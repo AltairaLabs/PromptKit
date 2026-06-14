@@ -207,6 +207,9 @@ type AgentDef struct {
 	Tags        []string `json:"tags,omitempty"`
 	InputModes  []string `json:"input_modes,omitempty"`
 	OutputModes []string `json:"output_modes,omitempty"`
+	// State (RFC 0011) optionally backs this agent with a workflow state. When
+	// set, invoking the agent runs the pack workflow from the named state.
+	State string `json:"state,omitempty"`
 }
 
 // Load loads a pack from a JSON file.
