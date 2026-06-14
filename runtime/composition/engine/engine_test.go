@@ -644,3 +644,77 @@ func TestExecute_ParallelBranchRetry(t *testing.T) {
 		t.Errorf("branch a attempts = %d, want 2", fe.attempt["a"])
 	}
 }
+
+func TestExecute_Integration_BranchParallelRetryJoin(t *testing.T) {
+	// classify -> route(branch true) -> enrich(parallel, one branch retries) ; skip_path skipped
+	// -> synth(agent, depends_on [enrich, skip_path]) consumes ${enrich.output.meta}, with retry.
+	comp := &composition.Composition{
+		Version: 1,
+		Output:  "synth",
+		Steps: []*composition.Step{
+			{ID: "classify", Kind: composition.KindPrompt, PromptTask: "c", Input: "${input.text}"},
+			{ID: "route", Kind: composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${classify.output.type}", Op: "equals", Value: "paper"},
+				Then:      "enrich", Else: "skip_path"},
+			{ID: "enrich", Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "structure", Kind: composition.KindTool, Tool: "t.s", Args: map[string]any{"c": "${input.text}"},
+						Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 3}}},
+					{ID: "citations", Kind: composition.KindTool, Tool: "t.c", Args: map[string]any{"c": "${input.text}"}},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "meta"}},
+			{ID: "skip_path", Kind: composition.KindPrompt, PromptTask: "s", Input: "${input.text}"},
+			{ID: "synth", Kind: composition.KindAgent, PromptTask: "a",
+				DependsOn: []string{"enrich", "skip_path"},
+				Input:     "${enrich.output.meta}",
+				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 2}}},
+		},
+	}
+	fe := newFakeExec(map[string]any{
+		"classify":  map[string]any{"type": "paper"},
+		"structure": map[string]any{"sections": float64(3)},
+		"citations": map[string]any{"count": float64(12)},
+		"synth":     map[string]any{"summary": "done"},
+	})
+	fe.errOn["structure"] = 1 // parallel branch retries once
+	fe.errOn["synth"] = 1     // agent step retries once
+
+	out, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"text": "body"}))
+	if err != nil {
+		t.Fatalf("integration execute failed: %v", err)
+	}
+
+	// skip_path was the not-taken branch target -> never executed.
+	for _, id := range fe.calls {
+		if id == "skip_path" {
+			t.Errorf("skip_path should have been skipped, calls = %v", fe.calls)
+		}
+	}
+	// the retrying parallel branch ran twice; the agent step ran twice.
+	if fe.attempt["structure"] != 2 {
+		t.Errorf("structure attempts = %d, want 2", fe.attempt["structure"])
+	}
+	if fe.attempt["synth"] != 2 {
+		t.Errorf("synth attempts = %d, want 2", fe.attempt["synth"])
+	}
+	// synth consumed the barrier-merged parallel output keyed by branch id.
+	var synthInput map[string]any
+	if err := json.Unmarshal(fe.seen["synth"], &synthInput); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"structure": map[string]any{"sections": float64(3)},
+		"citations": map[string]any{"count": float64(12)},
+	}
+	if !reflectDeepEqual(synthInput, want) {
+		t.Errorf("synth input = %#v, want %#v", synthInput, want)
+	}
+	// final output is the agent step's output.
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflectDeepEqual(got, map[string]any{"summary": "done"}) {
+		t.Errorf("output = %#v", got)
+	}
+}
