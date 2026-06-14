@@ -170,6 +170,24 @@ func TestConvertWorkflowSpec(t *testing.T) {
 	assert.Equal(t, 300, spec.Engine["timeout"])
 }
 
+func TestConvertWorkflowSpec_CarriesComposition(t *testing.T) {
+	in := &pack.WorkflowSpec{
+		Version: 1,
+		Entry:   "analyze",
+		States: map[string]*pack.WorkflowState{
+			"analyze": {Orchestration: "composition", Composition: "analyze_doc", Terminal: true},
+		},
+	}
+	out := convertWorkflowSpec(in)
+	st := out.States["analyze"]
+	if st.Orchestration != workflow.OrchestrationComposition {
+		t.Errorf("orchestration = %q, want %q", st.Orchestration, workflow.OrchestrationComposition)
+	}
+	if st.Composition != "analyze_doc" {
+		t.Errorf("composition = %q, want analyze_doc", st.Composition)
+	}
+}
+
 func TestWorkflowConversation_ClosedErrors(t *testing.T) {
 	// Test that closed workflow returns errors
 	wc := &WorkflowConversation{closed: true}

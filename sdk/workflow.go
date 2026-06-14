@@ -825,6 +825,7 @@ func convertWorkflowSpec(sdkSpec *pack.WorkflowSpec) *workflow.Spec {
 			OnEvent:       s.OnEvent,
 			Persistence:   workflow.Persistence(s.Persistence),
 			Orchestration: workflow.Orchestration(s.Orchestration),
+			Composition:   s.Composition,
 		}
 	}
 	return &workflow.Spec{
