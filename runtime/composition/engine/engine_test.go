@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
@@ -251,6 +252,76 @@ func TestShouldSkip_NoDeps(t *testing.T) {
 	step := &composition.Step{ID: "c"}
 	if shouldSkip(step, nil) {
 		t.Error("expected shouldSkip=false for step with no deps")
+	}
+}
+
+func TestExecute_BranchPredicateError(t *testing.T) {
+	// An ordered comparison against a non-numeric value errors; runBranch must
+	// wrap it with the branch step id and propagate it out of Execute.
+	comp := &composition.Composition{
+		Version: 1, Output: "after",
+		Steps: []*composition.Step{
+			{ID: "route", Kind: composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${input.name}", Op: "less_than", Value: float64(3)},
+				Then:      "after"},
+			{ID: "after", Kind: composition.KindPrompt, PromptTask: "a", Input: "${input.name}"},
+		},
+	}
+	fe := newFakeExec(map[string]any{"after": "A"})
+	_, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"name": "bob"}))
+	if err == nil {
+		t.Fatal("expected predicate error to propagate")
+	}
+	if !strings.Contains(err.Error(), "route") {
+		t.Errorf("error should name the branch step, got %v", err)
+	}
+}
+
+func TestExecute_BranchTakenOutputConsumedDownstream(t *testing.T) {
+	// Proves the taken branch's output is available in scope for a downstream step.
+	comp := &composition.Composition{
+		Version: 1, Output: "join",
+		Steps: []*composition.Step{
+			{ID: "route", Kind: composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${input.go}", Op: "equals", Value: true},
+				Then:      "paper", Else: "general"},
+			{ID: "paper", Kind: composition.KindPrompt, PromptTask: "pp", Input: "${input.x}"},
+			{ID: "general", Kind: composition.KindPrompt, PromptTask: "gg", Input: "${input.x}"},
+			{ID: "join", Kind: composition.KindPrompt, PromptTask: "j",
+				DependsOn: []string{"paper", "general"}, Input: "${paper.output.label}"},
+		},
+	}
+	fe := newFakeExec(map[string]any{
+		"paper":   map[string]any{"label": "PAPER"},
+		"general": map[string]any{"label": "GENERAL"},
+		"join":    "J",
+	})
+	if _, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"go": true, "x": 1})); err != nil {
+		t.Fatal(err)
+	}
+	if string(fe.seen["join"]) != `"PAPER"` {
+		t.Errorf("join should consume taken branch output, got %s", fe.seen["join"])
+	}
+}
+
+func TestExecute_BranchThenEqualsElse(t *testing.T) {
+	// Then and Else name the same step -> it must run regardless of predicate value.
+	comp := &composition.Composition{
+		Version: 1, Output: "merge",
+		Steps: []*composition.Step{
+			{ID: "route", Kind: composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${input.go}", Op: "equals", Value: true},
+				Then:      "merge", Else: "merge"},
+			{ID: "merge", Kind: composition.KindPrompt, PromptTask: "m", Input: "${input.x}"},
+		},
+	}
+	fe := newFakeExec(map[string]any{"merge": "M"})
+	out, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"go": false, "x": 1}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != `"M"` {
+		t.Errorf("Then==Else target must run; calls=%v out=%s", fe.calls, out)
 	}
 }
 

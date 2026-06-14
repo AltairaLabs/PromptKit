@@ -185,18 +185,20 @@ func bindOutput(comp *composition.Composition, scope Scope, lastOutputStep strin
 }
 
 // runBranch evaluates the branch predicate and marks the not-taken target
-// skipped. Predicate true -> the else target (if any) is skipped; predicate
-// false -> the then target is skipped (empty else just falls through).
+// skipped. Predicate true -> active target is Then, not-taken is Else; predicate
+// false -> active target is Else, not-taken is Then. The not-taken target is
+// skipped only when it differs from the taken target (Then == Else converges, so
+// the shared step must still run). The branch step itself produces no output.
 func (e *Engine) runBranch(step *composition.Step, scope Scope, status map[string]stepStatus) error {
 	taken, err := evalPredicate(step.Predicate, scope)
 	if err != nil {
 		return fmt.Errorf("step %q: %w", step.ID, err)
 	}
-	notTaken := step.Then
+	takenTarget, notTaken := step.Else, step.Then
 	if taken {
-		notTaken = step.Else
+		takenTarget, notTaken = step.Then, step.Else
 	}
-	if notTaken != "" {
+	if notTaken != "" && notTaken != takenTarget {
 		status[notTaken] = statusSkipped
 	}
 	status[step.ID] = statusCompleted
