@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -1522,4 +1524,54 @@ func TestCompileFromRegistryWithOptions_Skills(t *testing.T) {
 	require.Len(t, pack.Skills, 2)
 	assert.Equal(t, "skills/billing", pack.Skills[0].Path)
 	assert.Equal(t, "inline", pack.Skills[1].Name)
+}
+
+func TestWithCompositions_SetsPackField(t *testing.T) {
+	comps := map[string]*composition.Composition{
+		"flow": {Version: 1, Steps: []*composition.Step{{ID: "s", Kind: composition.KindTool, Tool: "echo"}}},
+	}
+	var o compileOptions
+	WithCompositions(comps)(&o)
+	if o.compositions == nil || o.compositions["flow"] == nil {
+		t.Fatal("WithCompositions did not set compileOptions.compositions")
+	}
+}
+
+func TestValidateCompositions_BadToolRefErrors(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*PackPrompt{}, Tools: map[string]*PackTool{},
+		Compositions: map[string]*composition.Composition{
+			"flow": {Version: 1, Steps: []*composition.Step{{ID: "s", Kind: composition.KindTool, Tool: "missing_tool"}}}},
+	}
+	if !p.ValidateCompositions().HasErrors() {
+		t.Error("composition referencing an unknown tool must error")
+	}
+}
+
+func TestValidateCompositions_UnresolvedStateRefErrors(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*PackPrompt{}, Tools: map[string]*PackTool{},
+		Compositions: map[string]*composition.Composition{},
+		Workflow: &workflow.Spec{Version: 1, Entry: "a", States: map[string]*workflow.State{
+			"a": {Orchestration: workflow.OrchestrationComposition, Composition: "nope", Terminal: true}}},
+	}
+	if !p.ValidateCompositions().HasErrors() {
+		t.Error("composition state referencing a missing composition must error")
+	}
+}
+
+func TestValidateCompositions_UnreachableWarns(t *testing.T) {
+	p := &Pack{
+		Prompts: map[string]*PackPrompt{},
+		Tools:   map[string]*PackTool{"echo": {}}, // tool exists so ValidateAll passes
+		Compositions: map[string]*composition.Composition{
+			"flow": {Version: 1, Steps: []*composition.Step{{ID: "s", Kind: composition.KindTool, Tool: "echo"}}}},
+	}
+	res := p.ValidateCompositions()
+	if res.HasErrors() {
+		t.Errorf("unreachable composition should warn, not error: %v", res.Errors)
+	}
+	if len(res.Warnings) == 0 {
+		t.Error("composition not referenced by any state should warn")
+	}
 }

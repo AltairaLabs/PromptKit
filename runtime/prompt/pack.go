@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
@@ -100,6 +101,9 @@ type Pack struct {
 
 	// Workflow - State-machine workflow over the pack's prompts
 	Workflow *workflow.Spec `json:"workflow,omitempty"`
+
+	// Compositions - Named composition step-graphs (RFC 0010)
+	Compositions map[string]*composition.Composition `json:"compositions,omitempty"`
 
 	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
 	Agents *AgentsConfig `json:"agents,omitempty"`
@@ -203,9 +207,10 @@ type AgentDef struct {
 type CompileOption func(*compileOptions)
 
 type compileOptions struct {
-	workflow *workflow.Spec
-	agents   *AgentsConfig
-	skills   []SkillSourceConfig
+	workflow     *workflow.Spec
+	agents       *AgentsConfig
+	skills       []SkillSourceConfig
+	compositions map[string]*composition.Composition
 }
 
 // WithWorkflow sets the workflow config on the compiled pack.
@@ -221,6 +226,11 @@ func WithAgents(a *AgentsConfig) CompileOption {
 // WithSkills sets the skills config on the compiled pack.
 func WithSkills(s []SkillSourceConfig) CompileOption {
 	return func(o *compileOptions) { o.skills = s }
+}
+
+// WithCompositions sets the compositions map on the compiled pack.
+func WithCompositions(c map[string]*composition.Composition) CompileOption {
+	return func(o *compileOptions) { o.compositions = c }
 }
 
 // PackPrompt represents a single prompt configuration within a pack
@@ -508,6 +518,9 @@ func (pc *PackCompiler) CompileFromRegistryWithOptions(
 	if copts.skills != nil {
 		pack.Skills = copts.skills
 	}
+	if copts.compositions != nil {
+		pack.Compositions = copts.compositions
+	}
 
 	return pack, nil
 }
@@ -723,6 +736,63 @@ func (p *Pack) ValidateWorkflow() *workflow.ValidationResult {
 		promptKeys = append(promptKeys, k)
 	}
 	return workflow.Validate(p.Workflow, promptKeys)
+}
+
+// ValidateCompositions validates the pack's compositions (RFC 0010): each
+// composition's internal rules + reference resolution against the pack's
+// prompts/tools/evals, plus pack-level cross-checks against the workflow.
+func (p *Pack) ValidateCompositions() *composition.ValidationResult {
+	avail := composition.Available{
+		Prompts: p.ListPrompts(),
+		Tools:   p.toolKeys(),
+		Evals:   p.evalKeys(),
+	}
+	res := composition.ValidateAll(p.Compositions, avail)
+
+	referenced := map[string]bool{}
+	if p.Workflow != nil {
+		for name, st := range p.Workflow.States {
+			if st.Orchestration != workflow.OrchestrationComposition {
+				continue
+			}
+			referenced[st.Composition] = true
+			if _, ok := p.Compositions[st.Composition]; !ok {
+				res.Errors = append(res.Errors, fmt.Sprintf(
+					"workflow state %q references unknown composition %q", name, st.Composition))
+			}
+		}
+	}
+	if len(p.Compositions) > 0 && p.Workflow == nil {
+		// No workflow at all: one banner covers every composition; skip the
+		// redundant per-composition "unreferenced" warnings below.
+		res.Warnings = append(res.Warnings, "compositions defined but no workflow references them")
+		return res
+	}
+	for name := range p.Compositions {
+		if !referenced[name] {
+			res.Warnings = append(res.Warnings,
+				fmt.Sprintf("composition %q is not referenced by any workflow state", name))
+		}
+	}
+	return res
+}
+
+// toolKeys returns the pack's tool names.
+func (p *Pack) toolKeys() []string {
+	keys := make([]string, 0, len(p.Tools))
+	for k := range p.Tools {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// evalKeys returns the pack's eval IDs.
+func (p *Pack) evalKeys() []string {
+	keys := make([]string, 0, len(p.Evals))
+	for i := range p.Evals {
+		keys = append(keys, p.Evals[i].ID)
+	}
+	return keys
 }
 
 // validatePackFields validates pack-level required fields

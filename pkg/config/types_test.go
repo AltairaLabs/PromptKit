@@ -81,3 +81,24 @@ defaults:
 	assert.Equal(t, float32(0.7), cfg.Defaults.Temperature)
 	assert.Equal(t, 1024, cfg.Defaults.MaxTokens)
 }
+
+func TestConfig_ParsesCompositions(t *testing.T) {
+	yamlData := `
+workflow:
+  version: 1
+  entry: a
+  states:
+    a: { orchestration: composition, composition: flow, terminal: true }
+compositions:
+  flow:
+    version: 1
+    steps:
+      - { id: s, kind: tool, tool: echo, args: { x: "${input.t}" } }
+`
+	var cfg Config
+	err := yaml.Unmarshal([]byte(yamlData), &cfg)
+	require.NoError(t, err)
+	if cfg.Compositions == nil {
+		t.Fatal("Compositions not parsed")
+	}
+}
