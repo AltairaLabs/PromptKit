@@ -763,7 +763,10 @@ func (p *Pack) ValidateCompositions() *composition.ValidationResult {
 		}
 	}
 	if len(p.Compositions) > 0 && p.Workflow == nil {
+		// No workflow at all: one banner covers every composition; skip the
+		// redundant per-composition "unreferenced" warnings below.
 		res.Warnings = append(res.Warnings, "compositions defined but no workflow references them")
+		return res
 	}
 	for name := range p.Compositions {
 		if !referenced[name] {
