@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 )
@@ -205,7 +206,40 @@ func (e *Engine) runBranch(step *composition.Step, scope Scope, status map[strin
 	return nil
 }
 
-// runParallel is a stub completed in Task 7.
-func (e *Engine) runParallel(_ context.Context, _ *composition.Step, _ Scope) (any, error) {
-	return nil, fmt.Errorf("parallel not yet implemented")
+// runParallel runs each branch concurrently, collects outputs in branch order,
+// and reduces them. Branches must be leaf steps (prompt|agent|tool); nested
+// branch/parallel inside a parallel is out of scope for v1.
+func (e *Engine) runParallel(ctx context.Context, step *composition.Step, scope Scope) (any, error) {
+	outs := make([]NamedOutput, len(step.Branches))
+	errs := make([]error, len(step.Branches))
+
+	var wg sync.WaitGroup
+	for i, branch := range step.Branches {
+		wg.Add(1)
+		go func(i int, branch *composition.Step) {
+			defer wg.Done()
+			if branch.Kind == composition.KindBranch || branch.Kind == composition.KindParallel {
+				errs[i] = fmt.Errorf("branch %q: nested %s not supported in a parallel step", branch.ID, branch.Kind)
+				return
+			}
+			out, err := e.runLeaf(ctx, branch, scope)
+			if err != nil {
+				errs[i] = fmt.Errorf("branch %q: %w", branch.ID, err)
+				return
+			}
+			outs[i] = NamedOutput{ID: branch.ID, Output: out}
+		}(i, branch)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	if step.Reduce == nil {
+		return nil, fmt.Errorf("parallel step %q has no reducer", step.ID)
+	}
+	merged := reduce(step.Reduce, outs)
+	return map[string]any{step.Reduce.Into: merged}, nil
 }

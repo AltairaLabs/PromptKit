@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 )
 
 // fakeExec returns canned output per step id and records the resolved input it saw.
+// mu guards calls, seen, and attempt so fakeExec is safe to use from concurrent goroutines
+// (e.g. parallel branch execution in TestExecute_ParallelBarrier).
 type fakeExec struct {
+	mu      sync.Mutex
 	outputs map[string]any
 	seen    map[string]json.RawMessage
 	calls   []string
@@ -28,13 +32,17 @@ func newFakeExec(outputs map[string]any) *fakeExec {
 }
 
 func (f *fakeExec) exec(_ context.Context, step *composition.Step, input json.RawMessage) (json.RawMessage, error) {
+	f.mu.Lock()
 	f.calls = append(f.calls, step.ID)
 	f.seen[step.ID] = input
 	f.attempt[step.ID]++
-	if fails := f.errOn[step.ID]; f.attempt[step.ID] <= fails {
+	fails := f.errOn[step.ID]
+	attempt := f.attempt[step.ID]
+	out := f.outputs[step.ID]
+	f.mu.Unlock()
+	if attempt <= fails {
 		return nil, context.DeadlineExceeded
 	}
-	out := f.outputs[step.ID]
 	raw, _ := json.Marshal(out)
 	return raw, nil
 }
@@ -419,5 +427,51 @@ func TestExecute_JoinSkippedWhenAllDepsSkipped(t *testing.T) {
 	}
 	if !reflectDeepEqual(fe.calls, []string{"tail"}) {
 		t.Errorf("calls = %v, want tail only (only+dependent skipped)", fe.calls)
+	}
+}
+
+func TestExecute_ParallelBarrier(t *testing.T) {
+	comp := &composition.Composition{
+		Version: 1, Output: "consume",
+		Steps: []*composition.Step{
+			{ID: "meta", Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "structure", Kind: composition.KindTool, Tool: "t.s", Args: map[string]any{"c": "${input.text}"}},
+					{ID: "citations", Kind: composition.KindTool, Tool: "t.c", Args: map[string]any{"c": "${input.text}"}},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "metadata"}},
+			{ID: "consume", Kind: composition.KindPrompt, PromptTask: "p",
+				Input: "${meta.output.metadata}"},
+		},
+	}
+	fe := newFakeExec(map[string]any{
+		"structure": map[string]any{"sections": float64(3)},
+		"citations": map[string]any{"count": float64(12)},
+		"consume":   "done",
+	})
+	out, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"text": "body"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != `"done"` {
+		t.Errorf("output = %s", out)
+	}
+	var consumeInput map[string]any
+	if err := json.Unmarshal(fe.seen["consume"], &consumeInput); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"structure": map[string]any{"sections": float64(3)},
+		"citations": map[string]any{"count": float64(12)},
+	}
+	if !reflectDeepEqual(consumeInput, want) {
+		t.Errorf("consume input = %#v, want %#v", consumeInput, want)
+	}
+	ran := map[string]bool{}
+	for _, id := range fe.calls {
+		ran[id] = true
+	}
+	if !ran["structure"] || !ran["citations"] {
+		t.Errorf("expected both branches to run, calls = %v", fe.calls)
 	}
 }

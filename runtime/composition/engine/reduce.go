@@ -9,10 +9,8 @@ type NamedOutput struct {
 }
 
 // reduce merges parallel branch outputs per the reducer strategy and returns the
-// merged value. Callers bind the result to the scope key named by r.Into (Task 7);
+// merged value. Callers bind the result to the scope key named by r.Into;
 // reduce itself does not touch scope. r must not be nil (guaranteed by Validate).
-//
-//nolint:unused // wired to non-test callers in Task 7
 func reduce(r *composition.Reducer, outs []NamedOutput) any {
 	switch r.Strategy {
 	case composition.ReduceReplace:
