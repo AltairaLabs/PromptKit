@@ -2914,3 +2914,104 @@ func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
 	assert.Greater(t, data.OriginalTokens, data.CompactedTokens)
 	assert.Equal(t, 100, data.BudgetTokens)
 }
+
+// TestProviderStage_StopOnTool verifies that ToolPolicy.StopOnTool causes the
+// agent tool loop to stop cleanly at the end of any round in which the named
+// tool fires — no max-rounds error, no further provider call.
+func TestProviderStage_StopOnTool(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "stop_tool",
+		Description: "terminal tool that ends the loop",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+	err = registry.Register(&tools.ToolDescriptor{
+		Name:        "other_tool",
+		Description: "non-terminal tool",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	t.Run("named tool fires → clean stop (done=true, no error)", func(t *testing.T) {
+		stage := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{StopOnTool: "stop_tool", MaxRounds: 10},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"stop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stage.newToolLoop(acc)
+		require.NoError(t, err)
+		// maxRounds is 10 — if StopOnTool is ignored we'd expect done=false here
+		// (round 1 < maxRounds). A clean done=true proves StopOnTool fired.
+
+		response := types.Message{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "c1", Name: "stop_tool", Args: json.RawMessage(`{}`)},
+			},
+		}
+		done, msgs, err := loop.afterRound(context.Background(), []string{"stop_tool"}, &response, true, 1)
+
+		assert.True(t, done, "StopOnTool should signal done when the named tool fires")
+		require.NoError(t, err, "StopOnTool stop should be clean — no error")
+		assert.NotEmpty(t, msgs, "messages should be returned on clean stop")
+	})
+
+	t.Run("different tool fires → loop continues (done=false)", func(t *testing.T) {
+		stage := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{StopOnTool: "stop_tool", MaxRounds: 10},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"other_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stage.newToolLoop(acc)
+		require.NoError(t, err)
+
+		response := types.Message{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "c2", Name: "other_tool", Args: json.RawMessage(`{}`)},
+			},
+		}
+		done, _, err := loop.afterRound(context.Background(), []string{"other_tool"}, &response, true, 1)
+
+		assert.False(t, done, "non-terminal tool should not stop the loop")
+		require.NoError(t, err)
+	})
+
+	t.Run("StopOnTool empty → normal MaxRounds behaviour", func(t *testing.T) {
+		stage := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxRounds: 1}, // no StopOnTool
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"stop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stage.newToolLoop(acc)
+		require.NoError(t, err)
+
+		response := types.Message{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "c3", Name: "stop_tool", Args: json.RawMessage(`{}`)},
+			},
+		}
+		done, _, err := loop.afterRound(context.Background(), []string{"stop_tool"}, &response, true, 1)
+
+		assert.True(t, done, "max rounds should still stop the loop")
+		require.Error(t, err, "max rounds exceeded should be an error (not a clean stop)")
+		assert.Contains(t, err.Error(), "max rounds")
+	})
+}

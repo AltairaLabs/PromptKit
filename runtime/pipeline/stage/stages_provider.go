@@ -518,6 +518,17 @@ func (tl *toolLoop) afterRound(
 
 	tl.toolChoice = toolChoiceAuto
 
+	// RFC 0010 termination.tool_called: stop cleanly after the round in which
+	// the named terminal tool fired. The tool has already executed and its result
+	// is recorded in tl.messages — now stop before the next provider round.
+	if policy != nil && policy.StopOnTool != "" {
+		for _, tc := range response.ToolCalls {
+			if tc.Name == policy.StopOnTool {
+				return true, tl.messages, nil
+			}
+		}
+	}
+
 	// Compact stale tool results before next round's provider call.
 	// Pass 0 for lastInputTokens: the provider's InputTokens reflects what it
 	// saw on the last call, but we've since appended the assistant response and
