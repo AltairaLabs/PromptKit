@@ -168,6 +168,9 @@ func (e *Engine) execWithRetry(
 	}
 	var lastErr error
 	for i := 0; i < attempts; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		out, err := e.exec(ctx, step, input)
 		if err == nil {
 			return out, nil

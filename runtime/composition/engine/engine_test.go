@@ -3,12 +3,16 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 )
+
+// errInjected is the canned failure fakeExec returns for simulated step errors.
+var errInjected = errors.New("injected step failure")
 
 // fakeExec returns canned output per step id and records the resolved input it saw.
 // mu guards calls, seen, and attempt so fakeExec is safe to use from concurrent goroutines
@@ -41,7 +45,7 @@ func (f *fakeExec) exec(_ context.Context, step *composition.Step, input json.Ra
 	out := f.outputs[step.ID]
 	f.mu.Unlock()
 	if attempt <= fails {
-		return nil, context.DeadlineExceeded
+		return nil, errInjected
 	}
 	raw, _ := json.Marshal(out)
 	return raw, nil
@@ -611,5 +615,32 @@ func TestExecute_NoRetryDefaultsToOneAttempt(t *testing.T) {
 	}
 	if fe.attempt["x"] != 1 {
 		t.Errorf("attempts = %d, want 1", fe.attempt["x"])
+	}
+}
+
+func TestExecute_ParallelBranchRetry(t *testing.T) {
+	// A parallel branch with a retry modifier retries through runParallel -> runLeaf.
+	comp := &composition.Composition{
+		Version: 1, Output: "meta",
+		Steps: []*composition.Step{
+			{ID: "meta", Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "a", Kind: composition.KindTool, Tool: "t.a", Args: map[string]any{"c": "${input.x}"},
+						Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 2}}},
+					{ID: "b", Kind: composition.KindTool, Tool: "t.b", Args: map[string]any{"c": "${input.x}"}},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "m"}},
+		},
+	}
+	fe := newFakeExec(map[string]any{
+		"a": map[string]any{"ok": true},
+		"b": map[string]any{"ok": true},
+	})
+	fe.errOn["a"] = 1 // first attempt of branch a fails, retry succeeds
+	if _, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"x": 1})); err != nil {
+		t.Fatalf("expected parallel branch retry to succeed, got %v", err)
+	}
+	if fe.attempt["a"] != 2 {
+		t.Errorf("branch a attempts = %d, want 2", fe.attempt["a"])
 	}
 }
