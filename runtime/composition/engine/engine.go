@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -208,8 +209,16 @@ func (e *Engine) runBranch(step *composition.Step, scope Scope, status map[strin
 
 // runParallel runs each branch concurrently, collects outputs in branch order,
 // and reduces them. Branches must be leaf steps (prompt|agent|tool); nested
-// branch/parallel inside a parallel is out of scope for v1.
+// branch/parallel inside a parallel is out of scope for v1 and is rejected.
+//
+// Semantics: a branch error does NOT cancel its siblings — all branches run to
+// completion and every error is surfaced together via errors.Join. The goroutine
+// count equals the (author-bounded) branch count; cancellation responsiveness
+// depends on the injected executor honoring ctx (the engine does not poll it).
 func (e *Engine) runParallel(ctx context.Context, step *composition.Step, scope Scope) (any, error) {
+	if step.Reduce == nil {
+		return nil, fmt.Errorf("parallel step %q: missing reducer", step.ID)
+	}
 	outs := make([]NamedOutput, len(step.Branches))
 	errs := make([]error, len(step.Branches))
 
@@ -232,13 +241,8 @@ func (e *Engine) runParallel(ctx context.Context, step *composition.Step, scope 
 	}
 	wg.Wait()
 
-	for _, err := range errs {
-		if err != nil {
-			return nil, err
-		}
-	}
-	if step.Reduce == nil {
-		return nil, fmt.Errorf("parallel step %q has no reducer", step.ID)
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
 	}
 	merged := reduce(step.Reduce, outs)
 	return map[string]any{step.Reduce.Into: merged}, nil

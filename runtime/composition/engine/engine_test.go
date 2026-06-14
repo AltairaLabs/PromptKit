@@ -174,15 +174,16 @@ func TestExecute_BranchKind_NoOutput(t *testing.T) {
 	}
 }
 
-func TestExecute_ParallelKind_ErrorStub(t *testing.T) {
+func TestExecute_ParallelMissingReducer(t *testing.T) {
+	// A parallel step with no reducer (Reduce: nil) must return an error immediately.
 	comp := &composition.Composition{
 		Version: 1,
-		Steps:   []*composition.Step{{ID: "p", Kind: composition.KindParallel}},
+		Steps:   []*composition.Step{{ID: "p", Kind: composition.KindParallel, Reduce: nil}},
 	}
 	fe := newFakeExec(nil)
 	_, err := New(fe.exec).Execute(context.Background(), comp, nil)
 	if err == nil {
-		t.Fatal("expected error from parallel stub")
+		t.Fatal("expected error from parallel step with missing reducer")
 	}
 }
 
@@ -427,6 +428,86 @@ func TestExecute_JoinSkippedWhenAllDepsSkipped(t *testing.T) {
 	}
 	if !reflectDeepEqual(fe.calls, []string{"tail"}) {
 		t.Errorf("calls = %v, want tail only (only+dependent skipped)", fe.calls)
+	}
+}
+
+func TestExecute_ParallelErrorPath(t *testing.T) {
+	// Both branches fail; errors.Join must surface BOTH branch names.
+	comp := &composition.Composition{
+		Version: 1, Output: "meta",
+		Steps: []*composition.Step{
+			{ID: "meta", Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "a", Kind: composition.KindTool, Tool: "t.a", Args: map[string]any{"c": "${input.x}"}},
+					{ID: "b", Kind: composition.KindTool, Tool: "t.b", Args: map[string]any{"c": "${input.x}"}},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "m"}},
+		},
+	}
+	fe := newFakeExec(map[string]any{"a": "A", "b": "B"})
+	fe.errOn["a"] = 1 // always fails (no retry)
+	fe.errOn["b"] = 1
+	_, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"x": 1}))
+	if err == nil {
+		t.Fatal("expected error when branches fail")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `branch "a"`) || !strings.Contains(msg, `branch "b"`) {
+		t.Errorf("joined error should name both failing branches, got %q", msg)
+	}
+}
+
+func TestExecute_ParallelAppend(t *testing.T) {
+	// append reducer must preserve branch order regardless of goroutine scheduling.
+	comp := &composition.Composition{
+		Version: 1, Output: "meta",
+		Steps: []*composition.Step{
+			{ID: "meta", Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "first", Kind: composition.KindTool, Tool: "t.1", Args: map[string]any{"c": "${input.x}"}},
+					{ID: "second", Kind: composition.KindTool, Tool: "t.2", Args: map[string]any{"c": "${input.x}"}},
+					{ID: "third", Kind: composition.KindTool, Tool: "t.3", Args: map[string]any{"c": "${input.x}"}},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceAppend, Into: "list"}},
+		},
+	}
+	fe := newFakeExec(map[string]any{"first": "F", "second": "S", "third": "T"})
+	out, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"x": 1}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"list": []any{"F", "S", "T"}}
+	if !reflectDeepEqual(got, want) {
+		t.Errorf("append parallel = %#v, want %#v", got, want)
+	}
+}
+
+func TestExecute_ParallelNestedBranchRejected(t *testing.T) {
+	// A branch of kind=branch nested inside a parallel must be rejected at runtime.
+	comp := &composition.Composition{
+		Version: 1, Output: "meta",
+		Steps: []*composition.Step{
+			{ID: "meta", Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "leaf", Kind: composition.KindTool, Tool: "t.l", Args: map[string]any{"c": "${input.x}"}},
+					{ID: "nested", Kind: composition.KindBranch,
+						Predicate: &composition.Predicate{Path: "${input.x}", Op: "equals", Value: float64(1)},
+						Then:      "leaf"},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "m"}},
+		},
+	}
+	fe := newFakeExec(map[string]any{"leaf": "L"})
+	_, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"x": 1}))
+	if err == nil {
+		t.Fatal("expected error for nested branch inside parallel")
+	}
+	if !strings.Contains(err.Error(), "nested") {
+		t.Errorf("error should mention nested, got %v", err)
 	}
 }
 
