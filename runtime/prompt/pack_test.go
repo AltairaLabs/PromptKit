@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1522,4 +1523,15 @@ func TestCompileFromRegistryWithOptions_Skills(t *testing.T) {
 	require.Len(t, pack.Skills, 2)
 	assert.Equal(t, "skills/billing", pack.Skills[0].Path)
 	assert.Equal(t, "inline", pack.Skills[1].Name)
+}
+
+func TestWithCompositions_SetsPackField(t *testing.T) {
+	comps := map[string]*composition.Composition{
+		"flow": {Version: 1, Steps: []*composition.Step{{ID: "s", Kind: composition.KindTool, Tool: "echo"}}},
+	}
+	var o compileOptions
+	WithCompositions(comps)(&o)
+	if o.compositions == nil || o.compositions["flow"] == nil {
+		t.Fatal("WithCompositions did not set compileOptions.compositions")
+	}
 }

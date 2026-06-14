@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
@@ -100,6 +101,9 @@ type Pack struct {
 
 	// Workflow - State-machine workflow over the pack's prompts
 	Workflow *workflow.Spec `json:"workflow,omitempty"`
+
+	// Compositions - Named composition step-graphs (RFC 0010)
+	Compositions map[string]*composition.Composition `json:"compositions,omitempty"`
 
 	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
 	Agents *AgentsConfig `json:"agents,omitempty"`
@@ -203,9 +207,10 @@ type AgentDef struct {
 type CompileOption func(*compileOptions)
 
 type compileOptions struct {
-	workflow *workflow.Spec
-	agents   *AgentsConfig
-	skills   []SkillSourceConfig
+	workflow     *workflow.Spec
+	agents       *AgentsConfig
+	skills       []SkillSourceConfig
+	compositions map[string]*composition.Composition
 }
 
 // WithWorkflow sets the workflow config on the compiled pack.
@@ -221,6 +226,11 @@ func WithAgents(a *AgentsConfig) CompileOption {
 // WithSkills sets the skills config on the compiled pack.
 func WithSkills(s []SkillSourceConfig) CompileOption {
 	return func(o *compileOptions) { o.skills = s }
+}
+
+// WithCompositions sets the compositions map on the compiled pack.
+func WithCompositions(c map[string]*composition.Composition) CompileOption {
+	return func(o *compileOptions) { o.compositions = c }
 }
 
 // PackPrompt represents a single prompt configuration within a pack
@@ -507,6 +517,9 @@ func (pc *PackCompiler) CompileFromRegistryWithOptions(
 	}
 	if copts.skills != nil {
 		pack.Skills = copts.skills
+	}
+	if copts.compositions != nil {
+		pack.Compositions = copts.compositions
 	}
 
 	return pack, nil
