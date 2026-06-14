@@ -63,3 +63,58 @@ func TestResolvePath(t *testing.T) {
 func reflectDeepEqual(a, b any) bool {
 	return reflect.DeepEqual(a, b)
 }
+
+func TestResolveInput(t *testing.T) {
+	scope := Scope{
+		"input":    map[string]any{"text": "doc body", "id": float64(7)},
+		"classify": map[string]any{"output": map[string]any{"type": "paper"}},
+	}
+
+	// pure ref preserves the concrete value (here a map)
+	got, err := resolveInput("${input}", scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflectDeepEqual(got, map[string]any{"text": "doc body", "id": float64(7)}) {
+		t.Errorf("pure ref = %#v", got)
+	}
+
+	// pure ref to a scalar preserves type (number stays float64)
+	got, _ = resolveInput("${input.id}", scope)
+	if got != float64(7) {
+		t.Errorf("scalar ref = %#v, want 7", got)
+	}
+
+	// interpolated string substitutes stringified values
+	got, _ = resolveInput("type is ${classify.output.type}", scope)
+	if got != "type is paper" {
+		t.Errorf("interpolated = %#v", got)
+	}
+
+	// object combining literals + refs recurses
+	got, _ = resolveInput(map[string]any{
+		"content": "${input.text}",
+		"kind":    "${classify.output.type}",
+		"literal": "x",
+	}, scope)
+	want := map[string]any{"content": "doc body", "kind": "paper", "literal": "x"}
+	if !reflectDeepEqual(got, want) {
+		t.Errorf("object = %#v, want %#v", got, want)
+	}
+
+	// slice recurses
+	got, _ = resolveInput([]any{"${input.text}", "lit"}, scope)
+	if !reflectDeepEqual(got, []any{"doc body", "lit"}) {
+		t.Errorf("slice = %#v", got)
+	}
+
+	// unresolvable ref is an error
+	if _, err := resolveInput("${input.missing}", scope); err == nil {
+		t.Error("expected error for unresolvable ref")
+	}
+
+	// nil passes through
+	if got, err := resolveInput(nil, scope); err != nil || got != nil {
+		t.Errorf("nil = (%#v,%v)", got, err)
+	}
+}
