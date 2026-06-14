@@ -18,13 +18,29 @@ import (
 // production executors must treat `null` as "no input/args".
 type StepExecutor func(ctx context.Context, step *composition.Step, input json.RawMessage) (json.RawMessage, error)
 
+// Recorder observes step execution for observability (Arena testability). Methods
+// are called during Execute; a nil Recorder disables recording. RecordStep may be
+// called concurrently from parallel branches — implementations must be safe.
+type Recorder interface {
+	RecordStep(stepID string, output any)
+	RecordBranch(stepID string, takenTarget string)
+	RecordParallel(stepID string, branches []NamedOutput)
+}
+
 // Engine is the deterministic composition scheduler.
 type Engine struct {
-	exec StepExecutor
+	exec     StepExecutor
+	recorder Recorder
 }
 
 // New builds an Engine around a StepExecutor.
 func New(exec StepExecutor) *Engine { return &Engine{exec: exec} }
+
+// NewWithRecorder builds an Engine that records step observations via rec.
+// A nil rec is equivalent to calling New(exec).
+func NewWithRecorder(exec StepExecutor, rec Recorder) *Engine {
+	return &Engine{exec: exec, recorder: rec}
+}
 
 // stepStatus tracks scheduling state across the array walk.
 type stepStatus int
@@ -105,6 +121,9 @@ func (e *Engine) runStep(
 		}
 		scope[step.ID] = map[string]any{scopeOutputKey: out}
 		status[step.ID] = statusCompleted
+		if e.recorder != nil {
+			e.recorder.RecordStep(step.ID, out)
+		}
 		return step.ID, nil
 	default:
 		return "", fmt.Errorf("step %q: unknown kind %q", step.ID, step.Kind)
@@ -229,6 +248,9 @@ func (e *Engine) runBranch(step *composition.Step, scope Scope, status map[strin
 		status[notTaken] = statusSkipped
 	}
 	status[step.ID] = statusCompleted
+	if e.recorder != nil {
+		e.recorder.RecordBranch(step.ID, takenTarget)
+	}
 	return nil
 }
 
@@ -268,6 +290,9 @@ func (e *Engine) runParallel(ctx context.Context, step *composition.Step, scope 
 
 	if err := errors.Join(errs...); err != nil {
 		return nil, err
+	}
+	if e.recorder != nil {
+		e.recorder.RecordParallel(step.ID, outs)
 	}
 	merged := reduce(step.Reduce, outs)
 	return map[string]any{step.Reduce.Into: merged}, nil

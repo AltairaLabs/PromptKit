@@ -645,6 +645,96 @@ func TestExecute_ParallelBranchRetry(t *testing.T) {
 	}
 }
 
+// fakeRecorder is a test-only Recorder that captures what the engine observes.
+type fakeRecorder struct {
+	mu       sync.Mutex
+	steps    map[string]any
+	branches map[string]string
+	parallel map[string]bool
+}
+
+func newFakeRecorder() *fakeRecorder {
+	return &fakeRecorder{
+		steps:    map[string]any{},
+		branches: map[string]string{},
+		parallel: map[string]bool{},
+	}
+}
+
+func (r *fakeRecorder) RecordStep(id string, out any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.steps[id] = out
+}
+
+func (r *fakeRecorder) RecordBranch(id, taken string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.branches[id] = taken
+}
+
+func (r *fakeRecorder) RecordParallel(id string, _ []NamedOutput) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.parallel[id] = true
+}
+
+func TestEngine_RecorderBranch(t *testing.T) {
+	comp := branchComp("paper") // classify -> route(branch true->paper) -> paper|general -> join
+	fe := newFakeExec(map[string]any{
+		"classify": map[string]any{"type": "paper"},
+		"paper":    "P",
+		"general":  "G",
+		"join":     "J",
+	})
+	rec := newFakeRecorder()
+	if _, err := NewWithRecorder(fe.exec, rec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"text": "x"})); err != nil {
+		t.Fatal(err)
+	}
+	// branch step "route" should record that "paper" was taken
+	if rec.branches["route"] != "paper" {
+		t.Errorf("branch taken = %q, want paper", rec.branches["route"])
+	}
+	// taken step "paper" should be recorded
+	if _, ok := rec.steps["paper"]; !ok {
+		t.Error("paper step not recorded")
+	}
+	// skipped step "general" must NOT be recorded
+	if _, ok := rec.steps["general"]; ok {
+		t.Error("skipped general should not be recorded")
+	}
+	// "classify" and "join" also ran and should be recorded
+	if _, ok := rec.steps["classify"]; !ok {
+		t.Error("classify step not recorded")
+	}
+	if _, ok := rec.steps["join"]; !ok {
+		t.Error("join step not recorded")
+	}
+}
+
+func TestEngine_RecorderParallel(t *testing.T) {
+	// parallel step "meta" with two tool branches; assert rec.parallel["meta"]==true after Execute.
+	comp := &composition.Composition{
+		Version: 1, Output: "meta",
+		Steps: []*composition.Step{
+			{ID: "meta", Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "a", Kind: composition.KindTool, Tool: "t.a", Args: map[string]any{"c": "${input.x}"}},
+					{ID: "b", Kind: composition.KindTool, Tool: "t.b", Args: map[string]any{"c": "${input.x}"}},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "m"}},
+		},
+	}
+	fe := newFakeExec(map[string]any{"a": "A", "b": "B"})
+	rec := newFakeRecorder()
+	if _, err := NewWithRecorder(fe.exec, rec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"x": 1})); err != nil {
+		t.Fatal(err)
+	}
+	if !rec.parallel["meta"] {
+		t.Error("parallel step meta not recorded")
+	}
+}
+
 func TestExecute_Integration_BranchParallelRetryJoin(t *testing.T) {
 	// classify -> route(branch true) -> enrich(parallel, one branch retries) ; skip_path skipped
 	// -> synth(agent, depends_on [enrich, skip_path]) consumes ${enrich.output.meta}, with retry.
