@@ -46,4 +46,18 @@ func TestReduce(t *testing.T) {
 			t.Errorf("replace of empty = %#v, want nil", got)
 		}
 	})
+
+	t.Run("append empty", func(t *testing.T) {
+		got := reduce(&composition.Reducer{Strategy: composition.ReduceAppend}, nil)
+		if !reflectDeepEqual(got, []any{}) {
+			t.Errorf("append of empty = %#v, want empty slice", got)
+		}
+	})
+
+	t.Run("barrier empty", func(t *testing.T) {
+		got := reduce(&composition.Reducer{Strategy: composition.ReduceBarrier}, nil)
+		if !reflectDeepEqual(got, map[string]any{}) {
+			t.Errorf("barrier of empty = %#v, want empty map", got)
+		}
+	})
 }

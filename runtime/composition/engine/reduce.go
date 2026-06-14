@@ -8,8 +8,9 @@ type NamedOutput struct {
 	Output any
 }
 
-// reduce merges parallel branch outputs per the reducer strategy. The result is
-// exposed downstream under the parallel step's output as reduce.Into.
+// reduce merges parallel branch outputs per the reducer strategy and returns the
+// merged value. Callers bind the result to the scope key named by r.Into (Task 7);
+// reduce itself does not touch scope. r must not be nil (guaranteed by Validate).
 //
 //nolint:unused // wired to non-test callers in Task 7
 func reduce(r *composition.Reducer, outs []NamedOutput) any {
@@ -25,11 +26,15 @@ func reduce(r *composition.Reducer, outs []NamedOutput) any {
 			m[o.ID] = o.Output
 		}
 		return m
-	default:
+	case composition.ReduceAppend:
 		list := make([]any, 0, len(outs))
 		for _, o := range outs {
 			list = append(list, o.Output)
 		}
 		return list
+	default:
+		// Validate enforces strategy ∈ {append,replace,barrier} upstream; an
+		// unrecognized strategy returns nil so it fails loudly downstream.
+		return nil
 	}
 }
