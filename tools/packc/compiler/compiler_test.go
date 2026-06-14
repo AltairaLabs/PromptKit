@@ -418,6 +418,126 @@ spec:
 	assert.Equal(t, "skills", result.Pack.Skills[0].EffectiveDir())
 }
 
+const echoToolYAML = `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Tool
+metadata:
+  name: echo
+spec:
+  name: echo
+  description: "Echo input back"
+  mode: client
+  input_schema:
+    type: object
+    properties:
+      x:
+        type: string
+        description: "Value to echo"
+  output_schema:
+    type: object
+    properties:
+      result:
+        type: string
+`
+
+func TestCompile_CarriesAndValidatesCompositions(t *testing.T) {
+	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
+
+	// valid: workflow composition state referencing a real tool in the pack
+	dir := t.TempDir()
+	writeFixture(t, dir, "prompts/greeting.yaml", minimalPromptYAML)
+	writeFixture(t, dir, "tools/echo.yaml", echoToolYAML)
+
+	validArena := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test
+spec:
+  prompt_configs:
+    - id: prompt0
+      file: prompts/greeting.yaml
+  tools:
+    - file: tools/echo.yaml
+  providers: []
+  workflow:
+    version: 1
+    entry: run
+    states:
+      run:
+        orchestration: composition
+        composition: flow
+        terminal: true
+  compositions:
+    flow:
+      version: 1
+      steps:
+        - id: s
+          kind: tool
+          tool: echo
+          args:
+            x: "${input.t}"
+  defaults:
+    temperature: 0.7
+    max_tokens: 100
+`
+	configFile := writeFixture(t, dir, "config.arena.yaml", validArena)
+
+	result, err := Compile(configFile,
+		WithPackID("comp-pack"),
+		WithCompilerVersion("test-v1"),
+		WithSkipSchemaValidation(),
+	)
+	require.NoError(t, err, "valid composition pack should compile without error")
+	require.NotNil(t, result.Pack)
+	require.Len(t, result.Pack.Compositions, 1, "compiled pack should contain 1 composition")
+
+	// bad: composition step references a tool not in the pack
+	dir2 := t.TempDir()
+	writeFixture(t, dir2, "prompts/greeting.yaml", minimalPromptYAML)
+	writeFixture(t, dir2, "tools/echo.yaml", echoToolYAML)
+
+	badArena := `apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: test
+spec:
+  prompt_configs:
+    - id: prompt0
+      file: prompts/greeting.yaml
+  tools:
+    - file: tools/echo.yaml
+  providers: []
+  workflow:
+    version: 1
+    entry: run
+    states:
+      run:
+        orchestration: composition
+        composition: flow
+        terminal: true
+  compositions:
+    flow:
+      version: 1
+      steps:
+        - id: s
+          kind: tool
+          tool: missing_tool
+          args:
+            x: "${input.t}"
+  defaults:
+    temperature: 0.7
+    max_tokens: 100
+`
+	badConfigFile := writeFixture(t, dir2, "config.arena.yaml", badArena)
+
+	_, err = Compile(badConfigFile,
+		WithPackID("bad-comp-pack"),
+		WithCompilerVersion("test-v1"),
+		WithSkipSchemaValidation(),
+	)
+	require.Error(t, err, "composition with an unknown tool ref must fail compilation")
+	assert.Contains(t, err.Error(), "composition")
+}
+
 func TestCompileOptions(t *testing.T) {
 	t.Run("WithPackID sets pack ID", func(t *testing.T) {
 		var opts compileOptions

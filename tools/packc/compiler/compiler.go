@@ -176,6 +176,14 @@ func buildCompileOptions(cfg *config.Config) ([]prompt.CompileOption, error) {
 		opts = append(opts, prompt.WithAgents(agentsConfig))
 	}
 
+	comps, err := parseCompositionsFromConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("parsing compositions config: %w", err)
+	}
+	if comps != nil {
+		opts = append(opts, prompt.WithCompositions(comps))
+	}
+
 	if skillsConfig := parseSkillsFromConfig(cfg); len(skillsConfig) > 0 {
 		opts = append(opts, prompt.WithSkills(skillsConfig))
 	}
@@ -199,6 +207,16 @@ func validatePack(pack *prompt.Pack, configDir string, warnings *[]string) error
 		}
 		for _, w := range wfResult.Warnings {
 			*warnings = append(*warnings, "workflow: "+w)
+		}
+	}
+
+	if len(pack.Compositions) > 0 {
+		cResult := pack.ValidateCompositions()
+		if cResult.HasErrors() {
+			return fmt.Errorf("composition validation errors: %v", cResult.Errors)
+		}
+		for _, w := range cResult.Warnings {
+			*warnings = append(*warnings, "composition: "+w)
 		}
 	}
 

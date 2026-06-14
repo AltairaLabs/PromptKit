@@ -499,6 +499,7 @@
           "$ref": "#/$defs/Globals"
         },
         "workflow": true,
+        "compositions": true,
         "memory": true,
         "agents": true,
         "deploy": {

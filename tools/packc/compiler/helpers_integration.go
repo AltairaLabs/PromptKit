@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -16,6 +17,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
+
+// parseCompositionsFromConfig parses the compositions block from arena config.
+// Returns nil, nil when none are configured.
+func parseCompositionsFromConfig(cfg *config.Config) (map[string]*composition.Composition, error) {
+	return composition.ParseConfig(cfg.Compositions)
+}
 
 // buildMemoryRepo creates a memory-backed prompt repository from the loaded config.
 func buildMemoryRepo(cfg *config.Config) (*memory.PromptRepository, error) {
