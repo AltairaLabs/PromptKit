@@ -297,6 +297,52 @@ func TestValidate_JoinWarning(t *testing.T) {
 	}
 }
 
+// --- TDD tests for fixes #1, #2, #3 ---
+
+// Fix #1: cycle detection must walk nested parallel.branches.
+func TestValidate_NestedBranchCycle(t *testing.T) {
+	// Two branches inside a parallel that depend on each other → cycle.
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "par", Kind: KindParallel,
+			Reduce: &Reducer{Strategy: ReduceAppend, Into: "x"},
+			Branches: []*Step{
+				{ID: "left", Kind: KindTool, Tool: "t", DependsOn: []string{"right"}},
+				{ID: "right", Kind: KindTool, Tool: "t", DependsOn: []string{"left"}},
+			},
+		},
+	}}
+	r := Validate("comp", c, av(nil, []string{"t"}, nil))
+	if !hasErr(r, "cycle") {
+		t.Fatalf("want cycle error for nested branch mutual dependency, got %v", r.Errors)
+	}
+}
+
+// Fix #2: compare predicate must declare path.
+func TestValidate_ComparePredicateMissingPath(t *testing.T) {
+	// Predicate with op+value but no path → error.
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "b", Kind: KindBranch,
+			Predicate: &Predicate{Op: "equals", Value: 1}, // no Path
+			Then:      "n"},
+		{ID: "n", Kind: KindPrompt, PromptTask: "p"},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, "must declare path") {
+		t.Fatalf("want 'must declare path' error for compare predicate with no path, got %v", r.Errors)
+	}
+}
+
+// Fix #3: Composition.Version must be 1.
+func TestValidate_VersionMustBeOne(t *testing.T) {
+	c := &Composition{Version: 2, Steps: []*Step{
+		{ID: "a", Kind: KindPrompt, PromptTask: "p"},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, "version must be 1") {
+		t.Fatalf("want version error, got %v", r.Errors)
+	}
+}
+
 func TestValidate_FullValidCompositionNoErrors(t *testing.T) {
 	c := &Composition{
 		Version: 1, Output: "synthesize",

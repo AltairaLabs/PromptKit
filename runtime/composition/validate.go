@@ -35,9 +35,10 @@ type Available struct {
 	Evals   []string
 }
 
-func (a Available) set(which []string) map[string]bool {
-	m := make(map[string]bool, len(which))
-	for _, k := range which {
+// stringSet converts a slice of strings to a presence map.
+func stringSet(keys []string) map[string]bool {
+	m := make(map[string]bool, len(keys))
+	for _, k := range keys {
 		m[k] = true
 	}
 	return m
@@ -84,8 +85,11 @@ func Validate(name string, c *Composition, avail Available) *ValidationResult {
 	if c == nil {
 		return r
 	}
+	if c.Version != 1 {
+		r.Errors = append(r.Errors, fmt.Sprintf("compositions[%q]: version must be 1, got %d", name, c.Version))
+	}
 	stepIDs := validateStepIDs(name, c, r)
-	prompts, tools, evals := avail.set(avail.Prompts), avail.set(avail.Tools), avail.set(avail.Evals)
+	prompts, tools, evals := stringSet(avail.Prompts), stringSet(avail.Tools), stringSet(avail.Evals)
 	forEachStep(c.Steps, func(s *Step) {
 		validateReferences(name, s, prompts, tools, evals, r)
 		validateRefRoots(name, s, stepIDs, r)
@@ -210,6 +214,8 @@ func predicatePaths(p *Predicate) []any {
 // validateKind checks rules 5, 6, 7, 11 for a single step.
 func validateKind(name string, s *Step, r *ValidationResult) {
 	pfx := fmt.Sprintf("compositions[%q].steps[%q]", name, s.ID)
+	// depends_on and modifiers are cross-kind fields; intentionally absent so they
+	// are never flagged as "field not allowed".
 	allowed := map[StepKind]map[string]bool{
 		KindPrompt:   {fieldPromptTask: true, fieldInput: true, fieldOutputSchema: true},
 		KindAgent:    {fieldPromptTask: true, fieldInput: true, fieldOutputSchema: true, "tools": true, "termination": true},
@@ -317,7 +323,10 @@ func validatePredicate(pfx string, p *Predicate, r *ValidationResult) {
 		r.Errors = append(r.Errors, fmt.Sprintf(
 			"%s: predicate must set exactly one variant (compare|exists|all_of|any_of|not)", pfx))
 	}
-	if isCompare && !CompareOps[p.Op] {
+	if isCompare && p.Path == "" {
+		r.Errors = append(r.Errors, fmt.Sprintf("%s: compare predicate must declare path", pfx))
+	}
+	if isCompare && !compareOps[p.Op] {
 		r.Errors = append(r.Errors, fmt.Sprintf("%s: predicate op %q is not valid", pfx, p.Op))
 	}
 	for _, c := range p.AllOf {
@@ -388,6 +397,8 @@ func validateAcyclic(name string, c *Composition, r *ValidationResult) {
 
 // buildStepEdges constructs the predecessor-edge map for the step graph.
 // Edges run from each step to its predecessors (depends_on or sequential).
+// Top-level steps without an explicit depends_on get an implicit sequential predecessor edge.
+// Nested branch steps inside a parallel only get depends_on edges (no implicit ordering).
 func buildStepEdges(c *Composition) map[string][]string {
 	edges := map[string][]string{}
 	var prev string
@@ -405,10 +416,22 @@ func buildStepEdges(c *Composition) map[string][]string {
 		}
 		prev = s.ID
 	}
+	// Add depends_on edges for nested branch steps inside parallel steps.
+	// Branches within a parallel have no implicit sequential ordering.
+	for _, s := range c.Steps {
+		if s.Kind == KindParallel {
+			forEachStep(s.Branches, func(b *Step) {
+				if len(b.DependsOn) > 0 {
+					edges[b.ID] = append(edges[b.ID], b.DependsOn...)
+				}
+			})
+		}
+	}
 	return edges
 }
 
 // hasCycle runs a DFS on the step edge map and returns true if a back-edge is found.
+// It seeds the DFS from all steps including nested parallel.branches.
 func hasCycle(c *Composition, edges map[string][]string) bool {
 	const (
 		white = iota
@@ -427,12 +450,13 @@ func hasCycle(c *Composition, edges map[string][]string) bool {
 		color[n] = black
 		return false
 	}
-	for _, s := range c.Steps {
-		if color[s.ID] == white && dfs(s.ID) {
-			return true
+	found := false
+	forEachStep(c.Steps, func(s *Step) {
+		if !found && color[s.ID] == white && dfs(s.ID) {
+			found = true
 		}
-	}
-	return false
+	})
+	return found
 }
 
 // validateJoinHints warns (rule 8 second half) when a top-level step textually

@@ -97,8 +97,8 @@ type Predicate struct {
 	Not    *Predicate   `json:"not,omitempty"`
 }
 
-// CompareOps is the set of valid comparison operators.
-var CompareOps = map[string]bool{
+// compareOps is the set of valid comparison operators.
+var compareOps = map[string]bool{
 	"equals": true, "not_equals": true,
 	"in": true, "not_in": true,
 	"less_than": true, "less_than_or_equals": true,
