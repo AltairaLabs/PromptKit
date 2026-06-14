@@ -738,6 +738,60 @@ func (p *Pack) ValidateWorkflow() *workflow.ValidationResult {
 	return workflow.Validate(p.Workflow, promptKeys)
 }
 
+// ValidateCompositions validates the pack's compositions (RFC 0010): each
+// composition's internal rules + reference resolution against the pack's
+// prompts/tools/evals, plus pack-level cross-checks against the workflow.
+func (p *Pack) ValidateCompositions() *composition.ValidationResult {
+	avail := composition.Available{
+		Prompts: p.ListPrompts(),
+		Tools:   p.toolKeys(),
+		Evals:   p.evalKeys(),
+	}
+	res := composition.ValidateAll(p.Compositions, avail)
+
+	referenced := map[string]bool{}
+	if p.Workflow != nil {
+		for name, st := range p.Workflow.States {
+			if st.Orchestration != workflow.OrchestrationComposition {
+				continue
+			}
+			referenced[st.Composition] = true
+			if _, ok := p.Compositions[st.Composition]; !ok {
+				res.Errors = append(res.Errors, fmt.Sprintf(
+					"workflow state %q references unknown composition %q", name, st.Composition))
+			}
+		}
+	}
+	if len(p.Compositions) > 0 && p.Workflow == nil {
+		res.Warnings = append(res.Warnings, "compositions defined but no workflow references them")
+	}
+	for name := range p.Compositions {
+		if !referenced[name] {
+			res.Warnings = append(res.Warnings,
+				fmt.Sprintf("composition %q is not referenced by any workflow state", name))
+		}
+	}
+	return res
+}
+
+// toolKeys returns the pack's tool names.
+func (p *Pack) toolKeys() []string {
+	keys := make([]string, 0, len(p.Tools))
+	for k := range p.Tools {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// evalKeys returns the pack's eval IDs.
+func (p *Pack) evalKeys() []string {
+	keys := make([]string, 0, len(p.Evals))
+	for i := range p.Evals {
+		keys = append(keys, p.Evals[i].ID)
+	}
+	return keys
+}
+
 // validatePackFields validates pack-level required fields
 func (p *Pack) validatePackFields() []string {
 	warnings := []string{}
