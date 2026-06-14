@@ -2,6 +2,7 @@ package engine
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -89,6 +90,22 @@ func TestResolveInput(t *testing.T) {
 	got, _ = resolveInput("type is ${classify.output.type}", scope)
 	if got != "type is paper" {
 		t.Errorf("interpolated = %#v", got)
+	}
+
+	// multiple embedded refs in one string, including a non-string value stringified
+	got, _ = resolveInput("${input.text} has id ${input.id}", scope)
+	if got != "doc body has id 7" {
+		t.Errorf("multi/typed interpolation = %#v, want %q", got, "doc body has id 7")
+	}
+
+	// multiple unresolvable embedded refs report all of them
+	if _, err := resolveInput("${input.nope} and ${input.also}", scope); err == nil {
+		t.Error("expected error for multiple unresolvable embedded refs")
+	} else {
+		msg := err.Error()
+		if !strings.Contains(msg, "input.nope") || !strings.Contains(msg, "input.also") {
+			t.Errorf("joined error should name both refs, got %q", msg)
+		}
 	}
 
 	// object combining literals + refs recurses

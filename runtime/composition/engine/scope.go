@@ -6,6 +6,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -67,24 +68,24 @@ var embeddedRefRe = regexp.MustCompile(`\$\{\s*[a-zA-Z_][a-zA-Z0-9_.]*?\s*\}`)
 //
 //nolint:unused // called only by resolveInput; wired to non-test callers in Task 5
 func resolveInputString(v string, scope Scope) (any, error) {
-	if inner, ok := stripRef(v); ok {
-		val, ok := resolvePath("${"+inner+"}", scope)
+	if _, ok := stripRef(v); ok {
+		val, ok := resolvePath(v, scope)
 		if !ok {
 			return nil, fmt.Errorf("unresolved reference %q", v)
 		}
 		return val, nil
 	}
-	var resolveErr error
+	var errs []error
 	out := embeddedRefRe.ReplaceAllStringFunc(v, func(ref string) string {
 		val, ok := resolvePath(ref, scope)
 		if !ok {
-			resolveErr = fmt.Errorf("unresolved reference %q", ref)
+			errs = append(errs, fmt.Errorf("unresolved reference %q", ref))
 			return ref
 		}
 		return fmt.Sprint(val)
 	})
-	if resolveErr != nil {
-		return nil, resolveErr
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return out, nil
 }
