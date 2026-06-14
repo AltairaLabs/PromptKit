@@ -628,3 +628,31 @@ func TestVariableBindingKindConstants(t *testing.T) {
 	assert.Equal(t, VariableBindingKind("secret"), BindingKindSecret)
 	assert.Equal(t, VariableBindingKind("configmap"), BindingKindConfigMap)
 }
+
+func TestLoad_PackWithCompositions(t *testing.T) {
+	raw := []byte(`{
+	  "id":"p","name":"p","version":"1","description":"",
+	  "prompts":{"analyze":{"id":"analyze","system_template":"Analyze this."}},
+	  "workflow":{"version":1,"entry":"analyze","states":{
+	     "analyze":{"orchestration":"composition","composition":"analyze_doc","terminal":true}}},
+	  "compositions":{"analyze_doc":{"version":1,"steps":[
+	     {"id":"s","kind":"tool","tool":"echo","args":{"x":"${input.t}"}}]}}
+	}`)
+
+	p, err := Parse(raw)
+	require.NoError(t, err)
+
+	if len(p.Compositions) != 1 {
+		t.Fatalf("expected 1 composition, got %d", len(p.Compositions))
+	}
+	if p.Workflow == nil {
+		t.Fatal("expected workflow to be set")
+	}
+	state, ok := p.Workflow.States["analyze"]
+	if !ok {
+		t.Fatal("expected state 'analyze' to exist")
+	}
+	if state.Composition != "analyze_doc" {
+		t.Errorf("state composition = %q, want analyze_doc", state.Composition)
+	}
+}
