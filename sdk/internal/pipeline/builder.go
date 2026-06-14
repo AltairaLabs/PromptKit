@@ -2,11 +2,13 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -202,6 +204,18 @@ type Config struct {
 	// When non-nil, stages and downstream consumers can resolve inference
 	// backends via classify.FromContext.
 	ClassifyRegistry *classify.Registry
+
+	// ActiveComposition, when non-nil, makes the work stage a CompositionStage
+	// that runs this composition instead of an LLM ProviderStage (RFC 0010).
+	ActiveComposition *composition.Composition
+
+	// CompositionName labels the CompositionStage (typically the state's composition name).
+	// Falls back to "composition" when empty.
+	CompositionName string
+
+	// SchemaResolver resolves a step's output_schema path to JSON-schema bytes.
+	// nil means no structured output is used.
+	SchemaResolver func(path string) (json.RawMessage, error)
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -227,8 +241,6 @@ func BuildStreamPipeline(cfg *Config) (*stage.StreamPipeline, error) {
 
 // buildStreamPipelineInternal creates a stage pipeline directly without wrapping.
 // Used by DuplexSession which handles streaming at the session level.
-//
-//nolint:gocognit // Complex pipeline construction logic
 func buildStreamPipelineInternal(cfg *Config) (*stage.StreamPipeline, error) {
 	logger.Info("Building stage-based pipeline",
 		"task_type", cfg.TaskType,
@@ -304,14 +316,13 @@ func collectPipelineStages(
 
 	// 2. Variable provider stage - always present, handles static + dynamic vars
 	// 3. Prompt assembly stage - loads raw template (no rendering)
-	stages = append(stages,
-		stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
-		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
-	)
-
 	// 4. Template stage - single render point, emits events. With turnState,
 	// rendering happens once per Send rather than once per element.
-	stages = append(stages, stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState))
+	//
+	// For composition states (RFC 0010), these three stages are skipped: the
+	// CompositionStage builds its own per-step sub-pipelines and there is no
+	// top-level prompt_task to assemble.
+	stages = appendPromptAssemblyStages(stages, cfg, turnState)
 
 	// 4.1 Input recording stage - captures user input with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
@@ -396,8 +407,41 @@ func appendStateStoreLoadStages(
 	return append(stages, stage.NewStateStoreLoadStageWithTurnState(stateStoreConfig, turnState))
 }
 
+// appendPromptAssemblyStages adds VariableProviderStage, PromptAssemblyStage, and
+// TemplateStage when the pipeline is not running a composition (RFC 0010). Composition
+// states skip these three stages because the CompositionStage builds its own per-step
+// sub-pipelines and there is no top-level prompt_task to assemble.
+func appendPromptAssemblyStages(stages []stage.Stage, cfg *Config, turnState *stage.TurnState) []stage.Stage {
+	if cfg.ActiveComposition != nil {
+		return stages
+	}
+	return append(stages,
+		stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
+		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
+		stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState),
+	)
+}
+
 // buildProviderStages returns the appropriate provider stage(s) based on config.
 func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage, error) {
+	if cfg.ActiveComposition != nil {
+		// Composition mode (RFC 0010): replace the LLM ProviderStage with a
+		// CompositionStage that executes the composition graph.
+		deps := stage.CompositionExecutorDeps{
+			PromptRegistry: cfg.PromptRegistry,
+			Provider:       cfg.Provider,
+			ToolRegistry:   cfg.ToolRegistry,
+			Emitter:        cfg.EventEmitter,
+			HookRegistry:   cfg.HookRegistry,
+			BaseVariables:  cfg.Variables,
+			SchemaResolver: cfg.SchemaResolver,
+		}
+		name := cfg.CompositionName
+		if name == "" {
+			name = "composition"
+		}
+		return []stage.Stage{stage.NewCompositionStage(name, cfg.ActiveComposition, deps)}, nil
+	}
 	if cfg.StreamInputProvider != nil {
 		// ASM mode: Direct audio streaming to LLM
 		logger.Debug("Using DuplexProviderStage for ASM mode")

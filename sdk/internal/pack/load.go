@@ -44,6 +44,10 @@ type Pack struct {
 	// Workflow - State-machine workflow config
 	Workflow *WorkflowSpec `json:"workflow,omitempty"`
 
+	// Compositions - Map of composition name -> raw JSON definition (RFC 0010).
+	// Stored as raw JSON to keep the SDK free of a runtime/composition import.
+	Compositions map[string]json.RawMessage `json:"compositions,omitempty"`
+
 	// Agents - Agent configuration mapping prompts to A2A-compatible agent definitions
 	Agents *AgentsConfig `json:"agents,omitempty"`
 

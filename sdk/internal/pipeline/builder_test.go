@@ -2,9 +2,11 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	memorystore "github.com/AltairaLabs/PromptKit/runtime/memory"
@@ -1197,6 +1199,116 @@ func TestBuildWithVideoStreamConfig(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, pipeline)
 	})
+}
+
+// TestBuildProviderStages_SelectsCompositionStage verifies that when
+// Config.ActiveComposition is non-nil, buildProviderStages returns a single
+// *stage.CompositionStage instead of a ProviderStage (RFC 0010).
+func TestBuildProviderStages_SelectsCompositionStage(t *testing.T) {
+	comp := &composition.Composition{
+		Version: 1, Output: "s",
+		Steps: []*composition.Step{{
+			ID:   "s",
+			Kind: composition.KindTool,
+			Tool: "echo",
+			Args: map[string]any{"v": "${input.x}"},
+		}},
+	}
+
+	// Build a tool registry with an echo tool (mirrors registerEchoTool from the
+	// stage package's own composition tests).
+	reg := tools.NewRegistry()
+	echoExec := &builderEchoExecutor{}
+	reg.RegisterExecutor(echoExec)
+	if err := reg.Register(&tools.ToolDescriptor{
+		Name:        "echo",
+		Description: "echo tool",
+		Mode:        echoExec.Name(),
+		InputSchema: []byte(`{"type":"object"}`),
+	}); err != nil {
+		t.Fatalf("register echo tool: %v", err)
+	}
+
+	promptReg := createTestRegistry("chat")
+
+	cfg := &Config{
+		Provider:          mock.NewProvider("test-mock", "test-model", false),
+		ToolRegistry:      reg,
+		PromptRegistry:    promptReg,
+		ActiveComposition: comp,
+		CompositionName:   "analyze_doc",
+	}
+
+	stages, err := buildProviderStages(cfg, stage.NewTurnState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stages) != 1 {
+		t.Fatalf("want 1 stage, got %d", len(stages))
+	}
+	if _, ok := stages[0].(*stage.CompositionStage); !ok {
+		t.Fatalf("want *stage.CompositionStage, got %T", stages[0])
+	}
+}
+
+// TestBuildProviderStages_DefaultNameWhenCompositionNameEmpty verifies that an
+// empty CompositionName falls back to "composition".
+func TestBuildProviderStages_DefaultNameWhenCompositionNameEmpty(t *testing.T) {
+	comp := &composition.Composition{
+		Version: 1, Output: "s",
+		Steps: []*composition.Step{{
+			ID:   "s",
+			Kind: composition.KindTool,
+			Tool: "echo",
+			Args: map[string]any{"v": "x"},
+		}},
+	}
+
+	reg := tools.NewRegistry()
+	echoExec := &builderEchoExecutor{}
+	reg.RegisterExecutor(echoExec)
+	if err := reg.Register(&tools.ToolDescriptor{
+		Name:        "echo",
+		Description: "echo tool",
+		Mode:        echoExec.Name(),
+		InputSchema: []byte(`{"type":"object"}`),
+	}); err != nil {
+		t.Fatalf("register echo tool: %v", err)
+	}
+
+	cfg := &Config{
+		Provider:          mock.NewProvider("test-mock", "test-model", false),
+		ToolRegistry:      reg,
+		PromptRegistry:    createTestRegistry("chat"),
+		ActiveComposition: comp,
+		CompositionName:   "", // intentionally empty
+	}
+
+	stages, err := buildProviderStages(cfg, stage.NewTurnState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stages) != 1 {
+		t.Fatalf("want 1 stage, got %d", len(stages))
+	}
+	cs, ok := stages[0].(*stage.CompositionStage)
+	if !ok {
+		t.Fatalf("want *stage.CompositionStage, got %T", stages[0])
+	}
+	if cs.Name() != "composition" {
+		t.Errorf("want name %q, got %q", "composition", cs.Name())
+	}
+}
+
+// builderEchoExecutor is a local tools.Executor that returns its args as the result.
+// Mirrors the echoExecutor in stage/composition_executor_test.go, but lives here
+// to avoid cross-package test helper imports.
+type builderEchoExecutor struct{}
+
+func (e *builderEchoExecutor) Name() string { return "builder-echo-exec" }
+
+func (e *builderEchoExecutor) Execute(_ context.Context, _ *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error) {
+	return args, nil
 }
 
 // fakePipelineEventStore is a minimal events.EventStore for builder tests.

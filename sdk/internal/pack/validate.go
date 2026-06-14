@@ -104,7 +104,8 @@ func (p *Pack) validateWorkflowStateRefs() []string {
 
 	var errs []string
 	for name, state := range p.Workflow.States {
-		if !promptSet[state.PromptTask] {
+		// Composition-orchestrated states run a sub-pipeline; prompt_task is not required.
+		if state.Orchestration != "composition" && !promptSet[state.PromptTask] {
 			errs = append(errs, fmt.Sprintf(
 				"workflow.states[%q].prompt_task %q does not reference a valid prompt",
 				name, state.PromptTask))

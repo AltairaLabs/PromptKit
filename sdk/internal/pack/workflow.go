@@ -17,6 +17,7 @@ type WorkflowState struct {
 	OnEvent       map[string]string               `json:"on_event,omitempty"`
 	Persistence   string                          `json:"persistence,omitempty"`
 	Orchestration string                          `json:"orchestration,omitempty"`
+	Composition   string                          `json:"composition,omitempty"` // RFC 0010: names the composition to run
 	Skills        string                          `json:"skills,omitempty"`
 	Terminal      bool                            `json:"terminal,omitempty"`      // RFC 0009
 	MaxVisits     int                             `json:"max_visits,omitempty"`    // RFC 0009
