@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -323,31 +324,39 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		}
 	}
 
+	// Resolve the active composition for the current workflow state (RFC 0010).
+	// Non-workflow turns and non-composition states leave this nil.
+	var activeComposition *composition.Composition
+	if req.ActiveCompositionResolver != nil {
+		activeComposition = req.ActiveCompositionResolver()
+	}
+
 	return turnexecutors.TurnRequest{
-		Provider:         req.Provider,
-		Scenario:         req.Scenario,
-		PromptRegistry:   ce.promptRegistry,
-		TaskType:         req.Scenario.TaskType,
-		Region:           req.Region,
-		PromptVars:       promptVars,
-		BaseDir:          baseDir,
-		Temperature:      temperature,
-		MaxTokens:        maxTokens,
-		Seed:             &req.Config.Defaults.Seed,
-		StateStoreConfig: convertStateStoreConfig(req.StateStoreConfig),
-		ConversationID:   req.ConversationID,
-		RunID:            req.RunID,
-		EventBus:         req.EventBus,
-		ScriptedContent:  scenarioTurn.Content, // Legacy text content (for backward compatibility)
-		ScriptedParts:    scenarioTurn.Parts,   // Multimodal content parts (takes precedence over ScriptedContent)
-		ConsentOverrides: scenarioTurn.ConsentOverrides,
-		ChaosConfig:      scenarioTurn.Chaos,
-		Assertions:       scenarioTurn.Assertions,
-		TurnEvalRunner:   ce.resolveEvalOrchestrator(&req),
-		RecordingConfig:  req.RecordingConfig,
-		EventStore:       req.EventStore,
-		AudioRouter:      req.AudioRouter,
-		Metadata:         metadata,
+		Provider:          req.Provider,
+		Scenario:          req.Scenario,
+		PromptRegistry:    ce.promptRegistry,
+		TaskType:          req.Scenario.TaskType,
+		Region:            req.Region,
+		PromptVars:        promptVars,
+		BaseDir:           baseDir,
+		Temperature:       temperature,
+		MaxTokens:         maxTokens,
+		Seed:              &req.Config.Defaults.Seed,
+		StateStoreConfig:  convertStateStoreConfig(req.StateStoreConfig),
+		ConversationID:    req.ConversationID,
+		RunID:             req.RunID,
+		EventBus:          req.EventBus,
+		ScriptedContent:   scenarioTurn.Content, // Legacy text content (for backward compatibility)
+		ScriptedParts:     scenarioTurn.Parts,   // Multimodal content parts (takes precedence over ScriptedContent)
+		ConsentOverrides:  scenarioTurn.ConsentOverrides,
+		ChaosConfig:       scenarioTurn.Chaos,
+		Assertions:        scenarioTurn.Assertions,
+		TurnEvalRunner:    ce.resolveEvalOrchestrator(&req),
+		RecordingConfig:   req.RecordingConfig,
+		EventStore:        req.EventStore,
+		AudioRouter:       req.AudioRouter,
+		Metadata:          metadata,
+		ActiveComposition: activeComposition,
 	}
 }
 

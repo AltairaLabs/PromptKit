@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
@@ -92,6 +93,11 @@ type ConversationRequest struct {
 	// ContextEnricher is called before each turn to enrich the pipeline context.
 	// Used to inject per-run state (e.g., skill filters) into context for tool execution.
 	ContextEnricher func(ctx context.Context) context.Context
+
+	// ActiveCompositionResolver, when non-nil, is called per-turn to determine
+	// the active composition for the current workflow state (RFC 0010). It returns
+	// nil for states that are not composition-orchestrated.
+	ActiveCompositionResolver func() *composition.Composition
 
 	// AudioRouter, when non-nil, is the per-run AudioRouter for audio
 	// monitoring. MonitorTap stages added to the pipeline publish to this

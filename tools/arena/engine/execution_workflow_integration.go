@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
@@ -270,7 +271,9 @@ func (e *Engine) buildEntryStateMeta(stateName string) map[string]interface{} {
 
 // wireWorkflowHooks sets up per-turn hooks for workflow scenarios:
 // PostTurnHook commits deferred transitions, ContextEnricher injects
-// the per-run skill filter into context for the next turn's tool execution.
+// the per-run skill filter into context for the next turn's tool execution,
+// and ActiveCompositionResolver resolves the active composition for the
+// current workflow state (RFC 0010).
 func (e *Engine) wireWorkflowHooks(req *ConversationRequest, runID string) {
 	req.PostTurnHook = func() error {
 		var emitter *events.Emitter
@@ -285,6 +288,36 @@ func (e *Engine) wireWorkflowHooks(req *ConversationRequest, runID string) {
 			return skills.WithSkillFilter(ctx, filter)
 		}
 		return ctx
+	}
+	req.ActiveCompositionResolver = e.buildCompositionResolver(runID)
+}
+
+// buildCompositionResolver returns a function that resolves the active
+// *composition.Composition for the current workflow state of the given run.
+// Returns nil when the current state does not have orchestration: composition,
+// or when no pack/compositions are loaded.
+func (e *Engine) buildCompositionResolver(runID string) func() *composition.Composition {
+	return func() *composition.Composition {
+		if e.config.LoadedPack == nil || len(e.config.LoadedPack.Compositions) == 0 {
+			return nil
+		}
+		sm := e.workflowTransExec.StateMachine(runID)
+		if sm == nil {
+			return nil
+		}
+		stateName := sm.CurrentState()
+		state, ok := e.workflowSpec.States[stateName]
+		if !ok || state == nil || state.Orchestration != workflow.OrchestrationComposition {
+			return nil
+		}
+		compName := state.Composition
+		comp, ok := e.config.LoadedPack.Compositions[compName]
+		if !ok || comp == nil {
+			logger.Warn("composition state references unknown composition",
+				"state", stateName, "composition", compName)
+			return nil
+		}
+		return comp
 	}
 }
 
