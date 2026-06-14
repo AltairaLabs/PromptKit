@@ -541,7 +541,7 @@ func (c *Conversation) buildPipelineConfig(
 		pipelineCfg.ActiveComposition = c.config.activeComposition
 		pipelineCfg.CompositionName = c.config.compositionName
 		if c.pack != nil && c.pack.FilePath != "" {
-			pipelineCfg.SchemaResolver = intpipeline.NewSchemaResolver(filepath.Dir(c.pack.FilePath))
+			pipelineCfg.SchemaResolver = stage.NewFileSchemaResolver(filepath.Dir(c.pack.FilePath))
 		}
 	}
 

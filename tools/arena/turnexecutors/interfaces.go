@@ -22,6 +22,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/pkg/config"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
@@ -113,6 +114,10 @@ type TurnRequest struct {
 	// monitoring. MonitorTap stages added to the pipeline publish to this
 	// router. The engine owns lifecycle (Close).
 	AudioRouter *arenaaudio.AudioRouter
+
+	// ActiveComposition, when non-nil, makes this turn run a CompositionStage that
+	// executes the composition instead of an LLM ProviderStage (RFC 0010).
+	ActiveComposition *composition.Composition
 }
 
 // StateStoreConfig wraps the state store configuration for turn executors

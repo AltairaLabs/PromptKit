@@ -297,40 +297,47 @@ func (e *PipelineExecutor) buildStagePipeline(
 		)
 	}
 
-	// 1-4. Variable provider, prompt assembly, context extraction, template
-	stages = append(stages,
-		stage.NewVariableProviderStageWithVarsAndTurnState(mergedVars, nil, turnState),
-		stage.NewPromptAssemblyStageWithTurnState(req.PromptRegistry, req.TaskType, mergedVars, turnState),
-		arenastages.NewScenarioContextExtractionStageWithTurnState(req.Scenario, turnState),
-		stage.NewTemplateStageWithTurnState(emitterFromRequest(req), turnState),
-	)
-
-	// 4b. Append preloaded skill instructions to system_prompt so skills
-	// marked preload: true are active from turn 1 without requiring the
-	// model to call skill__activate.
-	if e.preloadedSkillInstructions != "" {
+	// 1-4. Variable provider, prompt assembly, context extraction, template.
+	// For composition turns (RFC 0010), these stages are skipped: the
+	// CompositionStage builds its own per-step sub-pipelines and there is no
+	// top-level prompt_task to assemble.
+	if req.ActiveComposition == nil {
 		stages = append(stages,
-			arenastages.NewSkillInstructionStageWithTurnState(e.preloadedSkillInstructions, turnState),
+			stage.NewVariableProviderStageWithVarsAndTurnState(mergedVars, nil, turnState),
+			stage.NewPromptAssemblyStageWithTurnState(req.PromptRegistry, req.TaskType, mergedVars, turnState),
+			arenastages.NewScenarioContextExtractionStageWithTurnState(req.Scenario, turnState),
+			stage.NewTemplateStageWithTurnState(emitterFromRequest(req), turnState),
 		)
 	}
 
-	// 4a. Mock scenario context (for mock providers only)
-	if isMockProvider(req.Provider) {
-		logger.Debug("Adding MockScenarioContext stage", "scenario_id", req.Scenario.ID)
-		stages = append(stages, arenastages.NewMockScenarioContextStageWithTurnState(req.Scenario, turnState))
-	} else {
-		logger.Debug("Skipping MockScenarioContext stage - not a mock provider",
-			"provider_type", fmt.Sprintf("%T", req.Provider))
-	}
+	if req.ActiveComposition == nil {
+		// 4b. Append preloaded skill instructions to system_prompt so skills
+		// marked preload: true are active from turn 1 without requiring the
+		// model to call skill__activate.
+		if e.preloadedSkillInstructions != "" {
+			stages = append(stages,
+				arenastages.NewSkillInstructionStageWithTurnState(e.preloadedSkillInstructions, turnState),
+			)
+		}
 
-	// 5. Context builder (if policy exists)
-	if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
-		stages = append(stages, stage.NewContextBuilderStageWithTurnState(contextPolicy, turnState))
-	}
+		// 4a. Mock scenario context (for mock providers only)
+		if isMockProvider(req.Provider) {
+			logger.Debug("Adding MockScenarioContext stage", "scenario_id", req.Scenario.ID)
+			stages = append(stages, arenastages.NewMockScenarioContextStageWithTurnState(req.Scenario, turnState))
+		} else {
+			logger.Debug("Skipping MockScenarioContext stage - not a mock provider",
+				"provider_type", fmt.Sprintf("%T", req.Provider))
+		}
 
-	// 5a. Media conversion stage - converts media to provider-supported formats
-	if mediaConvertConfig := buildMediaConvertConfig(req.Provider); mediaConvertConfig != nil {
-		stages = append(stages, stage.NewMediaConvertStage(mediaConvertConfig))
+		// 5. Context builder (if policy exists)
+		if contextPolicy := buildContextPolicy(req.Scenario); contextPolicy != nil {
+			stages = append(stages, stage.NewContextBuilderStageWithTurnState(contextPolicy, turnState))
+		}
+
+		// 5a. Media conversion stage - converts media to provider-supported formats
+		if mediaConvertConfig := buildMediaConvertConfig(req.Provider); mediaConvertConfig != nil {
+			stages = append(stages, stage.NewMediaConvertStage(mediaConvertConfig))
+		}
 	}
 
 	// 5b. Input recording stage (opt-in via RecordingConfig)
@@ -339,14 +346,33 @@ func (e *PipelineExecutor) buildStagePipeline(
 	// the recording stage always sees every chunk before observers do.
 	stages = appendMonitorTap(stages, req, stage.RecordingPositionInput)
 
-	// 6. Provider stage — consent + chaos tool hooks and pack-declared
-	// guardrail provider hooks all live here. Guardrails run inline in
-	// ProviderStage's hook chain, identically to SDK; no separate stage.
-	providerConfig := buildProviderConfig(req)
-	guardrailHooks := loadGuardrailHooks(req, mergedVars)
-	stages = append(stages,
-		e.buildProviderStage(req, providerConfig, turnState, guardrailHooks),
-	)
+	// 6. Provider/composition stage.
+	// Composition turns (RFC 0010): run a CompositionStage that executes the
+	// composition graph instead of the normal LLM ProviderStage.
+	// Normal turns: consent + chaos tool hooks and pack-declared guardrail
+	// provider hooks all live here. Guardrails run inline in ProviderStage's
+	// hook chain, identically to SDK; no separate stage.
+	if req.ActiveComposition != nil {
+		emitter := emitterFromRequest(req)
+		guardrailHooks := loadGuardrailHooks(req, mergedVars)
+		hookReg := buildHookRegistry(req, guardrailHooks)
+		deps := stage.CompositionExecutorDeps{
+			PromptRegistry: req.PromptRegistry,
+			Provider:       req.Provider,
+			ToolRegistry:   e.toolRegistry,
+			Emitter:        emitter,
+			HookRegistry:   hookReg,
+			BaseVariables:  mergedVars,
+			SchemaResolver: stage.NewFileSchemaResolver(req.BaseDir),
+		}
+		stages = append(stages, stage.NewCompositionStage("composition", req.ActiveComposition, deps))
+	} else {
+		providerConfig := buildProviderConfig(req)
+		guardrailHooks := loadGuardrailHooks(req, mergedVars)
+		stages = append(stages,
+			e.buildProviderStage(req, providerConfig, turnState, guardrailHooks),
+		)
+	}
 
 	// 7a. Output recording stage (opt-in via RecordingConfig)
 	stages = appendRecordingStage(stages, req, stage.RecordingPositionOutput)
@@ -428,6 +454,30 @@ func emitterFromRequest(req *TurnRequest) *events.Emitter {
 	return events.NewEmitter(req.EventBus, req.RunID, req.RunID, req.ConversationID)
 }
 
+// buildHookRegistry assembles a *hooks.Registry from consent/chaos tool hooks
+// and the caller-supplied guardrail provider hooks. Returns nil when there are
+// no hooks (ProviderStage and CompositionStage treat nil as "no hooks").
+func buildHookRegistry(req *TurnRequest, guardrailHooks []hooks.ProviderHook) *hooks.Registry {
+	var toolHooks []hooks.ToolHook
+	if len(req.ConsentOverrides) > 0 {
+		toolHooks = append(toolHooks, consent.NewSimulationHook())
+	}
+	if req.ChaosConfig != nil {
+		toolHooks = append(toolHooks, chaos.NewHook())
+	}
+	if len(toolHooks) == 0 && len(guardrailHooks) == 0 {
+		return nil
+	}
+	opts := make([]hooks.Option, 0, len(toolHooks)+len(guardrailHooks))
+	for _, h := range guardrailHooks {
+		opts = append(opts, hooks.WithProviderHook(h))
+	}
+	for _, h := range toolHooks {
+		opts = append(opts, hooks.WithToolHook(h))
+	}
+	return hooks.NewRegistry(opts...)
+}
+
 // buildProviderStage creates a provider stage, attaching hooks for consent
 // simulation, chaos injection, and pack-declared guardrails when configured.
 // guardrailHooks are produced by guardrails.ValidatorsToHooks in the caller —
@@ -439,26 +489,7 @@ func (e *PipelineExecutor) buildProviderStage(
 ) stage.Stage {
 	toolPolicy := buildToolPolicy(req.Scenario)
 	emitter := emitterFromRequest(req)
-
-	var toolHooks []hooks.ToolHook
-	if len(req.ConsentOverrides) > 0 {
-		toolHooks = append(toolHooks, consent.NewSimulationHook())
-	}
-	if req.ChaosConfig != nil {
-		toolHooks = append(toolHooks, chaos.NewHook())
-	}
-
-	var hookReg *hooks.Registry
-	if len(toolHooks) > 0 || len(guardrailHooks) > 0 {
-		opts := make([]hooks.Option, 0, len(toolHooks)+len(guardrailHooks))
-		for _, h := range guardrailHooks {
-			opts = append(opts, hooks.WithProviderHook(h))
-		}
-		for _, h := range toolHooks {
-			opts = append(opts, hooks.WithToolHook(h))
-		}
-		hookReg = hooks.NewRegistry(opts...)
-	}
+	hookReg := buildHookRegistry(req, guardrailHooks)
 	return stage.NewProviderStageWithTurnState(
 		req.Provider, e.toolRegistry, toolPolicy, providerConfig, emitter, hookReg, turnState,
 	)
