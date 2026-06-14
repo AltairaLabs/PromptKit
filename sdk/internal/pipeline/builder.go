@@ -322,13 +322,7 @@ func collectPipelineStages(
 	// For composition states (RFC 0010), these three stages are skipped: the
 	// CompositionStage builds its own per-step sub-pipelines and there is no
 	// top-level prompt_task to assemble.
-	if cfg.ActiveComposition == nil {
-		stages = append(stages,
-			stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
-			stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
-			stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState),
-		)
-	}
+	stages = appendPromptAssemblyStages(stages, cfg, turnState)
 
 	// 4.1 Input recording stage - captures user input with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
@@ -411,6 +405,21 @@ func appendStateStoreLoadStages(
 		}, turnState))
 	}
 	return append(stages, stage.NewStateStoreLoadStageWithTurnState(stateStoreConfig, turnState))
+}
+
+// appendPromptAssemblyStages adds VariableProviderStage, PromptAssemblyStage, and
+// TemplateStage when the pipeline is not running a composition (RFC 0010). Composition
+// states skip these three stages because the CompositionStage builds its own per-step
+// sub-pipelines and there is no top-level prompt_task to assemble.
+func appendPromptAssemblyStages(stages []stage.Stage, cfg *Config, turnState *stage.TurnState) []stage.Stage {
+	if cfg.ActiveComposition != nil {
+		return stages
+	}
+	return append(stages,
+		stage.NewVariableProviderStageWithVarsAndTurnState(cfg.Variables, cfg.VariableProviders, turnState),
+		stage.NewPromptAssemblyStageWithTurnState(cfg.PromptRegistry, cfg.TaskType, cfg.Variables, turnState),
+		stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState),
+	)
 }
 
 // buildProviderStages returns the appropriate provider stage(s) based on config.

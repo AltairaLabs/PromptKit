@@ -188,10 +188,11 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 	return wc, nil
 }
 
-// resolveCompositionOptForState is the package-level variant of
-// WorkflowConversation.resolveCompositionOpt, used during initial workflow
-// construction before a WorkflowConversation exists.
-func resolveCompositionOptForState(p *pack.Pack, stateName string) (Option, error) {
+// resolveCompositionForState returns a withResolvedComposition Option when the
+// named state has orchestration: composition, or nil when it does not. Returns
+// an error when the state references a composition name that is absent from the
+// pack or that fails to parse.
+func resolveCompositionForState(p *pack.Pack, stateName string) (Option, error) {
 	if p == nil || p.Workflow == nil {
 		return nil, nil
 	}
@@ -209,6 +210,12 @@ func resolveCompositionOptForState(p *pack.Pack, stateName string) (Option, erro
 		return nil, fmt.Errorf("failed to parse composition %q: %w", compName, err)
 	}
 	return withResolvedComposition(compName, &comp), nil
+}
+
+// resolveCompositionOptForState delegates to resolveCompositionForState and is
+// kept for callers that use the older name (initial workflow construction path).
+func resolveCompositionOptForState(p *pack.Pack, stateName string) (Option, error) {
+	return resolveCompositionForState(p, stateName)
 }
 
 // ResumeWorkflow restores a WorkflowConversation from a previously persisted state.
@@ -509,23 +516,7 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 // Returns an error when the state references a composition name that is absent
 // from the pack or that fails to parse.
 func (wc *WorkflowConversation) resolveCompositionOpt(stateName string) (Option, error) {
-	if wc.sdkPack == nil || wc.sdkPack.Workflow == nil {
-		return nil, nil
-	}
-	state, ok := wc.sdkPack.Workflow.States[stateName]
-	if !ok || state.Orchestration != orchestrationComposition {
-		return nil, nil
-	}
-	compName := state.Composition
-	raw, ok := wc.sdkPack.Compositions[compName]
-	if !ok {
-		return nil, fmt.Errorf("composition %q not found in pack", compName)
-	}
-	var comp composition.Composition
-	if err := json.Unmarshal(raw, &comp); err != nil {
-		return nil, fmt.Errorf("failed to parse composition %q: %w", compName, err)
-	}
-	return withResolvedComposition(compName, &comp), nil
+	return resolveCompositionForState(wc.sdkPack, stateName)
 }
 
 // Transition processes an event and moves to the next state.
