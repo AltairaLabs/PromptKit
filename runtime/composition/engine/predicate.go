@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -89,7 +90,10 @@ func evalCompare(p *composition.Predicate, scope Scope) (bool, error) {
 		return inList(actual, p.Value)
 	case "not_in":
 		ok, err := inList(actual, p.Value)
-		return !ok, err
+		if err != nil {
+			return false, err
+		}
+		return !ok, nil
 	case opLessThan, opLessThanOrEquals, opGreaterThan, opGreaterThanOrEquals:
 		return compareOrdered(p.Op, actual, p.Value)
 	default:
@@ -157,6 +161,11 @@ func toFloat(v any) (float64, bool) {
 		return float64(n), true
 	case int64:
 		return float64(n), true
+	case json.Number:
+		if f, err := n.Float64(); err == nil {
+			return f, true
+		}
+		return 0, false
 	default:
 		return 0, false
 	}

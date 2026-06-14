@@ -213,3 +213,25 @@ func TestEvalPredicate_Float32Coercion(t *testing.T) {
 		t.Error("float32(0.5) < float64(1.0) should be true")
 	}
 }
+
+func TestEvalPredicate_EdgeCases(t *testing.T) {
+	scope := Scope{"input": map[string]any{"type": "paper"}}
+
+	// not_in on a missing path: actual is nil, nil is not in the list → true.
+	got, err := evalPredicate(&composition.Predicate{Path: "${input.nope}", Op: "not_in", Value: []any{"memo"}}, scope)
+	if err != nil || !got {
+		t.Errorf("not_in missing path = (%v,%v), want (true,nil)", got, err)
+	}
+
+	// empty all_of is vacuously true.
+	got, err = evalPredicate(&composition.Predicate{AllOf: []*composition.Predicate{}}, scope)
+	if err != nil || !got {
+		t.Errorf("empty all_of = (%v,%v), want (true,nil)", got, err)
+	}
+
+	// empty any_of is false.
+	got, err = evalPredicate(&composition.Predicate{AnyOf: []*composition.Predicate{}}, scope)
+	if err != nil || got {
+		t.Errorf("empty any_of = (%v,%v), want (false,nil)", got, err)
+	}
+}
