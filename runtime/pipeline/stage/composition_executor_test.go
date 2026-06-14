@@ -4,14 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
+
+// countingProviderHook is a minimal ProviderHook that counts AfterCall invocations.
+type countingProviderHook struct {
+	calls atomic.Int64
+}
+
+func (h *countingProviderHook) Name() string { return "counting-hook" }
+
+func (h *countingProviderHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *countingProviderHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse) hooks.Decision {
+	h.calls.Add(1)
+	return hooks.Allow
+}
+
+func (h *countingProviderHook) count() int64 { return h.calls.Load() }
 
 // registerSimplePrompt adds a trivial prompt template under taskID to reg.
 // It uses the same mockRepository pattern already established in stages_core_test.go.
@@ -478,6 +498,32 @@ func runStageOverChannel(t *testing.T, s Stage) {
 	}
 	if err := <-done; err != nil {
 		t.Fatalf("stage.Process: %v", err)
+	}
+}
+
+func TestCompositionExecutor_HooksFirePerStep(t *testing.T) {
+	// Regression guard: a ProviderHook registered on CompositionExecutorDeps.HookRegistry
+	// must fire during the sub-pipeline executed for each composition step.
+	prov := mock.NewProvider("test-id", "test-model", false)
+	repo := newMockRepo()
+	reg := prompt.NewRegistryWithRepository(repo)
+	registerSimplePrompt(t, reg, "p")
+
+	hk := &countingProviderHook{}
+	hookReg := hooks.NewRegistry(hooks.WithProviderHook(hk))
+
+	exec := NewCompositionStepExecutor(CompositionExecutorDeps{
+		PromptRegistry: reg,
+		Provider:       prov,
+		ToolRegistry:   tools.NewRegistry(),
+		HookRegistry:   hookReg,
+	})
+	step := &composition.Step{ID: "s", Kind: composition.KindPrompt, PromptTask: "p"}
+	if _, err := exec(context.Background(), step, json.RawMessage(`"x"`)); err != nil {
+		t.Fatal(err)
+	}
+	if hk.count() == 0 {
+		t.Error("expected the provider hook to fire for the step's sub-pipeline, but AfterCall count is 0")
 	}
 }
 
