@@ -148,11 +148,33 @@ func (e *Engine) runLeaf(ctx context.Context, step *composition.Step, scope Scop
 	if err != nil {
 		return nil, fmt.Errorf("marshaling resolved input: %w", err)
 	}
-	out, err := e.exec(ctx, step, resolvedJSON)
+	out, err := e.execWithRetry(ctx, step, resolvedJSON)
 	if err != nil {
 		return nil, err
 	}
 	return decodeOutput(out)
+}
+
+// execWithRetry invokes the executor, retrying per the step's retry modifier.
+// max_attempts is the total attempt count (a missing/zero/one modifier means a
+// single attempt). The last error propagates when the budget is exhausted. Used
+// by runLeaf, so parallel branches inherit retry too.
+func (e *Engine) execWithRetry(
+	ctx context.Context, step *composition.Step, input json.RawMessage,
+) (json.RawMessage, error) {
+	attempts := 1
+	if step.Modifiers != nil && step.Modifiers.Retry != nil && step.Modifiers.Retry.MaxAttempts > 1 {
+		attempts = step.Modifiers.Retry.MaxAttempts
+	}
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		out, err := e.exec(ctx, step, input)
+		if err == nil {
+			return out, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 // decodeOutput turns a step's raw JSON output into a scope value. Empty output and

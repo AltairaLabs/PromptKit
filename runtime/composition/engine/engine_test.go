@@ -556,3 +556,60 @@ func TestExecute_ParallelBarrier(t *testing.T) {
 		t.Errorf("expected both branches to run, calls = %v", fe.calls)
 	}
 }
+
+func TestExecute_RetrySucceedsAfterFailures(t *testing.T) {
+	comp := &composition.Composition{
+		Version: 1, Output: "flaky",
+		Steps: []*composition.Step{
+			{ID: "flaky", Kind: composition.KindPrompt, PromptTask: "p", Input: "${input.x}",
+				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 3}}},
+		},
+	}
+	fe := newFakeExec(map[string]any{"flaky": "ok"})
+	fe.errOn["flaky"] = 2 // first two attempts fail, third succeeds
+	out, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"x": 1}))
+	if err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	if string(out) != `"ok"` {
+		t.Errorf("output = %s", out)
+	}
+	if fe.attempt["flaky"] != 3 {
+		t.Errorf("attempts = %d, want 3", fe.attempt["flaky"])
+	}
+}
+
+func TestExecute_RetryExhaustedPropagatesError(t *testing.T) {
+	comp := &composition.Composition{
+		Version: 1, Output: "flaky",
+		Steps: []*composition.Step{
+			{ID: "flaky", Kind: composition.KindPrompt, PromptTask: "p", Input: "${input.x}",
+				Modifiers: &composition.StepModifiers{Retry: &composition.RetryModifier{MaxAttempts: 2}}},
+		},
+	}
+	fe := newFakeExec(map[string]any{"flaky": "ok"})
+	fe.errOn["flaky"] = 5 // always fails within the 2-attempt budget
+	if _, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"x": 1})); err == nil {
+		t.Fatal("expected error after retries exhausted")
+	}
+	if fe.attempt["flaky"] != 2 {
+		t.Errorf("attempts = %d, want 2", fe.attempt["flaky"])
+	}
+}
+
+func TestExecute_NoRetryDefaultsToOneAttempt(t *testing.T) {
+	comp := &composition.Composition{
+		Version: 1, Output: "x",
+		Steps: []*composition.Step{
+			{ID: "x", Kind: composition.KindPrompt, PromptTask: "p", Input: "${input.v}"},
+		},
+	}
+	fe := newFakeExec(map[string]any{"x": "ok"})
+	fe.errOn["x"] = 1 // single failure, no retry modifier -> propagates
+	if _, err := New(fe.exec).Execute(context.Background(), comp, mustJSON(t, map[string]any{"v": 1})); err == nil {
+		t.Fatal("expected error with no retry")
+	}
+	if fe.attempt["x"] != 1 {
+		t.Errorf("attempts = %d, want 1", fe.attempt["x"])
+	}
+}
