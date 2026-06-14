@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -252,4 +254,88 @@ func drainChannel(ch <-chan StreamElement) []StreamElement {
 		elems = append(elems, e)
 	}
 	return elems
+}
+
+// TestCompositionStage_EndToEnd_MixedKinds proves that a multi-kind composition
+// runs through CompositionStage with a real mock-provider sub-pipeline:
+//
+//  1. classify (prompt step) — single LLM round
+//  2. meta (parallel step) — two echo-tool branches, barrier-merged into "m"
+//  3. synth (agent step) — depends on classify + meta, consumes ${meta.output.m},
+//     produces the final composition output
+func TestCompositionStage_EndToEnd_MixedKinds(t *testing.T) {
+	// Mock provider whose every LLM call returns "synthesized".
+	repo := mock.NewInMemoryMockRepository("synthesized")
+	prov := mock.NewProviderWithRepository("mock", "mock", false, repo)
+
+	// Prompt registry backed by the local in-package mock repository.
+	preg := prompt.NewRegistryWithRepository(newMockRepo())
+	registerSimplePrompt(t, preg, "classify")
+	registerSimplePrompt(t, preg, "analyze")
+
+	// Tool registry with a single echo tool used by the parallel branches.
+	treg := tools.NewRegistry()
+	registerEchoTool(t, treg, "echo")
+
+	comp := &composition.Composition{
+		Version: 1, Output: "synth",
+		Steps: []*composition.Step{
+			// Step 1: prompt step.
+			{
+				ID:         "classify",
+				Kind:       composition.KindPrompt,
+				PromptTask: "classify",
+				Input:      "${input.text}",
+			},
+			// Step 2: parallel step — two echo-tool branches, barrier-merged into "m".
+			{
+				ID:   "meta",
+				Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "s1", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"c": "${input.text}"}},
+					{ID: "s2", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"c": "${input.text}"}},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "m"},
+			},
+			// Step 3: agent step — depends on classify + meta, consumes barrier output.
+			{
+				ID:          "synth",
+				Kind:        composition.KindAgent,
+				PromptTask:  "analyze",
+				DependsOn:   []string{"classify", "meta"},
+				Input:       "${meta.output.m}",
+				Termination: &composition.Termination{MaxSteps: 3},
+			},
+		},
+	}
+
+	cs := NewCompositionStage("doc", comp, CompositionExecutorDeps{
+		PromptRegistry: preg,
+		Provider:       prov,
+		ToolRegistry:   treg,
+	})
+
+	pipe, err := NewPipelineBuilder().Chain(cs).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg := types.Message{Role: "user", Content: `{"text":"a document"}`}
+	res, err := pipe.ExecuteSync(context.Background(), NewMessageElement(&msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || res.Response == nil || res.Response.Content == "" {
+		t.Fatal("expected a non-empty composition output")
+	}
+	// The final agent step (analyze) drives the output; the mock provider returns
+	// "synthesized". responseToJSON encodes plain text as a JSON string, so
+	// Content should be the JSON-encoded form: `"synthesized"`.
+	var text string
+	if err := json.Unmarshal([]byte(res.Response.Content), &text); err != nil {
+		t.Fatalf("expected JSON-string output from agent step, got %q: %v", res.Response.Content, err)
+	}
+	if text != "synthesized" {
+		t.Errorf("expected final output = %q, got %q", "synthesized", text)
+	}
 }
