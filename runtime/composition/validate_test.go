@@ -236,3 +236,63 @@ func TestValidate_PredicateExactlyOneVariant(t *testing.T) {
 		t.Fatalf("want single-variant error, got %v", r.Errors)
 	}
 }
+
+func TestValidate_BranchTargetResolves(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "b", Kind: KindBranch, Predicate: &Predicate{Path: "${input.x}", Op: "equals", Value: 1}, Then: "ghost"},
+		{ID: "n", Kind: KindPrompt, PromptTask: "p"},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, `then "ghost"`) {
+		t.Fatalf("want unresolved then, got %v", r.Errors)
+	}
+}
+
+func TestValidate_DependsOnResolves(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "a", Kind: KindPrompt, PromptTask: "p"},
+		{ID: "b", Kind: KindPrompt, PromptTask: "p", DependsOn: []string{"ghost"}},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, `depends_on "ghost"`) {
+		t.Fatalf("want unresolved depends_on, got %v", r.Errors)
+	}
+}
+
+func TestValidate_Acyclic(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "a", Kind: KindPrompt, PromptTask: "p", DependsOn: []string{"b"}},
+		{ID: "b", Kind: KindPrompt, PromptTask: "p", DependsOn: []string{"a"}},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, "cycle") {
+		t.Fatalf("want cycle error, got %v", r.Errors)
+	}
+}
+
+func TestValidate_OutputResolves(t *testing.T) {
+	c := &Composition{Version: 1, Output: "ghost", Steps: []*Step{
+		{ID: "a", Kind: KindPrompt, PromptTask: "p"},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, `output "ghost"`) {
+		t.Fatalf("want unresolved output, got %v", r.Errors)
+	}
+}
+
+func TestValidate_JoinWarning(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "b", Kind: KindBranch, Predicate: &Predicate{Path: "${input.x}", Op: "equals", Value: 1}, Then: "next"},
+		{ID: "next", Kind: KindPrompt, PromptTask: "p"}, // follows a branch without depends_on
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	found := false
+	for _, w := range r.Warnings {
+		if strings.Contains(w, "depends_on") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("want join-point warning, got warnings %v", r.Warnings)
+	}
+}

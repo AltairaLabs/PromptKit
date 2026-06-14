@@ -91,6 +91,10 @@ func Validate(name string, c *Composition, avail Available) *ValidationResult {
 		validateRefRoots(name, s, stepIDs, r)
 		validateKind(name, s, r)
 	})
+	validateGraphTargets(name, c, stepIDs, r)
+	validateAcyclic(name, c, r)
+	validateOutput(name, c, stepIDs, r)
+	validateJoinHints(name, c, r)
 	return r
 }
 
@@ -347,4 +351,100 @@ func countPredicateVariants(p *Predicate) (isCompare bool, variants int) {
 		variants++
 	}
 	return isCompare, variants
+}
+
+// validateGraphTargets checks rule 8's resolution half.
+func validateGraphTargets(name string, c *Composition, stepIDs map[string]bool, r *ValidationResult) {
+	forEachStep(c.Steps, func(s *Step) {
+		pfx := fmt.Sprintf("compositions[%q].steps[%q]", name, s.ID)
+		if s.Then != "" && !stepIDs[s.Then] {
+			r.Errors = append(r.Errors, fmt.Sprintf("%s: then %q does not reference a step", pfx, s.Then))
+		}
+		if s.Else != "" && !stepIDs[s.Else] {
+			r.Errors = append(r.Errors, fmt.Sprintf("%s: else %q does not reference a step", pfx, s.Else))
+		}
+		for _, dep := range s.DependsOn {
+			if !stepIDs[dep] {
+				r.Errors = append(r.Errors, fmt.Sprintf("%s: depends_on %q does not reference a step", pfx, dep))
+			}
+		}
+	})
+}
+
+// validateOutput checks rule 10.
+func validateOutput(name string, c *Composition, stepIDs map[string]bool, r *ValidationResult) {
+	if c.Output != "" && !stepIDs[c.Output] {
+		r.Errors = append(r.Errors, fmt.Sprintf("compositions[%q]: output %q does not reference a step", name, c.Output))
+	}
+}
+
+// validateAcyclic checks rule 9 over the depends_on + branch (then/else) edges.
+func validateAcyclic(name string, c *Composition, r *ValidationResult) {
+	edges := buildStepEdges(c)
+	if hasCycle(c, edges) {
+		r.Errors = append(r.Errors, fmt.Sprintf("compositions[%q]: step graph contains a cycle", name))
+	}
+}
+
+// buildStepEdges constructs the predecessor-edge map for the step graph.
+// Edges run from each step to its predecessors (depends_on or sequential).
+func buildStepEdges(c *Composition) map[string][]string {
+	edges := map[string][]string{}
+	var prev string
+	for i, s := range c.Steps {
+		if len(s.DependsOn) > 0 {
+			edges[s.ID] = append(edges[s.ID], s.DependsOn...)
+		} else if i > 0 {
+			edges[s.ID] = append(edges[s.ID], prev) // sequential predecessor
+		}
+		if s.Then != "" {
+			edges[s.Then] = append(edges[s.Then], s.ID)
+		}
+		if s.Else != "" {
+			edges[s.Else] = append(edges[s.Else], s.ID)
+		}
+		prev = s.ID
+	}
+	return edges
+}
+
+// hasCycle runs a DFS on the step edge map and returns true if a back-edge is found.
+func hasCycle(c *Composition, edges map[string][]string) bool {
+	const (
+		white = iota
+		gray
+		black
+	)
+	color := map[string]int{}
+	var dfs func(string) bool
+	dfs = func(n string) bool {
+		color[n] = gray
+		for _, m := range edges[n] {
+			if color[m] == gray || (color[m] == white && dfs(m)) {
+				return true
+			}
+		}
+		color[n] = black
+		return false
+	}
+	for _, s := range c.Steps {
+		if color[s.ID] == white && dfs(s.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateJoinHints warns (rule 8 second half) when a top-level step textually
+// follows a branch/parallel without declaring depends_on to mark the join point.
+func validateJoinHints(name string, c *Composition, r *ValidationResult) {
+	for i := 1; i < len(c.Steps); i++ {
+		prev := c.Steps[i-1]
+		cur := c.Steps[i]
+		if (prev.Kind == KindBranch || prev.Kind == KindParallel) && len(cur.DependsOn) == 0 {
+			r.Warnings = append(r.Warnings, fmt.Sprintf(
+				"compositions[%q].steps[%q]: step follows a %s; declare depends_on to mark the join point",
+				name, cur.ID, prev.Kind))
+		}
+	}
 }
