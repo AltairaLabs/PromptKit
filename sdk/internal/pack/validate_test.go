@@ -363,10 +363,11 @@ func TestValidateWorkflow_Valid(t *testing.T) {
 }
 
 func TestValidateWorkflow_InvalidVersion(t *testing.T) {
+	// Version 3 is invalid (only 1 and 2 are accepted, matching the runtime).
 	p := &Pack{
 		Prompts: map[string]*Prompt{"p": {ID: "p"}},
 		Workflow: &WorkflowSpec{
-			Version: 2,
+			Version: 3,
 			Entry:   "s",
 			States:  map[string]*WorkflowState{"s": {PromptTask: "p"}},
 		},

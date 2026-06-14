@@ -74,15 +74,9 @@ func (p *Pack) ValidateWorkflow() error {
 		return nil
 	}
 
-	promptKeys := make([]string, 0, len(p.Prompts))
-	for k := range p.Prompts {
-		promptKeys = append(promptKeys, k)
-	}
-
 	var errs []string
-
-	if p.Workflow.Version != 1 {
-		errs = append(errs, fmt.Sprintf("workflow.version must be 1, got %d", p.Workflow.Version))
+	if p.Workflow.Version != 1 && p.Workflow.Version != 2 {
+		errs = append(errs, fmt.Sprintf("workflow.version must be 1 or 2, got %d", p.Workflow.Version))
 	}
 	if len(p.Workflow.States) == 0 {
 		errs = append(errs, "workflow.states must be non-empty")
@@ -92,12 +86,23 @@ func (p *Pack) ValidateWorkflow() error {
 		errs = append(errs, fmt.Sprintf(
 			"workflow.entry %q does not reference a key in states", p.Workflow.Entry))
 	}
+	errs = append(errs, p.validateWorkflowStateRefs()...)
 
-	promptSet := make(map[string]bool, len(promptKeys))
-	for _, k := range promptKeys {
+	if len(errs) > 0 {
+		return &WorkflowValidationError{Errors: errs}
+	}
+	return nil
+}
+
+// validateWorkflowStateRefs checks each state's prompt_task resolves to a prompt
+// and each on_event target resolves to a state.
+func (p *Pack) validateWorkflowStateRefs() []string {
+	promptSet := make(map[string]bool, len(p.Prompts))
+	for k := range p.Prompts {
 		promptSet[k] = true
 	}
 
+	var errs []string
 	for name, state := range p.Workflow.States {
 		if !promptSet[state.PromptTask] {
 			errs = append(errs, fmt.Sprintf(
@@ -112,11 +117,7 @@ func (p *Pack) ValidateWorkflow() error {
 			}
 		}
 	}
-
-	if len(errs) > 0 {
-		return &WorkflowValidationError{Errors: errs}
-	}
-	return nil
+	return errs
 }
 
 // AgentsValidationError represents an agents section validation error with details.
@@ -143,11 +144,33 @@ func (p *Pack) ValidateAgents() error {
 
 	errs = append(errs, validateAgentsStructure(p.Agents, p.Prompts)...)
 	errs = append(errs, validateAgentsModes(p.Agents.Members)...)
+	errs = append(errs, validateAgentsState(p)...)
 
 	if len(errs) > 0 {
 		return &AgentsValidationError{Errors: errs}
 	}
 	return nil
+}
+
+// validateAgentsState checks RFC 0011 rules: a state-backed agent member's
+// state must reference a key in the pack's workflow.states, which must exist.
+func validateAgentsState(p *Pack) []string {
+	var errs []string
+	for key, def := range p.Agents.Members {
+		if def.State == "" {
+			continue
+		}
+		if p.Workflow == nil {
+			errs = append(errs, fmt.Sprintf(
+				"agents.members[%q] sets state %q but requires a top-level workflow", key, def.State))
+			continue
+		}
+		if _, ok := p.Workflow.States[def.State]; !ok {
+			errs = append(errs, fmt.Sprintf(
+				"agents.members[%q] state %q does not reference a valid workflow state", key, def.State))
+		}
+	}
+	return errs
 }
 
 // validateAgentsStructure checks members, entry, and prompt references.

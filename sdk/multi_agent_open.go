@@ -24,7 +24,7 @@ func OpenMultiAgent(packPath string, opts ...Option) (*MultiAgentSession, error)
 		return nil, err
 	}
 
-	entry, err := openEntryAgent(packPath, p.Agents.Entry, members, opts)
+	entry, err := openEntryAgent(packPath, p.Agents.Entry, p.Agents.Members[p.Agents.Entry], members, opts)
 	if err != nil {
 		closeAll(members)
 		return nil, fmt.Errorf("failed to open entry agent %q: %w", p.Agents.Entry, err)
@@ -71,43 +71,55 @@ func loadMultiAgentPack(packPath string, opts []Option) (*pack.Pack, error) {
 	return p, nil
 }
 
-// openMembers opens conversations for all non-entry agent members.
+// openMembers opens agents for all non-entry members.
 func openMembers(
 	packPath string,
 	p *pack.Pack,
 	opts []Option,
-) (map[string]*Conversation, error) {
-	members := make(map[string]*Conversation)
-	for name := range p.Agents.Members {
+) (map[string]Agent, error) {
+	members := make(map[string]Agent)
+	for name, def := range p.Agents.Members {
 		if name == p.Agents.Entry {
 			continue
 		}
-		conv, err := Open(packPath, name, opts...)
+		agent, err := openAgent(packPath, name, def, opts)
 		if err != nil {
 			closeAll(members)
 			return nil, fmt.Errorf("failed to open member agent %q: %w", name, err)
 		}
-		members[name] = conv
+		members[name] = agent
 	}
 	return members, nil
 }
 
-// openEntryAgent opens the entry conversation with a local agent executor.
+// openEntryAgent opens the entry agent with a local agent executor that routes
+// agent-to-agent tool calls to the members.
 func openEntryAgent(
 	packPath, entryName string,
-	members map[string]*Conversation,
+	def *pack.AgentDef,
+	members map[string]Agent,
 	opts []Option,
-) (*Conversation, error) {
+) (Agent, error) {
 	localExec := NewLocalAgentExecutor(members)
 	entryOpts := make([]Option, len(opts))
 	copy(entryOpts, opts)
 	entryOpts = append(entryOpts, withLocalAgentExecutor(localExec))
-	return Open(packPath, entryName, entryOpts...)
+	return openAgent(packPath, entryName, def, entryOpts)
 }
 
-// closeAll closes all conversations in the map, ignoring errors.
-func closeAll(convs map[string]*Conversation) {
-	for _, c := range convs {
+// openAgent opens a single agent. A state-backed agent (RFC 0011) is the pack
+// workflow entered at the agent's state; otherwise it is a single-prompt
+// conversation on the member-key prompt (RFC 0007).
+func openAgent(packPath, name string, def *pack.AgentDef, opts []Option) (Agent, error) {
+	if def != nil && def.State != "" {
+		return openWorkflowAtState(packPath, def.State, opts...)
+	}
+	return Open(packPath, name, opts...)
+}
+
+// closeAll closes all agents in the map, ignoring errors.
+func closeAll(agents map[string]Agent) {
+	for _, c := range agents {
 		_ = c.Close()
 	}
 }

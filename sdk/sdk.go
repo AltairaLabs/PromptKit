@@ -1034,6 +1034,7 @@ func packToRuntimePack(p *pack.Pack) *rtprompt.Pack {
 				Tags:        def.Tags,
 				InputModes:  def.InputModes,
 				OutputModes: def.OutputModes,
+				State:       def.State,
 			}
 		}
 	}
