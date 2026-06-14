@@ -2,11 +2,13 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/classify"
+	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
@@ -202,6 +204,18 @@ type Config struct {
 	// When non-nil, stages and downstream consumers can resolve inference
 	// backends via classify.FromContext.
 	ClassifyRegistry *classify.Registry
+
+	// ActiveComposition, when non-nil, makes the work stage a CompositionStage
+	// that runs this composition instead of an LLM ProviderStage (RFC 0010).
+	ActiveComposition *composition.Composition
+
+	// CompositionName labels the CompositionStage (typically the state's composition name).
+	// Falls back to "composition" when empty.
+	CompositionName string
+
+	// SchemaResolver resolves a step's output_schema path to JSON-schema bytes.
+	// nil means no structured output is used.
+	SchemaResolver func(path string) (json.RawMessage, error)
 }
 
 // Build creates a stage-based streaming pipeline.
@@ -395,6 +409,24 @@ func appendStateStoreLoadStages(
 
 // buildProviderStages returns the appropriate provider stage(s) based on config.
 func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage, error) {
+	if cfg.ActiveComposition != nil {
+		// Composition mode (RFC 0010): replace the LLM ProviderStage with a
+		// CompositionStage that executes the composition graph.
+		deps := stage.CompositionExecutorDeps{
+			PromptRegistry: cfg.PromptRegistry,
+			Provider:       cfg.Provider,
+			ToolRegistry:   cfg.ToolRegistry,
+			Emitter:        cfg.EventEmitter,
+			HookRegistry:   cfg.HookRegistry,
+			BaseVariables:  cfg.Variables,
+			SchemaResolver: cfg.SchemaResolver,
+		}
+		name := cfg.CompositionName
+		if name == "" {
+			name = "composition"
+		}
+		return []stage.Stage{stage.NewCompositionStage(name, cfg.ActiveComposition, deps)}, nil
+	}
 	if cfg.StreamInputProvider != nil {
 		// ASM mode: Direct audio streaming to LLM
 		logger.Debug("Using DuplexProviderStage for ASM mode")
