@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/composition/engine"
@@ -36,16 +37,17 @@ func (s *CompositionStage) Name() string { return s.name }
 // Type reports this as a transform stage.
 func (s *CompositionStage) Type() StageType { return StageTypeTransform }
 
-// Process reads the first message element as the composition input (its message
-// Content bytes are the input JSON), runs the composition, and emits one
-// assistant element whose Content is the composition's structured output.
-// History/non-message/EndOfStream elements and any elements after the first are
-// forwarded unchanged.
-func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error { //nolint:lll
+// Process reads the first non-history message element as the composition input
+// (its message Content bytes are the input JSON), runs the composition, and
+// emits one assistant element whose Content is the composition's structured
+// output. History elements (elem.Meta.FromHistory == true),
+// non-message/EndOfStream elements, and any elements after the first live
+// message are forwarded unchanged.
+func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error { //nolint:lll // Channel signature cannot be shortened
 	defer close(out)
 	executed := false
 	for elem := range in {
-		if executed || elem.Message == nil || elem.EndOfStream {
+		if executed || elem.Message == nil || elem.EndOfStream || elem.Meta.FromHistory {
 			select {
 			case out <- elem:
 			case <-ctx.Done():
@@ -68,11 +70,14 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 	return nil
 }
 
-// compositionInput extracts the engine input JSON from a user message: a Content
-// that is already valid JSON is used verbatim; otherwise it is JSON-encoded.
+// compositionInput extracts the engine input JSON from a user message. Content
+// that is an explicit JSON object or array ({...} / [...]) is used verbatim as
+// the composition input; any other content (including bare scalars like `true`
+// or `42` that happen to be valid JSON) is encoded as a JSON string, since a
+// user message's Content is always text.
 func compositionInput(msg *types.Message) json.RawMessage {
-	c := []byte(msg.Content)
-	if json.Valid(c) {
+	c := []byte(strings.TrimSpace(msg.Content))
+	if len(c) > 0 && (c[0] == '{' || c[0] == '[') && json.Valid(c) {
 		return c
 	}
 	enc, _ := json.Marshal(msg.Content)

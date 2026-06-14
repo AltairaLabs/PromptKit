@@ -118,37 +118,130 @@ func TestCompositionStage_ForwardsNonMessageElements(t *testing.T) {
 }
 
 // TestCompositionStage_ContextCancellation verifies that Process returns
-// ctx.Err() when the context is cancelled mid-stream.
+// ctx.Err() when the context is cancelled before a blocking composition runs.
+// A blocking tool is registered so the engine cannot complete before the context
+// is cancelled; we cancel before calling Process, ensuring the cancellation is
+// detected on the first forward or execute attempt.
 func TestCompositionStage_ContextCancellation(t *testing.T) {
+	reg := tools.NewRegistry()
+
+	// Register a tool that blocks until the context is cancelled.
+	blockExec := &blockingExecutor{}
+	reg.RegisterExecutor(blockExec)
+	if err := reg.Register(&tools.ToolDescriptor{
+		Name:        "block",
+		Description: "blocking tool",
+		Mode:        blockExec.Name(),
+		InputSchema: []byte(`{"type":"object"}`),
+	}); err != nil {
+		t.Fatalf("register block tool: %v", err)
+	}
+
+	comp := &composition.Composition{
+		Version: 1, Output: "a",
+		Steps: []*composition.Step{
+			{ID: "a", Kind: composition.KindTool, Tool: "block", Args: map[string]any{}},
+		},
+	}
+	cs := NewCompositionStage("cancel", comp, CompositionExecutorDeps{ToolRegistry: reg})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before Process is called
+
+	in := make(chan StreamElement, 1)
+	out := make(chan StreamElement, 10)
+
+	msg := &types.Message{Role: "user", Content: "{}"}
+	in <- NewMessageElement(msg)
+	close(in)
+
+	err := cs.Process(ctx, in, out)
+	if err == nil {
+		t.Error("expected a cancellation error, got nil")
+	}
+}
+
+// blockingExecutor is a tool executor that blocks until its context is cancelled.
+type blockingExecutor struct{}
+
+func (b *blockingExecutor) Name() string { return "blocking" }
+func (b *blockingExecutor) Execute(ctx context.Context, _ *tools.ToolDescriptor, _ json.RawMessage) (json.RawMessage, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestCompositionStage_SkipsHistoryMessages verifies that history-flagged
+// message elements (Meta.FromHistory == true) are forwarded without triggering
+// composition execution, while the subsequent live user message IS executed.
+func TestCompositionStage_SkipsHistoryMessages(t *testing.T) {
 	reg := tools.NewRegistry()
 	registerEchoTool(t, reg, "echo")
 
 	comp := &composition.Composition{
 		Version: 1, Output: "a",
 		Steps: []*composition.Step{
-			{ID: "a", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"v": "x"}},
+			{ID: "a", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"v": "${input}"}},
 		},
 	}
-	cs := NewCompositionStage("cancel", comp, CompositionExecutorDeps{ToolRegistry: reg})
+	cs := NewCompositionStage("hist", comp, CompositionExecutorDeps{ToolRegistry: reg})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
-
-	in := make(chan StreamElement, 1)
+	in := make(chan StreamElement, 3)
 	out := make(chan StreamElement, 10)
 
-	// Send a non-message element — the cancelled context should cause the
-	// forwarding select to return ctx.Err().
-	txt := "x"
-	in <- StreamElement{Text: &txt}
+	// First element: history message — must NOT trigger execution.
+	histMsg := &types.Message{Role: "user", Content: `{"x":"history"}`}
+	histElem := NewMessageElement(histMsg)
+	histElem.Meta.FromHistory = true
+	in <- histElem
+
+	// Second element: live user message — MUST trigger execution.
+	liveMsg := &types.Message{Role: "user", Content: `{"x":"live"}`}
+	in <- NewMessageElement(liveMsg)
 	close(in)
 
-	err := cs.Process(ctx, in, out)
-	if err == nil {
-		// context was already cancelled; most schedulers will pick the done case
-		// but Go's select is non-deterministic when both cases are ready.
-		// Accept either outcome rather than making the test racy.
-		t.Log("select chose the send case before ctx.Done — acceptable")
+	if err := cs.Process(context.Background(), in, out); err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+
+	elems := drainChannel(out)
+	// Expect: forwarded history element + assistant result from live message.
+	if len(elems) != 2 {
+		t.Fatalf("expected 2 elements (history + result), got %d: %+v", len(elems), elems)
+	}
+	// First element should be the forwarded history message (not an assistant).
+	if elems[0].Message == nil || elems[0].Message.Role != "user" {
+		t.Errorf("first element: want forwarded user/history message, got %+v", elems[0])
+	}
+	if !elems[0].Meta.FromHistory {
+		t.Errorf("first element: want FromHistory=true, got false")
+	}
+	// Second element should be the assistant result from the live message.
+	if elems[1].Message == nil || elems[1].Message.Role != roleAssistant {
+		t.Errorf("second element: want assistant message, got %+v", elems[1])
+	}
+}
+
+// TestCompositionInput_ObjectBiased verifies that compositionInput treats only
+// explicit JSON objects/arrays as verbatim composition input; bare scalars and
+// plain text are always encoded as JSON strings.
+func TestCompositionInput_ObjectBiased(t *testing.T) {
+	cases := []struct {
+		content string
+		want    string // expected JSON encoding of result
+	}{
+		{`{"x":1}`, `{"x":1}`},           // object → verbatim
+		{`[1,2,3]`, `[1,2,3]`},           // array → verbatim
+		{`true`, `"true"`},               // bare boolean → string
+		{`42`, `"42"`},                   // bare number → string
+		{`"hello"`, `"\"hello\""`},       // bare string literal → string
+		{`hello world`, `"hello world"`}, // plain text → string
+	}
+	for _, tc := range cases {
+		msg := &types.Message{Content: tc.content}
+		got := compositionInput(msg)
+		if string(got) != tc.want {
+			t.Errorf("compositionInput(%q) = %s, want %s", tc.content, got, tc.want)
+		}
 	}
 }
 
