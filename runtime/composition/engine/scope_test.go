@@ -44,26 +44,22 @@ func TestResolvePath(t *testing.T) {
 		{"${nope.output.x}", nil, false},
 		{"${input}", map[string]any{"text": "hello", "n": float64(3)}, true},
 		{"bare.path", nil, false},
+		{"${input.text.extra}", nil, false}, // non-map value blocks mid-path descent
 	}
 	for _, c := range cases {
 		got, ok := resolvePath(c.ref, scope)
 		if ok != c.wantOK {
-			t.Fatalf("resolvePath(%q) ok = %v, want %v", c.ref, ok, c.wantOK)
+			t.Errorf("resolvePath(%q) ok = %v, want %v", c.ref, ok, c.wantOK)
+			continue
 		}
-		if ok && !deepEqualJSON(got, c.want) {
+		if ok && !reflectDeepEqual(got, c.want) {
 			t.Errorf("resolvePath(%q) = %#v, want %#v", c.ref, got, c.want)
 		}
 	}
 }
 
-// deepEqualJSON compares two decoded-JSON values structurally.
-func deepEqualJSON(a, b any) bool {
-	return reflectDeepEqual(a, b)
-}
-
-// reflectDeepEqual is a thin wrapper over reflect.DeepEqual.
-// NOTE: when Task 5 adds engine_test.go, this definition must move to exactly
-// one place to avoid a redeclaration compile error.
+// reflectDeepEqual is the shared structural-equality helper for this package's tests.
+// It wraps reflect.DeepEqual for use across all _test.go files in the engine package.
 func reflectDeepEqual(a, b any) bool {
 	return reflect.DeepEqual(a, b)
 }
