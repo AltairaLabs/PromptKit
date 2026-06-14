@@ -8,6 +8,20 @@ import (
 
 var stepIDRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
+// fieldInput / fieldOutputSchema / fieldPromptTask are kind-field name constants
+// used in the allowed-fields map and presentKindFields to avoid goconst warnings.
+const (
+	fieldInput        = "input"
+	fieldOutputSchema = "output_schema"
+	fieldPromptTask   = "prompt_task"
+)
+
+// inputRefRoot is the special root token that refers to the composition's input.
+const inputRefRoot = "input"
+
+// minParallelBranches is the minimum number of branches a parallel step must have.
+const minParallelBranches = 2
+
 // reservedCompositionNames must not be used as composition keys.
 var reservedCompositionNames = map[string]bool{
 	"workflow__transition":   true,
@@ -75,6 +89,7 @@ func Validate(name string, c *Composition, avail Available) *ValidationResult {
 	forEachStep(c.Steps, func(s *Step) {
 		validateReferences(name, s, prompts, tools, evals, r)
 		validateRefRoots(name, s, stepIDs, r)
+		validateKind(name, s, r)
 	})
 	return r
 }
@@ -160,7 +175,7 @@ func validateRefRoots(name string, s *Step, stepIDs map[string]bool, r *Validati
 	roots = append(roots, collectRefRoots(s.Args)...)
 	roots = append(roots, collectRefRoots(predicatePaths(s.Predicate))...)
 	for _, root := range roots {
-		if root == "input" || stepIDs[root] {
+		if root == inputRefRoot || stepIDs[root] {
 			continue
 		}
 		r.Errors = append(r.Errors, fmt.Sprintf(
@@ -186,4 +201,150 @@ func predicatePaths(p *Predicate) []any {
 	}
 	out = append(out, predicatePaths(p.Not)...)
 	return out
+}
+
+// validateKind checks rules 5, 6, 7, 11 for a single step.
+func validateKind(name string, s *Step, r *ValidationResult) {
+	pfx := fmt.Sprintf("compositions[%q].steps[%q]", name, s.ID)
+	allowed := map[StepKind]map[string]bool{
+		KindPrompt:   {fieldPromptTask: true, fieldInput: true, fieldOutputSchema: true},
+		KindAgent:    {fieldPromptTask: true, fieldInput: true, fieldOutputSchema: true, "tools": true, "termination": true},
+		KindTool:     {"tool": true, "args": true},
+		KindBranch:   {"predicate": true, "then": true, "else": true},
+		KindParallel: {"branches": true, "reduce": true},
+	}
+	set, known := allowed[s.Kind]
+	if !known {
+		r.Errors = append(r.Errors, fmt.Sprintf("%s: unknown kind %q", pfx, s.Kind))
+		return
+	}
+	for _, f := range presentKindFields(s) {
+		if !set[f] {
+			r.Errors = append(r.Errors, fmt.Sprintf("%s: field %q not allowed for kind %q", pfx, f, s.Kind))
+		}
+	}
+	switch s.Kind {
+	case KindPrompt, KindTool:
+		// no additional structural checks beyond the allowed-field set
+	case KindAgent:
+		if s.Termination == nil || (s.Termination.MaxSteps == 0 && s.Termination.ToolCalled == "") {
+			r.Errors = append(r.Errors, fmt.Sprintf("%s: agent step must declare termination (max_steps or tool_called)", pfx))
+		}
+	case KindParallel:
+		if len(s.Branches) < minParallelBranches {
+			r.Errors = append(r.Errors, fmt.Sprintf("%s: parallel step must have at least two branches", pfx))
+		}
+		validateReducer(pfx, s.Reduce, r)
+	case KindBranch:
+		if s.Then == "" {
+			r.Errors = append(r.Errors, fmt.Sprintf("%s: branch step must declare then", pfx))
+		}
+		validatePredicate(pfx, s.Predicate, r)
+	}
+}
+
+// presentKindFields lists the kind-specific fields that are set on s.
+func presentKindFields(s *Step) []string {
+	var f []string
+	if s.PromptTask != "" {
+		f = append(f, fieldPromptTask)
+	}
+	if s.Input != nil {
+		f = append(f, fieldInput)
+	}
+	if s.OutputSchema != "" {
+		f = append(f, fieldOutputSchema)
+	}
+	if len(s.Tools) > 0 {
+		f = append(f, "tools")
+	}
+	if s.Termination != nil {
+		f = append(f, "termination")
+	}
+	if s.Tool != "" {
+		f = append(f, "tool")
+	}
+	if len(s.Args) > 0 {
+		f = append(f, "args")
+	}
+	if s.Predicate != nil {
+		f = append(f, "predicate")
+	}
+	if s.Then != "" {
+		f = append(f, "then")
+	}
+	if s.Else != "" {
+		f = append(f, "else")
+	}
+	if len(s.Branches) > 0 {
+		f = append(f, "branches")
+	}
+	if s.Reduce != nil {
+		f = append(f, "reduce")
+	}
+	return f
+}
+
+// validateReducer checks rule 6's reducer half.
+func validateReducer(pfx string, red *Reducer, r *ValidationResult) {
+	if red == nil {
+		r.Errors = append(r.Errors, fmt.Sprintf("%s: parallel step must declare reduce", pfx))
+		return
+	}
+	switch red.Strategy {
+	case ReduceAppend, ReduceReplace, ReduceBarrier:
+	default:
+		r.Errors = append(r.Errors, fmt.Sprintf(
+			"%s: reduce.strategy %q is not valid (append|replace|barrier)", pfx, red.Strategy))
+	}
+	if red.Into == "" {
+		r.Errors = append(r.Errors, fmt.Sprintf("%s: reduce.into is required", pfx))
+	}
+}
+
+// validatePredicate checks rule 7's predicate half: exactly one variant, valid op.
+func validatePredicate(pfx string, p *Predicate, r *ValidationResult) {
+	if p == nil {
+		r.Errors = append(r.Errors, fmt.Sprintf("%s: branch step must declare predicate", pfx))
+		return
+	}
+	isCompare, variants := countPredicateVariants(p)
+	if variants != 1 {
+		r.Errors = append(r.Errors, fmt.Sprintf(
+			"%s: predicate must set exactly one variant (compare|exists|all_of|any_of|not)", pfx))
+	}
+	if isCompare && !CompareOps[p.Op] {
+		r.Errors = append(r.Errors, fmt.Sprintf("%s: predicate op %q is not valid", pfx, p.Op))
+	}
+	for _, c := range p.AllOf {
+		validatePredicate(pfx, c, r)
+	}
+	for _, c := range p.AnyOf {
+		validatePredicate(pfx, c, r)
+	}
+	if p.Not != nil {
+		validatePredicate(pfx, p.Not, r)
+	}
+}
+
+// countPredicateVariants returns whether the predicate is a compare variant and
+// the total number of set variants (used by validatePredicate to enforce exactly-one).
+func countPredicateVariants(p *Predicate) (isCompare bool, variants int) {
+	isCompare = p.Op != "" || p.Value != nil
+	if isCompare {
+		variants++
+	}
+	if p.Exists != nil {
+		variants++
+	}
+	if len(p.AllOf) > 0 {
+		variants++
+	}
+	if len(p.AnyOf) > 0 {
+		variants++
+	}
+	if p.Not != nil {
+		variants++
+	}
+	return isCompare, variants
 }

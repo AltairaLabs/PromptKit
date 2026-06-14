@@ -162,3 +162,77 @@ func TestValidate_PredicateAllOfAnyOfPaths(t *testing.T) {
 		t.Fatalf("unexpected errors: %v", r.Errors)
 	}
 }
+
+func TestValidate_AgentNeedsTermination(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "a", Kind: KindAgent, PromptTask: "p"},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, "agent step") || !hasErr(r, "termination") {
+		t.Fatalf("want termination error, got %v", r.Errors)
+	}
+}
+
+func TestValidate_ParallelNeedsTwoBranchesAndReduce(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "par", Kind: KindParallel, Branches: []*Step{{ID: "only", Kind: KindTool, Tool: "t"}}},
+	}}
+	r := Validate("comp", c, av(nil, []string{"t"}, nil))
+	if !hasErr(r, "at least two branches") {
+		t.Errorf("want >=2 branches error, got %v", r.Errors)
+	}
+	if !hasErr(r, "reduce") {
+		t.Errorf("want reduce error, got %v", r.Errors)
+	}
+}
+
+func TestValidate_ReduceNeedsStrategyAndInto(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "par", Kind: KindParallel,
+			Branches: []*Step{{ID: "x", Kind: KindTool, Tool: "t"}, {ID: "y", Kind: KindTool, Tool: "t"}},
+			Reduce:   &Reducer{Strategy: "bogus"}},
+	}}
+	r := Validate("comp", c, av(nil, []string{"t"}, nil))
+	if !hasErr(r, "reduce.strategy") {
+		t.Errorf("want strategy error, got %v", r.Errors)
+	}
+	if !hasErr(r, "reduce.into") {
+		t.Errorf("want into error, got %v", r.Errors)
+	}
+}
+
+func TestValidate_BranchNeedsThenAndPredicate(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "b", Kind: KindBranch, Predicate: &Predicate{Path: "${input.x}", Op: "bogus", Value: 1}},
+		{ID: "n", Kind: KindPrompt, PromptTask: "p"},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, "branch step") || !hasErr(r, "then") {
+		t.Errorf("want then error, got %v", r.Errors)
+	}
+	if !hasErr(r, "op") {
+		t.Errorf("want invalid op error, got %v", r.Errors)
+	}
+}
+
+func TestValidate_KindLegalFields(t *testing.T) {
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "a", Kind: KindPrompt, PromptTask: "p", Tool: "t"}, // tool field illegal on prompt
+	}}
+	r := Validate("comp", c, av([]string{"p"}, []string{"t"}, nil))
+	if !hasErr(r, "field \"tool\" not allowed") {
+		t.Fatalf("want kind-legal error, got %v", r.Errors)
+	}
+}
+
+func TestValidate_PredicateExactlyOneVariant(t *testing.T) {
+	mixed := &Predicate{Path: "${input.x}", Op: "equals", Value: 1, AllOf: []*Predicate{{Path: "${input.y}", Op: "equals", Value: 2}}}
+	c := &Composition{Version: 1, Steps: []*Step{
+		{ID: "b", Kind: KindBranch, Predicate: mixed, Then: "n"},
+		{ID: "n", Kind: KindPrompt, PromptTask: "p"},
+	}}
+	r := Validate("comp", c, av([]string{"p"}, nil, nil))
+	if !hasErr(r, "exactly one") {
+		t.Fatalf("want single-variant error, got %v", r.Errors)
+	}
+}
