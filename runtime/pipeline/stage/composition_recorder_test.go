@@ -143,6 +143,36 @@ func mapKeys(m map[string]json.RawMessage) []string {
 	return keys
 }
 
+func TestCompositionRecorder_Snapshot(t *testing.T) {
+	r := NewCompositionRecorder()
+	r.RecordStepCompleted("a", "prompt", nil, json.RawMessage(`1`), 1, nil)
+	r.RecordStepCompleted("b", "tool", nil, json.RawMessage(`2`), 2, nil)
+	r.RecordBranch("route", "x")
+	snap := r.Snapshot()
+	if snap == nil || len(snap.Steps) != 2 {
+		t.Fatalf("snapshot = %#v", snap)
+	}
+	if snap.Steps[0].ID != "a" || snap.Steps[0].Kind != "prompt" || snap.Steps[0].Attempt != 1 || string(snap.Steps[0].Output) != "1" {
+		t.Errorf("step[0] = %#v", snap.Steps[0])
+	}
+	if snap.Steps[1].ID != "b" || snap.Steps[1].Attempt != 2 {
+		t.Errorf("step[1] = %#v", snap.Steps[1])
+	}
+	if snap.Branches["route"] != "x" {
+		t.Errorf("branches = %#v", snap.Branches)
+	}
+	// bridge maps unchanged
+	md := r.CompositionMetadata()
+	if _, ok := md["composition_step_outputs"]; !ok {
+		t.Error("bridge map composition_step_outputs missing")
+	}
+	// Snapshot is nil before any recording / after Reset
+	r.Reset()
+	if r.Snapshot() != nil {
+		t.Error("Snapshot should be nil after Reset")
+	}
+}
+
 // TestCompositionRecorderEmitter verifies that SetEmitter wires event emission:
 // (a) CompositionMetadata() still returns the expected bridge maps, and
 // (b) the bus receives matching composition.* events for each hook.

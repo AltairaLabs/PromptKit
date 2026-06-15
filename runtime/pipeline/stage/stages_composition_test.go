@@ -259,6 +259,66 @@ func drainChannel(ch <-chan StreamElement) []StreamElement {
 	return elems
 }
 
+// TestCompositionStage_AttachesSnapshotMeta verifies that when a
+// CompositionStage is constructed with a recorder, the assistant message emitted
+// after execution carries a non-nil *CompositionSnapshot under the
+// "_composition_snapshot" Meta key with at least one step recorded.
+func TestCompositionStage_AttachesSnapshotMeta(t *testing.T) {
+	reg := tools.NewRegistry()
+	registerEchoTool(t, reg, "echo")
+
+	comp := &composition.Composition{
+		Version: 1, Output: "a",
+		Steps: []*composition.Step{
+			{ID: "a", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"v": "${input.x}"}},
+		},
+	}
+	rec := NewCompositionRecorder()
+	cs := NewCompositionStageWithRecorder("snap-comp", comp, CompositionExecutorDeps{ToolRegistry: reg}, rec)
+
+	in := make(chan StreamElement, 1)
+	out := make(chan StreamElement, 10)
+
+	msg := &types.Message{Role: "user", Content: `{"x":"hello"}`}
+	in <- NewMessageElement(msg)
+	close(in)
+
+	if err := cs.Process(context.Background(), in, out); err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+
+	elems := drainChannel(out)
+	if len(elems) == 0 {
+		t.Fatal("expected at least one output element")
+	}
+
+	// Find the assistant message element.
+	var assistantMsg *types.Message
+	for _, e := range elems {
+		if e.Message != nil && e.Message.Role == roleAssistant {
+			assistantMsg = e.Message
+			break
+		}
+	}
+	if assistantMsg == nil {
+		t.Fatal("no assistant message element emitted")
+	}
+	if assistantMsg.Meta == nil {
+		t.Fatal("assistant message Meta is nil; expected _composition_snapshot")
+	}
+	raw, ok := assistantMsg.Meta[compositionSnapshotMetaKey]
+	if !ok {
+		t.Fatalf("Meta missing key %q; got keys: %v", compositionSnapshotMetaKey, assistantMsg.Meta)
+	}
+	snap, ok := raw.(*CompositionSnapshot)
+	if !ok {
+		t.Fatalf("Meta[%q] has type %T, want *CompositionSnapshot", compositionSnapshotMetaKey, raw)
+	}
+	if len(snap.Steps) == 0 {
+		t.Errorf("snapshot has no steps; want at least 1")
+	}
+}
+
 // TestCompositionStage_EmitsStartedAndCompleted verifies that CompositionStage
 // brackets a composition execution with composition.started (before engine.Execute)
 // and composition.completed (after), and that the two events appear in that order.
