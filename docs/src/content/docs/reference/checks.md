@@ -252,6 +252,138 @@ assertions:
 
 ---
 
+## Composition Checks {#composition-checks}
+
+These checks assert on the internal execution of a [Workflow Composition](/concepts/compositions/) (RFC 0010). They read observability data injected into `EvalContext.Metadata` by the Arena `CompositionMetadataProvider` — step outputs, branch decisions, and parallel completion status. They are **pure eval primitives**: they emit a raw score and put detail in `Details`; threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper. `min_score` / `max_score` placed directly on these handlers are rejected at parse time.
+
+**Surfaces:** A E (all four handlers are assertion- and eval-facing; not guardrail-facing because composition steps are not streaming checkpoints).
+
+### `composition_step_output`
+
+Asserts that a named step's recorded output contains or equals an expected value.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `step` | string | Yes | Step ID to inspect |
+| `contains` | string | No | The output must contain this substring |
+| `equals` | string | No | The output must equal this string exactly |
+
+With neither `contains` nor `equals`, passes when the step produced any non-empty output.
+
+**Example — as a pack-level eval (emits raw signal every composition run):**
+
+```yaml
+evals:
+  - id: classify-output-monitor
+    type: composition_step_output
+    trigger: every_turn
+    params:
+      step: classify
+      contains: '"type"'
+```
+
+**Example — as an Arena assertion:**
+
+```yaml
+assertions:
+  - type: composition_step_output
+    params:
+      step: classify
+      contains: '"type": "research_paper"'
+```
+
+### `composition_branch_taken`
+
+Asserts that a `branch` step routed to the expected target step.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `branch` | string | Yes | Step ID of the `branch` step |
+| `expected` | string | Yes | The step ID that should have been selected (`then` or `else` target) |
+
+**Example — as a pack-level eval:**
+
+```yaml
+evals:
+  - id: route-monitor
+    type: composition_branch_taken
+    trigger: every_turn
+    params:
+      branch: route
+      expected: extract_paper
+```
+
+**Example — as an Arena assertion:**
+
+```yaml
+assertions:
+  - type: composition_branch_taken
+    params:
+      branch: route
+      expected: extract_paper
+```
+
+### `composition_parallel_complete`
+
+Asserts that a `parallel` step completed (all branches finished and the reducer ran).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `parallel` | string | Yes | Step ID of the `parallel` step |
+
+**Example — as a pack-level eval:**
+
+```yaml
+evals:
+  - id: meta-parallel-monitor
+    type: composition_parallel_complete
+    trigger: every_turn
+    params:
+      parallel: meta
+```
+
+**Example — as an Arena assertion:**
+
+```yaml
+assertions:
+  - type: composition_parallel_complete
+    params:
+      parallel: meta
+```
+
+### `composition_output`
+
+Asserts on the composition's final structured output (the output of the step named in `compositions.<name>.output`, or the last step by default).
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `contains` | string | No | The final output must contain this substring |
+| `equals` | string | No | The final output must equal this string exactly |
+
+With neither param, passes when the composition produced any non-empty output.
+
+**Example — as a pack-level eval:**
+
+```yaml
+evals:
+  - id: analysis-output-monitor
+    type: composition_output
+    trigger: every_turn
+    params:
+      contains: '"key_findings"'
+```
+
+**Example — as an Arena conversation assertion:**
+
+```yaml
+conversation_assertions:
+  - type: composition_output
+    params:
+      contains: '"key_findings"'
+```
+
+---
+
 ## Media Checks
 
 | Type | Params | Surfaces |
