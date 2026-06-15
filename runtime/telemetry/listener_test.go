@@ -1262,6 +1262,120 @@ func TestOTelEventListener_Close(t *testing.T) {
 	listener.Close()
 }
 
+func TestOTelEventListener_CompositionSpans(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	// 1. composition.started — opens the composition span.
+	listener.OnEvent(&events.Event{
+		Type: events.EventCompositionStarted, Timestamp: now,
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.CompositionStartedData{Composition: "flow"},
+	})
+
+	// 2. composition.step.started — opens a child step span.
+	listener.OnEvent(&events.Event{
+		Type: events.EventCompositionStepStarted, Timestamp: now.Add(10 * time.Millisecond),
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.CompositionStepStartedData{StepID: "classify", Kind: "prompt"},
+	})
+
+	// 3. composition.step.completed — closes the step span successfully.
+	listener.OnEvent(&events.Event{
+		Type: events.EventCompositionStepCompleted, Timestamp: now.Add(50 * time.Millisecond),
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.CompositionStepCompletedData{StepID: "classify", Kind: "prompt", Attempt: 1},
+	})
+
+	// 4. composition.completed — closes the composition span successfully.
+	listener.OnEvent(&events.Event{
+		Type: events.EventCompositionCompleted, Timestamp: now.Add(100 * time.Millisecond),
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.CompositionCompletedData{Composition: "flow", DurationMs: 100},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	// Verify composition span exists with correct attributes and status.
+	compSpan := findSpan(t, spans, "promptkit.composition")
+	if compSpan.Status.Code != codes.Ok {
+		t.Errorf("composition span: expected Ok status, got %v", compSpan.Status.Code)
+	}
+	if !hasAttr(compSpan, "promptkit.composition.name", "flow") {
+		t.Error("composition span: expected promptkit.composition.name=flow")
+	}
+
+	// Verify step span exists with correct attributes and status.
+	stepSpan := findSpan(t, spans, "promptkit.composition.step")
+	if stepSpan.Status.Code != codes.Ok {
+		t.Errorf("step span: expected Ok status, got %v", stepSpan.Status.Code)
+	}
+	if !hasAttr(stepSpan, "promptkit.composition.step_id", "classify") {
+		t.Error("step span: expected promptkit.composition.step_id=classify")
+	}
+	if !hasAttr(stepSpan, "promptkit.composition.step_kind", "prompt") {
+		t.Error("step span: expected promptkit.composition.step_kind=prompt")
+	}
+
+	// Step span must be a child of the composition span (same trace, parent = composition span).
+	if stepSpan.SpanContext.TraceID() != compSpan.SpanContext.TraceID() {
+		t.Error("step span and composition span must share the same trace ID")
+	}
+	if stepSpan.Parent.SpanID() != compSpan.SpanContext.SpanID() {
+		t.Error("step span should be child of composition span")
+	}
+}
+
+func TestOTelEventListener_CompositionSpan_Failed(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	now := time.Now()
+
+	listener.StartSession(context.Background(), "sess-1")
+
+	listener.OnEvent(&events.Event{
+		Type: events.EventCompositionStarted, Timestamp: now,
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.CompositionStartedData{Composition: "flow"},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventCompositionStepStarted, Timestamp: now.Add(10 * time.Millisecond),
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.CompositionStepStartedData{StepID: "call", Kind: "prompt"},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventCompositionStepCompleted, Timestamp: now.Add(20 * time.Millisecond),
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.CompositionStepCompletedData{StepID: "call", Kind: "prompt", Attempt: 1, Error: "provider timeout"},
+	})
+	listener.OnEvent(&events.Event{
+		Type: events.EventCompositionCompleted, Timestamp: now.Add(30 * time.Millisecond),
+		SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.CompositionCompletedData{Composition: "flow", Error: "step failed: provider timeout"},
+	})
+
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	compSpan := findSpan(t, spans, "promptkit.composition")
+	if compSpan.Status.Code != codes.Error {
+		t.Errorf("composition span: expected Error status, got %v", compSpan.Status.Code)
+	}
+	if compSpan.Status.Description != "step failed: provider timeout" {
+		t.Errorf("composition span: expected error description, got %q", compSpan.Status.Description)
+	}
+
+	stepSpan := findSpan(t, spans, "promptkit.composition.step")
+	if stepSpan.Status.Code != codes.Error {
+		t.Errorf("step span: expected Error status, got %v", stepSpan.Status.Code)
+	}
+	if stepSpan.Status.Description != "provider timeout" {
+		t.Errorf("step span: expected error 'provider timeout', got %q", stepSpan.Status.Description)
+	}
+}
+
 func TestOTelEventListener_EvictStale(t *testing.T) {
 	listener, exp, tp := newTestListener(t)
 	defer listener.Close()
