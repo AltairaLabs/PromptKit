@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "title": "PromptPack Specification",
-  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, and skills support",
-  "version": "1.3.1",
+  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, skills, and composition support. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010).",
+  "version": "1.5.0",
   "type": "object",
   "required": ["id", "name", "version", "template_engine", "prompts"],
   "additionalProperties": false,
@@ -213,9 +213,14 @@
       "items": {
         "$ref": "#/$defs/SkillSource"
       }
+    },
+    "compositions": {
+      "type": "object",
+      "description": "Map of composition name to composition definition (RFC 0010). Each composition declares a named step graph that a runtime may invoke as a structured-input/structured-output unit. Reached through a workflow state whose orchestration is 'composition'. Optional; packs without it are unaffected.",
+      "additionalProperties": { "$ref": "#/$defs/Composition" }
     }
   },
-  
+
   "$defs": {
     "Prompt": {
       "type": "object",
@@ -1231,7 +1236,6 @@
     "WorkflowState": {
       "type": "object",
       "description": "A single state in the workflow state machine. References a prompt task and declares event-driven transitions to other states.",
-      "required": ["prompt_task"],
       "additionalProperties": false,
       "if": {
         "not": {
@@ -1242,10 +1246,20 @@
       "then": {
         "required": ["on_event"]
       },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "orchestration": { "const": "composition" } },
+            "required": ["orchestration"]
+          },
+          "then": { "required": ["composition"] },
+          "else": { "required": ["prompt_task"] }
+        }
+      ],
       "properties": {
         "prompt_task": {
           "type": "string",
-          "description": "Reference to a prompt key defined in the pack's prompts object.",
+          "description": "Reference to a prompt key defined in the pack's prompts object. Required for orchestration modes 'internal', 'external', 'hybrid' (or when omitted); not used in 'composition' mode.",
           "examples": ["support", "sales", "triage"]
         },
         "description": {
@@ -1267,8 +1281,13 @@
         },
         "orchestration": {
           "type": "string",
-          "description": "How this state is orchestrated: internal (runtime manages), external (caller manages), or hybrid.",
-          "enum": ["internal", "external", "hybrid"]
+          "description": "How the state is orchestrated. 'internal' = agent controls transitions (default). 'external' = system controls. 'hybrid' = both. 'composition' = the referenced composition fully handles the state's orchestration via a declarative step graph (RFC 0010).",
+          "enum": ["internal", "external", "hybrid", "composition"]
+        },
+        "composition": {
+          "type": "string",
+          "description": "Reference to a composition key defined in the pack's compositions object (RFC 0010). Required when orchestration is 'composition'; absent otherwise.",
+          "examples": ["analyze_document", "classify_document"]
         },
         "control": {
           "type": "string",
@@ -1302,6 +1321,281 @@
           }
         }
       }
+    },
+
+    "Composition": {
+      "type": "object",
+      "description": "A named step graph defining a procedural composition over the pack's prompts, tools, and evals (RFC 0010). Reached through a workflow state whose orchestration is 'composition'.",
+      "required": ["version", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 1,
+          "description": "Composition format version. Currently 1."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what this composition does."
+        },
+        "input_schema": {
+          "type": "string",
+          "description": "Reference to a JSON Schema declaring the structured input shape. Path or fragment reference."
+        },
+        "output_schema": {
+          "type": "string",
+          "description": "Reference to a JSON Schema declaring the structured output shape."
+        },
+        "output": {
+          "type": "string",
+          "description": "Step ID whose output is the composition's output. If omitted, runtimes should treat the last step's output as the composition output."
+        },
+        "steps": {
+          "type": "array",
+          "description": "Ordered array of step definitions. Order is logical; control flow is determined by the steps themselves (sequential by default; branches and parallels alter flow).",
+          "items": { "$ref": "#/$defs/Step" },
+          "minItems": 1
+        },
+        "engine": {
+          "type": "object",
+          "description": "Runtime-specific configuration (e.g. budgets, telemetry, scheduling hints). Opaque escape hatch with no schema enforcement.",
+          "additionalProperties": true
+        }
+      }
+    },
+
+    "Step": {
+      "type": "object",
+      "description": "A single step in a composition's step graph. The 'kind' discriminator selects the step shape (RFC 0010).",
+      "required": ["id", "kind"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable identifier for this step. Must be unique within the composition. Used for output references, eval attachment, and trace records.",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Step kind. v1 conventional values: 'prompt', 'agent', 'tool', 'branch', 'parallel'. Free-form string with documented conventional values; runtimes may support additional vendor-namespaced kinds (e.g. 'omnia.judge')."
+        },
+        "description": { "type": "string" },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional explicit predecessor step IDs. If omitted, the step sequentially follows the prior step in steps[]. Required when steps run after a branch or parallel and need to declare a join point."
+        },
+        "modifiers": {
+          "$ref": "#/$defs/StepModifiers",
+          "description": "Optional declarative modifiers (retry, eval attachment). Modifier semantics are runtime-defined."
+        }
+      },
+      "oneOf": [
+        { "$ref": "#/$defs/PromptStep" },
+        { "$ref": "#/$defs/AgentStep" },
+        { "$ref": "#/$defs/ToolStep" },
+        { "$ref": "#/$defs/BranchStep" },
+        { "$ref": "#/$defs/ParallelStep" }
+      ]
+    },
+
+    "PromptStep": {
+      "description": "Step kind 'prompt': a one-shot LLM invocation against a declared prompt task with an optional output schema. No tool calls.",
+      "properties": {
+        "kind": { "const": "prompt" },
+        "prompt_task": {
+          "type": "string",
+          "description": "Reference to a prompt key defined in the pack's prompts object."
+        },
+        "input": {
+          "$ref": "#/$defs/StepInput",
+          "description": "Optional input binding. Variables resolved against the composition's input and prior steps' outputs."
+        },
+        "output_schema": {
+          "type": "string",
+          "description": "Reference to a JSON Schema for the expected output shape. Runtimes parse the LLM response against this schema."
+        }
+      },
+      "required": ["kind", "prompt_task"]
+    },
+
+    "AgentStep": {
+      "description": "Step kind 'agent': a bounded LLM-tool loop. Internal to a single composition; distinct from RFC 0007 agents.",
+      "properties": {
+        "kind": { "const": "agent" },
+        "prompt_task": { "type": "string" },
+        "input": { "$ref": "#/$defs/StepInput" },
+        "tools": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Subset of the pack's tools available to this agent step. Acts as a per-step scoped tool registry."
+        },
+        "termination": {
+          "$ref": "#/$defs/TerminationPredicate",
+          "description": "REQUIRED. The condition under which the bounded loop exits. Without an explicit termination predicate, an agent step is invalid."
+        },
+        "output_schema": { "type": "string" }
+      },
+      "required": ["kind", "prompt_task", "termination"]
+    },
+
+    "ToolStep": {
+      "description": "Step kind 'tool': a deterministic tool invocation called directly by the runtime, not via an LLM tool-call decision.",
+      "properties": {
+        "kind": { "const": "tool" },
+        "tool": {
+          "type": "string",
+          "description": "Reference to a tool key defined in the pack's tools object."
+        },
+        "args": {
+          "type": "object",
+          "description": "Argument bindings. Variables resolved against the composition's input and prior steps' outputs.",
+          "additionalProperties": true
+        }
+      },
+      "required": ["kind", "tool"]
+    },
+
+    "BranchStep": {
+      "description": "Step kind 'branch': a conditional that picks a successor step based on a constrained predicate.",
+      "properties": {
+        "kind": { "const": "branch" },
+        "predicate": { "$ref": "#/$defs/Predicate" },
+        "then": {
+          "type": "string",
+          "description": "Step ID to execute when the predicate evaluates true."
+        },
+        "else": {
+          "type": "string",
+          "description": "Step ID to execute when the predicate evaluates false."
+        }
+      },
+      "required": ["kind", "predicate", "then"]
+    },
+
+    "ParallelStep": {
+      "description": "Step kind 'parallel': a static fan-out block whose branches execute concurrently and are merged by a declared reducer.",
+      "properties": {
+        "kind": { "const": "parallel" },
+        "branches": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Step" },
+          "minItems": 2
+        },
+        "reduce": { "$ref": "#/$defs/Reducer" }
+      },
+      "required": ["kind", "branches", "reduce"]
+    },
+
+    "Predicate": {
+      "description": "A constrained, declarative branch predicate (RFC 0010). Not an expression language.",
+      "oneOf": [
+        { "$ref": "#/$defs/ComparePredicate" },
+        { "$ref": "#/$defs/ExistsPredicate" },
+        { "$ref": "#/$defs/AllOfPredicate" },
+        { "$ref": "#/$defs/AnyOfPredicate" },
+        { "$ref": "#/$defs/NotPredicate" }
+      ]
+    },
+
+    "ComparePredicate": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Reference to a value via dot-notation against the composition's input and step outputs. Example: '${classify.output.intent}'."
+        },
+        "op": {
+          "type": "string",
+          "enum": ["equals", "not_equals", "in", "not_in", "less_than", "less_than_or_equals", "greater_than", "greater_than_or_equals"]
+        },
+        "value": { "description": "Literal comparison value (string, number, boolean, or array for in/not_in)." }
+      },
+      "required": ["path", "op", "value"]
+    },
+
+    "ExistsPredicate": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "exists": { "type": "boolean" }
+      },
+      "required": ["path", "exists"]
+    },
+
+    "AllOfPredicate": {
+      "type": "object",
+      "properties": { "all_of": { "type": "array", "items": { "$ref": "#/$defs/Predicate" } } },
+      "required": ["all_of"]
+    },
+
+    "AnyOfPredicate": {
+      "type": "object",
+      "properties": { "any_of": { "type": "array", "items": { "$ref": "#/$defs/Predicate" } } },
+      "required": ["any_of"]
+    },
+
+    "NotPredicate": {
+      "type": "object",
+      "properties": { "not": { "$ref": "#/$defs/Predicate" } },
+      "required": ["not"]
+    },
+
+    "Reducer": {
+      "type": "object",
+      "description": "Names how a parallel block's branch outputs are merged into a single value (RFC 0010).",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "v1 conventional values: 'append' (extend lists), 'replace' (last write wins), 'barrier' (collect all outputs into a named map). Free-form string; additional reducers reserved for future RFCs."
+        },
+        "into": {
+          "type": "string",
+          "description": "Field name under which the merged result is placed on the parallel step's output. Subsequent steps reference it as ${<parallelStepId>.output.<into>}."
+        }
+      },
+      "required": ["strategy", "into"]
+    },
+
+    "StepModifiers": {
+      "type": "object",
+      "description": "Declarative annotations on a step. Semantics are runtime-defined.",
+      "properties": {
+        "retry": {
+          "type": "object",
+          "properties": {
+            "max_attempts": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "eval": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "References to eval keys defined in the pack's evals object (RFC 0006). Runtimes may execute these inline or post-Send."
+        }
+      }
+    },
+
+    "TerminationPredicate": {
+      "type": "object",
+      "description": "Termination condition for an agent step's bounded loop (RFC 0010).",
+      "properties": {
+        "max_steps": { "type": "integer", "minimum": 1 },
+        "tool_called": {
+          "type": "string",
+          "description": "Tool name; agent terminates when the LLM successfully invokes this tool."
+        }
+      },
+      "anyOf": [
+        { "required": ["max_steps"] },
+        { "required": ["tool_called"] }
+      ]
+    },
+
+    "StepInput": {
+      "description": "Input binding for a step (RFC 0010). May be a reference of the form '${path.to.value}' against the composition input ('${input.X}') or a prior step output ('${stepId.output.X}'), or an object combining literals and references.",
+      "oneOf": [
+        { "type": "string", "description": "Reference of the form '${path.to.value}'." },
+        { "type": "object", "additionalProperties": true }
+      ]
     },
 
     "WorkflowArtifactDef": {
