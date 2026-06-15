@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/composition/engine"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
@@ -175,7 +176,7 @@ func (deps CompositionExecutorDeps) execLLM(
 	if res == nil || res.Response == nil {
 		return nil, fmt.Errorf("step %q: sub-pipeline produced no response", step.ID)
 	}
-	return responseToJSON(res.Response, step.OutputSchema != "")
+	return responseToJSON(res.Response, step.OutputSchema != "", step.ID)
 }
 
 // responseFormat builds a structured-output ResponseFormat from the step's
@@ -225,9 +226,19 @@ func stepInputToText(input json.RawMessage) string {
 // literal "null", "42", or "true"). This prevents ambiguity in downstream
 // ${step.output} resolution where a bare JSON primitive would be
 // indistinguishable from a structured value.
-func responseToJSON(resp *Response, structured bool) (json.RawMessage, error) {
-	if structured && json.Valid([]byte(resp.Content)) {
-		return json.RawMessage(resp.Content), nil
+func responseToJSON(resp *Response, structured bool, stepID string) (json.RawMessage, error) {
+	if structured {
+		if json.Valid([]byte(resp.Content)) {
+			return json.RawMessage(resp.Content), nil
+		}
+		// The step declared an output_schema but the provider returned content
+		// that is not valid JSON (e.g. a provider that doesn't enforce structured
+		// output, or wrapped the JSON in prose/markdown fences). It's encoded as a
+		// plain string below, so downstream ${stepID.output.field} references will
+		// not resolve — warn so this isn't silently invisible.
+		logger.Warn("composition step declared output_schema but provider returned non-JSON content; "+
+			"structured output may not have taken effect (downstream ${...output.field} refs will not resolve)",
+			"step", stepID)
 	}
 	enc, err := json.Marshal(resp.Content)
 	if err != nil {

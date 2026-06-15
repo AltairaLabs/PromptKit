@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/logger"
 )
 
 const (
@@ -72,7 +73,13 @@ func evalCompare(p *composition.Predicate, scope Scope) (bool, error) {
 	actual, found := resolvePath(p.Path, scope)
 	if !found {
 		// A missing path is not an error for compare: equals/in are false,
-		// not_equals/not_in are true. Mirror that with nil actual.
+		// not_equals/not_in are true. Mirror that with nil actual. Warn, because
+		// an unresolvable compare path usually means a misconfigured reference or
+		// an upstream step output that wasn't the expected shape (e.g. a provider
+		// returned non-JSON for a step with an output_schema), which silently
+		// sends a branch down its else path.
+		logger.Warn("composition branch predicate path did not resolve; treating value as null",
+			"path", p.Path, "op", p.Op)
 		actual = nil
 	}
 	switch p.Op {
