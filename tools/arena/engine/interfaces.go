@@ -99,6 +99,12 @@ type ConversationRequest struct {
 	// nil for states that are not composition-orchestrated.
 	ActiveCompositionResolver func() *composition.Composition
 
+	// CompositionRecorder is the per-run recorder for RFC 0010 testability. When
+	// non-nil it is stamped onto every TurnRequest so buildStagePipeline can pass
+	// it to NewCompositionStageWithRecorder. Reset() is called per turn so stale
+	// data from a prior turn does not leak into the next turn's assertions.
+	CompositionRecorder *stage.CompositionRecorder
+
 	// AudioRouter, when non-nil, is the per-run AudioRouter for audio
 	// monitoring. MonitorTap stages added to the pipeline publish to this
 	// router. Lifetime is the run; the engine owns Close().

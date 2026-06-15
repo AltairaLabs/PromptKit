@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
@@ -170,6 +171,17 @@ func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string
 			orch = e.evalOrchestrator.Clone()
 			orch.SetWorkflowMetadataProvider(provider)
 		}
+
+		// RFC 0010 Task 5: create a per-run composition recorder and wire it
+		// so composition_* assertions can read step outputs, branch targets, and
+		// parallel statuses. The same recorder is stashed on the run state (for
+		// retrieval in buildTurnRequest) and set as the EvalOrchestrator's
+		// CompositionMetadataProvider (so assertions see it in buildEvalContext).
+		rec := stage.NewCompositionRecorder()
+		e.workflowTransExec.SetCompositionRecorder(runID, rec)
+		if orch != nil {
+			orch.SetCompositionMetadataProvider(rec)
+		}
 	}
 
 	return orch, nil
@@ -272,8 +284,9 @@ func (e *Engine) buildEntryStateMeta(stateName string) map[string]interface{} {
 // wireWorkflowHooks sets up per-turn hooks for workflow scenarios:
 // PostTurnHook commits deferred transitions, ContextEnricher injects
 // the per-run skill filter into context for the next turn's tool execution,
-// and ActiveCompositionResolver resolves the active composition for the
-// current workflow state (RFC 0010).
+// ActiveCompositionResolver resolves the active composition for the
+// current workflow state (RFC 0010), and CompositionRecorder threads the
+// per-run recorder so buildStagePipeline can wire it into CompositionStage.
 func (e *Engine) wireWorkflowHooks(req *ConversationRequest, runID string) {
 	req.PostTurnHook = func() error {
 		var emitter *events.Emitter
@@ -290,6 +303,10 @@ func (e *Engine) wireWorkflowHooks(req *ConversationRequest, runID string) {
 		return ctx
 	}
 	req.ActiveCompositionResolver = e.buildCompositionResolver(runID)
+	// RFC 0010 Task 5: thread the per-run composition recorder so that
+	// buildTurnRequest can stamp it onto every TurnRequest, enabling
+	// NewCompositionStageWithRecorder to record step outputs per turn.
+	req.CompositionRecorder = e.workflowTransExec.CompositionRecorder(runID)
 }
 
 // buildCompositionResolver returns a function that resolves the active

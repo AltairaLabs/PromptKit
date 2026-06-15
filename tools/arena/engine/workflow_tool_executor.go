@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/pkg/config"
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/workflow"
 )
@@ -41,6 +42,8 @@ type workflowRunState struct {
 	transitions []map[string]any
 	skillFilter string // current skill glob filter for this run
 	emitter     *events.Emitter
+	// compositionRecorder captures per-step outputs for RFC 0010 testability; nil for non-composition runs.
+	compositionRecorder *stage.CompositionRecorder
 }
 
 // workflowTransitionExecutor routes workflow__transition tool calls to per-run
@@ -264,6 +267,26 @@ func (e *workflowTransitionExecutor) SkillFilter(runID string) string {
 		return run.skillFilter
 	}
 	return ""
+}
+
+// SetCompositionRecorder stores the per-run composition recorder on the run state.
+// Called from prepareWorkflowScenario after the run is registered.
+func (e *workflowTransitionExecutor) SetCompositionRecorder(runID string, rec *stage.CompositionRecorder) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if run := e.runs[runID]; run != nil {
+		run.compositionRecorder = rec
+	}
+}
+
+// CompositionRecorder returns the per-run composition recorder, or nil if not set.
+func (e *workflowTransitionExecutor) CompositionRecorder(runID string) *stage.CompositionRecorder {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if run := e.runs[runID]; run != nil {
+		return run.compositionRecorder
+	}
+	return nil
 }
 
 // UnregisterRun removes a completed run's state to prevent unbounded map growth.

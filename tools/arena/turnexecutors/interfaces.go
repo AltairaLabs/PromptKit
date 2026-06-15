@@ -118,6 +118,12 @@ type TurnRequest struct {
 	// ActiveComposition, when non-nil, makes this turn run a CompositionStage that
 	// executes the composition instead of an LLM ProviderStage (RFC 0010).
 	ActiveComposition *composition.Composition
+
+	// CompositionRecorder, when non-nil, is the per-run recorder that captures
+	// step outputs, branch targets, and parallel statuses for composition_*
+	// assertion handlers. Reset() is called per turn before pipeline execution.
+	// Only set on workflow composition turns; nil on non-composition turns.
+	CompositionRecorder *stage.CompositionRecorder
 }
 
 // StateStoreConfig wraps the state store configuration for turn executors
