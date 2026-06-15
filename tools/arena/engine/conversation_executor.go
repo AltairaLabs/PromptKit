@@ -99,6 +99,17 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 		ce.notifyTurnStarted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID)
 		ce.debugOnUserTurnAssertions(scenarioTurn, turnIdx)
 
+		// Issue #1374: capture the live workflow state at TURN START (the state
+		// whose prompt drives this turn) and the current assistant-message count,
+		// so after the turn succeeds we can stamp current_workflow_state onto the
+		// new assistant message — and only when one was actually produced.
+		var turnStartState map[string]interface{}
+		var preAssistantCount int
+		if req.CurrentWorkflowState != nil && req.StampWorkflowState != nil {
+			turnStartState = req.CurrentWorkflowState()
+			preAssistantCount = ce.countAssistantMessages(ctx, req)
+		}
+
 		err := ce.executeNonStreamingTurn(turnCtx, req, scenarioTurn)
 
 		if err != nil {
@@ -122,6 +133,14 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 			}
 		}
 
+		// Issue #1374: stamp the turn-start workflow state onto the assistant
+		// message this turn produced. Order vs PostTurnHook is irrelevant —
+		// turnStartState was captured before the turn ran. Skip plain user turns
+		// that produced no new assistant message. Side-effect-only.
+		if req.StampWorkflowState != nil && ce.countAssistantMessages(ctx, req) > preAssistantCount {
+			req.StampWorkflowState(turnStartState)
+		}
+
 		ce.notifyTurnCompleted(emitter, turnIdx, scenarioTurn.Role, req.Scenario.ID, nil)
 		logger.Debug("Turn completed",
 			"turn", turnIdx,
@@ -130,6 +149,24 @@ func (ce *DefaultConversationExecutor) executeWithoutStreaming(
 
 	// Load final conversation state from StateStore
 	return ce.buildResultFromStateStore(ctx, req)
+}
+
+// countAssistantMessages returns the number of assistant messages currently
+// persisted for the conversation. Used by the issue #1374 stamp guard to detect
+// whether a turn actually produced a new assistant message. Returns 0 on any
+// load error (the guard then simply skips stamping).
+func (ce *DefaultConversationExecutor) countAssistantMessages(ctx context.Context, req *ConversationRequest) int {
+	_, messages, err := ce.loadMessagesFromStateStore(ctx, req)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for i := range messages {
+		if messages[i].Role == roleAssistant {
+			count++
+		}
+	}
+	return count
 }
 
 // executeNonStreamingTurn executes a single turn without streaming

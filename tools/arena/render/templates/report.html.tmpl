@@ -2194,6 +2194,11 @@
                                         {{if index $metaMap "_workflow_state"}}
                                             {{$hasWorkflowState = true}}
                                         {{end}}
+                                        {{/* Issue #1374: explicit per-turn state surfaces the Workflow tab even
+                                             for composition-orchestrated states that left no transition message. */}}
+                                        {{if index $metaMap "current_workflow_state"}}
+                                            {{$hasWorkflowState = true}}
+                                        {{end}}
                                         {{if index $metaMap "_composition_snapshot"}}
                                             {{$hasCompositionSnapshot = true}}
                                         {{end}}
@@ -2316,7 +2321,15 @@
                                         <div data-devtools="tooldescriptors">{{prettyJSON (index $msg.Meta "_tool_descriptors")}}</div>
                                         {{end}}
                                         {{if $hasWorkflowState}}
+                                        {{/* Issue #1374: prefer the explicit per-turn current_workflow_state
+                                             (stamped from the turn-start state machine, visible even for
+                                             composition-orchestrated terminal states) and fall back to the
+                                             legacy replay-derived _workflow_state. */}}
+                                        {{if index $msg.Meta "current_workflow_state"}}
+                                        <div data-devtools="workflow">{{prettyJSON (index $msg.Meta "current_workflow_state")}}</div>
+                                        {{else}}
                                         <div data-devtools="workflow">{{prettyJSON (index $msg.Meta "_workflow_state")}}</div>
+                                        {{end}}
                                         {{end}}
                                         {{if $hasCompositionSnapshot}}
                                         <div data-devtools="composition">{{prettyJSON (index $msg.Meta "_composition_snapshot")}}</div>

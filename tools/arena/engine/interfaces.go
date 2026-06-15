@@ -109,6 +109,18 @@ type ConversationRequest struct {
 	// monitoring. MonitorTap stages added to the pipeline publish to this
 	// router. Lifetime is the run; the engine owns Close().
 	AudioRouter *arenaaudio.AudioRouter
+
+	// CurrentWorkflowState returns the live workflow-state metadata for the turn
+	// about to run (captured at turn start, before the pipeline builds its
+	// prompt). Nil when there is no workflow. Used to stamp current_workflow_state
+	// onto each assistant result so composition-orchestrated terminal states —
+	// which leave no transition tool-result message — are still visible per turn.
+	CurrentWorkflowState func() map[string]interface{}
+
+	// StampWorkflowState attaches meta (captured at turn start) to the assistant
+	// message produced by the just-completed turn. No-op when meta is nil. This is
+	// side-effect-only and must never alter turn output, error, or flow.
+	StampWorkflowState func(meta map[string]interface{})
 }
 
 // StateStoreConfig wraps the pipeline StateStore configuration for Arena
