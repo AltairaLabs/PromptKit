@@ -11,5 +11,6 @@
       "description": "Classification confidence score between 0 and 1"
     }
   },
-  "required": ["type"]
+  "required": ["type", "confidence"],
+  "additionalProperties": false
 }

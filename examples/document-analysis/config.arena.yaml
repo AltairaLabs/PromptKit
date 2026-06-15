@@ -75,6 +75,7 @@ spec:
         - id: synthesize
           kind: agent
           prompt_task: synthesize_doc
+          input: "${meta.output.metadata}"
           termination:
             max_steps: 3
 

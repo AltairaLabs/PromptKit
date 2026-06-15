@@ -5,19 +5,6 @@ It shows how a multi-step document analysis pipeline — classify, branch, extra
 parallel metadata, synthesize — is authored as a `compositions:` block and tested
 with composition-specific assertions.
 
-> **IMPORTANT — requires `PROMPTKIT_SCHEMA_SOURCE=local`**
->
-> The `compositions:` and `orchestration: composition` schema fields have not yet
-> been published in a PromptKit release. Running this example against the remote
-> schemas (the default) will produce a schema validation error. Until the next
-> release ships, always set:
->
-> ```bash
-> export PROMPTKIT_SCHEMA_SOURCE=local
-> ```
->
-> or prefix the run command with `env PROMPTKIT_SCHEMA_SOURCE=local` as shown below.
-
 ## What it demonstrates
 
 - A single-state terminal workflow whose state uses `orchestration: composition`
@@ -61,14 +48,13 @@ make -C /path/to/promptkit build-arena
 Run the example:
 
 ```bash
-env PROMPTKIT_SCHEMA_SOURCE=local promptarena run --ci --formats json
+promptarena run --ci --formats json
 ```
 
 Or from the promptkit root:
 
 ```bash
-env -C examples/document-analysis PROMPTKIT_SCHEMA_SOURCE=local \
-  bin/promptarena run --ci --formats json
+env -C examples/document-analysis ../../bin/promptarena run --ci --formats json
 ```
 
 Successful output exits with code 0 and all four `composition_*` assertions pass.
@@ -99,8 +85,7 @@ input
 
 ## Schema status
 
-This example requires `PROMPTKIT_SCHEMA_SOURCE=local` because the `compositions`
-field and `orchestration: composition` state field have not yet been published to
-`https://promptkit.altairalabs.ai/schemas/v1alpha1/`. Once the next PromptKit
-release lands, this flag can be dropped and the example will validate against the
-remote schemas automatically.
+The `compositions` field, the `orchestration: composition` state mode, and the
+`composition_*` assertion types are published in the PromptPack spec **v1.5.0**
+(and PromptKit's bundled schemas), so this example validates against the remote
+schemas automatically — no `PROMPTKIT_SCHEMA_SOURCE=local` needed.
