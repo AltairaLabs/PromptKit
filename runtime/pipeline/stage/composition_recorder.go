@@ -8,6 +8,25 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
+// CompositionStepRecord is one entry in a CompositionSnapshot, capturing the
+// completion order, kind, retry attempt, and output of a single step.
+type CompositionStepRecord struct {
+	ID      string          `json:"id"`
+	Kind    string          `json:"kind"`
+	Attempt int             `json:"attempt"`
+	Output  json.RawMessage `json:"output,omitempty"`
+}
+
+// CompositionSnapshot is an ordered, richer per-turn view of composition
+// execution for report rendering. It is attached to the assistant message Meta
+// by CompositionStage so that JSON (and future HTML) reports can surface the
+// step-graph trace without touching the assertion-bridge maps.
+type CompositionSnapshot struct {
+	Steps    []CompositionStepRecord `json:"steps"`
+	Branches map[string]string       `json:"branches,omitempty"`
+	Parallel map[string]string       `json:"parallel,omitempty"`
+}
+
 // CompositionRecorder captures per-step composition execution data for Arena
 // observability. Populated during a single engine.Execute (RecordStepStarted and
 // RecordStepCompleted may fire from parallel-branch goroutines, hence the mutex)
@@ -16,11 +35,12 @@ import (
 // events; all map mutations occur under the mutex but the emitter is called
 // outside the lock to avoid holding it across emit from concurrent branches.
 type CompositionRecorder struct {
-	mu       sync.Mutex
-	steps    map[string]json.RawMessage
-	branches map[string]string
-	parallel map[string]string
-	emitter  *events.Emitter
+	mu          sync.Mutex
+	steps       map[string]json.RawMessage
+	branches    map[string]string
+	parallel    map[string]string
+	emitter     *events.Emitter
+	stepRecords []CompositionStepRecord
 }
 
 var _ engine.Recorder = (*CompositionRecorder)(nil)
@@ -53,6 +73,7 @@ func (r *CompositionRecorder) Reset() {
 	r.steps = map[string]json.RawMessage{}
 	r.branches = map[string]string{}
 	r.parallel = map[string]string{}
+	r.stepRecords = nil
 }
 
 // RecordStepStarted implements engine.Recorder.
@@ -69,11 +90,41 @@ func (r *CompositionRecorder) RecordStepStarted(id, kind string, input json.RawM
 func (r *CompositionRecorder) RecordStepCompleted(id, kind string, input, output json.RawMessage, attempt int, err error) { //nolint:lll
 	r.mu.Lock()
 	r.steps[id] = output
+	r.stepRecords = append(r.stepRecords, CompositionStepRecord{ID: id, Kind: kind, Attempt: attempt, Output: output})
 	em := r.emitter
 	r.mu.Unlock()
 	if em != nil {
 		em.CompositionStepCompleted(id, kind, input, output, attempt, err)
 	}
+}
+
+// Snapshot returns an ordered, richer per-turn view of the composition
+// execution for report rendering. The returned value is a deep copy safe to
+// read after the next Reset(). Returns nil when no steps, branches, or parallel
+// entries have been recorded (e.g. immediately after Reset).
+func (r *CompositionRecorder) Snapshot() *CompositionSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.stepRecords) == 0 && len(r.branches) == 0 && len(r.parallel) == 0 {
+		return nil
+	}
+	steps := make([]CompositionStepRecord, len(r.stepRecords))
+	copy(steps, r.stepRecords)
+	var branches map[string]string
+	if len(r.branches) > 0 {
+		branches = make(map[string]string, len(r.branches))
+		for k, v := range r.branches {
+			branches[k] = v
+		}
+	}
+	var parallel map[string]string
+	if len(r.parallel) > 0 {
+		parallel = make(map[string]string, len(r.parallel))
+		for k, v := range r.parallel {
+			parallel[k] = v
+		}
+	}
+	return &CompositionSnapshot{Steps: steps, Branches: branches, Parallel: parallel}
 }
 
 // RecordBranch implements engine.Recorder.

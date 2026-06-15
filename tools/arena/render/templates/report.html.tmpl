@@ -2172,6 +2172,7 @@
                                 {{$hasAvailableTools := false}}
                                 {{$hasToolDescriptors := false}}
                                 {{$hasWorkflowState := false}}
+                                {{$hasCompositionSnapshot := false}}
                                 {{$hasLLMTrace := false}}
                                 {{$hasFinishReason := false}}
                                 {{$hasPackEvals := false}}
@@ -2193,6 +2194,9 @@
                                         {{if index $metaMap "_workflow_state"}}
                                             {{$hasWorkflowState = true}}
                                         {{end}}
+                                        {{if index $metaMap "_composition_snapshot"}}
+                                            {{$hasCompositionSnapshot = true}}
+                                        {{end}}
                                         {{if index $metaMap "_llm_trace"}}
                                             {{$hasLLMTrace = true}}
                                         {{end}}
@@ -2209,7 +2213,7 @@
                                 {{$selfPlayPersonaID := selfPlayPersona $msg.Meta}}
                                 {{$selfPlayInfo := selfPlayDetails $msg.Meta}}
                                 {{$hasSelfPlayInfo := hasSelfPlayDetails $msg.Meta}}
-                                {{$hasDiagnostics := or $hasAssertions $hasValidators $hasAvailableTools $hasRawRequest $hasRawResponse $hasLLMTrace $hasPackEvals $hasWorkflowState $msg.CostInfo (not (not $msg.ToolCalls)) (eq $msg.Role "system") (eq $msg.Role "user")}}
+                                {{$hasDiagnostics := or $hasAssertions $hasValidators $hasAvailableTools $hasRawRequest $hasRawResponse $hasLLMTrace $hasPackEvals $hasWorkflowState $hasCompositionSnapshot $msg.CostInfo (not (not $msg.ToolCalls)) (eq $msg.Role "system") (eq $msg.Role "user")}}
                                 {{$assertionsFailed := not (assertionsPassed $assertions)}}
                                 {{$validatorsFailed := not (validatorsPassed $validators)}}
                                 {{$hasFailed := or $assertionsFailed $validatorsFailed}}
@@ -2313,6 +2317,9 @@
                                         {{end}}
                                         {{if $hasWorkflowState}}
                                         <div data-devtools="workflow">{{prettyJSON (index $msg.Meta "_workflow_state")}}</div>
+                                        {{end}}
+                                        {{if $hasCompositionSnapshot}}
+                                        <div data-devtools="composition">{{prettyJSON (index $msg.Meta "_composition_snapshot")}}</div>
                                         {{end}}
                                         {{if $msg.ToolCalls}}
                                         <div data-devtools="toolcalls">{{prettyJSON $msg.ToolCalls}}</div>
@@ -2546,6 +2553,7 @@
             var toolDescsEl = data.querySelector('[data-devtools="tooldescriptors"]');
             var toolcallsEl = data.querySelector('[data-devtools="toolcalls"]');
             var workflowEl = data.querySelector('[data-devtools="workflow"]');
+            var compositionEl = data.querySelector('[data-devtools="composition"]');
             var promptEl = data.querySelector('[data-devtools="systemprompt"]');
             var selfPlayEl = data.querySelector('[data-devtools="selfplay"]');
             var selfPlayInfoEl = data.querySelector('[data-devtools="selfplay-info"]');
@@ -2563,6 +2571,7 @@
             tabs.push({ id: 'info', label: 'Info', icon: 'ℹ️' });
 
             if (workflowEl) tabs.push({ id: 'workflow', label: 'Workflow', icon: '⚡' });
+            if (compositionEl) tabs.push({ id: 'composition', label: 'Composition', icon: '🔀' });
             if (metricsEl) tabs.push({ id: 'metrics', label: 'Metrics', icon: '📊' });
 
             if (toolsEl || toolcallsEl) {
@@ -2705,6 +2714,71 @@
                     }
                 } catch(e) {
                     html += '<div class="devtools-section"><div class="devtools-json">' + escapeHtml(workflowEl.textContent) + '</div></div>';
+                }
+                html += '</div>';
+            }
+
+            // --- Composition tab ---
+            if (compositionEl) {
+                html += '<div class="devtools-tab-content' + (firstTab === 'composition' ? ' active' : '') + '" data-tab-content="composition">';
+                try {
+                    var compData = JSON.parse(compositionEl.textContent);
+
+                    // Steps
+                    if (compData.steps && compData.steps.length > 0) {
+                        html += '<div class="devtools-section"><div class="devtools-section-title">Steps</div>';
+                        html += '<ol style="margin:0;padding-left:1.2rem;">';
+                        compData.steps.forEach(function(step, i) {
+                            var attempt = step.attempt > 1 ? ' <span style="color:#f38ba8;font-size:0.7rem;">attempt ' + step.attempt + '</span>' : '';
+                            html += '<li style="padding:0.4rem 0;border-bottom:1px solid #313244;">';
+                            html += '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">';
+                            html += '<span style="background:#89b4fa;color:#1e1e2e;padding:0.15rem 0.4rem;border-radius:3px;font-family:monospace;font-size:0.78rem;font-weight:600;">' + escapeHtml(step.id || '') + '</span>';
+                            html += '<span style="color:#6c7086;font-size:0.75rem;">' + escapeHtml(step.kind || '') + attempt + '</span>';
+                            html += '</div>';
+                            if (step.output !== undefined) {
+                                html += '<details style="margin-left:0.25rem;"><summary style="color:#a6adc8;font-size:0.75rem;cursor:pointer;">output</summary>';
+                                html += '<div class="devtools-json" style="margin-top:0.2rem;">' + escapeHtml(JSON.stringify(step.output, null, 2)) + '</div>';
+                                html += '</details>';
+                            }
+                            html += '</li>';
+                        });
+                        html += '</ol></div>';
+                    }
+
+                    // Branches
+                    if (compData.branches && Object.keys(compData.branches).length > 0) {
+                        html += '<div class="devtools-section"><div class="devtools-section-title">Branches</div>';
+                        var branches = compData.branches;
+                        for (var bk in branches) {
+                            if (branches.hasOwnProperty(bk)) {
+                                html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">';
+                                html += '<span style="color:#a6adc8;font-size:0.8rem;font-family:monospace;">' + escapeHtml(bk) + '</span>';
+                                html += '<span style="color:#585b70;">→</span>';
+                                html += '<span style="color:#a6e3a1;font-family:monospace;font-size:0.8rem;">' + escapeHtml(String(branches[bk])) + '</span>';
+                                html += '</div>';
+                            }
+                        }
+                        html += '</div>';
+                    }
+
+                    // Parallel
+                    if (compData.parallel && Object.keys(compData.parallel).length > 0) {
+                        html += '<div class="devtools-section"><div class="devtools-section-title">Parallel</div>';
+                        var parallel = compData.parallel;
+                        for (var pk in parallel) {
+                            if (parallel.hasOwnProperty(pk)) {
+                                html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;">';
+                                html += '<span style="color:#a6adc8;font-size:0.8rem;font-family:monospace;">' + escapeHtml(pk) + '</span>';
+                                html += '<span style="color:#585b70;">:</span>';
+                                html += '<span style="color:#cdd6f4;font-size:0.8rem;">' + escapeHtml(String(parallel[pk])) + '</span>';
+                                html += '</div>';
+                            }
+                        }
+                        html += '</div>';
+                    }
+
+                } catch(e) {
+                    html += '<div class="devtools-section"><div class="devtools-json">' + escapeHtml(compositionEl.textContent) + '</div></div>';
                 }
                 html += '</div>';
             }

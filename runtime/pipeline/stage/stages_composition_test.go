@@ -259,6 +259,66 @@ func drainChannel(ch <-chan StreamElement) []StreamElement {
 	return elems
 }
 
+// TestCompositionStage_AttachesSnapshotMeta verifies that when a
+// CompositionStage is constructed with a recorder, the assistant message emitted
+// after execution carries a non-nil *CompositionSnapshot under the
+// "_composition_snapshot" Meta key with at least one step recorded.
+func TestCompositionStage_AttachesSnapshotMeta(t *testing.T) {
+	reg := tools.NewRegistry()
+	registerEchoTool(t, reg, "echo")
+
+	comp := &composition.Composition{
+		Version: 1, Output: "a",
+		Steps: []*composition.Step{
+			{ID: "a", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"v": "${input.x}"}},
+		},
+	}
+	rec := NewCompositionRecorder()
+	cs := NewCompositionStageWithRecorder("snap-comp", comp, CompositionExecutorDeps{ToolRegistry: reg}, rec)
+
+	in := make(chan StreamElement, 1)
+	out := make(chan StreamElement, 10)
+
+	msg := &types.Message{Role: "user", Content: `{"x":"hello"}`}
+	in <- NewMessageElement(msg)
+	close(in)
+
+	if err := cs.Process(context.Background(), in, out); err != nil {
+		t.Fatalf("Process error: %v", err)
+	}
+
+	elems := drainChannel(out)
+	if len(elems) == 0 {
+		t.Fatal("expected at least one output element")
+	}
+
+	// Find the assistant message element.
+	var assistantMsg *types.Message
+	for _, e := range elems {
+		if e.Message != nil && e.Message.Role == roleAssistant {
+			assistantMsg = e.Message
+			break
+		}
+	}
+	if assistantMsg == nil {
+		t.Fatal("no assistant message element emitted")
+	}
+	if assistantMsg.Meta == nil {
+		t.Fatal("assistant message Meta is nil; expected _composition_snapshot")
+	}
+	raw, ok := assistantMsg.Meta[compositionSnapshotMetaKey]
+	if !ok {
+		t.Fatalf("Meta missing key %q; got keys: %v", compositionSnapshotMetaKey, assistantMsg.Meta)
+	}
+	snap, ok := raw.(*CompositionSnapshot)
+	if !ok {
+		t.Fatalf("Meta[%q] has type %T, want *CompositionSnapshot", compositionSnapshotMetaKey, raw)
+	}
+	if len(snap.Steps) == 0 {
+		t.Errorf("snapshot has no steps; want at least 1")
+	}
+}
+
 // TestCompositionStage_EmitsStartedAndCompleted verifies that CompositionStage
 // brackets a composition execution with composition.started (before engine.Execute)
 // and composition.completed (after), and that the two events appear in that order.
@@ -280,11 +340,11 @@ func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
 	em := events.NewEmitter(bus, "test-exec", "test-sess", "test-conv")
 
 	var mu sync.Mutex
-	var received []events.EventType
+	var received []*events.Event
 	bus.SubscribeAll(func(e *events.Event) {
 		mu.Lock()
 		defer mu.Unlock()
-		received = append(received, e.Type)
+		received = append(received, e)
 	})
 
 	rec := NewCompositionRecorder()
@@ -305,21 +365,24 @@ func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
 		t.Fatal("expected a response")
 	}
 
-	// Wait for async bus to drain.
+	// Wait for async bus to drain. Require started, completed, AND at least one
+	// step event, since async SubscribeAll delivery can deliver step events after
+	// composition.completed in arrival order.
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		mu.Lock()
-		startSeen := false
-		completedSeen := false
-		for _, et := range received {
-			if et == events.EventCompositionStarted {
+		startSeen, completedSeen, stepSeen := false, false, false
+		for _, e := range received {
+			switch e.Type {
+			case events.EventCompositionStarted:
 				startSeen = true
-			}
-			if et == events.EventCompositionCompleted {
+			case events.EventCompositionCompleted:
 				completedSeen = true
+			case events.EventCompositionStepStarted, events.EventCompositionStepCompleted:
+				stepSeen = true
 			}
 		}
-		done := startSeen && completedSeen
+		done := startSeen && completedSeen && stepSeen
 		mu.Unlock()
 		if done {
 			break
@@ -330,10 +393,20 @@ func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
+	// Sort by the bus-stamped Sequence: SubscribeAll delivery is async, so arrival
+	// order is not emission order. Sequence (stamped at emit) reflects emission order.
+	ordered := make([]*events.Event, len(received))
+	copy(ordered, received)
+	sortEventsBySequence(ordered)
+	receivedTypes := make([]events.EventType, len(ordered))
+	for i, e := range ordered {
+		receivedTypes[i] = e.Type
+	}
+
 	// Find the indices of composition.started and composition.completed.
 	startIdx := -1
 	completedIdx := -1
-	for i, et := range received {
+	for i, et := range receivedTypes {
 		switch et {
 		case events.EventCompositionStarted:
 			if startIdx == -1 {
@@ -356,20 +429,30 @@ func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
 	// started must come before completed.
 	if startIdx >= completedIdx {
 		t.Errorf("composition.started (idx %d) must precede composition.completed (idx %d); got events: %v",
-			startIdx, completedIdx, received)
+			startIdx, completedIdx, receivedTypes)
 	}
 
 	// At least one per-step event must appear between started and completed.
 	stepEventBetween := false
 	for i := startIdx + 1; i < completedIdx; i++ {
-		if received[i] == events.EventCompositionStepStarted ||
-			received[i] == events.EventCompositionStepCompleted {
+		if receivedTypes[i] == events.EventCompositionStepStarted ||
+			receivedTypes[i] == events.EventCompositionStepCompleted {
 			stepEventBetween = true
 			break
 		}
 	}
 	if !stepEventBetween {
-		t.Errorf("expected at least one step event between composition.started and composition.completed; got: %v", received)
+		t.Errorf("expected at least one step event between composition.started and composition.completed; got: %v", receivedTypes)
+	}
+}
+
+// sortEventsBySequence orders events by their bus-stamped Sequence (emission
+// order), insulating assertions from async SubscribeAll delivery reordering.
+func sortEventsBySequence(evs []*events.Event) {
+	for i := 1; i < len(evs); i++ {
+		for j := i; j > 0 && evs[j].Sequence < evs[j-1].Sequence; j-- {
+			evs[j], evs[j-1] = evs[j-1], evs[j]
+		}
 	}
 }
 

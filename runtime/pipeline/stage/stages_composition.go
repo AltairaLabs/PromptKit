@@ -13,6 +13,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
+// compositionSnapshotMetaKey is the key under which CompositionStage stores
+// the per-turn *CompositionSnapshot in the assistant message's Meta map.
+const compositionSnapshotMetaKey = "_composition_snapshot"
+
 // CompositionStage runs an RFC 0010 composition to completion as a single
 // pipeline stage: it reads the turn's input element, executes the composition's
 // step DAG via the engine, and emits one assistant element carrying the
@@ -83,6 +87,14 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 		}
 		executed = true
 		assistant := &types.Message{Role: roleAssistant, Content: string(result)}
+		if s.recorder != nil {
+			if snap := s.recorder.Snapshot(); snap != nil {
+				if assistant.Meta == nil {
+					assistant.Meta = map[string]interface{}{}
+				}
+				assistant.Meta[compositionSnapshotMetaKey] = snap
+			}
+		}
 		select {
 		case out <- NewMessageElement(assistant):
 		case <-ctx.Done():
