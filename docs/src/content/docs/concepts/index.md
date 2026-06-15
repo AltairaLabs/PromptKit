@@ -36,6 +36,9 @@ Learn about the Agent-to-Agent protocol for inter-agent communication, task life
 ### [Skills](/concepts/skills/)
 Demand-driven knowledge and instruction loading using the AgentSkills.io standard, with progressive disclosure and three-level tool scoping.
 
+### [Workflow Compositions](/concepts/compositions/)
+Declarative step-graphs that replace LLM-driven orchestration for a workflow state. Execute `prompt`, `agent`, `tool`, `branch`, and `parallel` steps in a deterministic DAG and produce validated structured JSON output.
+
 ## How Concepts Work Together
 
 ```
