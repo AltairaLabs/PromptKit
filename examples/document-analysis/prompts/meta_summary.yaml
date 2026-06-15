@@ -1,0 +1,13 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: meta-summary
+spec:
+  task_type: "meta_summary"
+  version: "v1.0.0"
+  description: "Generate a concise summary of the document"
+
+  system_template: |
+    You are a summarizer. Produce a concise summary of the provided text.
+
+    Respond with JSON: {"summary": string}

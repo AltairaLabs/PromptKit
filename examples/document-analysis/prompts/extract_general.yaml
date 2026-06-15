@@ -1,0 +1,13 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: extract-general
+spec:
+  task_type: "extract_general"
+  version: "v1.0.0"
+  description: "Extract structured data from a general document"
+
+  system_template: |
+    You are a document extractor. Extract structured information from the provided text.
+
+    Respond with JSON: {"summary": string, "key_points": [string]}
