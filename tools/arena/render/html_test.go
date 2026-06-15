@@ -475,6 +475,49 @@ func TestGenerateHTMLReport_CreatesFiles(t *testing.T) {
 	}
 }
 
+func TestGenerateHTMLReport_CompositionTab(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "composition-report.html")
+
+	result := createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond)
+	result.Messages = []types.Message{
+		{
+			Role:    "assistant",
+			Content: "Classified as paper.",
+			Meta: map[string]interface{}{
+				"_composition_snapshot": map[string]interface{}{
+					"steps": []map[string]interface{}{
+						{
+							"id":      "classify",
+							"kind":    "prompt",
+							"attempt": 1,
+						},
+					},
+					"branches": map[string]string{"route": "extract_paper"},
+				},
+			},
+		},
+	}
+
+	err := GenerateHTMLReport([]engine.RunResult{result}, outputPath)
+	if err != nil {
+		t.Fatalf("Failed to generate HTML report: %v", err)
+	}
+
+	htmlData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read HTML file: %v", err)
+	}
+	html := string(htmlData)
+
+	if !strings.Contains(html, `data-devtools="composition"`) {
+		t.Error("HTML does not contain composition data element (data-devtools=\"composition\")")
+	}
+	if !strings.Contains(html, "classify") {
+		t.Error("HTML does not contain composition step id 'classify'")
+	}
+}
+
 func TestGenerateHTMLReport_CreatesDirectory(t *testing.T) {
 	// Create temporary directory for test
 	tmpDir := t.TempDir()

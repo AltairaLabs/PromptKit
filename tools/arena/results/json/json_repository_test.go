@@ -428,6 +428,45 @@ func TestJSONResultRepository_GetSummary_InvalidJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse summary")
 }
 
+func TestJSONResultRepository_CompositionSnapshot(t *testing.T) {
+	tmpDir := t.TempDir()
+	repo := jsonrepo.NewJSONResultRepository(tmpDir)
+
+	result := createTestResult("run-comp-001", "scenario-comp", "openai", false, 0.001)
+	result.Messages = []types.Message{
+		{
+			Role:    "assistant",
+			Content: "Classified as paper.",
+			Meta: map[string]interface{}{
+				"_composition_snapshot": map[string]interface{}{
+					"steps": []map[string]interface{}{
+						{
+							"id":      "classify",
+							"kind":    "prompt",
+							"attempt": 1,
+							"output":  json.RawMessage(`{"type":"paper"}`),
+						},
+					},
+					"branches": map[string]string{"route": "extract_paper"},
+				},
+			},
+		},
+	}
+
+	err := repo.SaveResults([]engine.RunResult{result})
+	require.NoError(t, err)
+
+	filename := filepath.Join(tmpDir, "run-comp-001.json")
+	assert.FileExists(t, filename)
+
+	data, err := os.ReadFile(filename)
+	require.NoError(t, err)
+
+	content := string(data)
+	assert.Contains(t, content, "_composition_snapshot")
+	assert.Contains(t, content, "classify")
+}
+
 func TestJSONResultRepository_IntegrationTest(t *testing.T) {
 	tmpDir := t.TempDir()
 	repo := jsonrepo.NewJSONResultRepository(tmpDir)
