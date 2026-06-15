@@ -20,6 +20,10 @@ import (
 // Go error so composition step execution stops.
 var errToolFailed = fmt.Errorf("tool reported failure")
 
+// compositionStepIDKey is the metadata key stamped into TurnState.ProviderRequestMetadata
+// so that the mock provider (and any metadata-aware provider) can key per-step responses.
+const compositionStepIDKey = "composition_step_id"
+
 // toolScopeStage narrows TurnState.AllowedTools, after prompt assembly, to the
 // intersection of the prompt template's allowed tools and the composition step's
 // tools — matching how skill tools are scoped. A prompt step (no tools) therefore
@@ -109,7 +113,11 @@ func (deps CompositionExecutorDeps) execLLM(
 		return nil, fmt.Errorf("step %q: provider/prompt registry not configured", step.ID)
 	}
 
-	turnState := &TurnState{}
+	turnState := &TurnState{
+		// Stamp the executing step id so the mock provider can key per-step
+		// responses (Arena testability); flows to PredictionRequest.Metadata.
+		ProviderRequestMetadata: map[string]interface{}{compositionStepIDKey: step.ID},
+	}
 	promptStage := NewPromptAssemblyStageWithTurnState(deps.PromptRegistry, step.PromptTask, deps.BaseVariables, turnState)
 	templateStage := NewTemplateStageWithTurnState(deps.Emitter, turnState)
 
