@@ -50,6 +50,12 @@ func init() {
 	// Property invariant validators (Phase 3)
 	evals.RegisterDefault(&InvariantFieldsPreservedHandler{})
 
+	// Composition handlers (RFC 0010 — Arena testability)
+	evals.RegisterDefault(&CompositionStepOutputHandler{})
+	evals.RegisterDefault(&CompositionBranchTakenHandler{})
+	evals.RegisterDefault(&CompositionParallelCompleteHandler{})
+	evals.RegisterDefault(&CompositionOutputHandler{})
+
 	// Workflow and skill handlers (Batch 3)
 	evals.RegisterDefault(&WorkflowCompleteHandler{})
 	evals.RegisterDefault(&WorkflowStateIsHandler{})
