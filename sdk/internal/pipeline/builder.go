@@ -440,7 +440,8 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		if name == "" {
 			name = "composition"
 		}
-		return []stage.Stage{stage.NewCompositionStage(name, cfg.ActiveComposition, deps)}, nil
+		cs := stage.NewCompositionStageWithRecorder(name, cfg.ActiveComposition, deps, stage.NewCompositionRecorder())
+		return []stage.Stage{cs}, nil
 	}
 	if cfg.StreamInputProvider != nil {
 		// ASM mode: Direct audio streaming to LLM

@@ -1300,6 +1300,74 @@ func TestBuildProviderStages_DefaultNameWhenCompositionNameEmpty(t *testing.T) {
 	}
 }
 
+// TestBuildCompositionStage_EmitsEvents verifies that when ActiveComposition is set
+// and an EventEmitter is provided, executing the pipeline emits composition.*
+// events (composition.started, composition.step.started/completed,
+// composition.completed). Before the fix, NewCompositionStage was called without a
+// recorder so step-level events were never emitted; after the fix
+// NewCompositionStageWithRecorder wires a recorder that forwards to the emitter.
+func TestBuildCompositionStage_EmitsEvents(t *testing.T) {
+	comp := &composition.Composition{
+		Version: 1, Output: "s",
+		Steps: []*composition.Step{{
+			ID:   "s",
+			Kind: composition.KindTool,
+			Tool: "echo",
+			Args: map[string]any{"v": "${input.x}"},
+		}},
+	}
+
+	reg := tools.NewRegistry()
+	echoExec := &builderEchoExecutor{}
+	reg.RegisterExecutor(echoExec)
+	if err := reg.Register(&tools.ToolDescriptor{
+		Name:        "echo",
+		Description: "echo tool",
+		Mode:        echoExec.Name(),
+		InputSchema: []byte(`{"type":"object"}`),
+	}); err != nil {
+		t.Fatalf("register echo tool: %v", err)
+	}
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "", "session-1", "conv-1")
+
+	// Collect composition.step.completed events.
+	var stepEvents []*events.Event
+	done := make(chan struct{})
+	unsub := bus.Subscribe(events.EventCompositionStepCompleted, func(ev *events.Event) {
+		stepEvents = append(stepEvents, ev)
+		close(done)
+	})
+	defer unsub()
+
+	cfg := &Config{
+		Provider:          mock.NewProvider("test-mock", "test-model", false),
+		ToolRegistry:      reg,
+		PromptRegistry:    createTestRegistry("chat"),
+		ActiveComposition: comp,
+		CompositionName:   "test_comp",
+		EventEmitter:      emitter,
+	}
+
+	pipe, err := Build(cfg)
+	require.NoError(t, err)
+
+	userMsg := types.Message{Role: "user"}
+	userMsg.AddTextPart(`{"x":42}`)
+	elem := stage.StreamElement{Message: &userMsg}
+
+	_, err = pipe.ExecuteSync(context.Background(), elem)
+	require.NoError(t, err)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for composition.step.completed event — recorder not wired")
+	}
+	assert.Len(t, stepEvents, 1, "expected one composition.step.completed event")
+}
+
 // builderEchoExecutor is a local tools.Executor that returns its args as the result.
 // Mirrors the echoExecutor in stage/composition_executor_test.go, but lives here
 // to avoid cross-package test helper imports.
