@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -600,4 +601,66 @@ func (e *Emitter) STTCallFailedCtx(ctx context.Context, data *STTCallFailedData)
 		return
 	}
 	e.emitCtx(ctx, EventSTTCallFailed, data)
+}
+
+// errString converts err to its message string, returning "" for nil.
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// CompositionStarted emits the composition.started event.
+func (e *Emitter) CompositionStarted(name string, input json.RawMessage) {
+	e.emit(EventCompositionStarted, &CompositionStartedData{Composition: name, Input: input})
+}
+
+// CompositionStartedCtx emits the composition.started event with trace context for exemplar correlation.
+func (e *Emitter) CompositionStartedCtx(ctx context.Context, name string, input json.RawMessage) {
+	e.emitCtx(ctx, EventCompositionStarted, &CompositionStartedData{Composition: name, Input: input})
+}
+
+// CompositionCompleted emits the composition.completed event.
+// err is converted to an error string; pass nil for successful completions.
+func (e *Emitter) CompositionCompleted(name string, output json.RawMessage, err error, durationMs int64) {
+	e.emit(EventCompositionCompleted, &CompositionCompletedData{
+		Composition: name,
+		Output:      output,
+		Error:       errString(err),
+		DurationMs:  durationMs,
+	})
+}
+
+// CompositionStepStarted emits the composition.step.started event.
+func (e *Emitter) CompositionStepStarted(stepID, kind string, input json.RawMessage) {
+	e.emit(EventCompositionStepStarted, &CompositionStepStartedData{StepID: stepID, Kind: kind, Input: input})
+}
+
+// CompositionStepStartedCtx emits the composition.step.started event with trace context for exemplar correlation.
+func (e *Emitter) CompositionStepStartedCtx(ctx context.Context, stepID, kind string, input json.RawMessage) {
+	e.emitCtx(ctx, EventCompositionStepStarted, &CompositionStepStartedData{StepID: stepID, Kind: kind, Input: input})
+}
+
+// CompositionStepCompleted emits the composition.step.completed event.
+// err is converted to an error string; pass nil for successful steps.
+func (e *Emitter) CompositionStepCompleted(stepID, kind string, input, output json.RawMessage, attempt int, err error) {
+	e.emit(EventCompositionStepCompleted, &CompositionStepCompletedData{
+		StepID:  stepID,
+		Kind:    kind,
+		Input:   input,
+		Output:  output,
+		Attempt: attempt,
+		Error:   errString(err),
+	})
+}
+
+// CompositionBranchEvaluated emits the composition.branch.evaluated event.
+func (e *Emitter) CompositionBranchEvaluated(stepID, taken string) {
+	e.emit(EventCompositionBranchEvaluated, &CompositionBranchEvaluatedData{StepID: stepID, Taken: taken})
+}
+
+// CompositionParallelCompleted emits the composition.parallel.completed event.
+func (e *Emitter) CompositionParallelCompleted(stepID string, branches []CompositionParallelBranch) {
+	e.emit(EventCompositionParallelCompleted, &CompositionParallelCompletedData{StepID: stepID, Branches: branches})
 }
