@@ -391,6 +391,18 @@ func (r *Registry) Load(activity string) *AssembledPrompt {
 	return r.LoadWithVars(activity, make(map[string]string), "")
 }
 
+// logPromptLoadFailure logs a prompt-config load failure. An empty activity is
+// expected for workflow states with no prompt_task (composition /
+// agent-orchestration states, RFC 0010) — benign, logged at Debug. ERROR is
+// reserved for genuinely-missing named prompts.
+func logPromptLoadFailure(activity string, err error) {
+	if activity == "" {
+		logger.Debug("No prompt config for empty activity (composition/orchestration state)", "error", err)
+		return
+	}
+	logger.Error("Failed to load prompt config", "activity", activity, "error", err)
+}
+
 // LoadTemplate loads a prompt without rendering, returning the raw template and
 // all metadata needed to render it later. This is the preferred path for pipeline
 // stages that separate assembly from rendering (e.g. PromptAssemblyStage +
@@ -398,7 +410,7 @@ func (r *Registry) Load(activity string) *AssembledPrompt {
 func (r *Registry) LoadTemplate(activity string, vars map[string]string, model string) (*Template, error) {
 	config, err := r.loadConfig(activity)
 	if err != nil {
-		logger.Error("Failed to load prompt config", "activity", activity, "error", err)
+		logPromptLoadFailure(activity, err)
 		return nil, fmt.Errorf("failed to load prompt config for %q: %w", activity, err)
 	}
 
