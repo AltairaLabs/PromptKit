@@ -356,6 +356,13 @@ func (e *PipelineExecutor) buildStagePipeline(
 		emitter := emitterFromRequest(req)
 		guardrailHooks := loadGuardrailHooks(req, mergedVars)
 		hookReg := buildHookRegistry(req, guardrailHooks)
+		// BaseMetadata propagates mock_scenario_id (and future per-turn metadata)
+		// into composition sub-pipelines so the mock provider can key per-step
+		// responses against the right scenario.
+		baseMetadata := map[string]interface{}{}
+		if req.Scenario != nil && req.Scenario.ID != "" && isMockProvider(req.Provider) {
+			baseMetadata["mock_scenario_id"] = req.Scenario.ID
+		}
 		deps := stage.CompositionExecutorDeps{
 			PromptRegistry: req.PromptRegistry,
 			Provider:       req.Provider,
@@ -364,6 +371,7 @@ func (e *PipelineExecutor) buildStagePipeline(
 			HookRegistry:   hookReg,
 			BaseVariables:  mergedVars,
 			SchemaResolver: stage.NewFileSchemaResolver(req.BaseDir),
+			BaseMetadata:   baseMetadata,
 		}
 		// RFC 0010 Task 5: when a per-run recorder is wired, build the
 		// CompositionStage with it so step outputs, branch targets, and

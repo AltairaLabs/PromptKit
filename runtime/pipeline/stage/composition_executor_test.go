@@ -10,6 +10,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
@@ -524,6 +526,87 @@ func TestCompositionExecutor_HooksFirePerStep(t *testing.T) {
 	}
 	if hk.count() == 0 {
 		t.Error("expected the provider hook to fire for the step's sub-pipeline, but AfterCall count is 0")
+	}
+}
+
+// recordingProvider is a minimal providers.Provider stub that records the
+// PredictionRequest.Metadata from the most recent Predict call. Used to verify
+// that BaseMetadata is threaded through to the provider request.
+type recordingProvider struct {
+	lastMetadata map[string]interface{}
+}
+
+func (r *recordingProvider) ID() string                               { return "recording" }
+func (r *recordingProvider) Name() string                             { return "recording" }
+func (r *recordingProvider) Type() base.ProviderType                  { return base.ProviderTypeInference }
+func (r *recordingProvider) Pricing() *base.PricingDescriptor         { return nil }
+func (r *recordingProvider) Validate() error                          { return nil }
+func (r *recordingProvider) Init(_ context.Context) error             { return nil }
+func (r *recordingProvider) HealthCheck(_ context.Context) error      { return nil }
+func (r *recordingProvider) Model() string                            { return "recording-model" }
+func (r *recordingProvider) SupportsStreaming() bool                  { return false }
+func (r *recordingProvider) ShouldIncludeRawOutput() bool             { return false }
+func (r *recordingProvider) CalculateCost(_, _, _ int) types.CostInfo { return types.CostInfo{} }
+func (r *recordingProvider) Close() error                             { return nil }
+
+func (r *recordingProvider) Predict(_ context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	r.lastMetadata = req.Metadata
+	return providers.PredictionResponse{Content: "ok"}, nil
+}
+
+func (r *recordingProvider) PredictStream(_ context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	r.lastMetadata = req.Metadata
+	ch := make(chan providers.StreamChunk, 1)
+	ch <- providers.StreamChunk{Content: "ok", Delta: "ok", FinishReason: strPtr("stop"),
+		FinalResult: &providers.PredictionResponse{Content: "ok"}}
+	close(ch)
+	return ch, nil
+}
+
+func strPtr(s string) *string { return &s }
+
+// TestCompositionExecutor_BaseMetadataThreaded verifies that keys set in
+// CompositionExecutorDeps.BaseMetadata are forwarded to the provider's
+// PredictionRequest.Metadata alongside the composition_step_id.
+// This covers the BaseMetadata merge added in the inline-fixes PR.
+func TestCompositionExecutor_BaseMetadataThreaded(t *testing.T) {
+	repo := newMockRepo()
+	reg := prompt.NewRegistryWithRepository(repo)
+	registerSimplePrompt(t, reg, "p")
+
+	prov := &recordingProvider{}
+
+	exec := NewCompositionStepExecutor(CompositionExecutorDeps{
+		PromptRegistry: reg,
+		Provider:       prov,
+		ToolRegistry:   tools.NewRegistry(),
+		BaseMetadata: map[string]interface{}{
+			"mock_scenario_id": "sc1",
+			"extra_key":        "extra_val",
+		},
+	})
+
+	step := &composition.Step{ID: "my-step", Kind: composition.KindPrompt, PromptTask: "p"}
+	if _, err := exec(context.Background(), step, json.RawMessage(`"hello"`)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := prov.lastMetadata
+	if got == nil {
+		t.Fatal("provider received nil metadata — BaseMetadata was not threaded")
+	}
+
+	// composition_step_id must be stamped
+	if got["composition_step_id"] != "my-step" {
+		t.Errorf("composition_step_id = %v, want %q", got["composition_step_id"], "my-step")
+	}
+
+	// base metadata keys must be merged in
+	if got["mock_scenario_id"] != "sc1" {
+		t.Errorf("mock_scenario_id = %v, want %q", got["mock_scenario_id"], "sc1")
+	}
+	if got["extra_key"] != "extra_val" {
+		t.Errorf("extra_key = %v, want %q", got["extra_key"], "extra_val")
 	}
 }
 
