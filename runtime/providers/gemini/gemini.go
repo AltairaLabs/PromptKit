@@ -359,11 +359,49 @@ func (p *Provider) applyResponseFormat(req *geminiRequest, rf *providers.Respons
 		if len(rf.JSONSchema) > 0 {
 			var schema interface{}
 			if err := json.Unmarshal(rf.JSONSchema, &schema); err == nil {
-				req.GenerationConfig.ResponseSchema = schema
+				// Gemini's responseSchema is an OpenAPI 3.0 subset and rejects
+				// standard JSON Schema keywords like $schema/additionalProperties.
+				req.GenerationConfig.ResponseSchema = sanitizeGeminiSchema(schema)
 			}
 		}
 	case providers.ResponseFormatText:
 		// Text is default, no changes needed
+	}
+}
+
+// geminiUnsupportedSchemaKeys are JSON Schema keywords that Gemini's
+// responseSchema (an OpenAPI 3.0 Schema subset) does not accept and that cause
+// a 400 INVALID_ARGUMENT if present.
+var geminiUnsupportedSchemaKeys = map[string]bool{
+	"$schema":              true,
+	"$id":                  true,
+	"$ref":                 true,
+	"$defs":                true,
+	"definitions":          true,
+	"$comment":             true,
+	"additionalProperties": true,
+}
+
+// sanitizeGeminiSchema recursively removes JSON Schema keywords Gemini rejects,
+// so a standard pack output_schema can be reused as a Gemini responseSchema.
+func sanitizeGeminiSchema(v interface{}) interface{} {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(t))
+		for k, val := range t {
+			if geminiUnsupportedSchemaKeys[k] {
+				continue
+			}
+			out[k] = sanitizeGeminiSchema(val)
+		}
+		return out
+	case []interface{}:
+		for i, e := range t {
+			t[i] = sanitizeGeminiSchema(e)
+		}
+		return t
+	default:
+		return v
 	}
 }
 
