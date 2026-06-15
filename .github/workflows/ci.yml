@@ -537,9 +537,16 @@ jobs:
           --ci \
           --formats json,junit,html,markdown
 
+    - name: Test document-analysis example (RFC 0010 composition)
+      run: |
+        cd examples/document-analysis
+        ../../bin/promptarena run --config config.arena.yaml \
+          --ci \
+          --formats json,junit,html,markdown
+
     - name: Verify outputs were generated
       run: |
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test" "eval-test")
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test" "eval-test" "document-analysis")
 
         for example in "${EXAMPLES[@]}"; do
           echo "=== Verifying $example ==="
@@ -573,8 +580,8 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         
         # Combine results from all examples
-        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test" "eval-test")
-        EXAMPLE_NAMES=("Customer Support" "Multimodal Basics" "Variables Demo" "Assertions Test" "LLM Judge" "Guardrails Test" "Eval Test")
+        EXAMPLES=("customer-support" "multimodal-basics" "variables-demo" "assertions-test" "llm-judge" "guardrails-test" "eval-test" "document-analysis")
+        EXAMPLE_NAMES=("Customer Support" "Multimodal Basics" "Variables Demo" "Assertions Test" "LLM Judge" "Guardrails Test" "Eval Test" "Document Analysis (Composition)")
         
         for i in "${!EXAMPLES[@]}"; do
           example="${EXAMPLES[$i]}"
