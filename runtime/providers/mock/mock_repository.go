@@ -40,6 +40,7 @@ type ResponseParams struct {
 	ModelName  string // Optional: Model name being mocked
 	PersonaID  string // Optional: ID of the persona for selfplay user responses
 	ArenaRole  string // Optional: Role in arena (e.g., "self_play_user")
+	StepID     string // Optional: Composition step ID for per-step mock responses
 }
 
 // Turn represents a structured mock response that may include tool calls and multimodal content.
@@ -124,6 +125,12 @@ type ScenarioConfig struct {
 	// Turn-specific responses keyed by turn number (1-indexed)
 	// Supports both simple string responses (backward compatibility) and structured Turn responses
 	Turns map[int]interface{} `yaml:"turns,omitempty"`
+
+	// Step-specific responses keyed by composition step ID.
+	// When ResponseParams.StepID is set and matches a key here, this entry is
+	// returned ahead of any turn-number lookup. Supports the same string or
+	// structured Turn formats as Turns entries.
+	Steps map[string]interface{} `yaml:"steps,omitempty"`
 }
 
 // FileMockRepository loads mock responses from a YAML configuration file.
@@ -214,6 +221,7 @@ func (r *FileMockRepository) logGetTurnDebug(params *ResponseParams) {
 	logger.Debug("FileMockRepository GetTurn",
 		"scenario_id", params.ScenarioID,
 		"turn_number", params.TurnNumber,
+		"step_id", params.StepID,
 		"provider_id", params.ProviderID,
 		"model", params.ModelName,
 		"persona_id", params.PersonaID,
@@ -237,6 +245,11 @@ func (r *FileMockRepository) getScenarioTurn(params *ResponseParams) *Turn {
 	}
 
 	logger.Debug("Found scenario in config", "scenario_id", params.ScenarioID)
+
+	// Try step-specific response (ahead of turn-number lookup)
+	if turn := r.getScenarioStepResponse(params, &scenario); turn != nil {
+		return turn
+	}
 
 	// Try turn-specific response
 	if turn := r.getScenarioTurnResponse(params, &scenario); turn != nil {
@@ -278,6 +291,33 @@ func (r *FileMockRepository) getScenarioTurnResponse(params *ResponseParams, sce
 	turn, err := r.parseTurnResponse(turnResponse)
 	if err != nil {
 		logger.Debug("Failed to parse turn response", "error", err)
+		return nil
+	}
+	return turn
+}
+
+// getScenarioStepResponse attempts to get a step-specific response from a scenario.
+// It is called when params.StepID is non-empty and the resolved scenario has a
+// Steps map. Uses the same parseTurnResponse path as turn-number entries.
+func (r *FileMockRepository) getScenarioStepResponse(params *ResponseParams, scenario *ScenarioConfig) *Turn {
+	if params.StepID == "" || len(scenario.Steps) == 0 {
+		return nil
+	}
+
+	stepResponse, ok := scenario.Steps[params.StepID]
+	if !ok {
+		logger.Debug("No step-specific response found", "step_id", params.StepID)
+		return nil
+	}
+
+	logger.Debug("Using scenario+step specific response",
+		"scenario_id", params.ScenarioID,
+		"step_id", params.StepID,
+		"response_type", fmt.Sprintf("%T", stepResponse))
+
+	turn, err := r.parseTurnResponse(stepResponse)
+	if err != nil {
+		logger.Debug("Failed to parse step response", "error", err)
 		return nil
 	}
 	return turn

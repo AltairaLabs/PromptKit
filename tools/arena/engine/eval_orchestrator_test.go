@@ -145,6 +145,40 @@ func TestBuildEvalContext_BridgesLatencyMs(t *testing.T) {
 		"buildEvalContext should bridge latest assistant LatencyMs into metadata so latency_budget can read it")
 }
 
+type fakeCompositionMetaProvider struct{ md map[string]any }
+
+func (f *fakeCompositionMetaProvider) CompositionMetadata() map[string]any { return f.md }
+
+func TestBuildEvalContext_BridgesCompositionMetadata(t *testing.T) {
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
+	hook.SetCompositionMetadataProvider(&fakeCompositionMetaProvider{md: map[string]any{
+		"composition_step_outputs":    map[string]any{"classify": "x"},
+		"composition_branch_taken":    map[string]any{"route": "paper"},
+		"composition_parallel_status": map[string]any{"meta": "complete"},
+	}})
+	messages := []types.Message{types.NewAssistantMessage("done")}
+
+	evalCtx := hook.buildEvalContext(messages, 1, "s")
+
+	require.NotNil(t, evalCtx.Metadata)
+	assert.NotNil(t, evalCtx.Metadata["composition_step_outputs"], "composition step outputs should be bridged")
+	assert.Equal(t, "paper", evalCtx.Metadata["composition_branch_taken"].(map[string]any)["route"])
+	assert.Equal(t, "complete", evalCtx.Metadata["composition_parallel_status"].(map[string]any)["meta"])
+}
+
+func TestEvalOrchestrator_CloneResetsCompositionProvider(t *testing.T) {
+	hook := NewEvalOrchestrator(newTestRegistry(), nil, false, nil, "chat")
+	hook.SetCompositionMetadataProvider(&fakeCompositionMetaProvider{md: map[string]any{
+		"composition_step_outputs": map[string]any{"a": "b"},
+	}})
+
+	clone := hook.Clone()
+	evalCtx := clone.buildEvalContext([]types.Message{types.NewAssistantMessage("x")}, 1, "s")
+
+	_, present := evalCtx.Metadata["composition_step_outputs"]
+	assert.False(t, present, "Clone must reset compositionMetaProvider for per-run isolation")
+}
+
 func TestBuildEvalContext_BridgesZeroLatency(t *testing.T) {
 	// Sub-millisecond mock provider calls produce LatencyMs == 0 but the
 	// metadata key should still be present — handlers may want to assert

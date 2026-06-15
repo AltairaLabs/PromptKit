@@ -365,7 +365,16 @@ func (e *PipelineExecutor) buildStagePipeline(
 			BaseVariables:  mergedVars,
 			SchemaResolver: stage.NewFileSchemaResolver(req.BaseDir),
 		}
-		stages = append(stages, stage.NewCompositionStage("composition", req.ActiveComposition, deps))
+		// RFC 0010 Task 5: when a per-run recorder is wired, build the
+		// CompositionStage with it so step outputs, branch targets, and
+		// parallel statuses are captured for composition_* assertions.
+		if req.CompositionRecorder != nil {
+			stages = append(stages, stage.NewCompositionStageWithRecorder(
+				"composition", req.ActiveComposition, deps, req.CompositionRecorder,
+			))
+		} else {
+			stages = append(stages, stage.NewCompositionStage("composition", req.ActiveComposition, deps))
+		}
 	} else {
 		providerConfig := buildProviderConfig(req)
 		guardrailHooks := loadGuardrailHooks(req, mergedVars)

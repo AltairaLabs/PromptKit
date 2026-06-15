@@ -223,6 +223,9 @@ func (m *Provider) buildResponseParams(req providers.PredictionRequest) Response
 		if arenaRole, ok := req.Metadata["arena_role"].(string); ok {
 			params.ArenaRole = arenaRole
 		}
+		if stepID, ok := req.Metadata["composition_step_id"].(string); ok {
+			params.StepID = stepID
+		}
 	}
 
 	return params

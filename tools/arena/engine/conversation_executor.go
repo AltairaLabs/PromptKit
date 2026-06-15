@@ -331,32 +331,41 @@ func (ce *DefaultConversationExecutor) buildTurnRequest(req ConversationRequest,
 		activeComposition = req.ActiveCompositionResolver()
 	}
 
+	// RFC 0010 Task 5: reset the per-run composition recorder at the start of
+	// each turn so stale outputs from the previous turn do not bleed into the
+	// current turn's assertion context. Nil-safe: non-composition runs have no
+	// recorder set on the ConversationRequest.
+	if req.CompositionRecorder != nil {
+		req.CompositionRecorder.Reset()
+	}
+
 	return turnexecutors.TurnRequest{
-		Provider:          req.Provider,
-		Scenario:          req.Scenario,
-		PromptRegistry:    ce.promptRegistry,
-		TaskType:          req.Scenario.TaskType,
-		Region:            req.Region,
-		PromptVars:        promptVars,
-		BaseDir:           baseDir,
-		Temperature:       temperature,
-		MaxTokens:         maxTokens,
-		Seed:              &req.Config.Defaults.Seed,
-		StateStoreConfig:  convertStateStoreConfig(req.StateStoreConfig),
-		ConversationID:    req.ConversationID,
-		RunID:             req.RunID,
-		EventBus:          req.EventBus,
-		ScriptedContent:   scenarioTurn.Content, // Legacy text content (for backward compatibility)
-		ScriptedParts:     scenarioTurn.Parts,   // Multimodal content parts (takes precedence over ScriptedContent)
-		ConsentOverrides:  scenarioTurn.ConsentOverrides,
-		ChaosConfig:       scenarioTurn.Chaos,
-		Assertions:        scenarioTurn.Assertions,
-		TurnEvalRunner:    ce.resolveEvalOrchestrator(&req),
-		RecordingConfig:   req.RecordingConfig,
-		EventStore:        req.EventStore,
-		AudioRouter:       req.AudioRouter,
-		Metadata:          metadata,
-		ActiveComposition: activeComposition,
+		Provider:            req.Provider,
+		Scenario:            req.Scenario,
+		PromptRegistry:      ce.promptRegistry,
+		TaskType:            req.Scenario.TaskType,
+		Region:              req.Region,
+		PromptVars:          promptVars,
+		BaseDir:             baseDir,
+		Temperature:         temperature,
+		MaxTokens:           maxTokens,
+		Seed:                &req.Config.Defaults.Seed,
+		StateStoreConfig:    convertStateStoreConfig(req.StateStoreConfig),
+		ConversationID:      req.ConversationID,
+		RunID:               req.RunID,
+		EventBus:            req.EventBus,
+		ScriptedContent:     scenarioTurn.Content, // Legacy text content (for backward compatibility)
+		ScriptedParts:       scenarioTurn.Parts,   // Multimodal content parts (takes precedence over ScriptedContent)
+		ConsentOverrides:    scenarioTurn.ConsentOverrides,
+		ChaosConfig:         scenarioTurn.Chaos,
+		Assertions:          scenarioTurn.Assertions,
+		TurnEvalRunner:      ce.resolveEvalOrchestrator(&req),
+		RecordingConfig:     req.RecordingConfig,
+		EventStore:          req.EventStore,
+		AudioRouter:         req.AudioRouter,
+		Metadata:            metadata,
+		ActiveComposition:   activeComposition,
+		CompositionRecorder: req.CompositionRecorder,
 	}
 }
 

@@ -1668,6 +1668,12 @@ func TestRegisterInit(t *testing.T) {
 		"max_sentences",
 		"required_fields",
 
+		// Composition handlers (RFC 0010)
+		"composition_step_output",
+		"composition_branch_taken",
+		"composition_parallel_complete",
+		"composition_output",
+
 		// Wrapper handlers (resolve inner evals from registry)
 		"assertion",
 		"guardrail",
