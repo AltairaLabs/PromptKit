@@ -399,12 +399,36 @@ func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
 
 // Claude API request/response structures
 type claudeRequest struct {
-	Model       string               `json:"model"`
-	MaxTokens   int                  `json:"max_tokens"`
-	Messages    []claudeMessage      `json:"messages"`
-	System      []claudeContentBlock `json:"system,omitempty"`
-	Temperature float32              `json:"temperature,omitempty"`
-	TopP        float32              `json:"top_p,omitempty"`
+	Model        string               `json:"model"`
+	MaxTokens    int                  `json:"max_tokens"`
+	Messages     []claudeMessage      `json:"messages"`
+	System       []claudeContentBlock `json:"system,omitempty"`
+	Temperature  float32              `json:"temperature,omitempty"`
+	TopP         float32              `json:"top_p,omitempty"`
+	OutputConfig *claudeOutputConfig  `json:"output_config,omitempty"`
+}
+
+// claudeOutputConfig requests native structured outputs (GA, no beta header):
+// the response is guaranteed valid JSON conforming to the schema, returned in
+// content[0].text. https://platform.claude.com/docs/en/docs/build-with-claude/structured-outputs
+type claudeOutputConfig struct {
+	Format claudeOutputFormat `json:"format"`
+}
+
+type claudeOutputFormat struct {
+	Type   string          `json:"type"`   // "json_schema"
+	Schema json.RawMessage `json:"schema"` // the raw JSON schema
+}
+
+// outputConfigFor maps a provider ResponseFormat to Anthropic's output_config.
+// Returns nil unless a JSON-schema response format with a schema is set.
+func outputConfigFor(rf *providers.ResponseFormat) *claudeOutputConfig {
+	if rf == nil || rf.Type != providers.ResponseFormatJSONSchema || len(rf.JSONSchema) == 0 {
+		return nil
+	}
+	return &claudeOutputConfig{
+		Format: claudeOutputFormat{Type: "json_schema", Schema: rf.JSONSchema},
+	}
 }
 
 type claudeMessage struct {
@@ -755,6 +779,8 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	if p.paramSupported("temperature") {
 		claudeReq.Temperature = temperature
 	}
+	// Native structured outputs: map a JSON-schema ResponseFormat to output_config.
+	claudeReq.OutputConfig = outputConfigFor(req.ResponseFormat)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{

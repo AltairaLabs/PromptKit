@@ -70,6 +70,12 @@ func (p *Provider) PredictStream(
 		}
 	}
 
+	// Native structured outputs (output_config). PredictStream is the no-tools
+	// path, so there's no tool-use conflict to guard against.
+	if oc := outputConfigFor(req.ResponseFormat); oc != nil {
+		claudeReq["output_config"] = oc
+	}
+
 	// Bedrock: use binary event-stream format, wired through the same
 	// RunStreamingRequest path as the direct API so Bedrock gets retry,
 	// budget, semaphore, and metrics for free.
