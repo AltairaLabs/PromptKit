@@ -166,8 +166,8 @@ func (e *Engine) prepareWorkflowScenario(scenario *config.Scenario, runID string
 	}
 
 	// Build the per-run emitter once and reuse it for both the
-	// workflowTransitionExecutor (which fires events on every commit, eager
-	// or deferred) and the workflow metadata provider (which may eager-commit
+	// workflowTransitionExecutor (which fires events on commit) and the
+	// workflow metadata provider (which may commit a pending transition
 	// during a metadata read).
 	var emitter *events.Emitter
 	if e.eventBus != nil {
@@ -335,9 +335,8 @@ func (e *Engine) wireWorkflowHooks(req *ConversationRequest, runID string) {
 	// prompt drives the turn) and stamp it onto the turn's assistant result. This
 	// makes composition-orchestrated terminal states visible per turn — they
 	// transition no tool, so the legacy enrichMessagesWithWorkflowState replay
-	// can't see them. Reading at turn start (not end) is correct for both
-	// user-control (deferred CommitPending) and agent-control (eager mid-turn
-	// commit), since the prompt was built from the turn-start state.
+	// can't see them. Reading at turn start (not end) is correct because the
+	// prompt was built from the turn-start state.
 	// ConversationID is set to runID by executeRun (after this hook wiring), so
 	// use runID directly as the conversation key for the stamp.
 	conversationID := runID

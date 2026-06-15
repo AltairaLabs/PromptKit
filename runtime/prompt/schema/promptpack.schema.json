@@ -1289,11 +1289,6 @@
           "description": "Reference to a composition key defined in the pack's compositions object (RFC 0010). Required when orchestration is 'composition'; absent otherwise.",
           "examples": ["analyze_document", "classify_document"]
         },
-        "control": {
-          "type": "string",
-          "description": "Who holds control after a transition into this state. 'user' (default) ends the agent's turn; 'agent' lets the agent keep the turn so it can fire further transitions inside the same pipeline turn.",
-          "enum": ["user", "agent"]
-        },
         "skills": {
           "type": "string",
           "description": "Skill filter for this workflow state. A path to a skill directory/file that scopes which skills are available in this state, or the literal 'none' to disable skills.",
