@@ -330,6 +330,63 @@ func (e *Engine) wireWorkflowHooks(req *ConversationRequest, runID string) {
 	// buildTurnRequest can stamp it onto every TurnRequest, enabling
 	// NewCompositionStageWithRecorder to record step outputs per turn.
 	req.CompositionRecorder = e.workflowTransExec.CompositionRecorder(runID)
+
+	// Issue #1374: capture the live workflow state at turn start (the state whose
+	// prompt drives the turn) and stamp it onto the turn's assistant result. This
+	// makes composition-orchestrated terminal states visible per turn — they
+	// transition no tool, so the legacy enrichMessagesWithWorkflowState replay
+	// can't see them. Reading at turn start (not end) is correct for both
+	// user-control (deferred CommitPending) and agent-control (eager mid-turn
+	// commit), since the prompt was built from the turn-start state.
+	// ConversationID is set to runID by executeRun (after this hook wiring), so
+	// use runID directly as the conversation key for the stamp.
+	conversationID := runID
+	req.CurrentWorkflowState = func() map[string]interface{} {
+		sm := e.workflowTransExec.StateMachine(runID)
+		if sm == nil {
+			return nil
+		}
+		return e.buildEntryStateMeta(sm.CurrentState())
+	}
+	req.StampWorkflowState = func(meta map[string]interface{}) {
+		e.stampCurrentWorkflowState(conversationID, meta)
+	}
+}
+
+// stampCurrentWorkflowState attaches current_workflow_state metadata to the last
+// assistant message of the conversation. It mirrors enrichMessagesWithWorkflowState's
+// load/mutate/save against the engine's ArenaStateStore but stamps a distinct,
+// explicit per-turn key (current_workflow_state) and leaves the legacy
+// _workflow_state path untouched. No-op when meta is nil or no assistant message
+// exists yet (e.g. plain user turns).
+func (e *Engine) stampCurrentWorkflowState(conversationID string, meta map[string]interface{}) {
+	if meta == nil {
+		return
+	}
+	store, ok := e.stateStore.(*arenastore.ArenaStateStore)
+	if !ok {
+		return
+	}
+	ctx := context.Background()
+	convState, err := store.Load(ctx, conversationID)
+	if err != nil {
+		logger.Warn("Failed to load conversation for current workflow state stamp",
+			"conversation_id", conversationID, "error", err)
+		return
+	}
+	if convState == nil || len(convState.Messages) == 0 {
+		return
+	}
+	for i := len(convState.Messages) - 1; i >= 0; i-- {
+		if convState.Messages[i].Role == roleAssistant {
+			setMeta(&convState.Messages[i], "current_workflow_state", meta)
+			if saveErr := store.Save(ctx, convState); saveErr != nil {
+				logger.Warn("Failed to save current workflow state metadata",
+					"conversation_id", convState.ID, "error", saveErr)
+			}
+			return
+		}
+	}
 }
 
 // buildCompositionResolver returns a function that resolves the active

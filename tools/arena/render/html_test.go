@@ -518,6 +518,46 @@ func TestGenerateHTMLReport_CompositionTab(t *testing.T) {
 	}
 }
 
+// TestGenerateHTMLReport_CurrentWorkflowStateTab verifies that an assistant
+// message carrying the explicit per-turn current_workflow_state (issue #1374)
+// renders the Workflow devtools tab with the state name, even without the legacy
+// _workflow_state key (the composition-orchestrated terminal-state case).
+func TestGenerateHTMLReport_CurrentWorkflowStateTab(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "current-workflow-state-report.html")
+
+	result := createTestResult(testRunID1, testProviderOpenAI, testRegionUSWest, testScenario1, 0.05, 100, 50, false, 500*time.Millisecond)
+	result.Messages = []types.Message{
+		{
+			Role:    "assistant",
+			Content: "Analyzing the document.",
+			Meta: map[string]interface{}{
+				"current_workflow_state": map[string]interface{}{
+					"current_state": "analyzing",
+					"description":   "Analyzing the uploaded document",
+				},
+			},
+		},
+	}
+
+	if err := GenerateHTMLReport([]engine.RunResult{result}, outputPath); err != nil {
+		t.Fatalf("Failed to generate HTML report: %v", err)
+	}
+
+	htmlData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read HTML file: %v", err)
+	}
+	html := string(htmlData)
+
+	if !strings.Contains(html, `data-devtools="workflow"`) {
+		t.Error("HTML does not contain workflow data element (data-devtools=\"workflow\")")
+	}
+	if !strings.Contains(html, "analyzing") {
+		t.Error("HTML does not contain workflow state name 'analyzing'")
+	}
+}
+
 func TestGenerateHTMLReport_CreatesDirectory(t *testing.T) {
 	// Create temporary directory for test
 	tmpDir := t.TempDir()
