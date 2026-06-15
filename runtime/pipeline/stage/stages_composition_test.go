@@ -340,11 +340,11 @@ func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
 	em := events.NewEmitter(bus, "test-exec", "test-sess", "test-conv")
 
 	var mu sync.Mutex
-	var received []events.EventType
+	var received []*events.Event
 	bus.SubscribeAll(func(e *events.Event) {
 		mu.Lock()
 		defer mu.Unlock()
-		received = append(received, e.Type)
+		received = append(received, e)
 	})
 
 	rec := NewCompositionRecorder()
@@ -365,21 +365,24 @@ func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
 		t.Fatal("expected a response")
 	}
 
-	// Wait for async bus to drain.
+	// Wait for async bus to drain. Require started, completed, AND at least one
+	// step event, since async SubscribeAll delivery can deliver step events after
+	// composition.completed in arrival order.
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		mu.Lock()
-		startSeen := false
-		completedSeen := false
-		for _, et := range received {
-			if et == events.EventCompositionStarted {
+		startSeen, completedSeen, stepSeen := false, false, false
+		for _, e := range received {
+			switch e.Type {
+			case events.EventCompositionStarted:
 				startSeen = true
-			}
-			if et == events.EventCompositionCompleted {
+			case events.EventCompositionCompleted:
 				completedSeen = true
+			case events.EventCompositionStepStarted, events.EventCompositionStepCompleted:
+				stepSeen = true
 			}
 		}
-		done := startSeen && completedSeen
+		done := startSeen && completedSeen && stepSeen
 		mu.Unlock()
 		if done {
 			break
@@ -390,10 +393,20 @@ func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
+	// Sort by the bus-stamped Sequence: SubscribeAll delivery is async, so arrival
+	// order is not emission order. Sequence (stamped at emit) reflects emission order.
+	ordered := make([]*events.Event, len(received))
+	copy(ordered, received)
+	sortEventsBySequence(ordered)
+	receivedTypes := make([]events.EventType, len(ordered))
+	for i, e := range ordered {
+		receivedTypes[i] = e.Type
+	}
+
 	// Find the indices of composition.started and composition.completed.
 	startIdx := -1
 	completedIdx := -1
-	for i, et := range received {
+	for i, et := range receivedTypes {
 		switch et {
 		case events.EventCompositionStarted:
 			if startIdx == -1 {
@@ -416,20 +429,30 @@ func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
 	// started must come before completed.
 	if startIdx >= completedIdx {
 		t.Errorf("composition.started (idx %d) must precede composition.completed (idx %d); got events: %v",
-			startIdx, completedIdx, received)
+			startIdx, completedIdx, receivedTypes)
 	}
 
 	// At least one per-step event must appear between started and completed.
 	stepEventBetween := false
 	for i := startIdx + 1; i < completedIdx; i++ {
-		if received[i] == events.EventCompositionStepStarted ||
-			received[i] == events.EventCompositionStepCompleted {
+		if receivedTypes[i] == events.EventCompositionStepStarted ||
+			receivedTypes[i] == events.EventCompositionStepCompleted {
 			stepEventBetween = true
 			break
 		}
 	}
 	if !stepEventBetween {
-		t.Errorf("expected at least one step event between composition.started and composition.completed; got: %v", received)
+		t.Errorf("expected at least one step event between composition.started and composition.completed; got: %v", receivedTypes)
+	}
+}
+
+// sortEventsBySequence orders events by their bus-stamped Sequence (emission
+// order), insulating assertions from async SubscribeAll delivery reordering.
+func sortEventsBySequence(evs []*events.Event) {
+	for i := 1; i < len(evs); i++ {
+		for j := i; j > 0 && evs[j].Sequence < evs[j-1].Sequence; j-- {
+			evs[j], evs[j-1] = evs[j-1], evs[j]
+		}
 	}
 }
 
