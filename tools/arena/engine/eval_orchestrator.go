@@ -16,6 +16,14 @@ type WorkflowMetadataProvider interface {
 	WorkflowMetadata() map[string]any
 }
 
+// CompositionMetadataProvider is implemented by types that provide per-turn
+// composition observability (step outputs, branch-taken, parallel status) for
+// injection into the eval context, so composition_* assertions can target
+// intermediate steps. Set per-run for composition scenarios (RFC 0010).
+type CompositionMetadataProvider interface {
+	CompositionMetadata() map[string]any
+}
+
 // EvalOrchestrator orchestrates eval and assertion execution during Arena runs.
 type EvalOrchestrator struct {
 	runner               *evals.EvalRunner
@@ -24,6 +32,9 @@ type EvalOrchestrator struct {
 	metadata             map[string]any           // injected into every EvalContext (e.g. judge_targets)
 	eventBus             events.Bus               // optional event bus for provider call telemetry in evals
 	workflowMetaProvider WorkflowMetadataProvider // optional workflow state provider
+	// compositionMetaProvider, when set (per-run), injects composition step
+	// observability into every EvalContext for composition_* assertions.
+	compositionMetaProvider CompositionMetadataProvider
 	// classifyRegistry, when non-nil, is attached to the context passed to
 	// every eval/assertion handler invocation via classify.WithRegistry.
 	// Handlers that need a classifier (audio_emotion, text_toxicity, ...)
@@ -68,6 +79,7 @@ func (h *EvalOrchestrator) Clone() *EvalOrchestrator {
 	}
 	clone := *h
 	clone.workflowMetaProvider = nil
+	clone.compositionMetaProvider = nil
 	// Clone the runner so the emitter is independent per run.
 	// The emitter is wired per-call in buildEvalContext with proper session IDs.
 	if h.runner != nil {
@@ -267,6 +279,16 @@ func (h *EvalOrchestrator) SetWorkflowMetadataProvider(provider WorkflowMetadata
 	h.workflowMetaProvider = provider
 }
 
+// SetCompositionMetadataProvider sets the composition observability provider for
+// eval context injection. Called per-run for composition scenarios so
+// composition_* assertions can access per-step outputs/branch/parallel status.
+func (h *EvalOrchestrator) SetCompositionMetadataProvider(provider CompositionMetadataProvider) {
+	if h == nil {
+		return
+	}
+	h.compositionMetaProvider = provider
+}
+
 // buildEvalContext constructs an EvalContext from Arena messages.
 // Delegates to the shared evals.BuildEvalContext helper.
 // If an event bus is configured, an emitter is injected into metadata
@@ -280,7 +302,7 @@ func (h *EvalOrchestrator) buildEvalContext(
 ) *evals.EvalContext {
 	latencyMs, haveLatency := latestAssistantLatencyMs(messages)
 	metadata := h.metadata
-	needsCopy := h.eventBus != nil || h.workflowMetaProvider != nil || haveLatency
+	needsCopy := h.eventBus != nil || h.workflowMetaProvider != nil || h.compositionMetaProvider != nil || haveLatency
 	if needsCopy {
 		merged := make(map[string]any, len(metadata)+4) //nolint:mnd // extra capacity for emitter + workflow + latency keys
 		for k, v := range metadata {
@@ -297,6 +319,11 @@ func (h *EvalOrchestrator) buildEvalContext(
 		}
 		if h.workflowMetaProvider != nil {
 			for k, v := range h.workflowMetaProvider.WorkflowMetadata() {
+				merged[k] = v
+			}
+		}
+		if h.compositionMetaProvider != nil {
+			for k, v := range h.compositionMetaProvider.CompositionMetadata() {
 				merged[k] = v
 			}
 		}
