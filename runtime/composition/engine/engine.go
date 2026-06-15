@@ -19,10 +19,12 @@ import (
 type StepExecutor func(ctx context.Context, step *composition.Step, input json.RawMessage) (json.RawMessage, error)
 
 // Recorder observes step execution for observability (Arena testability). Methods
-// are called during Execute; a nil Recorder disables recording. RecordStep may be
-// called concurrently from parallel branches — implementations must be safe.
+// are called during Execute; a nil Recorder disables recording. RecordStepStarted
+// and RecordStepCompleted may be called concurrently from parallel branches —
+// implementations must be safe.
 type Recorder interface {
-	RecordStep(stepID string, output any)
+	RecordStepStarted(stepID, kind string, input json.RawMessage)
+	RecordStepCompleted(stepID, kind string, input, output json.RawMessage, attempt int, err error)
 	RecordBranch(stepID string, takenTarget string)
 	RecordParallel(stepID string, branches []NamedOutput)
 }
@@ -121,9 +123,6 @@ func (e *Engine) runStep(
 		}
 		scope[step.ID] = map[string]any{scopeOutputKey: out}
 		status[step.ID] = statusCompleted
-		if e.recorder != nil {
-			e.recorder.RecordStep(step.ID, out)
-		}
 		return step.ID, nil
 	default:
 		return "", fmt.Errorf("step %q: unknown kind %q", step.ID, step.Kind)
@@ -167,20 +166,28 @@ func (e *Engine) runLeaf(ctx context.Context, step *composition.Step, scope Scop
 	if err != nil {
 		return nil, fmt.Errorf("marshaling resolved input: %w", err)
 	}
-	out, err := e.execWithRetry(ctx, step, resolvedJSON)
-	if err != nil {
-		return nil, err
+	kind := string(step.Kind)
+	if e.recorder != nil {
+		e.recorder.RecordStepStarted(step.ID, kind, resolvedJSON)
+	}
+	out, attempt, execErr := e.execWithRetry(ctx, step, resolvedJSON)
+	if e.recorder != nil {
+		e.recorder.RecordStepCompleted(step.ID, kind, resolvedJSON, out, attempt, execErr)
+	}
+	if execErr != nil {
+		return nil, execErr
 	}
 	return decodeOutput(out)
 }
 
 // execWithRetry invokes the executor, retrying per the step's retry modifier.
 // max_attempts is the total attempt count (a missing/zero/one modifier means a
-// single attempt). The last error propagates when the budget is exhausted. Used
+// single attempt). Returns the raw output, the number of attempts actually made,
+// and any error. The last error propagates when the budget is exhausted. Used
 // by runLeaf, so parallel branches inherit retry too.
 func (e *Engine) execWithRetry(
 	ctx context.Context, step *composition.Step, input json.RawMessage,
-) (json.RawMessage, error) {
+) (json.RawMessage, int, error) {
 	attempts := 1
 	if step.Modifiers != nil && step.Modifiers.Retry != nil && step.Modifiers.Retry.MaxAttempts > 1 {
 		attempts = step.Modifiers.Retry.MaxAttempts
@@ -188,15 +195,15 @@ func (e *Engine) execWithRetry(
 	var lastErr error
 	for i := 0; i < attempts; i++ {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, i + 1, err
 		}
 		out, err := e.exec(ctx, step, input)
 		if err == nil {
-			return out, nil
+			return out, i + 1, nil
 		}
 		lastErr = err
 	}
-	return nil, lastErr
+	return nil, attempts, lastErr
 }
 
 // decodeOutput turns a step's raw JSON output into a scope value. Empty output and

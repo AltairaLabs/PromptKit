@@ -5,17 +5,22 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition/engine"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 )
 
 // CompositionRecorder captures per-step composition execution data for Arena
-// observability. Populated during a single engine.Execute (RecordStep may fire
-// from parallel-branch goroutines, hence the mutex) and read afterward via
-// CompositionMetadata. Reset() is called at the start of each turn.
+// observability. Populated during a single engine.Execute (RecordStepStarted and
+// RecordStepCompleted may fire from parallel-branch goroutines, hence the mutex)
+// and read afterward via CompositionMetadata. Reset() is called at the start of
+// each turn. An optional Emitter (set via SetEmitter) receives composition.*
+// events; all map mutations occur under the mutex but the emitter is called
+// outside the lock to avoid holding it across emit from concurrent branches.
 type CompositionRecorder struct {
 	mu       sync.Mutex
 	steps    map[string]json.RawMessage
 	branches map[string]string
 	parallel map[string]string
+	emitter  *events.Emitter
 }
 
 var _ engine.Recorder = (*CompositionRecorder)(nil)
@@ -33,7 +38,15 @@ func NewCompositionRecorder() *CompositionRecorder {
 	}
 }
 
-// Reset clears all recorded data (called per turn).
+// SetEmitter wires an Emitter so the recorder publishes composition.* events.
+// Safe to call concurrently; replaces any previously set emitter.
+func (r *CompositionRecorder) SetEmitter(em *events.Emitter) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.emitter = em
+}
+
+// Reset clears all recorded data (called per turn). Does NOT clear the emitter.
 func (r *CompositionRecorder) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -42,26 +55,51 @@ func (r *CompositionRecorder) Reset() {
 	r.parallel = map[string]string{}
 }
 
-// RecordStep implements engine.Recorder.
-func (r *CompositionRecorder) RecordStep(id string, out any) {
-	raw, _ := json.Marshal(out)
+// RecordStepStarted implements engine.Recorder.
+func (r *CompositionRecorder) RecordStepStarted(id, kind string, input json.RawMessage) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.steps[id] = raw
+	em := r.emitter
+	r.mu.Unlock()
+	if em != nil {
+		em.CompositionStepStarted(id, kind, input)
+	}
+}
+
+// RecordStepCompleted implements engine.Recorder.
+func (r *CompositionRecorder) RecordStepCompleted(id, kind string, input, output json.RawMessage, attempt int, err error) { //nolint:lll
+	r.mu.Lock()
+	r.steps[id] = output
+	em := r.emitter
+	r.mu.Unlock()
+	if em != nil {
+		em.CompositionStepCompleted(id, kind, input, output, attempt, err)
+	}
 }
 
 // RecordBranch implements engine.Recorder.
 func (r *CompositionRecorder) RecordBranch(id, taken string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.branches[id] = taken
+	em := r.emitter
+	r.mu.Unlock()
+	if em != nil {
+		em.CompositionBranchEvaluated(id, taken)
+	}
 }
 
 // RecordParallel implements engine.Recorder.
-func (r *CompositionRecorder) RecordParallel(id string, _ []engine.NamedOutput) {
+func (r *CompositionRecorder) RecordParallel(id string, branches []engine.NamedOutput) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.parallel[id] = parallelStatusComplete
+	em := r.emitter
+	r.mu.Unlock()
+	if em != nil {
+		evBranches := make([]events.CompositionParallelBranch, len(branches))
+		for i, o := range branches {
+			evBranches[i] = events.CompositionParallelBranch{ID: o.ID, Status: parallelStatusComplete}
+		}
+		em.CompositionParallelCompleted(id, evBranches)
+	}
 }
 
 // CompositionMetadata returns a flat snapshot for the eval metadata bridge.
