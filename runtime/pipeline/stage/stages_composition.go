@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/composition/engine"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
 
@@ -20,15 +22,17 @@ type CompositionStage struct {
 	comp     *composition.Composition
 	eng      *engine.Engine
 	recorder *CompositionRecorder
+	emitter  *events.Emitter
 }
 
 // NewCompositionStage builds a CompositionStage from a composition spec and the
 // runtime collaborators its steps need.
 func NewCompositionStage(name string, comp *composition.Composition, deps CompositionExecutorDeps) *CompositionStage {
 	return &CompositionStage{
-		name: name,
-		comp: comp,
-		eng:  engine.New(NewCompositionStepExecutor(deps)),
+		name:    name,
+		comp:    comp,
+		eng:     engine.New(NewCompositionStepExecutor(deps)),
+		emitter: deps.Emitter,
 	}
 }
 
@@ -45,6 +49,7 @@ func NewCompositionStageWithRecorder(
 		comp:     comp,
 		eng:      engine.NewWithRecorder(NewCompositionStepExecutor(deps), rec),
 		recorder: rec,
+		emitter:  deps.Emitter,
 	}
 }
 
@@ -72,12 +77,9 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 			}
 			continue
 		}
-		if s.recorder != nil {
-			s.recorder.Reset()
-		}
-		result, err := s.eng.Execute(ctx, s.comp, compositionInput(elem.Message))
+		result, err := s.execute(ctx, elem.Message)
 		if err != nil {
-			return fmt.Errorf("composition %q: %w", s.name, err)
+			return err
 		}
 		executed = true
 		assistant := &types.Message{Role: roleAssistant, Content: string(result)}
@@ -88,6 +90,35 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 		}
 	}
 	return nil
+}
+
+// execute runs a single composition turn: prepares the recorder and emitter,
+// brackets the engine call with composition.started / composition.completed
+// events, and returns the engine output.
+func (s *CompositionStage) execute(ctx context.Context, msg *types.Message) (json.RawMessage, error) {
+	inputBytes := compositionInput(msg)
+	if s.recorder != nil {
+		if s.emitter != nil {
+			s.recorder.SetEmitter(s.emitter)
+		}
+		s.recorder.Reset()
+	}
+	if s.emitter != nil {
+		s.emitter.CompositionStartedCtx(ctx, s.name, inputBytes)
+	}
+	start := time.Now()
+	result, execErr := s.eng.Execute(ctx, s.comp, inputBytes)
+	if s.emitter != nil {
+		var outputBytes json.RawMessage
+		if result != nil {
+			outputBytes = result
+		}
+		s.emitter.CompositionCompleted(s.name, outputBytes, execErr, time.Since(start).Milliseconds())
+	}
+	if execErr != nil {
+		return nil, fmt.Errorf("composition %q: %w", s.name, execErr)
+	}
+	return result, nil
 }
 
 // compositionInput extracts the engine input JSON from a user message. Content

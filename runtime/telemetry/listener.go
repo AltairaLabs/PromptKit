@@ -24,10 +24,12 @@ const cleanupInterval = 1 * time.Minute
 // Span-entry key prefixes: every in-flight span is keyed by "<prefix><id>" in
 // the inflight map. The prefix disambiguates sibling spans that share an ID.
 const (
-	spanKeyPipeline   = "pipeline:"
-	spanKeyProvider   = "provider:"
-	spanKeyMiddleware = "middleware:"
-	spanKeyValidation = "validation:"
+	spanKeyPipeline        = "pipeline:"
+	spanKeyProvider        = "provider:"
+	spanKeyMiddleware      = "middleware:"
+	spanKeyValidation      = "validation:"
+	spanKeyComposition     = "composition:"
+	spanKeyCompositionStep = "composition.step:"
 )
 
 // OpenTelemetry GenAI semantic-convention attribute keys.
@@ -232,6 +234,17 @@ func (l *OTelEventListener) OnEvent(evt *events.Event) {
 		l.handleEvalCompleted(evt)
 	case events.EventEvalFailed:
 		l.handleEvalFailed(evt)
+	case events.EventCompositionStarted:
+		l.startComposition(evt)
+	case events.EventCompositionCompleted:
+		l.completeComposition(evt)
+	case events.EventCompositionStepStarted:
+		l.startCompositionStep(evt)
+	case events.EventCompositionStepCompleted:
+		l.completeCompositionStep(evt)
+	case events.EventCompositionBranchEvaluated, events.EventCompositionParallelCompleted:
+		// v1: branch and parallel are instantaneous signals recorded in the
+		// event stream and report; they do not produce OTel spans.
 	}
 }
 
@@ -672,4 +685,77 @@ func labelsToAttributes(labels map[string]string) []attribute.KeyValue {
 		attrs = append(attrs, attribute.String("promptkit.label."+k, v))
 	}
 	return attrs
+}
+
+// --- Composition ---
+
+// parentCtxForComposition returns the context of the in-flight composition span
+// for the given executionID, falling back to the session root span context.
+// This mirrors parentCtxForRun, but resolves via spanKeyComposition instead of
+// spanKeyPipeline, allowing composition.step spans to be nested under their
+// parent composition span.
+func (l *OTelEventListener) parentCtxForComposition(sessionID, executionID string) context.Context {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if entry, ok := l.inflight[spanKeyComposition+executionID]; ok {
+		return entry.ctx
+	}
+	if ss, ok := l.sessions[sessionID]; ok {
+		return ss.ctx
+	}
+	return context.Background()
+}
+
+func (l *OTelEventListener) startComposition(evt *events.Event) {
+	data, ok := asPtr[events.CompositionStartedData](evt.Data)
+	if !ok {
+		return
+	}
+	l.startSpan(l.sessionCtx(evt.SessionID), spanKeyComposition+evt.ExecutionID,
+		"promptkit.composition",
+		trace.SpanKindInternal,
+		attribute.String("promptkit.composition.name", data.Composition),
+		attribute.String("promptkit.run.id", evt.ExecutionID),
+	)
+}
+
+func (l *OTelEventListener) completeComposition(evt *events.Event) {
+	data, ok := asPtr[events.CompositionCompletedData](evt.Data)
+	if !ok {
+		return
+	}
+	if data.Error != "" {
+		l.failSpan(spanKeyComposition+evt.ExecutionID, data.Error)
+		return
+	}
+	l.endSpan(spanKeyComposition+evt.ExecutionID,
+		attribute.Int64("promptkit.composition.duration_ms", data.DurationMs),
+	)
+}
+
+func (l *OTelEventListener) startCompositionStep(evt *events.Event) {
+	data, ok := asPtr[events.CompositionStepStartedData](evt.Data)
+	if !ok {
+		return
+	}
+	key := spanKeyCompositionStep + evt.ExecutionID + ":" + data.StepID
+	l.startSpan(l.parentCtxForComposition(evt.SessionID, evt.ExecutionID), key,
+		"promptkit.composition.step",
+		trace.SpanKindInternal,
+		attribute.String("promptkit.composition.step_id", data.StepID),
+		attribute.String("promptkit.composition.step_kind", data.Kind),
+	)
+}
+
+func (l *OTelEventListener) completeCompositionStep(evt *events.Event) {
+	data, ok := asPtr[events.CompositionStepCompletedData](evt.Data)
+	if !ok {
+		return
+	}
+	key := spanKeyCompositionStep + evt.ExecutionID + ":" + data.StepID
+	if data.Error != "" {
+		l.failSpan(key, data.Error)
+		return
+	}
+	l.endSpan(key, attribute.Int("promptkit.composition.step_attempt", data.Attempt))
 }

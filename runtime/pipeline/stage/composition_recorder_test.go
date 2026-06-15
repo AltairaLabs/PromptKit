@@ -3,9 +3,12 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
 )
@@ -138,4 +141,125 @@ func mapKeys(m map[string]json.RawMessage) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// TestCompositionRecorderEmitter verifies that SetEmitter wires event emission:
+// (a) CompositionMetadata() still returns the expected bridge maps, and
+// (b) the bus receives matching composition.* events for each hook.
+func TestCompositionRecorderEmitter(t *testing.T) {
+	reg := tools.NewRegistry()
+	registerEchoTool(t, reg, "echo")
+
+	// Same composition layout as TestCompositionRecorder.
+	comp := &composition.Composition{
+		Version: 1, Output: "fin",
+		Steps: []*composition.Step{
+			{
+				ID:        "br",
+				Kind:      composition.KindBranch,
+				Predicate: &composition.Predicate{Path: "${input.flag}", Op: "equals", Value: "a"},
+				Then:      "leaf_a",
+				Else:      "leaf_b",
+			},
+			{ID: "leaf_a", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"v": "A"}},
+			{ID: "leaf_b", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"v": "B"}, DependsOn: []string{"leaf_a"}},
+			{
+				ID:   "par",
+				Kind: composition.KindParallel,
+				Branches: []*composition.Step{
+					{ID: "p1", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"n": "1"}},
+					{ID: "p2", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"n": "2"}},
+				},
+				Reduce: &composition.Reducer{Strategy: composition.ReduceBarrier, Into: "m"},
+			},
+			{ID: "fin", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"out": "${par.output.m}"}},
+		},
+	}
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	em := events.NewEmitter(bus, "test-exec", "test-sess", "test-conv")
+
+	var mu sync.Mutex
+	seen := map[events.EventType]int{}
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen[e.Type]++
+	})
+
+	rec := NewCompositionRecorder()
+	rec.SetEmitter(em)
+	cs := NewCompositionStageWithRecorder("emitter-comp", comp, CompositionExecutorDeps{ToolRegistry: reg}, rec)
+
+	pipe, err := NewPipelineBuilder().Chain(cs).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg := types.Message{Role: "user", Content: `{"flag":"a"}`}
+	res, err := pipe.ExecuteSync(context.Background(), NewMessageElement(&msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || res.Response == nil {
+		t.Fatal("expected a response")
+	}
+
+	// Give the async bus time to drain.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		done := seen[events.EventCompositionStepStarted] > 0 &&
+			seen[events.EventCompositionStepCompleted] > 0 &&
+			seen[events.EventCompositionBranchEvaluated] > 0 &&
+			seen[events.EventCompositionParallelCompleted] > 0
+		mu.Unlock()
+		if done {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// (a) Bridge maps must still be populated correctly.
+	meta := rec.CompositionMetadata()
+	stepOutputs, _ := meta["composition_step_outputs"].(map[string]json.RawMessage)
+	if _, found := stepOutputs["leaf_a"]; !found {
+		t.Error("bridge: composition_step_outputs missing leaf_a")
+	}
+	if _, found := stepOutputs["fin"]; !found {
+		t.Error("bridge: composition_step_outputs missing fin")
+	}
+	branches, _ := meta["composition_branch_taken"].(map[string]string)
+	if branches["br"] != "leaf_a" {
+		t.Errorf("bridge: composition_branch_taken['br'] = %q, want 'leaf_a'", branches["br"])
+	}
+	parallel, _ := meta["composition_parallel_status"].(map[string]string)
+	if parallel["par"] != "complete" {
+		t.Errorf("bridge: composition_parallel_status['par'] = %q, want 'complete'", parallel["par"])
+	}
+
+	// (b) The bus received composition.* events.
+	if seen[events.EventCompositionStepStarted] == 0 {
+		t.Error("no composition.step.started events received")
+	}
+	if seen[events.EventCompositionStepCompleted] == 0 {
+		t.Error("no composition.step.completed events received")
+	}
+	if seen[events.EventCompositionBranchEvaluated] == 0 {
+		t.Error("no composition.branch.evaluated events received")
+	}
+	if seen[events.EventCompositionParallelCompleted] == 0 {
+		t.Error("no composition.parallel.completed events received")
+	}
+
+	// Reset must clear bridge maps but NOT the emitter.
+	rec.Reset()
+	afterReset := rec.CompositionMetadata()
+	if steps, _ := afterReset["composition_step_outputs"].(map[string]json.RawMessage); len(steps) != 0 {
+		t.Errorf("after Reset, composition_step_outputs not empty: %v", steps)
+	}
 }

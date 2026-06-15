@@ -647,24 +647,32 @@ func TestExecute_ParallelBranchRetry(t *testing.T) {
 
 // fakeRecorder is a test-only Recorder that captures what the engine observes.
 type fakeRecorder struct {
-	mu       sync.Mutex
-	steps    map[string]any
-	branches map[string]string
-	parallel map[string]bool
+	mu        sync.Mutex
+	started   map[string]string // stepID -> kind
+	completed map[string]int    // stepID -> attempt
+	branches  map[string]string
+	parallel  map[string]bool
 }
 
 func newFakeRecorder() *fakeRecorder {
 	return &fakeRecorder{
-		steps:    map[string]any{},
-		branches: map[string]string{},
-		parallel: map[string]bool{},
+		started:   map[string]string{},
+		completed: map[string]int{},
+		branches:  map[string]string{},
+		parallel:  map[string]bool{},
 	}
 }
 
-func (r *fakeRecorder) RecordStep(id string, out any) {
+func (r *fakeRecorder) RecordStepStarted(id, kind string, _ json.RawMessage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.steps[id] = out
+	r.started[id] = kind
+}
+
+func (r *fakeRecorder) RecordStepCompleted(id, kind string, _, _ json.RawMessage, attempt int, _ error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.completed[id] = attempt
 }
 
 func (r *fakeRecorder) RecordBranch(id, taken string) {
@@ -695,25 +703,38 @@ func TestEngine_RecorderBranch(t *testing.T) {
 	if rec.branches["route"] != "paper" {
 		t.Errorf("branch taken = %q, want paper", rec.branches["route"])
 	}
-	// taken step "paper" should be recorded
-	if _, ok := rec.steps["paper"]; !ok {
-		t.Error("paper step not recorded")
+	// taken step "paper": started with kind "prompt", completed with attempt 1
+	if kind, ok := rec.started["paper"]; !ok || kind != string(composition.KindPrompt) {
+		t.Errorf("paper started kind = %q (ok=%v), want %q", kind, ok, string(composition.KindPrompt))
+	}
+	if attempt, ok := rec.completed["paper"]; !ok || attempt != 1 {
+		t.Errorf("paper completed attempt = %d (ok=%v), want 1", attempt, ok)
 	}
 	// skipped step "general" must NOT be recorded
-	if _, ok := rec.steps["general"]; ok {
-		t.Error("skipped general should not be recorded")
+	if _, ok := rec.started["general"]; ok {
+		t.Error("skipped general should not be in started")
 	}
-	// "classify" and "join" also ran and should be recorded
-	if _, ok := rec.steps["classify"]; !ok {
-		t.Error("classify step not recorded")
+	if _, ok := rec.completed["general"]; ok {
+		t.Error("skipped general should not be in completed")
 	}
-	if _, ok := rec.steps["join"]; !ok {
-		t.Error("join step not recorded")
+	// "classify" and "join" also ran and should be started/completed
+	if _, ok := rec.started["classify"]; !ok {
+		t.Error("classify step not in started")
+	}
+	if _, ok := rec.completed["classify"]; !ok {
+		t.Error("classify step not in completed")
+	}
+	if _, ok := rec.started["join"]; !ok {
+		t.Error("join step not in started")
+	}
+	if _, ok := rec.completed["join"]; !ok {
+		t.Error("join step not in completed")
 	}
 }
 
 func TestEngine_RecorderParallel(t *testing.T) {
 	// parallel step "meta" with two tool branches; assert rec.parallel["meta"]==true after Execute.
+	// Branch steps "a" and "b" are leaf steps — they should appear in started/completed too.
 	comp := &composition.Composition{
 		Version: 1, Output: "meta",
 		Steps: []*composition.Step{
@@ -732,6 +753,19 @@ func TestEngine_RecorderParallel(t *testing.T) {
 	}
 	if !rec.parallel["meta"] {
 		t.Error("parallel step meta not recorded")
+	}
+	// branch leaf steps should also appear in started/completed
+	if _, ok := rec.started["a"]; !ok {
+		t.Error("branch a not in started")
+	}
+	if _, ok := rec.completed["a"]; !ok {
+		t.Error("branch a not in completed")
+	}
+	if _, ok := rec.started["b"]; !ok {
+		t.Error("branch b not in started")
+	}
+	if _, ok := rec.completed["b"]; !ok {
+		t.Error("branch b not in completed")
 	}
 }
 
