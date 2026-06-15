@@ -266,85 +266,14 @@ func newTestRegistry(t *testing.T) *tools.Registry {
 	return tools.NewRegistry()
 }
 
-func TestTransitionExecutor_AgentControlEagerCommit(t *testing.T) {
-	spec := &Spec{
-		Version: 2,
-		Entry:   "a",
-		States: map[string]*State{
-			"a": {PromptTask: "t-a", OnEvent: map[string]string{"Go": "b"}},
-			"b": {
-				PromptTask:  "t-b",
-				Description: "B is agent-controlled — keep the turn",
-				Control:     ControlModeAgent,
-				OnEvent:     map[string]string{"Finish": "done"},
-			},
-			"done": {PromptTask: "t-done", Terminal: true},
-		},
-	}
-	sm := NewStateMachine(spec)
-	exec := NewTransitionExecutor(sm, spec)
-
-	var committed []*TransitionResult
-	exec.SetOnCommit(func(tr *TransitionResult) {
-		committed = append(committed, tr)
-	})
-
-	args, _ := json.Marshal(map[string]string{"event": "Go", "context": "test"})
-	raw, err := exec.Execute(context.Background(), nil, args)
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-
-	if sm.CurrentState() != "b" {
-		t.Errorf("state after eager commit = %q, want 'b'", sm.CurrentState())
-	}
-	if exec.Pending() != nil {
-		t.Error("pending must be nil after eager commit")
-	}
-	if len(committed) != 1 || committed[0].To != "b" {
-		t.Errorf("onCommit not fired correctly: %+v", committed)
-	}
-
-	// CommitPending must be a no-op now.
-	tr, err := exec.CommitPending()
-	if err != nil {
-		t.Fatalf("CommitPending: %v", err)
-	}
-	if tr != nil {
-		t.Errorf("CommitPending must return nil after eager commit, got %+v", tr)
-	}
-
-	// Response must include the new state's metadata so the LLM can act on it.
-	var resp map[string]any
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp["status"] != "transitioned" {
-		t.Errorf("status = %q, want 'transitioned'", resp["status"])
-	}
-	if resp["to"] != "b" {
-		t.Errorf("to = %q, want 'b'", resp["to"])
-	}
-	if resp["prompt_task"] != "t-b" {
-		t.Errorf("prompt_task = %v, want 't-b'", resp["prompt_task"])
-	}
-	if resp["description"] == nil {
-		t.Errorf("description must be populated")
-	}
-	events, ok := resp["available_events"].([]any)
-	if !ok || len(events) != 1 || events[0] != "Finish" {
-		t.Errorf("available_events = %v, want ['Finish']", resp["available_events"])
-	}
-}
-
-func TestTransitionExecutor_UserControlStillDefers(t *testing.T) {
-	// Default Control ("") must behave exactly like the deferred-commit path.
+func TestTransitionExecutor_AlwaysDefers(t *testing.T) {
+	// Every transition defers to CommitPending; Execute never advances state.
 	spec := &Spec{
 		Version: 2,
 		Entry:   "a",
 		States: map[string]*State{
 			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
-			"b": {PromptTask: "t"}, // Control == "" → user (default)
+			"b": {PromptTask: "t"},
 		},
 	}
 	sm := NewStateMachine(spec)
@@ -363,10 +292,10 @@ func TestTransitionExecutor_UserControlStillDefers(t *testing.T) {
 		t.Errorf("state must not advance during deferred Execute")
 	}
 	if exec.Pending() == nil {
-		t.Error("pending must be set for user-controlled target")
+		t.Error("pending must be set after Execute")
 	}
 	if committed != 0 {
-		t.Errorf("onCommit must not fire on Execute for user-controlled targets, fired %d times", committed)
+		t.Errorf("onCommit must not fire on Execute, fired %d times", committed)
 	}
 
 	if _, err := exec.CommitPending(); err != nil {
@@ -377,52 +306,6 @@ func TestTransitionExecutor_UserControlStillDefers(t *testing.T) {
 	}
 	if sm.CurrentState() != "b" {
 		t.Errorf("state after CommitPending = %q, want 'b'", sm.CurrentState())
-	}
-}
-
-func TestTransitionExecutor_OnCommitErrorFiresOnEagerFailure(t *testing.T) {
-	// agent-controlled state "loop" with max_visits=1 (no on_max_visits).
-	// Entry to "loop" via a→loop consumes the only visit; a second eager
-	// loop→loop trips max_visits and surfaces via OnCommitError.
-	spec := &Spec{
-		Version: 2,
-		Entry:   "a",
-		States: map[string]*State{
-			"a": {PromptTask: "t", OnEvent: map[string]string{"Enter": "loop"}},
-			"loop": {
-				PromptTask: "t",
-				MaxVisits:  1,
-				Control:    ControlModeAgent,
-				OnEvent:    map[string]string{"Again": "loop"},
-			},
-		},
-	}
-	sm := NewStateMachine(spec)
-	exec := NewTransitionExecutor(sm, spec)
-
-	type capture struct {
-		event string
-		err   error
-	}
-	var got []capture
-	exec.SetOnCommitError(func(event string, err error) {
-		got = append(got, capture{event, err})
-	})
-
-	enter, _ := json.Marshal(map[string]string{"event": "Enter"})
-	if _, err := exec.Execute(context.Background(), nil, enter); err != nil {
-		t.Fatalf("entering loop: %v", err)
-	}
-	// Second eager attempt loops back to "loop" — trips max_visits.
-	again, _ := json.Marshal(map[string]string{"event": "Again"})
-	if _, err := exec.Execute(context.Background(), nil, again); err == nil {
-		t.Fatal("expected eager re-entry to fail")
-	}
-	if len(got) != 1 || got[0].event != "Again" {
-		t.Fatalf("OnCommitError must fire once with event=Again, got %+v", got)
-	}
-	if !errors.Is(got[0].err, ErrMaxVisitsExceeded) {
-		t.Errorf("expected ErrMaxVisitsExceeded, got %v", got[0].err)
 	}
 }
 
@@ -456,51 +339,6 @@ func TestTransitionExecutor_OnCommitErrorFiresOnDeferredFailure(t *testing.T) {
 	}
 	if fired != 1 || capturedEvent != "BadEvent" {
 		t.Errorf("OnCommitError must fire once with event=BadEvent, got fired=%d event=%q", fired, capturedEvent)
-	}
-}
-
-func TestTransitionExecutor_AgentControlChainedTransitions(t *testing.T) {
-	// Two agent-controlled transitions in sequence — proves the executor stays
-	// usable after an eager commit and the second call uses the post-commit
-	// source state to resolve its target.
-	spec := &Spec{
-		Version: 2,
-		Entry:   "a",
-		States: map[string]*State{
-			"a": {PromptTask: "t", OnEvent: map[string]string{"ToB": "b"}},
-			"b": {
-				PromptTask: "t",
-				Control:    ControlModeAgent,
-				OnEvent:    map[string]string{"ToC": "c"},
-			},
-			"c": {
-				PromptTask: "t",
-				Control:    ControlModeAgent,
-				OnEvent:    map[string]string{"ToDone": "done"},
-			},
-			"done": {PromptTask: "t", Terminal: true},
-		},
-	}
-	sm := NewStateMachine(spec)
-	exec := NewTransitionExecutor(sm, spec)
-
-	first, _ := json.Marshal(map[string]string{"event": "ToB"})
-	if _, err := exec.Execute(context.Background(), nil, first); err != nil {
-		t.Fatalf("first Execute: %v", err)
-	}
-	if sm.CurrentState() != "b" {
-		t.Fatalf("after first eager commit, state = %q want 'b'", sm.CurrentState())
-	}
-
-	second, _ := json.Marshal(map[string]string{"event": "ToC"})
-	if _, err := exec.Execute(context.Background(), nil, second); err != nil {
-		t.Fatalf("second Execute: %v", err)
-	}
-	if sm.CurrentState() != "c" {
-		t.Fatalf("after second eager commit, state = %q want 'c'", sm.CurrentState())
-	}
-	if exec.Pending() != nil {
-		t.Error("pending must remain nil across chained eager commits")
 	}
 }
 
@@ -547,36 +385,6 @@ func TestTransitionExecutor_HostExtras_Deferred(t *testing.T) {
 	}
 	if got, ok := observed.HostExtras["priority"].(float64); !ok || got != 3 {
 		t.Errorf("TransitionResult.HostExtras[priority] = %v (%T), want 3", observed.HostExtras["priority"], observed.HostExtras["priority"])
-	}
-}
-
-// TestTransitionExecutor_HostExtras_Eager verifies extras flow through the
-// agent-controlled (eager) commit path and reach OnCommit on the same
-// pipeline turn.
-func TestTransitionExecutor_HostExtras_Eager(t *testing.T) {
-	spec := &Spec{
-		Version: 2,
-		Entry:   "a",
-		States: map[string]*State{
-			"a": {PromptTask: "t", OnEvent: map[string]string{"Go": "b"}},
-			"b": {PromptTask: "t", Control: ControlModeAgent},
-		},
-	}
-	sm := NewStateMachine(spec)
-	exec := NewTransitionExecutor(sm, spec)
-
-	var observed *TransitionResult
-	exec.SetOnCommit(func(tr *TransitionResult) { observed = tr })
-
-	args := json.RawMessage(`{"event":"Go","escalation_reason":"vip"}`)
-	if _, err := exec.Execute(context.Background(), nil, args); err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
-	if observed == nil {
-		t.Fatal("OnCommit was not called on eager path")
-	}
-	if got := observed.HostExtras["escalation_reason"]; got != "vip" {
-		t.Errorf("eager TransitionResult.HostExtras[escalation_reason] = %v, want vip", got)
 	}
 }
 

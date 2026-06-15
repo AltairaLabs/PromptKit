@@ -124,7 +124,6 @@ type State struct {
 	OnEvent       map[string]string `json:"on_event,omitempty"`
 	Persistence   Persistence       `json:"persistence,omitempty"`
 	Orchestration Orchestration     `json:"orchestration,omitempty"`
-	Control       ControlMode       `json:"control,omitempty"` // user (default) or agent
 	Skills        string            `json:"skills,omitempty"`
 	// Composition names the composition (in the pack's compositions map) that a
 	// composition-orchestrated state runs. Required when Orchestration == composition.
@@ -178,29 +177,6 @@ const (
 	// state instead of an LLM-driven turn (RFC 0010).
 	OrchestrationComposition Orchestration = "composition"
 )
-
-// ControlMode describes who holds control after a transition into this state.
-//
-//   - ControlModeUser (default, "" or "user"): the agent's turn ends after the
-//     transition. The user (or selfplay/scripted driver) speaks next.
-//   - ControlModeAgent ("agent"): the agent keeps the turn after transitioning.
-//     The transition commits immediately so subsequent tool-loop iterations in
-//     the same pipeline turn see the new state's events. This unlocks
-//     multi-transition turns (e.g., routing → handoff in one go) without
-//     waiting for a user input that will never come.
-type ControlMode string
-
-// ControlMode values.
-const (
-	ControlModeUser  ControlMode = "user"
-	ControlModeAgent ControlMode = "agent"
-)
-
-// IsAgentControlled reports whether s yields the turn to the agent after
-// a transition is committed. The empty string is treated as user-controlled.
-func (s *State) IsAgentControlled() bool {
-	return s != nil && s.Control == ControlModeAgent
-}
 
 // Context holds the runtime state of a workflow execution.
 type Context struct {

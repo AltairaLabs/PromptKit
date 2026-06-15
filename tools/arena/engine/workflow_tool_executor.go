@@ -82,10 +82,9 @@ func (e *workflowTransitionExecutor) RegisterRun(runID string, scenario *config.
 // RegisterRunWithEmitter creates a fresh TransitionExecutor for a scenario run
 // and captures the per-run emitter.
 //
-// The emitter is shared between the eager (agent-controlled, fires inside
-// Execute) and deferred (user-controlled, fires from CommitPendingTransition)
-// commit paths through the OnCommit hook wired here. Pass nil for runs that
-// don't need observability events.
+// The emitter is used by the OnCommit hook wired here, which fires when the
+// deferred transition commits via CommitPendingTransition. Pass nil for runs
+// that don't need observability events.
 func (e *workflowTransitionExecutor) RegisterRunWithEmitter(
 	runID string, scenario *config.Scenario, emitter *events.Emitter,
 ) {
@@ -112,9 +111,8 @@ func (e *workflowTransitionExecutor) RegisterRunAtState(
 	transExec.SetOnCommit(func(tr *workflow.TransitionResult) {
 		e.applyPostCommit(runID, tr)
 	})
-	// OnCommitError fires for both eager (control: agent) and deferred
-	// (control: user) ProcessEvent failures, so max_visits_exceeded /
-	// budget_exhausted events emit regardless of which path tripped them.
+	// OnCommitError fires on deferred ProcessEvent failures, so
+	// max_visits_exceeded / budget_exhausted events emit when a commit trips.
 	transExec.SetOnCommitError(func(event string, err error) {
 		e.mu.Lock()
 		run := e.runs[runID]
@@ -145,14 +143,13 @@ func (e *workflowTransitionExecutor) Execute(
 }
 
 // CommitPendingTransition commits any pending deferred transition for a run.
-// Called from the PostTurnHook after the pipeline turn completes (user-control
-// path) and eagerly from WorkflowMetadata reads inside the pipeline. Returns
-// nil and is a no-op when nothing is pending.
+// Called from the PostTurnHook after the pipeline turn completes and from
+// WorkflowMetadata reads inside the pipeline. Returns nil and is a no-op when
+// nothing is pending.
 //
 // Post-commit work (transition history, observability events, scenario
 // TaskType update, tool re-registration, skill filter) runs via the OnCommit
-// hook wired in RegisterRunWithEmitter, so it is shared with the agent-control
-// path where the commit fires inside Execute. OnCommitError handles the
+// hook wired in RegisterRunWithEmitter. OnCommitError handles the
 // failure-path observability symmetrically.
 //
 // The emitter parameter is kept for source compatibility with older callers
@@ -177,14 +174,12 @@ func (e *workflowTransitionExecutor) CommitPendingTransition(
 	return nil
 }
 
-// applyPostCommit runs the work that's common to every successful commit
-// (eager or deferred): record the transition, log it, fire observability
-// events, update scenario TaskType, re-register the transition tool for
-// the new state's events, and store the new state's skill filter.
+// applyPostCommit runs the work for every successful commit: record the
+// transition, log it, fire observability events, update scenario TaskType,
+// re-register the transition tool for the new state's events, and store the
+// new state's skill filter.
 //
-// Wired into the runtime TransitionExecutor's OnCommit hook from RegisterRun
-// so both control paths (eager from Execute, deferred from CommitPending)
-// run the same post-commit logic.
+// Wired into the runtime TransitionExecutor's OnCommit hook from RegisterRun.
 func (e *workflowTransitionExecutor) applyPostCommit(
 	runID string, tr *workflow.TransitionResult,
 ) {

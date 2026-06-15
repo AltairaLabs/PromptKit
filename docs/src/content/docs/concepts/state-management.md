@@ -218,49 +218,6 @@ wf, _ := sdk.OpenWorkflow("./support.pack.json",
 )
 ```
 
-### Agent vs User Control
-
-Each workflow state can declare who holds control after a transition into it:
-
-```json
-{
-  "states": {
-    "triage": {
-      "prompt_task": "triage",
-      "on_event": { "Routed": "routed" }
-    },
-    "routed": {
-      "prompt_task": "routed",
-      "control": "agent",
-      "on_event": {
-        "ToBilling": "billing",
-        "ToTechnical": "technical"
-      }
-    },
-    "billing":   { "prompt_task": "billing",   "terminal": true },
-    "technical": { "prompt_task": "technical", "terminal": true }
-  }
-}
-```
-
-- **`control: user`** (default) — the agent's turn ends after the transition. The state machine commits at end-of-pipeline-turn and the user (or selfplay driver) speaks next.
-- **`control: agent`** — the agent keeps the turn after the transition. The state machine commits eagerly inside the pipeline tool loop so subsequent LLM calls in the same turn see the new state's events and can fire further transitions.
-
-In the example above, the agent reads the user's first message in `triage`, fires `Routed` to enter `routed` (eager commit, agent keeps the turn), then immediately fires `ToBilling` or `ToTechnical` to land in the specialist state — two transitions, one pipeline turn, no extra user message required. See the [`workflow-router`](https://github.com/AltairaLabs/PromptKit/tree/main/examples/workflow-router) example for the full pack.
-
-When to use which:
-
-| Scenario                                                  | Use            |
-|-----------------------------------------------------------|----------------|
-| Standard conversational state (intake → reply → next msg) | `user` (default) |
-| Transient routing state (router → destination)            | `agent`        |
-| Planner → executor chain inside a single turn             | `agent` on the intermediate |
-| User must reply before the next state can run             | `user`         |
-
-The destination state's `control` is what determines behavior, not the source. A user-controlled state may transition into an agent-controlled state and vice versa.
-
-**System-prompt scope inside an agent-controlled chain.** Because eager commits happen inside the pipeline tool loop, the LLM's *system prompt* stays anchored to the source state for the duration of the chain — the new state's `prompt_task`, `description`, and available events are surfaced to the model via the `workflow__transition` tool result, not by re-templating the system prompt. Treat agent-controlled states as transient: don't put substantive persona or behavior in their `prompt_task`. The conversation only opens a fresh prompt for the state the chain finally lands in (the first user-controlled state, or a terminal state).
-
 ## Best Practices
 
 ### Do's

@@ -1904,9 +1904,8 @@ func TestReconcileActiveConv_NoActiveConv(t *testing.T) {
 }
 
 // TestOnTransitionCommitted_EmitsEvent verifies the hook fires
-// workflow.transitioned for both eager (in-Send) and deferred (post-Send)
-// commits. This is the same signal Arena emits and what observability
-// consumers subscribe to.
+// workflow.transitioned on commit. This is the same signal Arena emits and
+// what observability consumers subscribe to.
 func TestOnTransitionCommitted_EmitsEvent(t *testing.T) {
 	bus := events.NewEventBus()
 	transitioned := make(chan *events.Event, 4)

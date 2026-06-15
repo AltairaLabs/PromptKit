@@ -346,11 +346,10 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 		wc.transExec.ClearPending()
 	}
 	// Heal any state-machine / active-conv drift left over from a prior
-	// Send that errored mid-pipeline after an eager (control: agent)
-	// commit. Without this, the next Send runs in the stale conv for
-	// one full turn before end-of-Send reconciliation kicks in.
-	// Carry-forward summary intentionally empty here: the prior Send's
-	// conv history is what would have been summarized, and we don't
+	// Send that errored mid-pipeline. Without this, the next Send runs in
+	// the stale conv for one full turn before end-of-Send reconciliation
+	// kicks in. Carry-forward summary intentionally empty here: the prior
+	// Send's conv history is what would have been summarized, and we don't
 	// retroactively rebuild it on the recovery path.
 	if err := wc.reconcileActiveConv(""); err != nil {
 		wc.mu.Unlock()
@@ -377,20 +376,16 @@ func (wc *WorkflowConversation) Send(ctx context.Context, message any, opts ...S
 	return resp, nil
 }
 
-// commitDeferredTransition finalizes any workflow transitions that fired
-// during the just-completed Send. Two paths converge here:
+// commitDeferredTransition finalizes any workflow transition that fired
+// during the just-completed Send. The workflow__transition tool stored a
+// pending transition during the pipeline; CommitPending now runs
+// ProcessEvent and fires OnCommit (or OnCommitError on failure).
 //
-//   - control: user (default) — the workflow__transition tool stored a
-//     pending transition during the pipeline; CommitPending now runs
-//     ProcessEvent and fires OnCommit (or OnCommitError on failure).
-//   - control: agent — the transition already committed eagerly inside
-//     Execute and the hooks have already run; CommitPending is a no-op.
-//
-// Either way, if the machine has moved past the active conversation's
-// prompt task, reconcileActiveConv closes the old conv and opens a new
-// one for the destination state's prompt. Failure observability events
-// are emitted by the OnCommitError hook wired in registerWorkflowTools,
-// not from this function. Caller must hold wc.mu.
+// If the machine has moved past the active conversation's prompt task,
+// reconcileActiveConv closes the old conv and opens a new one for the
+// destination state's prompt. Failure observability events are emitted by
+// the OnCommitError hook wired in registerWorkflowTools, not from this
+// function. Caller must hold wc.mu.
 //
 // Note: capturing pending.ContextSummary before CommitPending is safe —
 // the caller holds wc.mu and the runtime executor's only mutator under
@@ -417,10 +412,8 @@ func (wc *WorkflowConversation) commitDeferredTransition() error {
 // state's prompt_task, with the optional context summary injected as the
 // {{workflow_context}} template variable.
 //
-// Multi-transition Sends (the agent fired one or more control: agent
-// eager commits and possibly a final deferred commit) all funnel through
-// here once at end-of-Send; intermediate states never get their own
-// conversation, which is the whole point of control: agent.
+// The deferred transition committed at end-of-Send funnels through here
+// once, opening the destination state's conversation.
 func (wc *WorkflowConversation) reconcileActiveConv(contextSummary string) error {
 	if wc.activeConv == nil {
 		return nil
@@ -554,9 +547,8 @@ func (wc *WorkflowConversation) Transition(event string) (string, error) {
 //
 // Also installs the OnCommit hook on the TransitionExecutor so post-commit
 // work (re-register transition tool for new state events, emit observability
-// events, persist workflow context) runs from a single place regardless of
-// whether the commit was eager (control: agent target, fires inside Execute)
-// or deferred (control: user target, fires from CommitPending after Send).
+// events, persist workflow context) runs from a single place when the
+// deferred transition commits via CommitPending after Send.
 //
 // The hook updates the active conversation's tool registry in place; the
 // active conv itself stays unchanged for the rest of the Send so the
@@ -572,9 +564,8 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	registry.RegisterExecutor(wc.transExec)
 	wc.transExec.RegisterForState(registry, state)
 	wc.transExec.SetOnCommit(wc.onTransitionCommitted)
-	// OnCommitError covers both eager (control: agent) and deferred
-	// (control: user) ProcessEvent failures so max_visits_exceeded /
-	// budget_exhausted observability events fire regardless of path.
+	// OnCommitError covers deferred ProcessEvent failures so
+	// max_visits_exceeded / budget_exhausted observability events fire.
 	wc.transExec.SetOnCommitError(wc.emitWorkflowError)
 
 	// Create and register artifact executor if spec declares artifacts
@@ -583,16 +574,14 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	workflow.RegisterArtifactTool(registry, wc.workflowSpec)
 }
 
-// onTransitionCommitted runs the post-commit work shared between eager and
-// deferred commits. It updates the active conversation's transition tool
-// for the new state's events so subsequent tool-loop iterations in the same
-// pipeline turn can use them, fires observability events, and persists the
+// onTransitionCommitted runs the post-commit work after a deferred
+// transition commits. It updates the active conversation's transition tool
+// for the new state's events, fires observability events, and persists the
 // updated workflow context.
 //
 // Closing the active conversation and opening a new one for the destination
 // state's prompt is deferred to reconcileActiveConv, which runs once at the
-// end of Send / Transition so multi-transition pipeline turns don't churn
-// through intermediate convs.
+// end of Send / Transition.
 func (wc *WorkflowConversation) onTransitionCommitted(result *workflow.TransitionResult) {
 	if result == nil {
 		return
