@@ -3,9 +3,12 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/tools"
@@ -254,6 +257,120 @@ func drainChannel(ch <-chan StreamElement) []StreamElement {
 		elems = append(elems, e)
 	}
 	return elems
+}
+
+// TestCompositionStage_EmitsStartedAndCompleted verifies that CompositionStage
+// brackets a composition execution with composition.started (before engine.Execute)
+// and composition.completed (after), and that the two events appear in that order.
+// Per-step events (step.started, step.completed) must appear between them.
+func TestCompositionStage_EmitsStartedAndCompleted(t *testing.T) {
+	reg := tools.NewRegistry()
+	registerEchoTool(t, reg, "echo") // defined in composition_executor_test.go
+
+	// Single-step composition: simplest possible case for bracketing verification.
+	comp := &composition.Composition{
+		Version: 1, Output: "a",
+		Steps: []*composition.Step{
+			{ID: "a", Kind: composition.KindTool, Tool: "echo", Args: map[string]any{"v": "${input}"}},
+		},
+	}
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	em := events.NewEmitter(bus, "test-exec", "test-sess", "test-conv")
+
+	var mu sync.Mutex
+	var received []events.EventType
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		received = append(received, e.Type)
+	})
+
+	rec := NewCompositionRecorder()
+	cs := NewCompositionStageWithRecorder("bracket-comp", comp,
+		CompositionExecutorDeps{ToolRegistry: reg, Emitter: em}, rec)
+
+	pipe, err := NewPipelineBuilder().Chain(cs).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg := types.Message{Role: "user", Content: `{"v":"hello"}`}
+	res, err := pipe.ExecuteSync(context.Background(), NewMessageElement(&msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || res.Response == nil {
+		t.Fatal("expected a response")
+	}
+
+	// Wait for async bus to drain.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		startSeen := false
+		completedSeen := false
+		for _, et := range received {
+			if et == events.EventCompositionStarted {
+				startSeen = true
+			}
+			if et == events.EventCompositionCompleted {
+				completedSeen = true
+			}
+		}
+		done := startSeen && completedSeen
+		mu.Unlock()
+		if done {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Find the indices of composition.started and composition.completed.
+	startIdx := -1
+	completedIdx := -1
+	for i, et := range received {
+		switch et {
+		case events.EventCompositionStarted:
+			if startIdx == -1 {
+				startIdx = i
+			}
+		case events.EventCompositionCompleted:
+			if completedIdx == -1 {
+				completedIdx = i
+			}
+		}
+	}
+
+	if startIdx == -1 {
+		t.Fatal("composition.started event not received")
+	}
+	if completedIdx == -1 {
+		t.Fatal("composition.completed event not received")
+	}
+
+	// started must come before completed.
+	if startIdx >= completedIdx {
+		t.Errorf("composition.started (idx %d) must precede composition.completed (idx %d); got events: %v",
+			startIdx, completedIdx, received)
+	}
+
+	// At least one per-step event must appear between started and completed.
+	stepEventBetween := false
+	for i := startIdx + 1; i < completedIdx; i++ {
+		if received[i] == events.EventCompositionStepStarted ||
+			received[i] == events.EventCompositionStepCompleted {
+			stepEventBetween = true
+			break
+		}
+	}
+	if !stepEventBetween {
+		t.Errorf("expected at least one step event between composition.started and composition.completed; got: %v", received)
+	}
 }
 
 // TestCompositionStage_EndToEnd_MixedKinds proves that a multi-kind composition
