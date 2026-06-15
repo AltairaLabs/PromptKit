@@ -67,6 +67,10 @@ type CompositionExecutorDeps struct {
 	// structured output. nil (or a nil return) means no ResponseFormat is set.
 	// Plan 3 supplies the real resolver from the pack/config dir.
 	SchemaResolver func(path string) (json.RawMessage, error)
+	// BaseMetadata is merged into each sub-pipeline's ProviderRequestMetadata
+	// alongside composition_step_id. Arena uses this to propagate mock_scenario_id
+	// so per-step mock responses are keyed against the right scenario.
+	BaseMetadata map[string]interface{}
 }
 
 // NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent
@@ -113,10 +117,15 @@ func (deps CompositionExecutorDeps) execLLM(
 		return nil, fmt.Errorf("step %q: provider/prompt registry not configured", step.ID)
 	}
 
+	meta := map[string]interface{}{compositionStepIDKey: step.ID}
+	for k, v := range deps.BaseMetadata {
+		meta[k] = v
+	}
 	turnState := &TurnState{
 		// Stamp the executing step id so the mock provider can key per-step
 		// responses (Arena testability); flows to PredictionRequest.Metadata.
-		ProviderRequestMetadata: map[string]interface{}{compositionStepIDKey: step.ID},
+		// BaseMetadata (e.g. mock_scenario_id from Arena) is also merged here.
+		ProviderRequestMetadata: meta,
 	}
 	promptStage := NewPromptAssemblyStageWithTurnState(deps.PromptRegistry, step.PromptTask, deps.BaseVariables, turnState)
 	templateStage := NewTemplateStageWithTurnState(deps.Emitter, turnState)
