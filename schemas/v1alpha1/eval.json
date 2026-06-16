@@ -44,6 +44,7 @@
                 "hallucination",
                 "image_dimensions",
                 "image_format",
+                "image_moderation",
                 "invariant_fields_preserved",
                 "is_valid_json",
                 "json_path",
