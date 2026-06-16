@@ -11,36 +11,36 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/xeipuuv/gojsonschema v1.2.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/apimachinery v0.36.1
+	k8s.io/apimachinery v0.36.2
 )
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.21.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.41.7 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.32.17 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.16 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.23 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.24 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.9 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.23 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.0.11 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.17 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.21 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.42.1 // indirect
-	github.com/aws/smithy-go v1.25.1 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.41.12 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.32.23 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.22 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.28 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.28 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.28 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.29 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.12 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.28 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.1.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.31.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.43.2 // indirect
+	github.com/aws/smithy-go v1.27.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -53,15 +53,15 @@ require (
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel v1.43.0 // indirect
-	go.opentelemetry.io/otel/metric v1.43.0 // indirect
-	go.opentelemetry.io/otel/trace v1.43.0 // indirect
-	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/net v0.52.0 // indirect
+	go.opentelemetry.io/otel v1.44.0 // indirect
+	go.opentelemetry.io/otel/metric v1.44.0 // indirect
+	go.opentelemetry.io/otel/trace v1.44.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.4 // indirect
+	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
