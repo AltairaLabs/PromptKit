@@ -29,7 +29,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	golang.org/x/term v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/apimachinery v0.36.1
+	k8s.io/apimachinery v0.36.2
 )
 
 require (
