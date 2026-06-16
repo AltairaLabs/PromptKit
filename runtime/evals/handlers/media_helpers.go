@@ -32,20 +32,37 @@ const (
 	msgHeightAboveMax = "height %d exceeds maximum %d"
 )
 
-// extractMediaParts finds media content parts of the given type from assistant messages.
+// extractMediaParts finds media content parts of the given type produced by the
+// agent's turn. This covers two sources: media the model emitted inline on an
+// assistant message, and media a tool produced (e.g. image__generate), which
+// lands in the tool-result parts of a tool-role message rather than on the
+// message's inline Parts.
 func extractMediaParts(messages []types.Message, contentType string) []types.ContentPart {
 	var parts []types.ContentPart
 	for i := range messages {
-		if messages[i].Role != roleAssistant {
-			continue
-		}
-		for _, part := range messages[i].Parts {
-			if part.Type == contentType && part.Media != nil {
-				parts = append(parts, part)
+		msg := &messages[i]
+		switch msg.Role {
+		case roleAssistant:
+			parts = appendMatchingMediaParts(parts, msg.Parts, contentType)
+		case roleTool:
+			if msg.ToolResult != nil {
+				parts = appendMatchingMediaParts(parts, msg.ToolResult.Parts, contentType)
 			}
 		}
 	}
 	return parts
+}
+
+// appendMatchingMediaParts appends parts of contentType that carry media.
+func appendMatchingMediaParts(
+	dst, src []types.ContentPart, contentType string,
+) []types.ContentPart {
+	for _, part := range src {
+		if part.Type == contentType && part.Media != nil {
+			dst = append(dst, part)
+		}
+	}
+	return dst
 }
 
 // mimeTypeParts is the expected number of parts when splitting a MIME type by "/".

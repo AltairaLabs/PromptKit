@@ -17,9 +17,11 @@ import (
 	_ "github.com/AltairaLabs/PromptKit/runtime/evals/handlers" // register default eval handlers
 	"github.com/AltairaLabs/PromptKit/runtime/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/mediagen"
 	"github.com/AltairaLabs/PromptKit/runtime/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/skills"
 
 	// Import provider subpackages to register their factories
@@ -100,6 +102,10 @@ func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
 
 	// Register HTTP executor for live HTTP tool calls (mode: "live")
 	toolRegistry.RegisterExecutor(tools.NewHTTPExecutor())
+
+	// Register mediagen image/video tools when matching providers are pooled.
+	// Arena's analog of the SDK's registerMediaGenTools.
+	registerMediaGenTools(toolRegistry, providerRegistry)
 
 	// Discover and register MCP tools (if any MCP servers configured)
 	if mcpErr := discoverAndRegisterMCPTools(mcpRegistry, toolRegistry); mcpErr != nil {
@@ -187,6 +193,32 @@ func BuildEngineComponents(cfg *config.Config, providerFilter []string) (
 
 	return providerRegistry, promptRegistry, mcpRegistry, conversationExecutor,
 		adapterRegistry, a2aCleanupFn, toolRegistry, skillExec, nil
+}
+
+// registerMediaGenTools wires the built-in image__generate / video__generate
+// tools when a matching provider is pooled, mirroring the SDK's
+// registerMediaGenTools. Registration is capability-gated: a tool is registered
+// only when a provider of its type is in the pool. image/video are system
+// namespaces, so a registered tool is exposed to the agent without a per-prompt
+// tools entry. No matching provider → tool absent.
+func registerMediaGenTools(toolRegistry *tools.Registry, providerRegistry *providers.Registry) {
+	if toolRegistry == nil || providerRegistry == nil {
+		return
+	}
+	pool := providerRegistry.Base()
+	hasImage := len(pool.GetAll(base.ProviderTypeImage)) > 0
+	hasVideo := len(pool.GetAll(base.ProviderTypeVideo)) > 0
+	if !hasImage && !hasVideo {
+		return
+	}
+	toolRegistry.RegisterExecutor(mediagen.NewExecutor(pool))
+	if hasImage {
+		_ = toolRegistry.Register(mediagen.ImageGenerateDescriptor())
+	}
+	if hasVideo {
+		_ = toolRegistry.Register(mediagen.VideoGenerateDescriptor())
+	}
+	logger.Info("registered mediagen tools", "image", hasImage, "video", hasVideo)
 }
 
 // createProviderImpl converts config.Provider to providers.Provider.

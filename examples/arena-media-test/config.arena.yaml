@@ -8,6 +8,8 @@ spec:
       file: prompts/media-assistant.yaml
     - id: audio-analyst
       file: prompts/audio-analyst.yaml
+    - id: image-generator
+      file: prompts/image-generator.yaml
 
   providers:
     - file: providers/mock-provider.provider.yaml
@@ -21,6 +23,7 @@ spec:
     - file: scenarios/multimodal-mixed.scenario.yaml
     - file: scenarios/audio-transcription.scenario.yaml
     - file: scenarios/imagen-generation.scenario.yaml
+    - file: scenarios/tool-image-generation.scenario.yaml
     - file: scenarios/openai-audio-output.scenario.yaml
 
   defaults:

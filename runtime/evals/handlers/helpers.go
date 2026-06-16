@@ -5,7 +5,10 @@ import (
 	"strings"
 )
 
-const roleAssistant = "assistant"
+const (
+	roleAssistant = "assistant"
+	roleTool      = "tool"
+)
 
 // extractStringSlice safely extracts a string slice from params.
 func extractStringSlice(params map[string]any, key string) []string {

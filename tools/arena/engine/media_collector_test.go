@@ -178,7 +178,7 @@ func TestCollectMediaFromMessage_NoMedia(t *testing.T) {
 		Role:    "assistant",
 		Content: "Text only",
 	}
-	outputs := collectMediaFromMessage(msg, 0)
+	outputs := collectMediaFromParts(msg.Parts, 0)
 
 	if len(outputs) != 0 {
 		t.Errorf("Expected 0 outputs for text-only message, got %d", len(outputs))
@@ -195,7 +195,7 @@ func TestCollectMediaFromMessage_NilMediaContent(t *testing.T) {
 			},
 		},
 	}
-	outputs := collectMediaFromMessage(msg, 0)
+	outputs := collectMediaFromParts(msg.Parts, 0)
 
 	// Should skip parts with nil media
 	if len(outputs) != 0 {
