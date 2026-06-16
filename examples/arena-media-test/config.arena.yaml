@@ -16,6 +16,7 @@ spec:
     - file: providers/gemini-provider.provider.yaml
     - file: providers/imagen-provider.provider.yaml
     - file: providers/openai-gpt4o-audio-output.provider.yaml
+    - file: providers/hf.provider.yaml
 
   scenarios:
     - file: scenarios/image-analysis.scenario.yaml
