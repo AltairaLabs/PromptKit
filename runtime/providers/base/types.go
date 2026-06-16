@@ -26,6 +26,7 @@ const (
 	ProviderTypeSTT       ProviderType = "stt"
 	ProviderTypeEmbedding ProviderType = "embedding"
 	ProviderTypeImage     ProviderType = "image"
+	ProviderTypeVideo     ProviderType = "video"
 )
 
 // AllProviderTypes returns every defined ProviderType. Used by the metric
@@ -37,6 +38,7 @@ func AllProviderTypes() []ProviderType {
 		ProviderTypeSTT,
 		ProviderTypeEmbedding,
 		ProviderTypeImage,
+		ProviderTypeVideo,
 	}
 }
 
@@ -124,6 +126,14 @@ type ImageProvider interface {
 	Generate(ctx context.Context, req ImageRequest) (ImageResponse, error)
 }
 
+// VideoProvider generates videos from prompts. No concrete provider implements
+// this interface yet; it defines the shape that the video__generate tool
+// resolves against once a provider (e.g. Veo) lands.
+type VideoProvider interface {
+	Provider
+	Generate(ctx context.Context, req VideoRequest) (VideoResponse, error)
+}
+
 // --- Request / response types for ancillary capabilities ---
 
 // TTSRequest carries parameters for a text-to-speech synthesis call.
@@ -191,6 +201,21 @@ type ImageRequest struct {
 type ImageResponse struct {
 	Images   [][]byte
 	MIMEType string
+	Cost     *types.CostInfo
+	Latency  time.Duration
+}
+
+// VideoRequest carries parameters for a video generation call.
+type VideoRequest struct {
+	Prompt      string
+	AspectRatio string            // e.g. "16:9"
+	Hints       map[string]string // additional dimension hints passed to pricing
+}
+
+// VideoResponse holds generated video bytes and metadata from a provider.
+type VideoResponse struct {
+	Videos   [][]byte
+	MIMEType string // e.g. "video/mp4"
 	Cost     *types.CostInfo
 	Latency  time.Duration
 }

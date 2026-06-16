@@ -414,6 +414,7 @@ func (c *Conversation) buildPipelineConfig(
 
 	c.registerMCPExecutors()
 	c.registerExecExecutor()
+	c.registerMediaGenTools()
 	// Register capability tools (includes A2A) — only on first build
 	if !c.capabilitiesRegistered {
 		for _, cap := range c.capabilities {

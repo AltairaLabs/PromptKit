@@ -16,6 +16,12 @@ const (
 	RoleSTT       = "stt"
 	RoleEmbedding = "embedding"
 	RoleImage     = "image"
+	// RoleVideo marks a video-generation provider. The abstraction
+	// (base.VideoProvider) exists so the video__generate tool can resolve a
+	// provider from the pool, but no concrete video provider ships yet — a
+	// role: video declaration only succeeds once a video provider type is
+	// registered in the provider factory.
+	RoleVideo = "video"
 	// RoleInference covers providers implementing the runtime/classify task
 	// interfaces (audio/text/image/video classifiers + embedders). A single
 	// inference provider can satisfy several of them — the HuggingFace
@@ -34,6 +40,7 @@ var knownRoles = map[string]struct{}{
 	RoleSTT:       {},
 	RoleEmbedding: {},
 	RoleImage:     {},
+	RoleVideo:     {},
 	RoleInference: {},
 }
 
@@ -52,8 +59,8 @@ func (p *Provider) ValidateRole() error {
 		return nil
 	}
 	if _, ok := knownRoles[p.Role]; !ok {
-		return fmt.Errorf("unknown provider role %q (valid: %s, %s, %s, %s, %s, %s)",
-			p.Role, RoleLLM, RoleTTS, RoleSTT, RoleEmbedding, RoleImage, RoleInference)
+		return fmt.Errorf("unknown provider role %q (valid: %s, %s, %s, %s, %s, %s, %s)",
+			p.Role, RoleLLM, RoleTTS, RoleSTT, RoleEmbedding, RoleImage, RoleVideo, RoleInference)
 	}
 	return nil
 }
