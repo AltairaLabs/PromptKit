@@ -32,6 +32,39 @@ const (
 	msgHeightAboveMax = "height %d exceeds maximum %d"
 )
 
+// collectMediaContentByRole returns the MediaContent of contentType attributed
+// to the given role. Tool-produced media (a tool the agent called, e.g.
+// image__generate) lands in a tool-role message's ToolResult.Parts rather than
+// an inline assistant Part — but it is the agent's output for that turn, so
+// role "assistant" yields tool-result parts as well. This is the role-filtered,
+// MediaContent-returning sibling of extractMediaParts.
+func collectMediaContentByRole(messages []types.Message, contentType, role string) []*types.MediaContent {
+	var out []*types.MediaContent
+	for i := range messages {
+		msg := &messages[i]
+		if msg.Role == role {
+			out = appendMediaContent(out, msg.Parts, contentType)
+		}
+		if role == roleAssistant && msg.Role == roleTool && msg.ToolResult != nil {
+			out = appendMediaContent(out, msg.ToolResult.Parts, contentType)
+		}
+	}
+	return out
+}
+
+// appendMediaContent appends the MediaContent of every part matching contentType.
+func appendMediaContent(
+	dst []*types.MediaContent, parts []types.ContentPart, contentType string,
+) []*types.MediaContent {
+	for i := range parts {
+		part := &parts[i]
+		if part.Type == contentType && part.Media != nil {
+			dst = append(dst, part.Media)
+		}
+	}
+	return dst
+}
+
 // extractMediaParts finds media content parts of the given type produced by the
 // agent's turn. This covers two sources: media the model emitted inline on an
 // assistant message, and media a tool produced (e.g. image__generate), which

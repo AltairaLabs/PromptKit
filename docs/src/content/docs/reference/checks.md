@@ -455,6 +455,49 @@ conversation_assertions:
       min_score: 0.5
 ```
 
+### `image_moderation`
+
+Visual content-moderation gate. Picks an image part from the chosen role's
+messages, runs it through an `ImageClassifier` (e.g. `Falconsai/nsfw_image_detection`
+on HuggingFace), and emits the model's score for `expected_label` (e.g. `nsfw`).
+By default it scores the agent's output (`message_role: assistant`), which also
+covers images a tool produced during the turn — so it moderates images from the
+`image__generate` tool, not just images the model emitted inline.
+
+**Surfaces:** A E (conversation assertion / guardrail when wrapped; runtime eval when declared in `evals:`)
+
+**Example (assertion — "the generated image must not be NSFW"):**
+
+```yaml
+conversation_assertions:
+  - type: assertion
+    params:
+      eval_type: image_moderation
+      eval_params:
+        model: Falconsai/nsfw_image_detection
+        expected_label: nsfw
+        # message_role defaults to assistant (covers image__generate tool output)
+      max_score: 0.3
+```
+
+**Example (guardrail — block NSFW image output at runtime):**
+
+```yaml
+guardrails:
+  - type: guardrail
+    params:
+      eval_type: image_moderation
+      eval_params:
+        model: Falconsai/nsfw_image_detection
+        expected_label: nsfw
+      max_score: 0.3
+```
+
+Like every classify-backed eval, `image_moderation` is a pure primitive — it emits
+the raw score and rejects `min_score`/`max_score` on `eval_params`; the threshold
+lives on the `assertion`/`guardrail` wrapper. With no classify registry configured
+(keyless CI) it skips cleanly.
+
 ### `text_toxicity`
 
 Classifier-backed toxicity eval. Distinct from the LLM-judge [`toxicity`](#toxicity) — `text_toxicity` is the deterministic path through a HuggingFace text-classification model. Emits the model's score for `expected_label`; the `assertion` wrapper decides pass/fail based on `min_score` or `max_score`:

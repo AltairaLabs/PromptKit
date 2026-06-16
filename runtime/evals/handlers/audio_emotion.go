@@ -87,7 +87,7 @@ func (h *AudioEmotionHandler) Eval(
 		return skippedResult(h.Type(),
 			fmt.Sprintf("no audio part found with role %q", cfg.messageRole)), nil
 	}
-	media, partErr := pickAudioPart(audioParts, cfg.messageIndex)
+	media, partErr := pickMediaPart(audioParts, cfg.messageIndex)
 	if partErr != nil {
 		// Audio exists but the user picked a specific index that's out of
 		// range — that's a misconfiguration at the assertion call site,
@@ -123,7 +123,7 @@ func (h *AudioEmotionHandler) Eval(
 		return errorResult(h.Type(), fmt.Sprintf("classify failed: %v", classifyErr)), nil
 	}
 
-	return gradeAudioEmotion(h.Type(), &cfg, scores), nil
+	return gradeExpectedLabel(h.Type(), &cfg, scores), nil
 }
 
 // skippedResult builds an EvalResult that records "didn't run, didn't fail"
@@ -161,11 +161,11 @@ func resolveAudioClassifier(ctx context.Context, id string) (classify.AudioClass
 	return reg.AudioClassifier(id)
 }
 
-// pickAudioPart selects one part from a non-empty slice of audio parts. A
+// pickMediaPart selects one part from a non-empty slice of audio parts. A
 // negative index picks the most recent (-1 → last). Caller is responsible
 // for the empty-slice case so the absence-vs-out-of-range distinction can
 // be surfaced at the right semantic level (Skipped vs Error).
-func pickAudioPart(audioParts []*types.MediaContent, index int) (*types.MediaContent, error) {
+func pickMediaPart(audioParts []*types.MediaContent, index int) (*types.MediaContent, error) {
 	if index < 0 {
 		return audioParts[len(audioParts)-1], nil
 	}
@@ -194,19 +194,7 @@ func storageReferenceAsPath(media *types.MediaContent) string {
 }
 
 func collectAudioPartsByRole(messages []types.Message, role string) []*types.MediaContent {
-	var out []*types.MediaContent
-	for i := range messages {
-		if messages[i].Role != role {
-			continue
-		}
-		for j := range messages[i].Parts {
-			part := &messages[i].Parts[j]
-			if part.Type == types.ContentTypeAudio && part.Media != nil {
-				out = append(out, part.Media)
-			}
-		}
-	}
-	return out
+	return collectMediaContentByRole(messages, types.ContentTypeAudio, role)
 }
 
 // readMediaBytes pulls the raw audio bytes out of a MediaContent.
@@ -255,7 +243,7 @@ func readMediaBytes(media *types.MediaContent) ([]byte, error) {
 	return body, nil
 }
 
-// gradeAudioEmotion looks up the requested label in the classifier's
+// gradeExpectedLabel looks up the requested label in the classifier's
 // scored output and emits its score. Pure eval primitive: no
 // threshold judgment — that lives on the `type: assertion` wrapper.
 //
@@ -264,7 +252,7 @@ func readMediaBytes(media *types.MediaContent) ([]byte, error) {
 // clear Explanation; consumers comparing the resulting Score against
 // a wrapper-supplied threshold get the right outcome (any positive
 // min_score fails; "label not returned" is louder in the report).
-func gradeAudioEmotion(
+func gradeExpectedLabel(
 	handlerType string, cfg *classifyConfig, scores []classify.LabelScore,
 ) *evals.EvalResult {
 	foundScore, foundLabel := findExpectedLabel(scores, cfg.expectedLabel)

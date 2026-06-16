@@ -121,6 +121,41 @@ func TestAudioEmotion_EmitsScoreForExpectedLabel(t *testing.T) {
 	}
 }
 
+// TestAudioEmotion_ScoresToolResultAudio is the across-the-board fix applied to
+// audio: audio a tool produced (e.g. a TTS tool) lands in a tool-role message's
+// ToolResult.Parts, which is the agent's output for that turn. Scoring the
+// assistant role must reach it.
+func TestAudioEmotion_ScoresToolResultAudio(t *testing.T) {
+	srv := hfTestServer(t, []classify.LabelScore{{Label: "angry", Score: 0.6}}, false)
+	defer srv.Close()
+
+	ctx := ctxWithRegistry(t, srv.URL)
+	encoded := base64.StdEncoding.EncodeToString([]byte("toolaudio"))
+	msgs := []types.Message{
+		{Role: "assistant"},
+		{Role: "tool", ToolResult: &types.MessageToolResult{
+			Name:  "tts__speak",
+			Parts: []types.ContentPart{types.NewAudioPartFromData(encoded, "audio/wav")},
+		}},
+	}
+
+	h := &AudioEmotionHandler{}
+	res, err := h.Eval(ctx, &evals.EvalContext{Messages: msgs}, map[string]any{
+		"model":          "x/y",
+		"expected_label": "angry",
+		"message_role":   "assistant",
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Skipped {
+		t.Fatalf("expected score for tool-produced audio, got skipped: %s", res.SkipReason)
+	}
+	if res.Score == nil || *res.Score != 0.6 {
+		t.Errorf("Score = %v, want 0.6 (tool-result audio scored)", res.Score)
+	}
+}
+
 func TestAudioEmotion_EmitsZeroWhenLabelNotReturned(t *testing.T) {
 	srv := hfTestServer(t, []classify.LabelScore{
 		{Label: "happy", Score: 0.9},

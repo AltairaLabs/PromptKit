@@ -1608,6 +1608,7 @@ func TestRegisterInit(t *testing.T) {
 
 		// Classify-backed media handlers
 		"audio_emotion",
+		"image_moderation",
 		"text_toxicity",
 		"text_sentiment",
 
