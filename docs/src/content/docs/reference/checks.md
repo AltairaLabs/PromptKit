@@ -462,8 +462,7 @@ messages, runs it through an `ImageClassifier` (e.g. `Falconsai/nsfw_image_detec
 on HuggingFace), and emits the model's score for `expected_label` (e.g. `nsfw`).
 By default it scores the agent's output (`message_role: assistant`), which also
 covers images a tool produced during the turn — so it moderates images from the
-[`image__generate`](/reference/tools/#image__generate) tool, not just images the
-model emitted inline.
+`image__generate` tool, not just images the model emitted inline.
 
 **Surfaces:** A E (conversation assertion / guardrail when wrapped; runtime eval when declared in `evals:`)
 
