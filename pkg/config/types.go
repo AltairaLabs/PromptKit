@@ -1191,7 +1191,7 @@ type Provider struct {
 	// Renamed from "capability" 2026-05-18 to avoid singular/plural
 	// collision with Capabilities. The field is required for tts/stt
 	// providers; defaults to "llm" when empty.
-	Role    string `json:"role,omitempty" yaml:"role,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt,enum=embedding,enum=image,enum=inference"` //nolint:lll // enum list can't be split inside a struct tag
+	Role    string `json:"role,omitempty" yaml:"role,omitempty" jsonschema:"enum=llm,enum=tts,enum=stt,enum=embedding,enum=image,enum=video,enum=inference"` //nolint:lll // enum list can't be split inside a struct tag
 	BaseURL string `json:"base_url,omitempty" yaml:"base_url,omitempty"`
 	// Headers specifies custom HTTP headers to include in every request to
 	// this provider. Useful for OpenAI-compatible gateways (OpenRouter,

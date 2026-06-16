@@ -35,7 +35,7 @@ func (c *config) applyProviderConfig(p *pkgconfig.Provider) error {
 		id = p.Type
 	}
 	switch p.GetRole() {
-	case pkgconfig.RoleLLM, pkgconfig.RoleImage:
+	case pkgconfig.RoleLLM, pkgconfig.RoleImage, pkgconfig.RoleVideo:
 		prov, err := createProviderFromConfig(p)
 		if err != nil {
 			return fmt.Errorf("provider %q: %w", id, err)

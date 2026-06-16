@@ -28,12 +28,16 @@ import (
 const NamespaceSep = "__"
 
 // knownNamespaces lists the namespaces recognized as system/infrastructure tools.
+// The image/video namespaces back the mediagen image__generate / video__generate
+// tools; their tokens match the corresponding ContentType values.
 var knownNamespaces = map[string]bool{
-	"a2a":      true,
-	"mcp":      true,
-	"workflow": true,
-	"memory":   true,
-	"skill":    true,
+	"a2a":                  true,
+	modeMCP:                true,
+	"workflow":             true,
+	"memory":               true,
+	"skill":                true,
+	types.ContentTypeImage: true,
+	types.ContentTypeVideo: true,
 }
 
 // ParseToolName splits a qualified tool name on the first NamespaceSep.

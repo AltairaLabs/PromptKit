@@ -12,23 +12,27 @@ func CollectMediaOutputs(messages []types.Message) []MediaOutput {
 	var outputs []MediaOutput
 
 	for msgIdx, msg := range messages {
-		// Only collect media from assistant messages (LLM-generated content)
-		if msg.Role != "assistant" {
-			continue
+		switch msg.Role {
+		case roleAssistant:
+			// Media the model emitted inline (e.g. Imagen-as-agent).
+			outputs = append(outputs, collectMediaFromParts(msg.Parts, msgIdx)...)
+		case roleTool:
+			// Media a tool produced (e.g. image__generate) lands in the
+			// tool-result parts, not the message's inline parts.
+			if msg.ToolResult != nil {
+				outputs = append(outputs, collectMediaFromParts(msg.ToolResult.Parts, msgIdx)...)
+			}
 		}
-
-		// Collect media from this message's parts
-		outputs = append(outputs, collectMediaFromMessage(msg, msgIdx)...)
 	}
 
 	return outputs
 }
 
-// collectMediaFromMessage extracts media outputs from a single message
-func collectMediaFromMessage(msg types.Message, msgIdx int) []MediaOutput {
+// collectMediaFromParts extracts media outputs from a slice of content parts.
+func collectMediaFromParts(parts []types.ContentPart, msgIdx int) []MediaOutput {
 	var outputs []MediaOutput
 
-	for partIdx, part := range msg.Parts {
+	for partIdx, part := range parts {
 		if part.Media == nil {
 			continue
 		}

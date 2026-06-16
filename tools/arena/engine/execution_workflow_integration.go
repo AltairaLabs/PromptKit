@@ -246,7 +246,7 @@ func (e *Engine) enrichWorkflowMessages(messages []types.Message) bool {
 	enriched := false
 	for i := range messages {
 		msg := &messages[i]
-		if msg.Role == "tool" && msg.ToolResult != nil && msg.ToolResult.Name == workflow.TransitionToolName {
+		if msg.Role == roleTool && msg.ToolResult != nil && msg.ToolResult.Name == workflow.TransitionToolName {
 			if newState, ws := e.buildTransitionMeta(msg, currentState); ws != nil {
 				currentState = newState
 				setMeta(msg, "_workflow_state", ws)

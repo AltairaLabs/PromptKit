@@ -19,6 +19,7 @@ const (
 
 	// Role constants
 	roleAssistant = "assistant"
+	roleTool      = "tool"
 )
 
 // errPartialSuccess is returned when a duplex conversation ends early but enough
