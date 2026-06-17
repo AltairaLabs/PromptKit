@@ -28,17 +28,17 @@ import (
 // =============================================================================
 
 // Capability represents a provider capability for matrix testing.
-type Capability string
+type ProviderCapability string
 
 const (
-	CapText      Capability = "text"      // Basic text conversation
-	CapStreaming Capability = "streaming" // Streaming responses
-	CapVision    Capability = "vision"    // Image understanding
-	CapAudio     Capability = "audio"     // Audio input/output
-	CapVideo     Capability = "video"     // Video understanding
-	CapTools     Capability = "tools"     // Tool/function calling
-	CapJSON      Capability = "json"      // JSON mode output
-	CapRealtime  Capability = "realtime"  // Real-time streaming (WebSocket)
+	CapText      ProviderCapability = "text"      // Basic text conversation
+	CapStreaming ProviderCapability = "streaming" // Streaming responses
+	CapVision    ProviderCapability = "vision"    // Image understanding
+	CapAudio     ProviderCapability = "audio"     // Audio input/output
+	CapVideo     ProviderCapability = "video"     // Video understanding
+	CapTools     ProviderCapability = "tools"     // Tool/function calling
+	CapJSON      ProviderCapability = "json"      // JSON mode output
+	CapRealtime  ProviderCapability = "realtime"  // Real-time streaming (WebSocket)
 )
 
 // ProviderConfig defines a provider's capabilities and configuration.
@@ -56,7 +56,7 @@ type ProviderConfig struct {
 	DefaultModel string
 
 	// Capabilities lists what this provider supports
-	Capabilities []Capability
+	Capabilities []ProviderCapability
 
 	// VisionModel is the model to use for vision tests (if different)
 	VisionModel string
@@ -66,7 +66,7 @@ type ProviderConfig struct {
 }
 
 // HasCapability checks if the provider supports a capability.
-func (p *ProviderConfig) HasCapability(cap Capability) bool {
+func (p *ProviderConfig) HasCapability(cap ProviderCapability) bool {
 	for _, c := range p.Capabilities {
 		if c == cap {
 			return true
@@ -96,7 +96,7 @@ func DefaultProviders() []ProviderConfig {
 			EnvKey:       "OPENAI_API_KEY",
 			DefaultModel: "gpt-4o-mini",
 			VisionModel:  "gpt-4o",
-			Capabilities: []Capability{
+			Capabilities: []ProviderCapability{
 				CapText, CapStreaming, CapVision, CapTools, CapJSON,
 			},
 		},
@@ -105,7 +105,7 @@ func DefaultProviders() []ProviderConfig {
 			EnvKey:        "OPENAI_API_KEY",
 			DefaultModel:  "gpt-4o-mini",
 			RealtimeModel: "gpt-4o-realtime-preview",
-			Capabilities: []Capability{
+			Capabilities: []ProviderCapability{
 				CapRealtime, // Audio is only via realtime API, not predict
 			},
 		},
@@ -114,7 +114,7 @@ func DefaultProviders() []ProviderConfig {
 			EnvKey:       "ANTHROPIC_API_KEY",
 			DefaultModel: "claude-sonnet-4-20250514",
 			VisionModel:  "claude-sonnet-4-20250514",
-			Capabilities: []Capability{
+			Capabilities: []ProviderCapability{
 				CapText, CapStreaming, CapVision, CapTools, CapJSON,
 			},
 		},
@@ -124,7 +124,7 @@ func DefaultProviders() []ProviderConfig {
 			AltEnvKeys:   []string{"GOOGLE_API_KEY"},
 			DefaultModel: "gemini-2.0-flash",
 			VisionModel:  "gemini-2.0-flash",
-			Capabilities: []Capability{
+			Capabilities: []ProviderCapability{
 				CapText, CapStreaming, CapVision, CapAudio, CapVideo, CapTools, CapJSON,
 			},
 		},
@@ -134,7 +134,7 @@ func DefaultProviders() []ProviderConfig {
 			AltEnvKeys:    []string{"GOOGLE_API_KEY"},
 			DefaultModel:  "gemini-2.0-flash",
 			RealtimeModel: "gemini-2.0-flash-live-001",
-			Capabilities: []Capability{
+			Capabilities: []ProviderCapability{
 				CapRealtime, CapAudio, CapVideo,
 			},
 		},
@@ -143,7 +143,7 @@ func DefaultProviders() []ProviderConfig {
 			EnvKey:       "OLLAMA_HOST_URL", // Set to Ollama base URL (e.g., "http://localhost:11434")
 			DefaultModel: "llava:7b",        // Default to llava for vision tests
 			VisionModel:  "llava:7b",
-			Capabilities: []Capability{
+			Capabilities: []ProviderCapability{
 				CapText, CapStreaming, CapVision,
 				// Note: llava:7b does not support tools
 			},
@@ -152,7 +152,7 @@ func DefaultProviders() []ProviderConfig {
 			ID:           "ollama-tools",
 			EnvKey:       "OLLAMA_HOST_URL", // Set to Ollama base URL (e.g., "http://localhost:11434")
 			DefaultModel: "llama3.2:3b",     // llama3.2 supports function calling
-			Capabilities: []Capability{
+			Capabilities: []ProviderCapability{
 				CapText, CapStreaming, CapTools,
 			},
 		},
@@ -160,7 +160,7 @@ func DefaultProviders() []ProviderConfig {
 			ID:           "mock",
 			EnvKey:       "", // Always available
 			DefaultModel: "mock-model",
-			Capabilities: []Capability{
+			Capabilities: []ProviderCapability{
 				CapText, CapStreaming, CapTools,
 			},
 		},
@@ -222,7 +222,7 @@ func LoadE2EConfig() *E2EConfig {
 }
 
 // ProvidersWithCapability returns providers that support the given capability.
-func (c *E2EConfig) ProvidersWithCapability(cap Capability) []ProviderConfig {
+func (c *E2EConfig) ProvidersWithCapability(cap ProviderCapability) []ProviderConfig {
 	var result []ProviderConfig
 	for _, p := range c.Providers {
 		if p.HasCapability(cap) {
@@ -263,7 +263,7 @@ func contains(slice []string, item string) bool {
 
 // RunForProviders runs a test function for each provider with the required capability.
 // Skips providers that don't have the capability or aren't available.
-func RunForProviders(t *testing.T, cap Capability, testFn func(t *testing.T, provider ProviderConfig)) {
+func RunForProviders(t *testing.T, cap ProviderCapability, testFn func(t *testing.T, provider ProviderConfig)) {
 	t.Helper()
 
 	cfg := LoadE2EConfig()
@@ -283,7 +283,7 @@ func RunForProviders(t *testing.T, cap Capability, testFn func(t *testing.T, pro
 }
 
 // RunForProvidersSerial runs tests serially (for tests that can't be parallelized).
-func RunForProvidersSerial(t *testing.T, cap Capability, testFn func(t *testing.T, provider ProviderConfig)) {
+func RunForProvidersSerial(t *testing.T, cap ProviderCapability, testFn func(t *testing.T, provider ProviderConfig)) {
 	t.Helper()
 
 	cfg := LoadE2EConfig()
@@ -314,7 +314,7 @@ func SkipIfNoProvider(t *testing.T, providerID string) {
 }
 
 // RequireCapability skips if no providers have the capability.
-func RequireCapability(t *testing.T, cap Capability) []ProviderConfig {
+func RequireCapability(t *testing.T, cap ProviderCapability) []ProviderConfig {
 	t.Helper()
 
 	cfg := LoadE2EConfig()

@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/events"
 	"github.com/AltairaLabs/PromptKit/runtime/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/claude"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/gemini"
 	"github.com/AltairaLabs/PromptKit/runtime/providers/openai"
@@ -250,10 +251,10 @@ func TestE2E_TranscriptionPipeline_WithStageEvents(t *testing.T) {
 	collectedEvents := collector.getEvents()
 	for _, e := range collectedEvents {
 		switch data := e.Data.(type) {
-		case events.StageStartedData:
-			t.Logf("Stage started: %s (type: %s)", data.Name, data.StageType)
-		case events.StageCompletedData:
-			t.Logf("Stage completed: %s (duration: %v)", data.Name, data.Duration)
+		case events.StageEventData:
+			// StageStartedData and StageCompletedData are both aliases of
+			// StageEventData; a single case covers stage start and completion.
+			t.Logf("Stage event: %s (type: %s, duration: %v)", data.Name, data.StageType, data.Duration)
 		case events.ProviderCallCompletedData:
 			t.Logf("Provider call completed: %s/%s (tokens: %d in, %d out, cost: $%.6f)",
 				data.Provider, data.Model, data.InputTokens, data.OutputTokens, data.Cost)
@@ -379,13 +380,13 @@ func TestE2E_TranscriptionPipeline_LongAudio(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	transcription, err := sttService.Transcribe(ctx, audioData, stt.TranscriptionConfig{
-		Format:     stt.FormatWAV,
-		SampleRate: 16000,
-		Channels:   1,
-		Language:   "en",
+	result, err := sttService.Transcribe(ctx, base.STTRequest{
+		Audio:    audioData,
+		MIMEType: "audio/wav",
+		Hints:    map[string]string{"sample_rate": "16000", "channels": "1", "language": "en"},
 	})
 	require.NoError(t, err)
+	transcription := result.Text
 
 	// Verify transcription
 	assert.NotEmpty(t, transcription)

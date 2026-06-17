@@ -1,0 +1,33 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "json-function-example",
+  "name": "JSON Function Example",
+  "version": "1.0.0",
+  "description": "Function-style prompt: JSON input bound to template variables, JSON output",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "plan": {
+      "id": "plan",
+      "name": "Research Planner",
+      "version": "1.0.0",
+      "system_template": "You are a research planner. Produce a short research plan for the topic \"{{topic}}\" aimed at a {{audience}} audience. Respond ONLY with a JSON object matching the requested schema. The full request payload was: {{input}}.",
+      "variables": [
+        {
+          "name": "topic",
+          "type": "string",
+          "required": true,
+          "description": "The subject to research"
+        },
+        {
+          "name": "audience",
+          "type": "string",
+          "required": true,
+          "description": "The intended audience"
+        }
+      ]
+    }
+  }
+}
