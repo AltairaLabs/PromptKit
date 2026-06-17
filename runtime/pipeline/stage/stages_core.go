@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/types"
+	"github.com/AltairaLabs/PromptKit/runtime/variables"
 )
 
 // PromptAssemblyStage loads and assembles prompts from the prompt registry.
@@ -64,7 +65,7 @@ func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamEl
 	defer close(output)
 
 	// Load raw template (no rendering)
-	tmpl := s.loadTemplate()
+	tmpl := s.loadTemplate(ctx)
 
 	// Populate TurnState once, before forwarding the first element. Channel
 	// hand-off to downstream stages establishes happens-before so readers
@@ -89,7 +90,7 @@ func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamEl
 	return nil
 }
 
-func (s *PromptAssemblyStage) loadTemplate() *prompt.Template {
+func (s *PromptAssemblyStage) loadTemplate(ctx context.Context) *prompt.Template {
 	defaultTemplate := &prompt.Template{
 		RawTemplate:  "You are a helpful AI assistant.",
 		AllowedTools: nil,
@@ -101,7 +102,22 @@ func (s *PromptAssemblyStage) loadTemplate() *prompt.Template {
 		return defaultTemplate
 	}
 
-	tmpl, err := s.promptRegistry.LoadTemplate(s.taskType, s.baseVariables, "")
+	// Merge per-request variables (carried on the context, e.g. from an SDK
+	// structured input) over the static base variables. Without this, a required
+	// variable supplied only per-request would fail LoadTemplate's required-var
+	// check and the pack prompt would be discarded for the default.
+	loadVars := s.baseVariables
+	if reqVars := variables.RequestVars(ctx); len(reqVars) > 0 {
+		loadVars = make(map[string]string, len(s.baseVariables)+len(reqVars))
+		for k, v := range s.baseVariables {
+			loadVars[k] = v
+		}
+		for k, v := range reqVars {
+			loadVars[k] = v
+		}
+	}
+
+	tmpl, err := s.promptRegistry.LoadTemplate(s.taskType, loadVars, "")
 	if err != nil {
 		logger.Warn("Using default system prompt, no prompt found for task type", "task_type", s.taskType)
 		return defaultTemplate

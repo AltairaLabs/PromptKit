@@ -72,23 +72,19 @@ func jsonValueToString(raw json.RawMessage) string {
 	return string(raw)
 }
 
-// sendVarsCtxKey is the context key under which per-send template variables are
-// carried from Send/Stream to the send-scoped variable provider.
-type sendVarsCtxKey struct{}
-
-// withSendVars returns a context carrying the given per-send variables. It
-// returns ctx unchanged when there are no variables to add.
+// withSendVars returns a context carrying the given per-send variables, using
+// the runtime's request-variable vehicle so both the required-variable check
+// (PromptAssemblyStage) and rendering observe them. Returns ctx unchanged when
+// there are no variables to add.
 func withSendVars(ctx context.Context, vars map[string]string) context.Context {
-	if len(vars) == 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, sendVarsCtxKey{}, vars)
+	return variables.WithRequestVars(ctx, vars)
 }
 
 // sendScopedVarProvider resolves the per-send variables carried on the request
-// context (see WithJSONInput). It is registered once at pipeline-build time and
-// runs fresh on every turn, so each Send observes only its own variables. It is
-// ordered last among providers so request-scoped values win.
+// context (see WithJSONInput) into the rendered variable set. It is registered
+// once at pipeline-build time and runs fresh on every turn, so each Send
+// observes only its own variables. It is ordered last among providers so
+// request-scoped values win.
 type sendScopedVarProvider struct{}
 
 // Name identifies the provider in logs and merge ordering.
@@ -96,10 +92,7 @@ func (sendScopedVarProvider) Name() string { return "send-scoped" }
 
 // Provide returns the per-send variables carried on ctx, or nil when none.
 func (sendScopedVarProvider) Provide(ctx context.Context) (map[string]string, error) {
-	if vars, ok := ctx.Value(sendVarsCtxKey{}).(map[string]string); ok {
-		return vars, nil
-	}
-	return nil, nil
+	return variables.RequestVars(ctx), nil
 }
 
 // Compile-time assertion that sendScopedVarProvider implements variables.Provider.

@@ -151,6 +151,36 @@ func TestJSONInput_NonEmptyMessagePreservedWithBinding(t *testing.T) {
 	assert.Contains(t, rec.system(), "topic=x")
 }
 
+// jsonInputPackRequired returns a pack whose bound variable is declared
+// required — the realistic case (and what an inputSchema implies).
+func jsonInputPackRequired(systemTemplate string) string {
+	return `{
+		"id": "json-input-required-test",
+		"version": "1.0.0",
+		"description": "Pack with a required bound variable",
+		"prompts": {
+			"fn": {
+				"id": "fn",
+				"name": "Function",
+				"system_template": ` + quote(systemTemplate) + `,
+				"variables": [
+					{"name": "secret_code", "type": "string", "required": true, "description": "code"}
+				]
+			}
+		}
+	}`
+}
+
+func TestJSONInput_RequiredVariableBindsToSystemPrompt(t *testing.T) {
+	rec := newRecordingProvider()
+	conv := openTestConvWithPack(t, jsonInputPackRequired("code={{secret_code}}"), "fn",
+		sdk.WithProvider(rec), sdk.WithSkipSchemaValidation())
+	_, err := conv.Send(context.Background(), "", sdk.WithJSONInput(map[string]any{"secret_code": "ZEBRA-4271"}))
+	require.NoError(t, err)
+	assert.Contains(t, rec.system(), "code=ZEBRA-4271")
+	assert.NotContains(t, rec.system(), "{{secret_code}}")
+}
+
 func TestJSONInput_StreamBindsField(t *testing.T) {
 	conv, rec := openRecordingConv(t, "topic={{topic}}")
 	for chunk := range conv.Stream(context.Background(), "", sdk.WithJSONInput(map[string]any{"topic": "wind"})) {

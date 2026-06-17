@@ -112,8 +112,8 @@ func DefaultProviders() []ProviderConfig {
 		{
 			ID:           "anthropic",
 			EnvKey:       "ANTHROPIC_API_KEY",
-			DefaultModel: "claude-sonnet-4-20250514",
-			VisionModel:  "claude-sonnet-4-20250514",
+			DefaultModel: "claude-haiku-4-5",
+			VisionModel:  "claude-haiku-4-5",
 			Capabilities: []ProviderCapability{
 				CapText, CapStreaming, CapVision, CapTools, CapJSON,
 			},
@@ -122,8 +122,8 @@ func DefaultProviders() []ProviderConfig {
 			ID:           "gemini",
 			EnvKey:       "GEMINI_API_KEY",
 			AltEnvKeys:   []string{"GOOGLE_API_KEY"},
-			DefaultModel: "gemini-2.0-flash",
-			VisionModel:  "gemini-2.0-flash",
+			DefaultModel: "gemini-2.5-flash",
+			VisionModel:  "gemini-2.5-flash",
 			Capabilities: []ProviderCapability{
 				CapText, CapStreaming, CapVision, CapAudio, CapVideo, CapTools, CapJSON,
 			},
