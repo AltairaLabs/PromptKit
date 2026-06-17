@@ -127,7 +127,7 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 		c.mu.RUnlock()
 
 		// Build user message with options
-		userMsg, err := c.buildStreamMessage(message, opts)
+		userMsg, sendCfg, err := c.buildStreamMessage(message, opts)
 		if err != nil {
 			select {
 			case ch <- StreamChunk{Error: err}:
@@ -135,6 +135,10 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 			}
 			return
 		}
+
+		// Carry WithJSONInput-bound variables on the context so the send-scoped
+		// variable provider resolves them for this turn.
+		ctx = withSendVars(ctx, sendCfg.jsonInputVars)
 
 		// Execute streaming pipeline
 		if err := c.executeStreamingPipeline(ctx, userMsg, ch, startTime); err != nil {
@@ -148,40 +152,45 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 	return ch
 }
 
-// buildStreamMessage constructs a user message from input and options.
-func (c *Conversation) buildStreamMessage(message any, opts []SendOption) (*types.Message, error) {
+// buildStreamMessage constructs a user message from input and options. It
+// returns the parsed sendConfig so the caller can carry any WithJSONInput-bound
+// variables on the context.
+func (c *Conversation) buildStreamMessage(message any, opts []SendOption) (*types.Message, *sendConfig, error) {
+	sendCfg, err := parseSendOptions(opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Fall back to the JSON input as the user turn when the caller passes an
+	// empty message.
+	if isEmptyMessage(message) && len(sendCfg.jsonInputRaw) > 0 {
+		message = string(sendCfg.jsonInputRaw)
+	}
+
 	// Build user message from input
 	var userMsg *types.Message
 	switch m := message.(type) {
 	case string:
 		if err := c.validateMessageSize(len(m)); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		userMsg = &types.Message{Role: "user"}
 		userMsg.AddTextPart(m)
 	case *types.Message:
 		if err := c.validateMessageSize(messageContentSize(m)); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		userMsg = m
 	default:
-		return nil, fmt.Errorf("message must be string or *types.Message, got %T", message)
-	}
-
-	// Apply send options
-	sendCfg := &sendConfig{}
-	for _, opt := range opts {
-		if err := opt(sendCfg); err != nil {
-			return nil, fmt.Errorf("failed to apply send option: %w", err)
-		}
+		return nil, nil, fmt.Errorf("message must be string or *types.Message, got %T", message)
 	}
 
 	// Add content parts to message
 	if err := c.addContentParts(userMsg, sendCfg.parts); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return userMsg, nil
+	return userMsg, sendCfg, nil
 }
 
 // addContentParts adds content parts from options to the message.

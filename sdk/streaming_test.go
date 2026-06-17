@@ -127,7 +127,7 @@ func TestBuildStreamMessage(t *testing.T) {
 	conv := newTestConversation()
 
 	t.Run("simple text message", func(t *testing.T) {
-		msg, err := conv.buildStreamMessage("hello", nil)
+		msg, _, err := conv.buildStreamMessage("hello", nil)
 		require.NoError(t, err)
 		assert.NotNil(t, msg)
 		assert.Equal(t, "user", msg.Role)
@@ -135,11 +135,32 @@ func TestBuildStreamMessage(t *testing.T) {
 	})
 
 	t.Run("message with parts", func(t *testing.T) {
-		msg, err := conv.buildStreamMessage("text", []SendOption{
+		msg, _, err := conv.buildStreamMessage("text", []SendOption{
 			WithImageURL("http://example.com/image.jpg"),
 		})
 		require.NoError(t, err)
 		assert.NotNil(t, msg)
+	})
+
+	t.Run("empty message falls back to JSON input as user turn", func(t *testing.T) {
+		msg, cfg, err := conv.buildStreamMessage("", []SendOption{
+			WithJSONInput(map[string]any{"topic": "x"}),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, msg)
+		require.NotEmpty(t, msg.Parts)
+		assert.JSONEq(t, `{"topic":"x"}`, *msg.Parts[0].Text)
+		assert.Equal(t, "x", cfg.jsonInputVars["topic"])
+	})
+
+	t.Run("non-empty message keeps text and surfaces bound vars", func(t *testing.T) {
+		msg, cfg, err := conv.buildStreamMessage("hello", []SendOption{
+			WithJSONInput(map[string]any{"topic": "x"}),
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, msg.Parts)
+		assert.Equal(t, "hello", *msg.Parts[0].Text)
+		assert.Equal(t, "x", cfg.jsonInputVars["topic"])
 	})
 }
 
@@ -332,7 +353,7 @@ func TestStreamRawClosedConversation(t *testing.T) {
 func TestBuildStreamMessageWithNil(t *testing.T) {
 	conv := newTestConversation()
 
-	_, err := conv.buildStreamMessage(nil, nil)
+	_, _, err := conv.buildStreamMessage(nil, nil)
 	assert.Error(t, err)
 }
 

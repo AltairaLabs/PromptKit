@@ -198,6 +198,7 @@ func TestE2E_Streaming_Cancellation(t *testing.T) {
 		defer conv.Close()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
 		var chunksReceived int
 

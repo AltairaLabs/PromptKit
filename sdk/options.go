@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
@@ -2490,6 +2491,14 @@ func WithStreamingVideo(cfg *VideoStreamConfig) Option {
 // sendConfig holds configuration for a single Send call.
 type sendConfig struct {
 	parts []any // Additional content parts (images, audio, etc.)
+
+	// jsonInputVars holds template variables bound from WithJSONInput for this
+	// send. They are injected into the request context and resolved per-turn by
+	// the send-scoped variable provider, overriding open-time WithVariables.
+	jsonInputVars map[string]string
+	// jsonInputRaw is the compact JSON encoding of the WithJSONInput value, used
+	// as the user-turn message when the caller supplies an empty message.
+	jsonInputRaw json.RawMessage
 }
 
 // SendOption configures a single Send call.

@@ -68,6 +68,38 @@ conv.SetVar("user_name", "Alice")
 name, ok := conv.GetVar("user_name")
 ```
 
+### WithJSONInput
+
+Bind a structured value to the prompt's template variables for a single `Send`
+or `Stream` — the input half of the "function-style" pattern (JSON in, one-shot,
+JSON out). Use it with `WithResponseFormat` for schema-enforced JSON output.
+
+```go
+func WithJSONInput(v any) SendOption
+```
+
+For a JSON **object** input, each top-level field is bound to `{{field}}`
+(strings verbatim; other types as compact JSON), and the whole object is bound
+to `{{input}}`. Bound values override open-time `WithVariables`. If you pass an
+empty message, the input JSON also becomes the user turn.
+
+**Example:**
+```go
+conv, _ := sdk.Open("./fn.pack.json", "plan",
+    sdk.WithResponseFormat(&providers.ResponseFormat{
+        Type: providers.ResponseFormatJSONSchema, JSONSchema: outSchema, Strict: true,
+    }),
+)
+resp, _ := conv.Send(ctx, "", sdk.WithJSONInput(map[string]any{
+    "topic": "battery storage", "audience": "executive",
+}))
+// {{topic}} and {{audience}} are now filled in the system prompt.
+```
+
+If a bound variable is declared `required` in the pack, `WithJSONInput`
+satisfies that requirement — the value is resolved before required-variable
+validation. See the [`json-function`](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/json-function) example.
+
 ### OnTool / OnToolCtx
 
 Register tool handlers.

@@ -220,16 +220,26 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 
 	c.startOTelSession(ctx)
 
-	// Build user message from input
-	userMsg, err := c.buildUserMessage(message)
+	// Parse send options once: they carry content parts and any WithJSONInput
+	// binding (per-send variables + a fallback user turn).
+	sendCfg, err := parseSendOptions(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	// Apply send options and add content parts
-	if optErr := c.applyOptionsToMessage(userMsg, opts); optErr != nil {
+	// Build user message from input, falling back to the JSON input when the
+	// caller passes an empty message.
+	userMsg, err := c.buildUserMessageWithInput(message, sendCfg)
+	if err != nil {
+		return nil, err
+	}
+	if optErr := c.addContentParts(userMsg, sendCfg.parts); optErr != nil {
 		return nil, optErr
 	}
+
+	// Carry WithJSONInput-bound variables on the context so the send-scoped
+	// variable provider resolves them for this turn.
+	ctx = withSendVars(ctx, sendCfg.jsonInputVars)
 
 	// Refresh per-send skill index in case an external selector is
 	// configured. Runs after capability registration (which happens
@@ -355,16 +365,37 @@ func messageContentSize(msg *types.Message) int {
 	return total
 }
 
-// applyOptionsToMessage applies send options and adds content parts to the message.
-func (c *Conversation) applyOptionsToMessage(userMsg *types.Message, opts []SendOption) error {
+// parseSendOptions applies all send options to a fresh sendConfig.
+func parseSendOptions(opts []SendOption) (*sendConfig, error) {
 	sendCfg := &sendConfig{}
 	for _, opt := range opts {
 		if err := opt(sendCfg); err != nil {
-			return fmt.Errorf("failed to apply send option: %w", err)
+			return nil, fmt.Errorf("failed to apply send option: %w", err)
 		}
 	}
+	return sendCfg, nil
+}
 
-	return c.addContentParts(userMsg, sendCfg.parts)
+// buildUserMessageWithInput builds the user message, substituting the WithJSONInput
+// payload as the user turn when the caller passes an empty message.
+func (c *Conversation) buildUserMessageWithInput(message any, sendCfg *sendConfig) (*types.Message, error) {
+	if isEmptyMessage(message) && len(sendCfg.jsonInputRaw) > 0 {
+		return c.buildUserMessage(string(sendCfg.jsonInputRaw))
+	}
+	return c.buildUserMessage(message)
+}
+
+// isEmptyMessage reports whether the caller supplied no usable message text,
+// which triggers the WithJSONInput fallback turn.
+func isEmptyMessage(message any) bool {
+	switch m := message.(type) {
+	case nil:
+		return true
+	case string:
+		return m == ""
+	default:
+		return false
+	}
 }
 
 // buildPipelineConfig assembles the shared intpipeline.Config used by both unary
@@ -460,7 +491,7 @@ func (c *Conversation) buildPipelineConfig(
 		PromptRegistry:        c.promptRegistry,
 		TaskType:              c.promptName,
 		Variables:             vars,
-		VariableProviders:     c.config.variableProviders, // Pass to pipeline for dynamic resolution
+		VariableProviders:     appendSendScopedProvider(c.config.variableProviders), // dynamic + per-send resolution
 		MaxTokens:             defaultMaxTokens,
 		Temperature:           defaultTemperature,
 		StateStore:            store,
