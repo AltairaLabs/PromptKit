@@ -1,28 +1,29 @@
-package agentmcp
+package agentkb
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/tools/arena/agentkb"
 	"github.com/AltairaLabs/PromptKit/tools/arena/templates"
 )
 
-// exampleLoader is the subset of templates.Loader that renderExample needs.
-type exampleLoader interface {
+// ExampleLoader is the subset of templates.Loader that RenderExample needs.
+// templates.Loader satisfies it.
+type ExampleLoader interface {
 	Load(name string) (*templates.Template, error)
 	ReadTemplateFile(templateName, filePath string) ([]byte, error)
 }
 
-// renderExample resolves a catalog entry by name and renders its files as text.
-// Builtin sources resolve offline via the templates loader.
-func renderExample(loader exampleLoader, name string) (string, error) {
-	cat, err := agentkb.LoadCatalog()
+// RenderExample resolves a catalog entry by name and renders its files as text.
+// Builtin sources resolve offline via the loader. It is the single definition
+// shared by the `examples show` command and the MCP show_example tool.
+func RenderExample(loader ExampleLoader, name string) (string, error) {
+	cat, err := LoadCatalog()
 	if err != nil {
 		return "", err
 	}
 
-	var entry *agentkb.CatalogEntry
+	var entry *CatalogEntry
 	for i := range cat.Entries {
 		if cat.Entries[i].Name == name {
 			entry = &cat.Entries[i]
@@ -30,7 +31,7 @@ func renderExample(loader exampleLoader, name string) (string, error) {
 		}
 	}
 	if entry == nil {
-		return "", fmt.Errorf("unknown example %q (see list_examples)", name)
+		return "", fmt.Errorf("unknown example %q (see the example catalog)", name)
 	}
 
 	loadName := entry.Source
@@ -54,7 +55,10 @@ func renderExample(loader exampleLoader, name string) (string, error) {
 	return b.String(), nil
 }
 
-func exampleFileBody(loader exampleLoader, templateName string, f *templates.FileSpec) string {
+// exampleFileBody returns the displayable body for a template file: inline
+// content, the embedded template source, or a placeholder when the body lives
+// elsewhere (external/remote source).
+func exampleFileBody(loader ExampleLoader, templateName string, f *templates.FileSpec) string {
 	switch {
 	case f.Content != "":
 		return f.Content

@@ -132,7 +132,7 @@ func (s *Server) toolShowExample(_ context.Context, args json.RawMessage) (mcp.T
 		return mcp.ToolCallResponse{}, fmt.Errorf("name is required")
 	}
 
-	text, err := renderExample(templates.NewLoader(""), p.Name)
+	text, err := agentkb.RenderExample(templates.NewLoader(""), p.Name)
 	if err != nil {
 		return mcp.ToolCallResponse{}, err
 	}

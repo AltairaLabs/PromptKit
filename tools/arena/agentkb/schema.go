@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+// The embedded schemas are a generated mirror of schemas/v1alpha1 (the source of
+// truth produced by schema-gen). Regenerate with `go generate ./tools/arena/agentkb/...`
+// or `make schemas`; TestSchemas_ByteMatchGeneratedSource guards against drift.
+//
+//go:generate sh -c "cp ../../../schemas/v1alpha1/*.json schemas/ && cp ../../../schemas/v1alpha1/common/*.json schemas/common/"
+
 //go:embed schemas/*.json schemas/common/*.json
 var schemasFS embed.FS
 
