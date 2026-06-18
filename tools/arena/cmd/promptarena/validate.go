@@ -34,6 +34,7 @@ var (
 	validateType       string
 	validateVerbose    bool
 	validateSchemaOnly bool
+	validateJSONFlag   bool
 )
 
 func init() {
@@ -41,6 +42,7 @@ func init() {
 	validateCmd.Flags().StringVar(&validateType, "type", "auto", "Config type: auto, arena, scenario, provider, promptconfig, tool, persona")
 	validateCmd.Flags().BoolVar(&validateVerbose, "verbose", false, "Show detailed validation errors")
 	validateCmd.Flags().BoolVar(&validateSchemaOnly, "schema-only", false, "Only validate schema, skip business logic checks")
+	validateCmd.Flags().BoolVar(&validateJSONFlag, "json", false, "Emit the validation result as JSON")
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
@@ -49,6 +51,10 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	filePath := args[0]
+	if validateJSONFlag {
+		return writeValidateJSON(cmd.OutOrStdout(), filePath, validateType)
+	}
+
 	if err := runValidationChecks(filePath, validateType, validateVerbose, validateSchemaOnly); err != nil {
 		return err
 	}
