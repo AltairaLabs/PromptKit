@@ -698,6 +698,9 @@ install-tools-user: ## Install CLI tools to user PATH (~/.local/bin)
 schemas: build-schema-gen ## Generate JSON schemas (including latest refs)
 	@echo "Generating JSON schemas..."
 	@./bin/schema-gen
+	@echo "Syncing schemas into agentkb embed..."
+	@go generate ./tools/arena/agentkb/...
+	@echo "✓ agentkb schemas synced"
 
 schemas-check: build-schema-gen ## Check if schemas are up to date (for CI)
 	@echo "Checking if schemas are up to date..."
