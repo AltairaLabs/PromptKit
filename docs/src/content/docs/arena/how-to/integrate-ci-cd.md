@@ -36,7 +36,7 @@ jobs:
       
       - name: Install PromptArena
         run: |
-          go install github.com/altairalabs/promptkit/tools/arena@latest
+          go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
       
       - name: Run LLM tests
         env:
@@ -83,7 +83,7 @@ jobs:
           go-version: '1.23'
       
       - name: Install Arena
-        run: go install github.com/altairalabs/promptkit/tools/arena@latest
+        run: go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
       
       - name: Validate with Mocks
         run: |
@@ -114,7 +114,7 @@ jobs:
           go-version: '1.23'
       
       - name: Install Arena
-        run: go install github.com/altairalabs/promptkit/tools/arena@latest
+        run: go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
       
       - name: Test $
         env:
@@ -151,7 +151,7 @@ jobs:
           go-version: '1.23'
       
       - name: Install Arena
-        run: go install github.com/altairalabs/promptkit/tools/arena@latest
+        run: go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
       
       - name: Run tests
         id: arena-test
@@ -215,7 +215,7 @@ arena-tests:
   image: golang:${GO_VERSION}
   
   before_script:
-    - go install github.com/altairalabs/promptkit/tools/arena@latest
+    - go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
   
   script:
     - promptarena run --ci --format junit,json
@@ -240,7 +240,7 @@ arena-tests:
   stage: test
   image: golang:1.23
   before_script:
-    - go install github.com/altairalabs/promptkit/tools/arena@latest
+    - go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
   script:
     - promptarena run --ci --format junit,json --out out/${CI_JOB_NAME}
   artifacts:
@@ -290,7 +290,7 @@ pipeline {
         stage('Setup') {
             steps {
                 sh 'go version'
-                sh 'go install github.com/altairalabs/promptkit/tools/arena@latest'
+                sh 'go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest'
             }
         }
         
@@ -362,7 +362,7 @@ jobs:
       
       - run:
           name: Install PromptArena
-          command: go install github.com/altairalabs/promptkit/tools/arena@latest
+          command: go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
       
       - run:
           name: Run tests

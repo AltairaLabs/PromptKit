@@ -40,19 +40,33 @@ npm install --save-dev @altairalabs/promptarena
 
 ### Option 2: Homebrew (macOS/Linux)
 
+PromptKit is distributed as a cask from the AltairaLabs tap:
+
 ```bash
-# Install PromptKit (includes PromptArena)
-brew install promptkit
+# Install PromptKit (includes PromptArena and packc)
+brew install --cask altairalabs/tap/promptkit
 
 # Verify installation
 promptarena --version
 ```
 
-### Option 3: Go Install
+Equivalently, tap first and then install by name:
 
 ```bash
-# Install directly with Go
-go install github.com/altairalabs/promptkit/tools/arena@latest
+brew tap altairalabs/tap
+brew install --cask promptkit
+```
+
+### Option 3: Go Install (builds from source)
+
+This compiles `promptarena` from source, so it needs a Go toolchain plus a C
+compiler and the platform audio development headers (e.g. `libasound2-dev` on
+Debian/Ubuntu) — the audio sink uses cgo. Prefer Homebrew, npm, or the pre-built
+binary for a dependency-free install.
+
+```bash
+# Install directly with Go (note the cmd/promptarena package path)
+go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
 
 # The binary will be in your $GOPATH/bin
 promptarena --version
