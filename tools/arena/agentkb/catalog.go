@@ -12,11 +12,11 @@ var catalogFS embed.FS
 
 // CatalogEntry indexes one example/template the agent can discover.
 type CatalogEntry struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Source      string   `yaml:"source"` // "builtin:<name>" or "remote:<ref>"
-	Concepts    []string `yaml:"concepts"`
-	Tags        []string `yaml:"tags"`
+	Name        string   `yaml:"name" json:"name"`
+	Description string   `yaml:"description" json:"description"`
+	Source      string   `yaml:"source" json:"source"` // "builtin:<name>" or "remote:<ref>"
+	Concepts    []string `yaml:"concepts" json:"concepts"`
+	Tags        []string `yaml:"tags" json:"tags"`
 }
 
 // Catalog is the embedded example index.
