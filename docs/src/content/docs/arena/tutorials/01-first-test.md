@@ -22,13 +22,13 @@ Choose your preferred installation method:
 **Option 1: Homebrew (Recommended)**
 
 ```bash
-brew install promptkit
+brew install --cask altairalabs/tap/promptkit
 ```
 
-**Option 2: Go Install**
+**Option 2: Go Install (builds from source — needs a C compiler + audio dev headers)**
 
 ```bash
-go install github.com/AltairaLabs/PromptKit/tools/arena@latest
+go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
 ```
 
 **Verify installation:**

@@ -8,7 +8,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "check-links": "node check-links.js"
+    "check-links": "node check-links.js",
+    "check-doc-urls": "node check-doc-urls.js"
   },
   "dependencies": {
     "@astrojs/mdx": "^6.0.3",

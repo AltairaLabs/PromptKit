@@ -98,7 +98,7 @@ npx @altairalabs/promptarena init
 - **Turn-Level**: `content_includes`, `content_matches`, `json_schema`, `jsonpath`, `llm_judge`, `tone`, `length`
 - **Conversation-Level**: `llm_judge_conversation`, `tools_not_called_with_args`, `max_tool_calls`
 
-See the [Assertions Guide](https://promptkit.altairalabs.ai/arena/tutorials/05-assertions/) for examples and best practices.
+See the [Assertions Reference](https://promptkit.altairalabs.ai/arena/reference/assertions/) for examples and best practices.
 
 ### Documentation
 

@@ -282,7 +282,7 @@ brews:
 Then users can:
 ```bash
 brew tap AltairaLabs/tap
-brew install promptkit
+brew install --cask promptkit
 ```
 
 ### Add Docker Images

@@ -26,13 +26,13 @@ Get up and running in 60 seconds with the interactive project generator:
 
 ```bash
 # Install PromptKit (includes PromptArena)
-brew install promptkit
+brew install --cask altairalabs/tap/promptkit
 
-# Or with Go
-go install github.com/AltairaLabs/PromptKit/tools/arena@latest
+# Or build from source with Go (needs a C compiler + audio dev headers)
+go install github.com/AltairaLabs/PromptKit/tools/arena/cmd/promptarena@latest
 
 # Create a new test project instantly
-promprarena init my-test --quick
+promptarena init my-test --quick
 
 # Choose your provider when prompted:
 #   • mock     - No API calls, instant testing

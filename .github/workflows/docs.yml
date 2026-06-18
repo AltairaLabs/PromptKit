@@ -9,6 +9,10 @@ on:
       - 'docs/**'
       - 'examples/**/README.md'
       - 'sdk/examples/**/README.md'
+      # Scaffolding templates and package READMEs hardcode production doc URLs
+      # that the check-doc-urls step validates.
+      - 'tools/arena/templates/**'
+      - 'npm/**/README.md'
       - 'scripts/prepare-examples-docs.sh'
       - 'scripts/rewrite-example-links.mjs'
       - '.github/workflows/docs.yml'
@@ -94,6 +98,13 @@ jobs:
       - name: Check for broken links
         working-directory: docs
         run: npm run check-links
+
+      # check-links only crawls the built site and skips absolute
+      # promptkit.altairalabs.ai URLs. This validates hardcoded production doc
+      # URLs baked into scaffolding templates / package READMEs against dist/.
+      - name: Check hardcoded doc URLs
+        working-directory: docs
+        run: npm run check-doc-urls
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

@@ -335,18 +335,23 @@ jobs:
       run: |
         echo "Updating tools/arena to use $VERSION..."
         cd tools/arena
-        
+
         # Update go.mod to require new versions
         echo "Setting required versions to $VERSION..."
         go mod edit -require="github.com/AltairaLabs/PromptKit/runtime@$VERSION"
         go mod edit -require="github.com/AltairaLabs/PromptKit/pkg@$VERSION"
-        
+        # arena imports tools/packc/compiler (cmd/promptarena/export.go), so packc
+        # must be a versioned require — not a local replace — or `go install
+        # .../tools/arena/cmd/promptarena@latest` fails with "replace directives".
+        go mod edit -require="github.com/AltairaLabs/PromptKit/tools/packc@$VERSION"
+
         # Remove local replace directives
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/runtime
         go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/pkg
-        
+        go mod edit -dropreplace=github.com/AltairaLabs/PromptKit/tools/packc
+
         cd ../..
-        echo "✓ Updated arena go.mod to $VERSION"
+        echo "✓ Updated arena go.mod to $VERSION (go.sum finalized after packc is tagged)"
     
     - name: Update packc dependencies
       env:
@@ -412,18 +417,9 @@ jobs:
           echo "✓ Tagged sdk/$VERSION"
         fi
 
-    - name: Tag arena
-      env:
-        VERSION: ${{ needs.validate.outputs.version }}
-      run: |
-        if git rev-parse "tools/arena/$VERSION" >/dev/null 2>&1; then
-          echo "⚠ Tag tools/arena/$VERSION already exists, skipping"
-        else
-          git tag -a "tools/arena/$VERSION" -m "Release arena $VERSION"
-          git push origin "tools/arena/$VERSION"
-          echo "✓ Tagged tools/arena/$VERSION"
-        fi
-    
+    # NOTE: arena is tagged AFTER packc (see "Finalize arena go.sum and tag
+    # arena" below). arena requires tools/packc@$VERSION, and its go.sum can
+    # only be populated once packc@$VERSION is published to the Go proxy.
     - name: Tag packc
       env:
         VERSION: ${{ needs.validate.outputs.version }}
@@ -434,6 +430,47 @@ jobs:
           git tag -a "tools/packc/$VERSION" -m "Release packc $VERSION"
           git push origin "tools/packc/$VERSION"
           echo "✓ Tagged tools/packc/$VERSION"
+        fi
+
+    - name: Finalize arena go.sum and tag arena
+      env:
+        VERSION: ${{ needs.validate.outputs.version }}
+      run: |
+        BRANCH="release/tools/$VERSION"
+
+        # arena requires tools/packc@$VERSION; its go.sum can only be populated
+        # once packc@$VERSION is published to the Go proxy (tagged just above).
+        # Wait for proxy propagation before resolving sums (best-effort).
+        echo "Waiting for tools/packc@$VERSION on the Go proxy..."
+        for i in $(seq 1 10); do
+          if env GOWORK=off GOFLAGS=-mod=mod go list -m "github.com/AltairaLabs/PromptKit/tools/packc@$VERSION" >/dev/null 2>&1; then
+            echo "✓ tools/packc@$VERSION is available"
+            break
+          fi
+          echo "  Attempt $i/10: not available yet, waiting 20s..."
+          sleep 20
+        done
+
+        # Populate go.sum for the now-versioned packc dependency. GOWORK=off so
+        # the workspace doesn't resolve packc back to the local module.
+        cd tools/arena
+        env GOWORK=off GOFLAGS=-mod=mod go get "github.com/AltairaLabs/PromptKit/tools/packc@$VERSION"
+        env GOWORK=off GOFLAGS=-mod=mod go mod download all
+        cd ../..
+
+        if ! git diff --quiet tools/arena/go.mod tools/arena/go.sum; then
+          git add tools/arena/go.mod tools/arena/go.sum
+          git commit -m "release: finalize arena go.sum for $VERSION"
+          git push origin "$BRANCH"
+          echo "✓ Finalized arena go.sum"
+        fi
+
+        if git rev-parse "tools/arena/$VERSION" >/dev/null 2>&1; then
+          echo "⚠ Tag tools/arena/$VERSION already exists, skipping"
+        else
+          git tag -a "tools/arena/$VERSION" -m "Release arena $VERSION"
+          git push origin "tools/arena/$VERSION"
+          echo "✓ Tagged tools/arena/$VERSION"
         fi
 
     - name: Update promptarena-action version
