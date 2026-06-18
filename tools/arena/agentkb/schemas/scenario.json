@@ -1,0 +1,670 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json",
+  "$defs": {
+    "AssertionConfig": {
+      "properties": {
+        "type": {
+          "anyOf": [
+            {
+              "enum": [
+                "a2a_eval",
+                "a2a_eval_session",
+                "agent_invoked",
+                "agent_not_invoked",
+                "agent_response_contains",
+                "answer_relevancy",
+                "assertion",
+                "audio_duration",
+                "audio_emotion",
+                "audio_format",
+                "banned_words",
+                "bias",
+                "composition_branch_taken",
+                "composition_output",
+                "composition_parallel_complete",
+                "composition_step_output",
+                "contains",
+                "contains_any",
+                "content_excludes",
+                "content_includes",
+                "content_includes_any",
+                "content_matches",
+                "content_not_includes",
+                "contextual_precision",
+                "contextual_recall",
+                "contextual_relevancy",
+                "cosine_similarity",
+                "cost_budget",
+                "directional",
+                "faithfulness",
+                "field_presence",
+                "guardrail",
+                "guardrail_triggered",
+                "hallucination",
+                "image_dimensions",
+                "image_format",
+                "image_moderation",
+                "invariant_fields_preserved",
+                "is_valid_json",
+                "json_path",
+                "json_schema",
+                "json_valid",
+                "latency_budget",
+                "length",
+                "llm_judge",
+                "llm_judge_conversation",
+                "llm_judge_session",
+                "llm_judge_tool_calls",
+                "max_length",
+                "max_sentences",
+                "min_length",
+                "no_tool_errors",
+                "outcome_equivalent",
+                "pii_leakage",
+                "regex",
+                "required_fields",
+                "rest_eval",
+                "rest_eval_session",
+                "role_violation",
+                "sentence_count",
+                "skill_activated",
+                "skill_activation_order",
+                "skill_not_activated",
+                "state_is",
+                "text_sentiment",
+                "text_toxicity",
+                "tool_anti_pattern",
+                "tool_args",
+                "tool_args_excluded_session",
+                "tool_args_session",
+                "tool_call_chain",
+                "tool_call_count",
+                "tool_call_sequence",
+                "tool_called",
+                "tool_calls_with_args",
+                "tool_efficiency",
+                "tool_exec",
+                "tool_no_repeat",
+                "tool_result_has_media",
+                "tool_result_includes",
+                "tool_result_matches",
+                "tool_result_media_type",
+                "tools_called",
+                "tools_called_session",
+                "tools_not_called",
+                "tools_not_called_session",
+                "tools_not_called_with_args",
+                "toxicity",
+                "transitioned_to",
+                "valid_json",
+                "video_duration",
+                "video_resolution",
+                "workflow_complete",
+                "workflow_tool_access",
+                "workflow_transition_order"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Handler type. PromptKit-known types are suggested, but values are not restricted to this list — a different runtime may define additional types."
+        },
+        "params": {
+          "type": "object"
+        },
+        "message": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/AssertionWhen"
+        },
+        "pass_threshold": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "AssertionWhen": {
+      "properties": {
+        "tool_called": {
+          "type": "string"
+        },
+        "tool_called_pattern": {
+          "type": "string"
+        },
+        "any_tool_called": {
+          "type": "boolean"
+        },
+        "min_tool_calls": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChaosConfig": {
+      "properties": {
+        "tool_failures": {
+          "items": {
+            "$ref": "#/$defs/ChaosToolFailure"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChaosToolFailure": {
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "probability": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tool",
+        "mode"
+      ]
+    },
+    "ContextMetadata": {
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "user_role": {
+          "type": "string"
+        },
+        "project_stage": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ContextPolicy": {
+      "properties": {
+        "token_budget": {
+          "type": "integer"
+        },
+        "reserve_for_output": {
+          "type": "integer"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "cache_breakpoints": {
+          "type": "boolean"
+        },
+        "relevance": {
+          "$ref": "#/$defs/RelevanceConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DuplexConfig": {
+      "properties": {
+        "timeout": {
+          "type": "string"
+        },
+        "turn_detection": {
+          "$ref": "#/$defs/TurnDetectionConfig"
+        },
+        "resilience": {
+          "$ref": "#/$defs/DuplexResilienceConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DuplexResilienceConfig": {
+      "properties": {
+        "max_retries": {
+          "type": "integer"
+        },
+        "retry_delay_ms": {
+          "type": "integer"
+        },
+        "partial_success_min_turns": {
+          "type": "integer"
+        },
+        "ignore_last_turn_session_end": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RelevanceConfig": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "min_recent_messages": {
+          "type": "integer"
+        },
+        "always_keep_system_role": {
+          "type": "boolean"
+        },
+        "similarity_threshold": {
+          "type": "number"
+        },
+        "query_source": {
+          "type": "string"
+        },
+        "last_n_count": {
+          "type": "integer"
+        },
+        "custom_query": {
+          "type": "string"
+        },
+        "cache_embeddings": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider"
+      ]
+    },
+    "Scenario": {
+      "oneOf": [
+        {
+          "required": [
+            "task_type",
+            "turns"
+          ],
+          "description": "Regular conversation scenario"
+        },
+        {
+          "required": [
+            "pack",
+            "steps"
+          ],
+          "description": "Workflow scenario"
+        }
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "task_type": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "context_metadata": {
+          "$ref": "#/$defs/ContextMetadata"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/TurnDefinition"
+          },
+          "type": "array"
+        },
+        "context": {
+          "type": "object"
+        },
+        "constraints": {
+          "type": "object"
+        },
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicy"
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "provider_group": {
+          "type": "string"
+        },
+        "required_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "context_policy": {
+          "$ref": "#/$defs/ContextPolicy"
+        },
+        "conversation_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        },
+        "duplex": {
+          "$ref": "#/$defs/DuplexConfig"
+        },
+        "voice": {
+          "type": "string"
+        },
+        "variables": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Template variables to inject into the pack"
+        },
+        "trials": {
+          "type": "integer",
+          "description": "Number of times to run this scenario for statistical evaluation"
+        },
+        "seed_memories": {
+          "items": {
+            "$ref": "#/$defs/SeedMemoryEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description"
+      ]
+    },
+    "SeedMemoryEntry": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "content"
+      ]
+    },
+    "ToolPolicy": {
+      "properties": {
+        "tool_choice": {
+          "type": "string"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "max_total_tool_calls": {
+          "type": "integer"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tool_choice",
+        "max_tool_calls_per_turn",
+        "max_total_tool_calls"
+      ]
+    },
+    "TurnContentPart": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/TurnMediaContent"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "TurnDefinition": {
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/TurnContentPart"
+          },
+          "type": "array"
+        },
+        "persona": {
+          "type": "string"
+        },
+        "turns": {
+          "type": "integer"
+        },
+        "max_turns": {
+          "type": "integer"
+        },
+        "assistant_temp": {
+          "type": "number"
+        },
+        "user_temp": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "consent_overrides": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "perturbations": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        "chaos": {
+          "$ref": "#/$defs/ChaosConfig"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "role"
+      ]
+    },
+    "TurnDetectionConfig": {
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "vad": {
+          "$ref": "#/$defs/VADConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "TurnMediaContent": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "storage_reference": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "VADConfig": {
+      "properties": {
+        "silence_threshold_ms": {
+          "type": "integer"
+        },
+        "min_speech_ms": {
+          "type": "integer"
+        },
+        "max_turn_duration_s": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/Scenario"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptArena Scenario Configuration",
+  "description": "Scenario configuration for PromptArena test cases",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Scenario",
+      "metadata": {
+        "name": "test-scenario"
+      },
+      "spec": {
+        "description": "Test scenario",
+        "id": "test-1",
+        "task_type": "general",
+        "turns": [
+          {
+            "content": "Hello",
+            "role": "user"
+          }
+        ]
+      }
+    }
+  ]
+}

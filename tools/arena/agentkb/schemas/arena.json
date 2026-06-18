@@ -1,0 +1,3219 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json",
+  "$defs": {
+    "A2AAgentConfig": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "card": {
+          "$ref": "#/$defs/A2ACardConfig"
+        },
+        "responses": {
+          "items": {
+            "$ref": "#/$defs/A2AResponseRule"
+          },
+          "type": "array"
+        },
+        "url": {
+          "type": "string"
+        },
+        "auth": {
+          "$ref": "#/$defs/A2AAuthConfig"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "headers_from_env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "skill_filter": {
+          "$ref": "#/$defs/A2ASkillFilter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "A2AAuthConfig": {
+      "properties": {
+        "scheme": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "token_env": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "scheme"
+      ]
+    },
+    "A2ACardConfig": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/A2ASkillConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "skills"
+      ]
+    },
+    "A2AMatchConfig": {
+      "properties": {
+        "contains": {
+          "type": "string"
+        },
+        "regex": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "A2APartConfig": {
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    },
+    "A2AResponseConfig": {
+      "properties": {
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/A2APartConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "parts"
+      ]
+    },
+    "A2AResponseRule": {
+      "properties": {
+        "skill": {
+          "type": "string"
+        },
+        "match": {
+          "$ref": "#/$defs/A2AMatchConfig"
+        },
+        "response": {
+          "$ref": "#/$defs/A2AResponseConfig"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "skill"
+      ]
+    },
+    "A2ASkillConfig": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "description"
+      ]
+    },
+    "A2ASkillFilter": {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AssertionConfig": {
+      "properties": {
+        "type": {
+          "anyOf": [
+            {
+              "enum": [
+                "a2a_eval",
+                "a2a_eval_session",
+                "agent_invoked",
+                "agent_not_invoked",
+                "agent_response_contains",
+                "answer_relevancy",
+                "assertion",
+                "audio_duration",
+                "audio_emotion",
+                "audio_format",
+                "banned_words",
+                "bias",
+                "composition_branch_taken",
+                "composition_output",
+                "composition_parallel_complete",
+                "composition_step_output",
+                "contains",
+                "contains_any",
+                "content_excludes",
+                "content_includes",
+                "content_includes_any",
+                "content_matches",
+                "content_not_includes",
+                "contextual_precision",
+                "contextual_recall",
+                "contextual_relevancy",
+                "cosine_similarity",
+                "cost_budget",
+                "directional",
+                "faithfulness",
+                "field_presence",
+                "guardrail",
+                "guardrail_triggered",
+                "hallucination",
+                "image_dimensions",
+                "image_format",
+                "image_moderation",
+                "invariant_fields_preserved",
+                "is_valid_json",
+                "json_path",
+                "json_schema",
+                "json_valid",
+                "latency_budget",
+                "length",
+                "llm_judge",
+                "llm_judge_conversation",
+                "llm_judge_session",
+                "llm_judge_tool_calls",
+                "max_length",
+                "max_sentences",
+                "min_length",
+                "no_tool_errors",
+                "outcome_equivalent",
+                "pii_leakage",
+                "regex",
+                "required_fields",
+                "rest_eval",
+                "rest_eval_session",
+                "role_violation",
+                "sentence_count",
+                "skill_activated",
+                "skill_activation_order",
+                "skill_not_activated",
+                "state_is",
+                "text_sentiment",
+                "text_toxicity",
+                "tool_anti_pattern",
+                "tool_args",
+                "tool_args_excluded_session",
+                "tool_args_session",
+                "tool_call_chain",
+                "tool_call_count",
+                "tool_call_sequence",
+                "tool_called",
+                "tool_calls_with_args",
+                "tool_efficiency",
+                "tool_exec",
+                "tool_no_repeat",
+                "tool_result_has_media",
+                "tool_result_includes",
+                "tool_result_matches",
+                "tool_result_media_type",
+                "tools_called",
+                "tools_called_session",
+                "tools_not_called",
+                "tools_not_called_session",
+                "tools_not_called_with_args",
+                "toxicity",
+                "transitioned_to",
+                "valid_json",
+                "video_duration",
+                "video_resolution",
+                "workflow_complete",
+                "workflow_tool_access",
+                "workflow_transition_order"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Handler type. PromptKit-known types are suggested, but values are not restricted to this list — a different runtime may define additional types."
+        },
+        "params": {
+          "type": "object"
+        },
+        "message": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/AssertionWhen"
+        },
+        "pass_threshold": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "AssertionWhen": {
+      "properties": {
+        "tool_called": {
+          "type": "string"
+        },
+        "tool_called_pattern": {
+          "type": "string"
+        },
+        "any_tool_called": {
+          "type": "boolean"
+        },
+        "min_tool_calls": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AudioConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "AudioMonitorSection": {
+      "properties": {
+        "enabled": {
+          "type": "string"
+        },
+        "rate": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChangelogEntry": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "version",
+        "date",
+        "description"
+      ]
+    },
+    "ChaosConfig": {
+      "properties": {
+        "tool_failures": {
+          "items": {
+            "$ref": "#/$defs/ChaosToolFailure"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ChaosToolFailure": {
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "probability": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tool",
+        "mode"
+      ]
+    },
+    "CompilationInfo": {
+      "properties": {
+        "compiled_with": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "compiled_with",
+        "created_at"
+      ]
+    },
+    "Config": {
+      "properties": {
+        "prompt_configs": {
+          "items": {
+            "$ref": "#/$defs/PromptConfigRef"
+          },
+          "type": "array"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "judges": {
+          "items": {
+            "$ref": "#/$defs/JudgeRef"
+          },
+          "type": "array"
+        },
+        "judge_defaults": {
+          "$ref": "#/$defs/JudgeDefaults"
+        },
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/ScenarioRef"
+          },
+          "type": "array"
+        },
+        "evals": {
+          "items": {
+            "$ref": "#/$defs/EvalRef"
+          },
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ToolRef"
+          },
+          "type": "array"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/SkillSourceConfig"
+          },
+          "type": "array"
+        },
+        "pack_evals": {
+          "items": {
+            "$ref": "#/$defs/EvalDef"
+          },
+          "type": "array"
+        },
+        "globals": {
+          "$ref": "#/$defs/Globals"
+        },
+        "workflow": true,
+        "compositions": true,
+        "memory": true,
+        "agents": true,
+        "deploy": {
+          "$ref": "#/$defs/DeployConfig"
+        },
+        "mcp_servers": {
+          "items": {
+            "$ref": "#/$defs/MCPServerConfig"
+          },
+          "type": "array"
+        },
+        "a2a_agents": {
+          "items": {
+            "$ref": "#/$defs/A2AAgentConfig"
+          },
+          "type": "array"
+        },
+        "state_store": {
+          "$ref": "#/$defs/StateStoreConfig"
+        },
+        "defaults": {
+          "$ref": "#/$defs/Defaults"
+        },
+        "self_play": {
+          "$ref": "#/$defs/SelfPlayConfig"
+        },
+        "pack_file": {
+          "type": "string"
+        },
+        "provider_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Provider"
+          },
+          "type": "object"
+        },
+        "scenario_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Scenario"
+          },
+          "type": "object"
+        },
+        "eval_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Eval"
+          },
+          "type": "object"
+        },
+        "tool_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolSpec"
+          },
+          "type": "object"
+        },
+        "judge_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JudgeSpec"
+          },
+          "type": "object"
+        },
+        "prompt_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Spec"
+          },
+          "type": "object"
+        },
+        "tts_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "stt_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "embedding_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "image_providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderRef"
+          },
+          "type": "array"
+        },
+        "voices": {
+          "items": {
+            "$ref": "#/$defs/VoiceBinding"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "providers",
+        "defaults"
+      ]
+    },
+    "ContextMetadata": {
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "user_role": {
+          "type": "string"
+        },
+        "project_stage": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ContextPolicy": {
+      "properties": {
+        "token_budget": {
+          "type": "integer"
+        },
+        "reserve_for_output": {
+          "type": "integer"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "cache_breakpoints": {
+          "type": "boolean"
+        },
+        "relevance": {
+          "$ref": "#/$defs/RelevanceConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "CostEstimate": {
+      "properties": {
+        "min_cost_usd": {
+          "type": "number"
+        },
+        "max_cost_usd": {
+          "type": "number"
+        },
+        "avg_cost_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "min_cost_usd",
+        "max_cost_usd",
+        "avg_cost_usd"
+      ]
+    },
+    "CredentialConfig": {
+      "properties": {
+        "api_key": {
+          "type": "string"
+        },
+        "credential_file": {
+          "type": "string"
+        },
+        "credential_env": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Defaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "concurrency": {
+          "type": "integer"
+        },
+        "run_timeout": {
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/$defs/OutputConfig"
+        },
+        "config_dir": {
+          "type": "string"
+        },
+        "fail_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "verbose": {
+          "type": "boolean"
+        },
+        "monitor": {
+          "$ref": "#/$defs/MonitorSection"
+        },
+        "inference": {
+          "$ref": "#/$defs/InferenceDefaults"
+        },
+        "html_report": {
+          "type": "string"
+        },
+        "out_dir": {
+          "type": "string"
+        },
+        "output_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "markdown_config": {
+          "$ref": "#/$defs/MarkdownConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DeployConfig": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "config": {
+          "type": "object"
+        },
+        "environments": {
+          "additionalProperties": {
+            "$ref": "#/$defs/DeployEnvironment"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider"
+      ]
+    },
+    "DeployEnvironment": {
+      "properties": {
+        "config": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DuplexConfig": {
+      "properties": {
+        "timeout": {
+          "type": "string"
+        },
+        "turn_detection": {
+          "$ref": "#/$defs/TurnDetectionConfig"
+        },
+        "resilience": {
+          "$ref": "#/$defs/DuplexResilienceConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "DuplexResilienceConfig": {
+      "properties": {
+        "max_retries": {
+          "type": "integer"
+        },
+        "retry_delay_ms": {
+          "type": "integer"
+        },
+        "partial_success_min_turns": {
+          "type": "integer"
+        },
+        "ignore_last_turn_session_end": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Eval": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this evaluation"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description"
+        },
+        "recording": {
+          "$ref": "#/$defs/RecordingSource",
+          "description": "Recording source"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/EvalTurnConfig"
+          },
+          "type": "array",
+          "description": "Turn-level assertions"
+        },
+        "conversation_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Conversation-level assertions"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Tags for categorization"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "instant",
+            "realtime",
+            "accelerated"
+          ],
+          "description": "Replay timing mode (instant"
+        },
+        "speed": {
+          "type": "number",
+          "description": "Playback speed (default 1.0)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description",
+        "recording"
+      ]
+    },
+    "EvalAllTurnsConfig": {
+      "properties": {
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array",
+          "description": "Assertions to apply to each assistant message"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "EvalDef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "enum": [
+                "a2a_eval",
+                "a2a_eval_session",
+                "agent_invoked",
+                "agent_not_invoked",
+                "agent_response_contains",
+                "answer_relevancy",
+                "assertion",
+                "audio_duration",
+                "audio_emotion",
+                "audio_format",
+                "banned_words",
+                "bias",
+                "composition_branch_taken",
+                "composition_output",
+                "composition_parallel_complete",
+                "composition_step_output",
+                "contains",
+                "contains_any",
+                "content_excludes",
+                "content_includes",
+                "content_includes_any",
+                "content_matches",
+                "content_not_includes",
+                "contextual_precision",
+                "contextual_recall",
+                "contextual_relevancy",
+                "cosine_similarity",
+                "cost_budget",
+                "directional",
+                "faithfulness",
+                "field_presence",
+                "guardrail",
+                "guardrail_triggered",
+                "hallucination",
+                "image_dimensions",
+                "image_format",
+                "image_moderation",
+                "invariant_fields_preserved",
+                "is_valid_json",
+                "json_path",
+                "json_schema",
+                "json_valid",
+                "latency_budget",
+                "length",
+                "llm_judge",
+                "llm_judge_conversation",
+                "llm_judge_session",
+                "llm_judge_tool_calls",
+                "max_length",
+                "max_sentences",
+                "min_length",
+                "no_tool_errors",
+                "outcome_equivalent",
+                "pii_leakage",
+                "regex",
+                "required_fields",
+                "rest_eval",
+                "rest_eval_session",
+                "role_violation",
+                "sentence_count",
+                "skill_activated",
+                "skill_activation_order",
+                "skill_not_activated",
+                "state_is",
+                "text_sentiment",
+                "text_toxicity",
+                "tool_anti_pattern",
+                "tool_args",
+                "tool_args_excluded_session",
+                "tool_args_session",
+                "tool_call_chain",
+                "tool_call_count",
+                "tool_call_sequence",
+                "tool_called",
+                "tool_calls_with_args",
+                "tool_efficiency",
+                "tool_exec",
+                "tool_no_repeat",
+                "tool_result_has_media",
+                "tool_result_includes",
+                "tool_result_matches",
+                "tool_result_media_type",
+                "tools_called",
+                "tools_called_session",
+                "tools_not_called",
+                "tools_not_called_session",
+                "tools_not_called_with_args",
+                "toxicity",
+                "transitioned_to",
+                "valid_json",
+                "video_duration",
+                "video_resolution",
+                "workflow_complete",
+                "workflow_tool_access",
+                "workflow_transition_order"
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Handler type. PromptKit-known types are suggested, but values are not restricted to this list — a different runtime may define additional types."
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "sample_percentage": {
+          "type": "number"
+        },
+        "metric": {
+          "$ref": "#/$defs/MetricDef"
+        },
+        "threshold": {
+          "$ref": "#/$defs/Threshold"
+        },
+        "message": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/EvalWhen"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "trigger",
+        "params"
+      ]
+    },
+    "EvalRef": {
+      "properties": {
+        "file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "file"
+      ]
+    },
+    "EvalTurnConfig": {
+      "properties": {
+        "all_turns": {
+          "$ref": "#/$defs/EvalAllTurnsConfig",
+          "description": "Assertions to apply to all assistant messages"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "EvalWhen": {
+      "properties": {
+        "tool_called": {
+          "type": "string"
+        },
+        "tool_called_pattern": {
+          "type": "string"
+        },
+        "any_tool_called": {
+          "type": "boolean"
+        },
+        "min_tool_calls": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ExampleContentPart": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/ExampleMedia"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ExampleMedia": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "ExecBinding": {
+      "properties": {
+        "command": {
+          "type": "string",
+          "title": "Command",
+          "description": "Path to the executable"
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "exec",
+            "server"
+          ],
+          "title": "Runtime",
+          "description": "Execution mode",
+          "default": "exec"
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Env",
+          "description": "Required environment variable names"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Args",
+          "description": "Additional command arguments"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "title": "Timeout",
+          "description": "Per-invocation timeout in milliseconds"
+        },
+        "sandbox": {
+          "type": "string",
+          "title": "Sandbox",
+          "description": "Name of a sandbox declared under spec.sandboxes"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "command"
+      ]
+    },
+    "FileStateStoreConfig": {
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "fsync": {
+          "type": "string",
+          "enum": [
+            "",
+            "off",
+            "on-save",
+            "on-append"
+          ],
+          "title": "FSync Policy"
+        },
+        "ttl_days": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "root"
+      ]
+    },
+    "FragmentRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "Globals": {
+      "properties": {
+        "conversation_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HTMLOutputConfig": {
+      "properties": {
+        "file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HTTPConfig": {
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "headers_from_env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "redact": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "request": {
+          "$ref": "#/$defs/RequestMapping"
+        },
+        "response": {
+          "$ref": "#/$defs/ResponseMapping"
+        },
+        "multimodal": {
+          "$ref": "#/$defs/MultimodalConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "url",
+        "method",
+        "timeout_ms"
+      ]
+    },
+    "HTTPTransportConfig": {
+      "properties": {
+        "max_conns_per_host": {
+          "type": "integer"
+        },
+        "max_idle_conns_per_host": {
+          "type": "integer"
+        },
+        "idle_conn_timeout": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ImageConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_detail": {
+          "type": "string"
+        },
+        "require_caption": {
+          "type": "boolean"
+        },
+        "max_images_per_msg": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "InferenceDefaults": {
+      "properties": {
+        "audio_classifier": {
+          "type": "string"
+        },
+        "text_classifier": {
+          "type": "string"
+        },
+        "image_classifier": {
+          "type": "string"
+        },
+        "video_classifier": {
+          "type": "string"
+        },
+        "embedder": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "JSONOutputConfig": {
+      "properties": {},
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "JUnitOutputConfig": {
+      "properties": {
+        "file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "JudgeDefaults": {
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "prompt_registry": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "JudgeRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "provider"
+      ]
+    },
+    "JudgeSpec": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider"
+      ]
+    },
+    "MCPServerConfig": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "",
+            "stdio",
+            "sse",
+            "streamable_http"
+          ],
+          "title": "MCP Transport",
+          "description": "Explicit transport adapter. Defaults: url→sse for back-compat; command→stdio. Set to 'streamable_http' to opt into the MCP 2025-03-26 Streamable HTTP transport."
+        },
+        "source": {
+          "type": "string",
+          "title": "MCPSource Name",
+          "description": "Name of a host-registered MCPSource that provisions the endpoint per scope (e.g. 'docker'). Mutually exclusive with command and url."
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "run",
+            "scenario",
+            "session"
+          ],
+          "title": "Source Scope",
+          "description": "Lifecycle boundary at which the source opens and closes. Required when source is set."
+        },
+        "source_args": {
+          "type": "object",
+          "title": "Source Args",
+          "description": "Opaque arguments passed to the named MCPSource. Schema is source-specific. See the source's reference for accepted fields."
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "tool_filter": {
+          "$ref": "#/$defs/MCPToolFilter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "MCPToolFilter": {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MarkdownConfig": {
+      "properties": {
+        "include_details": {
+          "type": "boolean"
+        },
+        "show_overview": {
+          "type": "boolean"
+        },
+        "show_results_matrix": {
+          "type": "boolean"
+        },
+        "show_failed_tests": {
+          "type": "boolean"
+        },
+        "show_cost_summary": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "include_details",
+        "show_overview",
+        "show_results_matrix",
+        "show_failed_tests",
+        "show_cost_summary"
+      ]
+    },
+    "MarkdownOutputConfig": {
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "include_details": {
+          "type": "boolean"
+        },
+        "show_overview": {
+          "type": "boolean"
+        },
+        "show_results_matrix": {
+          "type": "boolean"
+        },
+        "show_failed_tests": {
+          "type": "boolean"
+        },
+        "show_cost_summary": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "include_details",
+        "show_overview",
+        "show_results_matrix",
+        "show_failed_tests",
+        "show_cost_summary"
+      ]
+    },
+    "MediaConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "supported_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageConfig"
+        },
+        "audio": {
+          "$ref": "#/$defs/AudioConfig"
+        },
+        "video": {
+          "$ref": "#/$defs/VideoConfig"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/MultimodalExample"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "Metadata": {
+      "properties": {
+        "domain": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cost_estimate": {
+          "$ref": "#/$defs/CostEstimate"
+        },
+        "performance": {
+          "$ref": "#/$defs/PerformanceMetrics"
+        },
+        "changelog": {
+          "items": {
+            "$ref": "#/$defs/ChangelogEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MetricDef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/Range"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ]
+    },
+    "MockMediaSpec": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "MockPartSpec": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/MockMediaSpec"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ModelOverride": {
+      "properties": {
+        "system_template": {
+          "type": "string"
+        },
+        "system_template_suffix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ModelTestResultRef": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "success_rate": {
+          "type": "number"
+        },
+        "avg_tokens": {
+          "type": "integer"
+        },
+        "avg_cost": {
+          "type": "number"
+        },
+        "avg_latency_ms": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider",
+        "model",
+        "date",
+        "success_rate"
+      ]
+    },
+    "MonitorSection": {
+      "properties": {
+        "audio": {
+          "$ref": "#/$defs/AudioMonitorSection"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MultimodalConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "accept_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "MultimodalExample": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/ExampleContentPart"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "role",
+        "parts"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "OutputConfig": {
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "json": {
+          "$ref": "#/$defs/JSONOutputConfig"
+        },
+        "html": {
+          "$ref": "#/$defs/HTMLOutputConfig"
+        },
+        "markdown": {
+          "$ref": "#/$defs/MarkdownOutputConfig"
+        },
+        "junit": {
+          "$ref": "#/$defs/JUnitOutputConfig"
+        },
+        "recording": {
+          "$ref": "#/$defs/RecordingConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "dir",
+        "formats"
+      ]
+    },
+    "ParametersPack": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PerformanceMetrics": {
+      "properties": {
+        "avg_latency_ms": {
+          "type": "integer"
+        },
+        "p95_latency_ms": {
+          "type": "integer"
+        },
+        "avg_tokens": {
+          "type": "integer"
+        },
+        "success_rate": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "avg_latency_ms",
+        "p95_latency_ms",
+        "avg_tokens",
+        "success_rate"
+      ]
+    },
+    "PersonaDefaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PersonaRef": {
+      "properties": {
+        "file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "file"
+      ]
+    },
+    "PersonaStyle": {
+      "properties": {
+        "verbosity": {
+          "type": "string"
+        },
+        "challenge_level": {
+          "type": "string"
+        },
+        "friction_tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expressive": {
+          "type": "boolean"
+        },
+        "characterization_rubric": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "verbosity",
+        "challenge_level",
+        "friction_tags"
+      ]
+    },
+    "PlatformConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "additional_config": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Pricing": {
+      "properties": {
+        "input_cost_per_1k": {
+          "type": "number"
+        },
+        "output_cost_per_1k": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "input_cost_per_1k",
+        "output_cost_per_1k"
+      ]
+    },
+    "PromptConfigRef": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "file"
+      ]
+    },
+    "Provider": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "voice": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "integer"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "llm",
+            "tts",
+            "stt",
+            "embedding",
+            "image",
+            "video",
+            "inference"
+          ]
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "rate_limit": {
+          "$ref": "#/$defs/RateLimit"
+        },
+        "defaults": {
+          "$ref": "#/$defs/ProviderDefaults"
+        },
+        "pricing": {
+          "$ref": "#/$defs/Pricing"
+        },
+        "pricing_correct_at": {
+          "type": "string"
+        },
+        "include_raw_output": {
+          "type": "boolean"
+        },
+        "additional_config": {
+          "type": "object"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig"
+        },
+        "platform": {
+          "$ref": "#/$defs/PlatformConfig"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unsupported_params": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "request_timeout": {
+          "type": "string"
+        },
+        "stream_idle_timeout": {
+          "type": "string"
+        },
+        "stream_retry": {
+          "$ref": "#/$defs/StreamRetryConfig"
+        },
+        "stream_max_concurrent": {
+          "type": "integer"
+        },
+        "http_transport": {
+          "$ref": "#/$defs/HTTPTransportConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ProviderDefaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "temperature",
+        "top_p",
+        "max_tokens"
+      ]
+    },
+    "ProviderRef": {
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "file"
+      ]
+    },
+    "Range": {
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RateLimit": {
+      "properties": {
+        "rps": {
+          "type": "integer"
+        },
+        "burst": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rps",
+        "burst"
+      ]
+    },
+    "RecordingConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "dir": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "RecordingSource": {
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to recording file"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "session",
+            "arena_output",
+            "transcript",
+            "generic"
+          ],
+          "description": "Recording format type hint (auto-detected if omitted)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path"
+      ]
+    },
+    "RedisConfig": {
+      "properties": {
+        "address": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        },
+        "database": {
+          "type": "integer"
+        },
+        "ttl": {
+          "type": "string"
+        },
+        "prefix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "address"
+      ]
+    },
+    "RelevanceConfig": {
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "min_recent_messages": {
+          "type": "integer"
+        },
+        "always_keep_system_role": {
+          "type": "boolean"
+        },
+        "similarity_threshold": {
+          "type": "number"
+        },
+        "query_source": {
+          "type": "string"
+        },
+        "last_n_count": {
+          "type": "integer"
+        },
+        "custom_query": {
+          "type": "string"
+        },
+        "cache_embeddings": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider"
+      ]
+    },
+    "RequestMapping": {
+      "properties": {
+        "query_params": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "header_params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "body_mapping": {
+          "type": "string"
+        },
+        "exclude": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "static_query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "static_headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "static_body": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ResponseMapping": {
+      "properties": {
+        "body_mapping": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Scenario": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "task_type": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "context_metadata": {
+          "$ref": "#/$defs/ContextMetadata"
+        },
+        "turns": {
+          "items": {
+            "$ref": "#/$defs/TurnDefinition"
+          },
+          "type": "array"
+        },
+        "context": {
+          "type": "object"
+        },
+        "constraints": {
+          "type": "object"
+        },
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicy"
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "provider_group": {
+          "type": "string"
+        },
+        "required_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "context_policy": {
+          "$ref": "#/$defs/ContextPolicy"
+        },
+        "conversation_assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        },
+        "duplex": {
+          "$ref": "#/$defs/DuplexConfig"
+        },
+        "voice": {
+          "type": "string"
+        },
+        "variables": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Template variables to inject into the pack"
+        },
+        "trials": {
+          "type": "integer",
+          "description": "Number of times to run this scenario for statistical evaluation"
+        },
+        "seed_memories": {
+          "items": {
+            "$ref": "#/$defs/SeedMemoryEntry"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description"
+      ]
+    },
+    "ScenarioRef": {
+      "properties": {
+        "file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "file"
+      ]
+    },
+    "SeedMemoryEntry": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "content"
+      ]
+    },
+    "SelfPlayConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "personas": {
+          "items": {
+            "$ref": "#/$defs/PersonaRef"
+          },
+          "type": "array"
+        },
+        "persona_specs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/UserPersonaPack"
+          },
+          "type": "object"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/SelfPlayRoleGroup"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "personas",
+        "roles"
+      ]
+    },
+    "SelfPlayRoleGroup": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "provider"
+      ]
+    },
+    "SkillSourceConfig": {
+      "properties": {
+        "dir": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "preload": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Spec": {
+      "properties": {
+        "task_type": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "template_engine": {
+          "$ref": "#/$defs/TemplateEngineInfo"
+        },
+        "fragments": {
+          "items": {
+            "$ref": "#/$defs/FragmentRef"
+          },
+          "type": "array"
+        },
+        "system_template": {
+          "type": "string"
+        },
+        "variables": {
+          "items": {
+            "$ref": "#/$defs/VariableMetadata"
+          },
+          "type": "array"
+        },
+        "model_overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelOverride"
+          },
+          "type": "object"
+        },
+        "allowed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaConfig"
+        },
+        "validators": {
+          "items": {
+            "$ref": "#/$defs/ValidatorConfig"
+          },
+          "type": "array"
+        },
+        "tested_models": {
+          "items": {
+            "$ref": "#/$defs/ModelTestResultRef"
+          },
+          "type": "array"
+        },
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicyPack"
+        },
+        "parameters": {
+          "$ref": "#/$defs/ParametersPack"
+        },
+        "evals": {
+          "items": {
+            "$ref": "#/$defs/EvalDef"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        },
+        "compilation": {
+          "$ref": "#/$defs/CompilationInfo"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_type",
+        "version",
+        "description",
+        "system_template"
+      ]
+    },
+    "StateStoreConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "redis": {
+          "$ref": "#/$defs/RedisConfig"
+        },
+        "file": {
+          "$ref": "#/$defs/FileStateStoreConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "StreamRetryBudgetConfig": {
+      "properties": {
+        "rate_per_sec": {
+          "type": "number"
+        },
+        "burst": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "StreamRetryConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "max_attempts": {
+          "type": "integer"
+        },
+        "initial_delay": {
+          "type": "string"
+        },
+        "max_delay": {
+          "type": "string"
+        },
+        "retry_window": {
+          "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/StreamRetryBudgetConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "TemplateEngineInfo": {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "syntax": {
+          "type": "string"
+        },
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "version",
+        "syntax"
+      ]
+    },
+    "Threshold": {
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "min_score": {
+          "type": "number"
+        },
+        "max_score": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolClientConfig": {
+      "properties": {
+        "consent": {
+          "$ref": "#/$defs/ToolConsentConfig"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "validate_output": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolConsentConfig": {
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        },
+        "decline_strategy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "required"
+      ]
+    },
+    "ToolPolicy": {
+      "properties": {
+        "tool_choice": {
+          "type": "string"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "max_total_tool_calls": {
+          "type": "integer"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tool_choice",
+        "max_tool_calls_per_turn",
+        "max_total_tool_calls"
+      ]
+    },
+    "ToolPolicyPack": {
+      "properties": {
+        "tool_choice": {
+          "type": "string"
+        },
+        "max_rounds": {
+          "type": "integer"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolRef": {
+      "properties": {
+        "file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "file"
+      ]
+    },
+    "ToolSpec": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input_schema": true,
+        "output_schema": true,
+        "mode": {
+          "type": "string",
+          "description": "Execution mode. One of: 'mock' (use mock_result or mock_template) - 'live' (HTTP via 'http') - 'mcp' (MCP server) - 'exec' (subprocess) - 'client' (client-side handler)."
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "mock_result": {
+          "description": "Static mock response returned regardless of tool-call args. Use when the response does not depend on inputs. Mutually exclusive with mock_template."
+        },
+        "mock_template": {
+          "type": "string",
+          "description": "Go text/template rendered against tool-call args (parsed as a JSON map). Rendered output is parsed back as JSON. Use this instead of mock_result when the response should depend on inputs (e.g. branching on order_id with {{ if eq .order_id \"X\" }}...{{ end }}). Mutually exclusive with mock_result."
+        },
+        "mock_parts": {
+          "items": {
+            "$ref": "#/$defs/MockPartSpec"
+          },
+          "type": "array"
+        },
+        "http": {
+          "$ref": "#/$defs/HTTPConfig"
+        },
+        "exec": {
+          "$ref": "#/$defs/ExecBinding"
+        },
+        "client": {
+          "$ref": "#/$defs/ToolClientConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description",
+        "input_schema",
+        "output_schema",
+        "mode"
+      ]
+    },
+    "TurnContentPart": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/TurnMediaContent"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "TurnDefinition": {
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/TurnContentPart"
+          },
+          "type": "array"
+        },
+        "persona": {
+          "type": "string"
+        },
+        "turns": {
+          "type": "integer"
+        },
+        "max_turns": {
+          "type": "integer"
+        },
+        "assistant_temp": {
+          "type": "number"
+        },
+        "user_temp": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "streaming": {
+          "type": "boolean"
+        },
+        "consent_overrides": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "perturbations": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        "chaos": {
+          "$ref": "#/$defs/ChaosConfig"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/AssertionConfig"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "role"
+      ]
+    },
+    "TurnDetectionConfig": {
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "vad": {
+          "$ref": "#/$defs/VADConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "TurnMediaContent": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "storage_reference": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "UserPersonaPack": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "prompt_activity": {
+          "type": "string"
+        },
+        "fragments": {
+          "items": {
+            "$ref": "#/$defs/FragmentRef"
+          },
+          "type": "array"
+        },
+        "system_template": {
+          "type": "string"
+        },
+        "required_vars": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "optional_vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "goals": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "constraints": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "style": {
+          "$ref": "#/$defs/PersonaStyle"
+        },
+        "voice": {
+          "type": "string"
+        },
+        "defaults": {
+          "$ref": "#/$defs/PersonaDefaults"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "description",
+        "goals",
+        "constraints"
+      ]
+    },
+    "VADConfig": {
+      "properties": {
+        "silence_threshold_ms": {
+          "type": "integer"
+        },
+        "min_speech_ms": {
+          "type": "integer"
+        },
+        "max_turn_duration_s": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ValidatorConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "fail_on_violation": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "params"
+      ]
+    },
+    "VariableBinding": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "autoPopulate": {
+          "type": "boolean"
+        },
+        "filter": {
+          "$ref": "#/$defs/VariableBindingFilter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ]
+    },
+    "VariableBindingFilter": {
+      "properties": {
+        "capability": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "VariableMetadata": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": true,
+        "description": {
+          "type": "string"
+        },
+        "example": true,
+        "validation": {
+          "type": "object"
+        },
+        "binding": {
+          "$ref": "#/$defs/VariableBinding"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "VideoConfig": {
+      "properties": {
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "VoiceBinding": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "provider"
+      ]
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/Config"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptArena Configuration",
+  "description": "Main configuration for PromptArena test suites",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Arena",
+      "metadata": {
+        "name": "my-test-suite"
+      },
+      "spec": {
+        "defaults": {
+          "concurrency": 1,
+          "max_tokens": 1000,
+          "output": {
+            "dir": "out",
+            "formats": [
+              "json",
+              "html"
+            ]
+          },
+          "temperature": 0.7
+        },
+        "providers": [
+          {
+            "file": "providers/openai.yaml"
+          }
+        ],
+        "scenarios": [
+          {
+            "file": "scenarios/test-scenario.yaml"
+          }
+        ]
+      }
+    }
+  ]
+}

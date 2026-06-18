@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json",
+  "$defs": {
+    "CredentialConfig": {
+      "properties": {
+        "api_key": {
+          "type": "string"
+        },
+        "credential_file": {
+          "type": "string"
+        },
+        "credential_env": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "HTTPTransportConfig": {
+      "properties": {
+        "max_conns_per_host": {
+          "type": "integer"
+        },
+        "max_idle_conns_per_host": {
+          "type": "integer"
+        },
+        "idle_conn_timeout": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PlatformConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "additional_config": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Pricing": {
+      "properties": {
+        "input_cost_per_1k": {
+          "type": "number"
+        },
+        "output_cost_per_1k": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "input_cost_per_1k",
+        "output_cost_per_1k"
+      ]
+    },
+    "Provider": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "voice": {
+          "type": "string"
+        },
+        "sample_rate": {
+          "type": "integer"
+        },
+        "audio_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "llm",
+            "tts",
+            "stt",
+            "embedding",
+            "image",
+            "video",
+            "inference"
+          ]
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "rate_limit": {
+          "$ref": "#/$defs/RateLimit"
+        },
+        "defaults": {
+          "$ref": "#/$defs/ProviderDefaults"
+        },
+        "pricing": {
+          "$ref": "#/$defs/Pricing"
+        },
+        "pricing_correct_at": {
+          "type": "string"
+        },
+        "include_raw_output": {
+          "type": "boolean"
+        },
+        "additional_config": {
+          "type": "object"
+        },
+        "credential": {
+          "$ref": "#/$defs/CredentialConfig"
+        },
+        "platform": {
+          "$ref": "#/$defs/PlatformConfig"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unsupported_params": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "request_timeout": {
+          "type": "string"
+        },
+        "stream_idle_timeout": {
+          "type": "string"
+        },
+        "stream_retry": {
+          "$ref": "#/$defs/StreamRetryConfig"
+        },
+        "stream_max_concurrent": {
+          "type": "integer"
+        },
+        "http_transport": {
+          "$ref": "#/$defs/HTTPTransportConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ProviderDefaults": {
+      "properties": {
+        "temperature": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "temperature",
+        "top_p",
+        "max_tokens"
+      ]
+    },
+    "RateLimit": {
+      "properties": {
+        "rps": {
+          "type": "integer"
+        },
+        "burst": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "rps",
+        "burst"
+      ]
+    },
+    "StreamRetryBudgetConfig": {
+      "properties": {
+        "rate_per_sec": {
+          "type": "number"
+        },
+        "burst": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "StreamRetryConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "max_attempts": {
+          "type": "integer"
+        },
+        "initial_delay": {
+          "type": "string"
+        },
+        "max_delay": {
+          "type": "string"
+        },
+        "retry_window": {
+          "type": "string"
+        },
+        "budget": {
+          "$ref": "#/$defs/StreamRetryBudgetConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/Provider"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptArena Provider Configuration",
+  "description": "Provider configuration for PromptArena LLM connections",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "Provider",
+      "metadata": {
+        "name": "openai-gpt4"
+      },
+      "spec": {
+        "defaults": {
+          "max_tokens": 2000,
+          "temperature": 0.7
+        },
+        "id": "gpt4",
+        "model": "gpt-4",
+        "type": "openai"
+      }
+    }
+  ]
+}
