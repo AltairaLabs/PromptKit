@@ -94,6 +94,10 @@ func (s *Server) handleMessage(ctx context.Context, msg *mcp.JSONRPCMessage) *mc
 		return s.result(msg.ID, mcp.ToolsListResponse{Tools: s.toolDefs()})
 	case "tools/call":
 		return s.handleToolCall(ctx, msg)
+	case "resources/list":
+		return s.result(msg.ID, s.resourcesList())
+	case "resources/read":
+		return s.handleResourceRead(msg)
 	default:
 		if msg.ID == nil {
 			return nil // unknown notification — ignore
