@@ -262,7 +262,7 @@ func TestBuildPromptText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := buildPromptText(tt.variable)
+			result := buildPromptText(&tt.variable)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -320,7 +320,7 @@ func TestGetArrayDefaultString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getArrayDefaultString(tt.variable)
+			result := getArrayDefaultString(&tt.variable)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -457,10 +457,12 @@ func TestPrintSuccessMessage(t *testing.T) {
 		name        string
 		projectName string
 		result      *templates.GenerationResult
+		briefed     bool
 	}{
 		{
 			name:        "basic success",
 			projectName: "test-project",
+			briefed:     true,
 			result: &templates.GenerationResult{
 				FilesCreated: []string{"arena.yaml", "prompts/test.yaml"},
 				Warnings:     []string{},
@@ -488,7 +490,7 @@ func TestPrintSuccessMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Should not panic
 			assert.NotPanics(t, func() {
-				printSuccessMessage(tt.projectName, tt.result)
+				printSuccessMessage(tt.projectName, tt.result, tt.briefed)
 			})
 		})
 	}
