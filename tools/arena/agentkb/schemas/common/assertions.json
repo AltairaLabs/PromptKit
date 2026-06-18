@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/common/assertions.json",
+  "$defs": {
+    "AssertionWhen": {
+      "properties": {
+        "tool_called": {
+          "type": "string"
+        },
+        "tool_called_pattern": {
+          "type": "string"
+        },
+        "any_tool_called": {
+          "type": "boolean"
+        },
+        "min_tool_calls": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "type": {
+      "anyOf": [
+        {
+          "enum": [
+            "a2a_eval",
+            "a2a_eval_session",
+            "agent_invoked",
+            "agent_not_invoked",
+            "agent_response_contains",
+            "answer_relevancy",
+            "assertion",
+            "audio_duration",
+            "audio_emotion",
+            "audio_format",
+            "banned_words",
+            "bias",
+            "composition_branch_taken",
+            "composition_output",
+            "composition_parallel_complete",
+            "composition_step_output",
+            "contains",
+            "contains_any",
+            "content_excludes",
+            "content_includes",
+            "content_includes_any",
+            "content_matches",
+            "content_not_includes",
+            "contextual_precision",
+            "contextual_recall",
+            "contextual_relevancy",
+            "cosine_similarity",
+            "cost_budget",
+            "directional",
+            "faithfulness",
+            "field_presence",
+            "guardrail",
+            "guardrail_triggered",
+            "hallucination",
+            "image_dimensions",
+            "image_format",
+            "image_moderation",
+            "invariant_fields_preserved",
+            "is_valid_json",
+            "json_path",
+            "json_schema",
+            "json_valid",
+            "latency_budget",
+            "length",
+            "llm_judge",
+            "llm_judge_conversation",
+            "llm_judge_session",
+            "llm_judge_tool_calls",
+            "max_length",
+            "max_sentences",
+            "min_length",
+            "no_tool_errors",
+            "outcome_equivalent",
+            "pii_leakage",
+            "regex",
+            "required_fields",
+            "rest_eval",
+            "rest_eval_session",
+            "role_violation",
+            "sentence_count",
+            "skill_activated",
+            "skill_activation_order",
+            "skill_not_activated",
+            "state_is",
+            "text_sentiment",
+            "text_toxicity",
+            "tool_anti_pattern",
+            "tool_args",
+            "tool_args_excluded_session",
+            "tool_args_session",
+            "tool_call_chain",
+            "tool_call_count",
+            "tool_call_sequence",
+            "tool_called",
+            "tool_calls_with_args",
+            "tool_efficiency",
+            "tool_exec",
+            "tool_no_repeat",
+            "tool_result_has_media",
+            "tool_result_includes",
+            "tool_result_matches",
+            "tool_result_media_type",
+            "tools_called",
+            "tools_called_session",
+            "tools_not_called",
+            "tools_not_called_session",
+            "tools_not_called_with_args",
+            "toxicity",
+            "transitioned_to",
+            "valid_json",
+            "video_duration",
+            "video_resolution",
+            "workflow_complete",
+            "workflow_tool_access",
+            "workflow_transition_order"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "Handler type. PromptKit-known types are suggested, but values are not restricted to this list — a different runtime may define additional types."
+    },
+    "params": {
+      "type": "object"
+    },
+    "message": {
+      "type": "string"
+    },
+    "when": {
+      "$ref": "#/$defs/AssertionWhen"
+    },
+    "pass_threshold": {
+      "type": "number"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "type"
+  ],
+  "title": "PromptArena Assertion",
+  "description": "A single assertion (type + optional params) for PromptArena scenarios"
+}

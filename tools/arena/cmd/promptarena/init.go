@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
@@ -37,6 +36,8 @@ Examples:
 	RunE: runInit,
 }
 
+const projectNameVar = "project_name"
+
 var (
 	initTemplate      string
 	initQuick         bool
@@ -48,6 +49,7 @@ var (
 	initTemplateCache string
 	initRepoConfig    string
 	initVerbose       bool
+	initNoAgent       bool
 )
 
 func init() {
@@ -66,6 +68,8 @@ func init() {
 		"Template repo config file")
 	initCmd.Flags().StringVar(&initTemplateCache, "template-cache", templates.DefaultCacheDir(),
 		"Cache directory for remote templates")
+	initCmd.Flags().BoolVar(&initNoAgent, "no-agent", false,
+		"Skip writing the AI-agent brief (.claude skill + AGENTS.md)")
 
 	// Register dynamic completions (must be after flags are defined)
 	RegisterInitCompletions()
@@ -104,8 +108,18 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to generate project: %w", err)
 	}
 
+	// Brief any AI coding agent that opens this project (unless opted out).
+	agentBriefed := false
+	if !initNoAgent && result.Success {
+		if briefErr := writeAgentBrief(result); briefErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("agent brief: %v", briefErr))
+		} else {
+			agentBriefed = true
+		}
+	}
+
 	// Display results
-	printSuccessMessage(projectName, result)
+	printSuccessMessage(projectName, result, agentBriefed)
 
 	return nil
 }
@@ -138,7 +152,7 @@ func collectConfiguration(cmd *cobra.Command, tmpl *templates.Template, projectN
 		Verbose:     initVerbose,
 	}
 
-	config.Variables["project_name"] = projectName
+	config.Variables[projectNameVar] = projectName
 
 	if initQuick {
 		return collectQuickModeVariables(config, tmpl)
@@ -149,7 +163,7 @@ func collectConfiguration(cmd *cobra.Command, tmpl *templates.Template, projectN
 
 func collectQuickModeVariables(config *templates.TemplateConfig, tmpl *templates.Template) (*templates.TemplateConfig, error) {
 	for _, v := range tmpl.Spec.Variables {
-		if v.Name == "project_name" {
+		if v.Name == projectNameVar {
 			continue
 		}
 		if v.Default != nil {
@@ -172,149 +186,7 @@ func applyCommandLineOverrides(config *templates.TemplateConfig) {
 	}
 }
 
-func collectInteractiveVariables(config *templates.TemplateConfig, tmpl *templates.Template) (*templates.TemplateConfig, error) {
-	fmt.Println("🏟️  Welcome to PromptArena!")
-	fmt.Println()
-	fmt.Println("Let's set up your testing project.")
-	fmt.Println()
-
-	for _, v := range tmpl.Spec.Variables {
-		if v.Name == "project_name" {
-			continue
-		}
-
-		value, err := promptForVariable(v)
-		if err != nil {
-			return nil, err
-		}
-		config.Variables[v.Name] = value
-	}
-
-	return config, nil
-}
-
-func promptForVariable(v templates.Variable) (interface{}, error) {
-	promptText := buildPromptText(v)
-
-	switch v.Type {
-	case "boolean":
-		return promptForBoolean(promptText)
-	case "select":
-		return promptForSelect(promptText, v)
-	case "array":
-		return promptForArray(promptText, v)
-	default:
-		return promptForString(promptText, v)
-	}
-}
-
-func buildPromptText(v templates.Variable) string {
-	promptText := v.Prompt
-	if promptText == "" {
-		promptText = v.Name
-	}
-	if v.Description != "" {
-		promptText = fmt.Sprintf("%s (%s)", promptText, v.Description)
-	}
-	return promptText
-}
-
-func promptForBoolean(promptText string) (interface{}, error) {
-	prompt := promptui.Prompt{
-		Label:     promptText,
-		IsConfirm: true,
-	}
-	_, err := prompt.Run()
-	if err != nil && err != promptui.ErrAbort {
-		return nil, err
-	}
-	return err != promptui.ErrAbort, nil
-}
-
-func promptForSelect(promptText string, v templates.Variable) (interface{}, error) {
-	prompt := promptui.Select{
-		Label: promptText,
-		Items: v.Options,
-	}
-	if v.Default != nil {
-		defaultStr := fmt.Sprintf("%v", v.Default)
-		for i, opt := range v.Options {
-			if opt == defaultStr {
-				prompt.CursorPos = i
-				break
-			}
-		}
-	}
-	_, result, err := prompt.Run()
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func promptForArray(promptText string, v templates.Variable) (interface{}, error) {
-	defaultStr := getArrayDefaultString(v)
-	prompt := promptui.Prompt{
-		Label:   promptText + " (comma-separated)",
-		Default: defaultStr,
-	}
-	result, err := prompt.Run()
-	if err != nil {
-		return nil, err
-	}
-
-	items := strings.Split(result, ",")
-	for i := range items {
-		items[i] = strings.TrimSpace(items[i])
-	}
-	return items, nil
-}
-
-func getArrayDefaultString(v templates.Variable) string {
-	if v.Default == nil {
-		return ""
-	}
-	if arr, ok := v.Default.([]interface{}); ok {
-		strs := make([]string, len(arr))
-		for i, item := range arr {
-			strs[i] = fmt.Sprintf("%v", item)
-		}
-		return strings.Join(strs, ",")
-	}
-	return ""
-}
-
-func promptForString(promptText string, v templates.Variable) (interface{}, error) {
-	defaultStr := ""
-	if v.Default != nil {
-		defaultStr = fmt.Sprintf("%v", v.Default)
-	}
-
-	prompt := promptui.Prompt{
-		Label:   promptText,
-		Default: defaultStr,
-	}
-	result, err := prompt.Run()
-	if err != nil {
-		return nil, err
-	}
-
-	if v.Type == "number" {
-		return parseNumber(result)
-	}
-
-	return result, nil
-}
-
-func parseNumber(result string) (interface{}, error) {
-	var num float64
-	if n, _ := fmt.Sscanf(result, "%f", &num); n == 1 {
-		return num, nil
-	}
-	return result, nil
-}
-
-func printSuccessMessage(projectName string, result *templates.GenerationResult) {
+func printSuccessMessage(projectName string, result *templates.GenerationResult, agentBriefed bool) {
 	fmt.Println()
 	fmt.Println("✨ Created", projectName+"/")
 	fmt.Println()
@@ -332,6 +204,12 @@ func printSuccessMessage(projectName string, result *templates.GenerationResult)
 		for _, warning := range result.Warnings {
 			fmt.Printf("   - %s\n", warning)
 		}
+		fmt.Println()
+	}
+
+	if agentBriefed {
+		fmt.Println("📎 AI-agent brief written (.claude/skills + AGENTS.md) —")
+		fmt.Println("   open this folder in Claude Code or Codex and it'll know PromptArena conventions.")
 		fmt.Println()
 	}
 

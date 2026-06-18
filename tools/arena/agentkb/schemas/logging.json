@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/logging.json",
+  "$defs": {
+    "LoggingConfigSpec": {
+      "properties": {
+        "defaultLevel": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Default Level",
+          "description": "Default log level for all modules",
+          "default": "info"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "text"
+          ],
+          "title": "Format",
+          "description": "Log output format",
+          "default": "text"
+        },
+        "commonFields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Common Fields",
+          "description": "Key-value pairs added to every log entry"
+        },
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/ModuleLoggingConfig"
+          },
+          "type": "array",
+          "title": "Modules",
+          "description": "Per-module logging configuration"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ModuleLoggingConfig": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Module name pattern using dot notation (e.g. runtime.pipeline)"
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Level",
+          "description": "Log level for this module"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Fields",
+          "description": "Additional fields added to logs from this module"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "level"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "title": "API Version",
+      "description": "Schema version identifier"
+    },
+    "kind": {
+      "type": "string",
+      "title": "Kind",
+      "description": "Resource type identifier"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta",
+      "title": "Metadata",
+      "description": "Resource metadata"
+    },
+    "spec": {
+      "$ref": "#/$defs/LoggingConfigSpec",
+      "title": "Spec",
+      "description": "Logging configuration specification"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptKit Logging Configuration",
+  "description": "Configuration for structured logging with per-module log levels",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "LoggingConfig",
+      "metadata": {
+        "name": "development"
+      },
+      "spec": {
+        "commonFields": {
+          "environment": "development",
+          "service": "promptkit"
+        },
+        "defaultLevel": "info",
+        "format": "text",
+        "modules": [
+          {
+            "level": "debug",
+            "name": "runtime.pipeline"
+          },
+          {
+            "level": "debug",
+            "name": "providers.openai"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "LoggingConfig",
+      "metadata": {
+        "name": "production"
+      },
+      "spec": {
+        "commonFields": {
+          "cluster": "us-east-1",
+          "environment": "production",
+          "service": "promptkit"
+        },
+        "defaultLevel": "warn",
+        "format": "json",
+        "modules": [
+          {
+            "level": "info",
+            "name": "runtime"
+          }
+        ]
+      }
+    }
+  ]
+}
