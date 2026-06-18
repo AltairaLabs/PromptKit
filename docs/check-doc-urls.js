@@ -52,12 +52,17 @@ const resolvesInDist = (path) => {
   return existsSync(direct) && statSync(direct).isFile();
 };
 
+// The link-check scripts themselves contain illustrative/placeholder URLs
+// (e.g. https://promptkit.altairalabs.ai/... in comments) that aren't real
+// links — don't scan them.
+const SELF_EXCLUDE = new Set(['docs/check-doc-urls.js', 'docs/check-links.js']);
+
 const files = execSync('git ls-files', { cwd: REPO_ROOT, encoding: 'utf8' })
   .split('\n')
   .filter(Boolean)
   // Don't lint the docs site's own source — those relative links are covered
   // by check-links.js, and dist/ is build output.
-  .filter((f) => !f.startsWith('docs/dist/'));
+  .filter((f) => !f.startsWith('docs/dist/') && !SELF_EXCLUDE.has(f));
 
 // url -> Set of "file:line" where it appears
 const broken = new Map();
