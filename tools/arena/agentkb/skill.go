@@ -12,6 +12,7 @@ description: Author valid PromptArena kit configs; use when building or editing 
 `
 
 const skillIntro = "Generated from the PromptArena agent knowledge base. " +
+	"Discover more with `promptarena explain --list` and `promptarena examples list`. " +
 	"Run `promptarena schema <type>` for authoritative config structure and " +
 	"`promptarena validate` to check your work.\n\n"
 
@@ -51,6 +52,9 @@ const agentsBrief = `<!-- promptarena-authoring -->
 You are working in a PromptArena kit. Before authoring configs:
 
 - Read the authoring skill at ` + "`.claude/skills/promptarena-authoring/SKILL.md`" + `.
+- Discover idioms and examples on demand:
+  ` + "`promptarena explain --list`" + `, ` + "`promptarena explain <id>`" + `,
+  ` + "`promptarena examples list`" + `, ` + "`promptarena examples show <name>`" + `.
 - Run ` + "`promptarena schema <type>`" + ` for the authoritative structure of a
   scenario, provider, prompt, tool, or arena config. The embedded schema is the
   version this binary's ` + "`promptarena validate`" + ` enforces — prefer it over
