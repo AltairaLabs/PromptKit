@@ -1,0 +1,71 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: agents-brief-arm-c
+  annotations:
+    description: |
+      Arm C — brief-equipped authoring agent. Live only (real Claude + Docker).
+      Run:
+        export ANTHROPIC_API_KEY=...
+        make build-agents-brief-sandbox
+        cd benchmarks/agents-brief-eval
+        promptarena run -c configs/arm-c-brief.arena.yaml --ci --format html
+spec:
+  prompt_configs:
+    - id: authoring-agent
+      file: ../packs/authoring-agent.yaml
+  providers:
+    - file: ../providers/claude.provider.yaml
+  scenarios:
+    - file: ../scenarios/refund-assistant.scenario.yaml
+  mcp_servers:
+    - name: sandbox
+      source: docker
+      scope: session
+      source_args:
+        image: agents-brief-sandbox:local
+        env:
+          DEV_MODE: "1"
+  globals:
+    conversation_assertions:
+      - type: tool_exec
+        message: "Gate 1: kit is schema-valid"
+        params:
+          tool: Bash
+          timeout_seconds: 120
+          args:
+            command: "promptarena validate /workspace/kit/config.arena.yaml"
+      - type: tool_exec
+        message: "Gate 2: kit compiles to a valid PromptPack"
+        params:
+          tool: Bash
+          timeout_seconds: 120
+          args:
+            command: "packc compile -c /workspace/kit/config.arena.yaml -o /tmp/kit.pack.json && packc validate /tmp/kit.pack.json"
+      - type: tool_exec
+        message: "Gate 3: generated scenarios run green offline"
+        params:
+          tool: Bash
+          timeout_seconds: 300
+          args:
+            command: "cd /workspace/kit && promptarena run --ci"
+      - type: tool_exec
+        message: "Gate 4: no unused files"
+        params:
+          tool: Bash
+          timeout_seconds: 60
+          args:
+            command: "unused-files.sh /workspace/kit"
+      - type: tool_exec
+        message: "Metric: idiom-trap + adequacy report (non-gating)"
+        params:
+          tool: Bash
+          timeout_seconds: 60
+          args:
+            command: "idiom-traps.sh /workspace/kit"
+  defaults:
+    temperature: 0.3
+    max_tokens: 4096
+    output:
+      dir: out
+      formats: ["json", "html"]
