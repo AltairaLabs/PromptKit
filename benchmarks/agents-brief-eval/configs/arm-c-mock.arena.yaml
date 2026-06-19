@@ -1,0 +1,33 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Arena
+metadata:
+  name: agents-brief-arm-c-mock
+  annotations:
+    description: |
+      Arm C — mock wiring variant. Proves gates fire and discriminate without API spend.
+      The mock provider scripts tool calls; Docker executes them for real (only the LLM is faked).
+      Run:
+        make build-agents-brief-sandbox
+        cd benchmarks/agents-brief-eval
+        promptarena run -c configs/arm-c-mock.arena.yaml --ci --format json
+spec:
+  prompt_configs:
+    - id: authoring-agent
+      file: ../packs/authoring-agent.yaml
+  providers:
+    - file: ../providers/mock-provider.yaml
+  scenarios:
+    - file: ../scenarios/refund-assistant.mock.scenario.yaml
+    - file: ../scenarios/refund-broken.mock.scenario.yaml
+  mcp_servers:
+    - name: sandbox
+      source: docker
+      scope: session
+      source_args:
+        image: agents-brief-sandbox:local
+        env:
+          DEV_MODE: "1"
+  defaults:
+    output:
+      dir: out-mock
+      formats: ["json"]
