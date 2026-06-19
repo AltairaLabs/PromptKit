@@ -77,14 +77,17 @@ type claudeToolResult struct {
 }
 
 type claudeToolMessage struct {
-	Role         string              `json:"role"`
-	Content      []any               `json:"content"`
-	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
+	Role    string `json:"role"`
+	Content []any  `json:"content"`
 }
 
 type claudeTextContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	// CacheControl marks a prompt-cache breakpoint. Per the Anthropic API,
+	// cache_control is only valid on content blocks (and tools/system), never on
+	// the message object itself.
+	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
 // BuildTooling converts tool descriptors to Claude format
@@ -351,9 +354,16 @@ func (p *ToolProvider) processMessageForTools(
 		Content: content,
 	}
 
-	// For caching: cache the first user message if tools are present and model supports caching
+	// For caching: cache the prefix through the first user message when tools are
+	// present and the model supports caching. cache_control must go on a CONTENT
+	// BLOCK (the last one) — the Anthropic API rejects cache_control on a message
+	// object ("messages.N.cache_control: Extra inputs are not permitted").
 	if p.supportsCaching() && msg.Role == roleUser && len(messages) == 0 && tools != nil {
-		claudeMsg.CacheControl = &claudeCacheControl{Type: "ephemeral"}
+		last := len(claudeMsg.Content) - 1
+		if tc, ok := claudeMsg.Content[last].(claudeTextContent); ok {
+			tc.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
+			claudeMsg.Content[last] = tc
+		}
 	}
 
 	messages = append(messages, claudeMsg)

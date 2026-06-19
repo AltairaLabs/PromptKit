@@ -447,6 +447,9 @@ type claudeCacheControl struct {
 	Type string `json:"type"` // "ephemeral"
 }
 
+// cacheTypeEphemeral is the only cache_control type the Anthropic API supports.
+const cacheTypeEphemeral = "ephemeral"
+
 type claudeResponse struct {
 	ID           string          `json:"id"`
 	Type         string          `json:"type"`
@@ -519,7 +522,7 @@ func (p *Provider) convertMessagesToClaudeFormat(messages []types.Message) []cla
 
 		// Only cache the last message with sufficient content to maximize cache hits
 		if p.supportsCaching() && i == len(messages)-1 && len(textContent) >= minCharsForCaching {
-			contentBlock.CacheControl = &claudeCacheControl{Type: "ephemeral"}
+			contentBlock.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
 		}
 
 		claudeMessages = append(claudeMessages, claudeMessage{
@@ -545,7 +548,7 @@ func (p *Provider) createSystemBlocks(systemPrompt string) []claudeContentBlock 
 	// Enable cache control for system prompt only if model supports it and prompt is long enough
 	minCharsForCaching := 1024 * 4 // ~4096 characters for system prompt
 	if p.supportsCaching() && len(systemPrompt) >= minCharsForCaching {
-		systemBlock.CacheControl = &claudeCacheControl{Type: "ephemeral"}
+		systemBlock.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
 	}
 
 	return []claudeContentBlock{systemBlock}
