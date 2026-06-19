@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/cobra"
+
 	"github.com/AltairaLabs/PromptKit/tools/arena/agentkb"
 	"github.com/AltairaLabs/PromptKit/tools/arena/templates"
 )
@@ -20,30 +22,84 @@ const (
 
 var skillRelPath = filepath.Join(".claude", "skills", "promptarena-authoring", "SKILL.md")
 
-// writeAgentBrief drops the PromptArena authoring skill and an AGENTS.md shim into
-// a freshly scaffolded project so an AI coding agent starts briefed. Relative paths
-// of files actually written are appended to result.FilesCreated.
-func writeAgentBrief(result *templates.GenerationResult) error {
+// agentBriefCmd installs the authoring brief — an AGENTS.md shim plus the full
+// promptarena-authoring skill — into an existing project so an AI coding agent
+// starts briefed. Unlike `init`, it scaffolds no sample kit; it only briefs the
+// agent. This is what equips a real coding agent with PromptArena's tooling.
+var agentBriefCmd = &cobra.Command{
+	Use:   "agent-brief [dir]",
+	Short: "Write the authoring brief (AGENTS.md + .claude/skills) into a project",
+	Long: `Install the PromptArena authoring brief into a project directory:
+
+  AGENTS.md                                        a shim pointing the agent at the skill + CLI
+  .claude/skills/promptarena-authoring/SKILL.md    the full authoring skill
+
+Unlike 'init', this scaffolds no sample kit — it only briefs the agent, so it is
+safe to run in an existing or empty project. Hand-written AGENTS.md content is
+preserved (the brief is appended once, idempotently).
+
+  promptarena agent-brief            # brief the current directory
+  promptarena agent-brief ./myproj   # brief ./myproj`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dir := "."
+		if len(args) == 1 {
+			dir = args[0]
+		}
+		written, err := writeAgentBriefTo(dir)
+		if err != nil {
+			return err
+		}
+		out := cmd.OutOrStdout()
+		for _, f := range written {
+			_, _ = fmt.Fprintf(out, "wrote %s\n", filepath.Join(dir, f))
+		}
+		_, _ = fmt.Fprintln(out, "Agent briefed. Discover idioms with `promptarena explain --list`.")
+		return nil
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(agentBriefCmd)
+}
+
+// writeAgentBriefTo drops the PromptArena authoring skill and an AGENTS.md shim
+// into projectPath so an AI coding agent starts briefed. The skill is always
+// (idempotently) rewritten; AGENTS.md is created or has the brief appended once.
+// It returns the relative paths actually written.
+func writeAgentBriefTo(projectPath string) ([]string, error) {
+	var written []string
 	skill, err := agentkb.Skill()
 	if err != nil {
-		return fmt.Errorf("assemble skill: %w", err)
+		return nil, fmt.Errorf("assemble skill: %w", err)
 	}
-	skillPath := filepath.Join(result.ProjectPath, skillRelPath)
+	skillPath := filepath.Join(projectPath, skillRelPath)
 	if err = os.MkdirAll(filepath.Dir(skillPath), skillDirPerm); err != nil {
-		return fmt.Errorf("create skill dir: %w", err)
+		return nil, fmt.Errorf("create skill dir: %w", err)
 	}
 	if err = os.WriteFile(skillPath, skill, briefFilePerm); err != nil {
-		return fmt.Errorf("write skill: %w", err)
+		return nil, fmt.Errorf("write skill: %w", err)
 	}
-	result.FilesCreated = append(result.FilesCreated, skillRelPath)
+	written = append(written, skillRelPath)
 
-	rel, err := writeAgentsFile(result.ProjectPath)
+	rel, err := writeAgentsFile(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	if rel != "" {
+		written = append(written, rel)
+	}
+	return written, nil
+}
+
+// writeAgentBrief drops the authoring brief into a freshly scaffolded project and
+// records the files on result.FilesCreated. Used by `init`.
+func writeAgentBrief(result *templates.GenerationResult) error {
+	written, err := writeAgentBriefTo(result.ProjectPath)
 	if err != nil {
 		return err
 	}
-	if rel != "" {
-		result.FilesCreated = append(result.FilesCreated, rel)
-	}
+	result.FilesCreated = append(result.FilesCreated, written...)
 	return nil
 }
 
