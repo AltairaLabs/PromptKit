@@ -1,0 +1,43 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: faq-bot
+  labels:
+    use_case: support
+    complexity: simple
+spec:
+  id: faq-bot
+  task_type: authoring-agent
+  description: "Author a complete PromptArena kit for an FAQ bot, scored against five gates."
+  trials: 3
+  turns:
+    - role: user
+      content: |
+        Author a complete PromptArena kit under /workspace/kit for an FAQ bot.
+        Requirements:
+          - a prompt config for the FAQ assistant,
+          - at least 3 scenarios testing distinct questions and their relevance
+            to the FAQ topic (e.g. on-topic, off-topic deflection, partial match),
+          - a relevance check assertion (e.g. content_matches or llm_judge) that
+            verifies the bot responds relevantly and does not hallucinate,
+          - a mock provider + mock-responses.yaml so the kit runs fully offline
+            with `promptarena run --ci` (no API keys),
+          - everything must pass `promptarena validate`.
+        Use `promptarena explain`, `promptarena schema <type>`, and
+        `promptarena examples show <name>` to get the structure right, and run
+        `promptarena validate /workspace/kit/config.arena.yaml` before you finish.
+  conversation_assertions:
+    - type: llm_judge_session
+      message: "Gate 5: kit faithfully implements the FAQ bot request"
+      params:
+        judge: default
+        criteria: |
+          Score 1.0 only if ALL hold, else 0.0:
+          - the kit implements an FAQ bot (not a generic chatbot or unrelated assistant);
+          - there are at least 3 scenarios exercising distinct FAQ behaviors
+            (e.g. on-topic answer, off-topic deflection, partial or ambiguous question);
+          - a relevance check assertion is present and wired to at least one scenario
+            (content_matches, llm_judge, or similar — not a placeholder/always-true check);
+          - the scenarios contain non-trivial assertions that actually test relevance
+            or topic coverage, not generic "response is non-empty" checks;
+          - the kit includes a mock provider so it runs fully offline.

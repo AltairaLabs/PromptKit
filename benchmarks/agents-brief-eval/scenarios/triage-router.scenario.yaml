@@ -1,0 +1,44 @@
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: Scenario
+metadata:
+  name: triage-router
+  labels:
+    use_case: workflow
+    complexity: hard
+spec:
+  id: triage-router
+  task_type: authoring-agent
+  description: "Author a complete PromptArena kit for a support-triage router, scored against five gates."
+  trials: 3
+  turns:
+    - role: user
+      content: |
+        Author a complete PromptArena kit under /workspace/kit for a support-triage
+        router. Requirements:
+          - a prompt config for the triage assistant,
+          - a workflow with at least three routing states: billing, technical, and
+            general (with transitions driven by the conversation content),
+          - at least 3 scenarios that each assert the correct routing transition
+            was taken (billing issue → billing state, technical issue → technical
+            state, general inquiry → general state),
+          - a mock provider + mock-responses.yaml so the kit runs fully offline
+            with `promptarena run --ci` (no API keys),
+          - everything must pass `promptarena validate`.
+        Use `promptarena explain`, `promptarena schema <type>`, and
+        `promptarena examples show <name>` to get the structure right, and run
+        `promptarena validate /workspace/kit/config.arena.yaml` before you finish.
+  conversation_assertions:
+    - type: llm_judge_session
+      message: "Gate 5: kit faithfully implements the triage-router request"
+      params:
+        judge: default
+        criteria: |
+          Score 1.0 only if ALL hold, else 0.0:
+          - the kit implements a support-triage router (not a generic chatbot);
+          - a workflow is present with at least three named routing states:
+            billing, technical, and general (or semantically equivalent names);
+          - there are at least 3 scenarios each asserting a distinct routing
+            transition (one per destination state), not just content assertions;
+          - the routing assertions are non-trivial (e.g. workflow_state or
+            transitioned_to checks), not placeholder/always-true checks;
+          - the kit includes a mock provider so it runs fully offline.
