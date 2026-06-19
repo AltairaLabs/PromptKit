@@ -10,6 +10,7 @@ check() { # desc, expected_rc, actual_rc
 bash "$here/unused-files.sh" "$here/testdata/good-kit"; check "good-kit has no orphans" 0 $?
 bash "$here/unused-files.sh" "$here/testdata/trap-kit"; check "trap-kit has an orphan" 1 $?
 bash "$here/unused-files.sh" /no/such/dir; check "missing dir errors" 2 $?
+bash "$here/idiom-traps.sh" /no/such/dir; check "idiom-traps missing dir errors" 2 $?
 
 out="$(bash "$here/idiom-traps.sh" "$here/testdata/trap-kit")"; rc=$?
 check "idiom-traps exits 0" 0 $rc
